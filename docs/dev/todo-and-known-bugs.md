@@ -109,7 +109,17 @@ DEFERRALS TAKEN IN PHASES 1-2, each of which a lane author must know.
   now that 5 s constant rather than one live frame step (the old test could not
   see a 1x hold at all, and misread a mid-hold warp drop as a release plus a
   second engage), and MORE THAN ONE run per `(ownerIndex, cycleIndex)` is a legal
-  shape. Two consequences a lane author has to know. (1) Pairing is on
+  shape. UPDATED AGAIN by the same pass's second review: the STATIONARITY
+  predicate is now RELATIVE - a frame counts as stalled only when
+  `|delta loopUT| < min(HoldStationaryLoopUtEpsilonSeconds, 0.5 * liveStep)` on a
+  positive live step, so the 0.25 s constant is a CEILING on the window rather
+  than the window itself. The absolute form sat ABOVE ordinary 1x clock advance
+  (~0.02 s per frame), so plain 1x playback accumulated a phantom stall past the
+  5 s floor and reported a hold nobody planned - and a real hold that released at
+  1x never emitted its release, because no 1x frame ever left the window either.
+  A hold freezes the render clock EXACTLY (the hold formula returns a constant
+  phase), so near-zero is the true signal and the relative form is warp-proof in
+  both directions. Two consequences a lane author has to know. (1) Pairing is on
   `(ownerIndex, cycleIndex, detailA)` where `detailA` is the run's 0-based
   ORDINAL - it used to repeat the cycle index. (2) The plan predicts ONE arrival
   hold per cycle, so exactly one run per cycle is compared (the longest, the only
@@ -122,6 +132,23 @@ DEFERRALS TAKEN IN PHASES 1-2, each of which a lane author must know.
 - **The InteriorGap duration bound uses the unit CADENCE.** The design's
   seam-gap-plus-reseed bound is the Phase-3 tightening; the module docstring
   says so.
+- **RC-OWN's publish->draw direction is WARN, not FAIL, pending live
+  calibration** (design deviation #5). Two ratified populations legitimately
+  publish ownership without a TracedPath dwell - proto-less pid-0 recordings
+  (no Director dwell exists at all) and the Driver-direct bridge / forward legs
+  (the concurrent dwell is `StockConic`) - and both are exempted by name and
+  counted. Whatever is left over is REPORTED at WARN and counted
+  (`ownPublishWithoutDraw`) because no live run has yet shown whether a third
+  benign population exists. The MIRROR direction, a draw with no publish, stays
+  FAIL. A lane that wants this armed should first read `ownPublishWithoutDraw`
+  off a report-only run and confirm it sits at zero.
+- **RC-COVER counts only VISIBLE dwells as coverage.** An invisible dwell whose
+  coverage is `InInteriorGap` or `OutsideWindow` is a RATIFIED hidden window and
+  still explains its span (counted as `coverRatifiedHiddenSpans`); an invisible
+  dwell whose coverage is `InSegment` is NOT coverage - a covering segment
+  existed and the leg still did not draw, which is the defect class the rule
+  exists for. A lane reading a high `coverRatifiedHiddenSpans` is reading a run
+  whose "coverage" is mostly cataloged darkness, not drawn line.
 - **The Phase-1 tail is still open:** one manual armed play session producing a
   manifest over a committed loop fixture. Every manifest exercised so far is
   either synthetic (Python fixtures) or written by the C# writer under test.

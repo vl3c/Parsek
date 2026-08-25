@@ -236,6 +236,14 @@ TREATMENTS: Tuple[str, ...] = ("None", "StockConic", "TracedPath")
 # MapRender/RenderSegment.cs:53-62 `enum Coverage { InSegment, InInteriorGap, OutsideWindow }`.
 COVERAGES: Tuple[str, ...] = ("InSegment", "InInteriorGap", "OutsideWindow")
 
+# The two coverages that RATIFY an invisible dwell for RC-COVER. Both are a
+# POSITIVE statement about why the span is dark: `OutsideWindow` says the
+# recording's render window does not reach this instant at all, and
+# `InInteriorGap` is the Director's held / no-covering-segment interior gap. The
+# third value, `InSegment`, is deliberately NOT here: a covering segment exists
+# and the leg still did not draw, which is exactly the defect RC-COVER hunts.
+RATIFIED_HIDDEN_COVERAGES: Tuple[str, ...] = ("InInteriorGap", "OutsideWindow")
+
 # LINE_BRANCH.coverage is a DIFFERENT enum: MapRenderTrace's 3-state
 # `RenderWindowCoverage` (Unknown / Inside / Outside), PascalCase .ToString().
 # Confirmed against the shipped writer's sample fixture, which carries both
@@ -1827,6 +1835,11 @@ UNEVAL_HOLD_RELEASE_ABSENT = "hold-release-absent-below-resolution"
 # the rule does not attribute are COUNTED here rather than compared against a
 # prediction that was never about them.
 UNEVAL_HOLD_RUN_UNATTRIBUTED = "hold-run-not-attributable-to-planned-hold"
+# A hold RUN observed on a unit whose plan carries no hold at all (no
+# arrivalHoldSeconds, no launch hold). There is no prediction to compare it
+# against, so it cannot be judged - but it also must not vanish: the clock DID
+# stand still. WARN + counted, so "no finding" keeps meaning "nothing happened".
+UNEVAL_HOLD_OBSERVED_WITHOUT_PLAN = "hold-observed-without-plan"
 UNEVAL_CUT_PERIOD_ABSENT = "cut-run-period-absent"
 UNEVAL_CUT_CONTAINMENT = "cut-dwell-containment-needs-recorded-clock"
 UNEVAL_DESCENT_PRIMITIVES_ABSENT = "descent-primitives-absent"
@@ -1857,6 +1870,7 @@ UNEVALUABLE_REASONS: Tuple[str, ...] = (
     UNEVAL_NO_DWELLS_FOR_UNIT, UNEVAL_REAIM_INSTANT_ABSENT, UNEVAL_SEAM_SKIPPED,
     UNEVAL_HOLD_EVIDENCE_ABSENT, UNEVAL_HOLD_PRIMITIVES_ABSENT,
     UNEVAL_HOLD_RELEASE_ABSENT, UNEVAL_HOLD_RUN_UNATTRIBUTED,
+    UNEVAL_HOLD_OBSERVED_WITHOUT_PLAN,
     UNEVAL_CUT_PERIOD_ABSENT, UNEVAL_CUT_CONTAINMENT,
     UNEVAL_DESCENT_PRIMITIVES_ABSENT, UNEVAL_DESCENT_HEAD_ABSENT,
     UNEVAL_POSITIONS_ABSENT, UNEVAL_PRIMITIVE_BODY_UNKNOWN,
@@ -1872,6 +1886,13 @@ UNEVALUABLE_REASONS: Tuple[str, ...] = (
 # added one reserved row for the fail-closed clock-event dedupe.
 TRUNCATED_GLOBAL_SUFFIX = ":global"
 TRUNCATED_ALL_SECTION = "ALL" + TRUNCATED_GLOBAL_SUFFIX
+# The RESERVED row the writer folds every further DISTINCT truncation key into
+# once the marker list itself hits `MaxTruncationRecords`
+# (`RenderCompositionManifest.TruncationOverflowSection` / `...OverflowKind`).
+# The drop is still counted but no longer names its section, so like ALL:global
+# it stands every section down.
+TRUNCATED_OVERFLOW_SECTION = "TRUNCATED" + TRUNCATED_GLOBAL_SUFFIX
+TRUNCATED_OVERFLOW_KIND = "distinct-key-overflow"
 TRUNCATED_CLOCK_EVENT_DEDUPE = "CLOCK_EVENT:dedupe-exhausted"
 
 
@@ -1955,7 +1976,7 @@ class _Ctx:
         RC-UNKNOWN over the TRUNCATED records themselves, so a section two rules
         both decline to evaluate is not counted twice.
 
-        FOUR spellings answer yes for a section S, all of them from the review
+        FIVE spellings answer yes for a section S, all of them from the review
         pass's single admission helper (per-pid cap, then family cap, then the
         whole-export ceiling):
 
@@ -1963,6 +1984,13 @@ class _Ctx:
         - ``S:global``               - a FAMILY cap drop, pid 0;
         - ``ALL:global``             - the whole-export ceiling, which truncates
           every section from some point onward, so no section is complete;
+        - ``TRUNCATED:global``       - the marker list itself overflowed
+          ``MaxTruncationRecords``, so past that point a drop is still counted but
+          STOPS NAMING ITS SECTION. The dropped records could have belonged to any
+          section, so this row stands EVERY section down, exactly like
+          ``ALL:global`` - reading it as "only the TRUNCATED section is
+          incomplete" would let a real drop pass unnoticed under a rule that
+          checked its own section and found nothing;
         - ``CLOCK_EVENT:dedupe-exhausted`` (for S == ``CLOCK_EVENT`` only) - the
           fail-closed dedupe table filled and the CLOCK_EVENT stream stopped
           accepting events. Reading that row as a clean pass is exactly the trap
@@ -1973,6 +2001,8 @@ class _Ctx:
         if section + TRUNCATED_GLOBAL_SUFFIX in self.truncated_sections:
             return True
         if TRUNCATED_ALL_SECTION in self.truncated_sections:
+            return True
+        if TRUNCATED_OVERFLOW_SECTION in self.truncated_sections:
             return True
         if section == "CLOCK_EVENT" and \
                 TRUNCATED_CLOCK_EVENT_DEDUPE in self.truncated_sections:
@@ -2224,6 +2254,7 @@ def _rule_cover(ctx: _Ctx) -> None:
     unexplained = 0
     below_resolution = 0
     resolution_absent = 0
+    ratified_hidden = 0
     # A truncated RATIFIED_SKIP section means an unknown number of skip hulls
     # never reached the manifest, so a window one of them would have covered is
     # indistinguishable from a genuine gap. Neither pass nor red: counted.
@@ -2269,7 +2300,35 @@ def _rule_cover(ctx: _Ctx) -> None:
             # more it hides. A window inside a hull is counted as unevaluable
             # below instead, so the skip explains the window without ever
             # asserting coverage the record cannot support.
-            covered = [(d.open_ut, d.close_ut) for d in in_cycle]
+            #
+            # ONLY A VISIBLE DWELL IS COVERAGE. The design states RC-COVER as the
+            # union of VISIBLE dwells plus the cataloged holds / cuts / tail /
+            # ratified hidden windows. An invisible dwell is a render INTENT that
+            # produced no line: the span it occupies is dark on screen. Feeding it
+            # into `covered` would make the exact defect class this rule exists to
+            # catch - a leg that is planned, dwelt on, and never drawn - self-
+            # explaining, because the leg's own dwell would paper over its own
+            # darkness. So:
+            #   * visible dwell                 -> coverage;
+            #   * invisible + OutsideWindow      \  the two RATIFIED hidden-window
+            #   * invisible + InInteriorGap      /  shapes: cataloged, counted
+            #                                       unevaluable, not coverage;
+            #   * invisible + InSegment         -> NOT coverage and NOT cataloged;
+            #                                      its span stays dark and falls
+            #                                      through to the gap walk below.
+            # `visible is not False` rather than `visible` deliberately, matching
+            # RC-OWN: the writer always emits the key, so only an explicit False
+            # is a statement of invisibility. An ABSENT key would otherwise flip
+            # every dwell in the manifest to "dark" and red the whole run on a
+            # parse gap, which is a verifier defect wearing a product defect's
+            # clothes.
+            covered = [(d.open_ut, d.close_ut) for d in in_cycle
+                       if d.visible is not False]
+            hidden_windows = [(d.open_ut, d.close_ut) for d in in_cycle
+                              if d.visible is False
+                              and d.coverage in RATIFIED_HIDDEN_COVERAGES]
+            ratified_hidden += len(hidden_windows)
+            covered.extend(hidden_windows)
             for gap_lo, gap_hi in _complement((lo, hi), covered):
                 width = gap_hi - gap_lo
                 resolution = _cover_resolution(ctx, unit, in_cycle,
@@ -2304,6 +2363,10 @@ def _rule_cover(ctx: _Ctx) -> None:
     ctx.metrics["coverUnexplainedGaps"] = unexplained
     ctx.metrics["coverBelowResolutionGaps"] = below_resolution
     ctx.metrics["coverResolutionAbsentGaps"] = resolution_absent
+    # How much of `covered` came from RATIFIED hidden windows rather than from a
+    # line that actually drew. A run where this dominates is a reading run, not a
+    # clean one, and the number is what says so.
+    ctx.metrics["coverRatifiedHiddenSpans"] = ratified_hidden
 
 
 # --- RC-SEAM ----------------------------------------------------------------
@@ -2501,10 +2564,18 @@ def _rule_hold(ctx: _Ctx) -> None:
     snap = ctx.snap
     hold_durations: List[float] = []
     observed_holds: List[float] = []
+    unplanned_events = 0
     for unit in snap.units:
         w0 = unit.arrival_hold_seconds
         t_align = unit.arrival_align_period_seconds
         if not _finite(w0) or w0 <= 0.0:
+            # No PLANNED hold on this unit. Wave-1 simply skipped it, which left
+            # hold pairs observed on such a unit claimed by no rule at all - the
+            # one shape the defined-unevaluable doctrine refuses, because "no
+            # finding" then means both "nothing happened" and "something happened
+            # and nobody looked". The clock DID stall on a unit whose plan has no
+            # hold to explain it: report it, and count it.
+            unplanned_events += _hold_observed_without_plan(ctx, unit)
             continue
         hold_durations.append(w0)
         if not _finite(t_align) or t_align <= 0.0:
@@ -2579,6 +2650,39 @@ def _rule_hold(ctx: _Ctx) -> None:
     ctx.metrics["maxInteriorGapSeconds"] = interior_max
     ctx.metrics["planHoldSeconds"] = hold_durations
     ctx.metrics["observedHoldSeconds"] = observed_holds
+    ctx.metrics["holdEventsWithoutPlan"] = unplanned_events
+
+
+def _hold_observed_without_plan(ctx: _Ctx, unit: PlanUnit) -> int:
+    """Hold runs observed on a unit whose plan carries NO hold.
+
+    Returns the number of hold EVENTS reported (engages plus releases).
+
+    A unit with ``arrivalHoldSeconds <= 0`` and no launch hold has no planned
+    reason for its render clock to stand still, so a detected run is either a
+    product defect (something froze the clock that should not have) or a detector
+    artifact. The verifier cannot tell those apart from the manifest alone -
+    there is no prediction to compare against - so this is a WARN plus a counted
+    unevaluable, never a FAIL and never a silent skip.
+
+    A LAUNCH hold is a planned stall the plan does not express as a number, so a
+    unit carrying ``launchHoldEngaged`` is excluded: its runs are explained."""
+    if unit.launch_hold_engaged:
+        return 0
+    runs = [e for e in ctx.snap.clock_events
+            if e.kind in (CLOCK_HOLD_ENGAGE, CLOCK_HOLD_RELEASE)
+            and e.owner_index == unit.owner_index]
+    if not runs:
+        return 0
+    engages = sum(1 for e in runs if e.kind == CLOCK_HOLD_ENGAGE)
+    ctx.add(RULE_HOLD, LEVEL_WARN, _unit_label(unit),
+            "observed clock stall on a unit with no planned hold "
+            "(arrivalHoldSeconds=%r, launchHoldEngaged=%r): %d hold-engage / "
+            "%d hold-release event(s) the plan cannot account for"
+            % (unit.arrival_hold_seconds, unit.launch_hold_engaged,
+               engages, len(runs) - engages))
+    ctx.uneval(UNEVAL_HOLD_OBSERVED_WITHOUT_PLAN)
+    return len(runs)
 
 
 def _hold_leg_2(ctx: _Ctx, unit: PlanUnit, w0: float, t_align: float,
@@ -2883,13 +2987,26 @@ def _rule_descent(ctx: _Ctx) -> None:
                    and d.visible is not False
                    and _finite(d.open_ut) and _finite(d.close_ut)]
         members.sort(key=lambda d: d.open_ut)
-        for a, b in zip(members, members[1:]):
-            if b.open_ut < a.close_ut and b.committed_index != a.committed_index:
+        # RUNNING FURTHEST-CLOSE per member, not a consecutive-pair compare.
+        # Sorted by open UT, the overlapping pair need not be adjacent: one long
+        # dwell, then a short dwell of the SAME member nested inside it, then a
+        # dwell of a DIFFERENT member that overlaps the long one - a pairwise walk
+        # only ever compares the short one and passes the real concurrency.
+        furthest_by_member: Dict[Any, Dwell] = {}
+        for d in members:
+            for idx in sorted(furthest_by_member, key=str):
+                prev = furthest_by_member[idx]
+                if idx == d.committed_index or d.open_ut >= prev.close_ut:
+                    continue
                 ctx.add(RULE_DESCENT, LEVEL_FAIL, _unit_label(unit),
                         "two descent members render concurrently: member %s "
                         "[%r, %r] overlaps member %s [%r, %r]"
-                        % (a.committed_index, a.open_ut, a.close_ut,
-                           b.committed_index, b.open_ut, b.close_ut))
+                        % (prev.committed_index, prev.open_ut, prev.close_ut,
+                           d.committed_index, d.open_ut, d.close_ut))
+                break
+            cur = furthest_by_member.get(d.committed_index)
+            if cur is None or d.close_ut > cur.close_ut:
+                furthest_by_member[d.committed_index] = d
 
 
 def _descent_head_clauses(ctx: _Ctx,
@@ -2991,8 +3108,16 @@ def _rule_cycle(ctx: _Ctx) -> None:
         roles: Dict[int, Tuple[Tuple[Any, str], ...]] = {}
         buckets: Dict[int, str] = {}
         for cycle_index, lo, hi in windows:
+            # MIDPOINT membership, not open_ut. A dwell that opens within one
+            # frame of a rollover lands in either cycle depending on which side
+            # of the boundary its first sample happened to fall, and that jitter
+            # changes the ROLE STRUCTURE the isomorphism clause compares - so two
+            # identical cycles could red purely on sampling phase. A dwell's
+            # midpoint is where it actually spent its time and moves only when
+            # the dwell really straddles the boundary.
             inside = [d for d in dwells
-                      if _finite(d.open_ut) and lo <= d.open_ut < hi]
+                      if _finite(d.open_ut) and _finite(d.close_ut)
+                      and lo <= 0.5 * (d.open_ut + d.close_ut) < hi]
             roles[cycle_index] = tuple(sorted(
                 (d.committed_index, d.phase_kind) for d in inside))
             buckets[cycle_index] = _dominant_warp_bucket(inside)
@@ -3189,20 +3314,43 @@ def _rule_own(ctx: _Ctx) -> None:
         by_pid.setdefault(d.pid, []).append(d)
     for pid, items in sorted(by_pid.items(), key=lambda kv: str(kv[0])):
         items.sort(key=lambda d: d.open_ut)
-        for a, b in zip(items, items[1:]):
-            if b.open_ut < a.close_ut:
+        # RUNNING MAX-CLOSE sweep, not a consecutive-pair compare. Sorted by open
+        # UT, an overlap need not be between ADJACENT entries: one long dwell
+        # followed by a short one that fits inside it hides every later overlap
+        # with the long one from a pairwise walk. Carrying the furthest close seen
+        # so far catches the non-adjacent case at the same cost.
+        widest = None
+        for d in items:
+            if widest is not None and d.open_ut < widest.close_ut:
                 ctx.add(RULE_OWN, LEVEL_FAIL, "pid=%s" % pid,
                         "two dwells overlap in UT ([%r, %r] treatment=%s and "
                         "[%r, %r] treatment=%s); exactly one treatment is active "
                         "per ghost per frame"
-                        % (a.open_ut, a.close_ut, a.treatment or "?",
-                           b.open_ut, b.close_ut, b.treatment or "?"))
+                        % (widest.open_ut, widest.close_ut, widest.treatment or "?",
+                           d.open_ut, d.close_ut, d.treatment or "?"))
+            if widest is None or d.close_ut > widest.close_ut:
+                widest = d
 
-    # Ownership conservation, both directions. pid-0 recordings (an ownership
-    # publish with no Director dwell) are their own RATIFIED class - the
-    # polyline Driver walk is the only renderer for proto-less pid-0 recordings -
-    # and are excluded rather than counted as violations.
-    pid0_recs = {d.rec_id for d in snap.dwells if d.pid == 0 and d.rec_id}
+    # Ownership conservation, both directions.
+    #
+    # The publish->draw direction carries three ratified exemptions and one cap.
+    # (a) A recId with NO dwell anywhere in the manifest is the PROTO-LESS pid-0
+    #     population: the polyline Driver walk is its only renderer and the
+    #     Director never opens a dwell for it, so there is no dwell to intersect.
+    #     (Wave-1 keyed this exemption on pid-0 DWELLS, which by construction
+    #     never exist - it exempted nothing and the population red'd.)
+    # (b) A published span whose CONCURRENT dwell for that recId is StockConic is
+    #     the Driver-direct bridge / forward-leg population: the polyline draw
+    #     host is ratified, the draw is real, it simply is not a TracedPath dwell.
+    # (c) Whatever publish still has no draw is capped at WARN pending live
+    #     calibration - see the design doc's ratified deviation #5. The MIRROR
+    #     direction (a draw with no publish) stays FAIL: `drewNonOrbitalLegRecordings`
+    #     is the SOLE ownership source and is published on an ACTUAL draw, so a
+    #     draw that never published is a real ownership defect, not a blind spot.
+    dwelt_recs = {d.rec_id for d in snap.dwells + snap.open_dwells if d.rec_id}
+    publish_no_draw = 0
+    publish_exempt_protoless = 0
+    publish_exempt_stockconic = 0
     owned_intervals: Dict[str, List[Tuple[float, float]]] = {}
     for ch in snap.ownership_changes:
         ctx.unknown_token(
@@ -3223,12 +3371,17 @@ def _rule_own(ctx: _Ctx) -> None:
         if open_at is not None and _finite(snap.export_ut):
             spans.append((open_at, snap.export_ut))
         owned_intervals[rec_id] = spans
-        if rec_id in pid0_recs:
+        if rec_id not in dwelt_recs:
+            # Exemption (a): proto-less pid-0 - no dwell exists to intersect.
+            publish_exempt_protoless += len(spans)
             continue
         traced = [(d.open_ut, d.close_ut) for d in snap.dwells
                   if d.rec_id == rec_id and d.treatment == "TracedPath"
                   and d.visible is not False
                   and _finite(d.open_ut) and _finite(d.close_ut)]
+        stock_conic = [(d.open_ut, d.close_ut) for d in snap.dwells + snap.open_dwells
+                       if d.rec_id == rec_id and d.treatment == "StockConic"
+                       and _finite(d.open_ut) and _finite(d.close_ut)]
         # CLOSED-interval overlap (>= / <=) in BOTH directions. A one-frame
         # ownership publish and a one-frame dwell are both zero-width intervals,
         # and a strict test says a zero-width span intersects nothing - so the
@@ -3236,11 +3389,18 @@ def _rule_own(ctx: _Ctx) -> None:
         # see, would red as "published with no draw" and as "drawn outside every
         # published interval" simultaneously. Touching endpoints participate.
         for lo, hi in spans:
-            if not any(t_hi >= lo and t_lo <= hi for t_lo, t_hi in traced):
-                ctx.add(RULE_OWN, LEVEL_FAIL, "recId=%s" % rec_id,
-                        "ownership published over [%r, %r] with no intersecting "
-                        "TracedPath dwell; a published ownership implies a draw"
-                        % (lo, hi))
+            if any(t_hi >= lo and t_lo <= hi for t_lo, t_hi in traced):
+                continue
+            if any(s_hi >= lo and s_lo <= hi for s_lo, s_hi in stock_conic):
+                # Exemption (b): the Driver-direct StockConic draw host.
+                publish_exempt_stockconic += 1
+                continue
+            publish_no_draw += 1
+            ctx.add(RULE_OWN, LEVEL_WARN, "recId=%s" % rec_id,
+                    "ownership published over [%r, %r] with no intersecting "
+                    "TracedPath dwell and no concurrent StockConic dwell; a "
+                    "published ownership implies a draw (capped at WARN pending "
+                    "live calibration - design deviation #5)" % (lo, hi))
     for d in snap.dwells:
         if d.treatment != "TracedPath" or d.visible is False:
             continue
@@ -3268,6 +3428,9 @@ def _rule_own(ctx: _Ctx) -> None:
                     "visible dwell with markerDecision=False and no icon "
                     "suppression - a blank icon (decision-only record, capped at "
                     "WARN per the design's marker blind spot)")
+    ctx.metrics["ownPublishWithoutDraw"] = publish_no_draw
+    ctx.metrics["ownPublishExemptProtoless"] = publish_exempt_protoless
+    ctx.metrics["ownPublishExemptStockConic"] = publish_exempt_stockconic
 
 
 # --- RC-WARP ----------------------------------------------------------------

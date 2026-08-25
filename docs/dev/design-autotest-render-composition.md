@@ -555,6 +555,27 @@ what is armed) lives in `autotest-status.md`, not here.
    off the position keys are omitted entirely and every position clause is
    defined-unevaluable.
 
+5. **RC-OWN's publish->draw direction is capped at LEVEL_WARN pending live
+   calibration; the draw->publish direction stays FAIL.** The rule set above
+   states ownership conservation without naming a level per direction. The two
+   directions turned out to rest on very different evidence.
+   `drewNonOrbitalLegRecordings` is the SOLE ownership source and is published
+   only on an ACTUAL draw, so a TracedPath dwell that drew with no publish
+   covering it is a genuine conservation defect and keeps FAIL. The mirror
+   question - "this recording published ownership, where is its draw?" - has two
+   RATIFIED populations that legitimately publish without a TracedPath dwell:
+   (a) proto-less pid-0 recordings, for which the polyline Driver walk is the
+   only renderer and the Director never opens a dwell at all, and (b) the
+   Driver-direct bridge / forward-leg population, whose concurrent dwell carries
+   the `StockConic` treatment. Both are exempted by name and counted
+   (`ownPublishExemptProtoless` / `ownPublishExemptStockConic`). What remains is
+   REPORTED at WARN and counted (`ownPublishWithoutDraw`) rather than red,
+   because no live composition run has yet calibrated whether a third benign
+   population exists. Re-point this to FAIL once a reading run shows the counter
+   sitting at zero across the lanes. (Wave-1 shipped this exemption keyed on
+   pid-0 DWELLS, which by construction never exist - it was dead code, and the
+   proto-less population would have red'd.)
+
 Two further facts a reader of this design needs about what shipped:
 
 - **The manifest is `schemaVersion = 1` and stayed there.** The v1.1 pass added

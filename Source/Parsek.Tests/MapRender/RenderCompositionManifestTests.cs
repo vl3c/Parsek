@@ -85,6 +85,43 @@ namespace Parsek.Tests.MapRender
         }
 
         [Fact]
+        public void Build_SnapshotsStillOpenDwells_WithoutClosingThem()
+        {
+            // The EXPORT path no longer closes open dwells - it snapshots them. A build that mutated
+            // first would destroy accumulation state before the write could fail, and the eventual
+            // real close would land on a dwell the failed export had already retired.
+            var m = new RenderCompositionManifest();
+            m.ObserveDwellFrame(Sample(7u, "TracedPath", "InSegment", "Kerbin", 0, 100.0, 100.0));
+            m.ObserveDwellFrame(Sample(7u, "TracedPath", "InSegment", "Kerbin", 0, 101.0, 101.0));
+
+            ConfigNode obs = m.BuildFileNode(Header(120.0))
+                .GetNode(RenderCompositionManifest.RootNodeName).GetNode("OBSERVED");
+            ConfigNode snapshot = Assert.Single(obs.GetNodes("DWELL"));
+            Assert.Equal("True", snapshot.GetValue("openAtExport"));
+            Assert.Equal("100", snapshot.GetValue("openUT"));
+            Assert.Equal("120", snapshot.GetValue("closeUT"));   // advanced to the export instant
+            Assert.Equal("2", snapshot.GetValue("frames"));
+
+            // NOTHING moved: the dwell is still open and still accumulating.
+            Assert.Equal(0, m.ClosedDwellCount);
+            Assert.Equal(1, m.OpenDwellCount);
+
+            m.ObserveDwellFrame(Sample(7u, "TracedPath", "InSegment", "Kerbin", 0, 130.0, 130.0));
+            m.CloseOpenDwell(7u, 140.0);
+            Assert.Equal(1, m.ClosedDwellCount);
+            Assert.Equal(0, m.OpenDwellCount);
+
+            // The REAL close wins on the second build - one record, no openAtExport, three frames.
+            ConfigNode closed = Assert.Single(
+                m.BuildFileNode(Header(200.0))
+                    .GetNode(RenderCompositionManifest.RootNodeName).GetNode("OBSERVED")
+                    .GetNodes("DWELL"));
+            Assert.False(closed.HasValue("openAtExport"));
+            Assert.Equal("140", closed.GetValue("closeUT"));
+            Assert.Equal("3", closed.GetValue("frames"));
+        }
+
+        [Fact]
         public void Dwell_AnomalyEchoes_AggregateByReasonInsideTheOpenDwell()
         {
             var m = new RenderCompositionManifest();

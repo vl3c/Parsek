@@ -215,7 +215,9 @@ namespace Parsek.Tests.MapRender
         public void HoldThresholds_AreNamedConstantsNotBuriedLiterals()
         {
             // The two numbers the detector is defined by. Pinned so a silent re-tune is a red rather
-            // than a quietly different definition of "the render clock stood still".
+            // than a quietly different definition of "the render clock stood still". NOTE the
+            // epsilon is a CEILING on the relative window min(epsilon, 0.5 * liveStep), not the
+            // window itself - see the two 1x cells below for why the relative form is load-bearing.
             Assert.Equal(0.25, RenderCompositionRecorder.HoldStationaryLoopUtEpsilonSeconds);
             Assert.Equal(5.0, RenderCompositionRecorder.HoldMinStallSeconds);
         }
@@ -359,6 +361,60 @@ namespace Parsek.Tests.MapRender
             Assert.Empty(System.Array.FindAll(RecorderClockEvents(),
                 n => n.GetValue("kind") == RenderCompositionManifest.ClockHoldEngage
                     || n.GetValue("kind") == RenderCompositionManifest.ClockHoldRelease));
+        }
+
+        [Fact]
+        public void HoldDetector_EmitsNothingForOrdinaryOneXPlaybackNoMatterHowLongItRuns()
+        {
+            // THE REGRESSION THIS CELL EXISTS FOR. Ordinary 1x playback advances the render clock by
+            // about one live step per frame - roughly 0.02 s. Under an ABSOLUTE 0.25 s stationarity
+            // window every one of those frames counted as stalled, so plain playback accumulated a
+            // phantom stall, crossed the 5 s floor and reported a hold nobody planned (and, worse,
+            // could never report its release, because no 1x frame ever left the window either).
+            //
+            // 1500 frames of 0.02 s live = 30 s, six times the stall floor.
+            double ut = 0.0, loop = 4000.0;
+            RenderCompositionRecorder.ObserveHoldFrameForTesting(4, ut, loop, 1);
+            for (int i = 0; i < 1500; i++)
+            {
+                ut += 0.02;
+                loop += 0.02;
+                RenderCompositionRecorder.ObserveHoldFrameForTesting(4, ut, loop, 1);
+            }
+
+            Assert.Empty(System.Array.FindAll(RecorderClockEvents(),
+                n => n.GetValue("kind") == RenderCompositionManifest.ClockHoldEngage
+                    || n.GetValue("kind") == RenderCompositionManifest.ClockHoldRelease));
+        }
+
+        [Fact]
+        public void HoldDetector_EngagesAndReleasesAtOneXWhenTheClockIsGenuinelyFrozen()
+        {
+            // The other half of the same predicate: at the SAME 1x live step, a clock that is frozen
+            // EXACTLY (what apply_hold_to_phase returns - a constant phase) must still engage, and the
+            // frame on which it resumes by one ordinary 1x step must RELEASE. The relative window is
+            // what separates these two shapes; an absolute one confuses them in both directions.
+            double ut = 0.0;
+            RenderCompositionRecorder.ObserveHoldFrameForTesting(4, ut, 4000.0, 5);
+            for (int i = 0; i < 400; i++)                  // 400 x 0.02 = 8 s stalled, over the floor
+            {
+                ut += 0.02;
+                RenderCompositionRecorder.ObserveHoldFrameForTesting(4, ut, 4000.0, 5);
+            }
+            ut += 0.02;
+            RenderCompositionRecorder.ObserveHoldFrameForTesting(4, ut, 4000.02, 5);   // resumes at 1x
+
+            ConfigNode[] events = RecorderClockEvents();
+            ConfigNode engage = SingleOfKind(events, RenderCompositionManifest.ClockHoldEngage);
+            ConfigNode release = SingleOfKind(events, RenderCompositionManifest.ClockHoldRelease);
+
+            Assert.Equal("5", engage.GetValue("cycleIndex"));
+            Assert.Equal("0", engage.GetValue("detailA"));
+            Assert.Equal("4000", engage.GetValue("detailB"));
+            Assert.Equal("0", release.GetValue("detailA"));
+            Assert.Equal(8.0,
+                double.Parse(release.GetValue("detailC"), NumberStyles.Float, CultureInfo.InvariantCulture),
+                6);
         }
 
         [Fact]

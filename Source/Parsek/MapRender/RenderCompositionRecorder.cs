@@ -136,10 +136,19 @@ namespace Parsek.MapRender
         // release. Accumulation sees the same run either way, because the run's identity is the frozen
         // render clock, not the size of the live step.
         //
-        // The loopUT epsilon is far above any float wobble but far below one frame of ordinary clock
-        // advance at 1x. The stall floor is what separates a real hold from an ordinary hitch; a hold
-        // shorter than it produces NO pair and is below-resolution to the verifier, never a mismatch
-        // (the RC-COVER resolution model).
+        // The stationarity test is RELATIVE, not a fixed absolute window. A hold freezes the render
+        // clock EXACTLY (the hold formula returns a constant phase), so near-zero is the true signal;
+        // ordinary advance is one live step of clock per live step of time. The epsilon below is only
+        // a CEILING on the window - the window actually applied is
+        // min(epsilon, 0.5 * liveStep), so an ordinary 1x frame (live step ~0.02 s, loop step ~0.02 s)
+        // can never fall inside it, and a high-warp frame is judged against its own step rather than
+        // against a constant. A fixed 0.25 s window would have been ABOVE ordinary 1x clock advance,
+        // so plain 1x playback accumulated a phantom stall and a real hold that released at 1x never
+        // emitted its release.
+        //
+        // The stall floor is what separates a real hold from an ordinary hitch; a hold shorter than it
+        // produces NO pair and is below-resolution to the verifier, never a mismatch (the RC-COVER
+        // resolution model).
         internal const double HoldStationaryLoopUtEpsilonSeconds = 0.25;
         internal const double HoldMinStallSeconds = 5.0;
 
@@ -479,8 +488,10 @@ namespace Parsek.MapRender
         /// formula - a leg that recomputed the formula the product ran would prove nothing.
         ///
         /// <para><b>Progress accumulation, not frame-step stationarity.</b> Each frame whose render
-        /// clock did not move adds its LIVE step to a stall accumulator; a frame on which the clock
-        /// advances resets it. The run ENGAGES the moment the accumulator crosses
+        /// clock did not move (RELATIVE test: <c>|delta loopUT| &lt; min(epsilon, 0.5 * liveStep)</c>,
+        /// so ordinary 1x advance never qualifies and a genuine freeze always does) adds its LIVE step
+        /// to a stall accumulator; a frame on which the clock advances resets it. The run ENGAGES the
+        /// moment the accumulator crosses
         /// <see cref="HoldMinStallSeconds"/> and is emitted RETROACTIVELY, stamped at the stall's start
         /// (the last moving frame's UT, loopUT and cycle) rather than at the crossing. That is what
         /// makes the detector warp-independent: at 1x the stall is many small steps that add up, and a
@@ -505,8 +516,25 @@ namespace Parsek.MapRender
             if (st.HavePrevious)
             {
                 double liveStep = ut - st.PreviousUT;
-                bool clockStationary =
-                    System.Math.Abs(loopUT - st.PreviousLoopUT) < HoldStationaryLoopUtEpsilonSeconds;
+
+                // A frame that carried no live time carries no evidence either way: it can neither
+                // extend a stall (nothing accumulated) nor prove the clock resumed. Leave the run
+                // state untouched and just re-stamp the previous sample.
+                if (!(liveStep > 0.0))
+                {
+                    st.HavePrevious = true;
+                    st.PreviousLoopUT = loopUT;
+                    st.PreviousUT = ut;
+                    st.PreviousCycleIndex = cycleIndex;
+                    return;
+                }
+
+                // RELATIVE stationarity - see the const block above. The window is the epsilon
+                // CEILING clamped to half this frame's live step, so ordinary advance (one second of
+                // clock per second of live time) is never inside it at ANY warp, while a genuine
+                // freeze (delta exactly 0) always is.
+                double window = System.Math.Min(HoldStationaryLoopUtEpsilonSeconds, 0.5 * liveStep);
+                bool clockStationary = System.Math.Abs(loopUT - st.PreviousLoopUT) < window;
 
                 if (clockStationary)
                 {
@@ -518,8 +546,7 @@ namespace Parsek.MapRender
                         st.StallStartLoopUT = st.PreviousLoopUT;
                         st.StallCycleIndex = st.PreviousCycleIndex;
                     }
-                    if (liveStep > 0.0)
-                        st.StallSeconds += liveStep;
+                    st.StallSeconds += liveStep;
 
                     if (!st.HoldEngaged && st.StallSeconds >= HoldMinStallSeconds)
                     {
@@ -1368,8 +1395,11 @@ namespace Parsek.MapRender
                 return false;
             }
 
+            // NOTE: export does NOT close the open dwells. The builder snapshots them as
+            // `openAtExport=True` records at the export instant without touching accumulation state,
+            // so a build or write that fails changes nothing and a later REAL close still lands on a
+            // live dwell instead of on one the failed export already retired.
             double exportUT = CurrentUT();
-            manifest.CloseAllOpenDwells(exportUT);
 
             var header = new RenderCompositionManifest.ManifestHeader(
                 exportUT,
@@ -1407,7 +1437,8 @@ namespace Parsek.MapRender
 
             path = target;
             wroteAnyManifestThisProcess = true;
-            dwells = manifest.ClosedDwellCount;
+            // Dwell RECORDS written, which after the non-destructive export is closed + still-open.
+            dwells = manifest.ClosedDwellCount + manifest.OpenDwellCount;
             transitions = manifest.TransitionCount;
             planUnits = manifest.PlanUnitCount;
             clockEvents = manifest.ClockEventCount;
@@ -1461,10 +1492,15 @@ namespace Parsek.MapRender
                     manifest.ClosedDwellCount, manifest.OpenDwellCount, manifest.TransitionCount,
                     wroteAnyManifestThisProcess))
             {
-                ParsekLog.Verbose(Tag, "auto-flush skipped reason=" + AutoFlushSkipReason
-                    + " trigger=" + (reason ?? "?")
-                    + ": a manifest was already written this process and nothing has been observed "
-                    + "since, so writing would clobber it with an empty one");
+                // The skip is correct (see ShouldSkipAutoFlush), but it DOES drop whatever plan and
+                // clock records this follow-on scene accumulated. Name the counts so the evidence
+                // loss is visible in the log instead of being silent.
+                ParsekLog.Verbose(Tag, string.Format(CultureInfo.InvariantCulture,
+                    "auto-flush skipped reason={0} trigger={1} droppedPlanUnits={2} "
+                    + "droppedClockEvents={3}: a manifest was already written this process and "
+                    + "nothing has been observed since, so writing would clobber it with an empty one",
+                    AutoFlushSkipReason, reason ?? "?",
+                    manifest.PlanUnitCount, manifest.ClockEventCount));
                 return;
             }
             TryExportNow(reason, out string _, out int _, out int _, out int _, out int _, out string _);

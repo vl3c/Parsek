@@ -335,7 +335,12 @@ namespace Parsek.MapRender
             CloseDwell(pid, open, closeUT);
         }
 
-        /// <summary>Closes EVERY open dwell (export / reset boundary), marking each as open-at-export.</summary>
+        /// <summary>Closes EVERY open dwell, marking each as open-at-export.
+        /// <para>NOT on the export path any more: <c>BuildFileNode</c> snapshots open dwells
+        /// non-destructively (a build or write that fails must not have already retired them).
+        /// This stays the explicit "retire everything now" helper for a caller that really does
+        /// want the accumulation closed - the fixture builders use it so their expected output is
+        /// authored rather than inferred.</para></summary>
         internal void CloseAllOpenDwells(double closeUT)
         {
             if (openDwellOrder.Count == 0)
@@ -1018,7 +1023,7 @@ namespace Parsek.MapRender
 
             WritePlan(root);
             WriteChain(root);
-            WriteObserved(root);
+            WriteObserved(root, header.ExportUT);
             return file;
         }
 
@@ -1153,12 +1158,27 @@ namespace Parsek.MapRender
             }
         }
 
-        private void WriteObserved(ConfigNode root)
+        private void WriteObserved(ConfigNode root, double exportUT)
         {
             ConfigNode obs = root.AddNode("OBSERVED");
 
             for (int i = 0; i < closedDwells.Count; i++)
-                WriteDwell(obs, closedDwells[i]);
+                WriteDwell(obs, closedDwells[i], closedDwells[i].OpenAtExport, closedDwells[i].CloseUT);
+
+            // Dwells still OPEN at export are serialized as a read-only SNAPSHOT: `openAtExport=True`
+            // with the close stamp advanced to the export instant, and NOTHING mutated. Closing them
+            // here would destroy accumulation state before the write can fail, so a failed write would
+            // leave the recorder poorer than it was and the eventual real close would land on a dwell
+            // that had already been retired. The schema has always carried `openAtExport`, so this is
+            // the same on-disk shape the destructive close produced.
+            for (int i = 0; i < openDwellOrder.Count; i++)
+            {
+                if (!openDwellByPid.TryGetValue(openDwellOrder[i], out DwellRecord open) || open == null)
+                    continue;
+                // Same NaN-safe max as CloseAllOpenDwells: a NaN export instant (Planetarium
+                // unavailable) leaves the last observed frame's stamp standing.
+                WriteDwell(obs, open, true, exportUT > open.CloseUT ? exportUT : open.CloseUT);
+            }
 
             for (int i = 0; i < transitions.Count; i++)
             {
@@ -1329,7 +1349,12 @@ namespace Parsek.MapRender
             }
         }
 
-        private static void WriteDwell(ConfigNode obs, DwellRecord d)
+        /// <summary>
+        /// Serializes one dwell. <paramref name="openAtExport"/> and <paramref name="closeUT"/> are
+        /// passed in rather than read off the record so an OPEN dwell can be snapshotted at the export
+        /// instant without mutating it (see <see cref="WriteObserved"/>).
+        /// </summary>
+        private static void WriteDwell(ConfigNode obs, DwellRecord d, bool openAtExport, double closeUT)
         {
             ConfigNode n = obs.AddNode("DWELL");
             n.AddValue("pid", d.Pid.ToString(IC));
@@ -1345,7 +1370,7 @@ namespace Parsek.MapRender
             n.AddValue("coverage", d.Coverage ?? "");
             n.AddValue("frameBody", d.FrameBody ?? "");
             n.AddValue("openUT", D(d.OpenUT));
-            n.AddValue("closeUT", D(d.CloseUT));
+            n.AddValue("closeUT", D(closeUT));
             // The RECORDED clock at the dwell's endpoints, omitted entirely when the dwell could not
             // be mapped to a loop unit. Live openUT/closeUT can never answer "did a sample land inside
             // a compressed loiter cut" - the cut is an interval on the RECORDED clock.
@@ -1386,7 +1411,7 @@ namespace Parsek.MapRender
                 an.AddValue("reason", d.AnomalyEchoes[a].Reason ?? "");
                 an.AddValue("count", d.AnomalyEchoes[a].Count.ToString(IC));
             }
-            if (d.OpenAtExport)
+            if (openAtExport)
                 n.AddValue("openAtExport", "True");
         }
 

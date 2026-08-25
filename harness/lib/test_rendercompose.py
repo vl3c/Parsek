@@ -1444,6 +1444,8 @@ class CSharpWriterFixtureTests(unittest.TestCase):
 
 # Insertion anchors, each unique in POSITIVE_MANIFEST.
 ANCHOR_ROUTE_LEG_DEFER = "\t\tROUTE_LEG_DEFER\n"
+ANCHOR_LAST_OWNERSHIP = (
+    "\t\t\trecId = recA0\n\t\t\tut = 16000.0\n\t\t\tevent = disappear")
 
 
 class PositiveReadingTests(unittest.TestCase):
@@ -1648,14 +1650,112 @@ class RuleViolationTests(unittest.TestCase):
         self.assertTrue(own)
         self.assertIn("exactly one treatment is active", own[0].message)
 
-    def test_rc_own_reds_when_a_published_ownership_has_no_draw(self):
+    @staticmethod
+    def _with_extra_ownership(rec_id, appear_ut, disappear_ut):
+        """The positive fixture plus ONE extra ownership span, APPENDED.
+
+        Appending rather than retiming an existing span is what keeps these cells
+        about the publish->draw direction alone: moving a publish away from its
+        draw necessarily strands that draw and reds the MIRROR direction too, so
+        the resulting finding set no longer isolates the clause under test."""
+        return variant((ANCHOR_LAST_OWNERSHIP,
+                        ANCHOR_LAST_OWNERSHIP
+                        + "\n\t\t}\n\t\tOWNERSHIP_CHANGE\n\t\t{"
+                        + "\n\t\t\trecId = %s\n\t\t\tut = %r\n\t\t\tevent = appear"
+                          % (rec_id, appear_ut)
+                        + "\n\t\t}\n\t\tOWNERSHIP_CHANGE\n\t\t{"
+                        + "\n\t\t\trecId = %s\n\t\t\tut = %r\n\t\t\tevent = disappear"
+                          % (rec_id, disappear_ut)))
+
+    def test_rc_own_warns_when_a_published_ownership_has_no_draw(self):
+        # An extra recA0 publish over [30000, 32000], where recA0 has no dwell of
+        # any treatment. recA0 HAS dwells, so neither ratified exemption applies.
+        # The publish->draw direction is capped at WARN pending live calibration
+        # (design deviation #5) - still REPORTED and COUNTED, never dropped.
+        _s, (findings, _u, metrics) = rules_for(
+            self._with_extra_ownership("recA0", 30000.0, 32000.0))
+        self.assertEqual([], fails(findings, rc.RULE_OWN))
+        warns = [f for f in findings
+                 if f.level == rc.LEVEL_WARN and f.rule_id == rc.RULE_OWN
+                 and "implies a draw" in f.message]
+        self.assertEqual(1, len(warns))
+        self.assertIn("recA0", warns[0].target)
+        self.assertEqual(1, metrics["ownPublishWithoutDraw"])
+
+    def test_rc_own_exempts_a_publish_for_a_recording_with_no_dwells_at_all(self):
+        # The PROTO-LESS pid-0 population: the polyline Driver walk is its only
+        # renderer and the Director never opens a dwell for it. Wave-1 keyed this
+        # exemption on pid-0 DWELLS, which by construction never exist, so the
+        # exemption was dead code and the population would have red'd.
+        _s, (findings, _u, metrics) = rules_for(
+            self._with_extra_ownership("recProtoless", 30000.0, 32000.0))
+        self.assertEqual([], fails(findings, rc.RULE_OWN))
+        self.assertEqual([], [f for f in findings
+                              if f.rule_id == rc.RULE_OWN
+                              and "implies a draw" in f.message])
+        self.assertEqual(1, metrics["ownPublishExemptProtoless"])
+        self.assertEqual(0, metrics["ownPublishWithoutDraw"])
+
+    def test_rc_own_exempts_a_publish_whose_concurrent_dwell_is_stockconic(self):
+        # The Driver-direct bridge / forward-leg population: the polyline draw
+        # host is ratified, so the draw is real even though the dwell is not a
+        # TracedPath one. recB1's only dwells are StockConic, and this publish
+        # spans one of them.
+        _s, (findings, _u, metrics) = rules_for(
+            self._with_extra_ownership("recB1", 21000.0, 22000.0))
+        self.assertEqual([], fails(findings, rc.RULE_OWN))
+        self.assertEqual(0, metrics["ownPublishWithoutDraw"])
+        self.assertEqual(1, metrics["ownPublishExemptStockConic"])
+
+    def test_rc_own_still_reds_a_draw_with_no_publish(self):
+        # The MIRROR direction keeps FAIL. `drewNonOrbitalLegRecordings` is the
+        # sole ownership source and publishes on an ACTUAL draw, so a visible
+        # TracedPath dwell outside every published interval is a real
+        # conservation defect - dropping BOTH directions to WARN would leave the
+        # rule unable to red on anything.
         _s, (findings, _u, _m) = rules_for(
-            variant(("\t\t\trecId = recA0\n\t\t\tut = 14000.0\n\t\t\tevent = appear",
-                     "\t\t\trecId = recB1\n\t\t\tut = 14000.0\n\t\t\tevent = appear")))
+            variant(("\t\t\topenUT = 10000.0\n\t\t\tcloseUT = 12000.0",
+                     "\t\t\topenUT = 40000.0\n\t\t\tcloseUT = 42000.0")))
         own = fails(findings, rc.RULE_OWN)
         self.assertTrue(own)
-        self.assertTrue(any("implies a draw" in f.message
-                            or "implies a publish" in f.message for f in own))
+        self.assertTrue(any("falls outside every published ownership interval"
+                            in f.message for f in own))
+
+    def test_rc_own_names_the_enclosing_dwell_of_an_overlap(self):
+        # The running furthest-close sweep reports the dwell that is ACTUALLY
+        # overlapped rather than whichever one happened to be adjacent in the
+        # open-UT order. pid 5001's stretched dwell [10000, 19000] encloses
+        # [14000, 16000], and the finding must name the long one.
+        _s, (findings, _u, _m) = rules_for(
+            variant(("\t\t\topenUT = 10000.0\n\t\t\tcloseUT = 12000.0",
+                     "\t\t\topenUT = 10000.0\n\t\t\tcloseUT = 19000.0")))
+        own = [f for f in fails(findings, rc.RULE_OWN)
+               if "exactly one treatment is active" in f.message]
+        self.assertEqual(1, len(own))
+        self.assertIn("[10000.0, 19000.0]", own[0].message)
+
+    def test_rc_descent_catches_a_non_adjacent_concurrent_member(self):
+        # THE SHAPE A CONSECUTIVE-PAIR WALK MISSES. Sorted by open UT the descent
+        # dwells run: member 0 [10000, 19000], member 0 [14000, 16000], member 1
+        # [16000, 18000]. The first pair is same-member (skipped by contract) and
+        # the second pair does not overlap, so a pairwise walk sees nothing -
+        # while member 0's long dwell plainly overlaps member 1's. Only a running
+        # furthest-close per member catches it.
+        _s, (findings, _u, _m) = rules_for(variant(
+            ("descentMemberIndices = 1", "descentMemberIndices = 0,1"),
+            ("\t\t\topenUT = 10000.0\n\t\t\tcloseUT = 12000.0",
+             "\t\t\topenUT = 10000.0\n\t\t\tcloseUT = 19000.0"),
+            ("\t\t\topenUT = 12000.0\n\t\t\tcloseUT = 14000.0",
+             "\t\t\topenUT = 16500.0\n\t\t\tcloseUT = 17000.0")))
+        descent = [f for f in fails(findings, rc.RULE_DESCENT)
+                   if "render concurrently" in f.message]
+        # BOTH member-1 dwells fall inside member 0's long one, and a pairwise
+        # walk sees NEITHER: its only cross-member comparison is
+        # (member 0 [14000, 16000], member 1 [16000, 18000]), which does not
+        # overlap on the strict test.
+        self.assertEqual(2, len(descent))
+        self.assertTrue(all("member 0 [10000.0, 19000.0] overlaps" in f.message
+                            for f in descent))
 
 
 class OracleIndependenceTests(unittest.TestCase):
@@ -2199,6 +2299,55 @@ class SchemaV11ClauseTests(unittest.TestCase):
         self.assertEqual(1, len(hold))
         self.assertIn("no hold-engage", hold[0].message)
 
+    def test_a_hold_run_on_a_unit_with_no_planned_hold_warns_and_is_counted(self):
+        # Unit 1 (TrackingStation) plans NO hold: arrivalHoldSeconds = 0 and no
+        # launch hold. Re-stamping the fixture's pair onto its ownerIndex is a
+        # clock stall the plan cannot account for - wave-1 skipped such a unit
+        # outright, which left the pair claimed by no rule at all: "no finding"
+        # then meant both "nothing happened" and "nobody looked".
+        text = POSITIVE_MANIFEST
+        for block in (HOLD_ENGAGE_BLOCK, HOLD_RELEASE_BLOCK):
+            text = text.replace(block, block.replace("ownerIndex = 0",
+                                                     "ownerIndex = 1"), 1)
+        self.assertNotEqual(text, POSITIVE_MANIFEST)
+        _s, (findings, unevaluable, metrics) = rules_for(text)
+        self.assertEqual([], fails(findings, rc.RULE_HOLD))
+        warns = [f for f in findings
+                 if f.level == rc.LEVEL_WARN and f.rule_id == rc.RULE_HOLD]
+        self.assertEqual(1, len(warns))
+        self.assertIn("no planned hold", warns[0].message)
+        self.assertEqual(1, unevaluable[rc.UNEVAL_HOLD_OBSERVED_WITHOUT_PLAN])
+        self.assertEqual(2, metrics["holdEventsWithoutPlan"])
+
+    def test_a_hold_less_unit_with_no_hold_run_says_nothing(self):
+        # The other way. Unit 1 plans no hold AND its clock never stalled, so
+        # there is nothing to report - the clause must not fire on the mere
+        # absence of a plan, or every hold-less unit in every run would warn.
+        _s, (findings, unevaluable, metrics) = rules_for(POSITIVE_MANIFEST)
+        self.assertEqual([], [f for f in findings
+                              if f.level == rc.LEVEL_WARN
+                              and f.rule_id == rc.RULE_HOLD])
+        self.assertNotIn(rc.UNEVAL_HOLD_OBSERVED_WITHOUT_PLAN, unevaluable)
+        self.assertEqual(0, metrics["holdEventsWithoutPlan"])
+
+    def test_a_launch_hold_unit_explains_its_own_runs(self):
+        # A LAUNCH hold is a planned stall the plan does not express as a number,
+        # so a unit carrying launchHoldEngaged is excluded: its runs ARE planned,
+        # they just have no predicted duration to compare against.
+        text = POSITIVE_MANIFEST.replace(
+            "\t\t\tarrivalHoldSeconds = 0.0",
+            "\t\t\tarrivalHoldSeconds = 0.0\n\t\t\tlaunchHoldEngaged = True", 1)
+        self.assertNotEqual(text, POSITIVE_MANIFEST)
+        for block in (HOLD_ENGAGE_BLOCK, HOLD_RELEASE_BLOCK):
+            text = text.replace(block, block.replace("ownerIndex = 0",
+                                                     "ownerIndex = 1"), 1)
+        _s, (findings, unevaluable, metrics) = rules_for(text)
+        self.assertEqual([], [f for f in findings
+                              if f.level == rc.LEVEL_WARN
+                              and f.rule_id == rc.RULE_HOLD])
+        self.assertNotIn(rc.UNEVAL_HOLD_OBSERVED_WITHOUT_PLAN, unevaluable)
+        self.assertEqual(0, metrics["holdEventsWithoutPlan"])
+
     def test_the_release_detail_a_convention_is_pinned(self):
         # detailA on a hold event is the run's 0-BASED WHOLE ORDINAL within its
         # (ownerIndex, cycleIndex). A NON-ORDINAL there is the shape that breaks
@@ -2456,6 +2605,34 @@ class ShippedSampleSchemaV11Tests(unittest.TestCase):
         self.assertEqual([], fails(findings, rc.RULE_CYCLE))
 
 
+class CycleMembershipTests(unittest.TestCase):
+    """RC-CYCLE buckets a dwell by its MIDPOINT, not by its open UT."""
+
+    def test_a_dwell_opening_either_side_of_a_rollover_keeps_its_cycle(self):
+        # Unit 0's rollover is at 14000 and its second Ascent dwell opens exactly
+        # there. Nudging that open one second either way is pure sampling phase -
+        # the frame that happened to land first - yet under open-UT bucketing it
+        # MOVES the dwell into the neighbouring cycle, changing the role structure
+        # the isomorphism clause compares and reporting two identical cycles as
+        # differing. Its midpoint (14999.5 / 15000.5) stays put either way.
+        for open_ut in ("13999.0", "14001.0"):
+            with self.subTest(openUT=open_ut):
+                _s, (findings, _u, _m) = rules_for(
+                    variant(("\t\t\topenUT = 14000.0",
+                             "\t\t\topenUT = " + open_ut)))
+                self.assertEqual([], [f for f in findings
+                                      if f.rule_id == rc.RULE_CYCLE])
+
+    def test_a_dwell_that_really_moves_cycles_still_changes_the_roles(self):
+        # Anti-vacuity: the midpoint is not a blanket "never re-bucket". Retiming
+        # the same dwell wholly into cycle 0 moves its midpoint with it, and the
+        # role structures genuinely differ.
+        _s, (findings, _u, _m) = rules_for(
+            variant(("\t\t\topenUT = 14000.0\n\t\t\tcloseUT = 16000.0",
+                     "\t\t\topenUT = 12500.0\n\t\t\tcloseUT = 13000.0")))
+        self.assertTrue([f for f in findings if f.rule_id == rc.RULE_CYCLE])
+
+
 # ---------------------------------------------------------------------------
 # The review-pass clauses: the TRUNCATED token family, the RC-COVER resolution
 # model, the RATIFIED_SKIP hull, and the closed-interval RC-OWN endpoints.
@@ -2509,6 +2686,24 @@ class TruncationTokenTests(unittest.TestCase):
         self.assertFalse(ctx.section_truncated("DWELL"))
         self.assertFalse(ctx.section_truncated("RATIFIED_SKIP"))
 
+    def test_the_marker_list_overflow_row_stands_down_every_section(self):
+        # `TRUNCATED:global` / `distinct-key-overflow` is the writer's RESERVED
+        # row for the moment the marker LIST itself hits MaxTruncationRecords:
+        # from then on a drop is still counted but STOPS NAMING ITS SECTION. It
+        # therefore says the same thing ALL:global says - some records went
+        # missing and we no longer know from where - so reading it as "only the
+        # TRUNCATED section is incomplete" would let a real drop pass a rule that
+        # checked its own section and found nothing.
+        overflow = truncated_record(rc.TRUNCATED_OVERFLOW_SECTION,
+                                    kind=rc.TRUNCATED_OVERFLOW_KIND)
+        findings, _u = self._cover_and_uneval(overflow)
+        self.assertEqual([], fails(findings, rc.RULE_COVER))
+        ctx = rc._Ctx(rc.parse_render_manifest(fill(variant(
+            (ANCHOR_ROUTE_LEG_DEFER, overflow)))), None)
+        for section in rc.OBSERVED_SECTIONS:
+            with self.subTest(section=section):
+                self.assertTrue(ctx.section_truncated(section))
+
     def test_an_untruncated_manifest_answers_no_for_every_section(self):
         ctx = rc._Ctx(rc.parse_render_manifest(fill(POSITIVE_MANIFEST)), None)
         for section in rc.OBSERVED_SECTIONS:
@@ -2556,6 +2751,53 @@ class CoverResolutionModelTests(unittest.TestCase):
         self.assertEqual(5.0, rc._cover_resolution(ctx, unit, [blank], 11000.0))
         empty = rc.PlanUnit(host="Flight", owner_index=99)
         self.assertIsNone(rc._cover_resolution(ctx, empty, [blank], 11000.0))
+
+
+class CoverVisibilityTests(unittest.TestCase):
+    """Only a VISIBLE dwell is coverage. The design states RC-COVER as the union
+    of VISIBLE dwells plus the cataloged holds / cuts / tail / ratified hidden
+    windows - an invisible dwell is a render INTENT that produced no line, so its
+    span is dark on screen."""
+
+    # recA0's first dwell, [10000, 12000] of a 10000-14000 cycle.
+    ANCHOR_VISIBLE = "\t\t\ttreatment = TracedPath\n\t\t\tvisible = True\n" \
+                     "\t\t\tcoverage = InSegment\n\t\t\tframeBody = Kerbin\n" \
+                     "\t\t\townerIndex = 0\n\t\t\topenUT = 10000.0"
+
+    def _invisible(self, coverage):
+        return variant((self.ANCHOR_VISIBLE,
+                        self.ANCHOR_VISIBLE.replace("visible = True",
+                                                    "visible = False")
+                        .replace("coverage = InSegment",
+                                 "coverage = " + coverage)))
+
+    def test_an_invisible_in_segment_dwell_is_not_coverage(self):
+        # THE DEFECT CLASS RC-COVER EXISTS FOR: a covering segment exists, the
+        # Director opened a dwell for it, and the leg never drew. Feeding that
+        # dwell into `covered` let the leg paper over its own darkness.
+        _s, (findings, _u, metrics) = rules_for(self._invisible("InSegment"))
+        cover = fails(findings, rc.RULE_COVER)
+        self.assertEqual(1, len(cover))
+        self.assertIn("unexplained dark window", cover[0].message)
+        self.assertEqual(1, metrics["coverUnexplainedGaps"])
+        self.assertEqual(0, metrics["coverRatifiedHiddenSpans"])
+
+    def test_an_invisible_ratified_hidden_dwell_still_covers(self):
+        # The two RATIFIED shapes. Each is a POSITIVE statement about why the
+        # span is dark: OutsideWindow says the render window does not reach the
+        # instant at all, InInteriorGap is the Director's held interior gap.
+        for coverage in rc.RATIFIED_HIDDEN_COVERAGES:
+            with self.subTest(coverage=coverage):
+                _s, (findings, _u, metrics) = rules_for(self._invisible(coverage))
+                self.assertEqual([], fails(findings, rc.RULE_COVER))
+                self.assertEqual(0, metrics["coverUnexplainedGaps"])
+                self.assertEqual(1, metrics["coverRatifiedHiddenSpans"])
+
+    def test_the_positive_fixture_reports_no_ratified_hidden_span(self):
+        # Anti-vacuity for the counter: the clean fixture draws everything, so
+        # the ratified-hidden count is a signal rather than a constant.
+        _s, (_f, _u, metrics) = rules_for(POSITIVE_MANIFEST)
+        self.assertEqual(0, metrics["coverRatifiedHiddenSpans"])
 
 
 class RatifiedSkipHullTests(unittest.TestCase):
