@@ -1922,6 +1922,59 @@ class RuleViolationTests(unittest.TestCase):
         self.assertTrue(any("falls outside every published ownership interval"
                             in f.message for f in own))
 
+    @staticmethod
+    def _without_any_ownership():
+        """The positive fixture with EVERY OWNERSHIP_CHANGE record deleted.
+
+        Sliced rather than substituted because the point of the cell is the
+        GLOBAL absence: a per-record mutation would still leave the manifest
+        proving the publish surface ran."""
+        text = POSITIVE_MANIFEST
+        start = text.index("\t\tOWNERSHIP_CHANGE")
+        end = text.index("\t\tROUTE_LINE_BUILD")
+        if not 0 < start < end:
+            raise AssertionError("ownership run not located in POSITIVE_MANIFEST")
+        stripped = text[:start] + text[end:]
+        if "OWNERSHIP_CHANGE" in stripped:
+            raise AssertionError("ownership records are not contiguous any more")
+        return stripped
+
+    def test_rc_own_declines_the_draw_direction_when_nothing_ever_published(self):
+        # V6M `2026-08-25_2056`, read out of the manifest and the source: the
+        # DWELL half (ShadowRenderDriver.RunFrame, off ParsekFlight's update) runs
+        # map-open or not, while the OWNERSHIP half is published at the end of the
+        # polyline Driver's LateUpdate walk, whose second statement is
+        # `if (!MapView.MapIsEnabled) return;`. No seam verb opens the map, so the
+        # lane produced three visible TracedPath dwells and zero publishes. That is
+        # a premise the run never established, not three legs that failed to draw:
+        # counted under a named reason, never red.
+        _s, (findings, unevaluable, _m) = rules_for(self._without_any_ownership())
+        self.assertEqual([], fails(findings, rc.RULE_OWN),
+                         [f.as_text() for f in findings])
+        self.assertEqual(
+            2, unevaluable.get(rc.UNEVAL_OWN_PUBLISH_SURFACE_SILENT),
+            dict(unevaluable))
+
+    def test_rc_own_still_reds_a_draw_with_no_publish_once_anything_published(self):
+        # THE DISCRIMINATOR IS GLOBAL, AND THIS IS THE HALF THAT KEEPS IT HONEST.
+        # One publish anywhere proves the walk ran past the map gate, so a
+        # recording whose visible TracedPath dwell has NO ownership record of its
+        # own is the leg-that-never-draws defect and keeps FAIL. The publish here
+        # names the proto-less population (exemption (a)), so the OTHER direction
+        # stays silent and the cell isolates this clause.
+        text = self._without_any_ownership().replace(
+            "\t\tROUTE_LINE_BUILD",
+            "\t\tOWNERSHIP_CHANGE\n\t\t{\n\t\t\trecId = recProtoless"
+            "\n\t\t\tut = 30000.0\n\t\t\tevent = appear\n\t\t}"
+            "\n\t\tOWNERSHIP_CHANGE\n\t\t{\n\t\t\trecId = recProtoless"
+            "\n\t\t\tut = 32000.0\n\t\t\tevent = disappear\n\t\t}"
+            "\n\t\tROUTE_LINE_BUILD", 1)
+        _s, (findings, unevaluable, _m) = rules_for(text)
+        own = fails(findings, rc.RULE_OWN)
+        self.assertEqual(2, len(own), [f.as_text() for f in findings])
+        self.assertTrue(all("NO ownership record" in f.message for f in own))
+        self.assertNotIn(rc.UNEVAL_OWN_PUBLISH_SURFACE_SILENT, unevaluable)
+
     def test_rc_own_names_the_enclosing_dwell_of_an_overlap(self):
         # The running furthest-close sweep reports the dwell that is ACTUALLY
         # overlapped rather than whichever one happened to be adjacent in the

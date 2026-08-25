@@ -1904,6 +1904,31 @@ UNEVAL_PRIMITIVE_BODY_UNKNOWN = "plan-primitive-body-unidentified"
 UNEVAL_ROUTE_LEG_DETAIL_ABSENT = "route-per-leg-detail-absent"
 UNEVAL_WARP_HOLD_ABSENT = "warp-hold-traversal-evidence-absent"
 UNEVAL_MARKER_DECISION_ABSENT = "marker-decision-absent"
+# THE PUBLISH SURFACE NEVER RAN IN THIS PROCESS, so the draw->publish direction
+# has nothing to speak from. Measured on `2026-08-25_2056` (V6M, the first lane
+# whose Director ever opened a TracedPath dwell): the manifest carried THREE
+# visible TracedPath dwells and ZERO `OWNERSHIP_CHANGE` records, and the reading
+# showed the two halves of that contract do not share a gate.
+#   * The intent half - `ShadowRenderDriver.RunFrame`, which stamps the
+#     TracedPath intent that the DWELL records and the stock line/icon
+#     suppression both read - is called from `ParsekFlight`'s per-frame update
+#     and runs whether or not the map is open.
+#   * The publish half - `drewNonOrbitalLegRecordings` ->
+#     `RenderCompositionRecorder.NoteOwnershipPublish` - is reached only at the
+#     END of the polyline Driver's `LateUpdate` walk, whose second statement is
+#     `if (!MapView.MapIsEnabled) return;`.
+# With the map closed the ghost is drawn on no map surface at all, so a
+# TracedPath dwell is an INTENT record and not evidence of a draw: the rule's "a
+# draw implies a publish" premise is not merely unmet, it is unasked. No command
+# seam verb opens the map view (there is no `EnterMapView` command, and no
+# production path calls `MapView.EnterMapView`), so every manifest lane in the
+# suite is in this state today - V24W measured `ownershipChanges = 0` too and
+# escaped only because it never opened a TracedPath dwell.
+# The discriminator is GLOBAL, never per-recording: ONE `OWNERSHIP_CHANGE`
+# anywhere in the manifest proves the walk ran and published, and from there a
+# recording whose visible TracedPath dwell carries no ownership record IS the
+# leg-that-never-draws defect and keeps its FAIL.
+UNEVAL_OWN_PUBLISH_SURFACE_SILENT = "ownership-publish-surface-never-ran"
 # RC-COVER's two resolution-model reasons.
 #   * A dark window inside a RATIFIED_SKIP hull. The record is a HULL WITH A
 #     COUNT (firstUT / lastUT / count), not a list of intervals, so it can say
@@ -1931,7 +1956,7 @@ UNEVALUABLE_REASONS: Tuple[str, ...] = (
     UNEVAL_DESCENT_PRIMITIVES_ABSENT, UNEVAL_DESCENT_HEAD_ABSENT,
     UNEVAL_POSITIONS_ABSENT, UNEVAL_PRIMITIVE_BODY_UNKNOWN,
     UNEVAL_ROUTE_LEG_DETAIL_ABSENT, UNEVAL_WARP_HOLD_ABSENT,
-    UNEVAL_MARKER_DECISION_ABSENT,
+    UNEVAL_MARKER_DECISION_ABSENT, UNEVAL_OWN_PUBLISH_SURFACE_SILENT,
     UNEVAL_COVER_RATIFIED_SKIP_HULL, UNEVAL_COVER_RESOLUTION_ABSENT,
     UNEVAL_COVER_SKIPS_TRUNCATED,
 )
@@ -3478,7 +3503,12 @@ def _rule_own(ctx: _Ctx) -> None:
     #     direction (a draw with no publish) stays FAIL: `drewNonOrbitalLegRecordings`
     #     is the SOLE ownership source and is published on an ACTUAL draw, so a
     #     draw that never published is a real ownership defect, not a blind spot.
+    #     THE ONE PRECONDITION that direction needs is that the publish surface
+    #     ran AT ALL in this process - see UNEVAL_OWN_PUBLISH_SURFACE_SILENT.
     dwelt_recs = {d.rec_id for d in snap.dwells + snap.open_dwells if d.rec_id}
+    # GLOBAL, not per-recording: any ownership record anywhere proves the polyline
+    # Driver walk ran past its `!MapView.MapIsEnabled` return and published.
+    publish_surface_ran = bool(snap.ownership_changes)
     publish_no_draw = 0
     publish_exempt_protoless = 0
     publish_exempt_stockconic = 0
@@ -3539,6 +3569,13 @@ def _rule_own(ctx: _Ctx) -> None:
             continue
         spans = owned_intervals.get(d.rec_id)
         if spans is None:
+            if not publish_surface_ran:
+                # The manifest published nothing for ANY recording, so this dwell
+                # is a Director INTENT with no draw half to conserve against - a
+                # map-closed run, not a leg that failed to draw. Counted, never
+                # red; the census names the reason.
+                ctx.uneval(UNEVAL_OWN_PUBLISH_SURFACE_SILENT)
+                continue
             ctx.add(RULE_OWN, LEVEL_FAIL, "recId=%s" % d.rec_id,
                     "a visible TracedPath dwell [%r, %r] exists with NO ownership "
                     "record for the recording; a draw implies a publish"

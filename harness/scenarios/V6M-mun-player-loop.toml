@@ -282,11 +282,151 @@ id = "V6M-mun-player-loop"
 #   written up together as `MOON-LOOP-FINDINGS` in docs/dev/todo-and-known-bugs.md.
 #   Read that entry before concluding anything about the quartet's render behaviour
 #   from this file alone.
+#
+# ---------------------------------------------------------------------------------
+# 6. RENDER COMPOSITION (M-A7 Phase 3) - DECLARED + READ 2026-08-25, NOT ARMED
+# ---------------------------------------------------------------------------------
+# ARMING LEDGER, renderComposition:
+#   DECLARED 2026-08-25. The block at the end of this file is BARE (no `gating`, no
+#            window, no list). The lane is registered in
+#            `RENDERCOMPOSE_DECLARER_SPECS` (harness/lib/test_hlib.py) as the FOURTH
+#            declarer and is deliberately ABSENT from `RENDERCOMPOSE_ARMED_SPECS`.
+#   READING  TAKEN 2026-08-25 - run `2026-08-25_2056_V6M-mun-player-loop`, verdict
+#            PASS, `renderCompose` status REPORT (bare block gates on nothing).
+#            THE HEADLINE PREDICTION LANDED: `clockEvents {cycle-rollover: 3,
+#            inter-cycle-tail: 2}` -> `cycles = 2`, the suite's first two-closed-cycle
+#            dataset, and RC-CYCLE EVALUATED instead of reporting
+#            `no-cycle-rollover-events` - it found the two cycles ISOMORPHIC and
+#            raised NOTHING, with both windows in the SAME `warp1x` bucket
+#            (`warpBuckets {warp1x: 250}`, every other bucket 0), i.e. the SHARP
+#            FAIL-level form of the clause rather than the cross-bucket INFO one.
+#            Other measured facets, for whoever writes the windows:
+#            `treatments {StockConic: 2, TracedPath: 3}`, `dwells 5` + `openDwells 3`,
+#            `transitions 5`, `chainBuilds 3`, `planUnits 1`, `lineBranches 11`,
+#            `coverages {InSegment: 5}`, `seamEndpoints 109`,
+#            `seamKinds {rigid: 21, flexible-soi: 3}`, `seamTangents 0`,
+#            `ownershipChanges 0`, `routeLineBuilds 0`, `ratifiedSkips 0`,
+#            `clockDefers 0`, `unevaluable 110`, `scene FLIGHT`,
+#            `mapRenderTracingOn true`, `exportReason process-teardown`,
+#            `cycleLengthResidualsSeconds [-2.53, 129297.47]` (the second window
+#            spans the schedule's k=26 -> k=45 step, so the large residual is the
+#            NON-UNIFORM schedule reading correctly, not a drift), `maxUtStep 4288.76`.
+#   ARMED    NOT ARMED, and one thing must be settled BEFORE any window is written -
+#            see "WHAT THE READING RUN ALSO EXPOSED" below. Windows get written FROM
+#            the reading run's facets, at arming, in a later pass and by operator
+#            decision - never from a prediction.
+#   ARMED RE-FLIGHT / NEG CONTROL  N/A until the above.
+#
+# WHAT THE READING RUN ALSO EXPOSED - AN INSTRUMENT GAP, NOT A PRODUCT DEFECT, AND THE
+# ONE THING TO RESOLVE BEFORE ARMING. The reading raised THREE report-only RC-OWN FAILs,
+# one per cycle, at exactly the three arrival brackets:
+#   `recId=4cfa06ce...: a visible TracedPath dwell [296370, 296690] / [576510, 576830]
+#    / [985950, 986270] exists with NO ownership record`.
+# Diagnosed 2026-08-25 from the manifest + the collected KSP.log + the source; the
+# answer is that THIS LANE NEVER OPENS THE MAP VIEW, and the two halves of RC-OWN's
+# conservation contract do not share a gate:
+#   * the INTENT half (`ShadowRenderDriver.RunFrame`, which stamps the TracedPath
+#     intent the DWELL records and the stock line/icon suppression both read) is
+#     driven from `ParsekFlight`'s per-frame update and runs map-open or not;
+#   * the PUBLISH half (`drewNonOrbitalLegRecordings` ->
+#     `RenderCompositionRecorder.NoteOwnershipPublish`) is reached only at the END of
+#     the polyline Driver's `LateUpdate` walk, whose SECOND statement is
+#     `if (!MapView.MapIsEnabled) return;`.
+# The evidence is direct: the collected KSP.log carries the Driver's awake and destroy
+# lines and ZERO `Polyline frame:` summaries (that summary is emitted at the end of
+# every completed walk, so zero of them means every LateUpdate bailed early, and the
+# scene gate cannot be the one that fired because `scene = FLIGHT`); all three descent
+# dwells carry `markerPolyline = False` with `markerIconSuppressed = True` (the marker
+# rode the icon fallback, not a drawn polyline); and no seam verb opens the map (there
+# is no `EnterMapView` command and no production path calls `MapView.EnterMapView`),
+# so `ownershipChanges = 0` is the state of EVERY manifest lane today - V24W measured
+# 0 as well and escaped only because it never opened a TracedPath dwell. With the map
+# closed nothing is drawn on any map surface, so a visible TracedPath dwell is an
+# INTENT record and not evidence of a draw: the premise "a draw happened" was never
+# established. `rendercompose._rule_own` now says so by name - zero OWNERSHIP_CHANGE
+# records ANYWHERE stands the draw->publish direction down as the defined-unevaluable
+# `ownership-publish-surface-never-ran`, while ONE publish anywhere proves the walk
+# ran and restores the FAIL for any recording that then has none.
+# CONSEQUENCE FOR ARMING, and it is a hard one: on this lane RC-OWN's draw half is
+# STRUCTURALLY UNEVALUABLE, so an arming pass must not read "no RC-OWN finding" as
+# "ownership conserved". Either arm only clauses this drive can actually answer
+# (`cycles`, the RC-CYCLE surface, the dwell/treatment counts), or first give the
+# suite a map-open lane - which needs a new command-seam verb, i.e. a C# change and a
+# flown-shape change, neither of which belongs in an arming pass.
+#
+# WHY THIS LANE, AND WHY THE THIRD CYCLE. Two separate reasons, and the second is the
+# one that made this an extension rather than a one-line declaration.
+#
+#   (i) THE SUBJECT. `docs/dev/design-autotest-render-composition.md` -> "Harness
+#       integration and lanes" names "a phase-lock moon loop (V6/V14 class)" as a first
+#       Phase-3 subject. V14M covers the V14 half - an ORBIT-ROOTED, single-constraint,
+#       UNIFORM-cadence subject on `method=single-orbital`. This lane is the OTHER half
+#       and is structurally different in exactly the way the composition module cares
+#       about: PAD-ROOTED, two constraints, and a NON-UNIFORM ZERO-DRIFT SCHEDULE
+#       (`zeroDrift=yes`, faithful-k series 13, 26, 45, 58 - visibly not an arithmetic
+#       progression). RC-CYCLE's own residual trend (`cycleLengthResidualsSeconds`,
+#       computed as `(hi - lo) - unit.cadenceSeconds` per window) is therefore a
+#       DIFFERENT surface here than on any lane flown so far: on a uniform-cadence
+#       subject the residual is ~0 by construction, while a scheduled unit's window
+#       lengths are the schedule's own irregular steps. And it is the MUN - the
+#       operator's question was asked about a looped mission to the Mun specifically,
+#       and no composition accounting has ever gated on a Mun subject.
+#
+#  (ii) THE TWO-CLOSED-CYCLE DATASET, which is the first of its kind in the suite. The
+#       full derivation lives beside the steps it justifies (the CYCLE 3 banner in
+#       `[driver] steps`); the short form is that `rendercompose._cycle_windows` pairs
+#       CONSECUTIVE `cycle-rollover` events, so N rollovers close N-1 cycles, and
+#       `_rule_cycle` skips any unit with fewer than two closed windows as
+#       `no-cycle-rollover-events` unevaluable. Every loop lane in the suite has flown
+#       TWO cycles and therefore closed ONE - V14M measured exactly that
+#       (`clockEvents {cycle-rollover: 2}` -> `cycles 1`), so RC-CYCLE has never
+#       compared two structures anywhere. This lane now enters THREE cycles, closes
+#       TWO, and gives the rule its first real comparison: cycle 1's role structure
+#       (the sorted `(memberIndex, phaseKind)` set of the closed dwells whose MIDPOINTS
+#       fall in the window) against cycle 2's, plus the rollover-forwardness check and
+#       two residual samples instead of one.
+#
+# WHAT THE READING RUN IS EXPECTED TO MEASURE, stated as a PREDICTION so the run can
+# refute it rather than confirm whatever it finds:
+#   * `cycles` = 2, from `clockEvents {cycle-rollover: 3}`. This is the headline.
+#   * RC-CYCLE actually EVALUATING rather than reporting `no-cycle-rollover-events`.
+#   * BOTH windows in the SAME warp bucket (`warp1x`), because every clock move on this
+#     lane is an instantaneous `TimeJump`. That matters for how RC-CYCLE speaks: its
+#     isomorphism clause raises at FAIL level when two SAME-BUCKET cycles differ in role
+#     structure and only at INFO across buckets, so a same-bucket pair is the SHARP
+#     reading, not a limitation. A FAIL finding here is a MEASUREMENT on a bare block
+#     (an unarmed block gates on nothing) and is exactly the sort of thing this dataset
+#     exists to surface - a role-structure difference between two cycles of one looped
+#     Mun mission is the render-side statement of "cycle 2 does not arrive where cycle 1
+#     did", which is the question section 3 asks with coarser instruments.
+#   * `warpBuckets` MUST NEVER be declared on this lane, for V14M's reason: the
+#     histogram is 1x-only BY CONSTRUCTION and declaring it would pin the drive shape as
+#     though it were a property of the product. V24W is the suite's only warp-histogram
+#     subject.
+# MEASURED 2026-08-25 on `2026-08-25_2056`: the first three predictions ALL landed and
+# none was refuted (cycles=2, RC-CYCLE evaluated, both windows `warp1x`); `warpBuckets`
+# stays undeclared. The prediction list is kept as written - it is the pre-registration,
+# and the ARMING LEDGER above carries what the run actually measured.
+#
+# WHY THE THREE TRACERS ABOVE ARE LOAD-BEARING FOR THIS ROW TOO: the tangent/endpoint
+# capture predicates behind RC-SEAM are `mapRenderTracing`-gated (SPEC decision 2), so a
+# manifest taken with the tracer off carries no seam numbers and every RC-SEAM numeric
+# clause counts as `seam-data-unavailable-tracing-off` unevaluable. This lane already
+# arms all three (steps 5-7) for its arrival-evidence lines, so the row costs nothing
+# extra here - and `test_every_declarer_arms_the_tracers_the_seam_capture_needs` pins
+# that it keeps doing so.
+#
+# WHAT DECLARING DOES, and it is the entire mechanism: declaring the block (NOT arming
+# it) is what sets `PARSEK_RENDER_MANIFEST=1` at launch
+# (`rendercompose.declared_composition_blocks` -> run.py's env build), which arms the C#
+# recorder at Awake. Without the declaration the export verb answers
+# `REJECTED msg=manifest-not-armed`, which `hlib.validate_spec`'s verb/block coupling
+# rule refuses pre-launch rather than letting it fly.
 # =====================================================================================
 tier = "operator"
-description = "THE PLAYER WORKFLOW ON A SAME-PARENT MOON MISSION, twice over: load the committed mun-orbit-recorded save, arm the loop, press Warp-to, cross cycle 1's Kerbin->Mun SOI seam, press Watch at the ghost's Mun park, then press Warp-to AGAIN for cycle 2 and cross its arrival with the same instruments. A Kerbin->Mun mission is ALWAYS phaseLocked, so ApplyReaim is unreachable: this lane pins the OTHER road (Orbital(Mun) same-parent + support=Supported + PhaseLock APPLIED with zeroDrift=yes/scheduleWithinTol=yes + factory chain reaimed=False) and FORBIDS every re-aim token V4 requires. The two-cycle shape is the desync hunt: same-body handoff, seam-teleport silence and hidden-by-zone proximity are compared cycle 1 vs cycle 2."
+description = "THE PLAYER WORKFLOW ON A SAME-PARENT MOON MISSION, twice over: load the committed mun-orbit-recorded save, arm the loop, press Warp-to, cross cycle 1's Kerbin->Mun SOI seam, press Watch at the ghost's Mun park, then press Warp-to AGAIN for cycle 2 and cross its arrival with the same instruments. A Kerbin->Mun mission is ALWAYS phaseLocked, so ApplyReaim is unreachable: this lane pins the OTHER road (Orbital(Mun) same-parent + support=Supported + PhaseLock APPLIED with zeroDrift=yes/scheduleWithinTol=yes + factory chain reaimed=False) and FORBIDS every re-aim token V4 requires. The two-cycle shape is the desync hunt: same-body handoff, seam-teleport silence and hidden-by-zone proximity are compared cycle 1 vs cycle 2. EXTENDED 2026-08-25 with a THIRD cycle and an M-A7 render-composition capture: rendercompose closes N-1 cycles off N cycle-rollover events, so two flown cycles have only ever closed ONE anywhere in the suite - three cycles close TWO and give RC-CYCLE its first same-warp-bucket structure comparison, on the Mun, on a NON-UNIFORM zero-drift schedule. The [expectations.renderComposition] block is BARE; the reading run was taken 2026-08-25 (cycles=2, RC-CYCLE's first real evaluation, isomorphic) and the lane stays UNARMED."
 instanceProfile = "stock-minimal"
-tags = ["V6", "player-loop", "watch-mode", "loop-playback", "phase-lock", "zero-drift", "mun", "moon", "flown"]
+tags = ["V6", "player-loop", "watch-mode", "loop-playback", "phase-lock", "zero-drift", "mun", "moon", "render-composition", "rc-cycle", "flown"]
 
 [fixture]
 # The B11-mun-orbit harvest (run 2026-08-08_1458, PASS attempt 1, --keep-parsek): ONE
@@ -359,6 +499,81 @@ steps = [
   # ~110 park revs of accumulated offset). Not a second draw of the same coin - see the
   # superseded-arithmetic banner. MEASURED 561,219 m, again REJECTED.
   { cmd = "EnterWatchMode",                                                  expect = "REJECTED" },
+  # =====================================================================================
+  # CYCLE 3 - ADDED 2026-08-25, PURELY ADDITIVE (header section 6). NOTHING ABOVE MOVED.
+  # This is the block that turns this lane into the suite's first TWO-CLOSED-CYCLE
+  # render-composition dataset. The derivation, in three steps, all of it read off
+  # rendercompose.py + RenderCompositionRecorder.cs rather than assumed:
+  #   1. `RenderCompositionRecorder.ObserveUnitFrame` appends ONE `cycle-rollover` clock
+  #      event per owner per CHANGE of `frame.CycleIndex`.
+  #   2. On a SCHEDULED (zero-drift) unit - which this lane is - `ComputeSpanLoopFrame`
+  #      takes the schedule branch: `CycleIndex = sIdx`, the index of the largest
+  #      scheduled launch <= currentUT, and the frame is UNRESOLVED (no emit at all)
+  #      before the first scheduled launch. So the rollover count equals the number of
+  #      scheduled launches the run's clock actually ENTERS - two, as this lane stood.
+  #   3. `rendercompose._cycle_windows` pairs CONSECUTIVE rollovers, N events -> N-1
+  #      closed cycles, and deliberately does NOT synthesise the trailing open cycle
+  #      against the export UT ("a cycle the export cut in half is not a cycle").
+  #      `_rule_cycle` then skips a unit with `len(windows) < 2` as
+  #      `no-cycle-rollover-events` unevaluable.
+  # Two rollovers therefore close ONE cycle and RC-CYCLE compares nothing - exactly what
+  # the V14M sibling measured off this identical two-cycle shape (`clockEvents
+  # {cycle-rollover: 2}` -> `cycles 1` + `no-cycle-rollover-events: 1`). A THIRD entered
+  # cycle is the minimum that closes TWO, and closing two is what lets RC-CYCLE's
+  # isomorphism clause compare cycle 1's role structure against cycle 2's for the first
+  # time in the suite.
+  #
+  # THE CYCLE-3 ANCHOR IS DERIVED THE SAME WAY THE OTHER TWO WERE, and the derivation is
+  # already validated twice over: replaying `TryFindNextScheduleK`'s filter
+  # (CircularPhaseError(k*T_anchor, T_other) <= tol_other) with the throttle
+  # `ceil((L_last + span - ut0)/T_anchor)` reproduces k=13 -> 280,176.9473801677 and
+  # k=26 -> 560,319.4747603355 to the digit against the run's MEASURED anchors, and its
+  # k=26 residual 4347.54846243246 against the product's own `scheduleWorstResidual`.
+  # The same replay continues the header's faithful-k series 13, 26, 45, 58, 71:
+  #   throttleK = ceil((560,319.475 + 21,708.120 - 34.42)/21,549.425) = 28
+  #   first k >= 28 passing the Mun filter = **k = 45** (residual 3,166.503)
+  #   PREDICTED cycle-3 relaunchUt = 34.42 + 45*21,549.425183089825 = **969,758.553**
+  # and the same two offsets off that anchor:
+  #   cycle-3 seam = 969,758.553 + 16,370.562 = 986,129.115
+  #   cycle-3 park = 969,758.553 + 20,800     = 990,558.553
+  # RE-PIN THESE THE SAME WAY AS THE OTHER TWO: read cycle 3's `relaunchUt=` off the
+  # third `startloopplayback initiated:`. A mis-pin self-detects as
+  # `timejump refused reason=backward-jump`, which is FORBIDDEN below.
+  #
+  # STEP 6: "Warp to..." a THIRD time - the same real player action as steps 2 and 4.
+  # `StartLoopPlayback` rebuilds the unit and resolves `NextLaunchAfter(now)`; with `now`
+  # past cycle 2's park (581,119) the next scheduled launch is k=45. The press itself
+  # fast-forwards the clock onto that launch, which is the frame that emits rollover #3
+  # and CLOSES cycle 2.
+  { cmd = "StartLoopPlayback", args = { tree = "d18969d6121444c1a30e4a55ae87a442" }, expect = "OK", budget = 300 },
+  # CYCLE-3 ARRIVAL BRACKET, the same shape as cycles 1 and 2 about the predicted
+  # cycle-3 seam 986,129.115. It is NOT needed to close cycle 2 (the press above already
+  # did that) - it is here so cycle 3 carries the SAME instrument set as its two
+  # predecessors: the dwells it opens are what a future rollover #4 would close, and the
+  # forward clock motion is what closes cycle 2's own dwells so they land in the manifest
+  # as CLOSED records rather than in `openDwells` (RC-CYCLE's role structures are built
+  # from closed dwells only).
+  { cmd = "TimeJump", args = { ut = "985950" }, expect = "OK", budget = 300 },
+  { cmd = "TimeJump", args = { ut = "986070" }, expect = "OK", budget = 300 },
+  { cmd = "TimeJump", args = { ut = "986270" }, expect = "OK", budget = 300 },
+  # CYCLE-3 PARK EPOCH: the same +20,800 offset off the cycle-3 anchor, well inside the
+  # 21,708 s span. DELIBERATELY NOT FOLLOWED BY A THIRD `EnterWatchMode`: a watch attempt
+  # is a PINNED VERDICT bet (header section 4), and this block is an additive
+  # render-composition extension, not a new watch measurement. Adding one would put a
+  # third coin-toss verdict in a lane whose flown shape is otherwise untouched.
+  { cmd = "TimeJump", args = { ut = "990558" }, expect = "OK", budget = 300 },
+  # M-A7 RENDER-COMPOSITION CAPTURE (Phase 3). PLACEMENT IS THE WHOLE ARGUMENT and it is
+  # pinned by `test_every_declarer_exports_immediately_before_teardown`: the recorder
+  # accumulates from Awake, so the only thing placement decides is how much of this
+  # lane's observation is already inside the exported file. Here that is every one of the
+  # three cycles' arrival brackets, both park-epoch watch decisions and all three
+  # rollovers - and it is taken at a CHOSEN instant rather than provoked by the
+  # scene-exit auto-flush that follows `FlushAndQuit`.
+  # INERT by construction (`hlib.SEAM_VERB_TAIL_ROLE` = inert): it reads the recorder's
+  # in-memory accumulation and writes one file in the KSP root, touching no vessel, no
+  # save and no Parsek persisted state - so it cannot perturb the two save-structure
+  # blocks this lane already gates on.
+  { cmd = "ExportRenderManifest",                        expect = "OK", budget = 120 },
   { cmd = "FlushAndQuit",                                                    expect = "OK" },
 ]
 
@@ -628,11 +843,61 @@ forbidden = [
   "faithful-parity summary sampled=\\d+ overTolerance=[1-9][0-9]*",
 ]
 
+[expectations.renderComposition]
+# M-A7 Phase 3, DECLARED 2026-08-25. BARE ON PURPOSE - no `gating`, no window, no list.
+# Header section 6 carries the arming ledger (reading run PENDING) and the two-cycle
+# rationale; this block's only job today is to exist, because DECLARING it is what sets
+# `PARSEK_RENDER_MANIFEST=1` at launch and arms the C# recorder at Awake.
+#
+# WHY BARE RATHER THAN "A FEW SAFE WINDOWS": `rendercompose`'s own docstring says the
+# facets are "Recorded UNCONDITIONALLY on a parseable manifest: that is how a lane earns
+# its first honest window off a green report-only run". Declaring a window here would be
+# declaring a PREDICTION and then reading it back as though it were a measurement - the
+# same mistake this lane's section 5 posture note refuses for the save-structure blocks,
+# and the same reason V14M and V8 both shipped bare through their reading runs.
+#
+# WHAT THE FIRST ARMING PASS SHOULD LOOK AT, in order (all of it PENDING, none of it
+# declared):
+#   * `cycles` - the reason this lane grew a third cycle. PREDICTED 2 closed cycles off
+#     3 `cycle-rollover` events; a floor of `min = 2` is the anti-vacuity half worth
+#     arming here, because a run that closes fewer has stopped being the two-cycle
+#     dataset the extension exists to produce. It is also the one floor no other lane in
+#     the suite can carry today.
+#   * `dwells` - anti-vacuity floor plus a runaway ceiling, sized off the reading.
+#     PAIR IT WITH `cycles`, and read the reading run's per-window dwell membership
+#     before arming either. `_rule_cycle` builds each window's role structure from the
+#     CLOSED dwells whose MIDPOINT falls inside it, and compares with a plain
+#     `roles[a] == roles[b]` - so TWO EMPTY role sets compare EQUAL and the isomorphism
+#     clause says nothing at all. `_dominant_warp_bucket([])` also returns "", which
+#     drops a differing pair from the FAIL branch to the cross-bucket INFO one. Two
+#     closed cycles with no closed dwells in them would therefore satisfy a `cycles`
+#     floor while measuring nothing, which is exactly the shape the cycle-3 bracket
+#     exists to prevent (its forward clock motion is what CLOSES cycle 2's dwells) - but
+#     it is a reading to CONFIRM, not to assume.
+#   * `unevaluable` - a CEILING only, sized ~3x the reading (V14M's rationale: the census
+#     is dominated by `seam-endpoint-skipped`, which moves with frame timing rather than
+#     with correctness).
+#   * `requireSeamKinds` - this subject's Kerbin->Mun crossing should carry both a
+#     same-body `rigid` seam and a cross-SOI `flexible-soi` one, as V14M's Duna->Ike one
+#     does. Arm it only if the reading actually shows both.
+# NOT to be declared here, ever: `warpBuckets` (header section 6, last prediction).
+
 [runtime]
-# 300 LoadGame + 2x300 StartLoopPlayback + 8x300 TimeJump + the fast non-deferred verbs
-# (2 watch attempts at the 60 s default, 6 settings/recorder verbs) + KSP boot +
-# collect. Every jump is an instantaneous clock set, so the ~560 ks of game time costs
-# no wall clock; V4's comparable 16-step shape measured 79 s end to end.
+# 300 LoadGame + 3x300 StartLoopPlayback + 12x300 TimeJump + 120 ExportRenderManifest +
+# the fast non-deferred verbs (2 watch attempts at the 60 s default, 6 settings/recorder
+# verbs) + KSP boot + collect. Every jump is an instantaneous clock set, so the ~990 ks
+# of game time costs no wall clock; V4's comparable 16-step shape measured 79 s end to
+# end and THIS lane measured 54 s on its own 21-step reading run.
+#
+# UNCHANGED AT 2400 by the 2026-08-25 cycle-3 extension, with the arithmetic stated
+# rather than assumed. The five added steps are one `StartLoopPlayback` (a Planetarium
+# clock SET, not a rails warp), four `TimeJump`s (likewise instantaneous) and one
+# `ExportRenderManifest` (an in-memory read plus one file write in the KSP root). None
+# of them spends game time as wall time, so the expected cost is a few seconds of seam
+# round-trips on top of the measured 54 s - against a 2400 s budget that already carried
+# a 44x margin. The per-step budgets are ceilings, not addends: their sum has exceeded
+# `budgetSeconds` on this lane since it was written, and `hlib.validate_spec` imposes no
+# sum rule. Extend this number only if a flight actually approaches it.
 budgetSeconds = 2400
 
 [retry]

@@ -609,6 +609,35 @@ same numbering.
    pid-0 DWELLS, which by construction never exist - it was dead code, and the
    proto-less population would have red'd.)
 
+   **AMENDED 2026-08-25 by V6M's reading run (`2026-08-25_2056`): the FAIL
+   direction now carries one precondition - the publish surface must have run at
+   all.** V6M is the first lane in the suite whose Director ever opened a
+   TracedPath dwell, and it raised three RC-OWN FAILs (one per cycle, at the
+   arrival brackets) against a manifest with `ownershipChanges = 0`. The reading
+   is that the two halves of the contract DO NOT SHARE A GATE. The intent half
+   (`ShadowRenderDriver.RunFrame`, which stamps the TracedPath intent that both
+   the DWELL records and the stock line/icon suppression read) is driven from
+   `ParsekFlight`'s per-frame update and runs whether or not the map is open; the
+   publish half (`drewNonOrbitalLegRecordings` -> `NoteOwnershipPublish`) is
+   reached only at the END of the polyline Driver's `LateUpdate` walk, whose
+   second statement is `if (!MapView.MapIsEnabled) return;`. With the map closed
+   the ghost is drawn on no map surface at all, so a visible TracedPath dwell is
+   an INTENT record and not evidence of a draw: "a draw implies a publish" is not
+   unmet there, it is unasked. No command-seam verb opens the map view (there is
+   no `EnterMapView` command and no production path calls `MapView.EnterMapView`),
+   so EVERY manifest lane is in this state today - V24W measured
+   `ownershipChanges = 0` too and escaped only because it never opened a
+   TracedPath dwell. The discriminator is GLOBAL and stays deliberately narrow:
+   zero `OWNERSHIP_CHANGE` records ANYWHERE in the manifest stands the direction
+   down as the defined-unevaluable `ownership-publish-surface-never-ran`, while
+   ONE publish anywhere proves the walk ran past the map gate and every recording
+   that then lacks an ownership record keeps its FAIL (that is the
+   leg-that-never-draws defect the direction exists to catch). The
+   `falls outside every published ownership interval` clause is untouched - it
+   already requires that recording to have published. Retiring this precondition
+   needs a MAP-OPEN LANE, which needs a new command-seam verb (C# + a flown-shape
+   change), not a rule edit.
+
 6. **`seam-endpoint-outside-soi` HAS NOW FIRED LIVE, once, and prior-art gap 3's
    "has never fired" clause is retired.** First raise: run `2026-08-25_1502`
    (V24W reading flight 2, `harness/results/2026-08-25_1502_V24W-duna-one-warp-
