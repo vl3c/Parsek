@@ -285,8 +285,6 @@ D14 = ["scene-map"]
 allowedAnomalies = []
 
 [expectations.recordings]
-# A DERIVED RANGE, not a measurement - this fixture has never been through a harness
-# run. The floor is the anti-vacuity one: the subject is a committed Kerbin -> Duna
 # RE-PINNED OFF THE FIXTURE'S REAL BYTES (the V21 / V22M precedent). This window was
 # first written while `duna-one-recorded` did not yet exist, as a guess bracketing
 # nothing; the fixture landed the same day and MEASURES 1 RECORDING_TREE, 13 RECORDING
@@ -307,12 +305,24 @@ allowedAnomalies = []
 # THE FLOOR, 10, and it is deliberately BELOW the fixture's 13 rather than equal to
 # it - but NOT because anything here can auto-merge. That was this comment's first
 # draft, and it was traced and REFUTED against the fixture's own chain before the
-# reading run: `RecordingOptimizer.CanAutoMerge` considers ADJACENT pairs of one
-# chain (chain aff63064 has four members, three pairs), and every one of those
-# pairs crosses a phase boundary (surface/Kerbin -> exo/Kerbin -> atmo/Duna ->
-# surface/Duna); the only different-phase escape hatch is the EVA-identity merge,
-# which these vessel recordings cannot satisfy, and the other nine recordings
-# carry no chainId at all. So 13 is STABLE under auto-merge, and a sub-13 count on
+# reading run. `RecordingOptimizer.CanAutoMerge` considers ADJACENT PAIRS within one
+# chain (`a.ChainId == b.ChainId`, `b.ChainIndex == a.ChainIndex + 1`), so the
+# candidate population is pairs, NOT "the snapshot-less segments" - the head and the
+# tail are as involved as the rest. Chain aff63064eefd4ee0a099f5c57728bb55 has FOUR
+# members, hence THREE pairs, and this is the measured table:
+#
+#   idx 0  5d68d429  surface / Kerbin   evaCrewName ''
+#   idx 1  61e91771  exo     / Kerbin   evaCrewName ''
+#   idx 2  0b91670c  atmo    / Duna     evaCrewName ''
+#   idx 3  7609b87b  surface / Duna     evaCrewName ''
+#
+# Every pair crosses a phase boundary, so `samePhase` is false at all three, and the
+# only different-phase escape hatch - `CanMergeContinuousEvaAtmoSurfaceBoundary` -
+# opens with `HasSameEvaIdentity`, which needs `IsEvaRecording` on BOTH sides, i.e. a
+# non-empty `EvaCrewName` (`RecordingOptimizer.cs:2011-2039`). All four are VESSEL
+# recordings with an empty one, so the hatch is closed on every pair. The other NINE
+# recordings carry no `chainId` at all, and `CanAutoMerge` rejects an empty `ChainId`
+# outright. So 13 is STABLE under auto-merge, and a sub-13 count on
 # a run of this fixture is a REAL finding (a recording lost or merged illegally),
 # not a benign optimizer outcome. 10 is margin for the UNKNOWN - this is the first
 # flight of a free-play-harvested fixture - while keeping the anti-vacuity half
