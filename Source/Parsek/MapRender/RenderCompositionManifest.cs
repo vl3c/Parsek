@@ -1,4 +1,4 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using System.Globalization;
 
 namespace Parsek.MapRender
@@ -63,6 +63,31 @@ namespace Parsek.MapRender
         // rest, so the count is never silently lost and the list never grows past this + 1.
         internal const int MaxTruncationRecords = 512;
 
+        // ---- SEAM_ENDPOINT decimation (free-play volume). A HARNESS flight is minutes long and
+        // never reaches the seam bounds; a FREE-PLAY session is hours long and reaches them early,
+        // after which the per-pid cap is a hard cliff - every seam endpoint from that instant to
+        // scene exit is dropped, so the section covers the START of the session and says nothing
+        // about the rest. (The first free-play ground-truth manifest, .scout/s15-duna-manifest.txt,
+        // shipped 1024 admitted endpoints against 28 985 dropped: 3% of the session, all of it at
+        // the front.) Above the threshold the family therefore DECIMATES instead: one offer in
+        // <see cref="SeamEndpointDecimationKeepEveryNth"/> is still admitted, so the record set keeps
+        // spanning the whole session at a coarser rate and a trend stays readable.
+        //
+        // The caps above remain the FINAL bound - decimation only changes WHICH offers reach them,
+        // never how many records the file can hold. Decimated drops are counted like any other drop,
+        // under their own TRUNCATED kind so a reader can tell a thinned section (trend intact, rate
+        // reduced) from a truncated one (nothing at all past a cliff).
+        internal const int SeamEndpointDecimationKeepEveryNth = 8;
+
+        /// <summary>Per-pid seam-endpoint OFFERS above which the family starts keeping 1-in-N. Half
+        /// the per-pid cap, so the fine-grained head of a session is preserved whole.</summary>
+        internal const int SeamEndpointDecimationThreshold = MaxSeamRecordsPerPid / 2;
+
+        /// <summary>TRUNCATED kind for a seam endpoint dropped by DECIMATION rather than by a cap.
+        /// Distinct from <see cref="SeamEndpointKind"/> on purpose: the two say different things
+        /// about what survived.</summary>
+        internal const string SeamEndpointDecimatedKind = "seam-endpoint-decimated";
+
         /// <summary>Appended to a section token when the GLOBAL cap dropped the record.</summary>
         internal const string GlobalSectionSuffix = ":global";
 
@@ -100,6 +125,8 @@ namespace Parsek.MapRender
         private readonly List<SeamTangentRecord> seamTangents = new List<SeamTangentRecord>();
         private readonly List<SeamEndpointRecord> seamEndpoints = new List<SeamEndpointRecord>();
         private readonly Dictionary<uint, int> seamCountByPid = new Dictionary<uint, int>();
+        private readonly Dictionary<uint, int> seamEndpointOffersByPid = new Dictionary<uint, int>();
+        private readonly Dictionary<uint, int> seamEndpointKeptByPid = new Dictionary<uint, int>();
         private readonly List<ClockEventRecord> clockEvents = new List<ClockEventRecord>();
         private readonly Dictionary<string, bool> clockEventSeen = new Dictionary<string, bool>();
         private readonly List<LineBranchRecord> lineBranches = new List<LineBranchRecord>();
@@ -154,6 +181,8 @@ namespace Parsek.MapRender
             seamTangents.Clear();
             seamEndpoints.Clear();
             seamCountByPid.Clear();
+            seamEndpointOffersByPid.Clear();
+            seamEndpointKeptByPid.Clear();
             clockEvents.Clear();
             clockEventSeen.Clear();
             lineBranches.Clear();
@@ -579,8 +608,67 @@ namespace Parsek.MapRender
         /// <see cref="AddAdmittedSeamEndpoint"/>; a <c>false</c> is already counted and must be dropped.
         /// </summary>
         internal bool TryAdmitSeamRecord(uint pid, string section, string kind)
-            => TryAdmit(section, pid, kind, seamTangents.Count + seamEndpoints.Count,
+        {
+            if (!TryPassSeamEndpointDecimation(pid, section))
+                return false;
+            bool admitted = TryAdmit(section, pid, kind, seamTangents.Count + seamEndpoints.Count,
                 MaxSeamRecordsTotal, seamCountByPid, MaxSeamRecordsPerPid);
+            if (admitted && section == SeamEndpointSection)
+            {
+                int kept;
+                seamEndpointKeptByPid.TryGetValue(pid, out kept);
+                seamEndpointKeptByPid[pid] = kept + 1;
+            }
+            return admitted;
+        }
+
+        /// <summary>
+        /// The SEAM_ENDPOINT thinning gate, run BEFORE the caps so the caps stay the final bound.
+        ///
+        /// <para>Counts OFFERS, not accepts: the whole point is to spread the admissions the caps will
+        /// allow across the whole session, and an accept-keyed rate would stall the moment the cap
+        /// bites and reproduce the cliff it exists to remove. Below
+        /// <see cref="SeamEndpointDecimationThreshold"/> offers for this pid nothing changes at all -
+        /// a harness-length flight never reaches it, so its manifests are byte-identical. Above it,
+        /// one offer in <see cref="SeamEndpointDecimationKeepEveryNth"/> continues to the caps and the
+        /// rest are dropped and COUNTED under <see cref="SeamEndpointDecimatedKind"/>.</para>
+        ///
+        /// <para>Non-endpoint seam records (SEAM_TANGENT) pass straight through: they share the seam
+        /// caps but not the volume problem, and thinning a family by a sibling's rate would drop
+        /// evidence nobody measured a surplus of.</para>
+        /// </summary>
+        private bool TryPassSeamEndpointDecimation(uint pid, string section)
+        {
+            if (section != SeamEndpointSection)
+                return true;
+            int offers;
+            seamEndpointOffersByPid.TryGetValue(pid, out offers);
+            offers++;
+            seamEndpointOffersByPid[pid] = offers;
+            if (offers <= SeamEndpointDecimationThreshold)
+                return true;
+            if (offers % SeamEndpointDecimationKeepEveryNth == 0)
+                return true;
+            CountTruncation(SeamEndpointSection, pid, SeamEndpointDecimatedKind);
+            return false;
+        }
+
+        /// <summary>Seam endpoints ADMITTED for one pid (the kept half of the decimation counters;
+        /// the dropped half is the TRUNCATED row's droppedCount). Test/diagnostic read.</summary>
+        internal int SeamEndpointsKeptForPid(uint pid)
+        {
+            int kept;
+            seamEndpointKeptByPid.TryGetValue(pid, out kept);
+            return kept;
+        }
+
+        /// <summary>Seam endpoints OFFERED for one pid, decimated drops included. Test/diagnostic read.</summary>
+        internal int SeamEndpointsOfferedForPid(uint pid)
+        {
+            int offers;
+            seamEndpointOffersByPid.TryGetValue(pid, out offers);
+            return offers;
+        }
 
         /// <summary>Phase two of <see cref="TryAdmitSeamRecord"/>; never call without an admit.</summary>
         internal void AddAdmittedSeamTangent(SeamTangentRecord rec)

@@ -1586,6 +1586,43 @@ def decompress_span_ut(c: float, cuts: Sequence[LoiterCut]) -> float:
     return t
 
 
+def arrival_hold_frozen_loop_ut(span_start_ut: float, arrival_hold_at_ut: float,
+                                cuts: Sequence[LoiterCut]) -> float:
+    """The loopUT the render clock STANDS STILL AT while the planned arrival hold
+    runs - the position half of the hold prediction, next to its duration.
+
+    Composition, read off the C# span clock (``SpanClock.cs:1040``, ``:1713-1749``;
+    transcribed in ``.scout/plan-surface.md`` 5.2(b)). The arrival hold is applied
+    to the phase LAST, by ``apply_hold_to_phase(phase, hold_phase_pos, hold)``,
+    whose middle branch collapses every phase in ``(pos, pos + hold]`` onto ``pos``
+    - that collapse IS the freeze. With
+    ``hold_phase_pos = compress_span_ut(arrivalHoldAtUT, cuts) - spanStartUT`` and
+    ``loopUT = decompress_span_ut(spanStartUT + cutPhase, cuts)``, the frozen value
+    is therefore ``decompress_span_ut(spanStartUT + hold_phase_pos, cuts)``.
+
+    Two things this deliberately is NOT:
+
+    - it is NOT plain ``arrivalHoldAtUT``. The compress/decompress round trip is
+      the identity only when the hold instant sits at or past the END of every cut
+      before it (the ordinary case, and the one the s15 free-play manifest shows).
+      An instant INSIDE a compressed-away loiter run maps to that run's start and
+      re-inflates to its FAR side, so the raw instant would name a loopUT the clock
+      never freezes at;
+    - it does NOT depend on the launch borrow/repay. That is a SEPARATE
+      ``apply_hold_to_phase`` applied FIRST, at ``soi_exit_phase_pos``, which
+      freezes the clock somewhere else entirely - which is exactly why the frozen
+      position discriminates the two stalls.
+
+    NaN in, NaN out: an absent ``arrivalHoldAtUT`` makes the position unknowable
+    rather than zero."""
+    if not _finite(span_start_ut) or not _finite(arrival_hold_at_ut):
+        return NAN
+    hold_phase_pos = compress_span_ut(arrival_hold_at_ut, cuts) - span_start_ut
+    if not _finite(hold_phase_pos):
+        return NAN
+    return decompress_span_ut(span_start_ut + hold_phase_pos, cuts)
+
+
 def joint_entry_offset(phase_anchor_ut: float, arrival_hold_at_ut: float,
                        span_start_ut: float, cuts: Sequence[LoiterCut]) -> float:
     """``entry_offset0`` for the joint solve (SpanClock.cs:809-810, :1423-1424)."""
@@ -1843,6 +1880,15 @@ UNEVAL_HOLD_RELEASE_ABSENT = "hold-release-absent-below-resolution"
 # the rule does not attribute are COUNTED here rather than compared against a
 # prediction that was never about them.
 UNEVAL_HOLD_RUN_UNATTRIBUTED = "hold-run-not-attributable-to-planned-hold"
+# A hold-engage the manifest never releases. The ordinary cause is benign and
+# common in FREE PLAY: the run was still open when the scene exited (the s15
+# ground-truth manifest ends mid-hold, exportReason=scene-exit), or the release
+# frame was warped clean over. It is NOT a lost half of the pair the way a
+# release with no engage is - a release is only ever emitted BY a run the
+# detector already engaged, whereas an engage is emitted the moment the stall
+# crosses its threshold and owes nothing yet. There is no measured duration, so
+# there is nothing to compare: counted, never a FAIL.
+UNEVAL_HOLD_ENGAGED_NEVER_RELEASED = "hold-engaged-never-released"
 # A hold RUN observed on a unit whose plan carries no hold at all (no
 # arrivalHoldSeconds, no launch hold). There is no prediction to compare it
 # against, so it cannot be judged - but it also must not vanish: the clock DID
@@ -1878,6 +1924,7 @@ UNEVALUABLE_REASONS: Tuple[str, ...] = (
     UNEVAL_NO_DWELLS_FOR_UNIT, UNEVAL_REAIM_INSTANT_ABSENT, UNEVAL_SEAM_SKIPPED,
     UNEVAL_HOLD_EVIDENCE_ABSENT, UNEVAL_HOLD_PRIMITIVES_ABSENT,
     UNEVAL_HOLD_RELEASE_ABSENT, UNEVAL_HOLD_RUN_UNATTRIBUTED,
+    UNEVAL_HOLD_ENGAGED_NEVER_RELEASED,
     UNEVAL_HOLD_OBSERVED_WITHOUT_PLAN,
     UNEVAL_CUT_PERIOD_ABSENT, UNEVAL_CUT_CONTAINMENT,
     UNEVAL_DESCENT_PRIMITIVES_ABSENT, UNEVAL_DESCENT_HEAD_ABSENT,
@@ -1902,6 +1949,25 @@ TRUNCATED_ALL_SECTION = "ALL" + TRUNCATED_GLOBAL_SUFFIX
 TRUNCATED_OVERFLOW_SECTION = "TRUNCATED" + TRUNCATED_GLOBAL_SUFFIX
 TRUNCATED_OVERFLOW_KIND = "distinct-key-overflow"
 TRUNCATED_CLOCK_EVENT_DEDUPE = "CLOCK_EVENT:dedupe-exhausted"
+
+# DECIMATION kinds. A decimated drop is a TRUNCATED row like any other - records
+# ARE missing, and every rule that asks "is this section complete?" must still get
+# "no" - but it is a DIFFERENT statement from a cap drop and the ledger says so.
+# A cap drop is a CLIFF: everything past one instant is gone, so the section
+# describes the head of the session and is silent about the rest. A decimated drop
+# is a THINNING: the survivors still span the whole session at a coarser rate, so
+# a trend is readable where a cliff would leave none.
+#
+# `RenderCompositionManifest.SeamEndpointDecimatedKind` is the only one so far,
+# and the kind - not the section - is the discriminator, so a future family that
+# thins reuses this machinery by naming its kind here.
+TRUNCATED_DECIMATED_KINDS: Tuple[str, ...] = ("seam-endpoint-decimated",)
+UNEVAL_DECIMATED = "decimated-section"
+
+
+def truncation_is_decimation(kind: str) -> bool:
+    """A TRUNCATED row that thinned its section rather than cutting it off."""
+    return (kind or "") in TRUNCATED_DECIMATED_KINDS
 
 
 class _Ctx:
@@ -2706,42 +2772,94 @@ def _hold_leg_2(ctx: _Ctx, unit: PlanUnit, w0: float, t_align: float,
     ordinal 0 and ordinal 1. Pairing on the cycle alone would match the second
     release to the first engage and compare the wrong two instants.
 
-    ATTRIBUTION, and why the numeric comparison is not simply per-release: the
-    plan predicts ONE arrival hold per cycle, inserted once at one compressed
-    position. Several stationary runs in a cycle are therefore not several
-    arrival holds - the extras are a loiter stall, a Director hold across an
-    interior gap, a stall resumed after a warp change - and the plan primitives
-    say nothing about them. So exactly one run per cycle is compared (the
-    LONGEST, the only candidate the single prediction can be about) and every
-    other run is counted ``hold-run-not-attributable-to-planned-hold``.
+    ATTRIBUTION BY FROZEN POSITION, and why the numeric comparison is not simply
+    per-release: the plan predicts ONE arrival hold per cycle, inserted once at
+    ONE compressed position. Several stationary runs in a cycle are therefore not
+    several arrival holds - the extras are the launch borrow/repay freeze, a
+    loiter stall, a Director hold across an interior gap, a stall resumed after a
+    warp change - and the plan primitives say nothing about their durations.
 
-    Picking the longest cannot hide a defect, which is the direction that
-    matters: if the clock froze longer than planned the longest run is the one
-    compared and it reds; if the planned hold never happened, the longest of the
-    short runs is compared against the large expected value and it reds. What it
-    refuses to do is red a LEGAL multi-stall cycle for carrying a second run the
-    plan never described. The STRUCTURAL clauses (ordinal shape, missing engage,
-    engage-after-release, negative duration) run on EVERY release regardless -
-    they are defects in the record, not questions about attribution."""
+    Both hold events carry the run's frozen loopUT in ``detailB``
+    (``RenderCompositionRecorder.ObserveUnitHoldRun``: ``StallStartLoopUT`` on the
+    engage AND the release), and the plan says exactly where the arrival hold
+    freezes the clock - ``arrival_hold_frozen_loop_ut``. That turns attribution
+    into a MEASUREMENT instead of a guess: a release is attributable to the
+    planned arrival hold only when its frozen loopUT sits within
+    ``max(2 s, 2 x the local warp step)`` of the predicted one, and only
+    attributable releases are compared. Everything else is counted
+    ``hold-run-not-attributable-to-planned-hold``.
+
+    That correction is the one the first free-play ground-truth manifest forced.
+    The old rule compared the LONGEST release per cycle, which on a real session
+    picked a 12.3 s launch-repay stall (frozen at the span END) out of a cycle
+    whose actual arrival hold had engaged and was still open at scene exit, and
+    red it against a 53 299 s prediction - a FAIL manufactured entirely by
+    attributing one mechanism's stall to another mechanism's number. With
+    positions compared, that stall is 65 586 s away from where the arrival hold
+    freezes and is simply not the run the prediction is about.
+
+    Longest-per-cycle survives WITHIN the attributable set, for the reason it
+    always had: if two runs both freeze at the arrival-hold position the single
+    prediction can only be about one of them, and picking the longest cannot hide
+    a defect in the direction that matters (a clock frozen longer than planned is
+    the one compared; a planned hold that never happened is compared against its
+    large expected value and reds either way).
+
+    FALLBACK, so a schema-poor manifest does not silently stop being checked:
+    when the plan cannot say where the hold freezes (no ``arrivalHoldAtUT``) or
+    NO release on the unit carries a frozen position at all, attribution is
+    undecidable and the rule falls back to the pre-calibration longest-per-cycle
+    pick. A release missing ``detailB`` on a unit where others carry it is not
+    attributable - the evidence exists and this run does not have it.
+
+    The STRUCTURAL clauses (ordinal shape, missing engage, engage-after-release,
+    negative duration) run on EVERY release regardless - they are defects in the
+    record, not questions about attribution. An ENGAGE with no release is neither:
+    it is counted ``hold-engaged-never-released``."""
     snap = ctx.snap
     engages = [e for e in snap.clock_events
                if e.kind == CLOCK_HOLD_ENGAGE and e.owner_index == unit.owner_index]
     releases = [e for e in snap.clock_events
                 if e.kind == CLOCK_HOLD_RELEASE and e.owner_index == unit.owner_index]
-    if not releases:
-        # An engage with no release is a DIFFERENT statement from no hold at all:
-        # the run was still open at export, or its release frame was warped over.
-        ctx.uneval(UNEVAL_HOLD_RELEASE_ABSENT if engages
-                   else UNEVAL_HOLD_EVIDENCE_ABSENT)
-        return
     engage_by_run = {}
     for eng in engages:
         engage_by_run.setdefault((eng.cycle_index, _hold_run_ordinal(eng)), eng)
-    # The one comparable run per cycle: longest measured stall wins, ties broken
-    # by the lowest ordinal so the choice is deterministic across runs.
+    if not releases:
+        # An engage with no release is a DIFFERENT statement from no hold at all:
+        # the run was still open at export, or its release frame was warped over.
+        # NOTE this is also why the per-run `hold-engaged-never-released` count
+        # below sits AFTER this return rather than before it: with NO release on
+        # the unit at all, `hold-release-absent-below-resolution` already says
+        # exactly that, and counting both would ledger one fact twice.
+        ctx.uneval(UNEVAL_HOLD_RELEASE_ABSENT if engages
+                   else UNEVAL_HOLD_EVIDENCE_ABSENT)
+        return
+    released_runs = {(e.cycle_index, _hold_run_ordinal(e)) for e in releases}
+    for key in engage_by_run:
+        if key not in released_runs:
+            ctx.uneval(UNEVAL_HOLD_ENGAGED_NEVER_RELEASED)
+    expected_frozen = arrival_hold_frozen_loop_ut(
+        unit.span_start_ut, unit.arrival_hold_at_ut, unit.loiter_cuts)
+    attribution_possible = _finite(expected_frozen) and any(
+        _finite(e.detail_b) for e in releases)
+    attributable: Dict[Any, bool] = {}
+    for e in releases:
+        if not attribution_possible:
+            attributable[id(e)] = True
+            continue
+        if not _finite(e.detail_b):
+            attributable[id(e)] = False
+            continue
+        attributable[id(e)] = abs(e.detail_b - expected_frozen) <= \
+            _hold_observed_tolerance(ctx, unit, e.ut)
+    # The one comparable run per cycle, chosen among the ATTRIBUTABLE releases:
+    # longest measured stall wins, ties broken by the lowest ordinal so the choice
+    # is deterministic across runs.
     compared: Dict[Any, Any] = {}
     for e in releases:
         if e.cycle_index is None or not _finite(e.detail_c):
+            continue
+        if not attributable[id(e)]:
             continue
         best = compared.get(e.cycle_index)
         if best is None:
@@ -2790,8 +2908,12 @@ def _hold_leg_2(ctx: _Ctx, unit: PlanUnit, w0: float, t_align: float,
             ctx.add(RULE_HOLD, LEVEL_FAIL, label,
                     "observed held duration %.9g s is negative" % observed)
         if compared.get(e.cycle_index) is not e:
-            # A legal extra stall in this cycle. Counted, never compared against
-            # a prediction that was about a different run.
+            # Either the run froze the clock somewhere the planned arrival hold
+            # does not (a launch repay, a loiter stall, a Director interior-gap
+            # hold), or it is a legal extra run at the SAME position in a cycle
+            # whose single prediction another run already claimed. Both are
+            # counted and neither is compared against a prediction that was about
+            # a different run.
             ctx.uneval(UNEVAL_HOLD_RUN_UNATTRIBUTED)
             continue
         raw = resolve_per_loop_arrival_hold(w0, int(e.cycle_index),
@@ -3520,6 +3642,27 @@ def _rule_qual(ctx: _Ctx) -> None:
         ctx.add(RULE_QUAL, LEVEL_INFO, "descent.siteRotationResidual",
                 "descent site rotation residual max %.9g deg over %d event(s)"
                 % (max(residuals), len(residuals)))
+    # DECIMATION trend row. A section the writer THINNED still spans the whole
+    # session, so the trend it feeds is readable at a coarser rate - which is
+    # exactly what a reader needs told apart from a section that hit a cap and
+    # went silent partway through. Kept vs dropped is the readable form of "how
+    # coarse": the kept side is what the file carries, the dropped side is what
+    # the thinning removed to buy the span.
+    decimated: Dict[str, int] = {}
+    for t in ctx.snap.truncated:
+        if not truncation_is_decimation(t.kind):
+            continue
+        section = t.section or "unnamed"
+        decimated[section] = decimated.get(section, 0) + int(t.dropped_count or 0)
+    m["decimatedDropsBySection"] = decimated
+    for section in sorted(decimated):
+        kept = len(ctx.snap.seam_endpoints) if section == "SEAM_ENDPOINT" else None
+        ctx.add(RULE_QUAL, LEVEL_INFO, "decimation.%s" % section,
+                "section thinned rather than cut off: %d record(s) dropped by "
+                "decimation%s; the kept records still span the session, so the "
+                "trend is readable at a coarser rate"
+                % (decimated[section],
+                   "" if kept is None else ", %d kept" % kept))
 
 
 # --- RC-UNKNOWN -------------------------------------------------------------
@@ -3546,8 +3689,12 @@ def _rule_unknown(ctx: _Ctx) -> None:
     for unit in snap.units:
         ctx.unknown_token("%s.host" % _unit_label(unit), "host", unit.host, HOSTS)
     for t in snap.truncated:
-        ctx.uneval("%s-%s" % (UNEVAL_TRUNCATED,
-                              (t.section or "unnamed").lower()),
+        # A thinned section and a cut-off one both drop records, and both are
+        # counted - but under DIFFERENT reasons, because they say different things
+        # about what survived. See TRUNCATED_DECIMATED_KINDS.
+        prefix = UNEVAL_DECIMATED if truncation_is_decimation(t.kind) \
+            else UNEVAL_TRUNCATED
+        ctx.uneval("%s-%s" % (prefix, (t.section or "unnamed").lower()),
                    int(t.dropped_count or 1))
 
 
@@ -3889,6 +4036,12 @@ def observed_composition_facets(
             "anomalyEchoes": _echo_census(snapshot.anomaly_echoes),
             "truncatedSections": sorted({t.section for t in snapshot.truncated
                                          if t.section}),
+            # The thinned subset, reported SEPARATELY rather than folded into the
+            # line above: a section can appear in both (thinned first, then capped)
+            # and collapsing them would hide which of the two a reader is looking
+            # at. Section -> records dropped by decimation.
+            "decimatedSections": dict(sorted(
+                (metrics.get("decimatedDropsBySection") or {}).items())),
             "treatments": treatments,
             "coverages": coverages,
             # Rule outcome census + the defined-unevaluable ledger. A clause the
