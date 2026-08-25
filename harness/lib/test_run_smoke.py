@@ -676,6 +676,34 @@ class FakeKspSmokeTests(unittest.TestCase):
             persisted = json.load(fh)
         self.assertEqual(rc, persisted["verifiers"]["renderCompose"])
 
+    def test_the_row_records_which_block_it_evaluated(self):
+        """The run JSON must say WHAT was asserted, not only that something was.
+
+        Provenance: run `2026-08-25_1811` armed a negative control by substring-
+        replacing the V24W spec's `warpBuckets` line; the spec quotes that literal
+        in two rationale COMMENTS ahead of the real key, the replace hit a
+        comment, and the flight evaluated the UNINVERTED block. The PASS was
+        correct - but the run's own artifacts recorded only the block's NAME, so
+        "the control was refuted" and "the control never loaded" looked
+        identical on disk, and settling it took an offline replay across every
+        committed version of the rule module. A control whose result cannot say
+        what it asserted is not a control."""
+        block = {"gating": True, "warpBuckets": ["warpHigh"], "dwells": {"min": 1}}
+        result, _rt = self._run_render_compose(block=block)
+        rc = result["verifiers"]["renderCompose"]
+        self.assertEqual(block, rc["declared"])
+        self.assertEqual(["renderComposition"], rc["armedBlocks"])
+        # It rides into results/<runId>.json - the durable home - and is
+        # JSON-round-trip stable (no tuples, no NaN).
+        with open(os.path.join(run.RESULTS_DIR, "%s.json" % result["runId"]),
+                  "r", encoding="utf-8") as fh:
+            persisted = json.load(fh)
+        self.assertEqual(block, persisted["verifiers"]["renderCompose"]["declared"])
+        # A spec declaring nothing records None, never {}: absent is not "declared
+        # nothing", the same rule the facets follow.
+        plain, _rt = self._run("pass")
+        self.assertIsNone(plain["verifiers"]["renderCompose"]["declared"])
+
     def test_declared_block_with_no_manifest_is_a_defined_mismatch_not_a_pass(self):
         """Leg (b): the absent-artifact-is-a-defined-mismatch rule. A spec that
         DECLARED the block booted with the recorder armed, so no manifest means the
@@ -3681,8 +3709,35 @@ class DryRunPlanVerifierEnumerationTests(unittest.TestCase):
         """SYNTHETIC, and must stay so: every committed declarer is now ARMED."""
         line = self._render({"id": "SYNTH-rc-declared", "driver": {"steps": []},
                              "expectations": {"renderComposition": {"dwells": {"min": 1}}}})
-        self.assertIn("renderCompose(report-only: renderComposition)", line)
+        self.assertIn("renderCompose(report-only: renderComposition", line)
         self.assertNotIn("render-composition", line)
+
+    def test_the_plan_prints_the_declared_assertions_not_just_the_block_name(self):
+        # The pre-flight read that settles "is my negative control actually
+        # loaded?" BEFORE the machine lock. Run `2026-08-25_1811` armed a control
+        # by substring-replacing the spec's `warpBuckets` line, hit a rationale
+        # COMMENT quoting the same literal ahead of the real key, and flew the
+        # UNINVERTED block for 48 minutes; the block's NAME reads identically
+        # either way, so only the key/values can tell the two apart.
+        armed = self._render(
+            {"id": "SYNTH-rc-values", "driver": {"steps": []},
+             "expectations": {"renderComposition": {
+                 "gating": True, "warpBuckets": ["warpHigh"]}}})
+        self.assertIn("declared:", armed)
+        self.assertIn("warpHigh", armed)
+        # The inversion is VISIBLE: two armed blocks naming the same block render
+        # differently, which is the whole point of printing the values.
+        uninverted = self._render(
+            {"id": "SYNTH-rc-values", "driver": {"steps": []},
+             "expectations": {"renderComposition": {
+                 "gating": True, "warpBuckets": ["warp100", "warp1000"]}}})
+        self.assertNotEqual(armed, uninverted)
+        self.assertNotIn("warpHigh", uninverted)
+        # Report-only blocks print theirs too; an undeclared spec prints none.
+        self.assertIn("declared:", self._render(
+            {"id": "SYNTH-rc-values2", "driver": {"steps": []},
+             "expectations": {"renderComposition": {"dwells": {"min": 1}}}}))
+        self.assertNotIn("declared:", self._plan("B1-pad-hop"))
 
     def test_an_armed_render_composition_block_renders_differently_from_declared(self):
         declared_only = {"id": "SYNTH-rc-a", "driver": {"steps": []},

@@ -5510,14 +5510,18 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         "V8T-eve-ts-arrival.toml":          "FLOWN GREEN 2026-08-11 (reading _0835 a1 INVALID on the TS-LOADGAME-RECORDING-ACTIVE-RACE, sighting 3, filed; _0836 a2 PASS clean; armed _0843 PASS attempt 1, gating=True mismatches=0; control shared with V8's _0830). First TS observation of a looped inward-transfer arrival: Eve-framed inbound materialized (created 1 ghost vessel(s), body=Eve TS token gates the D14 eve claim), factory reaimed=False (V5's Duna pin inverted - the tilt-declined faithful-window shape), census structural zero told from blindness, and the parity pair V5 omitted carried here. Surfaced + filed TS-FLUSHED-SAVE-DROPS-DEBRIS-TERMINALSTATE (byte-verified). FIX ERA (2026-08-11): the tilt-retention fix flipped the TS chain to genuinely re-aimed (baseline _1247 red on the reaimed=False pin; live reaimed=True phases=11); re-pinned to reaimed=True with fallback tokens forbidden (readings _1252/_1253). Operator tier is calibration discipline, not debt",
         "V8F-eve-loop-faithful.toml":       "FLOWN GREEN 2026-08-11 (iteration 1 PARSEK-FAIL on the author's own unescaped-parens regex, fixed; then two consecutive PASS runs with the five-raise set reproducing (four of five ratios to four decimals, the fifth 1 ulp: 138.2108/138.2109); armed same day, control shared with V8's _0830). The deliberate-faithful A/B half: FORCED FAITHFUL required + ENGAGED forbidden, the forced unit measured SELF-OVERLAPPING (overlapCadence = span/20, where the ENGAGED unit reads overlaps=no), and the hlib promotion blocker (2) population measured and PINNED - the first outsideSoi=[1-9] census pin, four per-instance Sun->Eve arrival raises (52.70-203.20) plus a Kerbin->Mun transit-seam raise (4.80). Calibration fact filed: benign ratios straddle V8's 4.6216 defect reading, so ratio cannot separate the classes. FIX ERA (2026-08-11): confirmed BYTE-IDENTICAL on the tilt-retention-fixed DLL (_1250 PASS - forced faithful bypasses the synth, the knob isolation held). Operator tier is calibration discipline, not debt",
         # The M-A7 RC-WARP lane, operator by the SAME calibration discipline as
-        # V1/V2/V3: it has never flown, its first flight is a deliberately
-        # under-gated REPORT-ONLY reading run, and its most likely red
-        # (`icon-teleport` under a rails histogram, the token the first free-play
-        # ground-truth session raised 95 times on a render the operator called
-        # visually correct) is EVIDENCE rather than debt - which is why its
-        # `allowedAnomalies` is empty on purpose. Nothing here is a human call
-        # somebody has forgotten; the arming call simply does not exist yet.
-        "V24W-duna-one-warp-stair.toml":    "operator by the calibration discipline (V1/V2 precedent); AUTHORED 2026-08-25; readings 1415 (empty, root-caused) and 1502 (full measurement, doctrine anomaly red) flown; clean reading + arming pending and nothing armed. It is the RC-WARP lane - the last M-A7 Phase-3 debt - and the only spec in the suite entitled to declare `warpBuckets`, which it deliberately does not until a reading run measures the histogram it would be written from. Promotion past operator is not on the table before the three-run arming workflow it owes",
+        # V1/V2/V3: its first flights were deliberately under-gated REPORT-ONLY
+        # reading runs, and its most likely red (`icon-teleport` under a rails
+        # histogram, the token the first free-play ground-truth session raised 95
+        # times on a render the operator called visually correct) was EVIDENCE
+        # rather than debt - which is why its `allowedAnomalies` shipped empty on
+        # purpose and why the red it drew is a discharge rather than a defect.
+        # The arming call has now been TAKEN (2026-08-25, off the matching
+        # _1502/_1616 pair) AND the discipline is COMPLETE the same day: armed
+        # re-flight (twice) plus negative control. What is left on this lane is the
+        # ordinary operator -> nightly PROMOTION call, a cadence decision for a
+        # human and not a review debt.
+        "V24W-duna-one-warp-stair.toml":    "operator by the calibration discipline (V1/V2 precedent); AUTHORED and ARMED 2026-08-25; readings 1415 (empty, root-caused), 1502 (full measurement, doctrine anomaly red) and 1616 (clean PASS re-fly, anomaly counts identical 65/2/2, every composition facet equal and the histogram within 0.5 % bucket for bucket) flown. ARMED off the matching 1502+1616 PAIR - a histogram read once is a sample - with dwells {1,32}, unevaluable {max 500000}, requireSeamKinds [rigid, flexible-soi] and the suite's FIRST warpBuckets [warp100, warp1000], the key no other subject may ever declare (their clocks are instantaneous TimeJumps, 1x-only by construction). It is the RC-WARP lane and the last M-A7 Phase-3 debt, and that debt is now DISCHARGED IN FULL - the arming closed its measurement half and the discipline closed the rest. THE DISCIPLINE IS COMPLETE ACROSS SIX FLIGHTS: armed re-flight 1722 (PASS attempt 1, gating=True, zero mismatches) plus 1811, which was flown as the control, never armed (a substring edit hit a rationale comment quoting the same key) and therefore counts as a SECOND armed re-flight (PASS attempt 1, zero mismatches); then the genuine negative control 1925, PARSEK-FAIL(render-composition) attempt 1 on the single mismatch `RC-WARP [FAIL] warpBuckets.warpHigh` with every sibling verifier row clean and the run JSON's new `declared` field recording warpBuckets ['warpHigh'] - the audit fix proving its own control - reverted in the same change. Anomaly counts 65/2/2 to the integer on all four full PASS flights (66/2/2 on the control). Promotion past operator is now an open cadence call, not debt",
     }
 
     def _specs(self):
@@ -6128,8 +6132,11 @@ class RenderComposeVerifierWiringTests(unittest.TestCase):
     # convention: name the READING run that the windows were authored from, then
     # the ARMED RE-FLIGHT and the NEGATIVE CONTROL that discharge the three-run
     # workflow (filled in the commit that flies them, not before). A spec joining
-    # this set needs its edit here in the same commit that arms it. BOTH ENTRIES
-    # BELOW ARE DISCHARGED as of 2026-08-25 - all six runs flew that day.
+    # this set needs its edit here in the same commit that arms it. ALL THREE
+    # ENTRIES BELOW ARE DISCHARGED as of 2026-08-25 - the first two flew their six
+    # runs that day, and V24W closed its own discipline the same day across SIX
+    # flights (three readings, two armed re-flights, one negative control), the
+    # second re-flight being a control attempt that never armed.
     RENDERCOMPOSE_ARMED_SPECS = {
         # V14M: ARMED 2026-08-25 off its OWN report-only reading run
         # `2026-08-25_0953` (PASS attempt 1, `renderCompose status=REPORT
@@ -6199,6 +6206,85 @@ class RenderComposeVerifierWiringTests(unittest.TestCase):
         # would have re-proven the `rendercompose` evaluator rather than these two
         # blocks, and the two lanes do not even arm the same key set.
         "V8-eve-player-loop.toml",
+        # V24W: ARMED 2026-08-25 off TWO MATCHING READINGS rather than one, because
+        # this lane's subject IS a histogram and a histogram read once is a sample.
+        # READING A `2026-08-25_1502` - the full-measurement run, PARSEK-FAIL(anomaly)
+        # attempt 1 by this spec's own PRE-REGISTERED doctrine (its header promised in
+        # writing, before any run existed, that a red on `icon-teleport` was the most
+        # valuable first measurement and that `allowedAnomalies` would ship empty so
+        # the count would be recorded rather than swallowed). Every other verifier row
+        # green, all ten driver steps met, `renderCompose status=REPORT gating=false`,
+        # four INFO RC-QUAL findings, zero WARN, zero FAIL.
+        # READING B `2026-08-25_1616` - the CLEAN PASS re-fly of the unchanged spec
+        # with the three tolerances reading A authored. The gate it had to clear was
+        # recurrence, and it cleared it EXACTLY: hitCounts {icon-teleport 65,
+        # icon-off-orbit 2, loop-seam-teleport 2}, the same three integers, plus the
+        # same single report-only `seam-endpoint-outside-soi` echo.
+        # THE PAIR MATCHES FACET FOR FACET, which is what the arming rests on: dwells
+        # 2 (+2 open) BOTH, cycles 1 BOTH, transitions 2 / chainBuilds 2 /
+        # lineBranches 2 / treatments StockConic 2 / coverages InSegment 2 BOTH,
+        # seamKinds {rigid 11, flexible-soi 4} BOTH, seamEndpoints 1024 BOTH,
+        # seamTangents 0 BOTH, holdsAboveOneX 1 and seamsAboveOneX 2 BOTH, findings
+        # 4 x INFO RC-QUAL and nothing worse BOTH. Histogram within 0.5 % bucket for
+        # bucket: warp100 10602 -> 10626, warp1000 2170 -> 2160, warpHigh 0 -> 0,
+        # warpPhys 0 -> 0, warp1x 322078 -> 322868. unevaluable 334342 -> 335146.
+        # WINDOWS: dwells {1,32} (the sibling lanes' identical anti-vacuity floor),
+        # unevaluable {max 500000}, requireSeamKinds ["rigid","flexible-soi"], and -
+        # THE FIRST IN THE SUITE - warpBuckets ["warp100","warp1000"]. That key is
+        # what this lane exists to author: both armed lanes above may NEVER declare it
+        # (their clocks are instantaneous TimeJumps, 1x-only by construction), and
+        # declaring it also arms RC-WARP's two non-list clauses at FAIL level -
+        # `seamsAboveOneX` and `holdsAboveOneX` must be non-zero - both backed twice.
+        # The unevaluable ceiling is ~1.5x rather than the siblings' ~3.3x on purpose:
+        # 99.8 % of this census is the SEAM_ENDPOINT decimation (293250 decimated +
+        # 41380 truncated on reading B), the per-pid cap reporting loudly on a rails
+        # drive shape, so the ceiling is an anti-vacuity bound over the decimation
+        # regime and tightening it would red on the instrument's own bookkeeping.
+        # NOT DECLARED, each for a measured reason: `warpHigh` (0 twice - the
+        # commanded ladder tops out at rails index 5, so 1000x IS this subject's
+        # ceiling; it is the negative-control token instead), `cycles` (reads 1 twice
+        # and a V14M-spelled window WOULD hold, but the closed-cycle count here is a
+        # property of three supervisor-chosen windows on a COMPRESSED span clock, not
+        # of what this lane contributes - V14M owns that clause), any RC-CUT surface
+        # (`cut-run-period-absent: 2` on both runs, V8's constraint reproduced), any
+        # RC-HOLD clause (one engage/release pair per run, though the ~18-20 %
+        # observed/planned ratio reproduced at both plan units on both runs and is
+        # handed to RC-HOLD as a measurement), and any endpoint count window (the
+        # population is decimated). Arming re-pinned NOTHING in the flown shape, and
+        # claimed D14 `warp-rails` in the same commit - the gate that makes the claim
+        # true - while still declining `warp-high`.
+        # ARMED RE-FLIGHT: `2026-08-25_1722` PASS attempt 1, gating=True,
+        # armedBlocks=['renderComposition'], ZERO mismatches - histogram
+        # warp100 10644 / warp1000 2168 / warpHigh 0, dwells 2 (+2 open), seamKinds
+        # {rigid 11, flexible-soi 4}, holdsAboveOneX 1, seamsAboveOneX 2, four INFO
+        # RC-QUAL and nothing worse, unevaluable 334093. A SECOND armed re-flight
+        # rode in by accident: `2026-08-25_1811` was flown as the negative control,
+        # its substring edit hit a rationale COMMENT quoting this same key ahead of
+        # the real line, and it therefore evaluated the UNINVERTED block - PASS
+        # attempt 1, zero mismatches, warp100 10580 / warp1000 2162 / warpHigh 0.
+        # Reclassified as a re-flight rather than discarded, because it IS one. The
+        # anomaly triple {icon-teleport 65, icon-off-orbit 2, loop-seam-teleport 2}
+        # repeated to the integer across ALL FOUR full flights (two readings, two
+        # re-flights) - a stronger determinism statement than the arming pair alone.
+        # NEGATIVE CONTROL: `2026-08-25_1925`, **`PARSEK-FAIL(render-composition)`
+        # attempt 1** off the temporary `warpBuckets = ["warpHigh"]` - a composition
+        # token of THIS lane's own that measured 0 on every flight - applied by a
+        # LINE-ANCHORED edit of the real key and confirmed pre-launch through
+        # `run.py --dry-run`'s `declared:` line. EXACTLY ONE mismatch, and it names
+        # the zero-count bucket: `RC-WARP [FAIL] warpBuckets.warpHigh: spec declared
+        # warp bucket 'warpHigh' and the manifest counted zero frames in it - the run
+        # did not visit that warp regime`. Every sibling row stayed clean
+        # (driverValidity / mission / analyzer red=0 / logValidate / anomalySweep /
+        # expectations / testResults PASS, saveParse + unityExceptions REPORT), the
+        # four INFO RC-QUAL findings stood beside the one FAIL, and the composition
+        # facets equalled the PASSing flights' - so the red is the declaration and
+        # nothing else. The run JSON's `verifiers.renderCompose.declared` records
+        # `warpBuckets: ['warpHigh']`: the audit surface added because of the 1811
+        # miss, demonstrated by the control that needed it. Reverted in the same
+        # change on the verified real key. Not shared with the two lanes above, for
+        # their own stated reason: a shared inversion re-proves the evaluator rather
+        # than this block.
+        "V24W-duna-one-warp-stair.toml",
     }
 
     def test_no_committed_spec_arms_render_composition_gating(self):
@@ -6327,31 +6413,40 @@ class RenderComposeVerifierWiringTests(unittest.TestCase):
     # window of its own). Facets live in each spec's arming ledger and in
     # docs/dev/autotest-status.md -> M-A7. Both arm the three tracers the seam capture
     # needs, and both drive ExportRenderManifest once after their last observation
-    # step and immediately before FlushAndQuit. FIVE cells stand on this roster: the
+    # step and immediately before FlushAndQuit. SIX cells stand on this roster: the
     # roster itself, that the declarer set and the armed set agree with the two
     # recorded rosters, that every declarer arms the three tracers, that every
-    # declarer exports immediately before teardown, and the two per-lane armed
+    # declarer exports immediately before teardown, and the THREE per-lane armed
     # KEY-SET pins - because a declarer that flies with the tracer off, or exports at
     # the wrong instant, greens while measuring nothing, and an armed block that
     # GROWS a window silently arms a clause no reading run stands behind.
     #
-    # THE THIRD DECLARER, added 2026-08-25 and DELIBERATELY UNARMED:
+    # THE THIRD DECLARER, added 2026-08-25 and ARMED THE SAME DAY:
     #
-    #   V24W-duna-one-warp-stair.toml - the RC-WARP lane. Readings
-    #       2026-08-25_1415 (empty, root-caused) and _1502 (full measurement,
-    #       pre-registered anomaly red) are flown; the clean reading and the
-    #       arming decision are still owed. It declares the block from its first
-    #       commit because DECLARING is what sets PARSEK_RENDER_MANIFEST=1 at
-    #       launch, and a lane whose whole purpose is the warp histogram must be
-    #       capturing a manifest on its first flight or that flight measures
-    #       nothing. The block is BARE for the same reason the other two were
-    #       before their arming pass: the facets are recorded unconditionally on
-    #       a parseable manifest, so the first honest window is written FROM a
-    #       green report-only run rather than predicted. It is the ONLY lane in
-    #       the suite entitled to declare `warpBuckets` at arming - both armed
-    #       lanes' headers say that key may NEVER appear on them, their clocks
-    #       being instantaneous TimeJumps - and the arming pass owes it the same
-    #       three-run workflow as everyone else.
+    #   V24W-duna-one-warp-stair.toml - the RC-WARP lane, and the ONLY lane in the
+    #       suite entitled to declare `warpBuckets` (both lanes above say in their
+    #       own headers that the key may NEVER appear on them, their clocks being
+    #       instantaneous TimeJumps whose histogram is 1x-only by construction).
+    #       THREE READINGS FLEW 2026-08-25: `_1415` (empty observation, both root
+    #       causes outside Parsek's render pipeline, fixed), `_1502` (the full
+    #       measurement, red by this spec's own pre-registered anomaly doctrine),
+    #       and `_1616` (the clean PASS re-fly of the unchanged spec with the three
+    #       tolerances `_1502` authored). ARMED off the LAST TWO as a MATCHING PAIR
+    #       rather than off a single green reading - the deviation from the V14M/V8
+    #       precedent is deliberate and is stated in the roster entry: this lane's
+    #       subject is a histogram, and a histogram read once is a sample. The pair
+    #       matched facet for facet with the histogram inside 0.5 % bucket for
+    #       bucket. It declared the block from its first commit because DECLARING is
+    #       what sets PARSEK_RENDER_MANIFEST=1 at launch, and a lane whose whole
+    #       purpose is the warp histogram must be capturing a manifest on its first
+    #       flight or that flight measures nothing.
+    #       ITS THREE-RUN WORKFLOW IS DISCHARGED, across SIX flights: the armed
+    #       re-flight flew TWICE (`_1722` and `_1811`, both PASS attempt 1 with
+    #       gating=True and zero mismatches - `_1811` was meant to be the control
+    #       and never armed, so it counts as a re-flight), and the negative control
+    #       flew as `_1925`, `PARSEK-FAIL(render-composition)` attempt 1 on the
+    #       single mismatch `RC-WARP [FAIL] warpBuckets.warpHigh`, reverted in the
+    #       same change - see the roster entry above for the full ids and facets.
     RENDERCOMPOSE_DECLARER_SPECS = {"V14M-ike-player-loop.toml",
                                     "V8-eve-player-loop.toml",
                                     "V24W-duna-one-warp-stair.toml"}
@@ -6458,6 +6553,63 @@ class RenderComposeVerifierWiringTests(unittest.TestCase):
         self.assertEqual(["rigid", "flexible-soi"], block["requireSeamKinds"])
         self.assertNotIn("cycles", block)
         self.assertNotIn("warpBuckets", block)
+
+    def test_v24w_declares_the_render_composition_block_armed_with_the_warp_buckets(self):
+        """V24W, ARMED 2026-08-25 off the PAIR `2026-08-25_1502` (full measurement,
+        pre-registered anomaly red) + `2026-08-25_1616` (clean PASS re-fly): dwells 2
+        (+2 open), cycles 1, unevaluable 334342 / 335146, seamKinds
+        {rigid 11, flexible-soi 4}, and the histogram warp100 10602/10626 and
+        warp1000 2170/2160 with warpHigh and warpPhys ZERO on both.
+
+        THE `warpBuckets` LIST IS THE POINT OF THIS CELL and is pinned exactly. It is
+        the FIRST and ONLY armed occurrence of the key in the suite - both sibling
+        pins above assert `assertNotIn("warpBuckets", block)`, because those lanes'
+        clocks are instantaneous TimeJumps whose histogram is 1x-only by construction.
+        Declaring it is also what arms RC-WARP's two non-list clauses at FAIL level
+        (`rendercompose._rule_warp`: `seamsAboveOneX == 0` and `holdsAboveOneX == 0`
+        become findings only when a bucket list is declared), both backed twice at 2
+        and 1 - so GROWING or SHRINKING this list changes what the lane asserts about
+        the product, not just about itself.
+
+        `warpHigh` IS PINNED ABSENT, and the absence is a MEASUREMENT: it read 0 on
+        both readings because the commanded ladder tops out at KSP rails index 5
+        (1000x), so requiring it would red the runs the block was armed off. It is
+        this lane's NEGATIVE-CONTROL token instead, which is exactly why a later edit
+        must not quietly promote it into the required list.
+
+        `cycles` IS PINNED ABSENT for a different reason from V8's: the facet reads 1
+        CLOSED cycle on both runs, so V14M's `{min 1, max 16}` window WOULD hold here.
+        It is declined because the closed-cycle count on this lane is a property of
+        three supervisor-chosen dwell windows on a COMPRESSED span clock and of the
+        export instant - the drive shape under active development - rather than of
+        what this lane contributes. `dwells` and `requireSeamKinds` carry the
+        anti-vacuity floors."""
+        block = self._armed_block("V24W-duna-one-warp-stair.toml")
+        self.assertEqual({"gating", "dwells", "unevaluable", "warpBuckets",
+                          "requireSeamKinds"}, set(block),
+                         "a window was added to (or removed from) V24W's ARMED "
+                         "render-composition block; every armed window needs its own "
+                         "reading run behind it - and this lane's arming rests on a "
+                         "MATCHING PAIR of readings, not one")
+        self.assertEqual({"min": 1, "max": 32}, block["dwells"])
+        self.assertEqual({"max": 500000}, block["unevaluable"])
+        self.assertEqual(["warp100", "warp1000"], block["warpBuckets"])
+        self.assertEqual(["rigid", "flexible-soi"], block["requireSeamKinds"])
+        self.assertNotIn("cycles", block)
+        # Stated as its own assertion rather than left to the key-set pin: the list
+        # above could grow this token without changing the KEY set at all.
+        self.assertNotIn("warpHigh", block["warpBuckets"])
+        # And the suite property the pair of sibling pins states from the other side:
+        # exactly ONE armed block in the corpus declares warpBuckets, and it is this
+        # one. A second lane picking the key up is an arming decision of its own.
+        with_buckets = sorted(n for n in self.RENDERCOMPOSE_ARMED_SPECS
+                              if "warpBuckets" in self._armed_block(n))
+        self.assertEqual(["V24W-duna-one-warp-stair.toml"], with_buckets,
+                         "warpBuckets is armed on a lane other than the RC-WARP one; "
+                         "every other committed subject moves the clock with "
+                         "instantaneous TimeJumps, so its histogram is 1x-only BY "
+                         "CONSTRUCTION and the key would pin the drive shape rather "
+                         "than the product")
 
     def test_every_armed_block_keeps_an_anti_vacuity_floor(self):
         """The property both key-set pins exist to protect, stated once against the
