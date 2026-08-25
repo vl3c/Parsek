@@ -38,9 +38,84 @@ id = "V24W-duna-one-warp-stair"
 # loop lives at high rails; the harness, until this lane, never did.
 #
 # ---------------------------------------------------------------------------------
-# 1. ARMING LEDGER, renderComposition - READING RUN PENDING, NOTHING ARMED
+# 1. ARMING LEDGER, renderComposition - TWO READINGS FLOWN, NOTHING ARMED YET
 # ---------------------------------------------------------------------------------
-#   READING  **FLIGHT 1 FLEW 2026-08-25 (`2026-08-25_1415`, PASS/REPORT) AND
+#   READING  **FLIGHT 2 FLEW 2026-08-25 (`2026-08-25_1502`, PARSEK-FAIL(anomaly)
+#            ATTEMPT 1) AND MEASURED THE WHOLE COMPOSITION. THE RED IS THE
+#            PRE-REGISTERED DOCTRINE OUTCOME, NOT A LANE DEFECT** - section 6
+#            said in writing, before any run existed, that a red on
+#            `icon-teleport` was a live possibility AND was this lane's most
+#            valuable first measurement, and that the list would stay empty
+#            anyway so the count would be recorded rather than swallowed. That is
+#            exactly what happened, on `allowedAnomalies = []`, with every other
+#            verifier row green
+#            (driverValidity PASS / mission MISSION-OK / analyzer PASS red=0 /
+#            logValidate PASS / saveParse REPORT / renderCompose REPORT parsed).
+#            All ten driver steps met. Wall 2,895 s total, mission phase 2,817 s,
+#            INSIDE the unchanged 3000 / 3600 budgets and within 2 % of the
+#            ~2,850 s section 5 sizes - so the flight-1 warp-cancel defect is
+#            confirmed fixed by the cost line, not just by the code.
+#
+#            THE FLIGHT-1 vs FLIGHT-2 CONTRAST, which is what makes this a
+#            reading rather than a re-run: flight 1 measured an EMPTY
+#            observation (zero GhostCreated, zero dwells, zero seams, zero
+#            histogram buckets, 455 wall s). Both of its root causes are now
+#            measured closed. The window mapping: all three dwells landed inside
+#            the compressed span and RENDERED - 2 closed dwells + 2 still open at
+#            export, `treatments StockConic 2`, `coverages InSegment 2`,
+#            `transitions 2`, `chainBuilds 2`, `lineBranches 2`, `cycles 1`. The
+#            warp cancel: the histogram is no longer 1x-only-by-accident-of-a-
+#            broken-cancel but a REAL STAIR - `warp1x 322078 / warp100 10602 /
+#            warp1000 2170 / warpHigh 0 / warpPhys 0` - and, decisively for
+#            RC-WARP's anti-vacuity statement, `holdsAboveOneX = 1` and
+#            `seamsAboveOneX = 2`. That is the first time any committed subject
+#            has put a cataloged seam AND a hold above 1x.
+#
+#            WHAT ELSE THE MANIFEST SAYS, recorded here because the arming pass
+#            writes its windows from these numbers and from nothing else:
+#              - seams: `rigid 11`, `flexible-soi 4`; `seamEndpoints 1024`;
+#                `seamTangents 0`; `maxEndpointRatio 0.4366947421168355`.
+#              - clock events: `cycle-rollover 2`, `hold-engage 1`,
+#                `hold-release 1`, `inter-cycle-tail 1`, `reaim-window 1`.
+#                Observed hold 7050.236864089966 s TWICE against a per-cycle plan
+#                of [39607.052803993225, 35444.407972335815] - i.e. the observed
+#                hold is ~18-20 % of the planned one at BOTH plan units. That gap
+#                is a MEASUREMENT this lane hands RC-HOLD; it is not pre-judged
+#                here and no RC-HOLD clause is armed off one engage/release pair.
+#              - decimation: `SEAM_ENDPOINT 292546` decimated + `41280`
+#                truncated + `512` skipped, driving `unevaluable 334342`. The
+#                per-pid cap did its job loudly (`truncatedSections
+#                ["SEAM_ENDPOINT"]`) rather than dropping silently, which is the
+#                Phase-1 contract; but it means the seam-endpoint census on THIS
+#                drive shape is a sampled population, and an arming pass must not
+#                write a count window over it.
+#              - findings: 4 x INFO `RC-QUAL` and nothing else - zero FAIL, zero
+#                WARN, zero mismatches. `ownershipChanges 0`,
+#                `routeCoDrawViolations 0`, `clockDefers 0`, `ratifiedSkips 0`.
+#              - `exportReason = process-teardown`, `mapRenderTracingOn = True`,
+#                `scene = FLIGHT`, `schemaVersion = 1`.
+#              - recordings count 13, inside the `{10, 24}` bracket and EQUAL to
+#                the fixture's own population - so the optimizer split nothing at
+#                the four cross-body seams and nothing was lost. The bracket's
+#                two halves are both now backed by a reading.
+#
+#            THE ANOMALY SWEEP, which is the red and is section 6's subject:
+#            `hitCounts = {icon-teleport: 65, icon-off-orbit: 2,
+#            loop-seam-teleport: 2}`, plus ONE report-only unlisted reason,
+#            `seam-endpoint-outside-soi` - the FIRST LIVE RAISE that instrument
+#            has ever produced (the design doc's prior-art item 3 said "has never
+#            fired"; that claim is now annotated with this run id). Its echo sits
+#            on the departure-loiter DWELL that opens in the SUN frame and closes
+#            at DUNA (`recId 61e9177193444e329247d0e8288cf91e`, pid 839899670,
+#            `ut 5355599259.994832`, `treatment StockConic`, `coverage
+#            InSegment`), i.e. on the arrival SOI handoff, which is exactly where
+#            a cross-SOI endpoint check is supposed to have an opinion. It is
+#            REPORT-ONLY and stays that way: it is not in `hlib.ANOMALY_TOKENS`,
+#            it moved no verdict, and `allowedAnomalies` must NOT list it (a
+#            tolerance for an ungated token is an inert declaration that
+#            `parse_allowed_anomalies` warns about).
+#
+#            **FLIGHT 1 FLEW 2026-08-25 (`2026-08-25_1415`, PASS/REPORT) AND
 #            MEASURED NOTHING. RE-FLY OWED; STILL PENDING as a reading.** Zero
 #            `GhostCreated` lines, zero dwells / seams / histogram buckets, while
 #            the recorder's own clock events (two cycle-rollovers, a hold-engage,
@@ -59,16 +134,32 @@ id = "V24W-duna-one-warp-stair"
 #                  against the ~2,850 section 5 sizes, and PASSed having never
 #                  once dwelled at 1x.
 #            The `[expectations.renderComposition]` block near the end of this file
-#            is STILL BARE, and deliberately: no `gating`, no assertion key, no
-#            `warpBuckets`. Flight 1 measured no histogram to write one FROM.
-#            The facets are recorded UNCONDITIONALLY on a parseable manifest, which
-#            is how a lane earns its first honest window; declaring one here would
-#            be declaring a PREDICTION and reading it back as a measurement.
+#            is STILL BARE after BOTH readings, and deliberately: no `gating`, no
+#            assertion key, no `warpBuckets`. Flight 1 measured no histogram to
+#            write one FROM; flight 2 measured one but red on the anomaly sweep,
+#            and this suite's own arming doctrine writes windows off a run whose
+#            facets are read on a GREEN reading, not off the run that discovered
+#            what had to be tolerated first. The facets are recorded
+#            UNCONDITIONALLY on a parseable manifest, which is how a lane earns its
+#            first honest window; declaring one here would be declaring a
+#            PREDICTION and reading it back as a measurement.
+#   PENDING  **FLIGHT 3 IS THE NEXT GATE, AND IT IS A GATE RATHER THAN A
+#            FORMALITY.** Flight 2 authored `allowedAnomalies` from its own
+#            hitCounts (section 6), so flight 3 re-flies THIS spec, unchanged
+#            except for those tolerances, and must come back PASS with the
+#            tolerated tokens RECURRING inside their stated populations. That run
+#            is what turns each of the three counts from ONE observation into a
+#            deterministic property, and it is the run whose histogram
+#            `warpBuckets` is written from. Nothing is armed before it. If flight
+#            3 reds again on a NEW token, or a tolerated token's count moves
+#            materially, that is a fresh measurement and the ledger takes another
+#            entry rather than the window being widened to swallow it.
 #   ARMED    NOT ARMED. When it is, `warpBuckets` is the window this lane exists to
 #            author - the FIRST spec in the suite entitled to declare it - and the
-#            arming pass owes it a reading run whose histogram it is written from,
-#            plus the armed re-flight and a negative control that inverts a required
-#            token of THIS lane's own (roadmap "Confirmation criteria" (b)).
+#            arming pass owes it the clean reading (flight 3) whose histogram it is
+#            written from, plus the armed re-flight and a negative control that
+#            inverts a required token of THIS lane's own (roadmap "Confirmation
+#            criteria" (b)).
 #            This spec is NOT in `RENDERCOMPOSE_ARMED_SPECS`; it IS in
 #            `RENDERCOMPOSE_DECLARER_SPECS` (harness/lib/test_hlib.py), because
 #            DECLARING the block is what sets `PARSEK_RENDER_MANIFEST=1` at launch
@@ -244,26 +335,77 @@ id = "V24W-duna-one-warp-stair"
 # ~2,850 s this section sizes, INSIDE the unchanged 3000 / 3600 budgets.
 #
 # ---------------------------------------------------------------------------------
-# 6. `allowedAnomalies = []` IS A DELIBERATE, PRE-REGISTERED CHOICE
+# 6. `allowedAnomalies` - THE PRE-REGISTRATION PAID OFF, AND THIS IS WHAT IT BOUGHT
+#    (rewritten 2026-08-25 from reading flight 2, the run that red on the empty list)
 # ---------------------------------------------------------------------------------
-# The free-play session that proves this subject ALSO raised `icon-teleport` 95
-# times while the operator was calling the render visually correct, and that
-# instrument finding was FILED, NOT FIXED (todo-and-known-bugs.md; it needs its own
-# calibration pass with the warp histogram as the discriminator). This lane drives
-# the same histogram shape, so it is a live possibility that the first reading run
-# comes back `PARSEK-FAIL(anomaly)` on exactly that token.
+# WHAT THIS SECTION USED TO SAY, kept because it is the reason the numbers below can
+# be trusted: the free-play session that proves this subject ALSO raised
+# `icon-teleport` 95 times while the operator was calling the render visually
+# correct (FILED, NOT FIXED - todo-and-known-bugs.md), this lane drives the same
+# histogram shape, so a `PARSEK-FAIL(anomaly)` on that token was a live possibility
+# AND was the single most interesting thing the lane could measure. The list shipped
+# EMPTY on purpose so that if it fired, the red would name the token and the count
+# rather than being silently swallowed by a tolerance nobody had earned.
 #
-# THE LIST STAYS EMPTY ANYWAY. Pre-tolerating `icon-teleport` here would budget away
-# the single most interesting thing this lane can measure - whether the probe's
-# icon-jump predicate false-positives under rails warp on a render a human has
-# already validated - and would do it BEFORE any run had said so. If the reading run
-# reds on it, THAT RED IS THE MEASUREMENT: it names the token, names the count, and
-# hands the calibration pass its numbers. An `allowedAnomalies` entry, if one is
-# ever justified, gets written FROM that run with its run id beside it, exactly as
-# every armed window in this suite is.
+# IT FIRED. Reading flight 2 (`2026-08-25_1502`) came back PARSEK-FAIL(anomaly) on
+# attempt 1 with all ten driver steps green and every other verifier row green, and
+# the measurement is:
+#
+#   icon-teleport       65
+#   icon-off-orbit       2
+#   loop-seam-teleport   2
+#   (+ seam-endpoint-outside-soi 1, REPORT-ONLY and NOT listed below)
+#
+# THE THREE TOKENS ARE NOW TOLERATED, per the S1.4 rule verbatim - a token is added
+# WITH the flight that shows it, and every entry below cites `2026-08-25_1502`.
+#
+# ---- THE CEILING GRAMMAR, AND WHY THE ENTRIES ARE BARE -----------------------------
+# THE CEILINGS THIS MEASUREMENT AUTHORIZES ARE STATED HERE AND CANNOT YET BE
+# DECLARED, and that is a whole-suite property rather than a decision about this
+# lane. `hlib.parse_allowed_anomalies` accepts a per-token budget
+# (`{ token = "icon-teleport", maxCount = 130 }`), but TWO whole-set cells in
+# `harness/lib/test_hlib.py` hold that mechanism INERT across every committed spec:
+# `test_no_committed_spec_arms_a_count_budget` (no spec may carry a table entry) and
+# `test_every_committed_spec_parses_under_the_budget_surface` (every parsed budget
+# must come back `None`). V14T and V15T both wrote the budget form FIRST and both
+# reverted to a BARE token for exactly this reason; their headers say arming one
+# "means moving that invariant cell to a named allowlist in the same edit", and that
+# allowlist move is an operator decision that should cover those two lanes at the
+# same time as this one, not a side effect of this lane's ledger commit.
+#
+# So the entries below are BARE - V15T's and V17T's actual spelling - and the
+# ceilings are recorded as arithmetic ready for that one edit:
+#
+#   icon-teleport       ceiling 130  = 2x the measured 65. DOUBLE rather than a
+#                       tight bracket because the probe's own calibration defect is
+#                       FILED and unfixed (the icon-jump/icon-teleport threshold
+#                       entry in todo-and-known-bugs.md: 95 raises on a hand-played,
+#                       visually-validated session), the suspected discriminator is
+#                       rails warp, and THIS LANE COMMANDS RAILS BY CONSTRUCTION -
+#                       a stair of 10x/50x/100x/1000x/100x/50x/10x at each of three
+#                       windows. The count is therefore expected to move with
+#                       whatever rate the server actually grants, which is not a
+#                       quantity this spec controls. 2x is headroom for that, and it
+#                       is still two orders of magnitude below a per-frame leak.
+#   icon-off-orbit      ceiling 8    = 4x the measured 2. The V14T/V15T/V16T family
+#                       measured this token at 1-2 per run on single-jump shapes and
+#                       called it deterministic; 2 here on a three-jump shape is
+#                       consistent with that. 8 bounds a per-seam raise on a lane
+#                       with 15 cataloged seams without tolerating a per-frame one.
+#   loop-seam-teleport  ceiling 8    = 4x the measured 2. Same argument: the
+#                       instrument is per-orbit-segment-change and this lane crosses
+#                       a bounded number of them (rigid 11 / flexible-soi 4).
+#
+# NOT LISTED, DELIBERATELY: `seam-endpoint-outside-soi`. It is REPORT-ONLY - absent
+# from `hlib.ANOMALY_TOKENS`, reported through `unlistedReasons`, and it moved no
+# verdict on flight 2. Declaring a tolerance for an ungated token is an INERT
+# declaration that `parse_allowed_anomalies` emits a warning for, and
+# `test_every_committed_spec_parses_under_the_budget_surface` asserts ZERO warnings
+# across the suite, so listing it would red the harness suite while buying nothing.
+# Its first-ever live raise is recorded in section 1 and in the design doc instead.
 # =====================================================================================
 tier = "operator"
-description = "THE RC-WARP LANE, AUTHORED AND NEVER FLOWN - reading run PENDING, nothing armed. A loop-arrival map dwell over the free-play-validated Kerbin -> Duna re-aim recording, driven through a COMMANDED rails warp stair (10x/50x/100x/1000x/100x/50x/10x, up and back down, held 10 poll frames per step) at each of its three span-clock windows. It is the suite's answer to the last Phase-3 debt: RC-WARP is satisfiable only by a real rails ladder, and every other committed subject moves the clock with instantaneous TimeJumps whose histogram is 1x-only by construction (confirmed four times on V14M and V8). The subject is not hypothetical - the first free-play ground-truth session measured warp100 4727 / warp1000 15488 / warpHigh 11446 with zero 1x - and it is also the session that raised icon-teleport 95 times on a render the operator called visually correct, which is why allowedAnomalies is deliberately EMPTY: a red on that token is this lane's most valuable first measurement, not something to pre-budget away. The renderComposition block is BARE; warpBuckets is the window this lane exists to author, and it gets written FROM the reading run's histogram at arming, never predicted here."
+description = "THE RC-WARP LANE, TWO READINGS FLOWN, NOTHING ARMED - flight 3 (a clean reading with the new tolerances) is the next gate. A loop-arrival map dwell over the free-play-validated Kerbin -> Duna re-aim recording, driven through a COMMANDED rails warp stair (10x/50x/100x/1000x/100x/50x/10x, up and back down, held 10 poll frames per step) at each of its three span-clock windows. It is the suite's answer to the last Phase-3 debt: RC-WARP is satisfiable only by a real rails ladder, and every other committed subject moves the clock with instantaneous TimeJumps whose histogram is 1x-only by construction (confirmed four times on V14M and V8). READING FLIGHT 1 (2026-08-25_1415, PASS/REPORT) measured an EMPTY observation and both its root causes - recorded-clock dwell windows against a compressing loop clock, and a no-op warp cancel - were fixed before the re-fly. READING FLIGHT 2 (2026-08-25_1502) MEASURED THE WHOLE COMPOSITION and red PARSEK-FAIL(anomaly) on attempt 1, which is the outcome this spec's own header pre-registered in writing rather than a lane defect: all ten driver steps green, every other verifier row green, wall 2,895 s inside the unchanged budgets. What it bought: the first histogram in the suite that is not 1x-only-by-construction (warp1x 322078 / warp100 10602 / warp1000 2170) with holdsAboveOneX 1 and seamsAboveOneX 2 - the first time any committed subject put a cataloged seam AND a hold above 1x - plus dwells 2 (+2 open), treatments StockConic 2, seams rigid 11 / flexible-soi 4, maxEndpointRatio 0.4367, four INFO RC-QUAL findings and nothing worse, and the FIRST EVER live raise of the report-only seam-endpoint-outside-soi instrument on the Sun->Duna arrival handoff. The red itself is the measurement the icon-teleport calibration pass was owed: hitCounts icon-teleport 65 / icon-off-orbit 2 / loop-seam-teleport 2, all three now tolerated BARE with that run id beside them (the ceilings 130/8/8 are argued in the header but cannot be declared while the whole-suite inert-budget invariant stands). The renderComposition block is still BARE; warpBuckets gets written FROM flight 3's histogram at arming, never predicted here."
 instanceProfile = "stock-minimal"
 tags = ["V24", "rc-warp", "warp-stair", "render-composition", "loop-arrival",
         "map-dwell", "re-aim", "interplanetary", "kerbin", "duna",
@@ -358,12 +500,35 @@ dwellRampFrames      = 600
 D14 = ["scene-map"]
 
 [expectations]
-# EMPTY ON PURPOSE, pre-registered in header section 6: the free-play session behind
-# this fixture raised `icon-teleport` 95 times on a render the operator called
-# visually correct, so a red here is a live possibility AND is this lane's most
-# valuable first measurement. Do not pre-tolerate it. If an entry is ever justified
-# it gets written from a flown run with that run's id beside it.
-allowedAnomalies = []
+# PLACEMENT IS LOAD-BEARING (hlib.validate_spec rejects a bare allowedAnomalies
+# written after any [expectations.<sub>] header).
+#
+# THREE TOLERATED TOKENS, ADDED 2026-08-25 WITH THE FLIGHT THAT SHOWS THEM - the
+# S1.4 rule verbatim. The flight is reading run `2026-08-25_1502`
+# (PARSEK-FAIL(anomaly) attempt 1, all ten driver steps green, every other verifier
+# row green), and it measured `hitCounts = {icon-teleport: 65, icon-off-orbit: 2,
+# loop-seam-teleport: 2}`. Header section 6 carries the full argument, the ceiling
+# arithmetic each entry would take (130 / 8 / 8), and the whole-suite invariant that
+# keeps the ceilings undeclarable today; the one-line rationale per token is here.
+#
+# THE LIST SHIPPED EMPTY ON PURPOSE AND RED BECAUSE OF IT, which is the whole reason
+# these three can be trusted: had any been pre-tolerated, the count it fired at
+# would never have been recorded.
+allowedAnomalies = [
+  # 65 raises, `2026-08-25_1502`. The probe's icon-jump/icon-teleport threshold has
+  # a FILED, unfixed over-sensitivity above warp1000, and this lane commands a rails
+  # stair at every window, so this token is expected here. Ceiling 130 (2x measured)
+  # pending the budget-mechanism allowlist move - section 6.
+  "icon-teleport",
+  # 2 raises, `2026-08-25_1502`. The ghost-proto creation-frame trigger the
+  # V14T/V15T/V16T family measured as parent-independent, seen here on a three-jump
+  # shape. Ceiling 8 (4x measured) pending the same move.
+  "icon-off-orbit",
+  # 2 raises, `2026-08-25_1502`. The FLIGHT-scene loop-seam instrument, raised at
+  # orbit-segment changes; this lane crosses 15 cataloged seams (rigid 11 /
+  # flexible-soi 4). Ceiling 8 (4x measured) pending the same move.
+  "loop-seam-teleport",
+]
 
 [expectations.recordings]
 # RE-PINNED OFF THE FIXTURE'S REAL BYTES (the V21 / V22M precedent). This window was
