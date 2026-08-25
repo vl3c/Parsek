@@ -3687,7 +3687,7 @@ The B7 `~564 km` citation was left verbatim, as this entry requires.
 
 ---
 
-## AUTOTEST-STATUS-B20-PE-MISDESCRIBED: flight `_1855`'s 450.6 km periapsis is called "a 200 km periapsis altitude" [RECORD CORRECTION 2026-08-15, found in passing]
+## ~~AUTOTEST-STATUS-B20-PE-MISDESCRIBED: flight `_1855`'s 450.6 km periapsis is called "a 200 km periapsis altitude"~~ [RECORD CORRECTION 2026-08-15, found in passing; FIXED 2026-08-25, branch `b20-pe-correction`]
 
 `docs/dev/autotest-status.md:1110` (the B20-moho-orbit row) reads: the first in-SOI frame
 read `pe=450629.528 ttPe=+3154.010`, **"a 200 km periapsis altitude"** with periapsis
@@ -3696,8 +3696,11 @@ nor Moho's 250 km radius, so it is not a units slip in either direction -- just 
 number in prose. The surrounding claim (the geometry was right; the flight was one warp
 frame from a capture) is unaffected, and no enforcing cell reads the figure.
 
-**Fix:** change "a 200 km periapsis altitude" to "a 450.6 km periapsis altitude" at that
-site. Deliberately NOT done in the commit that files this entry, which is scoped to the
+**~~Fix~~ FIXED 2026-08-25:** the B20-moho-orbit row now reads "a 450.6 km periapsis
+altitude", exactly as this entry prescribed (the row had drifted to line 1144 by the
+time the fix landed; cited by content). Docs-only record correction - no spec, pin or
+verdict touched, and a repo-wide grep confirms no other site carried the wrong figure.
+Deliberately NOT done in the commit that files this entry, which was scoped to the
 scenario-count total and the new B22 row.
 
 ---
