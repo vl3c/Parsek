@@ -3698,8 +3698,12 @@ frame from a capture) is unaffected, and no enforcing cell reads the figure.
 
 **~~Fix~~ FIXED 2026-08-25:** the B20-moho-orbit row now reads "a 450.6 km periapsis
 altitude", exactly as this entry prescribed (the row had drifted to line 1144 by the
-time the fix landed; cited by content). Docs-only record correction - no spec, pin or
-verdict touched, and a repo-wide grep confirms no other site carried the wrong figure.
+time the fix landed; cited by content). A second asserting site was caught by review
+and corrected in the same pass: the APPROACH-WARP-CLAMP-FAILS-OPEN-ON-AN-INTERMITTENT-TTS
+entry narrated the identical frame as "a 200 km periapsis altitude" (~150 lines below
+this entry), and its narration now reads 450.6 km too - the sweep had missed it because
+the phrase wrapped across a line break, which a single-line literal grep does not match;
+search wrap-tolerantly. Docs-only record correction - no spec, pin or verdict touched.
 Deliberately NOT done in the commit that files this entry, which was scoped to the
 scenario-count total and the new B22 row.
 
@@ -3836,7 +3840,7 @@ bound one frame under the coast, but it taxes the entire 2.7M game-second helioc
 leg to work around a blink.
 
 **The geometry was RIGHT, which is what makes this worth fixing rather than routing
-around.** The first in-SOI frame read `pe=450629.528 ttPe=+3154.010` -- a 200 km
+around.** The first in-SOI frame read `pe=450629.528 ttPe=+3154.010` -- a 450.6 km
 periapsis altitude, comfortably above the 50 km floor, with periapsis 3,154 s AHEAD.
 Had the ceiling held, PLAN-CAPTURE had a clean arrival to arm on. This flight was one
 warp frame from a capture.
