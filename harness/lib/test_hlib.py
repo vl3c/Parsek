@@ -5517,7 +5517,7 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # visually correct) is EVIDENCE rather than debt - which is why its
         # `allowedAnomalies` is empty on purpose. Nothing here is a human call
         # somebody has forgotten; the arming call simply does not exist yet.
-        "V24W-duna-one-warp-stair.toml":    "operator by the calibration discipline (V1/V2 precedent); AUTHORED 2026-08-25, NEVER FLOWN, reading run PENDING and nothing armed. It is the RC-WARP lane - the last M-A7 Phase-3 debt - and the only spec in the suite entitled to declare `warpBuckets`, which it deliberately does not until a reading run measures the histogram it would be written from. Promotion past operator is not on the table before the three-run arming workflow it owes",
+        "V24W-duna-one-warp-stair.toml":    "operator by the calibration discipline (V1/V2 precedent); AUTHORED 2026-08-25; readings 1415 (empty, root-caused) and 1502 (full measurement, doctrine anomaly red) flown; clean reading + arming pending and nothing armed. It is the RC-WARP lane - the last M-A7 Phase-3 debt - and the only spec in the suite entitled to declare `warpBuckets`, which it deliberately does not until a reading run measures the histogram it would be written from. Promotion past operator is not on the table before the three-run arming workflow it owes",
     }
 
     def _specs(self):
@@ -6337,8 +6337,10 @@ class RenderComposeVerifierWiringTests(unittest.TestCase):
     #
     # THE THIRD DECLARER, added 2026-08-25 and DELIBERATELY UNARMED:
     #
-    #   V24W-duna-one-warp-stair.toml - the RC-WARP lane. Reading run PENDING;
-    #       this spec has never flown. It declares the block from its very first
+    #   V24W-duna-one-warp-stair.toml - the RC-WARP lane. Readings
+    #       2026-08-25_1415 (empty, root-caused) and _1502 (full measurement,
+    #       pre-registered anomaly red) are flown; the clean reading and the
+    #       arming decision are still owed. It declares the block from its first
     #       commit because DECLARING is what sets PARSEK_RENDER_MANIFEST=1 at
     #       launch, and a lane whose whole purpose is the warp histogram must be
     #       capturing a manifest on its first flight or that flight measures

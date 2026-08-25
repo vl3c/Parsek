@@ -109,9 +109,18 @@ It reads GREEN under `analyze-recordings.ps1 -FailOnRed -FreshSaveGate`
   `.craft`. Harmless for a replay/render lane; a launching lane must add a
   `shared-ships.toml` row.
 
-**What is still owed**: the RC-WARP lane itself
+~~**What is still owed**: the RC-WARP lane itself
 (`harness/scenarios/V24W-duna-one-warp-stair.toml` at the time of writing) has to
-fly against it and report. Until it does, nothing reads these bytes.
+fly against it and report. Until it does, nothing reads these bytes.~~
+**DISCHARGED 2026-08-25 by V24W reading flight 2 (`2026-08-25_1502`).** These
+bytes are now read: the lane flew them end to end, the recordings count came back
+13 - equal to this fixture's own population, so nothing split or was lost - and
+the composition measured off them is recorded on the V24W entry above. The flight
+red PARSEK-FAIL(anomaly) on a deliberately empty `allowedAnomalies`, which is the
+lane's pre-registered doctrine outcome and says nothing about this fixture; the
+fixture's own analyzer gate stayed GREEN on the run (`analyzer PASS red=0`).
+What is owed NOW belongs to the lane, not the fixture: flight 3 (a clean reading
+with the three new tolerances), then arming.
 
 ## M-A7-SEAM-ENDPOINT-SKIP-REASON-CENSUS: `seam-endpoint-skipped` dominates every renderCompose unevaluable count and DOUBLED between two flights of the same lane with no explanation on record [FOUND 2026-08-25 reading the V14M reading-vs-armed facets (53 vs 106 skips) and the s15 free-play manifest (512 at the cap). IMPROVEMENT, REPORT-ONLY]
 
@@ -297,7 +306,8 @@ REMAINING PHASES.
   re-shaped drive) rather than a re-pin of these two. CONFIRMED FOUR TIMES: the
   histograms came back 1x-only on both reading runs (173 samples on V14M, 296 on
   V8) and on both armed re-flights (177 and 295), every other bucket zero.
-  **IN PROGRESS 2026-08-25 - THE LANE IS AUTHORED, THE MEASUREMENT IS NOT TAKEN.**
+  **IN PROGRESS 2026-08-25 - THE LANE IS AUTHORED AND THE MEASUREMENT IS NOW
+  TAKEN (reading flight 2, below); THE ARMING IS NOT.**
   ~~which wants a third lane~~ the third lane exists:
   `harness/scenarios/V24W-duna-one-warp-stair.toml`, a loop-arrival map dwell
   over `fixtures/saves/duna-one-recorded` (the harvest of the first free-play
@@ -366,13 +376,83 @@ REMAINING PHASES.
   measured nothing about Parsek), then `warpBuckets` written FROM that run's
   histogram, the armed re-flight, and a negative control inverting a required
   token of this lane's own.
-  ONE RED IS PRE-REGISTERED AS LIKELY AND DELIBERATELY NOT BUDGETED AWAY: the
-  spec ships `allowedAnomalies = []` although the free-play session behind its
-  fixture raised `icon-teleport` 95 times on a render the operator called
-  visually correct (the entry below). If the reading run reds
-  `PARSEK-FAIL(anomaly)` on that token, that red is the measurement the
-  icon-teleport calibration pass needs, not a lane defect. Flight 1 could not
-  speak to it - it rendered nothing to teleport.
+  **READING FLIGHT 2 FLEW 2026-08-25 (run `2026-08-25_1502`,
+  PARSEK-FAIL(anomaly) attempt 1) AND MEASURED THE FULL COMPOSITION. THE RED IS
+  THE PRE-REGISTERED DOCTRINE OUTCOME, NOT A LANE DEFECT.** All ten driver steps
+  met; every other verifier row green (driverValidity PASS, mission MISSION-OK,
+  analyzer PASS red=0, logValidate PASS, saveParse REPORT, renderCompose REPORT
+  parsed). Wall 2,895 s total / 2,817 s mission - within 2 % of the ~2,850 s the
+  spec sizes and inside the unchanged 3000 / 3600 budgets, which CONFIRMS the
+  flight-1 warp-cancel fix on the cost line and not just in code. Both flight-1
+  root causes are measured closed: all three dwell windows now land inside the
+  compressed span and RENDER (2 closed dwells + 2 open at export, `treatments
+  StockConic 2`, `coverages InSegment 2`, `transitions 2`, `chainBuilds 2`,
+  `lineBranches 2`, `cycles 1`), and the histogram is a real stair -
+  `warp1x 322078 / warp100 10602 / warp1000 2170 / warpHigh 0 / warpPhys 0` with
+  **`holdsAboveOneX = 1` and `seamsAboveOneX = 2`**, the first time any committed
+  subject has put a cataloged seam AND a hold above 1x. That is RC-WARP's
+  anti-vacuity statement satisfied by measurement; what remains before it can be
+  ASSERTED is the arming. Other facets, recorded because the arming pass writes
+  its windows from these and nothing else: seams `rigid 11` / `flexible-soi 4`,
+  `seamEndpoints 1024`, `seamTangents 0`, `maxEndpointRatio 0.4366947421168355`;
+  clock events `cycle-rollover 2` / `hold-engage 1` / `hold-release 1` /
+  `inter-cycle-tail 1` / `reaim-window 1`, with the observed hold 7050.236864 s
+  TWICE against a per-cycle plan of [39607.052804, 35444.407972] (an ~18-20 %
+  observed/planned ratio at BOTH plan units - a measurement handed to RC-HOLD,
+  deliberately not armed off one engage/release pair); decimation `SEAM_ENDPOINT
+  292546` + truncated `41280` + skipped `512` driving `unevaluable 334342`, so
+  the endpoint census on this drive shape is a SAMPLED population and no count
+  window may be written over it; findings 4 x INFO `RC-QUAL` and nothing worse
+  (zero FAIL, zero WARN, zero mismatches, `ownershipChanges 0`); recordings count
+  13, equal to the fixture's own population, so the optimizer split nothing at
+  the four cross-body seams and nothing was lost.
+  ANOMALY CEILINGS AUTHORED OFF THIS RUN: `hitCounts {icon-teleport: 65,
+  icon-off-orbit: 2, loop-seam-teleport: 2}`, and all three are now tolerated in
+  the spec's `allowedAnomalies` with `2026-08-25_1502` cited on each, per the
+  S1.4 "a token is added WITH the flight that shows it" rule. THEY ARE BARE, NOT
+  BUDGETED, and the reason is a whole-suite property rather than a call about
+  this lane: the ceilings the measurement authorizes are 130 / 8 / 8
+  (icon-teleport doubled off 65 because the probe threshold defect is open and
+  this lane commands rails; the other two 4x off 2, bounding a per-seam raise
+  without tolerating a per-frame one), and
+  `test_no_committed_spec_arms_a_count_budget` +
+  `test_every_committed_spec_parses_under_the_budget_surface` in
+  `harness/lib/test_hlib.py` hold the `maxCount` mechanism INERT across every
+  committed spec. V14T and V15T each wrote the budget form first and each backed
+  out of it for exactly this reason; arming it means moving both cells to a named
+  allowlist in the same edit, and that move should cover V14T / V15T / V24W
+  together as an operator decision, not arrive as a side effect of this lane's
+  ledger commit.
+  FIRST LIVE RAISE OF `seam-endpoint-outside-soi`, and it is a finding in its own
+  right: the run reported ONE unlisted (report-only) anomaly reason,
+  `seam-endpoint-outside-soi`, an instrument the M-A7 design doc's prior-art item
+  3 described as "report-only, has never fired". It has now fired. Echo evidence
+  in the collected manifest: `recId 61e9177193444e329247d0e8288cf91e`,
+  `pidKey 839899670`, `ut 5355599259.994832`, on the departure-loiter `DWELL`
+  that OPENS in the `Sun` frame and CLOSES at `Duna` (`treatment StockConic`,
+  `coverage InSegment`, `openAtExport = True`) - i.e. on the arrival SOI handoff,
+  exactly where a cross-SOI endpoint check is meant to have an opinion. It moved
+  no verdict (not in `hlib.ANOMALY_TOKENS`, surfaced via `unlistedReasons`) and
+  is deliberately NOT added to `allowedAnomalies`: a tolerance for an ungated
+  token is an inert declaration `parse_allowed_anomalies` warns about, and the
+  whole-set parse cell asserts zero warnings. The design doc's item 3 is
+  annotated with this run id.
+  STILL OWED AFTER FLIGHT 2: **flight 3** - a re-fly of the unchanged spec with
+  the three new tolerances, which must come back PASS with the tolerated tokens
+  recurring inside their stated populations (that is what turns each count from
+  one observation into a deterministic property) - then `warpBuckets` written
+  FROM flight 3's histogram, the armed re-flight, and the negative control.
+  Nothing is armed before flight 3.
+  ~~ONE RED IS PRE-REGISTERED AS LIKELY AND DELIBERATELY NOT BUDGETED AWAY~~ THE
+  PRE-REGISTRATION WAS DISCHARGED AND IT PAID: the spec shipped
+  `allowedAnomalies = []` although the free-play session behind its fixture
+  raised `icon-teleport` 95 times on a render the operator called visually
+  correct (the entry below), and the header promised in writing that a red on
+  that token would be the measurement rather than a defect. Flight 2 red on
+  exactly that token at 65, and because nothing was pre-tolerated, the count is
+  recorded instead of swallowed - which is what gave the icon-teleport
+  calibration entry its second dataset and its first machine-driven
+  discriminator.
   ONE THIRD-PARTY ANOMALY, FILED AND NOT ACTIONABLE: flight 1's single
   `NullReferenceException` (17:22:29.551) is `MuMech.MechJebCore.OnDestroy`
   reading `vessel.isActiveVessel` after `FlightGlobals` teardown during
@@ -605,6 +685,81 @@ DEFERRALS TAKEN IN PHASES 1-2, each of which a lane author must know.
   (`hlib.ANOMALY_TOKENS`, promoted 2026-08-04) with a `maxCount` budget, so an
   over-sensitive threshold costs real lanes real reds - which is why this is
   filed rather than left as a curiosity.
+  **SECOND DATASET 2026-08-25, and it is the one this entry was waiting for: a
+  MACHINE-DRIVEN commanded-rails session over the SAME subject raised the token
+  65 times.** V24W reading flight 2
+  (`harness/results/2026-08-25_1502_V24W-duna-one-warp-stair.json`) flew
+  `fixtures/saves/duna-one-recorded` - the harvest of the very s15 session above
+  - through a commanded stair (10x/50x/100x/1000x/100x/50x/10x at each of three
+  windows) and came back `anomalySweep hitCounts {icon-teleport: 65,
+  icon-off-orbit: 2, loop-seam-teleport: 2}`, PARSEK-FAIL(anomaly) on a
+  deliberately empty `allowedAnomalies` with every other verifier row green.
+  WHY THE PAIR MATTERS: both sides are VISUALLY-VALIDATED-SUBJECT contexts (the
+  s15 session was eyeballed correct by the operator; V24W replays that same
+  recorded state by machine), so what differs between them is the DRIVE, not the
+  subject - 95 raises hand-played versus 65 raises machine-driven. AND THE
+  DISCRIMINATOR THIS ENTRY ASKED FOR NOW EXISTS ON BOTH SIDES: s15's histogram is
+  `warp1x 0 / warpPhys 0 / warp100 4727 / warp1000 15488 / warpHigh 11446`
+  (entirely above warp100), while V24W's is `warp1x 322078 / warp100 10602 /
+  warp1000 2170 / warpHigh 0 / warpPhys 0` (overwhelmingly AT 1x, with a bounded
+  rails excursion and nothing at all above warp1000). So the raise count did NOT
+  collapse with the time-above-warp100 fraction - a ~96 % 1x session still raised
+  two thirds as many as a 0 % 1x one - which is a real constraint on the
+  "threshold does not survive rails warp" hypothesis and the reason the owed work
+  is still the per-raise warp attribution rather than a formality. Both manifests
+  carry per-raise `ANOMALY_ECHO` records with `ut` stamps, so that attribution is
+  now an offline join over two committed artifacts rather than another flight.
+  CONSEQUENCE ALREADY TAKEN, and it is a tolerance and not a fix: V24W now lists
+  `icon-teleport` BARE in `allowedAnomalies` citing `2026-08-25_1502`. The
+  ceiling that measurement authorizes is 130 (2x the measured 65, DOUBLED rather
+  than tightly bracketed precisely because this probe defect is open and that
+  lane commands rails), and it cannot be declared while
+  `test_no_committed_spec_arms_a_count_budget` and
+  `test_every_committed_spec_parses_under_the_budget_surface` hold the budget
+  mechanism inert across every committed spec - the same blocker V14T and V15T
+  each hit and each backed out of. So an over-sensitive threshold currently costs
+  the suite an UNBOUNDED tolerance on a third lane rather than a bounded one,
+  which raises the value of fixing the probe rather than lowering it.
+- **`maxUtStep` on a DWELL is POLLUTED by a seam `TimeJump` epoch shift that
+  lands inside an open dwell, so every tolerance derived from it balloons on
+  jump-driven lanes** [OPENED 2026-08-25 off V24W reading flight 2
+  (`2026-08-25_1502`). REPORT-ONLY: nothing red on it, no code changed, and no
+  rule reads it as a gate today. Owner: `RenderCompositionRecorder` /
+  `rendercompose`]. `DWELL.maxUtStep` is the largest single head-UT step observed
+  while the dwell was open, and it exists so a rule can size a tolerance against
+  how coarsely THAT dwell was sampled (the RC-HOLD leg-2 attribution window and
+  RC-COVER's gap resolution both derive from it). It assumes the step measures
+  SAMPLING RATE. A seam `TimeJump` breaks that assumption: the epoch shift is a
+  discontinuity in the clock, not a coarse sample, and if it lands while a dwell
+  is open it becomes that dwell's `maxUtStep`. MEASURED on flight 2's manifest
+  (`harness/results/2026-08-25_1502_V24W-duna-one-warp-stair_shots/parsek-render-manifest.txt`),
+  which has four `DWELL` records and a clean split:
+    * `61e9177193444e329247d0e8288cf91e` seg 6 (heliocentric-transfer, closed),
+      loop UT 64044033.92 -> 70898645.36: `maxUtStep = 6846984.9646892548`.
+    * `6561c8eb97dd48d6825e9d6c7c04d22a` seg 1 (departure-loiter, still open at
+      export), loop UT 64043475.99 -> 70931658.54: the SAME
+      `maxUtStep = 6846984.9646892548`.
+    * the other two, which no jump crossed: `maxUtStep = 2` and
+      `maxUtStep = 53745.585304260254`.
+  Two dwells reporting the identical 6,846,984.96 s to the digit is the tell -
+  that is one clock event stamped into both, not two independently sampled
+  intervals. The lane's own `driver.midMissionSeamWrites` records
+  `verbs ["MissionConfig", "TimeJump"]`, and the depart -> arrive leg's compressed
+  offsets (80,672.8 -> 6,935,286.1) bracket the value, so the producer is
+  identified rather than inferred. The result JSON's
+  `quality.maxUtStepSeconds = 6846984.964689255` is the max over all four, i.e.
+  the run-level facet is the polluted one. IMPROVEMENT, recorder side (preferred,
+  because the recorder is the only layer that can see the seam verb): PARTITION a
+  dwell at TimeJump epochs, or exclude an epoch-shift step from the `maxUtStep`
+  accumulation - the seam verb is observable at the point the shift is applied,
+  so this is a classification the recorder can make honestly rather than a
+  heuristic. VERIFIER-SIDE ALTERNATIVE if the recorder cannot be touched: cap the
+  contribution `maxUtStep` may make to a derived tolerance, so one epoch shift
+  cannot silently widen an RC-HOLD or RC-COVER window by six orders of magnitude.
+  WHY IT IS NOT URGENT: no armed window reads `maxUtStep` today, and V14M / V8
+  are TimeJump-driven but their dwells are short enough that the question has not
+  yet cost a reading. It becomes urgent the moment an RC-HOLD or RC-COVER clause
+  is armed on a jump-driven lane, which V24W's own arming pass will be.
 
 ---
 

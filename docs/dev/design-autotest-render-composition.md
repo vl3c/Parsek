@@ -112,6 +112,11 @@ and no check today):
    separate benign from defect populations; `RenderParityOracle` skips
    re-aimed members entirely; `loop-seam-teleport` measures the transform,
    not the drawn line.
+   ("has never fired" was true when this gap was written and is NO LONGER
+   true: the instrument produced its FIRST LIVE RAISE on 2026-08-25, run
+   `2026-08-25_1502` (V24W). It stays report-only, and the calibration half
+   of this gap is unchanged by one raise - see implementation note 6, which
+   carries the echo evidence.)
 4. "Synthesized never persists" and copy-then-transform immutability are
    enforced by convention only.
 5. The `PadAlignLaunch` -> `DestinationArrivalAlign` composition ordering is
@@ -541,6 +546,13 @@ this document specifies, the deviation is RATIFIED and recorded here; the
 prose above is otherwise unchanged and still binding. Status (what is shipped,
 what is armed) lives in `autotest-status.md`, not here.
 
+Notes 1-5 are the RATIFIED DEVIATIONS. Note 6 is a different kind of entry and
+is marked as such: a LIVE-FACT ANNOTATION retiring a factual claim the prose
+above makes about an instrument (prior-art gap 3's "has never fired"), added
+here rather than rewritten in place so the original claim and the run that
+falsified it stay visible together. Later annotations of that kind continue the
+same numbering.
+
 1. **`ExportRenderManifest` landed SINGLE-PHASE.** This document called for a
    deferred-completion verb. The export is synchronous - one flush plus one
    safe-write, with nothing to wait for - so the honest shape under the seam's
@@ -596,6 +608,35 @@ what is armed) lives in `autotest-status.md`, not here.
    sitting at zero across the lanes. (Wave-1 shipped this exemption keyed on
    pid-0 DWELLS, which by construction never exist - it was dead code, and the
    proto-less population would have red'd.)
+
+6. **`seam-endpoint-outside-soi` HAS NOW FIRED LIVE, once, and prior-art gap 3's
+   "has never fired" clause is retired.** First raise: run `2026-08-25_1502`
+   (V24W reading flight 2, `harness/results/2026-08-25_1502_V24W-duna-one-warp-
+   stair_shots/parsek-render-manifest.txt`). It came through the REPORT-ONLY
+   channel exactly as designed - absent from `hlib.ANOMALY_TOKENS`, surfaced as
+   `anomalySweep.unlistedReasons = ["seam-endpoint-outside-soi"]`, counted in the
+   manifest as `anomalyEchoes.seam-endpoint-outside-soi = 1`, and moving no
+   verdict (that run's PARSEK-FAIL was the anomaly sweep on three GATED tokens,
+   a separate matter). WHERE IT RAISED, because the location is the interesting
+   part: the echo sits on the departure-loiter `DWELL` for
+   `recId 61e9177193444e329247d0e8288cf91e` (`pidKey 839899670`,
+   `ut 5355599259.994832`, `treatment StockConic`, `coverage InSegment`,
+   `openAtExport = True`) whose open endpoint is in the `Sun` frame and whose
+   close endpoint is at `Duna` - i.e. the heliocentric-to-Duna arrival handoff,
+   which is precisely the geometry a cross-SOI endpoint check exists to have an
+   opinion about, not an incidental frame. The same record's
+   `maxEndpointRatio` context is the run-level `0.4366947421168355` over 1024
+   endpoints (an INFO `RC-QUAL` trend row).
+   WHAT THIS DOES AND DOES NOT SETTLE. It settles that the instrument is WIRED
+   and reachable on real re-aim geometry - the thing a "has never fired" clause
+   could not distinguish from dead code. It settles NOTHING about the
+   single-ratio calibration, which is the other half of gap 3: one raise on one
+   arrival cannot separate a benign SOI-edge endpoint from a defect, and this run
+   also carries `decimatedSections.SEAM_ENDPOINT = 292546` plus 41,280 truncated
+   and 512 skipped, so the endpoint population it saw is SAMPLED. Do not promote
+   the reason into `ANOMALY_TOKENS` off this. The calibration still wants a
+   population of raises with their ratios attributed, and the manifests now carry
+   per-raise `ANOMALY_ECHO` records with `ut` stamps to build it from offline.
 
 Two further facts a reader of this design needs about what shipped:
 
