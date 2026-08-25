@@ -3880,17 +3880,31 @@ The B7 `~564 km` citation was left verbatim, as this entry requires.
 
 ---
 
-## AUTOTEST-STATUS-B20-PE-MISDESCRIBED: flight `_1855`'s 450.6 km periapsis is called "a 200 km periapsis altitude" [RECORD CORRECTION 2026-08-15, found in passing]
+## ~~AUTOTEST-STATUS-B20-PE-MISDESCRIBED: flight `_1855`'s 450.6 km periapsis is called "a 200 km periapsis altitude"~~ [RECORD CORRECTION 2026-08-15, found in passing; FIXED 2026-08-25, branch `b20-pe-correction`]
 
 `docs/dev/autotest-status.md:1110` (the B20-moho-orbit row) reads: the first in-SOI frame
 read `pe=450629.528 ttPe=+3154.010`, **"a 200 km periapsis altitude"** with periapsis
-3,154 s ahead. `pe=450629.528` is a **450.6 km** altitude. 200 km is neither that altitude
-nor Moho's 250 km radius, so it is not a units slip in either direction -- just a wrong
-number in prose. The surrounding claim (the geometry was right; the flight was one warp
-frame from a capture) is unaffected, and no enforcing cell reads the figure.
+3,154 s ahead. `pe=450629.528` is a **450.6 km** altitude (`mission_runner.py` builds the
+snapshot's `periapsis` from kRPC's `periapsis_altitude`). The likely cause IS a units
+slip, in the third direction the original diagnosis did not check: read `pe` as a
+periapsis RADIUS from the body center and subtract Moho's 250,000 m radius and you get
+200,629.5 m -- "200 km" to 0.3%. (The first filing said "not a units slip in either
+direction" after checking only whether 200 km equals the altitude or the radius
+directly; review of the fix caught the radius-minus-radius reading.) The failure mode
+to watch for in future flight narrations: altitude-vs-radius confusion when quoting
+`pe=` telemetry, which is always an altitude. The surrounding claim (the geometry was
+right; the flight was one warp frame from a capture) is unaffected, and no enforcing
+cell reads the figure.
 
-**Fix:** change "a 200 km periapsis altitude" to "a 450.6 km periapsis altitude" at that
-site. Deliberately NOT done in the commit that files this entry, which is scoped to the
+**~~Fix~~ FIXED 2026-08-25:** the B20-moho-orbit row now reads "a 450.6 km periapsis
+altitude", exactly as this entry prescribed (the row had drifted to line 1144 by the
+time the fix landed; cited by content). A second asserting site was caught by review
+and corrected in the same pass: the APPROACH-WARP-CLAMP-FAILS-OPEN-ON-AN-INTERMITTENT-TTS
+entry narrated the identical frame as "a 200 km periapsis altitude" (~150 lines below
+this entry), and its narration now reads 450.6 km too - the sweep had missed it because
+the phrase wrapped across a line break, which a single-line literal grep does not match;
+search wrap-tolerantly. Docs-only record correction - no spec, pin or verdict touched.
+Deliberately NOT done in the commit that files this entry, which was scoped to the
 scenario-count total and the new B22 row.
 
 ---
@@ -4026,7 +4040,7 @@ bound one frame under the coast, but it taxes the entire 2.7M game-second helioc
 leg to work around a blink.
 
 **The geometry was RIGHT, which is what makes this worth fixing rather than routing
-around.** The first in-SOI frame read `pe=450629.528 ttPe=+3154.010` -- a 200 km
+around.** The first in-SOI frame read `pe=450629.528 ttPe=+3154.010` -- a 450.6 km
 periapsis altitude, comfortably above the 50 km floor, with periapsis 3,154 s AHEAD.
 Had the ceiling held, PLAN-CAPTURE had a clean arrival to arm on. This flight was one
 warp frame from a capture.
