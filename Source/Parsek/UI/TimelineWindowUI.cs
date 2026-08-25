@@ -66,8 +66,10 @@ namespace Parsek
         // permanently visible box of constant height. This window already authored a
         // tooltip on nearly every filter toggle and row action; before the strip landed
         // none of them were reachable, because KSP draws no tooltip layer of its own.
-        // Default spacing (3f) matches every other window's SpacingSmall.
-        private readonly TooltipEchoBox tooltipEcho = new TooltipEchoBox();
+        // Single-line: at this window's 820px first-open width every help text fits one
+        // wrapped line (pinned by TooltipEchoBudgetTests); overflow marquee-scrolls.
+        private readonly TooltipEchoBox tooltipEcho =
+            new TooltipEchoBox(TooltipEchoBox.DefaultSpacing, TooltipEchoBox.SingleLine);
 
         // Cached timeline data (invalidated on triggers)
         private List<TimelineEntry> cachedTimeline;
@@ -835,8 +837,9 @@ namespace Parsek
                 // just removed elsewhere. Mode-dependent text is permitted (design 9.1)
                 // but unnecessary here: wording that describes the ITEMS rather than the
                 // surface is correct in both modes and needs no mode read.
-                // No hard newlines: the help strip is exactly two wrapped lines, so a \n
-                // spends one of them and clips the rest (TooltipEchoBudgetTests).
+                // No hard newlines: the help strip is a single wrapped line in this
+                // window, so a \n spends that line on whatever sits before it and
+                // clips the rest (TooltipEchoBudgetTests).
                 new GUIContent("Archived",
                     "Brings back rows for flights you archived - the same Archive filter "
                     + "the recordings list uses."),

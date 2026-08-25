@@ -497,6 +497,26 @@ None of the new adopters needs `ResetStyles`: `ParsekUI` and every sub-window it
 constructed per scene by `ParsekFlight` / `ParsekKSC`, so a skin-scoped style never
 outlives its scene (only the DDOL `TestRunnerShortcut` has that problem).
 
+Follow-up (`singleline-tooltip-strips`): the strip height stopped being universally two
+lines. The four wide windows whose entire help corpus fits one wrapped line at their
+first-open width - Career State (820px), Timeline (820px), Logistics (1556px) and Real
+Spawn Control (750px) - now construct `TooltipEchoBox(SpacingSmall,
+TooltipEchoBox.SingleLine)`; `NormalizeLines`/`ProbeText` clamp any other request back
+to two. The budget gate grew a per-row strip-height column, so a window cannot switch
+height without re-budgeting its texts. Because a shorter strip turns "clips silently"
+into "clips sooner", the strip gained an overflow marquee: text wider than the laid-out
+strip pauses ~1.6s, scrolls left at 60 px/s until its tail is revealed, holds again and
+wraps (pure curve in `TooltipMarquee.cs`, pinned by `TooltipMarqueeTests`; the IMGUI
+glue shifts the label via `contentOffset` set before it draws on Repaint only, so the
+invariant control count and fixed reserved rect are untouched). The clock accumulates
+realtime deltas against the CURRENT text and resets when the text changes. Logistics was
+trimmed to honestly fit one line: `FormatDetailTooltip` is constant-length (funds
+amounts no longer embedded; the candidate row no longer prefixes `FormatDetailLine`),
+the Nx cadence tooltip moved to pure `LogisticsIntervalPresentation.BuildNxCellTooltip`
+(shortened), and `StatusCellTooltip` reads "Enum - clause" on one line instead of
+spending a `\n`. All three are pinned under the 218-char single-line budget in
+`TooltipEchoBudgetTests`.
+
 ## ~~SAME-TREE-DOCK-INVISIBLE-FROM-ABSORBED-SIDE: a cross-session dock inside one tree named nobody and was derivable from neither side~~ [FOUND by the 2026-08-12 dock/loop-coherence analysis (I2-ii); FIXED 2026-08-12/13, branches `same-tree-dock-claims` + `dock-event-graph` (design `docs/dev/design-dock-event-graph.md` 6.2 / 6.3-6.5, PR sequence steps 2-3)]
 
 A same-tree cross-session dock records single-parent (the partner's committed

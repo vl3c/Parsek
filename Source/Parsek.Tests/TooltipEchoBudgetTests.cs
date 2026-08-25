@@ -11,20 +11,30 @@ namespace Parsek.Tests
     /// Source gate for the shared hover-help strip's TEXT budget.
     ///
     /// <para><b>Why a budget exists.</b> <see cref="TooltipEchoBox"/> is a permanently
-    /// visible box of exactly TWO wrapped lines: text needing a third line clips
-    /// silently, with no visual cue that the player is reading a truncated sentence.
+    /// visible box of exactly ONE or TWO wrapped lines (per-window choice): text beyond
+    /// that clips, and only the strip's overflow marquee reveals it again over time -
+    /// so a sentence that fits its window's budget reads instantly, no scrolling.
     /// The strip spans the window's full content width, so how much text fits is a
     /// property of the WINDOW, not of the control - a sentence that fits the 1556 px
     /// Logistics window clips in the 280 px Settings window.</para>
     ///
     /// <para><b>How the per-file budget is derived.</b> For a window whose first-open
-    /// width is <c>W</c>: subtract ~20 px of window chrome (the skin window style's
-    /// left+right padding) and ~10 px of box padding, then divide by a deliberately
-    /// pessimistic ~7 px average character advance for KSP's default IMGUI label font
-    /// (~13 px; the real average is nearer 6.2, so the budget has headroom), and allow
-    /// two lines: <c>budget = floor(2 * (W - 30) / 7)</c>. Word wrap can only make a
-    /// line end EARLY, so this is an upper bound on what two lines hold, which is
-    /// exactly the direction a guard wants.</para>
+    /// width is <c>W</c> and whose strip is <c>L</c> lines tall: subtract ~20 px of
+    /// window chrome (the skin window style's left+right padding) and ~10 px of box
+    /// padding, then divide by a deliberately pessimistic ~7 px average character
+    /// advance for KSP's default IMGUI label font (~13 px; the real average is nearer
+    /// 6.2, so the budget has headroom), and allow L lines:
+    /// <c>budget = floor(L * (W - 30) / 7)</c>. Word wrap can only make a line end
+    /// EARLY, so this is an upper bound on what L lines hold, which is exactly the
+    /// direction a guard wants.</para>
+    ///
+    /// <para><b>Which windows are single-line.</b> The four wide windows whose ENTIRE
+    /// help corpus fits one wrapped line at their first-open width - Career State,
+    /// Timeline, Logistics and Real Spawn Control - construct their
+    /// <see cref="TooltipEchoBox"/> with <see cref="TooltipEchoBox.SingleLine"/> and are
+    /// budgeted at L=1 below; every other window keeps the two-line strip. A copy edit
+    /// that pushes any literal past ITS OWN window's line count fails here, and a
+    /// switch of a window's strip height without re-budgeting its texts fails too.</para>
     ///
     /// <para><b>What this gate covers.</b> Every <c>new GUIContent(label, tooltip)</c>
     /// in the strip-hosting windows whose tooltip argument is a plain string
@@ -36,8 +46,8 @@ namespace Parsek.Tests
     /// gate vacuous, so each file also pins a minimum literal-tooltip count.</para>
     ///
     /// <para>Hard newlines are rejected outright: an explicit <c>\n</c> spends one of
-    /// the two lines regardless of how short the text is, so a two-clause tooltip with
-    /// a break in it clips as soon as either clause wraps.</para>
+    /// the strip's lines regardless of how short the text is, so a two-clause tooltip
+    /// with a break in it clips as soon as either clause wraps.</para>
     /// </summary>
     public class TooltipEchoBudgetTests
     {
@@ -47,13 +57,11 @@ namespace Parsek.Tests
         /// <summary>Pessimistic average character advance for the default IMGUI label font, in px.</summary>
         private const float AvgCharWidthPx = 7f;
 
-        /// <summary>The strip is exactly this many wrapped text lines tall.</summary>
-        private const int StripLines = 2;
-
         /// <summary>
         /// The strip-hosting windows: source path, the window's first-open width in
-        /// px, and the minimum number of literal GUIContent tooltips the scan must find
-        /// in that file (a floor, not a target - raise it only if the parser is proven).
+        /// px, the minimum number of literal GUIContent tooltips the scan must find
+        /// in that file (a floor, not a target - raise it only if the parser is
+        /// proven), and the strip height that window constructs (1 or 2 lines).
         ///
         /// <para>The narrowest entry is the main window at 250 px, which is also the mod's
         /// entry point: every launcher in it must say what its window is for in about 62
@@ -63,47 +71,64 @@ namespace Parsek.Tests
         public static IEnumerable<object[]> StripWindows()
         {
             // Main window: both hosts (ParsekFlight, ParsekKSC) pin GUILayout.Width(250).
-            yield return new object[] { "ParsekUI.cs", 250f, 8 };
+            yield return new object[] { "ParsekUI.cs", 250f, 8, TooltipEchoBox.DoubleLine };
             // Settings: DrawIfOpen seeds new Rect(..., 280, 600) on first open.
-            yield return new object[] { "UI/SettingsWindowUI.cs", 280f, 15 };
+            yield return new object[] { "UI/SettingsWindowUI.cs", 280f, 15, TooltipEchoBox.DoubleLine };
             // Gloops Flight Recorder: first-open DefaultWindowWidth = 280.
-            yield return new object[] { "UI/GloopsRecorderUI.cs", 280f, 3 };
+            yield return new object[] { "UI/GloopsRecorderUI.cs", 280f, 3, TooltipEchoBox.DoubleLine };
             // Kerbals: DefaultWindowWidth = 410 (half of Career's 820, side by side).
-            yield return new object[] { "UI/KerbalsWindowUI.cs", 410f, 5 };
-            // Career State: DefaultWindowWidth = 820.
-            yield return new object[] { "UI/CareerStateWindowUI.cs", 820f, 14 };
+            yield return new object[] { "UI/KerbalsWindowUI.cs", 410f, 5, TooltipEchoBox.DoubleLine };
+            // Career State: DefaultWindowWidth = 820. Single-line strip: longest help
+            // text is 76 chars against a 112-char one-line budget.
+            yield return new object[] { "UI/CareerStateWindowUI.cs", 820f, 14, TooltipEchoBox.SingleLine };
             // Timeline: DefaultWindowWidth = CareerStateWindowUI.DefaultWindowWidth (820).
-            yield return new object[] { "UI/TimelineWindowUI.cs", 820f, 14 };
+            // Single-line strip: longest literal is 93 chars; watch-button tooltips cap
+            // at 77 ("No active ghost - recording is in the past/future ...").
+            yield return new object[] { "UI/TimelineWindowUI.cs", 820f, 14, TooltipEchoBox.SingleLine };
             // Recordings: DefaultCollapsedWindowWidth = 1205 + ColW_Rewind(60) + ColW_ReFly(90).
-            yield return new object[] { "UI/RecordingsTableUI.cs", 1355f, 3 };
+            // Two lines: the 204-char loop-period header tooltip genuinely wraps once.
+            yield return new object[] { "UI/RecordingsTableUI.cs", 1355f, 3, TooltipEchoBox.DoubleLine };
             // Missions is not its own window: MissionsWindowUI.DrawMissionsTabContent draws
             // INSIDE the Recordings window, so its tooltips echo in that window's strip and
-            // are budgeted at that window's width. Floor 0 on purpose - every tooltip it
-            // renders today comes from MissionPresentation (a const or a runtime build), so
-            // the scan finds none; the row exists to budget the first literal added here.
-            yield return new object[] { "UI/MissionsWindowUI.cs", 1355f, 0 };
-            // Logistics: first-open default new Rect(..., 1556, 500).
-            yield return new object[] { "UI/LogisticsWindowUI.cs", 1556f, 20 };
-            // Real Spawn Control: first-open default new Rect(..., 750, 200).
-            yield return new object[] { "UI/SpawnControlUI.cs", 750f, 0 };
+            // are budgeted at that window's width and height. Floor 0 on purpose - every
+            // tooltip it renders today comes from MissionPresentation (a const or a runtime
+            // build), so the scan finds none; the row exists to budget the first literal
+            // added here.
+            yield return new object[] { "UI/MissionsWindowUI.cs", 1355f, 0, TooltipEchoBox.DoubleLine };
+            // Logistics: first-open default new Rect(..., 1556, 500). Single-line strip:
+            // the composed Supply-Run cost tooltip was rewritten constant-length (no
+            // embedded funds amounts), the Nx cadence tooltip and the status-cell hold
+            // tooltip were trimmed to one line; all pinned by the runtime-builder gates.
+            yield return new object[] { "UI/LogisticsWindowUI.cs", 1556f, 20, TooltipEchoBox.SingleLine };
+            // Real Spawn Control: first-open default new Rect(..., 750, 200). Single-line
+            // strip: one tooltipped control whose fixed text is short; long runtime
+            // vessel names overflow into the marquee.
+            yield return new object[] { "UI/SpawnControlUI.cs", 750f, 0, TooltipEchoBox.SingleLine };
             // Test runner (Settings-launched) and the global Ctrl+Shift+T twin: 440.
-            yield return new object[] { "UI/TestRunnerUI.cs", 440f, 3 };
-            yield return new object[] { "InGameTests/TestRunnerShortcut.cs", 440f, 2 };
+            yield return new object[] { "UI/TestRunnerUI.cs", 440f, 3, TooltipEchoBox.DoubleLine };
+            yield return new object[] { "InGameTests/TestRunnerShortcut.cs", 440f, 2, TooltipEchoBox.DoubleLine };
         }
 
         internal static int BudgetChars(float windowWidthPx)
         {
-            return (int)(StripLines * (windowWidthPx - StripPaddingPx) / AvgCharWidthPx);
+            return BudgetChars(windowWidthPx, TooltipEchoBox.DoubleLine);
         }
 
-        // catches: a hover help text growing past what two wrapped lines hold in its own
-        // window, which the strip swallows silently instead of reporting.
+        internal static int BudgetChars(float windowWidthPx, int stripLines)
+        {
+            return (int)(stripLines * (windowWidthPx - StripPaddingPx) / AvgCharWidthPx);
+        }
+
+        // catches: a hover help text growing past what its own window's strip holds
+        // (one or two wrapped lines per the row above), which the strip swallows
+        // silently instead of reporting - and a host switching its strip height
+        // without re-budgeting its texts.
         [Theory]
         [MemberData(nameof(StripWindows))]
-        public void LiteralGuiContentTooltips_FitTheTwoLineStrip(
-            string relPath, float windowWidthPx, int minTooltips)
+        public void LiteralGuiContentTooltips_FitTheHelpStrip(
+            string relPath, float windowWidthPx, int minTooltips, int stripLines)
         {
-            int budget = BudgetChars(windowWidthPx);
+            int budget = BudgetChars(windowWidthPx, stripLines);
             string src = ReadParsekSource(relPath);
 
             int found = 0;
@@ -112,17 +137,19 @@ namespace Parsek.Tests
                 found++;
                 Assert.False(tip.Text.Contains("\n"),
                     string.Format(
-                        "{0} line {1}: tooltip contains a hard newline. The help strip is exactly "
-                        + "two wrapped lines - a \\n spends one of them and clips the rest. "
-                        + "Tooltip: \"{2}\"",
-                        relPath, tip.Line, tip.Text));
+                        "{0} line {1}: tooltip contains a hard newline. The help strip is "
+                        + "{2} wrapped line(s) tall - a \\n spends one of them on whatever "
+                        + "sits before it and clips the rest. Tooltip: \"{3}\"",
+                        relPath, tip.Line, stripLines, tip.Text));
                 Assert.True(tip.Text.Length <= budget,
                     string.Format(
-                        "{0} line {1}: tooltip is {2} chars but the {3}px-wide window holds about "
-                        + "{4} in the two-line help strip - the tail clips silently in game. "
-                        + "Shorten it (keep what the control does plus the key consequence). "
-                        + "Tooltip: \"{5}\"",
-                        relPath, tip.Line, tip.Text.Length, windowWidthPx, budget, tip.Text));
+                        "{0} line {1}: tooltip is {2} chars but the {3}px-wide window holds "
+                        + "about {4} in its {5}-line help strip - the tail would scroll in "
+                        + "via the marquee instead of reading at a glance. Shorten it "
+                        + "(keep what the control does plus the key consequence). "
+                        + "Tooltip: \"{6}\"",
+                        relPath, tip.Line, tip.Text.Length, windowWidthPx, budget,
+                        stripLines, tip.Text));
             }
 
             Assert.True(found >= minTooltips,
@@ -139,7 +166,7 @@ namespace Parsek.Tests
         [Fact]
         public void DensityTooltips_FitTheSettingsStrip()
         {
-            int budget = BudgetChars(280f);
+            int budget = BudgetChars(280f, TooltipEchoBox.DoubleLine);
             foreach (SamplingDensity level in
                 new[] { SamplingDensity.Low, SamplingDensity.Medium, SamplingDensity.High })
             {
@@ -153,13 +180,14 @@ namespace Parsek.Tests
             }
         }
 
-        // catches: the Supply-Run cost explanation growing past the Logistics strip. The
-        // candidate row prefixes the detail LINE to the tooltip, so the worst case is
-        // "no recovery" (the recover-to-reduce hint is appended) with a large launch cost.
+        // catches: the Supply-Run cost explanation growing past the Logistics strip.
+        // The tooltip is CONSTANT LENGTH by contract - it embeds no funds amounts
+        // (those live in the visible "Cost/run:" detail line and the candidate cell
+        // suffix), so one worst-case shape pins every route.
         [Fact]
         public void RouteRunCostTooltip_FitsTheLogisticsStrip()
         {
-            int budget = BudgetChars(1556f);
+            int budget = BudgetChars(1556f, TooltipEchoBox.SingleLine);
             var noRecovery = new RouteRunCostCalculator.RouteRunCost
             {
                 Applicable = true,
@@ -173,17 +201,47 @@ namespace Parsek.Tests
             string tip = LogisticsCostPresentation.FormatDetailTooltip(noRecovery);
             Assert.DoesNotContain("\n", tip);
             Assert.True(tip.Length <= budget,
-                string.Format("FormatDetailTooltip is {0} chars, over the {1}-char budget: \"{2}\"",
-                    tip.Length, budget, tip));
-
-            // The candidate-row composition (LogisticsWindowUI's wouldDeliverTip) joins the
-            // two with spaces, never "\n" - the whole thing must still fit two wrapped lines.
-            string combined = LogisticsCostPresentation.FormatDetailLine(noRecovery) + "  " + tip;
-            Assert.True(combined.Length <= budget,
-                string.Format(
-                    "FormatDetailLine + FormatDetailTooltip is {0} chars, over the {1}-char "
+                string.Format("FormatDetailTooltip is {0} chars, over the {1}-char single-line "
                     + "Logistics help-strip budget: \"{2}\"",
-                    combined.Length, budget, combined));
+                    tip.Length, budget, tip));
+        }
+
+        // catches: any of the Logistics window's runtime-composed tooltips growing past
+        // its SINGLE-line strip (the source scan cannot see these - they are builders,
+        // not literals). The Nx cadence tooltip is the longest composed text in the
+        // window; the status-cell hold tooltip must stay one hard-newline-free line.
+        [Fact]
+        public void RuntimeComposedLogisticsTooltips_FitTheSingleLineStrip()
+        {
+            int budget = BudgetChars(1556f, TooltipEchoBox.SingleLine);
+
+            string flatNx = LogisticsIntervalPresentation.BuildNxCellTooltip(
+                windowedBasis: false, multiplier: 4, basisLabel: null, formattedTransit: "123.4h");
+            string windowedNx = LogisticsIntervalPresentation.BuildNxCellTooltip(
+                windowedBasis: true, multiplier: 3, basisLabel: "Kerbin-Mun synodic", formattedTransit: "12.5d");
+            Assert.DoesNotContain("\n", flatNx);
+            Assert.DoesNotContain("\n", windowedNx);
+            Assert.True(flatNx.Length <= budget,
+                string.Format("BuildNxCellTooltip(flat) is {0} chars, over the {1}-char "
+                    + "single-line Logistics help-strip budget: \"{2}\"",
+                    flatNx.Length, budget, flatNx));
+            Assert.True(windowedNx.Length <= budget,
+                string.Format("BuildNxCellTooltip(windowed) is {0} chars, over the {1}-char "
+                    + "single-line Logistics help-strip budget: \"{2}\"",
+                    windowedNx.Length, budget, windowedNx));
+
+            // Status-cell hold tooltip: a representative LONG hold clause (the
+            // unresolved-pickup-source family, the longest fixed wording the builder
+            // emits) plus enum name and separator still fits one line.
+            string statusTip = LogisticsHoldPresentation.StatusCellTooltip(
+                RouteStatus.Active,
+                "a pickup source vessel could not be found - it may have moved, "
+                + "been recovered, or been destroyed");
+            Assert.DoesNotContain("\n", statusTip);
+            Assert.True(statusTip.Length <= budget,
+                string.Format("StatusCellTooltip with a long clause is {0} chars, over the "
+                    + "{1}-char single-line Logistics help-strip budget: \"{2}\"",
+                    statusTip.Length, budget, statusTip));
         }
 
         // ------------------------------------------------------------------

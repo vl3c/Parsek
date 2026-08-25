@@ -45,8 +45,11 @@ namespace Parsek
         private const float SpawnColW_Warp = 118f;
 
         // Bottom "hovered control help text" strip. See TooltipEchoBox for why it is a
-        // permanently visible box of constant height.
-        private readonly TooltipEchoBox tooltipEcho = new TooltipEchoBox(SpacingSmall);
+        // permanently visible box of constant height. Single-line: at this window's
+        // 750px first-open width its one tooltipped control's fixed text fits a line;
+        // long runtime vessel names overflow into the strip's marquee instead.
+        private readonly TooltipEchoBox tooltipEcho =
+            new TooltipEchoBox(SpacingSmall, TooltipEchoBox.SingleLine);
 
         // Rect of the bottom row's "Warp to Next Spawn" button, captured on Repaint.
         // The strip draws above that row, so this is how its tooltip reaches the strip.

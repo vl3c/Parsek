@@ -5,13 +5,16 @@ using UnityEngine;
 namespace Parsek.InGameTests
 {
     /// <summary>
-    /// Live-IMGUI guard that the tooltip echo strip is exactly TWO text lines tall at a
-    /// realistic window width - no taller when a long tooltip wraps past two lines, and
-    /// no shorter when nothing is hovered.
+    /// Live-IMGUI guard that the tooltip echo strip reserves exactly its measured text
+    /// height at a realistic window width - no taller when a long tooltip wraps past
+    /// what was reserved, and no shorter when nothing is hovered. It constructs the
+    /// DEFAULT (two-line) <see cref="TooltipEchoBox"/>; which windows build theirs
+    /// one- or two-line is a source-level choice pinned by TooltipEchoBudgetTests,
+    /// and both heights measure from the same probe mechanism this guard checks.
     ///
     /// <para>This is the half of the shape contract the control-count guard
     /// (<see cref="LogisticsTooltipEchoImguiTest"/>) cannot see. That one proves the two
-    /// states agree with EACH OTHER; this one proves they both agree with the two-line
+    /// states agree with EACH OTHER; this one proves they both agree with the fixed
     /// height the helper measured from <c>GUI.skin.box</c> - i.e. that the constant is
     /// the intended constant, at a width where a >200-character tooltip genuinely wraps.
     /// Together they are why a window's height and its bottom row no longer move when

@@ -357,8 +357,11 @@ namespace Parsek
         private const float ColW_CandidateTransit = 80f;
 
         // Bottom "hovered control help text" strip. See TooltipEchoBox for why it is a
-        // permanently visible box of constant height.
-        private readonly TooltipEchoBox tooltipEcho = new TooltipEchoBox(SpacingSmall);
+        // permanently visible box of constant height. Single-line: the widest window in
+        // the mod (1556px) fits one line per help text after the copy trims that came
+        // with this change (pinned by TooltipEchoBudgetTests); overflow marquee-scrolls.
+        private readonly TooltipEchoBox tooltipEcho =
+            new TooltipEchoBox(SpacingSmall, TooltipEchoBox.SingleLine);
 
         private const float SpacingSmall = 3f;
         private const float SpacingLarge = 8f;
@@ -1229,14 +1232,11 @@ namespace Parsek
             // misleading on synodic spacing - and a small basis label follows the
             // Nx readout. Flat rows draw the pre-M5 content byte-identically.
             bool windowed = RouteWindowBasisPresentation.IsWindowedBasis(leg.Basis);
-            string nxTooltip = windowed
-                ? string.Format(CultureInfo.InvariantCulture,
-                    "Dispatch cadence: {0} {1}. The route delivers on the launch windows its ghost flies; use -/+ to deliver every Nth window (1x is the floor).",
-                    RouteWindowBasisPresentation.FormatWindowedCadence(n),
-                    leg.BasisLabel ?? string.Empty)
-                : string.Format(CultureInfo.InvariantCulture,
-                    "Dispatch cadence = N x run duration (transit {0}). Type a target interval (e.g. 30m, 2h, 1d, or a plain number = seconds) in the field, or use -/+; the value snaps up to the next whole run-multiple (1x is the floor, the fastest the run allows).",
-                    FormatDuration(route.TransitDuration));
+            // Pure builder in LogisticsIntervalPresentation: the flat variant is the
+            // window's longest runtime-composed tooltip, so its length is pinned by
+            // TooltipEchoBudgetTests against the single-line strip budget.
+            string nxTooltip = LogisticsIntervalPresentation.BuildNxCellTooltip(
+                windowed, n, leg.BasisLabel ?? string.Empty, FormatDuration(route.TransitDuration));
             GUILayout.Label(
                 new GUIContent(
                     string.Format(CultureInfo.InvariantCulture, "{0}x", n),
@@ -1464,11 +1464,11 @@ namespace Parsek
                 && candCost.Applicable && candCost.CostKnown)
             {
                 wouldDeliverText += LogisticsCostPresentation.FormatCandidateSuffix(candCost);
-                // Space, never "\n": the shared tooltip strip is exactly two wrapped
-                // lines, so a hard break here spent one of them on the short cost line
-                // and clipped the tail of the explanation.
-                wouldDeliverTip = LogisticsCostPresentation.FormatDetailLine(candCost)
-                    + "  " + LogisticsCostPresentation.FormatDetailTooltip(candCost);
+                // Single-line strip: the exact figures stay in the visible "Cost/run:"
+                // detail line (FormatDetailLine) and the candidate suffix on the cell
+                // itself; the tooltip carries only the fixed-length explanation, which
+                // fits the one-line budget with the numbers no longer embedded.
+                wouldDeliverTip = LogisticsCostPresentation.FormatDetailTooltip(candCost);
             }
             GUILayout.Label(
                 new GUIContent(wouldDeliverText, wouldDeliverTip),
