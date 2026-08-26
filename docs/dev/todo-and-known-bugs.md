@@ -293,21 +293,44 @@ G1's B27/V18) before proposing a fix.
 
 ## M-A7-RENDER-COMPOSITION-PHASES-3-AND-4: what the render-composition manifest still owes after Phases 1-2 landed, plus the four deferrals those phases took deliberately [OPENED 2026-08-25 with the M-A7 Phases 1-2 PR. TODO, not a defect. Status authority for the module is `docs/dev/autotest-status.md`; the design is `docs/dev/design-autotest-render-composition.md`]
 
+**PHASE 3C - THE CORPUS-WIDE DECLARATION WAVE (the operator's stated architecture,
+recorded 2026-08-26).** The B-flights generate recordings, the V-lanes loop them
+synthetically at new UTs, and the composition manifest audits the composed render -
+so the rollout is declaration, not new machinery. Plan, in waves: (A) batch-declare
+the bare `[expectations.renderComposition]` block + export step + tracer steps
+(where missing) across the eligible V-M lanes (V7M, V9-V13, V15M, V16M, V17M, V19M,
+V21M, V22M, V23M) plus the first T-host lane (`V14T`, the TS pilot - NO tracking-
+station-host manifest has ever been captured) and the K-host lane (`V22K`); each
+declaration changes that lane's anomaly exposure where tracers were previously off,
+which is why nothing arms at declaration. (B) readings accumulate FOR FREE via
+normal tier cadence once declared - every flight of a declared lane produces facets
+into its results JSON; targeted flights only where cadence is too slow. (C) arm in
+batches off accumulated readings with per-lane windows, the established three-run
+discipline per lane. Gates that must exist first for specific lanes: the map-open
+seam verb (RC-OWN-DRAW-HALF-IS-MAP-GATED) before any lane whose subject carries
+TracedPath phases arms the ownership clauses.
+
+
 Phases 1-2 shipped the C# recorder (env-gated, `ExportRenderManifest` verb,
 scene-exit flush), the pure Python verifier `harness/lib/rendercompose.py`, and
-the `renderCompose` verifier row REPORT-ONLY. THREE committed scenarios now
-DECLARE `[expectations.renderComposition]` (see the Phase-3 bullet), all three
-flew their report-only reading runs on 2026-08-25 - so the module is live-proven
-on real game manifests - and ALL THREE BLOCKS WERE ARMED that day off those
-readings (windows in the Phase-3 bullet), EACH LANE THEN CLOSING THE FULL
-THREE-RUN WORKFLOW THE SAME DAY: V14M and V8 with six runs between them, and
-V24W - the RC-WARP lane - with six of its own (three readings, two armed
-re-flights, one negative control). **PHASE 3 IS THEREFORE COMPLETE AND ITS LAST
-DEBT, RC-WARP, IS DISCHARGED**; D14 `warp-rails` coverage is real rather than
-claimed, because the gate behind it (`warpBuckets`, armed on V24W alone) now
-reds a run whose rails buckets come back empty. WHAT REMAINS OWED for this module
-is Phase 4's route surfaces (via G1's B27/V18) plus the parked
-instrument-calibration items listed at the end of this entry - nothing in Phase 3.
+the `renderCompose` verifier row REPORT-ONLY. FOUR committed scenarios now
+DECLARE `[expectations.renderComposition]`. THREE of them (see the Phase-3
+bullet) flew their report-only reading runs on 2026-08-25 - so the module is
+live-proven on real game manifests - and ALL THREE OF THOSE BLOCKS WERE ARMED
+that day off those readings (windows in the Phase-3 bullet), EACH LANE THEN
+CLOSING THE FULL THREE-RUN WORKFLOW THE SAME DAY: V14M and V8 with six runs
+between them, and V24W - the RC-WARP lane - with six of its own (three readings,
+two armed re-flights, one negative control). **PHASE 3 IS THEREFORE COMPLETE AND
+ITS LAST DEBT, RC-WARP, IS DISCHARGED**; D14 `warp-rails` coverage is real rather
+than claimed, because the gate behind it (`warpBuckets`, armed on V24W alone) now
+reds a run whose rails buckets come back empty. THE FOURTH DECLARER,
+`V6M-mun-player-loop`, was authored 2026-08-25 as a BARE UNARMED block and still
+owes its reading run - see the Phase-3b bullet: it is the MUN subject the
+operator asked about, and the suite's first TWO-COMPLETE-CYCLE RC-CYCLE dataset.
+WHAT REMAINS OWED for this module is that lane's reading + arming (Phase 3b),
+Phase 4's route surfaces (via G1's B27/V18), and the parked
+instrument-calibration items listed at the end of this entry - nothing in the
+original Phase 3.
 
 REMAINING PHASES.
 
@@ -685,6 +708,92 @@ REMAINING PHASES.
   the total read 108. The prediction was about the one reason and held; the total
   is not a controlled quantity, which is exactly why the armed
   `unevaluable = { max = 200 }` window is a runaway guard rather than a pin.
+- **Phase 3b (the MUN subject + the first two-complete-cycle RC-CYCLE dataset).
+  IN PROGRESS - lane AUTHORED 2026-08-25 on branch `mun-composition-lane`,
+  READING RUN TAKEN 2026-08-25 (`2026-08-25_2056_V6M-mun-player-loop`), ARMING
+  PASS OWED.** Additive to a COMPLETE Phase 3, not a re-opening of it: the
+  three armed lanes above stay exactly as they are.
+  THE OPERATOR'S QUESTION, verbatim: "did we get to test if a looped mission to
+  the Mun renders correctly after 1, 2 periods?" It had TWO gaps, and this item
+  closes both.
+    * GAP (a): NO MUN SUBJECT. All three declarers are Ike / Eve / Duna; no
+      composition accounting has ever gated on a Kerbin->Mun loop.
+    * GAP (b): NO LANE ANYWHERE HAS FED RC-CYCLE TWO COMPLETE CYCLES, so the rule
+      has never actually compared two structures. The mechanism, read off the
+      code rather than assumed: `rendercompose._cycle_windows` pairs CONSECUTIVE
+      `cycle-rollover` clock events (N events -> N-1 closed windows) and
+      deliberately does NOT synthesise the trailing open cycle against the export
+      UT ("a cycle the export cut in half is not a cycle"); `_rule_cycle` then
+      skips any unit with `len(windows) < 2` as `no-cycle-rollover-events`
+      unevaluable. `RenderCompositionRecorder.ObserveUnitFrame` emits ONE
+      rollover per CHANGE of `frame.CycleIndex`, and on a SCHEDULED (zero-drift)
+      unit `ComputeSpanLoopFrame` takes the schedule branch - `CycleIndex = sIdx`
+      (the index of the largest scheduled launch <= currentUT), UNRESOLVED before
+      the first one - so the rollover count equals the number of scheduled
+      launches the clock ENTERS. Every loop lane in the suite flies TWO cycles
+      and therefore closes ONE: V14M measured exactly that
+      (`clockEvents {cycle-rollover: 2}` -> `cycles 1` +
+      `no-cycle-rollover-events: 1`).
+  WHAT WAS AUTHORED: `harness/scenarios/V6M-mun-player-loop.toml` gained a THIRD
+  cycle (one `StartLoopPlayback`, the same -180/-60/+140 arrival bracket about
+  the cycle-3 seam, the same +20,800 park epoch, and deliberately NO third
+  `EnterWatchMode` - a watch attempt is a pinned-verdict bet), one
+  `ExportRenderManifest` immediately before `FlushAndQuit`, and a BARE
+  `[expectations.renderComposition]`. 21 steps -> 27, and NOTHING in the existing
+  flown shape moved: no jump UT, no budget, no expectation (the S4.1 rule). The
+  lane already armed the three tracers the seam capture needs. It is registered
+  in `RENDERCOMPOSE_DECLARER_SPECS` as the FOURTH declarer and is deliberately
+  ABSENT from `RENDERCOMPOSE_ARMED_SPECS`.
+  THE CYCLE-3 ANCHOR IS DERIVED, NOT GUESSED, and the derivation is validated
+  twice before it is used: replaying `TryFindNextScheduleK`'s purely periodic
+  filter with the throttle `ceil((L_last + span - ut0)/T_anchor)` reproduces this
+  lane's two MEASURED anchors (k=13 -> 280,176.9473801677, k=26 ->
+  560,319.4747603355) and the product's own
+  `scheduleWorstResidual=4347.54846243246` to the digit, then continues the
+  header's faithful-k series to **k=45 -> relaunchUt 969,758.553** (throttleK 28,
+  residual 3,166.503) - hence seam 986,129.115 and park 990,558.553. A mis-pin
+  self-detects as the already-forbidden `timejump refused reason=backward-jump`.
+  WHY THIS SUBJECT AND NOT A SECOND COPY OF V14M: V6M is PAD-ROOTED with TWO
+  constraints and a NON-UNIFORM ZERO-DRIFT SCHEDULE (`zeroDrift=yes`, faithful-k
+  13, 26, 45, 58), where V14M is orbit-rooted, single-constraint and
+  uniform-cadence - so RC-CYCLE's `cycleLengthResidualsSeconds` trend
+  (`(hi - lo) - unit.cadenceSeconds` per window) is a genuinely different surface
+  here. And both windows land in the SAME warp bucket (`warp1x`, every clock move
+  being an instantaneous `TimeJump`), which is RC-CYCLE's SHARP FAIL-level
+  isomorphism clause rather than its cross-bucket INFO one - so the comparison
+  gets its strong form on its first outing. `warpBuckets` must NEVER be declared
+  here (1x-only by construction; V24W owns the histogram).
+  THE READING RUN IS IN: `2026-08-25_2056_V6M-mun-player-loop`, verdict PASS,
+  `renderCompose` status REPORT. Steps (1) and (2) of the owed list are DONE and
+  both headline predictions LANDED. `clockEvents {cycle-rollover: 3,
+  inter-cycle-tail: 2}` -> **`cycles = 2`**, the suite's first two-closed-cycle
+  dataset, and **RC-CYCLE EVALUATED for the first time anywhere** rather than
+  reporting `no-cycle-rollover-events` - it found the two closed cycles
+  **ISOMORPHIC** and raised nothing, with both windows in the SAME `warp1x`
+  bucket (`warpBuckets {warp1x: 250}`), i.e. the SHARP FAIL-level form of the
+  clause rather than the cross-bucket INFO one. Facets for the arming pass:
+  `treatments {StockConic: 2, TracedPath: 3}`, `dwells 5` + `openDwells 3`,
+  `transitions 5`, `chainBuilds 3`, `planUnits 1`, `lineBranches 11`,
+  `coverages {InSegment: 5}`, `seamEndpoints 109`,
+  `seamKinds {rigid: 21, flexible-soi: 3}`, `seamTangents 0`,
+  `ownershipChanges 0`, `unevaluable 110`
+  (`seam-endpoint-skipped` 109 + `warp-hold-traversal-evidence-absent` 1),
+  `cycleLengthResidualsSeconds [-2.53, 129297.47]` (the second window spans the
+  schedule's k=26 -> k=45 step, so the large residual is the NON-UNIFORM schedule
+  reading correctly), `exportReason process-teardown`, `scene FLIGHT`,
+  `mapRenderTracingOn true`.
+  STILL OWED: (3) an arming pass by operator decision, whose obvious first clause
+  is `cycles = { min = 2 }` - the one floor no other lane in the suite can carry -
+  followed by the armed re-flight and a negative control inverting a window of
+  this lane's OWN. READ `RC-OWN-DRAW-HALF-IS-MAP-GATED` below FIRST: on this lane
+  (and on every other manifest lane today) RC-OWN's draw->publish direction is
+  structurally unevaluable, so "no RC-OWN finding" must not be armed as
+  "ownership conserved".
+  A FAIL-level RC-CYCLE role-structure finding on the reading run would have been
+  a MEASUREMENT, not a spec bug (a bare block gates on nothing): the render-side
+  statement of "cycle 2 does not arrive where cycle 1 did", which is the question
+  this lane's own desync hunt asks with coarser instruments. It did not fire -
+  on this subject, at this resolution, cycle 2 arrives where cycle 1 did.
 - **Phase 4 (routes + product).** Ride G1's B27/V18 for the route surfaces so
   RC-ROUTE evaluates against a real route line, and start the RC-QUAL trend
   record (kink angles, endpoint ratios, hold durations) that feeds
@@ -692,6 +801,53 @@ REMAINING PHASES.
 
 DEFERRALS TAKEN IN PHASES 1-2, each of which a lane author must know.
 
+- **`RC-OWN-DRAW-HALF-IS-MAP-GATED`: no manifest lane has ever observed the
+  polyline draw/publish half, because none of them opens the map view. INSTRUMENT
+  / LANE-SHAPE GAP, NOT A PRODUCT DEFECT [FOUND 2026-08-25 by diagnosing V6M's
+  reading run `2026-08-25_2056`, which raised three report-only RC-OWN FAILs].**
+  The finding as it read: `recId=4cfa06ce...: a visible TracedPath dwell
+  [296370, 296690] / [576510, 576830] / [985950, 986270] exists with NO ownership
+  record`, one per cycle, at exactly the three arrival `TimeJump` brackets.
+  THE DIAGNOSIS (manifest + collected KSP.log + source): RC-OWN's two halves do
+  not share a gate. The INTENT half - `ShadowRenderDriver.RunFrame`, which stamps
+  the TracedPath intent that the DWELL records AND the stock line/icon
+  suppression both read - is driven from `ParsekFlight`'s per-frame update and
+  runs map-open or not. The PUBLISH half - `drewNonOrbitalLegRecordings` ->
+  `RenderCompositionRecorder.NoteOwnershipPublish` - sits at the END of
+  `GhostTrajectoryPolylineRenderer.Driver.LateUpdate`, whose SECOND statement is
+  `if (!MapView.MapIsEnabled) return;`.
+  THE EVIDENCE, all three independent: (1) the collected KSP.log carries the
+  Driver's awake + destroy lines and ZERO `Polyline frame:` summaries - that
+  summary is emitted at the end of EVERY completed walk, so zero means every
+  LateUpdate bailed early, and the only other early return is the scene gate,
+  which cannot have fired (`scene = FLIGHT`); (2) all three descent dwells carry
+  `markerPolyline = False` with `markerIconSuppressed = True`, i.e. the marker
+  rode the icon fallback because no leg drew; (3) `ownershipChanges = 0` for the
+  whole run, and no seam verb opens the map - there is no `EnterMapView` command
+  and no production path calls `MapView.EnterMapView`.
+  SCOPE: this is the state of EVERY manifest lane today. V24W measured
+  `ownershipChanges = 0` as well and escaped only because it never opened a
+  TracedPath dwell; V6M is simply the first lane whose Director did. With the map
+  closed nothing is drawn on any map surface, so a visible TracedPath dwell is an
+  INTENT record and not evidence of a draw: the rule's premise was never
+  established, and the three FAILs were the instrument speaking about a question
+  the run never asked.
+  DONE IN THIS PASS (minimal, one clause): `rendercompose._rule_own`'s
+  draw->publish direction now names the precondition. ZERO `OWNERSHIP_CHANGE`
+  records ANYWHERE stands the direction down as the defined-unevaluable
+  `ownership-publish-surface-never-ran` (counted in the census, never silent);
+  ONE publish anywhere proves the walk ran past the map gate, and from there a
+  recording whose visible TracedPath dwell has no ownership record keeps its FAIL
+  - that IS the leg-that-never-draws defect the direction exists to catch. The
+  `falls outside every published ownership interval` clause is untouched (it
+  already requires that recording to have published). Two cells pin both halves
+  in `harness/lib/test_rendercompose.py`.
+  STILL OWED, and it is NOT a rule edit: a MAP-OPEN LANE, so the draw half is
+  observed at least once. That needs a new command-seam verb (a C# change: the
+  seam has no map-view verb at all) plus a flown-shape change on whichever lane
+  adopts it - which is why it did not ride this diagnosis. Until then, no arming
+  pass may read "no RC-OWN finding" as "ownership conserved", and the design
+  doc's ratified deviation #5 carries the same amendment.
 - **Seam measurement is double-gated.** The tangent and endpoint evaluation
   sites are `mapRenderTracing`-gated and were NOT widened, so a manifest lane
   that wants RC-SEAM / RC-QUAL numbers must arm BOTH `PARSEK_RENDER_MANIFEST=1`

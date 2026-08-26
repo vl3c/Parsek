@@ -6447,9 +6447,34 @@ class RenderComposeVerifierWiringTests(unittest.TestCase):
     #       flew as `_1925`, `PARSEK-FAIL(render-composition)` attempt 1 on the
     #       single mismatch `RC-WARP [FAIL] warpBuckets.warpHigh`, reverted in the
     #       same change - see the roster entry above for the full ids and facets.
+    #
+    # THE FOURTH DECLARER, added 2026-08-25, BARE and UNARMED:
+    #
+    #   V6M-mun-player-loop.toml - the MUN half of the "phase-lock moon loop (V6/V14
+    #       class)" subject the design names, and the suite's FIRST TWO-CLOSED-CYCLE
+    #       render-composition dataset. Two things make it a distinct subject rather
+    #       than a second copy of V14M. (1) It is PAD-ROOTED with TWO constraints and a
+    #       NON-UNIFORM ZERO-DRIFT SCHEDULE (`zeroDrift=yes`, faithful-k series 13, 26,
+    #       45, 58), where V14M is orbit-rooted, single-constraint and uniform-cadence -
+    #       so RC-CYCLE's `cycleLengthResidualsSeconds` trend is a genuinely different
+    #       surface here. (2) It ENTERS THREE CYCLES. `rendercompose._cycle_windows`
+    #       pairs consecutive `cycle-rollover` events, so N rollovers close N-1 cycles
+    #       and `_rule_cycle` skips a unit with fewer than two closed windows as
+    #       `no-cycle-rollover-events`; every loop lane in the suite flies two cycles
+    #       and closes ONE (V14M measured exactly that), so RC-CYCLE has never compared
+    #       two structures anywhere. Three entered cycles close two and give the rule
+    #       its first comparison - same warp bucket (warp1x), so the sharp FAIL-level
+    #       clause rather than the cross-bucket INFO one.
+    #       The spec's cycle-3 anchor is DERIVED (k=45 -> relaunchUt 969,758.553) off
+    #       the same replay of `TryFindNextScheduleK` that reproduces this lane's two
+    #       MEASURED anchors to the digit.
+    #       READING RUN PENDING - it is deliberately NOT in RENDERCOMPOSE_ARMED_SPECS
+    #       and its block is bare. Windows get written FROM the reading facets, at
+    #       arming, by operator decision.
     RENDERCOMPOSE_DECLARER_SPECS = {"V14M-ike-player-loop.toml",
                                     "V8-eve-player-loop.toml",
-                                    "V24W-duna-one-warp-stair.toml"}
+                                    "V24W-duna-one-warp-stair.toml",
+                                    "V6M-mun-player-loop.toml"}
 
     def test_render_composition_declarers_are_the_recorded_roster(self):
         """Pinned so a declarer is always a deliberate edit, in BOTH directions. A
