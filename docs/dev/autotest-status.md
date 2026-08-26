@@ -3234,6 +3234,41 @@ six publish or compare numbers the runner already measured.
     `strict=False` token is untouched and still says no for `career-pad-craft`, which is
     the right answer there and is now asserted with the allowlist's existence in view.
 
+15. TWO COMMITTED SUBJECTS HAVE NO LANE (2026-08-26, branch `route-harvests`).
+    Both are free-play harvests, both read GREEN under
+    `analyze-recordings.ps1 -FailOnRed -FreshSaveGate`, both are drift-guarded,
+    and NOTHING READS EITHER YET.
+    - **`depot-route-recorded`** - THE SUITE'S FIRST `ROUTE` (`5420f805...`,
+      `Active`, `completedCycles = 1`, SameBody Kerbin -> Kerbin, DockingPort STOP
+      onto the `Depot`), 2 trees / 22 recordings, `FAIL=0 WARN=0 RED=0` (the only
+      zero-WARN RECORDED fixture). Tool
+      `harness/tools/build_depot_route_recorded.py`, gate
+      `DepotRouteRecordedFixtureDriftTests`, pins
+      `RECORDED_FIXTURES["depot-route-recorded"]` plus a BUILDER-side route pin
+      (saveparse has no `routes` facet - see the improvement entry in
+      todo-and-known-bugs.md). **This DISCHARGES B27 as a FORGE-CLASS STAMP**, a
+      ratified deviation from its register entry recorded on the G1 entry in
+      `autotest-roadmap.md`: `SealSlot` / `RouteCommand` are reserved verbs, so no
+      driven run can create a ROUTE and a BDOCK forge was never possible. Owed:
+      V18T / V18M. **V18T needs no `EnterMapView` verb** - the route draw slot
+      (`Display/GhostTrajectoryPolylineRenderer.cs:3894-3906`) is gated only on the
+      planetarium camera, `scene is TRACKSTATION or FLIGHT`, and a frame de-dupe;
+      the GHOST polyline pass at `:4014` is the map-gated one.
+    - **`duna-park-recorded`** - the HELIOCENTRIC-PARKING-DEPARTURE class, 1 tree /
+      14 recordings, `FAIL=0 WARN=16 RED=0`. Stripped from the same `s15` operator
+      save as `duna-one-recorded` but keeping a DIFFERENT tree, and it is a
+      genuinely different subject: its transfer coasts on one Sun orbit
+      (sma 14,072,049,898.09, three consecutive segments agreeing to ten
+      significant figures) for 13.5 Ms before an element-step departure burn, where
+      the direct sibling ejects straight from Kerbin. That property lives in the
+      `ORBIT_SEGMENT` list, which no saveparse facet reads, so it is pinned by
+      `DunaParkSignatureTests` instead. Tool
+      `harness/tools/build_duna_park_recorded.py`. Owed: a lane of its own.
+    Both harvests also CORROBORATED the recorder SOI-seam double-emit suspicion -
+    six-for-six across two missions now, plus the first sighting of the re-clip
+    half on a recording that crosses NO seam; forensics on
+    RECORDER-SUSPECTED-DOUBLE-EMIT-AT-SOI-SEAM in todo-and-known-bugs.md.
+
 ## Operator items outstanding
 
 1. Career fixture saves (3) - DONE + LIVE-PROVEN (no operator session): file-

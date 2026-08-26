@@ -179,6 +179,34 @@ fresh-save gate can be green. That is a FIXTURE repair on one file, not a fix: i
 changes no product code, and if the recorder still double-emits, the next
 free-play harvest will carry the same six.
 
+**CORROBORATED TWICE ON 2026-08-26 by two further free-play harvests, and the
+"next free-play harvest will carry the same" sentence above is now a measurement
+rather than a prediction.** Neither new observation changes the SUSPECTED status -
+still no cause, still no product change proposed - but they narrow the shape:
+
+- `duna-park-recorded` (tree `ced78481...` out of the SAME `s15` save, a
+  DIFFERENT mission). Its transfer `aa48920e...` carried 52 sections with four
+  redundant, and TWO of the four are the exact `ref=0`-shell-beside-checkpoint
+  shape at exactly its two body-change seams - `[2547568544.056056,
+  2560670336.8959155]` (Kerbin -> Sun) and `[2570454935.6223264,
+  2570490859.060472]` (Sun -> Duna). Two seams, two duplicates: **two-for-two,
+  so the four-for-four above is now six-for-six across two independent
+  missions.** The other two (idx 1 and 3) are the re-clip shape, at a
+  Kerbin-orbit segment rather than a seam.
+- `depot-route-recorded`, from a DIFFERENT SAVE ENTIRELY (`orbital supply route
+  DELIVERY test`, a Kerbin-only sandbox). Its `a85a7ae0...` carried 50 sections
+  with two redundant - and **NEITHER is at a seam**, because that recording never
+  crosses one. Both are the re-clip shape around a single Kerbin conic
+  (`[6163.7967133907259, 6590.41224317588]` re-clipped by a 65-byte shell and by
+  a 170-byte copy carrying the same elements and the same epoch).
+
+**What that pair adds, precisely.** The re-clip shape is NOT SOI-specific - it
+occurs on a purely Kerbin-orbital recording with no body change anywhere - while
+the `ref=0`-shell shape has still only ever been seen sitting exactly on a body
+seam, now across two missions and six seams. Those are plausibly two different
+producers, and a future investigation should not assume one fix covers both. The
+`ref=0` half remains the one this entry is filed about.
+
 ## FIXTURE-DUNA-ONE-RECORDED-LANE-PENDING: the M-A7 RC-WARP subject is harvested, repaired and registered, but no scenario has flown against it yet [OPENED 2026-08-25 on branch `duna-one-fixture`. TODO, not a defect]
 
 `harness/fixtures/saves/duna-one-recorded` is committed: the operator's own
@@ -221,6 +249,140 @@ lane's pre-registered doctrine outcome and says nothing about this fixture; the
 fixture's own analyzer gate stayed GREEN on the run (`analyzer PASS red=0`).
 What is owed NOW belongs to the lane, not the fixture: flight 3 (a clean reading
 with the three new tolerances), then arming.
+
+## FIXTURE-DEPOT-ROUTE-RECORDED-LANE-PENDING: the G1/B27 route subject is harvested, repaired and registered, but no scenario has flown against it yet [OPENED 2026-08-26 on branch `route-harvests`. TODO, not a defect]
+
+`harness/fixtures/saves/depot-route-recorded` is committed: the operator's own
+free-play sandbox save `orbital supply route DELIVERY test`, harvested
+`--expect-situation ORBITING --keep-parsek` and finished by
+`harness/tools/build_depot_route_recorded.py`. It is **the first committed
+fixture carrying a `ROUTE`** - `5420f805...`, `status = Active`,
+`completedCycles = 1`, `isKscOrigin = True`, SameBody Kerbin -> Kerbin
+(`dispatchWindowPeriod = 0`), `dispatchInterval` / `transitDuration`
+16,058.001895760137 s, `recordedDockUT` 17,478.248634212287, a DockingPort STOP
+onto the `Depot` (pid 3620499050) with a LiquidFuel/Oxidizer delivery manifest.
+Two whole recording trees, 22 recordings, 86 authoritative sidecars. Pins live in
+`test_saveparse.RECORDED_FIXTURES["depot-route-recorded"]` plus the builder's own
+`verify_route`; the recipe is guarded by `DepotRouteRecordedFixtureDriftTests`.
+
+It reads GREEN under `analyze-recordings.ps1 -FailOnRed -FreshSaveGate`
+(`FAIL=0 WARN=0 INFO=0 STALE=0 BASELINED=0 RED=0`) after a two-section INV2
+containment repair on the Transporter's chain segment `a85a7ae0...` - the only
+RECORDED fixture in the suite with a zero-WARN reading.
+
+**Why it is a harvest and not a forge**, restated here because it is the thing a
+reader will question: route candidacy is gated on `IsTreeFullySealed` and both
+verbs that could satisfy it (`SealSlot`, `RouteCommand`) are RESERVED command-seam
+verbs (H35 ROUTE-CANDIDACY-GATED-ON-SEAL-NO-SEAM-PATH), so no driven run can
+create a ROUTE at all today. The register amendment is on the G1 entry in
+`autotest-roadmap.md`; B27 is now a FORGE-CLASS STAMP and the flight variant is
+deferred behind those two verbs.
+
+**Three residuals, all deliberate, all non-gating:**
+
+- **No `Ships/` at all.** Dropped by the builder: the source carried the
+  operator's edited `Kerbal X.craft` plus KSP's `Auto-Saved Ship.craft` VAB
+  autosave, and this is a render subject that launches nothing (the same choice
+  `duna-one-recorded` makes). A launching lane must add a `shared-ships.toml` row
+  or re-harvest with `Ships/` kept.
+- **`activeVessel` was re-pointed**, from the source's asteroid `Ast. YRJ-552`
+  (index 0) to `Depot` (index 9). The harvest's own focusability gate PASSES on
+  an asteroid, so nothing upstream would have caught it; the drift test
+  re-resolves the index by name + pid.
+- **The route is pinned BUILDER-side, not in `saveparse`** - see the improvement
+  entry below.
+
+**What is owed**: the V18T / V18M lanes. **V18T can be authored first with no
+`EnterMapView` verb** - measured, not assumed: `RouteTrajectoryLineRenderer.DrawAll`
+has one production call site (`Display/GhostTrajectoryPolylineRenderer.cs:3894-3906`,
+the `Camera.onPreCull` route slot) whose only guards are the planetarium-camera
+identity check, `scene is TRACKSTATION or FLIGHT`, and a per-frame de-dupe. No
+`MapView.MapIsEnabled` anywhere on that path; the GHOST polyline pass is the
+map-gated one (`:4014`). Headline arming facet when the lane exists:
+`routeLineBuilds { min = 1 }` (the first non-zero in the suite; emitted by
+`RenderCompositionRecorder.NoteRouteLineBuild` on an actual cache rebuild, which
+a post-load first draw always is because `OnGameStateLoad` clears the cache) plus
+`routeCoDrawViolations { max = 0 }`. Registry D10 `route-map-lines` stays
+UNDECLARED until a GATING token earns it. Until a lane flies, nothing reads these
+bytes.
+
+## FIXTURE-DUNA-PARK-RECORDED-LANE-PENDING: the heliocentric-parking-departure subject is harvested, repaired and registered, but no scenario has flown against it yet [OPENED 2026-08-26 on branch `route-harvests`. TODO, not a defect]
+
+`harness/fixtures/saves/duna-park-recorded` is committed: tree `ced78481...`
+("Kerbal X #2") out of the SAME operator save `duna-one-recorded` came from
+(`logs/2026-08-25_1537_s15-duna-one-manifest-run2`), harvested
+`--expect-situation PRELAUNCH --keep-parsek` and stripped to one tree / one
+mission / 14 recordings by `harness/tools/build_duna_park_recorded.py`. The two
+fixtures are disjoint payloads out of one harvest.
+
+**Why it is a separate subject and not a duplicate of `duna-one-recorded`**, which
+is the whole point of the entry: they are two DIFFERENT WAYS OF GETTING TO DUNA.
+`duna-one-recorded` is a DIRECT transfer - it parks in KERBIN orbit, ejects, and
+its three Sun segments are one conic split by warp (sma 17,604,964,389.77
+throughout), so its departure burn happens inside Kerbin's SOI. THIS one is a
+HELIOCENTRIC PARKING DEPARTURE, the operator's own "orbits the star until
+alignment is good": its transfer `aa48920e...` (856 points, the largest recording
+in the source save) escapes Kerbin almost immediately and then coasts on ONE Sun
+orbit across three consecutive segments at sma 14,072,049,898.09 / ecc 0.0326934
+(agreeing to ten significant figures) for 13,502,219.94 s - about 156 Kerbin days
+at 3.5% outside Kerbin's own heliocentric sma, i.e. a PHASING orbit. The
+departure burn is then an element STEP at UT 2,561,070,900.03 to sma
+17,908,765,008.46 / ecc 0.19216 (+27% sma, +488% ecc). Duna SOI entry at
+2,570,454,935.62, hyperbolic (ecc 3.6025), capturing into an ellipse at
+2,570,492,255.34.
+
+That property lives in the transfer's `ORBIT_SEGMENT` list, which NO saveparse
+facet reads, so `RECORDED_FIXTURES` alone cannot tell the two subjects apart -
+which is why `DunaParkSignatureTests` reads it directly and asserts the park run,
+the departure step, the Duna arrival, AND (from the other side) that the direct
+sibling still has no such park.
+
+It reads GREEN under `analyze-recordings.ps1 -FailOnRed -FreshSaveGate`
+(`FAIL=0 WARN=16 RED=0`) after a four-section INV2 containment repair on
+`aa48920e...`; the 16 WARNs are the same INV8 phantom-attribution class
+`duna-one-recorded` carries 15 of, from the restored whole-career `ledger.pgld`.
+
+**What is owed**: a lane of its own. The rendering question it exists to ask - how
+Parsek renders a ghost that sits on a heliocentric parking orbit for 156 days and
+then departs - is unmeasured, and no committed subject other than this one can
+ask it. Until a lane flies, nothing reads these bytes.
+
+## IMPROVEMENT-SAVEPARSE-NO-ROUTES-FACET: `harness/lib/saveparse.py` parses no `ROUTES` node, so the only committed ROUTE is pinned builder-side instead of in the shared facet map [OPENED 2026-08-26 alongside `depot-route-recorded`. IMPROVEMENT, not a defect]
+
+`saveparse.parse_parsek_scenario` models RECORDING_TREE topology, supersede rows,
+tombstones, rewind retirements and REWIND_POINTS - but not `ROUTES`. So when
+`depot-route-recorded` landed, its ROUTE had to be pinned inside
+`harness/tools/build_depot_route_recorded.py::verify_route` (id, status, backing
+tree, dock member, the two clocks, the window period, the four `RECORDING_IDS`,
+the four `SOURCE` rows, the STOP endpoint's resolution to a live VESSEL node),
+wired into the suite through `DepotRouteRecordedFixtureDriftTests`. That works and
+is guarded, but it is one fixture's private parser rather than a facet any
+scenario can express a window over.
+
+**What a `routes` facet would buy**: `[expectations.recordings.routes]` blocks in
+a scenario spec (route count, status, completedCycles, endpoint kind), evaluated
+by the `saveParse` verifier row like every other structure window - so the G1
+lanes could gate on route STATE rather than only on render tokens, and a
+`SourceChanged` flip mid-run would red the flight instead of silently producing a
+dark map. Python-only change in `harness/lib/saveparse.py` plus cells in
+`test_saveparse.py`; no C# and no flight. Do it before the second route fixture,
+not after.
+
+## SUBJECT-CANDIDATE-INTERPLANETARY-ROUTE: the operator's plain `orbital supply route` save carries a Kerbin -> Duna route that may be the MalformedMixedBodies case, and nothing has looked [OPENED 2026-08-26 while ranking route sources. TODO, not a defect]
+
+Three operator saves carry route state. `orbital supply route DELIVERY test`
+became `depot-route-recorded` (above). `orbital supply route CLEAN` carries NO
+routes but IS the pre-route ancestor of the same backing tree `c9ef80ee...` (same
+four recording ids) - a paired CONTROL candidate if a lane ever wants
+"same tree, no route" beside "same tree, route".
+
+The third, `orbital supply route` (plain), carries TWO routes: one `Paused` and
+one `Active` re-aim-basis **Kerbin -> Duna**, i.e. a cross-body route rather than
+`depot-route-recorded`'s SameBody one. That is a different `dispatchWindowPeriod`
+regime (synodic rather than 0) and is the likely home of the
+`MalformedMixedBodies` classification, which no fixture exercises. Nobody has
+opened it beyond the ranking pass. It is NOT part of B27 and should get its own
+subject id when someone takes it.
 
 ## M-A7-SEAM-ENDPOINT-SKIP-REASON-CENSUS: `seam-endpoint-skipped` dominates every renderCompose unevaluable count and DOUBLED between two flights of the same lane with no explanation on record [FOUND 2026-08-25 reading the V14M reading-vs-armed facets (53 vs 106 skips) and the s15 free-play manifest (512 at the cap). IMPROVEMENT, REPORT-ONLY]
 

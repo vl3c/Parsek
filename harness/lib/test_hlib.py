@@ -12673,10 +12673,21 @@ class CommittedFixtureMirrorTests(unittest.TestCase):
     asserts BOTH halves, so a later sweep cannot quietly take the cited surface
     with it.
 
-    ONE EXEMPTION, and it is a fact about what Parsek WRITES rather than a
-    concession: a chain CONTINUATION recording (`chainIndex > 0`) is the same
-    physical vessel as its chain head and never gets a `_vessel.craft` of its
-    own. See `_chain_continuations_without_own_snapshot`."""
+    TWO EXEMPTIONS, and both are facts about what Parsek WRITES rather than
+    concessions. `RecordingSidecarStore.SaveRecordingFiles` writes a
+    `_vessel.craft` only when the recording carries a `VesselSnapshot`, and there
+    are two shapes where it legitimately does not:
+
+      * a chain CONTINUATION recording (`chainIndex > 0`) is the same physical
+        vessel as its chain head and reuses the head's snapshot. See
+        `_chain_continuations_without_own_snapshot`.
+      * a SAME-LAUNCH sibling: a recording of a vessel some other recording in
+        the same fixture already snapshotted, correlated by
+        `recordedVesselGuid`. See `_same_launch_recordings_without_own_snapshot`.
+
+    Both are unioned in `_stems_exempt_from_vessel_snapshot`, and both are
+    narrow in the same way: the exemption exists only when the snapshot the
+    pruned mirror would be rebuilt from IS committed somewhere in that fixture."""
 
     SNAPSHOT_MIRROR_SUFFIXES = ("_vessel.craft.txt", "_ghost.craft.txt")
 
@@ -12708,7 +12719,7 @@ class CommittedFixtureMirrorTests(unittest.TestCase):
         # Every recording with a trajectory must keep its authoritative snapshot,
         # UNLESS it is a chain continuation that never had one (see
         # _chain_continuations_without_own_snapshot).
-        exempt = self._chain_continuations_without_own_snapshot(committed)
+        exempt = self._stems_exempt_from_vessel_snapshot(committed)
         for prec in precs:
             stem = prec[:-len(".prec")]
             if stem in exempt:
@@ -12725,6 +12736,13 @@ class CommittedFixtureMirrorTests(unittest.TestCase):
     _CHAIN_ID_RE = re.compile(r"^\s*chainId = (\S+)\s*$", re.MULTILINE)
     _CHAIN_INDEX_RE = re.compile(r"^\s*chainIndex = (\d+)\s*$", re.MULTILINE)
     _RECORDING_ID_RE = re.compile(r"^\s*recordingId = (\S+)\s*$", re.MULTILINE)
+    _VESSEL_GUID_RE = re.compile(r"^\s*recordedVesselGuid = (\S+)\s*$",
+                                 re.MULTILINE)
+
+    def _stems_exempt_from_vessel_snapshot(self, committed):
+        """The union of the two legitimate shapes; see the class docstring."""
+        return (self._chain_continuations_without_own_snapshot(committed)
+                | self._same_launch_recordings_without_own_snapshot(committed))
 
     def _chain_continuations_without_own_snapshot(self, committed):
         """Stems a missing `_vessel.craft` is LEGITIMATE for.
@@ -12775,6 +12793,62 @@ class CommittedFixtureMirrorTests(unittest.TestCase):
                     for other_rid, _cid, other_index in by_chain[cid])
                 if head_has_snapshot:
                     exempt.add(prefix + rid)
+        return exempt
+
+    def _same_launch_recordings_without_own_snapshot(self, committed):
+        """Stems a missing `_vessel.craft` is legitimate for, shape two.
+
+        `RecordingSidecarStore.SaveRecordingFiles` writes the sidecar only when
+        the recording carries a `VesselSnapshot`, and a recording of a vessel
+        another recording already snapshotted can legitimately be persisted
+        without one - `ParsekFlight`'s vessel-gone defensive null and the
+        auto-unreserve-crew pass both leave a transient in-memory null, and the
+        store deliberately does NOT delete or re-create the sidecar for it (see
+        the #278 follow-up comment at `RecordingSidecarStore.cs:63-76`).
+
+        FOUND BY `depot-route-recorded` (B27, 2026-08-26). Its `0c8ec58d...` is a
+        `Depot` recording carrying NO `chainId` at all - so the chain rule above
+        cannot reach it - and it has only a `_ghost.craft` IN THE OPERATOR'S
+        SOURCE SAVE, before any harvest ran. Nothing deleted it.
+
+        THE CORRELATOR IS `recordedVesselGuid`, NOT `vesselPersistentId`, and
+        that choice is the whole safety argument. A pid is craft-baked and
+        reused verbatim on every launch of the same craft, so a pid match across
+        two recordings is not proof they are the same physical object; the guid
+        is assigned fresh per launch and IS launch-unique (see
+        `VesselLaunchIdentity`). A same-guid sibling is therefore the same
+        physical vessel, and its committed snapshot is exactly the one this
+        recording's pruned `_vessel.craft.txt` mirror would be rebuilt from.
+
+        NARROW IN THE SAME WAY AS THE CHAIN RULE: the exemption requires that
+        SOME recording of that launch carries a committed `_vessel.craft` in the
+        SAME fixture. A fixture that lost every snapshot of a launch still reds,
+        which is the claim this cell exists to make. Recordings with no
+        `recordedVesselGuid` (older captures) are never exempted here - they fall
+        through to the chain rule or fail."""
+        exempt = set()
+        for name in sorted(os.listdir(FIXTURE_SAVES_DIR)):
+            sfs = os.path.join(FIXTURE_SAVES_DIR, name, "persistent.sfs")
+            if not os.path.isfile(sfs):
+                continue
+            with open(sfs, encoding="utf-8", errors="replace") as fh:
+                text = fh.read()
+            by_guid = {}
+            for block in self._RECORDING_BLOCK_RE.split(text)[1:]:
+                rid = self._RECORDING_ID_RE.search(block)
+                guid = self._VESSEL_GUID_RE.search(block)
+                if rid is None or guid is None:
+                    continue
+                by_guid.setdefault(guid.group(1), []).append(rid.group(1))
+            prefix = "%s/Parsek/Recordings/" % name
+            for _guid, rids in by_guid.items():
+                snapshotted = [r for r in rids
+                               if (prefix + r + "_vessel.craft") in committed]
+                if not snapshotted:
+                    continue
+                for rid in rids:
+                    if (prefix + rid + "_vessel.craft") not in committed:
+                        exempt.add(prefix + rid)
         return exempt
 
     def test_every_committed_trajectory_keeps_its_readable_mirror(self):
