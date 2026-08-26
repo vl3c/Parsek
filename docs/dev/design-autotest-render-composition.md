@@ -381,6 +381,24 @@ and never across a body change; SwitchContinuation exempt from position
 match by contract. CitedContract: `PhaseSeamClassifier`,
 `CrossMemberSeamStitcher`, `SeamEndpointOracle`, render-architecture 6.1/9.1.
 
+CORRECTION (2026-08-26, off V25M's reading run `2026-08-26_1744`): **a
+TRANSITION does not necessarily name ONE boundary.** It is a DWELL-stream
+event - it fires when the Director's rendered segment index moves - and a
+warp step can carry the head clean ACROSS an interior segment, so
+`toSegmentIndex` can exceed `fromSegmentIndex + 1` and the record then spans
+SEVERAL boundaries. Since `RenderCompositionRecorder.NoteChainBuild` emits
+`BoundaryIndex = i` for segment `i`'s `LeadingSeam`, keying the seam table on
+`toSegmentIndex` reads the LAST boundary of such a span. Wave-1 did exactly
+that and reported a correct `rigid` at the span's final same-body boundary as
+a rigid-classified body change. The classification clause now walks EVERY
+boundary the transition crossed and takes each one's bodies from the chain's
+own `PHASE` records, falling back to the observed `fromBody -> toBody` pair
+only for a single-boundary span (where the two agree by construction, which
+keeps `assembler-fallback` chains evaluable). A multi-boundary span the PHASE
+list cannot resolve is the defined-unevaluable `seam-boundary-bodies-absent`;
+a retire (`toSegmentIndex = -1`) or a loop wrap names no boundary. Pure core:
+`rendercompose.transition_boundaries`.
+
 **RC-HOLD (FAIL)** - each observed hold matches the recomputed per-cycle
 value (arrival hold realigned by the align period; launch borrow repaid at
 the recorded SOI exit, netting to zero); a hold is stationary in its OWN
@@ -634,9 +652,31 @@ same numbering.
    that then lacks an ownership record keeps its FAIL (that is the
    leg-that-never-draws defect the direction exists to catch). The
    `falls outside every published ownership interval` clause is untouched - it
-   already requires that recording to have published. Retiring this precondition
-   needs a MAP-OPEN LANE, which needs a new command-seam verb (C# + a flown-shape
-   change), not a rule edit.
+   already requires that recording to have published. ~~Retiring this
+   precondition needs a MAP-OPEN LANE, which needs a new command-seam verb (C# +
+   a flown-shape change), not a rule edit.~~
+
+   **DISCHARGED 2026-08-26 by V6M's MAP-OPEN RE-FLY (`2026-08-26_1745`, PASS
+   attempt 1). THE PRECONDITION IS SATISFIED AND OWNERSHIP IS CONSERVED ON THIS
+   SUBJECT.** R12's `EnterMapView` / `ExitMapView` pair (PR #1539) put the map
+   open across every observation window, and the manifest came back with
+   `ownershipChanges = 6` - three clean appear/disappear PAIRS on
+   `recId 448cd680`, one per TracedPath dwell, at `[296370, 296690]`,
+   `[576510, 576830]` and `[985950, 986270]`, THE SAME three brackets whose
+   missing records raised the original three FAILs - with `Polyline frame:`
+   summaries now present in the collected `KSP.log` (the 2026-08-25 run carried
+   zero, which is what proved every `LateUpdate` was bailing at the map gate).
+   RC-OWN findings went 3 -> 0, `ownPublishWithoutDraw` reads 0, and
+   `ownership-publish-surface-never-ran` is ABSENT from the run's unevaluable
+   reasons. So the three earlier FAILs are confirmed as the instrument gap this
+   deviation diagnosed and NOT a leg-that-never-draws defect. The stand-down
+   above is KEPT AS SHIPPED - it is still the correct reading for the many lanes
+   that do not open the map - but it is no longer the state of the whole suite,
+   and a pass may read "no RC-OWN finding" as "ownership conserved" on a lane
+   that opens the map AND publishes. Note what made this a real test rather than
+   a formality: the verb was necessary but not sufficient, since a map-open lane
+   whose Director never owned a leg in the window would have published nothing
+   and THAT reading would have been a genuine finding. It published.
 
 6. **`seam-endpoint-outside-soi` HAS NOW FIRED LIVE, once, and prior-art gap 3's
    "has never fired" clause is retired.** First raise: run `2026-08-25_1502`

@@ -1870,6 +1870,12 @@ UNEVAL_NO_CYCLE_BOUNDARIES = "no-cycle-rollover-events"
 UNEVAL_NO_DWELLS_FOR_UNIT = "no-dwells-attributable-to-unit"
 UNEVAL_REAIM_INSTANT_ABSENT = "reaimed-seam-instant-absent"
 UNEVAL_SEAM_SKIPPED = "seam-endpoint-skipped"
+# A TRANSITION that spanned SEVERAL chain boundaries (the render clock warped
+# clean across an interior segment) whose PHASE list cannot say which of them
+# carried the body change. The observed `fromBody -> toBody` pair names the ENDS
+# of the span, not a boundary, so attributing it to any single seam would be the
+# wave-1 misread that `2026-08-26_1744` exposed. Counted, never guessed.
+UNEVAL_SEAM_BOUNDARY_BODIES_ABSENT = "seam-boundary-bodies-absent"
 UNEVAL_HOLD_EVIDENCE_ABSENT = "hold-observed-evidence-absent"
 UNEVAL_HOLD_PRIMITIVES_ABSENT = "hold-primitives-absent"
 UNEVAL_HOLD_RELEASE_ABSENT = "hold-release-absent-below-resolution"
@@ -1954,6 +1960,7 @@ UNEVAL_COVER_SKIPS_TRUNCATED = "ratified-skip-section-truncated"
 UNEVALUABLE_REASONS: Tuple[str, ...] = (
     UNEVAL_SEAM_TRACING_OFF, UNEVAL_TRUNCATED, UNEVAL_NO_CYCLE_BOUNDARIES,
     UNEVAL_NO_DWELLS_FOR_UNIT, UNEVAL_REAIM_INSTANT_ABSENT, UNEVAL_SEAM_SKIPPED,
+    UNEVAL_SEAM_BOUNDARY_BODIES_ABSENT,
     UNEVAL_HOLD_EVIDENCE_ABSENT, UNEVAL_HOLD_PRIMITIVES_ABSENT,
     UNEVAL_HOLD_RELEASE_ABSENT, UNEVAL_HOLD_RUN_UNATTRIBUTED,
     UNEVAL_HOLD_ENGAGED_NEVER_RELEASED,
@@ -2478,15 +2485,98 @@ def _rule_cover(ctx: _Ctx) -> None:
 # --- RC-SEAM ----------------------------------------------------------------
 
 
+@dataclass(frozen=True)
+class BoundaryCrossing:
+    """One CHAIN boundary a TRANSITION traversed, with the bodies either side.
+
+    ``boundary_index`` keys the CHAIN_BUILD ``SEAM`` table directly:
+    ``RenderCompositionRecorder.NoteChainBuild`` emits ``BoundaryIndex = i`` for
+    segment ``i``'s ``LeadingSeam``, i.e. the boundary ENTERING segment ``i``."""
+    boundary_index: int = -1
+    from_body: str = ""
+    to_body: str = ""
+    unresolved: bool = False
+
+    @property
+    def body_changed(self) -> bool:
+        return bool(self.from_body and self.to_body
+                    and self.from_body != self.to_body)
+
+
+def transition_boundaries(tr: Transition,
+                          phases: Sequence[ChainPhase]) -> List[BoundaryCrossing]:
+    """The chain boundaries one observed TRANSITION crossed, each with the bodies
+    the CHAIN itself puts either side of it.
+
+    A TRANSITION is a DWELL-stream event: it fires when the Director's rendered
+    segment index moves, and the dwell stream only opens a dwell on a segment the
+    render clock actually sat in. A warp step (or a re-aim clock shift) can carry
+    the head clean ACROSS an interior segment, so ``toSegmentIndex`` is NOT always
+    ``fromSegmentIndex + 1`` - and when it is not, the transition spans SEVERAL
+    boundaries, of which the observed ``fromBody -> toBody`` change happened at
+    exactly one.
+
+    Keying the seam table on ``toSegmentIndex`` (wave-1) therefore read the LAST
+    boundary of a multi-boundary transition and attributed the body change to it.
+    Measured on `2026-08-26_1744` (V25M): the transition 6 -> 8 crossed boundary 7
+    (Sun -> Duna, correctly ``flexible-soi``) and boundary 8 (Duna -> Duna,
+    correctly ``rigid``), and the rule reported the ``rigid`` at boundary 8 as a
+    rigid-classified body change. `2026-08-25_0956` (V8) is the near miss that
+    shows the shape was never actually being evaluated: the same 6 -> 8 span with
+    a Mun -> Sun change passed only because BOTH of its crossed boundaries
+    happened to be ``flexible-soi``.
+
+    So the bodies come from the CHAIN's own PHASE records, per boundary, and never
+    from the dwell-observed endpoints - except in the single-boundary case, where
+    the two agree by construction and the observed pair is the honest fallback for
+    a manifest whose PHASE list cannot answer (an ``assembler-fallback`` chain
+    whose index space does not reach that far, or a truncated PHASE section).
+
+    Returns one entry per crossed boundary in traversal order. A crossing the
+    PHASE list cannot resolve is returned with ``unresolved=True`` rather than
+    guessed at: the rule counts it defined-unevaluable. A transition that crosses
+    no chain boundary at all - a retire (``toSegmentIndex = -1``) or a loop wrap
+    back to an earlier segment - returns an empty list."""
+    lo, hi = tr.from_segment_index, tr.to_segment_index
+    if hi is None or hi < 1:
+        # A retire stamps -1; there is no chain boundary to classify.
+        return []
+    if lo is None:
+        # No origin index: the only boundary this can name is the one ENTERING
+        # `hi`, which is the wave-1 single-boundary reading.
+        lo = hi - 1
+    if hi <= lo:
+        # Not a forward traversal (loop wrap / re-seed). The clock did not walk a
+        # chain boundary, so there is no seam to hold responsible.
+        return []
+    out: List[BoundaryCrossing] = []
+    for b in range(lo + 1, hi + 1):
+        if 0 <= b - 1 and b < len(phases):
+            out.append(BoundaryCrossing(boundary_index=b,
+                                        from_body=phases[b - 1].body,
+                                        to_body=phases[b].body))
+        elif hi == lo + 1:
+            # Single boundary: the observed endpoints ARE this boundary's sides.
+            out.append(BoundaryCrossing(boundary_index=b,
+                                        from_body=tr.from_body,
+                                        to_body=tr.to_body))
+        else:
+            out.append(BoundaryCrossing(boundary_index=b, unresolved=True))
+    return out
+
+
 def _rule_seam(ctx: _Ctx) -> None:
     """Transitions classified against the chain SEAM records and the numeric
     tangent / endpoint measurements."""
     snap = ctx.snap
     tracing = bool(snap.map_render_tracing_on)
     seams_by_signature: Dict[str, Dict[int, str]] = {}
+    phases_by_signature: Dict[str, Tuple[ChainPhase, ...]] = {}
     kinds_seen: Dict[str, int] = {}
     for build in snap.chain_builds:
         table = seams_by_signature.setdefault(build.signature, {})
+        if build.phases and build.signature not in phases_by_signature:
+            phases_by_signature[build.signature] = tuple(build.phases)
         for seam in build.seams:
             if seam.boundary_index is not None:
                 table[seam.boundary_index] = seam.kind
@@ -2574,15 +2664,23 @@ def _rule_seam(ctx: _Ctx) -> None:
                      if e.kind == "reaim-window" and _finite(e.detail_a)}
     for tr in snap.transitions:
         table = seams_by_signature.get(tr.chain_signature, {})
-        kind = table.get(tr.to_segment_index, "")
+        phases = phases_by_signature.get(tr.chain_signature, ())
         body_changed = bool(tr.from_body and tr.to_body
                             and tr.from_body != tr.to_body)
-        if body_changed and kind == "rigid":
+        for crossing in transition_boundaries(tr, phases):
+            if crossing.unresolved:
+                ctx.uneval(UNEVAL_SEAM_BOUNDARY_BODIES_ABSENT)
+                continue
+            if not crossing.body_changed:
+                continue
+            if table.get(crossing.boundary_index, "") != "rigid":
+                continue
             ctx.add(RULE_SEAM, LEVEL_FAIL,
-                    "TRANSITION[pid=%s ut=%r]" % (tr.pid, tr.ut),
+                    "TRANSITION[pid=%s ut=%r boundary=%d]"
+                    % (tr.pid, tr.ut, crossing.boundary_index),
                     "body change %s->%s classified as a rigid seam; "
                     "PhaseSeamClassifier.Classify ranks a body change ABOVE rigid"
-                    % (tr.from_body, tr.to_body))
+                    % (crossing.from_body, crossing.to_body))
         if body_changed and not snap.seam_endpoints and not tracing:
             ctx.uneval(UNEVAL_SEAM_TRACING_OFF)
     ctx.metrics["reaimWindows"] = len(reaim_windows)
