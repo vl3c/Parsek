@@ -229,7 +229,7 @@ by checking this** rather than re-deriving the whole race. If it ever shows up,
 the fix is to stamp the cycle start from the clock's own boundary rather than
 from the observing frame - not to loosen the bound.
 
-## ~~RENDERCOMPOSE-OWNERSHIPCHANGES-IS-NOT-WINDOWABLE~~: `ownershipChanges` is recorded as a facet but cannot be asserted, so the RC-OWN conservation premise can only be armed indirectly through the FAIL-finding gate [FOUND 2026-08-26 during V6M's arming pass. TODO, not a defect - a missing surface, filed rather than invented mid-arming. **SCHEMA GAP CLOSED 2026-08-26**, branch `window-facets-arm-v18t` - see THE SHIPPED FIX at the end of this entry. The arming half is deliberately still open: no armed block uses the new keys for `ownershipChanges` yet]
+## ~~RENDERCOMPOSE-OWNERSHIPCHANGES-IS-NOT-WINDOWABLE~~: `ownershipChanges` is recorded as a facet but cannot be asserted, so the RC-OWN conservation premise can only be armed indirectly through the FAIL-finding gate [FOUND 2026-08-26 during V6M's arming pass. TODO, not a defect - a missing surface, filed rather than invented mid-arming. **SCHEMA GAP CLOSED 2026-08-26**, branch `window-facets-arm-v18t` - see THE SHIPPED FIX at the end of this entry. **ARMING HALF CLOSED 2026-08-26** in its own pass, branch `v6m-ownership-window`: V6M declares `ownershipChanges = { min = 1 }`, armed re-flight `2026-08-26_2042` PASS + negative control `2026-08-26_2043` red on the key's own mismatch. FULLY CLOSED]
 
 `rendercompose.RENDER_COMPOSITION_WINDOW_KEYS` is exactly `("dwells", "cycles",
 "unevaluable")` and `RENDER_COMPOSITION_LIST_KEYS` is `("warpBuckets",
@@ -289,11 +289,32 @@ first armed `routeLineBuilds` window, its armed re-flight, and a negative
 control that red on exactly `PARSEK-FAIL(render-composition)` naming the new
 key's own mismatch.
 
-**STILL OPEN, deliberately: V6M's armed block does NOT yet declare
-`ownershipChanges`.** The key is now available to it, but upgrading an ALREADY
-ARMED lane's window set needs its own re-flight + negative-control pass on that
-lane, and doing it inside this change would have shipped a window nothing had
-re-flown against. That is a separate arming pass, not a follow-up edit.
+**THE ARMING HALF IS NOW CLOSED TOO (2026-08-26, branch `v6m-ownership-window`).**
+V6M's armed block declares `ownershipChanges = { min = 1 }`, flown as its own
+arming pass exactly as this entry required - not as a follow-up edit riding the
+schema change. ARMED RE-FLIGHT `2026-08-26_2042` PASS attempt 1, gating=True,
+zero mismatches, zero findings at every level, `declared` recording
+`ownershipChanges: {min: 1}` among five assertions. NEGATIVE CONTROL
+`2026-08-26_2043`, temporary `{ min = 50 }` applied by a line-anchored edit of
+the real key (verified with `grep -n '^ownershipChanges'` AND `run.py
+--dry-run`'s `declared:` line before launch), red on exactly
+`PARSEK-FAIL(render-composition)` with EXACTLY ONE mismatch,
+`renderComposition.ownershipChanges 6 < min 50`, every sibling row clean and the
+composition facets equal to the PASSing flight's. Reverted on the re-grepped key.
+It is the suite's first negative control on `ownershipChanges` itself.
+
+A FLOOR AND NOT A PIN, which is the part worth keeping. The floor states this
+entry's own argument verbatim - the pre-registered RC-OWN criterion was
+`ownershipChanges > 0`, "ONE record anywhere proves the walk published" - rather
+than the count the runs happened to produce. `ownershipChanges` measured 6 on all
+TWELVE map-open V6M flights and 0 on the one map-CLOSED reading, but 6 is
+2 x `treatments.TracedPath` and NOT independent: run `2026-08-26_1840` held at 6
+while `dwells` fell to 4, so a ceiling would re-gate the dwell population `dwells`
+already governs and red twice for one cause. What the floor buys over the indirect
+arming is the one thing `gating = true` could never catch - the STAND-DOWN, where a
+lane that quietly stopped opening the map takes RC-OWN to
+`ownership-publish-surface-never-ran`, an unevaluable, and greens inside the
+`unevaluable` ceiling.
 
 ## NEGATIVE-CONTROL-EDIT-NEVER-REACHED-THE-KEY: V24W's first negative control inverted a RATIONALE COMMENT instead of the armed `warpBuckets` line, the flight evaluated the UNINVERTED block, and nothing the run wrote to disk could tell that apart from a fail-open verifier [FOUND 2026-08-25 on run `2026-08-25_1811`, the suite's first attempt at a `renderComposition` negative control. THE VERIFIER IS SOUND - proved below across five module versions. FIXED the same day: the run now records WHICH block it evaluated, and `--dry-run` prints it before the machine lock. CLOSED the same day too - the re-flown control `2026-08-25_1925` red exactly as predicted AND its result JSON records the block it asserted, so the fix is proven in use by the control that needed it]
 
@@ -850,9 +871,13 @@ the armed roster is now V14M / V8 / V24W / V25M / V6M against 21 declarers.**
     state. A recorder bookkeeping gap, NOT renderer intermittency and NOT a
     jump-target race - which undercuts the reason V6M's arming was justified with,
     so that decision is referred back in the entry) and
-    `RENDERCOMPOSE-OWNERSHIPCHANGES-IS-NOT-WINDOWABLE` (the RC-OWN premise can
-    only be armed through the FAIL-finding gate, because `ownershipChanges` is a
-    recorded facet and not one of the three windowable keys).
+    `RENDERCOMPOSE-OWNERSHIPCHANGES-IS-NOT-WINDOWABLE` (the RC-OWN premise could
+    only be armed through the FAIL-finding gate, because `ownershipChanges` was a
+    recorded facet and not one of the three windowable keys). BOTH ARE NOW CLOSED:
+    the recorder fix landed the same day with a direct determinism proof, and the
+    windowable gap closed in two halves - the schema on `window-facets-arm-v18t`,
+    then V6M's own arming pass on `v6m-ownership-window` (`ownershipChanges =
+    { min = 1 }`, re-flight `2026-08-26_2042` PASS, control `2026-08-26_2043`).
   * The controls were NOT shared: V25M inverted `dwells`, V6M inverted `cycles` -
     a clause V25M's block does not even carry - so each red lands on its own armed
     window rather than re-proving the shared `rendercompose` evaluator. Both were
