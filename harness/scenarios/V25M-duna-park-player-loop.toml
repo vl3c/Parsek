@@ -315,9 +315,74 @@ id = "V25M-duna-park-player-loop"
 #            ARMING STILL OWED: reading 2, which must come back CLEAN (the anomaly
 #            tolerances below are now declared, and the RC-SEAM row is expected to be
 #            silent on the fixed verifier). NOTHING IS ARMED BY THIS FLIGHT.
+#   READING  **FLIGHT 2 `2026-08-26_1817`** - red on `line-blink` (since tolerated), and
+#            THE RC-SEAM FIX VALIDATED LIVE: the row that raised one FAIL on flight 1 read
+#            ZERO FAIL findings here on the fixed evaluator, against the same drive shape.
+#            Census: dwells 3 (+2 open), cycles 0, treatments StockConic 2 / TracedPath 1,
+#            coverages InSegment 3, seamKinds rigid 8 / flexible-soi 2, seamEndpoints 403,
+#            lineBranches 9, unevaluable 410, one INFO RC-QUAL (hold.arrival) and nothing
+#            worse.
+#   READING  **FLIGHT 3 `2026-08-26_1823` - THE CLEAN PASS the arming doctrine requires.**
+#            dwells 3 (+2 open), cycles 0, treatments StockConic 2 / TracedPath 1,
+#            coverages InSegment 3, seamKinds rigid 8 / flexible-soi 2, seamEndpoints 402,
+#            lineBranches 8, unevaluable 409, findings 0 FAIL / 0 WARN / 1 INFO RC-QUAL,
+#            anomalies icon-teleport 3 / icon-off-orbit 2 / line-blink 0.
+#            THE THREE READINGS AGREE ON THE STRUCTURE AND DISAGREE ONLY ON THE CENSUS:
+#            dwells 3 (+2 open), cycles 0, treatments, coverages and seamKinds are equal to
+#            the integer on ALL THREE; `unevaluable` reads 384 / 410 / 409. That spread is
+#            what the one ceiling below is sized from, and it is why the ceiling is a
+#            ceiling rather than a band.
+#   ARMED    **ARMED 2026-08-26**, operator decision, off readings 1744 + 1817 + 1823 and
+#            nothing else. THREE assertions, each argued at the
+#            `[expectations.renderComposition]` block near the end of this file:
+#              gating           = true
+#              dwells           = { min = 1, max = 32 }      measured 3 (+2 open) x3
+#              unevaluable      = { max = 1400 }             measured 384 / 410 / 409
+#              requireSeamKinds = ["rigid", "flexible-soi"]  measured rigid 8 /
+#                                                            flexible-soi 2, x3
+#            The ceiling is ~3.4x the largest reading - THE SAME RATIO-TO-MEASUREMENT the
+#            two 1x sibling lanes carry (V14M 200 over 56, V8 250 over 76), SCALED to this
+#            census rather than copied from theirs, because 98 % of it is
+#            `seam-endpoint-skipped` plus `reaimed-seam-instant-absent` over a ~400-record
+#            endpoint population roughly four times V14M's.
+#            `cycles` DELIBERATELY OMITTED - THE V8 SHAPE EXACTLY: this subject closed ZERO
+#            cycles on all three readings (one `cycle-rollover` bounding none), so a floor
+#            would red the very runs it was armed off and a `{min = 0}` pin can never red.
+#            `dwells` therefore carries the whole anti-vacuity statement here.
+#            `warpBuckets` never (section 5). No RC-CUT window despite this lane owning the
+#            program's first non-empty `cutWholeRatios = [2.0]`: one ratio from one cut is
+#            a headline, not a population. No RC-HOLD clause (`observedHoldSeconds []`).
+#            NOTHING IN THE FLOWN SHAPE MOVED at arming - no jump UT, no step, no budget,
+#            no tolerance, no other expectation (the S4.1 rule). Registered in
+#            `RENDERCOMPOSE_ARMED_SPECS` (harness/lib/test_hlib.py) with these run ids.
+#   DONE     **ARMED RE-FLIGHT `2026-08-26_1837` PASS attempt 1** - this shape green in the
+#            armed direction: `renderCompose status=PASS gating=True
+#            armedBlocks=['renderComposition'] mismatches=0`, one INFO RC-QUAL, zero WARN,
+#            zero FAIL. Facets: dwells 3 (+2 open), cycles 0, treatments StockConic 2 /
+#            TracedPath 1, seamKinds {rigid 8, flexible-soi 2}, seamEndpoints 381,
+#            unevaluable 388 (seam-endpoint-skipped 310, reaimed-seam-instant-absent 71,
+#            and the four structural entries), warp 1x-only. The windows hold against a run
+#            they were not written from, and 388 sits INSIDE the three readings' spread
+#            rather than trending - which is exactly what the ceiling was sized to absorb.
+#   DONE     **NEGATIVE CONTROL `2026-08-26_1839` -
+#            `PARSEK-FAIL(render-composition)` attempt 1**, off a temporary
+#            `dwells = { min = 50 }` applied by a LINE-ANCHORED edit of the real key
+#            (verified with `grep -n '^dwells'` AND through `run.py --dry-run`'s
+#            `declared:` line before launch - the V24W `_1811` miss is why that check is
+#            mandatory). EXACTLY ONE MISMATCH and it names the inverted clause:
+#            `renderComposition.dwells 3 < min 50`. Every sibling row stayed clean -
+#            driverValidity / analyzer red=0 / logValidate / anomalySweep / expectations /
+#            testResults PASS, saveParse + unityExceptions REPORT - and the composition
+#            facets equalled the PASSing flights', so the red is the declaration and
+#            nothing else. The run JSON's `verifiers.renderCompose.declared` records
+#            `dwells: {min: 50}`, which is the audit trail doing its job. Reverted in the
+#            same change on the re-grepped real key. NOT SHARED with the V6M lane armed
+#            alongside this one: that lane inverted `cycles`, a clause this block does not
+#            even carry, so each red lands on its own armed window rather than re-proving
+#            the shared `rendercompose` evaluator.
 # =====================================================================================
 tier = "operator"
-description = "AUTHORED 2026-08-26; READING FLIGHT 1 FLEW THE SAME DAY (`2026-08-26_1744`, PARSEK-FAIL(anomaly) attempt 1 - the outcome this spec pre-registered in writing, raised by the anomalySweep against an empty allowedAnomalies and by no composition rule). THE CLASSIFIER REPLAY IS VINDICATED IN FULL: the unit exports `isReaim = True` against `launchBodyName = Kerbin` and the product's own conjunction line reads `plan.Supported=True reason='' departUT=2561070900 arrivalUT=2570454936 tof=9384036 ancestor=Sun parking=True` - the park-departure class engages re-aim live, exactly as derived dry. It also produced THE PROGRAM'S FIRST NON-EMPTY CUT RATIO AND IT IS EXACTLY WHOLE (`cutWholeRatios = [2.0]`), so RC-CUT's whole-multiple clause finally had a subject; the exported cut is 7,993.44 s at the Duna capture, which is the arrival hold's re-timed `keepRevs=10/12` value and NOT the 43,964 s keepRevs=1 derivation in section 3 - a round-2 window must be written off the exported 2.0. Census: dwells 3 (+2 open), treatments StockConic 2 / TracedPath 1, seams rigid 8 / flexible-soi 2, anomalies icon-teleport 4 / icon-off-orbit 2 (now tolerated BARE with that run id beside them; ceilings 8 / 4 at 2x measured, argued as prose because the inert-budget invariant blocks declaring them), unevaluable 384 of which the notable positives are reaimed-seam-instant-absent 69, plan-primitive-body-unidentified 1 (Sun is not in the stock body table - expected for a heliocentric subject) and hold-observed-evidence-absent 1 (the plan holds 3,918.25 s and all three windows sit at or before the arrival SOI entry by design). The run's single RC-SEAM [FAIL] was diagnosed as A VERIFIER MISREAD, NOT A RENDERER DEFECT, and the verifier is fixed: the arrival straddle warped across an interior segment so the transition spanned boundaries 7 (Sun->Duna, correctly flexible-soi) and 8 (Duna->Duna, correctly rigid), and wave-1 keyed the seam table on toSegmentIndex; re-evaluated offline this manifest now reads zero findings and all sixteen other archived manifests are byte-identical. ARMING STILL OWED - reading 2, which must come back clean. The HELIOCENTRIC-PARKING DEPARTURE subject - re-aim's second departure class, which until now had no live lane. Over `duna-park-recorded` (tree ced78481 'Kerbal X #2', harvested from the same visually-validated s15 save as `duna-one-recorded` and disjoint from it): a mission that escapes Kerbin immediately, PHASES ON THE SUN for 13,502,219.94 s on one near-circular orbit 3.47 % outside Kerbin's own, and only then burns for Duna. `ReaimClassifier` knows this recording by name - its partial-transfer decline carries an EXCEPTION whose comment reads 'EXCEPTION (s15 Kerbal X #2)' and whose admissibility doc quotes these exact numbers - and no committed lane has ever driven that path. PRE-REGISTERED PREDICTION, derived in full in the header off the committed .prec bytes: RE-AIM ENGAGES with `parking=True`, pinned as one conjunction regex over the ReaimDiag line and with its exact inverse (the 'transfer departs from a heliocentric parking orbit' decline) FORBIDDEN. The loiter question is answered too, and the answer is the opposite of the worry: the Sun park is NOT cut (WholeRevs 1 against keepRevs 1 - which IS the engage condition, so 're-aim engaged' and 'the park was not compressed' are one fact), the single cut is a DESTINATION one of 43,963.92 s starting at the Duna capture, and all three windows sit at or before the arrival SOI entry so every offset maps uncompressed. Three TimeJump windows on the derived cycle: deep inside the Sun phasing orbit, a -180/-60/+140 straddle of the departure burn (which lands one jump inside the 136 s off-rails burn gap), and the same straddle of the Duna SOI entry. Span/synodic is 1.185268, so cadence = 2x synodic and PadAlignLaunch declines - the span>synodic regime, only the second subject ever to reach it after V8/Eve."
+description = "ARMED ON renderComposition 2026-08-26 - the three-run discipline discharged the same day it was authored. THREE READINGS of one unchanged drive shape (`2026-08-26_1744` full measurement, `2026-08-26_1817` red on line-blink and the RC-SEAM fix validated live at zero FAIL findings, `2026-08-26_1823` the clean PASS), then ARMED RE-FLIGHT `2026-08-26_1837` PASS attempt 1 (gating=True, zero mismatches, one INFO RC-QUAL) and NEGATIVE CONTROL `2026-08-26_1839` PARSEK-FAIL(render-composition) attempt 1 off a temporary `dwells = { min = 50 }`, EXACTLY ONE mismatch (`renderComposition.dwells 3 < min 50`) with every sibling verifier row clean, reverted in the same change. THE STRUCTURE IS EQUAL TO THE INTEGER ON ALL THREE READINGS AND ON THE RE-FLIGHT - dwells 3 (+2 open), cycles 0, treatments StockConic 2 / TracedPath 1, coverages InSegment 3, seamKinds rigid 8 / flexible-soi 2 - and the ONE facet that moves is the unevaluable census (384 / 410 / 409 / 388), which is what makes `unevaluable` a ceiling rather than a band. WINDOWS: dwells {1,32}, unevaluable {max 1400} (~3.4x the largest reading, the same ratio-to-measurement V14M and V8 carry, scaled to a ~400-record endpoint population rather than copied), requireSeamKinds [rigid, flexible-soi]. `cycles` is deliberately omitted - the V8 shape exactly, since this subject closes zero cycles and a floor would red the runs it was armed off - so `dwells` carries the whole anti-vacuity statement. AUTHORED 2026-08-26; READING FLIGHT 1 FLEW THE SAME DAY (`2026-08-26_1744`, PARSEK-FAIL(anomaly) attempt 1 - the outcome this spec pre-registered in writing, raised by the anomalySweep against an empty allowedAnomalies and by no composition rule). THE CLASSIFIER REPLAY IS VINDICATED IN FULL: the unit exports `isReaim = True` against `launchBodyName = Kerbin` and the product's own conjunction line reads `plan.Supported=True reason='' departUT=2561070900 arrivalUT=2570454936 tof=9384036 ancestor=Sun parking=True` - the park-departure class engages re-aim live, exactly as derived dry. It also produced THE PROGRAM'S FIRST NON-EMPTY CUT RATIO AND IT IS EXACTLY WHOLE (`cutWholeRatios = [2.0]`), so RC-CUT's whole-multiple clause finally had a subject; the exported cut is 7,993.44 s at the Duna capture, which is the arrival hold's re-timed `keepRevs=10/12` value and NOT the 43,964 s keepRevs=1 derivation in section 3 - a round-2 window must be written off the exported 2.0. Census: dwells 3 (+2 open), treatments StockConic 2 / TracedPath 1, seams rigid 8 / flexible-soi 2, anomalies icon-teleport 4 / icon-off-orbit 2 (now tolerated BARE with that run id beside them; ceilings 8 / 4 at 2x measured, argued as prose because the inert-budget invariant blocks declaring them), unevaluable 384 of which the notable positives are reaimed-seam-instant-absent 69, plan-primitive-body-unidentified 1 (Sun is not in the stock body table - expected for a heliocentric subject) and hold-observed-evidence-absent 1 (the plan holds 3,918.25 s and all three windows sit at or before the arrival SOI entry by design). The run's single RC-SEAM [FAIL] was diagnosed as A VERIFIER MISREAD, NOT A RENDERER DEFECT, and the verifier is fixed: the arrival straddle warped across an interior segment so the transition spanned boundaries 7 (Sun->Duna, correctly flexible-soi) and 8 (Duna->Duna, correctly rigid), and wave-1 keyed the seam table on toSegmentIndex; re-evaluated offline this manifest now reads zero findings and all sixteen other archived manifests are byte-identical. ARMING STILL OWED - reading 2, which must come back clean. The HELIOCENTRIC-PARKING DEPARTURE subject - re-aim's second departure class, which until now had no live lane. Over `duna-park-recorded` (tree ced78481 'Kerbal X #2', harvested from the same visually-validated s15 save as `duna-one-recorded` and disjoint from it): a mission that escapes Kerbin immediately, PHASES ON THE SUN for 13,502,219.94 s on one near-circular orbit 3.47 % outside Kerbin's own, and only then burns for Duna. `ReaimClassifier` knows this recording by name - its partial-transfer decline carries an EXCEPTION whose comment reads 'EXCEPTION (s15 Kerbal X #2)' and whose admissibility doc quotes these exact numbers - and no committed lane has ever driven that path. PRE-REGISTERED PREDICTION, derived in full in the header off the committed .prec bytes: RE-AIM ENGAGES with `parking=True`, pinned as one conjunction regex over the ReaimDiag line and with its exact inverse (the 'transfer departs from a heliocentric parking orbit' decline) FORBIDDEN. The loiter question is answered too, and the answer is the opposite of the worry: the Sun park is NOT cut (WholeRevs 1 against keepRevs 1 - which IS the engage condition, so 're-aim engaged' and 'the park was not compressed' are one fact), the single cut is a DESTINATION one of 43,963.92 s starting at the Duna capture, and all three windows sit at or before the arrival SOI entry so every offset maps uncompressed. Three TimeJump windows on the derived cycle: deep inside the Sun phasing orbit, a -180/-60/+140 straddle of the departure burn (which lands one jump inside the 136 s off-rails burn gap), and the same straddle of the Duna SOI entry. Span/synodic is 1.185268, so cadence = 2x synodic and PadAlignLaunch declines - the span>synodic regime, only the second subject ever to reach it after V8/Eve."
 instanceProfile = "stock-minimal"
 tags = ["V25", "player-loop", "reaim", "heliocentric-parking-departure", "loiter-compression",
         "duna", "kerbin", "sun", "cross-parent", "render-composition", "map-render"]
@@ -573,19 +638,112 @@ forbidden = [
 ]
 
 [expectations.renderComposition]
-# M-A7 Phase 4 / Wave B - DECLARED 2026-08-26, BARE ON PURPOSE: no `gating`, no window,
-# no list. Declaring is what sets `PARSEK_RENDER_MANIFEST=1` at launch and arms the C#
-# recorder at Awake, and `rendercompose` then records its facets UNCONDITIONALLY on a
-# parseable manifest - which is how a lane earns its first honest window off a green
-# report-only run. A window written today would be a PREDICTION read back as though it
-# were a measurement, the mistake V14M, V8, V6M and V24W all shipped bare through their
-# reading runs to avoid.
+# M-A7 Phase 4 / Wave B - ARMED 2026-08-26 by operator decision, off THIS lane's own
+# THREE report-only reading runs and nothing else: `2026-08-26_1744` (the full-measurement
+# flight, red by this spec's own pre-registered anomaly doctrine, and the run that
+# diagnosed the wave-1 RC-SEAM misread), `2026-08-26_1817` (red on `line-blink`, since
+# tolerated; the RC-SEAM verifier fix validated live - zero FAIL findings) and
+# `2026-08-26_1823` (the CLEAN PASS reading the arming doctrine requires). The V14M/V8
+# precedent arms off ONE green reading; this lane quotes THREE because two of them moved
+# the census while the structure stood still, and the SPREAD is what sizes the one ceiling
+# below. NOTHING IN THE FLOWN SHAPE MOVED at arming: no jump UT, no step, no budget, no
+# tolerance, no other expectation. That is the S4.1 rule.
 #
-# `warpBuckets` MUST NEVER BE DECLARED HERE (header section 5): the clock moves with
-# instantaneous TimeJumps, so the histogram is 1x-only by construction and a bucket
-# window would gate on the drive shape rather than on the product. V24W is the only lane
-# in the suite entitled to that key.
-# READING PENDING - see the renderComposition arming ledger in this file's header.
+# WHAT THE THREE READINGS MEASURED, and how they agree:
+#   dwells        3 (+2 open)   on ALL THREE - equal to the integer
+#   cycles        0             on ALL THREE (one `cycle-rollover`, bounding none)
+#   treatments    StockConic 2 / TracedPath 1   on ALL THREE
+#   coverages     InSegment 3   on ALL THREE
+#   seamKinds     rigid 8 / flexible-soi 2      on ALL THREE
+#   unevaluable   384 / 410 / 409               THE ONE FACET THAT MOVED
+#   findings      0 FAIL / 0 WARN on 1817 and 1823 (1744's single RC-SEAM FAIL was the
+#                 verifier misread, fixed before 1817; both later runs carry exactly one
+#                 INFO RC-QUAL `hold.arrival` and nothing worse)
+#
+# WHAT ARMING BUYS. `run.py` writes `verifiers["render_composition_mismatch"]` only
+# `if rc.gating`, so from here a window miss, a required seam kind absent from the chain
+# records, or ANY FAIL-level rule finding classifies the run
+# `PARSEK-FAIL(render-composition)`. Unarmed, every one of those was a report-only
+# footnote. The lane is registered in `RENDERCOMPOSE_ARMED_SPECS` (harness/lib/test_hlib.py)
+# with its run ids; that sweep reds on any committed spec that arms the block without an
+# entry.
+#
+# THE WINDOWS, each against its three measurements and with the margin stated:
+#
+#   dwells = { min = 1, max = 32 }        MEASURED 3 (+2 open at export), THREE TIMES.
+#     `min` is the ANTI-VACUITY floor and, on this lane, the ONLY one - `cycles` is
+#     omitted below, so this clause carries the whole "the manifest observed something"
+#     statement. A composition PASS off zero dwells claims nothing, and 1 is the smallest
+#     honest floor. `max` is an order-of-magnitude runaway guard, not a pin: the count
+#     follows how many Director segments the three observation windows walk, which a
+#     legitimate render change may move by a few. DELIBERATELY IDENTICAL to the V14M, V8
+#     and V24W siblings' window, so all four lanes state ONE claim about the product
+#     rather than four claims about four subjects.
+#
+#   unevaluable = { max = 1400 }          MEASURED 384 / 410 / 409.
+#     A CEILING ONLY, ~3.4x the largest reading - the SAME ratio-to-measurement the two
+#     1x sibling lanes carry (V14M 200 over 56, V8 250 over 76), scaled to THIS census
+#     rather than copied from theirs. The population is a different size, not a different
+#     kind: `seam-endpoint-skipped` (308 / 322 / 306) plus `reaimed-seam-instant-absent`
+#     (69 / 81 / 96) are 98 % of it, and both scale with how many endpoint records the
+#     flight produces (377 / 403 / 402) - a number that moves with frame timing, not with
+#     correctness. THE SPREAD IS THE ARGUMENT: three runs of one unchanged drive shape
+#     read 384, 410 and 409, and the two components traded 15 records between themselves
+#     between 1817 and 1823 while their SUM barely moved. A tight band would red on a fast
+#     machine. What the ceiling catches is the collapse case - an instrument that stops
+#     measuring turns clauses into unevaluables wholesale - with ~1000 of headroom over a
+#     ~400-record endpoint population. NO `min`: an unevaluable count is not a thing to
+#     require.
+#     FOUR OF THE CENSUS ENTRIES ARE STRUCTURAL AND WILL NOT GO AWAY, each a positive
+#     statement about this subject rather than a gap: `plan-primitive-body-unidentified 1`
+#     (Sun is not in the stock body table the primitive reader keys on - expected for a
+#     heliocentric subject), `hold-observed-evidence-absent 1` +
+#     `warp-hold-traversal-evidence-absent 1` (the plan holds 3,918.25 s and all three
+#     windows sit at or before the arrival SOI entry by section 4's deliberate choice),
+#     and `ownership-publish-surface-never-ran 1` (this lane drives no `EnterMapView`;
+#     V6M is the lane that closed RC-OWN, and doing the same here would be a change to the
+#     flown shape, which arming may not make).
+#
+#   requireSeamKinds = ["rigid", "flexible-soi"]   MEASURED {rigid 8, flexible-soi 2},
+#     THREE TIMES, equal to the integer. Both kinds present on every reading, so this arms
+#     an existing reproduced fact rather than a hope. It is the sharpest clause in the
+#     block: it says this subject's chain records must keep carrying BOTH a same-body rigid
+#     seam and a cross-SOI flexible one, which is the structural signature of a
+#     heliocentric-parking departure rendered through the phase spine - Kerbin -> Sun and
+#     Sun -> Duna are the flexible pair. A change that collapsed the chain to one seam kind
+#     would green every count window above and red exactly here. The vocabulary is
+#     `rendercompose.SEAM_KINDS_REQUIRABLE` and admits no other token.
+#     THIS CLAUSE IS ALSO THE RC-SEAM FIX'S STANDING GUARD: run 1744's single FAIL was
+#     wave-1 keying the seam table on `toSegmentIndex` and blaming boundary 8's correct
+#     `rigid` for boundary 7's Sun -> Duna body change. The fixed evaluator walks every
+#     boundary a transition crossed; arming keeps a regression of that fix from being a
+#     report-only footnote.
+#
+# NOT DECLARED, each for a MEASURED reason:
+#   * `cycles` - this subject closed ZERO cycles on all three readings (one
+#     `cycle-rollover`, bounding none, with `no-cycle-rollover-events: 3` as the matching
+#     unevaluable). A floor would red the very runs it was armed off, and a `{min = 0}`
+#     pin can never red at all. THIS IS THE V8 SHAPE EXACTLY, and V8 is the sibling this
+#     block is modelled on for that reason; V14M and V6M own the `cycles` floor.
+#   * `warpBuckets` - MUST NEVER BE DECLARED HERE (header section 5): the clock moves with
+#     instantaneous TimeJumps, so the histogram is 1x-only by construction (measured
+#     {warp1x: 468/470/...}, every other bucket 0 on all three) and a bucket window would
+#     gate on the drive shape rather than on the product. V24W is the only lane in the
+#     suite entitled to that key.
+#   * any RC-CUT surface - this lane owns the program's first non-empty
+#     `cutWholeRatios = [2.0]` and it is exactly whole, which is a headline measurement,
+#     but ONE ratio from ONE cut is not a window. It is recorded in the header ledger and
+#     left for a lane that produces a population.
+#   * any RC-HOLD clause - `planHoldSeconds [3918.25]` with `observedHoldSeconds []`: the
+#     drive never traverses the hold, by design. Nothing to window.
+#
+# DISCIPLINE: readings 1744 / 1817 / 1823, then the armed re-flight and the negative
+# control - all five recorded in the header's section 6 ledger and in
+# `RENDERCOMPOSE_ARMED_SPECS`.
+gating = true
+dwells = { min = 1, max = 32 }
+unevaluable = { max = 1400 }
+requireSeamKinds = ["rigid", "flexible-soi"]
 
 [runtime]
 # 300 LoadGame + 300 StartLoopPlayback + 9 x 300 TimeJump + 120 export + the fast

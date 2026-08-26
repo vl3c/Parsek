@@ -6322,6 +6322,65 @@ class RenderComposeVerifierWiringTests(unittest.TestCase):
         # their own stated reason: a shared inversion re-proves the evaluator rather
         # than this block.
         "V24W-duna-one-warp-stair.toml",
+        # V25M: ARMED 2026-08-26 off THREE of its OWN report-only readings, all of one
+        # unchanged drive shape. READING 1 `2026-08-26_1744` - the full-measurement
+        # flight, PARSEK-FAIL(anomaly) attempt 1 by this spec's own PRE-REGISTERED
+        # doctrine, and the run that DIAGNOSED the wave-1 RC-SEAM misread (a transition
+        # that warped across an interior segment spanned boundaries 7 and 8; the
+        # evaluator keyed the seam table on `toSegmentIndex` and blamed boundary 8's
+        # correct `rigid` for boundary 7's Sun->Duna change). READING 2
+        # `2026-08-26_1817` - red on `line-blink`, since tolerated; it VALIDATED the
+        # RC-SEAM fix live (zero FAIL findings where reading 1 raised one). READING 3
+        # `2026-08-26_1823` - the CLEAN PASS the arming doctrine requires: dwells 3
+        # (+2 open), cycles 0, unevaluable 409, 0 FAIL / 0 WARN, anomalies
+        # {icon-teleport 3, icon-off-orbit 2, line-blink 0}.
+        # THE STRUCTURE IS EQUAL TO THE INTEGER ON ALL THREE: dwells 3 (+2 open),
+        # cycles 0, treatments {StockConic 2, TracedPath 1}, coverages {InSegment 3},
+        # seamKinds {rigid 8, flexible-soi 2}. The ONE facet that moved is
+        # `unevaluable`: 384 / 410 / 409.
+        # WINDOWS: dwells {1,32} (the suite's identical anti-vacuity floor and, on this
+        # lane, the ONLY one), unevaluable {max 1400}, requireSeamKinds
+        # ["rigid","flexible-soi"]. The ceiling is ~3.4x the largest reading - the SAME
+        # ratio-to-measurement the two 1x siblings carry (V14M 200/56, V8 250/76),
+        # SCALED to this census rather than copied: 98 % of it is
+        # `seam-endpoint-skipped` (308/322/306) plus `reaimed-seam-instant-absent`
+        # (69/81/96) over a ~400-record endpoint population, and those two traded 15
+        # records between themselves across readings 2 and 3 while their sum barely
+        # moved. Four census entries are STRUCTURAL and stay:
+        # `plan-primitive-body-unidentified 1` (Sun is not in the stock body table),
+        # `hold-observed-evidence-absent 1` + `warp-hold-traversal-evidence-absent 1`
+        # (the plan holds 3,918.25 s and every window sits at or before the arrival SOI
+        # entry by design), `ownership-publish-surface-never-ran 1` (this lane drives no
+        # EnterMapView - V6M is the lane that closed RC-OWN, and opening the map here
+        # would be a change to the flown shape that arming may not make).
+        # `cycles` DELIBERATELY OMITTED, the V8 shape exactly: zero closed cycles on all
+        # three readings, so a floor would red the runs it was armed off and a {min = 0}
+        # pin can never red. `warpBuckets` never (1x-only by construction, 468/470
+        # frames, every other bucket 0). No RC-CUT window although this lane owns the
+        # program's first non-empty `cutWholeRatios = [2.0]` - one ratio from one cut is
+        # a headline, not a population - and no RC-HOLD clause
+        # (`observedHoldSeconds []`).
+        # ARMED RE-FLIGHT: `2026-08-26_1837` PASS attempt 1, gating=True,
+        # armedBlocks=['renderComposition'], ZERO mismatches - dwells 3 (+2 open),
+        # cycles 0, treatments {StockConic 2, TracedPath 1}, seamKinds {rigid 8,
+        # flexible-soi 2}, seamEndpoints 381, unevaluable 388, one INFO RC-QUAL, zero
+        # WARN/FAIL. The windows hold against a run they were not written from, and 388
+        # sits INSIDE the three readings' spread rather than trending - exactly what the
+        # ceiling was sized to absorb.
+        # NEGATIVE CONTROL: `2026-08-26_1839`, temporary `dwells = { min = 50 }` applied
+        # by a LINE-ANCHORED edit of the real key (verified with `grep -n '^dwells'` AND
+        # through `run.py --dry-run`'s `declared:` line before launch - the V24W `_1811`
+        # miss is why that second check is mandatory), red on exactly
+        # `PARSEK-FAIL(render-composition)` with EXACTLY ONE mismatch,
+        # `renderComposition.dwells 3 < min 50`. Every sibling row stayed clean
+        # (driverValidity / analyzer red=0 / logValidate / anomalySweep / expectations /
+        # testResults PASS, saveParse + unityExceptions REPORT) and the composition
+        # facets equalled the PASSing flights', so the red is the declaration and nothing
+        # else; the run JSON's `verifiers.renderCompose.declared` records
+        # `dwells: {min: 50}`. Reverted in the same change on the re-grepped real key.
+        # NOT SHARED with the V6M lane armed alongside it, which inverted `cycles` - a
+        # clause this block does not even carry.
+        "V25M-duna-park-player-loop.toml",
     }
 
     def test_no_committed_spec_arms_render_composition_gating(self):
