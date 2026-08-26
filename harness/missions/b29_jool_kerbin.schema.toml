@@ -1,0 +1,817 @@
+# Declared param schema for mission b29_jool_kerbin -- the INBOUND INTERPLANETARY
+# lane, and the first spec in the suite whose TARGET body is KERBIN.
+#
+# It is `b28_laythe_jool.schema.toml` MINUS the six PARENT-RELAY keys PLUS EXACTLY
+# ONE NEW KEY (`captureEllipticalApoapsisMeters`), with eight inherited blocks
+# re-argued in place (listed at the bottom of this header). That is the whole claim
+# this file makes: an inbound planet-to-Kerbin transfer is the ORDINARY
+# interplanetary machine (B22's) entered through the ORBIT-START door (B25/B28's),
+# not a new mode. If a future change to this lane needs a param neither declares,
+# that is evidence the claim has stopped being true and it must be re-argued rather
+# than quietly patched (the B16 rule, verbatim).
+#
+# WHAT THE LANE IS: the crewed Duna Rocket starts ALREADY PARKED around JOOL (the
+# committed Parsek-stripped `jool-park-nerv` fixture -- a 584,321,095.005 x
+# 584,330,474.175 m park at eccentricity 7.9440625486254423e-06), waits out the
+# Jool-Kerbin window inside that park, ejects onto a Sun-frame INBOUND transfer,
+# corrects twice, captures into a 150,000 x 6,000,000 m KERBIN ellipse and commits
+# the tree there. See `b29_jool_kerbin.py`'s header for the Parsek surface the lane
+# exists to produce, and `docs/dev/autotest-roadmap.md` -> the gap register ->
+# **G2 - Return legs** for why the planet-to-Kerbin half outranks the other
+# unmeasured classes.
+#
+# WHY THE SIX RELAY KEYS ARE GONE RATHER THAN DEMOTED. B26 and B28 arm
+# `parentRelayTransfer` because MechJeb 2.15.1's OperationInterplanetaryTransfer
+# REFUSES a MOON-parked origin (docs/dev/todo-and-known-bugs.md ->
+# MECHJEB-INTERPLANETARY-PLANNER-REJECTS-MOON-ORIGIN). JOOL IS A PLANET -- a direct
+# child of the Sun -- so that refusal is structurally out of scope and the plain
+# planner applies. Declaring the keys anyway would invite a future author to arm a
+# mode this lane has no reason to enter, and mlib's relay gates would then start
+# judging rows that do not exist here. The four PAD-ALIGN keys ARE kept
+# declared-and-optional (B28's shape): they are mutually exclusive with
+# `startInOrbit` at load, so declaring them costs nothing and their bounds stay
+# comparable across the family. The six ASCENT keys are likewise kept
+# declared-and-optional -- this lane never enters MJ-ASCENT or CIRCULARIZE, since
+# the fixture is already parked and PRELAUNCH hands straight to the ORBIT waypoint.
+#
+# WHY A SEPARATE FILE AT ALL: run.py builds its { mission-name -> schema-dict }
+# registry by globbing `harness/missions/<mission>.schema.toml`, so a mission with
+# no schema file validates NOTHING. The duplication is the registry's price.
+#
+# hlib.validate_spec does NOT read this file itself: run.py (shell / I/O) parses
+# every harness/missions/<mission>.schema.toml with tomllib into a registry and
+# INJECTS it as validate_spec's `mission_schemas` argument. hlib's PURE validator
+# (_validate_mission_params) then drives required-key presence and per-value
+# type/range checks from the `params` table below. Shape consumed by hlib:
+#   {"params": {"<name>": {"required": bool, "type": "<t>", "min": <num?>, "max": <num?>}}}
+# Every value here is a tolerance / threshold / budget, never a golden trajectory
+# (design "Determinism guardrails").
+#
+# THE EIGHT RE-ARGUED BLOCKS, named here so a diff against b28's file has no
+# unexplained lines. None of them adds, removes or re-types a key; each replaces
+# PROSE that was written for a relay lane departing a moon and would be actively
+# wrong on an inbound planet-to-Kerbin one:
+#
+#   targetBodyName                 target Kerbin / home Jool -- the first such pair.
+#   transferMinApoapsisMeters      0 for B22's reason (ecc-evidenced), NOT B28's
+#                                  relay inversion. Same number, different contract.
+#   ejectionEccFloor               1.001, the B15 INWARD calibration, with the
+#                                  derived burn-fraction table and the reason a low
+#                                  floor is safe behind node-consumption.
+#   returnBodyName                 "Sun" -- and unremarkably so, unlike B28's.
+#   viaBodyNames                   ["Sun"], DERIVED: the Jool departure transits no
+#                                  moon shell, and the Mun/Minmus shells the Kerbin
+#                                  arrival does cross are the target's own frame.
+#   courseCorrectPeriapsisMeters   150,000 -- the arrival periapsis the capture is
+#                                  sized at, doing atmosphere-clearance and Oberth
+#                                  duty at once.
+#   parkMaxApoapsisMeters          8,900,000 -- a Mun-encounter EXCLUSION, not a
+#                                  tolerance.
+#   parkMaxEccentricity            0.85 -- derived from the aimed ellipse (0.7959)
+#                                  and enforced against it at spec load.
+#
+# NOTE the validator only checks DECLARED keys: an undeclared param in a spec is
+# neither rejected nor read.
+[params.targetApoapsisMeters]
+required = false
+type = "number"
+min = 0.0
+[params.targetPeriapsisMeters]
+required = false
+type = "number"
+min = 0.0
+[params.apoErrorMeters]
+required = false
+type = "number"
+min = 0.0
+[params.periErrorMeters]
+required = false
+type = "number"
+min = 0.0
+[params.ascentTimeoutSeconds]
+required = false
+type = "number"
+min = 0.0
+[params.circularizeTimeoutSeconds]
+required = false
+type = "number"
+min = 0.0
+# THE ONE KEY B16 DECLARES THAT b7_duna_flyby.schema.toml + b11_mun_orbit.schema.toml
+# DO NOT, shared with B15 and argued there. > 0 arms the park ROUND-OUT trim
+# inside CIRCULARIZE: plan + burn a MechJeb circularize-at-apoapsis node until
+# the observed eccentricity is at/below this, bounded by
+# mlib.PARK_TRIM_MAX_ATTEMPTS with a named give-up. Optional; mlib defaults 0.0
+# (no trim -- the pre-trim CIRCULARIZE, so every already-flown lane is
+# byte-identical). B16: 0.02.
+#
+# B16 CANNOT FLY WITHOUT IT: this lane's transfer IS B15's, and MechJeb's
+# interplanetary ejection planner is only correct from a ROUND park (B15
+# flights 1-3). It matters more here than on B15 -- a flyby that arrives
+# off-target misses, a capture that arrives off-target has nothing to
+# circularize at.
+[params.parkTrimEccMax]
+required = false
+type = "number"
+min = 0.0
+max = 1.0
+######################################################################
+# Transfer target / home SOI body names (kRPC orbit.body.name values). The machine's
+# SOI gates compare snapshot.body against these.
+#
+# **B29: target KERBIN, home JOOL -- the first spec in the suite whose target is
+# KERBIN and whose home is not.** Every interplanetary lane before this one departs
+# Kerbin; this one arrives at it. Both are direct children of the Sun, so the plain
+# `interplanetaryTransfer` planner applies and the moon-origin refusal
+# (MECHJEB-INTERPLANETARY-PLANNER-REJECTS-MOON-ORIGIN, which forced B26/B28 onto the
+# parent-relay mode) is structurally out of scope here.
+[params.targetBodyName]
+required = true
+type = "string"
+[params.homeBodyName]
+required = true
+type = "string"
+######################################################################
+# TRANSFER-BURN exit floor for the moon Hohmann shape (B5/B6). THIS LANE SETS 0
+# AND IS EVIDENCED BY `ejectionEccFloor` INSTEAD -- B22-jool-orbit's shape, not
+# B26/B28's relay inversion. An ejection burn drives the HOME-frame apoapsis
+# NEGATIVE (the orbit goes hyperbolic about Jool), so an apoapsis floor is a
+# number no post-burn frame can satisfy. `_b5_transfer_burn_done` dispatches on
+# `ejection_ecc_floor > 0` and never reads this value on such a lane; it stays
+# required for schema symmetry with the shared block and is written out as 0 so a
+# reader sees the choice rather than inferring it from a default.
+#
+# NOTE THIS LANE IS **NOT** A RELAY. B28 arms `parentRelayTransfer` and its
+# inverted "must be exactly 0" gate; B29 arms neither, and none of the six relay
+# keys is declared in this file at all. The value 0 is the same number for a
+# completely different reason, which is exactly the kind of coincidence worth
+# writing down.
+[params.transferMinApoapsisMeters]
+required = true
+type = "number"
+min = 0.0
+######################################################################
+# > 0: after the ejection burn, plan + execute a MechJeb course correction to this
+# target-arrival periapsis (metres) -- pins the arrival geometry and keeps the
+# periapsis off the terrain. 0 disables the two correction phases.
+#
+# **THIS LANE SETS 150,000 AND THE NUMBER IS THE ARRIVAL PERIAPSIS THE CAPTURE IS
+# SIZED AT.** It is doing double duty here, which no prior lane's value did:
+#   * ATMOSPHERE CLEARANCE. Kerbin's atmosphere ends at 70,000 m, so 150,000 leaves
+#     80,000 m of margin against the finite-burn periapsis drop B25 measured (~15.4
+#     km on a 937 m/s burn; this lane's capture is 1,188.07 m/s over ~193 s).
+#   * OBERTH DEPTH. The capture dv is `v_ellipse(r_p) - v_hyp(r_p)`, so a deeper
+#     periapsis is a cheaper capture. 150,000 m prices it at 1,188.07 m/s; 100,000 m
+#     would save 31 m/s and spend 50,000 m of atmosphere margin, which is a bad
+#     trade on a lane with 58% dv margin and no heat-shield plan.
+# `captureEllipticalApoapsisMeters` is validated AGAINST this value at spec load
+# (an "apoapsis" at or below it is not an ellipse), so the two cannot drift apart.
+[params.courseCorrectPeriapsisMeters]
+required = true
+type = "number"
+min = 0.0
+# PLAN-* phase budget (GAME seconds). PLAN-TRANSFER expiry flakes (no transfer
+# = no mission); PLAN-CORRECTION expiry falls through to the coast (the
+# correction is best-effort).
+[params.planTimeoutSeconds]
+required = true
+type = "number"
+min = 1.0
+# Re-issue a failed plan every this many game seconds while no node appeared
+# (a no-window/no-encounter plan throws server-side and leaves the node list
+# empty).
+[params.planRetrySeconds]
+required = false
+type = "number"
+min = 1.0
+max = 600.0
+# TRANSFER-BURN / CORRECTION-BURN budget (GAME seconds). For B16 this must cover
+# the ENTIRE ejection-window wait: OperationInterplanetaryTransfer plans the
+# node at the next Kerbin->Eve window, up to ~1 synodic period ahead, and the
+# NodeExecutor autowarp advances game time to it. The Kerbin-Eve synodic period
+# is ~14,700,000 game s (DERIVED: 1/|1/T_Eve - 1/T_Kerbin| with the stock
+# T_Eve = 5,658,300 s and T_Kerbin = 9,204,000 s, both re-derived from the
+# stock sma + mu and matching the published year lengths to <0.01%), which is
+# SHORTER than the Kerbin-Duna ~19,650,000 B7 sized against. Sized in the B16
+# spec at ~18,000,000; hence the wide max here.
+[params.transferBurnTimeoutSeconds]
+required = true
+type = "number"
+min = 1.0
+max = 40000000.0
+# COAST-TO-TARGET budget (GAME seconds). The heliocentric Kerbin->Eve transfer
+# coast is DERIVED at ~3,490,000 game s: the Hohmann half-period
+# pi*sqrt(a_t^3/mu_Sun) with a_t = 11,716,262,400 m gives 3,679,880 s, scaled
+# by 0.9485 -- the ratio B7's three green flights MEASURED between their real
+# Sun->Duna coast (6,189,000-6,191,000 game s) and the same formula's
+# 6,524,600. That is ~56% of the Duna coast; sized with margin in the spec.
+[params.coastTimeoutSeconds]
+required = true
+type = "number"
+min = 1.0
+# TARGET-FLYBY budget (GAME seconds; SOI entry to SOI exit). Eve's SOI is the
+# LARGEST of any inner-system body at ~85.1 Mm radius (1.78x Duna's ~47.9 Mm),
+# BUT in CAPTURE mode this phase is only the ARMING window -- the
+# SOI-edge-to-periapsis coast belongs to CAPTURE-BURN's executor autowarp, and
+# B11 flight 3 MEASURED the arming window at 27 game seconds once the
+# periapsis-bounded warp landed. This key is therefore a SLOW bound on the
+# arming; the capture-never-armed give-up bounds BROKEN.
+[params.flybyTimeoutSeconds]
+required = true
+type = "number"
+min = 1.0
+# Non-blocking rails-warp factors (KSP factor INDEX 0-7; the machine holds
+# the factor via on-change set_rails_warp emissions and keeps polling -- no
+# blocking warp RPC, no per-hop ramp sawtooth). Optional; mlib defaults 6
+# (10,000x) coast cap / 5 (100x) flyby floor. Every commanded factor is
+# additionally pre-clamped to the stock per-body altitude-limit table
+# (mlib.STOCK_WARP_ALTITUDE_LIMITS) so the command is always achievable and
+# escalates as the vessel climbs. B16 sets coastWarpFactor = 7 (100,000x, legal
+# far from the Sun: Eve's orbit sits ~9.57e9 m above the Sun's surface, five
+# orders of magnitude past the 65,400 km Sun factor-7 limit, so an INWARD
+# transfer is exactly as legal as B7's outward one) for the ejection-window
+# wait and the heliocentric coast. mlib.STOCK_WARP_ALTITUDE_LIMITS already
+# carries Eve -- its table is IDENTICAL to Kerbin's (factor 7 needs >= 600 km
+# altitude) -- so the per-body clamp shapes the arrival legs from committed
+# data with nothing added.
+[params.coastWarpFactor]
+required = false
+type = "int"
+min = 0
+max = 7
+[params.flybyWarpFactor]
+required = false
+type = "int"
+min = 0
+max = 7
+# TARGET-FLYBY stair-down cap: far above periapsis the factor rises toward
+# this with the remaining (altitude - periapsis) distance, falling back to
+# the flybyWarpFactor floor near periapsis. Optional; mlib defaults 6.
+[params.flybyMaxWarpFactor]
+required = false
+type = "int"
+min = 0
+max = 7
+# AIM-THEN-WARP node-arrival margin (GAME seconds): the correction burn aims
+# first, then natively warps to node UT minus this margin; 1x exists only
+# inside it (nodeWarpLeadSeconds is RETIRED -- delta-review E1). Optional;
+# mlib defaults 15.
+[params.nodeArrivalMarginSeconds]
+required = false
+type = "number"
+min = 5.0
+max = 600.0
+# PLAN-* phase rails hold factor INDEX (legality-clamped; 2 = 10x). Optional;
+# mlib defaults 2.
+[params.planWarpFactor]
+required = false
+type = "int"
+min = 0
+max = 7
+# Native-warp SOI lead (GAME seconds): coast/flyby legs warp to the SOI
+# change minus this lead. Optional; mlib defaults 30.
+#
+# MAX RAISED 3,600 -> 1,000,000, ADOPTING B21/B22's BOUND VERBATIM. This is the
+# ONE inherited bound this lane moves, and it is moved HERE with its own comment
+# rather than by pushing a spec value past it -- the rule B21's own header states
+# ("If a flight ever proves a bound too tight, raise it HERE with its own comment
+# ... never push a value past a bound and never quietly relax one").
+#
+# WHY B26's 3,600 IS THE WRONG BOUND FOR THIS LANE, and why it was never a
+# physical limit anywhere. A lead has to be expressible in units of WARP FRAMES,
+# not seconds of real approach, or it cannot bound what it exists to bound: 3,600
+# game seconds is ~4% of ONE full-rate x100,000 poll frame, so on any lane that
+# coasts at a high rails factor the bound forbade every value large enough to do
+# the job. B19 flight 4 MEASURED a single frame advancing 27,596 game s straight
+# through a boundary with the lead at its default 30. B26 kept 3,600 because its
+# hop is a short intra-Jool moon transfer; B28's arrival is at JOOL ITSELF, whose
+# SOI radius is 2,455,985,200 m, which is exactly the distant-arrival family B21
+# raised the bound for and B22 -- the same target body, the same capture tail --
+# flew at 100,000.
+#
+# The lower bound and the type are unchanged, and no other lane's value moves.
+[params.soiLeadSeconds]
+required = false
+type = "number"
+min = 5.0
+max = 1000000.0
+# CORRECTION-BURN pre-burn attitude-flip physics warp factor INDEX (0-3;
+# 1 = 2x). Optional; mlib defaults 1.
+[params.flipPhysicsWarpFactor]
+required = false
+type = "int"
+min = 0
+max = 3
+# Flyby min-altitude assertion floor (metres above the target body). ON EVE
+# THIS FLOOR MEANS SOMETHING DIFFERENT than it does on the Mun (10 km), Minmus
+# (6 km) or Duna (15 km), where it is a TERRAIN-clearance number just above the
+# peaks. Eve's peaks are only ~7.5 km, but its ATMOSPHERE is 90 km deep -- the
+# deepest in the stock system -- so the hazard that actually bounds the pass is
+# aerocapture / breakup, not ground. B16 therefore sets 100 km: the assertion
+# reads "the pass stayed in VACUUM", which is both the stronger claim and the
+# survivable one. The machine tracks the min finite altitude inside the target
+# SOI; the assertion requires it at/above this floor.
+#
+# ON JOOL THE SAME READING APPLIES AND IS SHARPER STILL. Jool has no surface to
+# clear at all -- the "terrain" is a 200 km atmosphere over a gas giant, the
+# deepest in the stock system, and anything that dips into it is not a red-flagged
+# pass but a destroyed vehicle. So this floor is a VACUUM assertion here too, and
+# B22-jool-orbit's committed 1,000,000 m is the flown precedent for the same target
+# body with the same capture tail. Size this spec's value against that rather than
+# against a moon-lane terrain number.
+[params.targetPeriapsisFloorMeters]
+required = true
+type = "number"
+min = 0.0
+# Correction ROUNDS (ALTITUDE mode, B5/B6): COAST-TO-TARGET enters
+# PLAN-CORRECTION once per entry when the HOME-body altitude crosses that
+# trigger. B16 leaves this EMPTY and uses correctionTriggerTimeToSoiSeconds
+# instead (the heliocentric coast is in Sun SOI, so a Kerbin-altitude trigger
+# can never fire mid-coast).
+[params.correctionTriggerAltsMeters]
+required = false
+type = "list"
+# dv cap (m/s) an acceptable course-correction plan must fit under.
+[params.maxCorrectionDvMps]
+required = false
+type = "number"
+min = 1.0
+max = 2000.0
+# BURN-phase stagnation watchdog (game seconds). Optional; mlib defaults 120.
+[params.burnStagnantSeconds]
+required = false
+type = "number"
+min = 30.0
+max = 3600.0
+# CORRECTION-BURN no-start watchdog (game seconds). Optional; mlib defaults 600.
+[params.burnNoStartSeconds]
+required = false
+type = "number"
+min = 60.0
+max = 3600.0
+# DIY correction burner (live finding 8). All optional.
+[params.correctionThrottle]
+required = false
+type = "number"
+min = 0.05
+max = 1.0
+[params.correctionCutDvMps]
+required = false
+type = "number"
+min = 0.5
+max = 20.0
+[params.correctionSettleSeconds]
+required = false
+type = "number"
+min = 1.0
+max = 120.0
+[params.maxAttitudeErrorDeg]
+required = false
+type = "number"
+min = 0.5
+max = 45.0
+# Optional: consecutive AIRBORNE frozen-telemetry samples before the mission
+# declares the vessel lost. mlib.B5Params defaults it to 10. Always an
+# ASSERT-FAIL loss (survival is the contract).
+[params.frozenTelemetrySamples]
+required = false
+type = "int"
+min = 2
+max = 1000
+
+# --------------------------------------------------------------------------
+# B16 INTERPLANETARY ADDITIONS (absent / defaulted-off in the B5/B6 schemas).
+# Each defaults in mlib.B5Params to its B5-preserving value, so the Mun/Minmus
+# specs stay byte-identical; B16 turns them on. See
+# docs/dev/design-autotest-b7-duna.md for the machine diff that introduced
+# them. NO further machine diff exists for Eve: these are the SAME five keys,
+# re-valued.
+# --------------------------------------------------------------------------
+# Ask MechJeb's ManeuverPlanner for an OperationInterplanetaryTransfer
+# (WaitForPhaseAngle) instead of the moon Hohmann OperationTransfer. The
+# ejection node lands at the next Kerbin->Eve window (up to ~1 synodic ahead).
+# Optional; mlib.B5Params defaults false (moon Hohmann shape, B5/B6). B16: true.
+[params.interplanetaryTransfer]
+required = false
+type = "bool"
+######################################################################
+# Legal INTERMEDIATE coast SOI body names between home and target. The machine
+# reads any foreign body in the coast as the ejected ASSERT-FAIL terminal; a via
+# body is exempted AND is a legal rails-warp body for the coast. Optional; mlib
+# defaults ().
+#
+# **THIS LANE SETS ["Sun"] AND THE LIST IS DERIVED, NOT COPIED.** Two questions had
+# to be answered from the geometry, and the answers point opposite ways.
+#
+# (1) THE JOOL DEPARTURE TRANSITS NO MOON SHELL, so no Jool moon belongs here.
+# `jool-park-nerv`'s park is 590,321,095.005 x 590,330,474.175 m in RADIUS, and the
+# ejection is a PROGRADE burn at its periapsis -- so the escape leaves outward and
+# the craft's Jool-frame radius never falls below 590.321 Mm. Every moon is below
+# it: Laythe 27.184 Mm (21.72x), Vall 43.152 (13.68x), Tylo 68.5 (8.62x), Bop 128.5
+# (4.59x), Pol 179.89 (3.28x). B25 needed the six-moon poison reasoning because it
+# flew Jool -> Laythe INWARD, descending through all four outer shells; B29 departs
+# the same park in the opposite direction and crosses none. Adding a moon here
+# would legalise a coast reading that this geometry cannot produce.
+#
+# (2) THE KERBIN ARRIVAL CROSSES THE MUN AND MINMUS SHELLS -- and they still do NOT
+# belong here, because those frames are inside the TARGET body's SOI, which
+# COAST-TO-TARGET's target hop owns before the coast-domain test is reached. Adding
+# them would not protect the arrival; it would only make an unplanned Mun capture
+# read as a legal coast instead of a loud failure. THE ARRIVAL IS ENGINEERED CLEAR
+# OF THE BAND INSTEAD (B17's NO-IKE mirror): see `captureEllipticalApoapsisMeters`
+# and `parkMaxApoapsisMeters`, which put the whole park inside the Mun's orbit with
+# 2,970,441 m of clearance to the near edge of its SOI band.
+#
+# So the ONE entry is "Sun", and it is here for `_b5_correction_via_bodies`: that
+# function narrows the no-encounter correction domain to `(return_body,)` on an
+# interplanetary lane, and its docstring states the safety argument ("a strict
+# subset, so it can only ever REMOVE a firing opportunity") holds ONLY while
+# `return_body` is a member of `via_bodies` -- a PRECONDITION the function does not
+# enforce. Pinned by
+# `test_the_return_body_is_a_member_of_the_via_bodies_on_every_lane`
+# (missions/lib/test_shells.py) and re-proved over this committed spec by
+# missions/lib/test_b29_jool_kerbin.py.
+#
+# NOT HONEST SCOPE, UNLIKE B28: this lane sets courseCorrectPeriapsisMeters = 150000
+# and runs its correction rounds, so the narrowed domain is LIVE here. The Sun's SOI
+# is also where the whole 24,252,690 s heliocentric coast happens, so the entry is
+# doing coast-permission duty too.
+[params.viaBodyNames]
+required = false
+type = "list"
+######################################################################
+# Terminal EXIT SOI body after the flyby. IN CAPTURE MODE (this mission) it is NOT
+# a success terminal -- it is the FAILURE body: `b5_decide`'s TARGET-FLYBY branch
+# reads `capture_enabled and body == return_body` as "left the target SOI without
+# capturing" and ASSERT-FAILs. Optional; mlib defaults "" (-> homeBodyName).
+#
+# **THIS LANE SETS "Sun", AND UNLIKE B28 THE CHOICE IS UNREMARKABLE** -- which is
+# worth one line precisely because the sibling lane's version of this key needed
+# five paragraphs. B28's target IS its own parent, so "Jool" would have collided
+# with targetBodyName and killed the mission on arrival. Here the target is KERBIN
+# and the home body is JOOL: two SIBLING PLANETS, both direct children of the Sun,
+# with the Sun the frame a failed capture would actually exit into. Target, home
+# and return are three distinct strings and no branch-ordering hazard exists.
+#
+# It is also the value that satisfies the `_b5_correction_via_bodies` precondition
+# together with viaBodyNames = ["Sun"] -- see that key, where it is load-bearing on
+# THIS lane rather than a forward guard, because B29 runs its corrections.
+[params.returnBodyName]
+required = false
+type = "string"
+######################################################################
+# Hyperbolic ejection burn-done evidence: > 0 makes TRANSFER-BURN's exit "the
+# HOME-frame eccentricity reached this (an escape trajectory) OR the craft
+# already left the home SOI" instead of the apoapsis floor. Optional; mlib
+# defaults 0.0.
+#
+# **THIS LANE SETS 1.001, AND THE VALUE IS THE B15 LESSON APPLIED TO AN INWARD
+# TRANSFER.** B22 flies Kerbin -> Jool OUTWARD and sets 1.05; B15 flights 1-2 were
+# red for a whole flight because an ejection eccentricity floor CALIBRATED ON AN
+# OUTWARD TRANSFER was applied to an inward one. Jool -> Kerbin is inward, so the
+# floor is set just clear of parabolic and nothing more.
+#
+# WHY A LOW FLOOR IS SAFE HERE, since 1.001 is crossed only 22% of the way through
+# the 1,318.55 m/s ejection (derived: ecc 1.0144 at 22%, 2.8141 at 50%, 5.3744 at
+# 80%, 7.4445 at burn end). It is NOT a standalone early exit. `b5_decide`'s
+# TRANSFER-BURN branch exits on `(consumed or stuck) and floor_met` -- the node must
+# have been CONSUMED by the executor (or the burn provably stagnated) before the
+# floor is even consulted. The floor's job on this lane is therefore the UNDER-BURN
+# catch it is named for ("the node was consumed but the orbit is not hyperbolic"),
+# not a completion gate, and a floor set high enough to double as one would be the
+# B15 false-under-burn flake waiting to happen.
+[params.ejectionEccFloor]
+required = false
+type = "number"
+min = 0.0
+max = 100.0
+# Correction ROUNDS (TIME-TO-SOI mode, B16). A DESCENDING list of time-to-target-
+# SOI thresholds (GAME seconds): COAST-TO-TARGET enters PLAN-CORRECTION once per
+# entry when the trajectory shows an Eve encounter (finite time_to_soi) AND
+# time_to_soi has fallen at/below that round's threshold. A large first
+# threshold fires the EARLY round right after Sun-SOI entry (fix the ejection
+# error); a small last threshold fires the LATE round a few days before Eve
+# SOI entry (fine-tune the flyby periapsis). Non-empty SELECTS time mode and
+# supersedes correctionTriggerAltsMeters. Optional; mlib defaults () (altitude
+# mode, B5/B6).
+[params.correctionTriggerTimeToSoiSeconds]
+required = false
+type = "list"
+
+# =============================================================================
+# ORBIT TAIL (the B11/B12-only block). With captureEnabled false every one of
+# these is inert and the machine is the byte-identical B5 flyby.
+# =============================================================================
+# REQUIRED true for an orbit mission: inside the target SOI, plan + fly a
+# periapsis circularization, hold a stable park, and COMMIT the tree there. Also
+# flips the return-body exit from the success terminal to an ASSERT-FAIL.
+[params.captureEnabled]
+required = true
+type = "bool"
+# PLAN-CAPTURE budget (GAME seconds). Expiry FLAKES with a named reason: unlike
+# a best-effort course correction, a capture node IS the mission.
+[params.capturePlanTimeoutSeconds]
+required = true
+type = "number"
+min = 30.0
+# CAPTURE-BURN budget (GAME seconds): the NodeExecutor autowarps from the SOI
+# boundary DOWN to periapsis. On a Mun/Minmus arrival that is hours of game
+# time; on EVE it is far longer, because Eve's SOI edge is ~85.1 Mm out -- 38x
+# the Mun's ~2,230 km. DERIVED at ~74,700 game s (hyperbolic Kepler, v_inf
+# ~931 m/s, onto B16's 5,700 km park periapsis radius; ~79,700 at the
+# ideal-Hohmann v_inf 846). Sized as a SLOW bound; the
+# no-start / window-missed / not-enabled / under-burn watchdogs bound BROKEN.
+#
+# ON JOOL IT IS THE LARGEST SUCH COAST IN THE SUITE OUTSIDE THE HELIOCENTRIC
+# LANES, and it is the single most flight-costing number in this spec. Jool's SOI
+# radius is 2,455,985,200 m -- 29x Eve's ~85.1 Mm and three orders of magnitude
+# past the Mun's -- so the boundary-to-periapsis fall is long even though this
+# lane's arrival is SLOW (an escape that just clears Laythe's SOI carries very
+# little Jool-relative excess, which shortens the burn and lengthens the coast).
+# B22-jool-orbit's committed 3,000,000 s is the flown precedent for a Jool
+# capture; derive this lane's own value from ITS arrival speed rather than copying
+# B22's, and remember the SLOW/BROKEN split -- an over-generous value here costs
+# wall time on a failure, an under-generous one flakes a mission that was working.
+[params.captureBurnTimeoutSeconds]
+required = true
+type = "number"
+min = 60.0
+######################################################################
+# **THE ONE KEY THIS FILE ADDS TO THE SHARED SET, AND THE ONE THING mlib GAINED FOR
+# THIS LANE.** > 0: capture into a BOUND ELLIPSE whose apoapsis is this ALTITUDE
+# (m above the target body) instead of circularizing at the arrival periapsis.
+# Optional; mlib defaults 0.0 = OFF = the circularize path every lane flown to date
+# takes, byte for byte (pinned by CaptureEllipticalInertnessTests).
+#
+# WHY IT EXISTS: an inbound interplanetary arrival is the first case in the suite
+# where circularizing at periapsis is not merely expensive but UNAFFORDABLE. At
+# Kerbin with v_inf 2,713.00 m/s and a 150,000 m arrival periapsis the speed at
+# periapsis is 4,096.09 m/s; circularizing there costs 1,926.12 m/s while the
+# 6,000,000 m ellipse costs 1,188.07 -- a 738.05 m/s difference on a craft carrying
+# 3,967 m/s TOTAL, against an ejection that has already spent 1,318.55. The
+# circularize path leaves 58 m/s of reserve after corrections; the ellipse leaves
+# 1,460.4 m/s. THE PARK SHAPE IS NOT WHAT THIS LANE MEASURES -- the V20 pair reads
+# a KERBIN-FRAME ARRIVAL off the recording, and an ellipse is a Kerbin-frame arrival
+# exactly as a circle is -- so the altitude was descoped rather than the mission.
+#
+# WHAT IT DOES, mechanically: PLAN-CAPTURE emits `mlib.capture_node_plan`'s ONE
+# retrograde node at the arrival periapsis, placed through the SAME kRPC
+# `add_node(ut, prograde=)` seam the parent-relay escape uses (no new runner
+# surface), flown by the SAME NodeExecutor, and judged by the SAME
+# `_b5_capture_achieved` park triple. The node-UT sanity gate is unaffected: the
+# node is placed at `ut + time_to_periapsis`, which is exactly what
+# `capture_node_at_periapsis` measures.
+#
+# FOUR LOAD-TIME IMPLICATIONS, each raising rather than degrading, because every one
+# of them fails only AFTER the capture burn has been flown: it requires
+# `captureEnabled` (with the capture tail off no capture phase is reachable and the
+# key would be inert while reading as if it asked for an elliptical park), it must
+# not exceed `parkMaxApoapsisMeters`, it must exceed `courseCorrectPeriapsisMeters`,
+# and the eccentricity it delivers must fit under `parkMaxEccentricity`. The last is
+# the one a reader is most likely to get wrong by eye -- the default 0.5 ceiling is
+# BELOW what any affordable inbound capture ellipse produces.
+#
+# THE VALUE: 6,000,000 m, chosen to sit inside the Mun's orbit with margin. See
+# `parkMaxApoapsisMeters` for the band arithmetic; the clearance to the near edge of
+# the Mun's SOI band is 2,970,441 m, i.e. the apoapsis is at 66.89% of it.
+[params.captureEllipticalApoapsisMeters]
+required = false
+type = "number"
+min = 0.0
+# The CAPTURE WINDOW (also the PARK gate). A bound orbit reads a POSITIVE
+# apoapsis in the target's frame; a hyperbolic (uncaptured) approach reads a
+# NEGATIVE one, so "0 < apoapsis <= parkMaxApoapsisMeters" is the real
+# captured-or-not evidence, not a trajectory assertion. The periapsis floor
+# keeps the park clear of terrain, and the eccentricity ceiling is the
+# "circularized, not a grazing ellipse" signal.
+[params.parkMinPeriapsisMeters]
+required = true
+type = "number"
+min = 0.0
+######################################################################
+# PARK / capture-window apoapsis CEILING (m ALTITUDE above the target body). A bound
+# orbit reads a POSITIVE apoapsis; a hyperbolic arrival reads a negative one, which
+# is what makes this the "the capture actually closed the orbit" conjunct.
+#
+# **THIS LANE SETS 8,900,000, AND THE NUMBER IS A MUN-ENCOUNTER EXCLUSION RATHER
+# THAN A TOLERANCE.** The Mun orbits at 12,000,000 m radius with a 2,429,559 m SOI,
+# so its encounter band spans 8,970,441 .. 13,829,559 m ALTITUDE over Kerbin. A park
+# apoapsis at or above 8,970,441 m would cross that band on every revolution, and
+# the park dwell plus the committed recording's tail give it many revolutions to
+# find the Mun. The ceiling is set 70,441 m BELOW the near edge, so an orbit that
+# passes this gate provably cannot reach the band at all -- the gate proves the
+# absence rather than the flight getting lucky.
+#
+# It is also the ceiling `captureEllipticalApoapsisMeters` (6,000,000) is validated
+# against at spec load, so the aimed apoapsis can never sit above the window that
+# has to accept it.
+[params.parkMaxApoapsisMeters]
+required = true
+type = "number"
+min = 1000.0
+######################################################################
+# PARK / capture-window eccentricity CEILING (`_b5_capture_achieved`).
+#
+# **THIS LANE SETS 0.85, WHICH IS 3.4x EVERY PRIOR LANE'S 0.25, AND THAT IS THE
+# POINT RATHER THAN A RELAXATION.** B29 captures into a deliberate ELLIPSE (see
+# `captureEllipticalApoapsisMeters`), and the ellipse it aims at -- 150,000 m
+# periapsis by 6,000,000 m apoapsis over Kerbin's 600,000 m radius -- HAS
+# eccentricity (6,600,000 - 750,000) / (6,600,000 + 750,000) = 0.7959. A 0.25
+# ceiling would reject the exact orbit the capture node is computed to produce,
+# and it would do so only AFTER the 1,188.07 m/s burn had been flown.
+#
+# That trap is closed one layer earlier and cannot be re-opened silently: with
+# `captureEllipticalApoapsisMeters` armed, `b5_params_from_dict` computes the
+# delivered eccentricity from the two altitudes plus the target body's radius at
+# SPEC LOAD and RAISES when it exceeds this ceiling, naming the value to raise it
+# to. The ceiling is therefore a derived quantity here, not a taste.
+[params.parkMaxEccentricity]
+required = true
+type = "number"
+min = 0.0
+max = 1.0
+# PARK tumble ceiling (rad/s): with SAS stability-assist + RCS held a settled
+# stage reads ~0. NaN (unread) fails closed, so the mission must run with the
+# opt-in angular-velocity telemetry (the shells pass read_docking=True).
+[params.parkMaxAngularVelocityRadPerSec]
+required = false
+type = "number"
+min = 0.0
+max = 1.0
+# Accepted kRPC situations for the park (upper-cased enum names).
+[params.parkSituations]
+required = false
+type = "list"
+# GAME seconds the stable park must be HELD before the commit. This dwell IS the
+# recorded parked-in-foreign-SOI coverage the lane exists for, and the machine
+# holds 1x through it, so it is also the flight's main wall-clock cost.
+[params.parkDwellSeconds]
+required = true
+type = "number"
+min = 10.0
+# Consecutive in-gate PARK frames before the dwell may complete.
+[params.parkDebounceFrames]
+required = false
+type = "int"
+min = 1
+max = 100
+# PARK budget (GAME seconds). Expiry flakes with a reason that distinguishes
+# "never stabilized" from "stabilized but never HELD through the dwell".
+[params.parkTimeoutSeconds]
+required = true
+type = "number"
+min = 60.0
+# ORBIT-COMMIT budget (GAME seconds) for the command-seam CommitTree round trip.
+# The seam's own ERROR / TIMEOUT tokens are the fast-fail; this bounds a seam
+# that never answers at all.
+[params.commitTimeoutSeconds]
+required = false
+type = "number"
+min = 30.0
+max = 3600.0
+# --- PAD-ALIGN group (the duna-direct no-loiter contract; all optional so
+# the schema stays a superset of B16's -- the B17 spec sets all four).
+#
+# STRUCTURALLY UNREACHABLE ON THIS LANE, twice over: padAlignEjection is mutually
+# exclusive with BOTH startInOrbit and parentRelayTransfer, and mlib raises at spec
+# load on either pairing. Declared anyway, for the same reason the six ascent keys
+# are -- so this file stays a superset of B16's and a reader diffing it against
+# b26's finds one added key and nothing removed.
+#
+# TYPE SPELLING `bool`, which is B26's VERBATIM. It was NOT when this lane was
+# authored: B26 then declared `type = "boolean"`, which is not one of
+# hlib._check_param_type's spellings, so it fell through the whole if/elif chain and
+# validated ANY value -- a string, a list, 7. That was inert on B26 (the spec never
+# sets the key) but precisely backwards, a flag whose entire job is to be rejected
+# in combination with three others being the last one that should be type-unchecked.
+# origin/main commit a79060a41 corrected B26 to `bool`, closed the accepted set
+# behind hlib.MISSION_PARAM_TYPES so an unknown spelling rejects loudly instead of
+# checking nothing, and swept every declaration in harness/missions/*.schema.toml.
+[params.padAlignEjection]
+required = false
+type = "bool"
+[params.padAlignMarginSeconds]
+required = false
+type = "number"
+min = 0.0
+[params.padAlignTimeoutSeconds]
+required = false
+type = "number"
+min = 0.0
+[params.padAlignWindowGuardSeconds]
+required = false
+type = "number"
+min = 0.0
+
+# =============================================================================
+# TARGET-SOI APPROACH WARP CLAMP (B19's pair, ARMED here). Both keys are 0 /
+# omitted on the pre-B19 lanes and inert there.
+# =============================================================================
+# GAME seconds of time-to-target-SOI within which the coast counts as ON FINAL
+# APPROACH, so the ceiling below is already in force when the boundary arrives.
+#
+# WHY IT EXISTS, measured to the frame on B19 flight 4 (2026-08-11_2352): the
+# coast's native warp stopped exactly where it promised (`tts=29.904
+# warp=NONEx1.000`, 30 game seconds short of the Dres boundary), and the NEXT
+# poll read `body=Dres ut=+27,596 s warp=RAILSx8738.770 ttPe=-9,741` -- one frame
+# crossed the boundary AND the entire SOI-entry -> periapsis coast. Clamping the
+# in-SOI factors cannot fix that; by the time TARGET-FLYBY runs the overshoot has
+# already happened.
+[params.approachWindowSeconds]
+required = false
+type = "number"
+min = 0.0
+# Rails factor CEILING held from the moment the craft is within
+# approachWindowSeconds of the target SOI all the way to the boundary. Size it so
+# ONE poll advances well under the target's SOI-entry -> periapsis coast.
+# 0 / omitted = no ceiling.
+#
+# THIS LANE'S CLAMP IS THE LEAST DEMANDING IN THE SUITE and the pair should not be
+# copied down from B26's tight moon-arrival values without saying so: Jool's
+# SOI-entry -> periapsis coast is enormous (see captureBurnTimeoutSeconds), so the
+# B19 overshoot mode -- one poll swallowing the whole in-SOI coast -- needs a far
+# bigger single frame to reproduce here than it did at Dres or Vall. The pair stays
+# ARMED regardless, because "the failure is hard to reach" has never been a reason
+# to disarm a guard, and because the ARRIVAL side of a return leg is exactly the
+# geometry nobody has flown yet.
+[params.approachMaxWarpFactor]
+required = false
+type = "int"
+min = 0
+max = 7
+
+# =============================================================================
+# ORBIT-START (the b23/b24 block, LIVE-PROVEN on B23 flight 2). With
+# startInOrbit false or absent every one of these is inert and PRELAUNCH is the
+# byte-identical LIVE-PROVEN launch shape.
+# =============================================================================
+# REQUIRED true for this lane: PRELAUNCH verifies the active vessel is ALREADY
+# parked around homeBodyName inside the gate below, then enters the ORBIT
+# waypoint directly -- no ascent, no circularization, no ascent kickoff actions.
+#
+# MUTUALLY EXCLUSIVE with padAlignEjection (mlib.b5_params_from_dict raises):
+# that flag issues a pre-LAUNCH epoch jump and then flies an ascent, and there is
+# no pad here to align.
+[params.startInOrbit]
+required = true
+type = "bool"
+
+# THE ENTRY GATE. It reads exactly the quantities the transfer half depends on,
+# so a wrong fixture is NAMED on frame one instead of surfacing hundreds of
+# thousands of game seconds later as an unplannable transfer or a coast-budget
+# flake. Every conjunct fails CLOSED on an unreadable field.
+#
+# The gate is judged over startInOrbitDebounceFrames consecutive frames and is
+# bounded by startInOrbitSettleSeconds, whose expiry splits two ways: a gate that
+# was MEASURABLE and never met is a deterministic fixture fault (ASSERT-FAIL -- a
+# retry re-reads the same numbers), while telemetry that never became readable at
+# all is a transient (FLAKE, retried per the scenario's retry policy).
+# Periapsis floor (m, surface altitude): the "not decaying" half. Also the place
+# to encode "clear of the parent's atmosphere", which a start park must be or the
+# transfer plan is fighting drag it never modelled.
+[params.startInOrbitMinPeriapsisMeters]
+required = true
+type = "number"
+min = 0.0
+# Apoapsis ceiling (m). 0 = no ceiling. A STRICTLY POSITIVE apoapsis is required
+# regardless of this key: a hyperbolic / escaping orbit reads NEGATIVE in the
+# body frame, so "0 < ap" is the bound-orbit evidence (the same discriminator the
+# capture window uses). The ceiling is how a spec additionally keeps the start
+# park well inside the parent SOI.
+[params.startInOrbitMaxApoapsisMeters]
+required = false
+type = "number"
+min = 0.0
+# Eccentricity ceiling: "round enough that the Hohmann planner's burn sizing
+# (computed at the semi-major axis, applied at whatever radius its geometry
+# picks) is not the B15 shortfall waiting to happen". This lane never flies
+# CIRCULARIZE, so parkTrimEccMax cannot rescue an eccentric fixture -- the gate
+# is the ONLY place to catch it, which is why it is required rather than
+# optional.
+[params.startInOrbitMaxEccentricity]
+required = true
+type = "number"
+min = 0.0
+max = 1.0
+# Accepted kRPC situations for the entry frame (upper-cased enum names). An empty
+# situation reading is UNREADABLE, never a pass. Optional; mlib defaults
+# ["ORBITING"].
+[params.startInOrbitSituations]
+required = false
+type = "list"
+# Consecutive IN-GATE frames before the machine enters ORBIT. Optional; mlib
+# defaults 3.
+[params.startInOrbitDebounceFrames]
+required = false
+type = "int"
+min = 1
+max = 100
+# GAME seconds the gate may spend un-met before the NAMED give-up. Anchored on
+# the branch's OWN clock (the first finite-UT frame), NOT on the phase budget:
+# PRELAUNCH is an untimed phase and its phase_entry_ut defaults to 0.0, which on
+# a fixture at UT ~9.16e6 would read as an instant overrun. Optional; mlib
+# defaults 120.
+[params.startInOrbitSettleSeconds]
+required = false
+type = "number"
+min = 1.0
+max = 3600.0

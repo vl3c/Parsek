@@ -14,6 +14,94 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## FIXTURE-DUNA-PARK-PROBE-CANNOT-RETURN-TO-KERBIN: the DD1 probe every committed Duna-parked fixture carries is ~550 m/s short of a Kerbin return, so the reserved `B29-duna-kerbin-return` lane could not be flown as specified [MEASURED 2026-08-26 off `fixtures/saves/duna-park-probe/persistent.sfs` while opening B29's Phase-0 door. FIXTURE PROPERTY, REPORT-ONLY - never a Parsek defect and never a spec defect; it blocked one lane's PRODUCTION, not any product question. ROUTED AROUND the same day by re-scoping B29 to depart Jool; see the second entry below]
+
+THE ARITHMETIC, derived from the fixture's own bytes rather than from a delta-v map:
+
+  CRAFT     `DD1 Duna Direct Probe`, type Relay, sit ORBITING, REF 6 (Duna), at
+            UT 9,160,396.7636916172. 14 parts, probe (NOT crewed). Control and
+            comms are FINE - `ctrl = True`, ModuleCommand, ModuleDataTransmitter
+            `canComm = True`, three RA-5 relays, MechJebCore `isEnabled = True` -
+            so the refusal is purely propellant.
+  PARK      SMA 1,038,214.9499945882, ECC 0.0012696218422829151 = a 718.2 km
+            circular Duna orbit, 2.166% of Duna's SOI.
+  AVAILABLE dry 1.6300 t (sum of the PART `mass` fields; `modMass` sums to 0),
+            LiquidFuel 56.214143897950763 + Oxidizer 68.706157991791599 = 124.920
+            units = 0.62460 t, mass ratio 1.38319. The LV-909 reads
+            `maxThrust = 60` and `key = 0 345` in its stock cfg, so
+            345 * 9.80665 * ln(1.38319) = **1,097.5 m/s**.
+  NEEDED    585.0 (ejection from the 718 km park, v_inf 826.1) + 1,060.5 (Kerbin
+            capture AND circularization at 100 km, v_inf 918.3) = **1,645 m/s**,
+            before a single correction round.
+  VERDICT   ~550 m/s short, 50% over budget.
+
+IT IS STRUCTURAL RATHER THAN TUNABLE, which is the part worth keeping: a
+lower-periapsis two-burn Oberth ejection saves 12 m/s (573.0 against 585.0), and
+aerocapture is not a route - the probe carries no heat shield and no aerobrake verb
+exists in the composed verb set. Capturing into a bound ELLIPSE instead of
+circularizing IS affordable on this craft (804 m/s total, a 24% margin), but the
+absolute reserve is 214 m/s, which one mis-planned correction round consumes.
+
+THE ROADMAP ALREADY KNEW AND THIS CONFIRMS IT RATHER THAN DISCOVERING IT: the
+B-range roster said "every committed Duna-parked fixture carries the DD1 probe with
+only ~1,180 m/s - short of a Kerbin capture" and reserved `B31` as the Kerbin -> Duna
+SETUP lane. The 1,097.5 here refines that ~1,180 (7% apart; both far short of 1,645)
+and derives it from the bytes. `B31` remains reserved and is now a when-wanted
+breadth point rather than a blocker - see the roadmap's rewritten roster entry.
+
+---
+
+## B29-JOOL-KERBIN-RETURN-AUTHORED-NEVER-FLOWN: the suite's first INBOUND interplanetary subject has a committed spec and no flight, so the planet-to-Kerbin half of roadmap gap G2 has a plan and still has no measurement [OPENED 2026-08-26 on branch `b29-duna-return`. TODO, not a defect]
+
+`B29-jool-kerbin-return` is committed: spec, mission shell, schema, registration
+cells and a bare `[expectations.renderComposition]` declaration. **IT HAS NEVER
+FLOWN AND EVERY WINDOW IN IT IS DERIVED** (from `jool-park-nerv`'s own bytes plus
+the stock body constants) rather than measured, which is what its operator tier is
+for. What it flies: the crewed Duna Rocket starts parked at Jool, waits out the
+10,090,902 s Jool-Kerbin synodic inside that park, ejects for 1,318.55 m/s onto a
+24,252,690 s Sun-frame inbound transfer, corrects twice toward a 150,000 m Kerbin
+arrival periapsis, and captures for 1,188.07 m/s into a 150,000 x 6,000,000 m
+Kerbin ellipse before committing the tree.
+
+WHAT IS OWED, in order: the first flight; then the harvest; then `V20M` / `V20T` /
+`V20K` authored off the HARVESTED bytes. The V lanes are deliberately NOT committed
+ahead of the flight - the V21/G3a lesson is that a lane written against predicted
+bytes costs re-pin rounds when the subject can be flown first.
+
+LKO WAS DESCOPED FOR MARGIN and the roadmap's G2 entry is updated to say so:
+circularizing at the arrival periapsis costs 1,926.12 m/s against the ellipse's
+1,188.07, which would leave ~58 m/s of reserve after corrections instead of 1,460.4.
+What the V20 pair reads off the product is a KERBIN-FRAME ARRIVAL rather than an
+altitude, so the descope costs the measurement nothing.
+
+---
+
+## HARNESS-UNFLOWN-NONRELAY-INTERPLANETARY-FROM-NON-KERBIN-PARK: no committed lane has ever asked MechJeb's interplanetary planner for a transfer from a park at a body other than Kerbin, so B29 rests on an argued rather than measured assumption [OPENED 2026-08-26 while authoring B29. PRE-REGISTERED QUESTION, REPORT-ONLY - not a defect, and not a Parsek question at all]
+
+THE GAP, stated precisely. Every committed lane that uses the PLAIN
+`interplanetaryTransfer` planner LAUNCHES FROM THE KERBIN PAD (B7, B15/B16, B17,
+B18/B19, B20, B21, B22). Every committed lane that starts in orbit at a foreign
+body is either a SAME-PARENT moon hop (B25, `interplanetaryTransfer = false`) or a
+PARENT-RELAY (B26, B28, which author their own escape node precisely because the
+planner refused). So the combination B29 needs - non-relay `interplanetaryTransfer`
+with `startInOrbit` at a non-Kerbin PLANET park - has never run.
+
+WHY IT IS EXPECTED TO WORK: MechJeb 2.15.1's documented refusal
+(MECHJEB-INTERPLANETARY-PLANNER-REJECTS-MOON-ORIGIN) is specific to a MOON-parked
+origin, and Jool is a direct child of the Sun. That is an argument from the shape of
+the known limitation, not a measurement.
+
+THE REFUSAL SHAPE IS PRE-REGISTERED so the first flight can be read rather than
+diagnosed: the planner throws server-side, `node_count` stays 0, PLAN-TRANSFER burns
+its PLAN_MAX_ATTEMPTS in roughly 90 game-seconds of the plan cadence, and the machine
+takes the NAMED early flake instead of idling out `planTimeoutSeconds`. **That
+outcome would be driver-INVALID and REPORT-ONLY, never PARSEK-FAIL** - the mission
+would not have flown, so it says nothing about the product. The route around it would
+be the parent-relay mode B29 deliberately does not arm, re-argued at that point rather
+than pre-emptively.
+
+---
+
 ## ~~V6M-CYCLE0-ARRIVALLOITER-DWELL-CLOSE-RECORD-LOST~~: on roughly one map-open flight in six the render-composition manifest never recorded the CLOSE of `V6M-mun-player-loop`'s cycle-0 ArrivalLoiter dwell, so a correctly-rendered cycle read as structurally different and RC-CYCLE red the run [FOUND 2026-08-26 on run `2026-08-26_1840`, the lane's `renderComposition` negative control, which was inverting a DIFFERENT window and could not have caused it. DIAGNOSED 2026-08-26 offline across all six archived map-open manifests: the defect is in the RECORDER's close bookkeeping, NOT in the renderer and NOT in the lane's jump targets. **FIXED AND CLOSED 2026-08-26** by the inter-cycle-tail fallback close, live-proven over four flights - see THE FIX at the end of this entry. Was filed the same day as V6M-CYCLE0-ARRIVALLOITER-DWELL-INTERMITTENTLY-ABSENT; renamed because that title asserted something the diagnosis refuted]
 
 **The original claim was wrong in the way that matters, and the correction is

@@ -1416,13 +1416,25 @@ class KrpcMissionControl(MissionControl):
             # the TRANSFER-BURN exit would abort it, but only after the executor
             # had a chance to fly it. Checking LIVE truth at the moment of the
             # call removes the window instead of surviving it.
+            #
+            # THE LABEL, and it is the ONLY thing B29's elliptical capture added
+            # here: `action.text` names the phase authoring the node, defaulting
+            # to "Escape". Every pre-B29 emission leaves `text` None and its three
+            # log lines are byte-identical; the elliptical capture passes
+            # "Capture" so a retrograde arrival node does not report itself as an
+            # escape in the flight ledger. The ARITHMETIC and the stale-node guard
+            # below are shared verbatim -- a capture node is the same additive
+            # `add_node(ut, prograde=)` call with a NEGATIVE prograde.
+            label = str(getattr(action, "text", None) or "Escape")
+            noun = label.lower()
             try:
                 if len(control.nodes) > 0:
                     _stdout_sink(mlib.format_mission_log_line(
-                        "Warn", "Escape",
-                        "escape node add SKIPPED: %d node(s) already pending "
+                        "Warn", label,
+                        "%s node add SKIPPED: %d node(s) already pending "
                         "(the machine's node_count read was stale; adding would "
-                        "stack a second escape burn)" % (len(control.nodes),)))
+                        "stack a second %s burn)"
+                        % (noun, len(control.nodes), noun)))
                     return
                 node_ut = float(action.node_ut)
                 prograde = float(action.value)
@@ -1433,16 +1445,16 @@ class KrpcMissionControl(MissionControl):
                 except Exception:
                     pass  # the read-back is observability; the node still stands
                 _stdout_sink(mlib.format_mission_log_line(
-                    "Info", "Escape",
-                    "escape node added ut=%.3f prograde=%.2f m/s "
+                    "Info", label,
+                    "%s node added ut=%.3f prograde=%.2f m/s "
                     "(read back ut=%s prograde=%s); nodes=%d"
-                    % (node_ut, prograde, _fmt(back_ut), _fmt(back_dv),
+                    % (noun, node_ut, prograde, _fmt(back_ut), _fmt(back_dv),
                        len(control.nodes))))
             except Exception as exc:
                 _stdout_sink(mlib.format_mission_log_line(
-                    "Warn", "Escape",
-                    "escape node add failed (ut=%s prograde=%s): %s"
-                    % (action.node_ut, action.value, exc)))
+                    "Warn", label,
+                    "%s node add failed (ut=%s prograde=%s): %s"
+                    % (noun, action.node_ut, action.value, exc)))
         elif kind == mlib.ACTION_MJ_PLAN_CAPTURE:
             # ORBIT missions (B11/B12): plan the CAPTURE burn inside the target
             # SOI -- MechJeb's circularize operation aimed at the next PERIAPSIS.

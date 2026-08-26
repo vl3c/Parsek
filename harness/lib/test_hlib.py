@@ -5125,6 +5125,22 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # remains open is the ordinary operator -> nightly PROMOTION call, which
         # is the shape H34/H35 above already record. Nothing technical is owed.
         "B28-laythe-jool-return.toml":      "tier=operator by the calibration discipline (the B18-B26 family's tier), NOT debt; FLOWN 2026-08-20_2330 PASS attempt 1 (the full chain through ORBIT-COMMITTED, all eight assertions met, every verifier green) - what is open is the ordinary operator -> nightly PROMOTION call, the H34/H35 shape",
+        # B29, tier=operator by the SAME calibration discipline and at the earliest
+        # point of it: AUTHORED 2026-08-26 AND NEVER FLOWN. Every window in the spec
+        # is DERIVED (from `jool-park-nerv`'s own bytes plus the stock body
+        # constants) rather than measured, which is precisely what the operator tier
+        # is for on a first-flight B lane. NOT DEBT: nothing is outstanding that a
+        # human decision would discharge - what is owed is the FLIGHT, and the tier
+        # is the mechanism that schedules it rather than a marker of unfinished
+        # human work. It carries one thing B23-B28 did not, and it is written down
+        # here because it is the reason a reader might expect a tag: pre-registration
+        # (1) in the spec records an UNTESTED ASSUMPTION (no committed lane has ever
+        # run a non-relay `interplanetaryTransfer` from a non-Kerbin park) together
+        # with the MechJeb refusal shape it would produce. That is a pre-registered
+        # question with a named outcome, not an operator debt - if it fires the run
+        # is driver-INVALID and report-only, and the re-argument belongs in the
+        # spec's flight ledger.
+        "B29-jool-kerbin-return.toml":      "tier=operator by the calibration discipline (the B18-B28 family's tier) at its earliest point, NOT debt; AUTHORED 2026-08-26 and NEVER FLOWN, every window derived rather than measured, so what is owed is the first flight and not a human call",
         # The V19 pair, tier=operator by the same calibration discipline and for
         # the same reason as every V lane before them: their windows were DERIVED
         # from B28's harvested bytes and the first run was a calibration reading.
@@ -6867,7 +6883,32 @@ class RenderComposeVerifierWiringTests(unittest.TestCase):
                                     #     the first to carry a DESTINATION-side loiter cut
                                     #     (43,963.92 s at the Duna capture) rather than
                                     #     V8's launch-side one.
-                                    "V25M-duna-park-player-loop.toml"}
+                                    "V25M-duna-park-player-loop.toml",
+                                    # -- PHASE 4, 2026-08-26: ONE NEW **PRODUCER** LANE,
+                                    # bare and reading-pending, and the first declarer
+                                    # that is not a V-lane at all.
+                                    #
+                                    # [-] THE FIRST INBOUND INTERPLANETARY SUBJECT: a
+                                    #     Jool-rooted recording that ARRIVES AT KERBIN,
+                                    #     closing the planet-to-Kerbin half of G2. It is a
+                                    #     FLIGHT-scene PRODUCER and claims no render-host
+                                    #     dimension, but it arms ALL THREE tracers like
+                                    #     every other declarer: the seam capture is
+                                    #     `MapRenderTrace.IsEnabled`-gated, so declaring
+                                    #     without them would green while measuring
+                                    #     nothing. `ghostRenderTracing` and
+                                    #     `mapRenderTracing` are NEWLY armed here, and the
+                                    #     exposure costs no re-baseline because the lane
+                                    #     has no flown shape to perturb.
+                                    #     WHY DECLARE A PRODUCER AT ALL: this is the only
+                                    #     lane that will ever take a manifest on a
+                                    #     recording whose ARRIVAL BODY is Kerbin while its
+                                    #     FIRST POINT is not - the exact pair
+                                    #     `ParsekKSC.IsKscStructurallyEligible`
+                                    #     discriminates on, and the question V20K exists
+                                    #     to settle. NEVER FLOWN, so it owes a first
+                                    #     flight before it owes a window.
+                                    "B29-jool-kerbin-return.toml"}
 
     def test_render_composition_declarers_are_the_recorded_roster(self):
         """Pinned so a declarer is always a deliberate edit, in BOTH directions. A

@@ -1421,7 +1421,15 @@ class ParentRelayLoadTimeTests(unittest.TestCase):
         # `V6M-mun-player-loop.toml:45`'s pin. The list stays CLOSED and
         # asserted so a row added from memory still reds here - the guard is
         # "every row is cited", not "the table never grows".
-        self.assertEqual(["Laythe", "Mun"], sorted(mlib.STOCK_BODY_GRAVITY))
+        # KERBIN JOINED THE TABLE for `B29-jool-kerbin-return` (G2), and it is the
+        # first row added for a **TARGET** body rather than a relay HOME body:
+        # `capture_node_plan` needs the target's mu and radius to size the
+        # elliptical capture, so the table now has two consumers. Its citations are
+        # `Source/Parsek.Tests/Bug278FinalizeLimboTests.cs:722`'s committed
+        # `("Kerbin", 600000.0, 3.5316e12)` for the pair, and this table's OWN Mun
+        # comment for the 84,159,286 m SOI radius.
+        self.assertEqual(["Kerbin", "Laythe", "Mun"],
+                         sorted(mlib.STOCK_BODY_GRAVITY))
         mu, radius, soi = mlib.STOCK_BODY_GRAVITY["Laythe"]
         self.assertEqual(MU_LAYTHE, mu)
         self.assertEqual(R_LAYTHE, radius)

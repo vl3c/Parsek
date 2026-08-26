@@ -8,6 +8,30 @@ All notable changes to Parsek are documented here.
 
 ### Dev
 
+- A new automated test mission was written: the first one that flies a spacecraft
+  HOME to Kerbin from another planet. Every interplanetary test flight so far has
+  gone outward from Kerbin, and the one return trip that exists only hops from a
+  moon back to the planet it orbits - so a recording that ARRIVES at Kerbin from
+  deep space, which is what half the map-drawing code will eventually be asked to
+  draw, had never been produced at all. The new mission starts a crewed ship
+  already parked at Jool, waits for the transfer window, burns for home, corrects
+  twice on the way in, and captures into a Kerbin orbit before saving the flight.
+  It has not been flown yet; every number in it is calculated rather than
+  measured, which is exactly what its first run is for.
+  Two things had to change to make it possible. The mission originally planned
+  would have departed Duna, and checking the saved Duna spacecraft's actual fuel
+  showed it cannot get home - it carries about 1,100 m/s of manoeuvring
+  capability against roughly 1,645 needed, a 50% shortfall that no amount of
+  clever flying closes. A sweep of every saved spacecraft parked at every planet
+  found one that can, already prepared and already carrying a heat shield and
+  parachutes, so the mission departs Jool instead; what is being measured is
+  unchanged, because Jool and Duna are both planets orbiting the Sun and the trip
+  home is the same kind of trip from either. And the test harness could
+  previously only ever finish an arrival by circularizing, which at Kerbin costs
+  1,926 m/s where settling into an elliptical orbit costs 1,188 - so it gained
+  the ability to aim for an elliptical parking orbit instead. That is off by
+  default and every existing mission behaves identically without it.
+  Test-tooling only; no gameplay change.
 - The automated test that watches a committed supply route being drawn on the map
   now enforces what it sees, so a run where Parsek quietly stops drawing that
   route's line fails instead of passing on an empty check. Test-tooling only; no

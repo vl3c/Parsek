@@ -1,0 +1,655 @@
+schema = 1
+id = "B29-jool-kerbin-return"
+# =====================================================================================
+# B29: THE FIRST RECORDING IN THE SUITE THAT ARRIVES AT KERBIN FROM ANOTHER PLANET.
+# The crewed Duna Rocket starts ALREADY PARKED around JOOL, waits out the Jool-Kerbin
+# window inside that park, ejects onto a Sun-frame INBOUND transfer, corrects twice,
+# captures into a 150,000 x 6,000,000 m KERBIN ellipse and commits the tree there.
+# THE RECORDING IS THE PRODUCT.
+#
+# **AUTHORED 2026-08-26. NEVER FLOWN. EVERY NUMBER BELOW IS DERIVED, NOT MEASURED.**
+# There is no flight ledger in this file yet, and the absence is deliberate: the
+# derivations are stated with their inputs so the first flight can be read AGAINST
+# them rather than reconciled with prose written as if it already had. When that
+# flight happens its ledger goes HERE, and this banner is replaced by it.
+#
+# WHY THIS LANE EXISTS, and it is NOT "a ninth interplanetary transfer". Every
+# interplanetary lane in the suite DEPARTS Kerbin -- B7 Duna, B15/B16 Eve, B17 Duna,
+# B18/B19 Dres, B20 Moho, B21 Eeloo, B22 Jool -- and the ONE return-direction subject
+# that exists (`jool-return-recorded`, B28's) is a MOON-to-PARENT hop that never
+# leaves the Jool system. So "KERBIN AS A DESTINATION" -- a body-frame arrival at the
+# one body every route network touches -- has never been produced at all. This lane
+# closes the planet-to-Kerbin half of roadmap gap G2; B28 closed the moon-to-parent
+# half on 2026-08-20.
+#
+# **THE ROUTING IS THE MEASUREMENT AND THIS SPEC ASSERTS NOTHING ABOUT IT.** B29's
+# job is to fly the return and commit the recording. `V20M-jool-kerbin-player-loop`
+# and `V20T-jool-kerbin-ts-arrival` are the lanes that read the routing off it, and
+# `V20K` is the KSC-host lane; they carry the pre-registered roads and they gate on
+# none of them. Nothing below requires, forbids or predicts a routing outcome. (B26's
+# header made this promise for the moon-to-moon question and kept it; B28's made it
+# one class over and kept it; this is that promise a third time.)
+#
+# **NO V20 LANE IS COMMITTED AHEAD OF THIS FLIGHT, ON PURPOSE.** The V21/G3a lesson
+# is that a lane authored off PREDICTED bytes costs re-pin rounds when a local
+# session can fly the subject first. V20M/V20T/V20K get authored off the HARVESTED
+# bytes, after this flight, from the facets it actually writes.
+#
+# =====================================================================================
+# THE PHASE-0 DOOR: THE LANE THE ROADMAP RESERVED CANNOT BE FLOWN, AND THE
+# RE-SCOPE THAT FOLLOWED. This section is a FINDING, kept because the deficit is
+# real and a future author will otherwise re-derive it.
+# =====================================================================================
+#
+# The roadmap reserved this id as `B29-duna-kerbin-return`, departing a Duna-orbit
+# fixture. **THE DUNA FIXTURE CANNOT FLY IT**, measured off its own bytes
+# (`fixtures/saves/duna-park-probe/persistent.sfs`, 2026-08-26):
+#
+#   CRAFT      `DD1 Duna Direct Probe`, pid bf2fbd01c9e64908a682e40775ca728c,
+#              type Relay, sit ORBITING, REF 6 (Duna), UT 9,160,396.7636916172.
+#              14 parts; probe, NOT crewed; `ctrl = True`, ModuleCommand +
+#              ModuleDataTransmitter `canComm = True` + 3x RA-5 relay + MechJebCore
+#              `isEnabled = True` -- so control and comms are FINE and the refusal
+#              below is purely a propellant one.
+#   PARK       SMA 1,038,214.9499945882  ECC 0.0012696218422829151
+#              = a 718.2 km circular Duna orbit, 2.166% of Duna's SOI.
+#   DELTA-V    dry 1.6300 t (sum of the PART `mass` fields; `modMass` sums to 0),
+#              LiquidFuel 56.214143897950763 + Oxidizer 68.706157991791599 =
+#              124.920 units = 0.62460 t, mass ratio 1.38319. The LV-909
+#              (`liquidEngine3.v2`) reads `maxThrust = 60` and `key = 0 345` in
+#              Squad/Parts/Engine/liquidEngineLV-909_v2/liquidEngineLV-909_v2.cfg,
+#              so 345 * 9.80665 * ln(1.38319) = **1,097.5 m/s**.
+#   NEEDED     585.0 (Duna ejection at the 718 km park, v_inf 826.1) +
+#              1,060.5 (Kerbin capture AND circularization at 100 km, v_inf 918.3)
+#              = **1,645 m/s, before a single correction round.**
+#   VERDICT    ~550 m/s short, 50% over budget, and STRUCTURAL rather than tunable:
+#              a lower-periapsis two-burn Oberth ejection saves 12 m/s (573.0 vs
+#              585.0). Aerocapture is not a route -- the probe has no heat shield,
+#              and no aerobrake verb exists in the composed verb set.
+#
+# THE ROADMAP ALREADY KNEW, which is why this is a confirmation and not a discovery:
+# its B-range roster says "every committed Duna-parked fixture carries the DD1 probe
+# with only ~1,180 m/s - short of a Kerbin capture", and it reserved **B31** as the
+# Kerbin -> Duna SETUP lane that would fix it, ranked AHEAD of B29. The 1,097.5 here
+# refines that ~1,180 (7% apart; both are far short of 1,645) and derives it from the
+# bytes rather than from memory.
+#
+# ---------------------------------------------------------------------------------
+# THE FIXTURE SWEEP. Every committed save was scanned for a craft `ORBITING` a PLANET
+# (a direct child of the Sun), its delta-v computed from parts + resources against the
+# stock engine configs, and priced against an ideal-impulsive Hohmann return to a
+# Kerbin LKO park. `stripped` = Parsek-stripped, i.e. usable as an orbit-start
+# `saveTemplate` without hitting SEAM-STARTRECORDING-JOINS-COMMITTED-TREE.
+#
+#   fixture                craft @ body            dv avail  eject  capLKO   total  stripped
+#   jool-park-nerv         Duna Rocket @ Jool         3,967  1,319   1,931   3,250   YES
+#   dres-orbit-recorded    Duna Rocket @ Dres         4,069  1,450   1,555   3,005   no
+#   eeloo-orbit-recorded   Duna Rocket @ Eeloo        3,669  1,683   2,092   3,775   no
+#   eve-park-kerbalx       Kerbal X @ Eve             1,184    695   1,025   1,720   YES
+#   duna-park-probe        DD1 probe @ Duna           1,098    585   1,060   1,645   YES
+#   moho-orbit-recorded    Duna Rocket @ Moho         2,105  2,583   1,704   4,287   no
+#   jool-return-recorded   Duna Rocket @ Jool 25.7Mm  2,018  1,691   1,931   3,622   no
+#
+# ONLY TWO CANDIDATES CLEAR AN LKO PARK AT ALL, and one of them is disqualified on
+# geometry: **`dres-orbit-recorded`'s park is at INC 77.46 degrees** -- a polar Dres
+# orbit whose ejection penalty consumes the apparent 35% margin -- and it carries a
+# committed tree (1 `RECORDING_TREE`, `Parsek/` present), so it would need a fresh
+# two-step strip as well. `jool-park-nerv` needs neither: it is ALREADY stripped
+# (no `Parsek/` directory, ZERO `RECORDING_TREE` nodes, verified 2026-08-26).
+#
+# ---------------------------------------------------------------------------------
+# THE DECISION, and what it does and does not change.
+#
+# **B29 IS RE-SCOPED TO JOOL -> KERBIN.** THE CLASS MEASUREMENT IS UNCHANGED: Jool and
+# Duna are both DIRECT CHILDREN OF THE SUN, so Jool -> Kerbin and Duna -> Kerbin are
+# the IDENTICAL sibling-planet inbound relation, and V20M/V20T read the same routing
+# question off either. What changes is the cost: zero setup flights, zero new
+# fixtures, a CREWED craft that already carries a heat shield and chutes, and a 58%
+# delta-v margin instead of a deficit.
+#
+# **B31 STAYS RESERVED** for the eventual Duna-origin breadth point, demoted from
+# "ahead of B29" to when-wanted. It is no longer a BLOCKER for anything, because the
+# class it was reserved to unblock is measured by this lane instead. The roadmap's G2
+# entry and B-range roster are updated to say exactly this.
+#
+# **AND LKO WAS DESCOPED FOR MARGIN.** The roadmap's G2 entry says B29 should "return
+# to LKO". It does not: it parks in a 150,000 x 6,000,000 m ELLIPSE. The reason is
+# arithmetic and it is stated plainly because a reader will notice the difference:
+# circularizing at the arrival periapsis costs **1,926.12 m/s** against the ellipse's
+# **1,188.07** -- 738.05 m/s on a craft with 3,967 m/s that has already spent
+# 1,318.55 on the ejection. THE CIRCULAR PARK IS AFFORDABLE ON PAPER (+22% margin to
+# LKO) AND UNCOMFORTABLE IN PRACTICE: it leaves ~58 m/s of reserve after corrections,
+# which would make `maxCorrectionDvMps` the mission's only delta-v guard at roughly
+# 15 m/s per round over four rounds. The ellipse leaves 1,460.4 m/s. **WHAT THE V20
+# PAIR READS OFF THE PRODUCT IS A KERBIN-FRAME ARRIVAL WITH KERBIN-FRAME POINTS, NOT
+# AN ALTITUDE**, so the descope costs the measurement nothing.
+#
+# =====================================================================================
+# THE DERIVED PARAMETER TABLE. Every number below is computed from `jool-park-nerv`'s
+# own bytes plus the stock body constants. Nothing is scaled from another lane (the
+# standing rule: delta-v is never ratio-scaled between targets).
+# =====================================================================================
+#
+# THE PARK, read from the fixture and cross-checked against B25's header (which
+# departs the SAME bytes and states "~3,967 m/s dv"):
+#   SMA 590,325,784.58972526   ECC 7.9440625486254423e-06   INC 3.005060548898792 deg
+#   -> radii 590,321,095.005 x 590,330,474.175 m, i.e. ALT 584,321,095.005 x
+#      584,330,474.175 m over Jool's 6,000,000 m radius.
+#   v_circ 691.81 m/s, v_esc 978.37 m/s.
+#   LiquidFuel 945.082 / 2400 = 4.725 t on a 6.780 t dry mass; NERV, Isp 800.
+#   A byte-derived recompute gives 4,148.9 m/s and B25's committed figure is 3,967;
+#   **the SMALLER one is used everywhere below**, so every margin quoted is the
+#   conservative one.
+#
+# THE HELIOCENTRIC LEG (ideal Hohmann, a_Jool 68,773,560,320 / a_Kerbin 13,599,840,256):
+#   v_inf departure  1,756.23 m/s      v_inf arrival  2,713.00 m/s
+#   TOF              24,252,690 s = 1,122.8 Kerbin-days
+#   synodic          10,090,902 s =   467.2 Kerbin-days
+#   WORST-CASE SPAN  34,343,592 game s = ~343 wall-seconds at 100,000x.
+#
+# THE EJECTION (planned and flown by MechJeb; the spec sizes only the GATES):
+#   v at park periapsis 691.81 -> required 2,010.36 => **dv 1,318.55 m/s**
+#   final hyperbolic eccentricity about Jool: **7.4445**
+#   ecc vs burn fraction: 1.0144 at 22%, 2.8141 at 50%, 5.3744 at 80%, 7.4445 at end.
+#
+# THE ARRIVAL AND THE CAPTURE (the node mlib itself authors):
+#   arrival periapsis 150,000 m ALT (r_p 750,000) -> v_esc 3,068.81, v_hyp 4,096.09
+#   wanted apoapsis   6,000,000 m ALT (r_a 6,600,000) -> a 3,675,000, v_ell 2,908.03
+#   => **capture dv -1,188.07 m/s (RETROGRADE)**, delivered ecc **0.7959**
+#   circularize-at-periapsis, for comparison: v_circ 2,169.98 => dv -1,926.12
+#   Kerbin arrival hyperbola a -479,813 e 2.5631; SOI-entry -> periapsis coast
+#   **30,323 s (8.42 h)**; approach regime v_inf^2 / (2*mu/r_soi) = **87.700**, i.e.
+#   strongly HYPERBOLIC -- the fastest arrival in the suite, and nothing like B25's
+#   MIXED 1.445. That number is why `approachMaxWarpFactor` is held low.
+#
+# THE DELTA-V LEDGER:
+#   eject 1,318.55 + capture 1,188.07 = **2,506.6 m/s** of 3,967 => spare 1,460.4,
+#   a **58% margin** before corrections; `maxCorrectionDvMps` 200 over two scheduled
+#   rounds cannot eat it. Mass after the ejection 9.7255 t (a = 6.17 m/s^2, burn
+#   ~214 s); after the capture 8.3588 t, with **1,642 m/s of residual delta-v** still
+#   aboard at the committed park.
+#
+# THE MUN-EXCLUSION, which is what sets the park window rather than any tolerance:
+#   Mun    12,000,000 m radius, SOI 2,429,559 -> band ALT  8,970,441 .. 13,829,559
+#   Minmus 47,000,000 m radius, SOI 2,247,428 -> band ALT 44,152,572 .. 48,647,428
+#   The park apoapsis is 6,000,000 m ALT = 66.89% of the Mun band's near edge, with
+#   **2,970,441 m of clearance**, and `parkMaxApoapsisMeters` is set to 8,900,000 --
+#   70,441 m BELOW that edge. So an orbit that PASSES the park gate provably cannot
+#   reach either band, on any revolution, for the whole dwell and the recorded tail.
+#   THIS IS B17's NO-IKE MIRROR: the arrival is engineered clear of the band rather
+#   than the encounter being legalised in `viaBodyNames`.
+#
+# THE JOOL DEPARTURE TRANSITS NO MOON SHELL, which is why no Jool moon appears in
+# `viaBodyNames` even though B25 needed all six from the same fixture. The ejection
+# is a PROGRADE burn at the park's periapsis, so the craft's Jool-frame radius never
+# falls below 590.321 Mm: Laythe 27.184 Mm (21.72x below), Vall 43.152 (13.68x), Tylo
+# 68.5 (8.62x), Bop 128.5 (4.59x), Pol 179.89 (3.28x). B25 descended INWARD through
+# all four outer shells; B29 departs the same park outward and crosses none. The
+# forbidden-token list below asserts exactly this, and it is anti-vacuous because the
+# same fixture's inward lane really does produce those tokens.
+#
+# =====================================================================================
+# PRE-REGISTRATIONS. Written down BEFORE the flight so the flight can refute them.
+# Each names what would count as a miss. NONE of them gates.
+# =====================================================================================
+#
+# (1) **THE PLANNER ACCEPTS A NON-KERBIN PLANET PARK.** This is the lane's one
+#     genuinely untested assumption and it is stated first because everything else
+#     depends on it. NO COMMITTED LANE HAS EVER RUN A NON-RELAY
+#     `interplanetaryTransfer` FROM A NON-KERBIN PARK: every lane using the plain
+#     planner launches from the Kerbin pad, and every lane starting in orbit at a
+#     foreign body is either a same-parent moon hop (B25) or a parent-relay (B26,
+#     B28). MechJeb 2.15.1's OperationInterplanetaryTransfer is KNOWN to refuse a
+#     MOON-parked origin (MECHJEB-INTERPLANETARY-PLANNER-REJECTS-MOON-ORIGIN); Jool
+#     is a PLANET, so the documented refusal is out of scope -- but "out of scope"
+#     is an argument, not a measurement.
+#     THE REFUSAL SHAPE, PRE-REGISTERED: the planner throws server-side, `node_count`
+#     stays 0, PLAN-TRANSFER burns its PLAN_MAX_ATTEMPTS in roughly 90 game-seconds
+#     of the plan cadence, and the machine takes the NAMED early flake rather than
+#     idling out `planTimeoutSeconds`. That would be a HARNESS finding, REPORT-ONLY,
+#     never a Parsek defect -- the mission would not have flown, so the run is
+#     driver-INVALID and not PARSEK-FAIL. The route around it would be the
+#     parent-relay mode this lane deliberately does not arm, re-argued at that point
+#     rather than pre-emptively.
+#
+# (2) **THE WINDOW WAIT HAPPENS INSIDE THE PARK AND COSTS AT MOST ONE SYNODIC.**
+#     `WaitForPhaseAngle` is ON (no pad-align on an orbit-start lane), so the wait is
+#     MechJeb's autowarp inside the Jool park rather than a pre-launch epoch jump.
+#     Pre-registered: the TRANSFER-BURN phase's wall clock is dominated by that wait,
+#     and it completes within `transferBurnTimeoutSeconds` = 22,000,000 game s, which
+#     is 2.18 synodics. A MISS would be the wait exceeding one synodic -- which would
+#     mean the first geometrically-available window was skipped, and would make the
+#     budget the thing to re-derive rather than the lane.
+#
+# (3) **THE CAPTURE NODE'S DELTA-V MATCHES THE DERIVATION.** `capture_node_plan`
+#     computes dv = v_ellipse(r_p) - v_hyp(r_p) from the LIVE arrival orbit, so the
+#     flown number will differ from the -1,188.07 above by whatever the delivered
+#     arrival periapsis differs from the aimed 150,000 m. Pre-registered: the logged
+#     `capture node added ... prograde=` value lands within 10% of -1,188.07. This is
+#     the B28 precedent, where the escape node's derivation and two independent
+#     flights agreed to 2.9e-6 m/s -- a tighter claim is not available here because
+#     the corrections, not the spec, set the periapsis the node is sized at.
+#
+# (4) **THE DELIVERED PARK CLEARS THE MUN BAND AND THE ATMOSPHERE.** Pre-registered:
+#     apoapsis below 8,900,000 m ALT (the gate) and periapsis above 90,000 m, with
+#     ZERO `... to Mun` / `... to Minmus` SOI-boundary tokens in the log. THE
+#     PERIAPSIS HALF IS THE ONE AT RISK: B25 measured a ~15.4 km finite-burn periapsis
+#     drop on a 937 m/s burn, and this capture is 1,188.07 m/s over ~193 s straddling
+#     a periapsis crossed at 4,096 m/s. A drop of 10-30 km is expected from 150,000 m;
+#     `parkMinPeriapsisMeters` = 90,000 tolerates a 60 km drop. A MISS below 90,000
+#     would be a resize on the B17/B25 precedent (an entry window resized to a
+#     measured delivery, with nothing relaxed), not a relaxation.
+#
+# (5) **THE RECORDING IS ONE TREE, ONE RECORDING, TWO BODY-CHANGE SEAMS, TERMINAL
+#     Orbiting AT KERBIN, CREWED.** The count window is {1,3} rather than B28's {1,2}
+#     because this lane has TWO boundaries (Jool -> Sun, Sun -> Kerbin) where B28 had
+#     one. Per the optimizer's split predicate a same-class Exo body change is kept
+#     COHESIVE for transfer coasts, so 1 is the expected reading and the window bounds
+#     the uncertainty rather than predicting the top of it. B26 flight 3 and B28 both
+#     read the BOTTOM of their own windows; a third bottom reading would be the third
+#     data point on that boundary.
+#
+# (6) **THE KSC HOST QUESTION IS NOT SETTLED BY THIS FLIGHT.** Inherited verbatim
+#     from B28 and restated because this is the lane whose subject was supposed to
+#     settle it: `ParsekKSC.IsKscStructurallyEligible` rejects a recording on
+#     `rec.Points[0].bodyName != "Kerbin"` -- the recording's FIRST point, not its
+#     arrival body -- and THIS RECORDING'S FIRST POINT IS AT JOOL, exactly as a
+#     Duna-origin B29's would have been. So arriving at Kerbin may not be enough to
+#     enter the KSC host at all. **THIS SPEC CLAIMS NEITHER READING.** Under the
+#     roadmap's confirmation criterion (c) a documented limitation must CITE A FLOWN
+#     RUN, so `V20K` over these bytes is where it becomes either a closed payoff or a
+#     cited limitation. Nothing here, and nothing in the status row, may write it up
+#     as a limitation before that run exists.
+#
+# =====================================================================================
+# WHAT mlib GAINED, AND THE INERTNESS CONTRACT.
+# =====================================================================================
+#
+# ONE PARAM AND ONE PURE FUNCTION: `captureEllipticalApoapsisMeters` plus
+# `mlib.capture_node_plan` / `mlib.CaptureNodePlan`, dispatched through the single new
+# `_b5_capture_plan_action` seam that both PLAN-CAPTURE emission sites now call.
+#
+# WHY IT WAS NEEDED AT ALL, since "loosen the park band" is the obvious alternative and
+# it does not work: `_b5_capture_achieved` has always been TOLERANCE-ONLY (an apoapsis
+# ceiling, a periapsis floor, an eccentricity ceiling) while PLAN-CAPTURE only ever
+# emitted MechJeb's `operation_circularize`. There is no apoapsis TARGET anywhere in
+# the capture path. So a loose band changes what is ACCEPTED and not what is FLOWN --
+# the executor circularizes regardless, which is why B28 delivered ecc 7.32e-07 under
+# the loosest band in the suite. The band cannot buy an ellipse; only a different node
+# can.
+#
+# WHAT IT REUSES RATHER THAN ADDS: the node goes through the EXISTING kRPC
+# `add_node(ut, prograde=)` seam the parent-relay escape already uses (a NEGATIVE
+# prograde is the whole difference), is flown by the SAME NodeExecutor, and is judged
+# by the SAME park triple. The runner gained ONE thing: the `add_node` handler's log
+# LABEL now comes from `action.text`, defaulting to "Escape" -- so B26's and B28's
+# three log lines are byte-identical and a capture node stops reporting itself as an
+# escape.
+#
+# THE FLAG-OFF CONTRACT is PAD-ALIGN's, ORBIT-START's and PARENT-RELAY's verbatim:
+# absent or 0, PLAN-CAPTURE emits `ACTION_MJ_PLAN_CAPTURE` exactly as before and every
+# other lane's decisions, actions and assertion rows are byte-identical. Pinned by
+# `CaptureEllipticalInertnessTests` (missions/lib/test_capture_elliptical.py), which
+# asserts the flag-OFF emission against the frozen pre-modifier Action rather than
+# against the keys the modifier added.
+#
+# FOUR LOAD-TIME IMPLICATIONS ride on the flag, each RAISING rather than degrading,
+# because every one of them fails only AFTER the capture burn has been flown: it
+# requires `captureEnabled`, it must not exceed `parkMaxApoapsisMeters`, it must
+# exceed `courseCorrectPeriapsisMeters`, and the eccentricity it delivers must fit
+# under `parkMaxEccentricity`. THE LAST IS THE TRAP: the default ceiling is 0.5 and
+# every prior lane sets 0.25, while ANY affordable inbound capture ellipse is well
+# above both (this one is 0.7959) -- so "set the apoapsis, leave the park triple
+# alone" is precisely the spec that deadlocks, and it is caught at load with the
+# value to raise the ceiling to named in the message.
+#
+# ONE ASYMMETRY WITH `escape_node_plan` IS DELIBERATE and is documented at the
+# function: there is NO min-lead roll-forward. A park is periodic and the next
+# periapsis is one period away; an ARRIVAL HYPERBOLA HAS EXACTLY ONE PERIAPSIS, so
+# rolling forward would place the node after the craft had left the SOI. A lead too
+# short for the executor is owned by the CAPTURE-BURN no-start classifier's
+# HOLD/REPLAN ladder, which is the actor that can do something about it.
+#
+# =====================================================================================
+# renderComposition ARMING LEDGER (M-A7 Phase 3C - added 2026-08-26 with the lane).
+#   POSTURE  DECLARED BARE. NOTHING IS ARMED AND NOTHING GATES. The block's only job
+#            today is to EXIST: declaring it sets `PARSEK_RENDER_MANIFEST=1` at
+#            launch, which arms the C# recorder at Awake, and one
+#            `ExportRenderManifest` step immediately before the teardown takes the
+#            manifest at a chosen instant.
+#   TRACERS  ALL THREE (`ghostRenderTracing` / `mapRenderTracing` /
+#            `verboseLogging`) are NEWLY armed by this lane's own steps. An earlier
+#            draft of this ledger argued the two render tracers were unnecessary on
+#            a FLIGHT-scene producer that never enters the map; that is exactly the
+#            shape `test_every_declarer_arms_the_tracers_the_seam_capture_needs`
+#            refuses, and it is right to: the manifest's seam capture is
+#            `MapRenderTrace.IsEnabled`-gated, so a declaring lane with the tracers
+#            off greens while measuring nothing. Declare-with-tracers or do not
+#            declare.
+#            THE EXPOSURE IS ACCEPTED RATHER THAN WAVED THROUGH: both tracers emit
+#            Tier-C anomalies, so `anomalySweep` sees more than it would otherwise.
+#            On an established lane that is an S4.1 change to a flown shape; here
+#            there is no flown shape, so the first flight reads the tracers and
+#            everything else at once. `allowedAnomalies` stays EMPTY on purpose --
+#            a Tier-C hit on flight 1 is a finding to read, not noise to pre-forgive.
+#   READING  PENDING, and it cannot be otherwise: this lane has never flown. A window
+#            written today would be a PREDICTION read back as though it were a
+#            measurement -- the mistake the Wave A lanes all shipped bare to avoid.
+#   S4.1     The export step and the bare block are the only additions; no other step,
+#            budget or expectation exists to have been touched, this file being new.
+#   NOTE     SUBJECT: the FIRST inbound interplanetary producer. Its manifest is the
+#            first ever taken on a recording whose arrival body is Kerbin.
+# =====================================================================================
+tier = "operator"
+description = "AUTHORED 2026-08-26, NEVER FLOWN -- every number in this spec is DERIVED, not measured, and the first flight should be read AGAINST it rather than reconciled with it. THE FIRST RECORDING IN THE SUITE THAT ARRIVES AT KERBIN FROM ANOTHER PLANET, closing the planet-to-Kerbin half of roadmap gap G2 (B28 closed the moon-to-parent half 2026-08-20). The crewed Duna Rocket starts ALREADY PARKED around JOOL on the committed Parsek-stripped `jool-park-nerv` fixture (584,321,095.005 x 584,330,474.175 m at ecc 7.9440625486254423e-06, INC 3.005 deg, 945.082 LiquidFuel on the NERV = ~3,967 m/s), waits out the 10,090,902 s Jool-Kerbin synodic INSIDE that park via WaitForPhaseAngle, ejects for 1,318.55 m/s onto a 24,252,690 s Sun-frame INBOUND transfer, takes two scheduled corrections toward a 150,000 m Kerbin arrival periapsis, and captures for 1,188.07 m/s into a 150,000 x 6,000,000 m KERBIN ellipse (ecc 0.7959) before committing the tree there. RE-SCOPED FROM THE RESERVED `B29-duna-kerbin-return`, and the deficit that forced it is a real finding kept in the header: `duna-park-probe`'s DD1 probe carries 1,097.5 m/s (dry 1.6300 t, 124.920 units of propellant, LV-909 at 345 s) against 1,645 m/s needed (585.0 ejection + 1,060.5 Kerbin capture-and-circularize) -- ~550 m/s short, 50% over budget, structural rather than tunable. A sweep of every planet-parked craft in every committed fixture found exactly two candidates that clear an LKO park, and `dres-orbit-recorded`'s is at INC 77.46 deg and unstripped, leaving `jool-park-nerv` -- already stripped, already crewed, already carrying a heat shield and chutes, and its SECOND consumer after B25. THE CLASS MEASUREMENT IS UNCHANGED because Jool and Duna are both direct children of the Sun, so Jool->Kerbin and Duna->Kerbin are the identical sibling-planet inbound relation; B31 stays reserved for the eventual Duna-origin breadth point, demoted from blocker to when-wanted. LKO WAS DESCOPED FOR MARGIN: circularizing at the arrival periapsis costs 1,926.12 m/s against the ellipse's 1,188.07, which would leave ~58 m/s of reserve after corrections instead of 1,460.4, and what the V20 pair reads off the product is a KERBIN-FRAME ARRIVAL rather than an altitude. mlib gained ONE param and one pure function (`captureEllipticalApoapsisMeters` + `capture_node_plan`), flag-gated and byte-inert with the flag absent, placing its retrograde node through the EXISTING kRPC add_node seam the parent-relay escape already uses. SIX PRE-REGISTRATIONS, none gating, the first being the lane's one untested assumption: no committed lane has ever run a non-relay interplanetaryTransfer from a non-Kerbin park, and the MechJeb refusal shape (node_count 0, PLAN_MAX_ATTEMPTS in ~90 game-s, named early flake, driver-INVALID and report-only) is written down rather than assumed away. THE ROUTING IS THE MEASUREMENT AND THIS SPEC ASSERTS NOTHING ABOUT IT -- V20M/V20T/V20K are the lanes that read it off the product, and none is committed ahead of this flight, on the V21/G3a lesson."
+instanceProfile = "stock-minimal"
+tags = ["B29", "jool", "kerbin", "interplanetary", "return", "inbound", "capture", "authored"]
+
+[fixture]
+# `jool-park-nerv`: the DERIVED, PARSEK-STRIPPED copy of B22's `jool-orbit-recorded`,
+# the THIRD such strip (after `duna-park-probe` for B23 and `eve-park-kerbalx` for
+# B24). NO FORGE FLIGHT was ever spent on it -- it is a transform of committed bytes,
+# which is why this lane's Phase-0 door reads "existing fixture".
+#
+# **B25 IS ITS FIRST CONSUMER AND THIS LANE IS ITS SECOND.** Stated precisely because
+# the neighbouring claim is about a DIFFERENT fixture and is easy to mis-copy: B28's
+# header says "B26 is its first consumer and this lane is its second" about
+# `laythe-park-nerv` (the FOURTH strip, derived from B25's own product), not about
+# this one. `jool-park-nerv` is referenced by exactly one `saveTemplate` today,
+# `B25-laythe-orbit.toml:607`.
+#
+# Sharing it costs nothing and couples nothing: it is a read-only `saveTemplate` and
+# carries no committed tree, and what the strip buys -- a `startrecording ...
+# already=false` that mints a fresh standalone Jool-rooted tree instead of appending
+# to a committed one -- is a property of the BYTES, not of who reads them. VERIFIED
+# 2026-08-26: no `Parsek/` directory, ZERO `RECORDING_TREE` nodes. See
+# docs/dev/todo-and-known-bugs.md -> SEAM-STARTRECORDING-JOINS-COMMITTED-TREE for the
+# failure it prevents, and B25's header for the two-step recipe that produced it.
+#
+# THE WORLD, measured off this save's own bytes: at UT 27,787,319.41951086 the Duna
+# Rocket sits parked ORBITING Jool (REF = 8) at SMA 590,325,784.58972526 / ECC
+# 7.9440625486254423e-06 / INC 3.005060548898792 deg, type Ship, CREWED (Valentina
+# Kerman in the mk1pod.v2), NERV upper stage, LiquidFuel 945.082 / 2400 = 4.725 t.
+# It also carries `HeatShield1` with 200 Ablator, `parachuteSingle` and two
+# `radialDrogue` -- i.e. the craft was BUILT for a Kerbin arrival, which is a happy
+# accident of B18-B22's lineage rather than something this lane arranged.
+# `activeVessel = 1` IS that stage, so the seam's LoadGame lands in FLIGHT with the
+# right craft focused and no switch is needed. RIDE-ALONG AND INERT: the stock
+# asteroid Ast. VPA-167 and two `Duna Rocket Debris` vessels ORBITING KERBIN.
+#
+# **THE DEBRIS IS WORTH ONE LINE ON THIS LANE SPECIFICALLY**, because it is the only
+# lane that arrives where the debris already is. Two `Duna Rocket Debris` vessels are
+# in KERBIN orbit -- B18-B22's own ascent leftovers, carried through unchanged, as
+# B23's and B24's fixtures carry theirs. They are inert: they are not the active
+# vessel, no step targets them, and the recording follows the focused craft. They are
+# NOT expected to appear in the product, and the recordings count window below is
+# sized for one recording, not three.
+saveTemplate       = "fixtures/saves/jool-park-nerv"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind    = "autopilot"
+mission = "b29_jool_kerbin"
+
+# `steps` MUST stay in the [driver] table, ABOVE the [driver.missionParams] header (a
+# TOML sub-table header ends the parent table, so a key after it would land in the
+# sub-table).
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" },   expect = "OK", budget = 300 },
+  # Kill the scene-entry auto-recorder before starting our own: the promotion recorder
+  # re-arms on some entry orderings (B23 flight 1 measured a re-arm 11 ms after
+  # DiscardTree on this fixture's shape), and the SetSetting stops a later one.
+  { cmd = "StopRecording",                                                     expect = "OK" },
+  { cmd = "DiscardTree",                                                       expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" }, expect = "OK" },
+  # THE TWO RENDER TRACERS, armed because this lane DECLARES
+  # [expectations.renderComposition] and the declaration is worthless without them:
+  # the manifest's tangent/endpoint seam capture is `MapRenderTrace.IsEnabled`-gated,
+  # so a declaring lane that leaves them off flies, greens, and measures nothing -
+  # every RC-SEAM numeric clause counting as `seam-data-unavailable-tracing-off`.
+  # Pinned by `test_every_declarer_arms_the_tracers_the_seam_capture_needs`.
+  # THE EXPOSURE THIS BUYS IS REAL AND IS ACCEPTED: both tracers emit Tier-C
+  # anomalies, so arming them widens what `anomalySweep` can see. On an established
+  # lane that would be an S4.1 change to the flown shape; HERE THERE IS NO FLOWN
+  # SHAPE TO PERTURB - this lane has never run, so the first flight is the first
+  # reading of the tracers and of everything else at once. `allowedAnomalies` stays
+  # EMPTY: a Tier-C hit on the first flight is a finding to read, not noise to
+  # pre-forgive.
+  { cmd = "SetSetting", args = { name = "ghostRenderTracing", value = "true" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "mapRenderTracing",   value = "true" }, expect = "OK" },
+  { cmd = "StartRecording",                                                    expect = "OK" },
+  { phase = "mission",  expect = "MISSION-OK", budget = 7200 },
+  # M-A7 RENDER-COMPOSITION CAPTURE (Phase 3C, 2026-08-26). PLACEMENT IS THE ARGUMENT
+  # and it is pinned by `test_every_declarer_exports_immediately_before_teardown`: the
+  # recorder accumulates from Awake, so the only thing placement decides is how much
+  # of this lane's observation is already inside the exported file - and taking it
+  # HERE takes it at a chosen instant rather than leaving the composition to the
+  # scene-exit auto-flush that follows `FlushAndQuit`.
+  # INERT by construction (`hlib.SEAM_VERB_TAIL_ROLE["ExportRenderManifest"]` = inert):
+  # an in-memory read of the recorder plus one file write in the KSP root, touching no
+  # vessel, no save and no Parsek persisted state - so it cannot perturb anything this
+  # lane gates on.
+  { cmd = "ExportRenderManifest",                        expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                      expect = "OK" },
+]
+
+[driver.missionParams]
+# ---- ORBIT-START entry door (B23/B24/B25/B26/B28's, live-proven) -------------------
+# The window is B25's VERBATIM, and deliberately so: B25 departs THESE EXACT BYTES and
+# flew green through this gate, so re-deriving it would be inventing a second number
+# for a measurement that already exists. Against the fixture's own park the clearances
+# are: periapsis 584,321,095 vs the 250,000,000 floor (2.34x), apoapsis 584,330,474 vs
+# the 800,000,000 ceiling (1.37x headroom), and eccentricity 7.9440625486254423e-06
+# vs the 0.05 ceiling (6,294x clear).
+startInOrbit                    = true
+startInOrbitMinPeriapsisMeters  = 250000000
+startInOrbitMaxApoapsisMeters   = 800000000
+startInOrbitMaxEccentricity     = 0.05
+startInOrbitSituations          = ["ORBITING"]
+startInOrbitDebounceFrames      = 3
+startInOrbitSettleSeconds       = 120
+
+# ---- the transfer -----------------------------------------------------------------
+# THE FIRST SPEC IN THE SUITE WHOSE TARGET IS KERBIN. Both bodies are direct children
+# of the Sun, so the plain planner applies and the moon-origin refusal is out of
+# scope; no relay key is set, and none is declared in this lane's schema.
+homeBodyName               = "Jool"
+targetBodyName             = "Kerbin"
+interplanetaryTransfer     = true
+# WaitForPhaseAngle is ON (the planner action's value is None) because this is an
+# orbit-start lane with no pad to align: the window wait is MechJeb's autowarp INSIDE
+# the Jool park. `padAlignEjection` is NOT set -- mlib rejects it against startInOrbit
+# at load, and the four pad-align keys stay declared-but-unset in the schema.
+returnBodyName             = "Sun"
+viaBodyNames               = ["Sun"]
+# 0 for B22's reason (the ejection is ecc-evidenced), NOT B28's relay inversion. An
+# ejection drives the Jool-frame apoapsis NEGATIVE, so an apoapsis floor is a number
+# no post-burn frame can satisfy.
+transferMinApoapsisMeters  = 0
+# 1.001 -- the B15 INWARD calibration, NEVER B22's outward 1.05. Safe despite being
+# crossed at 22% of the burn because TRANSFER-BURN exits on `(consumed or stuck) and
+# floor_met`: the node must be CONSUMED before the floor is consulted, so this is the
+# under-burn catch it is named for and not a completion gate. See the schema.
+ejectionEccFloor           = 1.001
+
+# ---- corrections ------------------------------------------------------------------
+# 150,000 m is the KERBIN ARRIVAL PERIAPSIS, doing two jobs at once: 80,000 m of
+# clearance over the 70,000 m atmosphere against B25's measured finite-burn drop, and
+# the Oberth depth the capture is priced at (1,188.07 m/s here; 100,000 m would save
+# 31 m/s and spend 50,000 m of margin, a bad trade at 58% dv margin).
+courseCorrectPeriapsisMeters = 150000
+# 200 m/s per round is B25's cap. It is NOT this lane's dv guard -- the 1,460.4 m/s
+# margin is -- which is exactly the comfort the elliptical capture bought.
+maxCorrectionDvMps         = 200
+correctionTriggerAltsMeters       = []
+# B22's pairing over a heliocentric coast of the SAME 24,252,690 s length (its a_t and
+# this one's are the same transfer ellipse read in the other direction). The first
+# trigger exceeds the whole coast, so it fires on the first coast frame -- "as soon as
+# possible" -- and the second refines at 500,000 s to SOI.
+correctionTriggerTimeToSoiSeconds = [50000000, 500000]
+
+# ---- plan / burn cadence ----------------------------------------------------------
+planTimeoutSeconds         = 300000
+planRetrySeconds           = 10
+planWarpFactor             = 2
+# 22,000,000 = 2.18 Jool-Kerbin synodics (10,090,902 s each). Sized off THIS pair's
+# synodic, B7-style, rather than copied from B17's 20,000: the window wait happens
+# inside this phase and dominates its clock.
+transferBurnTimeoutSeconds = 22000000
+# 32,000,000 covers the 24,252,690 s heliocentric TOF with 32% of margin.
+coastTimeoutSeconds        = 32000000
+# 400,000 covers the DERIVED 30,323 s Kerbin SOI-entry -> periapsis coast 13x over.
+flybyTimeoutSeconds        = 400000
+burnStagnantSeconds        = 360
+burnNoStartSeconds         = 1200
+
+# ---- warp -------------------------------------------------------------------------
+# `mlib.STOCK_WARP_ALTITUDE_LIMITS` already carries Jool, Sun and Kerbin, so nothing
+# is added for this lane; `max_legal_rails_factor` clamps every request below.
+coastWarpFactor            = 7
+soiLeadSeconds             = 100000
+approachWindowSeconds      = 200000
+# HELD LOW ON PURPOSE. The approach regime here is v_inf^2 / (2*mu/r_soi) = 87.700,
+# the most strongly hyperbolic arrival in the suite, and the whole SOI-entry ->
+# periapsis coast is only 30,323 s -- so one unclamped high-warp poll can swallow the
+# entire approach. B19 flight 4 measured a single frame taking 27,596 game s on a body
+# three orders of magnitude smaller than Kerbin.
+approachMaxWarpFactor      = 5
+flybyWarpFactor            = 3
+flybyMaxWarpFactor         = 4
+nodeArrivalMarginSeconds   = 15
+flipPhysicsWarpFactor      = 1
+
+# ---- arrival + capture ------------------------------------------------------------
+# 80,000 = 10,000 m above Kerbin's 70,000 m atmosphere. On THIS lane a breach is not
+# merely a red: it is an unplanned aerocapture at 4,096 m/s on a heat shield never
+# sized for one.
+targetPeriapsisFloorMeters = 80000
+captureEnabled             = true
+# THE NEW KEY. 6,000,000 m ALT, inside the Mun's orbit with 2,970,441 m of clearance
+# to the near edge of its SOI band. See the header's Mun-exclusion arithmetic and the
+# schema's block for the four load-time implications this value is checked against.
+captureEllipticalApoapsisMeters = 6000000
+capturePlanTimeoutSeconds  = 300000
+captureBurnTimeoutSeconds  = 3000000
+
+# ---- park window ------------------------------------------------------------------
+# 90,000 tolerates a 60 km finite-burn periapsis drop from the aimed 150,000 while
+# still refusing an atmospheric grazer (pre-registration 4).
+parkMinPeriapsisMeters     = 90000
+# 8,900,000 is a MUN-ENCOUNTER EXCLUSION, not a tolerance: 70,441 m below the
+# 8,970,441 m near edge of the Mun's SOI band, so an orbit that passes this gate
+# provably cannot reach the band on any revolution.
+parkMaxApoapsisMeters      = 8900000
+# 0.85 covers the aimed ellipse's DERIVED 0.7959. This is 3.4x every prior lane's
+# 0.25 and it is a derived quantity rather than a relaxation -- `b5_params_from_dict`
+# recomputes the delivered eccentricity at spec load and RAISES if it exceeds this.
+parkMaxEccentricity        = 0.85
+parkMaxAngularVelocityRadPerSec = 0.05
+parkSituations             = ["ORBITING"]
+parkDwellSeconds           = 180
+parkDebounceFrames         = 3
+parkTimeoutSeconds         = 600
+commitTimeoutSeconds       = 300
+
+# ---- shared burn / telemetry ------------------------------------------------------
+correctionThrottle         = 0.25
+correctionCutDvMps         = 2.0
+correctionSettleSeconds    = 10
+maxAttitudeErrorDeg        = 30
+frozenTelemetrySamples     = 10
+
+[dimensionsCovered]
+# D1 `commit-in-foreign-soi`: the tree commits in an SOI that is NOT the recording's
+# launch body. Kerbin is the suite's HOME body, which makes the value's name read
+# oddly here -- but the dimension is about the commit's relation to the RECORDING, and
+# this recording is Jool-rooted, so a Kerbin commit is foreign to it in exactly the
+# sense B28's Jool commit was foreign to a Laythe-rooted one.
+D1  = ["commit-in-foreign-soi"]
+# `warp-high` is claimed because this lane warps through a worst-case 34,343,592 game
+# seconds, more than any other committed lane. `scene-map` / `scene-ts` / `scene-ksc`
+# are NOT claimed: this is a FLIGHT-scene producer and never enters them -- the V20
+# pair claims those over these bytes.
+D14 = ["jool", "kerbin", "warp-rails", "warp-high", "scene-flight", "sandbox"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# {1,3}: ONE recording expected, with the window bounding the two body-change
+# boundaries (Jool -> Sun, Sun -> Kerbin) rather than predicting a split at either.
+# See pre-registration (5).
+count = { min = 1, max = 3 }
+
+[expectations.logContracts]
+# THE TWO SEAM TOKENS ARE THE INBOUND CLAIM ITSELF, in order: the departure out of
+# Jool's SOI into the Sun's, and the arrival out of the Sun's into KERBIN'S. The
+# second is the one no recording in the suite has ever produced.
+required  = [
+  "Recording started",
+  "Recording stopped",
+  "SOI change boundary suppressed in tree mode: Jool to Sun",
+  "SOI change boundary suppressed in tree mode: Sun to Kerbin",
+  "CommitTreeFlight: starting tree commit at UT=",
+  "CommitTreeFlight terminal: rec=\\w+ terminalState=Orbiting terminalOrbitBody=Kerbin",
+]
+# THE FORBIDDEN LIST IS THE DERIVATION, ASSERTED. Two independent claims, and BOTH are
+# anti-vacuous because a real trajectory could produce either set:
+#   * THE FIVE JOOL MOONS -- the departure is a PROGRADE burn at a park periapsis
+#     3.28x Pol's orbit, so it crosses no moon shell on the way out. B25 flies the
+#     SAME fixture INWARD and really does produce these tokens, which is what makes
+#     their absence here a measurement rather than a tautology.
+#   * MUN AND MINMUS -- the Kerbin arrival genuinely CROSSES both shells (the
+#     hyperbola enters at 84,159,286 m and descends to 750,000 m), so these tokens are
+#     reachable and their absence is the B17 NO-IKE proof that the engineered park
+#     window kept the craft clear of both encounter bands.
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "SOI change boundary suppressed in tree mode: \\w+ to Laythe",
+  "SOI change boundary suppressed in tree mode: Laythe to \\w+",
+  "SOI change boundary suppressed in tree mode: \\w+ to Vall",
+  "SOI change boundary suppressed in tree mode: Vall to \\w+",
+  "SOI change boundary suppressed in tree mode: \\w+ to Tylo",
+  "SOI change boundary suppressed in tree mode: Tylo to \\w+",
+  "SOI change boundary suppressed in tree mode: \\w+ to Bop",
+  "SOI change boundary suppressed in tree mode: Bop to \\w+",
+  "SOI change boundary suppressed in tree mode: \\w+ to Pol",
+  "SOI change boundary suppressed in tree mode: Pol to \\w+",
+  "SOI change boundary suppressed in tree mode: \\w+ to Mun",
+  "SOI change boundary suppressed in tree mode: Mun to \\w+",
+  "SOI change boundary suppressed in tree mode: \\w+ to Minmus",
+  "SOI change boundary suppressed in tree mode: Minmus to \\w+",
+]
+
+[expectations.rewind]
+rewindPoints  = { max = 0 }
+supersedeRows = { max = 0 }
+tombstones    = { max = 0 }
+
+[expectations.renderComposition]
+# M-A7 Phase 3C - DECLARED 2026-08-26 WITH THE LANE, BARE ON PURPOSE: no `gating`, no
+# window, no list. Declaring is what sets `PARSEK_RENDER_MANIFEST=1` at launch and arms
+# the C# recorder at Awake, and `rendercompose` then records its facets UNCONDITIONALLY
+# on a parseable manifest - which is how a lane earns its first honest window off a
+# green report-only run. THIS LANE HAS NEVER FLOWN, so a window here would not even be
+# a prediction read back as a measurement; it would be a prediction with no reading to
+# come back to. READING PENDING - see the renderComposition arming ledger in this
+# file's header.
+
+[runtime]
+# 7,200 s against B28's 6,000. The extra 1,200 is for the ONE thing this lane has that
+# no committed lane has: a worst-case 34,343,592 game-second span (a 10,090,902 s
+# window wait plus a 24,252,690 s coast), which is ~343 wall-seconds of pure warp at
+# 100,000x before any phase overhead. B25's mission wall was 741.6 s and B28's 474.6 s
+# on far shorter spans, so this is a budget with room rather than a tight fit -- and on
+# a lane whose first flight is also the first measurement of pre-registration (1), a
+# budget expiry that could be confused with a planner refusal is worth paying to avoid.
+budgetSeconds = 7200
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
