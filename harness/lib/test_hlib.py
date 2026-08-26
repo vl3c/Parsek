@@ -6493,6 +6493,43 @@ class RenderComposeVerifierWiringTests(unittest.TestCase):
         # Full write-up: docs/dev/todo-and-known-bugs.md ->
         # V6M-CYCLE0-ARRIVALLOITER-DWELL-CLOSE-RECORD-LOST (CLOSED).
         "V6M-mun-player-loop.toml",
+        # V18T: ARMED 2026-08-26 off TWO of its own report-only readings, and it is the
+        # SUITE'S FIRST ARMED ROUTE LANE. READING 1 `2026-08-26_1741` INVALID attempt 1
+        # on a mid-run `LoadGame reason=recording-active` stop/load race (a driver flake,
+        # quarantined at rate 0.50, and it says nothing about this lane's subject),
+        # `2026-08-26_1742_a2` PASS. READING 2 `2026-08-26_1958` PASS attempt 1 on the
+        # unchanged spec.
+        # THE PAIR MATCHES FACET FOR FACET: routeLineBuilds 1 / routeCoDrawViolations 0 /
+        # routeLegDefers 0, planUnits 1, chainBuilds 1, lineBranches 1, dwells 0 (+1
+        # open), transitions 0, cycles 0, ownershipChanges 0, seamKinds {rigid 12},
+        # seamTangents 0, clockEvents {cycle-rollover 1}, unevaluable 3 at the SAME three
+        # reasons, zero findings at every level. The only facet that moved is the 1x warp
+        # frame count (56 -> 59), which is the export instant's frame budget.
+        # WINDOWS: routeLineBuilds {min 1} - THE SUITE'S FIRST ROUTE WINDOW and the
+        # headline; routeCoDrawViolations {max 0} (the arbitration half); unevaluable
+        # {max 10} = ~3.4x measured 3, the SAME ratio-to-measurement the siblings carry
+        # (V14M 200/56, V8 250/76, V25M 1400/410, V6M 300/84) scaled to a census that is
+        # small only because this lane closes no dwell and decimates no endpoint
+        # population; requireSeamKinds ["rigid"] (rigid 12 and nothing else on both -
+        # `flexible-soi` is absent BY SCOPE, the route being SameBody Kerbin -> Kerbin).
+        # NO `dwells` AND NO `cycles` FLOOR, and THE SUITE'S SHARED `dwells {1,32}`
+        # CONVENTION DOES NOT FIT THIS LANE - stated rather than copied. A single-epoch
+        # tracking-station observation closes no dwell and rolls over no cycle by
+        # construction (both read 0 twice), so either floor would red the two green runs
+        # the block was armed off, and a {min = 0} pin can never red at all. The
+        # anti-vacuity job those keys do on a loop lane is done here by `routeLineBuilds`.
+        # `warpBuckets` never (two instantaneous TimeJumps, 1x-only by construction).
+        # `ownershipChanges` not declared although it is now windowable: measured 0 twice
+        # and correctly so - the TS host publishes no TracedPath ownership here - and a
+        # {max = 0} would assert the absence of a surface this lane does not exercise.
+        # THE THREE ROUTE/OWNERSHIP WINDOW KEYS DID NOT EXIST BEFORE THIS CHANGE:
+        # `RENDER_COMPOSITION_WINDOW_KEYS` was exactly ("dwells","cycles","unevaluable")
+        # and the validator refused anything else pre-launch. The schema extension (todo
+        # RENDERCOMPOSE-OWNERSHIPCHANGES-IS-NOT-WINDOWABLE) ships in the same change, and
+        # this lane's armed re-flight + negative control are its LIVE PROOF end to end.
+        # ARMED RE-FLIGHT: PENDING.
+        # NEGATIVE CONTROL: PENDING.
+        "V18T-depot-route-ts-arrival.toml",
     }
 
     def test_no_committed_spec_arms_render_composition_gating(self):
