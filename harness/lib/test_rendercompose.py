@@ -1603,6 +1603,89 @@ class RuleViolationTests(unittest.TestCase):
         seam = fails(findings, rc.RULE_SEAM)
         self.assertEqual(1, len(seam))
         self.assertIn("classified as a rigid seam", seam[0].message)
+        self.assertIn("boundary=2", seam[0].target)
+
+    # --- the V25M multi-boundary transition ---------------------------------
+    #
+    # `2026-08-26_1744` (V25M) is the first flight whose observation stream
+    # WARPED CLEAN ACROSS an interior segment: the transition read 6 -> 8, so it
+    # spanned boundary 7 (Sun -> Duna, correctly `flexible-soi`) AND boundary 8
+    # (Duna -> Duna, correctly `rigid`). Wave-1 keyed the seam table on
+    # `toSegmentIndex` and reported the boundary-8 `rigid` as a rigid-classified
+    # Sun -> Duna body change - a verifier misread of a correct renderer.
+    #
+    # The two cells below are the same fixture shape with the LAST boundary's
+    # kind as the only difference, which is what pins the fix to "read the
+    # boundary the body actually changed at" rather than "stop looking".
+
+    # Transition 0 -> 2 with the body change at boundary 1 (flexible-soi, right)
+    # and boundary 2 rigid across a same-body pair (Mun -> Mun, also right).
+    V25M_MULTI_BOUNDARY = (
+        ("kind = heliocentric-transfer\n\t\t\t\tprovenance = synthesized"
+         "\n\t\t\t\tbody = Kerbin",
+         "kind = heliocentric-transfer\n\t\t\t\tprovenance = synthesized"
+         "\n\t\t\t\tbody = Mun"),
+        ("boundaryIndex = 1\n\t\t\t\tkind = rigid\n\t\t\t}\n\t\t\tSEAM\n\t\t\t{"
+         "\n\t\t\t\tboundaryIndex = 2\n\t\t\t\tkind = flexible-soi",
+         "boundaryIndex = 1\n\t\t\t\tkind = flexible-soi\n\t\t\t}\n\t\t\tSEAM"
+         "\n\t\t\t{\n\t\t\t\tboundaryIndex = 2\n\t\t\t\tkind = rigid"),
+        ("fromSegmentIndex = 1\n\t\t\ttoSegmentIndex = 2",
+         "fromSegmentIndex = 0\n\t\t\ttoSegmentIndex = 2"),
+    )
+
+    def test_rc_seam_does_not_blame_the_last_boundary_of_a_warped_over_span(self):
+        _s, (findings, _u, _m) = rules_for(variant(*self.V25M_MULTI_BOUNDARY))
+        self.assertEqual([], fails(findings, rc.RULE_SEAM))
+
+    def test_rc_seam_reds_at_the_interior_boundary_that_carried_the_body_change(self):
+        # Same span, but now the Kerbin -> Mun boundary ITSELF is rigid. The
+        # finding must name boundary 1, not the boundary the span ended at.
+        pairs = list(self.V25M_MULTI_BOUNDARY)
+        pairs[1] = (pairs[1][0],
+                    "boundaryIndex = 1\n\t\t\t\tkind = rigid\n\t\t\t}\n\t\t\tSEAM"
+                    "\n\t\t\t{\n\t\t\t\tboundaryIndex = 2\n\t\t\t\tkind = rigid")
+        _s, (findings, _u, _m) = rules_for(variant(*pairs))
+        seam = fails(findings, rc.RULE_SEAM)
+        # BOTH fixture transitions traverse boundary 1 (0 -> 2 and 0 -> 1), so
+        # both legitimately red; what the cell pins is that EVERY one of them
+        # names boundary 1 and none of them names the boundary the span ended at.
+        self.assertEqual(2, len(seam))
+        for f in seam:
+            self.assertIn("boundary=1", f.target)
+            self.assertIn("body change Kerbin->Mun", f.message)
+
+    def test_rc_seam_counts_an_unresolvable_multi_boundary_span_unevaluable(self):
+        # A multi-boundary span whose PHASE list cannot reach the boundaries it
+        # crossed. The observed endpoints name the ENDS of the span, so there is
+        # nothing to attribute: counted, never guessed into a FAIL.
+        tr = rc.Transition(pid=5001, ut=1.0, from_body="Kerbin", to_body="Mun",
+                           from_segment_index=4, to_segment_index=6,
+                           chain_signature="sigA")
+        crossings = rc.transition_boundaries(tr, ())
+        self.assertEqual([5, 6], [c.boundary_index for c in crossings])
+        self.assertTrue(all(c.unresolved for c in crossings))
+        self.assertEqual([], [c for c in crossings if c.body_changed])
+
+    def test_transition_boundaries_names_no_boundary_for_a_retire_or_a_wrap(self):
+        # `toSegmentIndex = -1` is the retire stamp (measured on V6M / V14M);
+        # a backwards index is a loop wrap. Neither walked a chain boundary.
+        for lo, hi in ((7, -1), (8, 0), (3, 3)):
+            tr = rc.Transition(pid=1, ut=0.0, from_body="Mun", to_body="",
+                               from_segment_index=lo, to_segment_index=hi)
+            self.assertEqual([], rc.transition_boundaries(tr, ()),
+                             "%s -> %s must name no boundary" % (lo, hi))
+
+    def test_transition_boundaries_falls_back_to_the_observed_pair_when_adjacent(self):
+        # A single-boundary span with no PHASE list: the observed endpoints ARE
+        # that boundary's two sides, so the wave-1 reading is still the honest
+        # one and an `assembler-fallback` chain keeps its evaluation.
+        tr = rc.Transition(pid=1, ut=0.0, from_body="Kerbin", to_body="Mun",
+                           from_segment_index=1, to_segment_index=2)
+        crossings = rc.transition_boundaries(tr, ())
+        self.assertEqual(1, len(crossings))
+        self.assertEqual(2, crossings[0].boundary_index)
+        self.assertFalse(crossings[0].unresolved)
+        self.assertTrue(crossings[0].body_changed)
 
     def test_rc_seam_is_unevaluable_not_passing_when_tracing_was_off(self):
         text = variant(("mapRenderTracingOn = True", "mapRenderTracingOn = False"))

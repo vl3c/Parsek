@@ -316,8 +316,57 @@ id = "V6M-mun-player-loop"
 #            the reading run's facets, at arming, in a later pass and by operator
 #            decision - never from a prediction.
 #   ARMED RE-FLIGHT / NEG CONTROL  N/A until the above.
-#   MAP-OPEN RE-FLY  **OWED, 2026-08-26.** The blocker the ARMED row points at is now
-#            actionable: R12's `EnterMapView` / `ExitMapView` verbs merged (PR #1539),
+#   MAP-OPEN RE-FLY  **DISCHARGED 2026-08-26 - run `2026-08-26_1745_V6M-mun-player-loop`,
+#            PASS ATTEMPT 1, AND IT IS THE RC-OWN CLOSURE. OWNERSHIP IS CONSERVED ON THIS
+#            SUBJECT.** Both pre-registered success criteria landed, and the three
+#            report-only RC-OWN FAILs below CLEARED rather than becoming real findings:
+#              ownershipChanges          6   <- THREE clean appear/disappear PAIRS, one per
+#                                              TracedPath dwell, all on recId 448cd680:
+#                                                appear 296,370  disappear 296,690
+#                                                appear 576,510  disappear 576,830
+#                                                appear 985,950  disappear 986,270
+#              RC-OWN findings           0   (was 3 FAIL on `2026-08-25_2056`)
+#              ownPublishWithoutDraw     0
+#              `Polyline frame:` summaries PRESENT in the collected KSP.log (the reading
+#                                            run carried ZERO, which is what proved every
+#                                            LateUpdate was bailing at
+#                                            `if (!MapView.MapIsEnabled) return;`)
+#              `ownership-publish-surface-never-ran` GONE from `unevaluableReasons`
+#                                            entirely - the stand-down that had fired on
+#                                            EVERY manifest lane in the suite has now been
+#                                            lifted by evidence rather than by decision.
+#            **SO THE EARLIER THREE FAILs ARE CONFIRMED AS THE INSTRUMENT GAP THIS SECTION
+#            DIAGNOSED, NOT A LEG-THAT-NEVER-DRAWS DEFECT.** The publish walk ran, it
+#            published, and every visible TracedPath dwell got its ownership record. The
+#            discriminator being GLOBAL is what makes that a proof: one record anywhere
+#            proves the walk published, so a dwell with no record would now be a genuine
+#            finding, and there are none.
+#            THE REST OF THE COMPOSITION REPRODUCED THE 2056 READING, which is the second
+#            thing this run bought - a second sample of a census that had been read once:
+#              cycles 2 again, and RC-CYCLE found the two cycles ISOMORPHIC again
+#              clockEvents {cycle-rollover: 3, inter-cycle-tail: 2}   IDENTICAL
+#              dwells 5 (+3 open), transitions 5, chainBuilds 3, planUnits 1   IDENTICAL
+#              treatments {StockConic: 2, TracedPath: 3}, coverages {InSegment: 5} IDENTICAL
+#              seamKinds {rigid: 21, flexible-soi: 3}                  IDENTICAL
+#              cycleLengthResidualsSeconds [-2.527380167506635, 129297.4726198325]
+#                                                                     IDENTICAL to the digit
+#              maxUtStep 4288.76, warp 1x-only (248 frames), zero anomaly hits
+#              lineBranches 11, ratifiedSkips 0, clockDefers 0, routeLineBuilds 0
+#            The two facets that MOVED both moved for the map: `seamEndpoints` 109 -> 83
+#            and `unevaluable` 110 -> 84 (`seam-endpoint-skipped` 83 +
+#            `warp-hold-traversal-evidence-absent` 1), i.e. fewer endpoint samples were
+#            taken across the shorter map-open observation, not a different composition.
+#            ARMING STILL OWED, and the RC-SEAM-class diagnosis on V25M DOES NOT BLOCK IT -
+#            that was a verifier join bug on a multi-boundary transition and this lane's
+#            five transitions are all adjacent, so its readings are unaffected (confirmed
+#            by re-evaluating both archived V6M manifests offline: byte-identical). What
+#            arming needs is windows written FROM the pair `2026-08-25_2056` +
+#            `2026-08-26_1745`, by operator decision, then the armed re-flight and the
+#            negative control. NOTHING IS ARMED BY THIS FLIGHT.
+#
+#            (ORIGINAL OWED ENTRY, kept for the audit trail.) The blocker the ARMED row
+#            points at is now actionable: R12's `EnterMapView` / `ExitMapView` verbs
+#            merged (PR #1539),
 #            and this lane gained the pair in the same change that authored the Phase-4
 #            route + park lanes - `EnterMapView` immediately after the tracer settings
 #            (so the polyline Driver walk runs during EVERY observation window, not just
@@ -453,7 +502,7 @@ id = "V6M-mun-player-loop"
 # rule refuses pre-launch rather than letting it fly.
 # =====================================================================================
 tier = "operator"
-description = "THE PLAYER WORKFLOW ON A SAME-PARENT MOON MISSION, twice over: load the committed mun-orbit-recorded save, arm the loop, press Warp-to, cross cycle 1's Kerbin->Mun SOI seam, press Watch at the ghost's Mun park, then press Warp-to AGAIN for cycle 2 and cross its arrival with the same instruments. A Kerbin->Mun mission is ALWAYS phaseLocked, so ApplyReaim is unreachable: this lane pins the OTHER road (Orbital(Mun) same-parent + support=Supported + PhaseLock APPLIED with zeroDrift=yes/scheduleWithinTol=yes + factory chain reaimed=False) and FORBIDS every re-aim token V4 requires. The two-cycle shape is the desync hunt: same-body handoff, seam-teleport silence and hidden-by-zone proximity are compared cycle 1 vs cycle 2. EXTENDED 2026-08-25 with a THIRD cycle and an M-A7 render-composition capture: rendercompose closes N-1 cycles off N cycle-rollover events, so two flown cycles have only ever closed ONE anywhere in the suite - three cycles close TWO and give RC-CYCLE its first same-warp-bucket structure comparison, on the Mun, on a NON-UNIFORM zero-drift schedule. The [expectations.renderComposition] block is BARE; the reading run was taken 2026-08-25 (cycles=2, RC-CYCLE's first real evaluation, isomorphic) and the lane stays UNARMED. EXTENDED AGAIN 2026-08-26 with R12's `EnterMapView` / `ExitMapView` pair (PR #1539): that reading also raised three report-only RC-OWN FAILs whose cause is that the lane never opened the map - the TracedPath INTENT half runs from ParsekFlight's per-frame update while the PUBLISH half sits past `if (!MapView.MapIsEnabled) return;` at the end of the polyline Driver's LateUpdate - so the map is now opened immediately after the tracer settings, BEFORE the first observation bracket, and closed immediately before the export (the declarer-discipline cell pins the last two commands as [ExportRenderManifest, FlushAndQuit], so ExitMapView cannot go after it). THE MAP-OPEN RE-FLY IS OWED, with `ownershipChanges > 0` plus `Polyline frame:` summaries pre-registered as its success criteria; the flown shape moved, which is admissible without an armed re-validation debt only because this lane is declared-unarmed on the render-composition block."
+description = "THE PLAYER WORKFLOW ON A SAME-PARENT MOON MISSION, twice over: load the committed mun-orbit-recorded save, arm the loop, press Warp-to, cross cycle 1's Kerbin->Mun SOI seam, press Watch at the ghost's Mun park, then press Warp-to AGAIN for cycle 2 and cross its arrival with the same instruments. A Kerbin->Mun mission is ALWAYS phaseLocked, so ApplyReaim is unreachable: this lane pins the OTHER road (Orbital(Mun) same-parent + support=Supported + PhaseLock APPLIED with zeroDrift=yes/scheduleWithinTol=yes + factory chain reaimed=False) and FORBIDS every re-aim token V4 requires. The two-cycle shape is the desync hunt: same-body handoff, seam-teleport silence and hidden-by-zone proximity are compared cycle 1 vs cycle 2. EXTENDED 2026-08-25 with a THIRD cycle and an M-A7 render-composition capture: rendercompose closes N-1 cycles off N cycle-rollover events, so two flown cycles have only ever closed ONE anywhere in the suite - three cycles close TWO and give RC-CYCLE its first same-warp-bucket structure comparison, on the Mun, on a NON-UNIFORM zero-drift schedule. The [expectations.renderComposition] block is BARE; the reading run was taken 2026-08-25 (cycles=2, RC-CYCLE's first real evaluation, isomorphic) and the lane stays UNARMED. EXTENDED AGAIN 2026-08-26 with R12's `EnterMapView` / `ExitMapView` pair (PR #1539): that reading also raised three report-only RC-OWN FAILs whose cause is that the lane never opened the map - the TracedPath INTENT half runs from ParsekFlight's per-frame update while the PUBLISH half sits past `if (!MapView.MapIsEnabled) return;` at the end of the polyline Driver's LateUpdate - so the map is now opened immediately after the tracer settings, BEFORE the first observation bracket, and closed immediately before the export (the declarer-discipline cell pins the last two commands as [ExportRenderManifest, FlushAndQuit], so ExitMapView cannot go after it). THE MAP-OPEN RE-FLY IS DISCHARGED: `2026-08-26_1745`, PASS attempt 1, and it is THE RC-OWN CLOSURE. `ownershipChanges = 6` (three clean appear/disappear pairs, one per TracedPath dwell), `Polyline frame:` summaries present in the collected log, RC-OWN findings 0 where the 2026-08-25 reading raised three, and `ownership-publish-surface-never-ran` gone from the unevaluable reasons entirely - the stand-down that had fired on every manifest lane in the suite is lifted by evidence. OWNERSHIP IS CONSERVED ON THIS SUBJECT and the earlier three FAILs are confirmed as the instrument gap, not a leg-that-never-draws defect. The rest of the composition reproduced the reading run exactly (cycles 2 isomorphic again, dwells 5 +3 open, transitions 5, seams rigid 21 / flexible-soi 3, cycle residuals identical to the digit); only the endpoint-sample counts moved, for the shorter map-open observation. The flown shape moved, which is admissible without an armed re-validation debt only because this lane is declared-unarmed on the render-composition block. ARMING STILL OWED - windows off the PAIR 2026-08-25_2056 + 2026-08-26_1745, then the armed re-flight and negative control."
 instanceProfile = "stock-minimal"
 tags = ["V6", "player-loop", "watch-mode", "loop-playback", "phase-lock", "zero-drift", "mun", "moon", "render-composition", "rc-cycle", "flown"]
 

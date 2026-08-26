@@ -23,10 +23,15 @@ All notable changes to Parsek are documented here.
   disabled - is reported as a refusal instead of a success. Asking for a map that
   is already open is fine and says so. The looped-Mun test that surfaced the
   problem now uses both commands - it opens the map before the first thing it
-  watches and closes it again before writing its report - but that test has not
-  been re-run yet, so no existing test result changes and the render checks keep
-  declining to claim anything about drawing until a flight actually reports one.
-  Test-tooling only; no gameplay change.
+  watches and closes it again before writing its report - and IT HAS NOW BEEN
+  RE-RUN. With the map open the drawing half reported itself six times, in three
+  matched start/stop pairs, at exactly the three moments that had previously
+  looked like "nothing drew this". So all three of those flags were the
+  instrument, not a fault: Parsek draws what it says it is going to draw.
+  Everything else that run measured came back identical to the earlier one, so
+  the answer was not bought by quietly changing what the test watches. The render
+  checks will now say something real about drawing on any flight that opens the
+  map. Test-tooling only; no gameplay change.
 
 - Two new automated tests were written against the two recorded missions added
   earlier in this release. The first is the automation system's first test of a
@@ -38,9 +43,24 @@ All notable changes to Parsek are documented here.
   way round - it leaves Kerbin almost immediately, then coasts around the Sun for
   about a hundred and fifty days waiting for the alignment before burning for
   Duna. Parsek has special handling for that kind of departure, added for exactly
-  this recording, and no automated test had ever exercised it. Both tests are
-  written but not yet flown, and both are set to report what they find rather
-  than to pass or fail on it. Test-tooling only; no gameplay change.
+  this recording, and no automated test had ever exercised it. BOTH HAVE NOW
+  FLOWN. The route test drew a route line from the tracking station on its first
+  good run - the first time anything in the automated suite has seen one - and
+  read the route's own details straight back out of the running game, matching
+  the saved file digit for digit. The long-way-round Duna test confirmed that
+  Parsek's special handling really does engage on that mission, which until now
+  was only ever worked out on paper. Both are still set to report what they find
+  rather than to pass or fail on it. Test-tooling only; no gameplay change.
+
+- A render check was blaming the wrong join. When a mission's map view fast-
+  forwards past a whole leg of the flight, the check that verifies how Parsek
+  stitches one leg to the next was looking at the last join in the skipped stretch
+  instead of the one where the craft actually changed planets - so it reported a
+  correct stitch as a fault on the long-way-round Duna flight. It now looks at
+  every join the skip passed over and asks each one about its own two ends. Parsek
+  itself was right all along and nothing about the game changes; re-checking every
+  saved run from before the fix, the false report disappears and all sixteen
+  others read exactly as they did. Test-tooling only; no gameplay change.
 
 - The automated dwell tests can now aim at the right moment in a looped mission
   whose playback SKIPS its parking wait. A re-aimed loop deliberately cuts the

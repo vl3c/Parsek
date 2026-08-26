@@ -1119,18 +1119,66 @@ DEFERRALS TAKEN IN PHASES 1-2, each of which a lane author must know.
   DECLARED-UNARMED on `[expectations.renderComposition]`; the two save-structure
   blocks it DOES gate cannot see a map-view toggle (no vessel, no save, no Parsek
   persisted state), and no jump UT, budget or existing expectation moved.
-  WHAT IS STILL OWED, and it is the half that costs a flight: (2) THE READING
-  THAT PROVES THE PUBLISH FLOWS -
-  a report-only run whose collected `KSP.log` carries `Polyline frame:` summaries
-  (today: zero) and whose manifest reports `ownershipChanges > 0`, which is what
-  actually establishes RC-OWN's premise. Both are pre-registered as the re-fly's
-  success criteria in V6M's own arming ledger (the MAP-OPEN RE-FLY row). Until it
-  flies, nothing changes for arming: no pass may read "no RC-OWN finding" as
-  "ownership conserved", and the design doc's ratified deviation #5 carries the
-  same amendment. Note the verb is necessary but not sufficient - a lane could
-  open the map and still publish nothing if the Director never owns a leg in the
-  window, and THAT reading would be a real finding rather than an instrument gap.
-  A STEP ADDED IS NOT A READING TAKEN.
+  ~~WHAT IS STILL OWED ... (2) THE READING THAT PROVES THE PUBLISH FLOWS~~
+  **(2) IS DONE - THIS ENTRY IS CLOSED (2026-08-26).** The reading flew as
+  `2026-08-26_1745_V6M-mun-player-loop`, PASS attempt 1, and BOTH pre-registered
+  criteria landed: the collected `KSP.log` carries `Polyline frame:` summaries
+  (the 2026-08-25 run carried zero) and the manifest reports
+  `ownershipChanges = 6` - THREE CLEAN appear/disappear PAIRS, one per TracedPath
+  dwell, all on `recId=448cd680`, at `[296370, 296690]`, `[576510, 576830]` and
+  `[985950, 986270]`: the SAME three brackets whose missing records raised the
+  original three FAILs. RC-OWN findings went 3 -> 0 and
+  `ownership-publish-surface-never-ran` is GONE from the run's unevaluable
+  reasons entirely, so the stand-down that had fired on every manifest lane in
+  the suite is lifted BY EVIDENCE rather than by decision.
+  **OWNERSHIP IS CONSERVED ON THIS SUBJECT, and the three earlier FAILs are
+  confirmed as the instrument gap this entry diagnosed rather than a
+  leg-that-never-draws defect.** The caveat above is what makes that a real
+  result: the verb was necessary but not sufficient, a map-open lane could still
+  have published nothing, and THAT would have been a real finding. It published.
+  The rest of the composition reproduced `2026-08-25_2056` exactly (cycles 2,
+  isomorphic again; dwells 5 +3 open; transitions 5; seams rigid 21 /
+  flexible-soi 3; cycle residuals identical to the digit), so the closure is not
+  bought with a changed subject. A pass may now read "no RC-OWN finding" as
+  "ownership conserved" ON A LANE THAT OPENS THE MAP AND PUBLISHES; the design
+  doc's ratified deviation #5 amendment is discharged on the same evidence. What
+  remains for V6M is ARMING (windows off the pair `2026-08-25_2056` +
+  `2026-08-26_1745`, then the armed re-flight and the negative control), which is
+  a scenario-ledger item and not this entry's.
+- **`RC-SEAM` blamed the LAST boundary of a warped-over transition. VERIFIER
+  MISREAD, NOT A RENDERER DEFECT. FIXED 2026-08-26** [found by diagnosing V25M's
+  reading run `2026-08-26_1744`, which red
+  `RC-SEAM [FAIL] TRANSITION[pid=3129690249 ut=5360143765.0]: body change
+  Sun->Duna classified as a rigid seam`].
+  THE DIAGNOSIS. A `TRANSITION` is a DWELL-stream event: it fires when the
+  Director's rendered segment index MOVES, and a dwell only opens on a segment
+  the render clock actually sat in. V25M's arrival straddle warped the head clean
+  ACROSS an interior segment, so the record read
+  `fromSegmentIndex 6 -> toSegmentIndex 8` and spanned TWO boundaries. The chain
+  classified both correctly: boundary 7 is the real crossing (PHASE[6]
+  heliocentric-transfer Sun -> PHASE[7] departure-loiter Duna) and it is
+  `flexible-soi`; boundary 8 is Duna -> Duna and it is `rigid`.
+  `RenderCompositionRecorder.NoteChainBuild` emits `BoundaryIndex = i` for
+  segment `i`'s `LeadingSeam`, so keying the seam table on `toSegmentIndex` -
+  which wave-1's `_rule_seam` did - reads the LAST boundary of the span and
+  blames its correct `rigid` for a body change that happened at an earlier one.
+  `2026-08-25_0956` (V8) is the near miss that shows the clause was never really
+  being evaluated on this shape: the same 6 -> 8 span with a Mun -> Sun change
+  passed only because BOTH crossed boundaries happened to be `flexible-soi`.
+  THE FIX: `rendercompose.transition_boundaries` (pure) enumerates every boundary
+  a transition crossed and takes each one's bodies from the CHAIN's own `PHASE`
+  records, so the rule tests the boundary the body actually changed at. The
+  observed `fromBody -> toBody` pair is used only for a SINGLE-boundary span,
+  where the two agree by construction (this keeps `assembler-fallback` chains
+  evaluable). A multi-boundary span the PHASE list cannot resolve is the new
+  defined-unevaluable `seam-boundary-bodies-absent` - counted, never guessed. A
+  retire (`toSegmentIndex = -1`) or a loop wrap names no boundary at all.
+  Findings now carry `boundary=N` in the target.
+  VERIFIED OFFLINE ACROSS THE WHOLE ARCHIVE: the V25M manifest re-reads with ZERO
+  findings and all SIXTEEN other archived manifests are byte-identical (same
+  findings, same unevaluable counts). Five cells in
+  `harness/lib/test_rendercompose.py` pin the shape, including the negative
+  control where the interior boundary IS rigid and the finding must name it.
 - **Seam measurement is double-gated.** The tangent and endpoint evaluation
   sites are `mapRenderTracing`-gated and were NOT widened, so a manifest lane
   that wants RC-SEAM / RC-QUAL numbers must arm BOTH `PARSEK_RENDER_MANIFEST=1`
