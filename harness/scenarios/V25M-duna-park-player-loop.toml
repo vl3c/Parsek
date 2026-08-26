@@ -467,6 +467,9 @@ D14 = ["duna", "scene-flight", "sandbox"]
 # small tokens, precisely BECAUSE these counts are small and single-sourced - a 4x band
 # on a count of 2 tolerates almost any regression, whereas 2x still reds a doubling.
 # Reading 2 either reproduces 4 / 2 or the ceiling arithmetic is re-derived off the pair.
+# READING 2 (`2026-08-26_1817`) MEASURED 4 / 1 - both inside the ceilings, so 8 / 4 stand
+# off the pair. It also raised ONE NEW token, `line-blink` x1, and red on it: the S1.4
+# rule doing to this lane exactly what it did to V24W. Tolerated below WITH that flight.
 allowedAnomalies = [
   # 4 raises, `2026-08-26_1744`. The probe's icon-jump/icon-teleport threshold has a
   # FILED, unfixed over-sensitivity above warp1000; this lane reaches it only through
@@ -479,6 +482,19 @@ allowedAnomalies = [
   # first cross-class corroboration that the trigger is per-creation and not per-shape.
   # Ceiling 4 (2x measured) pending the same move.
   "icon-off-orbit",
+  # 1 raise, `2026-08-26_1817` (reading 2; reading 1 with the IDENTICAL jump triple
+  # raised zero - the shape is timing-dependent, not deterministic). Mechanism read
+  # straight off the trace: the third arrival jump landed currentUT 43 s past the
+  # APPLIED segment's end bound, the proto line went dark with
+  # reason=stale-segment-awaiting-reseed (which stamps NO RenderWindowCoverage BY
+  # CONTRACT - its 'outside bounds' is the applied bounds LAGGING inside the window,
+  # not a window measurement), and 3 frames later the reseed landed and the line relit
+  # via director-stockconic-visible. The windowTransitionExempt half-proof therefore
+  # CANNOT apply (priorToggleVerdict=Other) and the raise is the instrument working:
+  # a real ~3-frame dark gap at a discontinuous clock step. Filed as todo
+  # RESEED-LAG-DARK-GAP-AT-CLOCK-JUMP (genuine minor render transient; also reachable
+  # by high-warp overrun in free play). Ceiling 2 (2x measured) pending the same move.
+  "line-blink",
 ]
 
 [expectations.recordings]

@@ -62,6 +62,13 @@ All notable changes to Parsek are documented here.
   saved run from before the fix, the false report disappears and all sixteen
   others read exactly as they did. Test-tooling only; no gameplay change.
 
+- Found and filed a tiny map-view flicker: when the game clock steps a long way
+  in one go (a big warp jump), a ghost's orbit line can go dark for a fraction of
+  a second while the renderer catches its window up to the clock, then relight on
+  its own. It is harmless and rare - the same automated flight only shows it on
+  some runs - but the automated render watch caught it, and it is now recorded as
+  a known issue with the exact mechanism written down. No fix attempted yet.
+
 - The automated dwell tests can now aim at the right moment in a looped mission
   whose playback SKIPS its parking wait. A re-aimed loop deliberately cuts the
   months a recorded mission spends parked waiting for its transfer window, so

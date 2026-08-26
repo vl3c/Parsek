@@ -1394,6 +1394,38 @@ DEFERRALS TAKEN IN PHASES 1-2, each of which a lane author must know.
   each hit and each backed out of. So an over-sensitive threshold currently costs
   the suite an UNBOUNDED tolerance on a third lane rather than a bounded one,
   which raises the value of fixing the probe rather than lowering it.
+- **RESEED-LAG-DARK-GAP-AT-CLOCK-JUMP: the ghost proto orbit line goes dark for
+  ~3 frames when a discontinuous clock step overruns the applied segment's end
+  bound, because the reseed lags the clock** [OPENED 2026-08-26 off V25M reading
+  2 (`harness/results/2026-08-26_1817_V25M-duna-park-player-loop.json`), the
+  lane's single `line-blink` raise. GENUINE MINOR RENDER TRANSIENT - the
+  instrument is NOT the suspect here. Owner: whoever owns the map-render segment
+  reseed]. Mechanism, read straight off the collected trace (pid=2657480491,
+  recId=aa48920e, frames 7784-7787): the third arrival TimeJump landed
+  `currentUT` 43 s past the applied segment's end bound
+  (`bounds=[...,5360144042.2]` vs `currentUT=5360144085.0`), the line went OFF
+  with `reason=stale-segment-awaiting-reseed`, and 3 frames later the reseed
+  landed (`bounds=[...,5360144182.1]`) and the line relit via
+  `director-stockconic-visible`. Everything downstream behaved per contract:
+  `stale-segment-awaiting-reseed` stamps NO `RenderWindowCoverage` BY DESIGN
+  (its "outside bounds" is the applied bounds lagging INSIDE the window - see
+  the `MapRenderTrace` entry in `.claude/CLAUDE.md`), so the
+  `windowTransitionExempt` half-proof cannot apply (`priorToggleVerdict=Other`)
+  and the `line-blink` raise is the instrument correctly reporting a real
+  ~100 ms dark flicker at the jump. TWO FACTS THAT BOUND THE DEFECT: (1) it is
+  TIMING-DEPENDENT, not deterministic - reading 1 (`2026-08-26_1744`) drove the
+  IDENTICAL jump triple and raised zero, so whether the reseed lands in the
+  same frame as the jump or a few frames later decides the raise; (2) TimeJump
+  is not required - a high-warp frame can also advance the clock past a stale
+  segment's end bound in free play (one frame at 100,000x is thousands of
+  seconds), so the same dark gap is reachable by warp overrun at any segment
+  boundary. Possible fix directions (NOT taken - file-only entry): hold the
+  previous line state through the `stale-segment-awaiting-reseed` frames
+  instead of darkening (the segment is known to be lagging, not ended), or
+  reseed synchronously when the overrun is detected on the same frame.
+  CONSEQUENCE ALREADY TAKEN, tolerance not fix: V25M lists `line-blink` bare in
+  `allowedAnomalies` citing `2026-08-26_1817`, ceiling 2 (2x measured) in
+  prose, pending the budget-mechanism allowlist move.**
 - **`maxUtStep` on a DWELL is POLLUTED by a seam `TimeJump` epoch shift that
   lands inside an open dwell, so every tolerance derived from it balloons on
   jump-driven lanes** [OPENED 2026-08-25 off V24W reading flight 2
