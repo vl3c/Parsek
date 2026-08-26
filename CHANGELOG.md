@@ -8,6 +8,11 @@ All notable changes to Parsek are documented here.
 
 ### Dev
 
+- The automated test that watches a committed supply route being drawn on the map
+  now enforces what it sees, so a run where Parsek quietly stops drawing that
+  route's line fails instead of passing on an empty check. Test-tooling only; no
+  gameplay change.
+
 - Two more automated render checks were switched from watching to enforcing, so a
   looped Mun mission and a Duna mission that parks around the Sun now FAIL their
   test run if what Parsek draws on the map stops matching what it planned to draw.

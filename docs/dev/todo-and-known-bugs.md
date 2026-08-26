@@ -587,6 +587,15 @@ a post-load first draw always is because `OnGameStateLoad` clears the cache) plu
 UNDECLARED until a GATING token earns it. Until a lane flies, nothing reads these
 bytes.
 
+**V18T FLEW AND IS ARMED (2026-08-26).** Both headline windows landed as written
+above - `routeLineBuilds { min = 1 }` (measured 1 on all three flights, the
+suite's first non-zero reading of that census anywhere) and
+`routeCoDrawViolations { max = 0 }` - and the negative control
+`2026-08-26_2017_a2` red on exactly `PARSEK-FAIL(render-composition)` /
+`renderComposition.routeLineBuilds 1 < min 5`. THE GATING TOKEN NOW EXISTS, so
+D10 `route-map-lines` IS DECLARED on that lane in the same commit. V18M (the
+FLIGHT-map half, which does owe `EnterMapView`) is still owed.
+
 ## FIXTURE-DUNA-PARK-RECORDED-LANE-PENDING: the heliocentric-parking-departure subject is harvested, repaired and registered, but no scenario has flown against it yet [OPENED 2026-08-26 on branch `route-harvests`. TODO, not a defect]
 
 `harness/fixtures/saves/duna-park-recorded` is committed: tree `ced78481...`
@@ -1352,8 +1361,11 @@ REMAINING PHASES.
   `routeLineBuilds` has never read non-zero anywhere. It arms NO mission loop -
   the committed ROUTE drives - and flies the TS host first on the measured fact
   that `RouteTrajectoryLineRenderer.DrawAll`'s only call site carries no
-  `MapView` gate. D10 `route-map-lines` stays UNDECLARED until a gating token
-  earns it.
+  `MapView` gate. ~~D10 `route-map-lines` stays UNDECLARED until a gating token
+  earns it.~~ **FLEW AND ARMED 2026-08-26**: two matching readings, armed
+  re-flight `2026-08-26_2015` PASS, negative control `2026-08-26_2017_a2` red on
+  `renderComposition.routeLineBuilds 1 < min 5`, and D10 `route-map-lines` is now
+  DECLARED - the gating token earned it.
   `V25M-duna-park-player-loop` over `duna-park-recorded` is **re-aim's second
   departure class** - a heliocentric-parking departure, the path
   `ReaimClassifier`'s own exception comment names by fixture and that no
@@ -7239,8 +7251,12 @@ Claiming a row off a token that is not in the log is the exact CLAIM-IS-NOT-GATE
 failure the registry discipline exists to prevent. None of the ten still
 zero-declarer D10 rows is evidenced either: `docked-depot-origin`, `claw-producer`,
 `inventory-cargo`, `harvest-provenance`, `multi-stop`, `multi-origin-escrow`,
-`round-trip-pair`, `hold-reasons`, `destination-full-gate`, `route-map-lines`
-(`harness/coverage/registry.toml:99-104`). Several of them - `multi-stop`,
+`round-trip-pair`, `hold-reasons`, `destination-full-gate`, ~~`route-map-lines`~~
+(`harness/coverage/registry.toml:99-104`). `route-map-lines` LEFT THAT LIST on
+2026-08-26: `V18T-depot-route-ts-arrival` declares it off an ARMED
+`routeLineBuilds { min = 1 }` whose red is demonstrated by its own negative
+control - a gate first, then the claim, which is the discipline rather than an
+exception to it. Nine zero-declarer D10 rows remain. Several of them - `multi-stop`,
 `multi-origin-escrow`, `round-trip-pair`, `hold-reasons`, `destination-full-gate` -
 have in-game cells that exist but carry `AllowBatchExecution = false`, so they are
 blocked by the B4 batch-wiring bucket rather than by this seal gap; the two
