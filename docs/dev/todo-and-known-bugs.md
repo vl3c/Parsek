@@ -1689,10 +1689,15 @@ suite's output distinguishes "cannot run here" from "broken".
 DISPOSITION 2026-08-26 (with the CI wiring): the EXPLICIT-SKIP option, exactly as
 prescribed - the reclaim cell carries `skipUnless(os.name == "nt")` naming the
 Windows-only rename semantics, and the unwritable-location cell carries a
-`skipIf(geteuid() == 0)` so it stays LIVE on non-root POSIX (GitHub Actions
-runners) and on Windows. The named cost stands: the reclaim-refusal contract is
-still verified only on Windows runs; a POSIX-equivalent mechanism (injected
-failing rename) remains the upgrade path if anyone wants that dark spot lit.
+`skipUnless(os.name == "nt")` as well - the first CI run of PR #1543 MEASURED that
+the cell fails on a NON-root Linux runner too, through a second mechanism: the
+directory-as-lockfile setup reads as a live/corrupt lock on POSIX and refuses
+`refused-live` instead of `refused-io` (the directory-open semantics differ, not
+just the permission bits), so the root diagnosis above was the CONTAINER story
+and not the whole story. The named cost now covers BOTH cells: the
+reclaim-refusal AND IO-refusal contracts are verified only on Windows runs; a
+POSIX-equivalent mechanism (injected failing rename / injected failing open)
+remains the upgrade path if anyone wants those dark spots lit.
 
 ## AUTOMERGE-ON-BY-DEFAULT: is any player flow reachable that now auto-commits GHOST-ONLY where the dialog used to ask? [RAISED 2026-08-24 by the review panel on the default-flip PR (#1523) as PLAUSIBLE-not-confirmed. OPEN QUESTION, no defect demonstrated. The behaviour itself is by design and predates the flip; what changed is that it is now the DEFAULT answer]
 
