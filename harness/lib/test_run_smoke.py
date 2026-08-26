@@ -3938,6 +3938,8 @@ class MachineLockWiringTests(unittest.TestCase):
         self.assertEqual(self._read(), winner,
                          "the winner's live lock must be restored untouched")
 
+    @unittest.skipUnless(os.name == "nt",
+                         "Windows-only by construction: the driver is an open handle blocking the rename, which POSIX does not do - see the todo entry TWO-MACHINE-LOCK-CELLS-ARE-UNPASSABLE-ON-THE-LINUX-CLOUD-PATH; the reclaim-refusal contract is verified on Windows runs only")
     def test_a_reclaim_that_cannot_complete_refuses_instead_of_looping(self):
         """The reclaim path is bounded to ONE retry and then refuses. Two racers
         that both loop on reclaim livelock instead of serializing.

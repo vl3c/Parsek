@@ -9,6 +9,7 @@ All notable changes to Parsek are documented here.
 ### Dev
 
 - Two small test-tooling fixes. The save-harvesting tool now discards leftover recording files that the harvested save never references (a previous harvest committed two such orphans, which a later check rejected); the rule is deliberately conservative - a file is only discarded if its id appears nowhere in the save at all. And four test fixtures carried a settings file with Windows-style line endings that any rebuild would silently rewrite in Unix-style; they are normalized to what the rebuild produces, so rebuilds are now byte-identical (verified by running the builders). No gameplay change.
+- The automated checks that run on every code change now include the test harness's own Python test suites, not just the mod's C# tests. Until now those ~4,000 checks ran only when someone remembered to run them by hand, so a breakage could sit unnoticed on the main branch - and one did, for two days. Two checks that can only work on specific platforms now say so explicitly instead of failing confusingly elsewhere. Test-tooling only; no gameplay change.
 - The harness fixture builder for the career science pad no longer produces
   platform-dependent bytes. The builder derives the spliced antenna and
   batteries' poses by rotating a measured part pose through trigonometry, and
