@@ -1523,7 +1523,7 @@ Standard quickload + auto-resume. Marker validates against the loaded state; if 
 Standard Parsek warp. Not a new code path.
 
 ### 7.22 Rewind click during scene transition
-CanInvoke returns `"Scene transition in progress — please wait"`. **Shipped (test)**: `RewindTests`.
+CanInvoke returns `"Scene transition in progress - please wait"`. **Shipped (test)**: `RewindTests`.
 
 ### 7.23 Two children crash at same location
 Independent rewinds via independent RPs.

@@ -267,6 +267,70 @@ namespace Parsek.Tests
             Assert.DoesNotContain("\n", reservedTip);
         }
 
+        // catches: a Recordings sort-header tooltip growing past that window's SINGLE-line
+        // strip, or gaining a hard newline. These texts never reach a
+        // `new GUIContent(label, tooltip)` in the file - they are passed as the trailing
+        // plain-string argument of DrawSortableHeader(...) and handed to a GUIContent built
+        // in ParsekUI - so the literal scanner above cannot see them and they shipped
+        // unbudgeted and un-newline-checked.
+        [Fact]
+        public void SortableHeaderTooltips_FitTheRecordingsStrip()
+        {
+            const string RelPath = "UI/RecordingsTableUI.cs";
+            int budget = BudgetChars(1355f, TooltipEchoBox.SingleLine);
+            string src = ReadParsekSource(RelPath);
+
+            const string Needle = "DrawSortableHeader(";
+            int found = 0;
+            int i = 0;
+            while (true)
+            {
+                int start = src.IndexOf(Needle, i, StringComparison.Ordinal);
+                if (start < 0)
+                    break;
+                int open = start + Needle.Length;
+                int end = FindMatchingParen(src, open);
+                if (end < 0)
+                    break;
+                i = end + 1;
+
+                List<string> args = SplitTopLevelArgs(src.Substring(open, end - open));
+                if (args.Count == 0)
+                    continue;
+                // The tooltip is the LAST parameter. The method's own declaration
+                // ("string tooltip = null") and any call passing a non-literal fail to
+                // decode as a literal run and are skipped, same as the GUIContent scan.
+                string tip;
+                if (!TryDecodeLiteralRun(args[args.Count - 1], out tip))
+                    continue;
+
+                found++;
+                int line = CountLines(src, start);
+                Assert.False(tip.Contains("\n"),
+                    string.Format(
+                        "{0} line {1}: sort-header tooltip contains a hard newline. The "
+                        + "Recordings help strip is one wrapped line tall and its overflow "
+                        + "marquee scrolls horizontally only - the tail after a \\n can never "
+                        + "be read. Tooltip: \"{2}\"",
+                        RelPath, line, tip));
+                Assert.True(tip.Length <= budget,
+                    string.Format(
+                        "{0} line {1}: sort-header tooltip is {2} chars but the 1355px-wide "
+                        + "Recordings window holds about {3} in its single-line help strip - "
+                        + "the tail would scroll in via the marquee instead of reading at a "
+                        + "glance. Tooltip: \"{4}\"",
+                        RelPath, line, tip.Length, budget, tip));
+            }
+
+            Assert.True(found >= 6,
+                string.Format(
+                    "{0}: found only {1} literal DrawSortableHeader tooltips, expected at "
+                    + "least 6 (#-less sortable columns: Name, Phase, Site, Launch, Duration, "
+                    + "Status). Either they moved or the parser stopped matching - a vacuous "
+                    + "budget gate is worse than none.",
+                    RelPath, found));
+        }
+
         // catches: a window switching its TooltipEchoBox construction to a different
         // strip height without updating its StripWindows row - the dangerous
         // direction (constructor goes SingleLine, row stays DoubleLine) would keep

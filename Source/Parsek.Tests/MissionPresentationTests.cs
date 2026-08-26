@@ -621,11 +621,16 @@ namespace Parsek.Tests
             string tip = MissionPresentation.BuildSummaryDetailTooltip(
                 "Y1, D12", "Y1, D14", 3,
                 new List<string> { "Jeb Kerman", "Bob Kerman", "Val Kerman", "Bill Kerman" });
+            // ONE line: the Recordings help strip is one line tall and its marquee scrolls
+            // horizontally only, so a '\n' join would make the vessel count and the roster
+            // unreachable.
             Assert.Equal(
                 "Y1, D12" + MissionPresentation.SummarySpanArrow + "Y1, D14"
-                + "\n3 vessels"
-                + "\nCrew: Jeb Kerman, Bob Kerman, Val Kerman, Bill Kerman",
+                + MissionPresentation.DetailFragmentSeparator + "3 vessels"
+                + MissionPresentation.DetailFragmentSeparator
+                + "Crew: Jeb Kerman, Bob Kerman, Val Kerman, Bill Kerman",
                 tip);
+            Assert.DoesNotContain("\n", tip);
         }
 
         [Fact]

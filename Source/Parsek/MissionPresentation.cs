@@ -26,6 +26,12 @@ namespace Parsek
         internal const string SummarySeparator = " \u00b7 ";
         internal const string SummarySpanArrow = " \u2192 ";
 
+        // Joins the summary-detail tooltip's fragments. It must NOT be a hard newline: the
+        // Recordings window echoes hover help into a ONE-line strip, and the strip's overflow
+        // marquee scrolls horizontally only - a '\n' would put lines 2-3 on clipped rows no
+        // scroll can ever reveal.
+        internal const string DetailFragmentSeparator = " - ";
+
         // ---- T1.5 tooltip texts (one place, so the UI and the tests read the same string) ----
 
         /// <summary>
@@ -415,8 +421,10 @@ namespace Parsek
         /// <summary>
         /// The narrative line's tooltip: the facts the line dropped in favor of the narrative -
         /// full span dates, the vessel count, and the FULL crew roster - so nothing T1.1 showed
-        /// became unreachable. Falls back to the generic summary tooltip when there is no detail
-        /// to show. Pure.
+        /// became unreachable. All fragments join on ONE line via
+        /// <see cref="DetailFragmentSeparator"/>, because the Recordings window's help strip is
+        /// one line tall and its marquee cannot recover a hard newline. Falls back to the generic
+        /// summary tooltip when there is no detail to show. Pure.
         /// </summary>
         internal static string BuildSummaryDetailTooltip(
             string startDateText, string endDateText, int vesselCount,
@@ -437,7 +445,7 @@ namespace Parsek
             if (vesselCount > 0)
             {
                 if (sb.Length > 0)
-                    sb.Append('\n');
+                    sb.Append(DetailFragmentSeparator);
                 sb.Append(vesselCount.ToString(ic))
                   .Append(vesselCount == 1 ? " vessel" : " vessels");
             }
@@ -445,7 +453,7 @@ namespace Parsek
             if (crewNames != null && crewNames.Count > 0)
             {
                 if (sb.Length > 0)
-                    sb.Append('\n');
+                    sb.Append(DetailFragmentSeparator);
                 sb.Append("Crew: ");
                 for (int i = 0; i < crewNames.Count; i++)
                 {

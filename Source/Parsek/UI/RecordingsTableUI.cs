@@ -1130,7 +1130,8 @@ namespace Parsek
                 GUILayout.Height(ColHeaderHeight));
             bool newAllEnabled = GUILayout.Toggle(allEnabled,
                 new GUIContent("",
-                    "Turn ghost playback on or off for every recording in the list at once."),
+                    "Turn ghost playback on or off for every recording at once - including ones "
+                    + "hidden by the current filters."),
                 GUILayout.Width(ColW_Enable));
             if (newAllEnabled != allEnabled)
             {
@@ -1216,8 +1217,10 @@ namespace Parsek
             var headerLoopAgg = ComputeLoopAggregate(committed);
             // Label and toggle carry the SAME text: the header cell reads as one control,
             // and the pointer lands on either half depending on where it enters.
+            // Scope wording matches BulkSetLoopPlayback(indices: null): every LOOPABLE committed
+            // recording, filtered-out rows included - not just what the table is showing.
             const string loopHeaderTooltip =
-                "Replay every recording in the list on a repeating schedule. Greyed out when any recording is driven by a supply route.";
+                "Replay every loopable recording on a repeating schedule, including ones hidden by the current filters. Greyed out when any recording is driven by a supply route.";
             GUILayout.BeginHorizontal(colHdrCellContainerStyle, GUILayout.Width(ColW_Loop), GUILayout.Height(ColHeaderHeight));
             GUILayout.FlexibleSpace();
             GUILayout.Label(new GUIContent("Loop", loopHeaderTooltip), boldHeaderInnerLabel);
