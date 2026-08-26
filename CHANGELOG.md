@@ -8,6 +8,7 @@ All notable changes to Parsek are documented here.
 
 ### Dev
 
+- The automated checks that run on every code change now include the test harness's own Python test suites, not just the mod's C# tests. Until now those ~4,000 checks ran only when someone remembered to run them by hand, so a breakage could sit unnoticed on the main branch - and one did, for two days. Two checks that can only work on specific platforms now say so explicitly instead of failing confusingly elsewhere. Test-tooling only; no gameplay change.
 - The harness fixture builder for the career science pad no longer produces
   platform-dependent bytes. The builder derives the spliced antenna and
   batteries' poses by rotating a measured part pose through trigonometry, and
