@@ -24,12 +24,10 @@ namespace Parsek.Logistics
     {
         private static readonly CultureInfo IC = CultureInfo.InvariantCulture;
 
-        // The no-recovery caption and the recover-to-reduce hint are pinned as
-        // constants so the detail line, the candidate suffix, and the tests all
-        // read the exact same wording (the plan's default phrasing, question 3).
+        // The no-recovery caption is pinned as a constant so the detail line and
+        // the tests read the exact same wording (the plan's default phrasing,
+        // question 3).
         internal const string NoRecoveryCaption = "transport not recovered in the recording";
-        internal const string RecoverToReduceHint =
-            "Recovering the transport at the end of the recorded flight lowers the route cost.";
 
         /// <summary>
         /// Format a funds amount as a comma-grouped integer plus the unit word,
@@ -69,24 +67,23 @@ namespace Parsek.Logistics
         }
 
         /// <summary>
-        /// The detail-line hover tooltip: explains net = launch - recovered,
-        /// that recovered is the actual distance-scaled payout, and the timing
-        /// (gross fronted at dispatch, recovered credited back one cycle later).
-        /// On a no-recovery run it also appends the recover-to-reduce hint.
+        /// The detail-line hover tooltip: explains net = launch - recovered, that
+        /// recovered is the distance-scaled payout, and that it is credited one
+        /// cycle later. On a no-recovery run it also appends the (inline)
+        /// recover-to-reduce hint. Constant length by contract - no funds amounts.
         /// </summary>
         internal static string FormatDetailTooltip(RouteRunCostCalculator.RouteRunCost cost)
         {
-            // Kept to ONE wrapped strip line at the Logistics window's default width
-            // (the shared two-line TooltipEchoBox clips silently past that), so the
-            // candidate row can prefix it with FormatDetailLine and still fit.
+            // CONSTANT LENGTH: the Logistics help strip is ONE wrapped line tall
+            // (TooltipEchoBox.SingleLine), so this tooltip embeds no funds amounts -
+            // the exact figures stay in the visible FormatDetailLine cell text and the
+            // candidate suffix. TooltipEchoBudgetTests pins this under the 218-char
+            // single-line budget at the window's 1556px first-open width.
             var sb = new StringBuilder();
-            sb.Append("Net cost per run = launch cost - recovered credits ");
-            sb.Append("(KSP's distance-scaled recovery payout). ");
+            sb.Append("Net cost per run = launch - recovered credits ");
+            sb.Append("(distance-scaled recovery payout), credited one cycle later.");
             if (cost.RecoveryEventCount <= 0 && cost.RecoveredCredits <= 0.0)
-                sb.Append(RecoverToReduceHint).Append(' ');
-            sb.Append("The per-cycle charge now matches the displayed net: the gross launch cost (")
-              .Append(FormatFunds(cost.LaunchCost))
-              .Append(") is fronted at dispatch and the recovered amount is credited back one cycle later.");
+                sb.Append(" Recovering the transport lowers future runs.");
             return sb.ToString();
         }
 

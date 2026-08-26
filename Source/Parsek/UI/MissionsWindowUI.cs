@@ -1483,7 +1483,9 @@ namespace Parsek
             {
                 string aboard = row.Intervals[row.Intervals.Count - 1].CompositionLabel;
                 if (!string.IsNullOrEmpty(aboard))
-                    tooltip = tooltip != null ? tooltip + "\nAboard: " + aboard : "Aboard: " + aboard;
+                    // " - ", never "\n": this tooltip echoes in the Recordings window's
+                    // ONE-line help strip, where a newline clips whatever follows it.
+                    tooltip = tooltip != null ? tooltip + " - Aboard: " + aboard : "Aboard: " + aboard;
             }
             var wideContent = new GUIContent(wide, tooltip);
 

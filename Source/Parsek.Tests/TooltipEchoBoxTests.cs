@@ -7,19 +7,20 @@ namespace Parsek.Tests
     /// Pins the pure decision core of <see cref="TooltipEchoBox"/>, the shared bottom
     /// "hovered control help text" strip.
     ///
-    /// <para>Only ONE decision in the helper is Unity-free, and it is all that is left
-    /// after the strip became a fixed-height, always-visible box: what text to render.
-    /// <see cref="TooltipEchoBox.ResolveCapturedText"/> is that rule - a window-computed
-    /// manual override outranks the generic GUI.tooltip, because a window that resolved
-    /// its own hover string (RecordingsTableUI's clamped loop-period cell, Real Spawn
-    /// Control's bottom-row Warp button) has already answered more specifically.</para>
+    /// <para>The Unity-free decisions: what text to render
+    /// (<see cref="TooltipEchoBox.ResolveCapturedText"/> - a window-computed manual
+    /// override outranks the generic GUI.tooltip, because a window that resolved its own
+    /// hover string has already answered more specifically) and how many lines a strip
+    /// reserves (<see cref="TooltipEchoBox.NormalizeLines"/> /
+    /// <see cref="TooltipEchoBox.ProbeText"/> - the per-window one-or-two line choice,
+    /// clamped so an out-of-range value can only ever produce the taller, safer strip).</para>
     ///
-    /// <para>There is deliberately no show / hide or style branch to pin any more: the
-    /// strip emits the same two controls at the same constant size on every pass, which
-    /// is the property that keeps the window height and its bottom row from moving when
-    /// the pointer crosses a control. That size is measured from a live
+    /// <para>The strip emits the same two controls at the same constant size on every
+    /// pass, which is the property that keeps the window height and its bottom row from
+    /// moving when the pointer crosses a control. That size is measured from a live
     /// <c>GUI.skin</c> and is pinned in-game by <c>LogisticsTooltipEchoImguiTest</c> and
-    /// <c>TooltipEchoWrapSizingImguiTest</c>.</para>
+    /// <c>TooltipEchoWrapSizingImguiTest</c>; the marquee motion is pinned headlessly in
+    /// <see cref="TooltipMarqueeTests"/>.</para>
     /// </summary>
     public class TooltipEchoBoxTests
     {
@@ -59,6 +60,36 @@ namespace Parsek.Tests
                 TooltipEchoBox.ResolveCapturedText(null, tip),
                 TooltipEchoBox.ResolveCapturedText(null, tip));
             Assert.Equal(tip, TooltipEchoBox.ResolveCapturedText(null, tip));
+        }
+
+        // ------------------------------------------------------------------
+        // Strip height (one or two lines)
+        // ------------------------------------------------------------------
+
+        // catches: a host typo constructing its strip with a bogus line count - the
+        // clamp must fall back to the TALLER (safer, two-line) strip, never invent
+        // a third height.
+        [Theory]
+        [InlineData(TooltipEchoBox.SingleLine, TooltipEchoBox.SingleLine)]
+        [InlineData(TooltipEchoBox.DoubleLine, TooltipEchoBox.DoubleLine)]
+        [InlineData(0, TooltipEchoBox.DoubleLine)]
+        [InlineData(-3, TooltipEchoBox.DoubleLine)]
+        [InlineData(99, TooltipEchoBox.DoubleLine)]
+        public void NormalizeLines_OnlyOneOrTwo_OtherwiseTaller(int requested, int expected)
+        {
+            Assert.Equal(expected, TooltipEchoBox.NormalizeLines(requested));
+        }
+
+        // catches: the probe text drifting apart from the line count it measures -
+        // a one-line strip must measure ONE "Ay" line, a two-line strip exactly two.
+        [Fact]
+        public void ProbeText_MatchesTheStripHeight()
+        {
+            Assert.Equal("Ay", TooltipEchoBox.ProbeText(TooltipEchoBox.SingleLine));
+            Assert.Equal("Ay\nAy", TooltipEchoBox.ProbeText(TooltipEchoBox.DoubleLine));
+            // The clamp applies here too: a bogus count measures the two-line probe,
+            // matching what NormalizeLines-fed construction would reserve.
+            Assert.Equal("Ay\nAy", TooltipEchoBox.ProbeText(0));
         }
     }
 }

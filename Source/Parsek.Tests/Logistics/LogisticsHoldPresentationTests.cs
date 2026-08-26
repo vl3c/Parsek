@@ -426,15 +426,17 @@ namespace Parsek.Tests.Logistics
         // ------------------------------------------------------------------
 
         // catches: the tooltip losing the raw enum name (the pre-M6 contract)
-        // or not appending the hold clause on its own line.
+        // or not appending the hold clause. Single-line since the Logistics help
+        // strip became one line tall: "Enum - clause" with a plain hyphen, never
+        // a hard newline (a newline would push the clause off a 1-line strip).
         [Fact]
-        public void StatusCellTooltip_AppendsHoldOnSecondLine()
+        public void StatusCellTooltip_AppendsHoldAfterEnumName()
         {
             Assert.Equal("Active",
                 LogisticsHoldPresentation.StatusCellTooltip(RouteStatus.Active, null));
             Assert.Equal("Active",
                 LogisticsHoldPresentation.StatusCellTooltip(RouteStatus.Active, ""));
-            Assert.Equal("Active\nnot enough funds at KSC for this dispatch",
+            Assert.Equal("Active - not enough funds at KSC for this dispatch",
                 LogisticsHoldPresentation.StatusCellTooltip(
                     RouteStatus.Active, "not enough funds at KSC for this dispatch"));
         }

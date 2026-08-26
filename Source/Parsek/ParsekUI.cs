@@ -1486,7 +1486,8 @@ namespace Parsek
 
         internal void DrawSortableHeaderCore<TCol>(
             string label, TCol col, ref TCol currentCol, ref bool ascending,
-            float width, bool expand, Action onChanged, float height = 0f)
+            float width, bool expand, Action onChanged, float height = 0f,
+            string tooltip = null)
             where TCol : struct
         {
             string arrow = EqualityComparer<TCol>.Default.Equals(currentCol, col)
@@ -1495,15 +1496,16 @@ namespace Parsek
             // static column headers in the same row — otherwise the header row looks
             // half bold-boxed and half plain.
             GUIStyle headerStyle = GetColumnHeaderStyle();
+            var content = new GUIContent(label + arrow, tooltip);
             bool clicked;
             if (expand)
                 clicked = height > 0f
-                    ? GUILayout.Button(label + arrow, headerStyle, GUILayout.ExpandWidth(true), GUILayout.Height(height))
-                    : GUILayout.Button(label + arrow, headerStyle, GUILayout.ExpandWidth(true));
+                    ? GUILayout.Button(content, headerStyle, GUILayout.ExpandWidth(true), GUILayout.Height(height))
+                    : GUILayout.Button(content, headerStyle, GUILayout.ExpandWidth(true));
             else
                 clicked = height > 0f
-                    ? GUILayout.Button(label + arrow, headerStyle, GUILayout.Width(width), GUILayout.Height(height))
-                    : GUILayout.Button(label + arrow, headerStyle, GUILayout.Width(width));
+                    ? GUILayout.Button(content, headerStyle, GUILayout.Width(width), GUILayout.Height(height))
+                    : GUILayout.Button(content, headerStyle, GUILayout.Width(width));
 
             if (clicked)
             {

@@ -161,19 +161,22 @@ namespace Parsek.Tests.Logistics
         // ------------------------------------------------------------------
 
         // catches: the tooltip losing the net definition or the recovery-credit
-        // timing note (the player must know gross is fronted at dispatch and the
-        // recovered amount is credited back one cycle later).
+        // timing note (the player must know recovered is the distance-scaled
+        // payout, credited back one cycle later).
         [Fact]
         public void FormatDetailTooltip_ExplainsNetAndCreditTiming()
         {
             string s = LogisticsCostPresentation.FormatDetailTooltip(Cost(12500.0, 7300.0, 1));
-            Assert.Contains("launch cost - recovered credits", s);
-            Assert.Contains("per-cycle charge now matches the displayed net", s);
-            Assert.Contains("credited back one cycle later", s);
+            Assert.Contains("launch - recovered credits", s);
+            Assert.Contains("distance-scaled recovery payout", s);
+            Assert.Contains("credited one cycle later", s);
             // The pre-feature "currently the gross" caveat must be gone.
             Assert.DoesNotContain("currently the gross launch cost", s);
             // With recovery the recover-to-reduce hint must NOT appear (already done).
-            Assert.DoesNotContain(LogisticsCostPresentation.RecoverToReduceHint, s);
+            Assert.DoesNotContain("Recovering the transport lowers future runs.", s);
+            // Single-line strip contract: no amounts embedded (they live in the
+            // visible Cost/run line and the cell suffix), so the length stays fixed.
+            Assert.DoesNotContain("funds", s);
             AssertAsciiNoEmDash(s);
         }
 
@@ -182,7 +185,7 @@ namespace Parsek.Tests.Logistics
         public void FormatDetailTooltip_NoRecovery_AddsRecoverHint()
         {
             string s = LogisticsCostPresentation.FormatDetailTooltip(Cost(12500.0, 0.0, 0));
-            Assert.Contains(LogisticsCostPresentation.RecoverToReduceHint, s);
+            Assert.Contains("Recovering the transport lowers future runs.", s);
             AssertAsciiNoEmDash(s);
         }
 
