@@ -126,6 +126,18 @@ The spec block
 - ``unevaluable`` (window) - bound on the DEFINED-unevaluable total. This is the
   key that stops a run passing because nothing was measurable; an armed lane
   normally declares ``{ max = 0 }`` or a small ceiling with a written rationale.
+- ``routeLineBuilds`` (window) - bound on the number of ROUTE_LINE_BUILD records,
+  i.e. on ``RouteTrajectoryLineRenderer.DrawAll`` having actually built a route
+  line. The anti-vacuity floor for a ROUTE lane: without it a lane whose route
+  silently stopped drawing stands RC-ROUTE down to unevaluable and greens.
+- ``routeCoDrawViolations`` (window) - bound on the route/ghost-polyline
+  co-draw arbitration violations. Normally ``{ max = 0 }``: DrawAll must skip a
+  member the ghost polyline already owns.
+- ``ownershipChanges`` (window) - bound on the TracedPath ownership
+  publish/retract records. The floor that says the publish surface RAN AT ALL,
+  which is otherwise stated only by the ABSENCE of the defined-unevaluable
+  ``ownership-publish-surface-never-ran`` from the census - i.e. by a negative,
+  and only in the run JSON rather than in any declaration.
 - ``warpBuckets`` (list of bucket names from ``WARP_BUCKETS``) - each named
   bucket must carry a non-zero frame count. Consumed by RC-WARP, which is INFO
   when the block is unarmed and FAIL when it is armed (design RC-WARP).
@@ -3894,7 +3906,18 @@ def evaluate_rules(snapshot: Optional[ManifestSnapshot],
 GATING_KEY = saveparse.GATING_KEY
 
 RENDER_COMPOSITION_BLOCK = "renderComposition"
-RENDER_COMPOSITION_WINDOW_KEYS: Tuple[str, ...] = ("dwells", "cycles", "unevaluable")
+# Every window key MUST also be an unconditional key of the
+# `observed_composition_facets` block below (pinned by a unit cell), because a
+# window over a facet the module does not measure could only ever be answered by
+# a default. The evaluator refuses to invent that default: see
+# `_check_windows_against_facets`.
+RENDER_COMPOSITION_WINDOW_KEYS: Tuple[str, ...] = (
+    "dwells", "cycles", "unevaluable",
+    # Added 2026-08-26 (todo RENDERCOMPOSE-OWNERSHIPCHANGES-IS-NOT-WINDOWABLE):
+    # three recorded numeric facets promoted to first-class assertions so a lane
+    # can state that its route / ownership publish surface RAN, instead of
+    # leaning on the absence of an unevaluable reason from the census.
+    "routeLineBuilds", "routeCoDrawViolations", "ownershipChanges")
 RENDER_COMPOSITION_LIST_KEYS: Tuple[str, ...] = ("warpBuckets", "requireSeamKinds")
 RENDER_COMPOSITION_ASSERTION_KEYS: Tuple[str, ...] = (
     RENDER_COMPOSITION_WINDOW_KEYS + RENDER_COMPOSITION_LIST_KEYS)
@@ -4156,7 +4179,14 @@ def observed_composition_facets(
     residuals = metrics.get("cycleLengthResidualsSeconds") or []
     return {
         RENDER_COMPOSITION_BLOCK: {
-            # The three window-key facets, named exactly as their spec keys.
+            # The window-key facets, named exactly as their spec keys. Three
+            # more of them sit further down among the structural counts
+            # (`ownershipChanges`, `routeLineBuilds`, `routeCoDrawViolations`) -
+            # they are listed with the surface they count rather than moved up
+            # here, because being windowable did not change what they measure.
+            # ALL SIX are written unconditionally: a window key that could be
+            # absent would be a window answered by a default (see
+            # `_check_windows_against_facets`), and a unit cell pins the set.
             "dwells": len(snapshot.dwells),
             "cycles": len(cycles),
             "unevaluable": sum(unevaluable.values()),
@@ -4333,6 +4363,37 @@ def _check_window(label: str, spec_val: Any, measured: int,
         mismatches.append("%s %d > max %d" % (label, measured, hi))
 
 
+def _check_windows_against_facets(block: Dict[str, Any],
+                                  facets: Dict[str, Any],
+                                  mismatches: List[str]) -> None:
+    """Every declared window key, checked against the MEASURED facet of the same
+    name.
+
+    ABSENT + WINDOWED IS A MISMATCH, decided 2026-08-26 with the three route /
+    ownership keys (todo RENDERCOMPOSE-OWNERSHIPCHANGES-IS-NOT-WINDOWABLE). The
+    original three keys COULD NOT be absent - `observed_composition_facets`
+    writes `dwells` / `cycles` / `unevaluable` unconditionally on any parseable
+    manifest, and so it does for the three new ones - so there was no existing
+    behaviour to follow, only a `facets.get(key, 0)` default that would have
+    silently answered a window over a facet nobody measured. A defaulted zero is
+    the vacuity the doctrine forbids: on a `{ max = 0 }` clause it PASSES a
+    surface that never ran, and on a floor it reds with a number the run never
+    produced. So an absent facet raises its own named mismatch instead. It is
+    unreachable today (a unit cell pins every window key to an unconditional
+    facet key), and that is the point: if a future facet is ever made
+    conditional, an armed window over it reds loudly rather than defaulting."""
+    for key in RENDER_COMPOSITION_WINDOW_KEYS:
+        if key not in block:
+            continue
+        label = "%s.%s" % (RENDER_COMPOSITION_BLOCK, key)
+        if key not in facets:
+            mismatches.append(
+                "%s: declared but NOT MEASURED - the manifest carries no '%s' "
+                "facet, so the window has nothing to assert against" % (label, key))
+            continue
+        _check_window(label, block[key], int(facets.get(key) or 0), mismatches)
+
+
 def evaluate_render_composition(
         expectations: Optional[Dict],
         snapshot: Optional[ManifestSnapshot]) -> RenderComposeResult:
@@ -4391,11 +4452,7 @@ def evaluate_render_composition(
             snapshot, precomputed=(findings, unevaluable, metrics))
         facets = observed[RENDER_COMPOSITION_BLOCK]
         if block is not None:
-            for key in RENDER_COMPOSITION_WINDOW_KEYS:
-                if key in block:
-                    _check_window("%s.%s" % (RENDER_COMPOSITION_BLOCK, key),
-                                  block[key], int(facets.get(key, 0) or 0),
-                                  mismatches)
+            _check_windows_against_facets(block, facets, mismatches)
             # The list keys are consumed by RC-WARP / RC-SEAM, which raise
             # findings with the right level for the arming state; they are NOT
             # re-checked here, so one declaration never produces two rows.

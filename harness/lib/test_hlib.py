@@ -6417,15 +6417,21 @@ class RenderComposeVerifierWiringTests(unittest.TestCase):
         # `seam-endpoint-skipped` (83 map-open, 109 map-closed) plus one
         # `warp-hold-traversal-evidence-absent`, i.e. it moves with endpoint population
         # and frame timing, not with correctness.
-        # `ownershipChanges` IS NOT DECLARED AND COULD NOT BE: it is a recorded FACET,
-        # not a windowable key - `rendercompose.RENDER_COMPOSITION_WINDOW_KEYS` is
-        # ("dwells", "cycles", "unevaluable") and the block validator rejects any other
-        # key outright. The RC-OWN premise (ownership is conserved on this subject) is
-        # therefore armed INDIRECTLY and completely: with `gating = true` every
+        # `ownershipChanges` IS NOT DECLARED. At arming it COULD not be - it was a
+        # recorded FACET and not a windowable key, and the block validator rejected any
+        # other key outright - so the RC-OWN premise (ownership is conserved on this
+        # subject) is armed INDIRECTLY and completely: with `gating = true` every
         # FAIL-level rule finding gates, so the three RC-OWN FAILs reading A raised would
-        # now classify `PARSEK-FAIL(render-composition)`. A first-class
-        # `ownershipChanges` window is filed as a harness improvement in
-        # docs/dev/todo-and-known-bugs.md rather than invented here.
+        # now classify `PARSEK-FAIL(render-composition)`. The schema gap was filed as a
+        # harness improvement rather than invented here, and CLOSED LATER THE SAME DAY:
+        # `RENDER_COMPOSITION_WINDOW_KEYS` now carries `ownershipChanges` (plus the two
+        # route keys) - see docs/dev/todo-and-known-bugs.md ->
+        # RENDERCOMPOSE-OWNERSHIPCHANGES-IS-NOT-WINDOWABLE. THIS BLOCK STILL DOES NOT
+        # DECLARE IT, deliberately: adding a window to an ALREADY ARMED lane needs its
+        # own armed re-flight + negative control on THIS lane, and an
+        # `ownershipChanges = { min = 6 }` written off flights that never evaluated it
+        # would be a prediction read back as a measurement - the exact failure this
+        # entry's deferral was recorded to avoid. Deferred to its own arming pass.
         # `warpBuckets` never (1x-only by construction, instantaneous TimeJumps).
         # ARMED RE-FLIGHT: DISCHARGED FOUR TIMES - `2026-08-26_1838`, `_1842`, `_1843`,
         # `_1844`, all PASS attempt 1 with gating=True,
@@ -6487,6 +6493,68 @@ class RenderComposeVerifierWiringTests(unittest.TestCase):
         # Full write-up: docs/dev/todo-and-known-bugs.md ->
         # V6M-CYCLE0-ARRIVALLOITER-DWELL-CLOSE-RECORD-LOST (CLOSED).
         "V6M-mun-player-loop.toml",
+        # V18T: ARMED 2026-08-26 off TWO of its own report-only readings, and it is the
+        # SUITE'S FIRST ARMED ROUTE LANE. READING 1 `2026-08-26_1741` INVALID attempt 1
+        # on a mid-run `LoadGame reason=recording-active` stop/load race (a driver flake,
+        # quarantined at rate 0.50, and it says nothing about this lane's subject),
+        # `2026-08-26_1742_a2` PASS. READING 2 `2026-08-26_1958` PASS attempt 1 on the
+        # unchanged spec.
+        # THE PAIR MATCHES FACET FOR FACET: routeLineBuilds 1 / routeCoDrawViolations 0 /
+        # routeLegDefers 0, planUnits 1, chainBuilds 1, lineBranches 1, dwells 0 (+1
+        # open), transitions 0, cycles 0, ownershipChanges 0, seamKinds {rigid 12},
+        # seamTangents 0, clockEvents {cycle-rollover 1}, unevaluable 3 at the SAME three
+        # reasons, zero findings at every level. The only facet that moved is the 1x warp
+        # frame count (56 -> 59), which is the export instant's frame budget.
+        # WINDOWS: routeLineBuilds {min 1} - THE SUITE'S FIRST ROUTE WINDOW and the
+        # headline; routeCoDrawViolations {max 0} (the arbitration half); unevaluable
+        # {max 10} = ~3.4x measured 3, the SAME ratio-to-measurement the siblings carry
+        # (V14M 200/56, V8 250/76, V25M 1400/410, V6M 300/84) scaled to a census that is
+        # small only because this lane closes no dwell and decimates no endpoint
+        # population; requireSeamKinds ["rigid"] (rigid 12 and nothing else on both -
+        # `flexible-soi` is absent BY SCOPE, the route being SameBody Kerbin -> Kerbin).
+        # NO `dwells` AND NO `cycles` FLOOR, and THE SUITE'S SHARED `dwells {1,32}`
+        # CONVENTION DOES NOT FIT THIS LANE - stated rather than copied. A single-epoch
+        # tracking-station observation closes no dwell and rolls over no cycle by
+        # construction (both read 0 twice), so either floor would red the two green runs
+        # the block was armed off, and a {min = 0} pin can never red at all. The
+        # anti-vacuity job those keys do on a loop lane is done here by `routeLineBuilds`.
+        # `warpBuckets` never (two instantaneous TimeJumps, 1x-only by construction).
+        # `ownershipChanges` not declared although it is now windowable: measured 0 twice
+        # and correctly so - the TS host publishes no TracedPath ownership here - and a
+        # {max = 0} would assert the absence of a surface this lane does not exercise.
+        # THE THREE ROUTE/OWNERSHIP WINDOW KEYS DID NOT EXIST BEFORE THIS CHANGE:
+        # `RENDER_COMPOSITION_WINDOW_KEYS` was exactly ("dwells","cycles","unevaluable")
+        # and the validator refused anything else pre-launch. The schema extension (todo
+        # RENDERCOMPOSE-OWNERSHIPCHANGES-IS-NOT-WINDOWABLE) ships in the same change, and
+        # this lane's armed re-flight + negative control are its LIVE PROOF end to end.
+        # ARMED RE-FLIGHT: `2026-08-26_2015` PASS attempt 1, gating=True,
+        # armedBlocks=['renderComposition'], ZERO mismatches, zero findings at every
+        # level - routeLineBuilds 1, routeCoDrawViolations 0, routeLegDefers 0, planUnits
+        # 1, chainBuilds 1, lineBranches 1, dwells 0 (+1 open), cycles 0, unevaluable 3 at
+        # the same three reasons, seamKinds {rigid 12}. THE THIRD READING OF THE CENSUS IS
+        # EQUAL TO THE FIRST TWO ON EVERY FACET, against a run the windows were not
+        # written from.
+        # NEGATIVE CONTROL: `2026-08-26_2017_a2`, temporary `routeLineBuilds = { min = 5 }`
+        # applied by a LINE-ANCHORED edit of the real key (a python pass asserting EXACTLY
+        # ONE line starting `routeLineBuilds`, then `grep -n '^routeLineBuilds'` AND
+        # `run.py --dry-run`'s `declared:` line before launch - the V24W `_1811` miss is
+        # why the second check is mandatory). Red on exactly
+        # `PARSEK-FAIL(render-composition)` with EXACTLY ONE mismatch,
+        # `renderComposition.routeLineBuilds 1 < min 5`. Every sibling row stayed clean
+        # (driverValidity / analyzer red=0 / logValidate / anomalySweep / expectations /
+        # testResults PASS, saveParse + unityExceptions REPORT), zero findings at every
+        # level stood beside the one mismatch, and the composition facets equalled the
+        # PASSing flights' - so the red is THIS lane's own declaration and not the shared
+        # evaluator. THE CONTROL IS ALSO THE LIVE END-TO-END PROOF OF THE SCHEMA
+        # EXTENSION: `routeLineBuilds` is a key that did not exist before this change, and
+        # it flew, validated pre-launch, evaluated, and red on its own mismatch spelling.
+        # Attempt 1 (`2026-08-26_2016`) INVALID(driver-verdict-mismatch) on the SAME known
+        # flake reading 1 hit - step 15 id=0016 `LoadGame` REJECTED after the preceding
+        # StopRecording, the stop/load race - and the retry policy absorbed it. Not a
+        # composition fact. Control reverted in the same change on the re-grepped real key
+        # (byte-identical to HEAD after the revert, checked rather than assumed).
+        # Not shared with any sibling: each armed lane inverts a window of its own.
+        "V18T-depot-route-ts-arrival.toml",
     }
 
     def test_no_committed_spec_arms_render_composition_gating(self):

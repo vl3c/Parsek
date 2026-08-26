@@ -386,14 +386,19 @@ id = "V6M-mun-player-loop"
 #            The `unevaluable` ceiling is written off the MAP-OPEN reading (~3.6x its 84,
 #            the sibling lanes' ratio) and clears the map-closed 110 besides, so it does
 #            not depend on which shape a future run flies.
-#            `ownershipChanges` IS NOT DECLARED AND COULD NOT BE - see the block's own NOT
-#            DECLARED section: `RENDER_COMPOSITION_WINDOW_KEYS` is exactly
-#            ("dwells", "cycles", "unevaluable") and the validator rejects any other key
-#            pre-launch. The RC-OWN premise is armed INDIRECTLY and completely, because
-#            `gating = true` gates on every FAIL-level finding: the three RC-OWN FAILs the
-#            2056 reading raised would now classify `PARSEK-FAIL(render-composition)`. The
-#            missing first-class floor is filed as a harness improvement in
-#            `docs/dev/todo-and-known-bugs.md`, NOT invented here.
+#            `ownershipChanges` IS NOT DECLARED - see the block's own NOT DECLARED
+#            section. At arming it COULD NOT BE: `RENDER_COMPOSITION_WINDOW_KEYS` was
+#            exactly ("dwells", "cycles", "unevaluable") and the validator rejected any
+#            other key pre-launch. The RC-OWN premise is armed INDIRECTLY and completely,
+#            because `gating = true` gates on every FAIL-level finding: the three RC-OWN
+#            FAILs the 2056 reading raised would now classify
+#            `PARSEK-FAIL(render-composition)`. The missing first-class floor was filed as
+#            a harness improvement in `docs/dev/todo-and-known-bugs.md`, NOT invented
+#            here - and that SCHEMA GAP WAS CLOSED LATER THE SAME DAY (the key is now
+#            windowable). THIS BLOCK STILL DOES NOT DECLARE IT: adding a window to an
+#            already-armed lane needs its own re-flight + control pass on THIS lane, and a
+#            floor written off flights that never evaluated it would be a prediction read
+#            back as a measurement.
 #            `warpBuckets` never (1x-only by construction). NOTHING IN THE FLOWN SHAPE
 #            MOVED at arming - no jump UT, no step, no budget, no tolerance, no other
 #            expectation (the S4.1 rule). Registered in `RENDERCOMPOSE_ARMED_SPECS`
@@ -1203,19 +1208,22 @@ forbidden = [
 #     exactly here. The vocabulary is `rendercompose.SEAM_KINDS_REQUIRABLE`.
 #
 # NOT DECLARED:
-#   * `ownershipChanges` - AND IT COULD NOT BE, which is a fact about the schema and not
-#     a choice: `rendercompose.RENDER_COMPOSITION_WINDOW_KEYS` is exactly
+#   * `ownershipChanges` - AT ARMING IT COULD NOT BE, which was a fact about the schema
+#     and not a choice: `rendercompose.RENDER_COMPOSITION_WINDOW_KEYS` was exactly
 #     ("dwells", "cycles", "unevaluable"), the list keys are ("warpBuckets",
-#     "requireSeamKinds"), and `validate_render_composition_expectations` rejects any
+#     "requireSeamKinds"), and `validate_render_composition_expectations` rejected any
 #     other key outright pre-launch. Inventing a key here to carry the RC-OWN premise
-#     would be authoring a facet, not arming a lane. THE PREMISE IS STILL ARMED, and
-#     completely, just indirectly: `gating = true` gates on every FAIL-level rule
+#     would have been authoring a facet, not arming a lane. THE PREMISE IS STILL ARMED,
+#     and completely, just indirectly: `gating = true` gates on every FAIL-level rule
 #     finding, so the exact three RC-OWN FAILs reading A raised would now classify
 #     `PARSEK-FAIL(render-composition)` instead of being report-only. What a first-class
 #     `ownershipChanges = { min = 1 }` would add over that is a floor on the PUBLISH
 #     surface running at all - which today is stated only by the ABSENCE of
-#     `ownership-publish-surface-never-ran` from the census. The gap is filed as a
-#     harness improvement in `docs/dev/todo-and-known-bugs.md`.
+#     `ownership-publish-surface-never-ran` from the census. The gap was filed as a
+#     harness improvement in `docs/dev/todo-and-known-bugs.md` and CLOSED LATER THE SAME
+#     DAY: the key IS windowable now. IT IS STILL NOT DECLARED HERE, deliberately -
+#     upgrading an already-armed lane's window set needs its own armed re-flight and
+#     negative control on this lane, which is a separate arming pass and not an edit.
 #   * `warpBuckets` - NEVER on this lane (header section 6, last prediction): every clock
 #     move is an instantaneous TimeJump, so the histogram is 1x-only by construction and
 #     a bucket window would gate on the drive shape rather than on the product. V24W is

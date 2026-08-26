@@ -229,7 +229,7 @@ by checking this** rather than re-deriving the whole race. If it ever shows up,
 the fix is to stamp the cycle start from the clock's own boundary rather than
 from the observing frame - not to loosen the bound.
 
-## RENDERCOMPOSE-OWNERSHIPCHANGES-IS-NOT-WINDOWABLE: `ownershipChanges` is recorded as a facet but cannot be asserted, so the RC-OWN conservation premise can only be armed indirectly through the FAIL-finding gate [FOUND 2026-08-26 during V6M's arming pass. TODO, not a defect - a missing surface, filed rather than invented mid-arming]
+## ~~RENDERCOMPOSE-OWNERSHIPCHANGES-IS-NOT-WINDOWABLE~~: `ownershipChanges` is recorded as a facet but cannot be asserted, so the RC-OWN conservation premise can only be armed indirectly through the FAIL-finding gate [FOUND 2026-08-26 during V6M's arming pass. TODO, not a defect - a missing surface, filed rather than invented mid-arming. **SCHEMA GAP CLOSED 2026-08-26**, branch `window-facets-arm-v18t` - see THE SHIPPED FIX at the end of this entry. The arming half is deliberately still open: no armed block uses the new keys for `ownershipChanges` yet]
 
 `rendercompose.RENDER_COMPOSITION_WINDOW_KEYS` is exactly `("dwells", "cycles",
 "unevaluable")` and `RENDER_COMPOSITION_LIST_KEYS` is `("warpBuckets",
@@ -254,6 +254,46 @@ grammar is already generic - bare int = exact pin, `{min=,max=}` = window - and
 its own change with the usual reading/re-flight/control discipline. Deliberately
 NOT done inside the arming pass that found it: inventing a facet key while arming
 a lane is how a prediction gets read back as a measurement.
+
+**THE SHIPPED FIX (2026-08-26).** `RENDER_COMPOSITION_WINDOW_KEYS` is now
+`("dwells", "cycles", "unevaluable", "routeLineBuilds",
+"routeCoDrawViolations", "ownershipChanges")`. THREE keys rather than the one
+this entry asked for, because the same argument the entry makes for
+`ownershipChanges` is verbatim true of the route census: a lane whose route
+silently stopped drawing stands RC-ROUTE down to unevaluable and greens, and the
+co-draw arbitration reading has no way to say "zero, measured" rather than
+"zero, defaulted". Nothing else about the grammar moved: the promoted keys take
+the same bare-int-or-`{min,max}` shape, the same mismatch spellings, and all
+three anti-vacuity notches (`_validate_armed_empty`, `_validate_window`,
+`_validate_armed_unreddable`) unchanged, so a negative control on one of them
+reds exactly the way the original three do. Keys OUTSIDE the extended set are
+still refused pre-launch, and `ARMED_RED_RECIPES` - the meta-cell asserting one
+demonstrated RED per assertion key - grew a recipe for each, so none of the
+three could ship without a proof it can red.
+
+**ABSENT + WINDOWED = MISMATCH, decided here.** The original three keys CANNOT
+be absent (`observed_composition_facets` writes them unconditionally on any
+parseable manifest, and so it does for the three new ones), so there was no
+existing behaviour to follow - only a `facets.get(key, 0)` default that would
+have silently answered a window over a facet nobody measured. A defaulted zero
+is the vacuity the doctrine forbids: on a `{ max = 0 }` clause it PASSES a
+surface that never ran. So `_check_windows_against_facets` raises its own named
+mismatch (`renderComposition.<key>: declared but NOT MEASURED - ...`) instead.
+It is unreachable today, and a unit cell pins every window key to an
+unconditional facet key so it stays that way; the branch exists so that a future
+conditional facet reds loudly rather than defaulting.
+
+**LIVE PROOF.** The extension is proven end to end by
+`V18T-depot-route-ts-arrival`'s arming pass in the same change - the suite's
+first armed `routeLineBuilds` window, its armed re-flight, and a negative
+control that red on exactly `PARSEK-FAIL(render-composition)` naming the new
+key's own mismatch.
+
+**STILL OPEN, deliberately: V6M's armed block does NOT yet declare
+`ownershipChanges`.** The key is now available to it, but upgrading an ALREADY
+ARMED lane's window set needs its own re-flight + negative-control pass on that
+lane, and doing it inside this change would have shipped a window nothing had
+re-flown against. That is a separate arming pass, not a follow-up edit.
 
 ## NEGATIVE-CONTROL-EDIT-NEVER-REACHED-THE-KEY: V24W's first negative control inverted a RATIONALE COMMENT instead of the armed `warpBuckets` line, the flight evaluated the UNINVERTED block, and nothing the run wrote to disk could tell that apart from a fail-open verifier [FOUND 2026-08-25 on run `2026-08-25_1811`, the suite's first attempt at a `renderComposition` negative control. THE VERIFIER IS SOUND - proved below across five module versions. FIXED the same day: the run now records WHICH block it evaluated, and `--dry-run` prints it before the machine lock. CLOSED the same day too - the re-flown control `2026-08-25_1925` red exactly as predicted AND its result JSON records the block it asserted, so the fix is proven in use by the control that needed it]
 
@@ -546,6 +586,15 @@ a post-load first draw always is because `OnGameStateLoad` clears the cache) plu
 `routeCoDrawViolations { max = 0 }`. Registry D10 `route-map-lines` stays
 UNDECLARED until a GATING token earns it. Until a lane flies, nothing reads these
 bytes.
+
+**V18T FLEW AND IS ARMED (2026-08-26).** Both headline windows landed as written
+above - `routeLineBuilds { min = 1 }` (measured 1 on all three flights, the
+suite's first non-zero reading of that census anywhere) and
+`routeCoDrawViolations { max = 0 }` - and the negative control
+`2026-08-26_2017_a2` red on exactly `PARSEK-FAIL(render-composition)` /
+`renderComposition.routeLineBuilds 1 < min 5`. THE GATING TOKEN NOW EXISTS, so
+D10 `route-map-lines` IS DECLARED on that lane in the same commit. V18M (the
+FLIGHT-map half, which does owe `EnterMapView`) is still owed.
 
 ## FIXTURE-DUNA-PARK-RECORDED-LANE-PENDING: the heliocentric-parking-departure subject is harvested, repaired and registered, but no scenario has flown against it yet [OPENED 2026-08-26 on branch `route-harvests`. TODO, not a defect]
 
@@ -1312,8 +1361,11 @@ REMAINING PHASES.
   `routeLineBuilds` has never read non-zero anywhere. It arms NO mission loop -
   the committed ROUTE drives - and flies the TS host first on the measured fact
   that `RouteTrajectoryLineRenderer.DrawAll`'s only call site carries no
-  `MapView` gate. D10 `route-map-lines` stays UNDECLARED until a gating token
-  earns it.
+  `MapView` gate. ~~D10 `route-map-lines` stays UNDECLARED until a gating token
+  earns it.~~ **FLEW AND ARMED 2026-08-26**: two matching readings, armed
+  re-flight `2026-08-26_2015` PASS, negative control `2026-08-26_2017_a2` red on
+  `renderComposition.routeLineBuilds 1 < min 5`, and D10 `route-map-lines` is now
+  DECLARED - the gating token earned it.
   `V25M-duna-park-player-loop` over `duna-park-recorded` is **re-aim's second
   departure class** - a heliocentric-parking departure, the path
   `ReaimClassifier`'s own exception comment names by fixture and that no
@@ -7199,8 +7251,12 @@ Claiming a row off a token that is not in the log is the exact CLAIM-IS-NOT-GATE
 failure the registry discipline exists to prevent. None of the ten still
 zero-declarer D10 rows is evidenced either: `docked-depot-origin`, `claw-producer`,
 `inventory-cargo`, `harvest-provenance`, `multi-stop`, `multi-origin-escrow`,
-`round-trip-pair`, `hold-reasons`, `destination-full-gate`, `route-map-lines`
-(`harness/coverage/registry.toml:99-104`). Several of them - `multi-stop`,
+`round-trip-pair`, `hold-reasons`, `destination-full-gate`, ~~`route-map-lines`~~
+(`harness/coverage/registry.toml:99-104`). `route-map-lines` LEFT THAT LIST on
+2026-08-26: `V18T-depot-route-ts-arrival` declares it off an ARMED
+`routeLineBuilds { min = 1 }` whose red is demonstrated by its own negative
+control - a gate first, then the claim, which is the discipline rather than an
+exception to it. Nine zero-declarer D10 rows remain. Several of them - `multi-stop`,
 `multi-origin-escrow`, `round-trip-pair`, `hold-reasons`, `destination-full-gate` -
 have in-game cells that exist but carry `AllowBatchExecution = false`, so they are
 blocked by the B4 batch-wiring bucket rather than by this seal gap; the two

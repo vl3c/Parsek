@@ -32,14 +32,16 @@ id = "V18T-depot-route-ts-arrival"
 #       anchor). READ, NOT GATED. Section 2 derives the dock instant under the two
 #       branch hypotheses the product can take and finds they differ by ~10.8 ks, which
 #       is precisely why no cadence token is pinned on a first flight.
-#   (4) THE ROUTE OVERVIEW LINE (registry D10 `route-map-lines`). MEASURED, NOT CLAIMED.
+#   (4) THE ROUTE OVERVIEW LINE (registry D10 `route-map-lines`). **GATED AND CLAIMED as
+#       of the 2026-08-26 arming pass** - it was MEASURED, NOT CLAIMED on the reading
+#       runs, exactly as written here before any run existed.
 #       `routeLineBuilds >= 1` in the manifest is THE headline facet of this lane - the
 #       first non-zero occurrence of that census anywhere in the suite - and
-#       `routeCoDrawViolations = 0` is its arbitration half. Both are recorded through
-#       the BARE `[expectations.renderComposition]` block and gate nothing yet, so per
-#       H35 CLAIM-IS-NOT-GATE (and supervisor decision 9 of `.scout/route-harvest-plan.md`)
-#       D10 `route-map-lines` IS NOT DECLARED in `[dimensionsCovered]`. It gets declared
-#       in the arming pass that writes the first window, not before.
+#       `routeCoDrawViolations = 0` is its arbitration half. Both are now ARMED windows in
+#       `[expectations.renderComposition]`, so per H35 CLAIM-IS-NOT-GATE (and supervisor
+#       decision 9 of `.scout/route-harvest-plan.md`) D10 `route-map-lines` IS declared in
+#       `[dimensionsCovered]`, in the same commit that armed the facet and demonstrated
+#       its red.
 #   (5) THE DOCK / STATION ENDPOINT. PARTIALLY READ - section 4.
 #
 # NOT CLOSED BY THIS LANE, and named so nobody books it: the `IsCareer && IsKscOrigin`
@@ -209,10 +211,13 @@ id = "V18T-depot-route-ts-arrival"
 # ---------------------------------------------------------------------------------
 # 6. renderComposition ARMING LEDGER (M-A7 Phase 4 / Wave B)
 # ---------------------------------------------------------------------------------
-#   POSTURE  DECLARED BARE. Nothing is armed and nothing gates. Declaring is what sets
+#   POSTURE  **ARMED 2026-08-26** (was DECLARED BARE). Declaring is what sets
 #            `PARSEK_RENDER_MANIFEST=1` at launch and arms the C# recorder at Awake; the
 #            single `ExportRenderManifest` step immediately before teardown takes the
 #            composition at a chosen instant rather than at the scene-exit auto-flush.
+#            The armed block and the arithmetic behind each window are at
+#            `[expectations.renderComposition]`; the flight record is at the end of this
+#            section.
 #   HEADLINE `routeLineBuilds >= 1` - and it would be the FIRST NON-ZERO READING OF THAT
 #            CENSUS ANYWHERE IN THE SUITE. Every committed declarer to date measures it at
 #            zero for the same structural reason: no fixture carries a ROUTE. Its
@@ -284,9 +289,71 @@ id = "V18T-depot-route-ts-arrival"
 #            at arming, by operator decision, on the three-run discipline (reading ->
 #            armed re-flight -> negative control), and a single reading of a census is a
 #            sample. NOTHING IS ARMED BY THIS FLIGHT.
+#
+#   READING 2 `2026-08-26_1958` - PASS ATTEMPT 1, the unchanged spec re-flown. THE TWO
+#            READINGS MATCH FACET FOR FACET, which is what the arming rests on:
+#              routeLineBuilds 1 / routeCoDrawViolations 0 / routeLegDefers 0 BOTH
+#              planUnits 1 BOTH, chainBuilds 1 BOTH, lineBranches 1 BOTH
+#              dwells 0 (+1 open) BOTH, transitions 0 BOTH, cycles 0 BOTH
+#              ownershipChanges 0 BOTH, seamKinds {rigid 12} BOTH, seamTangents 0 BOTH
+#              clockEvents {cycle-rollover 1} BOTH
+#              unevaluable 3 BOTH, the SAME three reasons at the same counts
+#                (no-cycle-rollover-events 1, no-dwells-attributable-to-unit 1,
+#                 warp-hold-traversal-evidence-absent 1)
+#              findings 0 at every level BOTH
+#            THE ONLY FACET THAT MOVED is the 1x warp frame count, 56 -> 59 - the export
+#            instant's frame budget, not the subject. Nothing here is a sample of one.
+#
+#   ARMED    Written FROM the pair above, not from the pre-registration (which predicted
+#            the two route windows and got them right):
+#              gating = true
+#              routeLineBuilds       { min = 1 }    THE SUITE'S FIRST ROUTE WINDOW
+#              routeCoDrawViolations { max = 0 }
+#              unevaluable           { max = 10 }   ~3.4x measured 3, the siblings' ratio
+#              requireSeamKinds      ["rigid"]      both readings rigid-only, by SCOPE
+#            NO dwells / cycles floors: both read 0 by construction on a single-epoch TS
+#            observation, so the suite's shared `dwells {1,32}` convention does NOT fit
+#            this lane and copying it would red the runs it was armed off. Per-window
+#            arithmetic and every NOT-DECLARED decision are at the block itself.
+#            The three route/ownership window KEYS did not exist before this change:
+#            `RENDER_COMPOSITION_WINDOW_KEYS` was exactly ("dwells","cycles",
+#            "unevaluable") and the validator refused anything else pre-launch. The
+#            schema extension (todo RENDERCOMPOSE-OWNERSHIPCHANGES-IS-NOT-WINDOWABLE)
+#            ships in the same change, and this lane's armed flights are its live proof.
+#
+#   RE-FLIGHT `2026-08-26_2015` - PASS ATTEMPT 1, gating=True,
+#            armedBlocks=['renderComposition'], ZERO mismatches and zero findings at every
+#            level. routeLineBuilds 1, routeCoDrawViolations 0, routeLegDefers 0,
+#            planUnits 1, chainBuilds 1, lineBranches 1, dwells 0 (+1 open), cycles 0,
+#            unevaluable 3 at the same three reasons, seamKinds {rigid 12}. A THIRD
+#            reading of the census, equal to the first two on every facet, taken against
+#            a run the windows were not written from.
+#
+#   CONTROL  `2026-08-26_2017_a2` - **PARSEK-FAIL(render-composition)**, off the temporary
+#            `routeLineBuilds = { min = 5 }`. EXACTLY ONE mismatch, and it names the key:
+#              renderComposition.routeLineBuilds 1 < min 5
+#            Every sibling row stayed clean (driverValidity / analyzer red=0 / logValidate
+#            / anomalySweep / expectations / testResults PASS, saveParse + unityExceptions
+#            REPORT); zero findings at every level stood beside the one mismatch and the
+#            composition facets equalled the PASSing flights', so the red is THIS lane's
+#            declaration and nothing else. The result JSON's
+#            `verifiers.renderCompose.declared` records `routeLineBuilds: {min: 5}`.
+#            THE CONTROL IS ALSO THE LIVE END-TO-END PROOF OF THE SCHEMA EXTENSION: the
+#            key it inverted did not exist before this change, and it validated
+#            pre-launch, flew, evaluated and red on its own mismatch spelling.
+#            Applied by a LINE-ANCHORED edit of the real key (a pass asserting EXACTLY ONE
+#            line starting `routeLineBuilds`, then `grep -n '^routeLineBuilds'` AND
+#            `run.py --dry-run`'s `declared:` line before launch - the V24W `_1811` miss is
+#            why that second check is mandatory) and reverted in the same change on the
+#            re-grepped key, byte-identical to HEAD.
+#            Attempt 1 `2026-08-26_2016` INVALID(driver-verdict-mismatch) on THE SAME KNOWN
+#            FLAKE reading 1 hit - step 15 id=0016 `LoadGame` REJECTED right after
+#            StopRecording, the stop/load race - absorbed by the retry policy. A driver
+#            fact and not a composition one, now observed twice on this lane at the
+#            identical step.
 # =====================================================================================
 tier = "operator"
-description = "AUTHORED 2026-08-26; READING FLIGHT 1 FLEW THE SAME DAY (`2026-08-26_1741` INVALID on a mid-run `LoadGame reason=recording-active` stop/load race, `2026-08-26_1742_a2` PASS - flakedThenPassed, quarantined at rate 0.50) AND MEASURED G1'S FRONT DOOR: `routeLineBuilds = 1`, THE SUITE'S FIRST NON-ZERO READING OF THAT CENSUS ANYWHERE, taken IN THE TRACKING STATION with no `EnterMapView` verb driven exactly as the guard-chain inspection predicted, alongside `routeCoDrawViolations = 0`, `planUnits = 1` (host TrackingStation), seamKinds rigid 12, and the per-unit `ROUTE` node no other subject can emit - routeId 5420f805, backingMissionTreeId c9ef80ee, recordedDockUT 17478.248634212287 to the fixture digit, scope SameBody, excludedIntervalKeys present - so RC-ROUTE's per-unit half executed against live data for the first time, with zero findings at any level. The flight also SETTLED THE ANCHOR BRANCH section 2 could not: phaseAnchorUT 22,969.671921541973 / cadence 21,549.4251830898 is hypothesis H-B (single-rotation phase lock on Rotation(Kerbin)) to the digit, ruling out H-A and H-C. ARMING STILL OWED - reading 2 before any window. THE SUITE'S FIRST ROUTE LANE and the first subject that can put a non-zero number in the render-composition manifest's `routeLineBuilds` census. A tracking-station observation of the committed, Active, GhostDriving SameBody supply route `5420f805...` (Kerbin -> Kerbin, DockingPort STOP onto the `Depot`) carried by the B27 harvest `depot-route-recorded`. NO mission loop is armed: the ROUTE drives, through `SelectGhostDrivingBackingMissions` -> `RouteBackingMission.BuildMission` -> the TS host union, and arming a mission would measure the mission path instead. It flies the TS half FIRST on a MEASURED fact rather than a preference - `RouteTrajectoryLineRenderer.DrawAll`'s only call site is a map-camera onPreCull hook whose guard chain carries no `MapView.MapIsEnabled` (GhostTrajectoryPolylineRenderer.cs:3894-3906), so the tracking station draws route lines with no `EnterMapView` verb while the FLIGHT prelude draws none at all. Two forward TimeJumps park the clock either side of the dock instant of BOTH computable anchor hypotheses (the phase-anchor branch is genuinely unresolvable pre-flight and all three candidates are derived in the header); the save is taken at the later one, so the TS dwell observes the post-dock side. Anti-vacuity is three tokens, not one: `RevalidateSources ... transitioned=0` (the route did not flip to SourceChanged under the load-time optimizer), `ghostDriving=[1-9]` (the front door selected it) and `routeMissions=[1-9]` (the TS host unioned it), on top of the TS host's own `created N ghost vessel(s)`. `[expectations.renderComposition]` is DECLARED BARE - D10 `route-map-lines` stays UNDECLARED until a gating token earns it (H35 CLAIM-IS-NOT-GATE, supervisor decision 9)."
+description = "AUTHORED 2026-08-26; READING FLIGHT 1 FLEW THE SAME DAY (`2026-08-26_1741` INVALID on a mid-run `LoadGame reason=recording-active` stop/load race, `2026-08-26_1742_a2` PASS - flakedThenPassed, quarantined at rate 0.50) AND MEASURED G1'S FRONT DOOR: `routeLineBuilds = 1`, THE SUITE'S FIRST NON-ZERO READING OF THAT CENSUS ANYWHERE, taken IN THE TRACKING STATION with no `EnterMapView` verb driven exactly as the guard-chain inspection predicted, alongside `routeCoDrawViolations = 0`, `planUnits = 1` (host TrackingStation), seamKinds rigid 12, and the per-unit `ROUTE` node no other subject can emit - routeId 5420f805, backingMissionTreeId c9ef80ee, recordedDockUT 17478.248634212287 to the fixture digit, scope SameBody, excludedIntervalKeys present - so RC-ROUTE's per-unit half executed against live data for the first time, with zero findings at any level. The flight also SETTLED THE ANCHOR BRANCH section 2 could not: phaseAnchorUT 22,969.671921541973 / cadence 21,549.4251830898 is hypothesis H-B (single-rotation phase lock on Rotation(Kerbin)) to the digit, ruling out H-A and H-C. **ARMED 2026-08-26** off reading 2 (`2026-08-26_1958` PASS attempt 1, facet for facet identical), with `routeLineBuilds = { min = 1 }` - THE SUITE'S FIRST ROUTE WINDOW - plus `routeCoDrawViolations = { max = 0 }`, `unevaluable = { max = 10 }` and `requireSeamKinds = [rigid]`; no dwells/cycles floors, both measure 0 by construction on a single-epoch TS observation. Armed re-flight `2026-08-26_2015` PASS attempt 1 with zero mismatches; negative control `2026-08-26_2017_a2` red exactly `PARSEK-FAIL(render-composition)` on `renderComposition.routeLineBuilds 1 < min 5` with every sibling row clean. THE SUITE'S FIRST ROUTE LANE and the first subject that can put a non-zero number in the render-composition manifest's `routeLineBuilds` census. A tracking-station observation of the committed, Active, GhostDriving SameBody supply route `5420f805...` (Kerbin -> Kerbin, DockingPort STOP onto the `Depot`) carried by the B27 harvest `depot-route-recorded`. NO mission loop is armed: the ROUTE drives, through `SelectGhostDrivingBackingMissions` -> `RouteBackingMission.BuildMission` -> the TS host union, and arming a mission would measure the mission path instead. It flies the TS half FIRST on a MEASURED fact rather than a preference - `RouteTrajectoryLineRenderer.DrawAll`'s only call site is a map-camera onPreCull hook whose guard chain carries no `MapView.MapIsEnabled` (GhostTrajectoryPolylineRenderer.cs:3894-3906), so the tracking station draws route lines with no `EnterMapView` verb while the FLIGHT prelude draws none at all. Two forward TimeJumps park the clock either side of the dock instant of BOTH computable anchor hypotheses (the phase-anchor branch is genuinely unresolvable pre-flight and all three candidates are derived in the header); the save is taken at the later one, so the TS dwell observes the post-dock side. Anti-vacuity is three tokens, not one: `RevalidateSources ... transitioned=0` (the route did not flip to SourceChanged under the load-time optimizer), `ghostDriving=[1-9]` (the front door selected it) and `routeMissions=[1-9]` (the TS host unioned it), on top of the TS host's own `created N ghost vessel(s)`. `[expectations.renderComposition]` IS ARMED - and `routeLineBuilds = { min = 1 }` is the gating token that earns D10 `route-map-lines`, declared in the same commit per H35 CLAIM-IS-NOT-GATE / supervisor decision 9."
 instanceProfile = "stock-minimal"
 tags = ["V18", "route", "logistics", "tracking-station", "same-body", "kerbin", "depot",
         "dock", "render-composition", "rc-route", "map-render"]
@@ -387,19 +454,24 @@ steps = [
 #       ghost for it. It is the WEAKEST of the three and is claimed anyway because the
 #       body is structural here rather than incidental: the route's scope resolution walks
 #       every member's recording body and a non-Kerbin member would change the scope.
+#   D10 `route-map-lines` - CLAIMED 2026-08-26, and it is the ONE THIS LANE IS ABOUT.
+#       Supervisor decision 9 said this cell is declared "only when a GATING token earns
+#       it", and one now does: `[expectations.renderComposition]` is ARMED with
+#       `routeLineBuilds = { min = 1 }`, so a run whose route stops drawing classifies
+#       `PARSEK-FAIL(render-composition)`. The gate is DEMONSTRATED and not merely
+#       declared - the negative control `2026-08-26_2017_a2` red on exactly that clause
+#       (`renderComposition.routeLineBuilds 1 < min 5`) with every sibling row clean - and
+#       the armed re-flight `2026-08-26_2015` passed it. This lane is the registry's only
+#       declarer of the cell, and it was ZERO before.
 #
 # DELIBERATELY NOT CLAIMED:
-#   D10 `route-map-lines` - THE ONE THIS LANE IS ABOUT, and the whole point of not
-#       claiming it. Supervisor decision 9 and H35 CLAIM-IS-NOT-GATE: the block below is
-#       BARE, so `routeLineBuilds` is RECORDED and asserted on by nothing. A coverage
-#       claim backed by no gate is exactly the vacuity this register exists to refuse.
-#       It gets declared in the same commit that arms `routeLineBuilds`, citing the run.
 #   D10 `dispatch-cadence` - section 2 could not settle the anchor branch, so this lane
 #       reads the cadence and asserts nothing about it.
 #   D10 `dock-producer` / `delivery` - this lane OBSERVES a route mid-cycle; it produces
 #       no dock and delivers no cargo.
 #   D11 anything - no mission loop is armed here.
 [dimensionsCovered]
+D10 = ["route-map-lines"]
 D14 = ["kerbin", "scene-ts", "sandbox"]
 
 [expectations]
@@ -498,20 +570,67 @@ forbidden = [
 ]
 
 [expectations.renderComposition]
-# M-A7 Phase 4 / Wave B - DECLARED 2026-08-26, BARE ON PURPOSE: no `gating`, no window,
-# no list. Declaring is what sets `PARSEK_RENDER_MANIFEST=1` at launch and arms the C#
-# recorder at Awake, and `rendercompose` then records its facets UNCONDITIONALLY on a
-# parseable manifest - which is how a lane earns its first honest window off a green
-# report-only run. A window written today would be a PREDICTION read back as though it
-# were a measurement.
+# M-A7 Phase 4 / Wave B - DECLARED BARE 2026-08-26, **ARMED 2026-08-26** off TWO
+# report-only readings that measure the census FACET FOR FACET: `2026-08-26_1741`
+# (INVALID attempt 1 on the LoadGame stop/load race) + `2026-08-26_1742_a2` PASS, and
+# `2026-08-26_1958` PASS attempt 1. Full ledger in section 6 of this file's header.
 #
-# WHAT THIS LANE IS FOR, restated at the block it will eventually be armed on: this is
-# the FIRST subject in the suite that can produce a `ROUTE_LINE_BUILD` record or a
-# per-unit `ROUTE` node at all, so `routeLineBuilds`, `routeCoDrawViolations` and the
-# whole of `_rule_route` have never executed against live data. The arming pass writes
-# `routeLineBuilds = { min = 1 }` and `routeCoDrawViolations = { max = 0 }` FROM the
-# reading, and D10 `route-map-lines` gets declared in that same commit - not before.
-# READING PENDING - see the renderComposition arming ledger in this file's header.
+# WHAT THIS LANE IS FOR, restated at the block it is armed on: this is the FIRST subject
+# in the suite that can produce a `ROUTE_LINE_BUILD` record or a per-unit `ROUTE` node at
+# all. `routeLineBuilds = { min = 1 }` below is THE SUITE'S FIRST ROUTE WINDOW and the
+# headline of the whole lane - and it only became expressible in the same change as this
+# arming: `rendercompose.RENDER_COMPOSITION_WINDOW_KEYS` carried exactly
+# ("dwells", "cycles", "unevaluable") until the three route/ownership facets were
+# promoted (todo RENDERCOMPOSE-OWNERSHIPCHANGES-IS-NOT-WINDOWABLE). The window is
+# written FROM the readings, not from the pre-registration - both measured 1.
+#
+# THE WINDOWS AND THEIR ARITHMETIC:
+#   routeLineBuilds { min = 1 }   measured 1 twice. THE ANTI-VACUITY FLOOR of this lane:
+#                                 without it a run whose route silently stopped drawing
+#                                 stands `_rule_route` down to unevaluable and greens.
+#                                 No ceiling: DrawAll builds once per member per draw
+#                                 pass and the observation instant is not pinned to a
+#                                 frame count, so a ceiling would pin sampling, not the
+#                                 subject.
+#   routeCoDrawViolations {max 0} measured 0 twice. The arbitration half: DrawAll must
+#                                 skip a member the ghost polyline already owns
+#                                 (`IsRenderingNonOrbitalLeg`). A violation is a real
+#                                 finding, so the ceiling is exact rather than loose.
+#   unevaluable { max = 10 }      measured 3 twice (`no-dwells-attributable-to-unit`,
+#                                 `no-cycle-rollover-events`,
+#                                 `warp-hold-traversal-evidence-absent`). 10 is ~3.4x
+#                                 the measurement - the SAME ratio-to-measurement the
+#                                 siblings carry (V14M 200/56 = 3.6x, V8 250/76 = 3.3x,
+#                                 V25M 1400/410 = 3.4x, V6M 300/84 = 3.6x), SCALED to
+#                                 this census rather than copied. It is a small integer
+#                                 here only because the census IS small: this lane holds
+#                                 no closed dwell and decimates no endpoint population,
+#                                 so there is no seam-endpoint regime to absorb.
+#   requireSeamKinds ["rigid"]    measured rigid 12 on BOTH readings and NOTHING else.
+#                                 `flexible-soi` is absent BY SCOPE, not by chance: the
+#                                 route is SameBody (Kerbin -> Kerbin), so requiring it
+#                                 would red the readings it was armed off.
+#
+# NO `dwells` AND NO `cycles` FLOOR, and the suite's shared `dwells = {min = 1, max = 32}`
+# convention DOES NOT FIT THIS LANE - said explicitly rather than copied. Both readings
+# measure dwells 0 (+1 open) and cycles 0: a single-epoch tracking-station observation
+# closes no dwell and rolls over no cycle, by construction. A floor on either would red
+# the two green runs this block was armed from, and a `{min = 0}` pin can never red at
+# all (`_validate_armed_unreddable` refuses it pre-launch). The anti-vacuity job those
+# keys do on a LOOP lane is done here by `routeLineBuilds` - a floor on the surface this
+# lane exists to observe.
+#
+# `warpBuckets` NEVER: the clock moves by two instantaneous TimeJumps, so the histogram
+# is 1x-only by construction (56 / 59 frames, every other bucket 0).
+# `ownershipChanges` NOT DECLARED although it is now windowable: measured 0 twice, which
+# is correct - the TS host publishes no TracedPath ownership on this subject - and a
+# `{max = 0}` there would assert the ABSENCE of a surface this lane does not exercise.
+# V6M is the lane that owns that clause.
+gating = true
+routeLineBuilds = { min = 1 }
+routeCoDrawViolations = { max = 0 }
+unevaluable = { max = 10 }
+requireSeamKinds = ["rigid"]
 
 [runtime]
 # 300 LoadGame + 300 TimeJump + 300 TimeJump + 300 LoadGame(TS) + 120 export + the fast
