@@ -2352,12 +2352,57 @@ class SpecSurfaceTests(unittest.TestCase):
 
     def test_the_assertion_key_vocabulary_is_pinned(self):
         self.assertEqual(("gating", "dwells", "cycles", "unevaluable",
+                          "routeLineBuilds", "routeCoDrawViolations",
+                          "ownershipChanges",
                           "warpBuckets", "requireSeamKinds"),
                          rc.RENDER_COMPOSITION_BLOCK_KEYS)
-        self.assertEqual(("dwells", "cycles", "unevaluable"),
+        self.assertEqual(("dwells", "cycles", "unevaluable",
+                          "routeLineBuilds", "routeCoDrawViolations",
+                          "ownershipChanges"),
                          rc.RENDER_COMPOSITION_WINDOW_KEYS)
         self.assertEqual(("warpBuckets", "requireSeamKinds"),
                          rc.RENDER_COMPOSITION_LIST_KEYS)
+
+    def test_the_three_promoted_keys_take_the_same_grammar_and_notches(self):
+        """The 2026-08-26 extension (todo
+        RENDERCOMPOSE-OWNERSHIPCHANGES-IS-NOT-WINDOWABLE) added three RECORDED
+        facets as window keys. They are not a second grammar: every notch the
+        original three carry applies to them unchanged."""
+        for key in ("routeLineBuilds", "routeCoDrawViolations",
+                    "ownershipChanges"):
+            self.assertEqual([], rc.validate_render_composition_expectations(
+                {"gating": True, key: {"min": 1}}), key)
+            # bare int = exact pin, and a negative one is refused
+            self.assertEqual([], rc.validate_render_composition_expectations(
+                {key: 0}), key)
+            self.assertTrue(any("must be >= 0" in e for e in
+                                rc.validate_render_composition_expectations(
+                                    {key: -1})), key)
+            # bool is not an int here either
+            self.assertTrue(any("must be a non-negative int" in e for e in
+                                rc.validate_render_composition_expectations(
+                                    {key: True})), key)
+            # the empty-window notch
+            self.assertTrue(any("gates nothing" in e for e in
+                                rc.validate_render_composition_expectations(
+                                    {key: {}})), key)
+            # the ARMED-unreddable notch: `{ min = 0 }` alone can never red
+            self.assertTrue(any("can never red" in e for e in
+                                rc.validate_render_composition_expectations(
+                                    {"gating": True, key: {"min": 0}})), key)
+            # ... and unarmed it is merely inert, not an error
+            self.assertEqual([], rc.validate_render_composition_expectations(
+                {key: {"min": 0}}), key)
+
+    def test_a_key_outside_the_extended_set_is_still_rejected(self):
+        """The extension accepts EXACTLY the three new spellings. Neighbours of
+        them - facet names that were NOT promoted, and near-misses of the ones
+        that were - stay pre-launch errors."""
+        for key in ("routeLegDefers", "lineBranches", "planUnits",
+                    "chainBuilds", "transitions", "seamEndpoints",
+                    "routeLineBuild", "ownershipChange", "routeCoDraw"):
+            errs = rc.validate_render_composition_expectations({key: {"min": 1}})
+            self.assertTrue(any("unknown key(s)" in e for e in errs), key)
 
 
 # ---------------------------------------------------------------------------
@@ -2472,6 +2517,115 @@ class EvaluateTests(unittest.TestCase):
         res = rc.evaluate_render_composition(exp, build(POSITIVE_MANIFEST))
         self.assertEqual(rc.STATUS_FAIL, res.status)
         self.assertEqual(("renderComposition.dwells 8 < min 99",), res.mismatches)
+
+    # -- the three promoted window keys (2026-08-26) -------------------------
+    #
+    # The positive fixture measures routeLineBuilds 1, routeCoDrawViolations 0,
+    # ownershipChanges 4. Each key gets a min violation, a max violation and an
+    # in-window pass off THOSE numbers, so the cells test the gate rather than a
+    # fixture that could never satisfy it.
+
+    PROMOTED = {"routeLineBuilds": 1, "routeCoDrawViolations": 0,
+                "ownershipChanges": 4}
+
+    def test_each_promoted_key_reds_below_its_floor(self):
+        for key, measured in self.PROMOTED.items():
+            exp = {"renderComposition": {"gating": True,
+                                         key: {"min": measured + 5}}}
+            res = rc.evaluate_render_composition(exp, build(POSITIVE_MANIFEST))
+            self.assertEqual(rc.STATUS_FAIL, res.status, key)
+            self.assertEqual(("renderComposition.%s %d < min %d"
+                              % (key, measured, measured + 5),),
+                             res.mismatches, key)
+
+    def test_each_promoted_key_reds_above_its_ceiling(self):
+        for key, measured in self.PROMOTED.items():
+            if measured == 0:
+                # A `{max = 0}` clause this fixture MEETS cannot also violate it;
+                # the ceiling half for a zero-measured key is exercised by the
+                # in-window cell below and by the min-violation cell above.
+                continue
+            exp = {"renderComposition": {"gating": True,
+                                         key: {"max": measured - 1}}}
+            res = rc.evaluate_render_composition(exp, build(POSITIVE_MANIFEST))
+            self.assertEqual(rc.STATUS_FAIL, res.status, key)
+            self.assertEqual(("renderComposition.%s %d > max %d"
+                              % (key, measured, measured - 1),),
+                             res.mismatches, key)
+
+    def test_each_promoted_key_passes_inside_its_window(self):
+        for key, measured in self.PROMOTED.items():
+            exp = {"renderComposition": {"gating": True,
+                                         key: {"min": measured,
+                                               "max": measured + 3}}}
+            res = rc.evaluate_render_composition(exp, build(POSITIVE_MANIFEST))
+            self.assertEqual(rc.STATUS_PASS, res.status, (key, res.mismatches))
+            self.assertEqual((), res.armed_mismatches, key)
+            # ... and the bare-int exact pin agrees with the measurement.
+            exp = {"renderComposition": {"gating": True, key: measured}}
+            self.assertEqual(rc.STATUS_PASS, rc.evaluate_render_composition(
+                exp, build(POSITIVE_MANIFEST)).status, key)
+
+    def test_routeCoDrawViolations_max_zero_is_the_arbitration_clause(self):
+        """The clause a route lane actually arms: DrawAll must skip a member the
+        ghost polyline owns. It PASSES on the clean fixture and reds on one that
+        records a violation, so the zero is measured rather than defaulted."""
+        exp = {"renderComposition": {"gating": True,
+                                     "routeCoDrawViolations": {"max": 0}}}
+        self.assertEqual(rc.STATUS_PASS, rc.evaluate_render_composition(
+            exp, build(POSITIVE_MANIFEST)).status)
+        res = rc.evaluate_render_composition(
+            exp, build(variant((ANCHOR_ROUTE_LEG_DEFER,
+                                CODRAW_VIOLATION_RECORD))))
+        self.assertEqual(rc.STATUS_FAIL, res.status)
+        self.assertIn("renderComposition.routeCoDrawViolations 1 > max 0",
+                      res.mismatches)
+
+    def test_an_absent_facet_under_a_declared_window_is_a_named_mismatch(self):
+        """ABSENT + WINDOWED = MISMATCH, the decision recorded on
+        `_check_windows_against_facets`. It is unreachable through the parser
+        today (the cell below pins every window key to an unconditional facet
+        key), so it is driven at the helper: a defaulted zero would PASS a
+        `{max = 0}` clause over a surface that never ran."""
+        mismatches = []
+        rc._check_windows_against_facets(
+            {"gating": True, "routeLineBuilds": {"min": 1},
+             "routeCoDrawViolations": {"max": 0}},
+            {"dwells": 3},                      # neither key measured
+            mismatches)
+        self.assertEqual(2, len(mismatches))
+        for key in ("routeLineBuilds", "routeCoDrawViolations"):
+            self.assertTrue(
+                any(m.startswith("renderComposition.%s: declared but NOT "
+                                 "MEASURED" % key) for m in mismatches),
+                (key, mismatches))
+        # The measured key beside them still evaluates normally.
+        mismatches = []
+        rc._check_windows_against_facets({"dwells": {"min": 9}},
+                                         {"dwells": 3}, mismatches)
+        self.assertEqual(["renderComposition.dwells 3 < min 9"], mismatches)
+
+    def test_every_window_key_is_an_unconditional_facet_key(self):
+        """Why the absent branch above is unreachable, and the guard that keeps
+        it so: a window key whose facet could go missing would be a window
+        answered by a default. Checked on the positive fixture AND on a minimal
+        one that measures nothing but the header."""
+        minimal = build("RENDER_MANIFEST\n{\n\tschemaVersion = 1\n}\n")
+        for snap in (build(POSITIVE_MANIFEST), minimal):
+            facets = rc.observed_composition_facets(snap)["renderComposition"]
+            for key in rc.RENDER_COMPOSITION_WINDOW_KEYS:
+                self.assertIn(key, facets)
+                self.assertIsInstance(facets[key], int)
+
+    def test_the_original_three_keys_are_unchanged_by_the_extension(self):
+        """The promotion added keys; it did not move the three that were there.
+        Same mismatch spellings, same numbers, off the same fixture."""
+        for key, measured, floor in (("dwells", 8, 99), ("cycles", 4, 9),
+                                     ("unevaluable", 1, 7)):
+            exp = {"renderComposition": {"gating": True, key: {"min": floor}}}
+            res = rc.evaluate_render_composition(exp, build(POSITIVE_MANIFEST))
+            self.assertEqual(("renderComposition.%s %d < min %d"
+                              % (key, measured, floor),), res.mismatches, key)
 
     def test_an_armed_block_gates_on_fail_findings_too(self):
         # The findings ARE the module; a block that armed but let a FAIL finding
@@ -2594,6 +2748,14 @@ ARMED_RED_RECIPES = {
     "dwells": ({"max": 0}, {"min": 1, "max": 32}, POSITIVE_MANIFEST),
     "cycles": ({"min": 99}, {"min": 1}, POSITIVE_MANIFEST),
     "unevaluable": ({"max": 0}, {"max": 10}, POSITIVE_MANIFEST),
+    # The three promoted 2026-08-26 - measured 1 / 0 / 4 on the positive
+    # fixture. `routeCoDrawViolations` is the one whose RED half is a FLOOR
+    # rather than a ceiling: the fixture measures zero (that IS the healthy
+    # arbitration reading), so the contradiction of a measurement is `{min = 1}`
+    # while the clause a lane actually arms is the satisfied `{max = 0}`.
+    "routeLineBuilds": ({"min": 5}, {"min": 1}, POSITIVE_MANIFEST),
+    "routeCoDrawViolations": ({"min": 1}, {"max": 0}, POSITIVE_MANIFEST),
+    "ownershipChanges": ({"max": 0}, {"min": 1, "max": 16}, POSITIVE_MANIFEST),
     "warpBuckets": (["warpHigh"], ["warp1x", "warp100"], POSITIVE_MANIFEST),
     "requireSeamKinds": (["flexible-soi"], ["rigid"],
                          variant(("kind = flexible-soi", "kind = none"))),

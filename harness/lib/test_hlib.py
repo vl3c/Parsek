@@ -6417,15 +6417,21 @@ class RenderComposeVerifierWiringTests(unittest.TestCase):
         # `seam-endpoint-skipped` (83 map-open, 109 map-closed) plus one
         # `warp-hold-traversal-evidence-absent`, i.e. it moves with endpoint population
         # and frame timing, not with correctness.
-        # `ownershipChanges` IS NOT DECLARED AND COULD NOT BE: it is a recorded FACET,
-        # not a windowable key - `rendercompose.RENDER_COMPOSITION_WINDOW_KEYS` is
-        # ("dwells", "cycles", "unevaluable") and the block validator rejects any other
-        # key outright. The RC-OWN premise (ownership is conserved on this subject) is
-        # therefore armed INDIRECTLY and completely: with `gating = true` every
+        # `ownershipChanges` IS NOT DECLARED. At arming it COULD not be - it was a
+        # recorded FACET and not a windowable key, and the block validator rejected any
+        # other key outright - so the RC-OWN premise (ownership is conserved on this
+        # subject) is armed INDIRECTLY and completely: with `gating = true` every
         # FAIL-level rule finding gates, so the three RC-OWN FAILs reading A raised would
-        # now classify `PARSEK-FAIL(render-composition)`. A first-class
-        # `ownershipChanges` window is filed as a harness improvement in
-        # docs/dev/todo-and-known-bugs.md rather than invented here.
+        # now classify `PARSEK-FAIL(render-composition)`. The schema gap was filed as a
+        # harness improvement rather than invented here, and CLOSED LATER THE SAME DAY:
+        # `RENDER_COMPOSITION_WINDOW_KEYS` now carries `ownershipChanges` (plus the two
+        # route keys) - see docs/dev/todo-and-known-bugs.md ->
+        # RENDERCOMPOSE-OWNERSHIPCHANGES-IS-NOT-WINDOWABLE. THIS BLOCK STILL DOES NOT
+        # DECLARE IT, deliberately: adding a window to an ALREADY ARMED lane needs its
+        # own armed re-flight + negative control on THIS lane, and an
+        # `ownershipChanges = { min = 6 }` written off flights that never evaluated it
+        # would be a prediction read back as a measurement - the exact failure this
+        # entry's deferral was recorded to avoid. Deferred to its own arming pass.
         # `warpBuckets` never (1x-only by construction, instantaneous TimeJumps).
         # ARMED RE-FLIGHT: DISCHARGED FOUR TIMES - `2026-08-26_1838`, `_1842`, `_1843`,
         # `_1844`, all PASS attempt 1 with gating=True,
