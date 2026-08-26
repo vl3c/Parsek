@@ -257,7 +257,10 @@ class KeepParsekModeTests(unittest.TestCase):
         with open(os.path.join(root, "Ships", "VAB", "X.craft"), "w") as fh:
             fh.write("ship = X")
         with open(os.path.join(root, "persistent.sfs"), "w") as fh:
-            fh.write(SFS)
+            # the sidecar's id must be REFERENCED by the save or the orphan
+            # prune (correctly) removes it - a real recorded save always
+            # carries its RECORDING rows
+            fh.write(SFS + "RECORDING_STUB { id = abc }" + chr(10))
 
     def _harvest_into_temp(self, save_dir, target_name, **kw):
         import tempfile
@@ -306,3 +309,35 @@ class KeepParsekModeTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class OrphanSidecarTests(unittest.TestCase):
+    """The orphan prune added after the 2026-08-24 G3a harvest committed two
+    uncommitted single-POINT `.prec` stubs named nowhere in persistent.sfs
+    (CommittedFixtureMirrorTests then red on the missing `_vessel.craft`
+    mirrors). The membership rule is the WIDEST one - the id occurring
+    ANYWHERE in the sfs text keeps the file - so the prune can only ever
+    remove sidecars nothing references."""
+
+    SFS = "GAME { RECORDING_TREE { RECORDING { id = aaaa1111 } } }"
+
+    def test_referenced_sidecars_are_kept_whatever_their_suffix(self):
+        names = ["aaaa1111.prec", "aaaa1111_vessel.craft",
+                 "aaaa1111_ghost.craft", "aaaa1111.pcrf"]
+        self.assertEqual([], harvest.orphan_sidecars(names, self.SFS))
+
+    def test_unreferenced_sidecars_are_orphans(self):
+        names = ["aaaa1111.prec", "dead0000.prec", "dead0000_vessel.craft"]
+        self.assertEqual(["dead0000.prec", "dead0000_vessel.craft"],
+                         harvest.orphan_sidecars(names, self.SFS))
+
+    def test_the_membership_test_is_whole_text_not_recording_rows(self):
+        """An id referenced by ANY node type (a novel pointer field, a group
+        row, a supersede relation) keeps its sidecars - the widest rule, so a
+        schema addition can never make the prune destructive."""
+        sfs = "GAME { SOME_NOVEL_NODE { anchorRecordingId = bbbb2222 } }"
+        self.assertEqual([], harvest.orphan_sidecars(["bbbb2222.prec"], sfs))
+
+    def test_an_empty_or_extensionless_name_is_never_pruned_blindly(self):
+        # a defensive shape: a name yielding an empty id token is kept
+        self.assertEqual([], harvest.orphan_sidecars([".prec", "_x.craft"],
+                                                     self.SFS))

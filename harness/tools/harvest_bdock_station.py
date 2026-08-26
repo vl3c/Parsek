@@ -310,6 +310,24 @@ def check_active_situation(records, active_index, expected):
     return True, "active vessel %r is %s" % (name, sit)
 
 
+def orphan_sidecars(sidecar_names, sfs_text):
+    """Sidecar files whose recording id the produced persistent.sfs never
+    mentions, anywhere. The 2026-08-24 G3a harvest carried two uncommitted
+    single-POINT .prec stubs named nowhere in the save; a committed fixture
+    cannot keep them (CommittedFixtureMirrorTests requires every committed
+    .prec to keep its _vessel.craft, which an orphan stub has none of). The
+    membership test is deliberately the WIDEST one - the id occurring
+    ANYWHERE in the sfs text keeps the file - so this can only ever prune
+    sidecars that nothing references, never one a novel node type points at.
+    Pure: takes names + text, returns the orphans, touches no filesystem."""
+    orphans = []
+    for name in sidecar_names:
+        rec_id = re.split(r"[._]", name, maxsplit=1)[0]
+        if rec_id and rec_id not in sfs_text:
+            orphans.append(name)
+    return orphans
+
+
 def harvest(save_dir: str, target_name: str, title: str, force: bool,
             expected_situations=(), keep_parsek: bool = False) -> int:
     if not os.path.isdir(save_dir):
@@ -433,6 +451,14 @@ def harvest(save_dir: str, target_name: str, title: str, force: bool,
         recordings = os.path.join(target, "Parsek", "Recordings")
         sidecars = sorted(os.listdir(recordings)) if os.path.isdir(recordings) \
             else []
+        # Prune sidecars the save never mentions (harvest exhaust: e.g.
+        # uncommitted single-POINT stubs) BEFORE the tally, so the fixture
+        # the tally describes is the fixture that gets committed. See
+        # orphan_sidecars for the widest-membership rationale.
+        for name in orphan_sidecars(sidecars, normalized):
+            os.remove(os.path.join(recordings, name))
+            log("pruned orphan sidecar %s (id named nowhere in persistent.sfs)" % name)
+            sidecars.remove(name)
         # The refusal gate ran BEFORE the write (Sanity 3); this is the tally.
         log("fixture Parsek/Recordings: %d file(s)" % len(sidecars))
 
