@@ -1,0 +1,476 @@
+schema = 1
+id = "V18T-depot-route-ts-arrival"
+# =====================================================================================
+# V18T: **THE SUITE'S FIRST ROUTE LANE.** A tracking-station observation of a COMMITTED,
+# ACTIVE, GHOST-DRIVING SUPPLY ROUTE - the front door G1 has named as its top-ranked gap
+# since the register was written, and the first lane anywhere that can put a non-zero
+# number in the render-composition manifest's `routeLineBuilds` census.
+#
+# ---------------------------------------------------------------------------------
+# 0. THE G1 DISCHARGE LEDGER - what this lane closes and what it explicitly does not
+# ---------------------------------------------------------------------------------
+# G1 (`docs/dev/autotest-roadmap.md` -> "The gap register, ranked") names FIVE things one
+# route lane measures at once. This lane's POSTURE against each, stated before any run
+# exists so the reading cannot be graded against a moving target:
+#
+#   (1) THE ROUTE FRONT DOOR (`SelectGhostDrivingBackingMissions` -> `BuildMission` ->
+#       the host union). GATED HERE, and it is the one thing this lane cannot be vacuous
+#       about: `SelectGhostDrivingBackingMissions: ghostDriving=[1-9]` plus
+#       `TS startup loop units: ... routeMissions=[1-9]` are both REQUIRED below. The TS
+#       host's `BuildStartupTrackingStationLoopUnits` folds route-driving backing
+#       missions onto `MissionStore.Missions` before the one-shot startup create
+#       (`GhostMapPresence.cs:9114-9166`), which is exactly why this lane arms NO mission
+#       loop of its own - the route drives, and arming a mission would measure the
+#       mission path instead.
+#   (2) THE `RouteStatusPolicy.GhostDriving` SUPPRESSION GATE. GATED, in the falsifiable
+#       direction: `RevalidateSources reason=.* routes=1 transitioned=0` is REQUIRED. A
+#       route that flipped to `SourceChanged` / `MissingSourceRecording` / `EndpointLost`
+#       on load would still let (1)'s selector line print `ghostDriving=0`, and this
+#       token is what separates "the gate held" from "the gate ate the subject" - see
+#       section 3.
+#   (3) THE ROUTE-OWNED CADENCE (`RouteLoopClock`, `DispatchInterval`, the floored
+#       anchor). READ, NOT GATED. Section 2 derives the dock instant under the two
+#       branch hypotheses the product can take and finds they differ by ~10.8 ks, which
+#       is precisely why no cadence token is pinned on a first flight.
+#   (4) THE ROUTE OVERVIEW LINE (registry D10 `route-map-lines`). MEASURED, NOT CLAIMED.
+#       `routeLineBuilds >= 1` in the manifest is THE headline facet of this lane - the
+#       first non-zero occurrence of that census anywhere in the suite - and
+#       `routeCoDrawViolations = 0` is its arbitration half. Both are recorded through
+#       the BARE `[expectations.renderComposition]` block and gate nothing yet, so per
+#       H35 CLAIM-IS-NOT-GATE (and supervisor decision 9 of `.scout/route-harvest-plan.md`)
+#       D10 `route-map-lines` IS NOT DECLARED in `[dimensionsCovered]`. It gets declared
+#       in the arming pass that writes the first window, not before.
+#   (5) THE DOCK / STATION ENDPOINT. PARTIALLY READ - section 4.
+#
+# NOT CLOSED BY THIS LANE, and named so nobody books it: the `IsCareer && IsKscOrigin`
+# funds check (this fixture is SANDBOX), G3b's surface `RouteEndpointResolver`
+# nearest-vessel fallback (a DockingPort STOP, not a surface one), and the FLIGHT-MAP
+# half V18M owes.
+#
+# ---------------------------------------------------------------------------------
+# 1. WHY THE TRACKING STATION FIRST, AND WHY THAT IS A MEASURED FACT
+# ---------------------------------------------------------------------------------
+# Supervisor decision 3 made V18T-before-V18M conditional on an inspection, and the
+# inspection came back positive. `RouteTrajectoryLineRenderer.DrawAll` has exactly ONE
+# production call site - `GhostTrajectoryPolylineRenderer.Driver.OnRouteLinePreCull`, an
+# independent map-camera `Camera.onPreCull` slot at
+# `Source/Parsek/Display/GhostTrajectoryPolylineRenderer.cs:3894-3906` - and its COMPLETE
+# guard chain is:
+#     PlanetariumCamera.fetch != null && cam == PlanetariumCamera.Camera
+#     scene is TRACKSTATION or FLIGHT
+#     a per-frame de-dupe (routePrecullDrawnFrame)
+# There is NO `MapView.MapIsEnabled` anywhere on that path - not in the host
+# (`[KSPAddon(Instantly, once)]` + DDOL), not in the hook, and not inside `DrawAll`
+# (whose only gate is the `showRouteLines` setting, default true). The method's own
+# summary says it "does NOT gate on pendingDrawsFrame: a committed route draws its static
+# path whether or not a ghost was decided this frame." The GHOST polyline pass IS
+# map-gated, one structure further down at `:4014`.
+#
+# CONSEQUENCE, and it shapes every step below: in the TRACKING STATION the planetarium
+# camera renders unconditionally, so the route line draws. In the FLIGHT scene it does
+# NOT, because with the map closed the planetarium camera never culls. **THIS LANE'S
+# FLIGHT PRELUDE THEREFORE DRAWS NO ROUTE LINE BY CONSTRUCTION** - it is clock work and
+# nothing else, and the ENTIRE route-line observation lives in the TS dwell. That is the
+# whole content of "V18T can fly first"; V18M is the lane that owes `EnterMapView` (R12,
+# PR #1539), and it owes it precisely because it also asserts GHOST polyline facets.
+#
+# ---------------------------------------------------------------------------------
+# 2. THE CLOCK, DERIVED - AND THE BRANCH THIS DERIVATION CANNOT SETTLE
+# ---------------------------------------------------------------------------------
+# All arithmetic below is off the COMMITTED fixture bytes (`persistent.sfs`), quoted to
+# the digit so a re-derivation can check it rather than trust it.
+#
+#   route 5420f805...    recordedDockUT      17,478.248634212287
+#                        dispatchInterval    16,058.001895760137  (= transitDuration)
+#                        dispatchWindowPeriod 0 (SameBody: no synodic window)
+#                        loopAnchorUT        -1        (UNSET)
+#                        lastObservedLoopCycleIndex 0, completedCycles 1
+#   its four SOURCE rows span, in recorded UT:
+#                        44129e52 [ 1,420.246738452149 ,  1,734.5198414792137]
+#                        8b036c83 [ 2,554.2070300253936,  2,889.8156530721844]
+#                        0c8ec58d [17,265.722696710152 , 17,478.268634212287]
+#                        70667ab4 [17,478.248634212287 , 17,594.508634214824]  <- DOCK
+#   so  spanStartUT = 1,420.246738452149   spanEndUT = 17,594.508634214824
+#       span        = 16,174.261895762675
+#       dockOffset  = recordedDockUT - spanStartUT = 16,058.001895760138
+#                     - i.e. the route's `transitDuration` IS the dock's span offset, to
+#                       the last digit. That identity is not decoration: it is what makes
+#                       the route's dispatch cadence and the render clock's dock phase the
+#                       same number measured two ways.
+#   save clock (FLIGHTSTATE UT) = 36,138.111257421704
+#
+# `RouteBackingMission.BuildMission` sets `LoopPlayback = true`,
+# `LoopIntervalSeconds = route.DispatchInterval`, `LoopTimeUnit = Sec` and
+# `LoopAnchorUT = route.LoopAnchorUT` (= -1). `MissionLoopUnitBuilder` then floors both
+# the anchor and the phase-lock search reference at `spanEndUT` (the first-play floor,
+# `MissionLoopUnitBuilder.cs:288-294`), so the -1 is silently overridden - which the
+# file's own header calls out - and the CADENCE is
+#     max(max(LoopIntervalSeconds, span), MinCycleDuration) = 16,174.261895762675
+# i.e. THE SPAN FLOOR BITES: the render cadence is 116.26 s LONGER than the route's
+# dispatch interval, because the dock member's 116 s tail runs past the dock instant.
+#
+# **THE BRANCH THIS LANE CANNOT SETTLE PRE-FLIGHT.** Which phase anchor the unit ends up
+# with depends on what `MissionPeriodicity.ExtractConstraints` emits for a KSC-origin
+# mission that ENDS IN A DOCKING, and that is a live measurement, not an arithmetic one:
+#
+#   H-A  UNLOCKED / FAITHFUL. The extraction reports no lockable config, `ShouldPhaseLock`
+#        is false, and the builder keeps `baseAnchorUT` and the raw cadence:
+#            phaseAnchor = spanEnd = 17,594.508634214824   cadence = 16,174.261895762675
+#            dock_n = phaseAnchor + n*cadence + 16,058.001895760138
+#              n=0 -> 33,652.510529974962   (already PAST the save clock)
+#              n=1 -> 49,826.772425737637   <- the current forward cycle
+#
+#   H-B  SINGLE-ROTATION PHASE LOCK. The extraction emits ONLY `Rotation(Kerbin)` (the
+#        pad-rooted launch constraint V14T's reading measured the emission rule for), the
+#        single-constraint branch at `MissionPeriodicity.cs:726-733` returns
+#        `method=single-rotation`, `ShouldPhaseLock=true`, P = 21,549.425183 s:
+#            phaseAnchor = NextWindow(1,420.2467, P, >= 17,594.5086)
+#                        = 1,420.246738 + 1*21,549.425183 = 22,969.671922
+#            cadence     = QuantizeCadenceToMultipleOfP(16,174.2619, P) = 21,549.425183
+#            dock_n = 22,969.671922 + n*21,549.425183 + 16,058.001896
+#              n=0 -> 39,027.673818   <- the current forward cycle
+#              n=1 -> 60,577.099001
+#
+#   H-C  VESSEL-ORBITAL DOMINANT. The extraction ALSO emits a `VesselOrbital` constraint
+#        for the Depot rendezvous. `MissionPeriodicity.cs:890-895` ranks VesselOrbital
+#        WITH Orbital, i.e. ABOVE Rotation, so the Depot's own park period would dominate
+#        (its orbit is alt 215,032.70 m -> sma 815,032.70 m -> T ~ 2,459.9 s) and the two
+#        constraints are incommensurate, which routes to `joint-best-fit` /
+#        `dominant-intercept` AND makes a zero-drift `RelaunchSchedule` buildable. The
+#        anchor is then NOT computable from these bytes at all. H-C is the reason this
+#        section stops at "read it off the run" instead of pinning a third table.
+#
+# **THE JUMP UTs ARE CHOSEN TO BE HONEST UNDER ALL THREE.** Both are strictly forward of
+# the save clock 36,138.111 and of each other, and the second is past the dock instant of
+# BOTH computable hypotheses:
+#       38,600  -  428.7 s BEFORE H-B's cycle-0 dock; 11,226.8 s before H-A's cycle-1
+#                  dock; a forward clock position under H-C whatever its anchor.
+#       50,200  -  373.2 s AFTER H-A's cycle-1 dock and 11,172.3 s after H-B's cycle-0
+#                  dock. THIS is the epoch the save is taken at, so it is the epoch the
+#                  TS dwell observes.
+# A non-forward jump answers `REJECTED reason=backward-jump`, which is only a WARN; that
+# token is FORBIDDEN below so a mis-derived anchor self-detects instead of greening a run
+# that dwelled nowhere (the V3C run-3 guard).
+#
+# CALIBRATION RECIPE FOR ROUND 2, so the re-pin is mechanical rather than another
+# derivation: read `ExtractConstraints: ... constraints=N [...]` (which of H-A / H-B / H-C
+# the extraction took), then `PhaseLock APPLIED: mission=... method=...` or
+# `PhaseLock SKIPPED: mission=... support=...` (which anchor branch), then the anchor
+# itself off whichever of those two lines printed. The dock phase is then
+# `phaseAnchor + n*cadence + 16,058.001895760138` with the cadence off the same line.
+#
+# ---------------------------------------------------------------------------------
+# 3. WHAT COULD MAKE THIS LANE VACUOUS, AND THE TOKEN THAT CATCHES IT
+# ---------------------------------------------------------------------------------
+# `RouteStore.RevalidateSources` compares NINE `SOURCE` fields (recordingId / treeId /
+# treeOrder / startUT / endUT / sidecarEpoch / format / generation / routeProofHash)
+# against a live rebuild, and ANY drift flips the route to `SourceChanged`, which NEVER
+# auto-recovers. `RouteStatusPolicy.GhostDriving` is false for that status, so the
+# selector would return zero missions, the TS host would union nothing, and the whole
+# lane would green while measuring an empty tracking station - the V1/V2 vacuity shape.
+#
+# The realistic trigger is not corruption but the LOAD-TIME OPTIMIZER: a split or a merge
+# landing on any of the four source recordings moves `startUT` / `endUT` and flips the
+# route. That is why the anti-vacuity set here is THREE tokens rather than one
+# (`transitioned=0`, `ghostDriving=[1-9]`, `routeMissions=[1-9]`) and why the recordings
+# window below is a bracket rather than a pin: the optimizer's verdict on this fixture's
+# 22 recordings has never been observed.
+#
+# ---------------------------------------------------------------------------------
+# 4. THE DOCK CLIP - THE SHARPEST THING THIS LANE MIGHT MEASURE, PRE-REGISTERED
+# ---------------------------------------------------------------------------------
+# `rendercompose._rule_route`'s last clause transcribes
+# `RouteTrajectoryLineRenderer.LegWithinDockClip` exactly: a route member that a dwell
+# RENDERED must satisfy `legStartUT < dockClipUT`, a STRICT inequality. This fixture's
+# dock member `70667ab4` starts at 17,478.248634212287 and `recordedDockUT` is
+# 17,478.248634212287 - THE SAME DOUBLE. So `<` is false, and if any dwell in the export
+# renders that member, RC-ROUTE raises one FAIL-level finding.
+#
+# THAT IS A MEASUREMENT, NOT A BUG TO PRE-EMPT. Under the bare block below it is
+# report-only, and it is the first time the clause has had a subject at all. To render
+# the dock member the loop clock has to land inside its 116.26 s window out of a >= 16 ks
+# cycle, which section 2 says cannot be aimed at until the anchor is measured - so a
+# reading that never renders it is the EXPECTED outcome and a reading that does is the
+# more interesting one. Either way the number goes in the ledger; neither reds this run.
+#
+# ---------------------------------------------------------------------------------
+# 5. B27 IS A STAMP, NOT A FLIGHT - the provenance this lane stands on
+# ---------------------------------------------------------------------------------
+# `fixtures/saves/depot-route-recorded` is a HARVEST of the operator's own free-play
+# sandbox save, not a forged fixture, because route candidacy is gated on
+# `IsTreeFullySealed` and both verbs that could satisfy it (`SealSlot`, `RouteCommand`)
+# are RESERVED - H35 ROUTE-CANDIDACY-GATED-ON-SEAL-NO-SEAM-PATH. No driven run can create
+# a ROUTE today. The full provenance, the pinned route shape, the two-recording INV2
+# repair and the analyzer reading (`FAIL=0 WARN=0 INFO=0 STALE=0 RED=0` - the only
+# zero-WARN RECORDED fixture in the suite) live in
+# `harness/lib/test_saveparse.py::CommittedFixtureSweepTests.RECORDED_FIXTURES`, and the
+# register amendment is in `docs/dev/autotest-roadmap.md` under G1.
+#
+# ---------------------------------------------------------------------------------
+# 6. renderComposition ARMING LEDGER (M-A7 Phase 4 / Wave B)
+# ---------------------------------------------------------------------------------
+#   POSTURE  DECLARED BARE. Nothing is armed and nothing gates. Declaring is what sets
+#            `PARSEK_RENDER_MANIFEST=1` at launch and arms the C# recorder at Awake; the
+#            single `ExportRenderManifest` step immediately before teardown takes the
+#            composition at a chosen instant rather than at the scene-exit auto-flush.
+#   HEADLINE `routeLineBuilds >= 1` - and it would be the FIRST NON-ZERO READING OF THAT
+#            CENSUS ANYWHERE IN THE SUITE. Every committed declarer to date measures it at
+#            zero for the same structural reason: no fixture carries a ROUTE. Its
+#            arbitration half is `routeCoDrawViolations = 0` (DrawAll skips a member the
+#            ghost polyline owns, via `IsRenderingNonOrbitalLeg`).
+#   PLAN     The manifest's per-unit `ROUTE` node is the plan-ROUTE JOIN this lane exists
+#            to exercise: `_rule_route` reads `unit.route.scope` + `recorded_dock_ut` and
+#            joins them against the unit's own members. No other subject can produce that
+#            node, so RC-ROUTE's per-unit half has never executed.
+#   SCOPE    Expected `SameBody` (both endpoints Kerbin). Under that scope
+#            `transferLegsDropped > 0` is a FAIL by rule - the endpoint filter runs only
+#            for InterBody - so a non-zero drop count here is a real finding.
+#   READING  PENDING. Windows get written FROM the measured facets, at arming, by
+#            operator decision, on the three-run discipline (reading -> armed re-flight ->
+#            negative control). A window written today would be a prediction read back as
+#            a measurement.
+# =====================================================================================
+tier = "operator"
+description = "AUTHORED 2026-08-26, NEVER FLOWN, READING PENDING. THE SUITE'S FIRST ROUTE LANE and the first subject that can put a non-zero number in the render-composition manifest's `routeLineBuilds` census. A tracking-station observation of the committed, Active, GhostDriving SameBody supply route `5420f805...` (Kerbin -> Kerbin, DockingPort STOP onto the `Depot`) carried by the B27 harvest `depot-route-recorded`. NO mission loop is armed: the ROUTE drives, through `SelectGhostDrivingBackingMissions` -> `RouteBackingMission.BuildMission` -> the TS host union, and arming a mission would measure the mission path instead. It flies the TS half FIRST on a MEASURED fact rather than a preference - `RouteTrajectoryLineRenderer.DrawAll`'s only call site is a map-camera onPreCull hook whose guard chain carries no `MapView.MapIsEnabled` (GhostTrajectoryPolylineRenderer.cs:3894-3906), so the tracking station draws route lines with no `EnterMapView` verb while the FLIGHT prelude draws none at all. Two forward TimeJumps park the clock either side of the dock instant of BOTH computable anchor hypotheses (the phase-anchor branch is genuinely unresolvable pre-flight and all three candidates are derived in the header); the save is taken at the later one, so the TS dwell observes the post-dock side. Anti-vacuity is three tokens, not one: `RevalidateSources ... transitioned=0` (the route did not flip to SourceChanged under the load-time optimizer), `ghostDriving=[1-9]` (the front door selected it) and `routeMissions=[1-9]` (the TS host unioned it), on top of the TS host's own `created N ghost vessel(s)`. `[expectations.renderComposition]` is DECLARED BARE - D10 `route-map-lines` stays UNDECLARED until a gating token earns it (H35 CLAIM-IS-NOT-GATE, supervisor decision 9)."
+instanceProfile = "stock-minimal"
+tags = ["V18", "route", "logistics", "tracking-station", "same-body", "kerbin", "depot",
+        "dock", "render-composition", "rc-route", "map-render"]
+
+[fixture]
+# The B27 harvest: TWO committed trees (`c9ef80ee...` the route's backing tree, kept
+# WHOLE because RevalidateSources compares nine SOURCE fields against a live rebuild;
+# `af5628b4...` the `Depot`'s own launch lineage, proven NOT independent by the shared
+# `recordedVesselGuid`), 22 recordings, ONE ROUTE, 19 VESSEL nodes, SANDBOX, save clock
+# 36,138.111257421704, active vessel re-pointed to `Depot` (pid 3620499050, ORBITING).
+# Payload pinned byte-for-byte in
+# `harness/lib/test_saveparse.py::CommittedFixtureSweepTests.RECORDED_FIXTURES`; the
+# ROUTE itself is pinned BUILDER-side in `build_depot_route_recorded.py::verify_route`
+# (saveparse.py has no `routes` facet yet - a filed improvement).
+saveTemplate       = "fixtures/saves/depot-route-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  # Kill the scene-entry auto-recorder. HARD precondition, not hygiene: the SECOND
+  # LoadGame below is REJECTED `recording-active` by the dispatch guard if a recorder is
+  # live, and SaveGame would persist a half-recorded stub into the save the TS half then
+  # reads. This fixture's own parked craft (`Depot`) is the active vessel, which is
+  # exactly the committed-tree-restore shape that re-arms a promotion stub ~1 s into the
+  # scene (V2 flight 4 / V5 run 1 / B23 flight 1).
+  { cmd = "StopRecording",                                                   expect = "OK" },
+  { cmd = "DiscardTree",                                                     expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  # The three tracers every render-composition declarer must arm
+  # (`test_every_declarer_arms_the_tracers_the_seam_capture_needs`): mapRenderTracing
+  # arms the map/TS tracer + probe AND gates every seam capture predicate the manifest
+  # reads; ghostRenderTracing is the FLIGHT-scene Tier-C raise gate; verboseLogging is
+  # LOAD-BEARING beside both because the tracer emits its Tier-B truth at Verbose (the V1
+  # lesson). Settings are process-global, so all three survive the LoadGame into TS.
+  { cmd = "SetSetting", args = { name = "ghostRenderTracing", value = "true" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "mapRenderTracing",   value = "true" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" }, expect = "OK" },
+  # ARMED EXPLICITLY rather than relied on: `showRouteLines` is the ONLY gate inside
+  # `RouteTrajectoryLineRenderer.DrawAll`, and it defaults true - but a lane whose entire
+  # subject is the route overview line must not depend on a default it does not state.
+  { cmd = "SetSetting", args = { name = "showRouteLines",     value = "true" }, expect = "OK" },
+  # PRE-DOCK CLOCK POSITION (header section 2): 428.7 s before H-B's cycle-0 dock,
+  # 11,226.8 s before H-A's cycle-1 dock. In FLIGHT with the map closed this draws NO
+  # route line (section 1) - it is a clock position and a forward-jump proof, not a render
+  # observation. The TS observation of the pre-dock side is a SECOND-ROUND pin, owed once
+  # this run measures which anchor branch the unit took.
+  { cmd = "TimeJump", args = { ut = "38600" }, expect = "OK", budget = 300 },
+  # PACING SPACERS. `MapRenderTrace.IsLineBlink` raises when a proto line's ON/OFF pair
+  # lands within 8 visual frames, and two back-to-back seam TimeJumps execute ~4-7 WALL
+  # frames apart regardless of the game seconds between them (V8 runs _0810 / _0814 both
+  # PARSEK-FAILed on exactly that shape). RecordingState is AnyScene and side-effect-free.
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  # POST-DOCK CLOCK POSITION: 373.2 s past H-A's cycle-1 dock and 11,172.3 s past H-B's
+  # cycle-0 dock. THE SAVE IS TAKEN HERE, so this is the epoch the TS dwell observes.
+  { cmd = "TimeJump", args = { ut = "50200" }, expect = "OK", budget = 300 },
+  # PERSIST the jumped clock. No mission state to persist - the route is already
+  # committed in the fixture and drives from its own store.
+  { cmd = "SaveGame",   args = { name = "persistent" },                      expect = "OK" },
+  # RE-KILL THE RECORDER immediately before the load the guard rejects (V5's measured
+  # re-arm race: start 50.294 -> StopRecording 50.599 -> a SECOND start 50.842).
+  { cmd = "StopRecording",                                                   expect = "OK" },
+  { cmd = "DiscardTree",                                                     expect = "OK" },
+  # RE-ENTER IN THE TRACKING STATION (R12's additive `scene=` arg, the H23 route). This
+  # fixture has a focusable vessel and would otherwise route to FLIGHT, so a TRACKSTATION
+  # landing can only mean the requested scene overrode the save-derived route.
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent", scene = "trackstation" }, expect = "OK", budget = 300 },
+  # TWO DWELL TICKS. No seam verb passes time in TS (every clock verb is RequiresFlight),
+  # so these are the only time-passing instrument the scene has - named as ticks, not as
+  # a dwell window. V5 measured the equivalent pair at 1.08 s of 1x TS time. That is
+  # enough for the question this lane asks: the planetarium camera culls every frame, so
+  # ONE frame is enough for `DrawAll` to build and draw, and the manifest's
+  # `NoteRouteLineBuild` hook is signature-gated rather than rate-limited.
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  # M-A7 RENDER-COMPOSITION CAPTURE. PLACEMENT IS THE ARGUMENT and it is pinned by
+  # `test_every_declarer_exports_immediately_before_teardown`: the recorder accumulates
+  # from Awake, so placement decides only how much of this lane's observation is already
+  # inside the file - and taking it HERE takes it at a chosen instant rather than leaving
+  # the composition to the scene-exit auto-flush that follows `FlushAndQuit`.
+  # INERT by construction (`hlib.SEAM_VERB_TAIL_ROLE["ExportRenderManifest"]` = inert):
+  # an in-memory read plus one file write in the KSP root, touching no vessel, no save and
+  # no Parsek persisted state.
+  { cmd = "ExportRenderManifest",                        expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                    expect = "OK" },
+]
+
+# CLAIM-IS-NOT-GATE, and on a reading run the list is short for that reason.
+#   D14 `scene-ts`  gated by the two R12 route tokens plus the TS host's own
+#       initialization line - the same three V14T claims it on.
+#   D14 `sandbox`   gated by the fixture (Mode = SANDBOX in the committed bytes).
+#   D14 `kerbin`    gated by the route being a Kerbin -> Kerbin SameBody route whose STOP
+#       endpoint resolves to a Kerbin-orbiting vessel, and by the TS host materializing a
+#       ghost for it. It is the WEAKEST of the three and is claimed anyway because the
+#       body is structural here rather than incidental: the route's scope resolution walks
+#       every member's recording body and a non-Kerbin member would change the scope.
+#
+# DELIBERATELY NOT CLAIMED:
+#   D10 `route-map-lines` - THE ONE THIS LANE IS ABOUT, and the whole point of not
+#       claiming it. Supervisor decision 9 and H35 CLAIM-IS-NOT-GATE: the block below is
+#       BARE, so `routeLineBuilds` is RECORDED and asserted on by nothing. A coverage
+#       claim backed by no gate is exactly the vacuity this register exists to refuse.
+#       It gets declared in the same commit that arms `routeLineBuilds`, citing the run.
+#   D10 `dispatch-cadence` - section 2 could not settle the anchor branch, so this lane
+#       reads the cadence and asserts nothing about it.
+#   D10 `dock-producer` / `delivery` - this lane OBSERVES a route mid-cycle; it produces
+#       no dock and delivers no cargo.
+#   D11 anything - no mission loop is armed here.
+[dimensionsCovered]
+D14 = ["kerbin", "scene-ts", "sandbox"]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING (hlib.validate_spec rejects a bare allowedAnomalies written
+# after any [expectations.<sub>] header).
+#
+# THE SWEEP SHIPS FULLY ARMED, ON PURPOSE, AND THIS LANE MAY WELL RED BECAUSE OF IT.
+# Every sibling TS lane in the V14T/V15T/V16T family measured `icon-off-orbit` on the
+# ghost-proto creation frame after a single large TimeJump, deterministically, at three
+# different parents - and this lane takes two such jumps. Pre-tolerating it would destroy
+# the only thing worth having on a first flight: the COUNT it fires at. The S1.4 rule is
+# explicit that a token is re-added WITH the flight that shows it, so the list stays
+# empty until a run exists.
+allowedAnomalies = []
+
+[expectations.recordings]
+# A BRACKET, NOT A PIN - and deliberately wider than it looks like it needs to be.
+# The fixture ships 22 `.prec` sidecars and 22 RECORDING nodes. This lane starts no
+# recording of its own and the step triple above kills the scene-entry promotion stub,
+# but that pair kills ONE stub and is not a latch, so 23 is admissible. The ceiling adds
+# headroom for the LOAD-TIME OPTIMIZER, which has never been observed on these bytes:
+# this save carries a Dock and an Undock branch point (the suite's first of each) and two
+# multi-member chains, so both `SplitAtUT` and `CanAutoMerge` have candidate populations
+# here that no prior fixture presented.
+#
+# THE FLOOR IS 20, i.e. BELOW the fixture's own 22, and that is margin for the unknown
+# rather than a prediction that something merges. A reading BELOW 22 is to be
+# INVESTIGATED, not window-widened - and it is doubly load-bearing here, because a merge
+# landing on any of the four ROUTE SOURCE recordings moves a `startUT` / `endUT` and flips
+# the route to `SourceChanged` (header section 3), which is the one failure mode that
+# would make this lane green and empty at the same time.
+count = { min = 20, max = 30 }
+
+[expectations.logContracts]
+# THE ROUTE FRONT-DOOR CHAIN, in order, and every one of these is an ANTI-VACUITY gate
+# rather than a nicety - a TS boot that unions no route mission observes an empty
+# tracking station, and reading that as a pass is the V1/V2 failure this suite exists to
+# refuse.
+#   "RevalidateSources reason=.* routes=1 transitioned=0" - Info, from RouteStore, once
+#       per revalidate pass. `routes=1` proves the committed ROUTE survived the load;
+#       `transitioned=0` proves it did NOT flip out of Active (SourceChanged /
+#       MissingSourceRecording / EndpointLost) under the load-time optimizer. This is the
+#       falsifiable half of the whole lane - see header section 3.
+#   "SelectGhostDrivingBackingMissions: ghostDriving=[1-9]" - the route front door
+#       selected at least one GhostDriving route and materialized its backing mission.
+#       VerboseOnChange on a per-state key, so the first pass always prints.
+#   "TS startup loop units: .*routeMissions=[1-9]" - the TS host's OWN union line
+#       (`GhostMapPresence.BuildStartupTrackingStationLoopUnits`). It says the route
+#       mission reached the builder input for the one-shot startup create, which is the
+#       difference between "a route exists" and "the tracking station is rendering it".
+#   "Route line build: route=" - `RouteTrajectoryLineRenderer` built the overview line
+#       set. Signature-gated (it fires only on an actual rebuild), which is the same hook
+#       the manifest's `routeLineBuilds` census sits behind, so this token and that facet
+#       are two readings of one event. VerboseRateLimited at 5.0 s on a per-route key -
+#       the FIRST emission is never suppressed, which is the only one this dwell needs.
+#   "Route line draw: enabled=True routesDrawn=[1-9]" - the per-frame draw summary, and
+#       the token that separates BUILT from DRAWN. Rate-limited at 2.0 s on a shared key;
+#       again only the first emission is required.
+# THE TS SCENE CHAIN (H23's pins verbatim, as V14T uses them):
+#   the two loadgame lines - the R12 trackstation BRANCH was taken and the load COMPLETED
+#       against the TrackingStation expected scene. Falsifiable: this fixture has a
+#       focusable vessel and would otherwise route to FLIGHT.
+#   "ParsekTrackingStation initialized: created [1-9][0-9]* ghost vessel\(s\)" - the TS
+#       host's own line, emitted only in that scene, and routing-agnostic by design: it
+#       says a ghost was materialized without asserting which road built it.
+#
+# DELIBERATELY NOT REQUIRED ON A READING RUN: any cadence / anchor / dock-phase token
+# (header section 2 could not settle the branch), any `body=` proto pin (which body frame
+# the TS ghost lands in depends on where in the mission the loop clock parks, which is the
+# same unmeasured quantity), and the probe/lens summaries V14T pins - those are re-pinned
+# from what this run reads, not predicted.
+required  = [
+  "RevalidateSources reason=.* routes=1 transitioned=0",
+  "SelectGhostDrivingBackingMissions: ghostDriving=[1-9]",
+  "TS startup loop units: .*routeMissions=[1-9]",
+  "Route line build: route=",
+  "Route line draw: enabled=True routesDrawn=[1-9]",
+  "loadgame trackstation route: booting to TRACKSTATION save=",
+  "loadgame complete scene=TRACKSTATION save=.* game-loaded=true expected=TrackingStation",
+  "ParsekTrackingStation initialized: created [1-9][0-9]* ghost vessel\\(s\\)",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  # The V3C run-3 self-detection guard: a refused backward jump is only a WARN, so
+  # without this token a mis-derived anchor can green while dwelling nowhere. Both jumps
+  # here are derived rather than measured (header section 2), which is exactly when this
+  # guard earns its place.
+  "timejump refused reason=backward-jump",
+  # THE VACUITY FORBID, and the mirror of the three required front-door tokens: a route
+  # the selector skipped by status is the one shape that makes this whole lane empty.
+  # `skippedByStatus` prints on the SAME line as `ghostDriving`, so requiring
+  # `ghostDriving=[1-9]` does not by itself exclude a second route being skipped - here
+  # there is exactly ONE committed route, so a non-zero skip count means THE subject was
+  # skipped.
+  "SelectGhostDrivingBackingMissions: .*skippedByStatus=[1-9]",
+]
+
+[expectations.renderComposition]
+# M-A7 Phase 4 / Wave B - DECLARED 2026-08-26, BARE ON PURPOSE: no `gating`, no window,
+# no list. Declaring is what sets `PARSEK_RENDER_MANIFEST=1` at launch and arms the C#
+# recorder at Awake, and `rendercompose` then records its facets UNCONDITIONALLY on a
+# parseable manifest - which is how a lane earns its first honest window off a green
+# report-only run. A window written today would be a PREDICTION read back as though it
+# were a measurement.
+#
+# WHAT THIS LANE IS FOR, restated at the block it will eventually be armed on: this is
+# the FIRST subject in the suite that can produce a `ROUTE_LINE_BUILD` record or a
+# per-unit `ROUTE` node at all, so `routeLineBuilds`, `routeCoDrawViolations` and the
+# whole of `_rule_route` have never executed against live data. The arming pass writes
+# `routeLineBuilds = { min = 1 }` and `routeCoDrawViolations = { max = 0 }` FROM the
+# reading, and D10 `route-map-lines` gets declared in that same commit - not before.
+# READING PENDING - see the renderComposition arming ledger in this file's header.
+
+[runtime]
+# 300 LoadGame + 300 TimeJump + 300 TimeJump + 300 LoadGame(TS) + 120 export + the fast
+# non-deferred verbs + KSP boot + collect. Every jump is instantaneous, so the ~14 ks of
+# game time costs no wall clock; V14T's structurally identical 18-step shape measured
+# ~50 s end to end.
+budgetSeconds = 2400
+
+[retry]
+# One retry absorbs the V5 promotion-recorder re-arm race (which this fixture's
+# committed-tree-for-the-active-craft shape makes more likely than most) and ordinary
+# seam flakes. It does NOT absorb a mis-derived anchor: that reproduces exactly on
+# attempt 2.
+policy = "once"
+
+[expectedFail]
+bugId = ""

@@ -1919,11 +1919,17 @@ UNEVAL_MARKER_DECISION_ABSENT = "marker-decision-absent"
 #     `if (!MapView.MapIsEnabled) return;`.
 # With the map closed the ghost is drawn on no map surface at all, so a
 # TracedPath dwell is an INTENT record and not evidence of a draw: the rule's "a
-# draw implies a publish" premise is not merely unmet, it is unasked. No command
-# seam verb opens the map view (there is no `EnterMapView` command, and no
-# production path calls `MapView.EnterMapView`), so every manifest lane in the
-# suite is in this state today - V24W measured `ownershipChanges = 0` too and
-# escaped only because it never opened a TracedPath dwell.
+# draw implies a publish" premise is not merely unmet, it is unasked. AT THE TIME
+# OF THAT MEASUREMENT no command seam verb could open the map view at all (there
+# was no `EnterMapView` command, and no production path calls
+# `MapView.EnterMapView`), so every manifest lane in the suite was in this state -
+# V24W measured `ownershipChanges = 0` too and escaped only because it never
+# opened a TracedPath dwell. R12 has since shipped `EnterMapView` / `ExitMapView`
+# (PR #1539) and `V6M-mun-player-loop` drives the pair as of 2026-08-26, but the
+# re-fly that would prove the publish flows has NOT happened: until a manifest
+# actually reports a non-zero `ownershipChanges`, this reason is still the honest
+# reading and this stand-down still fires. Nothing here changes when it does - the
+# discriminator below already switches on the evidence rather than on the era.
 # The discriminator is GLOBAL, never per-recording: ONE `OWNERSHIP_CHANGE`
 # anywhere in the manifest proves the walk ran and published, and from there a
 # recording whose visible TracedPath dwell carries no ownership record IS the

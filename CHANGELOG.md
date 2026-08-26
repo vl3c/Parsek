@@ -21,10 +21,26 @@ All notable changes to Parsek are documented here.
   map state back rather than trusting that the request went through, so a refusal
   by the game - a mission that forbids the camera switch, a save with the map
   disabled - is reported as a refusal instead of a success. Asking for a map that
-  is already open is fine and says so. This ships the commands only; no automated
-  flight uses them yet, so no existing test result changes, and the render checks
-  keep declining to claim anything about drawing until a flight actually opens
-  the map. Test-tooling only; no gameplay change.
+  is already open is fine and says so. The looped-Mun test that surfaced the
+  problem now uses both commands - it opens the map before the first thing it
+  watches and closes it again before writing its report - but that test has not
+  been re-run yet, so no existing test result changes and the render checks keep
+  declining to claim anything about drawing until a flight actually reports one.
+  Test-tooling only; no gameplay change.
+
+- Two new automated tests were written against the two recorded missions added
+  earlier in this release. The first is the automation system's first test of a
+  SUPPLY ROUTE: it loads a save carrying a real, running Kerbin-to-Kerbin route
+  and watches it from the tracking station, which is where route lines get drawn
+  without the map needing to be open at all. Nothing in the automated suite had
+  ever observed a route, so the checks written for route drawing had never once
+  run against a real one. The second watches a mission that reaches Duna the long
+  way round - it leaves Kerbin almost immediately, then coasts around the Sun for
+  about a hundred and fifty days waiting for the alignment before burning for
+  Duna. Parsek has special handling for that kind of departure, added for exactly
+  this recording, and no automated test had ever exercised it. Both tests are
+  written but not yet flown, and both are set to report what they find rather
+  than to pass or fail on it. Test-tooling only; no gameplay change.
 
 - The automated dwell tests can now aim at the right moment in a looped mission
   whose playback SKIPS its parking wait. A re-aimed loop deliberately cuts the
