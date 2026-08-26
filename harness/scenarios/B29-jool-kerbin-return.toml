@@ -1,5 +1,30 @@
 schema = 1
 id = "B29-jool-kerbin-return"
+# ---------------------------------------------------------------------------------
+# FLIGHT 1 LEDGER (2026-08-27, run attempts 1+2 BOTH INVALID(autopilot-flake),
+# DETERMINISTIC - the calibration read, verdict-neutral):
+# (a) PRE-REGISTRATION #1 RETIRED: MechJeb PLANNED from the non-Kerbin planet
+#     park on the first ask - no refusal; ejection burned; the Sun-frame
+#     transfer ellipse came out RIGHT (ap 69.816 Gm / pe 13.050 Gm, reaching
+#     under Kerbin at 13.600 Gm; ecc 0.681 inc 1.348).
+# (b) THE MISS: both correction rounds planned 268.9 m/s against
+#     maxCorrectionDvMps = 200 - "plan removed (correction disqualified, coast
+#     will fly the raw intercept)" twice - and the raw intercept had NO Kerbin
+#     encounter (the unaimed window ejection leaves a phase error only the
+#     corrections can close), so the craft crossed pe with tgtD ~46 Gm and
+#     climbed back out until COAST-TO-TARGET expired its 32 Ms budget at
+#     ut 66.2 Ms. 200 was the MOON calibration this file inherited against its
+#     own audit note (B7=200 moon; B15/B16/B17=450 interplanetary) - the cap
+#     is now 450, which admits the measured 268.9 with the same headroom ratio
+#     the outbound lanes carry. Delta-v cost if both rounds fly at the cap:
+#     900 of the 1,642 m/s residual - covered.
+# (c) DLL provenance, recorded verbatim: the flight ran the sibling-provisioned
+#     5d39463a build, proven bit-identical to a clean main build; Source/ is
+#     unchanged on this branch, so the subject code was correct. (The paired
+#     clean-rebuild experiment this triggered re-measured the worktree-path-
+#     dependence of DLL hashes; see the hash-verification memory section 1b.)
+# RE-FLY OWED with the corrected cap; nothing else moved.
+# ---------------------------------------------------------------------------------
 # =====================================================================================
 # B29: THE FIRST RECORDING IN THE SUITE THAT ARRIVES AT KERBIN FROM ANOTHER PLANET.
 # The crewed Duna Rocket starts ALREADY PARKED around JOOL, waits out the Jool-Kerbin
@@ -164,7 +189,7 @@ id = "B29-jool-kerbin-return"
 #
 # THE DELTA-V LEDGER:
 #   eject 1,318.55 + capture 1,188.07 = **2,506.6 m/s** of 3,967 => spare 1,460.4,
-#   a **58% margin** before corrections; `maxCorrectionDvMps` 200 over two scheduled
+#   a **58% margin** before corrections; `maxCorrectionDvMps` 450 (flight 1 corrected the inherited moon-calibration 200; see the ledger) over two scheduled
 #   rounds cannot eat it. Mass after the ejection 9.7255 t (a = 6.17 m/s^2, burn
 #   ~214 s); after the capture 8.3588 t, with **1,642 m/s of residual delta-v** still
 #   aboard at the committed park.
@@ -482,7 +507,7 @@ ejectionEccFloor           = 1.001
 courseCorrectPeriapsisMeters = 150000
 # 200 m/s per round is B25's cap. It is NOT this lane's dv guard -- the 1,460.4 m/s
 # margin is -- which is exactly the comfort the elliptical capture bought.
-maxCorrectionDvMps         = 200
+maxCorrectionDvMps         = 450
 correctionTriggerAltsMeters       = []
 # B22's pairing over a heliocentric coast of the SAME 24,252,690 s length (its a_t and
 # this one's are the same transfer ellipse read in the other direction). The first
