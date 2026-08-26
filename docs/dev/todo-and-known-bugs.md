@@ -1648,7 +1648,7 @@ position + rotation; nothing else moves. One pre-existing wart surfaced by the
 rebuild and deliberately NOT fixed here: these fixtures' committed
 `AddOns/DistantObject/Settings.cfg` blobs carry CRLF while their builders
 copytree the base's LF bytes verbatim on every run (`gs1-two-stage-pad` has the
-same divergence), so any full rebuild flips them - left for a dedicated chore.
+same divergence), so any full rebuild flips them - left for a dedicated chore. THE CHORE RAN 2026-08-26: all four committed blobs normalized to the LF bytes the builders produce, then all three career builders re-run with git-clean byte-identity as the proof; the wart is closed.
 
 **Why it matters even though CI is green.** `.github/workflows/tests.yml` runs only
 `scripts/cloud-test.sh` (the xUnit suite), so this red gates nothing. It bites the
