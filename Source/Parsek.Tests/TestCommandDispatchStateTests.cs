@@ -43,6 +43,8 @@ namespace Parsek.Tests
             public void StartLoopPlayback(ParsedCommand cmd) => Calls.Add("StartLoopPlayback");
             public void EnterWatchMode(ParsedCommand cmd) => Calls.Add("EnterWatchMode");
             public void ExportRenderManifest(ParsedCommand cmd) => Calls.Add("ExportRenderManifest");
+            public void EnterMapView(ParsedCommand cmd) => Calls.Add("EnterMapView");
+            public void ExitMapView(ParsedCommand cmd) => Calls.Add("ExitMapView");
         }
 
         [Fact]
@@ -92,6 +94,13 @@ namespace Parsek.Tests
         // so the export is honest from any settled scene (the RecordingState / RunTests
         // shape). Its only refusal - the recorder was never armed - is executor-side.
         [InlineData("ExportRenderManifest", "AnyScene")]
+        // The map-view pair. RequiresFlight and NOT AnyScene: the map view is a FLIGHT
+        // overlay (the SimulateStockSwitchClick row above says the same about the click
+        // that lives on it), and TRACKSTATION's planetarium is a different scene with its
+        // own always-on map that MapView.EnterMapView does not drive. This is the row that
+        // catches a future "just widen it so the lane can call it from KSC".
+        [InlineData("EnterMapView", "RequiresFlight")]
+        [InlineData("ExitMapView", "RequiresFlight")]
         public void RequirementFor_MatchesTable(string verb, string expected)
         {
             Assert.Equal(expected, TestCommandDispatcher.RequirementFor(verb).ToString());
@@ -127,6 +136,8 @@ namespace Parsek.Tests
             fake.StartLoopPlayback(cmd);
             fake.EnterWatchMode(cmd);
             fake.ExportRenderManifest(cmd);
+            fake.EnterMapView(cmd);
+            fake.ExitMapView(cmd);
 
             // One interface method per implemented v1 verb, no more, no less.
             var interfaceMethods = typeof(ITestCommandExecutor).GetMethods();

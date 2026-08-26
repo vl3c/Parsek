@@ -8,6 +8,24 @@ All notable changes to Parsek are documented here.
 
 ### Dev
 
+- The automated tests can now OPEN THE MAP. That sounds trivial and was not: KSP
+  only draws the map when the map is on screen, and nothing in the automation
+  system had ever put it there. Every automated flight ran with the map closed,
+  which meant the part of Parsek that decides what to draw on the map ran every
+  frame while the part that actually draws it never ran once - and the render
+  checks, reading only the first half, were reporting intentions as if they were
+  drawings. A recent run made that visible by flagging three "nothing drew this"
+  problems that were really the instrument asking a question the flight never
+  asked. Two new automation commands close the gap: one opens the map view, one
+  closes it again. Both confirm what actually happened by reading the game's own
+  map state back rather than trusting that the request went through, so a refusal
+  by the game - a mission that forbids the camera switch, a save with the map
+  disabled - is reported as a refusal instead of a success. Asking for a map that
+  is already open is fine and says so. This ships the commands only; no automated
+  flight uses them yet, so no existing test result changes, and the render checks
+  keep declining to claim anything about drawing until a flight actually opens
+  the map. Test-tooling only; no gameplay change.
+
 - The automated dwell tests can now aim at the right moment in a looped mission
   whose playback SKIPS its parking wait. A re-aimed loop deliberately cuts the
   months a recorded mission spends parked waiting for its transfer window, so
