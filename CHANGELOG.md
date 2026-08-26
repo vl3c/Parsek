@@ -8,6 +8,11 @@ All notable changes to Parsek are documented here.
 
 ### Dev
 
+- The looped Mun mission's render test now also requires that Parsek actually
+  published which replay owned the map line, so a run where that bookkeeping
+  quietly stops happening fails instead of quietly counting as "nothing to
+  check". Test-tooling only; no gameplay change.
+
 - The automated test that watches a committed supply route being drawn on the map
   now enforces what it sees, so a run where Parsek quietly stops drawing that
   route's line fails instead of passing on an empty check. Test-tooling only; no
