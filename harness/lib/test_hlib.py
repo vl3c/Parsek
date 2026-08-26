@@ -6381,6 +6381,84 @@ class RenderComposeVerifierWiringTests(unittest.TestCase):
         # NOT SHARED with the V6M lane armed alongside it, which inverted `cycles` - a
         # clause this block does not even carry.
         "V25M-duna-park-player-loop.toml",
+        # V6M: ARMED 2026-08-26 off a PAIR of its own report-only readings that bracket
+        # the one change the lane made between them - the map. READING A
+        # `2026-08-25_2056` flew with the map CLOSED and raised THREE report-only RC-OWN
+        # FAILs, whose cause was an INSTRUMENT GAP and not a renderer defect: the
+        # TracedPath INTENT half runs from ParsekFlight's per-frame update while the
+        # PUBLISH half sits past `if (!MapView.MapIsEnabled) return;` at the end of the
+        # polyline Driver's LateUpdate, so a lane that never opened the map could draw
+        # without ever publishing. READING B `2026-08-26_1745` is the MAP-OPEN re-fly
+        # (EnterMapView / ExitMapView, PR #1539) and it is the RC-OWN CLOSURE:
+        # `ownershipChanges = 6` (three clean appear/disappear pairs, one per TracedPath
+        # dwell), findings ALL ZERO where reading A raised three, and
+        # `ownership-publish-surface-never-ran` gone from the census entirely.
+        # THE ARMED RE-FLIGHTS ARE MAP-OPEN, so every window is written off READING B
+        # for anything the map moves, and off the PAIR for the facets that are equal to
+        # the integer across both: dwells 5 (+3 open) BOTH, cycles 2 BOTH, transitions 5
+        # BOTH, treatments {StockConic 2, TracedPath 3} BOTH, coverages {InSegment 5}
+        # BOTH, lineBranches 11 BOTH, seamKinds {rigid 21, flexible-soi 3} BOTH,
+        # seamTangents 0 BOTH, clockEvents {cycle-rollover 3, inter-cycle-tail 2} BOTH.
+        # WINDOWS: dwells {1,32} (the suite's identical floor), cycles {min 2, max 16},
+        # unevaluable {max 300}, requireSeamKinds ["rigid","flexible-soi"].
+        # `cycles = {min = 2}` IS THE CLAUSE THIS LANE EXISTS TO CARRY and the reason it
+        # grew a third playback cycle: rendercompose closes N-1 cycles off N
+        # `cycle-rollover` events, so three rollovers close TWO, and no other lane in the
+        # suite can carry a floor above 1 (V14M closes 1, V8 and V25M close 0). The
+        # ceiling is loose for the same reason as `dwells`. THE FLOOR IS NOT VACUOUS
+        # HERE, and that had to be checked rather than assumed: `_rule_cycle` builds each
+        # window's role structure from the CLOSED dwells whose midpoint falls inside it
+        # and compares with a plain `roles[a] == roles[b]`, so two EMPTY role sets would
+        # compare equal and say nothing - this lane's 5 closed dwells over 2 closed
+        # cycles are what make the isomorphism statement real.
+        # `unevaluable = {max 300}` is ~3.6x reading B's 84 - the sibling lanes' ratio -
+        # and it also clears reading A's 110 with room, so the window does not depend on
+        # which of the two shapes a future run happens to fly. The census is
+        # `seam-endpoint-skipped` (83 map-open, 109 map-closed) plus one
+        # `warp-hold-traversal-evidence-absent`, i.e. it moves with endpoint population
+        # and frame timing, not with correctness.
+        # `ownershipChanges` IS NOT DECLARED AND COULD NOT BE: it is a recorded FACET,
+        # not a windowable key - `rendercompose.RENDER_COMPOSITION_WINDOW_KEYS` is
+        # ("dwells", "cycles", "unevaluable") and the block validator rejects any other
+        # key outright. The RC-OWN premise (ownership is conserved on this subject) is
+        # therefore armed INDIRECTLY and completely: with `gating = true` every
+        # FAIL-level rule finding gates, so the three RC-OWN FAILs reading A raised would
+        # now classify `PARSEK-FAIL(render-composition)`. A first-class
+        # `ownershipChanges` window is filed as a harness improvement in
+        # docs/dev/todo-and-known-bugs.md rather than invented here.
+        # `warpBuckets` never (1x-only by construction, instantaneous TimeJumps).
+        # ARMED RE-FLIGHT: DISCHARGED FOUR TIMES - `2026-08-26_1838`, `_1842`, `_1843`,
+        # `_1844`, all PASS attempt 1 with gating=True,
+        # armedBlocks=['renderComposition'], ZERO mismatches and zero findings at every
+        # level. dwells 5 (+3 open), cycles 2, seamKinds {rigid 21, flexible-soi 3} and
+        # `ownershipChanges = 6` on ALL FOUR, so the RC-OWN closure is backed by FIVE
+        # map-open flights rather than the single re-fly that first made it. unevaluable
+        # 91 / 75 / 83 / 112 - scattered inside the 300 ceiling, not trending.
+        # NEGATIVE CONTROL: `2026-08-26_1840`, temporary `cycles = { min = 9 }` applied
+        # by a LINE-ANCHORED edit of the real key (verified with `grep -n '^cycles'` AND
+        # through `run.py --dry-run`'s `declared:` line), red on exactly
+        # `PARSEK-FAIL(render-composition)`; the inverted clause named itself
+        # (`renderComposition.cycles 2 < min 9`) and every SIBLING VERIFIER ROW stayed
+        # clean (saveParse PASS on its own two armed blocks, driverValidity / analyzer
+        # red=0 / logValidate / anomalySweep / expectations / testResults PASS).
+        # Reverted in the same change on the re-grepped real key. Not shared with V25M,
+        # which inverted `dwells`.
+        # THE CONTROL ALSO CARRIED A SECOND MISMATCH THAT WAS NOT THE CONTROL, and it is
+        # the most valuable thing this arming pass produced. A window edit cannot change
+        # the flown shape, yet that one run measured dwells 4, transitions 4, treatments
+        # {StockConic 1, TracedPath 3} and a GENUINE RC-CYCLE FAIL: "cycles 0 and 1 share
+        # warp bucket warp1x but their role structures differ: ((1, 'Descent'),) vs
+        # ((1, 'ArrivalLoiter'), (1, 'Descent'))" - cycle 0's ArrivalLoiter dwell never
+        # opened (or never closed) on that run. RECURRENCE MEASURED, not guessed: 1 of 6
+        # map-open flights (_1745, _1838, _1840, _1842, _1843, _1844); the other five all
+        # read dwells 5 / StockConic 2 / zero findings. `should_retry` NEVER retries a
+        # PARSEK-FAIL, so an armed nightly reds outright when this fires. ARMING PROCEEDS
+        # ANYWAY, deliberately: the finding is a real composition observation and not an
+        # evaluator artifact or a too-tight window (every count window held on that run),
+        # and making an intermittent render-composition defect visible is what the gate
+        # is for. Tracked in docs/dev/todo-and-known-bugs.md with `2026-08-26_1840` as
+        # the comparison run id.
+        "V6M-mun-player-loop.toml",
     }
 
     def test_no_committed_spec_arms_render_composition_gating(self):

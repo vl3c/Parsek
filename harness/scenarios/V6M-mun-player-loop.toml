@@ -284,7 +284,7 @@ id = "V6M-mun-player-loop"
 #   from this file alone.
 #
 # ---------------------------------------------------------------------------------
-# 6. RENDER COMPOSITION (M-A7 Phase 3) - DECLARED + READ 2026-08-25, NOT ARMED
+# 6. RENDER COMPOSITION (M-A7 Phase 3) - DECLARED + READ 2026-08-25, ARMED 2026-08-26
 # ---------------------------------------------------------------------------------
 # ARMING LEDGER, renderComposition:
 #   DECLARED 2026-08-25. The block at the end of this file is BARE (no `gating`, no
@@ -363,6 +363,91 @@ id = "V6M-mun-player-loop"
 #            arming needs is windows written FROM the pair `2026-08-25_2056` +
 #            `2026-08-26_1745`, by operator decision, then the armed re-flight and the
 #            negative control. NOTHING IS ARMED BY THIS FLIGHT.
+#   ARMED    **ARMED 2026-08-26**, operator decision, off THE PAIR
+#            `2026-08-25_2056` (map CLOSED) + `2026-08-26_1745` (map OPEN) exactly as the
+#            row above specified. The pair is a pair because the two runs BRACKET the one
+#            change the lane made between them, so together they separate what the map
+#            moves (ownership, endpoint sample counts) from what it does not (everything
+#            structural). FOUR assertions, each argued at the
+#            `[expectations.renderComposition]` block near the end of this file:
+#              gating           = true
+#              dwells           = { min = 1, max = 32 }      measured 5 (+3 open) BOTH
+#              cycles           = { min = 2, max = 16 }      measured 2 CLOSED BOTH
+#              unevaluable      = { max = 300 }              measured 84 (map-open) /
+#                                                            110 (map-closed)
+#              requireSeamKinds = ["rigid", "flexible-soi"]  measured rigid 21 /
+#                                                            flexible-soi 3, BOTH
+#            `cycles = { min = 2 }` IS THE CLAUSE THIS LANE EXISTS TO CARRY and the whole
+#            reason for the third cycle: N rollovers close N-1 cycles, so no other lane in
+#            the suite can carry a floor above 1 (V14M closes 1, V8 and V25M close 0). The
+#            floor was CHECKED for vacuity rather than assumed - neither census carries
+#            `no-dwells-attributable-to-unit`, so the five closed dwells really were
+#            attributed to the unit and the isomorphism comparison really ran.
+#            The `unevaluable` ceiling is written off the MAP-OPEN reading (~3.6x its 84,
+#            the sibling lanes' ratio) and clears the map-closed 110 besides, so it does
+#            not depend on which shape a future run flies.
+#            `ownershipChanges` IS NOT DECLARED AND COULD NOT BE - see the block's own NOT
+#            DECLARED section: `RENDER_COMPOSITION_WINDOW_KEYS` is exactly
+#            ("dwells", "cycles", "unevaluable") and the validator rejects any other key
+#            pre-launch. The RC-OWN premise is armed INDIRECTLY and completely, because
+#            `gating = true` gates on every FAIL-level finding: the three RC-OWN FAILs the
+#            2056 reading raised would now classify `PARSEK-FAIL(render-composition)`. The
+#            missing first-class floor is filed as a harness improvement in
+#            `docs/dev/todo-and-known-bugs.md`, NOT invented here.
+#            `warpBuckets` never (1x-only by construction). NOTHING IN THE FLOWN SHAPE
+#            MOVED at arming - no jump UT, no step, no budget, no tolerance, no other
+#            expectation (the S4.1 rule). Registered in `RENDERCOMPOSE_ARMED_SPECS`
+#            (harness/lib/test_hlib.py) with these run ids.
+#   DONE     **ARMED RE-FLIGHT DISCHARGED, AND IT FLEW FOUR TIMES.**
+#            `2026-08-26_1838`, `_1842`, `_1843` and `_1844` all came back PASS attempt 1
+#            with `renderCompose status=PASS gating=True armedBlocks=['renderComposition']`
+#            and ZERO mismatches, zero findings at every level. Facets on all four: dwells
+#            5 (+3 open), cycles 2, seamKinds {rigid 21, flexible-soi 3}, and
+#            `ownershipChanges = 6` REPRODUCED on every one - so the RC-OWN closure is now
+#            backed by FIVE map-open flights, not the single re-fly that first made it.
+#            `unevaluable` read 91 / 75 / 83 / 112, all comfortably inside the 300 ceiling
+#            and scattered rather than trending, which is what the ceiling was sized for.
+#            The extra three flights were not ceremony: they were flown to size the
+#            intermittency the negative control turned up (next row).
+#   DONE     **NEGATIVE CONTROL `2026-08-26_1840` -
+#            `PARSEK-FAIL(render-composition)` attempt 1**, off a temporary
+#            `cycles = { min = 9 }` applied by a LINE-ANCHORED edit of the real key
+#            (verified with `grep -n '^cycles'` AND through `run.py --dry-run`'s
+#            `declared:` line before launch). The inverted clause red exactly as intended -
+#            `renderComposition.cycles 2 < min 9` - and every SIBLING VERIFIER ROW stayed
+#            clean (driverValidity / analyzer red=0 / logValidate / anomalySweep /
+#            expectations / testResults PASS, saveParse PASS on its own two armed blocks,
+#            unityExceptions REPORT). Reverted in the same change on the re-grepped real
+#            key. NOT SHARED with the V25M lane armed alongside this one, which inverted
+#            `dwells`: each red lands on its own armed window rather than re-proving the
+#            shared `rendercompose` evaluator.
+#            **IT ALSO CARRIED A SECOND MISMATCH THAT WAS NOT THE CONTROL, AND THAT IS THE
+#            MOST VALUABLE THING THIS ARMING PASS PRODUCED.** The control edit cannot
+#            change the flown shape - it moves one window - yet this run measured
+#            `dwells 4` (not 5), `transitions 4`, `treatments {StockConic: 1,
+#            TracedPath: 3}` and a genuine RC-CYCLE FAIL:
+#              RC-CYCLE [FAIL] unit[host=Flight planSeq=0 owner=0]: cycles 0 and 1 share
+#                warp bucket warp1x but their role structures differ:
+#                ((1, 'Descent'),) vs ((1, 'ArrivalLoiter'), (1, 'Descent'))
+#            i.e. CYCLE 0'S ArrivalLoiter DWELL NEVER OPENED (or never closed) on that one
+#            run, while cycle 1's did. That is precisely the non-isomorphism RC-CYCLE was
+#            built to catch, and it is the FIRST time the rule has raised on this subject -
+#            the two cycles have otherwise been isomorphic on every other flight.
+#            RECURRENCE, MEASURED rather than guessed: 1 of 6 map-open flights
+#            (`_1745`, `_1838`, `_1840`, `_1842`, `_1843`, `_1844`), the other five all
+#            reading dwells 5 / StockConic 2 / zero findings. `should_retry` NEVER retries
+#            a PARSEK-FAIL, so an armed nightly reds outright when this fires - it is not
+#            absorbed by `retry.policy = "once"`.
+#            ARMING PROCEEDS ANYWAY, deliberately, and the reasoning is on the record: the
+#            finding is a REAL composition observation (a StockConic leg that intermittently
+#            produces no dwell in one cycle), not an evaluator artifact and not a window
+#            that is too tight - every count window held on that run. Making an intermittent
+#            render-composition defect VISIBLE is what the gate is for, and suppressing it
+#            would mean shipping a gate that cannot see the one thing this lane uniquely
+#            measures. What the operator gets in exchange is this row: if a nightly reds
+#            here with a `cycles 0 and 1 ... role structures differ` mismatch and dwells 4,
+#            the diagnosis is already written and the run id to compare against is
+#            `2026-08-26_1840`. Tracked in `docs/dev/todo-and-known-bugs.md`.
 #
 #            (ORIGINAL OWED ENTRY, kept for the audit trail.) The blocker the ARMED row
 #            points at is now actionable: R12's `EnterMapView` / `ExitMapView` verbs
@@ -502,7 +587,7 @@ id = "V6M-mun-player-loop"
 # rule refuses pre-launch rather than letting it fly.
 # =====================================================================================
 tier = "operator"
-description = "THE PLAYER WORKFLOW ON A SAME-PARENT MOON MISSION, twice over: load the committed mun-orbit-recorded save, arm the loop, press Warp-to, cross cycle 1's Kerbin->Mun SOI seam, press Watch at the ghost's Mun park, then press Warp-to AGAIN for cycle 2 and cross its arrival with the same instruments. A Kerbin->Mun mission is ALWAYS phaseLocked, so ApplyReaim is unreachable: this lane pins the OTHER road (Orbital(Mun) same-parent + support=Supported + PhaseLock APPLIED with zeroDrift=yes/scheduleWithinTol=yes + factory chain reaimed=False) and FORBIDS every re-aim token V4 requires. The two-cycle shape is the desync hunt: same-body handoff, seam-teleport silence and hidden-by-zone proximity are compared cycle 1 vs cycle 2. EXTENDED 2026-08-25 with a THIRD cycle and an M-A7 render-composition capture: rendercompose closes N-1 cycles off N cycle-rollover events, so two flown cycles have only ever closed ONE anywhere in the suite - three cycles close TWO and give RC-CYCLE its first same-warp-bucket structure comparison, on the Mun, on a NON-UNIFORM zero-drift schedule. The [expectations.renderComposition] block is BARE; the reading run was taken 2026-08-25 (cycles=2, RC-CYCLE's first real evaluation, isomorphic) and the lane stays UNARMED. EXTENDED AGAIN 2026-08-26 with R12's `EnterMapView` / `ExitMapView` pair (PR #1539): that reading also raised three report-only RC-OWN FAILs whose cause is that the lane never opened the map - the TracedPath INTENT half runs from ParsekFlight's per-frame update while the PUBLISH half sits past `if (!MapView.MapIsEnabled) return;` at the end of the polyline Driver's LateUpdate - so the map is now opened immediately after the tracer settings, BEFORE the first observation bracket, and closed immediately before the export (the declarer-discipline cell pins the last two commands as [ExportRenderManifest, FlushAndQuit], so ExitMapView cannot go after it). THE MAP-OPEN RE-FLY IS DISCHARGED: `2026-08-26_1745`, PASS attempt 1, and it is THE RC-OWN CLOSURE. `ownershipChanges = 6` (three clean appear/disappear pairs, one per TracedPath dwell), `Polyline frame:` summaries present in the collected log, RC-OWN findings 0 where the 2026-08-25 reading raised three, and `ownership-publish-surface-never-ran` gone from the unevaluable reasons entirely - the stand-down that had fired on every manifest lane in the suite is lifted by evidence. OWNERSHIP IS CONSERVED ON THIS SUBJECT and the earlier three FAILs are confirmed as the instrument gap, not a leg-that-never-draws defect. The rest of the composition reproduced the reading run exactly (cycles 2 isomorphic again, dwells 5 +3 open, transitions 5, seams rigid 21 / flexible-soi 3, cycle residuals identical to the digit); only the endpoint-sample counts moved, for the shorter map-open observation. The flown shape moved, which is admissible without an armed re-validation debt only because this lane is declared-unarmed on the render-composition block. ARMING STILL OWED - windows off the PAIR 2026-08-25_2056 + 2026-08-26_1745, then the armed re-flight and negative control."
+description = "THE PLAYER WORKFLOW ON A SAME-PARENT MOON MISSION, twice over: load the committed mun-orbit-recorded save, arm the loop, press Warp-to, cross cycle 1's Kerbin->Mun SOI seam, press Watch at the ghost's Mun park, then press Warp-to AGAIN for cycle 2 and cross its arrival with the same instruments. A Kerbin->Mun mission is ALWAYS phaseLocked, so ApplyReaim is unreachable: this lane pins the OTHER road (Orbital(Mun) same-parent + support=Supported + PhaseLock APPLIED with zeroDrift=yes/scheduleWithinTol=yes + factory chain reaimed=False) and FORBIDS every re-aim token V4 requires. The two-cycle shape is the desync hunt: same-body handoff, seam-teleport silence and hidden-by-zone proximity are compared cycle 1 vs cycle 2. EXTENDED 2026-08-25 with a THIRD cycle and an M-A7 render-composition capture: rendercompose closes N-1 cycles off N cycle-rollover events, so two flown cycles have only ever closed ONE anywhere in the suite - three cycles close TWO and give RC-CYCLE its first same-warp-bucket structure comparison, on the Mun, on a NON-UNIFORM zero-drift schedule. The [expectations.renderComposition] block is BARE; the reading run was taken 2026-08-25 (cycles=2, RC-CYCLE's first real evaluation, isomorphic) and the lane stays UNARMED. EXTENDED AGAIN 2026-08-26 with R12's `EnterMapView` / `ExitMapView` pair (PR #1539): that reading also raised three report-only RC-OWN FAILs whose cause is that the lane never opened the map - the TracedPath INTENT half runs from ParsekFlight's per-frame update while the PUBLISH half sits past `if (!MapView.MapIsEnabled) return;` at the end of the polyline Driver's LateUpdate - so the map is now opened immediately after the tracer settings, BEFORE the first observation bracket, and closed immediately before the export (the declarer-discipline cell pins the last two commands as [ExportRenderManifest, FlushAndQuit], so ExitMapView cannot go after it). THE MAP-OPEN RE-FLY IS DISCHARGED: `2026-08-26_1745`, PASS attempt 1, and it is THE RC-OWN CLOSURE. `ownershipChanges = 6` (three clean appear/disappear pairs, one per TracedPath dwell), `Polyline frame:` summaries present in the collected log, RC-OWN findings 0 where the 2026-08-25 reading raised three, and `ownership-publish-surface-never-ran` gone from the unevaluable reasons entirely - the stand-down that had fired on every manifest lane in the suite is lifted by evidence. OWNERSHIP IS CONSERVED ON THIS SUBJECT and the earlier three FAILs are confirmed as the instrument gap, not a leg-that-never-draws defect. The rest of the composition reproduced the reading run exactly (cycles 2 isomorphic again, dwells 5 +3 open, transitions 5, seams rigid 21 / flexible-soi 3, cycle residuals identical to the digit); only the endpoint-sample counts moved, for the shorter map-open observation. The flown shape moved, which is admissible without an armed re-validation debt only because this lane is declared-unarmed on the render-composition block. ARMED ON renderComposition 2026-08-26 off that PAIR: dwells {1,32} and cycles {min 2, max 16} (the floor no other lane in the suite can carry - N rollovers close N-1 cycles, so only this three-cycle lane closes two), unevaluable {max 300} sized off the map-open reading, requireSeamKinds [rigid, flexible-soi]. `ownershipChanges` could NOT be declared - it is a recorded facet, not one of the three windowable keys - so the RC-OWN premise is armed indirectly but completely, because gating gates on every FAIL-level finding; the missing first-class floor is filed as a harness improvement rather than invented. ARMED RE-FLIGHT DISCHARGED FOUR TIMES (`2026-08-26_1838`/`_1842`/`_1843`/`_1844`, all PASS attempt 1, zero mismatches, ownershipChanges 6 reproduced on every one). NEGATIVE CONTROL `2026-08-26_1840` PARSEK-FAIL(render-composition) off a temporary `cycles = { min = 9 }`, red on exactly that clause with every sibling row clean, reverted in the same change - AND it turned up the pass's most valuable finding: that one run alone measured dwells 4 with cycle 0 missing its ArrivalLoiter dwell, raising a genuine RC-CYCLE non-isomorphism FAIL. Recurrence measured at 1 of 6 map-open flights; arming proceeds deliberately because making that intermittent visible is what the gate is for. See the ledger row for the diagnosis."
 instanceProfile = "stock-minimal"
 tags = ["V6", "player-loop", "watch-mode", "loop-playback", "phase-lock", "zero-drift", "mun", "moon", "render-composition", "rc-cycle", "flown"]
 
@@ -974,51 +1059,117 @@ forbidden = [
 ]
 
 [expectations.renderComposition]
-# M-A7 Phase 3, DECLARED 2026-08-25. BARE ON PURPOSE - no `gating`, no window, no list.
-# Header section 6 carries the arming ledger (first reading TAKEN 2026-08-25; the
-# MAP-OPEN RE-FLY added 2026-08-26 is OWED) and the two-cycle rationale; this block's
-# only job today is to exist, because DECLARING it is what sets
-# `PARSEK_RENDER_MANIFEST=1` at launch and arms the C# recorder at Awake.
+# M-A7 Phase 3, ARMED 2026-08-26 by operator decision, off THIS lane's own PAIR of
+# report-only readings and nothing else. The pair is a pair for a stated reason: the two
+# runs BRACKET the single change this lane made between them - the map - so together they
+# separate what the map moves from what it does not.
+#   READING A `2026-08-25_2056` - map CLOSED. Three report-only RC-OWN FAILs, all of one
+#     shape ("a visible TracedPath dwell exists with NO ownership record"), plus
+#     `ownershipChanges = 0` and `ownership-publish-surface-never-ran` in the census.
+#   READING B `2026-08-26_1745` - map OPEN (`EnterMapView` / `ExitMapView`, PR #1539),
+#     PASS attempt 1. `ownershipChanges = 6` - three clean appear/disappear pairs, one
+#     per TracedPath dwell - findings ALL ZERO at every level, and the
+#     `ownership-publish-surface-never-ran` reason gone from the census entirely.
+#     THIS IS THE RC-OWN CLOSURE: reading A's three FAILs were the INSTRUMENT GAP the
+#     header's MAP-OPEN RE-FLY row pre-registered (the TracedPath INTENT half runs from
+#     ParsekFlight's per-frame update, the PUBLISH half sits past
+#     `if (!MapView.MapIsEnabled) return;` at the end of the polyline Driver's
+#     LateUpdate), not a leg-that-never-draws defect. OWNERSHIP IS CONSERVED ON THIS
+#     SUBJECT.
 #
-# THE ARMING PASS IS DELIBERATELY WAITING ON A SECOND READING, not on nothing: the
-# 2026-08-25 reading flew with the map CLOSED, so `ownershipChanges` read 0 for a
-# STRUCTURAL reason and RC-OWN's draw half was unevaluable. The lane now opens the map
-# (`EnterMapView` / `ExitMapView`, PR #1539), which changes what a reading can say about
-# ownership and about the Polyline treatment half - so windows written off the first
-# reading alone would be written off a shape the lane no longer flies.
+# ARMED RE-FLIGHTS OF THIS LANE ARE MAP-OPEN, so every window below is written off
+# READING B for anything the map moves, and off the PAIR for the facets that came back
+# equal to the integer on both: dwells 5 (+3 open), cycles 2, transitions 5, treatments
+# {StockConic 2, TracedPath 3}, coverages {InSegment 5}, lineBranches 11, seamKinds
+# {rigid 21, flexible-soi 3}, seamTangents 0, clockEvents {cycle-rollover 3,
+# inter-cycle-tail 2}. NOTHING IN THE FLOWN SHAPE MOVED at arming: no jump UT, no step,
+# no budget, no tolerance, no other expectation. That is the S4.1 rule.
 #
-# WHY BARE RATHER THAN "A FEW SAFE WINDOWS": `rendercompose`'s own docstring says the
-# facets are "Recorded UNCONDITIONALLY on a parseable manifest: that is how a lane earns
-# its first honest window off a green report-only run". Declaring a window here would be
-# declaring a PREDICTION and then reading it back as though it were a measurement - the
-# same mistake this lane's section 5 posture note refuses for the save-structure blocks,
-# and the same reason V14M and V8 both shipped bare through their reading runs.
+# WHAT ARMING BUYS. `run.py` writes `verifiers["render_composition_mismatch"]` only
+# `if rc.gating`, so from here a window miss, a required seam kind absent from the chain
+# records, or ANY FAIL-level rule finding classifies the run
+# `PARSEK-FAIL(render-composition)`. On this lane that last clause is the load-bearing
+# one: the three RC-OWN FAILs reading A raised were report-only footnotes, and an
+# equivalent regression now reds the run.
 #
-# WHAT THE FIRST ARMING PASS SHOULD LOOK AT, in order (all of it PENDING, none of it
-# declared):
-#   * `cycles` - the reason this lane grew a third cycle. PREDICTED 2 closed cycles off
-#     3 `cycle-rollover` events; a floor of `min = 2` is the anti-vacuity half worth
-#     arming here, because a run that closes fewer has stopped being the two-cycle
-#     dataset the extension exists to produce. It is also the one floor no other lane in
-#     the suite can carry today.
-#   * `dwells` - anti-vacuity floor plus a runaway ceiling, sized off the reading.
-#     PAIR IT WITH `cycles`, and read the reading run's per-window dwell membership
-#     before arming either. `_rule_cycle` builds each window's role structure from the
-#     CLOSED dwells whose MIDPOINT falls inside it, and compares with a plain
-#     `roles[a] == roles[b]` - so TWO EMPTY role sets compare EQUAL and the isomorphism
-#     clause says nothing at all. `_dominant_warp_bucket([])` also returns "", which
-#     drops a differing pair from the FAIL branch to the cross-bucket INFO one. Two
-#     closed cycles with no closed dwells in them would therefore satisfy a `cycles`
-#     floor while measuring nothing, which is exactly the shape the cycle-3 bracket
-#     exists to prevent (its forward clock motion is what CLOSES cycle 2's dwells) - but
-#     it is a reading to CONFIRM, not to assume.
-#   * `unevaluable` - a CEILING only, sized ~3x the reading (V14M's rationale: the census
-#     is dominated by `seam-endpoint-skipped`, which moves with frame timing rather than
-#     with correctness).
-#   * `requireSeamKinds` - this subject's Kerbin->Mun crossing should carry both a
-#     same-body `rigid` seam and a cross-SOI `flexible-soi` one, as V14M's Duna->Ike one
-#     does. Arm it only if the reading actually shows both.
-# NOT to be declared here, ever: `warpBuckets` (header section 6, last prediction).
+# THE WINDOWS, each against its measurements and with the margin stated:
+#
+#   cycles = { min = 2, max = 16 }        MEASURED 2 CLOSED CYCLES ON BOTH READINGS.
+#     THE CLAUSE THIS LANE EXISTS TO CARRY, and the reason it grew a third playback
+#     cycle: `rendercompose` closes N-1 cycles off N `cycle-rollover` events, so the
+#     three rollovers here close TWO, and NO OTHER LANE IN THE SUITE CAN CARRY A FLOOR
+#     ABOVE 1 (V14M closes 1, V8 and V25M close 0). A run that closes fewer has stopped
+#     being the two-cycle dataset the cycle-3 extension exists to produce, and RC-CYCLE's
+#     structure comparison - the only same-warp-bucket comparison the program has - would
+#     have nothing to compare. The ceiling is a runaway guard, deliberately loose, for
+#     the same reason as `dwells`.
+#     THE FLOOR IS NOT VACUOUS HERE, and that was CHECKED rather than assumed. The bare
+#     block this replaces warned that `_rule_cycle` builds each window's role structure
+#     from the CLOSED dwells whose midpoint falls inside it and compares with a plain
+#     `roles[a] == roles[b]`, so two EMPTY role sets would compare equal and say nothing.
+#     The evidence that did not happen: NEITHER reading's census carries
+#     `no-dwells-attributable-to-unit` (`UNEVAL_NO_DWELLS_FOR_UNIT`, the reason
+#     `_rule_cycle` writes and `continue`s on when a unit has no dwells at all), and both
+#     censuses are just `seam-endpoint-skipped` plus one
+#     `warp-hold-traversal-evidence-absent`. Five closed dwells were attributed to the
+#     unit and the comparison ran.
+#
+#   dwells = { min = 1, max = 32 }        MEASURED 5 (+3 open at export), BOTH READINGS.
+#     `min` is the ANTI-VACUITY floor: a manifest that observed no dwell at all is the
+#     "greened while measuring nothing" shape the module exists to refuse, and 1 is the
+#     smallest honest floor. It is paired with `cycles` deliberately - the two floors
+#     together say "this lane looped AND something was observed inside the loops". `max`
+#     is an order-of-magnitude runaway guard, not a pin: the count follows how many
+#     Director segments the observation brackets walk, which a legitimate render change
+#     may move by a few. DELIBERATELY IDENTICAL to the V14M, V8, V24W and V25M siblings'
+#     window, so all five lanes state ONE claim about the product rather than five claims
+#     about five subjects.
+#
+#   unevaluable = { max = 300 }           MEASURED 84 (reading B) and 110 (reading A).
+#     A CEILING ONLY, ~3.6x the MAP-OPEN reading - the ~3.3-3.6x ratio-to-measurement the
+#     1x sibling lanes carry (V14M 200/56, V8 250/76) - and it clears the map-closed
+#     reading's 110 with room besides, so the window does not depend on which of the two
+#     shapes a future run happens to fly. THE CENSUS IS TWO ENTRIES: `seam-endpoint-skipped`
+#     (83 map-open, 109 map-closed, over endpoint populations of 83 and 109) and one
+#     `warp-hold-traversal-evidence-absent`. Both move with endpoint population and frame
+#     timing, not with correctness, which is why this is a ceiling and not a band -
+#     pinning it tight would red on a fast machine. What it catches is the collapse case:
+#     an instrument that stops measuring turns clauses into unevaluables wholesale. NO
+#     `min`: an unevaluable count is not a thing to require.
+#
+#   requireSeamKinds = ["rigid", "flexible-soi"]   MEASURED {rigid 21, flexible-soi 3},
+#     BOTH READINGS, equal to the integer. Both kinds present twice, so this arms an
+#     existing reproduced fact rather than a hope, and it is what the bare block's
+#     "arm it only if the reading actually shows both" precondition asked for. It says
+#     this subject's Kerbin->Mun crossing must keep rendering BOTH a same-body `rigid`
+#     seam and a cross-SOI `flexible-soi` one - the structural signature of a same-parent
+#     moon mission through the phase spine, as V14M's Duna->Ike one does. A change that
+#     collapsed the chain to one seam kind would green every count window above and red
+#     exactly here. The vocabulary is `rendercompose.SEAM_KINDS_REQUIRABLE`.
+#
+# NOT DECLARED:
+#   * `ownershipChanges` - AND IT COULD NOT BE, which is a fact about the schema and not
+#     a choice: `rendercompose.RENDER_COMPOSITION_WINDOW_KEYS` is exactly
+#     ("dwells", "cycles", "unevaluable"), the list keys are ("warpBuckets",
+#     "requireSeamKinds"), and `validate_render_composition_expectations` rejects any
+#     other key outright pre-launch. Inventing a key here to carry the RC-OWN premise
+#     would be authoring a facet, not arming a lane. THE PREMISE IS STILL ARMED, and
+#     completely, just indirectly: `gating = true` gates on every FAIL-level rule
+#     finding, so the exact three RC-OWN FAILs reading A raised would now classify
+#     `PARSEK-FAIL(render-composition)` instead of being report-only. What a first-class
+#     `ownershipChanges = { min = 1 }` would add over that is a floor on the PUBLISH
+#     surface running at all - which today is stated only by the ABSENCE of
+#     `ownership-publish-surface-never-ran` from the census. The gap is filed as a
+#     harness improvement in `docs/dev/todo-and-known-bugs.md`.
+#   * `warpBuckets` - NEVER on this lane (header section 6, last prediction): every clock
+#     move is an instantaneous TimeJump, so the histogram is 1x-only by construction and
+#     a bucket window would gate on the drive shape rather than on the product. V24W is
+#     the only lane in the suite entitled to that key.
+gating = true
+dwells = { min = 1, max = 32 }
+cycles = { min = 2, max = 16 }
+unevaluable = { max = 300 }
+requireSeamKinds = ["rigid", "flexible-soi"]
 
 [runtime]
 # 300 LoadGame + 3x300 StartLoopPlayback + 12x300 TimeJump + 120 ExportRenderManifest +
