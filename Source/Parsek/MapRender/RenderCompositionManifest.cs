@@ -356,6 +356,104 @@ namespace Parsek.MapRender
             lastFrameUtByPid[sample.Pid] = sample.CurrentUT;
         }
 
+        /// <summary>
+        /// Is an open dwell STALE with respect to a clock event at <paramref name="eventUT"/> - i.e.
+        /// was its pid last sampled STRICTLY BEFORE the event, so no frame carried it into the
+        /// successor state the frame-sampled close needs?
+        ///
+        /// <para>Strict <c>&lt;</c> is the load-bearing half and the double-close guard: a dwell
+        /// sampled AT the event instant is one the render path is handling on this very frame, and
+        /// the fallback must leave it alone. NaN/Inf on either side answers false.</para>
+        /// </summary>
+        internal static bool DwellIsStaleAtClockEvent(double lastObservedFrameUT, double eventUT)
+        {
+            if (double.IsNaN(lastObservedFrameUT) || double.IsInfinity(lastObservedFrameUT))
+                return false;
+            if (double.IsNaN(eventUT) || double.IsInfinity(eventUT))
+                return false;
+            return lastObservedFrameUT < eventUT;
+        }
+
+        /// <summary>
+        /// FALLBACK close for the inter-cycle-tail race: retires every dwell still open for
+        /// <paramref name="ownerIndex"/> that opened at or before <paramref name="eventUT"/> and was
+        /// last sampled strictly before it, stamping the close AT <paramref name="eventUT"/> so the
+        /// record is indistinguishable from the frame-sampled close that should have run.
+        ///
+        /// <para>NOT a new primary close path. <see cref="ObserveDwellFrame"/> is untouched and stays
+        /// the only close a healthy run ever takes; this fires only when a pid stopped being sampled
+        /// with a dwell open, and it CANNOT double-close, because a dwell the frame path already
+        /// closed is no longer in <c>openDwellByPid</c> and one sampled at the event instant fails
+        /// <see cref="DwellIsStaleAtClockEvent"/>. The caller defers it by a frame, which is what
+        /// makes the second of those two guards decisive - see the recorder's
+        /// <c>TailCloseFallbackIsDue</c>.</para>
+        ///
+        /// <para>The <c>OpenUT &lt;= eventUT</c> gate keeps a dwell that opened AFTER the event out
+        /// of the sweep: closing that one at the event instant would invert its own interval.</para>
+        ///
+        /// <para><b>The <paramref name="cycleStartUT"/> gate is the other half, and it was learned
+        /// from a flight rather than reasoned out.</b> An owner accumulates open dwells across
+        /// cycles - a per-cycle ghost that stops being sampled in its "no segment" tail state leaves
+        /// one behind BY DESIGN, and on the archived green flights those never close. A sweep scoped
+        /// only by owner reaches back and retires them at the NEXT cycle's tail, which moves them
+        /// into the closed population and hands the cycle-structure rule a role its sibling cycle
+        /// does not have. That is not a fix, it is the same defect with the sign flipped - and it
+        /// reproduced on all three proof flights before this bound existed. Only dwells opened
+        /// within the ENDING cycle are this tail's to retire.</b></para>
+        ///
+        /// <para>Returns the number closed; the first one's pid and phase kind come back for the
+        /// caller's log line, because this core carries no logging of its own.</para>
+        /// </summary>
+        internal int FallbackCloseStaleOwnerDwells(
+            int ownerIndex, double eventUT, double cycleStartUT,
+            out uint firstPid, out string firstPhaseKind)
+        {
+            firstPid = 0u;
+            firstPhaseKind = null;
+            if (openDwellOrder.Count == 0)
+                return 0;
+            if (double.IsNaN(eventUT) || double.IsInfinity(eventUT))
+                return 0;
+            if (double.IsNaN(cycleStartUT) || double.IsInfinity(cycleStartUT))
+                return 0;
+
+            List<uint> stale = null;
+            for (int i = 0; i < openDwellOrder.Count; i++)
+            {
+                uint pid = openDwellOrder[i];
+                if (!openDwellByPid.TryGetValue(pid, out DwellRecord open) || open == null)
+                    continue;
+                if (!open.HasOwnerIndex || open.OwnerIndex != ownerIndex)
+                    continue;
+                if (open.OpenUT > eventUT || open.OpenUT < cycleStartUT)
+                    continue;
+                if (!lastFrameUtByPid.TryGetValue(pid, out double lastUT))
+                    lastUT = open.CloseUT;
+                if (!DwellIsStaleAtClockEvent(lastUT, eventUT))
+                    continue;
+                if (stale == null)
+                    stale = new List<uint>();
+                stale.Add(pid);
+            }
+            if (stale == null)
+                return 0;
+
+            int closed = 0;
+            for (int i = 0; i < stale.Count; i++)
+            {
+                if (!openDwellByPid.TryGetValue(stale[i], out DwellRecord open) || open == null)
+                    continue;
+                if (closed == 0)
+                {
+                    firstPid = open.Pid;
+                    firstPhaseKind = open.PhaseKind;
+                }
+                CloseDwell(stale[i], open, eventUT);
+                closed++;
+            }
+            return closed;
+        }
+
         /// <summary>Closes any dwell still open for <paramref name="pid"/> (ghost retired / scene exit).</summary>
         internal void CloseOpenDwell(uint pid, double closeUT)
         {

@@ -6322,6 +6322,171 @@ class RenderComposeVerifierWiringTests(unittest.TestCase):
         # their own stated reason: a shared inversion re-proves the evaluator rather
         # than this block.
         "V24W-duna-one-warp-stair.toml",
+        # V25M: ARMED 2026-08-26 off THREE of its OWN report-only readings, all of one
+        # unchanged drive shape. READING 1 `2026-08-26_1744` - the full-measurement
+        # flight, PARSEK-FAIL(anomaly) attempt 1 by this spec's own PRE-REGISTERED
+        # doctrine, and the run that DIAGNOSED the wave-1 RC-SEAM misread (a transition
+        # that warped across an interior segment spanned boundaries 7 and 8; the
+        # evaluator keyed the seam table on `toSegmentIndex` and blamed boundary 8's
+        # correct `rigid` for boundary 7's Sun->Duna change). READING 2
+        # `2026-08-26_1817` - red on `line-blink`, since tolerated; it VALIDATED the
+        # RC-SEAM fix live (zero FAIL findings where reading 1 raised one). READING 3
+        # `2026-08-26_1823` - the CLEAN PASS the arming doctrine requires: dwells 3
+        # (+2 open), cycles 0, unevaluable 409, 0 FAIL / 0 WARN, anomalies
+        # {icon-teleport 3, icon-off-orbit 2, line-blink 0}.
+        # THE STRUCTURE IS EQUAL TO THE INTEGER ON ALL THREE: dwells 3 (+2 open),
+        # cycles 0, treatments {StockConic 2, TracedPath 1}, coverages {InSegment 3},
+        # seamKinds {rigid 8, flexible-soi 2}. The ONE facet that moved is
+        # `unevaluable`: 384 / 410 / 409.
+        # WINDOWS: dwells {1,32} (the suite's identical anti-vacuity floor and, on this
+        # lane, the ONLY one), unevaluable {max 1400}, requireSeamKinds
+        # ["rigid","flexible-soi"]. The ceiling is ~3.4x the largest reading - the SAME
+        # ratio-to-measurement the two 1x siblings carry (V14M 200/56, V8 250/76),
+        # SCALED to this census rather than copied: 98 % of it is
+        # `seam-endpoint-skipped` (308/322/306) plus `reaimed-seam-instant-absent`
+        # (69/81/96) over a ~400-record endpoint population, and those two traded 15
+        # records between themselves across readings 2 and 3 while their sum barely
+        # moved. Four census entries are STRUCTURAL and stay:
+        # `plan-primitive-body-unidentified 1` (Sun is not in the stock body table),
+        # `hold-observed-evidence-absent 1` + `warp-hold-traversal-evidence-absent 1`
+        # (the plan holds 3,918.25 s and every window sits at or before the arrival SOI
+        # entry by design), `ownership-publish-surface-never-ran 1` (this lane drives no
+        # EnterMapView - V6M is the lane that closed RC-OWN, and opening the map here
+        # would be a change to the flown shape that arming may not make).
+        # `cycles` DELIBERATELY OMITTED, the V8 shape exactly: zero closed cycles on all
+        # three readings, so a floor would red the runs it was armed off and a {min = 0}
+        # pin can never red. `warpBuckets` never (1x-only by construction, 468/470
+        # frames, every other bucket 0). No RC-CUT window although this lane owns the
+        # program's first non-empty `cutWholeRatios = [2.0]` - one ratio from one cut is
+        # a headline, not a population - and no RC-HOLD clause
+        # (`observedHoldSeconds []`).
+        # ARMED RE-FLIGHT: `2026-08-26_1837` PASS attempt 1, gating=True,
+        # armedBlocks=['renderComposition'], ZERO mismatches - dwells 3 (+2 open),
+        # cycles 0, treatments {StockConic 2, TracedPath 1}, seamKinds {rigid 8,
+        # flexible-soi 2}, seamEndpoints 381, unevaluable 388, one INFO RC-QUAL, zero
+        # WARN/FAIL. The windows hold against a run they were not written from, and 388
+        # sits INSIDE the three readings' spread rather than trending - exactly what the
+        # ceiling was sized to absorb.
+        # NEGATIVE CONTROL: `2026-08-26_1839`, temporary `dwells = { min = 50 }` applied
+        # by a LINE-ANCHORED edit of the real key (verified with `grep -n '^dwells'` AND
+        # through `run.py --dry-run`'s `declared:` line before launch - the V24W `_1811`
+        # miss is why that second check is mandatory), red on exactly
+        # `PARSEK-FAIL(render-composition)` with EXACTLY ONE mismatch,
+        # `renderComposition.dwells 3 < min 50`. Every sibling row stayed clean
+        # (driverValidity / analyzer red=0 / logValidate / anomalySweep / expectations /
+        # testResults PASS, saveParse + unityExceptions REPORT) and the composition
+        # facets equalled the PASSing flights', so the red is the declaration and nothing
+        # else; the run JSON's `verifiers.renderCompose.declared` records
+        # `dwells: {min: 50}`. Reverted in the same change on the re-grepped real key.
+        # NOT SHARED with the V6M lane armed alongside it, which inverted `cycles` - a
+        # clause this block does not even carry.
+        "V25M-duna-park-player-loop.toml",
+        # V6M: ARMED 2026-08-26 off a PAIR of its own report-only readings that bracket
+        # the one change the lane made between them - the map. READING A
+        # `2026-08-25_2056` flew with the map CLOSED and raised THREE report-only RC-OWN
+        # FAILs, whose cause was an INSTRUMENT GAP and not a renderer defect: the
+        # TracedPath INTENT half runs from ParsekFlight's per-frame update while the
+        # PUBLISH half sits past `if (!MapView.MapIsEnabled) return;` at the end of the
+        # polyline Driver's LateUpdate, so a lane that never opened the map could draw
+        # without ever publishing. READING B `2026-08-26_1745` is the MAP-OPEN re-fly
+        # (EnterMapView / ExitMapView, PR #1539) and it is the RC-OWN CLOSURE:
+        # `ownershipChanges = 6` (three clean appear/disappear pairs, one per TracedPath
+        # dwell), findings ALL ZERO where reading A raised three, and
+        # `ownership-publish-surface-never-ran` gone from the census entirely.
+        # THE ARMED RE-FLIGHTS ARE MAP-OPEN, so every window is written off READING B
+        # for anything the map moves, and off the PAIR for the facets that are equal to
+        # the integer across both: dwells 5 (+3 open) BOTH, cycles 2 BOTH, transitions 5
+        # BOTH, treatments {StockConic 2, TracedPath 3} BOTH, coverages {InSegment 5}
+        # BOTH, lineBranches 11 BOTH, seamKinds {rigid 21, flexible-soi 3} BOTH,
+        # seamTangents 0 BOTH, clockEvents {cycle-rollover 3, inter-cycle-tail 2} BOTH.
+        # WINDOWS: dwells {1,32} (the suite's identical floor), cycles {min 2, max 16},
+        # unevaluable {max 300}, requireSeamKinds ["rigid","flexible-soi"].
+        # `cycles = {min = 2}` IS THE CLAUSE THIS LANE EXISTS TO CARRY and the reason it
+        # grew a third playback cycle: rendercompose closes N-1 cycles off N
+        # `cycle-rollover` events, so three rollovers close TWO, and no other lane in the
+        # suite can carry a floor above 1 (V14M closes 1, V8 and V25M close 0). The
+        # ceiling is loose for the same reason as `dwells`. THE FLOOR IS NOT VACUOUS
+        # HERE, and that had to be checked rather than assumed: `_rule_cycle` builds each
+        # window's role structure from the CLOSED dwells whose midpoint falls inside it
+        # and compares with a plain `roles[a] == roles[b]`, so two EMPTY role sets would
+        # compare equal and say nothing - this lane's 5 closed dwells over 2 closed
+        # cycles are what make the isomorphism statement real.
+        # `unevaluable = {max 300}` is ~3.6x reading B's 84 - the sibling lanes' ratio -
+        # and it also clears reading A's 110 with room, so the window does not depend on
+        # which of the two shapes a future run happens to fly. The census is
+        # `seam-endpoint-skipped` (83 map-open, 109 map-closed) plus one
+        # `warp-hold-traversal-evidence-absent`, i.e. it moves with endpoint population
+        # and frame timing, not with correctness.
+        # `ownershipChanges` IS NOT DECLARED AND COULD NOT BE: it is a recorded FACET,
+        # not a windowable key - `rendercompose.RENDER_COMPOSITION_WINDOW_KEYS` is
+        # ("dwells", "cycles", "unevaluable") and the block validator rejects any other
+        # key outright. The RC-OWN premise (ownership is conserved on this subject) is
+        # therefore armed INDIRECTLY and completely: with `gating = true` every
+        # FAIL-level rule finding gates, so the three RC-OWN FAILs reading A raised would
+        # now classify `PARSEK-FAIL(render-composition)`. A first-class
+        # `ownershipChanges` window is filed as a harness improvement in
+        # docs/dev/todo-and-known-bugs.md rather than invented here.
+        # `warpBuckets` never (1x-only by construction, instantaneous TimeJumps).
+        # ARMED RE-FLIGHT: DISCHARGED FOUR TIMES - `2026-08-26_1838`, `_1842`, `_1843`,
+        # `_1844`, all PASS attempt 1 with gating=True,
+        # armedBlocks=['renderComposition'], ZERO mismatches and zero findings at every
+        # level. dwells 5 (+3 open), cycles 2, seamKinds {rigid 21, flexible-soi 3} and
+        # `ownershipChanges = 6` on ALL FOUR, so the RC-OWN closure is backed by FIVE
+        # map-open flights rather than the single re-fly that first made it. unevaluable
+        # 91 / 75 / 83 / 112 - scattered inside the 300 ceiling, not trending.
+        # NEGATIVE CONTROL: `2026-08-26_1840`, temporary `cycles = { min = 9 }` applied
+        # by a LINE-ANCHORED edit of the real key (verified with `grep -n '^cycles'` AND
+        # through `run.py --dry-run`'s `declared:` line), red on exactly
+        # `PARSEK-FAIL(render-composition)`; the inverted clause named itself
+        # (`renderComposition.cycles 2 < min 9`) and every SIBLING VERIFIER ROW stayed
+        # clean (saveParse PASS on its own two armed blocks, driverValidity / analyzer
+        # red=0 / logValidate / anomalySweep / expectations / testResults PASS).
+        # Reverted in the same change on the re-grepped real key. Not shared with V25M,
+        # which inverted `dwells`.
+        # THE CONTROL ALSO CARRIED A SECOND MISMATCH THAT WAS NOT THE CONTROL, and it is
+        # the most valuable thing this arming pass produced. A window edit cannot change
+        # the flown shape, yet that one run measured dwells 4, transitions 4, treatments
+        # {StockConic 1, TracedPath 3} and an RC-CYCLE FAIL: "cycles 0 and 1 share warp
+        # bucket warp1x but their role structures differ: ((1, 'Descent'),) vs
+        # ((1, 'ArrivalLoiter'), (1, 'Descent'))". RECURRENCE MEASURED, not guessed: 1 of
+        # 6 map-open flights (_1745, _1838, _1840, _1842, _1843, _1844).
+        # DIAGNOSED 2026-08-26 offline across all six archived manifests, AND THE
+        # DIAGNOSIS REFUTES THE FIRST READING. The dwell is not absent and the renderer is
+        # not intermittent: cycle 0's ArrivalLoiter dwell opens at 296690 with minHeadUT
+        # 16547.472619832275 and 44-45 frames on ALL SIX flights. What is missing on _1840
+        # is its CLOSE - the `TRANSITION ut=560304.47476033552 from=7 to=-1` was never
+        # recorded and no segmentIndex=-1 tail dwell opened, so the dwell ran to export
+        # with openAtExport=True and `_rule_cycle` (closed dwells only) saw cycle 0 as
+        # Descent-only. The `7 -> -1` tail state is observed for 15/10/7/7/4 frames on the
+        # green flights and 0 (cycle 0) / 1 (cycle 1) on the red one, which is also the
+        # sparsest-sampling flight of the six by total dwell frames (235 vs 245-265). The
+        # CLOCK_EVENT inter-cycle-tail at that UT is PRESENT on all six including _1840,
+        # so the unit clock reached the tail and only the per-frame surface missed it.
+        # NOT an entry-clock race (cycle-0 phase entry UTs are bit-identical across all
+        # six, so no jump-target change applies) and NOT renderer intermittency.
+        # CONSEQUENCE: the gate would have red ~1-in-6 on a RECORDER bookkeeping gap
+        # rather than on a product defect, which undercut the reason the arming row gave.
+        # RULING: land the fix and keep the lane armed - done the same day.
+        # THE FIX (2026-08-26): RenderCompositionRecorder arms a pending close when it
+        # emits the inter-cycle-tail clock event (the path that never misses) and
+        # RenderCompositionManifest.FallbackCloseStaleOwnerDwells applies it A FRAME LATER
+        # (the two callbacks have no pinned order, so closing at the emission instant
+        # would steal the TRANSITION the render path is about to emit), retiring a dwell
+        # still open, opened within the ENDING cycle, and last sampled strictly before the
+        # event, stamped AT the event UT. A fallback, not a new primary path.
+        # THE FIRST CUT WAS WRONG AND THE PROOF FLIGHTS CAUGHT IT: scoped by owner alone
+        # it also retired the previous cycle's leftover `-1` dwell (open by design),
+        # inventing a (1,'None') role and red-ing _1918/_1919/_1920 at dwells 6.
+        # DETERMINISM PROOF: 2026-08-26_1925/_1926/_1927 all PASS attempt 1, dwells 5,
+        # cycles 2, zero findings - and DIRECTLY rather than statistically, because the
+        # fallback actually FIRED on two of the three (_1925 twice, _1926 once, _1927 not
+        # at all) and they passed anyway, with the CLOSED dwell set identical on all three
+        # and matching the canonical pre-fix greens to the digit. Sibling check:
+        # V25M re-flown armed on the same DLL, 2026-08-26_1929 PASS, windows reproduced,
+        # fallback fired zero times (that lane emits no inter-cycle-tail event).
+        # Full write-up: docs/dev/todo-and-known-bugs.md ->
+        # V6M-CYCLE0-ARRIVALLOITER-DWELL-CLOSE-RECORD-LOST (CLOSED).
+        "V6M-mun-player-loop.toml",
     }
 
     def test_no_committed_spec_arms_render_composition_gating(self):
