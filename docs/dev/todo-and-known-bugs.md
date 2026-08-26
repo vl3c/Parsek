@@ -14,6 +14,80 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## V6M-CYCLE0-ARRIVALLOITER-DWELL-INTERMITTENTLY-ABSENT: on roughly one map-open flight in six, `V6M-mun-player-loop` renders cycle 0 without its ArrivalLoiter dwell, so RC-CYCLE raises a genuine non-isomorphism FAIL and - now that the lane is armed - reds the run outright [FOUND 2026-08-26 on run `2026-08-26_1840`, the lane's `renderComposition` negative control, which was inverting a DIFFERENT window and could not have caused it. OPEN - not diagnosed, deliberately not suppressed]
+
+**What was measured.** The negative control for V6M's arming pass inverted
+`cycles` to `{ min = 9 }` and nothing else. A window edit cannot change the
+flown shape, yet that run came back with TWO mismatches instead of the expected
+one: the inverted clause (`renderComposition.cycles 2 < min 9`, as designed) and
+
+```
+RC-CYCLE [FAIL] unit[host=Flight planSeq=0 owner=0]: cycles 0 and 1 share warp
+  bucket warp1x but their role structures differ:
+  ((1, 'Descent'),) vs ((1, 'ArrivalLoiter'), (1, 'Descent'))
+```
+
+The composition facets on that run read `dwells 4` (not 5), `transitions 4` (not
+5) and `treatments {StockConic: 1, TracedPath: 3}` (not `{StockConic: 2,
+TracedPath: 3}`) - i.e. exactly one StockConic dwell, the ArrivalLoiter one in
+cycle 0, never opened or never closed. Cycle 1's did. Every count window still
+held; the only clause that objected was the structure comparison.
+
+**Recurrence, measured rather than guessed: 1 of 6 map-open flights.** The six
+are `2026-08-26_1745` (reading B), `_1838`, `_1840` (this one), `_1842`, `_1843`
+and `_1844`. The other five all read `dwells 5` / `StockConic 2` / zero findings
+at every level, with `ownershipChanges = 6` on each.
+
+**Why it matters now.** `hlib.should_retry` NEVER retries a `PARSEK-FAIL`, so
+this is not absorbed by the lane's `retry.policy = "once"`: when it fires on an
+armed nightly the lane reds outright.
+
+**Why the lane was armed anyway**, stated so the decision can be argued with
+rather than inherited. The finding is a REAL composition observation - a leg that
+intermittently produces no dwell in one cycle - and not an evaluator artifact,
+not a too-tight window (every count window passed on that very run) and not a
+consequence of the control edit. Making an intermittent render-composition defect
+VISIBLE is what the gate exists for, and RC-CYCLE's structure comparison is the
+one thing this three-cycle lane uniquely measures; arming while suppressing it
+would ship a gate blind to its own subject. What the operator gets in exchange is
+this entry: if a nightly reds here with a `role structures differ` mismatch and
+`dwells 4`, the comparison run is `2026-08-26_1840` and the question to ask first
+is whether cycle 0's ArrivalLoiter dwell was opened at all (the manifest's DWELL
+records) or opened and left unclosed at export (`openDwells`).
+
+**Not yet established:** whether the missing dwell is a renderer intermittency
+(the leg genuinely did not draw that cycle) or an OBSERVATION-BOUNDARY artifact
+(the dwell straddled the export instant, or opened before the first bracket).
+`openDwells` read 3 on the red run as on the green ones, which does not settle
+it. The next step is a manifest-level diff of `_1840` against `_1838` over the
+DWELL records themselves, not the counts.
+
+## RENDERCOMPOSE-OWNERSHIPCHANGES-IS-NOT-WINDOWABLE: `ownershipChanges` is recorded as a facet but cannot be asserted, so the RC-OWN conservation premise can only be armed indirectly through the FAIL-finding gate [FOUND 2026-08-26 during V6M's arming pass. TODO, not a defect - a missing surface, filed rather than invented mid-arming]
+
+`rendercompose.RENDER_COMPOSITION_WINDOW_KEYS` is exactly `("dwells", "cycles",
+"unevaluable")` and `RENDER_COMPOSITION_LIST_KEYS` is `("warpBuckets",
+"requireSeamKinds")`; `validate_render_composition_expectations` rejects any
+other key pre-launch. So a lane that has PROVEN its publish surface runs -
+V6M measured `ownershipChanges = 6` on five separate map-open flights - has no
+way to say so as an assertion.
+
+What arming buys today is still complete but indirect: `gating = true` gates on
+every FAIL-level rule finding, so the three RC-OWN FAILs V6M's map-closed reading
+raised would now classify `PARSEK-FAIL(render-composition)`. What a first-class
+`ownershipChanges = { min = 1 }` would add on top is a FLOOR ON THE PUBLISH
+SURFACE HAVING RUN AT ALL - which today is stated only by the ABSENCE of the
+defined-unevaluable `ownership-publish-surface-never-ran` from the census, i.e.
+by a negative, and only in the run JSON rather than in any declaration. A lane
+that silently stopped opening the map would stand RC-OWN down to unevaluable and
+green.
+
+**Fix:** add `ownershipChanges` to `RENDER_COMPOSITION_WINDOW_KEYS` (the window
+grammar is already generic - bare int = exact pin, `{min=,max=}` = window - and
+`_validate_armed_unreddable` already covers it), then arm `{ min = 1 }` on V6M in
+its own change with the usual reading/re-flight/control discipline. Deliberately
+NOT done inside the arming pass that found it: inventing a facet key while arming
+a lane is how a prediction gets read back as a measurement.
+
 ## NEGATIVE-CONTROL-EDIT-NEVER-REACHED-THE-KEY: V24W's first negative control inverted a RATIONALE COMMENT instead of the armed `warpBuckets` line, the flight evaluated the UNINVERTED block, and nothing the run wrote to disk could tell that apart from a fail-open verifier [FOUND 2026-08-25 on run `2026-08-25_1811`, the suite's first attempt at a `renderComposition` negative control. THE VERIFIER IS SOUND - proved below across five module versions. FIXED the same day: the run now records WHICH block it evaluated, and `--dry-run` prints it before the machine lock. CLOSED the same day too - the re-flown control `2026-08-25_1925` red exactly as predicted AND its result JSON records the block it asserted, so the fix is proven in use by the control that needed it]
 
 **The claim, and what it actually was.** Run `2026-08-25_1811`
@@ -517,6 +591,54 @@ different kind from Wave A's:** `V18T-depot-route-ts-arrival` and
 fixtures rather than declarations bolted onto lanes that had already flown, so
 each owes a FIRST FLIGHT before it owes a window. Details in the Phase 4 bullet
 below; rationale in `RENDERCOMPOSE_DECLARER_SPECS`.
+
+**ARMED LANES 3 -> 5 ON 2026-08-26: `V25M-duna-park-player-loop` and
+`V6M-mun-player-loop` both closed the full three-run discipline the same day, so
+the armed roster is now V14M / V8 / V24W / V25M / V6M against 21 declarers.**
+  * V25M armed off THREE readings of one unchanged drive shape - `2026-08-26_1744`
+    (full measurement), `_1817` (red on `line-blink`, and the run that validated
+    the RC-SEAM verifier fix live at zero FAIL findings) and `_1823` (the clean
+    PASS). Structure equal to the integer on all three (dwells 3 +2 open, cycles
+    0, treatments StockConic 2 / TracedPath 1, seams rigid 8 / flexible-soi 2);
+    only the unevaluable census moved, 384 / 410 / 409. WINDOWS `dwells {1,32}`,
+    `unevaluable {max 1400}`, `requireSeamKinds [rigid, flexible-soi]`, with
+    `cycles` deliberately omitted on the V8 pattern (this subject closes zero
+    cycles, so a floor would red the runs it was armed off). The ceiling is ~3.4x
+    the largest reading - the siblings' ratio-to-measurement SCALED to a
+    ~400-record endpoint population, not copied from their 200 / 250. ARMED
+    RE-FLIGHT `2026-08-26_1837` PASS, zero mismatches, unevaluable 388 (inside the
+    readings' own spread). NEGATIVE CONTROL `2026-08-26_1839`
+    `PARSEK-FAIL(render-composition)` off a temporary `dwells = { min = 50 }`,
+    EXACTLY ONE mismatch (`renderComposition.dwells 3 < min 50`), every sibling
+    row clean, reverted in the same change.
+  * V6M armed off THE PAIR `2026-08-25_2056` (map closed) + `2026-08-26_1745`
+    (map open), which bracket the one change the lane made between them. WINDOWS
+    `dwells {1,32}`, **`cycles {min 2, max 16}` - the floor no other lane in the
+    suite can carry**, `unevaluable {max 300}` sized off the map-open reading (and
+    clearing the map-closed 110 besides), `requireSeamKinds [rigid,
+    flexible-soi]`. The `cycles` floor was CHECKED for vacuity rather than
+    assumed: neither census carries `no-dwells-attributable-to-unit`, so the five
+    closed dwells really were attributed to the unit and the isomorphism
+    comparison really ran. ARMED RE-FLIGHT DISCHARGED FOUR TIMES (`_1838`,
+    `_1842`, `_1843`, `_1844`, all PASS attempt 1, zero mismatches,
+    `ownershipChanges = 6` on every one - the RC-OWN closure now rests on FIVE
+    map-open flights). NEGATIVE CONTROL `2026-08-26_1840` red on exactly
+    `PARSEK-FAIL(render-composition)` off a temporary `cycles = { min = 9 }`,
+    sibling rows clean, reverted in the same change.
+  * TWO FINDINGS CAME OUT OF THE PASS AND BOTH ARE FILED AT THE TOP OF THIS FILE
+    RATHER THAN BURIED HERE: `V6M-CYCLE0-ARRIVALLOITER-DWELL-INTERMITTENTLY-ABSENT`
+    (the V6M control's SECOND, uninvited mismatch - a genuine RC-CYCLE
+    non-isomorphism at 1-in-6 recurrence, armed anyway and deliberately) and
+    `RENDERCOMPOSE-OWNERSHIPCHANGES-IS-NOT-WINDOWABLE` (the RC-OWN premise can
+    only be armed through the FAIL-finding gate, because `ownershipChanges` is a
+    recorded facet and not one of the three windowable keys).
+  * The controls were NOT shared: V25M inverted `dwells`, V6M inverted `cycles` -
+    a clause V25M's block does not even carry - so each red lands on its own armed
+    window rather than re-proving the shared `rendercompose` evaluator. Both were
+    applied by LINE-ANCHORED edits of the real key, each verified with
+    `grep -n '^<key>'` AND through `run.py --dry-run`'s `declared:` line before
+    launch, which is the standing discipline since
+    `NEGATIVE-CONTROL-EDIT-NEVER-REACHED-THE-KEY`.
 
 
 Phases 1-2 shipped the C# recorder (env-gated, `ExportRenderManifest` verb,
