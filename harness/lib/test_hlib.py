@@ -6527,8 +6527,33 @@ class RenderComposeVerifierWiringTests(unittest.TestCase):
         # and the validator refused anything else pre-launch. The schema extension (todo
         # RENDERCOMPOSE-OWNERSHIPCHANGES-IS-NOT-WINDOWABLE) ships in the same change, and
         # this lane's armed re-flight + negative control are its LIVE PROOF end to end.
-        # ARMED RE-FLIGHT: PENDING.
-        # NEGATIVE CONTROL: PENDING.
+        # ARMED RE-FLIGHT: `2026-08-26_2015` PASS attempt 1, gating=True,
+        # armedBlocks=['renderComposition'], ZERO mismatches, zero findings at every
+        # level - routeLineBuilds 1, routeCoDrawViolations 0, routeLegDefers 0, planUnits
+        # 1, chainBuilds 1, lineBranches 1, dwells 0 (+1 open), cycles 0, unevaluable 3 at
+        # the same three reasons, seamKinds {rigid 12}. THE THIRD READING OF THE CENSUS IS
+        # EQUAL TO THE FIRST TWO ON EVERY FACET, against a run the windows were not
+        # written from.
+        # NEGATIVE CONTROL: `2026-08-26_2017_a2`, temporary `routeLineBuilds = { min = 5 }`
+        # applied by a LINE-ANCHORED edit of the real key (a python pass asserting EXACTLY
+        # ONE line starting `routeLineBuilds`, then `grep -n '^routeLineBuilds'` AND
+        # `run.py --dry-run`'s `declared:` line before launch - the V24W `_1811` miss is
+        # why the second check is mandatory). Red on exactly
+        # `PARSEK-FAIL(render-composition)` with EXACTLY ONE mismatch,
+        # `renderComposition.routeLineBuilds 1 < min 5`. Every sibling row stayed clean
+        # (driverValidity / analyzer red=0 / logValidate / anomalySweep / expectations /
+        # testResults PASS, saveParse + unityExceptions REPORT), zero findings at every
+        # level stood beside the one mismatch, and the composition facets equalled the
+        # PASSing flights' - so the red is THIS lane's own declaration and not the shared
+        # evaluator. THE CONTROL IS ALSO THE LIVE END-TO-END PROOF OF THE SCHEMA
+        # EXTENSION: `routeLineBuilds` is a key that did not exist before this change, and
+        # it flew, validated pre-launch, evaluated, and red on its own mismatch spelling.
+        # Attempt 1 (`2026-08-26_2016`) INVALID(driver-verdict-mismatch) on the SAME known
+        # flake reading 1 hit - step 15 id=0016 `LoadGame` REJECTED after the preceding
+        # StopRecording, the stop/load race - and the retry policy absorbed it. Not a
+        # composition fact. Control reverted in the same change on the re-grepped real key
+        # (byte-identical to HEAD after the revert, checked rather than assumed).
+        # Not shared with any sibling: each armed lane inverts a window of its own.
         "V18T-depot-route-ts-arrival.toml",
     }
 
