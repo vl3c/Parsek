@@ -6446,18 +6446,29 @@ class RenderComposeVerifierWiringTests(unittest.TestCase):
         # THE CONTROL ALSO CARRIED A SECOND MISMATCH THAT WAS NOT THE CONTROL, and it is
         # the most valuable thing this arming pass produced. A window edit cannot change
         # the flown shape, yet that one run measured dwells 4, transitions 4, treatments
-        # {StockConic 1, TracedPath 3} and a GENUINE RC-CYCLE FAIL: "cycles 0 and 1 share
-        # warp bucket warp1x but their role structures differ: ((1, 'Descent'),) vs
-        # ((1, 'ArrivalLoiter'), (1, 'Descent'))" - cycle 0's ArrivalLoiter dwell never
-        # opened (or never closed) on that run. RECURRENCE MEASURED, not guessed: 1 of 6
-        # map-open flights (_1745, _1838, _1840, _1842, _1843, _1844); the other five all
-        # read dwells 5 / StockConic 2 / zero findings. `should_retry` NEVER retries a
-        # PARSEK-FAIL, so an armed nightly reds outright when this fires. ARMING PROCEEDS
-        # ANYWAY, deliberately: the finding is a real composition observation and not an
-        # evaluator artifact or a too-tight window (every count window held on that run),
-        # and making an intermittent render-composition defect visible is what the gate
-        # is for. Tracked in docs/dev/todo-and-known-bugs.md with `2026-08-26_1840` as
-        # the comparison run id.
+        # {StockConic 1, TracedPath 3} and an RC-CYCLE FAIL: "cycles 0 and 1 share warp
+        # bucket warp1x but their role structures differ: ((1, 'Descent'),) vs
+        # ((1, 'ArrivalLoiter'), (1, 'Descent'))". RECURRENCE MEASURED, not guessed: 1 of
+        # 6 map-open flights (_1745, _1838, _1840, _1842, _1843, _1844).
+        # DIAGNOSED 2026-08-26 offline across all six archived manifests, AND THE
+        # DIAGNOSIS REFUTES THE FIRST READING. The dwell is not absent and the renderer is
+        # not intermittent: cycle 0's ArrivalLoiter dwell opens at 296690 with minHeadUT
+        # 16547.472619832275 and 44-45 frames on ALL SIX flights. What is missing on _1840
+        # is its CLOSE - the `TRANSITION ut=560304.47476033552 from=7 to=-1` was never
+        # recorded and no segmentIndex=-1 tail dwell opened, so the dwell ran to export
+        # with openAtExport=True and `_rule_cycle` (closed dwells only) saw cycle 0 as
+        # Descent-only. The `7 -> -1` tail state is observed for 15/10/7/7/4 frames on the
+        # green flights and 0 (cycle 0) / 1 (cycle 1) on the red one, which is also the
+        # sparsest-sampling flight of the six by total dwell frames (235 vs 245-265). The
+        # CLOCK_EVENT inter-cycle-tail at that UT is PRESENT on all six including _1840,
+        # so the unit clock reached the tail and only the per-frame surface missed it.
+        # NOT an entry-clock race (cycle-0 phase entry UTs are bit-identical across all
+        # six, so no jump-target change applies) and NOT renderer intermittency.
+        # CONSEQUENCE: this gate as committed reds ~1-in-6 on a RECORDER bookkeeping gap
+        # rather than on a product defect, which undercuts the reason the arming row gave.
+        # The arm-vs-bare decision is REFERRED BACK, not re-taken here. Full write-up and
+        # the preferred C# fix: docs/dev/todo-and-known-bugs.md ->
+        # V6M-CYCLE0-ARRIVALLOITER-DWELL-CLOSE-RECORD-LOST.
         "V6M-mun-player-loop.toml",
     }
 

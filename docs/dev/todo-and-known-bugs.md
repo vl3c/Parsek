@@ -14,53 +14,101 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## V6M-CYCLE0-ARRIVALLOITER-DWELL-INTERMITTENTLY-ABSENT: on roughly one map-open flight in six, `V6M-mun-player-loop` renders cycle 0 without its ArrivalLoiter dwell, so RC-CYCLE raises a genuine non-isomorphism FAIL and - now that the lane is armed - reds the run outright [FOUND 2026-08-26 on run `2026-08-26_1840`, the lane's `renderComposition` negative control, which was inverting a DIFFERENT window and could not have caused it. OPEN - not diagnosed, deliberately not suppressed]
+## V6M-CYCLE0-ARRIVALLOITER-DWELL-CLOSE-RECORD-LOST: on roughly one map-open flight in six the render-composition manifest never records the CLOSE of `V6M-mun-player-loop`'s cycle-0 ArrivalLoiter dwell, so a correctly-rendered cycle reads as structurally different and RC-CYCLE reds the run [FOUND 2026-08-26 on run `2026-08-26_1840`, the lane's `renderComposition` negative control, which was inverting a DIFFERENT window and could not have caused it. DIAGNOSED 2026-08-26 offline across all six archived map-open manifests. OPEN - the defect is in the RECORDER's close bookkeeping, NOT in the renderer, and NOT in the lane's jump targets. Was filed the same day as V6M-CYCLE0-ARRIVALLOITER-DWELL-INTERMITTENTLY-ABSENT; renamed because that title asserted something the diagnosis refuted]
 
-**What was measured.** The negative control for V6M's arming pass inverted
-`cycles` to `{ min = 9 }` and nothing else. A window edit cannot change the
-flown shape, yet that run came back with TWO mismatches instead of the expected
-one: the inverted clause (`renderComposition.cycles 2 < min 9`, as designed) and
+**The original claim was wrong in the way that matters, and the correction is
+the finding.** It was first written up as "cycle 0 renders without its
+ArrivalLoiter dwell" - a renderer intermittency. It is not. The dwell renders.
+Its CLOSE RECORD is what goes missing.
 
-```
-RC-CYCLE [FAIL] unit[host=Flight planSeq=0 owner=0]: cycles 0 and 1 share warp
-  bucket warp1x but their role structures differ:
-  ((1, 'Descent'),) vs ((1, 'ArrivalLoiter'), (1, 'Descent'))
-```
+**What the six archived manifests show.** Cycle 0's ArrivalLoiter dwell is
+IDENTICAL on all six map-open flights (`_1745`, `_1838`, `_1840`, `_1842`,
+`_1843`, `_1844`):
 
-The composition facets on that run read `dwells 4` (not 5), `transitions 4` (not
-5) and `treatments {StockConic: 1, TracedPath: 3}` (not `{StockConic: 2,
-TracedPath: 3}`) - i.e. exactly one StockConic dwell, the ArrivalLoiter one in
-cycle 0, never opened or never closed. Cycle 1's did. Every count window still
-held; the only clause that objected was the structure comparison.
+| run | closed? | frames | minHeadUT..maxHeadUT | closeUT |
+|---|---|---|---|---|
+| `_1745` | closed | 45 | 16547.472619832275..20834.952619832722 | 560304.47476033552 |
+| `_1838` | closed | 45 | 16547.472619832275..20834.972619832741 | 560304.47476033552 |
+| **`_1840`** | **OPEN** | **44** | 16547.472619832275..20834.952619832722 | **990558.76 (export)** |
+| `_1842` | closed | 44 | 16547.472619832275..20834.932619832703 | 560304.47476033552 |
+| `_1843` | closed | 45 | 16547.472619832275..20834.952619832722 | 560304.47476033552 |
+| `_1844` | closed | 45 | 16547.472619832275..20834.952619832722 | 560304.47476033552 |
 
-**Recurrence, measured rather than guessed: 1 of 6 map-open flights.** The six
-are `2026-08-26_1745` (reading B), `_1838`, `_1840` (this one), `_1842`, `_1843`
-and `_1844`. The other five all read `dwells 5` / `StockConic 2` / zero findings
-at every level, with `ownershipChanges = 6` on each.
+Same `openUT` (296690) on all six. Same `minHeadUT` to the last digit on all
+six. Same frame count (44-45) on all six. Same `maxUtStep` (4286.76-4286.78).
+**The clock sat inside ArrivalLoiter on the red run exactly as long, and was
+sampled exactly as densely, as on the five green ones.** The leg drew.
 
-**Why it matters now.** `hlib.should_retry` NEVER retries a `PARSEK-FAIL`, so
-this is not absorbed by the lane's `retry.policy = "once"`: when it fires on an
-armed nightly the lane reds outright.
+**What actually failed.** On `_1840` alone the `TRANSITION ut=560304.47476
+from=7 to=-1` is ABSENT and no `segmentIndex = -1` inter-cycle-tail dwell opened
+at that instant. With no transition out of segment 7, the ArrivalLoiter dwell
+was never closed and ran to export carrying `openAtExport = True`. The parser
+keeps open dwells OUT of `dwells` (deliberately - "a half-observed interval must
+not count toward a coverage or anti-vacuity floor"), so `_rule_cycle`, which
+considers CLOSED dwells only, sees cycle 0 as `((1,'Descent'),)` against cycle
+1's `((1,'ArrivalLoiter'), (1,'Descent'))` and reports a non-isomorphism.
 
-**Why the lane was armed anyway**, stated so the decision can be argued with
-rather than inherited. The finding is a REAL composition observation - a leg that
-intermittently produces no dwell in one cycle - and not an evaluator artifact,
-not a too-tight window (every count window passed on that very run) and not a
-consequence of the control edit. Making an intermittent render-composition defect
-VISIBLE is what the gate exists for, and RC-CYCLE's structure comparison is the
-one thing this three-cycle lane uniquely measures; arming while suppressing it
-would ship a gate blind to its own subject. What the operator gets in exchange is
-this entry: if a nightly reds here with a `role structures differ` mismatch and
-`dwells 4`, the comparison run is `2026-08-26_1840` and the question to ask first
-is whether cycle 0's ArrivalLoiter dwell was opened at all (the manifest's DWELL
-records) or opened and left unclosed at export (`openDwells`).
+**The mechanism is a sampling race against a very short-lived state, and it is
+measurable.** The `7 -> -1` inter-cycle-tail state is observed for only a
+handful of frames:
 
-**Not yet established:** whether the missing dwell is a renderer intermittency
-(the leg genuinely did not draw that cycle) or an OBSERVATION-BOUNDARY artifact
-(the dwell straddled the export instant, or opened before the first bracket).
-`openDwells` read 3 on the red run as on the green ones, which does not settle
-it. The next step is a manifest-level diff of `_1840` against `_1838` over the
-DWELL records themselves, not the counts.
+| run | frames in cycle-0 tail state | frames in cycle-1 tail state | total dwell frames |
+|---|---|---|---|
+| `_1844` | 15 | 15 | 265 |
+| `_1842` | 10 | 11 | 255 |
+| `_1843` | 7 | 8 | 249 |
+| `_1745` | 7 | 8 | 248 |
+| `_1838` | 4 | 6 | 245 |
+| **`_1840`** | **0** | **1** | **235** |
+
+The red run is the SPARSEST-SAMPLING flight of the six by total frame budget,
+and the tail-state sample count tracks that budget monotonically. At cycle 0 it
+got zero frames in the transient state, so no transition was written; at cycle 1
+it got exactly one, which was enough. Nothing else about the run is unusual.
+
+**The decisive corroboration: the unit clock DID reach the tail on the red
+run.** `CLOCK_EVENT kind=inter-cycle-tail ut=560304.47476033552` is present on
+ALL SIX manifests, `_1840` included. The clock surface and the per-frame
+dwell/transition surface disagree on that one run, and the clock surface is the
+one that is right.
+
+**Two hypotheses this refutes, both explicitly:**
+  * NOT an entry-clock / first-jump-target race. The cycle-0 phase entry UTs are
+    bit-identical across all six flights (descent opens 296370, arrival-loiter
+    opens 296690, `minHeadUT` 16547.472619832275 everywhere). There is no
+    first-frame jitter at the cycle-0 head to measure and no margin to widen.
+    Moving the lane's first jump target earlier would change nothing: the race is
+    at the phase TAIL, ~264,000 s of game time later.
+  * NOT renderer intermittency. The dwell opened, drew, and was sampled 44 times
+    over the same head-UT span as every green run.
+
+**Fix, in preference order:**
+  1. **RECORDER (C#), the real one:** a dwell's CLOSE must not depend on a frame
+     being sampled in the SUCCESSOR state. Close it from the same path that
+     records the `inter-cycle-tail` clock event (which never misses), or flush an
+     open dwell's close at the transition instant rather than on first observation
+     of the next segment. This makes the gate deterministic without weakening any
+     rule.
+  2. **VERIFIER, weaker and not preferred:** let `_rule_cycle` count an
+     open-at-export dwell whose observed span demonstrably spans the cycle window.
+     This cuts against the deliberate "half-observed interval must not count"
+     doctrine and would paper over a real dropped record elsewhere; it should not
+     be taken instead of (1).
+  3. **LANE-LEVEL: nothing applies.** No jump target, budget or tolerance change
+     affects this.
+
+**CONSEQUENCE FOR THE ARMING, STATED PLAINLY BECAUSE IT UNDERCUTS THE REASON
+GIVEN.** V6M was armed on 2026-08-26 with the written justification that this
+finding was "a real composition observation" and that "making an intermittent
+render-composition defect visible is what the gate is for". THE DIAGNOSIS
+REFUTES THAT PREMISE: there is no render defect, so as things stand the armed
+lane reds roughly 1-in-6 on a recorder bookkeeping gap. The gate as committed is
+therefore flaky against an instrument artifact rather than sharp against a
+product defect. The arm-vs-bare decision is REFERRED BACK rather than re-taken
+unilaterally - the options are (a) land fix 1 and keep the lane armed, which is
+the outcome this entry recommends, or (b) revert V6M to a bare block until fix 1
+lands, keeping V25M armed. `should_retry` never retries a PARSEK-FAIL, so option
+(b) is the safe posture for a nightly if fix 1 is not imminent.
 
 ## RENDERCOMPOSE-OWNERSHIPCHANGES-IS-NOT-WINDOWABLE: `ownershipChanges` is recorded as a facet but cannot be asserted, so the RC-OWN conservation premise can only be armed indirectly through the FAIL-finding gate [FOUND 2026-08-26 during V6M's arming pass. TODO, not a defect - a missing surface, filed rather than invented mid-arming]
 
@@ -626,9 +674,14 @@ the armed roster is now V14M / V8 / V24W / V25M / V6M against 21 declarers.**
     `PARSEK-FAIL(render-composition)` off a temporary `cycles = { min = 9 }`,
     sibling rows clean, reverted in the same change.
   * TWO FINDINGS CAME OUT OF THE PASS AND BOTH ARE FILED AT THE TOP OF THIS FILE
-    RATHER THAN BURIED HERE: `V6M-CYCLE0-ARRIVALLOITER-DWELL-INTERMITTENTLY-ABSENT`
-    (the V6M control's SECOND, uninvited mismatch - a genuine RC-CYCLE
-    non-isomorphism at 1-in-6 recurrence, armed anyway and deliberately) and
+    RATHER THAN BURIED HERE: `V6M-CYCLE0-ARRIVALLOITER-DWELL-CLOSE-RECORD-LOST`
+    (the V6M control's SECOND, uninvited mismatch, DIAGNOSED the same day off all
+    six archived manifests: the cycle-0 ArrivalLoiter dwell renders identically on
+    every flight and it is its CLOSE RECORD that is lost, when the sparsest-
+    sampling run gets zero frames in the few-frame `7 -> -1` inter-cycle-tail
+    state. A recorder bookkeeping gap, NOT renderer intermittency and NOT a
+    jump-target race - which undercuts the reason V6M's arming was justified with,
+    so that decision is referred back in the entry) and
     `RENDERCOMPOSE-OWNERSHIPCHANGES-IS-NOT-WINDOWABLE` (the RC-OWN premise can
     only be armed through the FAIL-finding gate, because `ownershipChanges` is a
     recorded facet and not one of the three windowable keys).
