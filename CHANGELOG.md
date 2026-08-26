@@ -8,6 +8,20 @@ All notable changes to Parsek are documented here.
 
 ### Dev
 
+- The harness fixture builder for the career science pad no longer produces
+  platform-dependent bytes. The builder derives the spliced antenna and
+  batteries' poses by rotating a measured part pose through trigonometry, and
+  rendered those values with nine significant digits of double precision - more
+  than a Unity float carries, and just enough to expose a one-ULP difference in
+  one C library's cosine between build machines, which made the fixture's
+  byte-identity drift cell red on any machine other than the one that committed
+  the fixture while meaning nothing had drifted. Rendering now rounds through an
+  actual float32 first, as KSP itself writes, so both platforms produce the same
+  bytes; the three fixtures in that derivation chain (the science pad and the
+  two downstream fixtures built from its save) were regenerated with each
+  rebuild run twice and byte-compared, every changed line a last-digit float
+  rounding in a spliced part's position or rotation. Test-tooling only; no
+  gameplay change.
 - The automated tests can now OPEN THE MAP. That sounds trivial and was not: KSP
   only draws the map when the map is on screen, and nothing in the automation
   system had ever put it there. Every automated flight ran with the map closed,
