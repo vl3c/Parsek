@@ -1134,6 +1134,13 @@ namespace Parsek.TestCommands
         // no TryComplete* counterpart in TryCompleteTwoPhaseCore.
         void ITestCommandExecutor.ExportRenderManifest(ParsedCommand cmd) => ExportRenderManifestImpl(cmd);
 
+        // The map-view pair: bodies in the sibling ParsekTestCommandAddon.MapView.cs partial.
+        // Single-phase - stock assigns MapView.MapIsEnabled INSIDE the call (see that file's
+        // decompile note), so the read-back is a final answer and neither has a TryComplete*
+        // counterpart in TryCompleteTwoPhaseCore.
+        void ITestCommandExecutor.EnterMapView(ParsedCommand cmd) => EnterMapViewImpl(cmd);
+        void ITestCommandExecutor.ExitMapView(ParsedCommand cmd) => ExitMapViewImpl(cmd);
+
         private void InvokeExecutor(ParsedCommand cmd)
         {
             ITestCommandExecutor exec = this;
@@ -1164,6 +1171,8 @@ namespace Parsek.TestCommands
                 case "StartLoopPlayback": exec.StartLoopPlayback(cmd); break;
                 case "EnterWatchMode": exec.EnterWatchMode(cmd); break;
                 case "ExportRenderManifest": exec.ExportRenderManifest(cmd); break;
+                case "EnterMapView": exec.EnterMapView(cmd); break;
+                case "ExitMapView": exec.ExitMapView(cmd); break;
                 default:
                     // Unreachable: DecideDispatch rejects unknown/reserved verbs before Execute.
                     SetExecResult("ERROR", null, "unknown-command");

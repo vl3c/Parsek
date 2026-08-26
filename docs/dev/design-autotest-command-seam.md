@@ -415,6 +415,72 @@ journal, verdicts) is designed once and the later commands slot in without a for
 > the `PARSEK_RENDER_MANIFEST` env var read once at Awake, so waiting could never turn it
 > into a success. See `design-autotest-render-composition.md`.
 
+> Update (the map-view pair): two further verbs, `EnterMapView` and `ExitMapView`, added
+> the ADDITIVE way (the reserved list above never carried a camera / scene-presentation
+> verb), bringing the table to **27 implemented / 7 reserved**. They exist because of a
+> MEASURED instrument gap and not a wish. Everything Parsek draws on the map surface is
+> gated on the map being OPEN, and no seam verb ever opened it:
+> `GhostTrajectoryPolylineRenderer.Driver.LateUpdate`'s second statement is
+> `if (!MapView.MapIsEnabled) return;`, so on EVERY render-composition lane flown to date
+> the ownership-PUBLISH half of the pipeline never ran once - zero `Polyline frame:`
+> summaries across a whole flight - while the INTENT half, driven from `ParsekFlight`'s
+> per-frame update, ran map-open or not. A lane that never opens the map therefore
+> measures intent and reports it as a draw. Full forensics:
+> `RC-OWN-DRAW-HALF-IS-MAP-GATED` in `todo-and-known-bugs.md`.
+>
+> **Contract.** No args in v1 (camera focus / zoom were considered and left out: the
+> draw-half evidence a lane reads is the manifest plus the tracer lines, and neither is a
+> function of where the map camera points). Precondition `RequiresFlight` - the map view
+> is a FLIGHT overlay, the same reason `SimulateStockSwitchClick` carries that row for the
+> click that lives on it, and TRACKSTATION's planetarium is a different scene with its own
+> always-on map that `MapView.EnterMapView` does not drive. IDEMPOTENT: an already-open
+> map answers `OK alreadyOpen=true` without calling stock at all, and the exit mirror
+> answers `OK alreadyClosed=true`; the OK payload is `mapOpen` plus that flag, and the flag
+> is present in BOTH values so a lane can tell "my step opened it" from "it was already
+> open" rather than from an absent key.
+>
+> **SINGLE-PHASE, and this is a decompile fact rather than a convenience.** KSP 1.12.5's
+> `MapView.EnterMapView()` delegates to the instance `enterMapView()`, whose body assigns
+> `MapIsEnabled = true` and fires `GameEvents.OnMapEntered` SYNCHRONOUSLY before returning;
+> the deferred `Invoke("endEnterMapTransition", transitionDuration)` that follows only
+> disables the UI cameras and does not gate `MapIsEnabled`. `exitMapView()` is the mirror -
+> its FIRST statement is `MapIsEnabled = false`. So the very property the polyline Driver
+> gates on is truthfully readable on the line after the call, there is nothing to wait for,
+> and a deferred shape would invent a wait that does not exist (the `MissionConfig` /
+> `SimulateStockSwitchClick` shape, no `TryComplete*` counterpart, no `DeferralBudget` row).
+> Every stock refusal path is synchronous too, so a false read-back is a FINAL answer.
+>
+> **Refusals, and the verdict split a spec's `expect` must be written against.**
+> `REJECTED msg=map-view-unavailable` is the ONE pre-call gate (`MapView.fetch` is null, so
+> stock was never called). Everything after the call is `ERROR`: `map-not-entered` /
+> `map-not-exited` when the call ran and the read-back still disagrees, and
+> `map-view-threw` when it threw. That is exactly where `SimulateStockSwitchClick` draws
+> the line - REJECTED for every gate it evaluates before calling stock,
+> ERROR for `switch-refused-by-stock` / `switch-threw` after - and `EnterWatchMode`'s
+> post-call `watch-not-entered` is ERROR too. A REJECTED on a post-call decline would claim
+> the seam declined to act, when it acted and the GAME declined. Stock declines silently on
+> three paths - `ConstantMode`, `MissionSystem.AllowCameraSwitch(CameraMode.Map)` false,
+> and `HighLogic.CurrentGame.Parameters.Flight.CanUseMap` false - so the read-back is the
+> only honest verdict source, and the decline CLASS is deliberately not re-derived: naming
+> a cause we did not observe could disagree with the one that actually fired (the
+> `EnterWatchMode` discipline). The two directions never share a decline token, so a spec
+> pinning `map-not-entered` can never match an exit that declined, and the throw token is
+> kept apart from both because a throw is a different investigation. No
+> `_SEAM_REFUSAL_SUBKINDS` rows were added for these four tokens (the `ExportRenderManifest`
+> precedent): they ride the coarse `driver-verdict-mismatch` until a lane's forensics ask
+> for finer routing.
+>
+> **Why the exit mirror ships with it.** Not teardown: `FlushAndQuit` saves and quits
+> regardless of camera mode, and the render-composition manifest's scene-exit flush does
+> not care whether the map was open. It ships so a map-open lane can CLOSE the map again
+> before flight-scene steps that behave differently under the overlay -
+> `SimulateStockSwitchClick` already has to call `MapView.ExitMapView()` itself after
+> switching, and `EnterWatchMode` drives the flight camera. Harness roles: both are
+> `world-mutating` on the tail axis (stock's enter takes an `InputLockManager` control lock
+> on the live vessel - `EnterWatchMode`'s argument verbatim) and `recording` on the
+> post-mission gating axis (their OK is a read-back of the game's camera mode, never a
+> claim about a kerbal's physical state). The two axes disagree by design.
+
 #### R12/A1 - `LoadGame scene=<spacecenter|trackstation>`
 
 **Contract.** `LoadGame` gains one optional argument. ABSENT is the pre-R12 contract

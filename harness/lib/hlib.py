@@ -200,6 +200,19 @@ IMPLEMENTED_SEAM_VERBS: Tuple[str, ...] = (
     # teardown auto-flush (which would change the very composition being measured). 25
     # total, mirroring the C# TestCommandVerbs.ImplementedVerbs set exactly.
     "ExportRenderManifest",
+    # The map-view pair (RC-OWN-DRAW-HALF-IS-MAP-GATED in todo-and-known-bugs.md).
+    # ADDITIVE, the same shape: the reserved envelope never carried a camera /
+    # scene-presentation verb. They exist because of a MEASURED instrument gap, not a
+    # wish -- GhostTrajectoryPolylineRenderer.Driver.LateUpdate's second statement is
+    # `if (!MapView.MapIsEnabled) return;`, so on every render-composition lane flown to
+    # date the ownership-PUBLISH half of the pipeline never ran once (zero `Polyline
+    # frame:` summaries across a whole flight) while the INTENT half ran every frame. A
+    # lane that never opens the map measures intent and calls it a draw. Both are
+    # SINGLE-PHASE (stock assigns MapView.MapIsEnabled inside the call) and take no args.
+    # ExitMapView is the mirror so a lane can close the map again before flight-scene
+    # steps that behave differently under the overlay. 27 total, mirroring the C#
+    # TestCommandVerbs.ImplementedVerbs set exactly.
+    "EnterMapView", "ExitMapView",
 )
 
 # The M-A7 export verb, named once. Referenced by the verb/block coupling rule in
@@ -607,6 +620,27 @@ SEAM_VERB_TAIL_ROLE: Dict[str, str] = {
     # rather than a log line. On an UNMET tail it is the kind of step worth still
     # driving: the manifest is forensics for the flight that just failed.
     "ExportRenderManifest": TAIL_ROLE_INERT,
+    # The map-view pair is WORLD-MUTATING, and the call is EnterWatchMode's verbatim:
+    # neither writes a save, a career or a durable Parsek record, but stock's
+    # `MapView.enterMapView()` takes an `InputLockManager.SetControlLock(
+    # ControlTypes.MAPVIEW, "MapView")` on the live game, disables the flight scripts in
+    # `scriptsToDisable`, switches the camera through `CameraManager.SetCameraMap()` and
+    # fires `GameEvents.OnMapEntered`. `inert` means "reads state or stamps the log, never
+    # changes the game" (RecordingState / MissionMark), and locking the player's controls
+    # on an unattended vessel is not that. This table's fail-safe direction is
+    # world-mutating and the UNMET tail skips both roles anyway, so the honest label costs
+    # nothing.
+    #
+    # ExitMapView is deliberately NOT `cleanup`, even though it undoes the above. Cleanup
+    # is the "must always run on a terminally-INVALID run" role, and both members earn it
+    # with an evidence argument: FlushAndQuit owns the quit (skipping it lets the watchdog
+    # KILL the tree and mask the mission's subkind), and StopRecording closes the recorder
+    # so its markers pair in the collected log. Nothing analogous is true here -- the
+    # render-composition manifest's scene-exit / teardown flush runs whether the map is
+    # open or shut, and the process is about to die anyway, so driving an exit on an unmet
+    # tail buys no evidence and would add a step to every such tail.
+    "EnterMapView": TAIL_ROLE_WORLD_MUTATING,
+    "ExitMapView": TAIL_ROLE_WORLD_MUTATING,
 }
 
 # ---------------------------------------------------------------------------
@@ -704,6 +738,19 @@ SEAM_VERB_POST_MISSION_ROLE: Dict[str, str] = {
     # verifier row's job, which is the original carve-out exactly -- a good flight whose
     # manifest disagrees with the plan is a PARSEK-FAIL, never a retryable driver-INVALID.
     "ExportRenderManifest": POST_MISSION_ROLE_RECORDING,
+    # The map-view pair. Both `recording`, and neither is near the line: the `outcome` set
+    # is exactly the verbs whose verdict is a claim about a KERBAL's physical in-world
+    # state that no other verifier re-derives. `EnterMapView`'s OK means "MapView.
+    # MapIsEnabled reads true", a read-back of the game's own camera mode -- it is the
+    # EnterWatchMode call one step further out. Gating on it would route a stock
+    # camera-switch decline (ConstantMode, CanUseMap off, a MissionSystem block) through
+    # the mission-outcome subkind, which is reserved for a flight that failed after the
+    # handoff. What the open map is FOR -- the ownership-publish half actually running --
+    # is proven downstream by the manifest's OWNERSHIP_CHANGE records through the
+    # renderCompose row, which is the original carve-out exactly. Note the two axes
+    # disagree on purpose: both are WORLD-MUTATING on the tail axis and `recording` here.
+    "EnterMapView": POST_MISSION_ROLE_RECORDING,
+    "ExitMapView": POST_MISSION_ROLE_RECORDING,
 }
 
 

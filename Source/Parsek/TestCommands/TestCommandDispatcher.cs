@@ -180,6 +180,10 @@ namespace Parsek.TestCommands
 
         // ----- M-A7 (render composition manifest export; additive) -----
         void ExportRenderManifest(ParsedCommand cmd);
+
+        // ----- Map-view pair (the render-composition draw-half gate; additive) -----
+        void EnterMapView(ParsedCommand cmd);
+        void ExitMapView(ParsedCommand cmd);
     }
 
     /// <summary>The scene/state a verb requires before it may execute.</summary>
@@ -283,6 +287,18 @@ namespace Parsek.TestCommands
                 // typed REJECTED: a defer would burn the budget waiting for an arm that only
                 // an Awake-time env var (or an in-game cell's force flag) can ever set.
                 ["ExportRenderManifest"] = VerbSceneRequirement.AnyScene,
+                // The map-view pair. FLIGHT is a HARD precondition and not a convenience:
+                // the map view is a FLIGHT overlay (the SimulateStockSwitchClick row above
+                // says the same thing about the "Switch To" click that lives on it), and
+                // TRACKSTATION's planetarium is a DIFFERENT scene with its own always-on map
+                // that MapView.EnterMapView does not drive. RequiresFlight - a DEFER on
+                // not-in-flight - for the same reason as every other FLIGHT-only verb: the
+                // wrong-scene case is overwhelmingly a scene still settling in from the
+                // previous step, which is exactly what a defer is for, and the budget still
+                // bounds a genuinely wrong-scene spec. The verb's REAL refusals (no MapView
+                // instance, stock declined the switch) are executor-side and typed REJECTED.
+                ["EnterMapView"] = VerbSceneRequirement.RequiresFlight,
+                ["ExitMapView"] = VerbSceneRequirement.RequiresFlight,
             };
 
         /// <summary>

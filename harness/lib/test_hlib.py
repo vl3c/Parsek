@@ -987,8 +987,11 @@ class SpecValidationRejectTests(unittest.TestCase):
                 self.assertIn(verb, hlib.IMPLEMENTED_SEAM_VERBS)
                 self.assertNotIn(verb, hlib.RESERVED_SEAM_VERBS)
         # 25 after M-A7's ExportRenderManifest, which is ADDITIVE (never in the RESERVED
-        # envelope, like SaveGame and the EVA family), so reserved stays at 7.
-        self.assertEqual(len(hlib.IMPLEMENTED_SEAM_VERBS), 25)
+        # envelope, like SaveGame and the EVA family), so reserved stays at 7. 27 after
+        # the map-view pair (EnterMapView / ExitMapView), additive the same way - the
+        # reserved envelope never carried a camera / scene-presentation verb - so reserved
+        # is STILL 7.
+        self.assertEqual(len(hlib.IMPLEMENTED_SEAM_VERBS), 27)
         self.assertEqual(len(hlib.RESERVED_SEAM_VERBS), 7)
 
     def test_ma7_export_render_manifest_implemented_not_reserved(self):
@@ -1040,6 +1043,30 @@ class SpecValidationRejectTests(unittest.TestCase):
         v = self._reject(m)
         self.assertFalse(any("ExportRenderManifest" in e for e in v.errors),
                          list(v.errors))
+
+    def test_map_view_verbs_implemented_not_reserved(self):
+        # The map-view pair is ADDITIVE (never in the RESERVED envelope), the SaveGame /
+        # EVA / ExportRenderManifest shape rather than a promotion.
+        for verb in ("EnterMapView", "ExitMapView"):
+            with self.subTest(verb=verb):
+                self.assertIn(verb, hlib.IMPLEMENTED_SEAM_VERBS)
+                self.assertNotIn(verb, hlib.RESERVED_SEAM_VERBS)
+
+    def test_map_view_verbs_step_accepted(self):
+        # A spec step using either map-view verb is not flagged RESERVED / unknown.
+        # Deliberately NO expectations block is added: unlike ExportRenderManifest,
+        # these verbs are NOT coupled to `[expectations.renderComposition]` - they open
+        # and close the map, and a lane may want the map open for reasons the manifest
+        # never reads (a screenshot moment, a tracer window). Coupling them would refuse
+        # those specs for a dependency they do not have.
+        for verb in ("EnterMapView", "ExitMapView"):
+            with self.subTest(verb=verb):
+                def m(s, _verb=verb):
+                    s.get("expectations", {}).pop("ledger", None)
+                    s["driver"]["steps"].insert(1, {"cmd": _verb, "expect": "OK"})
+                v = self._reject(m)
+                self.assertFalse(any(verb in e for e in v.errors),
+                                 "%s wrongly flagged: %s" % (verb, list(v.errors)))
 
     def test_no_committed_spec_trips_the_export_verb_coupling_rule(self):
         # Repo-wide, DISCOVERED rather than hardcoded: a rule the committed corpus
@@ -8654,6 +8681,22 @@ class PostMissionOutcomeGateTests(unittest.TestCase):
                                  hlib.SEAM_VERB_POST_MISSION_ROLE[verb])
                 self.assertFalse(hlib.post_mission_step_gates(verb))
 
+    def test_map_view_verbs_are_recording_not_outcome(self):
+        # EnterMapView's OK means "MapView.MapIsEnabled reads true" - a read-back of the
+        # game's own camera mode, the EnterWatchMode call one step further out. Gating on
+        # it would route a stock camera-switch decline (ConstantMode, CanUseMap off, a
+        # MissionSystem block) through the mission-outcome subkind, which is reserved for
+        # a flight that failed after the handoff. What the open map is FOR - the
+        # ownership-publish half actually running - is proven downstream by the manifest's
+        # OWNERSHIP_CHANGE records through the renderCompose row.
+        # Note the two axes disagree on purpose: both are WORLD-MUTATING on the tail axis
+        # (asserted in SeamVerbTailRoleTests) and `recording` here.
+        for verb in ("EnterMapView", "ExitMapView"):
+            with self.subTest(verb=verb):
+                self.assertEqual(hlib.POST_MISSION_ROLE_RECORDING,
+                                 hlib.SEAM_VERB_POST_MISSION_ROLE[verb])
+                self.assertFalse(hlib.post_mission_step_gates(verb))
+
     def test_unknown_verb_does_not_gate(self):
         # Opposite fail-safe direction from SEAM_VERB_TAIL_ROLE, deliberately: an
         # unrecognised verb is a spec fault validate_spec already rejects, and
@@ -8848,6 +8891,26 @@ class SeamVerbTailRoleTests(unittest.TestCase):
         # the active vessel, so it is not the read-only `inert` class either, and this
         # table's fail-safe direction is world-mutating.
         for verb in ("StartLoopPlayback", "EnterWatchMode"):
+            with self.subTest(verb=verb):
+                self.assertEqual(hlib.TAIL_ROLE_WORLD_MUTATING,
+                                 hlib.seam_verb_tail_role(verb))
+
+    def test_map_view_verbs_are_world_mutating_not_inert_or_cleanup(self):
+        # EnterMapView's label is EnterWatchMode's argument verbatim: no save, no career,
+        # no durable Parsek record, but stock's MapView.enterMapView() takes an
+        # InputLockManager control lock (ControlTypes.MAPVIEW), disables the flight
+        # scripts, switches the camera and fires GameEvents.OnMapEntered. `inert` means
+        # "reads state or stamps the log, never changes the game" (RecordingState /
+        # MissionMark), and locking an unattended vessel's controls is not that.
+        #
+        # ExitMapView is the trap here, and it is the mirror of ExitToSpaceCenter's: it
+        # LOOKS like teardown. It is not `cleanup`, because cleanup is the "must always
+        # run" role and each of its two members earns it with an EVIDENCE argument -
+        # FlushAndQuit owns the quit (skipping it lets the watchdog KILL the tree and mask
+        # the mission subkind) and StopRecording pairs the recorder's log markers. Nothing
+        # analogous holds for the map: the render-composition flush runs whether the map
+        # is open or shut, and the process is about to die.
+        for verb in ("EnterMapView", "ExitMapView"):
             with self.subTest(verb=verb):
                 self.assertEqual(hlib.TAIL_ROLE_WORLD_MUTATING,
                                  hlib.seam_verb_tail_role(verb))

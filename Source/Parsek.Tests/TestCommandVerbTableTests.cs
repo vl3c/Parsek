@@ -37,6 +37,8 @@ namespace Parsek.Tests
         [InlineData("MissionConfig")]
         [InlineData("StartLoopPlayback")]
         [InlineData("EnterWatchMode")]
+        [InlineData("EnterMapView")]
+        [InlineData("ExitMapView")]
         public void ImplementedVerbs_ClassifyImplemented(string verb)
         {
             Assert.Equal(TestCommandVerbClass.Implemented, TestCommandVerbs.Classify(verb));
@@ -74,8 +76,12 @@ namespace Parsek.Tests
             // + R12 SimulateStockSwitchClick (1) + the arrival-validation lane's
             // MissionConfig promotion (1) + the player-workflow lane's
             // StartLoopPlayback + EnterWatchMode promotions (2)
-            // + M-A7 ExportRenderManifest (1). Mirrored by
+            // + M-A7 ExportRenderManifest (1) + the map-view pair EnterMapView +
+            // ExitMapView (2), which takes the total to 27. Mirrored by
             // hlib.IMPLEMENTED_SEAM_VERBS.
+            //
+            // The map-view pair is ADDITIVE too (27 implemented, reserved unchanged at 7):
+            // the reserved envelope never carried a camera / scene-presentation verb.
             //
             // ExportRenderManifest is ADDITIVE (24 -> 25 implemented, reserved unchanged
             // at 7): the reserved envelope never carried an export verb, so it is the
@@ -88,7 +94,7 @@ namespace Parsek.Tests
             // (20 -> 21 implemented, 11 -> 10 reserved) - its wire token is byte-identical
             // before and after and only the response changed. A future name that appears in
             // BOTH sets, or in neither, is what these two numbers catch.
-            Assert.Equal(25, TestCommandVerbs.ImplementedVerbNames.Count);
+            Assert.Equal(27, TestCommandVerbs.ImplementedVerbNames.Count);
             Assert.Equal(7, TestCommandVerbs.ReservedVerbNames.Count);
         }
 

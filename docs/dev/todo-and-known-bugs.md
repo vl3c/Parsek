@@ -842,12 +842,47 @@ DEFERRALS TAKEN IN PHASES 1-2, each of which a lane author must know.
   `falls outside every published ownership interval` clause is untouched (it
   already requires that recording to have published). Two cells pin both halves
   in `harness/lib/test_rendercompose.py`.
-  STILL OWED, and it is NOT a rule edit: a MAP-OPEN LANE, so the draw half is
+  ~~STILL OWED, and it is NOT a rule edit: a MAP-OPEN LANE, so the draw half is
   observed at least once. That needs a new command-seam verb (a C# change: the
-  seam has no map-view verb at all) plus a flown-shape change on whichever lane
-  adopts it - which is why it did not ride this diagnosis. Until then, no arming
-  pass may read "no RC-OWN finding" as "ownership conserved", and the design
-  doc's ratified deviation #5 carries the same amendment.
+  seam has no map-view verb at all)~~ **THE VERB HALF IS BUILT (2026-08-26).**
+  The seam now carries `EnterMapView` and `ExitMapView` (M-A2, additive: 27
+  implemented / 7 reserved), so the sentence above that says "there is no
+  `EnterMapView` command" is history from here on. Both are SINGLE-PHASE, no
+  args, precondition `RequiresFlight`, idempotent (`OK alreadyOpen=true` /
+  `alreadyClosed=true` without calling stock), and their OK is a READ-BACK of
+  `MapView.MapIsEnabled` - the very property the polyline Driver's LateUpdate
+  gates on - never the bare fact that the void stock call returned. Single-phase
+  is a decompile fact, not a convenience: KSP 1.12.5's `MapView.enterMapView()`
+  assigns `MapIsEnabled = true` and fires `GameEvents.OnMapEntered` synchronously
+  before returning (the deferred `Invoke("endEnterMapTransition", ...)` after it
+  only disables the UI cameras), and `exitMapView()`'s FIRST statement is
+  `MapIsEnabled = false`. Refusals split on WHO declined: `REJECTED
+  map-view-unavailable` is the one PRE-call gate (null `MapView.fetch`, stock
+  never called), and everything AFTER the call is `ERROR` - `map-not-entered` /
+  `map-not-exited` when the read-back still disagrees (stock declined through
+  `ConstantMode`, `CanUseMap` off, or a `MissionSystem` camera-switch block; the
+  class is deliberately NOT re-derived) and `map-view-threw` when it threw. That
+  is `SimulateStockSwitchClick`'s line verbatim (REJECTED before the stock call,
+  ERROR after), so a spec's `expect` has one rule to learn rather than a per-verb
+  exception.
+  Files: `TestCommandMapViewVerbs.cs` (pure) +
+  `ParsekTestCommandAddon.MapView.cs` (applier) + the verb / interface /
+  precondition tables, `hlib.IMPLEMENTED_SEAM_VERBS` with both role rows
+  (`world-mutating` on the tail axis, `recording` on the post-mission axis), and
+  the design doc's "Update (the map-view pair)" block.
+  WHAT IS STILL OWED, and it is the half that costs a flight: (1) ADD THE STEP
+  TO A LANE - `V6M-mun-player-loop` is the natural adopter, since it is the lane
+  whose Director opened the three TracedPath dwells that raised the finding, and
+  the step belongs BEFORE the observation window rather than merely before
+  `ExportRenderManifest`; (2) THE READING THAT PROVES THE PUBLISH FLOWS -
+  a report-only run whose collected `KSP.log` carries `Polyline frame:` summaries
+  (today: zero) and whose manifest reports `ownershipChanges > 0`, which is what
+  actually establishes RC-OWN's premise. Until BOTH land, nothing changes for
+  arming: no pass may read "no RC-OWN finding" as "ownership conserved", and the
+  design doc's ratified deviation #5 carries the same amendment. Note the verb
+  is necessary but not sufficient - a lane could open the map and still publish
+  nothing if the Director never owns a leg in the window, and THAT reading would
+  be a real finding rather than an instrument gap.
 - **Seam measurement is double-gated.** The tangent and endpoint evaluation
   sites are `mapRenderTracing`-gated and were NOT widened, so a manifest lane
   that wants RC-SEAM / RC-QUAL numbers must arm BOTH `PARSEK_RENDER_MANIFEST=1`
