@@ -4529,3 +4529,89 @@ class R1RewindLoopShellTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# ---------------------------------------------------------------------------
+# ACTION_CANCEL_WARP WITHOUT A NATIVE WARP SERVICE (fixed 2026-08-25).
+#
+# `self._warp` is created ONLY by ACTION_WARP_TO_UT, so a mission that climbs
+# the rails ladder with ACTION_SET_RAILS_WARP and never issues a native warp_to
+# used to get a handler that reset a stall counter and nothing else. V24W's
+# first flight measured the cost: three "1x holds" that each ran their full 900
+# game-seconds at RAILSx10, a 455-wall-second mission against the ~2,850 its
+# spec sized, and a PASS that had never dwelled at 1x.
+# ---------------------------------------------------------------------------
+
+
+class _CancelWarpSc:
+    """The minimum `perform` touches on the CANCEL_WARP path: an active vessel
+    with a control, plus the two warp-factor properties, recording writes."""
+
+    def __init__(self):
+        self.rails_sets = []
+        self.physics_sets = []
+        self.active_vessel = type("V", (), {"control": object()})()
+
+    @property
+    def rails_warp_factor(self):
+        return 0
+
+    @rails_warp_factor.setter
+    def rails_warp_factor(self, value):
+        self.rails_sets.append(int(value))
+
+    @property
+    def physics_warp_factor(self):
+        return 0
+
+    @physics_warp_factor.setter
+    def physics_warp_factor(self, value):
+        self.physics_sets.append(int(value))
+
+
+class CancelWarpWithoutWarpServiceTests(unittest.TestCase):
+    def _control(self, warp_service):
+        """A KrpcMissionControl with ONLY the fields the CANCEL_WARP branch
+        reads.
+        Built with __new__ deliberately: the real constructor opens a kRPC
+        connection, and this cell must run on the base interpreter."""
+        mc = mission_runner.KrpcMissionControl.__new__(
+            mission_runner.KrpcMissionControl)
+        sc = _CancelWarpSc()
+        mc._conn = type("C", (), {"space_center": sc})()
+        mc._warp = warp_service
+        mc._warp_stall = mission_runner.WarpStallTracker()
+        return mc, sc
+
+    def test_cancel_zeroes_the_factors_with_no_warp_service(self):
+        mc, sc = self._control(None)
+        mc.perform(mlib.Action(mlib.ACTION_CANCEL_WARP))
+        self.assertEqual([0], sc.rails_sets,
+                         "a stair-only mission must be able to drop to 1x")
+        self.assertEqual([0], sc.physics_sets)
+
+    def test_a_stair_then_cancel_ends_at_1x(self):
+        """The m3 dwell-window shape end to end: climb the commanded ladder,
+        then cancel. The last rails write must be 0, or the '1x hold' that
+        follows runs at rails."""
+        mc, sc = self._control(None)
+        for factor in (2, 3, 4, 5, 4, 3, 2):
+            mc.perform(mlib.Action(mlib.ACTION_SET_RAILS_WARP, float(factor)))
+        mc.perform(mlib.Action(mlib.ACTION_CANCEL_WARP))
+        self.assertEqual([2, 3, 4, 5, 4, 3, 2, 0], sc.rails_sets)
+
+    def test_the_native_cancel_still_runs_when_a_service_exists(self):
+        """Behaviour-preserving for every lane that DOES use warp_to: the
+        service's own cancel is still called, and the unconditional reset is
+        idempotent with the identical reset inside it."""
+        cancelled = []
+
+        class _Svc:
+            def cancel(self, sc):
+                cancelled.append(sc)
+
+        mc, sc = self._control(_Svc())
+        mc.perform(mlib.Action(mlib.ACTION_CANCEL_WARP))
+        self.assertEqual([sc], cancelled)
+        self.assertEqual([0], sc.rails_sets)
+        self.assertEqual([0], sc.physics_sets)

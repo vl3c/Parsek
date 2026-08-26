@@ -1,0 +1,604 @@
+schema = 1
+id = "V25M-duna-park-player-loop"
+# =====================================================================================
+# V25M: THE **HELIOCENTRIC-PARKING DEPARTURE** LOOP - the second of re-aim's two
+# departure classes, and the first live subject either of them has ever had that is not
+# the direct-ejection one.
+#
+# `V25` IS RESERVED HERE AND NEW, and it takes the ORDINARY `M` suffix (the player
+# flight map). It is a new NUMBER rather than a suffix on V24 because what makes it a
+# distinct subject is the RECORDING - a mission that escapes Kerbin immediately, phases
+# on the SUN for ~156 Kerbin days, and only then burns for Duna - not the drive shape and
+# not the host. The register in `docs/dev/autotest-roadmap.md` reserves V25 across
+# suffixes; `V25T` / `V25K` / `V25W` are reserved alongside and unused.
+#
+# ---------------------------------------------------------------------------------
+# 1. WHY THIS IS A DIFFERENT SUBJECT FROM ITS SIBLING, MECHANICALLY
+# ---------------------------------------------------------------------------------
+# `duna-park-recorded` and `duna-one-recorded` come out of the SAME operator save (s15,
+# visually validated 2026-08-25) and are disjoint payloads of one harvest. Their
+# saveparse facets barely separate them - both are crewed Duna missions with a
+# multi-segment chain, ascent debris, a decoupled probe and an EVA. What separates them
+# lives in the transfer recording's ORBIT_SEGMENT list, which no saveparse facet reads:
+#
+#   `duna-one-recorded` (tree 1ccdb192, V2 / V24W's subject) is a DIRECT transfer. It
+#   parks in KERBIN orbit and ejects; the departure burn happens inside Kerbin's SOI.
+#
+#   THIS ONE (tree ced78481, "Kerbal X #2") ejects from Kerbin almost immediately
+#   (segment 1 = a Kerbin escape ellipse, sma 55,427,165.82 / ecc 0.97577) and then
+#   coasts on ONE SUN ORBIT across THREE consecutive segments agreeing to ten significant
+#   figures (sma 14,072,049,898.09 / ecc 0.0326934) for 13,502,219.94 s - 3.47 % outside
+#   Kerbin's own heliocentric sma, i.e. a PHASING orbit, not a transfer. The departure
+#   burn is an ELEMENT STEP at 2,561,070,900.0315204 (sma +27 %, ecc +488 %).
+#
+# THE PRODUCT KNOWS THIS SUBJECT BY NAME. `ReaimClassifier.cs`'s partial-transfer
+# departure branch carries the comment "EXCEPTION (s15 Kerbal X #2): a HELIOCENTRIC
+# PARKING departure is re-aimable", and `IsHeliocentricParkingDeparture`'s own doc quotes
+# this recording's numbers ("park ecc 0.0327, sma 3.5 % off Kerbin's -> admissible"). So
+# the code path exists BECAUSE of these bytes and has never been driven by a committed
+# lane. That is the gap this lane closes.
+#
+# ---------------------------------------------------------------------------------
+# 2. RE-AIM vs FAITHFUL: THE PRE-REGISTRATION, AND THE DRY DERIVATION BEHIND IT
+# ---------------------------------------------------------------------------------
+# **PRE-REGISTERED PREDICTION: RE-AIM ENGAGES, via the heliocentric-parking-departure
+# exception, with `parking=True`.** Not faithful. The whole derivation is replayed below
+# off the committed `aa48920e...prec.txt` bytes so the prediction is checkable rather
+# than asserted; each step names the `ReaimClassifier` clause it replays.
+#
+#   segments (the transfer member's fourteen, all isPredicted=False):
+#     0 Kerbin [2,547,277,750.99 , 2,547,281,403.37]  sma 1,370,041.54   ecc 0.53825
+#     1 Kerbin [2,547,281,458.63 , 2,547,568,544.06]  sma 55,427,165.82  ecc 0.97577
+#     2 Sun    [2,547,568,544.06 , 2,560,670,336.90]  sma 14,072,049,898.090191 ecc 0.0326934
+#     3 Sun    [2,560,670,342.60 , 2,560,985,257.38]  sma 14,072,049,898.089064 ecc 0.0326934
+#     4 Sun    [2,560,985,293.24 , 2,561,070,763.99]  sma 14,072,049,898.090006 ecc 0.0326934
+#     5 Sun    [2,561,070,900.03 , 2,570,454,935.62]  sma 17,908,765,008.46     ecc 0.19216
+#     6 Duna   [2,570,454,935.62 , 2,570,490,859.06]  sma -188,090.82   ecc 3.60252  (hyperbolic)
+#     ... 7-10 the same hyperbola re-clipped ...
+#     11 Duna  [2,570,492,255.34 , 2,570,538,747.26]  sma 495,883.112   ecc 0.042042 (CAPTURED)
+#     12 Duna  [2,570,538,761.92 , 2,570,541,341.79]  sma 495,883.113   ecc 0.042042
+#     13 Duna  [2,570,541,360.41 , 2,570,542,380.99]  sma 407,581.62    ecc 0.26771
+#
+#   launchBody = Kerbin (segs[0]); helioIdx = seg 2 (first strict ancestor of Kerbin),
+#     so commonAncestor = Sun and RecordedSoiExitUT = 2,547,568,544.056056.
+#   parkingIdx = seg 1 (last Kerbin before the heliocentric leg).
+#   arrivalIdx = seg 6 -> targetBody = Duna. ReferenceBody(Duna) == Sun == commonAncestor,
+#     so the single-hop guard passes; the LCA test confirms cross-parent; no SECOND
+#     heliocentric leg follows the arrival.
+#   lastCoastIdx: the Sun segment whose endUT is within 1 s of arrival.startUT -> seg 5.
+#     firstA = 17,908,765,008.46. Walking back, seg 4's sma is 21.4 % off firstA, past the
+#     5 % `AStepRelThreshold`, so THE RUN ENDS AT SEG 5:
+#       RecordedDepartureUT = 2,561,070,900.0315204   (the departure burn, NOT the SOI exit)
+#       RecordedArrivalUT   = 2,570,454,935.6223264
+#       tof                 = 9,384,035.590805769 s
+#     The >1-revolution decline does not fire: T_rep at firstA is ~13,908 ks and the run is
+#     9,384 ks, well inside 1.5 * T_rep.
+#   sunPredecessor = TRUE (seg 4), so the shipped behaviour would be the
+#     "transfer departs from a heliocentric parking orbit or mid-course correction
+#     (deferred); staying faithful" DECLINE - unless the exception opens. It opens:
+#     `IsHeliocentricParkingDeparture` runs `ReaimLoiterCompressor.DetectRuns` over the
+#     same segments and finds the Sun park as ONE run [2,547,568,544.056056,
+#     2,561,070,763.99165] (segs 2-4 merge: their sma agree to ~1e-13 relative, inside the
+#     0.001 sameOrbit tolerance, so the 5.7 s and 35.9 s gaps do not break it), period
+#     9,687,025.90 s, dur 13,502,219.94 s -> **WholeRevs = 1**. `DefaultKeepRevs` is 1, so
+#     `WholeRevs > keepRevs` is FALSE for every common-ancestor run and the empty-cut scope
+#     gate passes. Admissibility: anchor ecc 0.0326934 and burn-segment ecc 0.0326934 are
+#     both <= 0.1; Kerbin's heliocentric sma from Kepler III is 13,599,840,256 m and
+#     |14,072,049,898.09 - 13,599,840,256| / 13,599,840,256 = **0.034722** <= 0.1.
+#     -> parkingDeparture = TRUE, plan.Supported = TRUE, DepartedFromHeliocentricPark = TRUE.
+#
+# THE PIN THAT MAKES THIS FALSIFIABLE is a single ReaimDiag line carrying the whole
+# conjunction (`MissionLoopUnitBuilder.cs:700-709`):
+#     plan.Supported=True reason='' departUT=2561070900 arrivalUT=2570454936
+#       tof=9384036 ancestor=Sun parking=True
+# It is REQUIRED below as one regex over one line, because three separate tokens would
+# pass on a log carrying them on three different lines. Its exact inverse - the decline
+# string this subject must not hit - is FORBIDDEN.
+#
+# ---------------------------------------------------------------------------------
+# 3. THE LOITER CUTS - THE ANSWER IS "ONE, AND IT IS DOWNSTREAM OF EVERY WINDOW"
+# ---------------------------------------------------------------------------------
+# The obvious worry on a subject whose whole shape is a 156-day park is that the loiter
+# compressor eats it and every recorded-UT offset has to be re-mapped through the
+# compressed clock (the PR #1534 seam-payload cut-mapping). REPLAYED, and the answer is
+# the opposite of the worry:
+#
+#   `ComputeCuts(transferSegments, keepRevs=1)` over the fourteen segments detects TWO
+#   loiter runs and cuts exactly ONE:
+#     Sun  [2,547,568,544.056056 , 2,561,070,763.99165]  T 9,687,025.90  revs 1  -> NO CUT
+#     Duna [2,570,492,255.336010 , 2,570,541,341.793343] T 3,996.72     revs 12 -> CUT
+#            length (12 - 1) * 3,996.7200485941084 = **43,963.920534535195 s**
+#   (The two Kerbin runs are sub-revolution and produce no LoiterRun at all: seg 0 is
+#   3,652 s against a 5,362 s period, seg 1 is 287,085 s against a 1,379,700 s period.)
+#
+#   THE SUN PARK IS NOT CUT, and that is not luck - it is the engage condition. The
+#   exception's scope gate returns false the moment ANY common-ancestor run exceeds
+#   keepRevs, so "re-aim engaged" and "the heliocentric park was not compressed" are the
+#   SAME fact stated twice. A future subject whose solar park ran two revolutions would
+#   decline to faithful instead of being cut.
+#
+#   THE ONE CUT STARTS AT THE DUNA CAPTURE, 2,570,492,255.336010. `cutBeforeDeparture` is
+#   therefore `RecordedDepartureUT - CompressSpanUT(RecordedDepartureUT) = 0`, so the
+#   phase anchor is NOT shifted (`MissionLoopUnitBuilder.cs:794-796` adds zero) even
+#   though `loiterCuts` is set. **EVERY WINDOW THIS LANE JUMPS TO IS AT OR BEFORE THE
+#   ARRIVAL SOI ENTRY, which is 37,319.71 s BEFORE the cut start**, so all three map
+#   UNCOMPRESSED and the cut-mapping is moot for this drive shape. That is a deliberate
+#   window choice, not an accident: the capture epoch is exactly where the compressed and
+#   uncompressed clocks part company, and a first flight should not straddle it.
+#   (The M-MIS-2 P4 destination-loiter trim may REASSIGN `loiterCuts` to
+#   `launchSideCuts` + a joint trim. `BuildLaunchSideKeepOneCuts` filters to runs with
+#   `EndUT <= RecordedArrivalUT`, and neither run qualifies - the Sun run has revs 1 and
+#   the Duna run ends after the arrival - so launchSideCuts is EMPTY here and the
+#   reassignment can only move post-capture UTs either way.)
+#
+# ---------------------------------------------------------------------------------
+# 4. WINDOW ARITHMETIC (V8's recipe, V24W's discipline)
+# ---------------------------------------------------------------------------------
+# Cross-parent means `PhaseLock SKIPPED support=UnsupportedCrossParent`, so the anchor
+# comes from `ReaimWindowPlanner.Plan` and nothing else.
+#
+#   spanStartUT = 2,547,277,477.4306364  (chain head 8538d9e1, the pad launch)
+#   spanEndUT   = 2,570,562,894.315805   (the decoupled probe ed76396d, the LAST end)
+#   span        = 23,285,416.885169 s
+#   T_Kerbin    = 9,203,544.617627 s     T_Duna = 17,315,400.142807 s   (Kepler III off
+#                 the stock sma 13,599,840,256 / 20,726,155,264 and mu_Sun)
+#   synodic     = 1 / |1/T_K - 1/T_D| = **19,645,697.250367 s**
+#   span/synodic = **1.185268** -> Ceiling(1.185268 - 1e-9) = 2, so
+#   cadence     = 2 * synodic = **39,291,394.500734 s**
+#     - the span>synodic regime, the SECOND subject ever to reach it (V8/Eve was the
+#       first). It also matches the ratio `ReaimWindowPlanner.Plan`'s own comment quotes
+#       for "the s15 ratio ~1.185", which is these bytes.
+#     - and it means `PadAlignLaunch` DECLINES (it refuses whenever
+#       |cadence - synodic| > 1.0), so the LAUNCH HOLD engages instead - V8's measured
+#       shape, reproduced here for a structural reason rather than by coincidence.
+#   `MissionConfig` stamps `LoopAnchorUT = currentUT` (MissionStore.cs:522), so
+#   referenceUT = the live clock at arming ~= the save clock **5,336,112,610.6518345**
+#   (floored at spanEndUT, which it dwarfs).
+#     k = ceil((5,336,112,610.6518345 - 2,561,070,900.0315204) / 19,645,697.250367)
+#       = ceil(141.254427) = **142**
+#   D0 (FirstDepartureUT) = 2,561,070,900.0315204 + 142 * 19,645,697.250367
+#                         = **5,350,759,909.583645**
+#   phaseAnchorUT = D0 - (RecordedDepartureUT - spanStartUT)
+#                 = D0 - 13,793,422.600884 = **5,336,966,486.982761**
+#
+#   THE k IS ROBUST TO THE FEW SECONDS OF SCENE TIME BETWEEN LoadGame AND MissionConfig,
+#   which matters because `LoopAnchorUT` is stamped from the LIVE clock and not from the
+#   save: k flips to 143 only above 5,350,759,909.58, and the arming clock sits
+#   14,647,299 s below that. It also cannot fall to 141 (that boundary is 5,004,979 s
+#   below). So the anchor is derived, not raced.
+#
+#   MAP: windowUT(recordedUT) = phaseAnchorUT + (recordedUT - spanStartUT), valid for
+#   every recordedUT at or before the cut start (section 3).
+#     Sun park       [2,547,568,544.06 , 2,561,070,763.99] -> [5,337,257,553.61 , 5,350,759,773.54]
+#     departure burn  2,561,070,900.03                     ->  5,350,759,909.58  (== D0, by construction)
+#     Duna SOI entry  2,570,454,935.62                     ->  5,360,143,945.17
+#     Duna capture    2,570,492,255.34                     ->  5,360,181,264.89  (the cut start; NOT visited)
+#
+#   THE THREE WINDOWS AND THEIR JUMP UTs:
+#     W1 SUN PARK INTERIOR - one jump at **5,344,008,664**, the arithmetic midpoint of the
+#        13,502,219.94 s park run (recorded 2,554,319,654.02, ~0.70 rev in). Deep
+#        interior by design: the nearest internal segment seam is 6,350 ks away, so this
+#        observes a HELIOCENTRIC PARKING CONIC with no seam in the frame - a render
+#        subject no committed lane has ever put on the map.
+#     W2 DEPARTURE BURN - a -180 / -60 / +140 straddle of D0, i.e.
+#        **5,350,759,730 / 5,350,759,850 / 5,350,760,050**. The straddle is unusually
+#        informative here because the recorded gap between the park's end
+#        (2,561,070,763.99) and the burn's start (2,561,070,900.03) is 136.04 s of
+#        OFF-RAILS burn: the three jumps land inside the park's last segment, inside the
+#        burn gap, and inside the transfer conic respectively.
+#     W3 DUNA ARRIVAL - the same -180 / -60 / +140 straddle of the SOI entry,
+#        **5,360,143,765 / 5,360,143,885 / 5,360,144,085**. Under a re-aimed window the
+#        ARRIVAL is `D0 + usedTof`, which equals the recorded-map arrival iff
+#        `usedTof == recordedTof`; the bracket covers both candidates (V8's construction).
+#   Every jump is strictly forward of the save clock and of its predecessor. A backward
+#   one answers `REJECTED reason=backward-jump`, only a WARN - FORBIDDEN below.
+#
+#   RE-PIN RECIPE (V2/V8, unchanged): read `phaseAnchorUt=` off `missionconfig applied:`
+#   and `relaunchUt=` off `startloopplayback initiated:`, then re-map. Note the LAUNCH
+#   HOLD puts `relaunchUt` slightly BEFORE `phaseAnchorUt` (V8 measured -1,091.3 s); the
+#   window map rides `phaseAnchorUt`, not `relaunchUt`.
+#
+# ---------------------------------------------------------------------------------
+# 5. WHY SEAM-DRIVEN AND 1x
+# ---------------------------------------------------------------------------------
+# `kind = "seam"` for the V4/V5/V6/V7/V8 reason: every step verdict gates driver
+# validity, so a missed arm or a refused jump reads INVALID rather than greening. The
+# clock moves with instantaneous `TimeJump`s, so this lane's warp histogram will be
+# 1x-only BY CONSTRUCTION exactly like V6M's and V14M's - `warpBuckets` may NEVER be
+# declared here, and V24W remains the only lane in the suite entitled to it. That is a
+# property of the drive shape, stated so an arming pass does not misread the histogram as
+# a finding.
+#
+# ---------------------------------------------------------------------------------
+# 6. renderComposition ARMING LEDGER (M-A7 Phase 4 / Wave B)
+# ---------------------------------------------------------------------------------
+#   POSTURE  DECLARED BARE. Nothing armed, nothing gates. Declaring sets
+#            `PARSEK_RENDER_MANIFEST=1` at launch and arms the C# recorder at Awake; the
+#            single `ExportRenderManifest` immediately before teardown takes the
+#            composition at a chosen instant rather than at the scene-exit auto-flush.
+#   CLASS    THE SECOND RE-AIM DEPARTURE CLASS. The design's re-aim surface has two, and
+#            until this lane only the direct-ejection one (V2 / V8 / V24W / V10) had a
+#            subject. With this lane both are represented, which is what makes RC-CLOCK's
+#            `reaim-window` events and RC-SEAM's departure-side measurements comparable
+#            ACROSS classes instead of describing one shape.
+#   EXPECTED `loiterCuts=1 cutSeconds=43964` with the cut on the DESTINATION side - a
+#            different population from V8's launch-side 11,819,849 s cut, and the first
+#            destination-side cut any lane has exported. Also expected: a heliocentric
+#            parking conic on the map at W1, which no manifest has ever carried.
+#   READING  **FLIGHT 1 FLEW 2026-08-26 (`2026-08-26_1744`) AND CAME BACK
+#            PARSEK-FAIL(anomaly) ON ATTEMPT 1 - the outcome section 5 pre-registered in
+#            writing, raised by the `anomalySweep` row against `allowedAnomalies = []`,
+#            NOT by any composition rule.** Every driver step green; the reading is whole.
+#
+#            THE PRE-REGISTRATION IS VINDICATED, and by the strongest available evidence -
+#            the product's own conjunction line, verbatim and unedited:
+#              plan.Supported=True reason='' departUT=2561070900 arrivalUT=2570454936
+#                tof=9384036 ancestor=Sun parking=True
+#            with the unit exporting `isReaim = True` against `launchBodyName = Kerbin`
+#            and one `reaim-window` clock event. The dry classifier replay in section 2
+#            was right in every particular: the heliocentric-parking-departure exception
+#            opens, and the park-departure class engages re-aim LIVE.
+#
+#            **THE PROGRAM'S FIRST NON-EMPTY CUT RATIO, AND IT IS EXACTLY WHOLE:**
+#            `cutWholeRatios = [2.0]`. Every declarer before this one measured that list
+#            empty, so RC-CUT's whole-multiple clause had never had a subject; it does
+#            now, and it passes on the nose.
+#
+#            CALIBRATION - SECTION 3'S CUT LENGTH IS THE PRE-HOLD NUMBER, NOT THE EXPORTED
+#            ONE, and the product explains the difference itself. The build-time line says
+#            `loiterCuts=1 cutSeconds=43964` exactly as derived, and then the arrival hold
+#            RE-TIMES the destination loiter:
+#              MissionLoopUnit: ... ARRIVAL HOLD dest=Duna kind=rotation keepRevs=10/12
+#                cutLen=7993s Talign=65517.859375s hold=3918.2542181015015s
+#            so the exported `LOITER_CUT` is `startUT = 2,570,492,255.336010`
+#            (section 3's Duna-capture instant, to the digit) with
+#            `lengthSeconds = 7,993.4400709942` = (12 - 10) * 3,996.7200354971 - which is
+#            where the 2.0 ratio comes from. BOTH numbers are correct product behaviour at
+#            their own stage; what was wrong was section 3's implicit assumption that the
+#            keepRevs=1 cut survives to export. It does not - the rotation-aligned arrival
+#            hold overwrites it. **A ROUND-2 WINDOW ON `cutWholeRatios` MUST BE WRITTEN
+#            FROM THE EXPORTED 2.0, NEVER FROM THE 43,964 s DERIVATION.** The `EXPECTED`
+#            line above is left as authored so the correction is visible rather than
+#            quietly rewritten.
+#
+#            CENSUS, in full, so round 2 has something to match against:
+#              planUnits 1, chainBuilds 2, dwells 3 (+2 open), cycles 0, transitions 3
+#              treatments   StockConic 2, TracedPath 1
+#              coverages    InSegment 3
+#              seamKinds    rigid 8, flexible-soi 2      seamEndpoints 377
+#              clockEvents  cycle-rollover 1, reaim-window 1
+#              lineBranches 9, ratifiedSkips 0, clockDefers 0, ownershipChanges 0
+#              routeLineBuilds 0, routeCoDrawViolations 0, routeLegDefers 0
+#              warp         1x-only, 468 frames        maxUtStepSeconds 6,751,065.34
+#              planHoldSeconds [3918.2542181015015]    observedHoldSeconds []
+#              findings     FAIL RC-SEAM 1 (SEE BELOW - VERIFIER BUG, NOW FIXED),
+#                           INFO RC-QUAL 1 (hold.arrival)
+#
+#            UNEVALUABLE CENSUS - 384, and every one of them is a positive statement:
+#              reaimed-seam-instant-absent          69   the re-aimed seam instant is not
+#                                                        resolvable at those sample UTs;
+#                                                        EXPECTED on a re-aim subject
+#              seam-endpoint-skipped               308   the ordinary no-cross-body-
+#                                                        successor skip
+#              no-cycle-rollover-events              3
+#              plan-primitive-body-unidentified      1   `Sun` is not in the stock body
+#                                                        table the primitive reader keys
+#                                                        on - EXPECTED for a heliocentric
+#                                                        subject and NOT a lane defect
+#              hold-observed-evidence-absent         1   the plan holds 3,918.25 s and the
+#                                                        drive never traverses it (all
+#                                                        three windows are TimeJumps at or
+#                                                        before the arrival SOI entry, by
+#                                                        section 4's deliberate choice)
+#              warp-hold-traversal-evidence-absent   1
+#              ownership-publish-surface-never-ran   1   this lane drives no `EnterMapView`
+#
+#            **THE RC-SEAM [FAIL] THIS RUN RAISED WAS A VERIFIER MISREAD, NOT A RENDERER
+#            DEFECT, AND THE VERIFIER IS FIXED.** Reported as
+#              RC-SEAM [FAIL] TRANSITION[pid=3129690249 ut=5360143765.0]: body change
+#                Sun->Duna classified as a rigid seam
+#            The arrival straddle's observation stream WARPED CLEAN ACROSS an interior
+#            segment, so the transition read `fromSegmentIndex 6 -> toSegmentIndex 8` and
+#            spanned TWO boundaries. The chain classified both correctly: boundary 7 is the
+#            real Sun -> Duna crossing (PHASE[6] heliocentric-transfer Sun -> PHASE[7]
+#            departure-loiter Duna) and it is `flexible-soi`; boundary 8 is Duna -> Duna
+#            and it is `rigid`. Wave-1's `_rule_seam` keyed the seam table on
+#            `toSegmentIndex` and so blamed boundary 8's correct `rigid` for boundary 7's
+#            body change. `rendercompose.transition_boundaries` now walks every boundary
+#            the transition crossed and takes each one's bodies from the CHAIN's own PHASE
+#            records; re-evaluated offline, THIS MANIFEST NOW READS ZERO FINDINGS and all
+#            sixteen other archived manifests read byte-identical. (`2026-08-25_0956` (V8)
+#            is the near miss that shows the clause was never really being evaluated on
+#            this shape: the same 6 -> 8 span with a Mun -> Sun change passed only because
+#            BOTH its crossed boundaries happened to be `flexible-soi`.)
+#
+#            ARMING STILL OWED: reading 2, which must come back CLEAN (the anomaly
+#            tolerances below are now declared, and the RC-SEAM row is expected to be
+#            silent on the fixed verifier). NOTHING IS ARMED BY THIS FLIGHT.
+# =====================================================================================
+tier = "operator"
+description = "AUTHORED 2026-08-26; READING FLIGHT 1 FLEW THE SAME DAY (`2026-08-26_1744`, PARSEK-FAIL(anomaly) attempt 1 - the outcome this spec pre-registered in writing, raised by the anomalySweep against an empty allowedAnomalies and by no composition rule). THE CLASSIFIER REPLAY IS VINDICATED IN FULL: the unit exports `isReaim = True` against `launchBodyName = Kerbin` and the product's own conjunction line reads `plan.Supported=True reason='' departUT=2561070900 arrivalUT=2570454936 tof=9384036 ancestor=Sun parking=True` - the park-departure class engages re-aim live, exactly as derived dry. It also produced THE PROGRAM'S FIRST NON-EMPTY CUT RATIO AND IT IS EXACTLY WHOLE (`cutWholeRatios = [2.0]`), so RC-CUT's whole-multiple clause finally had a subject; the exported cut is 7,993.44 s at the Duna capture, which is the arrival hold's re-timed `keepRevs=10/12` value and NOT the 43,964 s keepRevs=1 derivation in section 3 - a round-2 window must be written off the exported 2.0. Census: dwells 3 (+2 open), treatments StockConic 2 / TracedPath 1, seams rigid 8 / flexible-soi 2, anomalies icon-teleport 4 / icon-off-orbit 2 (now tolerated BARE with that run id beside them; ceilings 8 / 4 at 2x measured, argued as prose because the inert-budget invariant blocks declaring them), unevaluable 384 of which the notable positives are reaimed-seam-instant-absent 69, plan-primitive-body-unidentified 1 (Sun is not in the stock body table - expected for a heliocentric subject) and hold-observed-evidence-absent 1 (the plan holds 3,918.25 s and all three windows sit at or before the arrival SOI entry by design). The run's single RC-SEAM [FAIL] was diagnosed as A VERIFIER MISREAD, NOT A RENDERER DEFECT, and the verifier is fixed: the arrival straddle warped across an interior segment so the transition spanned boundaries 7 (Sun->Duna, correctly flexible-soi) and 8 (Duna->Duna, correctly rigid), and wave-1 keyed the seam table on toSegmentIndex; re-evaluated offline this manifest now reads zero findings and all sixteen other archived manifests are byte-identical. ARMING STILL OWED - reading 2, which must come back clean. The HELIOCENTRIC-PARKING DEPARTURE subject - re-aim's second departure class, which until now had no live lane. Over `duna-park-recorded` (tree ced78481 'Kerbal X #2', harvested from the same visually-validated s15 save as `duna-one-recorded` and disjoint from it): a mission that escapes Kerbin immediately, PHASES ON THE SUN for 13,502,219.94 s on one near-circular orbit 3.47 % outside Kerbin's own, and only then burns for Duna. `ReaimClassifier` knows this recording by name - its partial-transfer decline carries an EXCEPTION whose comment reads 'EXCEPTION (s15 Kerbal X #2)' and whose admissibility doc quotes these exact numbers - and no committed lane has ever driven that path. PRE-REGISTERED PREDICTION, derived in full in the header off the committed .prec bytes: RE-AIM ENGAGES with `parking=True`, pinned as one conjunction regex over the ReaimDiag line and with its exact inverse (the 'transfer departs from a heliocentric parking orbit' decline) FORBIDDEN. The loiter question is answered too, and the answer is the opposite of the worry: the Sun park is NOT cut (WholeRevs 1 against keepRevs 1 - which IS the engage condition, so 're-aim engaged' and 'the park was not compressed' are one fact), the single cut is a DESTINATION one of 43,963.92 s starting at the Duna capture, and all three windows sit at or before the arrival SOI entry so every offset maps uncompressed. Three TimeJump windows on the derived cycle: deep inside the Sun phasing orbit, a -180/-60/+140 straddle of the departure burn (which lands one jump inside the 136 s off-rails burn gap), and the same straddle of the Duna SOI entry. Span/synodic is 1.185268, so cadence = 2x synodic and PadAlignLaunch declines - the span>synodic regime, only the second subject ever to reach it after V8/Eve."
+instanceProfile = "stock-minimal"
+tags = ["V25", "player-loop", "reaim", "heliocentric-parking-departure", "loiter-compression",
+        "duna", "kerbin", "sun", "cross-parent", "render-composition", "map-render"]
+
+[fixture]
+# `duna-park-recorded`: ONE committed tree `ced7848157674b8ea19311377c0f6fbc`, 14
+# recordings (pointCount total 2706; the largest, 856, is the park transfer `aa48920e`),
+# zero durable rows, 13 VESSEL nodes, SANDBOX, save clock 5,336,112,610.6518345, active
+# vessel 8 (`Jumping Flea`, PRELAUNCH). Payload pinned byte-for-byte in
+# `harness/lib/test_saveparse.py::CommittedFixtureSweepTests.RECORDED_FIXTURES`, whose
+# provenance entry also records the four-TrackSection INV2 repair (52 -> 48 on
+# `aa48920e`, the 14-entry top-level ORBIT_SEGMENT list byte-untouched) and the resulting
+# `FAIL=0 WARN=16 RED=0` analyzer reading.
+saveTemplate       = "fixtures/saves/duna-park-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  # KILL THE SCENE-ENTRY AUTO-RECORDER FIRST (V2 flight 4 / V5 run 1, structural rather
+  # than fixture-specific). StopRecording is idempotent-OK by construction and DiscardTree
+  # answers OK with nothing-discarded when no plain tree is live, so the pair is safe on
+  # any entry state; the SetSetting stops a later one. The pair kills ONE stub and is not
+  # a latch - which is why the recordings window below admits a stub rather than
+  # forbidding it.
+  { cmd = "StopRecording",                                                   expect = "OK" },
+  { cmd = "DiscardTree",                                                     expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  # Three tracer pins, all LOAD-BEARING for the manifest and not just for log evidence:
+  # the seam tangent/endpoint capture predicates behind RC-SEAM are `mapRenderTracing`-
+  # gated, so a manifest taken with that tracer off carries no seam numbers at all;
+  # `ghostRenderTracing` is the FLIGHT-scene raise gate for the loop-seam-teleport Tier-C
+  # instrument; `verboseLogging` is load-bearing beside both because every `[ReaimDiag]`
+  # line this lane's prediction is pinned on is VERBOSE (the V1 lesson).
+  { cmd = "SetSetting", args = { name = "ghostRenderTracing", value = "true" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "mapRenderTracing",   value = "true" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" }, expect = "OK" },
+  # STEP 1: the Missions window loop checkbox (production MissionStore.SetLoopEnabled).
+  # It also STAMPS `LoopAnchorUT = currentUT`, which is the referenceUT the whole header
+  # section 4 derivation is anchored to, and its Info line echoes the resolved
+  # phaseAnchorUt - READ IT WHEN RE-PINNING.
+  { cmd = "MissionConfig", args = { tree = "ced7848157674b8ea19311377c0f6fbc", loop = "true" }, expect = "OK" },
+  # STEP 2: "Warp to..." -> ComputeNextRelaunchUT -> FastForwardToEventUT, an
+  # INSTANTANEOUS Planetarium clock set (no rails warp to budget). Under the LAUNCH HOLD
+  # this lands slightly BEFORE phaseAnchorUt (V8 measured -1,091.3 s on the same
+  # PadAlignLaunch-declined shape).
+  { cmd = "StartLoopPlayback", args = { tree = "ced7848157674b8ea19311377c0f6fbc" }, expect = "OK", budget = 300 },
+  # W1 - DEEP INSIDE THE SUN PHASING ORBIT (header section 4). The arithmetic midpoint of
+  # the 13,502,219.94 s park run, ~0.70 rev in, with the nearest internal segment seam
+  # 6,350 ks away. This is the frame no committed lane has ever rendered: a near-circular
+  # HELIOCENTRIC parking conic with no seam in it.
+  { cmd = "TimeJump", args = { ut = "5344008664" }, expect = "OK", budget = 300 },
+  # PACING SPACERS, and they are LOAD-BEARING for the same reason V8's are:
+  # `MapRenderTrace.IsLineBlink` raises when a proto line's ON/OFF toggle pair lands
+  # within 8 visual frames, and two back-to-back seam TimeJumps execute ~4-7 WALL frames
+  # apart regardless of the game seconds between them. V8 runs _0810 and _0814 both
+  # PARSEK-FAILed on exactly that shape at exactly these boundary-straddling pairs.
+  # RecordingState is AnyScene and side-effect-free.
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  # W2 - THE DEPARTURE BURN, straddled -180 / -60 / +140 about D0 = 5,350,759,909.58.
+  # The three land, respectively, inside the park's LAST segment, inside the 136.04 s
+  # off-rails burn gap between the park end and the transfer start, and inside the
+  # transfer conic. That middle jump is the one no other subject has: on a direct
+  # ejection the equivalent instant is inside the launch body's SOI.
+  { cmd = "TimeJump", args = { ut = "5350759730" }, expect = "OK", budget = 300 },
+  { cmd = "TimeJump", args = { ut = "5350759850" }, expect = "OK", budget = 300 },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "TimeJump", args = { ut = "5350760050" }, expect = "OK", budget = 300 },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  # W3 - THE DUNA ARRIVAL, the same -180 / -60 / +140 straddle of the recorded-map SOI
+  # entry 5,360,143,945.17. Under a re-aimed window the arrival is `D0 + usedTof`, equal
+  # to the recorded-map instant iff `usedTof == recordedTof`; the bracket covers both
+  # candidates. It deliberately stops SHORT of the Duna capture (5,360,181,264.89), which
+  # is where the one loiter cut starts and where the compressed and uncompressed clocks
+  # part company - see header section 3.
+  { cmd = "TimeJump", args = { ut = "5360143765" }, expect = "OK", budget = 300 },
+  { cmd = "TimeJump", args = { ut = "5360143885" }, expect = "OK", budget = 300 },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "TimeJump", args = { ut = "5360144085" }, expect = "OK", budget = 300 },
+  # M-A7 RENDER-COMPOSITION CAPTURE (Phase 4). PLACEMENT IS THE ARGUMENT and it is pinned
+  # by `test_every_declarer_exports_immediately_before_teardown`: the recorder accumulates
+  # from Awake, so placement decides only how much of this lane's observation is already
+  # inside the exported file - and here that is all three windows and every jump between
+  # them, taken at a CHOSEN instant rather than provoked by the scene-exit auto-flush that
+  # follows `FlushAndQuit`.
+  # INERT by construction (`hlib.SEAM_VERB_TAIL_ROLE` = inert): an in-memory read of the
+  # recorder plus one file write in the KSP root, touching no vessel, no save and no
+  # Parsek persisted state.
+  { cmd = "ExportRenderManifest",                        expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                    expect = "OK" },
+]
+
+# CLAIM-IS-NOT-GATE.
+#   D11 `heliocentric-parking-departure` - CLAIMED AND GATED, by the single conjunction
+#       regex `plan\.Supported=True .*ancestor=Sun parking=True` in the required list. The
+#       cell already carries M2-periodicity-solver's claim, which is the PURE-SOLVER half
+#       (unit-level, over synthetic inputs); this is the first claim from a LIVE LOOP UNIT
+#       built over recorded bytes, and the two are complementary rather than duplicate.
+#   D14 `duna` - gated by the ENGAGED line naming `Kerbin->Duna via Sun`, i.e. the target
+#       body is asserted by the routing verdict rather than by the epoch.
+#   D14 `scene-flight` / `sandbox` - the environment axes this lane runs on (V6M's
+#       precedent; sandbox is the fixture's Mode).
+#
+# DELIBERATELY NOT CLAIMED:
+#   D11 `loiter-compression` - V8 owns that cell, and this lane's cut is a DESTINATION one
+#       rather than a launch-side one. The distinction is worth a claim only once a window
+#       gates it; today the count is recorded and asserted on by nothing.
+#   D11 `reaim-lambert` / `arrival-hold` - measured here, gated by nothing on a reading
+#       run.
+#   D14 `warp-1x` / `warp-rails` - the histogram is 1x-only by construction (header
+#       section 5) and nothing in the bare block gates a bucket.
+[dimensionsCovered]
+D11 = ["heliocentric-parking-departure"]
+D14 = ["duna", "scene-flight", "sandbox"]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING (hlib.validate_spec rejects a bare allowedAnomalies written
+# after any [expectations.<sub>] header).
+#
+# THE SWEEP SHIPPED FULLY ARMED, ON PURPOSE, AND THIS LANE RED BECAUSE OF IT. V24W -
+# same fixture family, same tracers, a multi-window drive - measured
+# `hitCounts {icon-teleport: 65, icon-off-orbit: 2, loop-seam-teleport: 2}` and red on a
+# list that had shipped empty; that red is the reason those three counts are known at all.
+# Pre-tolerating anything here would have destroyed the same measurement on a subject whose
+# geometry (a heliocentric park, then a 136 s burn gap, then a cross-parent arrival) had
+# never been sampled. The S1.4 rule is explicit: a token is re-added WITH the flight that
+# shows it - and `2026-08-26_1744` is that flight. It measured
+# `hitCounts = {icon-teleport: 4, icon-off-orbit: 2}` and NOTHING ELSE: this shape does
+# NOT raise `loop-seam-teleport` at all, which is a real difference from V24W and is why
+# that token is deliberately absent below rather than copied across from a sibling.
+#
+# THE COUNTS ARE TINY - 4 and 2, against V24W's 65 - and that is the expected direction:
+# this lane's clock moves in three instantaneous TimeJumps rather than a commanded rails
+# stair, so the probe's filed above-warp1000 over-sensitivity is barely exercised.
+#
+# CEILING ARITHMETIC, recorded as prose per the V24W convention because the ceilings
+# CANNOT BE DECLARED while the whole-suite inert-budget invariant stands (V24W header
+# section 6 carries that argument in full and it is unchanged): at 2x measured the
+# ceilings would be `icon-teleport` 8 and `icon-off-orbit` 4. 2x, not V24W's 4x on the
+# small tokens, precisely BECAUSE these counts are small and single-sourced - a 4x band
+# on a count of 2 tolerates almost any regression, whereas 2x still reds a doubling.
+# Reading 2 either reproduces 4 / 2 or the ceiling arithmetic is re-derived off the pair.
+# READING 2 (`2026-08-26_1817`) MEASURED 4 / 1 - both inside the ceilings, so 8 / 4 stand
+# off the pair. It also raised ONE NEW token, `line-blink` x1, and red on it: the S1.4
+# rule doing to this lane exactly what it did to V24W. Tolerated below WITH that flight.
+allowedAnomalies = [
+  # 4 raises, `2026-08-26_1744`. The probe's icon-jump/icon-teleport threshold has a
+  # FILED, unfixed over-sensitivity above warp1000; this lane reaches it only through
+  # its three TimeJump windows, hence 4 rather than V24W's 65. Ceiling 8 (2x measured)
+  # pending the budget-mechanism allowlist move.
+  "icon-teleport",
+  # 2 raises, `2026-08-26_1744`. The ghost-proto creation-frame trigger the
+  # V14T/V15T/V16T family measured as parent-independent - and this lane measures the
+  # SAME count of 2 as V24W on a completely different departure class, which is the
+  # first cross-class corroboration that the trigger is per-creation and not per-shape.
+  # Ceiling 4 (2x measured) pending the same move.
+  "icon-off-orbit",
+  # 1 raise, `2026-08-26_1817` (reading 2; reading 1 with the IDENTICAL jump triple
+  # raised zero - the shape is timing-dependent, not deterministic). Mechanism read
+  # straight off the trace: the third arrival jump landed currentUT 43 s past the
+  # APPLIED segment's end bound, the proto line went dark with
+  # reason=stale-segment-awaiting-reseed (which stamps NO RenderWindowCoverage BY
+  # CONTRACT - its 'outside bounds' is the applied bounds LAGGING inside the window,
+  # not a window measurement), and 3 frames later the reseed landed and the line relit
+  # via director-stockconic-visible. The windowTransitionExempt half-proof therefore
+  # CANNOT apply (priorToggleVerdict=Other) and the raise is the instrument working:
+  # a real ~3-frame dark gap at a discontinuous clock step. Filed as todo
+  # RESEED-LAG-DARK-GAP-AT-CLOCK-JUMP (genuine minor render transient; also reachable
+  # by high-warp overrun in free play). Ceiling 2 (2x measured) pending the same move.
+  "line-blink",
+]
+
+[expectations.recordings]
+# A BRACKET, NOT A PIN. The fixture ships 14 `.prec` sidecars and 14 RECORDING nodes,
+# this lane starts no recording of its own, and the step triple above kills the
+# scene-entry promotion stub - but that pair kills ONE stub and is not a latch, so 15 is
+# admissible. The ceiling adds headroom for the LOAD-TIME OPTIMIZER at this subject's TWO
+# cross-body seams (Kerbin->Sun at 2,547,568,544.06 and Sun->Duna at 2,570,454,935.62):
+# V8 measured exactly this mechanism on the Eve fixture (8 -> 9), and §3 rule 3 of
+# `IsSplittableEnvOrBodyBoundary` keeps a same-class Exo body change COHESIVE, so the
+# prediction is few or none - but "few or none" is a prediction, and 22 is a runaway guard
+# rather than a pin (a per-frame recording leak would be in the hundreds).
+#
+# THE FLOOR IS 12, BELOW the fixture's own 14, as margin for the unknown on a first
+# flight - NOT as a prediction that anything merges. A reading below 14 is to be
+# INVESTIGATED, not window-widened. The anti-vacuity half is what the floor really buys:
+# a run that observed one or two recordings has stopped being a loop over this subject.
+count = { min = 12, max = 22 }
+
+[expectations.logContracts]
+# THE PLUMBING TRIO, in order:
+#   "missionconfig applied:" / "SetLoopEnabled: loop ON" - the loop is ARMED through the
+#     production path; the first also echoes phaseAnchorUt, the number to read when
+#     re-pinning.
+#   "startloopplayback initiated:" - the clock work entered the production door and echoed
+#     the resolved relaunchUt.
+#
+# THE ROUTING VERDICT - the three tokens this lane exists to buy, and the reason it is not
+# just "V8 with a different fixture":
+#   "ENGAGED re-aim Kerbin->Duna via Sun" - re-aim engaged, and on the expected pair. On
+#     a faithful outcome this line is absent and the lane reds here first, which is the
+#     loud direction.
+#   "PhaseLock SKIPPED: mission=.*support=UnsupportedCrossParent" - the NEGATIVE half: the
+#     periodicity solver stood down for the documented reason (cross-parent is the only
+#     thing that demotes Support), so what placed the launches is the synodic window
+#     planner and not a phase lock. Requiring both directions is what makes "this really
+#     is the re-aim road" falsifiable rather than assumed.
+#   "plan\.Supported=True .*ancestor=Sun parking=True" - **THE HEADLINE PIN.** ONE regex
+#     over ONE line, carrying the whole classifier verdict as a conjunction: supported,
+#     common ancestor Sun, and DepartedFromHeliocentricPark true. Three separate tokens
+#     would pass on a log carrying them on three different lines. This is the token that
+#     gates D11 `heliocentric-parking-departure`, and it is the entire content of the
+#     header's pre-registered prediction. The float digits (departUT / arrivalUT / tof) are
+#     deliberately NOT pinned: they are re-derivable from committed bytes and a token
+#     carrying them is a re-pin waiting to happen.
+required  = [
+  "missionconfig applied:",
+  "SetLoopEnabled: loop ON",
+  "startloopplayback initiated:",
+  "ENGAGED re-aim Kerbin->Duna via Sun",
+  "PhaseLock SKIPPED: mission=.*support=UnsupportedCrossParent",
+  "plan\\.Supported=True .*ancestor=Sun parking=True",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  # THE EXACT INVERSE OF THE PREDICTION, verbatim from
+  # `ReaimClassifier.cs`'s partial-transfer branch. If the heliocentric-parking exception
+  # does NOT open - a keepRevs re-tune, an ecc/sma tolerance move, a DetectRuns change
+  # that stops merging the three same-sma Sun segments into one run - this is the string
+  # the log carries instead, and this lane must red on it rather than quietly measure a
+  # faithful replay. It is the sharpest single regression floor this subject has.
+  "transfer departs from a heliocentric parking orbit or mid-course correction \\(deferred\\); staying faithful",
+  # The other decline this subject must never reach: it has FOUR consecutive Sun segments,
+  # so a change that stopped merging them would absorb the park into the transfer run and
+  # trip the >1-revolution guard instead.
+  "transfer run spans >1 revolution \\(heliocentric loiter absorbed\\); staying faithful",
+  # The V3C run-3 self-detection guard: a refused backward jump is only a WARN, so without
+  # this token a mis-derived anchor can green while dwelling nowhere. Nine derived jump UTs
+  # is exactly when this earns its place.
+  "timejump refused reason=backward-jump",
+  # The S1.6/S1.7 parity pin verbatim: any faithful-parity sample OVER tolerance is a
+  # rendered-vs-recorded drift. PRESENCE of the summary is not required here (V14M/V6M
+  # measured the seed-fragment blind spot at `sampled=0`), only a non-zero over-tolerance
+  # count is forbidden.
+  "faithful-parity summary sampled=\\d+ overTolerance=[1-9][0-9]*",
+]
+
+[expectations.renderComposition]
+# M-A7 Phase 4 / Wave B - DECLARED 2026-08-26, BARE ON PURPOSE: no `gating`, no window,
+# no list. Declaring is what sets `PARSEK_RENDER_MANIFEST=1` at launch and arms the C#
+# recorder at Awake, and `rendercompose` then records its facets UNCONDITIONALLY on a
+# parseable manifest - which is how a lane earns its first honest window off a green
+# report-only run. A window written today would be a PREDICTION read back as though it
+# were a measurement, the mistake V14M, V8, V6M and V24W all shipped bare through their
+# reading runs to avoid.
+#
+# `warpBuckets` MUST NEVER BE DECLARED HERE (header section 5): the clock moves with
+# instantaneous TimeJumps, so the histogram is 1x-only by construction and a bucket
+# window would gate on the drive shape rather than on the product. V24W is the only lane
+# in the suite entitled to that key.
+# READING PENDING - see the renderComposition arming ledger in this file's header.
+
+[runtime]
+# 300 LoadGame + 300 StartLoopPlayback + 9 x 300 TimeJump + 120 export + the fast
+# non-deferred verbs + KSP boot + collect. Every jump is instantaneous, so the ~24 Ms of
+# game time costs no wall clock; V8's structurally identical 25-step shape measured well
+# under 2 minutes end to end.
+budgetSeconds = 3000
+
+[retry]
+# One retry absorbs the V2/V5 promotion-recorder re-arm race and ordinary seam flakes. It
+# does NOT absorb a mis-derived anchor or a refuted routing prediction: both reproduce
+# exactly on attempt 2, which is the point.
+policy = "once"
+
+[expectedFail]
+bugId = ""

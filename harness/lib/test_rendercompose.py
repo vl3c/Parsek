@@ -1603,6 +1603,89 @@ class RuleViolationTests(unittest.TestCase):
         seam = fails(findings, rc.RULE_SEAM)
         self.assertEqual(1, len(seam))
         self.assertIn("classified as a rigid seam", seam[0].message)
+        self.assertIn("boundary=2", seam[0].target)
+
+    # --- the V25M multi-boundary transition ---------------------------------
+    #
+    # `2026-08-26_1744` (V25M) is the first flight whose observation stream
+    # WARPED CLEAN ACROSS an interior segment: the transition read 6 -> 8, so it
+    # spanned boundary 7 (Sun -> Duna, correctly `flexible-soi`) AND boundary 8
+    # (Duna -> Duna, correctly `rigid`). Wave-1 keyed the seam table on
+    # `toSegmentIndex` and reported the boundary-8 `rigid` as a rigid-classified
+    # Sun -> Duna body change - a verifier misread of a correct renderer.
+    #
+    # The two cells below are the same fixture shape with the LAST boundary's
+    # kind as the only difference, which is what pins the fix to "read the
+    # boundary the body actually changed at" rather than "stop looking".
+
+    # Transition 0 -> 2 with the body change at boundary 1 (flexible-soi, right)
+    # and boundary 2 rigid across a same-body pair (Mun -> Mun, also right).
+    V25M_MULTI_BOUNDARY = (
+        ("kind = heliocentric-transfer\n\t\t\t\tprovenance = synthesized"
+         "\n\t\t\t\tbody = Kerbin",
+         "kind = heliocentric-transfer\n\t\t\t\tprovenance = synthesized"
+         "\n\t\t\t\tbody = Mun"),
+        ("boundaryIndex = 1\n\t\t\t\tkind = rigid\n\t\t\t}\n\t\t\tSEAM\n\t\t\t{"
+         "\n\t\t\t\tboundaryIndex = 2\n\t\t\t\tkind = flexible-soi",
+         "boundaryIndex = 1\n\t\t\t\tkind = flexible-soi\n\t\t\t}\n\t\t\tSEAM"
+         "\n\t\t\t{\n\t\t\t\tboundaryIndex = 2\n\t\t\t\tkind = rigid"),
+        ("fromSegmentIndex = 1\n\t\t\ttoSegmentIndex = 2",
+         "fromSegmentIndex = 0\n\t\t\ttoSegmentIndex = 2"),
+    )
+
+    def test_rc_seam_does_not_blame_the_last_boundary_of_a_warped_over_span(self):
+        _s, (findings, _u, _m) = rules_for(variant(*self.V25M_MULTI_BOUNDARY))
+        self.assertEqual([], fails(findings, rc.RULE_SEAM))
+
+    def test_rc_seam_reds_at_the_interior_boundary_that_carried_the_body_change(self):
+        # Same span, but now the Kerbin -> Mun boundary ITSELF is rigid. The
+        # finding must name boundary 1, not the boundary the span ended at.
+        pairs = list(self.V25M_MULTI_BOUNDARY)
+        pairs[1] = (pairs[1][0],
+                    "boundaryIndex = 1\n\t\t\t\tkind = rigid\n\t\t\t}\n\t\t\tSEAM"
+                    "\n\t\t\t{\n\t\t\t\tboundaryIndex = 2\n\t\t\t\tkind = rigid")
+        _s, (findings, _u, _m) = rules_for(variant(*pairs))
+        seam = fails(findings, rc.RULE_SEAM)
+        # BOTH fixture transitions traverse boundary 1 (0 -> 2 and 0 -> 1), so
+        # both legitimately red; what the cell pins is that EVERY one of them
+        # names boundary 1 and none of them names the boundary the span ended at.
+        self.assertEqual(2, len(seam))
+        for f in seam:
+            self.assertIn("boundary=1", f.target)
+            self.assertIn("body change Kerbin->Mun", f.message)
+
+    def test_rc_seam_counts_an_unresolvable_multi_boundary_span_unevaluable(self):
+        # A multi-boundary span whose PHASE list cannot reach the boundaries it
+        # crossed. The observed endpoints name the ENDS of the span, so there is
+        # nothing to attribute: counted, never guessed into a FAIL.
+        tr = rc.Transition(pid=5001, ut=1.0, from_body="Kerbin", to_body="Mun",
+                           from_segment_index=4, to_segment_index=6,
+                           chain_signature="sigA")
+        crossings = rc.transition_boundaries(tr, ())
+        self.assertEqual([5, 6], [c.boundary_index for c in crossings])
+        self.assertTrue(all(c.unresolved for c in crossings))
+        self.assertEqual([], [c for c in crossings if c.body_changed])
+
+    def test_transition_boundaries_names_no_boundary_for_a_retire_or_a_wrap(self):
+        # `toSegmentIndex = -1` is the retire stamp (measured on V6M / V14M);
+        # a backwards index is a loop wrap. Neither walked a chain boundary.
+        for lo, hi in ((7, -1), (8, 0), (3, 3)):
+            tr = rc.Transition(pid=1, ut=0.0, from_body="Mun", to_body="",
+                               from_segment_index=lo, to_segment_index=hi)
+            self.assertEqual([], rc.transition_boundaries(tr, ()),
+                             "%s -> %s must name no boundary" % (lo, hi))
+
+    def test_transition_boundaries_falls_back_to_the_observed_pair_when_adjacent(self):
+        # A single-boundary span with no PHASE list: the observed endpoints ARE
+        # that boundary's two sides, so the wave-1 reading is still the honest
+        # one and an `assembler-fallback` chain keeps its evaluation.
+        tr = rc.Transition(pid=1, ut=0.0, from_body="Kerbin", to_body="Mun",
+                           from_segment_index=1, to_segment_index=2)
+        crossings = rc.transition_boundaries(tr, ())
+        self.assertEqual(1, len(crossings))
+        self.assertEqual(2, crossings[0].boundary_index)
+        self.assertFalse(crossings[0].unresolved)
+        self.assertTrue(crossings[0].body_changed)
 
     def test_rc_seam_is_unevaluable_not_passing_when_tracing_was_off(self):
         text = variant(("mapRenderTracingOn = True", "mapRenderTracingOn = False"))
@@ -1921,6 +2004,59 @@ class RuleViolationTests(unittest.TestCase):
         self.assertTrue(own)
         self.assertTrue(any("falls outside every published ownership interval"
                             in f.message for f in own))
+
+    @staticmethod
+    def _without_any_ownership():
+        """The positive fixture with EVERY OWNERSHIP_CHANGE record deleted.
+
+        Sliced rather than substituted because the point of the cell is the
+        GLOBAL absence: a per-record mutation would still leave the manifest
+        proving the publish surface ran."""
+        text = POSITIVE_MANIFEST
+        start = text.index("\t\tOWNERSHIP_CHANGE")
+        end = text.index("\t\tROUTE_LINE_BUILD")
+        if not 0 < start < end:
+            raise AssertionError("ownership run not located in POSITIVE_MANIFEST")
+        stripped = text[:start] + text[end:]
+        if "OWNERSHIP_CHANGE" in stripped:
+            raise AssertionError("ownership records are not contiguous any more")
+        return stripped
+
+    def test_rc_own_declines_the_draw_direction_when_nothing_ever_published(self):
+        # V6M `2026-08-25_2056`, read out of the manifest and the source: the
+        # DWELL half (ShadowRenderDriver.RunFrame, off ParsekFlight's update) runs
+        # map-open or not, while the OWNERSHIP half is published at the end of the
+        # polyline Driver's LateUpdate walk, whose second statement is
+        # `if (!MapView.MapIsEnabled) return;`. No seam verb opens the map, so the
+        # lane produced three visible TracedPath dwells and zero publishes. That is
+        # a premise the run never established, not three legs that failed to draw:
+        # counted under a named reason, never red.
+        _s, (findings, unevaluable, _m) = rules_for(self._without_any_ownership())
+        self.assertEqual([], fails(findings, rc.RULE_OWN),
+                         [f.as_text() for f in findings])
+        self.assertEqual(
+            2, unevaluable.get(rc.UNEVAL_OWN_PUBLISH_SURFACE_SILENT),
+            dict(unevaluable))
+
+    def test_rc_own_still_reds_a_draw_with_no_publish_once_anything_published(self):
+        # THE DISCRIMINATOR IS GLOBAL, AND THIS IS THE HALF THAT KEEPS IT HONEST.
+        # One publish anywhere proves the walk ran past the map gate, so a
+        # recording whose visible TracedPath dwell has NO ownership record of its
+        # own is the leg-that-never-draws defect and keeps FAIL. The publish here
+        # names the proto-less population (exemption (a)), so the OTHER direction
+        # stays silent and the cell isolates this clause.
+        text = self._without_any_ownership().replace(
+            "\t\tROUTE_LINE_BUILD",
+            "\t\tOWNERSHIP_CHANGE\n\t\t{\n\t\t\trecId = recProtoless"
+            "\n\t\t\tut = 30000.0\n\t\t\tevent = appear\n\t\t}"
+            "\n\t\tOWNERSHIP_CHANGE\n\t\t{\n\t\t\trecId = recProtoless"
+            "\n\t\t\tut = 32000.0\n\t\t\tevent = disappear\n\t\t}"
+            "\n\t\tROUTE_LINE_BUILD", 1)
+        _s, (findings, unevaluable, _m) = rules_for(text)
+        own = fails(findings, rc.RULE_OWN)
+        self.assertEqual(2, len(own), [f.as_text() for f in findings])
+        self.assertTrue(all("NO ownership record" in f.message for f in own))
+        self.assertNotIn(rc.UNEVAL_OWN_PUBLISH_SURFACE_SILENT, unevaluable)
 
     def test_rc_own_names_the_enclosing_dwell_of_an_overlap(self):
         # The running furthest-close sweep reports the dwell that is ACTUALLY
@@ -2387,6 +2523,10 @@ class EvaluateTests(unittest.TestCase):
         self.assertIn("warpHigh", warp[0].target)
 
     def test_require_seam_kinds_is_consumed_by_rc_seam(self):
+        # NOT the key's negative control: `switch-continuation` reds the RULE but
+        # is refused by the pre-launch validator, so no spec could fly it. The
+        # shippable inversion is
+        # `NegativeControlTests.test_an_armed_absent_seam_kind_reds_with_a_SHIPPABLE_declaration`.
         exp = {"renderComposition": {"gating": True,
                                      "requireSeamKinds": ["switch-continuation"]}}
         res = rc.evaluate_render_composition(exp, build(POSITIVE_MANIFEST))
@@ -2409,6 +2549,227 @@ class EvaluateTests(unittest.TestCase):
             self.assertTrue(hasattr(res, attr), attr)
         self.assertIsInstance(res.findings, tuple)
         self.assertIsInstance(res.mismatches, tuple)
+
+
+# ---------------------------------------------------------------------------
+# NEGATIVE CONTROLS: every armed assertion key must be able to RED, and the
+# result must record WHICH block it evaluated.
+#
+# Provenance (2026-08-25, V24W run `2026-08-25_1811`). The lane's first negative
+# control was applied by substring-replacing the spec's
+# `warpBuckets = ["warp100", "warp1000"]` line; the spec quotes that same
+# literal in two RATIONALE COMMENTS ahead of the real key, so the replace hit a
+# comment and the flight evaluated the UNINVERTED block. The run PASSed, and the
+# PASS was correct - but for an afternoon it read as a fail-open, because
+# NOTHING the run wrote to disk said which block had been evaluated. Two
+# separate things came out of that and both are pinned here: the clause really
+# does red (proved offline against that run's own manifest AND replayed through
+# every committed version of this module), and the result now carries
+# `declared`.
+#
+# `ARMED_RED_RECIPES` is the anti-vacuity meta-surface: one RED recipe and one
+# SATISFIED counterpart per assertion key. The registry is asserted EQUAL to
+# `rc.RENDER_COMPOSITION_ASSERTION_KEYS`, so a future key cannot ship without a
+# demonstration that it can red - which is exactly the property a negative
+# control is supposed to establish per key, and which nothing enforced before.
+# ---------------------------------------------------------------------------
+
+# Measured by the positive fixture (see FacetTests): dwells 8, cycles 4,
+# unevaluable 1, warp {1x 460, 100 80, 1000 0, High 0, Phys 0},
+# seams {rigid 2, flexible-soi 1}. Each RED value contradicts a measurement on
+# the recipe's fixture; each SATISFIED value holds against the SAME fixture, so
+# the pair tests the gate rather than a fixture that could never satisfy it.
+#
+# `requireSeamKinds` needs its own fixture and that is the point of carrying one
+# per recipe: the positive manifest carries BOTH requirable kinds, and the
+# requirable vocabulary is exactly those two (`rigid`, `flexible-soi`) - so
+# against POSITIVE_MANIFEST no SHIPPABLE declaration of that key can red at all.
+# The pre-existing cell inverted it with `switch-continuation`, which reds the
+# rule but is a token `validate_render_composition_expectations` refuses before
+# launch, i.e. a control that could never fly. The honest control demotes one
+# seam record to `none` (a real emitted token, and not `rigid`, so the
+# body-change clause stays quiet) and requires the kind that is now absent.
+ARMED_RED_RECIPES = {
+    # key: (red value, satisfied value, fixture text)
+    "dwells": ({"max": 0}, {"min": 1, "max": 32}, POSITIVE_MANIFEST),
+    "cycles": ({"min": 99}, {"min": 1}, POSITIVE_MANIFEST),
+    "unevaluable": ({"max": 0}, {"max": 10}, POSITIVE_MANIFEST),
+    "warpBuckets": (["warpHigh"], ["warp1x", "warp100"], POSITIVE_MANIFEST),
+    "requireSeamKinds": (["flexible-soi"], ["rigid"],
+                         variant(("kind = flexible-soi", "kind = none"))),
+}
+
+
+class NegativeControlTests(unittest.TestCase):
+
+    def armed(self, **keys):
+        return {"renderComposition": dict(keys, gating=True)}
+
+    def test_the_1811_shape_an_armed_uncovered_bucket_reds(self):
+        # The exact shape run `2026-08-25_1811` was MEANT to fly: the lane's real
+        # armed block with `warpBuckets` inverted to the bucket its own histogram
+        # measured at zero, twice. One FAIL finding, one mismatch, and the
+        # mismatch is the verdict-driving kind.
+        exp = self.armed(dwells={"min": 1, "max": 32},
+                         unevaluable={"max": 10},
+                         warpBuckets=["warpHigh"],
+                         requireSeamKinds=["rigid", "flexible-soi"])
+        res = rc.evaluate_render_composition(exp, build(POSITIVE_MANIFEST))
+        self.assertEqual(rc.STATUS_FAIL, res.status)
+        warp = [f for f in res.findings if f.rule_id == rc.RULE_WARP]
+        self.assertEqual(1, len(warp))
+        self.assertEqual(rc.LEVEL_FAIL, warp[0].level)
+        self.assertEqual("warpBuckets.warpHigh", warp[0].target)
+        self.assertEqual(1, len(res.mismatches))
+        self.assertIn("warpHigh", res.mismatches[0])
+        self.assertIn("counted zero frames", res.mismatches[0])
+        # armed => the mismatch drives `render_composition_mismatch`.
+        self.assertEqual(res.mismatches, res.armed_mismatches)
+        # ... and the SAME block with the covered buckets passes clean, which is
+        # what the flight actually flew and actually recorded.
+        exp = self.armed(dwells={"min": 1, "max": 32},
+                         unevaluable={"max": 10},
+                         warpBuckets=["warp1x", "warp100"],
+                         requireSeamKinds=["rigid", "flexible-soi"])
+        res = rc.evaluate_render_composition(exp, build(POSITIVE_MANIFEST))
+        self.assertEqual(rc.STATUS_PASS, res.status, res.mismatches)
+        self.assertEqual((), res.mismatches)
+        self.assertEqual([], [f for f in res.findings
+                              if f.rule_id == rc.RULE_WARP])
+
+    def test_an_uncovered_bucket_is_report_only_when_the_block_is_unarmed(self):
+        # Same fault, unarmed: the finding is RAISED at the report level and
+        # carried in `findings` + the census, and it drives no verdict.
+        exp = {"renderComposition": {"dwells": {"min": 1},
+                                     "warpBuckets": ["warpHigh"]}}
+        res = rc.evaluate_render_composition(exp, build(POSITIVE_MANIFEST))
+        self.assertEqual(rc.STATUS_REPORT, res.status)
+        warp = [f for f in res.findings if f.rule_id == rc.RULE_WARP]
+        self.assertEqual([rc.LEVEL_INFO], [f.level for f in warp])
+        self.assertIn("warpHigh", warp[0].target)
+        census = res.observed[rc.RENDER_COMPOSITION_BLOCK]["findings"]
+        self.assertEqual(1, census[rc.LEVEL_INFO][rc.RULE_WARP])
+        self.assertEqual((), res.armed_mismatches)
+        # AND IT IS NOT A MISMATCH, deliberately: `mismatches` flattens the
+        # FAIL-level findings only, so a report-only rule fault lives in
+        # `findings` while a report-only WINDOW miss lives in `mismatches`. An
+        # operator reading a report-only run before arming has to read BOTH -
+        # the run.py "report-only mismatch(es)" WARN line does not mention it.
+        self.assertEqual((), res.mismatches)
+        window_miss = rc.evaluate_render_composition(
+            {"renderComposition": {"dwells": {"max": 0}}},
+            build(POSITIVE_MANIFEST))
+        self.assertEqual(rc.STATUS_REPORT, window_miss.status)
+        self.assertEqual(("renderComposition.dwells 8 > max 0",),
+                         window_miss.mismatches)
+
+    def test_an_armed_absent_seam_kind_reds_with_a_SHIPPABLE_declaration(self):
+        # `requireSeamKinds` is the other list key and it had never been
+        # negative-controlled with a declaration that could actually fly: the
+        # pre-existing cell inverts it with `switch-continuation`, which reds the
+        # rule but is refused by the pre-launch validator, and the positive
+        # fixture carries BOTH tokens the validator does admit. So the control
+        # has to move the FIXTURE: demote the one flexible-soi seam to `none`
+        # (a real emitted token; not `rigid`, so the body-change clause stays
+        # quiet) and require the kind that is now absent.
+        self.assertEqual(("rigid", "flexible-soi"), rc.SEAM_KINDS_REQUIRABLE)
+        text = variant(("kind = flexible-soi", "kind = none"))
+        self.assertEqual([], rc.validate_render_composition_expectations(
+            {"gating": True, "requireSeamKinds": ["flexible-soi"]}))
+        res = rc.evaluate_render_composition(
+            self.armed(requireSeamKinds=["flexible-soi"]), build(text))
+        self.assertEqual(rc.STATUS_FAIL, res.status)
+        seam = [f for f in res.findings if f.rule_id == rc.RULE_SEAM]
+        self.assertEqual([rc.LEVEL_FAIL], [f.level for f in seam])
+        self.assertEqual("requireSeamKinds", seam[0].target)
+        self.assertEqual(res.mismatches, res.armed_mismatches)
+        # The kind the same fixture DOES carry is satisfied silently.
+        res = rc.evaluate_render_composition(
+            self.armed(requireSeamKinds=["rigid"]), build(text))
+        self.assertEqual(rc.STATUS_PASS, res.status, res.mismatches)
+        # Report-only mirror: the fault is RAISED at the report level, and it
+        # moves no verdict.
+        res = rc.evaluate_render_composition(
+            {"renderComposition": {"requireSeamKinds": ["flexible-soi"]}},
+            build(text))
+        self.assertEqual(rc.STATUS_REPORT, res.status)
+        self.assertEqual([rc.LEVEL_INFO],
+                         [f.level for f in res.findings
+                          if f.rule_id == rc.RULE_SEAM])
+        self.assertEqual((), res.armed_mismatches)
+
+    def test_every_armed_assertion_key_has_a_demonstrated_red(self):
+        # THE ANTI-VACUITY META-CELL. A key that no cell can make red is a key
+        # nobody can negative-control on a flight either, and it would ship
+        # looking armed. Adding a key to RENDER_COMPOSITION_ASSERTION_KEYS
+        # without a recipe reds HERE.
+        self.assertEqual(sorted(rc.RENDER_COMPOSITION_ASSERTION_KEYS),
+                         sorted(ARMED_RED_RECIPES))
+        for key, (red_value, ok_value, text) in sorted(ARMED_RED_RECIPES.items()):
+            with self.subTest(key=key):
+                # The recipe is a VALID spec declaration - a control the
+                # pre-launch validator would refuse could never fly, so it
+                # demonstrates nothing about what a flight can catch.
+                self.assertEqual([], rc.validate_render_composition_expectations(
+                    {"gating": True, key: red_value}), key)
+                res = rc.evaluate_render_composition(
+                    self.armed(**{key: red_value}), build(text))
+                self.assertEqual(rc.STATUS_FAIL, res.status, key)
+                self.assertTrue(res.mismatches, key)
+                self.assertEqual(res.mismatches, res.armed_mismatches, key)
+                # The red names its OWN key, so a control cannot be satisfied by
+                # some unrelated clause redding.
+                self.assertTrue(any(key in m for m in res.mismatches),
+                                (key, res.mismatches))
+                # ... and the satisfiable counterpart passes ON THE SAME
+                # FIXTURE, so the recipe measures the gate and not an impossible
+                # manifest.
+                ok = rc.evaluate_render_composition(
+                    self.armed(**{key: ok_value}), build(text))
+                self.assertEqual(rc.STATUS_PASS, ok.status, (key, ok.mismatches))
+
+    def test_the_result_records_the_block_it_evaluated(self):
+        # The audit surface the 1811 confusion cost an afternoon for: the result
+        # says WHAT was asserted, not just that something was.
+        block = {"gating": True, "warpBuckets": ["warpHigh"]}
+        res = rc.evaluate_render_composition({"renderComposition": block},
+                                             build(POSITIVE_MANIFEST))
+        self.assertEqual(block, res.declared)
+        # A COPY: mutating the spec afterwards cannot rewrite the record of what
+        # ran (and mutating the record cannot rewrite the spec).
+        self.assertIsNot(block, res.declared)
+        res.declared["warpBuckets"].append("warp1x")
+        self.assertEqual(["warpHigh"], block["warpBuckets"])
+        # Undeclared => None, never an empty dict: absent is not "declared
+        # nothing", the same rule the facets follow.
+        self.assertIsNone(rc.evaluate_render_composition(
+            {}, build(POSITIVE_MANIFEST)).declared)
+
+    def test_the_block_is_recorded_even_when_the_manifest_is_unreadable(self):
+        # A control flight whose manifest never landed still has to be able to
+        # say which assertion it was carrying - otherwise the retry is flown
+        # blind, which is the same blindness in a different disguise.
+        block = {"gating": True, "warpBuckets": ["warpHigh"]}
+        for label, snap in (("absent", None),
+                            ("unparsed", rc.parse_render_manifest("GAME\n{\n}\n"))):
+            with self.subTest(label):
+                res = rc.evaluate_render_composition(
+                    {"renderComposition": block}, snap)
+                self.assertEqual(block, res.declared)
+                self.assertEqual(rc.STATUS_FAIL, res.status)
+
+    def test_the_standalone_block_accessor_agrees_with_the_result(self):
+        # `run.py`'s driver-INVALID skip never reaches an evaluation, so it reads
+        # the block through the accessor; the two must not drift.
+        exp = {"renderComposition": {"gating": True, "dwells": {"min": 1}}}
+        self.assertEqual(
+            rc.evaluate_render_composition(exp, build(POSITIVE_MANIFEST)).declared,
+            rc.declared_composition_block(exp))
+        self.assertIsNone(rc.declared_composition_block({}))
+        self.assertIsNone(rc.declared_composition_block(None))
+        # A non-table declaration is not a block (the evaluator's own rule).
+        self.assertIsNone(rc.declared_composition_block(
+            {"renderComposition": "gating"}))
 
 
 # ---------------------------------------------------------------------------

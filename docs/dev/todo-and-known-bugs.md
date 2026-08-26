@@ -14,6 +14,400 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## NEGATIVE-CONTROL-EDIT-NEVER-REACHED-THE-KEY: V24W's first negative control inverted a RATIONALE COMMENT instead of the armed `warpBuckets` line, the flight evaluated the UNINVERTED block, and nothing the run wrote to disk could tell that apart from a fail-open verifier [FOUND 2026-08-25 on run `2026-08-25_1811`, the suite's first attempt at a `renderComposition` negative control. THE VERIFIER IS SOUND - proved below across five module versions. FIXED the same day: the run now records WHICH block it evaluated, and `--dry-run` prints it before the machine lock. CLOSED the same day too - the re-flown control `2026-08-25_1925` red exactly as predicted AND its result JSON records the block it asserted, so the fix is proven in use by the control that needed it]
+
+**The claim, and what it actually was.** Run `2026-08-25_1811`
+(V24W-duna-one-warp-stair) was flown as a negative control: invert the armed
+block's `warpBuckets = ["warp100", "warp1000"]` to `["warpHigh"]`, a bucket this
+lane's histogram measured at 0 on both readings, and require the armed row to red
+`PARSEK-FAIL(render-composition)`. The run came back **PASS, `gating=True`,
+`armedBlocks=['renderComposition']`, zero mismatches, zero FAIL findings**, over a
+manifest whose histogram reads `warp1x 322094 / warp100 10580 / warp1000 2162 /
+warpHigh 0 / warpPhys 0`. Read against the intended edit that is a fail-open
+verifier - an armed, declared, zero-count bucket producing no finding at all.
+
+**The mechanism (operator trap 1: a substring edit hit a comment).** The control
+was applied by string-replacing the literal
+`warpBuckets = ["warp100", "warp1000"]`. That spec quotes the SAME literal twice
+in RATIONALE COMMENTS - the arming ledger's window table and the per-key argument
+beside the block - both AHEAD of the real key, which lives ~140 comment lines
+below its own table header. The first-occurrence replace mutated the comment; the
+armed key kept its covered buckets; the flight correctly PASSed. The later revert
+string-replaced the control text back, which SUCCEEDED - and that success read as
+proof the control had been live, when it was only proof the text existed
+somewhere, and it restored a comment.
+
+**Operator trap 2, found while chasing trap 1 and equally live.** `run.py`
+tomllib-loads every spec ONCE at selection time, before launch. A control edited
+into a spec after `[Select]` - e.g. while a 48-minute flight is already running -
+is invisible to that run and produces exactly the same false-negative shape.
+
+**Why the verifier was cleared, mechanically rather than by argument.** The clause
+is the declared-bucket loop in `rendercompose._rule_warp`. The run's OWN manifest
+(`results/2026-08-25_1811_..._shots/parsek-render-manifest.txt`) was replayed
+offline against the exact control block through EVERY committed version of
+`harness/lib/rendercompose.py` (`aea2de569`, `fe48511f8`, `f55b521c8`,
+`869e7b8a4`, HEAD). All five return `status=FAIL` with the single mismatch
+`RC-WARP [FAIL] warpBuckets.warpHigh: spec declared warp bucket 'warpHigh' and
+the manifest counted zero frames in it`. The same manifest with the REAL block
+returns PASS, 0 mismatches, 4 INFO RC-QUAL findings - which is, facet for facet,
+what the flight recorded (every observed facet compares EQUAL, including the
+findings census). The clause has never been fail-open on any shipped version.
+
+**THE REAL DEFECT IS THE AUDIT TRAIL.** A negative control's whole job is to
+distinguish "the gate refused a false claim" from "the gate never saw the claim",
+and the run's artifacts recorded only the block's NAME (`blocks`, `armedBlocks`) -
+never its key/values. On disk a refuted control and a control that never loaded
+are IDENTICAL, so settling which had happened took a five-version offline replay
+and the testimony of three sessions. A control whose own result cannot say what it
+asserted is not a control.
+
+**Fixed 2026-08-25** (branch `v24w-arming`), three additive surfaces:
+
+1. `RenderComposeResult.declared` - the evaluated block's key/values (a deep
+   copy), recorded on every path including absent / unparsed manifests.
+   `rendercompose.declared_composition_block(expectations)` is the standalone
+   accessor for a caller that never reaches an evaluation.
+2. `run.py` writes it to `detail["renderCompose"]["declared"]`, so it rides into
+   `results/<runId>.json` (including on the driver-INVALID SKIPPED path), and
+   appends `declared=` to the `verify renderCompose ...` harness-log line.
+3. `--dry-run`'s `[VERIFY]` plan prints the declared assertions, not just the
+   block name: the pre-flight read that answers "is my control actually loaded?"
+   for one command instead of one flight.
+
+**Cells** (`harness/lib/test_rendercompose.py::NegativeControlTests` +
+`test_run_smoke.py`): the 1811 shape (armed uncovered bucket -> FAIL -> mismatch
+-> `armed_mismatches`), the covered-bucket counterpart passing clean, the
+report-only mirror (INFO finding, verdict-neutral), a SHIPPABLE
+`requireSeamKinds` inversion, the recorded-block cells, and the anti-vacuity
+meta-cell `test_every_armed_assertion_key_has_a_demonstrated_red`, which pins one
+red recipe plus one satisfied counterpart per key in
+`RENDER_COMPOSITION_ASSERTION_KEYS` and reds when a future key ships without a
+demonstration that it CAN red.
+
+**Two things this surfaced.** (a) `requireSeamKinds` had never been
+negative-controlled with a declaration that could actually fly: the requirable
+vocabulary is exactly `rigid` / `flexible-soi`, the positive fixture carries BOTH,
+and the pre-existing cell inverts the key with `switch-continuation` - a token
+`validate_render_composition_expectations` REFUSES pre-launch. The new cell moves
+the FIXTURE instead (one seam demoted to `none`, which is a real emitted token and
+not `rigid`, so the body-change clause stays quiet). (b) A report-only RULE fault
+rides `findings` but NOT `mismatches` (only FAIL-level findings flatten into that
+list), so `run.py`'s "report-only mismatch(es)" WARN never mentions it. That is
+deliberate and now pinned by a cell, but an operator reading a report-only run
+before arming has to read both surfaces.
+
+**DISCHARGED: V24W's negative control flew as `2026-08-25_1925`.** Run
+`2026-08-25_1811` reclassifies as a second ARMED RE-FLIGHT (PASS attempt 1, facets
+matching the two readings). The control was re-flown with a LINE-ANCHORED edit of
+the real key, with `--dry-run` read first to confirm `declared:` carried
+`["warpHigh"]` before the launch - and it red exactly as predicted:
+`PARSEK-FAIL(render-composition)` attempt 1, EXACTLY ONE mismatch
+(`RC-WARP [FAIL] warpBuckets.warpHigh: spec declared warp bucket 'warpHigh' and
+the manifest counted zero frames in it - the run did not visit that warp regime`),
+every sibling verifier row clean, the four INFO RC-QUAL findings still beside the
+one FAIL, control reverted in the same change on the verified real key. **THE FIX
+IN THIS ENTRY IS WHAT MADE THAT AUDITABLE, and the control demonstrated it**: the
+run JSON's `verifiers.renderCompose.declared` records `warpBuckets: ['warpHigh']`,
+so this control's own artifact says what it asserted - the exact question the 1811
+run could not answer about itself. The two operator traps above are unchanged and
+still live for any future control: edit the armed key BY LINE ANCHOR, never by
+substring, and read `--dry-run`'s `declared:` line before the machine lock.
+
+## RECORDER-SUSPECTED-DOUBLE-EMIT-AT-SOI-SEAM: at every SOI crossing of one recorded interplanetary transfer the recorder wrote TWO `TrackSection`s covering the IDENTICAL span - a frame-less Absolute shell beside the OrbitalCheckpoint - and `Inv2NoDoubleCover` FAILs on each [FOUND 2026-08-25 while harvesting `duna-one-recorded` from the operator's free-play save. SUSPECTED, NOT CONFIRMED: the pattern is measured, the CAUSE is not, and no product change is proposed here]
+
+**What was measured**, on recording `61e9177193444e329247d0e8288cf91e` (the Kerbin
+-> Duna transfer in `harness/fixtures/saves/duna-one-recorded`, recorded during the
+operator's 2026-05..07 free-play session on the DLL of that era). Its 75
+`TrackSection`s carried six pairs of duplicated coverage, and FOUR of the six sit
+at exactly the recording's four body-change seams - every seam it has, none
+missed:
+
+| section | span | what it is |
+|---|---|---|
+| 34 / 35 | `[64044032.725027621, 65004886.739419721]` | Kerbin -> Sun seam |
+| 43 / 44 | `[70898646.0584081, 70912683.547375381]` | Sun -> Duna seam |
+| 47 / 48 | `[70956143.35894987, 70956471.231831044]` | Duna -> Ike seam |
+| 51 / 52 | `[70958360.7066507, 70958731.38776888]` | Ike -> Duna seam |
+
+In each pair the two sections have BYTE-EQUAL `startUT` and `endUT`, and differ
+only in kind: the lower index is `env=ExoBallistic ref=Absolute src=Active` with
+**zero** `frames` and **zero** `bodyFixedFrames` - an empty shell - and the higher
+is `env=ExoBallistic ref=OrbitalCheckpoint src=Checkpoint` carrying that span's
+`ORBIT_SEGMENT`. The remaining two (60, 62) are a different shape at the Duna
+capture: section 61 spans `[70960696.459866241, 70962487.1269182]` and 60 + 62
+partition that span exactly, with 62's nested `ORBIT_SEGMENT` element-for-element
+identical to 61's (same sma / ecc / inc / lan / argPe / mna / epoch) - one conic
+re-clipped, not a second orbit.
+
+**Why four-for-four is the reason this is filed.** One duplicate at one seam is a
+glitch; a duplicate at every seam and nowhere else in a 75-section, 18.4-million-
+second recording is a code path. The natural reading is that the SOI-crossing
+close path emits its Absolute section AND lets the checkpoint path emit one over
+the same span, instead of the two dividing the timeline.
+
+**The top-level `ORBIT_SEGMENT` list is CLEAN** - 22 entries, disjoint, no
+duplicate spans - so this is a `TrackSection` duplication, not an orbit-segment
+one. That matters for where to look and for how visible the defect is.
+
+**Why it survived unseen**: it is RENDER-BENIGN. The duplicate covers exactly the
+span its partner already covers, so playback resolves the same position either
+way and nothing on screen is wrong. `Inv2NoDoubleCover` is the only thing that
+objects, and it only runs on an OFFLINE ANALYZER pass - which no free-play save
+ever gets. The first analyzer run over this recording (2026-08-25) turned up six
+FAILs on a recording nobody had any reason to doubt.
+
+**OPEN QUESTION - does the CURRENT recorder still do this?** Unknown, and it is
+the only thing worth doing next. The evidence above is from a mid-2026 recording;
+`FlightRecorder` / `BackgroundRecorder` and
+`RecordingStore.EnsureCheckpointSectionsForTopLevelOrbitSegments` have all moved
+since. Two ways to answer it, either sufficient:
+
+1. **Read the code**: the SOI-crossing section-close path in `FlightRecorder.cs`
+   plus the checkpoint-section producer, asking whether the two can both claim one
+   `[startUT,endUT]`.
+2. **Fly one**: any fresh recording that crosses an SOI, then
+   `scripts/analyze-recordings.ps1` over the produced save. No committed
+   RECORDED fixture reproduces the shape - the SOI-crossing siblings
+   (`vall-transfer-recorded`, `mun-minmus-recorded`) analyze clean - which is
+   itself weak evidence the path has changed, but they are DRIVEN flights on a
+   different profile, so it is not proof.
+
+**What was done instead, and its limit.** `harness/tools/build_duna_one_recorded.py`
+drops the six redundant sections from the committed fixture so the lane's
+fresh-save gate can be green. That is a FIXTURE repair on one file, not a fix: it
+changes no product code, and if the recorder still double-emits, the next
+free-play harvest will carry the same six.
+
+**CORROBORATED TWICE ON 2026-08-26 by two further free-play harvests, and the
+"next free-play harvest will carry the same" sentence above is now a measurement
+rather than a prediction.** Neither new observation changes the SUSPECTED status -
+still no cause, still no product change proposed - but they narrow the shape:
+
+- `duna-park-recorded` (tree `ced78481...` out of the SAME `s15` save, a
+  DIFFERENT mission). Its transfer `aa48920e...` carried 52 sections with four
+  redundant, and TWO of the four are the exact `ref=0`-shell-beside-checkpoint
+  shape at exactly its two body-change seams - `[2547568544.056056,
+  2560670336.8959155]` (Kerbin -> Sun) and `[2570454935.6223264,
+  2570490859.060472]` (Sun -> Duna). Two seams, two duplicates: **two-for-two,
+  so the four-for-four above is now six-for-six across two independent
+  missions.** The other two (idx 1 and 3) are the re-clip shape, at a
+  Kerbin-orbit segment rather than a seam.
+- `depot-route-recorded`, from a DIFFERENT SAVE ENTIRELY (`orbital supply route
+  DELIVERY test`, a Kerbin-only sandbox). Its `a85a7ae0...` carried 50 sections
+  with two redundant - and **NEITHER is at a seam**, because that recording never
+  crosses one. Both are the re-clip shape around a single Kerbin conic
+  (`[6163.7967133907259, 6590.41224317588]` re-clipped by a 65-byte shell and by
+  a 170-byte copy carrying the same elements and the same epoch).
+
+**What that pair adds, precisely.** The re-clip shape is NOT SOI-specific - it
+occurs on a purely Kerbin-orbital recording with no body change anywhere - while
+the `ref=0`-shell shape has still only ever been seen sitting exactly on a body
+seam, now across two missions and six seams. Those are plausibly two different
+producers, and a future investigation should not assume one fix covers both. The
+`ref=0` half remains the one this entry is filed about.
+
+## FIXTURE-DUNA-ONE-RECORDED-LANE-PENDING: the M-A7 RC-WARP subject is harvested, repaired and registered, but no scenario has flown against it yet [OPENED 2026-08-25 on branch `duna-one-fixture`. TODO, not a defect]
+
+`harness/fixtures/saves/duna-one-recorded` is committed: the operator's own
+free-play Duna One mission (log snapshot
+`logs/2026-08-25_1537_s15-duna-one-manifest-run2`, visually validated
+2026-08-25), harvested `--keep-parsek` and stripped to one tree / one mission / 13
+recordings by `harness/tools/build_duna_one_recorded.py`. It is the FIRST
+committed subject whose provenance is a hand-played session rather than a driven
+harness run, and the first to carry a four-segment vessel chain, an EVA branch
+point and a loop-ARMED `MISSION` row. Pins live in
+`test_saveparse.RECORDED_FIXTURES["duna-one-recorded"]`; the strip recipe is
+guarded by `DunaOneRecordedFixtureDriftTests`.
+
+It reads GREEN under `analyze-recordings.ps1 -FailOnRed -FreshSaveGate`
+(`FAIL=0 WARN=15 RED=0`) after the INV2 repair described in the entry above.
+
+**Two residuals, both deliberate, both non-gating:**
+
+- **15 `INV8-LEDGER dangling-recording-ref ... kind=phantom-attribution` WARNs.**
+  The restored `Parsek/GameState/ledger.pgld` is the free-play career's WHOLE
+  ledger and still carries `GAME_ACTION` rows attributed to the 34 recordings the
+  strip dropped. The ledger was kept verbatim rather than pruned because pruning
+  rows moves the reconstruction's arithmetic, and this is a SANDBOX save where the
+  rows buy nothing. WARNs do not red the gate. A lane that ever wants a clean
+  INV8 reading here must prune the ledger deliberately and re-measure.
+- **No `Ships/VAB` craft.** The operator's dev-instance save carries none, so any
+  consumer calling `launch_vessel` against this fixture would fail to resolve a
+  `.craft`. Harmless for a replay/render lane; a launching lane must add a
+  `shared-ships.toml` row.
+
+~~**What is still owed**: the RC-WARP lane itself
+(`harness/scenarios/V24W-duna-one-warp-stair.toml` at the time of writing) has to
+fly against it and report. Until it does, nothing reads these bytes.~~
+**DISCHARGED 2026-08-25 by V24W reading flight 2 (`2026-08-25_1502`).** These
+bytes are now read: the lane flew them end to end, the recordings count came back
+13 - equal to this fixture's own population, so nothing split or was lost - and
+the composition measured off them is recorded on the V24W entry above. The flight
+red PARSEK-FAIL(anomaly) on a deliberately empty `allowedAnomalies`, which is the
+lane's pre-registered doctrine outcome and says nothing about this fixture; the
+fixture's own analyzer gate stayed GREEN on the run (`analyzer PASS red=0`).
+What is owed NOW belongs to the lane, not the fixture: flight 3 (a clean reading
+with the three new tolerances), then arming.
+
+## FIXTURE-DEPOT-ROUTE-RECORDED-LANE-PENDING: the G1/B27 route subject is harvested, repaired and registered, but no scenario has flown against it yet [OPENED 2026-08-26 on branch `route-harvests`. TODO, not a defect]
+
+`harness/fixtures/saves/depot-route-recorded` is committed: the operator's own
+free-play sandbox save `orbital supply route DELIVERY test`, harvested
+`--expect-situation ORBITING --keep-parsek` and finished by
+`harness/tools/build_depot_route_recorded.py`. It is **the first committed
+fixture carrying a `ROUTE`** - `5420f805...`, `status = Active`,
+`completedCycles = 1`, `isKscOrigin = True`, SameBody Kerbin -> Kerbin
+(`dispatchWindowPeriod = 0`), `dispatchInterval` / `transitDuration`
+16,058.001895760137 s, `recordedDockUT` 17,478.248634212287, a DockingPort STOP
+onto the `Depot` (pid 3620499050) with a LiquidFuel/Oxidizer delivery manifest.
+Two whole recording trees, 22 recordings, 86 authoritative sidecars. Pins live in
+`test_saveparse.RECORDED_FIXTURES["depot-route-recorded"]` plus the builder's own
+`verify_route`; the recipe is guarded by `DepotRouteRecordedFixtureDriftTests`.
+
+It reads GREEN under `analyze-recordings.ps1 -FailOnRed -FreshSaveGate`
+(`FAIL=0 WARN=0 INFO=0 STALE=0 BASELINED=0 RED=0`) after a two-section INV2
+containment repair on the Transporter's chain segment `a85a7ae0...` - the only
+RECORDED fixture in the suite with a zero-WARN reading.
+
+**Why it is a harvest and not a forge**, restated here because it is the thing a
+reader will question: route candidacy is gated on `IsTreeFullySealed` and both
+verbs that could satisfy it (`SealSlot`, `RouteCommand`) are RESERVED command-seam
+verbs (H35 ROUTE-CANDIDACY-GATED-ON-SEAL-NO-SEAM-PATH), so no driven run can
+create a ROUTE at all today. The register amendment is on the G1 entry in
+`autotest-roadmap.md`; B27 is now a FORGE-CLASS STAMP and the flight variant is
+deferred behind those two verbs.
+
+**Three residuals, all deliberate, all non-gating:**
+
+- **No `Ships/` at all.** Dropped by the builder: the source carried the
+  operator's edited `Kerbal X.craft` plus KSP's `Auto-Saved Ship.craft` VAB
+  autosave, and this is a render subject that launches nothing (the same choice
+  `duna-one-recorded` makes). A launching lane must add a `shared-ships.toml` row
+  or re-harvest with `Ships/` kept.
+- **`activeVessel` was re-pointed**, from the source's asteroid `Ast. YRJ-552`
+  (index 0) to `Depot` (index 9). The harvest's own focusability gate PASSES on
+  an asteroid, so nothing upstream would have caught it; the drift test
+  re-resolves the index by name + pid.
+- **The route is pinned BUILDER-side, not in `saveparse`** - see the improvement
+  entry below.
+
+**What is owed**: the V18T / V18M lanes. **V18T can be authored first with no
+`EnterMapView` verb** - measured, not assumed: `RouteTrajectoryLineRenderer.DrawAll`
+has one production call site (`Display/GhostTrajectoryPolylineRenderer.cs:3894-3906`,
+the `Camera.onPreCull` route slot) whose only guards are the planetarium-camera
+identity check, `scene is TRACKSTATION or FLIGHT`, and a per-frame de-dupe. No
+`MapView.MapIsEnabled` anywhere on that path; the GHOST polyline pass is the
+map-gated one (`:4014`). Headline arming facet when the lane exists:
+`routeLineBuilds { min = 1 }` (the first non-zero in the suite; emitted by
+`RenderCompositionRecorder.NoteRouteLineBuild` on an actual cache rebuild, which
+a post-load first draw always is because `OnGameStateLoad` clears the cache) plus
+`routeCoDrawViolations { max = 0 }`. Registry D10 `route-map-lines` stays
+UNDECLARED until a GATING token earns it. Until a lane flies, nothing reads these
+bytes.
+
+## FIXTURE-DUNA-PARK-RECORDED-LANE-PENDING: the heliocentric-parking-departure subject is harvested, repaired and registered, but no scenario has flown against it yet [OPENED 2026-08-26 on branch `route-harvests`. TODO, not a defect]
+
+`harness/fixtures/saves/duna-park-recorded` is committed: tree `ced78481...`
+("Kerbal X #2") out of the SAME operator save `duna-one-recorded` came from
+(`logs/2026-08-25_1537_s15-duna-one-manifest-run2`), harvested
+`--expect-situation PRELAUNCH --keep-parsek` and stripped to one tree / one
+mission / 14 recordings by `harness/tools/build_duna_park_recorded.py`. The two
+fixtures are disjoint payloads out of one harvest.
+
+**Why it is a separate subject and not a duplicate of `duna-one-recorded`**, which
+is the whole point of the entry: they are two DIFFERENT WAYS OF GETTING TO DUNA.
+`duna-one-recorded` is a DIRECT transfer - it parks in KERBIN orbit, ejects, and
+its three Sun segments are one conic split by warp (sma 17,604,964,389.77
+throughout), so its departure burn happens inside Kerbin's SOI. THIS one is a
+HELIOCENTRIC PARKING DEPARTURE, the operator's own "orbits the star until
+alignment is good": its transfer `aa48920e...` (856 points, the largest recording
+in the source save) escapes Kerbin almost immediately and then coasts on ONE Sun
+orbit across three consecutive segments at sma 14,072,049,898.09 / ecc 0.0326934
+(agreeing to ten significant figures) for 13,502,219.94 s - about 156 Kerbin days
+at 3.5% outside Kerbin's own heliocentric sma, i.e. a PHASING orbit. The
+departure burn is then an element STEP at UT 2,561,070,900.03 to sma
+17,908,765,008.46 / ecc 0.19216 (+27% sma, +488% ecc). Duna SOI entry at
+2,570,454,935.62, hyperbolic (ecc 3.6025), capturing into an ellipse at
+2,570,492,255.34.
+
+That property lives in the transfer's `ORBIT_SEGMENT` list, which NO saveparse
+facet reads, so `RECORDED_FIXTURES` alone cannot tell the two subjects apart -
+which is why `DunaParkSignatureTests` reads it directly and asserts the park run,
+the departure step, the Duna arrival, AND (from the other side) that the direct
+sibling still has no such park.
+
+It reads GREEN under `analyze-recordings.ps1 -FailOnRed -FreshSaveGate`
+(`FAIL=0 WARN=16 RED=0`) after a four-section INV2 containment repair on
+`aa48920e...`; the 16 WARNs are the same INV8 phantom-attribution class
+`duna-one-recorded` carries 15 of, from the restored whole-career `ledger.pgld`.
+
+**What is owed**: a lane of its own. The rendering question it exists to ask - how
+Parsek renders a ghost that sits on a heliocentric parking orbit for 156 days and
+then departs - is unmeasured, and no committed subject other than this one can
+ask it. Until a lane flies, nothing reads these bytes.
+
+## IMPROVEMENT-SAVEPARSE-NO-ROUTES-FACET: `harness/lib/saveparse.py` parses no `ROUTES` node, so the only committed ROUTE is pinned builder-side instead of in the shared facet map [OPENED 2026-08-26 alongside `depot-route-recorded`. IMPROVEMENT, not a defect]
+
+`saveparse.parse_parsek_scenario` models RECORDING_TREE topology, supersede rows,
+tombstones, rewind retirements and REWIND_POINTS - but not `ROUTES`. So when
+`depot-route-recorded` landed, its ROUTE had to be pinned inside
+`harness/tools/build_depot_route_recorded.py::verify_route` (id, status, backing
+tree, dock member, the two clocks, the window period, the four `RECORDING_IDS`,
+the four `SOURCE` rows, the STOP endpoint's resolution to a live VESSEL node),
+wired into the suite through `DepotRouteRecordedFixtureDriftTests`. That works and
+is guarded, but it is one fixture's private parser rather than a facet any
+scenario can express a window over.
+
+**What a `routes` facet would buy**: `[expectations.recordings.routes]` blocks in
+a scenario spec (route count, status, completedCycles, endpoint kind), evaluated
+by the `saveParse` verifier row like every other structure window - so the G1
+lanes could gate on route STATE rather than only on render tokens, and a
+`SourceChanged` flip mid-run would red the flight instead of silently producing a
+dark map. Python-only change in `harness/lib/saveparse.py` plus cells in
+`test_saveparse.py`; no C# and no flight. Do it before the second route fixture,
+not after.
+
+## SUBJECT-CANDIDATE-INTERPLANETARY-ROUTE: the operator's plain `orbital supply route` save carries a Kerbin -> Duna route that may be the MalformedMixedBodies case, and nothing has looked [OPENED 2026-08-26 while ranking route sources. TODO, not a defect]
+
+Three operator saves carry route state. `orbital supply route DELIVERY test`
+became `depot-route-recorded` (above). `orbital supply route CLEAN` carries NO
+routes but IS the pre-route ancestor of the same backing tree `c9ef80ee...` (same
+four recording ids) - a paired CONTROL candidate if a lane ever wants
+"same tree, no route" beside "same tree, route".
+
+The third, `orbital supply route` (plain), carries TWO routes: one `Paused` and
+one `Active` re-aim-basis **Kerbin -> Duna**, i.e. a cross-body route rather than
+`depot-route-recorded`'s SameBody one. That is a different `dispatchWindowPeriod`
+regime (synodic rather than 0) and is the likely home of the
+`MalformedMixedBodies` classification, which no fixture exercises. Nobody has
+opened it beyond the ranking pass. It is NOT part of B27 and should get its own
+subject id when someone takes it.
+
+## M-A7-SEAM-ENDPOINT-SKIP-REASON-CENSUS: `seam-endpoint-skipped` dominates every renderCompose unevaluable count and DOUBLED between two flights of the same lane with no explanation on record [FOUND 2026-08-25 reading the V14M reading-vs-armed facets (53 vs 106 skips) and the s15 free-play manifest (512 at the cap). IMPROVEMENT, REPORT-ONLY]
+
+Every SEAM_ENDPOINT record carries a `skipReason`, but `observed_composition_facets`
+aggregates them into one opaque `seam-endpoint-skipped` count. A per-reason census
+(the `SeamEndpointOracle.FormatPassSummary` shape, which already exists on the C#
+log side) would explain the run-to-run variance for free and tell an arming pass
+which skips are structural vs incidental. Python-only change in
+`harness/lib/rendercompose.py`; no schema move needed.
+
+## M-A7-ONE-MANIFEST-PER-PROCESS: two rich scenes in one KSP session still end as last-flush-wins - the auto-flush clobber guard only protects a dwell-bearing manifest from a DWELL-FREE later flush [FOUND 2026-08-25 during the operator's s15 free-play ground-truthing (single-subject sessions, so no data was lost). LIMITATION, REPORT-ONLY]
+
+Fine for harness lanes (one scene, one export). Lossy for multi-subject free-play
+ground-truthing: watching two different loop subjects in two flight scenes of one
+session keeps only the second manifest. A per-scene partition suffix
+(`parsek-render-manifest.<n>.txt`) or an append-partition inside one file would
+preserve both; the harness reader would take the newest/richest. Deliberately not
+built until a session actually needs it.
+
+## COLLECT-LOGS-SAVE-COPY-IS-ANALYZER-INCOMPLETE: `scripts/collect-logs.py` copies `Parsek/Recordings` but not `Parsek/Saves` or `Parsek/GameState`, so an analyzer run over a COLLECTED save always WARNs INV9 (missing rewind saves) and loses the GameState sidecars a fixture harvest needs [FOUND 2026-08-25: the s15 collection WARNed INV9 on four recordings whose rewind saves exist in the live save, and the duna-one-recorded harvest had to reach into the separately-collected `parsek/` dir for GameState. TOOLING IMPROVEMENT, REPORT-ONLY]
+
+Copy `Parsek/Saves` and `Parsek/GameState` alongside `Parsek/Recordings` in the
+save-copy leg (both are small: s15's are 1.3 MB + 64 KB). That makes a collected
+save analyzer-faithful and harvest-complete without touching the live save twice.
+
 ## ROUTE-DELIVERY-CLOCK-OMITS-THE-HOLD-ARGS: `RouteLoopClock.TryGetRouteLoopState` threads only the relaunch schedule and the loiter cuts into the span clock, so on a hold-carrying or launch-aligned route-backed unit the DELIVERY clock and the RENDER clock are not the same clock [FOUND BY READING 2026-08-25 while scouting the M-A7 render-composition plan surface, from the source alone - NOT measured on a flight. LATENT on every committed route today (v0 same-body routes carry no holds). REPORT-ONLY and DELIBERATELY NOT FIXED IN THE M-A7 PR: that PR is observation-only, and changing what the delivery clock computes is a product decision of its own]
 
 `Source/Parsek/Logistics/RouteLoopClock.cs:255-278` forwards exactly two of the
@@ -61,21 +455,96 @@ G1's B27/V18) before proposing a fix.
 
 ## M-A7-RENDER-COMPOSITION-PHASES-3-AND-4: what the render-composition manifest still owes after Phases 1-2 landed, plus the four deferrals those phases took deliberately [OPENED 2026-08-25 with the M-A7 Phases 1-2 PR. TODO, not a defect. Status authority for the module is `docs/dev/autotest-status.md`; the design is `docs/dev/design-autotest-render-composition.md`]
 
+**PHASE 3C - THE CORPUS-WIDE DECLARATION WAVE (the operator's stated architecture,
+recorded 2026-08-26).** The B-flights generate recordings, the V-lanes loop them
+synthetically at new UTs, and the composition manifest audits the composed render -
+so the rollout is declaration, not new machinery. Plan, in waves: (A) batch-declare
+the bare `[expectations.renderComposition]` block + export step + tracer steps
+(where missing) across the eligible V-M lanes (V7M, V9-V13, V15M, V16M, V17M, V19M,
+V21M, V22M, V23M) plus the first T-host lane (`V14T`, the TS pilot - NO tracking-
+station-host manifest has ever been captured) and the K-host lane (`V22K`); each
+declaration changes that lane's anomaly exposure where tracers were previously off,
+which is why nothing arms at declaration. (B) readings accumulate FOR FREE via
+normal tier cadence once declared - every flight of a declared lane produces facets
+into its results JSON; targeted flights only where cadence is too slow. (C) arm in
+batches off accumulated readings with per-lane windows, the established three-run
+discipline per lane. Gates that must exist first for specific lanes: the map-open
+seam verb (RC-OWN-DRAW-HALF-IS-MAP-GATED) before any lane whose subject carries
+TracedPath phases arms the ownership clauses.
+
+~~(A) batch-declare ... across the eligible V-M lanes ... plus `V14T` and `V22K`~~
+**WAVE A EXECUTED 2026-08-26 - ALL FIFTEEN LANES ON THE LIST DECLARED, ZERO
+DEFERRALS, NOTHING ARMED.** The declarer roster goes 4 -> 19: V7M, V9, V10, V11,
+V12, V13, V15M, V16M, V17M, V19M, V21M, V22M, V23M on the flight-map host, plus
+`V14T-ike-ts-arrival` (the FIRST tracking-station-host manifest the module has ever
+been able to take) and `V22K-kerbin-splashdown-ksc-arrival` (the FIRST KSC-host
+one). Per lane the edit is exactly three things and no more: one
+`ExportRenderManifest` step immediately before `FlushAndQuit`, a bare
+`[expectations.renderComposition]` last in `[expectations]`, and a compact
+renderComposition arming ledger in the header - no step, no jump UT, no budget and
+no existing expectation moved (the S4.1 rule). THE ONE EXPOSURE CHANGE the plan
+anticipated landed on exactly two lanes: V14T and V22K armed only `mapRenderTracing`
++ `verboseLogging`, and `test_every_declarer_arms_the_tracers_the_seam_capture_needs`
+requires all three of every declarer, so both gained `ghostRenderTracing`. On those
+two it buys NO manifest content (every capture predicate the recorder reads is
+`MapRenderTrace.IsEnabled`-gated) and adds only a previously dark FLIGHT-scene
+anomaly surface - `loop-seam-teleport` and the GhostRenderTrace raises - against
+tight sweeps (V22K `allowedAnomalies = []`, V14T tolerating only `icon-off-orbit`);
+a red on either reading run from a newly gated raise is a TRACER-ARMING READING to
+record, not a regression to re-diagnose. Two expected-thin classes are pre-registered
+so an arming pass does not misread them: the four ARM-ONLY lanes (V9 / V11 / V12 /
+V13) quit ~1 s after `StartLoopPlayback` and are the corpus's FLOOR case, and the two
+LANDED-TERMINAL subjects (V22M / V23M) render flight-mesh only. Verified with
+`discover -s lib` green (1709 tests) and `run.py --dry-run` exit 0 on all fifteen,
+each showing `PARSEK_RENDER_MANIFEST=1` at [LAUNCH] and
+`renderCompose(report-only: renderComposition; declared: {})` at [VERIFY], with the
+three armed lanes still reading `armed:` and V6M still report-only. Roster and full
+rationale: `RENDERCOMPOSE_DECLARER_SPECS` in `harness/lib/test_hlib.py`.
+**NOW OWED: (B)** let readings accumulate off the normal tier cadence and take
+targeted flights only where cadence is too slow (V6M is ahead of the wave: its
+reading flew 2026-08-25 - though it now owes a SECOND one, since it gained the
+map-open pair on 2026-08-26 and the first reading measured a shape it no longer
+flies; see the RC-OWN entry and the Phase-3b bullet);
+**(C)** arm in batches off those facets, per
+lane, on the three-run discipline. The map-open seam-verb gate above is
+PARTIALLY lifted: the verb exists (PR #1539) and V6M now drives it, but until
+that re-fly reports `ownershipChanges > 0` no ownership clause may be armed
+anywhere - a step added is not a reading taken.
+
+**WAVE B ADDED TWO MORE DECLARERS 2026-08-26, ROSTER 19 -> 21, and they are a
+different kind from Wave A's:** `V18T-depot-route-ts-arrival` and
+`V25M-duna-park-player-loop` are NEW LANES against the two Phase-4 harvest
+fixtures rather than declarations bolted onto lanes that had already flown, so
+each owes a FIRST FLIGHT before it owes a window. Details in the Phase 4 bullet
+below; rationale in `RENDERCOMPOSE_DECLARER_SPECS`.
+
+
 Phases 1-2 shipped the C# recorder (env-gated, `ExportRenderManifest` verb,
 scene-exit flush), the pure Python verifier `harness/lib/rendercompose.py`, and
-the `renderCompose` verifier row REPORT-ONLY. Two committed scenarios now
-DECLARE `[expectations.renderComposition]` (see the Phase-3 bullet), and BOTH
-flew their report-only reading runs green on 2026-08-25 - so the module is
-live-proven on real game manifests. BOTH BLOCKS WERE ARMED 2026-08-25 off those
-readings (windows in the Phase-3 bullet), AND THE THREE-RUN WORKFLOW CLOSED THE
-SAME DAY on both lanes: armed re-flight plus negative control each, six runs
-total. WHAT REMAINS OWED for this module is the warp-schedule lane family
-(RC-WARP, which neither committed subject can satisfy) and Phase 4's route
-surfaces.
+the `renderCompose` verifier row REPORT-ONLY. FOUR committed scenarios now
+DECLARE `[expectations.renderComposition]`. THREE of them (see the Phase-3
+bullet) flew their report-only reading runs on 2026-08-25 - so the module is
+live-proven on real game manifests - and ALL THREE OF THOSE BLOCKS WERE ARMED
+that day off those readings (windows in the Phase-3 bullet), EACH LANE THEN
+CLOSING THE FULL THREE-RUN WORKFLOW THE SAME DAY: V14M and V8 with six runs
+between them, and V24W - the RC-WARP lane - with six of its own (three readings,
+two armed re-flights, one negative control). **PHASE 3 IS THEREFORE COMPLETE AND
+ITS LAST DEBT, RC-WARP, IS DISCHARGED**; D14 `warp-rails` coverage is real rather
+than claimed, because the gate behind it (`warpBuckets`, armed on V24W alone) now
+reds a run whose rails buckets come back empty. THE FOURTH DECLARER,
+`V6M-mun-player-loop`, was authored 2026-08-25 as a BARE UNARMED block and still
+owes its reading run - see the Phase-3b bullet: it is the MUN subject the
+operator asked about, and the suite's first TWO-COMPLETE-CYCLE RC-CYCLE dataset.
+WHAT REMAINS OWED for this module is that lane's reading + arming (Phase 3b),
+Phase 4's route surfaces (via G1's B27/V18), and the parked
+instrument-calibration items listed at the end of this entry - nothing in the
+original Phase 3.
 
 REMAINING PHASES.
 
-- **Phase 3 (lanes).** ~~Extend two committed V lanes with an
+- **Phase 3 (lanes). COMPLETE 2026-08-25 - three lanes declared, armed and
+  discipline-discharged, RC-WARP included; nothing in this bullet is still owed.**
+  ~~Extend two committed V lanes with an
   `[expectations.renderComposition]` block~~ LANE EXTENSIONS AUTHORED 2026-08-25:
   `harness/scenarios/V14M-ike-player-loop.toml` (the phase-lock moon loop,
   V6/V14 class) and `harness/scenarios/V8-eve-player-loop.toml` (the re-aim
@@ -166,14 +635,248 @@ REMAINING PHASES.
   armed off that reading would arm a clause that never fires, so NO RC-CUT
   surface was armed - nor any RC-HOLD clause, one observed engage/release pair
   not being a window.
-  STILL OWED AFTER THE ARMING, and the ONLY Phase-3 debt left: the design's
-  **warp schedule** bullet (RC-WARP). Both subjects move the clock with
+  ~~STILL OWED AFTER THE ARMING, and the ONLY Phase-3 debt left: the design's
+  **warp schedule** bullet (RC-WARP)~~ **DISCHARGED 2026-08-25 by V24W's own
+  six-flight discipline - see the RC-WARP block below.** Both subjects move the clock with
   instantaneous `TimeJump`s, so their warp histogram is 1x-only by construction
   and `warpBuckets` must never be declared on either. RC-WARP is satisfiable only
   by the V1/autopilot rails-warp ladder shape, which wants a third lane (or a
   re-shaped drive) rather than a re-pin of these two. CONFIRMED FOUR TIMES: the
   histograms came back 1x-only on both reading runs (173 samples on V14M, 296 on
   V8) and on both armed re-flights (177 and 295), every other bucket zero.
+  **COMPLETE 2026-08-25 - THE LANE IS AUTHORED, THE MEASUREMENT IS TAKEN
+  (reading flights 2 and 3, below), THE BLOCK IS ARMED OFF THAT PAIR, AND THE
+  ARMED RE-FLIGHT (`_1722`, plus `_1811` which was meant to be the control and
+  never armed) AND THE NEGATIVE CONTROL (`_1925`,
+  `PARSEK-FAIL(render-composition)` on `RC-WARP [FAIL] warpBuckets.warpHigh`)
+  HAVE BOTH FLOWN.**
+  ~~which wants a third lane~~ the third lane exists:
+  `harness/scenarios/V24W-duna-one-warp-stair.toml`, a loop-arrival map dwell
+  over `fixtures/saves/duna-one-recorded` (the harvest of the first free-play
+  ground-truth session - the one whose histogram, `warp100 4727 / warp1000 15488
+  / warpHigh 11446` with zero 1x, is what proved this subject exists outside a
+  hypothesis) driving a COMMANDED rails stair
+  (10x/50x/100x/1000x/100x/50x/10x, up and back down, each step held 10 poll
+  frames) at each of its three span-clock windows. `V24` is reserved in
+  `autotest-roadmap.md`'s register and MINTS the `W` warp-schedule suffix
+  alongside `M`/`T`/`K` - `W` names a drive shape rather than a render host,
+  which is why the lane may share the flight map with V2 and still be a separate
+  id. The stair is a FLAG-GATED extension of `m3_loop_arrival_dwell`
+  (`dwellRampFactors` empty by default = the pre-RC-WARP machine, byte-identical
+  action stream / state / assertion rows, pinned by
+  `M3WarpStairInertnessTests`), so V2 / V3F / V3R and both armed composition
+  lanes are untouched.
+  **READING FLIGHT 1 FLEW 2026-08-25 (run `2026-08-25_1415`, PASS/REPORT) AND
+  MEASURED AN EMPTY OBSERVATION.** Zero `GhostCreated` lines in the collected
+  KSP.log, zero dwells / seams / histogram buckets in the manifest, while the
+  recorder's own clock events (two cycle-rollovers, a hold-engage, two
+  inter-cycle-tail entries) proved the unit clock ran. TWO ROOT CAUSES, both
+  fixed, neither in Parsek's render pipeline:
+  (1) **The dwell windows rode the RECORDED clock while the loop clock
+  COMPRESSES.** A re-aim unit excises whole-period loiter intervals
+  (`GhostPlaybackLogic.CompressSpanUT`); this unit logged `loiterCuts=1
+  cutSeconds=11393869 compressedSpan=7001129/18394999`, and all three declared
+  offsets (11.47M / 18.33M / 18.39M) exceeded the 7.00M compressed span, so
+  every dwell sat in the inter-cycle tail where the clock parks at spanEnd and
+  nothing renders. The cycle advance itself was correct - `phaseAnchorUt` was
+  forward-advanced by the C# - so the arithmetic looked right and was not.
+  ~~Fix~~ FIXED: the `MissionConfig` seam now publishes the unit's cut list and
+  clock primitives (`loiterCutCount`, `loiterCuts` as `startOffset:length`
+  pairs relative to `spanStartUt`, `compressedSpanSeconds`, `spanSeconds`), and
+  `m3_loop_arrival_dwell` compresses every recorded offset through them at the
+  single seam where an offset becomes a live UT (`_m3_window_ut`). Spec params
+  stay on the RECORDED clock by design - mapping them is the machine's job.
+  An offset that lands INSIDE a cut, or at/past the compressed span, is now a
+  NAMED give-up at ARM time (a spec authoring error, refused rather than
+  silently clamped: the cut collapses to one compressed instant, so clamping
+  would green a run that dwelled somewhere other than the instant its own
+  ledger claims). An older DLL that publishes no cut keys behaves exactly as
+  before, pinned by a cell. **V2 / V3F / V3R were NOT latently affected** and
+  this is a measurement, not an assumption: their subject
+  `duna-direct-recorded` logs `loiterCuts=0 cutSeconds=0
+  compressedSpan=4506891/4506891` on all nine collected flights, and V2's own
+  logs carry 362 `ghosts=1` probe frames plus `body=Duna` x1421 /
+  `body=Sun` x740 / `body=Kerbin` x392 - real observations, not vacuous
+  passes. A direct transfer never parks long enough for
+  `ReaimLoiterCompressor.ComputeCuts` to detect a >1-rev loiter run, which is
+  why V24W is the first affected lane.
+  (2) **The three "1x holds" never left rails warp**, so the mission cost 455
+  wall seconds against the ~2,850 its own spec sized. `ACTION_CANCEL_WARP` in
+  `harness/missions/mission_runner.py` zeroed the warp factors only through
+  `WarpService.cancel`, and `self._warp` is created ONLY by
+  `ACTION_WARP_TO_UT`. `m3_loop_arrival_dwell` moves the clock with seam
+  `TimeJump` epoch shifts by design, so it had no warp service and the handler
+  was a no-op: 128 consecutive `warp=RAILSx10.000` telemetry frames per hold,
+  all four issued cancels logging nothing, `allow_rails_warp=True` tolerating
+  the residual state, and a PASS that never once dwelled at 1x. It is the first
+  mission in the suite to pair `SET_RAILS_WARP` with `CANCEL_WARP` without
+  `WARP_TO_UT`, which is why a latent runner gap surfaced here and nowhere
+  before. ~~Fix~~ FIXED: the primary-connection factor reset is now
+  unconditional, which is what the handler's own comment already claimed;
+  idempotent with `WarpService.cancel` where a service does exist.
+  WHAT WAS OWED AFTER FLIGHT 1 (every leg now discharged): a
+  RE-FLY of the reading run (flight 1's observation measured nothing about
+  Parsek) - flown as flights 2 and 3 below - then `warpBuckets` written FROM the
+  measured histogram - armed 2026-08-25 off the flight 2 + flight 3 pair - then
+  the armed re-flight and a negative control inverting a required token of this
+  lane's own - flown 2026-08-25 as `_1722` / `_1811` and `_1925` respectively.
+  **READING FLIGHT 2 FLEW 2026-08-25 (run `2026-08-25_1502`,
+  PARSEK-FAIL(anomaly) attempt 1) AND MEASURED THE FULL COMPOSITION. THE RED IS
+  THE PRE-REGISTERED DOCTRINE OUTCOME, NOT A LANE DEFECT.** All ten driver steps
+  met; every other verifier row green (driverValidity PASS, mission MISSION-OK,
+  analyzer PASS red=0, logValidate PASS, saveParse REPORT, renderCompose REPORT
+  parsed). Wall 2,895 s total / 2,817 s mission - within 2 % of the ~2,850 s the
+  spec sizes and inside the unchanged 3000 / 3600 budgets, which CONFIRMS the
+  flight-1 warp-cancel fix on the cost line and not just in code. Both flight-1
+  root causes are measured closed: all three dwell windows now land inside the
+  compressed span and RENDER (2 closed dwells + 2 open at export, `treatments
+  StockConic 2`, `coverages InSegment 2`, `transitions 2`, `chainBuilds 2`,
+  `lineBranches 2`, `cycles 1`), and the histogram is a real stair -
+  `warp1x 322078 / warp100 10602 / warp1000 2170 / warpHigh 0 / warpPhys 0` with
+  **`holdsAboveOneX = 1` and `seamsAboveOneX = 2`**, the first time any committed
+  subject has put a cataloged seam AND a hold above 1x. That is RC-WARP's
+  anti-vacuity statement satisfied by measurement; what remains before it can be
+  ASSERTED is the arming. Other facets, recorded because the arming pass writes
+  its windows from these and nothing else: seams `rigid 11` / `flexible-soi 4`,
+  `seamEndpoints 1024`, `seamTangents 0`, `maxEndpointRatio 0.4366947421168355`;
+  clock events `cycle-rollover 2` / `hold-engage 1` / `hold-release 1` /
+  `inter-cycle-tail 1` / `reaim-window 1`, with the observed hold 7050.236864 s
+  TWICE against a per-cycle plan of [39607.052804, 35444.407972] (an ~18-20 %
+  observed/planned ratio at BOTH plan units - a measurement handed to RC-HOLD,
+  deliberately not armed off one engage/release pair); decimation `SEAM_ENDPOINT
+  292546` + truncated `41280` + skipped `512` driving `unevaluable 334342`, so
+  the endpoint census on this drive shape is a SAMPLED population and no count
+  window may be written over it; findings 4 x INFO `RC-QUAL` and nothing worse
+  (zero FAIL, zero WARN, zero mismatches, `ownershipChanges 0`); recordings count
+  13, equal to the fixture's own population, so the optimizer split nothing at
+  the four cross-body seams and nothing was lost.
+  ANOMALY CEILINGS AUTHORED OFF THIS RUN: `hitCounts {icon-teleport: 65,
+  icon-off-orbit: 2, loop-seam-teleport: 2}`, and all three are now tolerated in
+  the spec's `allowedAnomalies` with `2026-08-25_1502` cited on each, per the
+  S1.4 "a token is added WITH the flight that shows it" rule. THEY ARE BARE, NOT
+  BUDGETED, and the reason is a whole-suite property rather than a call about
+  this lane: the ceilings the measurement authorizes are 130 / 8 / 8
+  (icon-teleport doubled off 65 because the probe threshold defect is open and
+  this lane commands rails; the other two 4x off 2, bounding a per-seam raise
+  without tolerating a per-frame one), and
+  `test_no_committed_spec_arms_a_count_budget` +
+  `test_every_committed_spec_parses_under_the_budget_surface` in
+  `harness/lib/test_hlib.py` hold the `maxCount` mechanism INERT across every
+  committed spec. V14T and V15T each wrote the budget form first and each backed
+  out of it for exactly this reason; arming it means moving both cells to a named
+  allowlist in the same edit, and that move should cover V14T / V15T / V24W
+  together as an operator decision, not arrive as a side effect of this lane's
+  ledger commit.
+  FIRST LIVE RAISE OF `seam-endpoint-outside-soi`, and it is a finding in its own
+  right: the run reported ONE unlisted (report-only) anomaly reason,
+  `seam-endpoint-outside-soi`, an instrument the M-A7 design doc's prior-art item
+  3 described as "report-only, has never fired". It has now fired. Echo evidence
+  in the collected manifest: `recId 61e9177193444e329247d0e8288cf91e`,
+  `pidKey 839899670`, `ut 5355599259.994832`, on the departure-loiter `DWELL`
+  that OPENS in the `Sun` frame and CLOSES at `Duna` (`treatment StockConic`,
+  `coverage InSegment`, `openAtExport = True`) - i.e. on the arrival SOI handoff,
+  exactly where a cross-SOI endpoint check is meant to have an opinion. It moved
+  no verdict (not in `hlib.ANOMALY_TOKENS`, surfaced via `unlistedReasons`) and
+  is deliberately NOT added to `allowedAnomalies`: a tolerance for an ungated
+  token is an inert declaration `parse_allowed_anomalies` warns about, and the
+  whole-set parse cell asserts zero warnings. The design doc's item 3 is
+  annotated with this run id.
+  **READING FLIGHT 3 FLEW 2026-08-25 (run `2026-08-25_1616`, CLEAN PASS attempt
+  1) AND THE BLOCK IS NOW ARMED OFF THE `_1502` + `_1616` PAIR.** Flight 3 was
+  the gate section 1 named before it flew: a re-fly of the unchanged spec with
+  the three tolerances flight 2 authored, which had to return PASS with those
+  tokens RECURRING inside their stated populations. It cleared the gate exactly
+  rather than merely inside the populations - `hitCounts {icon-teleport: 65,
+  icon-off-orbit: 2, loop-seam-teleport: 2}`, the same three integers, plus the
+  same single report-only `seam-endpoint-outside-soi` echo. Three counts that
+  repeat to the integer across two independent flights are a deterministic
+  property of this drive shape, which is what the gate was for.
+  THE PAIR MATCHES FACET FOR FACET, and that is what the arming rests on: dwells
+  2 (+2 open), cycles 1, transitions 2, chainBuilds 2, lineBranches 2,
+  `treatments StockConic 2`, `coverages InSegment 2`, seams `rigid 11` /
+  `flexible-soi 4`, `seamEndpoints 1024`, `seamTangents 0`, `holdsAboveOneX 1`,
+  `seamsAboveOneX 2`, four INFO `RC-QUAL` findings and nothing worse - every one
+  equal to flight 2's integer; `maxEndpointRatio 0.43669474211704823` against
+  0.4366947421168355; observed hold 7061.161390 s against 7050.236864 s at the
+  same per-cycle plan; `unevaluable 335146` against 334342; and the histogram
+  `warp1x 322868 / warp100 10626 / warp1000 2160 / warpHigh 0 / warpPhys 0`
+  against `322078 / 10602 / 2170 / 0 / 0` - **every bucket within 0.5 %**.
+  **ARMED 2026-08-25**: `gating = true`, `dwells = { min = 1, max = 32 }`,
+  `unevaluable = { max = 500000 }`, `requireSeamKinds = ["rigid",
+  "flexible-soi"]`, and - THE FIRST IN THE SUITE - `warpBuckets = ["warp100",
+  "warp1000"]`. Arming off a PAIR rather than off one green reading is a
+  deliberate deviation from the V14M/V8 precedent and is stated in the spec: this
+  lane's subject IS a histogram, and a histogram read once is a sample.
+  Declaring `warpBuckets` also arms RC-WARP's two non-list clauses at FAIL level
+  (`seamsAboveOneX` and `holdsAboveOneX` must be non-zero, both backed twice at 2
+  and 1), so **RC-WARP's anti-vacuity statement is now ASSERTED and not merely
+  measured** - the measurement half of this debt is closed. The unevaluable
+  ceiling is ~1.5x rather than the siblings' ~3.3x because 99.8 % of the census
+  is the SEAM_ENDPOINT decimation (the per-pid cap reporting loudly on a rails
+  drive shape), so the ceiling is the honest anti-vacuity bound over the
+  decimation regime and tightening it would red on the instrument's own
+  bookkeeping. NOT declared, each for a measured reason: `warpHigh` (0 twice -
+  the commanded ladder tops out at KSP rails index 5, so 1000x IS this subject's
+  ceiling), `cycles` (1 CLOSED twice, so V14M's `{1,16}` window WOULD hold, but
+  the closed-cycle count here is a property of three supervisor-chosen windows on
+  a COMPRESSED span clock and of the export instant rather than of what this lane
+  contributes), any RC-CUT surface (`cut-run-period-absent: 2` on both runs), any
+  RC-HOLD clause (one engage/release pair per run), and any endpoint count window
+  (the population is decimated). Arming re-pinned nothing in the flown shape and
+  claimed D14 `warp-rails` in the same commit - the gate that makes the claim
+  true - while still declining `warp-high`. Pins: `RENDERCOMPOSE_ARMED_SPECS`
+  gains the file with both reading ids, and a third per-lane armed KEY-SET pin
+  (`test_v24w_declares_the_render_composition_block_armed_with_the_warp_buckets`)
+  pins the exact key set including the bucket list.
+  ~~STILL OWED, AND THIS ENTRY STAYS OPEN UNTIL BOTH FLY: the ARMED RE-FLIGHT
+  and the NEGATIVE CONTROL~~ **BOTH FLEW 2026-08-25 AND THE DISCIPLINE IS
+  COMPLETE - SIX FLIGHTS ON THIS LANE.** THE ARMED RE-FLIGHT flew TWICE:
+  `2026-08-25_1722` (PASS attempt 1, `gating=True
+  armedBlocks=['renderComposition']`, ZERO mismatches; dwells 2 +2 open,
+  seamKinds rigid 11 / flexible-soi 4, `holdsAboveOneX 1`, `seamsAboveOneX 2`,
+  histogram `warp100 10644 / warp1000 2168 / warpHigh 0`, unevaluable 334093,
+  four INFO RC-QUAL and nothing worse) and `2026-08-25_1811` (PASS attempt 1,
+  ZERO mismatches, `warp100 10580 / warp1000 2162 / warpHigh 0`) - 1811 having
+  been flown AS the negative control and having evaluated the UNINVERTED block,
+  because its substring edit hit a rationale COMMENT quoting the same
+  `warpBuckets` literal ahead of the real key (entry
+  NEGATIVE-CONTROL-EDIT-NEVER-REACHED-THE-KEY above), so it reclassifies as a
+  second re-flight rather than being discarded. Across ALL FOUR full PASS
+  flights the anomaly triple repeated to the integer (`icon-teleport 65 /
+  icon-off-orbit 2 / loop-seam-teleport 2`) and every armed facet re-measured
+  inside its declared window. THE NEGATIVE CONTROL flew as `2026-08-25_1925`:
+  `warpBuckets` inverted to `["warpHigh"]` - a composition token of this lane's
+  OWN, measured 0 on every flight - by a LINE-ANCHORED edit of the real key,
+  with `run.py --dry-run`'s `declared:` line read first to confirm the control
+  was actually loaded. Verdict `PARSEK-FAIL(render-composition)` attempt 1 with
+  EXACTLY ONE mismatch naming the zero-count bucket (`RC-WARP [FAIL]
+  warpBuckets.warpHigh: spec declared warp bucket 'warpHigh' and the manifest
+  counted zero frames in it - the run did not visit that warp regime`), every
+  sibling verifier row clean, the four INFO RC-QUAL findings still beside the one
+  FAIL, and the composition facets equal to the PASSing flights' - so the red is
+  the declaration and nothing else. The run JSON's
+  `verifiers.renderCompose.declared` records `warpBuckets: ['warpHigh']`, the
+  audit surface added because of the 1811 miss and demonstrated by the very
+  control that needed it; the control was reverted in the same change on the
+  verified real key. Deliberately not shared with V14M/V8, on their own stated
+  ground: a shared inversion re-proves the `rendercompose` evaluator rather than
+  this block.
+  ~~ONE RED IS PRE-REGISTERED AS LIKELY AND DELIBERATELY NOT BUDGETED AWAY~~ THE
+  PRE-REGISTRATION WAS DISCHARGED AND IT PAID: the spec shipped
+  `allowedAnomalies = []` although the free-play session behind its fixture
+  raised `icon-teleport` 95 times on a render the operator called visually
+  correct (the entry below), and the header promised in writing that a red on
+  that token would be the measurement rather than a defect. Flight 2 red on
+  exactly that token at 65, and because nothing was pre-tolerated, the count is
+  recorded instead of swallowed - which is what gave the icon-teleport
+  calibration entry its second dataset and its first machine-driven
+  discriminator.
+  ONE THIRD-PARTY ANOMALY, FILED AND NOT ACTIONABLE: flight 1's single
+  `NullReferenceException` (17:22:29.551) is `MuMech.MechJebCore.OnDestroy`
+  reading `vessel.isActiveVessel` after `FlightGlobals` teardown during
+  `Application.Quit`. Zero Parsek frames in the stack, unique in a 3.8 MB log,
+  0.6 s after `FlushAndQuit` returned OK and the save was written, `kspExit
+  code=0`. MechJeb quit noise; no Parsek work owed.
 - **The manifest header's `mapRenderTracingOn` bit should be STICKY
   (was-ever-on), not export-instant** [OPENED 2026-08-25 off the two Phase-3
   reading runs. Small, C#-side, verifier-facing]. `TryExportNow`
@@ -213,13 +916,269 @@ REMAINING PHASES.
   the total read 108. The prediction was about the one reason and held; the total
   is not a controlled quantity, which is exactly why the armed
   `unevaluable = { max = 200 }` window is a runaway guard rather than a pin.
+- **Phase 3b (the MUN subject + the first two-complete-cycle RC-CYCLE dataset).
+  IN PROGRESS - lane AUTHORED 2026-08-25 on branch `mun-composition-lane`,
+  READING RUN TAKEN 2026-08-25 (`2026-08-25_2056_V6M-mun-player-loop`), ARMING
+  PASS OWED.** Additive to a COMPLETE Phase 3, not a re-opening of it: the
+  three armed lanes above stay exactly as they are.
+  THE OPERATOR'S QUESTION, verbatim: "did we get to test if a looped mission to
+  the Mun renders correctly after 1, 2 periods?" It had TWO gaps, and this item
+  closes both.
+    * GAP (a): NO MUN SUBJECT. All three declarers are Ike / Eve / Duna; no
+      composition accounting has ever gated on a Kerbin->Mun loop.
+    * GAP (b): NO LANE ANYWHERE HAS FED RC-CYCLE TWO COMPLETE CYCLES, so the rule
+      has never actually compared two structures. The mechanism, read off the
+      code rather than assumed: `rendercompose._cycle_windows` pairs CONSECUTIVE
+      `cycle-rollover` clock events (N events -> N-1 closed windows) and
+      deliberately does NOT synthesise the trailing open cycle against the export
+      UT ("a cycle the export cut in half is not a cycle"); `_rule_cycle` then
+      skips any unit with `len(windows) < 2` as `no-cycle-rollover-events`
+      unevaluable. `RenderCompositionRecorder.ObserveUnitFrame` emits ONE
+      rollover per CHANGE of `frame.CycleIndex`, and on a SCHEDULED (zero-drift)
+      unit `ComputeSpanLoopFrame` takes the schedule branch - `CycleIndex = sIdx`
+      (the index of the largest scheduled launch <= currentUT), UNRESOLVED before
+      the first one - so the rollover count equals the number of scheduled
+      launches the clock ENTERS. Every loop lane in the suite flies TWO cycles
+      and therefore closes ONE: V14M measured exactly that
+      (`clockEvents {cycle-rollover: 2}` -> `cycles 1` +
+      `no-cycle-rollover-events: 1`).
+  WHAT WAS AUTHORED: `harness/scenarios/V6M-mun-player-loop.toml` gained a THIRD
+  cycle (one `StartLoopPlayback`, the same -180/-60/+140 arrival bracket about
+  the cycle-3 seam, the same +20,800 park epoch, and deliberately NO third
+  `EnterWatchMode` - a watch attempt is a pinned-verdict bet), one
+  `ExportRenderManifest` immediately before `FlushAndQuit`, and a BARE
+  `[expectations.renderComposition]`. 21 steps -> 27, and NOTHING in the existing
+  flown shape moved: no jump UT, no budget, no expectation (the S4.1 rule). The
+  lane already armed the three tracers the seam capture needs. It is registered
+  in `RENDERCOMPOSE_DECLARER_SPECS` as the FOURTH declarer and is deliberately
+  ABSENT from `RENDERCOMPOSE_ARMED_SPECS`.
+  THE CYCLE-3 ANCHOR IS DERIVED, NOT GUESSED, and the derivation is validated
+  twice before it is used: replaying `TryFindNextScheduleK`'s purely periodic
+  filter with the throttle `ceil((L_last + span - ut0)/T_anchor)` reproduces this
+  lane's two MEASURED anchors (k=13 -> 280,176.9473801677, k=26 ->
+  560,319.4747603355) and the product's own
+  `scheduleWorstResidual=4347.54846243246` to the digit, then continues the
+  header's faithful-k series to **k=45 -> relaunchUt 969,758.553** (throttleK 28,
+  residual 3,166.503) - hence seam 986,129.115 and park 990,558.553. A mis-pin
+  self-detects as the already-forbidden `timejump refused reason=backward-jump`.
+  WHY THIS SUBJECT AND NOT A SECOND COPY OF V14M: V6M is PAD-ROOTED with TWO
+  constraints and a NON-UNIFORM ZERO-DRIFT SCHEDULE (`zeroDrift=yes`, faithful-k
+  13, 26, 45, 58), where V14M is orbit-rooted, single-constraint and
+  uniform-cadence - so RC-CYCLE's `cycleLengthResidualsSeconds` trend
+  (`(hi - lo) - unit.cadenceSeconds` per window) is a genuinely different surface
+  here. And both windows land in the SAME warp bucket (`warp1x`, every clock move
+  being an instantaneous `TimeJump`), which is RC-CYCLE's SHARP FAIL-level
+  isomorphism clause rather than its cross-bucket INFO one - so the comparison
+  gets its strong form on its first outing. `warpBuckets` must NEVER be declared
+  here (1x-only by construction; V24W owns the histogram).
+  THE READING RUN IS IN: `2026-08-25_2056_V6M-mun-player-loop`, verdict PASS,
+  `renderCompose` status REPORT. Steps (1) and (2) of the owed list are DONE and
+  both headline predictions LANDED. `clockEvents {cycle-rollover: 3,
+  inter-cycle-tail: 2}` -> **`cycles = 2`**, the suite's first two-closed-cycle
+  dataset, and **RC-CYCLE EVALUATED for the first time anywhere** rather than
+  reporting `no-cycle-rollover-events` - it found the two closed cycles
+  **ISOMORPHIC** and raised nothing, with both windows in the SAME `warp1x`
+  bucket (`warpBuckets {warp1x: 250}`), i.e. the SHARP FAIL-level form of the
+  clause rather than the cross-bucket INFO one. Facets for the arming pass:
+  `treatments {StockConic: 2, TracedPath: 3}`, `dwells 5` + `openDwells 3`,
+  `transitions 5`, `chainBuilds 3`, `planUnits 1`, `lineBranches 11`,
+  `coverages {InSegment: 5}`, `seamEndpoints 109`,
+  `seamKinds {rigid: 21, flexible-soi: 3}`, `seamTangents 0`,
+  `ownershipChanges 0`, `unevaluable 110`
+  (`seam-endpoint-skipped` 109 + `warp-hold-traversal-evidence-absent` 1),
+  `cycleLengthResidualsSeconds [-2.53, 129297.47]` (the second window spans the
+  schedule's k=26 -> k=45 step, so the large residual is the NON-UNIFORM schedule
+  reading correctly), `exportReason process-teardown`, `scene FLIGHT`,
+  `mapRenderTracingOn true`.
+  STILL OWED: (3) an arming pass by operator decision, whose obvious first clause
+  is `cycles = { min = 2 }` - the one floor no other lane in the suite can carry -
+  followed by the armed re-flight and a negative control inverting a window of
+  this lane's OWN. READ `RC-OWN-DRAW-HALF-IS-MAP-GATED` below FIRST: on this lane
+  (and on every other manifest lane today) RC-OWN's draw->publish direction is
+  structurally unevaluable, so "no RC-OWN finding" must not be armed as
+  "ownership conserved".
+  A FAIL-level RC-CYCLE role-structure finding on the reading run would have been
+  a MEASUREMENT, not a spec bug (a bare block gates on nothing): the render-side
+  statement of "cycle 2 does not arrive where cycle 1 did", which is the question
+  this lane's own desync hunt asks with coarser instruments. It did not fire -
+  on this subject, at this resolution, cycle 2 arrives where cycle 1 did.
 - **Phase 4 (routes + product).** Ride G1's B27/V18 for the route surfaces so
   RC-ROUTE evaluates against a real route line, and start the RC-QUAL trend
   record (kink angles, endpoint ratios, hold durations) that feeds
   promote-to-fixed decisions on the ratified visual artifacts.
+  **WAVE B AUTHORED 2026-08-26 - TWO NEW LANES, BOTH BARE, BOTH UNFLOWN.** These
+  are not Wave A's shape: Wave A declared the block on lanes that had already
+  flown, while these are NEW LANES against the two fixtures the Phase-4 harvest
+  landed, so each owes a FIRST FLIGHT before it owes a window. Declarer roster
+  19 -> 21.
+  `V18T-depot-route-ts-arrival` over `depot-route-recorded` is **the route half
+  of this bullet and G1's first lane of any kind**: the only subject in the suite
+  that can emit a `ROUTE_LINE_BUILD` record or a per-unit `ROUTE` node, so
+  `rendercompose._rule_route` has never executed against live data and
+  `routeLineBuilds` has never read non-zero anywhere. It arms NO mission loop -
+  the committed ROUTE drives - and flies the TS host first on the measured fact
+  that `RouteTrajectoryLineRenderer.DrawAll`'s only call site carries no
+  `MapView` gate. D10 `route-map-lines` stays UNDECLARED until a gating token
+  earns it.
+  `V25M-duna-park-player-loop` over `duna-park-recorded` is **re-aim's second
+  departure class** - a heliocentric-parking departure, the path
+  `ReaimClassifier`'s own exception comment names by fixture and that no
+  committed lane has driven; its manifest would also carry the first
+  DESTINATION-side loiter cut (43,963.92 s) rather than V8's launch-side one.
+  STILL OWED on this bullet: both readings, then the arming passes, plus the
+  RC-QUAL trend record, which no lane has started.
 
 DEFERRALS TAKEN IN PHASES 1-2, each of which a lane author must know.
 
+- **`RC-OWN-DRAW-HALF-IS-MAP-GATED`: no manifest lane has ever observed the
+  polyline draw/publish half, because none of them opens the map view. INSTRUMENT
+  / LANE-SHAPE GAP, NOT A PRODUCT DEFECT [FOUND 2026-08-25 by diagnosing V6M's
+  reading run `2026-08-25_2056`, which raised three report-only RC-OWN FAILs].**
+  The finding as it read: `recId=4cfa06ce...: a visible TracedPath dwell
+  [296370, 296690] / [576510, 576830] / [985950, 986270] exists with NO ownership
+  record`, one per cycle, at exactly the three arrival `TimeJump` brackets.
+  THE DIAGNOSIS (manifest + collected KSP.log + source): RC-OWN's two halves do
+  not share a gate. The INTENT half - `ShadowRenderDriver.RunFrame`, which stamps
+  the TracedPath intent that the DWELL records AND the stock line/icon
+  suppression both read - is driven from `ParsekFlight`'s per-frame update and
+  runs map-open or not. The PUBLISH half - `drewNonOrbitalLegRecordings` ->
+  `RenderCompositionRecorder.NoteOwnershipPublish` - sits at the END of
+  `GhostTrajectoryPolylineRenderer.Driver.LateUpdate`, whose SECOND statement is
+  `if (!MapView.MapIsEnabled) return;`.
+  THE EVIDENCE, all three independent: (1) the collected KSP.log carries the
+  Driver's awake + destroy lines and ZERO `Polyline frame:` summaries - that
+  summary is emitted at the end of EVERY completed walk, so zero means every
+  LateUpdate bailed early, and the only other early return is the scene gate,
+  which cannot have fired (`scene = FLIGHT`); (2) all three descent dwells carry
+  `markerPolyline = False` with `markerIconSuppressed = True`, i.e. the marker
+  rode the icon fallback because no leg drew; (3) `ownershipChanges = 0` for the
+  whole run, and no seam verb opens the map - there is no `EnterMapView` command
+  and no production path calls `MapView.EnterMapView`.
+  SCOPE: this is the state of EVERY manifest lane today. V24W measured
+  `ownershipChanges = 0` as well and escaped only because it never opened a
+  TracedPath dwell; V6M is simply the first lane whose Director did. With the map
+  closed nothing is drawn on any map surface, so a visible TracedPath dwell is an
+  INTENT record and not evidence of a draw: the rule's premise was never
+  established, and the three FAILs were the instrument speaking about a question
+  the run never asked.
+  DONE IN THIS PASS (minimal, one clause): `rendercompose._rule_own`'s
+  draw->publish direction now names the precondition. ZERO `OWNERSHIP_CHANGE`
+  records ANYWHERE stands the direction down as the defined-unevaluable
+  `ownership-publish-surface-never-ran` (counted in the census, never silent);
+  ONE publish anywhere proves the walk ran past the map gate, and from there a
+  recording whose visible TracedPath dwell has no ownership record keeps its FAIL
+  - that IS the leg-that-never-draws defect the direction exists to catch. The
+  `falls outside every published ownership interval` clause is untouched (it
+  already requires that recording to have published). Two cells pin both halves
+  in `harness/lib/test_rendercompose.py`.
+  ~~STILL OWED, and it is NOT a rule edit: a MAP-OPEN LANE, so the draw half is
+  observed at least once. That needs a new command-seam verb (a C# change: the
+  seam has no map-view verb at all)~~ **THE VERB HALF IS BUILT (2026-08-26).**
+  The seam now carries `EnterMapView` and `ExitMapView` (M-A2, additive: 27
+  implemented / 7 reserved), so the sentence above that says "there is no
+  `EnterMapView` command" is history from here on. Both are SINGLE-PHASE, no
+  args, precondition `RequiresFlight`, idempotent (`OK alreadyOpen=true` /
+  `alreadyClosed=true` without calling stock), and their OK is a READ-BACK of
+  `MapView.MapIsEnabled` - the very property the polyline Driver's LateUpdate
+  gates on - never the bare fact that the void stock call returned. Single-phase
+  is a decompile fact, not a convenience: KSP 1.12.5's `MapView.enterMapView()`
+  assigns `MapIsEnabled = true` and fires `GameEvents.OnMapEntered` synchronously
+  before returning (the deferred `Invoke("endEnterMapTransition", ...)` after it
+  only disables the UI cameras), and `exitMapView()`'s FIRST statement is
+  `MapIsEnabled = false`. Refusals split on WHO declined: `REJECTED
+  map-view-unavailable` is the one PRE-call gate (null `MapView.fetch`, stock
+  never called), and everything AFTER the call is `ERROR` - `map-not-entered` /
+  `map-not-exited` when the read-back still disagrees (stock declined through
+  `ConstantMode`, `CanUseMap` off, or a `MissionSystem` camera-switch block; the
+  class is deliberately NOT re-derived) and `map-view-threw` when it threw. That
+  is `SimulateStockSwitchClick`'s line verbatim (REJECTED before the stock call,
+  ERROR after), so a spec's `expect` has one rule to learn rather than a per-verb
+  exception.
+  Files: `TestCommandMapViewVerbs.cs` (pure) +
+  `ParsekTestCommandAddon.MapView.cs` (applier) + the verb / interface /
+  precondition tables, `hlib.IMPLEMENTED_SEAM_VERBS` with both role rows
+  (`world-mutating` on the tail axis, `recording` on the post-mission axis), and
+  the design doc's "Update (the map-view pair)" block.
+  ~~WHAT IS STILL OWED ... (1) ADD THE STEP TO A LANE~~ **(1) IS DONE
+  (2026-08-26): `V6M-mun-player-loop` ADOPTED THE PAIR**, and it took the
+  placement this entry asked for. `EnterMapView` sits immediately after the three
+  tracer `SetSetting`s and BEFORE `MissionConfig`, so the polyline Driver walk
+  runs during EVERY observation window the lane opens - all three cycles' arrival
+  brackets and all three park epochs - rather than only the tail. An
+  `EnterMapView` after the first bracket would leave cycle 1 measuring the old
+  map-closed shape and make the reading incomparable across the three cycles,
+  which a two-closed-cycle dataset must not be.
+  `ExitMapView` goes BEFORE `ExportRenderManifest`, and THAT placement is FORCED
+  rather than chosen: `test_every_declarer_exports_immediately_before_teardown`
+  pins the last two commands of every declarer as
+  `[ExportRenderManifest, FlushAndQuit]`, so an `ExitMapView` between them reds
+  the cell. It costs nothing - the recorder has accumulated every observation by
+  then, and the export is an in-memory read that does not need the map open.
+  THE FLOWN SHAPE MOVED (`EnterMapView` is `TAIL_ROLE_WORLD_MUTATING`), which is
+  admissible without an armed re-validation debt only because V6M is
+  DECLARED-UNARMED on `[expectations.renderComposition]`; the two save-structure
+  blocks it DOES gate cannot see a map-view toggle (no vessel, no save, no Parsek
+  persisted state), and no jump UT, budget or existing expectation moved.
+  ~~WHAT IS STILL OWED ... (2) THE READING THAT PROVES THE PUBLISH FLOWS~~
+  **(2) IS DONE - THIS ENTRY IS CLOSED (2026-08-26).** The reading flew as
+  `2026-08-26_1745_V6M-mun-player-loop`, PASS attempt 1, and BOTH pre-registered
+  criteria landed: the collected `KSP.log` carries `Polyline frame:` summaries
+  (the 2026-08-25 run carried zero) and the manifest reports
+  `ownershipChanges = 6` - THREE CLEAN appear/disappear PAIRS, one per TracedPath
+  dwell, all on `recId=448cd680`, at `[296370, 296690]`, `[576510, 576830]` and
+  `[985950, 986270]`: the SAME three brackets whose missing records raised the
+  original three FAILs. RC-OWN findings went 3 -> 0 and
+  `ownership-publish-surface-never-ran` is GONE from the run's unevaluable
+  reasons entirely, so the stand-down that had fired on every manifest lane in
+  the suite is lifted BY EVIDENCE rather than by decision.
+  **OWNERSHIP IS CONSERVED ON THIS SUBJECT, and the three earlier FAILs are
+  confirmed as the instrument gap this entry diagnosed rather than a
+  leg-that-never-draws defect.** The caveat above is what makes that a real
+  result: the verb was necessary but not sufficient, a map-open lane could still
+  have published nothing, and THAT would have been a real finding. It published.
+  The rest of the composition reproduced `2026-08-25_2056` exactly (cycles 2,
+  isomorphic again; dwells 5 +3 open; transitions 5; seams rigid 21 /
+  flexible-soi 3; cycle residuals identical to the digit), so the closure is not
+  bought with a changed subject. A pass may now read "no RC-OWN finding" as
+  "ownership conserved" ON A LANE THAT OPENS THE MAP AND PUBLISHES; the design
+  doc's ratified deviation #5 amendment is discharged on the same evidence. What
+  remains for V6M is ARMING (windows off the pair `2026-08-25_2056` +
+  `2026-08-26_1745`, then the armed re-flight and the negative control), which is
+  a scenario-ledger item and not this entry's.
+- **`RC-SEAM` blamed the LAST boundary of a warped-over transition. VERIFIER
+  MISREAD, NOT A RENDERER DEFECT. FIXED 2026-08-26** [found by diagnosing V25M's
+  reading run `2026-08-26_1744`, which red
+  `RC-SEAM [FAIL] TRANSITION[pid=3129690249 ut=5360143765.0]: body change
+  Sun->Duna classified as a rigid seam`].
+  THE DIAGNOSIS. A `TRANSITION` is a DWELL-stream event: it fires when the
+  Director's rendered segment index MOVES, and a dwell only opens on a segment
+  the render clock actually sat in. V25M's arrival straddle warped the head clean
+  ACROSS an interior segment, so the record read
+  `fromSegmentIndex 6 -> toSegmentIndex 8` and spanned TWO boundaries. The chain
+  classified both correctly: boundary 7 is the real crossing (PHASE[6]
+  heliocentric-transfer Sun -> PHASE[7] departure-loiter Duna) and it is
+  `flexible-soi`; boundary 8 is Duna -> Duna and it is `rigid`.
+  `RenderCompositionRecorder.NoteChainBuild` emits `BoundaryIndex = i` for
+  segment `i`'s `LeadingSeam`, so keying the seam table on `toSegmentIndex` -
+  which wave-1's `_rule_seam` did - reads the LAST boundary of the span and
+  blames its correct `rigid` for a body change that happened at an earlier one.
+  `2026-08-25_0956` (V8) is the near miss that shows the clause was never really
+  being evaluated on this shape: the same 6 -> 8 span with a Mun -> Sun change
+  passed only because BOTH crossed boundaries happened to be `flexible-soi`.
+  THE FIX: `rendercompose.transition_boundaries` (pure) enumerates every boundary
+  a transition crossed and takes each one's bodies from the CHAIN's own `PHASE`
+  records, so the rule tests the boundary the body actually changed at. The
+  observed `fromBody -> toBody` pair is used only for a SINGLE-boundary span,
+  where the two agree by construction (this keeps `assembler-fallback` chains
+  evaluable). A multi-boundary span the PHASE list cannot resolve is the new
+  defined-unevaluable `seam-boundary-bodies-absent` - counted, never guessed. A
+  retire (`toSegmentIndex = -1`) or a loop wrap names no boundary at all.
+  Findings now carry `boundary=N` in the target.
+  VERIFIED OFFLINE ACROSS THE WHOLE ARCHIVE: the V25M manifest re-reads with ZERO
+  findings and all SIXTEEN other archived manifests are byte-identical (same
+  findings, same unevaluable counts). Five cells in
+  `harness/lib/test_rendercompose.py` pin the shape, including the negative
+  control where the interior boundary IS rigid and the finding must name it.
 - **Seam measurement is double-gated.** The tangent and endpoint evaluation
   sites are `mapRenderTracing`-gated and were NOT widened, so a manifest lane
   that wants RC-SEAM / RC-QUAL numbers must arm BOTH `PARSEK_RENDER_MANIFEST=1`
@@ -400,6 +1359,135 @@ DEFERRALS TAKEN IN PHASES 1-2, each of which a lane author must know.
   (`hlib.ANOMALY_TOKENS`, promoted 2026-08-04) with a `maxCount` budget, so an
   over-sensitive threshold costs real lanes real reds - which is why this is
   filed rather than left as a curiosity.
+  **SECOND DATASET 2026-08-25, and it is the one this entry was waiting for: a
+  MACHINE-DRIVEN commanded-rails session over the SAME subject raised the token
+  65 times.** V24W reading flight 2
+  (`harness/results/2026-08-25_1502_V24W-duna-one-warp-stair.json`) flew
+  `fixtures/saves/duna-one-recorded` - the harvest of the very s15 session above
+  - through a commanded stair (10x/50x/100x/1000x/100x/50x/10x at each of three
+  windows) and came back `anomalySweep hitCounts {icon-teleport: 65,
+  icon-off-orbit: 2, loop-seam-teleport: 2}`, PARSEK-FAIL(anomaly) on a
+  deliberately empty `allowedAnomalies` with every other verifier row green.
+  WHY THE PAIR MATTERS: both sides are VISUALLY-VALIDATED-SUBJECT contexts (the
+  s15 session was eyeballed correct by the operator; V24W replays that same
+  recorded state by machine), so what differs between them is the DRIVE, not the
+  subject - 95 raises hand-played versus 65 raises machine-driven. AND THE
+  DISCRIMINATOR THIS ENTRY ASKED FOR NOW EXISTS ON BOTH SIDES: s15's histogram is
+  `warp1x 0 / warpPhys 0 / warp100 4727 / warp1000 15488 / warpHigh 11446`
+  (entirely above warp100), while V24W's is `warp1x 322078 / warp100 10602 /
+  warp1000 2170 / warpHigh 0 / warpPhys 0` (overwhelmingly AT 1x, with a bounded
+  rails excursion and nothing at all above warp1000). So the raise count did NOT
+  collapse with the time-above-warp100 fraction - a ~96 % 1x session still raised
+  two thirds as many as a 0 % 1x one - which is a real constraint on the
+  "threshold does not survive rails warp" hypothesis and the reason the owed work
+  is still the per-raise warp attribution rather than a formality. Both manifests
+  carry per-raise `ANOMALY_ECHO` records with `ut` stamps, so that attribution is
+  now an offline join over two committed artifacts rather than another flight.
+  CONSEQUENCE ALREADY TAKEN, and it is a tolerance and not a fix: V24W now lists
+  `icon-teleport` BARE in `allowedAnomalies` citing `2026-08-25_1502`. The
+  ceiling that measurement authorizes is 130 (2x the measured 65, DOUBLED rather
+  than tightly bracketed precisely because this probe defect is open and that
+  lane commands rails), and it cannot be declared while
+  `test_no_committed_spec_arms_a_count_budget` and
+  `test_every_committed_spec_parses_under_the_budget_surface` hold the budget
+  mechanism inert across every committed spec - the same blocker V14T and V15T
+  each hit and each backed out of. So an over-sensitive threshold currently costs
+  the suite an UNBOUNDED tolerance on a third lane rather than a bounded one,
+  which raises the value of fixing the probe rather than lowering it.
+- **RESEED-LAG-DARK-GAP-AT-CLOCK-JUMP: the ghost proto orbit line goes dark for
+  ~3 frames when a discontinuous clock step overruns the applied segment's end
+  bound, because the reseed lags the clock** [OPENED 2026-08-26 off V25M reading
+  2 (`harness/results/2026-08-26_1817_V25M-duna-park-player-loop.json`), the
+  lane's single `line-blink` raise. GENUINE MINOR RENDER TRANSIENT - the
+  instrument is NOT the suspect here. Owner: whoever owns the map-render segment
+  reseed]. Mechanism, read straight off the collected trace (pid=2657480491,
+  recId=aa48920e, frames 7784-7787): the third arrival TimeJump landed
+  `currentUT` 43 s past the applied segment's end bound
+  (`bounds=[...,5360144042.2]` vs `currentUT=5360144085.0`), the line went OFF
+  with `reason=stale-segment-awaiting-reseed`, and 3 frames later the reseed
+  landed (`bounds=[...,5360144182.1]`) and the line relit via
+  `director-stockconic-visible`. Everything downstream behaved per contract:
+  `stale-segment-awaiting-reseed` stamps NO `RenderWindowCoverage` BY DESIGN
+  (its "outside bounds" is the applied bounds lagging INSIDE the window - see
+  the `MapRenderTrace` entry in `.claude/CLAUDE.md`), so the
+  `windowTransitionExempt` half-proof cannot apply (`priorToggleVerdict=Other`)
+  and the `line-blink` raise is the instrument correctly reporting a real
+  ~100 ms dark flicker at the jump. TWO FACTS THAT BOUND THE DEFECT: (1) it is
+  TIMING-DEPENDENT, not deterministic - reading 1 (`2026-08-26_1744`) drove the
+  IDENTICAL jump triple and raised zero, so whether the reseed lands in the
+  same frame as the jump or a few frames later decides the raise; (2) TimeJump
+  is not required - a high-warp frame can also advance the clock past a stale
+  segment's end bound in free play (one frame at 100,000x is thousands of
+  seconds), so the same dark gap is reachable by warp overrun at any segment
+  boundary. Possible fix directions (NOT taken - file-only entry): hold the
+  previous line state through the `stale-segment-awaiting-reseed` frames
+  instead of darkening (the segment is known to be lagging, not ended), or
+  reseed synchronously when the overrun is detected on the same frame.
+  CONSEQUENCE ALREADY TAKEN, tolerance not fix: V25M lists `line-blink` bare in
+  `allowedAnomalies` citing `2026-08-26_1817`, ceiling 2 (2x measured) in
+  prose, pending the budget-mechanism allowlist move.**
+- **GHOST-MAP-TEARDOWN-NRE-WHEN-CAMERA-TARGETED: destroying a ghost map vessel
+  that is the `PlanetariumCamera`'s current target NREs stock's KnowledgeBase
+  during the forced retarget** [OPENED 2026-08-26 off V25M reading 3
+  (`harness/results/2026-08-26_1823_V25M-duna-park-player-loop.json`,
+  `unityExceptions` report-only row: 2 NRE lines, both this one event's ERR+EXC
+  pair). Owner: `GhostMapPresence`]. Stack has NO Parsek frames but the trigger
+  is ours: `RemoveAllGhostVessels reason=scene-cleanup` at 21:23:49.942 destroys
+  `Ghost: Kerbal X` while it is the camera target; stock then walks
+  `Vessel:OnDestroy -> PlanetariumCamera:OnVesselDestroy -> SetTarget ->
+  KnowledgeBase.OnMapFocusChange -> KbApp_PlanetParameters.ActivateApp`, which
+  NREs on the dying MapObject's transform. INTERMITTENT BY CONSTRUCTION -
+  readings 1 and 2 of the same lane (`2026-08-26_1744` / `_1817`) logged ZERO
+  NREs, because it only fires when the camera happens to be targeting a ghost at
+  teardown. The same collect also shows the adjacent, already-warn-logged
+  `Die() threw for 'Ghost: Kerbal X Probe'` in the same sweep - two symptoms of
+  the same "destroy while stock still references it" moment. Candidate fix (NOT
+  taken - file-only): in `RemoveAllGhostVessels` (and the single-ghost removal
+  paths), if `PlanetariumCamera.fetch?.target` resolves to the ghost being
+  destroyed, retarget the camera (active vessel / home body) BEFORE `Die()`.
+  Benign in effect today (scene is being torn down anyway; stock swallows the
+  exception), but it dirties every armed lane's `unityExceptions` census and
+  would mask a real NRE regression behind an expected one.**
+- **`maxUtStep` on a DWELL is POLLUTED by a seam `TimeJump` epoch shift that
+  lands inside an open dwell, so every tolerance derived from it balloons on
+  jump-driven lanes** [OPENED 2026-08-25 off V24W reading flight 2
+  (`2026-08-25_1502`). REPORT-ONLY: nothing red on it, no code changed, and no
+  rule reads it as a gate today. Owner: `RenderCompositionRecorder` /
+  `rendercompose`]. `DWELL.maxUtStep` is the largest single head-UT step observed
+  while the dwell was open, and it exists so a rule can size a tolerance against
+  how coarsely THAT dwell was sampled (the RC-HOLD leg-2 attribution window and
+  RC-COVER's gap resolution both derive from it). It assumes the step measures
+  SAMPLING RATE. A seam `TimeJump` breaks that assumption: the epoch shift is a
+  discontinuity in the clock, not a coarse sample, and if it lands while a dwell
+  is open it becomes that dwell's `maxUtStep`. MEASURED on flight 2's manifest
+  (`harness/results/2026-08-25_1502_V24W-duna-one-warp-stair_shots/parsek-render-manifest.txt`),
+  which has four `DWELL` records and a clean split:
+    * `61e9177193444e329247d0e8288cf91e` seg 6 (heliocentric-transfer, closed),
+      loop UT 64044033.92 -> 70898645.36: `maxUtStep = 6846984.9646892548`.
+    * `6561c8eb97dd48d6825e9d6c7c04d22a` seg 1 (departure-loiter, still open at
+      export), loop UT 64043475.99 -> 70931658.54: the SAME
+      `maxUtStep = 6846984.9646892548`.
+    * the other two, which no jump crossed: `maxUtStep = 2` and
+      `maxUtStep = 53745.585304260254`.
+  Two dwells reporting the identical 6,846,984.96 s to the digit is the tell -
+  that is one clock event stamped into both, not two independently sampled
+  intervals. The lane's own `driver.midMissionSeamWrites` records
+  `verbs ["MissionConfig", "TimeJump"]`, and the depart -> arrive leg's compressed
+  offsets (80,672.8 -> 6,935,286.1) bracket the value, so the producer is
+  identified rather than inferred. The result JSON's
+  `quality.maxUtStepSeconds = 6846984.964689255` is the max over all four, i.e.
+  the run-level facet is the polluted one. IMPROVEMENT, recorder side (preferred,
+  because the recorder is the only layer that can see the seam verb): PARTITION a
+  dwell at TimeJump epochs, or exclude an epoch-shift step from the `maxUtStep`
+  accumulation - the seam verb is observable at the point the shift is applied,
+  so this is a classification the recorder can make honestly rather than a
+  heuristic. VERIFIER-SIDE ALTERNATIVE if the recorder cannot be touched: cap the
+  contribution `maxUtStep` may make to a derived tolerance, so one epoch shift
+  cannot silently widen an RC-HOLD or RC-COVER window by six orders of magnitude.
+  WHY IT IS NOT URGENT: no armed window reads `maxUtStep` today, and V14M / V8
+  are TimeJump-driven but their dwells are short enough that the question has not
+  yet cost a reading. It becomes urgent the moment an RC-HOLD or RC-COVER clause
+  is armed on a jump-driven lane, which V24W's own arming pass will be.
 
 ---
 
@@ -896,6 +1984,49 @@ row per new file, plus a floor-0 row for `MissionsWindowUI` (whose tooltips all 
 None of the new adopters needs `ResetStyles`: `ParsekUI` and every sub-window it owns is
 constructed per scene by `ParsekFlight` / `ParsekKSC`, so a skin-scoped style never
 outlives its scene (only the DDOL `TestRunnerShortcut` has that problem).
+
+Follow-up (`singleline-tooltip-strips`): the strip height stopped being universally two
+lines. The wide windows whose entire help corpus fits one wrapped line at their
+first-open width - Career State (820px), Timeline (820px), Logistics (1556px), Real
+Spawn Control (750px) and Recordings (1355px, which also HOSTS the Missions tab, so
+that file's row is budgeted at the host's width and height) - now construct
+`TooltipEchoBox(SpacingSmall, TooltipEchoBox.SingleLine)`; `NormalizeLines`/`ProbeText`
+clamp any other request back to two. The budget gate grew a per-row strip-height column that is SOURCE-CHECKED
+against each window's actual constructor argument
+(`StripHeightColumn_MatchesTheWindowConstructor`), and the literal scan also resolves
+same-file `const string` tooltips (e.g. Logistics' 216-char `DormantSectionTooltip`),
+so neither a height switch nor a const-tooltip copy edit can drift past the gate.
+Because a shorter strip turns "clips silently" into "clips sooner", the strip gained an
+overflow marquee: text the strip cannot fully show pauses ~1.6s, scrolls left at
+60 px/s until its tail is revealed, holds again and wraps. Whether a text overflows is
+the pure `TooltipMarquee.NeedsMarquee` on the WRAPPED height (a text that wraps fully
+inside a two-line strip is visible and must not scroll); an overflowing text renders
+through the NOWRAP style as one long clipped line shifted via `contentOffset` - a
+wrapped render would hide the tail on a vertically-clipped extra line no horizontal
+shift could reveal - with the label's width pinned to the measured strip width so the
+unwrapped text cannot widen the window (control count and reserved rect unchanged).
+The clock keys on the text's digit-free `ScrollKeyFor` skeleton, so countdown tooltips
+(Real Spawn Control's per-second "spawns in Xs") keep their cycle across re-renders;
+measurements are cached per text/width change, never per frame. Logistics was trimmed
+to honestly fit one line: `FormatDetailTooltip` is constant-length (funds amounts no
+longer embedded; the candidate row no longer prefixes `FormatDetailLine`, and the
+launch/recovered breakdown now draws as a "Cost/run:" line in the EXPANDED candidate
+detail so it stays reachable pre-creation), the Nx cadence tooltip moved to pure
+`LogisticsIntervalPresentation.BuildNxCellTooltip` (shortened, keeping the "N x"
+binder for the Nx cell), and `StatusCellTooltip` reads "Enum - clause" on one line
+instead of spending a hard newline. All are pinned in `TooltipEchoBudgetTests` (the
+status gate feeds real `DescribeHold` productions; clauses interpolating user-chosen
+names are unbounded by design - the marquee is their recovery path, so only
+newline-freedom is asserted). Recordings was trimmed the same way: its over-budget
+texts (the 204-char loop-period header, STASH's 252-char group tooltip,
+`MissionPresentation.VesselIncludeCheckboxTooltip` at 302) now fit the 189-char
+one-line budget, and `RecordingsTableUI.CombineTooltipText` joins its clauses with
+" - " rather than "\n" (as does MissionsWindowUI's "Aboard:" suffix and
+`RewindInvoker`'s scene-transition reason) - a hard newline on a one-line strip clips
+whatever follows it onto a row no horizontal scroll can reach. The same pass gave the
+window broad hover-tip coverage - sort headers, bulk and per-row toggles, folder and
+flight-chain buttons, the Archive FILTER, the period unit button, the tab bar - which
+is why its `minTooltips` floor rose from 3 to 40 (48 literals found today).
 
 ## ~~SAME-TREE-DOCK-INVISIBLE-FROM-ABSORBED-SIDE: a cross-session dock inside one tree named nobody and was derivable from neither side~~ [FOUND by the 2026-08-12 dock/loop-coherence analysis (I2-ii); FIXED 2026-08-12/13, branches `same-tree-dock-claims` + `dock-event-graph` (design `docs/dev/design-dock-event-graph.md` 6.2 / 6.3-6.5, PR sequence steps 2-3)]
 

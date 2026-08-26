@@ -2666,8 +2666,8 @@ namespace Parsek.Tests
             Assert.Equal(1, RecordingsTableUI.TabRecordings);
 
             Assert.Equal(2, RecordingsTableUI.TabLabels.Length);
-            Assert.Equal("Missions", RecordingsTableUI.TabLabels[0]);
-            Assert.Equal("Recordings", RecordingsTableUI.TabLabels[1]);
+            Assert.Equal("Missions", RecordingsTableUI.TabLabels[0].text);
+            Assert.Equal("Recordings", RecordingsTableUI.TabLabels[1].text);
 
             var ui = new RecordingsTableUI(null);
             Assert.Equal(RecordingsTableUI.TabMissions, ui.SelectedTabForTesting);

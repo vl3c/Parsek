@@ -48,9 +48,11 @@ namespace Parsek
         private GUIStyle bannerStyle;
 
         // Bottom "hovered control help text" strip. See TooltipEchoBox for why it is a
-        // permanently visible box of constant height. Default spacing (3f) matches every
-        // other window's SpacingSmall.
-        private readonly TooltipEchoBox tooltipEcho = new TooltipEchoBox();
+        // permanently visible box of constant height. Single-line: at this window's
+        // 820px first-open width every help text fits one wrapped line (pinned by
+        // TooltipEchoBudgetTests), and anything rarer scrolls via the strip's marquee.
+        private readonly TooltipEchoBox tooltipEcho =
+            new TooltipEchoBox(TooltipEchoBox.DefaultSpacing, TooltipEchoBox.SingleLine);
 
         internal const float DefaultWindowWidth = 820f;
         private const float DefaultWindowHeight = 400f;
@@ -1364,7 +1366,7 @@ namespace Parsek
             // Bottom "hovered control help text" strip (shared house helper), drawn after
             // the tab body (so the live GUI.tooltip read sees a hovered column header or
             // row) and directly above the Close button - the house ordering every Parsek
-            // window uses. Fixed two-line height, always present.
+            // window uses. Fixed single-line height here, always present.
             tooltipEcho.Draw();
 
             if (GUILayout.Button("Close"))

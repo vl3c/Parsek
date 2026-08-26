@@ -27,7 +27,7 @@ namespace Parsek.TestCommands
     /// </summary>
     internal static class TestCommandVerbs
     {
-        // Implemented (v1 + M-C1 batch 1 + M-C1.1 follow-up + M-C2 EVA batch + EVA-4 + R12 + the arrival-validation lane + the player-workflow lane + M-A7): 25 verbs.
+        // Implemented (v1 + M-C1 batch 1 + M-C1.1 follow-up + M-C2 EVA batch + EVA-4 + R12 + the arrival-validation lane + the player-workflow lane + M-A7 + the map-view pair): 27 verbs.
         // M-C1 promoted InvokeRewind, AnswerMergeDialog, TimeJump, and KscAction from
         // Reserved to Implemented (design-autotest-seam-verbs-c1.md). The M-C1.1 follow-up
         // added SaveGame (the M-B3 L2/R6 persist-before-reload dependency). M-C2 added the
@@ -92,6 +92,19 @@ namespace Parsek.TestCommands
             // of waiting for the scene-exit / teardown auto-flush. Read-only with respect
             // to the game world - the only side effect is the manifest file.
             "ExportRenderManifest",
+            // The map-view pair. ADDITIVE (the reserved envelope never carried a
+            // camera / scene-presentation verb), and the reason they exist is a
+            // MEASURED instrument gap rather than a wish: everything Parsek draws on
+            // the map surface is gated on the map being OPEN, and no seam verb ever
+            // opened it. GhostTrajectoryPolylineRenderer.Driver.LateUpdate's second
+            // statement is `if (!MapView.MapIsEnabled) return;`, so on every render-
+            // composition lane flown to date the ownership-PUBLISH half of the pipeline
+            // never ran once while the INTENT half ran every frame - see
+            // RC-OWN-DRAW-HALF-IS-MAP-GATED in todo-and-known-bugs.md. ExitMapView is
+            // the mirror, so a lane that opens the map can close it again before
+            // flight-scene steps that behave differently under the overlay.
+            "EnterMapView",
+            "ExitMapView",
         };
 
         // Reserved (recognized, not implemented in v1): 7 verbs.

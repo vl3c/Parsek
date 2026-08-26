@@ -987,8 +987,11 @@ class SpecValidationRejectTests(unittest.TestCase):
                 self.assertIn(verb, hlib.IMPLEMENTED_SEAM_VERBS)
                 self.assertNotIn(verb, hlib.RESERVED_SEAM_VERBS)
         # 25 after M-A7's ExportRenderManifest, which is ADDITIVE (never in the RESERVED
-        # envelope, like SaveGame and the EVA family), so reserved stays at 7.
-        self.assertEqual(len(hlib.IMPLEMENTED_SEAM_VERBS), 25)
+        # envelope, like SaveGame and the EVA family), so reserved stays at 7. 27 after
+        # the map-view pair (EnterMapView / ExitMapView), additive the same way - the
+        # reserved envelope never carried a camera / scene-presentation verb - so reserved
+        # is STILL 7.
+        self.assertEqual(len(hlib.IMPLEMENTED_SEAM_VERBS), 27)
         self.assertEqual(len(hlib.RESERVED_SEAM_VERBS), 7)
 
     def test_ma7_export_render_manifest_implemented_not_reserved(self):
@@ -1040,6 +1043,30 @@ class SpecValidationRejectTests(unittest.TestCase):
         v = self._reject(m)
         self.assertFalse(any("ExportRenderManifest" in e for e in v.errors),
                          list(v.errors))
+
+    def test_map_view_verbs_implemented_not_reserved(self):
+        # The map-view pair is ADDITIVE (never in the RESERVED envelope), the SaveGame /
+        # EVA / ExportRenderManifest shape rather than a promotion.
+        for verb in ("EnterMapView", "ExitMapView"):
+            with self.subTest(verb=verb):
+                self.assertIn(verb, hlib.IMPLEMENTED_SEAM_VERBS)
+                self.assertNotIn(verb, hlib.RESERVED_SEAM_VERBS)
+
+    def test_map_view_verbs_step_accepted(self):
+        # A spec step using either map-view verb is not flagged RESERVED / unknown.
+        # Deliberately NO expectations block is added: unlike ExportRenderManifest,
+        # these verbs are NOT coupled to `[expectations.renderComposition]` - they open
+        # and close the map, and a lane may want the map open for reasons the manifest
+        # never reads (a screenshot moment, a tracer window). Coupling them would refuse
+        # those specs for a dependency they do not have.
+        for verb in ("EnterMapView", "ExitMapView"):
+            with self.subTest(verb=verb):
+                def m(s, _verb=verb):
+                    s.get("expectations", {}).pop("ledger", None)
+                    s["driver"]["steps"].insert(1, {"cmd": _verb, "expect": "OK"})
+                v = self._reject(m)
+                self.assertFalse(any(verb in e for e in v.errors),
+                                 "%s wrongly flagged: %s" % (verb, list(v.errors)))
 
     def test_no_committed_spec_trips_the_export_verb_coupling_rule(self):
         # Repo-wide, DISCOVERED rather than hardcoded: a rule the committed corpus
@@ -5509,6 +5536,29 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         "V8-eve-player-loop.toml":          "FLOWN GREEN 2026-08-11 through four reading iterations on the new eve-orbit-recorded fixture - the program's first ENGAGED inward transfer and its first span>synodic loop unit (_0802 arm-and-read; _0807 brackets, PASS, and the FIRST-EVER seam-endpoint-outside-soi raise, ratio 4.6216 on the Sun->Eve seam after the tilt gate declined all 27 tof candidates to a faithful window; _0810 and _0814 PARSEK-FAIL(anomaly) on a line-blink detector gap at back-to-back seam-straddling TimeJumps, both filed with artifacts in todo-and-known-bugs.md, spec re-paced with RecordingState spacers rather than any anomaly exemption; _0818 and _0819 both PASS attempt 1 with clean sweeps - two consecutive flights of the final shape, the raise reproducing bit-identically at ratio=4.6216 on every bracketed run). ARMED on both save-structure blocks (armed run 2026-08-11_0828 PASS attempt 1, gating=True mismatches=0; negative control _0830 PARSEK-FAIL(save-structure) on the single inverted window `rewind.supersedeRows 0 < min 1`, reverted). The finding trio (tilt-decline, faithful window, the seam-endpoint raise) plus the D11 cut token are REQUIRED - the GS-3-style regression floor: a change that un-declines Eve's windows or moves the arrival geometry reds this lane and forces a re-read. FIX ERA (2026-08-11, branch reaim-inclined-targets): the tilt-retention fix red the floor BY DESIGN (_1242, exactly the three trio mismatches) and the lane was re-pinned to the healthy state (re-aimed transfer ready devFromRecorded=0s, state=retained, census outsideSoi=0; readings _1244/_1245, control _1246) with the old trio inverted into forbidden. Operator tier is calibration discipline, not debt",
         "V8T-eve-ts-arrival.toml":          "FLOWN GREEN 2026-08-11 (reading _0835 a1 INVALID on the TS-LOADGAME-RECORDING-ACTIVE-RACE, sighting 3, filed; _0836 a2 PASS clean; armed _0843 PASS attempt 1, gating=True mismatches=0; control shared with V8's _0830). First TS observation of a looped inward-transfer arrival: Eve-framed inbound materialized (created 1 ghost vessel(s), body=Eve TS token gates the D14 eve claim), factory reaimed=False (V5's Duna pin inverted - the tilt-declined faithful-window shape), census structural zero told from blindness, and the parity pair V5 omitted carried here. Surfaced + filed TS-FLUSHED-SAVE-DROPS-DEBRIS-TERMINALSTATE (byte-verified). FIX ERA (2026-08-11): the tilt-retention fix flipped the TS chain to genuinely re-aimed (baseline _1247 red on the reaimed=False pin; live reaimed=True phases=11); re-pinned to reaimed=True with fallback tokens forbidden (readings _1252/_1253). Operator tier is calibration discipline, not debt",
         "V8F-eve-loop-faithful.toml":       "FLOWN GREEN 2026-08-11 (iteration 1 PARSEK-FAIL on the author's own unescaped-parens regex, fixed; then two consecutive PASS runs with the five-raise set reproducing (four of five ratios to four decimals, the fifth 1 ulp: 138.2108/138.2109); armed same day, control shared with V8's _0830). The deliberate-faithful A/B half: FORCED FAITHFUL required + ENGAGED forbidden, the forced unit measured SELF-OVERLAPPING (overlapCadence = span/20, where the ENGAGED unit reads overlaps=no), and the hlib promotion blocker (2) population measured and PINNED - the first outsideSoi=[1-9] census pin, four per-instance Sun->Eve arrival raises (52.70-203.20) plus a Kerbin->Mun transit-seam raise (4.80). Calibration fact filed: benign ratios straddle V8's 4.6216 defect reading, so ratio cannot separate the classes. FIX ERA (2026-08-11): confirmed BYTE-IDENTICAL on the tilt-retention-fixed DLL (_1250 PASS - forced faithful bypasses the synth, the knob isolation held). Operator tier is calibration discipline, not debt",
+        # The M-A7 RC-WARP lane, operator by the SAME calibration discipline as
+        # V1/V2/V3: its first flights were deliberately under-gated REPORT-ONLY
+        # reading runs, and its most likely red (`icon-teleport` under a rails
+        # histogram, the token the first free-play ground-truth session raised 95
+        # times on a render the operator called visually correct) was EVIDENCE
+        # rather than debt - which is why its `allowedAnomalies` shipped empty on
+        # purpose and why the red it drew is a discharge rather than a defect.
+        # The arming call has now been TAKEN (2026-08-25, off the matching
+        # _1502/_1616 pair) AND the discipline is COMPLETE the same day: armed
+        # re-flight (twice) plus negative control. What is left on this lane is the
+        # ordinary operator -> nightly PROMOTION call, a cadence decision for a
+        # human and not a review debt.
+        "V24W-duna-one-warp-stair.toml":    "operator by the calibration discipline (V1/V2 precedent); AUTHORED and ARMED 2026-08-25; readings 1415 (empty, root-caused), 1502 (full measurement, doctrine anomaly red) and 1616 (clean PASS re-fly, anomaly counts identical 65/2/2, every composition facet equal and the histogram within 0.5 % bucket for bucket) flown. ARMED off the matching 1502+1616 PAIR - a histogram read once is a sample - with dwells {1,32}, unevaluable {max 500000}, requireSeamKinds [rigid, flexible-soi] and the suite's FIRST warpBuckets [warp100, warp1000], the key no other subject may ever declare (their clocks are instantaneous TimeJumps, 1x-only by construction). It is the RC-WARP lane and the last M-A7 Phase-3 debt, and that debt is now DISCHARGED IN FULL - the arming closed its measurement half and the discipline closed the rest. THE DISCIPLINE IS COMPLETE ACROSS SIX FLIGHTS: armed re-flight 1722 (PASS attempt 1, gating=True, zero mismatches) plus 1811, which was flown as the control, never armed (a substring edit hit a rationale comment quoting the same key) and therefore counts as a SECOND armed re-flight (PASS attempt 1, zero mismatches); then the genuine negative control 1925, PARSEK-FAIL(render-composition) attempt 1 on the single mismatch `RC-WARP [FAIL] warpBuckets.warpHigh` with every sibling verifier row clean and the run JSON's new `declared` field recording warpBuckets ['warpHigh'] - the audit fix proving its own control - reverted in the same change. Anomaly counts 65/2/2 to the integer on all four full PASS flights (66/2/2 on the control). Promotion past operator is now an open cadence call, not debt",
+        # THE TWO PHASE-4 / WAVE-B LANES, authored 2026-08-26 against the two fixtures
+        # the route+park harvest landed. Both are operator-tier for the SAME
+        # calibration-discipline reason V24W was and V8's iteration 1 was: a first flight
+        # of a subject whose clock anchor is DERIVED rather than measured is a
+        # CALIBRATION run by construction, and the derived jump UTs get re-pinned from
+        # what the run reads. Neither is `pending-operator` because neither owes
+        # outstanding HUMAN work - what they owe is a flight, and the derivation each
+        # header carries is what makes that flight readable rather than a fishing trip.
+        "V18T-depot-route-ts-arrival.toml":  "operator by the calibration discipline (V1/V2/V24W precedent); AUTHORED 2026-08-26, NEVER FLOWN, reading pending. THE SUITE'S FIRST ROUTE LANE and G1's first lane of any kind: a tracking-station observation of the committed Active GhostDriving SameBody route in the B27 harvest `depot-route-recorded`, arming NO mission loop because the ROUTE drives. Its anchor branch is genuinely unresolvable pre-flight - the header derives all THREE candidates (unlocked-faithful, single-rotation phase lock, and a VesselOrbital-dominant joint/zero-drift road whose anchor is not computable from the committed bytes at all) and the two forward jumps are chosen to be honest under every one of them, with the calibration recipe written down. So the reading run measures the anchor and round 2 re-pins; that is the discipline, not a debt. What IS gated on the first flight is anti-vacuity, three ways: `RevalidateSources ... transitioned=0` (the route did not flip to SourceChanged under the load-time optimizer - the one failure mode that would make this lane green and empty at once), `ghostDriving=[1-9]` and `routeMissions=[1-9]`. `[expectations.renderComposition]` is BARE and D10 `route-map-lines` is deliberately UNDECLARED (H35 CLAIM-IS-NOT-GATE): the headline facet `routeLineBuilds >= 1` would be the first non-zero reading of that census anywhere, and it gets declared in the commit that arms it, citing the run",
+        "V25M-duna-park-player-loop.toml":   "operator by the calibration discipline (V8-iteration-1 precedent); AUTHORED 2026-08-26, NEVER FLOWN, reading pending. RE-AIM'S SECOND DEPARTURE CLASS - a heliocentric-parking departure, over `duna-park-recorded`, the path `ReaimClassifier`'s own exception comment names by fixture ('EXCEPTION (s15 Kerbal X #2)') and that no committed lane has driven. Unlike V18T its clock IS fully derivable and the header derives it end to end off the committed .prec bytes: classifier verdict (parking=True, via a replay of DetectRuns / the empty-cut scope gate / the ecc+sma admissibility gate), loiter cuts (ONE, destination-side, 43,963.92 s at the Duna capture, downstream of every window so all three map uncompressed), synodic 19,645,697.250367, span/synodic 1.185268 -> cadence = 2x synodic with PadAlignLaunch declined, k=142, D0 5,350,759,909.583645 and phaseAnchorUT 5,336,966,486.982761 - with the k shown robust to the seconds of scene time between LoadGame and the MissionConfig that stamps LoopAnchorUT. Operator tier is therefore the ordinary first-flight promotion call: the run confirms or refutes a written prediction rather than discovering one. The prediction is pinned as ONE conjunction regex over the ReaimDiag line and its exact inverse (the 'transfer departs from a heliocentric parking orbit' decline) is FORBIDDEN, so a refutation reds loudly instead of quietly measuring a faithful replay",
     }
 
     def _specs(self):
@@ -6119,8 +6169,11 @@ class RenderComposeVerifierWiringTests(unittest.TestCase):
     # convention: name the READING run that the windows were authored from, then
     # the ARMED RE-FLIGHT and the NEGATIVE CONTROL that discharge the three-run
     # workflow (filled in the commit that flies them, not before). A spec joining
-    # this set needs its edit here in the same commit that arms it. BOTH ENTRIES
-    # BELOW ARE DISCHARGED as of 2026-08-25 - all six runs flew that day.
+    # this set needs its edit here in the same commit that arms it. ALL THREE
+    # ENTRIES BELOW ARE DISCHARGED as of 2026-08-25 - the first two flew their six
+    # runs that day, and V24W closed its own discipline the same day across SIX
+    # flights (three readings, two armed re-flights, one negative control), the
+    # second re-flight being a control attempt that never armed.
     RENDERCOMPOSE_ARMED_SPECS = {
         # V14M: ARMED 2026-08-25 off its OWN report-only reading run
         # `2026-08-25_0953` (PASS attempt 1, `renderCompose status=REPORT
@@ -6190,6 +6243,85 @@ class RenderComposeVerifierWiringTests(unittest.TestCase):
         # would have re-proven the `rendercompose` evaluator rather than these two
         # blocks, and the two lanes do not even arm the same key set.
         "V8-eve-player-loop.toml",
+        # V24W: ARMED 2026-08-25 off TWO MATCHING READINGS rather than one, because
+        # this lane's subject IS a histogram and a histogram read once is a sample.
+        # READING A `2026-08-25_1502` - the full-measurement run, PARSEK-FAIL(anomaly)
+        # attempt 1 by this spec's own PRE-REGISTERED doctrine (its header promised in
+        # writing, before any run existed, that a red on `icon-teleport` was the most
+        # valuable first measurement and that `allowedAnomalies` would ship empty so
+        # the count would be recorded rather than swallowed). Every other verifier row
+        # green, all ten driver steps met, `renderCompose status=REPORT gating=false`,
+        # four INFO RC-QUAL findings, zero WARN, zero FAIL.
+        # READING B `2026-08-25_1616` - the CLEAN PASS re-fly of the unchanged spec
+        # with the three tolerances reading A authored. The gate it had to clear was
+        # recurrence, and it cleared it EXACTLY: hitCounts {icon-teleport 65,
+        # icon-off-orbit 2, loop-seam-teleport 2}, the same three integers, plus the
+        # same single report-only `seam-endpoint-outside-soi` echo.
+        # THE PAIR MATCHES FACET FOR FACET, which is what the arming rests on: dwells
+        # 2 (+2 open) BOTH, cycles 1 BOTH, transitions 2 / chainBuilds 2 /
+        # lineBranches 2 / treatments StockConic 2 / coverages InSegment 2 BOTH,
+        # seamKinds {rigid 11, flexible-soi 4} BOTH, seamEndpoints 1024 BOTH,
+        # seamTangents 0 BOTH, holdsAboveOneX 1 and seamsAboveOneX 2 BOTH, findings
+        # 4 x INFO RC-QUAL and nothing worse BOTH. Histogram within 0.5 % bucket for
+        # bucket: warp100 10602 -> 10626, warp1000 2170 -> 2160, warpHigh 0 -> 0,
+        # warpPhys 0 -> 0, warp1x 322078 -> 322868. unevaluable 334342 -> 335146.
+        # WINDOWS: dwells {1,32} (the sibling lanes' identical anti-vacuity floor),
+        # unevaluable {max 500000}, requireSeamKinds ["rigid","flexible-soi"], and -
+        # THE FIRST IN THE SUITE - warpBuckets ["warp100","warp1000"]. That key is
+        # what this lane exists to author: both armed lanes above may NEVER declare it
+        # (their clocks are instantaneous TimeJumps, 1x-only by construction), and
+        # declaring it also arms RC-WARP's two non-list clauses at FAIL level -
+        # `seamsAboveOneX` and `holdsAboveOneX` must be non-zero - both backed twice.
+        # The unevaluable ceiling is ~1.5x rather than the siblings' ~3.3x on purpose:
+        # 99.8 % of this census is the SEAM_ENDPOINT decimation (293250 decimated +
+        # 41380 truncated on reading B), the per-pid cap reporting loudly on a rails
+        # drive shape, so the ceiling is an anti-vacuity bound over the decimation
+        # regime and tightening it would red on the instrument's own bookkeeping.
+        # NOT DECLARED, each for a measured reason: `warpHigh` (0 twice - the
+        # commanded ladder tops out at rails index 5, so 1000x IS this subject's
+        # ceiling; it is the negative-control token instead), `cycles` (reads 1 twice
+        # and a V14M-spelled window WOULD hold, but the closed-cycle count here is a
+        # property of three supervisor-chosen windows on a COMPRESSED span clock, not
+        # of what this lane contributes - V14M owns that clause), any RC-CUT surface
+        # (`cut-run-period-absent: 2` on both runs, V8's constraint reproduced), any
+        # RC-HOLD clause (one engage/release pair per run, though the ~18-20 %
+        # observed/planned ratio reproduced at both plan units on both runs and is
+        # handed to RC-HOLD as a measurement), and any endpoint count window (the
+        # population is decimated). Arming re-pinned NOTHING in the flown shape, and
+        # claimed D14 `warp-rails` in the same commit - the gate that makes the claim
+        # true - while still declining `warp-high`.
+        # ARMED RE-FLIGHT: `2026-08-25_1722` PASS attempt 1, gating=True,
+        # armedBlocks=['renderComposition'], ZERO mismatches - histogram
+        # warp100 10644 / warp1000 2168 / warpHigh 0, dwells 2 (+2 open), seamKinds
+        # {rigid 11, flexible-soi 4}, holdsAboveOneX 1, seamsAboveOneX 2, four INFO
+        # RC-QUAL and nothing worse, unevaluable 334093. A SECOND armed re-flight
+        # rode in by accident: `2026-08-25_1811` was flown as the negative control,
+        # its substring edit hit a rationale COMMENT quoting this same key ahead of
+        # the real line, and it therefore evaluated the UNINVERTED block - PASS
+        # attempt 1, zero mismatches, warp100 10580 / warp1000 2162 / warpHigh 0.
+        # Reclassified as a re-flight rather than discarded, because it IS one. The
+        # anomaly triple {icon-teleport 65, icon-off-orbit 2, loop-seam-teleport 2}
+        # repeated to the integer across ALL FOUR full flights (two readings, two
+        # re-flights) - a stronger determinism statement than the arming pair alone.
+        # NEGATIVE CONTROL: `2026-08-25_1925`, **`PARSEK-FAIL(render-composition)`
+        # attempt 1** off the temporary `warpBuckets = ["warpHigh"]` - a composition
+        # token of THIS lane's own that measured 0 on every flight - applied by a
+        # LINE-ANCHORED edit of the real key and confirmed pre-launch through
+        # `run.py --dry-run`'s `declared:` line. EXACTLY ONE mismatch, and it names
+        # the zero-count bucket: `RC-WARP [FAIL] warpBuckets.warpHigh: spec declared
+        # warp bucket 'warpHigh' and the manifest counted zero frames in it - the run
+        # did not visit that warp regime`. Every sibling row stayed clean
+        # (driverValidity / mission / analyzer red=0 / logValidate / anomalySweep /
+        # expectations / testResults PASS, saveParse + unityExceptions REPORT), the
+        # four INFO RC-QUAL findings stood beside the one FAIL, and the composition
+        # facets equalled the PASSing flights' - so the red is the declaration and
+        # nothing else. The run JSON's `verifiers.renderCompose.declared` records
+        # `warpBuckets: ['warpHigh']`: the audit surface added because of the 1811
+        # miss, demonstrated by the control that needed it. Reverted in the same
+        # change on the verified real key. Not shared with the two lanes above, for
+        # their own stated reason: a shared inversion re-proves the evaluator rather
+        # than this block.
+        "V24W-duna-one-warp-stair.toml",
     }
 
     def test_no_committed_spec_arms_render_composition_gating(self):
@@ -6318,15 +6450,191 @@ class RenderComposeVerifierWiringTests(unittest.TestCase):
     # window of its own). Facets live in each spec's arming ledger and in
     # docs/dev/autotest-status.md -> M-A7. Both arm the three tracers the seam capture
     # needs, and both drive ExportRenderManifest once after their last observation
-    # step and immediately before FlushAndQuit. FIVE cells stand on this roster: the
+    # step and immediately before FlushAndQuit. SIX cells stand on this roster: the
     # roster itself, that the declarer set and the armed set agree with the two
     # recorded rosters, that every declarer arms the three tracers, that every
-    # declarer exports immediately before teardown, and the two per-lane armed
+    # declarer exports immediately before teardown, and the THREE per-lane armed
     # KEY-SET pins - because a declarer that flies with the tracer off, or exports at
     # the wrong instant, greens while measuring nothing, and an armed block that
     # GROWS a window silently arms a clause no reading run stands behind.
+    #
+    # THE THIRD DECLARER, added 2026-08-25 and ARMED THE SAME DAY:
+    #
+    #   V24W-duna-one-warp-stair.toml - the RC-WARP lane, and the ONLY lane in the
+    #       suite entitled to declare `warpBuckets` (both lanes above say in their
+    #       own headers that the key may NEVER appear on them, their clocks being
+    #       instantaneous TimeJumps whose histogram is 1x-only by construction).
+    #       THREE READINGS FLEW 2026-08-25: `_1415` (empty observation, both root
+    #       causes outside Parsek's render pipeline, fixed), `_1502` (the full
+    #       measurement, red by this spec's own pre-registered anomaly doctrine),
+    #       and `_1616` (the clean PASS re-fly of the unchanged spec with the three
+    #       tolerances `_1502` authored). ARMED off the LAST TWO as a MATCHING PAIR
+    #       rather than off a single green reading - the deviation from the V14M/V8
+    #       precedent is deliberate and is stated in the roster entry: this lane's
+    #       subject is a histogram, and a histogram read once is a sample. The pair
+    #       matched facet for facet with the histogram inside 0.5 % bucket for
+    #       bucket. It declared the block from its first commit because DECLARING is
+    #       what sets PARSEK_RENDER_MANIFEST=1 at launch, and a lane whose whole
+    #       purpose is the warp histogram must be capturing a manifest on its first
+    #       flight or that flight measures nothing.
+    #       ITS THREE-RUN WORKFLOW IS DISCHARGED, across SIX flights: the armed
+    #       re-flight flew TWICE (`_1722` and `_1811`, both PASS attempt 1 with
+    #       gating=True and zero mismatches - `_1811` was meant to be the control
+    #       and never armed, so it counts as a re-flight), and the negative control
+    #       flew as `_1925`, `PARSEK-FAIL(render-composition)` attempt 1 on the
+    #       single mismatch `RC-WARP [FAIL] warpBuckets.warpHigh`, reverted in the
+    #       same change - see the roster entry above for the full ids and facets.
+    #
+    # THE FOURTH DECLARER, added 2026-08-25, BARE and UNARMED:
+    #
+    #   V6M-mun-player-loop.toml - the MUN half of the "phase-lock moon loop (V6/V14
+    #       class)" subject the design names, and the suite's FIRST TWO-CLOSED-CYCLE
+    #       render-composition dataset. Two things make it a distinct subject rather
+    #       than a second copy of V14M. (1) It is PAD-ROOTED with TWO constraints and a
+    #       NON-UNIFORM ZERO-DRIFT SCHEDULE (`zeroDrift=yes`, faithful-k series 13, 26,
+    #       45, 58), where V14M is orbit-rooted, single-constraint and uniform-cadence -
+    #       so RC-CYCLE's `cycleLengthResidualsSeconds` trend is a genuinely different
+    #       surface here. (2) It ENTERS THREE CYCLES. `rendercompose._cycle_windows`
+    #       pairs consecutive `cycle-rollover` events, so N rollovers close N-1 cycles
+    #       and `_rule_cycle` skips a unit with fewer than two closed windows as
+    #       `no-cycle-rollover-events`; every loop lane in the suite flies two cycles
+    #       and closes ONE (V14M measured exactly that), so RC-CYCLE has never compared
+    #       two structures anywhere. Three entered cycles close two and give the rule
+    #       its first comparison - same warp bucket (warp1x), so the sharp FAIL-level
+    #       clause rather than the cross-bucket INFO one.
+    #       The spec's cycle-3 anchor is DERIVED (k=45 -> relaunchUt 969,758.553) off
+    #       the same replay of `TryFindNextScheduleK` that reproduces this lane's two
+    #       MEASURED anchors to the digit.
+    #       ITS READING RUN FLEW 2026-08-25 (`2026-08-25_2056_V6M-mun-player-loop`,
+    #       PASS, REPORT): `cycles = 2` off three `cycle-rollover` events - RC-CYCLE's
+    #       FIRST real evaluation anywhere - and the two closed cycles came back
+    #       ISOMORPHIC in the same `warp1x` bucket. THE ARMING PASS IS STILL OWED, so
+    #       the lane is deliberately NOT in RENDERCOMPOSE_ARMED_SPECS and its block is
+    #       still bare; windows get written FROM those facets, at arming, by operator
+    #       decision, and the first clause should be `cycles = { min = 2 }`.
+    #
+    # PHASE 3C, WAVE A (2026-08-26): FIFTEEN MORE DECLARERS IN ONE PASS, ALL BARE.
+    #
+    # The wave plan is in docs/dev/todo-and-known-bugs.md -> "PHASE 3C". Its premise is
+    # that the rollout is DECLARATION, not new machinery: the B-flights already produce
+    # the recordings, the V-lanes already loop them at new UTs, and the manifest already
+    # audits the composed render - so the corpus-wide step is to arm the recorder
+    # everywhere it can honestly measure something and let readings accumulate off the
+    # normal tier cadence (Wave B), arming in batches off those facets (Wave C).
+    #
+    # NOTHING IN THIS WAVE ARMS ANYTHING. Each lane gained exactly three things: the
+    # `ExportRenderManifest` step immediately before `FlushAndQuit`, the bare block last
+    # in `[expectations]`, and - on the TWO HOST LANES ONLY - the `ghostRenderTracing`
+    # step they were missing. No step, no jump UT, no budget and no existing expectation
+    # moved anywhere (the S4.1 rule), and each lane's header carries a compact
+    # renderComposition arming ledger recording the posture and the reading debt.
+    #
+    # THE ONE EXPOSURE CHANGE IN THE WAVE, named because it is the thing a reader must
+    # not discover from a red: V14T and V22K previously armed only `mapRenderTracing` +
+    # `verboseLogging`. `test_every_declarer_arms_the_tracers_the_seam_capture_needs`
+    # requires all three of every declarer, so both gained `ghostRenderTracing`. On those
+    # two lanes the third tracer buys NO manifest content - every capture predicate the
+    # recorder reads is `MapRenderTrace.IsEnabled`-gated (the seam-tangent evaluation in
+    # GhostTrajectoryPolylineRenderer, MapRenderProbe's truth + endpoint census) - so what
+    # it adds is an anomaly SURFACE that was previously dark: the FLIGHT phase each lane
+    # runs before its TS / KSC re-entry can now raise the `ghostRenderTracing`-gated
+    # family (`loop-seam-teleport` and the GhostRenderTrace raises), and both lanes run a
+    # tight sweep (V22K `allowedAnomalies = []`, V14T tolerating only `icon-off-orbit`).
+    # A red on either reading run from a newly gated raise is a TRACER-ARMING READING to
+    # record, not a regression to re-diagnose. They are in the wave anyway because they
+    # are the FIRST tracking-station-host and FIRST KSC-host manifests the module has
+    # ever been able to take, and the KSC host in particular composes nothing anyone has
+    # measured (it draws no trajectory at all - it resolves a pose and places a ghost).
+    #
+    # THE FOUR ARM-ONLY LANES (V9 / V11 / V12 / V13) will read THIN and that is their
+    # point: each quits ~1 s after `StartLoopPlayback`, so their manifests are the
+    # corpus's FLOOR case - what a composition looks like with the loop armed and nothing
+    # yet rendered. Read them as the baseline the dwell lanes are measured against; an
+    # empty reading there is a measurement, not an instrument failure (V24W's reading
+    # flight 1 is the precedent, and its two root causes were both outside the render
+    # pipeline).
+    #
+    # ONE MORE EXPECTED-THIN CLASS, recorded so an arming pass does not misread it:
+    # V22M and V23M are LANDED-TERMINAL subjects, and the landed-terminal render policy
+    # their own lens-calibration rounds measured is flight-mesh only (no map / TS proto
+    # in the terminal sliver). A thin ownership half on those two is the expected
+    # reading.
     RENDERCOMPOSE_DECLARER_SPECS = {"V14M-ike-player-loop.toml",
-                                    "V8-eve-player-loop.toml"}
+                                    "V8-eve-player-loop.toml",
+                                    "V24W-duna-one-warp-stair.toml",
+                                    "V6M-mun-player-loop.toml",
+                                    # -- Phase 3C Wave A, 2026-08-26: all bare, all
+                                    # reading-pending. Render host in brackets.
+                                    # [M] watch-mode entry on a Kerbin->Minmus loop.
+                                    "V7M-minmus-player-loop.toml",
+                                    # [M] arm-only floor case, Dres fixture.
+                                    "V9-dres-player-loop.toml",
+                                    # [M] the Dres re-aimed arrival; synthesizer runs.
+                                    "V10-dres-loop-arrival.toml",
+                                    # [M] arm-only floor case, Moho fixture.
+                                    "V11-moho-player-loop.toml",
+                                    # [M] arm-only floor case, Eeloo fixture.
+                                    "V12-eeloo-player-loop.toml",
+                                    # [M] arm-only floor case, Jool B22 fixture.
+                                    "V13-jool-player-loop.toml",
+                                    # [M] smallest-SOI arrival body in the corpus.
+                                    "V15M-gilly-player-loop.toml",
+                                    # [M] eight-bracket Jool-system drive.
+                                    "V16M-laythe-player-loop.toml",
+                                    # [M] moon-to-moon, nested SOI, routing H3.
+                                    "V17M-laythe-vall-player-loop.toml",
+                                    # [M] return-direction loop (target is the parent).
+                                    "V19M-laythe-jool-player-loop.toml",
+                                    # [M] two-moon lane, StockConic-lens re-pin round.
+                                    "V21M-mun-minmus-player-loop.toml",
+                                    # [M] landed-terminal; expect a thin ownership half.
+                                    "V22M-kerbin-splashdown-player-loop.toml",
+                                    # [M] landed-terminal; expect a thin ownership half.
+                                    "V23M-mun-landing-player-loop.toml",
+                                    # [T] FIRST tracking-station-host manifest ever;
+                                    #     ghostRenderTracing NEWLY armed (see the
+                                    #     exposure paragraph above).
+                                    "V14T-ike-ts-arrival.toml",
+                                    # [K] FIRST KSC-host manifest ever; ghostRenderTracing
+                                    #     NEWLY armed (see the exposure paragraph above).
+                                    "V22K-kerbin-splashdown-ksc-arrival.toml",
+                                    # -- PHASE 4 / WAVE B, 2026-08-26: TWO NEW SUBJECTS,
+                                    # both bare, both reading-pending, and neither a
+                                    # re-declaration of an existing shape. Unlike Wave A -
+                                    # which declared the block on lanes that had already
+                                    # flown - these are NEW LANES authored against the two
+                                    # fixtures the Phase-4 harvest landed
+                                    # (`depot-route-recorded`, `duna-park-recorded`), so
+                                    # each owes a FIRST FLIGHT before it owes a window.
+                                    #
+                                    # [T] THE SUITE'S FIRST ROUTE LANE, and the only
+                                    #     subject that can put a non-zero number in
+                                    #     `routeLineBuilds` or produce a per-unit `ROUTE`
+                                    #     node at all - so `rendercompose._rule_route` has
+                                    #     never executed against live data. It arms NO
+                                    #     mission loop: the committed ROUTE drives,
+                                    #     through SelectGhostDrivingBackingMissions ->
+                                    #     RouteBackingMission.BuildMission -> the TS host
+                                    #     union. It flies the TS half FIRST on a measured
+                                    #     fact - RouteTrajectoryLineRenderer.DrawAll's
+                                    #     only call site carries no MapView gate, so the
+                                    #     tracking station draws route lines without
+                                    #     EnterMapView while its own FLIGHT prelude draws
+                                    #     none. D10 `route-map-lines` stays UNDECLARED
+                                    #     until a gating token earns it (H35).
+                                    "V18T-depot-route-ts-arrival.toml",
+                                    # [M] THE SECOND RE-AIM DEPARTURE CLASS. Every prior
+                                    #     re-aim subject (V2 / V8 / V10 / V24W) is a
+                                    #     direct ejection; this one phases on the SUN for
+                                    #     13,502,219.94 s and only then burns for Duna -
+                                    #     the heliocentric-parking departure that
+                                    #     ReaimClassifier's own exception comment names
+                                    #     ("EXCEPTION (s15 Kerbal X #2)") and that no
+                                    #     committed lane has driven. Its manifest is also
+                                    #     the first to carry a DESTINATION-side loiter cut
+                                    #     (43,963.92 s at the Duna capture) rather than
+                                    #     V8's launch-side one.
+                                    "V25M-duna-park-player-loop.toml"}
 
     def test_render_composition_declarers_are_the_recorded_roster(self):
         """Pinned so a declarer is always a deliberate edit, in BOTH directions. A
@@ -6430,6 +6738,63 @@ class RenderComposeVerifierWiringTests(unittest.TestCase):
         self.assertEqual(["rigid", "flexible-soi"], block["requireSeamKinds"])
         self.assertNotIn("cycles", block)
         self.assertNotIn("warpBuckets", block)
+
+    def test_v24w_declares_the_render_composition_block_armed_with_the_warp_buckets(self):
+        """V24W, ARMED 2026-08-25 off the PAIR `2026-08-25_1502` (full measurement,
+        pre-registered anomaly red) + `2026-08-25_1616` (clean PASS re-fly): dwells 2
+        (+2 open), cycles 1, unevaluable 334342 / 335146, seamKinds
+        {rigid 11, flexible-soi 4}, and the histogram warp100 10602/10626 and
+        warp1000 2170/2160 with warpHigh and warpPhys ZERO on both.
+
+        THE `warpBuckets` LIST IS THE POINT OF THIS CELL and is pinned exactly. It is
+        the FIRST and ONLY armed occurrence of the key in the suite - both sibling
+        pins above assert `assertNotIn("warpBuckets", block)`, because those lanes'
+        clocks are instantaneous TimeJumps whose histogram is 1x-only by construction.
+        Declaring it is also what arms RC-WARP's two non-list clauses at FAIL level
+        (`rendercompose._rule_warp`: `seamsAboveOneX == 0` and `holdsAboveOneX == 0`
+        become findings only when a bucket list is declared), both backed twice at 2
+        and 1 - so GROWING or SHRINKING this list changes what the lane asserts about
+        the product, not just about itself.
+
+        `warpHigh` IS PINNED ABSENT, and the absence is a MEASUREMENT: it read 0 on
+        both readings because the commanded ladder tops out at KSP rails index 5
+        (1000x), so requiring it would red the runs the block was armed off. It is
+        this lane's NEGATIVE-CONTROL token instead, which is exactly why a later edit
+        must not quietly promote it into the required list.
+
+        `cycles` IS PINNED ABSENT for a different reason from V8's: the facet reads 1
+        CLOSED cycle on both runs, so V14M's `{min 1, max 16}` window WOULD hold here.
+        It is declined because the closed-cycle count on this lane is a property of
+        three supervisor-chosen dwell windows on a COMPRESSED span clock and of the
+        export instant - the drive shape under active development - rather than of
+        what this lane contributes. `dwells` and `requireSeamKinds` carry the
+        anti-vacuity floors."""
+        block = self._armed_block("V24W-duna-one-warp-stair.toml")
+        self.assertEqual({"gating", "dwells", "unevaluable", "warpBuckets",
+                          "requireSeamKinds"}, set(block),
+                         "a window was added to (or removed from) V24W's ARMED "
+                         "render-composition block; every armed window needs its own "
+                         "reading run behind it - and this lane's arming rests on a "
+                         "MATCHING PAIR of readings, not one")
+        self.assertEqual({"min": 1, "max": 32}, block["dwells"])
+        self.assertEqual({"max": 500000}, block["unevaluable"])
+        self.assertEqual(["warp100", "warp1000"], block["warpBuckets"])
+        self.assertEqual(["rigid", "flexible-soi"], block["requireSeamKinds"])
+        self.assertNotIn("cycles", block)
+        # Stated as its own assertion rather than left to the key-set pin: the list
+        # above could grow this token without changing the KEY set at all.
+        self.assertNotIn("warpHigh", block["warpBuckets"])
+        # And the suite property the pair of sibling pins states from the other side:
+        # exactly ONE armed block in the corpus declares warpBuckets, and it is this
+        # one. A second lane picking the key up is an arming decision of its own.
+        with_buckets = sorted(n for n in self.RENDERCOMPOSE_ARMED_SPECS
+                              if "warpBuckets" in self._armed_block(n))
+        self.assertEqual(["V24W-duna-one-warp-stair.toml"], with_buckets,
+                         "warpBuckets is armed on a lane other than the RC-WARP one; "
+                         "every other committed subject moves the clock with "
+                         "instantaneous TimeJumps, so its histogram is 1x-only BY "
+                         "CONSTRUCTION and the key would pin the drive shape rather "
+                         "than the product")
 
     def test_every_armed_block_keeps_an_anti_vacuity_floor(self):
         """The property both key-set pins exist to protect, stated once against the
@@ -8449,6 +8814,22 @@ class PostMissionOutcomeGateTests(unittest.TestCase):
                                  hlib.SEAM_VERB_POST_MISSION_ROLE[verb])
                 self.assertFalse(hlib.post_mission_step_gates(verb))
 
+    def test_map_view_verbs_are_recording_not_outcome(self):
+        # EnterMapView's OK means "MapView.MapIsEnabled reads true" - a read-back of the
+        # game's own camera mode, the EnterWatchMode call one step further out. Gating on
+        # it would route a stock camera-switch decline (ConstantMode, CanUseMap off, a
+        # MissionSystem block) through the mission-outcome subkind, which is reserved for
+        # a flight that failed after the handoff. What the open map is FOR - the
+        # ownership-publish half actually running - is proven downstream by the manifest's
+        # OWNERSHIP_CHANGE records through the renderCompose row.
+        # Note the two axes disagree on purpose: both are WORLD-MUTATING on the tail axis
+        # (asserted in SeamVerbTailRoleTests) and `recording` here.
+        for verb in ("EnterMapView", "ExitMapView"):
+            with self.subTest(verb=verb):
+                self.assertEqual(hlib.POST_MISSION_ROLE_RECORDING,
+                                 hlib.SEAM_VERB_POST_MISSION_ROLE[verb])
+                self.assertFalse(hlib.post_mission_step_gates(verb))
+
     def test_unknown_verb_does_not_gate(self):
         # Opposite fail-safe direction from SEAM_VERB_TAIL_ROLE, deliberately: an
         # unrecognised verb is a spec fault validate_spec already rejects, and
@@ -8643,6 +9024,26 @@ class SeamVerbTailRoleTests(unittest.TestCase):
         # the active vessel, so it is not the read-only `inert` class either, and this
         # table's fail-safe direction is world-mutating.
         for verb in ("StartLoopPlayback", "EnterWatchMode"):
+            with self.subTest(verb=verb):
+                self.assertEqual(hlib.TAIL_ROLE_WORLD_MUTATING,
+                                 hlib.seam_verb_tail_role(verb))
+
+    def test_map_view_verbs_are_world_mutating_not_inert_or_cleanup(self):
+        # EnterMapView's label is EnterWatchMode's argument verbatim: no save, no career,
+        # no durable Parsek record, but stock's MapView.enterMapView() takes an
+        # InputLockManager control lock (ControlTypes.MAPVIEW), disables the flight
+        # scripts, switches the camera and fires GameEvents.OnMapEntered. `inert` means
+        # "reads state or stamps the log, never changes the game" (RecordingState /
+        # MissionMark), and locking an unattended vessel's controls is not that.
+        #
+        # ExitMapView is the trap here, and it is the mirror of ExitToSpaceCenter's: it
+        # LOOKS like teardown. It is not `cleanup`, because cleanup is the "must always
+        # run" role and each of its two members earns it with an EVIDENCE argument -
+        # FlushAndQuit owns the quit (skipping it lets the watchdog KILL the tree and mask
+        # the mission subkind) and StopRecording pairs the recorder's log markers. Nothing
+        # analogous holds for the map: the render-composition flush runs whether the map
+        # is open or shut, and the process is about to die.
+        for verb in ("EnterMapView", "ExitMapView"):
             with self.subTest(verb=verb):
                 self.assertEqual(hlib.TAIL_ROLE_WORLD_MUTATING,
                                  hlib.seam_verb_tail_role(verb))
@@ -12317,7 +12718,23 @@ class CommittedFixtureMirrorTests(unittest.TestCase):
     The TRAJECTORY mirror (`.prec.txt`) is deliberately NOT gated: four scenario
     headers cite values read straight out of one, so it stays committed. This test
     asserts BOTH halves, so a later sweep cannot quietly take the cited surface
-    with it."""
+    with it.
+
+    TWO EXEMPTIONS, and both are facts about what Parsek WRITES rather than
+    concessions. `RecordingSidecarStore.SaveRecordingFiles` writes a
+    `_vessel.craft` only when the recording carries a `VesselSnapshot`, and there
+    are two shapes where it legitimately does not:
+
+      * a chain CONTINUATION recording (`chainIndex > 0`) is the same physical
+        vessel as its chain head and reuses the head's snapshot. See
+        `_chain_continuations_without_own_snapshot`.
+      * a SAME-LAUNCH sibling: a recording of a vessel some other recording in
+        the same fixture already snapshotted, correlated by
+        `recordedVesselGuid`. See `_same_launch_recordings_without_own_snapshot`.
+
+    Both are unioned in `_stems_exempt_from_vessel_snapshot`, and both are
+    narrow in the same way: the exemption exists only when the snapshot the
+    pruned mirror would be rebuilt from IS committed somewhere in that fixture."""
 
     SNAPSHOT_MIRROR_SUFFIXES = ("_vessel.craft.txt", "_ghost.craft.txt")
 
@@ -12346,11 +12763,140 @@ class CommittedFixtureMirrorTests(unittest.TestCase):
         vessels = [f for f in committed if f.endswith("_vessel.craft")]
         self.assertTrue(precs, "no committed .prec trajectory sidecars remain")
         self.assertTrue(vessels, "no committed _vessel.craft snapshot sidecars remain")
-        # Every recording with a trajectory must keep its authoritative snapshot.
+        # Every recording with a trajectory must keep its authoritative snapshot,
+        # UNLESS it is a chain continuation that never had one (see
+        # _chain_continuations_without_own_snapshot).
+        exempt = self._stems_exempt_from_vessel_snapshot(committed)
         for prec in precs:
             stem = prec[:-len(".prec")]
+            if stem in exempt:
+                continue
             self.assertIn(stem + "_vessel.craft", committed,
                           "%s lost its authoritative vessel snapshot" % prec)
+
+    # A RECORDING node's own `chainId` / `chainIndex`, read off the first
+    # occurrence inside each block. Deliberately a local regex parse rather than
+    # a saveparse call: `RecordingRow` models neither field, and the two things
+    # this cell needs to correlate are a FILE SET and a SAVE, so it already owns
+    # both halves.
+    _RECORDING_BLOCK_RE = re.compile(r"\n\t{3}RECORDING\n")
+    _CHAIN_ID_RE = re.compile(r"^\s*chainId = (\S+)\s*$", re.MULTILINE)
+    _CHAIN_INDEX_RE = re.compile(r"^\s*chainIndex = (\d+)\s*$", re.MULTILINE)
+    _RECORDING_ID_RE = re.compile(r"^\s*recordingId = (\S+)\s*$", re.MULTILINE)
+    _VESSEL_GUID_RE = re.compile(r"^\s*recordedVesselGuid = (\S+)\s*$",
+                                 re.MULTILINE)
+
+    def _stems_exempt_from_vessel_snapshot(self, committed):
+        """The union of the two legitimate shapes; see the class docstring."""
+        return (self._chain_continuations_without_own_snapshot(committed)
+                | self._same_launch_recordings_without_own_snapshot(committed))
+
+    def _chain_continuations_without_own_snapshot(self, committed):
+        """Stems a missing `_vessel.craft` is LEGITIMATE for.
+
+        Parsek writes ONE `_vessel.craft` per chain, on the chain HEAD: a
+        continuation segment (`chainIndex > 0`) is the same physical vessel and
+        reuses the head's snapshot, so it is written with a `_ghost.craft` and no
+        vessel snapshot of its own. Measured on the source of `duna-one-recorded`
+        (the first free-play harvest, whose mission runs a four-segment chain
+        across a Kerbin -> Duna transfer): the recordings with no
+        `_vessel.craft` on disk are EXACTLY the six with `chainIndex >= 1`, in
+        three different trees. No file was deleted to make that true.
+
+        The exemption is therefore a POSITIVE fact read out of the fixture's own
+        save, not a name list, and it is deliberately narrow in both directions:
+        a chain HEAD must still carry its snapshot, and a continuation is exempt
+        only when SOME EARLIER MEMBER OF ITS OWN CHAIN carries one in the same
+        fixture. A fixture that lost the head's snapshot therefore still reds -
+        which is the claim this cell exists to make, since the pruned
+        `_vessel.craft.txt` mirrors are rebuilt from exactly those binaries."""
+        exempt = set()
+        for name in sorted(os.listdir(FIXTURE_SAVES_DIR)):
+            sfs = os.path.join(FIXTURE_SAVES_DIR, name, "persistent.sfs")
+            if not os.path.isfile(sfs):
+                continue
+            with open(sfs, encoding="utf-8", errors="replace") as fh:
+                text = fh.read()
+            by_chain = {}
+            rows = []
+            for block in self._RECORDING_BLOCK_RE.split(text)[1:]:
+                rid = self._RECORDING_ID_RE.search(block)
+                cid = self._CHAIN_ID_RE.search(block)
+                cix = self._CHAIN_INDEX_RE.search(block)
+                if rid is None or cid is None or cix is None:
+                    continue
+                row = (rid.group(1), cid.group(1), int(cix.group(1)))
+                rows.append(row)
+                by_chain.setdefault(row[1], []).append(row)
+            prefix = "%s/Parsek/Recordings/" % name
+            for rid, cid, index in rows:
+                if index <= 0:
+                    continue
+                # An earlier member of this chain must carry the snapshot both
+                # this recording and the pruned mirrors are rebuilt from.
+                head_has_snapshot = any(
+                    other_index < index
+                    and (prefix + other_rid + "_vessel.craft") in committed
+                    for other_rid, _cid, other_index in by_chain[cid])
+                if head_has_snapshot:
+                    exempt.add(prefix + rid)
+        return exempt
+
+    def _same_launch_recordings_without_own_snapshot(self, committed):
+        """Stems a missing `_vessel.craft` is legitimate for, shape two.
+
+        `RecordingSidecarStore.SaveRecordingFiles` writes the sidecar only when
+        the recording carries a `VesselSnapshot`, and a recording of a vessel
+        another recording already snapshotted can legitimately be persisted
+        without one - `ParsekFlight`'s vessel-gone defensive null and the
+        auto-unreserve-crew pass both leave a transient in-memory null, and the
+        store deliberately does NOT delete or re-create the sidecar for it (see
+        the #278 follow-up comment at `RecordingSidecarStore.cs:63-76`).
+
+        FOUND BY `depot-route-recorded` (B27, 2026-08-26). Its `0c8ec58d...` is a
+        `Depot` recording carrying NO `chainId` at all - so the chain rule above
+        cannot reach it - and it has only a `_ghost.craft` IN THE OPERATOR'S
+        SOURCE SAVE, before any harvest ran. Nothing deleted it.
+
+        THE CORRELATOR IS `recordedVesselGuid`, NOT `vesselPersistentId`, and
+        that choice is the whole safety argument. A pid is craft-baked and
+        reused verbatim on every launch of the same craft, so a pid match across
+        two recordings is not proof they are the same physical object; the guid
+        is assigned fresh per launch and IS launch-unique (see
+        `VesselLaunchIdentity`). A same-guid sibling is therefore the same
+        physical vessel, and its committed snapshot is exactly the one this
+        recording's pruned `_vessel.craft.txt` mirror would be rebuilt from.
+
+        NARROW IN THE SAME WAY AS THE CHAIN RULE: the exemption requires that
+        SOME recording of that launch carries a committed `_vessel.craft` in the
+        SAME fixture. A fixture that lost every snapshot of a launch still reds,
+        which is the claim this cell exists to make. Recordings with no
+        `recordedVesselGuid` (older captures) are never exempted here - they fall
+        through to the chain rule or fail."""
+        exempt = set()
+        for name in sorted(os.listdir(FIXTURE_SAVES_DIR)):
+            sfs = os.path.join(FIXTURE_SAVES_DIR, name, "persistent.sfs")
+            if not os.path.isfile(sfs):
+                continue
+            with open(sfs, encoding="utf-8", errors="replace") as fh:
+                text = fh.read()
+            by_guid = {}
+            for block in self._RECORDING_BLOCK_RE.split(text)[1:]:
+                rid = self._RECORDING_ID_RE.search(block)
+                guid = self._VESSEL_GUID_RE.search(block)
+                if rid is None or guid is None:
+                    continue
+                by_guid.setdefault(guid.group(1), []).append(rid.group(1))
+            prefix = "%s/Parsek/Recordings/" % name
+            for _guid, rids in by_guid.items():
+                snapshotted = [r for r in rids
+                               if (prefix + r + "_vessel.craft") in committed]
+                if not snapshotted:
+                    continue
+                for rid in rids:
+                    if (prefix + rid + "_vessel.craft") not in committed:
+                        exempt.add(prefix + rid)
+        return exempt
 
     def test_every_committed_trajectory_keeps_its_readable_mirror(self):
         """`.prec.txt` is a LIVE TEST INPUT, and the gate has to be per-file.
@@ -12371,6 +12917,41 @@ class CommittedFixtureMirrorTests(unittest.TestCase):
         self.assertEqual([], missing,
                          "these recordings lost the readable trajectory mirror that "
                          "OptimizerTransferCohesionTests globs: %s" % (missing,))
+
+
+class CommittedFixtureQuarantineTests(unittest.TestCase):
+    """No fixture may carry `Parsek/Recordings/_quarantine`.
+
+    `RecordingStore.OrphanQuarantineDirName` is where `CleanOrphanFiles` PARKS a
+    sidecar whose recording the store could no longer resolve, instead of
+    deleting it - non-destructive by design, so a save that has been played for a
+    while accumulates every such file forever. It is unreachable by construction:
+    the store's own directory scans are top-level-only and never descend into it
+    (its doc comment says so), so no fixture consumer, no spec and no analyzer
+    rule can read a byte of it.
+
+    The sibling of `CommittedFixtureRewindSaveTests` below, and it exists for the
+    same reason: harvest exhaust arrives by accident rather than by decision and
+    nothing downstream notices. Measured on the first free-play harvest
+    (`duna-one-recorded`, 2026-08-25): 12 MB over 375 files, LARGER than the
+    recorded payload the fixture is for. `harvest_bdock_station.py` prunes it via
+    `_PRUNE_RECORDINGS_SUBDIRS`; this cell is what keeps a future harvest from
+    re-introducing it."""
+
+    QUARANTINE_DIR_NAME = "_quarantine"
+
+    def test_no_fixture_commits_a_quarantine_directory(self):
+        offenders = []
+        for dirpath, dirnames, _filenames in os.walk(FIXTURE_SAVES_DIR):
+            for d in dirnames:
+                if d == self.QUARANTINE_DIR_NAME:
+                    offenders.append(
+                        os.path.relpath(os.path.join(dirpath, d),
+                                        FIXTURE_SAVES_DIR).replace("\\", "/"))
+        self.assertEqual([], sorted(offenders),
+                         "Parsek/Recordings/_quarantine is orphan-sweep exhaust "
+                         "nothing reads (RecordingStore's scans never descend "
+                         "into it); harvest_bdock_station.py prunes it")
 
 
 class CommittedFixtureRewindSaveTests(unittest.TestCase):

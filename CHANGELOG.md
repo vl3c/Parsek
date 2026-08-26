@@ -22,6 +22,86 @@ All notable changes to Parsek are documented here.
   rebuild run twice and byte-compared, every changed line a last-digit float
   rounding in a spliced part's position or rotation. Test-tooling only; no
   gameplay change.
+- The automated tests can now OPEN THE MAP. That sounds trivial and was not: KSP
+  only draws the map when the map is on screen, and nothing in the automation
+  system had ever put it there. Every automated flight ran with the map closed,
+  which meant the part of Parsek that decides what to draw on the map ran every
+  frame while the part that actually draws it never ran once - and the render
+  checks, reading only the first half, were reporting intentions as if they were
+  drawings. A recent run made that visible by flagging three "nothing drew this"
+  problems that were really the instrument asking a question the flight never
+  asked. Two new automation commands close the gap: one opens the map view, one
+  closes it again. Both confirm what actually happened by reading the game's own
+  map state back rather than trusting that the request went through, so a refusal
+  by the game - a mission that forbids the camera switch, a save with the map
+  disabled - is reported as a refusal instead of a success. Asking for a map that
+  is already open is fine and says so. The looped-Mun test that surfaced the
+  problem now uses both commands - it opens the map before the first thing it
+  watches and closes it again before writing its report - and IT HAS NOW BEEN
+  RE-RUN. With the map open the drawing half reported itself six times, in three
+  matched start/stop pairs, at exactly the three moments that had previously
+  looked like "nothing drew this". So all three of those flags were the
+  instrument, not a fault: Parsek draws what it says it is going to draw.
+  Everything else that run measured came back identical to the earlier one, so
+  the answer was not bought by quietly changing what the test watches. The render
+  checks will now say something real about drawing on any flight that opens the
+  map. Test-tooling only; no gameplay change.
+
+- Two new automated tests were written against the two recorded missions added
+  earlier in this release. The first is the automation system's first test of a
+  SUPPLY ROUTE: it loads a save carrying a real, running Kerbin-to-Kerbin route
+  and watches it from the tracking station, which is where route lines get drawn
+  without the map needing to be open at all. Nothing in the automated suite had
+  ever observed a route, so the checks written for route drawing had never once
+  run against a real one. The second watches a mission that reaches Duna the long
+  way round - it leaves Kerbin almost immediately, then coasts around the Sun for
+  about a hundred and fifty days waiting for the alignment before burning for
+  Duna. Parsek has special handling for that kind of departure, added for exactly
+  this recording, and no automated test had ever exercised it. BOTH HAVE NOW
+  FLOWN. The route test drew a route line from the tracking station on its first
+  good run - the first time anything in the automated suite has seen one - and
+  read the route's own details straight back out of the running game, matching
+  the saved file digit for digit. The long-way-round Duna test confirmed that
+  Parsek's special handling really does engage on that mission, which until now
+  was only ever worked out on paper. Both are still set to report what they find
+  rather than to pass or fail on it. Test-tooling only; no gameplay change.
+
+- A render check was blaming the wrong join. When a mission's map view fast-
+  forwards past a whole leg of the flight, the check that verifies how Parsek
+  stitches one leg to the next was looking at the last join in the skipped stretch
+  instead of the one where the craft actually changed planets - so it reported a
+  correct stitch as a fault on the long-way-round Duna flight. It now looks at
+  every join the skip passed over and asks each one about its own two ends. Parsek
+  itself was right all along and nothing about the game changes; re-checking every
+  saved run from before the fix, the false report disappears and all sixteen
+  others read exactly as they did. Test-tooling only; no gameplay change.
+
+- Found and filed a tiny map-view flicker: when the game clock steps a long way
+  in one go (a big warp jump), a ghost's orbit line can go dark for a fraction of
+  a second while the renderer catches its window up to the clock, then relight on
+  its own. It is harmless and rare - the same automated flight only shows it on
+  some runs - but the automated render watch caught it, and it is now recorded as
+  a known issue with the exact mechanism written down. No fix attempted yet.
+
+- The automated dwell tests can now aim at the right moment in a looped mission
+  whose playback SKIPS its parking wait. A re-aimed loop deliberately cuts the
+  months a recorded mission spends parked waiting for its transfer window, so
+  the loop plays faster than it was recorded and a moment named by its recorded
+  time is not where the loop actually shows it. A test lane whose subject did
+  that pointed all three of its observation windows past the end of the
+  shortened lap, watched an empty map for the whole run, and still reported
+  success - the emptiness was the finding. The mission-configuration test hook
+  now hands out the loop's cut list and its shortened duration, and the dwell
+  machine converts every recorded time through them, so a lane can keep naming
+  moments the way the recording does and still land on them. A window that lands
+  inside a cut interval, or past the end of the shortened lap, is now refused by
+  name the moment the loop is armed - those are authoring mistakes in the test
+  lane, and refusing them takes seconds where the old behaviour took a full
+  flight to notice. Lanes over recordings with nothing cut out behave exactly as
+  before. The same run also found that a test drive shape which steps time-warp
+  up and back down was never actually returning to normal speed afterwards, so
+  its hold-and-watch stretches were being watched at ten times speed; that is
+  fixed too. Test-tooling only; no gameplay change.
 
 - The new map-composition checker was calibrated against its first FREE-PLAY
   session - a long Kerbin-to-Duna looped mission played by hand and eyeballed as
@@ -67,10 +147,11 @@ All notable changes to Parsek are documented here.
   from the recorded plan and reports every gap, seam, hold and cut that the
   written composition catalog does not explain, plus anything observed that no
   rule claims at all. It rides the verifier chain as a new `renderCompose` row,
-  REPORT-ONLY everywhere except the two lanes it is now armed on: two committed
-  lanes (`V14M-ike-player-loop`, `V8-eve-player-loop`) declared the
+  REPORT-ONLY everywhere except the three lanes it is now armed on: three
+  committed lanes (`V14M-ike-player-loop`, `V8-eve-player-loop`,
+  `V24W-duna-one-warp-stair`) declared the
   `[expectations.renderComposition]` block bare, flew their report-only reading
-  runs on 2026-08-25 (both PASS; facets recorded in the spec arming ledgers and
+  runs on 2026-08-25 (facets recorded in the spec arming ledgers and
   `autotest-status.md`), and were then ARMED off exactly those measurements -
   each lane's declared windows are the numbers its own run produced, with stated
   margins, and a miss now fails the run with
@@ -81,9 +162,27 @@ All notable changes to Parsek are documented here.
   reading could say "off" on a file full of measurements only a running tracer
   can produce. Plus one in-game test category (`RenderComposition`) asserting
   only that the exported file is well-formed, and the manifest is collected into
-  each run's artifacts beside KSP.log. The armed lanes still owe their
-  confirmation flights; warp-schedule lanes and the route surfaces are the next
-  phases. Test-tooling only; no gameplay change.
+  each run's artifacts beside KSP.log. Every armed lane has since flown its
+  confirmation flights: each one re-flew the armed shape and passed, and each one
+  was then deliberately mis-declared once to prove the check can actually fail,
+  with the deliberate break reverted immediately. The third lane is the reason
+  this is worth saying. The checker has always insisted that a map view claiming
+  to cover fast-forwarded time must actually have been watched while time ran
+  fast - and until now nothing in the automated suite could satisfy that, because
+  every other test drive jumps the clock instantly rather than running it at
+  speed. A new lane replays a hand-flown Kerbin-to-Duna loop and steps time-warp
+  up a ladder and back down at each of the three moments it watches, so the check
+  is now backed by a real fast-forward instead of standing unused; its window was
+  written from two independently measured runs whose readings matched, and a run
+  whose fast-forward never happened now fails. That closes the last of this
+  phase's work, and the route-drawing surfaces are what remains. Since then the
+  recorder has been switched on across essentially the whole replay-lane corpus:
+  fifteen further lanes now declare the block and export a manifest on every
+  flight - including, for the first time anywhere, one watched from the tracking
+  station and one watched from the space centre - so composition measurements
+  accumulate on their own from ordinary scheduled runs, and none of the new lanes
+  fails a run until its own readings have been read.
+  Test-tooling only; no gameplay change.
 
 - The automated-testing suite gained a second moon-to-moon subject, so a result
   measured once can be checked at a different planet. Last time, a crewed ship
@@ -240,6 +339,10 @@ All notable changes to Parsek are documented here.
   or a fresh mission gets the fixed behaviour.
 
 ### Features
+
+- The hover-help strips of the widest windows are now ONE line tall, and help text that does not fit its strip scrolls into view instead of being cut off. Every Parsek window ends in a permanently visible strip showing what the control under your cursor does. It was always two text lines tall - sized for the narrowest window's needs - even in windows so wide that every sentence fits on one. Career State, Timeline, Logistics, Real Spawn Control and Recordings (along with the Missions tab it hosts) now reserve exactly one line, reclaiming the dead space at the bottom of the busiest windows in the mod; Settings, Kerbals and the rest keep two lines because their help texts genuinely wrap. The flip side of a shorter strip is that a rare over-long text - a very long vessel name in Real Spawn Control's Warp tooltip, a detailed hold reason in Logistics - used to clip at the box edge mid-word with no way to read the rest. Such a text now pauses at its start for a moment, scrolls left until its tail is readable, pauses there, and starts over. And to make the two busiest windows honest at one line, their longest explanations were tightened to fit: in Logistics, the Supply-Run cost tooltip no longer repeats the exact figures shown right beside it, the interval cadence tooltip says the same thing in fewer words, and a held route's status tooltip reads "Status - reason" on one continuous line instead of spending a whole line on the status word alone; in Recordings, the loop-period, STASH and mission-include explanations lost their padding without losing what they say.
+
+- The Recordings window now explains itself. Most of its controls were unlabelled boxes and one-letter buttons that said nothing on hover, so the only way to learn what a column did was to click it and watch. Now the sort headers, the select-all and per-row playback boxes, the folder and flight-chain rows and their aggregate toggles, the G and X buttons, the Loop boxes, the period unit button, the Info and New Group buttons and the Missions/Recordings tabs all describe themselves in the help strip at the bottom of the window. Two of them were actively misleading and now say so plainly: the Archive box in the header row is a FILTER that hides archived recordings and archives nothing itself (each row's own Archive box is what archives), and a recording's playback box controls whether a ghost appears, not whether the flight stays recorded.
 
 - Dock partners are now NAMED, on both sides. A dock has always been the most under-explained event in the mod: the Missions tab showed an inventory jump ("pod x1, crew x1" becoming "pod x2, probe x1, crew x4") with no word about which vessel joined, and the vessel that owned the recording - the side that actually has all the data - said the least of all. Now Parsek derives, at load time, a graph of every dock and undock across all recorded missions, resolves who each partner was (matched by craft identity AND launch identity, so two launches of the same craft are never confused), and names them: the Missions tab's docked intervals say who joined ("Docked - with CD (mission 'CD Freighter')", in the row's tooltip and inline where it fits), and the Recordings tab's merged stacks say who they absorbed. This also covers a case that used to be structurally invisible: docking with a vessel from an EARLIER session of the same mission (fly A, come back later, dock it to the probe D you left behind) now names D even though the old machinery could not see that dock from D's side at all. Docks recorded before this release that never captured a partner identity simply stay unnamed, exactly as before. The graph is a pure derivation - nothing about playback, looping, or the recordings themselves changes - and it is the foundation the upcoming mission event history and loop seam labels build on.
 

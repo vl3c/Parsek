@@ -86,3 +86,32 @@ min = 0.0
 required = false
 type = "number"
 min = 0.0
+
+# --- THE RAILS WARP STAIR (M-A7 RC-WARP), FLAG-GATED AND INERT BY DEFAULT ---
+# Omit `dwellRampFactors` (or give it []) and the machine is byte-identically
+# the pre-RC-WARP one: no stair branch, no extra action, no extra assertion
+# row. V2 / V3F / V3R all omit it and are unchanged.
+#
+# Declared non-empty, EACH of the three dwell windows (depart / arrive / park)
+# climbs and descends the COMMANDED rails ladder before its 1x hold, which is
+# the only drive shape in the suite that can put anything but `warp1x` in the
+# manifest's warp histogram - the thing RC-WARP exists to assert on and that
+# no `TimeJump`-driven lane can ever produce. Factor indices are COMMANDED
+# (KSP rails 0=1x, 1=5x, 2=10x, 3=50x, 4=100x, 5=1000x); the server clamps to
+# legality and the machine never gates on an achieved rate, exactly as V1's
+# DWELL-WARP-RAMP does not.
+[params.dwellRampFactors]
+required = false
+type = "list"
+
+[params.dwellRampStepFrames]
+required = false
+type = "int"
+min = 1
+max = 1000
+
+[params.dwellRampFrames]
+required = false
+type = "int"
+min = 1
+max = 100000

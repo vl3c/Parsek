@@ -1373,12 +1373,49 @@ a limitation's clothes.
 
 Ranked by supply-run value per flight-hour. Each entry names the class, why it
 matters, the cheapest representative, the expected-but-unmeasured routing, and
-what counts as confirmation. Scenario ids B27-B31 and V18-V23 are RESERVED HERE
+what counts as confirmation. Scenario ids B27-B31 and V18-V24 are RESERVED HERE
 (across all their suffixes: the established `M` player/flight-map and `T`
 tracking-station lanes, plus `K` for a KSC-host lane - G2's correction below
 reserves `V20K`, and G3a reserves `V22K`, which is the first committed `K` lane)
 - this section is their only home - so sibling PRs do not collide; check open
 PRs before authoring and renumber only if one already claims an id.
+
+**V24 IS RESERVED HERE AND NEW, AND IT MINTS THE `W` SUFFIX**, which is the part
+worth reading twice. Every suffix so far names the RENDER HOST the lane observes
+from: `M` the player flight map, `T` the tracking station, `K` the KSC. `W` names
+a DRIVE SHAPE instead - a **warp-schedule lane**, one that moves the game clock
+with a real rails ladder rather than with instantaneous `TimeJump`s. It exists
+because M-A7's RC-WARP rule is satisfiable ONLY by that shape: both armed
+render-composition lanes drive `TimeJump`s exclusively, so their warp histograms
+are 1x-only by construction (confirmed on four flights) and `warpBuckets` may
+never be declared on either. A `W` lane may therefore SHARE a host with an
+existing lane - `V24W-duna-one-warp-stair` observes the same flight map V2 does -
+because what distinguishes it is not where it watches from but how its clock
+moves. **The first committed `W` lane is `V24W-duna-one-warp-stair`** (authored
+2026-08-25, never flown, reading run pending; status row in
+`autotest-status.md`), over `fixtures/saves/duna-one-recorded`, the harvest of
+the first free-play ground-truth session. `V24M` / `V24T` / `V24K` are reserved
+alongside it and unused; a second warp-schedule subject should take the next free
+number with a `W`, not a second suffix letter.
+
+**V25 IS RESERVED HERE AND NEW (2026-08-26), ACROSS ALL ITS SUFFIXES**, on the
+same rule as every reservation above: this section is their only home, so check
+open PRs before authoring and renumber only if one already claims an id. It takes
+the ORDINARY `M` suffix and mints nothing, because what makes it a distinct
+subject is the RECORDING rather than the host or the drive shape. **The first
+committed V25 lane is `V25M-duna-park-player-loop`** (authored 2026-08-26, never
+flown, reading run pending; status row in `autotest-status.md`), over
+`fixtures/saves/duna-park-recorded` - the SECOND payload stripped out of the same
+visually-validated s15 free-play save that gave `duna-one-recorded`, and disjoint
+from it. It is **re-aim's second departure class**: every prior re-aim subject in
+the suite (V2 / V8 / V10 / V24W) is a DIRECT ejection, while this one escapes
+Kerbin almost immediately, phases on the SUN for 13,502,219.94 s on one
+near-circular orbit 3.47 % outside Kerbin's own, and only then burns for Duna.
+That path exists in the product BECAUSE of these bytes - `ReaimClassifier`'s
+partial-transfer decline carries an exception whose comment reads "EXCEPTION (s15
+Kerbal X #2)" and whose admissibility doc quotes this recording's own ecc and sma
+- and no committed lane has ever driven it. `V25T` / `V25K` / `V25W` are reserved
+alongside and unused.
 
 THE B-RANGE ROSTER, because it is now full enough that the next author cannot
 pick a free id by eye: **B27** G1 (`B27-station-route`), **B28** G2 moon-to-parent
@@ -1417,6 +1454,74 @@ loop) is this lane; track it here, not under both ids. G3b - the surface
 ENTRY: it is route front-door work needing the driver, the status gate and
 the route clock this lane stands up, so it rides G1 rather than a mission
 loop.
+
+**AMENDMENT 2026-08-26: B27's SUBJECT IS A HARVEST, NOT A FORGE OVER THE BDOCK
+FIXTURE.** The paragraph above says "one committed SAME-BODY supply route over
+the BDOCK station fixture", and that path is closed by this entry's own header:
+route candidacy is gated on `IsTreeFullySealed`, and BOTH verbs that could
+satisfy it - `SealSlot` and `RouteCommand` - are RESERVED command-seam verbs
+(H35 ROUTE-CANDIDACY-GATED-ON-SEAL-NO-SEAM-PATH). No driven run can create a
+ROUTE at all today, so a forge over BDOCK cannot produce the subject. The
+verb-free path is the `duna-one-recorded` provenance class - harvest a save an
+operator already flew - and that is what was done: `fixtures/saves/
+depot-route-recorded`, harvested from the operator's own free-play sandbox save
+`orbital supply route DELIVERY test` and finished by
+`harness/tools/build_depot_route_recorded.py`. It carries ONE ROUTE
+(`5420f805...`, `status = Active`, `completedCycles = 1`, SameBody
+Kerbin -> Kerbin, DockingPort STOP onto the `Depot`), two whole recording trees,
+22 recordings, and reads GREEN under `analyze-recordings.ps1 -FailOnRed
+-FreshSaveGate`.
+
+Two consequences for whoever picks this up. **B27 is a FORGE-CLASS STAMP, not a
+flight**: the id now names a tool plus its drift test
+(`harness/lib/test_build_depot_route_recorded.py`), and the FLIGHT variant -
+a route created in-run through the seam - stays DEFERRED behind `SealSlot` /
+`RouteCommand`. Do not book B27 as an unflown flight; do not renumber it when
+those verbs land, extend it. **The five things G1 measures are unchanged and
+still unmeasured** - they now hang off V18M/V18T over these bytes rather than
+off a forged fixture. Registry D10 `route-map-lines` stays UNDECLARED until a
+GATING token earns it (H35 CLAIM-IS-NOT-GATE); a lane that merely draws a route
+line without asserting one does not get to declare the dimension.
+
+**V18T CAN FLY FIRST, and that is a measured fact rather than a preference.**
+`RouteTrajectoryLineRenderer.DrawAll` has exactly one production call site -
+`GhostTrajectoryPolylineRenderer.Driver`'s `Camera.onPreCull` hook
+(`Display/GhostTrajectoryPolylineRenderer.cs:3894-3906`) - and its complete
+guard chain is `PlanetariumCamera.fetch != null && cam == PlanetariumCamera.Camera`,
+`scene is TRACKSTATION or FLIGHT`, and a per-frame de-dupe. There is NO
+`MapView.MapIsEnabled` on that path, in the host (`[KSPAddon(Instantly, once)]`
++ DDOL) or inside `DrawAll` (whose only gate is the `showRouteLines` setting,
+default true). The GHOST polyline pass is the one that is map-gated, at
+`:4014`, one structure apart. So a TRACKSTATION route lane needs no
+`EnterMapView` verb; that verb is owed only by a lane that also asserts GHOST
+polyline facets.
+
+**AND IT HAS BEEN AUTHORED (2026-08-26): `V18T-depot-route-ts-arrival` IS G1's
+FIRST LANE.** Never flown, reading run pending; spec header and status row carry
+the detail. Three things about it are worth reading here rather than there,
+because they are decisions about the GAP and not about the lane.
+(a) **It arms no mission loop.** The route drives - `SelectGhostDrivingBackingMissions`
+-> `RouteBackingMission.BuildMission` -> the TS host union, which
+`GhostMapPresence.BuildStartupTrackingStationLoopUnits` folds in before the
+one-shot startup create. Arming a mission would measure the mission path and
+call it the route front door.
+(b) **Of G1's five named things, ONE and a HALF are gated on flight 1.** The
+front door and the `GhostDriving` suppression gate are gated, three ways
+(`RevalidateSources ... routes=1 transitioned=0`, `ghostDriving=[1-9]`,
+`routeMissions=[1-9]`) - and the `transitioned=0` half is the load-bearing one,
+because the realistic way this whole lane goes green-and-empty is the LOAD-TIME
+OPTIMIZER moving a `startUT` on one of the four ROUTE `SOURCE` recordings and
+flipping the route to `SourceChanged`, which never auto-recovers. The route
+overview line is MEASURED but NOT gated (the bare
+`[expectations.renderComposition]` block records `routeLineBuilds`, which would
+be its first non-zero reading anywhere). The route-owned cadence is READ only:
+the spec derives THREE candidate phase-anchor branches from the committed bytes
+and finds they cannot be separated without a flight, so it pins no cadence token
+and writes the calibration recipe instead. The dock/station endpoint is
+partially read.
+(c) **D10 `route-map-lines` is still UNDECLARED**, exactly as the amendment
+above requires. It gets declared in the commit that arms `routeLineBuilds`,
+citing the run - not in the commit that first draws a line.
 
 **G2 - Return legs (moon -> its parent; planet -> Kerbin).** A supply run is a
 round trip and every committed loop subject is outbound. The return direction

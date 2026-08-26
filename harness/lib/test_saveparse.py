@@ -1919,6 +1919,398 @@ class CommittedFixtureSweepTests(unittest.TestCase):
                              "d9b5675fc64f439aa5fff170f72d6ad4"],
             "schemaGeneration": 4,
         },
+        # --- THE FIRST FREE-PLAY SUBJECT (A NEW PROVENANCE CLASS) --------
+        # PROVENANCE: duna-one-recorded <- THE OPERATOR'S OWN HAND-PLAYED
+        # SESSION, snapshot `logs/2026-08-25_1537_s15-duna-one-manifest-run2`
+        # (save `s15`), VISUALLY VALIDATED BY THE OPERATOR 2026-08-25. Harvested
+        # `--save-dir <log copy>/saves/s15 --target-name duna-one-recorded
+        # --expect-situation PRELAUNCH --keep-parsek` (the gate passed on
+        # 'Jumping Flea' PRELAUNCH, vessels=13), then stripped and repaired by
+        # `harness/tools/build_duna_one_recorded.py`.
+        #
+        # WHY THAT PROVENANCE IS DIFFERENT FROM EVERY ENTRY ABOVE, and why it
+        # matters more than the usual run id: all fourteen siblings are the
+        # product of a DRIVEN harness run - one scenario, one craft, one
+        # committed tree, harvested verbatim out of the produced save. This one is
+        # a real mission a human flew for its own sake, so it carries shapes a
+        # synthesised profile does not reach: a four-segment vessel CHAIN across
+        # an interplanetary transfer, a controlled-decoupled probe, an EVA branch
+        # point, six pieces of ascent debris, a loop-ARMED MISSION row
+        # (`loopPlayback = True`), and a save clock five billion seconds in. That
+        # is what the M-A7 RC-WARP lane needs to read.
+        #
+        # IT IS NOT THE HARVEST'S RAW OUTPUT, and the difference is a recipe, not
+        # a hand-edit. A free-play save carries a career, not a subject: this one
+        # held FOUR unrelated RECORDING_TREEs, 47 sidecar families, five stand-in
+        # kerbal slots, one orphan RECORDING_SUPERSEDES row, 12 MB of orphan-sweep
+        # `_quarantine`, and twelve analyzer INV2 FAILs. Everything kept or
+        # dropped is spelled out in `build_duna_one_recorded.py`, which also has a
+        # `--check` mode wired to `DunaOneRecordedFixtureDriftTests` in
+        # `test_build_duna_one_recorded.py`, so a hand-edit of these bytes reds in
+        # the harness suite rather than in a live flight. The committed save reads
+        # GREEN under `analyze-recordings.ps1 -FailOnRed -FreshSaveGate`
+        # (`FAIL=0 WARN=15 RED=0`; the 15 are INV8 phantom-attribution WARNs from
+        # the restored `ledger.pgld`, which still records the whole free-play
+        # career - see the todo entry).
+        #
+        # THE INV2 REPAIR, named here because it is the one place the committed
+        # bytes differ from what Parsek wrote. The main transfer recording
+        # `61e9177193444e329247d0e8288cf91e` carried SIX redundant TrackSections,
+        # each a duplicate of coverage a neighbour already owned, and
+        # `Inv2NoDoubleCover` FAILs on every one. The builder dropped exactly
+        # these six (index, span) and NOTHING ELSE - no trajectory point moved, no
+        # other recording was touched, and the top-level 22-entry ORBIT_SEGMENT
+        # list is byte-untouched:
+        #   34  [64044032.725027621, 65004886.739419721]  Kerbin->Sun seam
+        #   43  [70898646.0584081,   70912683.547375381]  Sun->Duna seam
+        #   47  [70956143.35894987,  70956471.231831044]  Duna->Ike seam
+        #   51  [70958360.7066507,   70958731.38776888]   Ike->Duna seam
+        #   60  [70960696.459866241, 70960923.929514691]  contained in 61
+        #   62  [70960923.929514691, 70962487.1269182]    contained in 61
+        # Sections 34/43/47/51 are the frame-less `ref=0 src=0` shells of an
+        # EXACT-span pair whose other half is the `ref=2 src=2` OrbitalCheckpoint
+        # carrying that span's ORBIT_SEGMENT; 60 and 62 partition section 61
+        # exactly, and 62's nested segment is element-for-element identical to
+        # 61's. Coverage is therefore invariant, which the builder asserts rather
+        # than assumes. The four seam positions are NOT a coincidence - see
+        # todo-and-known-bugs.md -> RECORDER-SUSPECTED-DOUBLE-EMIT-AT-SOI-SEAM.
+        #
+        # THE BYTES THE RC-WARP LANE ANCHORS ON, all re-measured off THESE
+        # COMMITTED BYTES:
+        #   tree id          1ccdb19215034ac19f3a8e31697b05ed
+        #     root group "Duna One", MISSION 0aad5325bcfb4ea1a147d8691ec26443
+        #     name "Duna One", loopPlayback True, loopAnchorUT 5180683162.3895044
+        #   main transfer    61e9177193444e329247d0e8288cf91e (chainIndex 1 of the
+        #     four-segment chain aff63064eefd4ee0a099f5c57728bb55)
+        #   explicitStartUT  52,569,490.911798075   (UT0 - the V6M convention;
+        #                    ORBIT_SEGMENT 0's startUT is 52,569,494.685523860,
+        #                    a 3.774 s gap that would put every bracket off)
+        #   explicitEndUT    70,963,652.639611751   span 18,394,161.727813676 s
+        #   TWENTY-TWO top-level ORBIT_SEGMENTs, body roster Kerbin x9 (0-8),
+        #     Sun x3 (9-11), Duna x2 (12-13), Ike x2 (14-15), Duna x6 (16-21),
+        #     and FOUR body-change seams - more than any other committed subject -
+        #     each an exact adjacent `endUT == startUT` pair. Offsets from
+        #     explicitStartUT, quoted as the Python repr of the subtraction:
+        #       Kerbin->Sun at 64,044,032.725027621  off 11474541.813229546
+        #       Sun->Duna   at 70,898,646.0584081    off 18329155.14661002
+        #       Duna->Ike   at 70,956,143.35894987   off 18386652.447151795
+        #       Ike->Duna   at 70,958,360.7066507    off 18388869.79485263
+        #     The Duna->Ike->Duna pair is a 2,217.348 s Ike SOI GRAZE on the way
+        #     in, not a moon capture; the destination is Duna.
+        #   save clock (FLIGHTSTATE UT)  5,336,112,610.6518345, activeVessel 8
+        #     ('Jumping Flea', PRELAUNCH), 13 VESSEL nodes, Mode SANDBOX
+        #   pointCount total 1921 over the 13 recordings (largest 681 = the
+        #     transfer, smallest 18 = the landing tail)
+        #
+        # `terminalStates` SUMS TO 9, NOT 13, AND THAT IS CORRECT: the four
+        # members of the chain (5d68d429 / 61e91771 / 0b91670c / 7609b87b) carry
+        # NO `terminalState` key at all, so `observed_structure_facets` counts
+        # none for them. Landed 2 = the landed Kerbal X `cead1f22` plus
+        # Valentina's EVA `f9caa140`; Orbiting 1 = the decoupled `Kerbal X Probe`
+        # `6561c8eb`; Destroyed 6 = the six ascent debris. `branchPoints` carries
+        # the suite's FIRST `EVA` entry alongside 4 `JointBreak`.
+        #
+        # `minAuthoritativeSidecars` IS 50, NOT 52 (13 x 4), and that is also
+        # correct: `61e91771` and `0b91670c` are chain CONTINUATIONS and reuse the
+        # chain head's `_vessel.craft` rather than carrying one - which is why
+        # `CommittedFixtureMirrorTests` grew its chain-continuation exemption for
+        # this fixture. The committed count is exactly 50.
+        "duna-one-recorded": {
+            "trees": 1, "committedTrees": 1, "recordings": 13,
+            "supersedes": 0, "tombstones": 0, "rewind_points": 0,
+            "rewind_retirements": 0,
+            "terminalStates": {"Orbiting": 1, "Landed": 2, "Destroyed": 6},
+            "branchPoints": {"EVA": 1, "JointBreak": 4},
+            "minAuthoritativeSidecars": 50,
+            "recordingIds": ["0b91670cf8334780a2b78687e80d6923",
+                             "4ed6e4f2767d455685b64b488704a023",
+                             "5d68d429060b429987bc8be7bb930bd2",
+                             "61e9177193444e329247d0e8288cf91e",
+                             "6561c8eb97dd48d6825e9d6c7c04d22a",
+                             "6dae41d1b2584f0cbc49afdd587cbdfe",
+                             "70e9c28bd20947d0afeaa1deb9215e34",
+                             "7609b87bc4fa44788ecd180e177b8475",
+                             "7c92064d5d0640a1a18126bc2aab2cc7",
+                             "b06a8b5f81274995879f42b67d24eae8",
+                             "cead1f22d40443f48d1bd955ad072257",
+                             "efe1ab5e2fbd48dd868c724f3ab56344",
+                             "f9caa140787248f3b67d48dfcf494c7b"],
+            "schemaGeneration": 4,
+        },
+        # --- THE HELIOCENTRIC-PARKING DEPARTURE ---------------------------
+        # PROVENANCE: duna-park-recorded <- THE SAME OPERATOR SAVE as
+        # `duna-one-recorded` above (snapshot
+        # `logs/2026-08-25_1537_s15-duna-one-manifest-run2`, save `s15`,
+        # visually validated 2026-08-25), harvested `--save-dir <log copy>/saves/s15
+        # --target-name duna-park-recorded --expect-situation PRELAUNCH
+        # --keep-parsek` (the gate passed on 'Jumping Flea' PRELAUNCH,
+        # vessels=13), then stripped and repaired by
+        # `harness/tools/build_duna_park_recorded.py`. That save carried FOUR
+        # unrelated RECORDING_TREEs; this fixture keeps a DIFFERENT one from its
+        # sibling, so the two are disjoint payloads out of one harvest.
+        #
+        # WHY IT IS A SEPARATE SUBJECT AND NOT A DUPLICATE OF `duna-one-recorded`.
+        # Both are crewed Duna missions with a multi-segment chain, ascent
+        # debris, a decoupled probe and an EVA - the counts below barely separate
+        # them. What separates them is HOW THEY GET TO DUNA, which lives in the
+        # transfer recording's ORBIT_SEGMENT list and which no saveparse facet
+        # reads:
+        #
+        #   `duna-one-recorded` (tree 1ccdb192) is a DIRECT transfer. It parks in
+        #   KERBIN orbit (six consecutive Kerbin segments at sma 731,229.576,
+        #   ecc 0.00131), ejects, and its three Sun segments are ONE conic split
+        #   by warp (sma 17,604,964,389.77 throughout). The departure burn
+        #   happens inside Kerbin's SOI.
+        #
+        #   THIS ONE (tree ced78481, "Kerbal X #2") is a HELIOCENTRIC PARKING
+        #   DEPARTURE - the operator's own description was "orbits the star until
+        #   alignment is good". Its transfer `aa48920e...` (856 points, the
+        #   largest recording in the source save) ejects from Kerbin almost
+        #   immediately (segment 1 = Kerbin sma 55,427,165.82, ecc 0.97577, an
+        #   escape ellipse) and then COASTS ON ONE SUN ORBIT across THREE
+        #   consecutive segments whose elements agree to ten significant figures:
+        #     seg 2  sma 14,072,049,898.090191  ecc 0.0326934153364881
+        #            [2,547,568,544.056056  -> 2,560,670,336.8959155]
+        #     seg 3  sma 14,072,049,898.089064  ecc 0.032693415336629207
+        #            [2,560,670,342.59591   -> 2,560,985,257.3773251]
+        #     seg 4  sma 14,072,049,898.090006  ecc 0.03269341533672783
+        #            [2,560,985,293.2372909 -> 2,561,070,763.99165]
+        #   That is 13,502,219.94 s held (about 156 Kerbin days) at 3.5% outside
+        #   Kerbin's own heliocentric sma (13,599,840,256 m) - a PHASING orbit,
+        #   not a transfer. THE DEPARTURE BURN IS AN ELEMENT STEP at
+        #   2,561,070,900.0315204: seg 5 jumps to sma 17,908,765,008.460636 /
+        #   ecc 0.19216439941 (+27% sma, +488% ecc).
+        #
+        # The third candidate was ruled out MECHANICALLY: tree 7f01f8b9 (also
+        # named "Kerbal X") carries NO Sun segment at all - its two chains run
+        # Kerbin -> Mun -> Kerbin and never leave the Kerbin system.
+        #
+        # THE BYTES A LANE ANCHORS ON, all re-measured off THESE COMMITTED BYTES:
+        #   tree id          ced7848157674b8ea19311377c0f6fbc
+        #     root group "Kerbal X #2", MISSION 6fa271def0a549eb8375ddbf445b1344
+        #     name "Kerbal X #2", loopPlayback False,
+        #     loopAnchorUT 5080722184.761054
+        #   park transfer    aa48920e43fb4bf483940e0d8191a1ce (chainIndex 1 of the
+        #     four-segment chain 1d63a7a6cd86466389b748bf8f092f42)
+        #   explicitStartUT  2,547,277,637.2482719  explicitEndUT
+        #     2,570,542,381.0310211  span 23,264,743.782749 s
+        #   FOURTEEN top-level ORBIT_SEGMENTs, body roster Kerbin x2 (0-1),
+        #     Sun x4 (2-5), Duna x8 (6-13), and TWO body-change seams:
+        #       Kerbin->Sun at 2,547,568,544.056056
+        #       Sun->Duna   at 2,570,454,935.6223264
+        #     Duna arrival is hyperbolic (ecc 3.6025) and CAPTURES into an
+        #     ellipse at 2,570,492,255.33601 (sma 495,883.11, ecc 0.042042).
+        #   save clock (FLIGHTSTATE UT)  5,336,112,610.6518345, activeVessel 8
+        #     ('Jumping Flea', PRELAUNCH), 13 VESSEL nodes, Mode SANDBOX - all
+        #     four shared with `duna-one-recorded`, which is stripped from the
+        #     same save and therefore carries the same world.
+        #   pointCount total 2706 over the 14 recordings (largest 856 = the park
+        #     transfer, smallest 26 = the decoupled probe)
+        #
+        # THE INV2 REPAIR, named here because it is the one place the committed
+        # bytes differ from what Parsek wrote. The analyzer Forbid gate was run
+        # FIRST on the freshly stripped bytes and read `FAIL=4 WARN=16 RED=1`;
+        # the builder then dropped exactly these four redundant TrackSections
+        # from `aa48920e...` (52 -> 48) and NOTHING ELSE - no trajectory point
+        # moved, no other recording was touched, and the 14-entry top-level
+        # ORBIT_SEGMENT list is byte-untouched:
+        #    1  [2547277750.9906116, 2547280707.4508519]  frame-less shell,
+        #       a strict prefix of section 2
+        #    3  [2547280707.4508519, 2547281403.3664637]  a re-clip of section
+        #       2's conic (same elements, same epoch), contained in it
+        #   12  [2547568544.056056,  2560670336.8959155]  KERBIN->SUN SOI SEAM:
+        #       a `ref=0` shell duplicating section 13, the checkpoint that
+        #       carries the PARK segment itself
+        #   30  [2570454935.6223264, 2570490859.060472]   SUN->DUNA SOI SEAM:
+        #       the same shape beside section 31's arrival checkpoint
+        # Two of the four sit exactly on SOI seams, which is not a coincidence -
+        # see todo-and-known-bugs.md -> RECORDER-SUSPECTED-DOUBLE-EMIT-AT-SOI-SEAM.
+        # After the repair the save reads GREEN under
+        # `analyze-recordings.ps1 -FailOnRed -FreshSaveGate`
+        # (`FAIL=0 WARN=16 RED=0`; the 16 are INV8 phantom-attribution WARNs from
+        # the restored `ledger.pgld`, which still records the whole free-play
+        # career - the same class the sibling carries 15 of).
+        #
+        # `terminalStates` SUMS TO 10, NOT 14, AND THAT IS CORRECT: the four
+        # members of the chain (8538d9e1 / aa48920e / acf1435a / c5d0148a) carry
+        # NO `terminalState` key at all. Landed 3 = the landed Kerbal X
+        # `5466feba`, Merger's EVA `2f724cbd`, and debris `8884af4a`;
+        # Destroyed 4 + SubOrbital 1 = the ascent debris; Orbiting 2 = the
+        # decoupled probe `ed76396d` and the Duna-shed debris `9f68333f`.
+        #
+        # `minAuthoritativeSidecars` IS 54, NOT 56 (14 x 4): `aa48920e`
+        # (chainIndex 1) and `acf1435a` (chainIndex 2) are chain CONTINUATIONS
+        # and reuse the chain head's `_vessel.craft`. NOTE that `c5d0148a`
+        # (chainIndex 3) is NOT among them - it carries its own - so the
+        # exemption is a MEASURED list, not "every continuation".
+        "duna-park-recorded": {
+            "trees": 1, "committedTrees": 1, "recordings": 14,
+            "supersedes": 0, "tombstones": 0, "rewind_points": 0,
+            "rewind_retirements": 0,
+            "terminalStates": {"Landed": 3, "Destroyed": 4, "SubOrbital": 1,
+                               "Orbiting": 2},
+            "branchPoints": {"EVA": 1, "JointBreak": 6},
+            "minAuthoritativeSidecars": 54,
+            "recordingIds": ["2f724cbd0030407f884e125e89f0add0",
+                             "5466febaeffa4042ba211c0e1fe88b91",
+                             "5f7e2b8768a642deb919163c8d2ed8ee",
+                             "8538d9e156a34af194083c6068739888",
+                             "8884af4a14f84256b73704a97a2e5476",
+                             "8eabd16b458f4317a24e2e1adc6cec9c",
+                             "9f68333fa762479e81bfe7d1827d4afd",
+                             "aa48920e43fb4bf483940e0d8191a1ce",
+                             "acf1435a6df24b2aa2abbc6da88d6b36",
+                             "c5d0148a530348c9a5effad16021b836",
+                             "d154c46d7d884bb582559e18fb55e730",
+                             "df7ebece093b4c828f9a41c25e18927c",
+                             "ed76396d1c8e42a8b4e9c7a39f868063",
+                             "f475897c8f4a4523835b3620197b5af2"],
+            "schemaGeneration": 4,
+        },
+        # --- THE FIRST ROUTE SUBJECT (B27) --------------------------------
+        # PROVENANCE: depot-route-recorded <- THE OPERATOR'S OWN FREE-PLAY
+        # SANDBOX SAVE `Kerbal Space Program/saves/orbital supply route DELIVERY
+        # test` (340,420 B), harvested from a scratch COPY (the live save is
+        # read-only) with `--target-name depot-route-recorded
+        # --expect-situation ORBITING --keep-parsek`, then finished by
+        # `harness/tools/build_depot_route_recorded.py`.
+        #
+        # WHY IT IS A HARVEST AND NOT A FLIGHT, which is a ratified deviation
+        # from B27's register entry rather than a shortcut. That entry called for
+        # a route forged "over the BDOCK station fixture", and that path is
+        # CLOSED: route candidacy is gated on `IsTreeFullySealed`, and `SealSlot`
+        # / `RouteCommand` are RESERVED command-seam verbs (H35
+        # ROUTE-CANDIDACY-GATED-ON-SEAL-NO-SEAM-PATH), so no driven run can
+        # create a ROUTE at all today. Free-play harvest - the
+        # `duna-one-recorded` provenance class - is the only verb-free path.
+        # B27 therefore ships as a FORGE-CLASS STAMP (tool + drift test, no
+        # flight); the flight variant stays deferred behind those two verbs.
+        # The deviation is recorded in `docs/dev/autotest-roadmap.md`'s G1 note.
+        #
+        # THE FIXTURE IS NAMED `depot-route-recorded` AND NEVER AFTER THE SOURCE
+        # SAVE, deliberately: `run.py::stage_fixture` rmtree's the same-named
+        # save inside the automation instance, so a fixture called
+        # `orbital supply route DELIVERY test` would delete the operator's
+        # hand-played save the first time any scenario staged it.
+        #
+        # THE ROUTE - the one thing this fixture exists for, and the one thing
+        # THIS MAP DOES NOT PIN, because `saveparse.py` has no `routes` facet
+        # yet (a todo improvement is filed). It is pinned BUILDER-side instead,
+        # in `build_depot_route_recorded.py::verify_route`, wired into the suite
+        # by `DepotRouteRecordedFixtureDriftTests`:
+        #   id                    5420f805fcbb453b8d5928b71393f14b
+        #   name                  "Route: Kerbin -> Kerbin" (the real string
+        #                         carries U+2192, not an ASCII arrow)
+        #   status                Active, completedCycles 1, skippedCycles 0,
+        #                         pauseAfterCurrentCycle True, isKscOrigin True
+        #   backingMissionTreeId  c9ef80ee91b34de2b3717a4fb8bd1226
+        #   dockMemberRecordingId 70667ab4a1d34ef0bc05ce9911bfcd30
+        #   recordedDockUT        17,478.248634212287 (= nextDispatchUT)
+        #   dispatchWindowEpochUT 1,420.246738452149
+        #   dispatchWindowPeriod  0 (SameBody - both ends are Kerbin, so there is
+        #                         no synodic window and the cadence is the
+        #                         transit duration alone)
+        #   dispatchInterval      16,058.001895760137 (= transitDuration)
+        #   RECORDING_IDS         44129e52 / 8b036c83 / 0c8ec58d / 70667ab4
+        #                         (treeOrders 0 / 7 / 8 / 9 of the backing tree)
+        #   STOP                  DockingPort, endpoint vesselPersistentId
+        #                         3620499050 = `Depot`, Kerbin, alt 215,032.70 m,
+        #                         DELIVERY_MANIFEST LiquidFuel 80.28 / Oxidizer
+        #                         98.12
+        #
+        # BOTH TREES ARE KEPT WHOLE, and neither half of that is bookkeeping.
+        # `c9ef80ee` is the ROUTE's backing tree: `RouteStore.RevalidateSources`
+        # compares NINE `SOURCE` fields (recordingId / treeId / treeOrder /
+        # startUT / endUT / sidecarEpoch / format / generation / routeProofHash)
+        # against a live rebuild, and ANY drift flips the route to
+        # `SourceChanged`, which never auto-recovers and would kill the
+        # GhostDriving state the lane reads. `af5628b4` ("Kerbal X") was checked
+        # for independence and is NOT independent: its chain recordings
+        # `56298d83` and `ed43b6fb` carry `vesselPersistentId 3620499050` and
+        # `recordedVesselGuid 05d3ea0f...`, the SAME LAUNCH as the `Depot` the
+        # STOP endpoint names - it is that vessel's own launch lineage. The
+        # drift test asserts that guid link rather than trusting this comment.
+        #
+        # THE ACTIVE VESSEL WAS RE-POINTED, and this is the one edit to the save
+        # body. The source save's `activeVessel = 0` is an ASTEROID
+        # (`Ast. YRJ-552`), which the harvest's focusability check happily
+        # accepts; the builder re-points it to index 9 = `Depot` (pid 3620499050,
+        # ORBITING), re-resolving the index by name + pid rather than trusting
+        # the number. `--expect-situation ORBITING` is armed against the
+        # situation of the vessel that ends up focused, and is true of both.
+        #
+        # THE INV2 REPAIR. The analyzer Forbid gate was run FIRST, before any
+        # repair, and read `FAIL=2 WARN=0 RED=1`: two INV2-NO-DOUBLE-COVER FAILs
+        # on the Transporter's chain segment `a85a7ae0...` (50 TrackSections).
+        # The builder dropped exactly two and NOTHING ELSE (50 -> 48):
+        #   26  [6163.7967133907259, 6194.1851923946306]  a frame-less 65-byte
+        #       shell with NO ORBIT_SEGMENT, a strict prefix of section 27
+        #   28  [6194.1851923946306, 6590.41224317588]    a re-clip of section
+        #       27's conic - same inc/ecc/sma/lan/argPe/mna/body/ofr* and the
+        #       same `epoch = 6163.7967133907259`
+        # 26 and 28 partition 27's span exactly, so coverage is invariant.
+        # CRITICALLY `a85a7ae0` is NOT one of the four ROUTE source recordings,
+        # so no `routeProofHash` and no SOURCE row covers it; the drift test
+        # asserts that rather than leaving it to this comment. After the repair
+        # the save reads GREEN under `analyze-recordings.ps1 -FailOnRed
+        # -FreshSaveGate` (`FAIL=0 WARN=0 INFO=0 STALE=0 RED=0` - the only
+        # RECORDED fixture in this map with a zero-WARN reading).
+        #
+        # OTHER MEASURED BYTES:
+        #   save clock (FLIGHTSTATE UT)  36,138.111257421704, 19 VESSEL nodes,
+        #     Mode SANDBOX. `Transporter` (pid 788309716, Ship, ORBITING) must
+        #     survive alongside the Depot: it flew the delivery leg and
+        #     recording `efb9be71` is its trajectory.
+        #   `terminalStates` SUMS TO 19, NOT 22: the four chain members
+        #     (56298d83 / ed43b6fb / 44129e52 / a85a7ae0) carry no
+        #     `terminalState`, and `70667ab4` - the dock member - carries none
+        #     either, because the route's cycle is still running.
+        #   `branchPoints` carries the suite's first `Dock` and `Undock` entries
+        #     alongside 8 JointBreak and 1 Launch.
+        #   `minAuthoritativeSidecars` is 86 = 22 x .prec + 22 x .pann +
+        #     21 x _vessel.craft + 21 x _ghost.craft; `0c8ec58d` carries no
+        #     `_vessel.craft` and `70667ab4` no `_ghost.craft`.
+        #   pointCount total 3115 over the 22 recordings (largest 638 = the
+        #     Transporter's chain segment, smallest 40 = the dock member).
+        #
+        # WHAT THE FIXTURE DOES NOT CARRY, all removed by the builder: the
+        # source's `Backup/` (four rolling `persistent (...).sfs`, ~1.1 MB), the
+        # EMPTY `Parsek/RewindPoints/`, and `Ships/` (the operator's edited
+        # `Kerbal X.craft` plus KSP's `Auto-Saved Ship.craft` VAB autosave - this
+        # is a RECORDED render subject that launches nothing, exactly like
+        # `duna-one-recorded`, which carries no `Ships/` either).
+        "depot-route-recorded": {
+            "trees": 2, "committedTrees": 2, "recordings": 22,
+            "supersedes": 0, "tombstones": 0, "rewind_points": 0,
+            "rewind_retirements": 0,
+            "terminalStates": {"Destroyed": 14, "Orbiting": 3, "Docked": 2},
+            "branchPoints": {"JointBreak": 8, "Launch": 1, "Dock": 1,
+                             "Undock": 1},
+            "minAuthoritativeSidecars": 86,
+            "recordingIds": ["0254e32d38344f81a55aa548e46fc3f8",
+                             "0c8ec58d618246e38eafedc116a262c8",
+                             "0d81230e06274d40a051ad865fea45f7",
+                             "1e447d2a207c4a6faca53929c799b112",
+                             "271fcf13cf324aab99dedf022a0b8701",
+                             "3a881d7e090d420bb83d86324a1e358d",
+                             "44129e52aec64f08b25cdd3ca22ea34d",
+                             "56298d8360d14db68d488f6d2aee7f72",
+                             "6996cdece5f946558130f27e9fd94f9a",
+                             "70667ab4a1d34ef0bc05ce9911bfcd30",
+                             "8b036c83624b44e6b531f03990d31b5e",
+                             "8b76aa505ea1490282a77127eca60e42",
+                             "9290180cd1034abcb977e12c5e16ec4b",
+                             "997efb42ed894fbd8e7f92ed628d69f4",
+                             "a85a7ae00da043c28e13fe221630ce85",
+                             "bc856135add54204b51fe6479fcc3947",
+                             "d44fdc4cc1284b839c0cbd52718727d9",
+                             "e269b79b5540422898bec716523b16e0",
+                             "ed43b6fbd97b438895d9cfbaf3bf1c9b",
+                             "ee42e0e523a84732a5a96b25ccedb58d",
+                             "ef23bb0df71645f4833607864ea2c627",
+                             "efb9be7191284013983a9f3662604bc4"],
+            "schemaGeneration": 4,
+        },
     }
 
     def test_fixture_set_is_exactly_the_committed_set(self):

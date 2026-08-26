@@ -1,0 +1,879 @@
+schema = 1
+id = "V24W-duna-one-warp-stair"
+# =====================================================================================
+# V24W: THE RC-WARP LANE. A loop-arrival map dwell over the free-play-validated
+# Kerbin -> Duna re-aim recording, driven through a RAILS WARP STAIR at each of its
+# three windows so the render-composition manifest's warp histogram carries something
+# other than `warp1x`.
+#
+# `W` IS A NEW SUFFIX AND THIS SPEC MINTS IT: the established lane suffixes name the
+# RENDER HOST (`M` player/flight-map, `T` tracking station, `K` KSC). `W` names the
+# DRIVE SHAPE instead - a warp-schedule lane - because that is the whole and only
+# reason this lane exists separately from V2, whose host it shares. The register in
+# `docs/dev/autotest-roadmap.md` reserves V24 across suffixes and records the mint.
+#
+# ---------------------------------------------------------------------------------
+# 0. WHY THIS LANE EXISTS AT ALL
+# ---------------------------------------------------------------------------------
+# RC-WARP is the ONE M-A7 rule no committed subject can satisfy, and the last
+# Phase-3 debt after V14M and V8 were armed 2026-08-25. Its statement is
+# anti-vacuity: "the manifest's warp histogram covers the buckets the spec declared,
+# and at least one cataloged seam and one hold were traversed at above-1x warp. A
+# composition PASS from a 1x-only dwell cannot claim warp coverage."
+#
+# Both armed subjects move the clock with INSTANTANEOUS `TimeJump`s, so their
+# histograms are 1x-only BY CONSTRUCTION - confirmed four times over (173 / 296
+# samples on the two reading runs, 177 / 295 on the two armed re-flights, every other
+# bucket zero) - and `warpBuckets` may never be declared on either. That is a
+# property of their drive shape, not a defect, and it is why the todo entry says
+# RC-WARP "is satisfiable only by the V1/autopilot rails-warp ladder shape, which
+# wants a third lane (or a re-shaped drive) rather than a re-pin of these two."
+#
+# THE SUBJECT IS NO LONGER HYPOTHETICAL. The first free-play ground-truth session
+# (2026-08-25, a long Kerbin -> Duna re-aim loop played BY HAND and visually
+# validated as correct by the operator; manifest `.scout/s15-duna-manifest.txt`,
+# 495 KB, run `logs/2026-08-25_1537_s15-duna-one-manifest-run2`) came back with a
+# histogram of `warp100 4727 / warp1000 15488 / warpHigh 11446` and ZERO 1x and
+# ZERO physics samples - the exact opposite of both armed lanes. A human playing a
+# loop lives at high rails; the harness, until this lane, never did.
+#
+# ---------------------------------------------------------------------------------
+# 1. ARMING LEDGER, renderComposition - ARMED 2026-08-25 OFF TWO MATCHING READINGS
+# ---------------------------------------------------------------------------------
+#   READING  **FLIGHT 3 FLEW 2026-08-25 (`2026-08-25_1616`, CLEAN PASS ATTEMPT 1) AND
+#            IS THE RUN THIS BLOCK IS ARMED FROM.** The gate section 1 named before
+#            it flew: a re-fly of THIS spec, unchanged except for the three
+#            tolerances flight 2 authored, which had to come back PASS with the
+#            tolerated tokens RECURRING inside their stated populations. It did, and
+#            the recurrence is not merely inside the populations - it is EXACT:
+#            `hitCounts {icon-teleport: 65, icon-off-orbit: 2, loop-seam-teleport: 2}`,
+#            the same three integers flight 2 measured, plus the same single
+#            report-only `seam-endpoint-outside-soi` echo. Three counts that repeat to
+#            the integer across two independent flights are a deterministic property
+#            of this drive shape, which is what the gate was for.
+#
+#            THE COMPOSITION MATCHED FLIGHT 2 FACET FOR FACET, and this pair-matching
+#            is what the arming decision rests on (a histogram read once is a sample):
+#              - dwells 2 (+2 open at export), cycles 1, transitions 2, chainBuilds 2,
+#                lineBranches 2, `treatments StockConic 2`, `coverages InSegment 2`,
+#                planUnits 2 - every one equal to flight 2's integer.
+#              - seams `rigid 11` / `flexible-soi 4`, `seamEndpoints 1024`,
+#                `seamTangents 0`, `maxEndpointRatio 0.43669474211704823` (flight 2:
+#                0.4366947421168355 - the same ratio to 11 significant figures).
+#              - clock events `cycle-rollover 2` / `hold-engage 1` / `hold-release 1`
+#                / `inter-cycle-tail 1` / `reaim-window 1`, identical; observed hold
+#                7061.161390 s TWICE against the same per-cycle plan of
+#                [39607.052803993225, 35444.407972335815] (flight 2: 7050.236864 s -
+#                a 0.15 % move, and the ~18-20 % observed/planned ratio reproduces at
+#                BOTH plan units on BOTH runs).
+#              - **THE HISTOGRAM: `warp1x 322868 / warp100 10626 / warp1000 2160 /
+#                warpHigh 0 / warpPhys 0`** against flight 2's
+#                `322078 / 10602 / 2170 / 0 / 0` - every bucket within 0.5 %, both
+#                rails buckets non-zero twice, `warpHigh` and `warpPhys` zero twice.
+#                And decisively, `holdsAboveOneX = 1` / `seamsAboveOneX = 2` on BOTH.
+#              - `unevaluable 335146` (flight 2: 334342), 99.8 % of it the SEAM_ENDPOINT
+#                decimation (`decimated-section-seam_endpoint 293250` +
+#                `truncated-section-seam_endpoint 41380` + `seam-endpoint-skipped 512`),
+#                plus `cut-run-period-absent 2` and `no-cycle-rollover-events 2` on both.
+#              - findings 4 x INFO `RC-QUAL` and nothing else on both runs - zero FAIL,
+#                zero WARN, zero mismatches, `ownershipChanges 0`,
+#                `routeCoDrawViolations 0`, `clockDefers 0`, `ratifiedSkips 0`.
+#              - `exportReason = process-teardown`, `mapRenderTracingOn = True`,
+#                `scene = FLIGHT`, `schemaVersion = 1` - identical.
+#
+#   READING  **FLIGHT 2 FLEW 2026-08-25 (`2026-08-25_1502`, PARSEK-FAIL(anomaly)
+#            ATTEMPT 1) AND MEASURED THE WHOLE COMPOSITION. THE RED IS THE
+#            PRE-REGISTERED DOCTRINE OUTCOME, NOT A LANE DEFECT** - section 6
+#            said in writing, before any run existed, that a red on
+#            `icon-teleport` was a live possibility AND was this lane's most
+#            valuable first measurement, and that the list would stay empty
+#            anyway so the count would be recorded rather than swallowed. That is
+#            exactly what happened, on `allowedAnomalies = []`, with every other
+#            verifier row green
+#            (driverValidity PASS / mission MISSION-OK / analyzer PASS red=0 /
+#            logValidate PASS / saveParse REPORT / renderCompose REPORT parsed).
+#            All ten driver steps met. Wall 2,895 s total, mission phase 2,817 s,
+#            INSIDE the unchanged 3000 / 3600 budgets and within 2 % of the
+#            ~2,850 s section 5 sizes - so the flight-1 warp-cancel defect is
+#            confirmed fixed by the cost line, not just by the code.
+#
+#            THE FLIGHT-1 vs FLIGHT-2 CONTRAST, which is what makes this a
+#            reading rather than a re-run: flight 1 measured an EMPTY
+#            observation (zero GhostCreated, zero dwells, zero seams, zero
+#            histogram buckets, 455 wall s). Both of its root causes are now
+#            measured closed. The window mapping: all three dwells landed inside
+#            the compressed span and RENDERED - 2 closed dwells + 2 still open at
+#            export, `treatments StockConic 2`, `coverages InSegment 2`,
+#            `transitions 2`, `chainBuilds 2`, `lineBranches 2`, `cycles 1`. The
+#            warp cancel: the histogram is no longer 1x-only-by-accident-of-a-
+#            broken-cancel but a REAL STAIR - `warp1x 322078 / warp100 10602 /
+#            warp1000 2170 / warpHigh 0 / warpPhys 0` - and, decisively for
+#            RC-WARP's anti-vacuity statement, `holdsAboveOneX = 1` and
+#            `seamsAboveOneX = 2`. That is the first time any committed subject
+#            has put a cataloged seam AND a hold above 1x.
+#
+#            WHAT ELSE THE MANIFEST SAYS, recorded here because the arming pass
+#            writes its windows from these numbers and from nothing else:
+#              - seams: `rigid 11`, `flexible-soi 4`; `seamEndpoints 1024`;
+#                `seamTangents 0`; `maxEndpointRatio 0.4366947421168355`.
+#              - clock events: `cycle-rollover 2`, `hold-engage 1`,
+#                `hold-release 1`, `inter-cycle-tail 1`, `reaim-window 1`.
+#                Observed hold 7050.236864089966 s TWICE against a per-cycle plan
+#                of [39607.052803993225, 35444.407972335815] - i.e. the observed
+#                hold is ~18-20 % of the planned one at BOTH plan units. That gap
+#                is a MEASUREMENT this lane hands RC-HOLD; it is not pre-judged
+#                here and no RC-HOLD clause is armed off one engage/release pair.
+#              - decimation: `SEAM_ENDPOINT 292546` decimated + `41280`
+#                truncated + `512` skipped, driving `unevaluable 334342`. The
+#                per-pid cap did its job loudly (`truncatedSections
+#                ["SEAM_ENDPOINT"]`) rather than dropping silently, which is the
+#                Phase-1 contract; but it means the seam-endpoint census on THIS
+#                drive shape is a sampled population, and an arming pass must not
+#                write a count window over it.
+#              - findings: 4 x INFO `RC-QUAL` and nothing else - zero FAIL, zero
+#                WARN, zero mismatches. `ownershipChanges 0`,
+#                `routeCoDrawViolations 0`, `clockDefers 0`, `ratifiedSkips 0`.
+#              - `exportReason = process-teardown`, `mapRenderTracingOn = True`,
+#                `scene = FLIGHT`, `schemaVersion = 1`.
+#              - recordings count 13, inside the `{10, 24}` bracket and EQUAL to
+#                the fixture's own population - so the optimizer split nothing at
+#                the four cross-body seams and nothing was lost. The bracket's
+#                two halves are both now backed by a reading.
+#
+#            THE ANOMALY SWEEP, which is the red and is section 6's subject:
+#            `hitCounts = {icon-teleport: 65, icon-off-orbit: 2,
+#            loop-seam-teleport: 2}`, plus ONE report-only unlisted reason,
+#            `seam-endpoint-outside-soi` - the FIRST LIVE RAISE that instrument
+#            has ever produced (the design doc's prior-art item 3 said "has never
+#            fired"; that claim is now annotated with this run id). Its echo sits
+#            on the departure-loiter DWELL that opens in the SUN frame and closes
+#            at DUNA (`recId 61e9177193444e329247d0e8288cf91e`, pid 839899670,
+#            `ut 5355599259.994832`, `treatment StockConic`, `coverage
+#            InSegment`), i.e. on the arrival SOI handoff, which is exactly where
+#            a cross-SOI endpoint check is supposed to have an opinion. It is
+#            REPORT-ONLY and stays that way: it is not in `hlib.ANOMALY_TOKENS`,
+#            it moved no verdict, and `allowedAnomalies` must NOT list it (a
+#            tolerance for an ungated token is an inert declaration that
+#            `parse_allowed_anomalies` warns about).
+#
+#            **FLIGHT 1 FLEW 2026-08-25 (`2026-08-25_1415`, PASS/REPORT) AND
+#            MEASURED NOTHING. THE RE-FLY IT OWED IS DISCHARGED by flights 2 and 3
+#            above (`_1502` measured the composition, `_1616` re-read it clean).** Zero
+#            `GhostCreated` lines, zero dwells / seams / histogram buckets, while
+#            the recorder's own clock events (two cycle-rollovers, a hold-engage,
+#            two inter-cycle-tail entries) proved the unit clock ran. Two root
+#            causes, both OUTSIDE Parsek's render pipeline and both fixed before
+#            this re-pin - header section 4a carries the arithmetic:
+#              (1) the three dwell windows were built as `phaseAnchorUt +
+#                  RECORDED offset` against a unit that COMPRESSES an
+#                  11,393,869 s loiter out of its 18,394,999 s span, so all three
+#                  offsets exceeded the 7,001,129 s compressed span and sat in the
+#                  inter-cycle tail, where the clock parks at spanEnd and nothing
+#                  renders;
+#              (2) the three "1x holds" never left rails warp - a `mission_runner`
+#                  `ACTION_CANCEL_WARP` that was a no-op for a mission with no
+#                  native warp service - so the mission cost 455 wall seconds
+#                  against the ~2,850 section 5 sizes, and PASSed having never
+#                  once dwelled at 1x.
+#            The `[expectations.renderComposition]` block near the end of this file
+#            is STILL BARE after BOTH readings, and deliberately: no `gating`, no
+#            assertion key, no `warpBuckets`. Flight 1 measured no histogram to
+#            write one FROM; flight 2 measured one but red on the anomaly sweep,
+#            and this suite's own arming doctrine writes windows off a run whose
+#            facets are read on a GREEN reading, not off the run that discovered
+#            what had to be tolerated first. The facets are recorded
+#            UNCONDITIONALLY on a parseable manifest, which is how a lane earns its
+#            first honest window; declaring one here would be declaring a
+#            PREDICTION and reading it back as a measurement.
+#   ARMED    **ARMED 2026-08-25**, operator decision, DERIVED FROM the pair
+#            `2026-08-25_1502` (full measurement) + `2026-08-25_1616` (clean PASS),
+#            whose facets match as recorded above. The windows, each argued at the
+#            `[expectations.renderComposition]` block:
+#              gating           = true
+#              dwells           = { min = 1, max = 32 }    measured 2 (+2 open) TWICE
+#              unevaluable      = { max = 500000 }         measured 334342 / 335146
+#              warpBuckets      = ["warp100", "warp1000"]  measured 10602/2170 and
+#                                                          10626/2160 - non-zero twice
+#              requireSeamKinds = ["rigid", "flexible-soi"] measured 11/4 TWICE
+#            `warpBuckets` IS THE FIRST IN THE SUITE. Declaring it also arms
+#            RC-WARP's two non-list clauses at FAIL level (`seamsAboveOneX` and
+#            `holdsAboveOneX` must be non-zero), both backed twice at 2 and 1.
+#            NOT declared and each for a measured reason: `cycles` (reads 1 twice and
+#            a window WOULD hold, but the closed-cycle count here is a property of
+#            three supervisor-chosen windows on a compressed clock, not of what this
+#            lane contributes - V14M owns that clause), `warpHigh` (measured 0 twice;
+#            the commanded ladder tops out at index 5, so 1000x IS this subject's
+#            ceiling), any RC-CUT surface (`cut-run-period-absent: 2` on both runs),
+#            any RC-HOLD clause (one engage/release pair per run), and any endpoint
+#            count window (the population is decimated).
+#            NOTHING IN THE FLOWN SHAPE MOVED at arming - no offset, no ladder, no
+#            hold length, no budget, no tolerance, no other expectation (the S4.1
+#            rule). This spec is now in BOTH `RENDERCOMPOSE_ARMED_SPECS` and
+#            `RENDERCOMPOSE_DECLARER_SPECS` (harness/lib/test_hlib.py); DECLARING the
+#            block is what sets `PARSEK_RENDER_MANIFEST=1` at launch and arms the C#
+#            recorder at Awake, and without the declaration the export verb answers
+#            `REJECTED msg=manifest-not-armed` - which `hlib.validate_spec`'s
+#            verb/block coupling rule refuses pre-launch. ARMING also claimed D14
+#            `warp-rails` for the first time on this lane, because the gate that
+#            makes the claim true now exists (see `[dimensionsCovered]`).
+#   DONE     **ARMED RE-FLIGHT DISCHARGED - IT FLEW TWICE.** `2026-08-25_1722` and
+#            `2026-08-25_1811` both came back PASS attempt 1 with
+#            `gating=True armedBlocks=['renderComposition']` and ZERO
+#            mismatches - 1811 having been INTENDED as the negative control and
+#            having flown the armed block instead (see the NEG CONTROL row below).
+#            The re-flight requirement is therefore discharged: the armed
+#            windows hold against runs they were not written from. The histograms
+#            they held over: `warp100 10644 / warp1000 2168 / warpHigh 0` (1722) and
+#            `10580 / 2162 / 0` (1811), against readings 10602/2170/0 and
+#            10626/2160/0 - all four inside 0.5 %, `warpHigh` zero on all four, and
+#            `dwells 2 (+2 open)` / `seamKinds {rigid 11, flexible-soi 4}` /
+#            `holdsAboveOneX 1` / `seamsAboveOneX 2` equal to the integer on all four.
+#            The anomaly triple `{icon-teleport 65, icon-off-orbit 2,
+#            loop-seam-teleport 2}` repeated to the integer across ALL FOUR full
+#            flights, which is a stronger determinism statement than the arming pair
+#            alone could make.
+#   DONE     **NEGATIVE CONTROL DISCHARGED 2026-08-25 BY `2026-08-25_1925` - on the
+#            SECOND attempt, the first having never armed.** The genuine control:
+#            `warpBuckets` inverted to `["warpHigh"]` by a LINE-ANCHORED edit of the
+#            real key (verified with `grep -n '^warpBuckets'` and with
+#            `run.py --dry-run --id V24W-duna-one-warp-stair`, whose [VERIFY] line
+#            printed `declared: {... 'warpBuckets': ['warpHigh']}` BEFORE the machine
+#            lock was taken). Verdict **`PARSEK-FAIL(render-composition)` attempt 1**,
+#            with EXACTLY ONE mismatch and it names the zero-count bucket:
+#            `RC-WARP [FAIL] warpBuckets.warpHigh: spec declared warp bucket
+#            'warpHigh' and the manifest counted zero frames in it - the run did not
+#            visit that warp regime`. Every sibling verifier row stayed clean
+#            (driverValidity PASS / mission MISSION-OK / analyzer PASS red=0 /
+#            logValidate PASS / anomalySweep PASS / expectations PASS / testResults
+#            PASS / saveParse REPORT / unityExceptions REPORT), the four INFO
+#            `RC-QUAL` findings were still there beside the one FAIL, and the
+#            composition facets were the same ones the four PASSing flights measured
+#            (dwells 2 +2 open, `seamKinds {rigid 11, flexible-soi 4}`,
+#            `holdsAboveOneX 1`, `seamsAboveOneX 2`, histogram
+#            `warp100 10592 / warp1000 2174 / warpHigh 0`) - so the red is the
+#            declaration and nothing else. **THE RUN JSON PROVES ITS OWN ARMING**:
+#            `verifiers.renderCompose.declared` records
+#            `warpBuckets: ['warpHigh']`, the audit surface added in the same change
+#            as a direct consequence of the 1811 miss - the control demonstrating the
+#            fix that makes controls auditable. The anomaly triple read
+#            `{icon-teleport 66, icon-off-orbit 2, loop-seam-teleport 2}` here, the
+#            one integer that moved across six flights (65 -> 66, inside the tolerated
+#            population, `anomalySweep` PASS). **CONTROL REVERTED IN THE SAME CHANGE**,
+#            on the verified real key: `grep -n '^warpBuckets'` shows the restored
+#            `["warp100", "warp1000"]` at the block below, and the dry-run's
+#            `declared:` reads it back.
+#   HISTORY  **THE FIRST CONTROL ATTEMPT NEVER ARMED, and the trap is recorded here
+#            because it cost a flight.**
+#            Run `2026-08-25_1811` was flown as this control and came back PASS with
+#            zero mismatches, which read as a fail-open verifier. It was not: the
+#            control was applied by SUBSTRING-REPLACING `warpBuckets = ["warp100",
+#            "warp1000"]`, and this file quotes that exact literal in two RATIONALE
+#            COMMENTS (the ARMED window table above, and the per-key argument at the
+#            block) AHEAD of the real key - so the replace mutated a comment and the
+#            flight evaluated the UNINVERTED block. Proved by replaying that run's own
+#            manifest against the control block through every committed version of
+#            `harness/lib/rendercompose.py`: all five red on
+#            `RC-WARP [FAIL] warpBuckets.warpHigh`. **1811 therefore reclassifies as a
+#            second ARMED RE-FLIGHT (PASS attempt 1), not a control.** The re-fly
+#            USED a LINE-ANCHORED edit of the real key (last lines of this file, not
+#            any commented copy) and WAS preceded by
+#            `python run.py --id V24W-duna-one-warp-stair --dry-run`, whose [VERIFY]
+#            line now prints `declared: {...}` - `["warpHigh"]` was read there BEFORE
+#            the machine lock was taken. See todo entry
+#            NEGATIVE-CONTROL-EDIT-NEVER-REACHED-THE-KEY.
+#            The token was unchanged and still this lane's own: `warpHigh`
+#            measured 0 on both readings, so the temporary
+#            `warpBuckets = ["warpHigh"]` had to red on exactly
+#            `PARSEK-FAIL(render-composition)` with the single mismatch naming the
+#            zero-count bucket, every sibling verifier row staying clean, and had to
+#            be reverted in the same change - which is what 1925 above did.
+#            Deliberately NOT a shared control and
+#            deliberately not a `dwells`/`cycles` inversion: V14M inverted `cycles`
+#            and V8 inverted `dwells` precisely so each red lands on that lane's own
+#            armed clause rather than re-proving the shared `rendercompose`
+#            evaluator, and the clause this lane exists to author is the histogram.
+#
+# ---------------------------------------------------------------------------------
+# 2. THE FIXTURE
+# ---------------------------------------------------------------------------------
+# `fixtures/saves/duna-one-recorded` - the recorded state behind the free-play
+# ground-truth session above, harvested so the harness can replay by machine what
+# the operator flew by hand. It is the FIRST harness subject whose provenance is a
+# played session rather than a harness flight, which is exactly what makes it the
+# right RC-WARP subject: the render composition it produces is one a human has
+# already looked at and called correct.
+#
+# THE TREE ID AND THE THREE OFFSETS BELOW ARE PINNED FROM THAT SESSION and are the
+# first thing to re-read if the fixture is ever re-harvested.
+#
+# MEASURED SHAPE, off the committed bytes (not off a run - this lane has not flown):
+# ONE `RECORDING_TREE`, ONE mission, THIRTEEN `RECORDING` nodes with thirteen `.prec`
+# sidecars, 75 files, 2.1 MB. Two of the thirteen are CHAIN-CONTINUATION segments
+# that reuse the chain head's `_vessel.craft` and own no vessel snapshot of their own
+# - which is why the committed-fixture mirror sweep needed a chain-continuation
+# exemption for this fixture, and why the recordings floor below sits under 13.
+# The fixture's own analyzer gate is GREEN (`analyze-recordings.ps1 -FailOnRed
+# -FreshSaveGate`: `FAIL=0 WARN=15 RED=0`, exit 0), so a `PARSEK-FAIL(analyzer)` on
+# the first reading run would be about what this LANE did, not about what it loaded.
+#
+# ---------------------------------------------------------------------------------
+# 3. THE WARP STAIR - what the machine actually does differently
+# ---------------------------------------------------------------------------------
+# `m3_loop_arrival_dwell` gained a flag-gated rails stair for this lane (the
+# `startInOrbit` precedent: inert by default, so V2 / V3F / V3R keep their flown
+# shape byte-identically - pinned by `M3WarpStairInertnessTests`). With
+# `dwellRampFactors` declared, each of the three HOLD windows becomes
+# STAIR-THEN-HOLD:
+#
+#   1. the leg's TimeJump lands at `window - dwellLeadSeconds`;
+#   2. the window's arrival UT is STAMPED (unchanged - `dwelledAllWindows` still
+#      measures the leg's arrival, not the stair's end);
+#   3. the COMMANDED ladder climbs and descends, each factor held
+#      `dwellRampStepFrames` poll frames;
+#   4. warp is CANCELLED at the stair's end;
+#   5. the existing 1x hold runs its full `dwellHoldSeconds` from there.
+#
+# THE LADDER: `[2, 3, 4, 5, 4, 3, 2]` are COMMANDED KSP rails indices - 10x, 50x,
+# 100x, 1000x, 100x, 50x, 10x - up and back down, V1's DWELL-WARP-RAMP shape
+# verbatim, because the design's warp-schedule bullet asks for "step-up and
+# step-down transitions across at least one seam and one hold (the known step-up
+# hole)". The server clamps to legality; the machine never gates on an ACHIEVED
+# rate, exactly as V1 does not. What lands in the histogram is therefore a
+# MEASUREMENT and not a prediction, which is the second reason `warpBuckets` stayed
+# undeclared until reading runs existed - and is why the ARMED window names only the
+# two buckets both readings actually counted (`warp100`, `warp1000`) and not the
+# `warpHigh` the ladder's top rung might have reached had the server granted it.
+#
+# ARITHMETIC, so the wall cost is not a surprise (poll interval 0.5 s,
+# `mission_runner.POLL_INTERVAL_SECONDS`): 7 factors x 10 frames x 0.5 s = 35 wall
+# seconds of stair per window, nominally burning 5 s x (10+50+100+1000+100+50+10) =
+# ~6,600 game seconds if the game achieves every commanded rate. Three stairs = ~105
+# wall s. The stair therefore CROSSES each window instant at rails - which is the
+# point, RC-WARP's "at least one cataloged seam ... traversed at above-1x warp" - and
+# the 1x hold that follows dwells 900 further game seconds on the far side.
+#
+# THE EARLY-EXIT GUARD is the NEXT window's leg target (that window's instant minus
+# `dwellLeadSeconds`), V1's soi-guard shape: checked BEFORE the stair advances, so a
+# high factor can never carry the clock into the following dwell, and the stair's end
+# is then named `next-window-guard` rather than dishonestly `completed`. The tightest
+# gap here is arrive -> park at 61,354 s against a nominal ~6,600 s stair, so the
+# guard is a safety rail that should not fire; if it DOES fire on the reading run,
+# that is a measurement about achieved rails rates and belongs in the arming ledger.
+#
+# `max_physics_warp` stays 1.0 on the mission spec: the stair is RAILS-ONLY and
+# physics warp is not a target of RC-WARP at all.
+#
+# ---------------------------------------------------------------------------------
+# 4. THE THREE WINDOWS, and the one supervisor decision inside them
+# ---------------------------------------------------------------------------------
+# Offsets are RECORDED-UT deltas from the recording's own start; the machine turns
+# each into an absolute UT with the MissionConfig-returned UNIT PHASE ANCHOR (never
+# the arm-time LoopAnchorUT - the V2 flight-5 lesson, where a dwell riding the wrong
+# anchor watched 127 probe frames of EMPTY map).
+#
+#   depart  11,474,541.813229546   the Kerbin departure seam
+#   arrive  18,329,155.146610025   the Duna arrival seam
+#   park    18,390,509.0           arrive + 61,354
+#
+# THEY STAY ON THE RECORDED CLOCK ON PURPOSE - see section 4a, which is the whole
+# reason flight 1 saw nothing and is the thing to read before touching these three
+# numbers.
+#
+# THE PARK OFFSET IS A SUPERVISOR DECISION AND IS DELIBERATELY NOT THE RECORDING'S
+# TAIL: it sits 61,354 s past the arrival seam, AFTER the Ike return, so the
+# arrive -> park leg's own TimeJump crosses BOTH Ike seams. Those crossings are taken
+# at the jump (instantaneous) rather than at rails; what this lane puts at rails is
+# each window's own neighbourhood, via the stair. A reading run that finds the park
+# window outside the recorded span, or the arrive stair rolling the loop cycle over,
+# is measuring the fixture and belongs in the ledger - neither is pre-judged here.
+#
+# `dwellLeadSeconds = 300` / `dwellHoldSeconds = 900` are V2's shape at 3x, because
+# the stair needs room: the hold must still SPAN a meaningful stretch after ~6,600
+# game seconds of ladder have gone by. `holdTimeoutSeconds` MUST exceed
+# `dwellHoldSeconds` by construction (the machine's stall detector fires between the
+# two), so it is 1800 rather than V2's 600.
+#
+# ---------------------------------------------------------------------------------
+# 4a. THE WINDOW ARITHMETIC - RECORDED offsets against a COMPRESSED clock
+#     (re-written 2026-08-25 from reading flight 1, which measured it the hard way)
+# ---------------------------------------------------------------------------------
+# The three offsets above are RECORDED-UT deltas. The live loop does NOT run on the
+# recorded clock: a re-aim unit EXCISES whole-period loiter intervals from its
+# timeline (`GhostPlaybackLogic.LoopCut` / `CompressSpanUT`), because the recorded
+# mission parks for months waiting on the transfer window and replaying that wait
+# would make the loop unwatchable. This subject's own arm line says so:
+#
+#   MissionLoopUnit: ... ENGAGED re-aim Kerbin->Duna via Sun; ...
+#     loiterCuts=1 cutSeconds=11393869 compressedSpan=7001129/18394999
+#
+# So the ACTIVE span is 7,001,129 s, and ALL THREE offsets above are larger than it.
+# Flight 1 built `window = phaseAnchorUt + RECORDED offset`, landed every dwell past
+# the compressed span, and sat in the INTER-CYCLE TAIL (`isInInterCycleTail`), where
+# the clock parks at spanEnd and nothing renders. The cycle advance itself was
+# correct - `phaseAnchorUt` came back forward-advanced by eight cadences - which is
+# exactly why the arithmetic looked right: `5348663714.30 + 11474541.81 - 300 =
+# 5360137956.1`, the target the log shows, and nothing about it is wrong except the
+# clock it is expressed in.
+#
+# THE MACHINE NOW DOES THE MAPPING, so these params stay recorded-clock. The
+# `MissionConfig` seam publishes the unit's cut list and clock primitives
+# (`loiterCutCount`, `loiterCuts` as `startOffset:length` pairs relative to
+# `spanStartUt`, `compressedSpanSeconds`, `spanSeconds`) and
+# `m3_loop_arrival_dwell` compresses every offset through them at the ONE place an
+# offset becomes a live UT. The cut here lies wholly before the departure, so all
+# three compress by the full 11,393,869 s and land inside the active span with
+# room to spare:
+#
+#   depart   11,474,541.8 -> 80,672.8      (1.2 % of the compressed span)
+#   arrive   18,329,155.1 -> 6,935,286.1   (99.06 %)
+#   park     18,390,509.0 -> 6,996,640.0   (99.94 %, 4,489 s of headroom)
+#
+# THE PARK WINDOW IS THE THIN ONE and is now the number to re-check first if this
+# fixture is ever re-harvested: 4,489 s of headroom against a compressed span the
+# cut length dominates. It is not a guess any more - the machine REFUSES at arm
+# time, by name, on each of the three distinguishable faults, so a bad re-pin fails
+# in seconds instead of after three empty dwells:
+#   - past the RAW span      -> the offset belongs to a different recording;
+#   - INSIDE a loiter cut    -> that recorded instant has no live UT at all, the
+#                               cut collapses to one compressed instant (refused
+#                               rather than clamped: a clamp would green a run that
+#                               dwelled somewhere other than the instant this spec
+#                               names);
+#   - at/past the COMPRESSED span -> the right recording read on the wrong clock,
+#                               i.e. flight 1's exact fault.
+#
+# ---------------------------------------------------------------------------------
+# 5. BUDGET ARITHMETIC, stated because it is the one number that could only ever
+#    have expired if copied from V2
+# ---------------------------------------------------------------------------------
+# Three 900 game-second holds at 1x cost 2,700 WALL seconds by construction (at 1x,
+# game time IS real time), plus ~105 s of stair, plus the arm round trip, the camera
+# gate and three instantaneous legs. The mission phase budget is 3000 s and the run
+# budget 3600 s. V2's 1500 / 2100 are for 300-second holds and do not transfer.
+#
+# FLIGHT 1 COST 455 WALL SECONDS, AND THAT WAS THE SECOND DEFECT, not slack in this
+# arithmetic. Each "1x hold" ran its full 900 GAME seconds at RAILSx10 (128
+# consecutive `warp=RAILSx10.000` telemetry frames per hold) because
+# `mission_runner`'s `ACTION_CANCEL_WARP` zeroed the warp factors only through a
+# native `WarpService` this mission never creates - its legs are seam `TimeJump`
+# epoch shifts, so it never issues `ACTION_WARP_TO_UT`. Measured per hold: 126.7
+# wall s = 35.0 s of stair + 90.3 s of 900-game-second hold at 10x. Fixed
+# 2026-08-25 (the reset is now unconditional); the re-fly should land near the
+# ~2,850 s this section sizes, INSIDE the unchanged 3000 / 3600 budgets.
+#
+# ---------------------------------------------------------------------------------
+# 6. `allowedAnomalies` - THE PRE-REGISTRATION PAID OFF, AND THIS IS WHAT IT BOUGHT
+#    (rewritten 2026-08-25 from reading flight 2, the run that red on the empty list)
+# ---------------------------------------------------------------------------------
+# WHAT THIS SECTION USED TO SAY, kept because it is the reason the numbers below can
+# be trusted: the free-play session that proves this subject ALSO raised
+# `icon-teleport` 95 times while the operator was calling the render visually
+# correct (FILED, NOT FIXED - todo-and-known-bugs.md), this lane drives the same
+# histogram shape, so a `PARSEK-FAIL(anomaly)` on that token was a live possibility
+# AND was the single most interesting thing the lane could measure. The list shipped
+# EMPTY on purpose so that if it fired, the red would name the token and the count
+# rather than being silently swallowed by a tolerance nobody had earned.
+#
+# IT FIRED. Reading flight 2 (`2026-08-25_1502`) came back PARSEK-FAIL(anomaly) on
+# attempt 1 with all ten driver steps green and every other verifier row green, and
+# the measurement is:
+#
+#   icon-teleport       65
+#   icon-off-orbit       2
+#   loop-seam-teleport   2
+#   (+ seam-endpoint-outside-soi 1, REPORT-ONLY and NOT listed below)
+#
+# THE THREE TOKENS ARE NOW TOLERATED, per the S1.4 rule verbatim - a token is added
+# WITH the flight that shows it, and every entry below cites `2026-08-25_1502`.
+#
+# ---- THE CEILING GRAMMAR, AND WHY THE ENTRIES ARE BARE -----------------------------
+# THE CEILINGS THIS MEASUREMENT AUTHORIZES ARE STATED HERE AND CANNOT YET BE
+# DECLARED, and that is a whole-suite property rather than a decision about this
+# lane. `hlib.parse_allowed_anomalies` accepts a per-token budget
+# (`{ token = "icon-teleport", maxCount = 130 }`), but TWO whole-set cells in
+# `harness/lib/test_hlib.py` hold that mechanism INERT across every committed spec:
+# `test_no_committed_spec_arms_a_count_budget` (no spec may carry a table entry) and
+# `test_every_committed_spec_parses_under_the_budget_surface` (every parsed budget
+# must come back `None`). V14T and V15T both wrote the budget form FIRST and both
+# reverted to a BARE token for exactly this reason; their headers say arming one
+# "means moving that invariant cell to a named allowlist in the same edit", and that
+# allowlist move is an operator decision that should cover those two lanes at the
+# same time as this one, not a side effect of this lane's ledger commit.
+#
+# So the entries below are BARE - V15T's and V17T's actual spelling - and the
+# ceilings are recorded as arithmetic ready for that one edit:
+#
+#   icon-teleport       ceiling 130  = 2x the measured 65. DOUBLE rather than a
+#                       tight bracket because the probe's own calibration defect is
+#                       FILED and unfixed (the icon-jump/icon-teleport threshold
+#                       entry in todo-and-known-bugs.md: 95 raises on a hand-played,
+#                       visually-validated session), the suspected discriminator is
+#                       rails warp, and THIS LANE COMMANDS RAILS BY CONSTRUCTION -
+#                       a stair of 10x/50x/100x/1000x/100x/50x/10x at each of three
+#                       windows. The count is therefore expected to move with
+#                       whatever rate the server actually grants, which is not a
+#                       quantity this spec controls. 2x is headroom for that, and it
+#                       is still two orders of magnitude below a per-frame leak.
+#   icon-off-orbit      ceiling 8    = 4x the measured 2. The V14T/V15T/V16T family
+#                       measured this token at 1-2 per run on single-jump shapes and
+#                       called it deterministic; 2 here on a three-jump shape is
+#                       consistent with that. 8 bounds a per-seam raise on a lane
+#                       with 15 cataloged seams without tolerating a per-frame one.
+#   loop-seam-teleport  ceiling 8    = 4x the measured 2. Same argument: the
+#                       instrument is per-orbit-segment-change and this lane crosses
+#                       a bounded number of them (rigid 11 / flexible-soi 4).
+#
+# NOT LISTED, DELIBERATELY: `seam-endpoint-outside-soi`. It is REPORT-ONLY - absent
+# from `hlib.ANOMALY_TOKENS`, reported through `unlistedReasons`, and it moved no
+# verdict on flight 2. Declaring a tolerance for an ungated token is an INERT
+# declaration that `parse_allowed_anomalies` emits a warning for, and
+# `test_every_committed_spec_parses_under_the_budget_surface` asserts ZERO warnings
+# across the suite, so listing it would red the harness suite while buying nothing.
+# Its first-ever live raise is recorded in section 1 and in the design doc instead.
+# =====================================================================================
+tier = "operator"
+description = "THE RC-WARP LANE, ARMED 2026-08-25 off TWO MATCHING READINGS (`2026-08-25_1502` full measurement + `2026-08-25_1616` clean PASS): gating = true with dwells {1,32}, unevaluable {max 500000}, requireSeamKinds [rigid, flexible-soi] and - the FIRST IN THE SUITE - warpBuckets [warp100, warp1000]. THE THREE-RUN WORKFLOW IS COMPLETE: the armed re-flight flew TWICE (2026-08-25_1722 and 2026-08-25_1811, both PASS attempt 1, gating=True, zero mismatches - 1811 was intended as the control and never armed, so it counts as a second re-flight) and the negative control flew as 2026-08-25_1925, PARSEK-FAIL(render-composition) attempt 1 on the single mismatch RC-WARP [FAIL] warpBuckets.warpHigh with every sibling row clean, reverted in the same change. A loop-arrival map dwell over the free-play-validated Kerbin -> Duna re-aim recording, driven through a COMMANDED rails warp stair (10x/50x/100x/1000x/100x/50x/10x, up and back down, held 10 poll frames per step) at each of its three span-clock windows. It is the suite's answer to the last Phase-3 debt: RC-WARP is satisfiable only by a real rails ladder, and every other committed subject moves the clock with instantaneous TimeJumps whose histogram is 1x-only by construction (confirmed four times on V14M and V8). READING FLIGHT 1 (2026-08-25_1415, PASS/REPORT) measured an EMPTY observation and both its root causes - recorded-clock dwell windows against a compressing loop clock, and a no-op warp cancel - were fixed before the re-fly. READING FLIGHT 2 (2026-08-25_1502) MEASURED THE WHOLE COMPOSITION and red PARSEK-FAIL(anomaly) on attempt 1, which is the outcome this spec's own header pre-registered in writing rather than a lane defect: all ten driver steps green, every other verifier row green, wall 2,895 s inside the unchanged budgets. What it bought: the first histogram in the suite that is not 1x-only-by-construction (warp1x 322078 / warp100 10602 / warp1000 2170) with holdsAboveOneX 1 and seamsAboveOneX 2 - the first time any committed subject put a cataloged seam AND a hold above 1x - plus dwells 2 (+2 open), treatments StockConic 2, seams rigid 11 / flexible-soi 4, maxEndpointRatio 0.4367, four INFO RC-QUAL findings and nothing worse, and the FIRST EVER live raise of the report-only seam-endpoint-outside-soi instrument on the Sun->Duna arrival handoff. The red itself is the measurement the icon-teleport calibration pass was owed: hitCounts icon-teleport 65 / icon-off-orbit 2 / loop-seam-teleport 2, all three now tolerated BARE with that run id beside them (the ceilings 130/8/8 are argued in the header but cannot be declared while the whole-suite inert-budget invariant stands). READING FLIGHT 3 (2026-08-25_1616) then re-flew the unchanged spec with those three tolerances and came back a CLEAN PASS: the anomaly counts recurred IDENTICALLY (65 / 2 / 2), every composition facet equals flight 2's integer (dwells 2 +2 open, cycles 1, transitions 2, seams rigid 11 / flexible-soi 4, holdsAboveOneX 1, seamsAboveOneX 2, four INFO RC-QUAL and nothing worse), and the histogram matched within 0.5 % bucket for bucket (warp1x 322868 / warp100 10626 / warp1000 2160 / warpHigh 0 / warpPhys 0). The block is ARMED off that PAIR - a histogram read once is a sample - and warpBuckets is written FROM the two measured histograms, never predicted."
+instanceProfile = "stock-minimal"
+tags = ["V24", "rc-warp", "warp-stair", "render-composition", "loop-arrival",
+        "map-dwell", "re-aim", "interplanetary", "kerbin", "duna",
+        "free-play-subject"]
+
+[fixture]
+# The harvest of the first free-play ground-truth session (see header section 2).
+saveTemplate       = "fixtures/saves/duna-one-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind    = "autopilot"
+mission = "m3_loop_arrival_dwell"
+
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  # KILL THE SCENE-ENTRY AUTO-RECORDER FIRST (V2 flight 4 / V5 run 1, structural
+  # rather than fixture-specific): loading a save whose own parked craft is active
+  # makes the committed-tree restore path resume a promotion-stub recording ~1 s into
+  # the scene, BEFORE any step can run. StopRecording is idempotent-OK by construction
+  # and DiscardTree answers OK with nothing-discarded when no plain tree is live, so
+  # the pair is safe on any entry state; the SetSetting stops a later one. The pair
+  # kills ONE stub and is not a latch - which is why the recordings window below
+  # admits a stub rather than forbidding it.
+  { cmd = "StopRecording",                                                   expect = "OK" },
+  { cmd = "DiscardTree",                                                     expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  # Three tracer pins, and all three are LOAD-BEARING for the manifest, not just for
+  # log evidence: the seam tangent/endpoint capture predicates behind RC-SEAM are
+  # `mapRenderTracing`-gated (SPEC decision 2), so a manifest taken with the tracer
+  # off carries no seam numbers at all and every RC-SEAM numeric clause counts as
+  # `seam-data-unavailable-tracing-off` unevaluable - a lane that declared the block
+  # without arming the tracer would fly, green, and measure nothing.
+  # `ghostRenderTracing` is the FLIGHT-scene raise gate for the loop-seam-teleport
+  # Tier-C instrument; `verboseLogging` is load-bearing beside both, because the
+  # tracer emits its Tier-B truth at Verbose (the V1 lesson).
+  { cmd = "SetSetting", args = { name = "ghostRenderTracing", value = "true" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "mapRenderTracing",   value = "true" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" }, expect = "OK" },
+  # The mission: arm the loop, observe the map camera, then three legs and three
+  # stair-then-hold windows. Budget arithmetic in header section 5.
+  { phase = "mission",  expect = "MISSION-OK", budget = 3000 },
+  # M-A7 RENDER-COMPOSITION CAPTURE, at the only defensible instant: AFTER every
+  # observation (all three windows and all three stairs are inside the accumulation)
+  # and IMMEDIATELY BEFORE FlushAndQuit (so the export is taken at a CHOSEN moment
+  # rather than provoked by the scene-exit auto-flush, whose composition is a
+  # teardown one). The recorder accumulates from Awake, so placement decides only how
+  # much of the lane is already inside the file - an earlier export silently drops
+  # whatever followed it. INERT by construction (`hlib.SEAM_VERB_TAIL_ROLE` = inert):
+  # it reads an in-memory accumulation and writes one file in the KSP root, touching
+  # no vessel, no save and no Parsek persisted state.
+  { cmd = "ExportRenderManifest",                        expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                    expect = "OK" },
+]
+
+[driver.missionParams]
+treeId               = "1ccdb19215034ac19f3a8e31697b05ed"
+# RECORDED-UT deltas from the recording's own start; header section 4 argues each.
+departOffsetSeconds  = 11474541.813229546
+arriveOffsetSeconds  = 18329155.146610025
+# arrive + 61,354, past the Ike return - the supervisor decision in section 4.
+parkOffsetSeconds    = 18390509.0
+dwellLeadSeconds     = 300
+dwellHoldSeconds     = 900
+mapCamera            = true
+cameraFocusBody      = "Duna"
+cameraPitchDeg       = -60
+cameraHeadingDeg     = 0
+cameraDistanceMeters = 2000000000
+armTimeoutSeconds    = 300
+cameraTimeoutSeconds = 120
+# MUST exceed dwellHoldSeconds: the machine's stall detector fires between the two,
+# so V2's 600 against a 900 s hold would flake every window by construction.
+holdTimeoutSeconds   = 1800
+# THE RAILS WARP STAIR (header section 3). COMMANDED KSP rails indices: 10x, 50x,
+# 100x, 1000x, 100x, 50x, 10x - up and back down, once per dwell window.
+dwellRampFactors     = [2, 3, 4, 5, 4, 3, 2]
+dwellRampStepFrames  = 10
+dwellRampFrames      = 600
+
+# CLAIM-IS-NOT-GATE.
+#   D14 `scene-map`   the environment axis this lane runs on (V2's precedent).
+#   D14 `warp-rails`  CLAIMED AT ARMING 2026-08-25, in the same commit that declares
+#                     `warpBuckets = ["warp100", "warp1000"]` - which is the gate
+#                     that makes the claim true. Before the arming this was
+#                     deliberately unclaimed: the block was bare, the histogram was
+#                     recorded and asserted on by nothing, and a coverage claim
+#                     backed by no gate is the vacuity this register exists to avoid.
+#                     Now a run whose rails buckets came back empty reds
+#                     `PARSEK-FAIL(render-composition)`. B23/B24 set the precedent
+#                     for claiming `warp-rails` while declining `warp-high`.
+#
+# STILL NOT CLAIMED, DELIBERATELY: D14 `warp-high`. It is not a scope decision but a
+# MEASUREMENT - `warpHigh` read 0 on BOTH readings (`2026-08-25_1502` and
+# `2026-08-25_1616`), because the commanded ladder tops out at KSP rails index 5
+# (1000x) and `warpHigh` counts frames above that. There is nothing to gate, so there
+# is nothing to claim; the bucket is this lane's NEGATIVE CONTROL token instead.
+[dimensionsCovered]
+D14 = ["scene-map", "warp-rails"]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING (hlib.validate_spec rejects a bare allowedAnomalies
+# written after any [expectations.<sub>] header).
+#
+# THREE TOLERATED TOKENS, ADDED 2026-08-25 WITH THE FLIGHT THAT SHOWS THEM - the
+# S1.4 rule verbatim. The flight is reading run `2026-08-25_1502`
+# (PARSEK-FAIL(anomaly) attempt 1, all ten driver steps green, every other verifier
+# row green), and it measured `hitCounts = {icon-teleport: 65, icon-off-orbit: 2,
+# loop-seam-teleport: 2}`. Header section 6 carries the full argument, the ceiling
+# arithmetic each entry would take (130 / 8 / 8), and the whole-suite invariant that
+# keeps the ceilings undeclarable today; the one-line rationale per token is here.
+#
+# THE LIST SHIPPED EMPTY ON PURPOSE AND RED BECAUSE OF IT, which is the whole reason
+# these three can be trusted: had any been pre-tolerated, the count it fired at
+# would never have been recorded.
+allowedAnomalies = [
+  # 65 raises, `2026-08-25_1502`. The probe's icon-jump/icon-teleport threshold has
+  # a FILED, unfixed over-sensitivity above warp1000, and this lane commands a rails
+  # stair at every window, so this token is expected here. Ceiling 130 (2x measured)
+  # pending the budget-mechanism allowlist move - section 6.
+  "icon-teleport",
+  # 2 raises, `2026-08-25_1502`. The ghost-proto creation-frame trigger the
+  # V14T/V15T/V16T family measured as parent-independent, seen here on a three-jump
+  # shape. Ceiling 8 (4x measured) pending the same move.
+  "icon-off-orbit",
+  # 2 raises, `2026-08-25_1502`. The FLIGHT-scene loop-seam instrument, raised at
+  # orbit-segment changes; this lane crosses 15 cataloged seams (rigid 11 /
+  # flexible-soi 4). Ceiling 8 (4x measured) pending the same move.
+  "loop-seam-teleport",
+]
+
+[expectations.recordings]
+# RE-PINNED OFF THE FIXTURE'S REAL BYTES (the V21 / V22M precedent). This window was
+# first written while `duna-one-recorded` did not yet exist, as a guess bracketing
+# nothing; the fixture landed the same day and MEASURES 1 RECORDING_TREE, 13 RECORDING
+# nodes and 13 `.prec` sidecars, so the bracket is now anchored to a count instead of
+# to an intuition. It is still NOT a measurement of this LANE - no run has happened -
+# which is why it stays a bracket rather than becoming a pin.
+#
+# THE CEILING, 24. The fixture's 13, plus the scene-entry promotion stub the step
+# triple above kills (V2 measured exactly this: its 2-recording fixture reads 3), plus
+# headroom for the load-time optimizer splitting at the FOUR cross-body seams this
+# subject crosses (Kerbin->Sun, Sun->Duna, Duna->Ike, Ike->Duna). What the optimizer
+# actually answers on those crossings is a reading-run measurement - the same question
+# V14M's `exoCoastBodyChangeKept` recorded for a same-parent crossing - and the first
+# draft's 16 sat only 3 above the fixture's own population, so a split at any two
+# seams would have red this lane for a reason that is not what it exists to measure.
+# 24 is a runaway guard: a per-frame recording leak would be in the hundreds.
+#
+# THE FLOOR, 10, and it is deliberately BELOW the fixture's 13 rather than equal to
+# it - but NOT because anything here can auto-merge. That was this comment's first
+# draft, and it was traced and REFUTED against the fixture's own chain before the
+# reading run. `RecordingOptimizer.CanAutoMerge` considers ADJACENT PAIRS within one
+# chain (`a.ChainId == b.ChainId`, `b.ChainIndex == a.ChainIndex + 1`), so the
+# candidate population is pairs, NOT "the snapshot-less segments" - the head and the
+# tail are as involved as the rest. Chain aff63064eefd4ee0a099f5c57728bb55 has FOUR
+# members, hence THREE pairs, and this is the measured table:
+#
+#   idx 0  5d68d429  surface / Kerbin   evaCrewName ''
+#   idx 1  61e91771  exo     / Kerbin   evaCrewName ''
+#   idx 2  0b91670c  atmo    / Duna     evaCrewName ''
+#   idx 3  7609b87b  surface / Duna     evaCrewName ''
+#
+# Every pair crosses a phase boundary, so `samePhase` is false at all three, and the
+# only different-phase escape hatch - `CanMergeContinuousEvaAtmoSurfaceBoundary` -
+# opens with `HasSameEvaIdentity`, which needs `IsEvaRecording` on BOTH sides, i.e. a
+# non-empty `EvaCrewName` (`RecordingOptimizer.cs:2011-2039`). All four are VESSEL
+# recordings with an empty one, so the hatch is closed on every pair. The other NINE
+# recordings carry no `chainId` at all, and `CanAutoMerge` rejects an empty `ChainId`
+# outright. So 13 is STABLE under auto-merge, and a sub-13 count on
+# a run of this fixture is a REAL finding (a recording lost or merged illegally),
+# not a benign optimizer outcome. 10 is margin for the UNKNOWN - this is the first
+# flight of a free-play-harvested fixture - while keeping the anti-vacuity half
+# that matters: a dwell that observed one or two recordings has stopped being a
+# dwell over this subject. The reading run re-pins both halves from what it reads,
+# and if it reads below 13 the number is to be INVESTIGATED, not window-widened.
+count = { min = 10, max = 24 }
+
+[expectations.renderComposition]
+# M-A7 Phase 3, ARMED 2026-08-25 by operator decision, off TWO MATCHING READINGS of
+# this lane's own drive shape: `2026-08-25_1502` (the full-measurement reading, red by
+# this spec's own pre-registered anomaly doctrine) and `2026-08-25_1616` (the clean
+# PASS re-fly of the unchanged spec with the three tolerances flight 2 authored). The
+# V14M/V8 precedent arms off ONE green reading; this lane arms off a PAIR because its
+# whole subject is a histogram, and a histogram read once is a sample. Every window
+# below is written FROM those two runs' facets, and NOTHING IN THE FLOWN SHAPE MOVED
+# at arming: no offset, no ladder, no hold length, no budget, no tolerance, no other
+# expectation. That is the S4.1 rule.
+#
+# WHY THE PAIR IS A PAIR AND NOT TWO RUNS: the anomaly counts came back IDENTICAL
+# (icon-teleport 65 / icon-off-orbit 2 / loop-seam-teleport 2 on both), every
+# structural facet is equal to the integer (dwells 2 + 2 open, cycles 1, transitions
+# 2, treatments StockConic 2, coverages InSegment 2, chainBuilds 2, lineBranches 2,
+# seams rigid 11 / flexible-soi 4, seamEndpoints 1024, seamTangents 0,
+# holdsAboveOneX 1, seamsAboveOneX 2, findings 4 x INFO RC-QUAL and nothing worse),
+# and the histogram matched within 0.5 % bucket for bucket. That is what turns each
+# number below from an observation into a property this lane reproduces.
+#
+# WHAT ARMING BUYS. `run.py` writes `verifiers["render_composition_mismatch"]` only
+# `if rc.gating`, so from here a window miss, a required seam kind absent from the
+# chain records, a declared warp bucket the manifest counted zero frames in, or ANY
+# FAIL-level rule finding classifies the run `PARSEK-FAIL(render-composition)`.
+# Unarmed, every one of those was a report-only footnote. The lane is registered in
+# `RENDERCOMPOSE_ARMED_SPECS` (harness/lib/test_hlib.py) with its run ids.
+#
+# THE WINDOWS, each against its two measurements and with the margin stated:
+#
+#   dwells = { min = 1, max = 32 }
+#     MEASURED 2 closed (+2 open at export) on `2026-08-25_1502` AND on
+#     `2026-08-25_1616` - the same integer twice. `min` is the ANTI-VACUITY floor and
+#     the load-bearing half: a manifest that observed no dwell at all is the
+#     "greened while measuring nothing" shape this module exists to refuse, and 1 is
+#     the smallest honest floor. `max` is an order-of-magnitude runaway guard, not a
+#     pin: the count follows how many Director segments the three windows walk, which
+#     a legitimate render change may move by a few. DELIBERATELY IDENTICAL to the
+#     V14M and V8 siblings' window, so all three lanes state ONE claim about the
+#     product rather than three claims about three subjects.
+#
+#   unevaluable = { max = 500000 }
+#     MEASURED 334342 (`_1502`) and 335146 (`_1616`). A CEILING ONLY, ~1.5x the
+#     larger reading, and it is deliberately NOT the ~3.3x ratio the two sibling
+#     lanes carry, because this census is not the same population as theirs.
+#     WHAT DOMINATES IT: the SEAM_ENDPOINT decimation - `decimated-section-seam_endpoint`
+#     292546 / 293250 plus `truncated-section-seam_endpoint` 41280 / 41380 - i.e.
+#     99.8 % of the count is the per-pid cap doing its job LOUDLY (the Phase-1
+#     contract: thin and say so, never drop silently), on a rails drive shape that
+#     generates endpoint records at a rate no 1x lane approaches. All four INFO
+#     RC-QUAL findings on both runs confirm the kept 1024 records still span the
+#     session, so the trend stayed readable at the coarser rate. The ceiling is
+#     therefore the honest ANTI-VACUITY bound for THIS drive shape and nothing more;
+#     tightening it below the decimation regime would red on the instrument's own
+#     bookkeeping rather than on anything the render pipeline did. What it still
+#     catches is the collapse case - an instrument that stops measuring turns clauses
+#     into unevaluables wholesale - with ~165k of headroom over the larger reading.
+#     NO `min`: an unevaluable count is not a thing to require.
+#
+#   warpBuckets = ["warp100", "warp1000"]
+#     THE WINDOW THIS LANE EXISTS TO AUTHOR, and the first in the suite: V14M's and
+#     V8's headers both say the key may NEVER appear on them, their clocks being
+#     instantaneous TimeJumps whose histogram is 1x-only BY CONSTRUCTION (confirmed
+#     four times, 173/296 reading and 177/295 armed, every other bucket zero).
+#     MEASURED HERE: warp100 10602 / warp1000 2170 on `_1502` and 10626 / 2160 on
+#     `_1616` - both buckets non-zero on both runs, matching within 0.5 %. The clause
+#     says the commanded ladder ACTUALLY VISITED the rails regimes it commands; a
+#     drive that silently fell back to 1x (flight 1's exact defect, when
+#     `ACTION_CANCEL_WARP` was a no-op the other way round) would green every count
+#     window above and red exactly here.
+#     DECLARING THE KEY ALSO ARMS TWO CLAUSES THAT ARE NOT LISTS, and this is the
+#     whole of RC-WARP's anti-vacuity statement rather than a side effect
+#     (`rendercompose._rule_warp`): with `warpBuckets` declared, `seamsAboveOneX == 0`
+#     and `holdsAboveOneX == 0` become FAIL-level findings. Both are backed twice -
+#     `seamsAboveOneX 2` and `holdsAboveOneX 1` on BOTH runs - so this arms an
+#     existing, reproduced fact: a cataloged seam AND a hold traversed above 1x.
+#     `warpHigh` IS DELIBERATELY NOT REQUIRED, and the omission is a MEASUREMENT:
+#     it read 0 on both runs. The ladder's top rung is a COMMANDED index 5 (1000x)
+#     and the server clamps to legality, so 1000x is this subject's histogram
+#     ceiling; `warpHigh` counts frames ABOVE it and there are none to require. A
+#     floor over a facet measured at zero twice would red the runs it was armed off.
+#     It is instead this lane's NEGATIVE CONTROL token - inverting `warpBuckets` to
+#     `["warpHigh"]` reds on a composition token of this lane's OWN, which is the
+#     roadmap's confirmation criterion (b) and is what the V14M/V8 pair each did with
+#     a window of their own rather than sharing one.
+#     `warp1x` IS ALSO NOT REQUIRED although it is the largest bucket (322078 /
+#     322868): requiring it would pin the 1x HOLD that follows each stair, which is
+#     V2's shape and not this lane's contribution, and RC-WARP's statement is about
+#     the above-1x half. `warpPhys` read 0 twice by construction
+#     (`max_physics_warp = 1.0`; the stair is rails-only).
+#
+#   requireSeamKinds = ["rigid", "flexible-soi"]
+#     MEASURED {rigid: 11, flexible-soi: 4} on BOTH runs, to the integer. Both kinds
+#     present, so this arms an existing fact rather than a hope, and it is the
+#     sharpest clause in the block: it says this subject's chain records must keep
+#     carrying BOTH same-body rigid seams and cross-SOI flexible ones, which is the
+#     structural signature of an interplanetary re-aim rendered through the phase
+#     spine. A change that collapsed the chain to one seam kind would green every
+#     count window above and red exactly here. Vocabulary is
+#     `rendercompose.SEAM_KINDS_REQUIRABLE`, which admits no other token.
+#
+# `cycles` IS DELIBERATELY OMITTED, and the omission is a MEASUREMENT rather than an
+# oversight - the V8 precedent for stating one. The facet read 1 CLOSED cycle on BOTH
+# runs (two `cycle-rollover` events bounding exactly one, with
+# `no-cycle-rollover-events: 2` as the matching unevaluable for the open tail), so a
+# `{ min = 1, max = 16 }` window in V14M's spelling WOULD hold. It is left off because
+# it would assert nothing this lane owns: the closed-cycle count here is a function of
+# where three supervisor-chosen dwell windows fall on a COMPRESSED span clock and of
+# the export instant, i.e. of the drive shape that is itself the thing under
+# development (the stair, the compression mapping, the park offset's 4,489 s of
+# headroom). V14M owns the cycles clause on a subject whose loop count is its
+# construction; this lane owns the warp histogram. `dwells` and `requireSeamKinds`
+# carry the anti-vacuity floors, so nothing is lost by declining a third.
+#
+# ALSO NOT DECLARED, each for a measured reason:
+#   * any RC-CUT surface - `cut-run-period-absent: 2` on BOTH runs, so RC-CUT's
+#     whole-ratio check could not evaluate this subject's loiter cut at all
+#     (`cutWholeRatios` came back empty twice). A window armed off that would arm a
+#     clause that never fires. Exactly V8's measured constraint, reproduced here.
+#   * any RC-HOLD clause - the observed hold (7050.236864 s on `_1502`, 7061.161390 s
+#     on `_1616`) sits at ~18-20 % of the per-cycle plan ([39607.052804,
+#     35444.407972]) at BOTH plan units on BOTH runs. That gap is a MEASUREMENT this
+#     lane HANDS to RC-HOLD, and it is stable across the pair - but it is one
+#     engage/release pair per run, and the design's own note says sizing that half
+#     wants a lane that dwells THROUGH a hold at a known warp. A window is not owed
+#     off a ratio nobody has yet explained.
+#   * `seamTangents` / `maxEndpointRatio` count or band windows - seamTangents read 0
+#     twice and the endpoint population is DECIMATED (see the unevaluable window), so
+#     the endpoint census on this drive shape is a sampled population and a count
+#     window over it would pin the sampler, not the product.
+#
+# THE DECLARATION (not the arming) remains what sets `PARSEK_RENDER_MANIFEST=1` at
+# launch (`rendercompose.declared_composition_blocks` -> run.py's env build), arming
+# the C# recorder at Awake; without it the export step answers
+# `REJECTED msg=manifest-not-armed`. That coupling is enforced pre-launch by
+# `hlib.validate_spec`'s verb/block rule.
+#
+# NOTHING IS OWED (see the header's ARMING LEDGER): the three-run workflow is
+# COMPLETE. The ARMED RE-FLIGHT flew TWICE (`2026-08-25_1722`, `2026-08-25_1811`,
+# both PASS attempt 1, zero mismatches) and the NEGATIVE CONTROL flew as
+# `2026-08-25_1925`, `PARSEK-FAIL(render-composition)` attempt 1 on the single
+# mismatch `RC-WARP [FAIL] warpBuckets.warpHigh`, reverted in the same change.
+# THE OPERATOR TRAP THAT COST THE FIRST CONTROL ATTEMPT STANDS FOR ANY FUTURE ONE:
+# the control's first attempt (1811) never armed - a substring edit hit a rationale
+# COMMENT quoting this same key ahead of the line below - so INVERT THE LINE BELOW
+# BY LINE ANCHOR, never by substring, and confirm with
+# `run.py --id V24W-duna-one-warp-stair --dry-run` (its [VERIFY] line prints
+# `declared: {...}`) before taking the machine lock.
+gating = true
+dwells = { min = 1, max = 32 }
+unevaluable = { max = 500000 }
+warpBuckets = ["warp100", "warp1000"]
+requireSeamKinds = ["rigid", "flexible-soi"]
+
+[runtime]
+# 300 LoadGame + 3000 mission (arm + camera gate + three instantaneous legs + three
+# 35-wall-second stairs + three 900 game-second 1x holds = ~2,850 s) + the fast tail
+# verbs + margin. Header section 5 carries the arithmetic; V2's 2100 is for 300 s
+# holds and does not transfer.
+budgetSeconds = 3600
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

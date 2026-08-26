@@ -147,18 +147,20 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Status-cell tooltip: the raw enum name alone (the pre-M6 contract),
-        /// or the enum name plus the one-clause hold description on a second
-        /// line. The tooltip always carries the FULL hold clause - the visible
-        /// cell text is the compact (possibly truncated)
-        /// <see cref="StatusCellText"/>, so the tooltip is where a truncated
-        /// reason is read in full (M6 closeout row-level treatment).
+        /// Status-cell tooltip: the raw enum name alone (the pre-M6 contract), or the
+        /// enum name followed by the one-clause hold description on a SINGLE line.
+        /// The tooltip always carries the FULL hold clause - the visible cell text
+        /// is the compact (possibly truncated) <see cref="StatusCellText"/>, so the
+        /// tooltip is where a truncated reason is read in full. Single-line since the
+        /// Logistics help strip became one line tall: a hard newline spent one of the
+        /// old two lines on the short enum name; now the strip's marquee scrolls the
+        /// whole "Enum - clause" line into view instead.
         /// </summary>
         internal static string StatusCellTooltip(RouteStatus status, string holdShort)
         {
             if (string.IsNullOrEmpty(holdShort))
                 return status.ToString();
-            return status + "\n" + holdShort;
+            return status + " - " + holdShort;
         }
 
         // The OriginLacksCargo token family: the special markers first

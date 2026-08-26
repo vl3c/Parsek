@@ -175,6 +175,39 @@ id = "V14T-ike-ts-arrival"
 # `supersedeRows = { min = 1 }`, correctly PARSEK-FAIL(save-structure), reverted): one
 # inversion across V14M+V14T, not two, because they gate through the one shared
 # saveParse evaluator (the V4/V5 precedent).
+#
+# renderComposition ARMING LEDGER (M-A7 Phase 3C, WAVE A - added 2026-08-26).
+#   POSTURE  DECLARED BARE. NOTHING IS ARMED AND NOTHING GATES. The block's only job today
+#            is to EXIST: declaring it sets `PARSEK_RENDER_MANIFEST=1` at launch, which arms
+#            the C# recorder at Awake, and one `ExportRenderManifest` step immediately before
+#            the teardown takes the manifest at a chosen instant.
+#   TRACERS  **`ghostRenderTracing` IS NEWLY ARMED BY THIS COMMIT** (the lane previously
+#            armed only `mapRenderTracing` + `verboseLogging`). It is added because
+#            `test_every_declarer_arms_the_tracers_the_seam_capture_needs` requires all
+#            three of every declarer. BE HONEST ABOUT WHAT IT BUYS AND COSTS HERE: every
+#            capture predicate the manifest reads is `MapRenderTrace.IsEnabled`-gated
+#            (the seam-tangent evaluation in GhostTrajectoryPolylineRenderer,
+#            MapRenderProbe's truth + endpoint census), so the third tracer adds NO
+#            manifest content on this lane - what it adds is EXPOSURE, and this lane's
+#            anomaly sweep is ARMED (only `icon-off-orbit` tolerated). The FLIGHT phase
+#            before the TS load can now raise the `ghostRenderTracing`-gated family
+#            (`loop-seam-teleport` and the GhostRenderTrace raises), and
+#            `faithful-parity summary ... overTolerance=[1-9]` - already FORBIDDEN here
+#            and measured `sampled=0` with the tracer off - can now sample nonzero. A
+#            red on the reading run from either is a TRACER-ARMING READING to record,
+#            not a regression to re-diagnose; V14T's own header sets that precedent (its
+#            reading run red on a correct catch with all 16 steps green).
+#   READING  PENDING. Wave B accumulates readings FOR FREE off the normal tier cadence -
+#            every flight of a declared lane writes facets into its results JSON. Windows get
+#            written FROM those facets at arming, by operator decision, on the established
+#            three-run discipline (reading -> armed re-flight -> negative control).
+#   S4.1     Nothing in the flown shape moved: no step, no jump UT, no budget and no
+#            existing expectation was touched. The additions are the export step, the
+#            bare block and the missing `ghostRenderTracing` step named above.
+#   NOTE     FIRST OF ITS KIND: no tracking-station-host manifest has EVER been
+#            captured, which is why the lane is in Wave A despite the exposure change -
+#            the TS host is a distinct render surface and nothing in the module has
+#            measured it.
 # =====================================================================================
 tier = "operator"
 description = "LIVE-PROVEN AND ARMED on the full three-run discipline: reading 2026-08-18_2337 (PARSEK-FAIL(anomaly) attempt 1 with all 16 steps green - a CORRECT catch, see below), armed re-flight 2026-08-19_0002 (PASS attempt 1, the tolerated anomaly RECURRING at counts={'icon-off-orbit': 1}, so the trigger is deterministic rather than a one-off), negative control shared with V14M (2026-08-19_0003). The tracking-station half of the Ike player-loop pair: arm the loop and jump the clock past the cycle-1 Duna->Ike SOI seam in FLIGHT, SaveGame, then re-enter through LoadGame scene=trackstation and dwell with mapRenderTracing armed. The subject is B23's Duna->Ike recording - the suite's first loop member whose LAUNCH BODY is not Kerbin and the first that DEPARTS FROM ORBIT rather than from a pad. Anti-vacuity rides the TS host's own `created N ghost vessel(s)` count with N >= 1. MEASURED: `method=single-orbital` with `constraints=1` (an orbit-rooted recording emits no Rotation constraint, so the predicted tidal-collapse branch is never reached), `reaimed=False`, and an Ike-framed TS proto icon - all now required. The reading run red'd on ONE Tier-C `icon-off-orbit` raised in FLIGHT on the ghost-proto creation frame after this lane's single 17,223-second TimeJump (V14M's stepped bracket raises nothing at the same UT); tolerated by the BARE token (the ceiling form is argued and rejected inline: the suite holds the budget mechanism inert) and filed report-only."
@@ -209,6 +242,13 @@ steps = [
   # mapRenderTracing arms the map/TS tracer + probe; verboseLogging is LOAD-BEARING
   # (the Tier-B truth lines are Verbose - the V1 lesson). Settings are process-global,
   # so both survive the LoadGame into TS.
+  # ADDED 2026-08-26 WITH THE M-A7 RENDER-COMPOSITION DECLARATION, and it is the ONE
+  # exposure change in that edit - see the renderComposition arming ledger in the header.
+  # `test_every_declarer_arms_the_tracers_the_seam_capture_needs` requires all three
+  # tracers of every declarer; on THIS lane the third buys no manifest content (the
+  # capture predicates are all `MapRenderTrace.IsEnabled`-gated) and what it adds is a
+  # FLIGHT-scene anomaly surface that was previously dark.
+  { cmd = "SetSetting", args = { name = "ghostRenderTracing", value = "true" }, expect = "OK" },
   { cmd = "SetSetting", args = { name = "mapRenderTracing", value = "true" }, expect = "OK" },
   { cmd = "SetSetting", args = { name = "verboseLogging",   value = "true" }, expect = "OK" },
   # ARM (FLIGHT-only): the production MissionStore.SetLoopEnabled path.
@@ -235,6 +275,17 @@ steps = [
   # available in this scene and are named as ticks, not as a dwell window.
   { cmd = "RecordingState",                                                  expect = "OK" },
   { cmd = "RecordingState",                                                  expect = "OK" },
+  # M-A7 RENDER-COMPOSITION CAPTURE (Phase 3C, Wave A, 2026-08-26). PLACEMENT IS THE
+  # ARGUMENT and it is pinned by `test_every_declarer_exports_immediately_before_teardown`:
+  # the recorder accumulates from Awake, so the only thing placement decides is how much of
+  # this lane's observation is already inside the exported file - and taking it HERE takes it
+  # at a chosen instant rather than leaving the composition to the scene-exit auto-flush that
+  # follows `FlushAndQuit`.
+  # INERT by construction (`hlib.SEAM_VERB_TAIL_ROLE["ExportRenderManifest"]` = inert): an
+  # in-memory read of the recorder plus one file write in the KSP root, touching no vessel, no
+  # save and no Parsek persisted state - so it cannot perturb anything this lane already gates
+  # on.
+  { cmd = "ExportRenderManifest",                        expect = "OK", budget = 120 },
   { cmd = "FlushAndQuit",                                                    expect = "OK" },
 ]
 
@@ -460,6 +511,15 @@ trees          = { min = 1, max = 2 }
 committedTrees = { min = 1, max = 1 }
 recordings     = { min = 1, max = 1 }
 terminalStates = { Orbiting = { min = 1 } }
+
+[expectations.renderComposition]
+# M-A7 Phase 3C, WAVE A - DECLARED 2026-08-26, BARE ON PURPOSE: no `gating`, no window, no
+# list. Declaring is what sets `PARSEK_RENDER_MANIFEST=1` at launch and arms the C# recorder
+# at Awake, and `rendercompose` then records its facets UNCONDITIONALLY on a parseable
+# manifest - which is how a lane earns its first honest window off a green report-only run.
+# A window written today would be a PREDICTION read back as though it were a measurement,
+# the mistake V14M, V8 and V6M all shipped bare through their reading runs to avoid.
+# READING PENDING - see the renderComposition arming ledger in this file's header.
 
 [runtime]
 # 300 LoadGame + 300 StartLoopPlayback + 300 TimeJump + 300 LoadGame(TS) + the fast

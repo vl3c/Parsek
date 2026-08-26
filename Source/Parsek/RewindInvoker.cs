@@ -81,7 +81,7 @@ namespace Parsek
             // stomp state or deadlock Unity's loader.
             if (!IsInvokableScene(HighLogic.LoadedScene))
             {
-                reason = "Scene transition in progress — please wait";
+                reason = "Scene transition in progress - please wait";
                 return false;
             }
 

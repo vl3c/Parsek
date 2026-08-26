@@ -112,6 +112,11 @@ and no check today):
    separate benign from defect populations; `RenderParityOracle` skips
    re-aimed members entirely; `loop-seam-teleport` measures the transform,
    not the drawn line.
+   ("has never fired" was true when this gap was written and is NO LONGER
+   true: the instrument produced its FIRST LIVE RAISE on 2026-08-25, run
+   `2026-08-25_1502` (V24W). It stays report-only, and the calibration half
+   of this gap is unchanged by one raise - see implementation note 6, which
+   carries the echo evidence.)
 4. "Synthesized never persists" and copy-then-transform immutability are
    enforced by convention only.
 5. The `PadAlignLaunch` -> `DestinationArrivalAlign` composition ordering is
@@ -376,6 +381,24 @@ and never across a body change; SwitchContinuation exempt from position
 match by contract. CitedContract: `PhaseSeamClassifier`,
 `CrossMemberSeamStitcher`, `SeamEndpointOracle`, render-architecture 6.1/9.1.
 
+CORRECTION (2026-08-26, off V25M's reading run `2026-08-26_1744`): **a
+TRANSITION does not necessarily name ONE boundary.** It is a DWELL-stream
+event - it fires when the Director's rendered segment index moves - and a
+warp step can carry the head clean ACROSS an interior segment, so
+`toSegmentIndex` can exceed `fromSegmentIndex + 1` and the record then spans
+SEVERAL boundaries. Since `RenderCompositionRecorder.NoteChainBuild` emits
+`BoundaryIndex = i` for segment `i`'s `LeadingSeam`, keying the seam table on
+`toSegmentIndex` reads the LAST boundary of such a span. Wave-1 did exactly
+that and reported a correct `rigid` at the span's final same-body boundary as
+a rigid-classified body change. The classification clause now walks EVERY
+boundary the transition crossed and takes each one's bodies from the chain's
+own `PHASE` records, falling back to the observed `fromBody -> toBody` pair
+only for a single-boundary span (where the two agree by construction, which
+keeps `assembler-fallback` chains evaluable). A multi-boundary span the PHASE
+list cannot resolve is the defined-unevaluable `seam-boundary-bodies-absent`;
+a retire (`toSegmentIndex = -1`) or a loop wrap names no boundary. Pure core:
+`rendercompose.transition_boundaries`.
+
 **RC-HOLD (FAIL)** - each observed hold matches the recomputed per-cycle
 value (arrival hold realigned by the align period; launch borrow repaid at
 the recorded SOI exit, netting to zero); a hold is stationary in its OWN
@@ -465,10 +488,31 @@ observed clock event no rule above claimed.
   `B27-station-route` / V18M/V18T land, the same manifest + row covers the
   route front door and the D10 overview-line surface; this module does not
   duplicate G1's lane reservations, it consumes them.
-- **Scenario ids**: none reserved here; composition lanes extend existing V
-  specs with a manifest step + `[expectations.renderComposition]` block
-  rather than minting a parallel lane family. New ids, if ever needed, get
-  reserved in the roadmap's register like everything else.
+- **The warp-schedule subject, added 2026-08-25**: a
+  **free-play-validated Kerbin -> Duna re-aim loop** over
+  `fixtures/saves/duna-one-recorded`, driven by `m3_loop_arrival_dwell` with a
+  rails stair at each of its three span-clock windows
+  (`V24W-duna-one-warp-stair`). It is listed separately from the three above
+  because the three above CANNOT carry the warp-schedule bullet: every one of
+  them moves the clock with instantaneous `TimeJump`s, so their histograms are
+  1x-only by construction and RC-WARP is unsatisfiable on them (measured on
+  four flights). Two things make this subject the right one. Its provenance is
+  a session a HUMAN played and visually validated, so the composition it
+  produces is one somebody has already called correct - the only subject in the
+  program with that property. And its measured free-play histogram
+  (`warp100 4727 / warp1000 15488 / warpHigh 11446`, zero 1x, zero physics) is
+  the shape RC-WARP was written for, so the rule's subject is demonstrated
+  rather than assumed. The stair is FLAG-GATED on the mission and inert by
+  default, so the lanes already armed on this row keep their flown shape
+  byte-identically.
+- **Scenario ids**: composition lanes normally extend existing V specs with a
+  manifest step + `[expectations.renderComposition]` block rather than minting
+  a parallel lane family, and the two first subjects did exactly that. The
+  warp-schedule lane is the ONE exception and needed a new id, because what it
+  changes is the DRIVE SHAPE rather than the expectations - it could not be
+  added to a committed lane without moving that lane's flown shape, which the
+  S4.1 rule forbids. It is reserved in the roadmap's register like everything
+  else (`V24`, and it mints the `W` warp-schedule suffix alongside `M`/`T`/`K`).
 - **Negative controls** (confirmation criterion b): each armed spec inverts a
   required COMPOSITION token of its own - e.g. temporarily declare an
   expected hold 60 s longer than planned, or require a seam kind the chain
@@ -519,6 +563,13 @@ Phases 1 and 2 shipped together. Where the implementation departed from what
 this document specifies, the deviation is RATIFIED and recorded here; the
 prose above is otherwise unchanged and still binding. Status (what is shipped,
 what is armed) lives in `autotest-status.md`, not here.
+
+Notes 1-5 are the RATIFIED DEVIATIONS. Note 6 is a different kind of entry and
+is marked as such: a LIVE-FACT ANNOTATION retiring a factual claim the prose
+above makes about an instrument (prior-art gap 3's "has never fired"), added
+here rather than rewritten in place so the original claim and the run that
+falsified it stay visible together. Later annotations of that kind continue the
+same numbering.
 
 1. **`ExportRenderManifest` landed SINGLE-PHASE.** This document called for a
    deferred-completion verb. The export is synchronous - one flush plus one
@@ -575,6 +626,86 @@ what is armed) lives in `autotest-status.md`, not here.
    sitting at zero across the lanes. (Wave-1 shipped this exemption keyed on
    pid-0 DWELLS, which by construction never exist - it was dead code, and the
    proto-less population would have red'd.)
+
+   **AMENDED 2026-08-25 by V6M's reading run (`2026-08-25_2056`): the FAIL
+   direction now carries one precondition - the publish surface must have run at
+   all.** V6M is the first lane in the suite whose Director ever opened a
+   TracedPath dwell, and it raised three RC-OWN FAILs (one per cycle, at the
+   arrival brackets) against a manifest with `ownershipChanges = 0`. The reading
+   is that the two halves of the contract DO NOT SHARE A GATE. The intent half
+   (`ShadowRenderDriver.RunFrame`, which stamps the TracedPath intent that both
+   the DWELL records and the stock line/icon suppression read) is driven from
+   `ParsekFlight`'s per-frame update and runs whether or not the map is open; the
+   publish half (`drewNonOrbitalLegRecordings` -> `NoteOwnershipPublish`) is
+   reached only at the END of the polyline Driver's `LateUpdate` walk, whose
+   second statement is `if (!MapView.MapIsEnabled) return;`. With the map closed
+   the ghost is drawn on no map surface at all, so a visible TracedPath dwell is
+   an INTENT record and not evidence of a draw: "a draw implies a publish" is not
+   unmet there, it is unasked. No command-seam verb opens the map view (there is
+   no `EnterMapView` command and no production path calls `MapView.EnterMapView`),
+   so EVERY manifest lane is in this state today - V24W measured
+   `ownershipChanges = 0` too and escaped only because it never opened a
+   TracedPath dwell. The discriminator is GLOBAL and stays deliberately narrow:
+   zero `OWNERSHIP_CHANGE` records ANYWHERE in the manifest stands the direction
+   down as the defined-unevaluable `ownership-publish-surface-never-ran`, while
+   ONE publish anywhere proves the walk ran past the map gate and every recording
+   that then lacks an ownership record keeps its FAIL (that is the
+   leg-that-never-draws defect the direction exists to catch). The
+   `falls outside every published ownership interval` clause is untouched - it
+   already requires that recording to have published. ~~Retiring this
+   precondition needs a MAP-OPEN LANE, which needs a new command-seam verb (C# +
+   a flown-shape change), not a rule edit.~~
+
+   **DISCHARGED 2026-08-26 by V6M's MAP-OPEN RE-FLY (`2026-08-26_1745`, PASS
+   attempt 1). THE PRECONDITION IS SATISFIED AND OWNERSHIP IS CONSERVED ON THIS
+   SUBJECT.** R12's `EnterMapView` / `ExitMapView` pair (PR #1539) put the map
+   open across every observation window, and the manifest came back with
+   `ownershipChanges = 6` - three clean appear/disappear PAIRS on
+   `recId 448cd680`, one per TracedPath dwell, at `[296370, 296690]`,
+   `[576510, 576830]` and `[985950, 986270]`, THE SAME three brackets whose
+   missing records raised the original three FAILs - with `Polyline frame:`
+   summaries now present in the collected `KSP.log` (the 2026-08-25 run carried
+   zero, which is what proved every `LateUpdate` was bailing at the map gate).
+   RC-OWN findings went 3 -> 0, `ownPublishWithoutDraw` reads 0, and
+   `ownership-publish-surface-never-ran` is ABSENT from the run's unevaluable
+   reasons. So the three earlier FAILs are confirmed as the instrument gap this
+   deviation diagnosed and NOT a leg-that-never-draws defect. The stand-down
+   above is KEPT AS SHIPPED - it is still the correct reading for the many lanes
+   that do not open the map - but it is no longer the state of the whole suite,
+   and a pass may read "no RC-OWN finding" as "ownership conserved" on a lane
+   that opens the map AND publishes. Note what made this a real test rather than
+   a formality: the verb was necessary but not sufficient, since a map-open lane
+   whose Director never owned a leg in the window would have published nothing
+   and THAT reading would have been a genuine finding. It published.
+
+6. **`seam-endpoint-outside-soi` HAS NOW FIRED LIVE, once, and prior-art gap 3's
+   "has never fired" clause is retired.** First raise: run `2026-08-25_1502`
+   (V24W reading flight 2, `harness/results/2026-08-25_1502_V24W-duna-one-warp-
+   stair_shots/parsek-render-manifest.txt`). It came through the REPORT-ONLY
+   channel exactly as designed - absent from `hlib.ANOMALY_TOKENS`, surfaced as
+   `anomalySweep.unlistedReasons = ["seam-endpoint-outside-soi"]`, counted in the
+   manifest as `anomalyEchoes.seam-endpoint-outside-soi = 1`, and moving no
+   verdict (that run's PARSEK-FAIL was the anomaly sweep on three GATED tokens,
+   a separate matter). WHERE IT RAISED, because the location is the interesting
+   part: the echo sits on the departure-loiter `DWELL` for
+   `recId 61e9177193444e329247d0e8288cf91e` (`pidKey 839899670`,
+   `ut 5355599259.994832`, `treatment StockConic`, `coverage InSegment`,
+   `openAtExport = True`) whose open endpoint is in the `Sun` frame and whose
+   close endpoint is at `Duna` - i.e. the heliocentric-to-Duna arrival handoff,
+   which is precisely the geometry a cross-SOI endpoint check exists to have an
+   opinion about, not an incidental frame. The same record's
+   `maxEndpointRatio` context is the run-level `0.4366947421168355` over 1024
+   endpoints (an INFO `RC-QUAL` trend row).
+   WHAT THIS DOES AND DOES NOT SETTLE. It settles that the instrument is WIRED
+   and reachable on real re-aim geometry - the thing a "has never fired" clause
+   could not distinguish from dead code. It settles NOTHING about the
+   single-ratio calibration, which is the other half of gap 3: one raise on one
+   arrival cannot separate a benign SOI-edge endpoint from a defect, and this run
+   also carries `decimatedSections.SEAM_ENDPOINT = 292546` plus 41,280 truncated
+   and 512 skipped, so the endpoint population it saw is SAMPLED. Do not promote
+   the reason into `ANOMALY_TOKENS` off this. The calibration still wants a
+   population of raises with their ratios attributed, and the manifests now carry
+   per-raise `ANOMALY_ECHO` records with `ut` stamps to build it from offline.
 
 Two further facts a reader of this design needs about what shipped:
 

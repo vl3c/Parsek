@@ -1,0 +1,57 @@
+version = 1
+GAME_STATE_EVENT
+{
+	ut = 5259201328.3824234
+	type = 18
+	key = Orbit
+	detail = funds=12000;rep=2;sci=1
+}
+GAME_STATE_EVENT
+{
+	ut = 5259201860.1945953
+	type = 18
+	key = FirstCrewToSurvive
+	detail = funds=800;rep=0;sci=0
+}
+GAME_STATE_EVENT
+{
+	ut = 5259201860.1945953
+	type = 10
+	key = Bergan Kerman
+	detail = from=Assigned;to=Available
+}
+GAME_STATE_EVENT
+{
+	ut = 5259201868.71479
+	type = 10
+	key = Jebediah Kerman
+	detail = from=Available;to=Assigned
+}
+GAME_STATE_EVENT
+{
+	ut = 5237841520.0647316
+	type = 18
+	key = FirstCrewToSurvive
+	detail = funds=800;rep=0;sci=0
+}
+GAME_STATE_EVENT
+{
+	ut = 5237841526.6048813
+	type = 10
+	key = Bergan Kerman
+	detail = from=Assigned;to=Available
+}
+GAME_STATE_EVENT
+{
+	ut = 5250441445.4163456
+	type = 18
+	key = Orbit
+	detail = funds=12000;rep=2;sci=1
+}
+GAME_STATE_EVENT
+{
+	ut = 5257487271.9982071
+	type = 18
+	key = Suborbit
+	detail = funds=22000;rep=1;sci=0
+}
