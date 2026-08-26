@@ -100,7 +100,13 @@ All notable changes to Parsek are documented here.
   is now backed by a real fast-forward instead of standing unused; its window was
   written from two independently measured runs whose readings matched, and a run
   whose fast-forward never happened now fails. That closes the last of this
-  phase's work, and the route-drawing surfaces are what remains.
+  phase's work, and the route-drawing surfaces are what remains. Since then the
+  recorder has been switched on across essentially the whole replay-lane corpus:
+  fifteen further lanes now declare the block and export a manifest on every
+  flight - including, for the first time anywhere, one watched from the tracking
+  station and one watched from the space centre - so composition measurements
+  accumulate on their own from ordinary scheduled runs, and none of the new lanes
+  fails a run until its own readings have been read.
   Test-tooling only; no gameplay change.
 
 - The automated-testing suite gained a second moon-to-moon subject, so a result

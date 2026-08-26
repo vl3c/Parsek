@@ -137,6 +137,26 @@ id = "V13-jool-player-loop"
 # (BuildCandidateTofs, the recorded-centered builder) rather than the eccentricity.
 # M-MIS-3's behavioural half is CLOSED as of 2026-08-15; only the constant-pinning
 # judgement on EccGain / MaxHalfWidthFraction remains open.
+#
+# renderComposition ARMING LEDGER (M-A7 Phase 3C, WAVE A - added 2026-08-26).
+#   POSTURE  DECLARED BARE. NOTHING IS ARMED AND NOTHING GATES. The block's only job today
+#            is to EXIST: declaring it sets `PARSEK_RENDER_MANIFEST=1` at launch, which arms
+#            the C# recorder at Awake, and one `ExportRenderManifest` step immediately before
+#            the teardown takes the manifest at a chosen instant.
+#   TRACERS  all three (`ghostRenderTracing` / `mapRenderTracing` / `verboseLogging`)
+#            were ALREADY armed by this lane, so the declaration changes NO anomaly
+#            exposure and the manifest's seam capture (all of it
+#            `MapRenderTrace.IsEnabled`-gated) is live from the first flight.
+#   READING  PENDING. Wave B accumulates readings FOR FREE off the normal tier cadence -
+#            every flight of a declared lane writes facets into its results JSON. Windows get
+#            written FROM those facets at arming, by operator decision, on the established
+#            three-run discipline (reading -> armed re-flight -> negative control).
+#   S4.1     Nothing in the flown shape moved: no step, no jump UT, no budget and no
+#            existing expectation was touched. The additions are the export step and the
+#            bare block; no existing step changed.
+#   NOTE     EXPECT A THIN READING, for V9's reason (quits ~1 s after
+#            StartLoopPlayback): an arm-only baseline on the Jool B22 fixture, not a
+#            dwell.
 # =====================================================================================
 tier = "operator"
 description = "ARMED: the player loop workflow on the Jool program's committed B22 recording. Shipped as an iteration-1 READING run (plumbing triple, wide count, decline reasons unforbidden so a Jool decline could be recorded rather than red) and armed off the reading run's own bytes (`2026-08-17_2055`, PASS, wall 48 s). Jool ENGAGES: re-aim Kerbin->Jool via Sun on a 25-segment member, synodic 10,090,901.710279949 measured against a pre-flight prediction of 10,090,901.7102799 (agreement 4.8e-8 s), cadence 30,272,705.130839847 = EXACTLY 3x the synodic as predicted from span/synodic 2.7537 -> Ceiling 3, against Moho 1x / Dres 2x / Eeloo 5x. The loiter compressor cuts 4,105,620 s = 14.8% of the 27,787,292 s span (tof 80.4%), which places Jool between Dres (41.4% on a 20.39e6 span) and Eeloo (10.8% on 47.04e6) in span order -- but the program has FIVE such measurements, and Moho (13.6% on the smallest span in the suite) and Eve (75.0%) break that ordering, so the shrinking reading holds for Dres/Jool/Eeloo only and is not a program-wide trend. Count pinned at the measured 6. Fixture verified moons=0 on its harvested bytes. Does NOT discharge the tilt debt: Jool's 1.304 deg is the LOWEST inclination in the V-lane ladder."
@@ -160,6 +180,17 @@ steps = [
   { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" }, expect = "OK" },
   { cmd = "MissionConfig",     args = { tree = "6ec68e87b782476f970a71df8c8b4685", loop = "true" }, expect = "OK" },
   { cmd = "StartLoopPlayback", args = { tree = "6ec68e87b782476f970a71df8c8b4685" }, expect = "OK", budget = 300 },
+  # M-A7 RENDER-COMPOSITION CAPTURE (Phase 3C, Wave A, 2026-08-26). PLACEMENT IS THE
+  # ARGUMENT and it is pinned by `test_every_declarer_exports_immediately_before_teardown`:
+  # the recorder accumulates from Awake, so the only thing placement decides is how much of
+  # this lane's observation is already inside the exported file - and taking it HERE takes it
+  # at a chosen instant rather than leaving the composition to the scene-exit auto-flush that
+  # follows `FlushAndQuit`.
+  # INERT by construction (`hlib.SEAM_VERB_TAIL_ROLE["ExportRenderManifest"]` = inert): an
+  # in-memory read of the recorder plus one file write in the KSP root, touching no vessel, no
+  # save and no Parsek persisted state - so it cannot perturb anything this lane already gates
+  # on.
+  { cmd = "ExportRenderManifest",                        expect = "OK", budget = 120 },
   { cmd = "FlushAndQuit",                                                    expect = "OK" },
 ]
 
@@ -216,6 +247,15 @@ forbidden = [
   "no member yields a re-aim transfer",
   "not re-aim \\(no member yields a re-aim transfer\\); faithful",
 ]
+
+[expectations.renderComposition]
+# M-A7 Phase 3C, WAVE A - DECLARED 2026-08-26, BARE ON PURPOSE: no `gating`, no window, no
+# list. Declaring is what sets `PARSEK_RENDER_MANIFEST=1` at launch and arms the C# recorder
+# at Awake, and `rendercompose` then records its facets UNCONDITIONALLY on a parseable
+# manifest - which is how a lane earns its first honest window off a green report-only run.
+# A window written today would be a PREDICTION read back as though it were a measurement,
+# the mistake V14M, V8 and V6M all shipped bare through their reading runs to avoid.
+# READING PENDING - see the renderComposition arming ledger in this file's header.
 
 [runtime]
 budgetSeconds = 2400

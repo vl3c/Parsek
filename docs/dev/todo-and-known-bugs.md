@@ -310,6 +310,41 @@ discipline per lane. Gates that must exist first for specific lanes: the map-ope
 seam verb (RC-OWN-DRAW-HALF-IS-MAP-GATED) before any lane whose subject carries
 TracedPath phases arms the ownership clauses.
 
+~~(A) batch-declare ... across the eligible V-M lanes ... plus `V14T` and `V22K`~~
+**WAVE A EXECUTED 2026-08-26 - ALL FIFTEEN LANES ON THE LIST DECLARED, ZERO
+DEFERRALS, NOTHING ARMED.** The declarer roster goes 4 -> 19: V7M, V9, V10, V11,
+V12, V13, V15M, V16M, V17M, V19M, V21M, V22M, V23M on the flight-map host, plus
+`V14T-ike-ts-arrival` (the FIRST tracking-station-host manifest the module has ever
+been able to take) and `V22K-kerbin-splashdown-ksc-arrival` (the FIRST KSC-host
+one). Per lane the edit is exactly three things and no more: one
+`ExportRenderManifest` step immediately before `FlushAndQuit`, a bare
+`[expectations.renderComposition]` last in `[expectations]`, and a compact
+renderComposition arming ledger in the header - no step, no jump UT, no budget and
+no existing expectation moved (the S4.1 rule). THE ONE EXPOSURE CHANGE the plan
+anticipated landed on exactly two lanes: V14T and V22K armed only `mapRenderTracing`
++ `verboseLogging`, and `test_every_declarer_arms_the_tracers_the_seam_capture_needs`
+requires all three of every declarer, so both gained `ghostRenderTracing`. On those
+two it buys NO manifest content (every capture predicate the recorder reads is
+`MapRenderTrace.IsEnabled`-gated) and adds only a previously dark FLIGHT-scene
+anomaly surface - `loop-seam-teleport` and the GhostRenderTrace raises - against
+tight sweeps (V22K `allowedAnomalies = []`, V14T tolerating only `icon-off-orbit`);
+a red on either reading run from a newly gated raise is a TRACER-ARMING READING to
+record, not a regression to re-diagnose. Two expected-thin classes are pre-registered
+so an arming pass does not misread them: the four ARM-ONLY lanes (V9 / V11 / V12 /
+V13) quit ~1 s after `StartLoopPlayback` and are the corpus's FLOOR case, and the two
+LANDED-TERMINAL subjects (V22M / V23M) render flight-mesh only. Verified with
+`discover -s lib` green (1709 tests) and `run.py --dry-run` exit 0 on all fifteen,
+each showing `PARSEK_RENDER_MANIFEST=1` at [LAUNCH] and
+`renderCompose(report-only: renderComposition; declared: {})` at [VERIFY], with the
+three armed lanes still reading `armed:` and V6M still report-only. Roster and full
+rationale: `RENDERCOMPOSE_DECLARER_SPECS` in `harness/lib/test_hlib.py`.
+**NOW OWED: (B)** let readings accumulate off the normal tier cadence and take
+targeted flights only where cadence is too slow (V6M is ahead of the wave: its
+reading flew 2026-08-25 and only its arming pass is owed - see the Phase-3b bullet);
+**(C)** arm in batches off those facets, per
+lane, on the three-run discipline. The map-open seam-verb gate above is unchanged and
+still blocks arming any ownership clause.
+
 
 Phases 1-2 shipped the C# recorder (env-gated, `ExportRenderManifest` verb,
 scene-exit flush), the pure Python verifier `harness/lib/rendercompose.py`, and

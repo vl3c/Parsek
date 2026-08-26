@@ -595,6 +595,26 @@ id = "V16M-laythe-player-loop"
 # single shared saveParse evaluator, so one inversion across both rather than
 # two): it red `PARSEK-FAIL(save-structure)` on `rewind.supersedeRows 0 < min 1`
 # with every other verifier still PASS, and was reverted.
+#
+# renderComposition ARMING LEDGER (M-A7 Phase 3C, WAVE A - added 2026-08-26).
+#   POSTURE  DECLARED BARE. NOTHING IS ARMED AND NOTHING GATES. The block's only job today
+#            is to EXIST: declaring it sets `PARSEK_RENDER_MANIFEST=1` at launch, which arms
+#            the C# recorder at Awake, and one `ExportRenderManifest` step immediately before
+#            the teardown takes the manifest at a chosen instant.
+#   TRACERS  all three (`ghostRenderTracing` / `mapRenderTracing` / `verboseLogging`)
+#            were ALREADY armed by this lane, so the declaration changes NO anomaly
+#            exposure and the manifest's seam capture (all of it
+#            `MapRenderTrace.IsEnabled`-gated) is live from the first flight.
+#   READING  PENDING. Wave B accumulates readings FOR FREE off the normal tier cadence -
+#            every flight of a declared lane writes facets into its results JSON. Windows get
+#            written FROM those facets at arming, by operator decision, on the established
+#            three-run discipline (reading -> armed re-flight -> negative control).
+#   S4.1     Nothing in the flown shape moved: no step, no jump UT, no budget and no
+#            existing expectation was touched. The additions are the export step and the
+#            bare block; no existing step changed.
+#   NOTE     SUBJECT: the Jool-system flight-map lane, eight TimeJumps and two
+#            deliberately REJECTED EnterWatchMode steps - a long multi-bracket drive, so
+#            the dwell population should be the richest of the M-host wave lanes.
 # =====================================================================================
 tier = "operator"
 description = "LIVE-PROVEN AND ARMED 2026-08-19 off its own reading run `2026-08-19_2114` (PASS attempt 1, wall 64 s, all 61 steps met, all 8 TimeJumps OK, both EnterWatchMode steps REJECTED as pinned, `anomalySweep hits=[] hitCounts={}`, recordings 1, saveParse 1/1/1 with every rewind facet 0). The player workflow (arm -> Warp-to -> cross the arrival -> Watch), twice over, on B25's Jool->Laythe recording - the first Jool moon anyone has flown. **BOTH THINGS THIS LANE WAS BUILT FOR LANDED.** (1) k = 20 CONFIRMED LIVE: the cadence quantized 1,029,703.438 -> 1,059,617.581 = 20*P and cycle 2 resolved to `relaunchUt=29906555.841886014` = cycle 1 plus exactly that - THE SUITE HAS NEVER HAD A LOOP CADENCE THAT WAS NOT ONE MOON PERIOD. (2) THE CENSUS FIRED AT BOTH ARRIVALS - `seam-endpoint summary evaluated=2 outsideSoi=0` at cycle 1 (10860) and again at cycle 2 (13199), **11.502 wall-seconds apart** against the 5.0 s VerboseRateLimited window that swallowed V15M's cycle-2 emission on all three of its runs. That is THE SUITE'S FIRST k > 1 RECURRENCE MEASUREMENT: at +20 Laythe periods the replayed SOI-entry endpoints are still inside the SOI, so research-doc section 9.3's RECOURSE 1 is PROVEN and the forty-tick RecordingState block is what proved it. THE ROUTING PREDICTION HELD at a THIRD orbit-rooted subject and the first at a gas-giant parent: `ExtractConstraints ... members=1 launchBody=Jool support=Supported constraints=1 [Orbital(Laythe) same-parent P=52980.879059379578 off=1027136.1469265819]` and `PhaseLock APPLIED ... method=single-orbital ... fixedCadenceResidual=0 zeroDrift=no`; the derived anchor agreed with the product to 0.048 s and NO jump UT moved at arming. The load-time optimizer kept the Jool->Laythe boundary COHESIVE (`exoCoastBodyChangeKept=1`), a FOURTH body pair. ONE PINNED VERDICT CAME BACK RIGHT FOR THE WRONG REASON and is recorded as an open question, not a diagnosis: both watch steps answered REJECTED as pinned but with `reason=no-watchable-ghost` rather than the range/zone refusal the chord arithmetic argued for, with the adjacent engine line reading `retired=F zone=Beyond rdist=616131735m` - the ghost exists but sits 616,132 km away, suspiciously close to the Jool park radius this recording starts from, which is the same magnitude as V16T's measured unshifted-epoch lens artifact. THE CHORD ARITHMETIC IS THEREFORE UNTESTED, NOT VINDICATED. Report-only: two NullReferenceExceptions, the ordinary background population, so the predicted-absent NRE storm is weakly confirmed. DISCIPLINE COMPLETE 2026-08-19: armed re-flight `2026-08-19_2211` (PASS attempt 1, 64 s) came back COMPLETELY SILENT - `anomalySweep hitCounts={} hits=[] unlistedReasons=[]`, so the strict census pin held - and the negative control `2026-08-19_2213` shared with V16T red exactly on `rewind.supersedeRows 0 < min 1` with every other verifier PASS, then reverted. Both armed runs of the pair carry a byte-identical gating saveParse payload (trees/committedTrees/recordings 1, terminalStates {Orbiting: 1}, points 518/518/518, every rewind facet 0), which is the determinism statement the pair was built to make."
@@ -794,6 +814,17 @@ steps = [
   # crossed the boundary between the two cycles, which is the co-orbital phase
   # walk of header section 4(c) showing up in a decision rather than in a number.
   { cmd = "EnterWatchMode",                                                  expect = "REJECTED" },
+  # M-A7 RENDER-COMPOSITION CAPTURE (Phase 3C, Wave A, 2026-08-26). PLACEMENT IS THE
+  # ARGUMENT and it is pinned by `test_every_declarer_exports_immediately_before_teardown`:
+  # the recorder accumulates from Awake, so the only thing placement decides is how much of
+  # this lane's observation is already inside the exported file - and taking it HERE takes it
+  # at a chosen instant rather than leaving the composition to the scene-exit auto-flush that
+  # follows `FlushAndQuit`.
+  # INERT by construction (`hlib.SEAM_VERB_TAIL_ROLE["ExportRenderManifest"]` = inert): an
+  # in-memory read of the recorder plus one file write in the KSP root, touching no vessel, no
+  # save and no Parsek persisted state - so it cannot perturb anything this lane already gates
+  # on.
+  { cmd = "ExportRenderManifest",                        expect = "OK", budget = 120 },
   { cmd = "FlushAndQuit",                                                    expect = "OK" },
 ]
 
@@ -1109,6 +1140,15 @@ trees          = { min = 1, max = 2 }
 committedTrees = { min = 1, max = 1 }
 recordings     = { min = 1, max = 1 }
 terminalStates = { Orbiting = { min = 1 } }
+
+[expectations.renderComposition]
+# M-A7 Phase 3C, WAVE A - DECLARED 2026-08-26, BARE ON PURPOSE: no `gating`, no window, no
+# list. Declaring is what sets `PARSEK_RENDER_MANIFEST=1` at launch and arms the C# recorder
+# at Awake, and `rendercompose` then records its facets UNCONDITIONALLY on a parseable
+# manifest - which is how a lane earns its first honest window off a green report-only run.
+# A window written today would be a PREDICTION read back as though it were a measurement,
+# the mistake V14M, V8 and V6M all shipped bare through their reading runs to avoid.
+# READING PENDING - see the renderComposition arming ledger in this file's header.
 
 [runtime]
 # 300 LoadGame + 2x300 StartLoopPlayback + 8x300 TimeJump + 40 RecordingState

@@ -6468,13 +6468,99 @@ class RenderComposeVerifierWiringTests(unittest.TestCase):
     #       The spec's cycle-3 anchor is DERIVED (k=45 -> relaunchUt 969,758.553) off
     #       the same replay of `TryFindNextScheduleK` that reproduces this lane's two
     #       MEASURED anchors to the digit.
-    #       READING RUN PENDING - it is deliberately NOT in RENDERCOMPOSE_ARMED_SPECS
-    #       and its block is bare. Windows get written FROM the reading facets, at
-    #       arming, by operator decision.
+    #       ITS READING RUN FLEW 2026-08-25 (`2026-08-25_2056_V6M-mun-player-loop`,
+    #       PASS, REPORT): `cycles = 2` off three `cycle-rollover` events - RC-CYCLE's
+    #       FIRST real evaluation anywhere - and the two closed cycles came back
+    #       ISOMORPHIC in the same `warp1x` bucket. THE ARMING PASS IS STILL OWED, so
+    #       the lane is deliberately NOT in RENDERCOMPOSE_ARMED_SPECS and its block is
+    #       still bare; windows get written FROM those facets, at arming, by operator
+    #       decision, and the first clause should be `cycles = { min = 2 }`.
+    #
+    # PHASE 3C, WAVE A (2026-08-26): FIFTEEN MORE DECLARERS IN ONE PASS, ALL BARE.
+    #
+    # The wave plan is in docs/dev/todo-and-known-bugs.md -> "PHASE 3C". Its premise is
+    # that the rollout is DECLARATION, not new machinery: the B-flights already produce
+    # the recordings, the V-lanes already loop them at new UTs, and the manifest already
+    # audits the composed render - so the corpus-wide step is to arm the recorder
+    # everywhere it can honestly measure something and let readings accumulate off the
+    # normal tier cadence (Wave B), arming in batches off those facets (Wave C).
+    #
+    # NOTHING IN THIS WAVE ARMS ANYTHING. Each lane gained exactly three things: the
+    # `ExportRenderManifest` step immediately before `FlushAndQuit`, the bare block last
+    # in `[expectations]`, and - on the TWO HOST LANES ONLY - the `ghostRenderTracing`
+    # step they were missing. No step, no jump UT, no budget and no existing expectation
+    # moved anywhere (the S4.1 rule), and each lane's header carries a compact
+    # renderComposition arming ledger recording the posture and the reading debt.
+    #
+    # THE ONE EXPOSURE CHANGE IN THE WAVE, named because it is the thing a reader must
+    # not discover from a red: V14T and V22K previously armed only `mapRenderTracing` +
+    # `verboseLogging`. `test_every_declarer_arms_the_tracers_the_seam_capture_needs`
+    # requires all three of every declarer, so both gained `ghostRenderTracing`. On those
+    # two lanes the third tracer buys NO manifest content - every capture predicate the
+    # recorder reads is `MapRenderTrace.IsEnabled`-gated (the seam-tangent evaluation in
+    # GhostTrajectoryPolylineRenderer, MapRenderProbe's truth + endpoint census) - so what
+    # it adds is an anomaly SURFACE that was previously dark: the FLIGHT phase each lane
+    # runs before its TS / KSC re-entry can now raise the `ghostRenderTracing`-gated
+    # family (`loop-seam-teleport` and the GhostRenderTrace raises), and both lanes run a
+    # tight sweep (V22K `allowedAnomalies = []`, V14T tolerating only `icon-off-orbit`).
+    # A red on either reading run from a newly gated raise is a TRACER-ARMING READING to
+    # record, not a regression to re-diagnose. They are in the wave anyway because they
+    # are the FIRST tracking-station-host and FIRST KSC-host manifests the module has
+    # ever been able to take, and the KSC host in particular composes nothing anyone has
+    # measured (it draws no trajectory at all - it resolves a pose and places a ghost).
+    #
+    # THE FOUR ARM-ONLY LANES (V9 / V11 / V12 / V13) will read THIN and that is their
+    # point: each quits ~1 s after `StartLoopPlayback`, so their manifests are the
+    # corpus's FLOOR case - what a composition looks like with the loop armed and nothing
+    # yet rendered. Read them as the baseline the dwell lanes are measured against; an
+    # empty reading there is a measurement, not an instrument failure (V24W's reading
+    # flight 1 is the precedent, and its two root causes were both outside the render
+    # pipeline).
+    #
+    # ONE MORE EXPECTED-THIN CLASS, recorded so an arming pass does not misread it:
+    # V22M and V23M are LANDED-TERMINAL subjects, and the landed-terminal render policy
+    # their own lens-calibration rounds measured is flight-mesh only (no map / TS proto
+    # in the terminal sliver). A thin ownership half on those two is the expected
+    # reading.
     RENDERCOMPOSE_DECLARER_SPECS = {"V14M-ike-player-loop.toml",
                                     "V8-eve-player-loop.toml",
                                     "V24W-duna-one-warp-stair.toml",
-                                    "V6M-mun-player-loop.toml"}
+                                    "V6M-mun-player-loop.toml",
+                                    # -- Phase 3C Wave A, 2026-08-26: all bare, all
+                                    # reading-pending. Render host in brackets.
+                                    # [M] watch-mode entry on a Kerbin->Minmus loop.
+                                    "V7M-minmus-player-loop.toml",
+                                    # [M] arm-only floor case, Dres fixture.
+                                    "V9-dres-player-loop.toml",
+                                    # [M] the Dres re-aimed arrival; synthesizer runs.
+                                    "V10-dres-loop-arrival.toml",
+                                    # [M] arm-only floor case, Moho fixture.
+                                    "V11-moho-player-loop.toml",
+                                    # [M] arm-only floor case, Eeloo fixture.
+                                    "V12-eeloo-player-loop.toml",
+                                    # [M] arm-only floor case, Jool B22 fixture.
+                                    "V13-jool-player-loop.toml",
+                                    # [M] smallest-SOI arrival body in the corpus.
+                                    "V15M-gilly-player-loop.toml",
+                                    # [M] eight-bracket Jool-system drive.
+                                    "V16M-laythe-player-loop.toml",
+                                    # [M] moon-to-moon, nested SOI, routing H3.
+                                    "V17M-laythe-vall-player-loop.toml",
+                                    # [M] return-direction loop (target is the parent).
+                                    "V19M-laythe-jool-player-loop.toml",
+                                    # [M] two-moon lane, StockConic-lens re-pin round.
+                                    "V21M-mun-minmus-player-loop.toml",
+                                    # [M] landed-terminal; expect a thin ownership half.
+                                    "V22M-kerbin-splashdown-player-loop.toml",
+                                    # [M] landed-terminal; expect a thin ownership half.
+                                    "V23M-mun-landing-player-loop.toml",
+                                    # [T] FIRST tracking-station-host manifest ever;
+                                    #     ghostRenderTracing NEWLY armed (see the
+                                    #     exposure paragraph above).
+                                    "V14T-ike-ts-arrival.toml",
+                                    # [K] FIRST KSC-host manifest ever; ghostRenderTracing
+                                    #     NEWLY armed (see the exposure paragraph above).
+                                    "V22K-kerbin-splashdown-ksc-arrival.toml"}
 
     def test_render_composition_declarers_are_the_recorded_roster(self):
         """Pinned so a declarer is always a deliberate edit, in BOTH directions. A
