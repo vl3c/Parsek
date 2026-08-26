@@ -219,6 +219,23 @@ namespace Parsek.MapRender
             public long LastEmittedTailCycle;
             public bool HaveEmittedSecondary;
             public long LastEmittedSecondaryCycle;
+
+            // ---- Inter-cycle-tail FALLBACK close (armed here, applied a frame later) --------
+            // Armed when the `inter-cycle-tail` clock event is emitted; applied on a STRICTLY
+            // LATER frame. See TailCloseFallbackIsDue for why the deferral is what makes the
+            // fallback byte-invariant on a run whose frame-sampled close already worked.
+            /// <summary>True while a tail close is armed and not yet applied.</summary>
+            public bool HavePendingTailClose;
+            /// <summary>The emitted tail event's UT - the instant a stale dwell closes AT.</summary>
+            public double PendingTailCloseUT;
+            /// <summary>The ENDING cycle's start instant, which bounds the sweep below - see
+            /// <see cref="ApplyPendingTailClose"/>. Without it the sweep reaches back into earlier
+            /// cycles whose dwells are legitimately left open.</summary>
+            public double PendingTailCloseCycleStartUT;
+
+            /// <summary>The UT at which the CURRENT cycle's rollover was emitted.</summary>
+            public bool HaveCycleStartUT;
+            public double CycleStartUT;
         }
 
         private static readonly Dictionary<int, UnitClockState> clockStateByOwner =
@@ -462,10 +479,26 @@ namespace Parsek.MapRender
         {
             clockStateByOwner.TryGetValue(ownerIndex, out UnitClockState st);
 
+            // A tail close armed on an EARLIER frame becomes due here, before this frame emits
+            // anything of its own. Deliberately first: the fallback's whole safety argument is that
+            // it never runs on the frame that armed it.
+            if (st.HavePendingTailClose && TailCloseFallbackIsDue(st.PendingTailCloseUT, ut))
+            {
+                ApplyPendingTailClose(
+                    ownerIndex, st.PendingTailCloseUT, st.PendingTailCloseCycleStartUT);
+                st.HavePendingTailClose = false;
+                st.PendingTailCloseUT = 0.0;
+                st.PendingTailCloseCycleStartUT = 0.0;
+            }
+
             if (!st.HaveEmittedCycle || st.LastEmittedCycle != frame.CycleIndex)
             {
                 st.HaveEmittedCycle = true;
                 st.LastEmittedCycle = frame.CycleIndex;
+                // The cycle's start instant, remembered ONLY to bound the tail fallback's sweep.
+                // Nothing else reads it and no record carries it.
+                st.HaveCycleStartUT = true;
+                st.CycleStartUT = ut;
                 manifest.AppendClockEventIfChanged(
                     RenderCompositionManifest.ClockCycleRollover,
                     ownerIndex, frame.CycleIndex, ut,
@@ -481,6 +514,15 @@ namespace Parsek.MapRender
                     RenderCompositionManifest.ClockInterCycleTail,
                     ownerIndex, frame.CycleIndex, ut,
                     0.0, frame.LoopUT, 0.0, null);
+                // ARM the fallback close at THIS instant. Nothing is closed yet - see
+                // TailCloseFallbackIsDue. The sweep is bounded BELOW by the ending cycle's own
+                // start: an owner accumulates open dwells from earlier cycles that are left open
+                // on purpose, and they are not this tail's to retire. With no rollover seen yet
+                // (arming before any cycle event) the bound is the event itself, which sweeps
+                // nothing - the conservative direction.
+                st.HavePendingTailClose = true;
+                st.PendingTailCloseUT = ut;
+                st.PendingTailCloseCycleStartUT = st.HaveCycleStartUT ? st.CycleStartUT : ut;
             }
 
             if (frame.HasSecondary
@@ -494,6 +536,79 @@ namespace Parsek.MapRender
             loopUtByOwner[ownerIndex] = frame.LoopUT;
             ObserveUnitHoldRun(ownerIndex, ref st, ut, frame.LoopUT, frame.CycleIndex);
             clockStateByOwner[ownerIndex] = st;
+        }
+
+        // =====================================================================================
+        //  Inter-cycle-tail FALLBACK close
+        //  (bug V6M-CYCLE0-ARRIVALLOITER-DWELL-CLOSE-RECORD-LOST)
+        // =====================================================================================
+
+        /// <summary>
+        /// Is an armed tail close DUE at <paramref name="nowUT"/>? Only on a STRICTLY LATER frame
+        /// than the one that armed it, and that deferral is the whole safety argument - not a
+        /// nicety.
+        ///
+        /// <para><b>The defect this exists for.</b> A dwell is closed by
+        /// <c>RenderCompositionManifest.ObserveDwellFrame</c> only when a LATER frame arrives for the
+        /// same pid carrying a CHANGED identity. A per-cycle ghost that stops being sampled while its
+        /// dwell is open therefore never gets a close, and the dwell runs to export as
+        /// <c>openAtExport</c>. The verifier keeps open dwells out of the CLOSED population by
+        /// design, so a cycle whose ArrivalLoiter dwell lost only its CLOSE reads as a cycle that
+        /// never had one - which is how a correctly rendered loop turned into an RC-CYCLE
+        /// non-isomorphism on 1 of 6 archived flights. Measured: on the red flight the ghost was
+        /// observed ZERO times in the <c>7 -&gt; -1</c> successor state, against 4/6/7/7/10/11/15
+        /// frames on the green ones, and it was the sparsest-sampling flight of the six.</para>
+        ///
+        /// <para><b>Why the close cannot happen on the arming frame.</b> The recorder's
+        /// <c>Update</c> and the Director render path that feeds <c>NoteDirectorIntent</c> are two
+        /// MonoBehaviour callbacks with NO pinned relative order (the ownerIndex stamp in
+        /// <c>NoteDirectorIntent</c> says so in as many words: the latest per-unit sample is "this
+        /// frame's, or, if the recorder's Update trails this render path, the immediately preceding
+        /// frame's"). Closing at the emission instant would therefore be correct in one order and
+        /// WRONG in the other: if the clock leads the render path, the still-open dwell on the
+        /// arming frame is the one the render path is about to close itself, and closing it here
+        /// would steal its <c>TRANSITION</c> - the successor would open with no prior and emit none.
+        /// A frame later the ambiguity is gone: the render path has had a whole frame to run, so a
+        /// live ghost has been sampled in its successor state and is no longer stale, while a ghost
+        /// that really did stop being sampled still is. The fallback then fires on exactly the shape
+        /// it was written for and is byte-invariant on every run whose frame-sampled close worked.</para>
+        ///
+        /// <para>NaN/Inf on either side answers false: an unusable instant is not a licence to
+        /// retire a record.</para>
+        /// </summary>
+        internal static bool TailCloseFallbackIsDue(double pendingEventUT, double nowUT)
+        {
+            if (double.IsNaN(pendingEventUT) || double.IsInfinity(pendingEventUT))
+                return false;
+            if (double.IsNaN(nowUT) || double.IsInfinity(nowUT))
+                return false;
+            return nowUT > pendingEventUT;
+        }
+
+        /// <summary>
+        /// Applies one owner's due tail close and logs what it retired. The manifest core is
+        /// deliberately log-free, so it reports what it closed and the reporting happens here.
+        /// A run with nothing stale closes nothing and logs nothing, which is every run whose
+        /// frame-sampled close already landed.
+        /// </summary>
+        private static void ApplyPendingTailClose(
+            int ownerIndex, double eventUT, double cycleStartUT)
+        {
+            int closed = manifest.FallbackCloseStaleOwnerDwells(
+                ownerIndex, eventUT, cycleStartUT, out uint firstPid, out string firstPhaseKind);
+            if (closed <= 0)
+                return;
+            ParsekLog.Info(Tag, string.Format(CultureInfo.InvariantCulture,
+                "dwell fallback-close owner={0} eventUT={1} cycleStartUT={2} closed={3}"
+                + " firstPid={4} firstPhase={5}"
+                + " reason=inter-cycle-tail-stale: the dwell was never sampled in its successor"
+                + " state, so the frame-sampled close could not run",
+                ownerIndex.ToString(CultureInfo.InvariantCulture),
+                eventUT.ToString("R", CultureInfo.InvariantCulture),
+                cycleStartUT.ToString("R", CultureInfo.InvariantCulture),
+                closed.ToString(CultureInfo.InvariantCulture),
+                firstPid.ToString(CultureInfo.InvariantCulture),
+                firstPhaseKind ?? "none"));
         }
 
         /// <summary>

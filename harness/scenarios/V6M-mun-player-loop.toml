@@ -477,6 +477,32 @@ id = "V6M-mun-player-loop"
 #            the successor state). Full write-up, including the two rejected fixes:
 #            `docs/dev/todo-and-known-bugs.md` ->
 #            `V6M-CYCLE0-ARRIVALLOITER-DWELL-CLOSE-RECORD-LOST`.
+#   FIXED    **2026-08-26 - THE RECORDER FIX LANDED AND THE GATE IS DETERMINISTIC.**
+#            `RenderCompositionRecorder` now arms a pending close when it emits the
+#            `inter-cycle-tail` clock event (the path that never misses) and
+#            `RenderCompositionManifest.FallbackCloseStaleOwnerDwells` applies it a frame
+#            later, retiring a dwell that is still open, opened within the ENDING cycle,
+#            and last sampled strictly before the event - stamping the close AT the event
+#            UT. A FALLBACK, not a new primary path: `ObserveDwellFrame` is untouched.
+#            THE FIRST CUT WAS WRONG AND THESE FLIGHTS CAUGHT IT: scoped by owner alone it
+#            also retired the PREVIOUS cycle's leftover `-1` dwell (left open by design),
+#            inventing a `(1,'None')` role and red-ing `2026-08-26_1918` / `_1919` /
+#            `_1920` at `dwells 6` with a NEW non-isomorphism. The sweep is now bounded
+#            below by the ending cycle's rollover UT.
+#   DONE     **DETERMINISM PROOF - `2026-08-26_1925`, `_1926`, `_1927`, all PASS attempt
+#            1**, `dwells 5`, `cycles 2`, zero findings at every level, zero mismatches.
+#            The proof is DIRECT rather than statistical: the fallback ACTUALLY FIRED on
+#            two of the three (`_1925` twice, at both cycle tails; `_1926` once; `_1927`
+#            not at all) and they passed anyway, and the CLOSED dwell set came back
+#            IDENTICAL on all three, matching the canonical pre-fix greens to the digit -
+#            arrival-loiter closing at 560304.47476033552 and 969743.55323904217. Both
+#            cycles read `((1,'ArrivalLoiter'), (1,'Descent'))`. Whether the frame path or
+#            the fallback closes it, the manifest now reads the same. Only the OPEN count
+#            varies (1/2/3): those are the `-1` leftovers, which carry no role.
+#            SIBLING NON-PERTURBATION: `V25M-duna-park-player-loop` re-flown armed on the
+#            same DLL, `2026-08-26_1929` PASS with its windows reproduced exactly, and the
+#            fallback fired ZERO times there - that lane emits no `inter-cycle-tail` event
+#            at all, so the arming never happens.
 #
 #            (ORIGINAL OWED ENTRY, kept for the audit trail.) The blocker the ARMED row
 #            points at is now actionable: R12's `EnterMapView` / `ExitMapView` verbs

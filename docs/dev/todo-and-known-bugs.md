@@ -14,7 +14,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## V6M-CYCLE0-ARRIVALLOITER-DWELL-CLOSE-RECORD-LOST: on roughly one map-open flight in six the render-composition manifest never records the CLOSE of `V6M-mun-player-loop`'s cycle-0 ArrivalLoiter dwell, so a correctly-rendered cycle reads as structurally different and RC-CYCLE reds the run [FOUND 2026-08-26 on run `2026-08-26_1840`, the lane's `renderComposition` negative control, which was inverting a DIFFERENT window and could not have caused it. DIAGNOSED 2026-08-26 offline across all six archived map-open manifests. OPEN - the defect is in the RECORDER's close bookkeeping, NOT in the renderer, and NOT in the lane's jump targets. Was filed the same day as V6M-CYCLE0-ARRIVALLOITER-DWELL-INTERMITTENTLY-ABSENT; renamed because that title asserted something the diagnosis refuted]
+## ~~V6M-CYCLE0-ARRIVALLOITER-DWELL-CLOSE-RECORD-LOST~~: on roughly one map-open flight in six the render-composition manifest never recorded the CLOSE of `V6M-mun-player-loop`'s cycle-0 ArrivalLoiter dwell, so a correctly-rendered cycle read as structurally different and RC-CYCLE red the run [FOUND 2026-08-26 on run `2026-08-26_1840`, the lane's `renderComposition` negative control, which was inverting a DIFFERENT window and could not have caused it. DIAGNOSED 2026-08-26 offline across all six archived map-open manifests: the defect is in the RECORDER's close bookkeeping, NOT in the renderer and NOT in the lane's jump targets. **FIXED AND CLOSED 2026-08-26** by the inter-cycle-tail fallback close, live-proven over four flights - see THE FIX at the end of this entry. Was filed the same day as V6M-CYCLE0-ARRIVALLOITER-DWELL-INTERMITTENTLY-ABSENT; renamed because that title asserted something the diagnosis refuted]
 
 **The original claim was wrong in the way that matters, and the correction is
 the finding.** It was first written up as "cycle 0 renders without its
@@ -97,18 +97,103 @@ one that is right.
   3. **LANE-LEVEL: nothing applies.** No jump target, budget or tolerance change
      affects this.
 
-**CONSEQUENCE FOR THE ARMING, STATED PLAINLY BECAUSE IT UNDERCUTS THE REASON
-GIVEN.** V6M was armed on 2026-08-26 with the written justification that this
-finding was "a real composition observation" and that "making an intermittent
-render-composition defect visible is what the gate is for". THE DIAGNOSIS
-REFUTES THAT PREMISE: there is no render defect, so as things stand the armed
-lane reds roughly 1-in-6 on a recorder bookkeeping gap. The gate as committed is
-therefore flaky against an instrument artifact rather than sharp against a
-product defect. The arm-vs-bare decision is REFERRED BACK rather than re-taken
-unilaterally - the options are (a) land fix 1 and keep the lane armed, which is
-the outcome this entry recommends, or (b) revert V6M to a bare block until fix 1
-lands, keeping V25M armed. `should_retry` never retries a PARSEK-FAIL, so option
-(b) is the safe posture for a nightly if fix 1 is not imminent.
+**CONSEQUENCE FOR THE ARMING.** V6M was armed on 2026-08-26 with the written
+justification that this finding was "a real composition observation" and that
+"making an intermittent render-composition defect visible is what the gate is
+for". THE DIAGNOSIS REFUTED THAT PREMISE - there is no render defect - so the
+armed lane would have red roughly 1-in-6 on a recorder bookkeeping gap. Ruling
+taken: **option (a), land the fix and keep the lane armed.** It landed the same
+day, below.
+
+---
+
+**THE FIX, LANDED 2026-08-26: A FALLBACK CLOSE AT THE INTER-CYCLE-TAIL CLOCK
+EVENT.**
+
+`RenderCompositionRecorder` arms a pending close when it emits the
+`inter-cycle-tail` clock event - the path that never misses, present on all six
+archived manifests including the red one - and
+`RenderCompositionManifest.FallbackCloseStaleOwnerDwells` applies it, retiring
+any dwell of that owner still open, opened within the ending cycle, and last
+sampled STRICTLY BEFORE the event, stamping the close AT the event UT so the
+recovered record is indistinguishable from the frame-sampled close that should
+have run.
+
+It is a FALLBACK, not a new primary path: `ObserveDwellFrame` is untouched and
+stays the only close a healthy run takes. Three guards keep it inert otherwise -
+a dwell the frame path already closed is no longer in the open table; one sampled
+AT the event instant fails the strict staleness test; and the apply is DEFERRED
+to a strictly later frame.
+
+**THE DEFERRAL IS THE WHOLE SAFETY ARGUMENT, not a nicety.** The recorder's
+`Update` and the Director render path have NO pinned relative order (the
+ownerIndex stamp in `NoteDirectorIntent` says so in as many words). Closing at
+the emission instant would be right in one order and wrong in the other: if the
+clock leads the render path, the still-open dwell on that frame is the one the
+render path is about to close itself, and closing it early would steal its
+`TRANSITION`. A frame later the ambiguity is gone.
+
+**ONE ROUND OF THE FIX WAS WRONG AND THE FLIGHTS CAUGHT IT.** The first cut
+scoped the sweep by OWNER alone. That reproduced `PARSEK-FAIL` on all three proof
+flights (`2026-08-26_1918`, `_1919`, `_1920`, each `dwells 6`) with a NEW
+non-isomorphism - `((1,'ArrivalLoiter'), (1,'Descent'))` vs
+`((1,'ArrivalLoiter'), (1,'Descent'), (1,'None'))` - because a per-cycle ghost
+that stops being sampled in its `-1` tail state leaves an open dwell behind BY
+DESIGN, and the owner-only sweep reached back and retired cycle 0's leftover at
+cycle 1's tail. Same defect, sign flipped. The sweep is now bounded below by the
+ENDING cycle's start (the rollover UT), pinned by
+`RenderCompositionTailCloseFallbackTests.ADwellFromAnEarlierCycle_IsNeverSwept`.
+The byte-invariance claim was a PREDICTION and the flights refuted it; it is
+recorded here because the three-flight proof obligation is what caught it.
+
+**LIVE PROOF, and it is direct rather than statistical.** Three armed re-flights
+after the corrected fix - `2026-08-26_1925`, `_1926`, `_1927` - all PASS attempt
+1, `dwells 5`, `cycles 2`, ZERO findings at every level. Three clean runs at a
+1-in-6 rate would prove little on their own, so the decisive evidence is the log:
+the fallback ACTUALLY FIRED on two of the three and they passed anyway.
+
+```
+_1925  dwell fallback-close owner=0 eventUT=560304.47476033552 cycleStartUT=296370 closed=1 firstPhase=arrival-loiter
+_1925  dwell fallback-close owner=0 eventUT=969743.55323904217 cycleStartUT=576510 closed=1 firstPhase=arrival-loiter
+_1926  dwell fallback-close owner=0 eventUT=560304.47476033552 cycleStartUT=296370 closed=1 firstPhase=arrival-loiter
+_1927  (did not fire - the frame-sampled close ran on its own)
+```
+
+And the CLOSED dwell set - the population the cycle-structure rule reads - came
+back IDENTICAL on all three, matching the canonical pre-fix green flights to the
+digit: descent [296370, 296690], arrival-loiter [296690, 560304.47476033552],
+descent [576510, 576830], arrival-loiter [576830, 969743.55323904217], descent
+[985950, 986270]. Both cycles read `((1,'ArrivalLoiter'), (1,'Descent'))`.
+**Whether the frame path or the fallback closes it, the manifest now reads the
+same** - which is the determinism the gate needed. Only the OPEN count varies
+(1/2/3), and those are the `-1` leftovers that carry no role.
+
+**SIBLING NON-PERTURBATION:** `V25M-duna-park-player-loop` re-flown armed on the
+same DLL, `2026-08-26_1929` PASS, dwells 3 / cycles 0 / unevaluable 394 /
+seamKinds {rigid 8, flexible-soi 2} / one INFO RC-QUAL - its armed windows
+reproduced exactly, and the fallback fired ZERO times there, as it must: that
+lane emits no `inter-cycle-tail` event at all (`clockEvents` = cycle-rollover 1 +
+reaim-window 1), so the arming never happens.
+
+**CYCLE-ROLLOVER DELIBERATELY DID NOT GET THE SAME FALLBACK**, and the first
+cut's failure is the evidence for why. The reasoning does NOT hold identically
+there: the tail event is the instant the ENDING cycle's rendered content stops -
+exactly where the frame-sampled close lands on a healthy run - whereas a rollover
+is a later instant at which the previous cycle's leftover `-1` dwells are
+legitimately still open. Sweeping at a rollover would close records the product
+means to leave open, move them into the closed population, and invent a role,
+which is precisely the regression `_1918`/`_1919`/`_1920` measured. It would also
+add nothing: any cycle that has a tail is already covered by the tail fallback,
+and that is where the ending cycle's own dwell gets closed. No other clock-event
+kind takes it either - `boundary-overlap-secondary` and the hold pair do not end
+a cycle's rendered content.
+
+**Rejected alternatives, recorded:** (1) a VERIFIER-side change letting
+`_rule_cycle` count an open-at-export dwell that spans the window - it cuts
+against the deliberate "half-observed interval must not count" doctrine and would
+paper over a genuinely dropped record elsewhere; (2) any LANE-level change - no
+jump target, budget or tolerance affects this, since the cycle-0 phase entry UTs
+are bit-identical across all six original flights.
 
 ## RENDERCOMPOSE-OWNERSHIPCHANGES-IS-NOT-WINDOWABLE: `ownershipChanges` is recorded as a facet but cannot be asserted, so the RC-OWN conservation premise can only be armed indirectly through the FAIL-finding gate [FOUND 2026-08-26 during V6M's arming pass. TODO, not a defect - a missing surface, filed rather than invented mid-arming]
 

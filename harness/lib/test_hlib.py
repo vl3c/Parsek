@@ -6464,11 +6464,28 @@ class RenderComposeVerifierWiringTests(unittest.TestCase):
         # so the unit clock reached the tail and only the per-frame surface missed it.
         # NOT an entry-clock race (cycle-0 phase entry UTs are bit-identical across all
         # six, so no jump-target change applies) and NOT renderer intermittency.
-        # CONSEQUENCE: this gate as committed reds ~1-in-6 on a RECORDER bookkeeping gap
-        # rather than on a product defect, which undercuts the reason the arming row gave.
-        # The arm-vs-bare decision is REFERRED BACK, not re-taken here. Full write-up and
-        # the preferred C# fix: docs/dev/todo-and-known-bugs.md ->
-        # V6M-CYCLE0-ARRIVALLOITER-DWELL-CLOSE-RECORD-LOST.
+        # CONSEQUENCE: the gate would have red ~1-in-6 on a RECORDER bookkeeping gap
+        # rather than on a product defect, which undercut the reason the arming row gave.
+        # RULING: land the fix and keep the lane armed - done the same day.
+        # THE FIX (2026-08-26): RenderCompositionRecorder arms a pending close when it
+        # emits the inter-cycle-tail clock event (the path that never misses) and
+        # RenderCompositionManifest.FallbackCloseStaleOwnerDwells applies it A FRAME LATER
+        # (the two callbacks have no pinned order, so closing at the emission instant
+        # would steal the TRANSITION the render path is about to emit), retiring a dwell
+        # still open, opened within the ENDING cycle, and last sampled strictly before the
+        # event, stamped AT the event UT. A fallback, not a new primary path.
+        # THE FIRST CUT WAS WRONG AND THE PROOF FLIGHTS CAUGHT IT: scoped by owner alone
+        # it also retired the previous cycle's leftover `-1` dwell (open by design),
+        # inventing a (1,'None') role and red-ing _1918/_1919/_1920 at dwells 6.
+        # DETERMINISM PROOF: 2026-08-26_1925/_1926/_1927 all PASS attempt 1, dwells 5,
+        # cycles 2, zero findings - and DIRECTLY rather than statistically, because the
+        # fallback actually FIRED on two of the three (_1925 twice, _1926 once, _1927 not
+        # at all) and they passed anyway, with the CLOSED dwell set identical on all three
+        # and matching the canonical pre-fix greens to the digit. Sibling check:
+        # V25M re-flown armed on the same DLL, 2026-08-26_1929 PASS, windows reproduced,
+        # fallback fired zero times (that lane emits no inter-cycle-tail event).
+        # Full write-up: docs/dev/todo-and-known-bugs.md ->
+        # V6M-CYCLE0-ARRIVALLOITER-DWELL-CLOSE-RECORD-LOST (CLOSED).
         "V6M-mun-player-loop.toml",
     }
 
