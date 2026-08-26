@@ -1558,7 +1558,7 @@ independently observable and let a future lane pin the frame directly. Any such
 change must be taken deliberately: V22K's pin is written against today's
 behaviour and its header says so.
 
-## HARNESS-PYTHON-SUITES-NEVER-RUN-IN-CI: GitHub Actions runs only the xUnit suite, so the three `harness/` unittest suites are unguarded on `main` - and one of them is RED there today [FOUND 2026-08-21 while establishing a pre-authoring baseline for the G3 lanes. REPORT-ONLY and DELIBERATELY NOT FIXED HERE: the red belongs to another lane's committed fixture and rebuilding it could move pins that lane measured. Filed so the gap is visible rather than rediscovered]
+## ~~HARNESS-PYTHON-SUITES-NEVER-RUN-IN-CI~~ CLOSED 2026-08-26: `tests.yml` now runs all three harness Python suites before the mono/xUnit stage (exit-code gated, fail-fast). The two platform-bound machine-lock cells self-skip with stated reasons (see the entry below - Actions runners are non-root, so only the Windows-only reclaim cell skips there), and the ULP drift red was fixed by #1533. Original entry, kept as the record: GitHub Actions ran only the xUnit suite, so the three `harness/` unittest suites were unguarded on `main` - and one of them was RED there [FOUND 2026-08-21 while establishing a pre-authoring baseline for the G3 lanes. REPORT-ONLY and DELIBERATELY NOT FIXED HERE: the red belongs to another lane's committed fixture and rebuilding it could move pins that lane measured. Filed so the gap is visible rather than rediscovered]
 
 `.github/workflows/tests.yml` runs `scripts/cloud-test.sh` and nothing else, and
 that script never invokes `python -m unittest`. So `harness/lib`,
@@ -1685,6 +1685,14 @@ IO-refusal contracts are verified only on the author's Windows box. Worth either
 POSIX-equivalent mechanism (a read-only parent directory, an `unlink`-blocking mount,
 or an injected failing rename) or an explicit skip that states the platform, so the
 suite's output distinguishes "cannot run here" from "broken".
+
+DISPOSITION 2026-08-26 (with the CI wiring): the EXPLICIT-SKIP option, exactly as
+prescribed - the reclaim cell carries `skipUnless(os.name == "nt")` naming the
+Windows-only rename semantics, and the unwritable-location cell carries a
+`skipIf(geteuid() == 0)` so it stays LIVE on non-root POSIX (GitHub Actions
+runners) and on Windows. The named cost stands: the reclaim-refusal contract is
+still verified only on Windows runs; a POSIX-equivalent mechanism (injected
+failing rename) remains the upgrade path if anyone wants that dark spot lit.
 
 ## AUTOMERGE-ON-BY-DEFAULT: is any player flow reachable that now auto-commits GHOST-ONLY where the dialog used to ask? [RAISED 2026-08-24 by the review panel on the default-flip PR (#1523) as PLAUSIBLE-not-confirmed. OPEN QUESTION, no defect demonstrated. The behaviour itself is by design and predates the flip; what changed is that it is now the DEFAULT answer]
 

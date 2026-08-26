@@ -60,6 +60,23 @@ jobs:
           key: nuget-${{ runner.os }}-${{ hashFiles('Source/**/*.csproj') }}
           restore-keys: nuget-${{ runner.os }}-
 
+      # The three harness Python suites (stdlib-only, no venv needed). These were
+      # NEVER run in CI before 2026-08-26 - Actions ran only cloud-test.sh, so a
+      # drift in the four cells that read OUTSIDE harness/ (the BATCH tally, the
+      # doc sync, the pointCount writer, the career-earned-pad splice) could sit
+      # on main indefinitely (todo: HARNESS-PYTHON-SUITES-NEVER-RUN-IN-CI, and it
+      # happened: the science-pad ULP drift). Runs BEFORE the mono install so a
+      # pure-Python red fails fast without waiting on apt. Gate on exit codes,
+      # never on test counts. Two cells self-skip with stated platform reasons
+      # (one Windows-only by construction, one defeated by root); Actions runners
+      # are non-root, so only the Windows-only cell skips here.
+      - name: Harness Python suites
+        run: |
+          cd harness
+          python3 -m unittest discover -s lib -q
+          python3 -m unittest discover -s missions/lib -q
+          python3 -m unittest discover -s provision -q
+
       # Ubuntu's apt-built .NET SDK ships no net472 testhost, so the suite
       # runs under mono + the xunit console runner via scripts/cloud-test.sh
       # (same path cloud agent sessions use). dotnet SDK is preinstalled;

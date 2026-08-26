@@ -21,7 +21,7 @@ on Windows), and mono runs `FlightGlobals`' failing initializer at JIT of the
 CALLING method — keep `FlightGlobals` reads inside `[MethodImpl(NoInlining)]`
 cores (see `RecordingStore.ReadUnityApplicationIsPlayingCore`).
 
-**CI (GitHub Actions):** `.github/workflows/tests.yml` runs `scripts/cloud-test.sh`
+**CI (GitHub Actions):** `.github/workflows/tests.yml` runs the three harness Python suites (`harness/lib`, `harness/missions/lib`, `harness/provision`; exit-code gated, before the mono stage - two machine-lock cells self-skip with stated platform reasons) and then `scripts/cloud-test.sh`
 on `ubuntu-latest` for every PR and every push to `main` (xUnit suite under
 mono; ksp-refs cloned via the read-only `KSP_REFS_DEPLOY_KEY` secret). Status:
 PR checks + the README badge. The pwsh grep-audit gates run in Actions too:
