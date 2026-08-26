@@ -195,6 +195,40 @@ paper over a genuinely dropped record elsewhere; (2) any LANE-level change - no
 jump target, budget or tolerance affects this, since the cycle-0 phase entry UTs
 are bit-identical across all six original flights.
 
+**TWO RESIDUAL SHAPES, noted 2026-08-26 from the branch review. Neither is a
+defect and neither changes the fix; both are recorded so a future reading starts
+here instead of rediscovering them.**
+
+*(i) The "byte-invariant" claim in the recorder comment is slightly stronger than
+what is proven.* The deferral guarantees the fallback never fires on the arming
+frame, which is what protects the ordinary case. It does NOT cover one narrower
+shape: a ghost that is live but misses EXACTLY the arming frame (sampled at
+`t-1`, not at `t`, then again at `t+1`). Its dwell is stale at the apply, so the
+fallback closes it at `eventUT`, and the Director's next sample opens a FRESH
+dwell - with no prior in the open table, so **no `TRANSITION` is emitted for that
+pair**. The outcome is doctrine-consistent (two closed dwells with the correct
+boundary instant, and RC-CYCLE reads role structures off closed dwells, so the
+cycle comparison is unaffected), and it is strictly better than the dwell staying
+open. But it is a real difference from what the frame-sampled path would have
+produced, and it lands on the TRANSITION count rather than on any armed window.
+**Consequence for arming: any future RC window over transition counts must know
+this shape exists** - a lane could legitimately read one transition fewer on a
+run where the fallback fired. No such window is declared today on any lane.
+
+*(ii) `CycleStartUT` is the RECORDER-OBSERVED rollover, not the mathematical
+one.* It is stamped on the frame the recorder first sees a new `CycleIndex`,
+which can trail the true cycle boundary by the same sampling lag this whole bug
+is about. If a dwell opens in the gap between the true boundary and the observed
+one, its `OpenUT` falls BELOW `cycleStartUT` and the lower bound excludes it from
+its own cycle's sweep - so it exports open rather than being recovered. That is
+the CONSERVATIVE direction and deliberately so: the bound exists because
+over-sweeping is the failure mode that actually bit (the `_1918`/`_1919`/`_1920`
+regression), and an un-recovered dwell is the status quo ante, not a new defect.
+**Noted so that a future 1-in-N open-dwell reading on a composition lane starts
+by checking this** rather than re-deriving the whole race. If it ever shows up,
+the fix is to stamp the cycle start from the clock's own boundary rather than
+from the observing frame - not to loosen the bound.
+
 ## RENDERCOMPOSE-OWNERSHIPCHANGES-IS-NOT-WINDOWABLE: `ownershipChanges` is recorded as a facet but cannot be asserted, so the RC-OWN conservation premise can only be armed indirectly through the FAIL-finding gate [FOUND 2026-08-26 during V6M's arming pass. TODO, not a defect - a missing surface, filed rather than invented mid-arming]
 
 `rendercompose.RENDER_COMPOSITION_WINDOW_KEYS` is exactly `("dwells", "cycles",

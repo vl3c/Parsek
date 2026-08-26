@@ -254,6 +254,67 @@ namespace Parsek.Tests.MapRender
         }
 
         [Fact]
+        public void ADwellOpeningExactlyAtTheCycleStart_IsSwept()
+        {
+            // THE INCLUDE-SIDE OF THE LOWER BOUND, and it needs its own cell because every other
+            // fixture here opens well clear of it (dwells at 100/210 against bounds 50/200), so a
+            // regression from `OpenUT < cycleStartUT` to `<=` would pass all of them.
+            //
+            // The bound must be INCLUSIVE: a cycle's first dwell can legitimately open on the very
+            // frame the rollover was observed, and excluding it would leave the ending cycle's own
+            // dwell open - reintroducing the defect for exactly the dwell most likely to carry the
+            // cycle's leading role.
+            const double CycleStartExact = 100.0;
+            var m = new RenderCompositionManifest();
+            m.ObserveDwellFrame(Sample(7u, Owner, 7, "arrival-loiter", CycleStartExact));
+
+            int closed = m.FallbackCloseStaleOwnerDwells(
+                Owner, 110.0, CycleStartExact, out _, out string phase);
+
+            Assert.Equal(1, closed);
+            Assert.Equal("arrival-loiter", phase);
+            Assert.Equal(0, m.OpenDwellCount);
+
+            // One tick earlier is the EXCLUDE side. Asserted here too so both sides of the boundary
+            // are pinned in one place rather than inferred from a sibling cell's fixture numbers.
+            var earlier = new RenderCompositionManifest();
+            earlier.ObserveDwellFrame(Sample(7u, Owner, 7, "arrival-loiter", CycleStartExact - 1.0));
+            Assert.Equal(0, earlier.FallbackCloseStaleOwnerDwells(
+                Owner, 110.0, CycleStartExact, out _, out _));
+            Assert.Equal(1, earlier.OpenDwellCount);
+        }
+
+        [Fact]
+        public void APendingCloseThatNeverApplied_StillExportsTheDwellOpen()
+        {
+            // CHOSEN BEHAVIOUR, PINNED SO A LATER "FIX" CANNOT QUIETLY CHANGE IT. The fallback is
+            // deferred to a strictly later frame, so a process that exports between the arming frame
+            // and the next one never applies it, and that dwell MUST still export as `openAtExport`.
+            //
+            // Draining pending closes at export would look like an improvement and would not be one.
+            // Export deliberately snapshots open dwells NON-destructively (a build or write that
+            // fails must not have already retired them), and the "half-observed interval must not
+            // count" doctrine is what keeps an unfinished dwell out of the closed population. An
+            // export-time drain would move a dwell whose end was never observed INTO that population
+            // on the strength of a clock event alone - which is the opposite of what the deferral
+            // exists to guarantee.
+            var m = new RenderCompositionManifest();
+            m.ObserveDwellFrame(Sample(7u, Owner, 7, "arrival-loiter", 100.0));
+
+            // No FallbackCloseStaleOwnerDwells call: the apply frame never came.
+            ConfigNode root = m.BuildFileNode(new RenderCompositionManifest.ManifestHeader(
+                500.0, "verb", "FLIGHT", "s", true, false, true))
+                .GetNode(RenderCompositionManifest.RootNodeName);
+            ConfigNode d = Assert.Single(root.GetNode("OBSERVED").GetNodes("DWELL"));
+
+            Assert.Equal("True", d.GetValue("openAtExport"));
+            Assert.Equal("arrival-loiter", d.GetValue("phaseKind"));
+            // And the accumulation itself is untouched - export did not retire it either.
+            Assert.Equal(1, m.OpenDwellCount);
+            Assert.Equal(0, m.ClosedDwellCount);
+        }
+
+        [Fact]
         public void ADwellOpenedAfterTheEvent_IsLeftAlone()
         {
             var m = new RenderCompositionManifest();
@@ -328,6 +389,134 @@ namespace Parsek.Tests.MapRender
             // fallback the red one carried it open and the cycle read as if it never happened.
             Assert.Equal(1, green.ClosedDwellCount);
             Assert.Equal(1, red.ClosedDwellCount);
+        }
+    }
+
+    /// <summary>
+    /// The RECORDER half of the tail fallback, driven through the real
+    /// <c>ObserveUnitFrame</c> path: the cycle-start stamp, the arming slot, the deferred apply and
+    /// the fact that <see cref="RenderCompositionRecorder.Reset"/> clears a pending close.
+    ///
+    /// <para>All of that was previously proven only by live flights. The manifest cells in the
+    /// sibling class above measure the SWEEP; these measure the WIRING that decides when it runs -
+    /// a slot that never cleared, or a cycle-start that never got stamped, would leave every sweep
+    /// cell green while the product retired the wrong dwell.</para>
+    /// </summary>
+    [Collection("Sequential")]
+    public class RenderCompositionTailCloseFallbackRecorderTests : IDisposable
+    {
+        private const int Owner = 0;
+
+        public RenderCompositionTailCloseFallbackRecorderTests() => RenderCompositionRecorder.Reset();
+
+        public void Dispose() => RenderCompositionRecorder.Reset();
+
+        /// <summary>An ordinary in-cycle frame.</summary>
+        private static GhostPlaybackLogic.SpanLoopFrame Frame(long cycleIndex, double loopUT)
+            => new GhostPlaybackLogic.SpanLoopFrame(
+                resolved: true, loopUT: loopUT, cycleIndex: cycleIndex,
+                isInInterCycleTail: false, hasSecondary: false,
+                secondaryLoopUT: 0.0, secondaryCycleIndex: 0L);
+
+        /// <summary>The same cycle, parked in its inter-cycle tail - the arming shape.</summary>
+        private static GhostPlaybackLogic.SpanLoopFrame TailFrame(long cycleIndex, double loopUT)
+            => new GhostPlaybackLogic.SpanLoopFrame(
+                resolved: true, loopUT: loopUT, cycleIndex: cycleIndex,
+                isInInterCycleTail: true, hasSecondary: false,
+                secondaryLoopUT: 0.0, secondaryCycleIndex: 0L);
+
+        private static RenderCompositionManifest.DwellSample Sample(uint pid, double ut)
+        {
+            var s = default(RenderCompositionManifest.DwellSample);
+            s.Pid = pid;
+            s.RecId = "rec";
+            s.CommittedIndex = 1;
+            s.ChainSignature = "sig-A";
+            s.SegmentIndex = 7;
+            s.PhaseKind = "arrival-loiter";
+            s.Treatment = "StockConic";
+            s.Visible = true;
+            s.Coverage = "InSegment";
+            s.FrameBody = "Mun";
+            s.CurrentUT = ut;
+            s.HeadUT = ut;
+            s.WarpRate = 1.0;
+            s.PhysicsWarp = false;
+            s.HasOwnerIndex = true;
+            s.OwnerIndex = Owner;
+            return s;
+        }
+
+        [Fact]
+        public void RolloverStampsTheCycleStart_TailArms_AndTheNextFrameApplies()
+        {
+            RenderCompositionManifest m = RenderCompositionRecorder.ManifestForTesting;
+
+            // Frame 1: the cycle's rollover. This is what stamps CycleStartUT, and the whole sweep
+            // bound depends on it existing.
+            RenderCompositionRecorder.ObserveUnitFrameForTesting(Owner, 1000.0, Frame(0L, 0.0));
+            // The ghost is sampled once inside the cycle and then stops - the defect shape.
+            m.ObserveDwellFrame(Sample(7u, 1000.0));
+            Assert.Equal(0, m.ClosedDwellCount);
+
+            // Frame 2: the clock enters the tail. ARMS ONLY - nothing may close on this frame,
+            // because the Director render path may not have run yet.
+            RenderCompositionRecorder.ObserveUnitFrameForTesting(Owner, 1100.0, TailFrame(0L, 0.0));
+            Assert.Equal(0, m.ClosedDwellCount);
+            Assert.Equal(1, m.OpenDwellCount);
+
+            // Frame 3: strictly later - the apply lands, stamped at the ARMING frame's UT.
+            RenderCompositionRecorder.ObserveUnitFrameForTesting(Owner, 1100.5, TailFrame(0L, 0.0));
+            Assert.Equal(1, m.ClosedDwellCount);
+            Assert.Equal(0, m.OpenDwellCount);
+
+            ConfigNode root = m.BuildFileNode(new RenderCompositionManifest.ManifestHeader(
+                2000.0, "verb", "FLIGHT", "s", true, false, true))
+                .GetNode(RenderCompositionManifest.RootNodeName);
+            ConfigNode d = Assert.Single(root.GetNode("OBSERVED").GetNodes("DWELL"));
+            Assert.Equal(1100.0, double.Parse(d.GetValue("closeUT"), CultureInfo.InvariantCulture), 6);
+        }
+
+        [Fact]
+        public void TheArmingSlotIsConsumed_SoALaterFrameDoesNotSweepAgain()
+        {
+            RenderCompositionManifest m = RenderCompositionRecorder.ManifestForTesting;
+            RenderCompositionRecorder.ObserveUnitFrameForTesting(Owner, 1000.0, Frame(0L, 0.0));
+            m.ObserveDwellFrame(Sample(7u, 1000.0));
+            RenderCompositionRecorder.ObserveUnitFrameForTesting(Owner, 1100.0, TailFrame(0L, 0.0));
+            RenderCompositionRecorder.ObserveUnitFrameForTesting(Owner, 1100.5, TailFrame(0L, 0.0));
+            Assert.Equal(1, m.ClosedDwellCount);
+
+            // A SECOND stale dwell appears later in the same tail. The slot was consumed on the
+            // apply above, so nothing re-sweeps it: the tail event arms exactly once per cycle.
+            m.ObserveDwellFrame(Sample(9u, 1200.0));
+            RenderCompositionRecorder.ObserveUnitFrameForTesting(Owner, 1300.0, TailFrame(0L, 0.0));
+
+            Assert.Equal(1, m.ClosedDwellCount);
+            Assert.Equal(1, m.OpenDwellCount);
+        }
+
+        [Fact]
+        public void Reset_ClearsAPendingClose_SoTheNextFrameAppliesNothing()
+        {
+            // A pending close is per-process state armed against a manifest. Reset partitions the
+            // accumulation (scene exit, save load), so a pending close that survived it would fire
+            // against a DIFFERENT session's records - stamping a close at an instant belonging to a
+            // recording-id namespace that no longer exists.
+            RenderCompositionRecorder.ObserveUnitFrameForTesting(Owner, 1000.0, Frame(0L, 0.0));
+            RenderCompositionRecorder.ManifestForTesting.ObserveDwellFrame(Sample(7u, 1000.0));
+            RenderCompositionRecorder.ObserveUnitFrameForTesting(Owner, 1100.0, TailFrame(0L, 0.0));
+
+            RenderCompositionRecorder.Reset();
+
+            // Fresh accumulation, same owner, and a frame LATER than the armed instant would have
+            // been. Nothing may be swept: the arming died with the state it described.
+            RenderCompositionManifest m = RenderCompositionRecorder.ManifestForTesting;
+            m.ObserveDwellFrame(Sample(7u, 1000.0));
+            RenderCompositionRecorder.ObserveUnitFrameForTesting(Owner, 1100.5, TailFrame(0L, 0.0));
+
+            Assert.Equal(0, m.ClosedDwellCount);
+            Assert.Equal(1, m.OpenDwellCount);
         }
     }
 }

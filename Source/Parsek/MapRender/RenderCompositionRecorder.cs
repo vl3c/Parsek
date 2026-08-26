@@ -222,8 +222,8 @@ namespace Parsek.MapRender
 
             // ---- Inter-cycle-tail FALLBACK close (armed here, applied a frame later) --------
             // Armed when the `inter-cycle-tail` clock event is emitted; applied on a STRICTLY
-            // LATER frame. See TailCloseFallbackIsDue for why the deferral is what makes the
-            // fallback byte-invariant on a run whose frame-sampled close already worked.
+            // LATER frame. See TailCloseFallbackIsDue for why the deferral is what keeps the
+            // fallback off a run whose frame-sampled close already worked.
             /// <summary>True while a tail close is armed and not yet applied.</summary>
             public bool HavePendingTailClose;
             /// <summary>The emitted tail event's UT - the instant a stale dwell closes AT.</summary>
@@ -497,6 +497,17 @@ namespace Parsek.MapRender
                 st.LastEmittedCycle = frame.CycleIndex;
                 // The cycle's start instant, remembered ONLY to bound the tail fallback's sweep.
                 // Nothing else reads it and no record carries it.
+                //
+                // THIS IS THE RECORDER-OBSERVED ROLLOVER, NOT THE MATHEMATICAL ONE: it is stamped on
+                // the frame this loop first SEES a new CycleIndex, so it can trail the true boundary
+                // by the same sampling lag the fallback exists for. A dwell opening in that gap
+                // falls below the bound and is excluded from its own cycle's sweep, exporting open
+                // instead of recovered. That is the CONSERVATIVE direction and deliberate:
+                // over-sweeping is the failure mode that actually bit (it retired the previous
+                // cycle's leftovers and invented a role), and an un-recovered dwell is only the
+                // status quo ante. If that ever shows up as a real reading, stamp the start from the
+                // clock's own boundary - do NOT loosen the bound. See
+                // docs/dev/todo-and-known-bugs.md, V6M-CYCLE0-ARRIVALLOITER-DWELL-CLOSE-RECORD-LOST.
                 st.HaveCycleStartUT = true;
                 st.CycleStartUT = ut;
                 manifest.AppendClockEventIfChanged(
@@ -570,8 +581,19 @@ namespace Parsek.MapRender
         /// would steal its <c>TRANSITION</c> - the successor would open with no prior and emit none.
         /// A frame later the ambiguity is gone: the render path has had a whole frame to run, so a
         /// live ghost has been sampled in its successor state and is no longer stale, while a ghost
-        /// that really did stop being sampled still is. The fallback then fires on exactly the shape
-        /// it was written for and is byte-invariant on every run whose frame-sampled close worked.</para>
+        /// that really did stop being sampled still is. The fallback then fires on the shape it was
+        /// written for and stays off a run whose frame-sampled close worked.</para>
+        ///
+        /// <para><b>ONE NARROWER SHAPE IS NOT COVERED, and the claim is scoped accordingly.</b> A
+        /// LIVE ghost that misses exactly the arming frame (sampled at <c>t-1</c>, not at <c>t</c>,
+        /// then again at <c>t+1</c>) is stale at the apply, so its dwell closes here and the next
+        /// Director sample opens a fresh one with no prior - emitting NO <c>TRANSITION</c> for that
+        /// pair. Doctrine-consistent and strictly better than leaving the dwell open (RC-CYCLE reads
+        /// role structures off CLOSED dwells, so the cycle comparison is unaffected), but it is a
+        /// real difference from what the frame path would have produced, and it lands on the
+        /// transition count. Any future composition window over TRANSITION counts must know this
+        /// exists; none is declared today. Recorded in docs/dev/todo-and-known-bugs.md under
+        /// V6M-CYCLE0-ARRIVALLOITER-DWELL-CLOSE-RECORD-LOST.</para>
         ///
         /// <para>NaN/Inf on either side answers false: an unusable instant is not a licence to
         /// retire a record.</para>
@@ -762,6 +784,17 @@ namespace Parsek.MapRender
             ObserveUnitHoldRun(ownerIndex, ref st, ut, loopUT, cycleIndex);
             clockStateByOwner[ownerIndex] = st;
         }
+
+        /// <summary>
+        /// Test seam for the per-frame unit-clock observation: drives ONE frame for one owner through
+        /// the EXACT production path (<see cref="ObserveUnitFrame"/>), so a cell can measure the
+        /// cycle-start stamp, the tail-close ARMING and its DEFERRED apply without a Unity clock.
+        /// <see cref="SampleUnitClocks"/> is the only other caller and it adds nothing but the
+        /// per-unit loop and the <c>IsEnabled</c> / <c>frame.Resolved</c> gates.
+        /// </summary>
+        internal static void ObserveUnitFrameForTesting(
+            int ownerIndex, double ut, in GhostPlaybackLogic.SpanLoopFrame frame)
+            => ObserveUnitFrame(ownerIndex, ut, in frame);
 
         /// <summary>
         /// Resolves the owning unit's owner index for a committed member index through the live unit
