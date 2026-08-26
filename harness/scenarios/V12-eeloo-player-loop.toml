@@ -199,6 +199,25 @@ id = "V12-eeloo-player-loop"
 # Both REPORT-ONLY, neither Parsek-authored, and this spec declares no
 # `[expectations.unityExceptions]` block -- so it is a reading, not a gate, and it is
 # NOT armed. Everything the flight DECIDED was identical.
+#
+# renderComposition ARMING LEDGER (M-A7 Phase 3C, WAVE A - added 2026-08-26).
+#   POSTURE  DECLARED BARE. NOTHING IS ARMED AND NOTHING GATES. The block's only job today
+#            is to EXIST: declaring it sets `PARSEK_RENDER_MANIFEST=1` at launch, which arms
+#            the C# recorder at Awake, and one `ExportRenderManifest` step immediately before
+#            the teardown takes the manifest at a chosen instant.
+#   TRACERS  all three (`ghostRenderTracing` / `mapRenderTracing` / `verboseLogging`)
+#            were ALREADY armed by this lane, so the declaration changes NO anomaly
+#            exposure and the manifest's seam capture (all of it
+#            `MapRenderTrace.IsEnabled`-gated) is live from the first flight.
+#   READING  PENDING. Wave B accumulates readings FOR FREE off the normal tier cadence -
+#            every flight of a declared lane writes facets into its results JSON. Windows get
+#            written FROM those facets at arming, by operator decision, on the established
+#            three-run discipline (reading -> armed re-flight -> negative control).
+#   S4.1     Nothing in the flown shape moved: no step, no jump UT, no budget and no
+#            existing expectation was touched. The additions are the export step and the
+#            bare block; no existing step changed.
+#   NOTE     EXPECT A THIN READING, for V9's reason (quits ~1 s after
+#            StartLoopPlayback): an arm-only baseline on the Eeloo fixture, not a dwell.
 # =====================================================================================
 tier = "operator"
 description = "ARMED: the player loop workflow on the Eeloo program's committed recording -- mark the B21 tree a loop unit and start loop playback. Flown twice green 2026-08-13 (`_0053`/`_0055`, byte-identical on every measured token), and now the regression floor for a healthy ENGAGED reading at the program's deepest span>synodic ratio: the unit classifies ENGAGED re-aim Kerbin->Eeloo via Sun on a 20-segment member, its cadence 48,883,481.633 is EXACTLY 5x the 9,776,696.327 s synodic (raw span 47,036,720 = 4.8111 synodic, Ceiling 5, against Dres's and Eve's multiple 2), and the loiter compressor cuts the 5.09M s LKO ejection wait for 10.8% of the span (tof 41.84M s = 89.0%) -- against 41.4% at Dres on a span 2.31x smaller, so the compressor's purchase shrinks as the coast lengthens rather than the composition inverting (Dres was tof-majority too, 58.3%). Count pinned at the measured 6."
@@ -250,6 +269,17 @@ steps = [
   { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" }, expect = "OK" },
   { cmd = "MissionConfig",     args = { tree = "d4ce5c45adae4f3e89c4ac6bbec6b167", loop = "true" }, expect = "OK" },
   { cmd = "StartLoopPlayback", args = { tree = "d4ce5c45adae4f3e89c4ac6bbec6b167" }, expect = "OK", budget = 300 },
+  # M-A7 RENDER-COMPOSITION CAPTURE (Phase 3C, Wave A, 2026-08-26). PLACEMENT IS THE
+  # ARGUMENT and it is pinned by `test_every_declarer_exports_immediately_before_teardown`:
+  # the recorder accumulates from Awake, so the only thing placement decides is how much of
+  # this lane's observation is already inside the exported file - and taking it HERE takes it
+  # at a chosen instant rather than leaving the composition to the scene-exit auto-flush that
+  # follows `FlushAndQuit`.
+  # INERT by construction (`hlib.SEAM_VERB_TAIL_ROLE["ExportRenderManifest"]` = inert): an
+  # in-memory read of the recorder plus one file write in the KSP root, touching no vessel, no
+  # save and no Parsek persisted state - so it cannot perturb anything this lane already gates
+  # on.
+  { cmd = "ExportRenderManifest",                        expect = "OK", budget = 120 },
   { cmd = "FlushAndQuit",                                                    expect = "OK" },
 ]
 
@@ -360,6 +390,15 @@ forbidden = [
   "no member yields a re-aim transfer",
   "not re-aim \\(no member yields a re-aim transfer\\); faithful",
 ]
+
+[expectations.renderComposition]
+# M-A7 Phase 3C, WAVE A - DECLARED 2026-08-26, BARE ON PURPOSE: no `gating`, no window, no
+# list. Declaring is what sets `PARSEK_RENDER_MANIFEST=1` at launch and arms the C# recorder
+# at Awake, and `rendercompose` then records its facets UNCONDITIONALLY on a parseable
+# manifest - which is how a lane earns its first honest window off a green report-only run.
+# A window written today would be a PREDICTION read back as though it were a measurement,
+# the mistake V14M, V8 and V6M all shipped bare through their reading runs to avoid.
+# READING PENDING - see the renderComposition arming ledger in this file's header.
 
 [runtime]
 # V8/V9's 2,400 for the same seam-driven shape, and the two green runs justify it
