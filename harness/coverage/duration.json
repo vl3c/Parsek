@@ -1552,6 +1552,16 @@
         "2026-08-25T18:59:31Z": 2871.0
       }
     },
+    "V25M-duna-park-player-loop": {
+      "last": 54.0,
+      "lastVsP50": 1.0,
+      "n": 1,
+      "p50": 54.0,
+      "p95": 54.0,
+      "samples": {
+        "2026-08-26T18:24:05Z": 54.0
+      }
+    },
     "V3C-flight-arrival-companion": {
       "last": 950.0,
       "lastVsP50": 1.041,

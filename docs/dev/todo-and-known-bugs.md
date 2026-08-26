@@ -1426,6 +1426,28 @@ DEFERRALS TAKEN IN PHASES 1-2, each of which a lane author must know.
   CONSEQUENCE ALREADY TAKEN, tolerance not fix: V25M lists `line-blink` bare in
   `allowedAnomalies` citing `2026-08-26_1817`, ceiling 2 (2x measured) in
   prose, pending the budget-mechanism allowlist move.**
+- **GHOST-MAP-TEARDOWN-NRE-WHEN-CAMERA-TARGETED: destroying a ghost map vessel
+  that is the `PlanetariumCamera`'s current target NREs stock's KnowledgeBase
+  during the forced retarget** [OPENED 2026-08-26 off V25M reading 3
+  (`harness/results/2026-08-26_1823_V25M-duna-park-player-loop.json`,
+  `unityExceptions` report-only row: 2 NRE lines, both this one event's ERR+EXC
+  pair). Owner: `GhostMapPresence`]. Stack has NO Parsek frames but the trigger
+  is ours: `RemoveAllGhostVessels reason=scene-cleanup` at 21:23:49.942 destroys
+  `Ghost: Kerbal X` while it is the camera target; stock then walks
+  `Vessel:OnDestroy -> PlanetariumCamera:OnVesselDestroy -> SetTarget ->
+  KnowledgeBase.OnMapFocusChange -> KbApp_PlanetParameters.ActivateApp`, which
+  NREs on the dying MapObject's transform. INTERMITTENT BY CONSTRUCTION -
+  readings 1 and 2 of the same lane (`2026-08-26_1744` / `_1817`) logged ZERO
+  NREs, because it only fires when the camera happens to be targeting a ghost at
+  teardown. The same collect also shows the adjacent, already-warn-logged
+  `Die() threw for 'Ghost: Kerbal X Probe'` in the same sweep - two symptoms of
+  the same "destroy while stock still references it" moment. Candidate fix (NOT
+  taken - file-only): in `RemoveAllGhostVessels` (and the single-ghost removal
+  paths), if `PlanetariumCamera.fetch?.target` resolves to the ghost being
+  destroyed, retarget the camera (active vessel / home body) BEFORE `Die()`.
+  Benign in effect today (scene is being torn down anyway; stock swallows the
+  exception), but it dirties every armed lane's `unityExceptions` census and
+  would mask a real NRE regression behind an expected one.**
 - **`maxUtStep` on a DWELL is POLLUTED by a seam `TimeJump` epoch shift that
   lands inside an open dwell, so every tolerance derived from it balloons on
   jump-driven lanes** [OPENED 2026-08-25 off V24W reading flight 2
