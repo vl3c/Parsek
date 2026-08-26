@@ -1436,6 +1436,47 @@ ENTRY: it is route front-door work needing the driver, the status gate and
 the route clock this lane stands up, so it rides G1 rather than a mission
 loop.
 
+**AMENDMENT 2026-08-26: B27's SUBJECT IS A HARVEST, NOT A FORGE OVER THE BDOCK
+FIXTURE.** The paragraph above says "one committed SAME-BODY supply route over
+the BDOCK station fixture", and that path is closed by this entry's own header:
+route candidacy is gated on `IsTreeFullySealed`, and BOTH verbs that could
+satisfy it - `SealSlot` and `RouteCommand` - are RESERVED command-seam verbs
+(H35 ROUTE-CANDIDACY-GATED-ON-SEAL-NO-SEAM-PATH). No driven run can create a
+ROUTE at all today, so a forge over BDOCK cannot produce the subject. The
+verb-free path is the `duna-one-recorded` provenance class - harvest a save an
+operator already flew - and that is what was done: `fixtures/saves/
+depot-route-recorded`, harvested from the operator's own free-play sandbox save
+`orbital supply route DELIVERY test` and finished by
+`harness/tools/build_depot_route_recorded.py`. It carries ONE ROUTE
+(`5420f805...`, `status = Active`, `completedCycles = 1`, SameBody
+Kerbin -> Kerbin, DockingPort STOP onto the `Depot`), two whole recording trees,
+22 recordings, and reads GREEN under `analyze-recordings.ps1 -FailOnRed
+-FreshSaveGate`.
+
+Two consequences for whoever picks this up. **B27 is a FORGE-CLASS STAMP, not a
+flight**: the id now names a tool plus its drift test
+(`harness/lib/test_build_depot_route_recorded.py`), and the FLIGHT variant -
+a route created in-run through the seam - stays DEFERRED behind `SealSlot` /
+`RouteCommand`. Do not book B27 as an unflown flight; do not renumber it when
+those verbs land, extend it. **The five things G1 measures are unchanged and
+still unmeasured** - they now hang off V18M/V18T over these bytes rather than
+off a forged fixture. Registry D10 `route-map-lines` stays UNDECLARED until a
+GATING token earns it (H35 CLAIM-IS-NOT-GATE); a lane that merely draws a route
+line without asserting one does not get to declare the dimension.
+
+**V18T CAN FLY FIRST, and that is a measured fact rather than a preference.**
+`RouteTrajectoryLineRenderer.DrawAll` has exactly one production call site -
+`GhostTrajectoryPolylineRenderer.Driver`'s `Camera.onPreCull` hook
+(`Display/GhostTrajectoryPolylineRenderer.cs:3894-3906`) - and its complete
+guard chain is `PlanetariumCamera.fetch != null && cam == PlanetariumCamera.Camera`,
+`scene is TRACKSTATION or FLIGHT`, and a per-frame de-dupe. There is NO
+`MapView.MapIsEnabled` on that path, in the host (`[KSPAddon(Instantly, once)]`
++ DDOL) or inside `DrawAll` (whose only gate is the `showRouteLines` setting,
+default true). The GHOST polyline pass is the one that is map-gated, at
+`:4014`, one structure apart. So a TRACKSTATION route lane needs no
+`EnterMapView` verb; that verb is owed only by a lane that also asserts GHOST
+polyline facets.
+
 **G2 - Return legs (moon -> its parent; planet -> Kerbin).** A supply run is a
 round trip and every committed loop subject is outbound. The return direction
 also delivers "Kerbin as a destination" - a body-frame arrival at the one body
