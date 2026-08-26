@@ -502,10 +502,21 @@ three armed lanes still reading `armed:` and V6M still report-only. Roster and f
 rationale: `RENDERCOMPOSE_DECLARER_SPECS` in `harness/lib/test_hlib.py`.
 **NOW OWED: (B)** let readings accumulate off the normal tier cadence and take
 targeted flights only where cadence is too slow (V6M is ahead of the wave: its
-reading flew 2026-08-25 and only its arming pass is owed - see the Phase-3b bullet);
+reading flew 2026-08-25 - though it now owes a SECOND one, since it gained the
+map-open pair on 2026-08-26 and the first reading measured a shape it no longer
+flies; see the RC-OWN entry and the Phase-3b bullet);
 **(C)** arm in batches off those facets, per
-lane, on the three-run discipline. The map-open seam-verb gate above is unchanged and
-still blocks arming any ownership clause.
+lane, on the three-run discipline. The map-open seam-verb gate above is
+PARTIALLY lifted: the verb exists (PR #1539) and V6M now drives it, but until
+that re-fly reports `ownershipChanges > 0` no ownership clause may be armed
+anywhere - a step added is not a reading taken.
+
+**WAVE B ADDED TWO MORE DECLARERS 2026-08-26, ROSTER 19 -> 21, and they are a
+different kind from Wave A's:** `V18T-depot-route-ts-arrival` and
+`V25M-duna-park-player-loop` are NEW LANES against the two Phase-4 harvest
+fixtures rather than declarations bolted onto lanes that had already flown, so
+each owes a FIRST FLIGHT before it owes a window. Details in the Phase 4 bullet
+below; rationale in `RENDERCOMPOSE_DECLARER_SPECS`.
 
 
 Phases 1-2 shipped the C# recorder (env-gated, `ExportRenderManifest` verb,
@@ -995,6 +1006,27 @@ REMAINING PHASES.
   RC-ROUTE evaluates against a real route line, and start the RC-QUAL trend
   record (kink angles, endpoint ratios, hold durations) that feeds
   promote-to-fixed decisions on the ratified visual artifacts.
+  **WAVE B AUTHORED 2026-08-26 - TWO NEW LANES, BOTH BARE, BOTH UNFLOWN.** These
+  are not Wave A's shape: Wave A declared the block on lanes that had already
+  flown, while these are NEW LANES against the two fixtures the Phase-4 harvest
+  landed, so each owes a FIRST FLIGHT before it owes a window. Declarer roster
+  19 -> 21.
+  `V18T-depot-route-ts-arrival` over `depot-route-recorded` is **the route half
+  of this bullet and G1's first lane of any kind**: the only subject in the suite
+  that can emit a `ROUTE_LINE_BUILD` record or a per-unit `ROUTE` node, so
+  `rendercompose._rule_route` has never executed against live data and
+  `routeLineBuilds` has never read non-zero anywhere. It arms NO mission loop -
+  the committed ROUTE drives - and flies the TS host first on the measured fact
+  that `RouteTrajectoryLineRenderer.DrawAll`'s only call site carries no
+  `MapView` gate. D10 `route-map-lines` stays UNDECLARED until a gating token
+  earns it.
+  `V25M-duna-park-player-loop` over `duna-park-recorded` is **re-aim's second
+  departure class** - a heliocentric-parking departure, the path
+  `ReaimClassifier`'s own exception comment names by fixture and that no
+  committed lane has driven; its manifest would also carry the first
+  DESTINATION-side loiter cut (43,963.92 s) rather than V8's launch-side one.
+  STILL OWED on this bullet: both readings, then the arming passes, plus the
+  RC-QUAL trend record, which no lane has started.
 
 DEFERRALS TAKEN IN PHASES 1-2, each of which a lane author must know.
 
@@ -1067,19 +1099,38 @@ DEFERRALS TAKEN IN PHASES 1-2, each of which a lane author must know.
   precondition tables, `hlib.IMPLEMENTED_SEAM_VERBS` with both role rows
   (`world-mutating` on the tail axis, `recording` on the post-mission axis), and
   the design doc's "Update (the map-view pair)" block.
-  WHAT IS STILL OWED, and it is the half that costs a flight: (1) ADD THE STEP
-  TO A LANE - `V6M-mun-player-loop` is the natural adopter, since it is the lane
-  whose Director opened the three TracedPath dwells that raised the finding, and
-  the step belongs BEFORE the observation window rather than merely before
-  `ExportRenderManifest`; (2) THE READING THAT PROVES THE PUBLISH FLOWS -
+  ~~WHAT IS STILL OWED ... (1) ADD THE STEP TO A LANE~~ **(1) IS DONE
+  (2026-08-26): `V6M-mun-player-loop` ADOPTED THE PAIR**, and it took the
+  placement this entry asked for. `EnterMapView` sits immediately after the three
+  tracer `SetSetting`s and BEFORE `MissionConfig`, so the polyline Driver walk
+  runs during EVERY observation window the lane opens - all three cycles' arrival
+  brackets and all three park epochs - rather than only the tail. An
+  `EnterMapView` after the first bracket would leave cycle 1 measuring the old
+  map-closed shape and make the reading incomparable across the three cycles,
+  which a two-closed-cycle dataset must not be.
+  `ExitMapView` goes BEFORE `ExportRenderManifest`, and THAT placement is FORCED
+  rather than chosen: `test_every_declarer_exports_immediately_before_teardown`
+  pins the last two commands of every declarer as
+  `[ExportRenderManifest, FlushAndQuit]`, so an `ExitMapView` between them reds
+  the cell. It costs nothing - the recorder has accumulated every observation by
+  then, and the export is an in-memory read that does not need the map open.
+  THE FLOWN SHAPE MOVED (`EnterMapView` is `TAIL_ROLE_WORLD_MUTATING`), which is
+  admissible without an armed re-validation debt only because V6M is
+  DECLARED-UNARMED on `[expectations.renderComposition]`; the two save-structure
+  blocks it DOES gate cannot see a map-view toggle (no vessel, no save, no Parsek
+  persisted state), and no jump UT, budget or existing expectation moved.
+  WHAT IS STILL OWED, and it is the half that costs a flight: (2) THE READING
+  THAT PROVES THE PUBLISH FLOWS -
   a report-only run whose collected `KSP.log` carries `Polyline frame:` summaries
   (today: zero) and whose manifest reports `ownershipChanges > 0`, which is what
-  actually establishes RC-OWN's premise. Until BOTH land, nothing changes for
-  arming: no pass may read "no RC-OWN finding" as "ownership conserved", and the
-  design doc's ratified deviation #5 carries the same amendment. Note the verb
-  is necessary but not sufficient - a lane could open the map and still publish
-  nothing if the Director never owns a leg in the window, and THAT reading would
-  be a real finding rather than an instrument gap.
+  actually establishes RC-OWN's premise. Both are pre-registered as the re-fly's
+  success criteria in V6M's own arming ledger (the MAP-OPEN RE-FLY row). Until it
+  flies, nothing changes for arming: no pass may read "no RC-OWN finding" as
+  "ownership conserved", and the design doc's ratified deviation #5 carries the
+  same amendment. Note the verb is necessary but not sufficient - a lane could
+  open the map and still publish nothing if the Director never owns a leg in the
+  window, and THAT reading would be a real finding rather than an instrument gap.
+  A STEP ADDED IS NOT A READING TAKEN.
 - **Seam measurement is double-gated.** The tangent and endpoint evaluation
   sites are `mapRenderTracing`-gated and were NOT widened, so a manifest lane
   that wants RC-SEAM / RC-QUAL numbers must arm BOTH `PARSEK_RENDER_MANIFEST=1`

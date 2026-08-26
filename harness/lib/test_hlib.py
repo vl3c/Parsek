@@ -5549,6 +5549,16 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # ordinary operator -> nightly PROMOTION call, a cadence decision for a
         # human and not a review debt.
         "V24W-duna-one-warp-stair.toml":    "operator by the calibration discipline (V1/V2 precedent); AUTHORED and ARMED 2026-08-25; readings 1415 (empty, root-caused), 1502 (full measurement, doctrine anomaly red) and 1616 (clean PASS re-fly, anomaly counts identical 65/2/2, every composition facet equal and the histogram within 0.5 % bucket for bucket) flown. ARMED off the matching 1502+1616 PAIR - a histogram read once is a sample - with dwells {1,32}, unevaluable {max 500000}, requireSeamKinds [rigid, flexible-soi] and the suite's FIRST warpBuckets [warp100, warp1000], the key no other subject may ever declare (their clocks are instantaneous TimeJumps, 1x-only by construction). It is the RC-WARP lane and the last M-A7 Phase-3 debt, and that debt is now DISCHARGED IN FULL - the arming closed its measurement half and the discipline closed the rest. THE DISCIPLINE IS COMPLETE ACROSS SIX FLIGHTS: armed re-flight 1722 (PASS attempt 1, gating=True, zero mismatches) plus 1811, which was flown as the control, never armed (a substring edit hit a rationale comment quoting the same key) and therefore counts as a SECOND armed re-flight (PASS attempt 1, zero mismatches); then the genuine negative control 1925, PARSEK-FAIL(render-composition) attempt 1 on the single mismatch `RC-WARP [FAIL] warpBuckets.warpHigh` with every sibling verifier row clean and the run JSON's new `declared` field recording warpBuckets ['warpHigh'] - the audit fix proving its own control - reverted in the same change. Anomaly counts 65/2/2 to the integer on all four full PASS flights (66/2/2 on the control). Promotion past operator is now an open cadence call, not debt",
+        # THE TWO PHASE-4 / WAVE-B LANES, authored 2026-08-26 against the two fixtures
+        # the route+park harvest landed. Both are operator-tier for the SAME
+        # calibration-discipline reason V24W was and V8's iteration 1 was: a first flight
+        # of a subject whose clock anchor is DERIVED rather than measured is a
+        # CALIBRATION run by construction, and the derived jump UTs get re-pinned from
+        # what the run reads. Neither is `pending-operator` because neither owes
+        # outstanding HUMAN work - what they owe is a flight, and the derivation each
+        # header carries is what makes that flight readable rather than a fishing trip.
+        "V18T-depot-route-ts-arrival.toml":  "operator by the calibration discipline (V1/V2/V24W precedent); AUTHORED 2026-08-26, NEVER FLOWN, reading pending. THE SUITE'S FIRST ROUTE LANE and G1's first lane of any kind: a tracking-station observation of the committed Active GhostDriving SameBody route in the B27 harvest `depot-route-recorded`, arming NO mission loop because the ROUTE drives. Its anchor branch is genuinely unresolvable pre-flight - the header derives all THREE candidates (unlocked-faithful, single-rotation phase lock, and a VesselOrbital-dominant joint/zero-drift road whose anchor is not computable from the committed bytes at all) and the two forward jumps are chosen to be honest under every one of them, with the calibration recipe written down. So the reading run measures the anchor and round 2 re-pins; that is the discipline, not a debt. What IS gated on the first flight is anti-vacuity, three ways: `RevalidateSources ... transitioned=0` (the route did not flip to SourceChanged under the load-time optimizer - the one failure mode that would make this lane green and empty at once), `ghostDriving=[1-9]` and `routeMissions=[1-9]`. `[expectations.renderComposition]` is BARE and D10 `route-map-lines` is deliberately UNDECLARED (H35 CLAIM-IS-NOT-GATE): the headline facet `routeLineBuilds >= 1` would be the first non-zero reading of that census anywhere, and it gets declared in the commit that arms it, citing the run",
+        "V25M-duna-park-player-loop.toml":   "operator by the calibration discipline (V8-iteration-1 precedent); AUTHORED 2026-08-26, NEVER FLOWN, reading pending. RE-AIM'S SECOND DEPARTURE CLASS - a heliocentric-parking departure, over `duna-park-recorded`, the path `ReaimClassifier`'s own exception comment names by fixture ('EXCEPTION (s15 Kerbal X #2)') and that no committed lane has driven. Unlike V18T its clock IS fully derivable and the header derives it end to end off the committed .prec bytes: classifier verdict (parking=True, via a replay of DetectRuns / the empty-cut scope gate / the ecc+sma admissibility gate), loiter cuts (ONE, destination-side, 43,963.92 s at the Duna capture, downstream of every window so all three map uncompressed), synodic 19,645,697.250367, span/synodic 1.185268 -> cadence = 2x synodic with PadAlignLaunch declined, k=142, D0 5,350,759,909.583645 and phaseAnchorUT 5,336,966,486.982761 - with the k shown robust to the seconds of scene time between LoadGame and the MissionConfig that stamps LoopAnchorUT. Operator tier is therefore the ordinary first-flight promotion call: the run confirms or refutes a written prediction rather than discovering one. The prediction is pinned as ONE conjunction regex over the ReaimDiag line and its exact inverse (the 'transfer departs from a heliocentric parking orbit' decline) is FORBIDDEN, so a refutation reds loudly instead of quietly measuring a faithful replay",
     }
 
     def _specs(self):
@@ -6587,7 +6597,44 @@ class RenderComposeVerifierWiringTests(unittest.TestCase):
                                     "V14T-ike-ts-arrival.toml",
                                     # [K] FIRST KSC-host manifest ever; ghostRenderTracing
                                     #     NEWLY armed (see the exposure paragraph above).
-                                    "V22K-kerbin-splashdown-ksc-arrival.toml"}
+                                    "V22K-kerbin-splashdown-ksc-arrival.toml",
+                                    # -- PHASE 4 / WAVE B, 2026-08-26: TWO NEW SUBJECTS,
+                                    # both bare, both reading-pending, and neither a
+                                    # re-declaration of an existing shape. Unlike Wave A -
+                                    # which declared the block on lanes that had already
+                                    # flown - these are NEW LANES authored against the two
+                                    # fixtures the Phase-4 harvest landed
+                                    # (`depot-route-recorded`, `duna-park-recorded`), so
+                                    # each owes a FIRST FLIGHT before it owes a window.
+                                    #
+                                    # [T] THE SUITE'S FIRST ROUTE LANE, and the only
+                                    #     subject that can put a non-zero number in
+                                    #     `routeLineBuilds` or produce a per-unit `ROUTE`
+                                    #     node at all - so `rendercompose._rule_route` has
+                                    #     never executed against live data. It arms NO
+                                    #     mission loop: the committed ROUTE drives,
+                                    #     through SelectGhostDrivingBackingMissions ->
+                                    #     RouteBackingMission.BuildMission -> the TS host
+                                    #     union. It flies the TS half FIRST on a measured
+                                    #     fact - RouteTrajectoryLineRenderer.DrawAll's
+                                    #     only call site carries no MapView gate, so the
+                                    #     tracking station draws route lines without
+                                    #     EnterMapView while its own FLIGHT prelude draws
+                                    #     none. D10 `route-map-lines` stays UNDECLARED
+                                    #     until a gating token earns it (H35).
+                                    "V18T-depot-route-ts-arrival.toml",
+                                    # [M] THE SECOND RE-AIM DEPARTURE CLASS. Every prior
+                                    #     re-aim subject (V2 / V8 / V10 / V24W) is a
+                                    #     direct ejection; this one phases on the SUN for
+                                    #     13,502,219.94 s and only then burns for Duna -
+                                    #     the heliocentric-parking departure that
+                                    #     ReaimClassifier's own exception comment names
+                                    #     ("EXCEPTION (s15 Kerbal X #2)") and that no
+                                    #     committed lane has driven. Its manifest is also
+                                    #     the first to carry a DESTINATION-side loiter cut
+                                    #     (43,963.92 s at the Duna capture) rather than
+                                    #     V8's launch-side one.
+                                    "V25M-duna-park-player-loop.toml"}
 
     def test_render_composition_declarers_are_the_recorded_roster(self):
         """Pinned so a declarer is always a deliberate edit, in BOTH directions. A

@@ -316,6 +316,28 @@ id = "V6M-mun-player-loop"
 #            the reading run's facets, at arming, in a later pass and by operator
 #            decision - never from a prediction.
 #   ARMED RE-FLIGHT / NEG CONTROL  N/A until the above.
+#   MAP-OPEN RE-FLY  **OWED, 2026-08-26.** The blocker the ARMED row points at is now
+#            actionable: R12's `EnterMapView` / `ExitMapView` verbs merged (PR #1539),
+#            and this lane gained the pair in the same change that authored the Phase-4
+#            route + park lanes - `EnterMapView` immediately after the tracer settings
+#            (so the polyline Driver walk runs during EVERY observation window, not just
+#            the tail) and `ExitMapView` immediately before the export (forced there by
+#            `test_every_declarer_exports_immediately_before_teardown`, which pins the
+#            last two commands as `[ExportRenderManifest, FlushAndQuit]`).
+#            THE RE-FLY HAS NOT HAPPENED. Its success criteria are pre-registered here so
+#            the run can refute them: `ownershipChanges > 0` (the publish surface ran at
+#            all; the discriminator is GLOBAL, so ONE record anywhere proves the walk
+#            published) and `Polyline frame:` summaries present in the collected KSP.log
+#            (the reading run carried ZERO, which is what proved every LateUpdate bailed
+#            early). If both land, RC-OWN's draw half becomes evaluable on this lane for
+#            the first time and the three report-only FAILs below either clear or become
+#            REAL findings - and either outcome is the measurement.
+#            THE FLOWN SHAPE MOVED, and that is stated rather than glossed:
+#            `EnterMapView` is `TAIL_ROLE_WORLD_MUTATING`. It is admissible without an
+#            armed re-validation debt because this lane is DECLARED-UNARMED on
+#            `[expectations.renderComposition]`; the two save-structure blocks it DOES
+#            gate cannot see a map-view toggle (no vessel, no save, no Parsek persisted
+#            state), and no jump UT, budget or existing expectation moved.
 #
 # WHAT THE READING RUN ALSO EXPOSED - AN INSTRUMENT GAP, NOT A PRODUCT DEFECT, AND THE
 # ONE THING TO RESOLVE BEFORE ARMING. The reading raised THREE report-only RC-OWN FAILs,
@@ -337,8 +359,10 @@ id = "V6M-mun-player-loop"
 # every completed walk, so zero of them means every LateUpdate bailed early, and the
 # scene gate cannot be the one that fired because `scene = FLIGHT`); all three descent
 # dwells carry `markerPolyline = False` with `markerIconSuppressed = True` (the marker
-# rode the icon fallback, not a drawn polyline); and no seam verb opens the map (there
-# is no `EnterMapView` command and no production path calls `MapView.EnterMapView`),
+# rode the icon fallback, not a drawn polyline); and, AS OF THE READING RUN, no seam verb
+# could open the map at all (no `EnterMapView` command existed and no production path
+# calls `MapView.EnterMapView`) - R12 shipped that verb pair afterwards, PR #1539, and
+# this lane now drives it; see the MAP-OPEN RE-FLY row in the ARMING LEDGER above,
 # so `ownershipChanges = 0` is the state of EVERY manifest lane today - V24W measured
 # 0 as well and escaped only because it never opened a TracedPath dwell. With the map
 # closed nothing is drawn on any map surface, so a visible TracedPath dwell is an
@@ -347,12 +371,17 @@ id = "V6M-mun-player-loop"
 # records ANYWHERE stands the draw->publish direction down as the defined-unevaluable
 # `ownership-publish-surface-never-ran`, while ONE publish anywhere proves the walk
 # ran and restores the FAIL for any recording that then has none.
-# CONSEQUENCE FOR ARMING, and it is a hard one: on this lane RC-OWN's draw half is
-# STRUCTURALLY UNEVALUABLE, so an arming pass must not read "no RC-OWN finding" as
-# "ownership conserved". Either arm only clauses this drive can actually answer
-# (`cycles`, the RC-CYCLE surface, the dwell/treatment counts), or first give the
-# suite a map-open lane - which needs a new command-seam verb, i.e. a C# change and a
-# flown-shape change, neither of which belongs in an arming pass.
+# CONSEQUENCE FOR ARMING, and it is a hard one: AS THE READING RUN FLEW, RC-OWN's draw
+# half was STRUCTURALLY UNEVALUABLE on this lane, so an arming pass must not read "no
+# RC-OWN finding" as "ownership conserved". The two ways out were: arm only clauses this
+# drive can actually answer (`cycles`, the RC-CYCLE surface, the dwell/treatment counts),
+# or first give the suite a map-open lane - which needed a new command-seam verb, i.e. a
+# C# change and a flown-shape change, neither of which belongs in an arming pass.
+# **THE SECOND ROUTE IS THE ONE TAKEN.** The verb landed as its own change (PR #1539) and
+# the flown-shape change landed as its own (2026-08-26, the `EnterMapView` / `ExitMapView`
+# pair in `[driver] steps`), so the arming pass still gets to be an arming pass. Until the
+# MAP-OPEN RE-FLY actually flies, the sentence above is still the operative one and the
+# draw half is still unevaluable HERE - a step added is not a reading taken.
 #
 # WHY THIS LANE, AND WHY THE THIRD CYCLE. Two separate reasons, and the second is the
 # one that made this an extension rather than a one-line declaration.
@@ -424,7 +453,7 @@ id = "V6M-mun-player-loop"
 # rule refuses pre-launch rather than letting it fly.
 # =====================================================================================
 tier = "operator"
-description = "THE PLAYER WORKFLOW ON A SAME-PARENT MOON MISSION, twice over: load the committed mun-orbit-recorded save, arm the loop, press Warp-to, cross cycle 1's Kerbin->Mun SOI seam, press Watch at the ghost's Mun park, then press Warp-to AGAIN for cycle 2 and cross its arrival with the same instruments. A Kerbin->Mun mission is ALWAYS phaseLocked, so ApplyReaim is unreachable: this lane pins the OTHER road (Orbital(Mun) same-parent + support=Supported + PhaseLock APPLIED with zeroDrift=yes/scheduleWithinTol=yes + factory chain reaimed=False) and FORBIDS every re-aim token V4 requires. The two-cycle shape is the desync hunt: same-body handoff, seam-teleport silence and hidden-by-zone proximity are compared cycle 1 vs cycle 2. EXTENDED 2026-08-25 with a THIRD cycle and an M-A7 render-composition capture: rendercompose closes N-1 cycles off N cycle-rollover events, so two flown cycles have only ever closed ONE anywhere in the suite - three cycles close TWO and give RC-CYCLE its first same-warp-bucket structure comparison, on the Mun, on a NON-UNIFORM zero-drift schedule. The [expectations.renderComposition] block is BARE; the reading run was taken 2026-08-25 (cycles=2, RC-CYCLE's first real evaluation, isomorphic) and the lane stays UNARMED."
+description = "THE PLAYER WORKFLOW ON A SAME-PARENT MOON MISSION, twice over: load the committed mun-orbit-recorded save, arm the loop, press Warp-to, cross cycle 1's Kerbin->Mun SOI seam, press Watch at the ghost's Mun park, then press Warp-to AGAIN for cycle 2 and cross its arrival with the same instruments. A Kerbin->Mun mission is ALWAYS phaseLocked, so ApplyReaim is unreachable: this lane pins the OTHER road (Orbital(Mun) same-parent + support=Supported + PhaseLock APPLIED with zeroDrift=yes/scheduleWithinTol=yes + factory chain reaimed=False) and FORBIDS every re-aim token V4 requires. The two-cycle shape is the desync hunt: same-body handoff, seam-teleport silence and hidden-by-zone proximity are compared cycle 1 vs cycle 2. EXTENDED 2026-08-25 with a THIRD cycle and an M-A7 render-composition capture: rendercompose closes N-1 cycles off N cycle-rollover events, so two flown cycles have only ever closed ONE anywhere in the suite - three cycles close TWO and give RC-CYCLE its first same-warp-bucket structure comparison, on the Mun, on a NON-UNIFORM zero-drift schedule. The [expectations.renderComposition] block is BARE; the reading run was taken 2026-08-25 (cycles=2, RC-CYCLE's first real evaluation, isomorphic) and the lane stays UNARMED. EXTENDED AGAIN 2026-08-26 with R12's `EnterMapView` / `ExitMapView` pair (PR #1539): that reading also raised three report-only RC-OWN FAILs whose cause is that the lane never opened the map - the TracedPath INTENT half runs from ParsekFlight's per-frame update while the PUBLISH half sits past `if (!MapView.MapIsEnabled) return;` at the end of the polyline Driver's LateUpdate - so the map is now opened immediately after the tracer settings, BEFORE the first observation bracket, and closed immediately before the export (the declarer-discipline cell pins the last two commands as [ExportRenderManifest, FlushAndQuit], so ExitMapView cannot go after it). THE MAP-OPEN RE-FLY IS OWED, with `ownershipChanges > 0` plus `Polyline frame:` summaries pre-registered as its success criteria; the flown shape moved, which is admissible without an armed re-validation debt only because this lane is declared-unarmed on the render-composition block."
 instanceProfile = "stock-minimal"
 tags = ["V6", "player-loop", "watch-mode", "loop-playback", "phase-lock", "zero-drift", "mun", "moon", "render-composition", "rc-cycle", "flown"]
 
@@ -460,6 +489,48 @@ steps = [
   { cmd = "SetSetting", args = { name = "ghostRenderTracing", value = "true" }, expect = "OK" },
   { cmd = "SetSetting", args = { name = "mapRenderTracing",   value = "true" }, expect = "OK" },
   { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" }, expect = "OK" },
+  # =====================================================================================
+  # OPEN THE MAP - ADDED 2026-08-26, and it is the ONE flown-shape change in this edit.
+  # It is here to discharge the RC-OWN reading debt (`docs/dev/todo-and-known-bugs.md` ->
+  # RC-OWN-DRAW-HALF-IS-MAP-GATED), which this lane's own reading run
+  # `2026-08-25_2056` is the evidence for: the manifest carried THREE visible TracedPath
+  # dwells and ZERO `OWNERSHIP_CHANGE` records, and the reading showed the two halves of
+  # RC-OWN's contract do not share a gate.
+  #   * The INTENT half - `ShadowRenderDriver.RunFrame`, which stamps the TracedPath
+  #     intent the dwell records - runs from ParsekFlight's per-frame update whether or
+  #     not the map is open.
+  #   * The PUBLISH half - `drewNonOrbitalLegRecordings` ->
+  #     `RenderCompositionRecorder.NoteOwnershipPublish` - is reached only at the END of
+  #     the ghost polyline Driver's `LateUpdate` walk, whose second statement is
+  #     `if (!MapView.MapIsEnabled) return;`.
+  # With the map closed the ghost is drawn on no map surface at all, so a TracedPath dwell
+  # is an INTENT record and not evidence of a draw, and `rendercompose` correctly counts
+  # the whole clause `ownership-publish-surface-never-ran` unevaluable. Until PR #1539
+  # there was no seam verb that could open the map at all - which is why EVERY manifest
+  # lane in the suite has been in this state. R12's `EnterMapView` is that verb.
+  #
+  # PLACEMENT: here, immediately after the tracer settings and BEFORE `MissionConfig`, so
+  # the polyline Driver walk runs during EVERY observation window this lane opens - all
+  # three cycles' arrival brackets and all three park epochs - rather than only the tail.
+  # An `EnterMapView` after the first bracket would leave cycle 1 measuring the old
+  # map-closed shape and make the reading incomparable across the three cycles, which is
+  # the one thing a two-closed-cycle dataset must not do.
+  #
+  # SUCCESS CRITERIA FOR THE RE-FLY, pre-registered: `ownershipChanges > 0` (the publish
+  # surface ran at all - the discriminator is GLOBAL, so ONE record anywhere proves the
+  # walk published) and Polyline frame summaries present. From there RC-OWN's
+  # per-recording clause becomes evaluable for the first time anywhere: a recording whose
+  # visible TracedPath dwell carries no ownership record IS the leg-that-never-draws
+  # defect and keeps its FAIL.
+  #
+  # WORLD-MUTATING BY CLASSIFICATION (`hlib.SEAM_VERB_TAIL_ROLE["EnterMapView"]`), so this
+  # IS a flown-shape change and not a free addition. It is admissible here because the
+  # lane is DECLARED-UNARMED on `[expectations.renderComposition]` and carries no armed
+  # re-validation debt on that block; the two save-structure blocks it DOES gate are
+  # untouched by opening the map (no vessel, no save, no Parsek persisted state), and the
+  # jump UTs, budgets and every existing expectation are byte-identical.
+  # =====================================================================================
+  { cmd = "EnterMapView",                                     expect = "OK", budget = 60 },
   # STEP 1 OF THE WORKFLOW: the Missions window loop checkbox (production
   # MissionStore.SetLoopEnabled). Its Info line echoes phaseAnchorUt - the number the
   # whole bracket arithmetic above is anchored to. READ IT WHEN RE-PINNING.
@@ -562,6 +633,16 @@ steps = [
   # render-composition extension, not a new watch measurement. Adding one would put a
   # third coin-toss verdict in a lane whose flown shape is otherwise untouched.
   { cmd = "TimeJump", args = { ut = "990558" }, expect = "OK", budget = 300 },
+  # CLOSE THE MAP - ADDED 2026-08-26 with the `EnterMapView` above, and the placement is
+  # FORCED rather than chosen. `test_every_declarer_exports_immediately_before_teardown`
+  # asserts that the LAST TWO commands of a declarer are exactly
+  # `[ExportRenderManifest, FlushAndQuit]`, so an `ExitMapView` between them would red the
+  # cell. It therefore goes BEFORE the export, which costs nothing: the recorder has
+  # accumulated every observation by this point and the export is an in-memory read that
+  # does not need the map open. Closing it at all is the mirror-symmetry the verb exists
+  # for - the run leaves the game in the scene state it entered, so the teardown save and
+  # the FlushAndQuit quit path see no map-view residue.
+  { cmd = "ExitMapView",                                      expect = "OK", budget = 60 },
   # M-A7 RENDER-COMPOSITION CAPTURE (Phase 3). PLACEMENT IS THE WHOLE ARGUMENT and it is
   # pinned by `test_every_declarer_exports_immediately_before_teardown`: the recorder
   # accumulates from Awake, so the only thing placement decides is how much of this
@@ -845,9 +926,17 @@ forbidden = [
 
 [expectations.renderComposition]
 # M-A7 Phase 3, DECLARED 2026-08-25. BARE ON PURPOSE - no `gating`, no window, no list.
-# Header section 6 carries the arming ledger (reading run PENDING) and the two-cycle
-# rationale; this block's only job today is to exist, because DECLARING it is what sets
+# Header section 6 carries the arming ledger (first reading TAKEN 2026-08-25; the
+# MAP-OPEN RE-FLY added 2026-08-26 is OWED) and the two-cycle rationale; this block's
+# only job today is to exist, because DECLARING it is what sets
 # `PARSEK_RENDER_MANIFEST=1` at launch and arms the C# recorder at Awake.
+#
+# THE ARMING PASS IS DELIBERATELY WAITING ON A SECOND READING, not on nothing: the
+# 2026-08-25 reading flew with the map CLOSED, so `ownershipChanges` read 0 for a
+# STRUCTURAL reason and RC-OWN's draw half was unevaluable. The lane now opens the map
+# (`EnterMapView` / `ExitMapView`, PR #1539), which changes what a reading can say about
+# ownership and about the Polyline treatment half - so windows written off the first
+# reading alone would be written off a shape the lane no longer flies.
 #
 # WHY BARE RATHER THAN "A FEW SAFE WINDOWS": `rendercompose`'s own docstring says the
 # facets are "Recorded UNCONDITIONALLY on a parseable manifest: that is how a lane earns
