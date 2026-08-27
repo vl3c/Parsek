@@ -1472,6 +1472,16 @@
         "2026-08-12T03:17:37Z": 955.0
       }
     },
+    "V20M-jool-kerbin-player-loop": {
+      "last": 73.0,
+      "lastVsP50": 1.0,
+      "n": 1,
+      "p50": 73.0,
+      "p95": 73.0,
+      "samples": {
+        "2026-08-27T18:57:39Z": 73.0
+      }
+    },
     "V21M-mun-minmus-player-loop": {
       "last": 84.0,
       "lastVsP50": 1.0,

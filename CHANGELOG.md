@@ -58,7 +58,18 @@ All notable changes to Parsek are documented here.
   Both tests were re-aimed at something they can actually see - that Parsek works out
   the arrival orbit around Kerbin from the recording's own data - which is a smaller
   claim than the original one, and both files say so plainly rather than quietly
-  settling for it.
+  settling for it. Re-run, the map test then passed cleanly.
+  The Tracking Station test flew for the first time straight afterwards and was the
+  more interesting of the two. It found that the re-aiming had been too cautious: on
+  its own timing the returning ship IS drawn in Kerbin's frame, so the stronger check
+  went back in. It also caught the earlier finding actually happening - three replays
+  visibly snapping from the part of the journey they were on back to the orbit the
+  recording starts on, while the clock was simply running at normal speed. The test
+  reports that rather than ignoring it, and it is recorded as something to understand
+  rather than something being fixed on the spot.
+  The upshot is a small, honest asymmetry the notes now spell out: what the Tracking
+  Station can show about a ship coming home, the in-flight map currently cannot,
+  purely because of the order in which the two tests move the clock.
   Test-tooling only; no gameplay change.
 - The looped Mun mission's render test now also requires that Parsek actually
   published which replay owned the map line, so a run where that bookkeeping

@@ -51,7 +51,7 @@ breadth point rather than a blocker - see the roadmap's rewritten roster entry.
 
 ---
 
-## TIMEJUMP-CANNOT-OBSERVE-LIVE-FRAME-OVERLAP-PROTOS-ON-LONG-PITCH-SUBJECTS: on a 32.6 Ms loop span every ghost proto reads back on the recording's FIRST segment at every reachable jump epoch, and 36 of 41 of them were CREATED on a different orbit than the probe read [MEASURED 2026-08-27 by `V20M-jool-kerbin-player-loop` reading run 1 (`2026-08-27_1828`, PARSEK-FAIL(expectation) on exactly this - its own destination-frame render pin). REPORT-ONLY, NO MECHANISM CLAIMED, NO product change proposed. Same family as MAPRENDER-ICON-OFF-ORBIT-CREATION-FRAME-AFTER-JUMP, which it sharpens in two ways]
+## TIMEJUMP-CANNOT-OBSERVE-LIVE-FRAME-OVERLAP-PROTOS-ON-LONG-PITCH-SUBJECTS: on a 32.6 Ms loop span every ghost proto settles onto the recording's FIRST segment, 36 of 41 of them having been CREATED on a different orbit - and the TRANSITION is now caught in the act [MEASURED 2026-08-27 by `V20M-jool-kerbin-player-loop` reading run 1 (`2026-08-27_1828`, PARSEK-FAIL(expectation) on exactly this - its own destination-frame render pin), **and CORROBORATED THE SAME DAY BY `V20T-jool-kerbin-ts-arrival` reading run 1 (`2026-08-27_1857`, PARSEK-FAIL(anomaly) `icon-teleport x3`), which caught the RE-SEED ITSELF rather than its end state**. REPORT-ONLY, NO MECHANISM CLAIMED, NO product change proposed. Same family as MAPRENDER-ICON-OFF-ORBIT-CREATION-FRAME-AFTER-JUMP, which it sharpens in three ways]
 
 **WHAT WAS MEASURED**, off `logs/2026-08-27_2129_V20M-jool-kerbin-player-loop/KSP.log`, on
 `fixtures/saves/kerbin-return-recorded` (ONE recording, TRACK_SECTION span 32,606,575.774644222 s,
@@ -70,6 +70,47 @@ breadth point rather than a blocker - see the roadmap's rewritten roster entry.
   the segment the lane's own arithmetic puts them on at the epoch they were created. **36 of the 41
   protos were created on one orbit and read back at end of frame on another.** The five that
   "match" are exactly the five seeded on the Jool park anyway.
+
+**AND THE TRANSITION IS NOW CAUGHT IN THE ACT, WHICH V20M's END-STATE READING COULD NOT DO.**
+`V20T-jool-kerbin-ts-arrival` reading run 1 (`2026-08-27_1857`, collected at
+`logs/2026-08-27_2158_V20T-jool-kerbin-ts-arrival`) drove the SAME fixture to the SAME coast-dwell
+epoch through the TRACKING STATION and came back `PARSEK-FAIL(anomaly)` with
+`hitCounts {icon-teleport: 3}` and nothing else - every other row green, all thirteen of its
+required tokens matched. All three raises are at the coast dwell (frames 7998 x2 and 8014,
+`currentUT` 94,621,776.560 / .820) and each one names the orbit pair it jumped between:
+
+```
+reason=icon-teleport TELEPORT dPos=334981793m = 24210456x expected(14m)
+  | fromOrbit=[Jool|10246978796|0.9424] toOrbit=[sma=590325785 ecc=0.0000] body=Jool
+  | lineActive=True drawIcons=OBJ dPosWorld=334981874m warpRate=1 dt=0.0167
+```
+
+(the other two are `dPos` 1,623,652,431 m and 2,935,994,339 m, same from/to pair).
+**`10246978796 / 0.9424` IS THE POST-ESCAPE JOOL ELLIPSE** - seg#2-4 of this recording to the
+digit - **AND `590325785 / 0.0000` IS SEGMENT ZERO.** So these are three protos being re-seeded
+OFF their own correct per-instance segment ONTO segment zero, mid-dwell, surfacing as position
+teleports.
+
+WHAT THAT ADDS, beyond confirming the end state V20M measured:
+
+3. **THE DIRECTION IS PROVEN, NOT INFERRED.** V20M could only pair a creation line against a
+   read-back and infer that a settle happened in between. Here the settle is a single logged
+   event with both orbits on it, and it runs FROM the correct segment TO segment zero -
+   creation-correct / settle-wrong, demonstrated.
+4. **IT HAPPENS AT DWELL TIME, NOT ONLY ACROSS A JUMP.** All three fire during the forty-tick TS
+   dwell at a fixed epoch, at **`warpRate=1 dt=0.0167`** - one frame of ordinary 1x time. So the
+   trigger is not "a large TimeJump" as the parent family's title supposes; a proto can settle
+   onto segment zero while the clock simply runs.
+
+**AND THESE THREE ARE A PER-RAISE WARP ATTRIBUTION DATUM THE OPEN `MapRenderProbe` THRESHOLD
+ENTRY EXPLICITLY ASKS FOR** (see "`MapRenderProbe`'s `icon-jump` / `icon-teleport` threshold looks
+over-sensitive above warp1000" below): that entry's owed work is bucketing raises by the warp
+regime of the frame that raised them, on the hypothesis that the threshold does not survive rails
+warp. These three are at **1x**, and each carries a from/to orbit pair showing a real re-seed - so
+at least this population is NOT a threshold false positive, and the token has at least two
+distinct producers. `V20T` therefore tolerates `icon-teleport` BARE citing `2026-08-27_1857`,
+with the ceiling (6 = 2x measured) argued as prose per the V24W/V25M convention because
+`test_no_committed_spec_arms_a_count_budget` holds the budget mechanism inert suite-wide.
 
 **WHAT IT SHARPENS ABOUT THE EXISTING FAMILY** (`MAPRENDER-ICON-OFF-ORBIT-CREATION-FRAME-AFTER-JUMP`),
 with NO mechanism claimed for either point:
@@ -216,9 +257,30 @@ rendered-frame Kerbin claim roadmap G2's bar asks for is NOT discharged by eithe
 STAYS OWED.** Both specs keep READING-RUN posture - nothing armed, no window tightened,
 the measured `exoCoastBodyChangeKept=2` recorded rather than promoted.
 
-**REMAINING: V20M reading run 2 on the re-pinned tokens and V20T reading run 1, then the
-arming pass off their OWN bytes, then the per-lane negative controls (TWO, not one shared
-- the halves pin different lenses), and then `V20K`.** One cost neither lane can price from committed bytes and both write down:
+**BOTH OF THOSE FLEW ON 2026-08-27.** `V20M` reading run 2 (`2026-08-27_1856`) is a **PASS
+attempt 1, wall 73 s, every verifier PASS or SKIPPED** on the re-pinned nine tokens - so the
+round-2 replacements are measured-reachable and that lane is ARM-READY. `V20T` reading run 1
+(`2026-08-27_1857`) is a **PARSEK-FAIL(anomaly), attempt 1, wall 61 s** with `icon-teleport x3`
+the ONLY hit and everything else green, including all thirteen required tokens - a
+pre-registered correct catch, now tolerated by name with that run beside it (ceiling 6 = 2x
+measured, argued as prose because the budget mechanism is inert suite-wide). It also answered
+three pre-registered questions at once: the endpoint-tail seed is NOT FLIGHT-only (45 hits in
+TS), the TS init walk took READING B, and `icon-off-orbit` was SILENT - a third confirmation
+for self-overlap at a parameter value no prior lane reached.
+
+**AND IT CORRECTED ROUND 2's ONE MISTAKE.** The pre-emptive removal of V20T's
+`body=Kerbin scene=TRACKSTATION` proto pin was made on V20M's FLIGHT-only evidence and was
+WRONG: V20T's own run matched it, because its single jump IS the coast epoch where instance 1
+is Kerbin-framed (its creation census carries `segmentUT=60366107.0-60392908.2`, seg#16, the
+Kerbin arrival coast), whereas V20M creates every proto at its seam-bracket leg on the Sun side
+and never re-creates them. The pin is RESTORED. **SO THE PAIR SPLITS ON G2's BAR**: V20T
+discharges the TS third on a RENDERED-FRAME token; V20M's flight-map third does not, and its
+`kerbin` cell rests on the seed-side token. Re-ordering V20M's jumps coast-epoch-first is a real
+candidate for a future round and deliberately not taken after a green run (S4.1).
+
+**REMAINING: V20T reading run 2 on the tolerated token, then the arming pass off both lanes'
+OWN bytes, then the per-lane negative controls (TWO, not one shared - the halves pin different
+lenses), and then `V20K`.** One cost neither lane can price from committed bytes and both write down:
 the schedules traverse 66.8 Ms (V20M) and 34.2 Ms (V20T) of game time in instantaneous
 `Planetarium` clock sets, and KSP's on-rails propagation cost at that magnitude is
 UNMEASURED - a death on a TimeJump watchdog would be a reading, not a calibration
@@ -2003,6 +2065,19 @@ DEFERRALS TAKEN IN PHASES 1-2, each of which a lane author must know.
   is still the per-raise warp attribution rather than a formality. Both manifests
   carry per-raise `ANOMALY_ECHO` records with `ut` stamps, so that attribution is
   now an offline join over two committed artifacts rather than another flight.
+  **THIRD DATASET 2026-08-27, AND IT IS A DISCRIMINATOR RATHER THAN ANOTHER COUNT:
+  `V20T-jool-kerbin-ts-arrival` reading run 1 (`2026-08-27_1857`) raised the token
+  THREE times, ALL AT `warpRate=1 dt=0.0167`** - dead 1x, the regime this entry's
+  hypothesis says should be clean - **and each raise carries the orbit pair it jumped
+  between**: `fromOrbit=[Jool|10246978796|0.9424] toOrbit=[sma=590325785 ecc=0.0000]`,
+  i.e. the recording's post-escape Jool ellipse re-seeded onto its SEGMENT ZERO, with
+  `dPos` 334,981,793 / 1,623,652,431 / 2,935,994,339 m. **THOSE THREE ARE NOT THRESHOLD
+  FALSE POSITIVES - they are a real re-seed the probe correctly caught**, which means
+  the token has AT LEAST TWO DISTINCT PRODUCERS and the per-raise warp attribution this
+  entry asks for must separate them rather than bucket them together. Their own home is
+  TIMEJUMP-CANNOT-OBSERVE-LIVE-FRAME-OVERLAP-PROTOS-ON-LONG-PITCH-SUBJECTS above; they
+  are recorded here because they constrain THIS entry's hypothesis, not because they
+  belong to it.
   CONSEQUENCE ALREADY TAKEN, and it is a tolerance and not a fix: V24W now lists
   `icon-teleport` BARE in `allowedAnomalies` citing `2026-08-25_1502`. The
   ceiling that measurement authorizes is 130 (2x the measured 65, DOUBLED rather
