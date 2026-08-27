@@ -1428,8 +1428,18 @@ class ParentRelayLoadTimeTests(unittest.TestCase):
         # `Source/Parsek.Tests/Bug278FinalizeLimboTests.cs:722`'s committed
         # `("Kerbin", 600000.0, 3.5316e12)` for the pair, and this table's OWN Mun
         # comment for the 84,159,286 m SOI radius.
-        self.assertEqual(["Kerbin", "Laythe", "Mun"],
+        # JOOL JOINED THE TABLE when `B29-jool-kerbin-return` re-scoped onto the
+        # relay (flight 2, 2026-08-27) - the first row whose HOME body is a
+        # PLANET. Citations: `Source/Parsek.Tests/MultiMoonAlignmentTests.cs:22`
+        # (mu 2.82528e14), `Source/Parsek.Tests/MissionPeriodicityTests.cs:1648`
+        # (SOI 2.4559852e9), and test_b29's own JOOL_RADIUS fixture bracket for
+        # R 6,000,000.
+        self.assertEqual(["Jool", "Kerbin", "Laythe", "Mun"],
                          sorted(mlib.STOCK_BODY_GRAVITY))
+        mu_j, r_j, soi_j = mlib.STOCK_BODY_GRAVITY["Jool"]
+        self.assertEqual(2.82528e14, mu_j)
+        self.assertEqual(6_000_000.0, r_j)
+        self.assertAlmostEqual(2.4559852e9, soi_j, delta=100.0)
         mu, radius, soi = mlib.STOCK_BODY_GRAVITY["Laythe"]
         self.assertEqual(MU_LAYTHE, mu)
         self.assertEqual(R_LAYTHE, radius)

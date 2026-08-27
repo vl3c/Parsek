@@ -31,6 +31,18 @@ All notable changes to Parsek are documented here.
   1,926 m/s where settling into an elliptical orbit costs 1,188 - so it gained
   the ability to aim for an elliptical parking orbit instead. That is off by
   default and every existing mission behaves identically without it.
+  The first two flights then taught the mission how it actually has to fly.
+  Flight one exposed an inherited course-correction cap sized for moon hops,
+  which silently discarded the correction the trip needed (fixed to the
+  interplanetary calibration). Flight two got all the way to Kerbin and revealed
+  the real problem: asking the autopilot to plan the departure directly from the
+  very high Jool parking orbit produces a technically-valid transfer that
+  arrives nearly twice as fast as a proper one - the capture burn it then
+  honestly computed was three times what the tank held, and the ship ran dry
+  still going too fast to stay. So the mission now leaves in two stages, the
+  same proven way the moon-to-moon missions do: a small self-computed escape
+  burn out of Jool's gravity, then a properly-timed transfer planned in solar
+  orbit, which arrives at the speed the fuel budget was built for.
   Test-tooling only; no gameplay change.
 - The looped Mun mission's render test now also requires that Parsek actually
   published which replay owned the map line, so a run where that bookkeeping

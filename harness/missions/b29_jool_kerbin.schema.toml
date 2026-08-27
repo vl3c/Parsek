@@ -1,33 +1,31 @@
 # Declared param schema for mission b29_jool_kerbin -- the INBOUND INTERPLANETARY
 # lane, and the first spec in the suite whose TARGET body is KERBIN.
 #
-# It is `b28_laythe_jool.schema.toml` MINUS the six PARENT-RELAY keys PLUS EXACTLY
-# ONE NEW KEY (`captureEllipticalApoapsisMeters`), with eight inherited blocks
-# re-argued in place (listed at the bottom of this header). That is the whole claim
-# this file makes: an inbound planet-to-Kerbin transfer is the ORDINARY
-# interplanetary machine (B22's) entered through the ORBIT-START door (B25/B28's),
-# not a new mode. If a future change to this lane needs a param neither declares,
-# that is evidence the claim has stopped being true and it must be re-argued rather
-# than quietly patched (the B16 rule, verbatim).
+# It is `b28_laythe_jool.schema.toml` PLUS EXACTLY ONE NEW KEY
+# (`captureEllipticalApoapsisMeters`), with eight inherited blocks re-argued in
+# place (listed at the bottom of this header). AS FIRST AUTHORED it was ALSO minus
+# the six PARENT-RELAY keys, on the claim that an inbound planet-to-Kerbin transfer
+# is the ORDINARY interplanetary machine (B22's) entered through the ORBIT-START
+# door (B25/B28's), not a new mode -- and the header carried the B16 rule verbatim:
+# needing a param neither file declares is evidence the claim stopped being true
+# and it must be re-argued rather than quietly patched. FLIGHT 2 (2026-08-27) WAS
+# THAT EVIDENCE, and the re-argument lives at the six keys' own block at the BOTTOM
+# of this file. Short form: the plain planner did not refuse this planet park -- it
+# planned an asymptote from the 590.3 Mm periapsis bad enough that the Kerbin
+# arrival read ecc 12.535 and the honest capture price was 3,625.035 m/s. The lane
+# is now B26's TWO-STAGE relay from the first planet park in the family.
 #
 # WHAT THE LANE IS: the crewed Duna Rocket starts ALREADY PARKED around JOOL (the
 # committed Parsek-stripped `jool-park-nerv` fixture -- a 584,321,095.005 x
-# 584,330,474.175 m park at eccentricity 7.9440625486254423e-06), waits out the
-# Jool-Kerbin window inside that park, ejects onto a Sun-frame INBOUND transfer,
-# corrects twice, captures into a 150,000 x 6,000,000 m KERBIN ellipse and commits
-# the tree there. See `b29_jool_kerbin.py`'s header for the Parsek surface the lane
-# exists to produce, and `docs/dev/autotest-roadmap.md` -> the gap register ->
-# **G2 - Return legs** for why the planet-to-Kerbin half outranks the other
-# unmeasured classes.
+# 584,330,474.175 m park at eccentricity 7.9440625486254423e-06), escapes on
+# mlib's stage-1 relay node, lets stage 2 plan the Sun-frame inbound Hohmann to
+# Kerbin at the next window, corrects twice, captures into a 150,000 x 6,000,000 m
+# KERBIN ellipse and commits the tree there. See `b29_jool_kerbin.py`'s header for
+# the Parsek surface the lane exists to produce, and `docs/dev/autotest-roadmap.md`
+# -> the gap register -> **G2 - Return legs** for why the planet-to-Kerbin half
+# outranks the other unmeasured classes.
 #
-# WHY THE SIX RELAY KEYS ARE GONE RATHER THAN DEMOTED. B26 and B28 arm
-# `parentRelayTransfer` because MechJeb 2.15.1's OperationInterplanetaryTransfer
-# REFUSES a MOON-parked origin (docs/dev/todo-and-known-bugs.md ->
-# MECHJEB-INTERPLANETARY-PLANNER-REJECTS-MOON-ORIGIN). JOOL IS A PLANET -- a direct
-# child of the Sun -- so that refusal is structurally out of scope and the plain
-# planner applies. Declaring the keys anyway would invite a future author to arm a
-# mode this lane has no reason to enter, and mlib's relay gates would then start
-# judging rows that do not exist here. The four PAD-ALIGN keys ARE kept
+# The four PAD-ALIGN keys ARE kept
 # declared-and-optional (B28's shape): they are mutually exclusive with
 # `startInOrbit` at load, so declaring them costs nothing and their bounds stay
 # comparable across the family. The six ASCENT keys are likewise kept
@@ -815,3 +813,56 @@ required = false
 type = "number"
 min = 1.0
 max = 3600.0
+
+# ---------------------------------------------------------------------------------
+# THE SIX PARENT-RELAY KEYS, RE-ADDED 2026-08-27 - THE B16 RULE, HONORED IN ITS OWN
+# TERMS. This file's header said the six were GONE because "Jool is a planet, the
+# moon-origin refusal is structurally out of scope, and the plain planner applies" -
+# and that, per the header's own rule, needing one of these keys later would be
+# "evidence the claim has stopped being true and it must be re-argued rather than
+# quietly patched". FLIGHT 2 (2026-08-27) IS THAT EVIDENCE, and this block is the
+# re-argument: the refusal really is out of scope (MechJeb PLANNED from the Jool
+# park on the first ask), but the PLAN was the defect - from a 590.3 Mm periapsis
+# (24% of the SOI radius) its ejection asymptote delivered an ecc-12.535 arrival at
+# Kerbin, v_inf ~5,116 m/s against the Hohmann's 2,713, pricing the capture at
+# 3,625.035 m/s on a craft that had ~2,000 left. The claim that stopped being true
+# is not "no refusal" - it is "the plain planner's plan is FLYABLE from this park".
+# The relay prices the geometry out: mlib computes stage 1 itself at the park
+# periapsis, and stage 2 plans in the SUN frame where OperationTransfer's
+# same-parent Hohmann is exact. Full record: the spec's FLIGHT 2 LEDGER and the
+# missionParams relay block; mode contract: b26_laythe_vall's header (THE MODE, AS
+# BUILT). Declarations are B28's verbatim (same types, same ranges).
+# `relayParkAtParent` stays declared-and-UNSET: this is the TWO-STAGE lane (the
+# park is at KERBIN, the target - not at the parent), and mlib rejects the modifier
+# without its base flag anyway.
+[params.parentRelayTransfer]
+required = false
+type = "bool"
+
+[params.relayParkAtParent]
+required = false
+type = "bool"
+
+[params.escapeSoiSpeedMps]
+required = false
+type = "number"
+min = 0.0
+max = 20000.0
+
+[params.escapeMaxDeltaVMps]
+required = false
+type = "number"
+min = 0.0
+max = 20000.0
+
+[params.escapeNodeMinLeadSeconds]
+required = false
+type = "number"
+min = 0.0
+max = 100000.0
+
+[params.escapeTimeoutSeconds]
+required = false
+type = "number"
+min = 0.0
+max = 1000000.0

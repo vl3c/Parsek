@@ -1948,6 +1948,30 @@ STOCK_BODY_GRAVITY: Dict[str, Tuple[float, float, float]] = {
     # r_soi at all. The value is carried for table symmetry and for whoever adds an
     # escape from Kerbin later.
     "Kerbin": (3.5316e12, 600_000.0, 84_159_286.0),
+    #
+    # JOOL, added when `B29-jool-kerbin-return` re-scoped onto the PARENT-RELAY
+    # mode after flight 2 (2026-08-27) MEASURED the plain planner's failure shape
+    # from the 584,321 km fixture park: MechJeb's OperationInterplanetaryTransfer
+    # did NOT refuse (the B26-flight-1 shape the lane pre-registered) - it PLANNED,
+    # 110 m/s cheaper than the Hohmann ledger, with an asymptote bad enough that
+    # the arrival read ecc 12.535 / v_inf ~5,116 m/s at Kerbin against the
+    # Hohmann's 2,713, pricing the capture at 3,625.035 m/s on a craft that had
+    # ~2,000 left. The relay is the route around it, and the relay's escape needs
+    # this row. THE FIRST ROW WHOSE HOME BODY IS A PLANET: the escape contract is
+    # body-generic (nothing in `escape_node_plan` reads moon-ness), and the SOI
+    # radius is load-bearing exactly as the header warns - at a 590.3 Mm park
+    # periapsis, 2mu*(1/r_pe - 1/r_soi) = 727,138 m^2/s^2, so an escape asking for
+    # 450 m/s AT THE BOUNDARY costs a 964.2 m/s periapsis speed (node ~272.4 m/s
+    # over the 691.8 m/s park). In-repo sources:
+    #   mu 2.82528e14 - `Source/Parsek.Tests/MultiMoonAlignmentTests.cs:22` (the
+    #     stock Jool-system constant every alignment cell derives from), and
+    #     `harness/missions/lib/test_b25_laythe_orbit.py:45` (MU_JOOL).
+    #   R 6,000,000   - `harness/missions/lib/test_b29_jool_kerbin.py`
+    #     (JOOL_RADIUS, the fixture-park bracket cells).
+    #   SOI 2.4559852e9 - `Source/Parsek.Tests/MissionPeriodicityTests.cs:1648`
+    #     (`f.Soi["Jool"]`), quoted at full precision as 2,455,985,185 m in
+    #     `harness/missions/b22_jool_orbit.py`'s header.
+    "Jool": (2.82528e14, 6_000_000.0, 2.4559852e9),
 }
 STOCK_HELIO_ELEMENTS: Dict[str, Tuple[float, float, float, float]] = {
     "Kerbin": (13_599_840_256.0, 0.0, 3.14, 0.0),

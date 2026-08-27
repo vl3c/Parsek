@@ -25,18 +25,66 @@ id = "B29-jool-kerbin-return"
 #     dependence of DLL hashes; see the hash-verification memory section 1b.)
 # RE-FLY OWED with the corrected cap; nothing else moved.
 # ---------------------------------------------------------------------------------
+# FLIGHT 2 LEDGER (2026-08-27, run attempts 1+2 BOTH INVALID, DETERMINISTIC - the
+# measurement that RE-SCOPED THE LANE ONTO THE PARENT-RELAY MODE):
+# (a) THE CAP FIX HELD: both correction rounds planned and FLEW (268.00 +
+#     107.77 / 93.49 m/s, all under the 450 cap), and the intercept was
+#     excellent - Kerbin SOI entry with pe 839.8-956.8 km, exactly the
+#     encounter flight 1 never got.
+# (b) PRE-REGISTRATION #1 RESOLVED NEGATIVE, AND NOT IN THE PRE-REGISTERED
+#     SHAPE. The written-down risk was the B26-flight-1 REFUSAL (node_count 0,
+#     named early flake). What actually happened is WORSE and quieter: MechJeb
+#     PLANNED from the 584,321 km park - 1,207.963 m/s, 110 m/s cheaper than
+#     the 1,318.55 Hohmann - but the asymptote was wrong enough that the
+#     corrections spent 268 m/s ESTABLISHING the intercept and the arrival
+#     came in at ecc 12.535, v_inf ~5,116 m/s against the Hohmann's 2,713.
+#     `capture_node_plan` did its job on the LIVE orbit and priced that
+#     arrival honestly: add_maneuver_node value=-3625.035 - 3.05x the derived
+#     1,188.07 - on a craft with ~2,000 m/s in the tank. The executor flew it
+#     (344 s at full throttle, ~500 LiquidFuel) until the tank ran dry, the
+#     stagnation handler staged the dead NERV stack away, and the under-burn
+#     flake named an orbit still hyperbolic. Every subsystem downstream of the
+#     plan behaved exactly as designed; the PLAN is the defect, and it is
+#     structural to a HIGH park (590.3 Mm periapsis = 24% of the SOI radius,
+#     where the planner's idealizations break) rather than tunable.
+# (c) THE RE-SCOPE: the shell's own header reserved this route - "the route
+#     around it would be the parent-relay mode this file deliberately does not
+#     arm, re-argued at that point rather than pre-emptively". That point is
+#     now. The relay ladder prices OUT the bad geometry: stage-1 escape
+#     computed by mlib at the park periapsis (272.38 m/s node for 450 m/s at
+#     the SOI boundary), stage-2 Sun-frame Hohmann planned by MechJeb's
+#     moon-path OperationTransfer from the resulting near-Jool Sun orbit
+#     (nominal 1,756.23 m/s +/- the 450 m/s handoff residual), corrections,
+#     capture 1,188.07. Nominal total 3,293 m/s of the committed 3,967 -
+#     against the direct plan's measured 1,208 + 376 + 3,625 = 5,209.
+#     `ejectionEccFloor` retires to 0 (B26's reason verbatim: a correct
+#     patched-conic escape from this park is BOUND, ecc 0.9424) and
+#     `transferMinApoapsisMeters` goes positive at 50 Gm (the relay gate's
+#     stage-2 requirement; on an INBOUND leg it is weak-but-structural
+#     evidence - the pre-burn Sun orbit already clears it, so the exit still
+#     rests on node consumption exactly as the ecc floor's own "not a
+#     completion gate" contract always did).
+# (d) Also proven en route, worth keeping: MechJeb accepted a non-Kerbin
+#     planet park on the first ask (the REFUSAL half of pre-registration #1
+#     stays retired), the b5 chain ran ORBIT-START -> PLAN-TRANSFER ->
+#     TRANSFER-BURN -> COAST -> corrections -> PLAN-CAPTURE -> CAPTURE-BURN
+#     end to end at Jool scale, and the elliptical capture planner priced a
+#     LIVE arrival correctly at its first hostile input.
+# ---------------------------------------------------------------------------------
 # =====================================================================================
 # B29: THE FIRST RECORDING IN THE SUITE THAT ARRIVES AT KERBIN FROM ANOTHER PLANET.
-# The crewed Duna Rocket starts ALREADY PARKED around JOOL, waits out the Jool-Kerbin
-# window inside that park, ejects onto a Sun-frame INBOUND transfer, corrects twice,
-# captures into a 150,000 x 6,000,000 m KERBIN ellipse and commits the tree there.
-# THE RECORDING IS THE PRODUCT.
+# The crewed Duna Rocket starts ALREADY PARKED around JOOL, escapes on a
+# mlib-computed stage-1 relay node, lets stage 2 plan the Sun-frame inbound Hohmann
+# to Kerbin at the next window, corrects twice, captures into a 150,000 x
+# 6,000,000 m KERBIN ellipse and commits the tree there. THE RECORDING IS THE
+# PRODUCT.
 #
-# **AUTHORED 2026-08-26. NEVER FLOWN. EVERY NUMBER BELOW IS DERIVED, NOT MEASURED.**
-# There is no flight ledger in this file yet, and the absence is deliberate: the
-# derivations are stated with their inputs so the first flight can be read AGAINST
-# them rather than reconciled with prose written as if it already had. When that
-# flight happens its ledger goes HERE, and this banner is replaced by it.
+# **AUTHORED 2026-08-26 AGAINST THE PLAIN PLANNER; RE-SCOPED ONTO THE PARENT-RELAY
+# MODE 2026-08-27 AFTER FLIGHT 2** (the two ledgers above are the record). The
+# derivation sections below this line are the AUTHORED, direct-plan derivations,
+# kept verbatim as the record the flights were read against; where the relay
+# changes a number, the missionParams relay block and the FLIGHT 2 LEDGER carry
+# the current one.
 #
 # WHY THIS LANE EXISTS, and it is NOT "a ninth interplanetary transfer". Every
 # interplanetary lane in the suite DEPARTS Kerbin -- B7 Duna, B15/B16 Eve, B17 Duna,
@@ -366,7 +414,7 @@ id = "B29-jool-kerbin-return"
 #            first ever taken on a recording whose arrival body is Kerbin.
 # =====================================================================================
 tier = "operator"
-description = "AUTHORED 2026-08-26, NEVER FLOWN -- every number in this spec is DERIVED, not measured, and the first flight should be read AGAINST it rather than reconciled with it. THE FIRST RECORDING IN THE SUITE THAT ARRIVES AT KERBIN FROM ANOTHER PLANET, closing the planet-to-Kerbin half of roadmap gap G2 (B28 closed the moon-to-parent half 2026-08-20). The crewed Duna Rocket starts ALREADY PARKED around JOOL on the committed Parsek-stripped `jool-park-nerv` fixture (584,321,095.005 x 584,330,474.175 m at ecc 7.9440625486254423e-06, INC 3.005 deg, 945.082 LiquidFuel on the NERV = ~3,967 m/s), waits out the 10,090,902 s Jool-Kerbin synodic INSIDE that park via WaitForPhaseAngle, ejects for 1,318.55 m/s onto a 24,252,690 s Sun-frame INBOUND transfer, takes two scheduled corrections toward a 150,000 m Kerbin arrival periapsis, and captures for 1,188.07 m/s into a 150,000 x 6,000,000 m KERBIN ellipse (ecc 0.7959) before committing the tree there. RE-SCOPED FROM THE RESERVED `B29-duna-kerbin-return`, and the deficit that forced it is a real finding kept in the header: `duna-park-probe`'s DD1 probe carries 1,097.5 m/s (dry 1.6300 t, 124.920 units of propellant, LV-909 at 345 s) against 1,645 m/s needed (585.0 ejection + 1,060.5 Kerbin capture-and-circularize) -- ~550 m/s short, 50% over budget, structural rather than tunable. A sweep of every planet-parked craft in every committed fixture found exactly two candidates that clear an LKO park, and `dres-orbit-recorded`'s is at INC 77.46 deg and unstripped, leaving `jool-park-nerv` -- already stripped, already crewed, already carrying a heat shield and chutes, and its SECOND consumer after B25. THE CLASS MEASUREMENT IS UNCHANGED because Jool and Duna are both direct children of the Sun, so Jool->Kerbin and Duna->Kerbin are the identical sibling-planet inbound relation; B31 stays reserved for the eventual Duna-origin breadth point, demoted from blocker to when-wanted. LKO WAS DESCOPED FOR MARGIN: circularizing at the arrival periapsis costs 1,926.12 m/s against the ellipse's 1,188.07, which would leave ~58 m/s of reserve after corrections instead of 1,460.4, and what the V20 pair reads off the product is a KERBIN-FRAME ARRIVAL rather than an altitude. mlib gained ONE param and one pure function (`captureEllipticalApoapsisMeters` + `capture_node_plan`), flag-gated and byte-inert with the flag absent, placing its retrograde node through the EXISTING kRPC add_node seam the parent-relay escape already uses. SIX PRE-REGISTRATIONS, none gating, the first being the lane's one untested assumption: no committed lane has ever run a non-relay interplanetaryTransfer from a non-Kerbin park, and the MechJeb refusal shape (node_count 0, PLAN_MAX_ATTEMPTS in ~90 game-s, named early flake, driver-INVALID and report-only) is written down rather than assumed away. THE ROUTING IS THE MEASUREMENT AND THIS SPEC ASSERTS NOTHING ABOUT IT -- V20M/V20T/V20K are the lanes that read it off the product, and none is committed ahead of this flight, on the V21/G3a lesson."
+description = "AUTHORED 2026-08-26, NEVER FLOWN -- every number in this spec is DERIVED, not measured, and the first flight should be read AGAINST it rather than reconciled with it. THE FIRST RECORDING IN THE SUITE THAT ARRIVES AT KERBIN FROM ANOTHER PLANET, closing the planet-to-Kerbin half of roadmap gap G2 (B28 closed the moon-to-parent half 2026-08-20). The crewed Duna Rocket starts ALREADY PARKED around JOOL on the committed Parsek-stripped `jool-park-nerv` fixture (584,321,095.005 x 584,330,474.175 m at ecc 7.9440625486254423e-06, INC 3.005 deg, 945.082 LiquidFuel on the NERV = ~3,967 m/s), escapes Jool on a 272.38 m/s mlib-computed stage-1 node (PARENT-RELAY mode, the first time from a PLANET park -- re-scoped after flight 2, see the FLIGHT 2 LEDGER), lets MechJeb's moon-path OperationTransfer plan the Sun-frame INBOUND Hohmann to Kerbin at the next window (nominal 1,756.23 m/s; the 10,090,902 s synodic wait rides the stage-2 autowarp), takes two scheduled corrections toward a 150,000 m Kerbin arrival periapsis, and captures for 1,188.07 m/s into a 150,000 x 6,000,000 m KERBIN ellipse (ecc 0.7959) before committing the tree there. RE-SCOPED FROM THE RESERVED `B29-duna-kerbin-return`, and the deficit that forced it is a real finding kept in the header: `duna-park-probe`'s DD1 probe carries 1,097.5 m/s (dry 1.6300 t, 124.920 units of propellant, LV-909 at 345 s) against 1,645 m/s needed (585.0 ejection + 1,060.5 Kerbin capture-and-circularize) -- ~550 m/s short, 50% over budget, structural rather than tunable. A sweep of every planet-parked craft in every committed fixture found exactly two candidates that clear an LKO park, and `dres-orbit-recorded`'s is at INC 77.46 deg and unstripped, leaving `jool-park-nerv` -- already stripped, already crewed, already carrying a heat shield and chutes, and its SECOND consumer after B25. THE CLASS MEASUREMENT IS UNCHANGED because Jool and Duna are both direct children of the Sun, so Jool->Kerbin and Duna->Kerbin are the identical sibling-planet inbound relation; B31 stays reserved for the eventual Duna-origin breadth point, demoted from blocker to when-wanted. LKO WAS DESCOPED FOR MARGIN: circularizing at the arrival periapsis costs 1,926.12 m/s against the ellipse's 1,188.07, which would leave ~58 m/s of reserve after corrections instead of 1,460.4, and what the V20 pair reads off the product is a KERBIN-FRAME ARRIVAL rather than an altitude. mlib gained ONE param and one pure function (`captureEllipticalApoapsisMeters` + `capture_node_plan`), flag-gated and byte-inert with the flag absent, placing its retrograde node through the EXISTING kRPC add_node seam the parent-relay escape already uses. SIX PRE-REGISTRATIONS, none gating; the first (non-relay interplanetaryTransfer from a non-Kerbin park) RESOLVED NEGATIVE on flight 2, and not in its pre-registered refusal shape: MechJeb planned rather than refused, and the plan's asymptote priced the arrival at 3,625 m/s of capture -- the measured finding that armed the relay block below. THE ROUTING IS THE MEASUREMENT AND THIS SPEC ASSERTS NOTHING ABOUT IT -- V20M/V20T/V20K are the lanes that read it off the product, and none is committed ahead of this flight, on the V21/G3a lesson."
 instanceProfile = "stock-minimal"
 tags = ["B29", "jool", "kerbin", "interplanetary", "return", "inbound", "capture", "authored"]
 
@@ -477,27 +525,73 @@ startInOrbitDebounceFrames      = 3
 startInOrbitSettleSeconds       = 120
 
 # ---- the transfer -----------------------------------------------------------------
-# THE FIRST SPEC IN THE SUITE WHOSE TARGET IS KERBIN. Both bodies are direct children
-# of the Sun, so the plain planner applies and the moon-origin refusal is out of
-# scope; no relay key is set, and none is declared in this lane's schema.
+# THE FIRST SPEC IN THE SUITE WHOSE TARGET IS KERBIN. RE-SCOPED ONTO THE PARENT-RELAY
+# MODE AFTER FLIGHT 2 (see the FLIGHT 2 LEDGER at the top): the plain planner PLANNED
+# from this 590.3 Mm park but its asymptote delivered an ecc-12.5 arrival whose
+# honest capture price was 3,625.035 m/s - unaffordable by 1,600+. The relay is the
+# route the shell's header reserved for exactly this outcome, re-argued there.
 homeBodyName               = "Jool"
 targetBodyName             = "Kerbin"
 interplanetaryTransfer     = true
-# WaitForPhaseAngle is ON (the planner action's value is None) because this is an
-# orbit-start lane with no pad to align: the window wait is MechJeb's autowarp INSIDE
-# the Jool park. `padAlignEjection` is NOT set -- mlib rejects it against startInOrbit
-# at load, and the four pad-align keys stay declared-but-unset in the schema.
 returnBodyName             = "Sun"
 viaBodyNames               = ["Sun"]
-# 0 for B22's reason (the ejection is ecc-evidenced), NOT B28's relay inversion. An
-# ejection drives the Jool-frame apoapsis NEGATIVE, so an apoapsis floor is a number
-# no post-burn frame can satisfy.
-transferMinApoapsisMeters  = 0
-# 1.001 -- the B15 INWARD calibration, NEVER B22's outward 1.05. Safe despite being
-# crossed at 22% of the burn because TRANSFER-BURN exits on `(consumed or stuck) and
-# floor_met`: the node must be CONSUMED before the floor is consulted, so this is the
-# under-burn catch it is named for and not a completion gate. See the schema.
-ejectionEccFloor           = 1.001
+
+# THE PARENT-RELAY BLOCK (B26's mode, THE FIRST TIME FROM A PLANET PARK). Stage 1:
+# mlib computes ONE prograde escape node at the park's next periapsis (no MechJeb
+# planner - the flight-2 defect cannot recur); stage 2: the first coast frame whose
+# SOI body reads SUN re-enters PLAN-TRANSFER at relay_stage 1, where the plan is
+# MechJeb's moon-path OperationTransfer - legal there by construction (vessel and
+# Kerbin both orbit the Sun) and window-aware (it places the node at the next
+# transfer window, <= 1 Jool-Kerbin synodic = 10,090,902 s ahead, inside
+# transferBurnTimeoutSeconds' 22 Ms budget).
+parentRelayTransfer        = true
+# The relative speed carried ACROSS JOOL'S SOI BOUNDARY (the B26 flight-2 contract:
+# KSP hands the vessel to the Sun frame AT the boundary, never at infinity). The
+# SOI-touch floor from this park is 211.15 m/s (apoapsis grazing 2,455,985,200 m);
+# 450 is 2.13x that floor, crosses briskly (the escape ellipse's apoapsis is 19.9 Gm,
+# 8.1x the SOI, ~2.6 Ms park-periapsis-to-boundary), and hands the Sun frame a
+# residual small against the 1,756.23 m/s stage-2 nominal. The escape is BOUND
+# (ecc 0.9424) exactly as B26's was - `_relay_escape_burn_done`'s SOI-reach disjunct
+# is the stage-1 evidence, which is why ejectionEccFloor retires to 0 below.
+escapeSoiSpeedMps          = 450
+# SANITY CAP on the COMPUTED node. Fixture park: sqrt(450^2 + 2*mu*(1/r_pe -
+# 1/r_soi)) = sqrt(202,500 + 727,138) = 964.18 m/s at periapsis, minus the 691.81
+# park speed = **272.38 m/s**. Swept over the ORBIT-START gate's admissible window
+# the worst corner is the CIRCULAR park on the 250,000 km periapsis floor (deeper =
+# more expensive): 1,476.4 - 1,050.5 = **425.9 m/s**. 500 is 17.4% above that
+# corner; a wrong-body mu or a fixture parked somewhere this spec did not size for
+# is REFUSED with a named reason instead of flown.
+escapeMaxDeltaVMps         = 500
+# The executor autowarps to the node and holds a 1x WARPALIGN before ignition, so a
+# node seconds ahead is a node it cannot fly. 300 game s against THIS park's
+# 5,361,600 s period costs at most one extra park orbit of autowarp (62 days of
+# game time, 0.53 synodics - covered by the 22 Ms stage-1 burn budget).
+escapeNodeMinLeadSeconds   = 300
+# ESCAPE budget (GAME s) - bounds PLANNING ONLY (the burn is TRANSFER-BURN's, the
+# coast is COAST-TO-TARGET's). B26 sized 1.24 park periods for "one park period of
+# unreadable telemetry plus the re-plan cadence", but that scaling is B26's own
+# context (a 1,941 s park): against THIS park's 5,361,600 s period it would ask for
+# 6.65 Ms, above the family's 1,000,000 schema ceiling. Planning needs ONE readable
+# frame plus the bounded re-plan cadence - the park period enters B26's sizing only
+# through its unreadable-telemetry worst case - so this carries the family ceiling's
+# 90%: hundreds of re-plan cadences at the 10x plan hold, and expiry stays a NAMED
+# flake naming the refused reading.
+escapeTimeoutSeconds       = 900000
+# POSITIVE NOW - the relay gate requires it: at relay_stage >= TRANSFER this floor
+# is the stage-2 burn-done evidence (the ecc branch's left-home-SOI early return
+# would fire unconditionally out here). ON AN INBOUND LEG IT IS WEAK-BUT-STRUCTURAL,
+# stated plainly: the pre-burn Sun orbit (a ~= Jool's 68.77 Gm) already clears
+# 50 Gm, so the exit rests on node CONSUMPTION - the same "under-burn catch, not a
+# completion gate" contract ejectionEccFloor carried on the direct plan. A floor the
+# post-burn orbit could FAIL does not exist for a retrograde burn at Jool's radius
+# (it lowers perihelion and leaves aphelion at ~the burn radius).
+transferMinApoapsisMeters  = 50000000000
+# RETIRED TO 0 WITH THE RELAY, B26's reason verbatim: a correct patched-conic escape
+# from this park is BOUND (ecc 0.9424 at escapeSoiSpeedMps 450), so a hyperbolic
+# floor is a number no correct stage-1 frame can satisfy; stage-1 evidence is
+# `_relay_escape_burn_done`, stage-2 evidence is the apoapsis floor above. The
+# 1.001 the direct plan carried (B15's inward calibration) retires with the plan.
+ejectionEccFloor           = 0
 
 # ---- corrections ------------------------------------------------------------------
 # 150,000 m is the KERBIN ARRIVAL PERIAPSIS, doing two jobs at once: 80,000 m of

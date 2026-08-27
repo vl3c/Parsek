@@ -70,16 +70,25 @@ spec's header.
 
 REUSE, NOT REINVENTION. This is a THIN ALIAS over `mlib.b5_decide`, exactly as
 b22_jool_orbit / b25_laythe_orbit / b28_laythe_jool are. It is **B22's ORDINARY
-INTERPLANETARY MACHINE entered through B25/B28's ORBIT-START door** -- not a new
-mode, and specifically NOT the parent-relay mode:
+INTERPLANETARY MACHINE entered through B25/B28's ORBIT-START door**, RE-SCOPED
+2026-08-27 onto B26's PARENT-RELAY mode after flight 2 measured the plain
+planner's plan unflyable from this park (the spec's FLIGHT 2 LEDGER is the
+record; the paragraphs below are the original argument plus its resolution):
 
     startInOrbit = true            the ORBIT-START entry door (B23's, live-proven
                                    on B23/B24/B25/B26/B28). The fixture is already
                                    parked, so PRELAUNCH hands straight to ORBIT.
-    interplanetaryTransfer = true  MechJeb's OperationInterplanetaryTransfer plans
-                                   the ejection, with WaitForPhaseAngle ON (value
-                                   None) so the window wait happens INSIDE the Jool
-                                   park rather than being aligned for on a pad.
+    interplanetaryTransfer = true  STAYS ON under the relay (B26's contract: the
+                                   correction domain narrows through it; the relay
+                                   rides it, never replaces it).
+    parentRelayTransfer = true     THE RE-SCOPE. Stage 1: mlib computes ONE
+                                   prograde escape node at the park periapsis
+                                   (272.38 m/s for 450 m/s at the SOI boundary);
+                                   stage 2: the first Sun-frame coast frame
+                                   re-enters PLAN-TRANSFER at relay_stage 1 and
+                                   MechJeb's moon-path OperationTransfer plans the
+                                   inbound Hohmann to Kerbin at the next window --
+                                   the synodic wait rides the stage-2 autowarp.
     homeBodyName = "Jool"          the SOI the ejection departs from
     targetBodyName = "Kerbin"      THE FIRST TIME THIS STRING IS A TARGET
     returnBodyName = "Sun"         the frame a FAILED capture would exit into, and
@@ -114,6 +123,15 @@ takes the NAMED early flake rather than idling out `planTimeoutSeconds`. That wo
 be a HARNESS finding, report-only, never a Parsek defect -- and the route around it
 would be the parent-relay mode this file deliberately does not arm, re-argued at
 that point rather than pre-emptively.
+
+**THAT POINT CAME, AND THE RESOLUTION WAS NOT THE PRE-REGISTERED SHAPE** (flight 2,
+2026-08-27): MechJeb did NOT refuse the planet park -- it PLANNED, 110 m/s under
+the Hohmann ledger, and the asymptote from the 590.3 Mm periapsis (24% of Jool's
+SOI radius) delivered an ecc-12.535 Kerbin arrival whose honest capture price was
+3,625.035 m/s against ~2,000 in the tank. The plan, not the planner, was the
+defect. The relay block in the spec's missionParams is the armed route; the
+schema's bottom block carries the six keys' re-argument; the paragraph above is
+kept as the original claim this measurement overturned.
 
 WHAT THE ELLIPTICAL CAPTURE IS, since it is the one mlib change. `_b5_capture_
 achieved` has always been tolerance-only (an apoapsis ceiling, a periapsis floor,
@@ -186,9 +204,10 @@ WHAT THE MACHINE ASSERTS -- B22's capture set, entered through B25/B28's door:
     parkedStable           the park was held through the dwell
     treeCommitted          the seam commit answered OK at the Kerbin park
 
-There is no `escapedHomeSoi` row: that row is the parent-relay mode's and this lane
-is not a relay. Leaving the Kerbin SOI anywhere in the tail is an ASSERT-FAIL, not
-a success.
+`escapedHomeSoi` joined the rows with the relay re-scope (it is the relay mode's
+one added row, and this lane is a relay now): a COAST-TO-TARGET frame reading a
+body that is not Jool certifies the craft actually left home. Leaving the KERBIN
+SOI anywhere in the capture tail is still an ASSERT-FAIL, not a success.
 
 This is a THIN shell: every decision is the pure `mlib` phase machine +
 `mlib.evaluate_b5_assertions`; the flight, connect, logging and result write are

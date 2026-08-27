@@ -51,17 +51,20 @@ breadth point rather than a blocker - see the roadmap's rewritten roster entry.
 
 ---
 
-## B29-JOOL-KERBIN-RETURN-AUTHORED-NEVER-FLOWN: the suite's first INBOUND interplanetary subject has a committed spec and no flight, so the planet-to-Kerbin half of roadmap gap G2 has a plan and still has no measurement [OPENED 2026-08-26 on branch `b29-duna-return`. TODO, not a defect]
+## B29-JOOL-KERBIN-RETURN-AUTHORED-NEVER-FLOWN: the suite's first INBOUND interplanetary subject has a committed spec and no green flight yet, so the planet-to-Kerbin half of roadmap gap G2 has a plan and still has no measurement [OPENED 2026-08-26 on branch `b29-duna-return`. FLIGHTS 1-2 FLOWN 2026-08-27 (both INVALID, both calibration reads); RE-SCOPED ONTO THE PARENT-RELAY MODE the same day - see the spec's two flight ledgers. TODO, not a defect]
 
 `B29-jool-kerbin-return` is committed: spec, mission shell, schema, registration
-cells and a bare `[expectations.renderComposition]` declaration. **IT HAS NEVER
-FLOWN AND EVERY WINDOW IN IT IS DERIVED** (from `jool-park-nerv`'s own bytes plus
-the stock body constants) rather than measured, which is what its operator tier is
-for. What it flies: the crewed Duna Rocket starts parked at Jool, waits out the
-10,090,902 s Jool-Kerbin synodic inside that park, ejects for 1,318.55 m/s onto a
-24,252,690 s Sun-frame inbound transfer, corrects twice toward a 150,000 m Kerbin
-arrival periapsis, and captures for 1,188.07 m/s into a 150,000 x 6,000,000 m
-Kerbin ellipse before committing the tree.
+cells and a bare `[expectations.renderComposition]` declaration. FLIGHT 1
+(2026-08-27) red on an inherited moon-calibration correction cap (200 -> 450, the
+lane's own audit note). FLIGHT 2 flew the corrected cap to a real Kerbin SOI entry
+and measured the plain planner's plan UNFLYABLE from the 590.3 Mm Jool park: the
+ejection asymptote delivered an ecc-12.535 arrival (v_inf ~5,116 m/s against the
+Hohmann's 2,713) whose honestly-priced capture was 3,625.035 m/s on ~2,000 in the
+tank. The lane is now B26's TWO-STAGE PARENT-RELAY from the first planet park in
+the family (Jool joined `mlib.STOCK_BODY_GRAVITY`): a 272.38 m/s mlib-computed
+escape at the park periapsis, stage-2 Sun-frame Hohmann to Kerbin at the next
+window (nominal 1,756.23 m/s), two corrections, and the 1,188.07 m/s elliptical
+capture into the 150,000 x 6,000,000 m Kerbin ellipse before committing the tree.
 
 WHAT IS OWED, in order: the first flight; then the harvest; then `V20M` / `V20T` /
 `V20K` authored off the HARVESTED bytes. The V lanes are deliberately NOT committed
@@ -76,7 +79,7 @@ altitude, so the descope costs the measurement nothing.
 
 ---
 
-## HARNESS-UNFLOWN-NONRELAY-INTERPLANETARY-FROM-NON-KERBIN-PARK: no committed lane has ever asked MechJeb's interplanetary planner for a transfer from a park at a body other than Kerbin, so B29 rests on an argued rather than measured assumption [OPENED 2026-08-26 while authoring B29. PRE-REGISTERED QUESTION, REPORT-ONLY - not a defect, and not a Parsek question at all]
+## ~~HARNESS-UNFLOWN-NONRELAY-INTERPLANETARY-FROM-NON-KERBIN-PARK~~: no committed lane had ever asked MechJeb's interplanetary planner for a transfer from a park at a body other than Kerbin, so B29 rested on an argued rather than measured assumption [OPENED 2026-08-26 while authoring B29. PRE-REGISTERED QUESTION, REPORT-ONLY - not a defect, and not a Parsek question at all. **RESOLVED NEGATIVE 2026-08-27 by B29 flight 2, and NOT in the pre-registered shape**: MechJeb did not refuse the planet park - it PLANNED, 110 m/s under the Hohmann ledger, and the asymptote from the 590.3 Mm periapsis (24% of Jool's SOI) delivered an ecc-12.535 Kerbin arrival whose honest capture price was 3,625.035 m/s. The plan, not the planner, is the failure mode from a HIGH planet park; the route around it is the parent-relay mode, re-argued and armed exactly as this entry's own closing sentence reserved. The paragraphs below are the question as posed, kept as the record]
 
 THE GAP, stated precisely. Every committed lane that uses the PLAIN
 `interplanetaryTransfer` planner LAUNCHES FROM THE KERBIN PAD (B7, B15/B16, B17,

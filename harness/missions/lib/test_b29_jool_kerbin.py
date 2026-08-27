@@ -9,13 +9,17 @@ validator, and a missing required key being rejected -- plus the lane-specific
 claims the mission docstring and the spec header make, which nothing else in the
 tree would catch:
 
-  * IT IS NOT A RELAY, and the schema does not declare the keys that would make it
-    one. B26 and B28 arm `parentRelayTransfer` to route around MechJeb's
-    moon-origin refusal; Jool is a PLANET and the refusal is out of scope. A future
-    author reaching for the relay because "the origin is not Kerbin" is exactly the
-    mistake this pins.
-  * `ejectionEccFloor` is the INWARD calibration (1.001), never B22's outward 1.05.
-    B15 flights 1-2 were red for a whole flight over precisely this.
+  * IT IS A TWO-STAGE RELAY NOW (flight 2, 2026-08-27). As authored it pinned "NOT
+    a relay" - Jool is a planet, the moon-origin refusal is out of scope - and the
+    refusal half held: MechJeb PLANNED from the planet park. But the PLAN from a
+    590.3 Mm periapsis delivered an ecc-12.535 Kerbin arrival pricing the capture
+    at 3,625 m/s, so the lane re-scoped onto B26's relay (the spec's FLIGHT 2
+    LEDGER is the record). The cells now pin the relay ARMED, two-stage
+    (`relayParkAtParent` unset), with all six keys declared in B28's shapes.
+  * `ejectionEccFloor` RETIRED to 0 with the relay (B26's reason: a correct
+    patched-conic escape from this park is BOUND, ecc 0.9424); the stage-2
+    apoapsis floor took over as burn-done evidence and its weak-but-structural
+    inbound shape is machine-checked here.
   * The `_b5_correction_via_bodies` PRECONDITION holds, and unlike B28 it is LIVE
     here rather than a forward guard, because this lane runs its corrections.
   * THE MUN-EXCLUSION IS ARITHMETIC, NOT A TOLERANCE. `parkMaxApoapsisMeters` sits
@@ -64,10 +68,17 @@ SCHEMA_PATH = os.path.join(_MISSIONS, "b29_jool_kerbin.schema.toml")
 B28_SCHEMA_PATH = os.path.join(_MISSIONS, "b28_laythe_jool.schema.toml")
 SPEC_PATH = os.path.join(_HARNESS, "scenarios", "B29-jool-kerbin-return.toml")
 
-# The six PARENT-RELAY keys this lane's schema deliberately does not declare.
+# The six PARENT-RELAY keys. AS AUTHORED this lane's schema deliberately did not
+# declare them; flight 2 (2026-08-27) re-scoped the lane onto the relay and the
+# schema now declares all six (B28's declarations verbatim), with the two-stage
+# subset armed in the spec - `relayParkAtParent` stays declared-and-UNSET (the park
+# is at KERBIN, the target, not at the parent).
 RELAY_KEYS = ("parentRelayTransfer", "relayParkAtParent", "escapeSoiSpeedMps",
               "escapeMaxDeltaVMps", "escapeNodeMinLeadSeconds",
               "escapeTimeoutSeconds")
+RELAY_KEYS_ARMED = ("parentRelayTransfer", "escapeSoiSpeedMps",
+                    "escapeMaxDeltaVMps", "escapeNodeMinLeadSeconds",
+                    "escapeTimeoutSeconds")
 
 # THE COMMITTED PARAM SHAPE. Values that are TUNING (budgets, warp factors) are
 # sized in the spec and deliberately NOT re-stated here -- a second copy of a moving
@@ -83,8 +94,17 @@ B29_PARAMS = {
     "returnBodyName": "Sun",
     "viaBodyNames": ["Sun"],
     "captureEnabled": True,
-    "transferMinApoapsisMeters": 0,
-    "ejectionEccFloor": 1.001,
+    # --- the parent-relay block (the flight-2 re-scope; argued in the spec).
+    "parentRelayTransfer": True,
+    "escapeSoiSpeedMps": 450,
+    "escapeMaxDeltaVMps": 500,
+    "escapeNodeMinLeadSeconds": 300,
+    "escapeTimeoutSeconds": 900000,
+    # POSITIVE with the relay (the stage-2 burn-done floor, Sun frame); 0 as
+    # authored. And the ecc floor RETIRED to 0 with the relay (a correct
+    # patched-conic escape from this park is BOUND, ecc 0.9424).
+    "transferMinApoapsisMeters": 50000000000,
+    "ejectionEccFloor": 0,
     # --- the elliptical capture, and the three park values it is checked against.
     "captureEllipticalApoapsisMeters": 6000000,
     "courseCorrectPeriapsisMeters": 150000,
@@ -198,21 +218,25 @@ class SchemaTests(unittest.TestCase):
             os.path.basename(SCHEMA_PATH),
             os.path.basename(SHELL_PATH)[:-3] + ".schema.toml")
 
-    def test_the_schema_is_b28s_minus_the_relay_keys_plus_exactly_one(self):
+    def test_the_schema_is_b28s_plus_exactly_one(self):
+        """As authored this was 'B28's MINUS the six relay keys plus one'; the
+        flight-2 re-scope restored the six (see the schema's bottom block for the
+        re-argument), so the relation is now clean superset-by-one."""
         mine = set(self.schema["params"])
         theirs = set(self.b28["params"])
-        self.assertEqual(theirs - mine, set(RELAY_KEYS),
-                         "the only keys B28 declares and B29 does not must be the "
-                         "six parent-relay ones")
+        self.assertEqual(theirs - mine, set(),
+                         "B29 now declares everything B28 does")
         self.assertEqual(mine - theirs, {"captureEllipticalApoapsisMeters"},
                          "B29 must add exactly one key to the shared set")
 
-    def test_no_relay_key_is_declared(self):
-        """The positive form of the cell above, because it is the one a future
-        author is most likely to break by 'restoring' a key for symmetry."""
+    def test_all_six_relay_keys_are_declared_with_b28s_shapes(self):
+        """The re-scope's declarations are B28's VERBATIM - same type, same
+        range - so the family's bounds stay comparable."""
         for key in RELAY_KEYS:
             with self.subTest(key=key):
-                self.assertNotIn(key, self.schema["params"])
+                self.assertIn(key, self.schema["params"])
+                self.assertEqual(self.schema["params"][key],
+                                 self.b28["params"][key])
 
     def test_every_declared_type_is_one_hlib_actually_checks(self):
         """A misspelled type is not a load error -- it is a declaration that
@@ -259,11 +283,16 @@ class SchemaTests(unittest.TestCase):
 class LaneShapeTests(unittest.TestCase):
     """The claims the mission docstring makes about THIS lane's params."""
 
-    def test_it_is_not_a_relay(self):
+    def test_it_is_a_two_stage_relay(self):
+        """The flight-2 re-scope: parent-relay ARMED, park-at-parent OFF (the
+        park is at KERBIN, the target - this is the TWO-STAGE lane, B26's shape,
+        from the first planet park in the family)."""
         params = mlib.b5_params_from_dict(B29_PARAMS)
-        self.assertFalse(params.parent_relay_transfer)
-        for key in RELAY_KEYS:
-            self.assertNotIn(key, B29_PARAMS)
+        self.assertTrue(params.parent_relay_transfer)
+        self.assertFalse(params.relay_park_at_parent)
+        for key in RELAY_KEYS_ARMED:
+            self.assertIn(key, B29_PARAMS)
+        self.assertNotIn("relayParkAtParent", B29_PARAMS)
 
     def test_the_three_body_names_are_distinct(self):
         """Jool / Kerbin / Sun. B28 needed five paragraphs on this because its
@@ -298,25 +327,34 @@ class LaneShapeTests(unittest.TestCase):
                 self.assertNotIn(moon, params.via_bodies)
                 self.assertNotIn(moon, mlib._b5_coast_bodies(params))
 
-    def test_the_ejection_floor_is_the_inward_calibration(self):
-        """1.001, never B22's outward 1.05. Jool -> Kerbin is INWARD and B15
-        flights 1-2 were red for a whole flight over exactly this mismatch."""
+    def test_the_ejection_floor_retired_to_zero_with_the_relay(self):
+        """As authored: 1.001, the B15 inward calibration for the plain planner's
+        hyperbolic ejection. With the relay, stage 1 is a BOUND patched-conic
+        escape (ecc 0.9424 at escapeSoiSpeedMps 450), so a hyperbolic floor is a
+        number no correct stage-1 frame can satisfy - B26 retired it for exactly
+        this reason and this lane follows."""
         params = mlib.b5_params_from_dict(B29_PARAMS)
-        self.assertGreater(params.ejection_ecc_floor, 1.0)
-        self.assertLess(params.ejection_ecc_floor, 1.05)
+        self.assertEqual(params.ejection_ecc_floor, 0.0)
 
-    def test_the_ejection_floor_is_not_a_standalone_early_exit(self):
-        """The reason a floor crossed at 22% of the burn is nonetheless safe: the
-        TRANSFER-BURN exit is `(consumed or stuck) and floor_met`, so a frame that
-        meets the floor with the node still pending does NOT exit."""
+    def test_the_stage2_apoapsis_floor_is_not_a_standalone_early_exit(self):
+        """The relay mirror of the retired ecc-floor cell: on an INBOUND leg the
+        pre-burn Sun orbit (a ~= Jool's 68.77 Gm) already clears the 50 Gm floor,
+        so the floor alone must never exit the phase - the TRANSFER-BURN exit is
+        `(consumed or stuck) and floor_met`, and the node must be CONSUMED
+        first. This cell is the spec comment's 'weak-but-structural' claim,
+        machine-checked."""
         params = mlib.b5_params_from_dict(B29_PARAMS)
-        mid = snap(ut=100.0, body="Jool", altitude=584321095.0,
-                   periapsis=584321095.0, apoapsis=-1.0e9, eccentricity=1.02)
-        self.assertTrue(mlib._b5_transfer_burn_done(params, mid),
-                        "the floor itself is met at 22% of the burn")
+        mid = snap(ut=100.0, body="Sun", altitude=68000000000.0,
+                   periapsis=66000000000.0, apoapsis=69000000000.0,
+                   eccentricity=0.02)
+        self.assertTrue(
+            mlib._b5_transfer_burn_done(params, mid,
+                                        relay_stage=mlib.RELAY_STAGE_TRANSFER),
+            "the stage-2 floor is met before the burn even starts")
         state = mlib.b5_initial_state(params)
         state = mlib.replace(state, phase=mlib.B5_TRANSFER_BURN,
-                             planned_node_count=1)
+                             planned_node_count=1,
+                             relay_stage=mlib.RELAY_STAGE_TRANSFER)
         # node_count still 1 -> NOT consumed -> the machine must stay in the phase.
         pending = mlib.replace(mid, node_count=1)
         new_state, _actions = mlib.b5_decide(state, pending)
@@ -403,7 +441,7 @@ class SpecSyncTests(unittest.TestCase):
                     "captureEnabled", "transferMinApoapsisMeters",
                     "ejectionEccFloor", "captureEllipticalApoapsisMeters",
                     "courseCorrectPeriapsisMeters", "parkMaxApoapsisMeters",
-                    "parkMaxEccentricity"):
+                    "parkMaxEccentricity") + RELAY_KEYS_ARMED:
             with self.subTest(param=key):
                 self.assertEqual(self.params[key], B29_PARAMS[key])
 
