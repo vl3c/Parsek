@@ -67,9 +67,17 @@ All notable changes to Parsek are documented here.
   recording starts on, while the clock was simply running at normal speed. The test
   reports that rather than ignoring it, and it is recorded as something to understand
   rather than something being fixed on the spot.
-  The upshot is a small, honest asymmetry the notes now spell out: what the Tracking
-  Station can show about a ship coming home, the in-flight map currently cannot,
-  purely because of the order in which the two tests move the clock.
+  Re-run with that allowance, it passed too, and the count came back identical.
+  The upshot was a small asymmetry: what the Tracking Station could show about a ship
+  coming home, the in-flight map could not - and the reason turned out to be the order
+  in which the map test moves the clock. Replays are pinned to whichever leg of the
+  journey they are on the FIRST time the test jumps, and the map test was jumping
+  somewhere else first. So it now visits the arrival first, and asks again for the
+  stronger check. Digging into the logs to set that up also turned up something the
+  notes now record plainly: one of the two ways Parsek reports what it drew appears to
+  behave differently in the flight map than in the Tracking Station, on 64 samples
+  across two runs. That is written down as an open question the next run answers, not
+  as a conclusion, and nothing is being changed on the strength of it.
   Test-tooling only; no gameplay change.
 - The looped Mun mission's render test now also requires that Parsek actually
   published which replay owned the map line, so a run where that bookkeeping

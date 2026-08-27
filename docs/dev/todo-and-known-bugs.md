@@ -278,7 +278,36 @@ discharges the TS third on a RENDERED-FRAME token; V20M's flight-map third does 
 `kerbin` cell rests on the seed-side token. Re-ordering V20M's jumps coast-epoch-first is a real
 candidate for a future round and deliberately not taken after a green run (S4.1).
 
-**REMAINING: V20T reading run 2 on the tolerated token, then the arming pass off both lanes'
+**V20T READING RUN 2 (`2026-08-27_1913`) THEN FLEW GREEN**: PASS attempt 1, wall 61 s, every verifier
+PASS or SKIPPED with the tolerated token, `expectations mismatches=0` over all thirteen required
+tokens - and the `icon-teleport` count RECURRED AT THE IDENTICAL 3, so its ceiling (6 = 2x measured)
+now stands off a pair rather than one sample. **BOTH LANES NOW HAVE GREEN READING RUNS AND BOTH ARE
+ARM-READY.**
+
+**ROUND 4 (2026-08-27) THEN REORDERED V20M's JUMP TABLE COAST-EPOCH-FIRST**, as a deliberate new
+reading round with its own pre-registration rather than a change smuggled into an arming pass. Every
+UT is unchanged; cycle 1 now runs COAST -> dwell -> TAIL -> Watch and cycle 2 keeps the OLD
+seam-first shape untouched as an IN-RUN CONTROL, so one flight will carry both orders over one
+fixture. The cycle-1 seam bracket is traded away because `TimeJump` refuses a backward jump and
+cycle 1's seam epochs precede its coast epoch - ten jumps become seven, 104 steps become 101. The
+prediction is pre-registered: cycle 1 creates >= 1 instance on seg#16 (the Kerbin arrival coast) and
+cycle 2 creates none, and the restored rendered-frame token is
+`phase=GhostCreated surface=ProtoIcon pid=\d+ .*body=Kerbin scene=FLIGHT`, measured by V20T in its
+OWN FLIGHT prelude at exactly this lane's new first jump.
+**ONE THING THE ROUND-4 BRIEF ASKED FOR WAS DELIBERATELY NOT DONE, ON EVIDENCE**, and it is a
+finding in its own right: `phase=body-orbit surface=ProtoOrbitLine .*body=Kerbin` was NOT restored,
+because splitting every `phase=body-orbit` sample in the two collected runs by SCENE gives **64
+FLIGHT-era samples (41 on V20M run 1, 23 in V20T's FLIGHT prelude), across two jump shapes and two
+long dwells, and NOT ONE reads anything but segment zero** - even though one of those V20T protos
+was CREATED Kerbin-framed - while the TS era of the same log carries 36 samples with the real frames
+including the corpus's only `body=Kerbin sma=-392275` line, from the TRACKSTATION proto. **THAT LENS
+LOOKS SCENE-BOUND RATHER THAN ORDER-BOUND**, so S1.4 does not authorise the token for a FLIGHT lane;
+it is instead the open question the round-4 run measures, unrequired and unforbidden, with both
+outcomes named in the spec. If it stays silent with a seg#16 creation present, "the FLIGHT host's
+ProtoOrbitLine lens is segment-zero-only independent of jump order" is a sharp host-level statement
+no committed lane has yet made, and it belongs on the entry above.
+
+**REMAINING: the round-4 reading run on V20M's reordered table, then the arming pass off both lanes'
 OWN bytes, then the per-lane negative controls (TWO, not one shared - the halves pin different
 lenses), and then `V20K`.** One cost neither lane can price from committed bytes and both write down:
 the schedules traverse 66.8 Ms (V20M) and 34.2 Ms (V20T) of game time in instantaneous

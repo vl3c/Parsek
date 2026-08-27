@@ -1482,6 +1482,16 @@
         "2026-08-27T18:57:39Z": 73.0
       }
     },
+    "V20T-jool-kerbin-ts-arrival": {
+      "last": 61.0,
+      "lastVsP50": 1.0,
+      "n": 1,
+      "p50": 61.0,
+      "p95": 61.0,
+      "samples": {
+        "2026-08-27T19:14:45Z": 61.0
+      }
+    },
     "V21M-mun-minmus-player-loop": {
       "last": 84.0,
       "lastVsP50": 1.0,
