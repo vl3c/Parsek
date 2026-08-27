@@ -106,6 +106,16 @@ namespace Parsek.TestCommands
             // be resolved falls through to CanRewind below with a null recording, which the
             // product answers honestly ("No rewind save available") rather than needing a
             // second vocabulary here.
+            //
+            // The RAW root is handed over deliberately - NOT an ERS / supersede walk of it.
+            // Measured facts: RecordingTreeSplitter keeps tree.RootRecordingId on HEAD
+            // across a Re-Fly split (Step12 logs "id preservation kept the tree root pointer
+            // valid"), and SupersedeCommit.IsPreRewindCarveOut filters HEAD out of the
+            // supersede write-set - so the raw root IS what the UI's ERS-visible rows
+            // resolve to, and a walk here would be the identity at best. At worst (a
+            // hypothetical whole-root supersede) it would RETARGET the rewind to a different
+            // launch, because the effective recording's own RewindSaveFileName
+            // short-circuits GetRewindRecording inside the product call.
             RecordingTree selectedTree = FindCommittedTreeById(target.TreeId);
             Recording rootRec = null;
             if (selectedTree != null
@@ -122,27 +132,6 @@ namespace Parsek.TestCommands
             // `Phase != Complete`, so this is the narrower of the two and cannot be folded
             // into the dispatch row.
             ParsekScenario scenario = ParsekScenario.Instance;
-
-            // Route the root through the supersede walk before handing it to the product,
-            // the way every UI row is ERS-resolved before its R button can be clicked. On a
-            // tree that has been through a Re-Fly split the RAW RootRecordingId can name a
-            // superseded recording; the effective id is what the player would actually see
-            // and rewind. On a never-superseded tree (GS-4's case) the walk is the identity.
-            if (rootRec != null && scenario != null)
-            {
-                string effectiveRootId = EffectiveState.EffectiveRecordingId(
-                    rootRec.RecordingId, scenario.RecordingSupersedes);
-                if (!string.IsNullOrEmpty(effectiveRootId)
-                    && !string.Equals(effectiveRootId, rootRec.RecordingId, System.StringComparison.Ordinal)
-                    && selectedTree.Recordings.TryGetValue(effectiveRootId, out Recording effectiveRoot)
-                    && effectiveRoot != null)
-                {
-                    ParsekLog.Info(Tag,
-                        $"invokerewindtolaunch root supersede-resolved: raw={rootRec.RecordingId} " +
-                        $"effective={effectiveRootId} tree={target.TreeId}");
-                    rootRec = effectiveRoot;
-                }
-            }
             if (scenario != null && scenario.ActiveMergeJournal != null
                 && scenario.ActiveMergeJournal.Phase != MergeJournal.Phases.Complete)
             {
@@ -208,10 +197,17 @@ namespace Parsek.TestCommands
             double elapsed = now - completionStartedAt;
             double budget = DeferralBudget.BudgetSeconds("InvokeRewindToLaunch");
             bool isRewinding = RecordingStore.IsRewinding;
+            // The deferred half of HandleRewindOnLoad: both flags are armed immediately
+            // BEFORE the EndRewind() that clears IsRewinding, and are cleared by
+            // ApplyRewindResourceAdjustment (the UT set, then the ledger recalc's finally).
+            // Either one still set means the rewound world is not yet the world.
+            bool deferredPending = RecordingStore.RewindUTAdjustmentPending
+                || RewindContext.RewindResourceAdjustmentInProgress;
             TestCommandScene scene = MapScene(HighLogic.LoadedScene);
             RewindToLaunchCompletionDecision decision =
                 TestCommandRewindToLaunch.DecideRewindToLaunchCompletion(
-                    elapsed, isRewinding, scene == TestCommandScene.SpaceCenter, budget);
+                    elapsed, isRewinding, scene == TestCommandScene.SpaceCenter,
+                    deferredPending, budget);
 
             if (decision == RewindToLaunchCompletionDecision.StillWaiting)
                 return;
@@ -245,8 +241,21 @@ namespace Parsek.TestCommands
                     TestCommandDiagnostics.Timeout(id, verb, elapsed, "rewind-timeout");
                     ParsekLog.Error(Tag,
                         $"invokerewindtolaunch failed reason=rewind-timeout scene={scene} " +
-                        $"isRewinding={Bool(isRewinding)} " +
+                        $"isRewinding={Bool(isRewinding)} deferredPending={Bool(deferredPending)} " +
                         $"elapsed={elapsed.ToString("F1", CultureInfo.InvariantCulture)}s");
+                    // Seam-abort cleanup. ResetRewindFlags only ever runs inside
+                    // ExecuteRewindSaveLoad, so a reload that never settles leaves
+                    // RewindContext.IsRewinding armed for the rest of the PROCESS: the next
+                    // ParsekScenario.OnLoad would then take the rewind branch for a load
+                    // nobody asked to rewind, and every later CanRewind would refuse. The
+                    // verb owns the abort, so it owns the reset.
+                    if (RecordingStore.IsRewinding)
+                    {
+                        ParsekLog.Info(Tag,
+                            "invokerewindtolaunch timeout-cleanup: rewind flags reset " +
+                            "(IsRewinding was still armed; a stale flag would hijack the next OnLoad's rewind branch)");
+                        RecordingStore.ResetRewindFlags();
+                    }
                     EmitExecutedTerminal(id, seq, verb, "ERROR", null, "rewind-timeout", dequeueHead: true);
                     break;
             }

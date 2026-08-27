@@ -30,14 +30,30 @@
 # craft with a different staging layout without re-reading the machine header is
 # how a green run stages the wrong thing.
 #
-# IT IS ALSO AN IDENTITY, not just a file to launch. The ROLLOUT phase launches
-# this craft and then waits until the ACTIVE VESSEL READS BACK this exact name
-# (after .strip()), because `activate_next_stage` stages whatever is active and
-# this lane's own save pre-places a different craft on the pad. A rename here that
-# does not match what KSP calls the launched vessel deadlocks ROLLOUT into its
-# named give-up - which is the correct failure, and far better than staging the
-# pad occupant.
+# IT IS A FILE NAME, NOT A VESSEL NAME. `launch_vessel` resolves
+# `<save>/Ships/VAB/<craftName>.craft`; the name the ACTIVE VESSEL reads back is
+# the `ship = ` line INSIDE that file, and the two are only equal by coincidence.
+# See rolloutExpectedVesselName below for the identity half of the gate.
 [params.craftName]
+required = false
+type = "string"
+
+# THE EXPECTED VESSEL NAME for the ROLLOUT gate: what the ACTIVE VESSEL must READ
+# BACK (after .strip()) before the machine will stage anything, because
+# `activate_next_stage` stages whatever is active and this lane's own save
+# pre-places a different craft on the pad. Defaults to `craftName`.
+#
+# IT IS DECLARED SEPARATELY BECAUSE STOCK CRAFT FILES SHIP A LOCALIZATION TOKEN AS
+# THEIR SHIP NAME. `Jumping Flea.craft` opens `ship = #autoLOC_501224`, and KSP
+# never localizes it on the way out - `ShipConstruct.LoadShip` / `Vessel.GetName`
+# hand the raw token to kRPC and the save persists `name = #autoLOC_501224`. So on
+# a stock craft the FILE name and the VESSEL name differ, a gate that compares
+# against the file name never settles, and the phase deadlocks into its give-up on
+# EVERY run. That coincidence is a trap for every future stock-craft lane: a lane
+# flying a stock craft either declares the `#autoLOC_*` token here or re-authors
+# the fixture's `ship =` line (which is what this lane did to its Jumping Flea).
+# The give-up text names both the file and the expected name, and says so.
+[params.rolloutExpectedVesselName]
 required = false
 type = "string"
 
@@ -54,8 +70,23 @@ type = "string"
 # replay is watched. It is never flown: it exists so the flight scene has a live
 # vessel, because a ghost needs somewhere to be watched FROM. Small and
 # cheap-to-launch is the whole specification - `Jumping Flea` is the stock choice.
-# It must exist as <save>/Ships/VAB/<name>.craft or launch_vessel raises.
+# It must exist as <save>/Ships/VAB/<name>.craft or launch_vessel raises. A FILE
+# name, like craftName; the identity half is watcherExpectedVesselName.
 [params.watcherCraftName]
+required = false
+type = "string"
+
+# THE EXPECTED VESSEL NAME for the WATCHER-READY gate - the same discipline as the
+# rollout, and for the same reason (a launch is a scene reload, so "a craft on the
+# pad in PRE_LAUNCH" was already true of whatever it replaced). Defaults to
+# `watcherCraftName`. Same #autoLOC trap as rolloutExpectedVesselName above, and
+# this is the param it actually bit: the committed
+# `fixtures/saves/gs1-two-stage-pad/Ships/VAB/Jumping Flea.craft` shipped
+# `ship = #autoLOC_501224` (stock's own line) while the gate compared against
+# "Jumping Flea", so WATCHER-READY could only ever burn its bound. The fixture now
+# reads `ship = Jumping Flea`; this key is what makes the next such craft a
+# one-line declaration instead of a re-authored fixture.
+[params.watcherExpectedVesselName]
 required = false
 type = "string"
 
@@ -323,8 +354,16 @@ max = 10000
 
 # THE PLAYBACK WAIT'S ONLY BOUND, and the one cap that stops this mission running
 # forever. Frames rather than UT because a STUCK clock is precisely the failure a
-# UT budget cannot see; at the standard 0.5 s poll the default (1200) is ~10 real
+# UT budget cannot see; at the standard 0.5 s poll the default (1600) is ~13 real
 # minutes. A breach is MISSION-FLAKE naming the target it never reached.
+#
+# IT IS SIZED OFF recordedSpanWindowSeconds' MAX, and the two knobs move together.
+# The wait walks the clock from the post-rewind reading (launchUT - 15 s) to
+# commitUT + playbackMarginSeconds, i.e. span + 45 s of REAL time (this lane uses
+# no warp anywhere). At the 600 s span ceiling that is 645 s = 1290 frames, which
+# the previous 1200 default could not have covered at all: a max-span flight would
+# have flaked on the cap rather than on anything real. Raising either number
+# without the other rebuilds that inconsistency.
 [params.playbackWaitFrames]
 required = false
 type = "int"
@@ -377,7 +416,9 @@ min = 0.0
 # {min, max} game seconds the committed recording must span (commitUT - launchUT).
 # A WINDOW on the flight this mission actually flew, never a golden duration - and
 # sizing evidence for the operator, because this span is exactly what the playback
-# wait spends in REAL TIME afterwards.
+# wait spends in REAL TIME afterwards. THE MAX IS TIED TO playbackWaitFrames: a
+# ceiling this window admits but that cap cannot sit through is a lane whose own
+# assertion window contradicts its own bound. Move the two together.
 [params.recordedSpanWindowSeconds]
 required = false
 type = "window"

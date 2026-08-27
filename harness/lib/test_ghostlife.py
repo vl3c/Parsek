@@ -668,10 +668,12 @@ class EmitterSourceGuardTests(unittest.TestCase):
     @classmethod
     def _return_expression(cls, text, signature):
         """The single `return ...;` expression inside the method whose signature
-        line is `signature`. Accumulates from the first `return` after the
-        anchor until the line that ends the statement, comments stripped."""
-        at = text.index(signature)
-        body = cls._strip_comments(text[at:])
+        line is `signature`. Comments are stripped BEFORE the anchor search, so
+        a comment that merely quotes the signature (the "regex read a comment
+        as code" trap this class exists to avoid) cannot seat the anchor."""
+        stripped = cls._strip_comments(text)
+        at = stripped.index(signature)
+        body = stripped[at:]
         start = body.index("return ")
         # A C# statement ends at the first `;` at depth 0 of any string; these
         # two expressions contain no `;` inside a literal, so a plain find is
@@ -682,10 +684,12 @@ class EmitterSourceGuardTests(unittest.TestCase):
     @classmethod
     def _method_body(cls, text, signature):
         """The brace-matched body of the method whose signature line is
-        `signature`, comments stripped first so a `{` inside a comment cannot
-        unbalance the match."""
-        at = text.index(signature)
-        body = cls._strip_comments(text[at:])
+        `signature`. Comments stripped BEFORE the anchor search (see
+        _return_expression) and before brace matching, so neither a quoted
+        signature nor a `{` inside a comment can mislead the extraction."""
+        stripped = cls._strip_comments(text)
+        at = stripped.index(signature)
+        body = stripped[at:]
         open_at = body.index("{")
         depth = 0
         for i in range(open_at, len(body)):
@@ -706,6 +710,23 @@ class EmitterSourceGuardTests(unittest.TestCase):
                          "ghostlife._LINE_RE parses the OLD order and would "
                          "report every lifecycle line as malformed")
 
+    def test_build_prefix_joins_the_fields_with_single_spaces(self):
+        # The NAME sweep above tolerates any joiner (`"\s*(\w+)=` matches a
+        # zero-width gap), so a `", rec="` rewrite would pass it while
+        # `_LINE_RE`'s `\s+rec=` reports every line malformed. Pin the joiner:
+        # the first field opens its literal bare, every later field's literal
+        # opens with exactly one space.
+        src = self._read("GhostRenderTrace.cs")
+        expr = self._return_expression(src, "private static string BuildPrefix(")
+        first = ghostlife.PREFIX_FIELDS[0]
+        self.assertIn('"%s=' % first, expr,
+                      "BuildPrefix no longer opens with %s=" % first)
+        for name in ghostlife.PREFIX_FIELDS[1:]:
+            self.assertIn('" %s=' % name, expr,
+                          "BuildPrefix's separator before %s= is no longer a "
+                          "single space; _LINE_RE's \\s+ anchors would report "
+                          "every lifecycle line as malformed" % name)
+
     def test_the_tail_puts_vessel_before_reason(self):
         src = self._read("GhostPlaybackEngine.cs")
         body = self._method_body(src, "private static void EmitMeshLifecycleTrace(")
@@ -713,7 +734,8 @@ class EmitterSourceGuardTests(unittest.TestCase):
         self.assertGreaterEqual(v, 0, "EmitMeshLifecycleTrace no longer emits vessel=")
         self.assertGreaterEqual(r, 0, "EmitMeshLifecycleTrace no longer emits ' reason='")
         self.assertLess(v, r, "vessel= and reason= swapped; ghostlife cuts the "
-                              "tail at the FIRST ' reason=' after vessel=")
+                              "tail at the LAST ' reason=' (rfind), which is "
+                              "only correct while reason is the final field")
 
     def test_both_phase_tokens_are_live_call_sites(self):
         # The two phases are string ARGUMENTS at the call sites, not constants in

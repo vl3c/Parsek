@@ -30,8 +30,8 @@ THE PHASE PLAN (``mlib.kxrw_decide``; every state name is an ``mlib.KXRW_*``):
       -> SPACECENTER  (the OBSERVED backward clock)
       -> AUTORECORD-OFF (seam SetSetting autoRecordOnLaunch=false)
       -> WATCHER-LAUNCH -> WATCHER-READY
-      -> MAP-VIEW     (seam EnterMapView)   } verdicts RECORDED,
-      -> WATCH        (seam EnterWatchMode) } never fatal
+      -> MAP-VIEW     (seam EnterMapView)               } verdicts RECORDED,
+      -> WATCH        (seam EnterWatchMode tree=<same>) } never fatal
       -> PLAYBACK-WAIT-> DONE
 
 THE LANE ROLLS ITS OWN SUBJECT OUT FIRST, and that is not ceremony.
@@ -43,7 +43,11 @@ assertion row passes while it does: nothing downstream reads a craft identity.
 The gate is the NAME read back off the active vessel
 (``TelemetrySnapshot.vessel_name``, opt-in below), because a launch is a scene
 RELOAD and the frames on either side of it are otherwise indistinguishable when
-both craft sit on the same pad.
+both craft sit on the same pad. The name it compares against is declared
+SEPARATELY from the craft file name (``rolloutExpectedVesselName`` /
+``watcherExpectedVesselName``): ``launch_vessel`` resolves a FILE, but what reads
+back is that file's ``ship =`` line - and stock craft files write it as a
+``#autoLOC_*`` localization token that KSP surfaces RAW.
 
 THE STAGING PLAN IS READ OFF ``harness/fixtures/ships/Kerbal X.craft``, not
 guessed: istg=6 lights the Mainsail + six radial LV-T45s and releases the clamps,

@@ -96,12 +96,30 @@ id = "GS-4-kerbalx-rewind-watch"
 # also the scene-ksc proof.
 #
 # =====================================================================================
-# STATUS: AUTHORED, NOT YET FLOWN. Every numeric window below is an INTERIM PIN to be
-# re-pinned from the first reading run (the GS-2 re-pin contract). Specifically
-# unmeasured until that run: the booster debris ghost vessel NAME (expected
-# "Kerbal X Debris" - KSP's stock debris naming), the spawned-ghost census (expected
-# 8: parent + 6 boosters + core child), and the watch-entry timing. ghostLifecycle
-# stays REPORT-ONLY (gating=false default) until a reading run measures the census;
+# STATUS: AUTHORED, NOT YET FLOWN. Numeric windows below are INTERIM PINS to be
+# re-pinned from the first reading run (the GS-2 re-pin contract). The debris
+# NAME and the census are NOT guesses: the operator's s15 save carries a real
+# Kerbal X tree whose recordings read vesselName = "Kerbal X" (1) +
+# "Kerbal X Debris" (6) + "Kerbal X Probe" (1) - the census of 8 and the exact
+# spelling, and EmitMeshLifecycleTrace prints the same field. What remains
+# genuinely unmeasured until the reading run:
+#   - WATCH-ENTRY TIMING (the 300 km geometry is favourable but unflown);
+#   - THE DEBRIS RENDER WINDOWS: booster debris recordings carry a 60 s TTL
+#     (BackgroundRecorder.DebrisTTLSeconds, applied at ParsekFlight.cs:7695),
+#     so all six ghost windows live in [dropUT, dropUT+60] and NO ghost engine
+#     runs outside FLIGHT - the watcher must reach its flight scene before the
+#     first pair's window closes (~T+100 on the nominal profile; the rewind
+#     lands at T-15 and the SC stint + rollout costs ~45-90 s, so this is
+#     feasible but the binding constraint of the whole lane);
+#   - THE DEBRIS SNAPSHOT PATH: a debris recording whose ghost snapshot is null
+#     is skipped SILENTLY at Verbose ("debris with no snapshot, skipping",
+#     GhostPlaybackEngine.cs:6902, the #232 green-sphere suppression) - on a
+#     red reading run grep for that line FIRST to separate "coalescer
+#     pre-capture was null" from the derender regression this lane hunts;
+#   - THE MAP-GHOST ERROR SURFACE: this is the FIRST committed lane that opens
+#     map view, so the map-presence path has never run under a gated
+#     forbidden=[Parsek][ERROR] contract with atmospheric/debris ghosts.
+# ghostLifecycle stays REPORT-ONLY (gating=false default) until the reading run;
 # arm via GHOSTLIFE_ARMED_SPECS in harness/lib/test_hlib.py per the standard
 # three-run discipline (reading -> armed confirm -> negative control).
 #
@@ -127,10 +145,15 @@ tags = ["GS4", "rewind-to-launch", "watch-mode", "ghost-render", "derender", "st
 # "Kerbal X" arrives via the save's shared-ships.toml row (already present for
 # GS-1). "Jumping Flea.craft" is committed PHYSICALLY in this fixture's Ships/VAB/
 # (the single-consumer rule: a craft used by exactly one fixture stays in that
-# fixture, the gloops-airshow precedent) - stock KSP 1.12 Jumping Flea, byte-copied
-# from the dev install, differing from Squad's original only by the resave version
-# header. NOTE its craft file says `vesselType = Debris` (stock ships that way);
-# irrelevant here - it is the ACTIVE vessel and only an anchor for the camera.
+# fixture, the gloops-airshow precedent) - the stock KSP 1.12 Jumping Flea with
+# ONE deliberate edit: its `ship =` line is rewritten from the stock
+# `#autoLOC_501224` localization token to the literal `Jumping Flea`, because
+# KSP/kRPC surface the RAW ship name as the live vesselName (Vessel.GetName
+# never localizes; a launched stock Flea persists `name = #autoLOC_501224`) and
+# the mission's watcher name gate reads that name back. Everything below line 1
+# is byte-identical to the dev install's copy. NOTE the file also says
+# `vesselType = Debris` (stock ships that way); irrelevant here - it is the
+# ACTIVE vessel and only an anchor for the camera.
 saveTemplate       = "fixtures/saves/gs1-two-stage-pad"
 injectedRecordings = "none"
 craft              = []
@@ -141,22 +164,31 @@ mission = "kx_rewind_watch"
 
 # `steps` MUST stay in the [driver] table, ABOVE the [driver.missionParams] header.
 #
-# FIVE SEAM STEPS + the mission. Deliberately NO `StartRecording`: the recording
+# SIX SEAM STEPS + the mission. Deliberately NO `StartRecording`: the recording
 # must begin AT the launch click (code fact 2) so the rewind save is a pad save -
 # `autoRecordOnLaunch=true` is pinned explicitly against a stale sidecar rather
 # than trusted as the default. Deliberately NO `RunTests` (no in-game batch: stays
-# out of CommittedBatchTallySourceSyncTests). `autoMerge=true` is defensive: the
-# commit route is the explicit CommitTree bridge verb, but every scene reload this
-# lane performs (rewind, watcher rollout) must find no dialog in its way.
-# `ghostRenderTracing=true` is THE load-bearing step: without it the tracer emits
-# nothing and the ghostLifecycle vacuity floor below reds the run (by design - a
-# tripwire that can silently measure nothing is not a tripwire).
+# out of CommittedBatchTallySourceSyncTests). `autoMerge=true` is LOAD-BEARING,
+# not defensive: `StopRecording` never nulls `activeTree`, so on any path where
+# an active tree survives to the rewind's own `HighLogic.LoadScene`,
+# `FinalizeTreeOnSceneChangeCore` either commits it (autoMerge) or STASHES it as
+# a pending tree - and a pending tree both refuses `CanRewind` and surfaces a
+# merge dialog on the next scene load. `verboseLogging=true` is MANDATORY for
+# the Group-1 token below: both auto-record trigger lines route through
+# `ParsekFlight.Log` = `ParsekLog.Verbose` (ParsekFlight.cs:27044), so without
+# this step the lane's first required regex depends on whatever verboseLogging
+# the fixture happens to carry. `ghostRenderTracing=true` is THE load-bearing
+# render step: without it the tracer emits nothing, the six required
+# MeshSpawned/MeshDestroyed tokens red the run, and the ghostLifecycle vacuity
+# floor states the same fact (report-only until armed - the floor itself moves
+# no verdict before then).
 steps = [
   { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" },      expect = "OK", budget = 300 },
   { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "true" },   expect = "OK" },
   { cmd = "SetSetting", args = { name = "autoMerge", value = "true" },            expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" },       expect = "OK" },
   { cmd = "SetSetting", args = { name = "ghostRenderTracing", value = "true" },   expect = "OK" },
-  { phase = "mission",                                                            expect = "MISSION-OK", budget = 1300 },
+  { phase = "mission",                                                            expect = "MISSION-OK", budget = 1600 },
   { cmd = "FlushAndQuit",                                                         expect = "OK" },
 ]
 
@@ -217,10 +249,15 @@ count = { min = 3, max = 12 }
 # the reading run.
 #
 # GROUP 1 - LAUNCH AND RECORDING.
-#   "Auto-record started (..."            ParsekFlight.cs:7826/:7884 (Info) [INTERIM - trigger spelling]
-#       Alternation: the situation trigger renders "(PRELAUNCH " (enum spellings)
-#       and the pad-staging trigger renders "(first staging on pad, stage=N)".
-#       Either IS the auto-record launch trigger; both spellings are accepted.
+#   "Auto-record started (..."            ParsekFlight.cs:7826/:7884 (VERBOSE - both
+#       trigger lines route through ParsekFlight.Log = ParsekLog.Verbose, which is
+#       why the verboseLogging=true step above is mandatory and not a convenience).
+#       Alternation, all THREE launch-trigger spellings accepted: the situation
+#       trigger renders "(PRELAUNCH -> FLYING)" for a pad start and
+#       "(LANDED -> FLYING)" for a settled-landed start
+#       (EvaluateAutoRecordLaunchDecision's StartFromSettledLanded branch), and
+#       the pad-staging trigger renders "(first staging on pad, stage=N)". Every
+#       one IS the auto-record launch trigger.
 #   "Recording started"                   FlightRecorder.cs (Info) [MEASURED - B1, CL-1, GS-1]
 #
 # GROUP 2 - THE STAGED FLIGHT.
@@ -248,7 +285,8 @@ count = { min = 3, max = 12 }
 #       before reason= keeps it from prefix-matching "Kerbal X Probe"), the
 #       separated core ("Kerbal X Probe" - THE motivating regression: a separated
 #       stage whose ghost never renders leaves this token missing), and booster
-#       debris ("Kerbal X Debris" [INTERIM - stock debris naming, unmeasured]).
+#       debris ("Kerbal X Debris" [MEASURED - s15 save bytes: six recordings
+#       carry exactly this vesselName, the same field the tracer prints]).
 #   "phase=MeshDestroyed ..." per population, reason-pinned where knowable: the
 #       watched parent ends via the watch hold ("watch hold expired"), via
 #       "playback completed" if watch ended early, OR via an auto-follow - the
@@ -259,7 +297,7 @@ count = { min = 3, max = 12 }
 #       alternation accepts it. The unwatched populations end "playback
 #       completed" (or auto-follow variants). Anything outside the healthy set
 #       fails the required match and reds.
-required  = ["Auto-record started \\((?:PRELAUNCH|first staging on pad)",
+required  = ["Auto-record started \\((?:PRELAUNCH|LANDED|first staging on pad)",
              "Recording started",
              "Controllable split children: \\[[0-9]+,[0-9]+\\]",
              "ProcessBreakupEvent: controlled child created: pid=[0-9]+",
@@ -311,17 +349,20 @@ recordings     = { min = 3 }
 branchPoints   = { JointBreak = { min = 1 } }
 
 [runtime]
-# WALL clock for the WHOLE drive phase including KSP boot: 300 LoadGame + 1300
+# WALL clock for the WHOLE drive phase including KSP boot: 300 LoadGame + 1600
 # mission + fast SetSetting/FlushAndQuit + ~400 boot and margin. The mission
 # budget is sized to the machine's own HEALTHY worst case, summed honestly
-# rather than hoped past (the review computed it): Kerbal X rollout reload
-# (~60-120 s) + the 420 s flight-clock cap + the commit/stop bridge + the
-# rewind reload (the machine's own poll window allows 420 s precisely so a
-# healthy load that used its whole C# deferral budget is not misread) + the
-# watcher rollout reload + the REAL-TIME playback wait (the recorded span plus
-# hold, ~220-300 s; the mission never warps in v1). Nominal is far lower
-# (~600-700 s); the budget is a kill backstop, not a target.
-budgetSeconds = 2100
+# rather than hoped past (the second review re-computed it and the first
+# number, 1300, left ~25 s of slack at the caps): Kerbal X rollout reload
+# (~120 s) + the 420 s flight-clock cap + 20 s coast + four bridge round-trips
+# + the rewind reload (the machine's own poll window allows 420 s precisely so
+# a healthy load that used its whole C# deferral budget is not misread) + the
+# watcher rollout reload (~120 s) + the REAL-TIME playback wait, which spans
+# from the rewound clock (StartUT-15) to commitUT+30 (~455 s at the flight
+# cap; the mission never warps in v1) ~= 1275 s at every cap simultaneously,
+# plus real headroom for a slow machine. Nominal is far lower (~600-700 s);
+# the budget is a kill backstop, not a target.
+budgetSeconds = 2400
 
 [retry]
 policy = "once"

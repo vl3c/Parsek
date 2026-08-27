@@ -6681,7 +6681,20 @@ def _b2_stay_or_flake(state: B2State, snapshot: TelemetrySnapshot) -> B2State:
 # live and marks its recording `VesselSpawned = true`, and on the next frame
 # `ParsekFlight.TryRestoreCommittedTreeForSpawnedActiveVessel` re-adopts the
 # just-committed tree copy-on-write and starts a fresh `promotion` recording on
-# the surviving stage. Flight-1 log, in order:
+# the surviving stage.
+#
+# WHICH FRAME, AND WHY IT IS THE NEXT ONE. That method has THREE entry points, and
+# the one that fires here is the IN-SCENE per-frame retry: `ParsekFlight.Update`
+# -> `HandleMissedVesselSwitchRecovery` -> (predicate
+# `ShouldAttemptCommittedSpawnedRestoreInUpdate`: no activeTree, no recorder, not
+# restoring, no pending tree, no scheduled FlightReady restore) -> the call. Its
+# retry clock starts at zero, so the first attempt lands on the very next Update
+# after CommitTreeFlight nulls both handles. The other two entry points are
+# OnFlightReady and the switch-consume path, and BOTH are irrelevant to a commit
+# taken mid-flight - so "the promotion only happens across a scene change / switch"
+# is exactly the wrong reading of this, and reading it that way would retire the
+# STOP + RECORDER-IDLE pair as ceremony when it is the thing that keeps
+# `recording-active` from rejecting the rewind. Flight-1 log, in order:
 #   22:12:29.393  Recording stopped. 239 points          (CommitTreeFlight)
 #   22:12:29.673  exec id=0003.commit verdict=OK
 #   22:12:29.681  Armed committed-tree restore attempt for 'Kerbal X'
@@ -19793,6 +19806,20 @@ def evaluate_m3_assertions(frames, params: M3Params, phases_reached=(),
 # name, so a shell that forgot the flag burns the rollout budget and names the
 # give-up instead of flying the wrong craft.
 #
+# THE CRAFT FILE NAME IS NOT THE VESSEL NAME, and conflating them is a RUN-KILLER
+# on any stock craft. `launch_vessel` resolves a craft by its FILE name; the name
+# that reads back is the `ship = ` line INSIDE the file, and stock craft files
+# ship that line as a LOCALIZATION TOKEN (`Jumping Flea.craft`: `ship =
+# #autoLOC_501224`). KSP does not localize it on the way out - `ShipConstruct.
+# LoadShip` and `Vessel.GetName` hand the raw token to kRPC, and the save persists
+# `name = #autoLOC_501224` - so a gate comparing against the file name never
+# settles and the phase deadlocks into its give-up on every run. The two names are
+# therefore DECLARED SEPARATELY (`rolloutExpectedVesselName` /
+# `watcherExpectedVesselName`, each defaulting to its craft name, which is right
+# only where the `ship =` line is a literal: the committed `Kerbal X.craft` reads
+# `ship = Kerbal X`, and this lane's `Jumping Flea.craft` fixture was re-authored
+# to `ship = Jumping Flea` for the same reason).
+#
 # THE ROLLOUT MUST NOT ITSELF START A RECORDING, and does not. Parsek's two
 # auto-record triggers are EVENTS: a situation change (PRE_LAUNCH -> FLYING, i.e.
 # the actual liftoff) and a stage activation. A rollout does neither - it ends with
@@ -19819,6 +19846,17 @@ def evaluate_m3_assertions(frames, params: M3Params, phases_reached=(),
 # The mirror obligation lands AFTER the rewind: the setting is still true, so the
 # WATCHER launch would auto-start a SECOND recording on the Jumping Flea. The
 # AUTORECORD-OFF phase turns it off first - see the bridge list below.
+#
+# STAGING IS POSITIONAL, WHICH MAKES THE PHASE ORDER PART OF THE PLAN. Every
+# stage click this machine emits is `activate_next_stage` - "fire whatever istg is
+# next", never "fire the core". So ASCENT consults the core-discard gate ONLY once
+# every declared booster drop has been made: a core gate that fired with drops
+# outstanding would spend CORE-DISCARD's single click on a radial booster pair
+# (istg 5/4/3), leave the fueled core bolted on, and stamp
+# `coreDiscardedWithEnginesOff` TRUE against a separation that never happened.
+# Holding the gate deadlocks nothing - `_kxrw_booster_drop_due`'s altitude and
+# clock BACKSTOPS arm each drop on their own even if the thrust channel never
+# moves, and `flightMaxSeconds` bounds the whole flight above that.
 #
 # THE FUELED-CORE DISCARD IS THE ONE HARD ORDERING RULE. The istg=2 click drops a
 # Mainsail core that still has propellant, and it is fired ONLY after the throttle
@@ -20027,6 +20065,39 @@ def kxrw_playback_complete(ut: float, target_ut: float) -> bool:
     return _is_finite(ut) and _is_finite(target_ut) and ut >= target_ut
 
 
+def kxrw_watch_seam_args(tree_id: str) -> Tuple[Tuple[str, str], ...]:
+    """The args the ``EnterWatchMode`` bridge step carries: the captured
+    ``tree=<id>`` SCOPE, and never an ``index``.
+
+    WHY THE SCOPE. With no ``index`` the C# verb AUTO-SELECTS the first committed
+    recording satisfying ``HasActiveGhost && IsGhostOnSameBody &&
+    IsGhostWithinVisualRange`` (``TestCommandEnterWatchMode.ResolveAutoWatchIndex``,
+    mirroring ``MissionsWindowUI.ResolveMissionWatchTarget``). Unscoped, that walk
+    covers EVERY committed recording - and by the time this step runs, this lane's
+    own flight has authored booster debris and a controlled-decoupled core child,
+    all of them live ghosts over the same pad. A debris ghost would satisfy the
+    conjunction, the verb would answer OK, and every token the spec pins would
+    still pass while the lane silently watched a booster. ``tree=`` narrows the
+    walk to this flight's own tree members (``RecordingTree.Recordings``
+    membership), which is the only scope the machine actually knows.
+
+    NO ``index`` IS SENT, deliberately: the committed-list index is an ordering
+    nothing in a mission run owns, and pinning one would be a guess. Note what the
+    scope therefore does NOT buy - selection inside the tree is still
+    FIRST-MATCH-WINS by ascending committed index, so a same-tree debris recording
+    that sorts ahead of the main vessel can still win. That residual is measured on
+    the reading run (the terminal payload carries the chosen ``index`` / ``recId``);
+    pinning an index is the next lever if it ever bites.
+
+    An EMPTY tree id sends NO arg rather than ``tree=``: the C# side treats an
+    empty value as "no scope" anyway, and emitting a blank one would claim a
+    narrowing that is not happening. The machine cannot actually reach the WATCH
+    step without a captured id (TREE-STATE fails closed on an empty ``tree=``), so
+    this is the honest degrade rather than a live path."""
+    tree = str(tree_id or "").strip()
+    return (("tree", tree),) if tree else ()
+
+
 def kxrw_throttle_is_zero(throttle: float, epsilon: float) -> bool:
     """OBSERVED-zero throttle: a FINITE readback at or below ``epsilon``.
 
@@ -20048,6 +20119,25 @@ class KxrwParams:
     # replay is watched. Never flown - it exists to give the flight scene a live
     # vessel so a ghost has somewhere to be watched FROM.
     watcher_craft_name: str = "Jumping Flea"
+
+    # THE CRAFT FILE NAME AND THE VESSEL NAME ARE TWO DIFFERENT FACTS, and this
+    # lane learned that the hard way. `launch_vessel` resolves a craft by its
+    # FILE name (`<save>/Ships/VAB/<craftName>.craft`), but the name the active
+    # vessel READS BACK is the `ship = ` line INSIDE that file - and stock craft
+    # files ship that line as a LOCALIZATION TOKEN (`Jumping Flea.craft` opens
+    # `ship = #autoLOC_501224`). KSP does not localize it on the way out either:
+    # `ShipConstruct.LoadShip` / `Vessel.GetName` hand the raw token straight to
+    # kRPC, and the save persists `name = #autoLOC_501224`. So a name gate that
+    # compares against the FILE name silently fails on every stock craft.
+    # These two params let a spec declare the expected VESSEL name independently.
+    # THE DEFAULTING LIVES IN `kxrw_params_from_dict` (an omitted / empty key falls
+    # back to the craft name declared alongside it); the literals here are only the
+    # all-defaults case, so a direct `KxrwParams(craft_name=...)` construction that
+    # bypasses the builder must set these too. Falling back to the craft name is
+    # right for a craft whose `ship =` line is a literal (the committed
+    # `Kerbal X.craft` reads `ship = Kerbal X`).
+    rollout_expected_vessel_name: str = "Kerbal X"
+    watcher_expected_vessel_name: str = "Jumping Flea"
 
     # --- rollout (put THIS craft on the pad, over whatever was there) -------
     # Frames in which the rolled-out craft must become the active vessel, reading
@@ -20124,8 +20214,17 @@ class KxrwParams:
     map_view_frames: int = 40
     watch_frames: int = 40
     # The playback wait's ONLY bound. Frames, because a stuck clock is exactly
-    # what a UT budget cannot see; at the standard 0.5 s poll this is ~10 min.
-    playback_wait_frames: int = 1200
+    # what a UT budget cannot see; at the standard 0.5 s poll this is ~13 min.
+    #
+    # IT IS SIZED OFF `recorded_span_window`'s MAX, and the two knobs move
+    # together. The wait walks the clock from the post-rewind reading
+    # (launchUT - 15 s) to `recording_end_ut + playback_margin`
+    # (= launchUT + span + margin), i.e. span + 45 s of REAL time at 1x with no
+    # warp anywhere in this lane. At the 600 s span ceiling that is 645 s = 1290
+    # frames, so the old 1200 could not have covered a max-span flight at all:
+    # the cap has to sit ABOVE (span_max + margin + 15) / poll plus room for the
+    # reload stints the tail straddles. A re-pin of either number moves BOTH.
+    playback_wait_frames: int = 1600
 
     # --- the OBSERVED rewind gate + the watcher settle -----------------------
     # Seconds the clock must have run BACKWARD before the rewind counts as having
@@ -20140,21 +20239,35 @@ class KxrwParams:
 
     # --- assertion window ----------------------------------------------------
     # (min, max) game seconds the committed recording must span. A WINDOW on the
-    # flight this mission actually flew, not a golden duration.
+    # flight this mission actually flew, not a golden duration. THE MAX IS TIED TO
+    # `playback_wait_frames`: the wait spends span + 45 s in REAL time afterwards,
+    # so raising this ceiling without raising that cap builds a lane whose own
+    # assertion window admits a flight the wait can never sit through.
     recorded_span_window: Tuple[float, float] = (60.0, 600.0)
     frozen_sample_limit: int = 10
 
 
 def kxrw_params_from_dict(params: Dict) -> KxrwParams:
     """Build ``KxrwParams`` from a spec ``missionParams`` dict. Tolerant of
-    int/float; the span window is the ``{min, max}`` sub-table (a WINDOW)."""
+    int/float; the span window is the ``{min, max}`` sub-table (a WINDOW).
+
+    The two expected-VESSEL-name keys each default to their craft-FILE name, which
+    is the right answer only for a craft whose ``ship =`` line is a literal. A
+    stock craft file's is a ``#autoLOC_*`` token and KSP surfaces it RAW, so a
+    lane flying one declares the token (or the fixture is re-authored)."""
     params = params or {}
     window = params.get("recordedSpanWindowSeconds", {}) or {}
+    craft_name = str(params.get("craftName", "Kerbal X") or "Kerbal X")
+    watcher_craft_name = str(
+        params.get("watcherCraftName", "Jumping Flea") or "Jumping Flea")
     return KxrwParams(
-        craft_name=str(params.get("craftName", "Kerbal X") or "Kerbal X"),
+        craft_name=craft_name,
         launch_site=str(params.get("launchSite", "LaunchPad") or "LaunchPad"),
-        watcher_craft_name=str(
-            params.get("watcherCraftName", "Jumping Flea") or "Jumping Flea"),
+        watcher_craft_name=watcher_craft_name,
+        rollout_expected_vessel_name=str(
+            params.get("rolloutExpectedVesselName", "") or "") or craft_name,
+        watcher_expected_vessel_name=str(
+            params.get("watcherExpectedVesselName", "") or "") or watcher_craft_name,
         rollout_frames=int(params.get("rolloutFrames", 240)),
         rollout_ready_situations=tuple(
             params.get("rolloutReadySituations", ("PRE_LAUNCH",))),
@@ -20192,7 +20305,7 @@ def kxrw_params_from_dict(params: Dict) -> KxrwParams:
         watcher_launch_frames=int(params.get("watcherLaunchFrames", 240)),
         map_view_frames=int(params.get("mapViewFrames", 40)),
         watch_frames=int(params.get("watchFrames", 40)),
-        playback_wait_frames=int(params.get("playbackWaitFrames", 1200)),
+        playback_wait_frames=int(params.get("playbackWaitFrames", 1600)),
         min_ut_regression=float(params.get("minUtRegressionSeconds", 1.0)),
         watcher_ready_situations=tuple(
             params.get("watcherReadySituations", ("PRE_LAUNCH", "LANDED"))),
@@ -20296,6 +20409,16 @@ class KxrwState:
     map_view_reject_reason: str = ""
     watch_result: str = ""
     watch_reject_reason: str = ""
+    # WHICH recording the scoped auto-select actually landed on, read off the
+    # EnterWatchMode terminal payload (`index` / `recId`). Carried for the record,
+    # never for a gate: `tree=` narrows the walk to this flight's own members but
+    # the pick inside the tree is still first-match-wins by committed index, so a
+    # same-tree debris recording could in principle sort ahead of the main vessel.
+    # This is what makes that residual MEASURABLE on the reading run instead of
+    # hypothetical - and it is what an operator reads before deciding to pin an
+    # index. "" = the payload carried no such field (a REJECTED watch carries none).
+    watch_selected_index: str = ""
+    watch_selected_rec_id: str = ""
 
     # --- the playback wait ---------------------------------------------------
     playback_target_ut: float = float("nan")
@@ -20429,7 +20552,11 @@ def _kxrw_core_discard_due(state: KxrwState, snapshot: TelemetrySnapshot) -> boo
     """True once the fueled core should come off: the orbit apoapsis has reached
     ``coreDiscardApoapsisMeters``, or the flight has run
     ``coreDiscardMaxFlightSeconds`` since launch. The clock arm is what keeps the
-    recorded span - and therefore the real-time playback wait - bounded."""
+    recorded span - and therefore the real-time playback wait - bounded.
+
+    CALLER CONTRACT: ASCENT consults this ONLY once every declared booster drop is
+    done. Staging is positional, so a core gate that fired with drops outstanding
+    would spend CORE-DISCARD's single click on a radial booster pair."""
     p = state.params
     if _is_finite(snapshot.apoapsis) and snapshot.apoapsis >= p.core_discard_apoapsis:
         return True
@@ -20465,17 +20592,20 @@ def kxrw_decide(state: KxrwState,
     and what is active at scene entry is whatever the fixture left there).
     PRELAUNCH then fires the istg=6 click (all seven engines + the clamps) and
     stamps the recording's launch UT - which is also the instant Parsek's
-    auto-record trigger starts recording. ASCENT steers the programmed gravity turn and hands
-    off to the staging pair (BOOSTER-CUT holds a throttle cut, BOOSTER-STAGE fires
-    one radial-decoupler stage) once per declared booster stage, then to CORE-CUT /
-    CORE-DISCARD, which drop the FUELED Mainsail core only after the throttle has
-    been READ at zero. COAST authors post-separation coverage. The five seam phases
+    auto-record trigger starts recording. ASCENT steers the programmed gravity turn
+    and hands off to the staging pair (BOOSTER-CUT holds a throttle cut,
+    BOOSTER-STAGE fires one radial-decoupler stage) once per declared booster stage,
+    and ONLY THEN - staging is positional - to CORE-CUT / CORE-DISCARD, which drop
+    the FUELED Mainsail core only after the throttle has been READ at zero.
+    COAST authors post-separation coverage. The five seam phases
     capture the tree id, commit, stop, OBSERVE the recorder idle, and command
     InvokeRewindToLaunch. SPACECENTER waits out the reload and gates on the
     OBSERVED backward clock, then AUTORECORD-OFF disarms `autoRecordOnLaunch` -
     the same setting that auto-started this flight's OWN recording at the
     PRELAUNCH click - so the watcher does not bring a second recorder with it.
-    WATCHER-LAUNCH / WATCHER-READY put a second craft on the pad; MAP-VIEW and WATCH drive the two render verbs and RECORD their
+    WATCHER-LAUNCH / WATCHER-READY put a second craft on the pad; MAP-VIEW and
+    WATCH drive the two render verbs (the watch SCOPED to the captured tree, so its
+    auto-select cannot land on this flight's own booster debris) and RECORD their
     verdicts without ever failing on them; PLAYBACK-WAIT walks the clock past the
     recorded span. DONE is terminal with verdict None.
 
@@ -20562,8 +20692,12 @@ def kxrw_decide(state: KxrwState,
             return (replace(state, rollout_launch_commanded=True),
                     [Action(ACTION_LAUNCH_VESSEL, text=p.craft_name,
                             launch_site=p.launch_site)])
+        # The gate compares against the expected VESSEL name, which is a different
+        # declaration from the craft FILE name launched above: `launch_vessel`
+        # resolves the file, and the `ship = ` line INSIDE it is what reads back.
         settled = kxrw_launch_settled(snapshot.vessel_lost, snapshot.vessel_name,
-                                      snapshot.situation, p.craft_name,
+                                      snapshot.situation,
+                                      p.rollout_expected_vessel_name,
                                       p.rollout_ready_situations)
         streak = state.rollout_ready_streak + 1 if settled else 0
         st = replace(state, rollout_ready_streak=streak,
@@ -20577,13 +20711,16 @@ def kxrw_decide(state: KxrwState,
             return _kxrw_flake(
                 st,
                 "phase %s: %r never became the active vessel in one of %s within "
-                "%d frames (last name read %r, last situation %s). Staging would "
-                "fire on whatever IS active - this lane's own fixture pre-places a "
-                "DIFFERENT craft on the pad - and every row downstream would pass "
-                "while measuring the wrong vessel. An UNREAD name means the shell "
-                "did not opt into read_vessel_name"
-                % (KXRW_ROLLOUT, p.craft_name, list(p.rollout_ready_situations),
-                   p.rollout_frames, st.rollout_vessel_name or "",
+                "%d frames (craft file %r, last name read %r, last situation %s). "
+                "Staging would fire on whatever IS active - this lane's own fixture "
+                "pre-places a DIFFERENT craft on the pad - and every row downstream "
+                "would pass while measuring the wrong vessel. An UNREAD name means "
+                "the shell did not opt into read_vessel_name; a name that reads as "
+                "an #autoLOC_* token means the craft file's `ship =` line is a "
+                "localization key, so declare it as rolloutExpectedVesselName"
+                % (KXRW_ROLLOUT, p.rollout_expected_vessel_name,
+                   list(p.rollout_ready_situations), p.rollout_frames, p.craft_name,
+                   st.rollout_vessel_name or "",
                    snapshot.situation or "UNREAD")), []
         return st, []
 
@@ -20615,9 +20752,20 @@ def kxrw_decide(state: KxrwState,
                              booster_cut_throttle_observed=False)
                 return (_kxrw_enter(st, KXRW_BOOSTER_CUT, snapshot.ut),
                         [Action(ACTION_CUT_THROTTLE, 0.0)])
-        # The core gate is checked even with drops outstanding: a flight that has
-        # reached its apoapsis target or its clock backstop must proceed rather
-        # than hold for a stage signal that is not coming.
+            # THE CORE GATE IS HELD WHILE ANY BOOSTER DROP IS OUTSTANDING, and
+            # this is an ORDERING rule, not a preference. `activate_next_stage`
+            # is POSITIONAL: it fires whatever istg is next, not "the core". With
+            # drops still owed, CORE-DISCARD's single click lands on a radial
+            # BOOSTER pair (istg 5/4/3), the still-fueled core stays bolted on,
+            # and `coreDiscardedWithEnginesOff` records TRUE against a separation
+            # that never happened - a green row over the wrong event, which is
+            # exactly the failure this lane's own row exists to make impossible.
+            # No deadlock: `_kxrw_booster_drop_due`'s two BACKSTOPS (altitude and
+            # clock) arm the drop on their own even if the thrust channel never
+            # moves, so the drops always complete; and `flightMaxSeconds` bounds
+            # the whole flight above that with a named give-up.
+            st, steer = _kxrw_pitch_actions(state, snapshot)
+            return st, steer
         if _kxrw_core_discard_due(state, snapshot):
             st = replace(state, core_cut_throttle_observed=False)
             return (_kxrw_enter(st, KXRW_CORE_CUT, snapshot.ut),
@@ -20808,11 +20956,38 @@ def kxrw_decide(state: KxrwState,
         if result == "OK":
             reading = _seam_payload(snapshot, tag, "recording")
             if reading == "false":
+                if not _is_finite(snapshot.ut):
+                    # HOLD AND RE-PROBE. `pre_rewind_ut` is the SPACECENTER gate's
+                    # only "before", and that gate is the whole OBSERVED evidence
+                    # that the world moved. A non-finite stamp taken here can never
+                    # be compared against anything, so the regression reads NaN on
+                    # every post-rewind frame and the gate burns its bound - after
+                    # an IRREVERSIBLE world load has already been commanded. So the
+                    # machine refuses to leave this phase on an unreadable clock,
+                    # exactly as it refuses to leave on an unreadable `recording`
+                    # field: fail closed, and re-probe under a FRESH tag (the C#
+                    # seam skips duplicate ids).
+                    st = replace(state, recorder_idle_reading=reading,
+                                 idle_probe=state.idle_probe + 1)
+                    if st.phase_frames > p.idle_frames:
+                        return _kxrw_flake(
+                            st,
+                            "phase %s: the recorder READ idle but `ut` was "
+                            "unreadable on every frame within %d frames (%d "
+                            "probe(s)); the pre-rewind clock stamp is the "
+                            "SPACECENTER gate's only `before`, and a non-finite one "
+                            "makes the OBSERVED backward clock permanently "
+                            "unprovable - refusing to command an irreversible "
+                            "rewind against a stamp nothing can be compared to"
+                            % (KXRW_RECORDER_IDLE, p.idle_frames, st.idle_probe)), []
+                    return st, [_kxrw_seam_action(
+                        "RecordingState", kxrw_idle_probe_tag(st.idle_probe))]
                 st = replace(state, recorder_idle_reading=reading,
                              recorder_idle_observed=True,
                              # Stamp the pre-rewind clock on the SAME frame the
                              # rewind is commanded, so the regression gate compares
-                             # against the tightest possible "before".
+                             # against the tightest possible "before". Guarded above:
+                             # this is the machine's one unforgiving UT stamp.
                              pre_rewind_ut=snapshot.ut)
                 return (_kxrw_enter(st, KXRW_REWIND, snapshot.ut),
                         [_kxrw_seam_action(
@@ -20957,7 +21132,8 @@ def kxrw_decide(state: KxrwState,
         # scene reload, and "a craft is on the pad in PRE_LAUNCH" was already true
         # of whatever the reload replaced. Only the NAME read distinguishes them.
         settled = kxrw_launch_settled(snapshot.vessel_lost, snapshot.vessel_name,
-                                      snapshot.situation, p.watcher_craft_name,
+                                      snapshot.situation,
+                                      p.watcher_expected_vessel_name,
                                       p.watcher_ready_situations)
         streak = state.watcher_ready_streak + 1 if settled else 0
         st = replace(state, watcher_ready_streak=streak,
@@ -20975,11 +21151,14 @@ def kxrw_decide(state: KxrwState,
             return _kxrw_flake(
                 st,
                 "phase %s: %r never became the active vessel in one of %s within "
-                "%d frames (last name read %r, last situation %s); with no live "
-                "vessel in FLIGHT there is nothing to watch the replay from"
-                % (KXRW_WATCHER_READY, p.watcher_craft_name,
+                "%d frames (craft file %r, last name read %r, last situation %s); "
+                "with no live vessel in FLIGHT there is nothing to watch the replay "
+                "from. A name that reads as an #autoLOC_* token means the craft "
+                "file's `ship =` line is a localization key, so declare it as "
+                "watcherExpectedVesselName"
+                % (KXRW_WATCHER_READY, p.watcher_expected_vessel_name,
                    list(p.watcher_ready_situations), p.watcher_launch_frames,
-                   st.watcher_ready_vessel_name or "",
+                   p.watcher_craft_name, st.watcher_ready_vessel_name or "",
                    snapshot.situation or "UNREAD")), []
         return st, []
 
@@ -20996,7 +21175,8 @@ def kxrw_decide(state: KxrwState,
                          map_view_reject_reason=_seam_reject_reason(
                              snapshot, KXRW_TAG_MAP))
             return (_kxrw_enter(st, KXRW_WATCH, snapshot.ut),
-                    [_kxrw_seam_action("EnterWatchMode", KXRW_TAG_WATCH)])
+                    [_kxrw_seam_action("EnterWatchMode", KXRW_TAG_WATCH,
+                                       kxrw_watch_seam_args(st.tree_id))])
         if state.phase_frames > p.map_view_frames:
             # A SILENT seam is a different animal from a refused verb: no verdict
             # was rendered at all, so there is nothing to record and the transport
@@ -21012,12 +21192,17 @@ def kxrw_decide(state: KxrwState,
     if state.phase == KXRW_WATCH:
         result = _seam_result(snapshot, KXRW_TAG_WATCH)
         if result:
-            # NO index argument is sent: the auto-select is deliberate, since the
-            # Kerbal X ghost replaying over the pad is the only candidate. Whatever
+            # The command was issued SCOPED to the captured tree and with no index
+            # (see `kxrw_watch_seam_args`): the auto-select is deliberate, but it is
+            # NOT allowed to range over this flight's booster debris. Whatever
             # Parsek answers is RECORDED and the mission flies on - see MAP-VIEW.
             st = replace(state, watch_result=result,
                          watch_reject_reason=_seam_reject_reason(
                              snapshot, KXRW_TAG_WATCH),
+                         watch_selected_index=_seam_payload(
+                             snapshot, KXRW_TAG_WATCH, "index"),
+                         watch_selected_rec_id=_seam_payload(
+                             snapshot, KXRW_TAG_WATCH, "recId"),
                          playback_target_ut=kxrw_playback_target_ut(
                              state.recording_end_ut, p.playback_margin))
             return _kxrw_enter(st, KXRW_PLAYBACK_WAIT, snapshot.ut), []
@@ -21127,6 +21312,11 @@ def evaluate_kxrw_assertions(frames, params: KxrwParams,
          # against the wrong vessel is the failure this evidence exists to make
          # visible in the result JSON.
          "craft": params.craft_name,
+         # The craft FILE name and the expected VESSEL name are separate
+         # declarations (a stock craft's `ship =` line is an #autoLOC token), so
+         # both ride here: an operator reading a rollout give-up needs to see which
+         # of the two the observed name was compared against.
+         "expectedVesselName": params.rollout_expected_vessel_name,
          "rolloutObservedName": getattr(state, "rollout_vessel_name", "") or "UNREAD",
          "rolloutVesselLostFrames": int(
              getattr(state, "rollout_vessel_lost_frames", 0))})
@@ -21160,6 +21350,7 @@ def evaluate_kxrw_assertions(frames, params: KxrwParams,
         "watcherOnPad", bool(getattr(state, "watcher_ready_observed", False)),
         getattr(state, "watcher_ready_situation", "") or None,
         {"craft": params.watcher_craft_name,
+         "expectedVesselName": params.watcher_expected_vessel_name,
          "observedName": getattr(state, "watcher_ready_vessel_name", "") or "UNREAD",
          "accepted": list(params.watcher_ready_situations),
          "debounceK": params.watcher_ready_debounce,
@@ -21181,6 +21372,17 @@ def evaluate_kxrw_assertions(frames, params: KxrwParams,
          "enterMapViewReason": getattr(state, "map_view_reject_reason", "") or None,
          "enterWatchModeResult": watch_result or "NONE",
          "enterWatchModeReason": getattr(state, "watch_reject_reason", "") or None,
+         # WHAT THE SCOPED AUTO-SELECT ACTUALLY PICKED. `tree=` keeps the walk
+         # inside this flight's own members, but the pick within the tree is still
+         # first-match-wins by committed index - so these two fields are how an
+         # operator sees whether the watched subject was the main vessel or a
+         # same-tree debris recording, and the input to any later decision to pin
+         # an index. EVIDENCE, not a gate.
+         "enterWatchModeScopeTree": tree_id or None,
+         "enterWatchModeSelectedIndex": (
+             getattr(state, "watch_selected_index", "") or None),
+         "enterWatchModeSelectedRecId": (
+             getattr(state, "watch_selected_rec_id", "") or None),
          # Spelled out on the row itself so nobody "fixes" it into a gate: a
          # REJECTED render verb is Parsek's finding, carried by the spec's log
          # contracts, and this row is met either way.

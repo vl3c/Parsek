@@ -572,7 +572,14 @@ def observed_ghost_lifecycle_facets(snapshot: Optional[GhostLifecycleSnapshot]
             # count LINES, and the two differ whenever a ghost respawns (loop
             # playback, overlap retarget, a zone transition). Reported
             # separately so a reader can tell one ghost seen five times from
-            # five ghosts seen once.
+            # five ghosts seen once. DO NOT read spawnLines vs destroyLines as
+            # a leak signal on a LOOPING lane: a loop-cycle advance DEMOTES the
+            # live primary to an overlap shell (GhostPlaybackEngine ~:4302,
+            # `ghostStates.Remove` with no destroy emit) while the replacement
+            # primary emits a fresh MeshSpawned, so under loop playback
+            # spawnLines grows per cycle and destroyLines does not. The
+            # per-recording balance ledger (`unbalanced`) is the honest leak
+            # signal; the line counts are census only.
             "spawnLines": len(snapshot.spawns),
             "destroyLines": len(snapshot.destroys),
             "destroyedRecordings": len(destroy_ids),

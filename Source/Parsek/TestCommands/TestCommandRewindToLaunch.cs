@@ -10,8 +10,9 @@ namespace Parsek.TestCommands
     /// <c>parsek_rw_*</c> quicksave, parses it, stamps
     /// <c>RewindContext.SetAdjustedUT</c> and calls <c>HighLogic.LoadScene</c>, while the
     /// terminal answer is only known once <c>ParsekScenario.OnLoad</c>'s
-    /// <c>HandleRewindOnLoad</c> has run in the loaded Space Center and cleared the rewind
-    /// flags. Modeled on <see cref="RewindCompletionDecision"/>.
+    /// <c>HandleRewindOnLoad</c> has run in the loaded Space Center, cleared the rewind
+    /// flags, AND its deferred adjustment coroutine has drained. Modeled on
+    /// <see cref="RewindCompletionDecision"/>.
     ///
     /// <para>This is NOT the Re-Fly system. <c>InvokeRewind</c> drives
     /// <c>RewindInvoker.StartInvoke</c> over a RewindPoint / ChildSlot and completes on a
@@ -22,13 +23,17 @@ namespace Parsek.TestCommands
     /// </summary>
     internal enum RewindToLaunchCompletionDecision
     {
-        /// <summary>Mid-straddle: the rewind flags are still set, so
-        /// <c>HandleRewindOnLoad</c> has not run yet. Keep holding the FIFO head.</summary>
+        /// <summary>Mid-straddle: either the rewind flags are still set (so
+        /// <c>HandleRewindOnLoad</c> has not run yet), or they cleared in SPACECENTER but
+        /// the deferred post-load adjustment is still draining. Keep holding the FIFO
+        /// head.</summary>
         StillWaiting,
 
-        /// <summary>The flags cleared AND we are settled in SPACECENTER:
-        /// <c>HandleRewindOnLoad</c> ran to its <c>RewindContext.EndRewind()</c> tail.
-        /// Terminal OK.</summary>
+        /// <summary>The flags cleared, we are settled in SPACECENTER, AND the deferred
+        /// post-load adjustment has drained: <c>HandleRewindOnLoad</c> ran to its
+        /// <c>RewindContext.EndRewind()</c> tail and
+        /// <c>ApplyRewindResourceAdjustment</c> finished applying the adjusted UT and the
+        /// ledger recalc. Terminal OK.</summary>
         CompleteOk,
 
         /// <summary>The flags cleared but we never reached SPACECENTER: the load failed and
@@ -93,28 +98,40 @@ namespace Parsek.TestCommands
         /// <para>Order (mirroring
         /// <see cref="TestCommandInvokeRewind.DecideRewindCompletion"/>): the success
         /// conjunction wins first and even past the budget; the budget expiry is then
-        /// checked UNCONDITIONALLY (before the still-pending straddle) so a reload that
-        /// never completes - leaving <c>IsRewinding</c> set forever - still terminates as
-        /// RewindTimeout instead of holding the FIFO head indefinitely; a still-set flag
-        /// within budget keeps waiting; cleared flags with no SPACECENTER is the fast
-        /// failure.</para>
+        /// checked UNCONDITIONALLY (before either still-pending branch) so a reload that
+        /// never completes - leaving <c>IsRewinding</c> set forever, or a deferred
+        /// adjustment whose host died mid-wait - still terminates as RewindTimeout instead
+        /// of holding the FIFO head indefinitely; a still-set flag within budget keeps
+        /// waiting; cleared flags with no SPACECENTER is the fast failure.</para>
         ///
-        /// <para>CompleteOk needs BOTH halves and neither is redundant.
+        /// <para>CompleteOk needs ALL THREE halves and none is redundant.
         /// <c>RewindContext.EndRewind()</c> has TWO callers: the success tail of
-        /// <c>HandleRewindOnLoad</c> (ParsekScenario, after the ledger recalc), and
+        /// <c>HandleRewindOnLoad</c> (ParsekScenario), and
         /// <c>RecordingStore.ResetRewindFlags</c> on the load-failure paths inside
         /// <c>ExecuteRewindSaveLoad</c> - which leave the scene exactly where it was
         /// (FLIGHT). <c>!isRewinding</c> alone would therefore read a failed load as a
-        /// success. Conversely a SPACECENTER reading alone proves nothing while the flags
-        /// are still set (a foreign scene change could land there mid-rewind). The pair is
-        /// the statement.</para>
+        /// success. A SPACECENTER reading alone proves nothing while the flags are still
+        /// set (a foreign scene change could land there mid-rewind). And the flags clear
+        /// EARLY relative to the world the rewind promises: <c>HandleRewindOnLoad</c> arms
+        /// <c>RecordingStore.RewindUTAdjustmentPending</c> +
+        /// <c>RewindContext.BeginRewindResourceAdjustment()</c> immediately BEFORE the
+        /// <c>EndRewind()</c> that clears <c>IsRewinding</c>, and only the deferred
+        /// <c>ApplyRewindResourceAdjustment</c> coroutine (~2s later) sets the adjusted UT
+        /// on Planetarium and runs the ledger recalc. Reporting OK on the two-half
+        /// conjunction hands the next verb a scene whose UT is still the pre-rewind future
+        /// and whose career resources have not been patched yet.</para>
         /// </summary>
         internal static RewindToLaunchCompletionDecision DecideRewindToLaunchCompletion(
-            double elapsedSeconds, bool isRewinding, bool sceneIsSpaceCenter, double budgetSeconds)
+            double elapsedSeconds, bool isRewinding, bool sceneIsSpaceCenter,
+            bool deferredAdjustmentPending, double budgetSeconds)
         {
-            if (!isRewinding && sceneIsSpaceCenter) return RewindToLaunchCompletionDecision.CompleteOk;
+            if (!isRewinding && sceneIsSpaceCenter && !deferredAdjustmentPending)
+                return RewindToLaunchCompletionDecision.CompleteOk;
             if (elapsedSeconds >= budgetSeconds) return RewindToLaunchCompletionDecision.RewindTimeout;
             if (isRewinding) return RewindToLaunchCompletionDecision.StillWaiting;
+            // Flags cleared and we ARE in the destination scene: the deferred adjustment is
+            // still draining, so keep holding rather than reading it as the fast failure.
+            if (sceneIsSpaceCenter) return RewindToLaunchCompletionDecision.StillWaiting;
             return RewindToLaunchCompletionDecision.RewindFailed;
         }
 

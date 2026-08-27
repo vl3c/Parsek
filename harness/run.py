@@ -2044,10 +2044,17 @@ def run_verifiers(spec: Dict, instance_dir: str, run_save_name: str,
     save_dir = os.path.join(instance_dir, "saves", run_save_name)
     log_path = os.path.join(instance_dir, "KSP.log")
     log_text = ""
+    # ghostlife distinguishes "we looked and saw zero lines" (empty str) from "we
+    # never looked" (None) - a missing or unopenable KSP.log must reach it as the
+    # latter, or the declared block reports "tracer off or nothing rendered" for a
+    # log that was never read. Every OTHER consumer of log_text keeps the empty
+    # string it always had.
+    ghostlife_log_text: Optional[str] = None
     if os.path.isfile(log_path):
         try:
             with open(log_path, "r", encoding="utf-8", errors="replace") as fh:
                 log_text = fh.read()
+            ghostlife_log_text = log_text
         except OSError:
             log_text = ""
 
@@ -2291,12 +2298,17 @@ def run_verifiers(spec: Dict, instance_dir: str, run_save_name: str,
         # wants. NEVER gating here regardless of a declared block: KILLED precedes
         # every verifier flag in classify_verdict, and a torn attempt must not be
         # judged on a floor it may have been killed before reaching.
-        killed_gl = ghostlife.parse_ghost_lifecycle(log_text)
+        killed_gl = ghostlife.parse_ghost_lifecycle(ghostlife_log_text)
         killed_gl_observed = ghostlife.observed_ghost_lifecycle_facets(killed_gl)
         killed_gl_facets = killed_gl_observed.get(ghostlife.GHOST_LIFECYCLE_BLOCK) or {}
         detail["ghostLifecycle"] = {
             "status": ghostlife.STATUS_REPORT, "reason": "killed-triage-only",
-            "gating": False, "blocks": [], "armedBlocks": [], "mismatches": [],
+            "gating": False,
+            # `blocks` mirrors the DECLARATION on this non-evaluating path (see
+            # the SKIPPED row's comment): triage output must not contradict its
+            # own `declared` field.
+            "blocks": list(ghostlife.declared_ghost_lifecycle_blocks(expectations)),
+            "armedBlocks": [], "mismatches": [],
             "declared": ghostlife.declared_ghost_lifecycle_block(expectations),
             "observed": killed_gl_observed,
             "parsed": killed_gl.parsed, "parseError": killed_gl.error}
@@ -2631,11 +2643,16 @@ def run_verifiers(spec: Dict, instance_dir: str, run_save_name: str,
     # window off a green report-only run. Gated on driver_valid for the saveParse
     # / renderCompose reason - a driver-INVALID run never got the playback moment
     # these lines describe, so the row stays SKIPPED with the facets recorded.
-    gl_snapshot = ghostlife.parse_ghost_lifecycle(log_text)
+    gl_snapshot = ghostlife.parse_ghost_lifecycle(ghostlife_log_text)
     if not driver_valid:
         detail["ghostLifecycle"] = {
             "status": "SKIPPED", "reason": "driver-invalid", "gating": False,
-            "blocks": [], "armedBlocks": [], "mismatches": [],
+            # `blocks` mirrors what the spec DECLARED here (unlike the evaluated
+            # path, where it is what the evaluator judged): a SKIPPED row must
+            # not read "carried no assertion" while its own `declared` says
+            # otherwise.
+            "blocks": list(ghostlife.declared_ghost_lifecycle_blocks(expectations)),
+            "armedBlocks": [], "mismatches": [],
             # Recorded on the SKIPPED path too: a driver-INVALID control flight
             # still has to say which assertion it was carrying.
             "declared": ghostlife.declared_ghost_lifecycle_block(expectations),

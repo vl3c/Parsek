@@ -5345,11 +5345,12 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         "GS-1-auto-chute-booster.toml":     "FLOWN 4x 2026-08-05 (flight 4 PASS) and ARMED; operator tier is now an open PROMOTION call, not debt",
         # AUTHORED, NOT YET FLOWN (the GS-1 pre-flight shape): operator tier is
         # the standard first-flight calibration discipline - a reading run over
-        # deliberately INTERIM pins (its STATUS block names which: the booster
-        # debris ghost NAME, the spawned-ghost census, the watch-entry timing),
-        # then re-pin and the ghostLifecycle arming sequence its header
-        # specifies. Nothing is owed a human beyond flying it, which is what
-        # `--tier operator` is for.
+        # deliberately INTERIM pins (its STATUS block names which: the
+        # watch-entry timing, the 60 s debris-TTL render windows, the
+        # debris-no-snapshot skip diagnostic; the debris NAME and the census of
+        # 8 are already MEASURED off s15 save bytes), then re-pin and the
+        # ghostLifecycle arming sequence its header specifies. Nothing is owed
+        # a human beyond flying it, which is what `--tier operator` is for.
         "GS-4-kerbalx-rewind-watch.toml":   "AUTHORED 2026-08-27, UNFLOWN; operator tier is the first-flight calibration discipline (reading run -> re-pin -> arm), not debt",
         # The FIFTH forge, same mechanism again: it stamps gs2-orbital-stack by
         # flying the live-proven forge_lko ascent with the new parkAttached=true,
@@ -7382,11 +7383,12 @@ class GhostLifecycleVerifierWiringTests(unittest.TestCase):
         #     + watch mode -> playback to completion). Its `spawned = { min = 3 }`
         #     window and the requireBalanced default are INTERIM PINS authored
         #     BEFORE the first flight (the spec's STATUS block says so): the
-        #     reading run is expected to measure spawned=8 (parent + 6 booster
-        #     debris + the "Kerbal X Probe" controlled-decoupled core), and the
-        #     re-pin + arming (through GHOSTLIFE_ARMED_SPECS above) follow the
-        #     standard three-run discipline AFTER that measurement. REPORT-ONLY
-        #     until then.
+        #     census of 8 (parent + 6 booster debris + the "Kerbal X Probe"
+        #     controlled-decoupled core) is measured off s15 save bytes and the
+        #     reading run is expected to confirm it live, and the re-pin +
+        #     arming (through GHOSTLIFE_ARMED_SPECS above) follow the standard
+        #     three-run discipline AFTER that confirmation. REPORT-ONLY until
+        #     then.
         "GS-4-kerbalx-rewind-watch.toml",
     }
 

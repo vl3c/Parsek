@@ -5260,7 +5260,21 @@ namespace Parsek
             return true;
         }
 
-        private static void ResetRewindFlags()
+        /// <summary>
+        /// Clears the rewind context + the replay-target scope. The production callers are
+        /// the load-failure paths inside <see cref="ExecuteRewindSaveLoad"/>, which is the
+        /// ONLY place a rewind can unwind itself: the flags otherwise live until
+        /// <c>HandleRewindOnLoad</c>'s <c>EndRewind()</c> in the reloaded scene.
+        ///
+        /// <para>Internal (not private) for ONE seam-abort consumer: the test-command
+        /// applier <c>ParsekTestCommandAddon.TryCompleteInvokeRewindToLaunch</c>'s
+        /// rewind-timeout branch. A reload that never settles reaches neither of the two
+        /// clearing paths, so <c>RewindContext.IsRewinding</c> would stay armed for the
+        /// rest of the process - the next <c>ParsekScenario.OnLoad</c> would take the
+        /// rewind branch, and every later <see cref="CanRewind"/> would refuse. The verb
+        /// that aborts the seam resets what the abort stranded.</para>
+        /// </summary>
+        internal static void ResetRewindFlags()
         {
             RewindContext.EndRewind();
             ClearRewindReplayTargetScope();

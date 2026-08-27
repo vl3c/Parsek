@@ -30,21 +30,41 @@ separated stage - both RENDERS (`phase=MeshSpawned`) and DERENDERS
 verifier row 7d). If the sighting is a real regression, the reading run reds on
 the missing `vessel=Kerbal X Debris` MeshSpawned token or the census floor.
 
-The five interim facts the reading run must settle (each marked [INTERIM] in
-the spec):
+The interim facts the reading run must settle (updated 2026-08-28 after the
+5-agent PR review; the debris NAME and the census of 8 moved from "unmeasured"
+to MEASURED - the operator's s15 save carries a real Kerbal X tree reading
+vesselName = "Kerbal X" (1) + "Kerbal X Debris" (6) + "Kerbal X Probe" (1),
+the same field the tracer prints):
 1. `sc.launch_vessel` from the SPACECENTER scene has never been driven live
-   (the runner's scene-independent dispatch hoist removes the `active_vessel`
+   (the runner's scene-independent dispatch removes the `active_vessel`
    raise that would have killed it; kRPC's call is a SpaceCenter service call).
 2. Pad occupancy after the rewind is unmeasured (`recover=True` handles both
    branches: the strip should leave the pad clear, and a leftover is recovered).
-3. The booster debris ghost NAME is unmeasured - the spec pins the stock
-   `Kerbal X Debris` spelling; re-pin from the log if KSP names them otherwise.
-4. The spawned-ghost census is expected 8 (parent + 6 booster debris + the
-   `Kerbal X Probe` controlled-decoupled core); the committed window is the
-   honest floor `spawned = { min = 3 }` until measured.
-5. Watch-entry geometry is timing-dependent (the ghost must be within 300 km of
+3. Watch-entry geometry is timing-dependent (the ghost must be within 300 km of
    the pad when the WATCH bridge step runs; nominal timeline has it mid-ascent,
    tens of km up). A geometry miss is a retune, not a Parsek defect.
+4. THE DEBRIS RENDER WINDOWS are the lane's binding constraint: booster debris
+   recordings carry a 60 s TTL (`BackgroundRecorder.DebrisTTLSeconds`), all six
+   ghost windows live in [dropUT, dropUT+60], and no ghost engine runs outside
+   FLIGHT - the watcher must reach its flight scene before the first pair's
+   window closes (~T+100 nominal; the rewind lands at T-15 and the SC stint +
+   rollout costs ~45-90 s wall). A slow machine can miss the earliest windows
+   for a scheduling reason, not a product one.
+5. On a red reading run, grep `"debris with no snapshot, skipping"` (Verbose,
+   GhostPlaybackEngine.cs:6902 - the #232 green-sphere suppression) FIRST: a
+   null coalescer pre-capture silently skips a debris ghost and is a different
+   investigation from the derender regression this lane hunts.
+6. This is the FIRST committed lane to open map view, so the map-ghost ERROR
+   surface has never been swept under the forbidden=[Parsek][ERROR] contract
+   with atmospheric/debris ghosts live.
+
+TRAP RECORDED (found by the review, fixed pre-flight): stock craft FILES name
+their ships with localization tokens - the stock Jumping Flea's `ship =` line
+is `#autoLOC_501224`, and KSP/kRPC surface the RAW token as the live
+vesselName. Any mission gate comparing a live vessel name against a stock
+craft's human name will never match; the committed fixture copy's `ship =`
+line is rewritten to the literal `Jumping Flea`, and the machine's expected
+vessel names are declarable separately from the craft file names.
 
 After the reading run: re-pin the interim tokens/windows, then run the standard
 three-run arming discipline for `[expectations.ghostLifecycle]` (roster

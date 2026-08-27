@@ -46,6 +46,12 @@ import kx_rewind_watch             # noqa: E402
 
 SCHEMA_PATH = os.path.join(_MISSIONS, "kx_rewind_watch.schema.toml")
 CRAFT_PATH = os.path.join(_HARNESS, "fixtures", "ships", "Kerbal X.craft")
+# The WATCHER craft, which lives in the lane's save template rather than the
+# shared ships dir. Read by a cell below: its `ship = ` line is the name the live
+# WATCHER-READY gate has to match, and stock shipped it as a #autoLOC token.
+WATCHER_CRAFT_PATH = os.path.join(_HARNESS, "fixtures", "saves",
+                                  "gs1-two-stage-pad", "Ships", "VAB",
+                                  "Jumping Flea.craft")
 MLIB_PATH = os.path.join(_HERE, "mlib.py")
 
 # Live available thrust of the seven-engine Kerbal X stack, near enough: the only
@@ -268,6 +274,82 @@ class StagingDisciplineTests(unittest.TestCase):
         self.assertTrue(row.detail["stageCommanded"])
         self.assertFalse(row.detail["throttleObservedZero"])
 
+    def test_the_core_gate_is_held_while_a_booster_drop_is_still_outstanding(self):
+        """STAGING IS POSITIONAL. `activate_next_stage` fires whatever istg is
+        next, so with drops still owed CORE-DISCARD's single click lands on a
+        radial BOOSTER pair - the fueled core stays bolted on and
+        `coreDiscardedWithEnginesOff` records TRUE against a separation that never
+        happened. MUTATION: consult the core gate with drops outstanding (the shape
+        before this fix) and the machine enters CORE-CUT here instead of steering
+        on.
+
+        The apoapsis is ALREADY past the discard threshold on every frame below,
+        and no booster drop has been armed - the thrust channel never falls and
+        both backstops are pushed out of reach - so the ONLY thing holding the core
+        gate is the drops-outstanding conjunct."""
+        st = self._to_ascent(stageSettleFrames=2, boosterStageCount=3,
+                             coreDiscardApoapsisMeters=60000.0,
+                             boosterDropBackstopAltitudeMeters=1e12,
+                             boosterDropBackstopSeconds=1e12)
+        st, _ = fly(st, ut=1.0, altitude=100.0)                  # peak = LIT
+        for i in range(6):
+            st, acts = fly(st, ut=10.0 + i, altitude=9000.0, apoapsis=61000.0)
+            self.assertEqual(mlib.KXRW_ASCENT, st.phase)
+            self.assertNotIn(mlib.ACTION_CUT_THROTTLE, kinds(acts))
+            self.assertNotIn(mlib.ACTION_ACTIVATE_STAGE, kinds(acts))
+        self.assertEqual(0, st.booster_drops_done)
+        self.assertNotIn(mlib.KXRW_CORE_CUT, st.phases_reached)
+
+    def test_the_core_gate_opens_the_moment_the_last_drop_is_done(self):
+        """The mirror direction: the hold is not a block. Once the declared drops
+        are made, an apoapsis already past the threshold takes the machine straight
+        into CORE-CUT on the next ASCENT frame."""
+        st = self._to_ascent(stageSettleFrames=2, boosterStageCount=1,
+                             coreDiscardApoapsisMeters=60000.0)
+        st, _ = fly(st, ut=1.0, altitude=100.0)                  # peak = LIT
+        # One observed flame-out -> cut -> settle -> the single declared drop.
+        st, _ = fly(st, ut=40.0, altitude=9000.0, available_thrust=FLAMED,
+                    apoapsis=61000.0)
+        self.assertEqual(mlib.KXRW_BOOSTER_CUT, st.phase)
+        for ut in (40.5, 41.0):
+            st, _ = fly(st, ut=ut, altitude=9000.0, throttle=0.0,
+                        available_thrust=FLAMED, apoapsis=61000.0)
+        self.assertEqual(mlib.KXRW_BOOSTER_STAGE, st.phase)
+        st, acts = fly(st, ut=41.5, altitude=9000.0, throttle=0.0,
+                       available_thrust=FLAMED, apoapsis=61000.0)
+        self.assertEqual(1, st.booster_drops_done)
+        self.assertEqual(mlib.KXRW_ASCENT, st.phase)
+        # Drops done, apoapsis past the threshold: the core gate is now live.
+        st, acts = fly(st, ut=42.0, altitude=9000.0, throttle=0.0,
+                       available_thrust=FLAMED, apoapsis=61000.0)
+        self.assertEqual(mlib.KXRW_CORE_CUT, st.phase)
+        self.assertEqual([mlib.ACTION_CUT_THROTTLE, mlib.ACTION_AP_DISENGAGE],
+                         kinds(acts))
+
+    def test_the_held_core_gate_cannot_deadlock_the_ascent(self):
+        """The hold is safe ONLY because the drop has backstops of its own: a
+        craft whose thrust channel never moves still sheds its stages on altitude
+        or on the clock. MUTATION: delete both backstops and this hangs."""
+        st = self._to_ascent(stageSettleFrames=1, boosterStageCount=3,
+                             boosterDropBackstopSeconds=30.0,
+                             coreDiscardApoapsisMeters=60000.0)
+        st, _ = fly(st, ut=1.0, altitude=100.0)
+        ut = 2.0
+        alt = 9000.0
+        for _ in range(60):
+            # Thrust NEVER falls: only the clock backstop can arm a drop. The
+            # altitude still climbs, or the frozen-telemetry detector (rightly)
+            # reads a bit-identical stream as a destroyed craft.
+            st, _ = fly(st, ut=ut, altitude=alt, throttle=0.0, apoapsis=61000.0)
+            ut += 1.0
+            alt += 50.0
+            if st.phase == mlib.KXRW_CORE_CUT or st.done:
+                break
+        self.assertFalse(st.done)
+        self.assertEqual(3, st.booster_drops_done)
+        self.assertEqual(mlib.KXRW_CORE_CUT, st.phase)
+        self.assertEqual("clock", st.booster_drop_armed_by)
+
     def test_every_declared_booster_stage_produces_exactly_one_stage_click(self):
         st = self._to_ascent(stageSettleFrames=2, boosterStageCount=3,
                              coreDiscardApoapsisMeters=1e12,
@@ -392,6 +474,57 @@ class SeamBridgeSequencingTests(unittest.TestCase):
         self.assertEqual(mlib.MISSION_FLAKE, st.verdict)
         self.assertIn("refusing to command InvokeRewindToLaunch", st.flake_reason)
         self.assertEqual([], acts)
+
+    def test_an_unreadable_clock_never_becomes_the_pre_rewind_stamp(self):
+        """`pre_rewind_ut` is the SPACECENTER gate's ONLY `before`, and the gate is
+        the whole OBSERVED evidence that the world moved. A non-finite stamp can
+        never be compared to anything, so the regression reads NaN forever - after
+        an IRREVERSIBLE world load has already been commanded. MUTATION: stamp
+        `snapshot.ut` unguarded (the shape before this fix) and the recording=false
+        frame below commands the rewind and poisons the gate."""
+        st, _ = self._to_tree_state(idleFrames=6)
+        st, _ = mlib.kxrw_decide(st, seam("tree0", "OK", (("tree", "t1"),), ut=111.0))
+        st, _ = mlib.kxrw_decide(st, seam("commit", "OK", (), ut=222.0))
+        st, _ = mlib.kxrw_decide(st, seam("stop", "OK", (), ut=223.0))
+        # The recorder READS idle, but on a frame whose clock is unreadable.
+        st, acts = mlib.kxrw_decide(
+            st, seam("idle0", "OK", (("recording", "false"),), ut=float("nan")))
+        self.assertEqual(mlib.KXRW_RECORDER_IDLE, st.phase)
+        self.assertFalse(st.done)
+        self.assertTrue(math.isnan(st.pre_rewind_ut))
+        # HOLD AND RE-PROBE, under a FRESH tag (the C# seam skips duplicate ids).
+        self.assertEqual(["RecordingState"], [a.seam_verb for a in acts])
+        self.assertEqual(["idle1"], [a.seam_tag for a in acts])
+        # A readable clock on the next probe releases it, and stamps THAT frame.
+        st, acts = mlib.kxrw_decide(
+            st, seam("idle1", "OK", (("recording", "false"),), ut=225.0))
+        self.assertEqual(mlib.KXRW_REWIND, st.phase)
+        self.assertEqual(225.0, st.pre_rewind_ut)
+        self.assertEqual("InvokeRewindToLaunch", acts[0].seam_verb)
+
+    def test_a_clock_that_never_reads_burns_the_bound_and_names_the_stamp(self):
+        """FAIL CLOSED with a DISTINCT give-up: 'the seam never answered' would
+        send an operator after the bridge when the bridge answered every time."""
+        st, _ = self._to_tree_state(idleFrames=3)
+        st, _ = mlib.kxrw_decide(st, seam("tree0", "OK", (("tree", "t1"),), ut=111.0))
+        st, _ = mlib.kxrw_decide(st, seam("commit", "OK", (), ut=222.0))
+        st, _ = mlib.kxrw_decide(st, seam("stop", "OK", (), ut=223.0))
+        verbs = []
+        for i in range(8):
+            st, acts = mlib.kxrw_decide(
+                st, seam("idle%d" % i, "OK", (("recording", "false"),),
+                         ut=float("nan")))
+            verbs += [a.seam_verb for a in acts]
+            if st.done:
+                break
+        self.assertTrue(st.done)
+        self.assertEqual(mlib.MISSION_FLAKE, st.verdict)
+        self.assertEqual(mlib.KXRW_RECORDER_IDLE, st.flake_phase)
+        self.assertIn("`ut` was unreadable", st.flake_reason)
+        self.assertIn("refusing to command an irreversible rewind",
+                      st.flake_reason)
+        self.assertNotIn("InvokeRewindToLaunch", verbs)
+        self.assertNotIn(mlib.KXRW_REWIND, st.phases_reached)
 
     def test_a_rejected_rewind_reports_parseks_own_reason(self):
         """The runner collapses REJECTED into `ERROR`; the refusal word lives in
@@ -814,6 +947,64 @@ class RolloutTests(unittest.TestCase):
         self.assertEqual(mlib.KXRW_MAP_VIEW, st.phase)
         self.assertEqual(WATCHER, st.watcher_ready_vessel_name)
 
+    def test_the_craft_file_name_and_the_expected_vessel_name_are_separable(self):
+        """THE RUN-KILLER THIS PAIR EXISTS FOR. `launch_vessel` resolves a craft by
+        its FILE name, but the name the active vessel READS BACK is that file's
+        `ship = ` line - and stock craft files write it as a `#autoLOC_*`
+        localization token that KSP hands back RAW (`ShipConstruct.LoadShip` /
+        `Vessel.GetName` never localize; a launched Jumping Flea persists
+        `name = #autoLOC_501224`). A gate wired to the file name can therefore
+        never settle on a stock craft. MUTATION: gate on `craft_name` /
+        `watcher_craft_name` (the shape before this fix) and both cells below
+        deadlock into their give-ups."""
+        st = machine(craftName="Jumping Flea",
+                     rolloutExpectedVesselName="#autoLOC_501224")
+        st, acts = mlib.kxrw_decide(st, snap(ut=0.0, situation="PRE_LAUNCH"))
+        # The FILE name is what gets launched...
+        self.assertEqual("Jumping Flea", acts[0].text)
+        # ...and the declared VESSEL name is what settles the gate.
+        for _ in range(2):
+            st, _ = mlib.kxrw_decide(st, snap(ut=1.0, situation="PRE_LAUNCH",
+                                              vessel_name="#autoLOC_501224"))
+        self.assertEqual(mlib.KXRW_PRELAUNCH, st.phase)
+        self.assertTrue(st.rollout_ready_observed)
+
+    def test_the_watcher_name_is_separable_the_same_way(self):
+        st = dataclasses.replace(
+            machine(watcherCraftName="Jumping Flea",
+                    watcherExpectedVesselName="#autoLOC_501224",
+                    watcherReadyDebounceFrames=2),
+            phase=mlib.KXRW_WATCHER_LAUNCH, autorecord_off_result="OK")
+        st, acts = mlib.kxrw_decide(st, snap(ut=250.0, vessel_lost=True))
+        self.assertEqual("Jumping Flea", acts[0].text)
+        for ut in (251.0, 252.0):
+            st, _ = mlib.kxrw_decide(st, snap(ut=ut, situation="PRE_LAUNCH",
+                                              vessel_name="#autoLOC_501224"))
+        self.assertEqual(mlib.KXRW_MAP_VIEW, st.phase)
+        self.assertTrue(st.watcher_ready_observed)
+
+    def test_each_expected_name_defaults_to_its_craft_name(self):
+        """A spec that declares neither gets the old behaviour verbatim, which is
+        correct for a craft whose `ship =` line IS a literal."""
+        p = mlib.kxrw_params_from_dict(params(craftName="Kerbal X",
+                                              watcherCraftName="Jumping Flea"))
+        self.assertEqual("Kerbal X", p.rollout_expected_vessel_name)
+        self.assertEqual("Jumping Flea", p.watcher_expected_vessel_name)
+        # An empty declaration is not a licence to skip the read - it falls back to
+        # the craft name rather than degrading to a situation-only gate.
+        p = mlib.kxrw_params_from_dict(params(craftName="Kerbal X",
+                                              rolloutExpectedVesselName=""))
+        self.assertEqual("Kerbal X", p.rollout_expected_vessel_name)
+
+    def test_the_committed_watcher_fixture_carries_a_literal_ship_name(self):
+        """The FIXTURE half of the fix, read off the file rather than trusted: the
+        committed Jumping Flea shipped stock's `ship = #autoLOC_501224`, which is
+        what the live gate would have had to match. MUTATION: restore the token and
+        this reds here instead of on a flight."""
+        with open(WATCHER_CRAFT_PATH, encoding="utf-8", errors="replace") as fh:
+            first = fh.readline().strip()
+        self.assertEqual("ship = %s" % WATCHER, first)
+
     def test_the_shell_opts_into_the_name_channel(self):
         """REQUIRED, not nice-to-have: both launch gates deadlock without it."""
         control = kx_rewind_watch.make_control()
@@ -850,9 +1041,9 @@ class RenderVerbsAreRecordedNotJudgedTests(unittest.TestCase):
     A REFUSED verb is Parsek's finding and belongs to the spec's log contracts; a
     driver-INVALID here would discard the very KSP.log they read."""
 
-    def _to_map_view(self, **over):
+    def _to_map_view(self, tree_id="", **over):
         st = dataclasses.replace(machine(**over), phase=mlib.KXRW_MAP_VIEW,
-                                 recording_end_ut=400.0)
+                                 recording_end_ut=400.0, tree_id=tree_id)
         return st
 
     def test_a_rejected_watch_records_the_verdict_and_flies_on(self):
@@ -871,12 +1062,52 @@ class RenderVerbsAreRecordedNotJudgedTests(unittest.TestCase):
         self.assertEqual("ERROR", st.watch_result)
         self.assertEqual("unknown-tree", st.watch_reject_reason)
 
-    def test_the_watch_command_carries_no_index_argument(self):
-        """The auto-select is deliberate: the Kerbal X ghost replaying over the pad
-        is the only candidate, and an index would pin an ordering nothing owns."""
-        st = self._to_map_view()
+    def test_the_watch_command_is_scoped_to_the_captured_tree_and_carries_no_index(self):
+        """THE SCOPE IS THE POINT. Unscoped, the C# auto-select walks EVERY
+        committed recording and takes the first with
+        HasActiveGhost && SameBody && WithinVisualRange - and by this step the lane
+        has authored booster debris and a controlled-decoupled core child, all live
+        ghosts over the same pad. A debris pick answers OK and every spec token
+        still passes while the lane measures the wrong subject. MUTATION: send no
+        args and this reds.
+
+        No `index` though: the committed-list index is an ordering nothing in a
+        mission run owns."""
+        st = self._to_map_view(tree_id="t_kx")
         _, acts = mlib.kxrw_decide(st, seam("map", "OK", (), ut=250.0))
-        self.assertEqual((), acts[0].seam_args)
+        self.assertEqual("EnterWatchMode", acts[0].seam_verb)
+        self.assertEqual((("tree", "t_kx"),), acts[0].seam_args)
+        self.assertNotIn("index", dict(acts[0].seam_args))
+
+    def test_an_uncaptured_tree_sends_no_scope_rather_than_an_empty_one(self):
+        """The honest degrade: the C# side reads an empty `tree` as NO scope
+        anyway, so emitting `tree=` would claim a narrowing that is not happening.
+        Unreachable in practice - TREE-STATE fails closed on an empty `tree=` - and
+        pinned so it stays a degrade rather than a silent blank arg."""
+        self.assertEqual((("tree", "t1"),), mlib.kxrw_watch_seam_args("t1"))
+        self.assertEqual((("tree", "t1"),), mlib.kxrw_watch_seam_args("  t1  "))
+        self.assertEqual((), mlib.kxrw_watch_seam_args(""))
+        self.assertEqual((), mlib.kxrw_watch_seam_args("   "))
+        self.assertEqual((), mlib.kxrw_watch_seam_args(None))
+
+    def test_the_selected_index_is_carried_as_evidence_not_as_a_gate(self):
+        """`tree=` narrows the walk to this flight's members, but the pick INSIDE
+        the tree is still first-match-wins by committed index - so which recording
+        was actually watched has to be visible in the result JSON. It is evidence:
+        the row is met either way."""
+        st = self._to_map_view(tree_id="t_kx")
+        st, _ = mlib.kxrw_decide(st, seam("map", "OK", (), ut=250.0))
+        st, _ = mlib.kxrw_decide(
+            st, seam("watch", "OK", (("index", "2"), ("recId", "rec_abc"),
+                                     ("watching", "true")), ut=251.0))
+        self.assertEqual("2", st.watch_selected_index)
+        self.assertEqual("rec_abc", st.watch_selected_rec_id)
+        p = mlib.kxrw_params_from_dict(params())
+        row = [r for r in mlib.evaluate_kxrw_assertions([], p, st)
+               if r.name == "renderVerbsDriven"][0]
+        self.assertEqual("t_kx", row.detail["enterWatchModeScopeTree"])
+        self.assertEqual("2", row.detail["enterWatchModeSelectedIndex"])
+        self.assertEqual("rec_abc", row.detail["enterWatchModeSelectedRecId"])
 
     def test_a_refused_render_verb_still_meets_the_row_and_says_so(self):
         p = mlib.kxrw_params_from_dict(params())
@@ -960,6 +1191,23 @@ class PlaybackWaitTests(unittest.TestCase):
         self.assertEqual(mlib.KXRW_PLAYBACK_WAIT, st.flake_phase)
         self.assertIn("never reached the playback target", st.flake_reason)
         self.assertFalse(st.playback_reached)
+
+    def test_the_frame_cap_covers_the_widest_span_the_window_admits(self):
+        """THE TWO KNOBS ARE ONE DECISION. The wait walks the clock from the
+        post-rewind reading (launchUT - 15 s) to commitUT + margin, i.e.
+        span + 45 s of REAL time at 1x (this lane uses no warp anywhere). A cap
+        below (span_max + margin + 15) / poll cannot sit through a flight the
+        recordedSpanWindowSeconds max explicitly admits - which is exactly what the
+        old 1200 default did. MUTATION: drop the cap back to 1200 (or raise the
+        span ceiling alone) and this reds."""
+        p = mlib.kxrw_params_from_dict(params())
+        span_max = p.recorded_span_window[1]
+        lead = 15.0                      # RewindToLaunchLeadTimeSeconds
+        poll = 0.5                       # the standard mission poll
+        needed = (span_max + p.playback_margin + lead) / poll
+        self.assertGreater(p.playback_wait_frames, needed,
+                           "playbackWaitFrames=%d cannot cover a %.0f s span"
+                           % (p.playback_wait_frames, span_max))
 
     def test_the_recorded_span_row_reads_the_two_machine_stamps(self):
         p = mlib.kxrw_params_from_dict(

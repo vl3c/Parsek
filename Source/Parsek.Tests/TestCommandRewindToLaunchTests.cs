@@ -12,8 +12,10 @@ namespace Parsek.Tests
     /// (<see cref="TestCommandRewindToLaunch"/>): the two-phase completion decider, the
     /// target-resolution helper, the gate-refusal message shape, and the terminal OK
     /// payload. Fails if a mid-reload poll prematurely terminates, a FAILED load is read as
-    /// success (the case the two-part CompleteOk conjunction exists for), the auto-select
-    /// guesses among several committed trees, or the gate reason is not surfaced verbatim.
+    /// success or an OK is reported while the deferred post-load adjustment is still in
+    /// flight (the two cases the three-part CompleteOk conjunction exists for), the
+    /// auto-select guesses among several committed trees, or the gate reason is not
+    /// surfaced verbatim.
     ///
     /// <para>Sibling of <see cref="TestCommandInvokeRewindTests"/>, which covers the OTHER
     /// (Re-Fly) mechanism.</para>
@@ -33,7 +35,8 @@ namespace Parsek.Tests
             // Mid-straddle: HandleRewindOnLoad has not reached its EndRewind() tail yet.
             Assert.Equal(RewindToLaunchCompletionDecision.StillWaiting,
                 TestCommandRewindToLaunch.DecideRewindToLaunchCompletion(
-                    5.0, isRewinding: true, sceneIsSpaceCenter: false, Budget));
+                    5.0, isRewinding: true, sceneIsSpaceCenter: false,
+                    deferredAdjustmentPending: false, Budget));
         }
 
         [Fact]
@@ -43,15 +46,45 @@ namespace Parsek.Tests
             // SPACECENTER half alone is NOT the success.
             Assert.Equal(RewindToLaunchCompletionDecision.StillWaiting,
                 TestCommandRewindToLaunch.DecideRewindToLaunchCompletion(
-                    5.0, isRewinding: true, sceneIsSpaceCenter: true, Budget));
+                    5.0, isRewinding: true, sceneIsSpaceCenter: true,
+                    deferredAdjustmentPending: false, Budget));
         }
 
         [Fact]
-        public void FlagsCleared_AtSpaceCenter_CompleteOk()
+        public void FlagsCleared_AtSpaceCenter_DeferredDrained_CompleteOk()
         {
+            // All three halves: flags cleared, destination scene settled, and the deferred
+            // post-load adjustment has drained.
             Assert.Equal(RewindToLaunchCompletionDecision.CompleteOk,
                 TestCommandRewindToLaunch.DecideRewindToLaunchCompletion(
-                    5.0, isRewinding: false, sceneIsSpaceCenter: true, Budget));
+                    5.0, isRewinding: false, sceneIsSpaceCenter: true,
+                    deferredAdjustmentPending: false, Budget));
+        }
+
+        [Fact]
+        public void FlagsCleared_AtSpaceCenter_DeferredPending_WithinBudget_StillWaiting()
+        {
+            // HandleRewindOnLoad arms RewindUTAdjustmentPending +
+            // BeginRewindResourceAdjustment IMMEDIATELY BEFORE the EndRewind() that clears
+            // IsRewinding, and only ApplyRewindResourceAdjustment (~2s later) sets the
+            // adjusted UT and runs the ledger recalc. Reporting OK here would hand the next
+            // verb a Space Center still sitting at the pre-rewind future UT.
+            Assert.Equal(RewindToLaunchCompletionDecision.StillWaiting,
+                TestCommandRewindToLaunch.DecideRewindToLaunchCompletion(
+                    5.0, isRewinding: false, sceneIsSpaceCenter: true,
+                    deferredAdjustmentPending: true, Budget));
+        }
+
+        [Fact]
+        public void FlagsCleared_AtSpaceCenter_DeferredPending_BudgetExpired_RewindTimeout()
+        {
+            // A deferred adjustment that never drains (host destroyed mid-wait) must
+            // terminate rather than hold the FIFO head forever: the unconditional budget
+            // check sits above the new SPACECENTER StillWaiting branch too.
+            Assert.Equal(RewindToLaunchCompletionDecision.RewindTimeout,
+                TestCommandRewindToLaunch.DecideRewindToLaunchCompletion(
+                    Budget + 10.0, isRewinding: false, sceneIsSpaceCenter: true,
+                    deferredAdjustmentPending: true, Budget));
         }
 
         [Fact]
@@ -63,7 +96,8 @@ namespace Parsek.Tests
             // why CompleteOk is a conjunction.
             Assert.Equal(RewindToLaunchCompletionDecision.RewindFailed,
                 TestCommandRewindToLaunch.DecideRewindToLaunchCompletion(
-                    5.0, isRewinding: false, sceneIsSpaceCenter: false, Budget));
+                    5.0, isRewinding: false, sceneIsSpaceCenter: false,
+                    deferredAdjustmentPending: false, Budget));
         }
 
         [Fact]
@@ -74,7 +108,8 @@ namespace Parsek.Tests
             // completes terminates instead of holding the FIFO head forever.
             Assert.Equal(RewindToLaunchCompletionDecision.RewindTimeout,
                 TestCommandRewindToLaunch.DecideRewindToLaunchCompletion(
-                    Budget + 10.0, isRewinding: true, sceneIsSpaceCenter: false, Budget));
+                    Budget + 10.0, isRewinding: true, sceneIsSpaceCenter: false,
+                    deferredAdjustmentPending: false, Budget));
         }
 
         [Fact]
@@ -83,10 +118,12 @@ namespace Parsek.Tests
             // Boundary is >= budget, matching DeferralBudget.ShouldTimeout.
             Assert.Equal(RewindToLaunchCompletionDecision.RewindTimeout,
                 TestCommandRewindToLaunch.DecideRewindToLaunchCompletion(
-                    Budget, isRewinding: true, sceneIsSpaceCenter: false, Budget));
+                    Budget, isRewinding: true, sceneIsSpaceCenter: false,
+                    deferredAdjustmentPending: false, Budget));
             Assert.Equal(RewindToLaunchCompletionDecision.StillWaiting,
                 TestCommandRewindToLaunch.DecideRewindToLaunchCompletion(
-                    Budget - 0.001, isRewinding: true, sceneIsSpaceCenter: false, Budget));
+                    Budget - 0.001, isRewinding: true, sceneIsSpaceCenter: false,
+                    deferredAdjustmentPending: false, Budget));
         }
 
         [Fact]
@@ -96,7 +133,8 @@ namespace Parsek.Tests
             // unconditional budget check above both remaining branches.
             Assert.Equal(RewindToLaunchCompletionDecision.RewindTimeout,
                 TestCommandRewindToLaunch.DecideRewindToLaunchCompletion(
-                    Budget + 10.0, isRewinding: false, sceneIsSpaceCenter: false, Budget));
+                    Budget + 10.0, isRewinding: false, sceneIsSpaceCenter: false,
+                    deferredAdjustmentPending: false, Budget));
         }
 
         [Fact]
@@ -106,7 +144,21 @@ namespace Parsek.Tests
             // reports OK rather than a spurious timeout.
             Assert.Equal(RewindToLaunchCompletionDecision.CompleteOk,
                 TestCommandRewindToLaunch.DecideRewindToLaunchCompletion(
-                    Budget + 10.0, isRewinding: false, sceneIsSpaceCenter: true, Budget));
+                    Budget + 10.0, isRewinding: false, sceneIsSpaceCenter: true,
+                    deferredAdjustmentPending: false, Budget));
+        }
+
+        [Fact]
+        public void DeferredPending_NeverCompletesOk_WhateverTheOtherHalvesSay()
+        {
+            // The third half is a hard veto on CompleteOk: no combination of the other two
+            // readings may report success while the deferred adjustment is still in flight.
+            foreach (bool rewinding in new[] { false, true })
+                foreach (bool spaceCenter in new[] { false, true })
+                    Assert.NotEqual(RewindToLaunchCompletionDecision.CompleteOk,
+                        TestCommandRewindToLaunch.DecideRewindToLaunchCompletion(
+                            5.0, rewinding, spaceCenter,
+                            deferredAdjustmentPending: true, Budget));
         }
 
         // ----- ResolveTarget -----
