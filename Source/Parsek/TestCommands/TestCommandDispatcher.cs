@@ -184,6 +184,11 @@ namespace Parsek.TestCommands
         // ----- Map-view pair (the render-composition draw-half gate; additive) -----
         void EnterMapView(ParsedCommand cmd);
         void ExitMapView(ParsedCommand cmd);
+
+        // ----- Rewind-to-Launch (the Recordings-table "R" button; additive) -----
+        // Distinct from InvokeRewind above: that one is the Re-Fly / Rewind-to-Separation
+        // system, this one is the plain launch rewind (RecordingStore.InitiateRewind).
+        void InvokeRewindToLaunch(ParsedCommand cmd);
     }
 
     /// <summary>The scene/state a verb requires before it may execute.</summary>
@@ -299,6 +304,12 @@ namespace Parsek.TestCommands
                 // instance, stock declined the switch) are executor-side and typed REJECTED.
                 ["EnterMapView"] = VerbSceneRequirement.RequiresFlight,
                 ["ExitMapView"] = VerbSceneRequirement.RequiresFlight,
+                // Rewind-to-Launch. RequiresFlight for the same reason as InvokeRewind (the
+                // OTHER, Re-Fly, mechanism): both reload the world out from under the
+                // current scene, and the "R" button this one reproduces is offered from the
+                // in-flight Recordings table. The rewind-specific guards below mirror
+                // InvokeRewind's triple verbatim.
+                ["InvokeRewindToLaunch"] = VerbSceneRequirement.RequiresFlight,
             };
 
         /// <summary>
@@ -354,6 +365,13 @@ namespace Parsek.TestCommands
                     break;
 
                 case "InvokeRewind":
+                // Rewind-to-Launch shares the guard triple EXACTLY, for the same three
+                // reasons, even though it drives a different mechanism: the plain rewind
+                // also reloads the scene and mutates the save (its supersede DROP walks the
+                // same RecordingSupersedes list a merge journal would be mid-writing - see
+                // InitiateRewind's own refusal), it must not overlap a LoadGame, and its
+                // reload would silently discard a live recorder.
+                case "InvokeRewindToLaunch":
                     // A re-fly reloads the scene and mutates the save. Refuse when a re-fly
                     // merge journal is mid-finalize (racing the crash-recovery finisher), when
                     // a LoadGame is already mid-flight, or when a recorder is live (the reload
@@ -500,6 +518,14 @@ namespace Parsek.TestCommands
         /// ConsumePostLoad; sized like LoadGame (M-C1, ~300 s).</summary>
         internal const double InvokeRewindSeconds = 300.0;
 
+        /// <summary>InvokeRewindToLaunch copies the launch quicksave, pre-processes it
+        /// (strip + lead-time windback), parses it through GamePersistence.LoadGame and
+        /// reloads into SPACECENTER, where OnLoad runs the route reconcile + ledger recalc
+        /// before the scene settles. Same shape and same size as
+        /// <see cref="InvokeRewindSeconds"/> (~300 s): it is the same cold-save parse plus
+        /// scene settle, just via a different entry point.</summary>
+        internal const double InvokeRewindToLaunchSeconds = 300.0;
+
         /// <summary>AnswerMergeDialog may DRIVE the conclusion scene-exit that surfaces the
         /// pre-transition dialog, then hold the head through the post-answer scene settle
         /// (M-C1, ~120 s).</summary>
@@ -565,6 +591,8 @@ namespace Parsek.TestCommands
                     return scenarioBudgetSeconds ?? RunTestsFallbackSeconds;
                 case "InvokeRewind":
                     return InvokeRewindSeconds;
+                case "InvokeRewindToLaunch":
+                    return InvokeRewindToLaunchSeconds;
                 case "AnswerMergeDialog":
                     return AnswerMergeDialogSeconds;
                 case "TimeJump":

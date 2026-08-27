@@ -1,0 +1,407 @@
+schema = 1
+id = "GS-4-kerbalx-rewind-watch"
+# =====================================================================================
+# THE GHOST-DERENDER TRIPWIRE, driven through the full player workflow it protects:
+# fly a staged Kerbal X (three radial booster pairs dropped, then the still-FUELED
+# core discarded with its engines provably off), commit, REWIND TO LAUNCH (the
+# Recordings-table "R" button semantics: `RecordingStore.InitiateRewind` loading the
+# `parsek_rw_*` quicksave captured at recording start - NOT the Rewind-to-Separation
+# / Re-Fly system), put a Jumping Flea on the now-clear pad, open MAP VIEW, press
+# WATCH on the replaying Kerbal X ghost, sit through the playback, and then hold the
+# flight ghost render tracer to account: every ghost the replay spawned - the main
+# vessel AND every separated stage - must show a MeshSpawned AND a matching
+# MeshDestroyed. The motivating regression is real: booster ghosts observed NOT
+# rendering after separation (manual sighting, 2026-08); this lane exists so that
+# class of bug reds a nightly instead of waiting for a human to notice.
+#
+# TWO FIRSTS. (1) First claimant of D9 `rewind-to-launch` - the value sat unclaimed
+# in the registry because no seam verb reached `RecordingStore.InitiateRewind` until
+# `InvokeRewindToLaunch` (added with this lane). (2) First declarer of
+# `[expectations.ghostLifecycle]` (verifier row 7d, `harness/lib/ghostlife.py`): the
+# spawn/destroy BALANCE check that presence-only logContract regexes cannot express
+# (recIds are fresh GUIDs and multiple boosters share one debris vessel name, so no
+# static pattern can say "EVERY spawned ghost was destroyed").
+#
+# =====================================================================================
+# THE CODE FACTS THIS SPEC RESTS ON - read, not assumed.
+#
+# (1) REWIND-TO-LAUNCH KEEPS THE COMMITTED TREE AS FUTURE GHOSTS.
+#     `ExecuteRewindSaveLoad` (RecordingStore.cs:5370) strips the recorded vessel
+#     from the quicksave copy, winds UT back `RewindToLaunchLeadTimeSeconds` (15 s),
+#     loads it, and lands in SPACECENTER; the OnLoad rewind branch SKIPS the .sfs
+#     recording reload, keeping the in-memory committed recordings (the
+#     InitiateRewindToCareerStart doc-comment states the contract:
+#     "KEEPING the in-memory recordings as future ghosts"). So after the rewind the
+#     Kerbal X flight is a committed tree whose playback window opens 15 s in the
+#     future - exactly what the watcher vessel is there to observe.
+#
+# (2) AUTO-RECORD TRIGGERS ARE EVENTS, NOT SCENE ENTRY. `autoRecordOnLaunch`
+#     (default true) fires from `OnVesselSituationChange` (PRELAUNCH -> FLYING,
+#     ParsekFlight.cs:7826) and the first-staging-on-pad `OnStageActivate` path
+#     (ParsekFlight.cs:7884). Nothing fires at LoadGame on the fixture's pre-placed
+#     pad craft (no event occurs for it), so the recording belongs to the Kerbal X
+#     from its launch click - and `FlightRecorder.CaptureRewindSave` therefore
+#     captures the `parsek_rw_*` quicksave with the Kerbal X ON THE PAD, which is
+#     what makes "rewind to launch" land at launch rather than mid-air. The mission
+#     flips `autoRecordOnLaunch` OFF over the seam bridge after the rewind, so the
+#     Jumping Flea launch opens NO second recording.
+#
+# (3) THE FUELED-CORE DISCARD IS A MULTI-CONTROLLABLE SPLIT. The committed
+#     `Kerbal X.craft`'s istg=2 `Decoupler.2` cuts the stack into the pod side
+#     (mk1-3pod carries ModuleCommand) and the core side (`probeStackLarge` RC-L01)
+#     - the same decoupler GS-2 measured at `slots=2 controllablePids=2`. So this
+#     flight ALSO authors a RewindPoint and creates a controlled-decoupled child
+#     recording named "Kerbal X Probe" (name measured by EVA-2 / S0.8 / GS-2). The
+#     RP is incidental here (nothing invokes Rewind-to-Separation); the child
+#     recording is load-bearing - it is a SEPARATED-STAGE ghost this lane must see
+#     rendered.
+#
+# (4) THE WATCHED GHOST'S DERENDER IS DEFERRED AND DIFFERENTLY-REASONED.
+#     `ParsekPlaybackPolicy.HandlePlaybackCompleted` routes a WATCHED ghost through
+#     `StartWatchHoldFromPolicy` (3-5 s), and the destroy lands from
+#     `WatchModeController.ProcessWatchEndHoldTimer` with
+#     reason="watch hold expired" (WatchModeController.cs:2548/2601); unwatched
+#     ghosts (the boosters, the core child) get reason="playback completed" at their
+#     own end UTs. The MeshDestroyed alternation below accepts the reasons a healthy
+#     run can produce; the BALANCE (every spawn destroyed) is ghostLifecycle's job.
+#
+# (5) WATCH ENTRY IS GEOMETRY-GATED: same body + ghost within 300 km of the active
+#     vessel (WatchModeController.WatchEnterCutoffMeters). The watcher sits ON THE
+#     PAD and the replay is at most a few minutes past its own pad start when the
+#     WATCH bridge step runs, so the ghost is tens of km away - the favourable case
+#     the V-family lanes (which pin `expect=REJECTED` from foreign orbits) never
+#     had. `enterwatchmode complete: index=` is required below because a lane named
+#     "watch the ghost" that never enters watch proves nothing; if a reading flight
+#     shows a geometry miss instead of a Parsek defect, retune the mission timings
+#     rather than weakening the token.
+#
+# =====================================================================================
+# WHAT PROVES THE VERDICT.
+#
+# THE LIFECYCLE PAIR IS INFO-LEVEL AND PER-GHOST. `GhostPlaybackEngine`
+# emits, through GhostRenderTrace (gated ONLY by the `ghostRenderTracing` setting -
+# no verboseLogging dependency, `important: true`):
+#     phase=MeshSpawned  rec=<8> recId=<full> ghostIndex=N ... vessel=<name> reason=ghost-created
+#     phase=MeshDestroyed rec=<8> recId=<full> ghostIndex=N ... vessel=<name> reason=<reason>
+# V22M/V23M measured both phases as logContract tokens. The required tokens below pin
+# the three populations by vessel name (parent "Kerbal X", separated core
+# "Kerbal X Probe", booster debris); `[expectations.ghostLifecycle]` does the
+# per-recId balance + the spawn-count floor that regexes cannot.
+#
+# THE REWIND IS PINNED FROM BOTH SIDES: the product's own
+# "Rewind-to-Launch initiated to UT" Info line (RecordingStore.BeginRewindForOwner,
+# which also states "this is NOT a Re-Fly"), and the seam verb's
+# "invokerewindtolaunch complete" terminal, which `DecideRewindToLaunchCompletion`
+# emits only when `IsRewinding` cleared IN the SPACECENTER scene - so the token is
+# also the scene-ksc proof.
+#
+# =====================================================================================
+# STATUS: FLOWN GREEN 2026-08-27, two flights, and every window below is
+# RE-PINNED FROM MEASUREMENT (the GS-2 re-pin contract):
+#   - READING run `2026-08-27_2145`: MISSION-OK attempt 1 (all 26 phase
+#     transitions, 282 s mission wall), ghostLifecycle measured spawned=8
+#     spawnLines=8 destroyLines=8 unbalanced=0 malformed=0 - the predicted
+#     census EXACTLY - and red PARSEK-FAIL(expectations) on precisely the two
+#     watch tokens, both one root cause: the single EnterWatchMode was issued
+#     5 s before the engine's first spawn frame in the freshly-loaded watcher
+#     scene (`no-watchable-ghost` at 00:48:27, parent MeshSpawned 00:48:32),
+#     so the parent ended `stale past-end ghost (no longer held)`. THE RED WAS
+#     THE MEASUREMENT: the machine gained the WATCH hold-then-retry loop
+#     (watchEntryLeadSeconds / watchEntryRetryFrames) from it.
+#   - GREEN run `2026-08-27_2204`: PASS attempt 1, every verifier
+#     PASS/SKIPPED/REPORT, mismatches=0. Watch entered on retry
+#     (renderVerbsDriven OK/OK), the watched parent ended
+#     `watch hold expired`, and the census repeated exactly: spawned=8,
+#     destroyLines=8, unbalanced=0 (reasons: parent-anchored debris outside
+#     relative coverage x4, playback completed x2, stale past-end x1 - the
+#     UNWATCHED probe child - watch hold expired x1 - the watched parent).
+#   - OBSERVED, not gated: the core-discard RewindPoint IS authored live
+#     (`RewindPoint begin: rp=... slots=2 controllablePids=2 focusSlot=0`) and
+#     is GONE after the rewind (`ReapOrphanedRPs: reaped=0 remaining=0`,
+#     saveParse rewindPoints=0) - the rewind lands before its branch point.
+#     Recorded here so the [expectations.rewind] block's silence on
+#     rewindPoints stays a decision, not an oversight.
+#   - unityExceptions REPORT: 4 NREs on the reading run, 1 on the green run,
+#     all stock KSP scene-change/teardown noise (KnowledgeBase / UIApp
+#     OnDestroy), none from a Parsek call site.
+# The debris NAME and the census of 8 were pre-measured off the operator's s15
+# save bytes (vesselName = "Kerbal X" (1) + "Kerbal X Debris" (6) +
+# "Kerbal X Probe" (1)) and both flights confirmed them live. Pre-flight risk
+# notes, kept for the record (all discharged or downgraded by the flights):
+#   - WATCH-ENTRY TIMING (the 300 km geometry is favourable but unflown);
+#   - THE DEBRIS RENDER WINDOWS: booster debris recordings carry a 60 s TTL
+#     (BackgroundRecorder.DebrisTTLSeconds, applied at ParsekFlight.cs:7695),
+#     so all six ghost windows live in [dropUT, dropUT+60] and NO ghost engine
+#     runs outside FLIGHT - the watcher must reach its flight scene before the
+#     first pair's window closes (~T+100 on the nominal profile; the rewind
+#     lands at T-15 and the SC stint + rollout costs ~45-90 s, so this is
+#     feasible but the binding constraint of the whole lane);
+#   - THE DEBRIS SNAPSHOT PATH: a debris recording whose ghost snapshot is null
+#     is skipped SILENTLY at Verbose ("debris with no snapshot, skipping",
+#     GhostPlaybackEngine.cs:6902, the #232 green-sphere suppression) - on a
+#     red reading run grep for that line FIRST to separate "coalescer
+#     pre-capture was null" from the derender regression this lane hunts;
+#   - THE MAP-GHOST ERROR SURFACE: this is the FIRST committed lane that opens
+#     map view, so the map-presence path has never run under a gated
+#     forbidden=[Parsek][ERROR] contract with atmospheric/debris ghosts.
+# ghostLifecycle stays REPORT-ONLY (gating=false default) until the reading run;
+# arm via GHOSTLIFE_ARMED_SPECS in harness/lib/test_hlib.py per the standard
+# three-run discipline (reading -> armed confirm -> negative control).
+#
+# FOLLOW-UP LANE (deliberately NOT here, keep-it-simple v1): the watch DISTANCE
+# CUTOFF probe. A far-ghost `EnterWatchMode expect=REJECTED` cannot share one
+# playback with a successful watch (once watching, the 300 km guard never
+# re-checks; waiting for the ghost to get far forfeits the watch). See
+# docs/dev/todo-and-known-bugs.md GS4-WATCH-DISTANCE-CUTOFF.
+# =====================================================================================
+tier = "operator"
+description = "Full player workflow ghost-derender tripwire: staged Kerbal X ascent (fueled core discarded engines-off), commit, Rewind-to-Launch via the new InvokeRewindToLaunch seam verb, Jumping Flea on the pad as watch anchor, map view + watch mode on the replay, then every spawned ghost (parent, boosters, separated core) must derender - MeshSpawned/MeshDestroyed balance via the ghostLifecycle evaluator."
+instanceProfile = "stock-minimal"
+tags = ["GS4", "rewind-to-launch", "watch-mode", "ghost-render", "derender", "staging", "map-view", "ghost-lifecycle"]
+
+[fixture]
+# gs1-two-stage-pad, reused as-is (flight-proven by GS-1: carries the inert
+# `SCENARIO{name=ParsekScenario}` node - the CL-1 trap - and a pad-scene sandbox
+# world). Its pre-placed GS1 Auto-Chute Booster (Valentina aboard) is RECOVERED by
+# the mission's own `launch_vessel` before the Kerbal X rolls out; per code fact (2)
+# no recording exists at that point, so the recovery is inert (sandbox: no ledger
+# facts asserted, the recovery pays nothing anyone reads).
+#
+# "Kerbal X" arrives via the save's shared-ships.toml row (already present for
+# GS-1). "Jumping Flea.craft" is committed PHYSICALLY in this fixture's Ships/VAB/
+# (the single-consumer rule: a craft used by exactly one fixture stays in that
+# fixture, the gloops-airshow precedent) - the stock KSP 1.12 Jumping Flea with
+# ONE deliberate edit: its `ship =` line is rewritten from the stock
+# `#autoLOC_501224` localization token to the literal `Jumping Flea`, because
+# KSP/kRPC surface the RAW ship name as the live vesselName (Vessel.GetName
+# never localizes; a launched stock Flea persists `name = #autoLOC_501224`) and
+# the mission's watcher name gate reads that name back. Everything below line 1
+# is byte-identical to the dev install's copy. NOTE the file also says
+# `vesselType = Debris` (stock ships that way); irrelevant here - it is the
+# ACTIVE vessel and only an anchor for the camera.
+saveTemplate       = "fixtures/saves/gs1-two-stage-pad"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind    = "autopilot"
+mission = "kx_rewind_watch"
+
+# `steps` MUST stay in the [driver] table, ABOVE the [driver.missionParams] header.
+#
+# SIX SEAM STEPS + the mission. Deliberately NO `StartRecording`: the recording
+# must begin AT the launch click (code fact 2) so the rewind save is a pad save -
+# `autoRecordOnLaunch=true` is pinned explicitly against a stale sidecar rather
+# than trusted as the default. Deliberately NO `RunTests` (no in-game batch: stays
+# out of CommittedBatchTallySourceSyncTests). `autoMerge=true` is LOAD-BEARING,
+# not defensive: `StopRecording` never nulls `activeTree`, so on any path where
+# an active tree survives to the rewind's own `HighLogic.LoadScene`,
+# `FinalizeTreeOnSceneChangeCore` either commits it (autoMerge) or STASHES it as
+# a pending tree - and a pending tree both refuses `CanRewind` and surfaces a
+# merge dialog on the next scene load. `verboseLogging=true` is MANDATORY for
+# the Group-1 token below: both auto-record trigger lines route through
+# `ParsekFlight.Log` = `ParsekLog.Verbose` (ParsekFlight.cs:27044), so without
+# this step the lane's first required regex depends on whatever verboseLogging
+# the fixture happens to carry. `ghostRenderTracing=true` is THE load-bearing
+# render step: without it the tracer emits nothing, the six required
+# MeshSpawned/MeshDestroyed tokens red the run, and the ghostLifecycle vacuity
+# floor states the same fact (report-only until armed - the floor itself moves
+# no verdict before then).
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" },      expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "true" },   expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoMerge", value = "true" },            expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" },       expect = "OK" },
+  { cmd = "SetSetting", args = { name = "ghostRenderTracing", value = "true" },   expect = "OK" },
+  { phase = "mission",                                                            expect = "MISSION-OK", budget = 1600 },
+  { cmd = "FlushAndQuit",                                                         expect = "OK" },
+]
+
+# Mission parameters are TOLERANCES / WINDOWS / BUDGETS, never golden trajectories;
+# validated against kx_rewind_watch.schema.toml. Machine defaults are live for
+# everything not named here; the two names ARE the scenario.
+[driver.missionParams]
+craftName        = "Kerbal X"
+launchSite       = "LaunchPad"
+watcherCraftName = "Jumping Flea"
+
+[dimensionsCovered]
+# CLAIM-IS-NOT-GATE. Every value below is backed by a REQUIRED token in this spec's
+# own logContracts.
+#
+# `auto-record-launch` <- "Auto-record started (..." (the PRELAUNCH->FLYING or
+#   first-staging-on-pad trigger line; either spelling is this trigger).
+D1 = ["auto-record-launch"]
+# `controlled-decoupled-child` <- "ProcessBreakupEvent: controlled child created:
+#   pid=..." - the fueled core coming off through the istg=2 decoupler with its
+#   RC-L01, the same population GS-2 claims.
+D5 = ["controlled-decoupled-child"]
+# `basic-playback`          <- the MeshSpawned ghost-created token: a committed
+#   recording replayed as a flight-scene ghost on a live run (S1.4 claims the same
+#   value from injected recordings; this is the flown-recording sibling).
+# `mesh-lifecycle-derender` <- the MeshDestroyed tokens + the ghostLifecycle
+#   declaration; the registry value added with this lane (growth rule).
+D6 = ["basic-playback", "mesh-lifecycle-derender"]
+# `rewind-to-launch` <- BOTH the product line "Rewind-to-Launch initiated to UT"
+#   and the seam terminal "invokerewindtolaunch complete". FIRST CLAIMANT.
+# NOT claimed: `rewind-to-separation` / `refly-gate` / everything Re-Fly - this
+#   lane authors an RP at the core split as a side effect and never touches it.
+D9 = ["rewind-to-launch"]
+# `scene-ksc`  <- "invokerewindtolaunch complete" (emitted only with the scene
+#   read back as SPACECENTER - see the header).
+# `scene-map`  <- "entermapview ok mapOpen=true" (read-back of MapView.MapIsEnabled,
+#   the same property the polyline Driver gates on).
+D14 = ["kerbin", "sandbox", "scene-flight", "scene-ksc", "scene-map"]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING: `allowedAnomalies` must precede every
+# [expectations.<sub>] header.
+allowedAnomalies = []
+
+[expectations.recordings]
+# RE-PINNED TO THE MEASUREMENT (both flights, `_2145` and `_2204`): parent
+# recording ("Kerbal X" -> pod stack) + 6 booster debris + the
+# controlled-decoupled core child ("Kerbal X Probe") = 8, exactly, twice. The
+# population is structural (three radial pairs + one core decoupler on a fixed
+# craft), not marginal, so the pin is exact per the B19 re-pin-do-not-widen
+# contract; if a future flight sheds differently, re-pin to the new measured
+# value and record which recording moved.
+count = { min = 8, max = 8 }
+
+[expectations.logContracts]
+# GROUPS, ordered as the run emits them. [MEASURED] = the exact line was measured
+# by a sibling lane on this craft/verb; [INTERIM] = first-flight pin, re-pin from
+# the reading run.
+#
+# GROUP 1 - LAUNCH AND RECORDING.
+#   "Auto-record started (..."            ParsekFlight.cs:7826/:7884 (VERBOSE - both
+#       trigger lines route through ParsekFlight.Log = ParsekLog.Verbose, which is
+#       why the verboseLogging=true step above is mandatory and not a convenience).
+#       Alternation, all THREE launch-trigger spellings accepted: the situation
+#       trigger renders "(PRELAUNCH -> FLYING)" for a pad start and
+#       "(LANDED -> FLYING)" for a settled-landed start
+#       (EvaluateAutoRecordLaunchDecision's StartFromSettledLanded branch), and
+#       the pad-staging trigger renders "(first staging on pad, stage=N)". Every
+#       one IS the auto-record launch trigger.
+#   "Recording started"                   FlightRecorder.cs (Info) [MEASURED - B1, CL-1, GS-1]
+#
+# GROUP 2 - THE STAGED FLIGHT.
+#   "Controllable split children: [a,b]"  SegmentBoundaryLogic.cs (Info) [MEASURED - GS-1]
+#       Two comma-separated pids = the CORE discard (the multi-controllable split).
+#       The booster drops are single-controllable and do NOT emit this shape.
+#   "ProcessBreakupEvent: controlled child created: pid=..." (Info) [MEASURED - GS-2]
+#
+# GROUP 3 - COMMIT AND REWIND.
+#   "Committed tree '...' (N recordings)" RecordingStore.cs (Info) [MEASURED - CL-2]
+#   "Rewind-to-Launch initiated to UT"    RecordingStore.cs:5340 (Info) [product side]
+#       The line also carries "this is NOT a Re-Fly", pinning WHICH rewind system ran.
+#   "invokerewindtolaunch complete rec="  seam verb terminal (Info)
+#       Emitted only when IsRewinding cleared IN SPACECENTER - the scene-ksc proof.
+#
+# GROUP 4 - MAP + WATCH.
+#   "entermapview ok mapOpen=true"        ParsekTestCommandAddon.MapView.cs:93 (Info)
+#   "enterwatchmode complete: index="     seam verb terminal (Info) [MEASURED - V7M/V15M]
+#       The genuine-entry token (a bare OK is also satisfied by the idempotent
+#       already-watching path, which is why the TOKEN is required, not the verdict).
+#
+# GROUP 5 - THE GHOST LIFECYCLE (the lane's heart; see also ghostLifecycle below).
+#   "phase=MeshSpawned ... vessel=<name> reason=ghost-created" (Info, ghostRenderTracing-gated)
+#       Pinned per population: the parent ("vessel=Kerbal X reason=" - the space
+#       before reason= keeps it from prefix-matching "Kerbal X Probe"), the
+#       separated core ("Kerbal X Probe" - THE motivating regression: a separated
+#       stage whose ghost never renders leaves this token missing), and booster
+#       debris ("Kerbal X Debris" [MEASURED - s15 save bytes: six recordings
+#       carry exactly this vesselName, the same field the tracer prints]).
+#   "phase=MeshDestroyed ..." per population, reason-pinned where knowable: the
+#       watched parent ends via the watch hold ("watch hold expired"), via
+#       "playback completed" if watch ended early, OR via an auto-follow - the
+#       hold retries FindNextWatchTarget every frame (WatchModeController.cs:2549
+#       "auto-followed during hold"), and the parent carries a JointBreak
+#       ChildBranchPointId whose "Kerbal X Probe" ghost can resolve as the next
+#       target, so the auto-follow spelling IS a healthy outcome and the
+#       alternation accepts it. The unwatched populations end "playback
+#       completed" (or auto-follow variants). Anything outside the healthy set
+#       fails the required match and reds.
+required  = ["Auto-record started \\((?:PRELAUNCH|LANDED|first staging on pad)",
+             "Recording started",
+             "Controllable split children: \\[[0-9]+,[0-9]+\\]",
+             "ProcessBreakupEvent: controlled child created: pid=[0-9]+",
+             "Committed tree '.+' \\([1-9][0-9]* recordings\\)",
+             "Rewind-to-Launch initiated to UT",
+             "invokerewindtolaunch complete rec=",
+             "entermapview ok mapOpen=true",
+             "enterwatchmode complete: index=",
+             "phase=MeshSpawned [^\\r\\n]*vessel=Kerbal X reason=ghost-created",
+             "phase=MeshSpawned [^\\r\\n]*vessel=Kerbal X Probe reason=ghost-created",
+             "phase=MeshSpawned [^\\r\\n]*vessel=Kerbal X Debris",
+             "phase=MeshDestroyed [^\\r\\n]*vessel=Kerbal X reason=(?:watch hold expired|playback completed|auto-followed)",
+             "phase=MeshDestroyed [^\\r\\n]*vessel=Kerbal X Probe reason=",
+             "phase=MeshDestroyed [^\\r\\n]*vessel=Kerbal X Debris"]
+# The ERROR pattern is the suite-wide one. It also covers the seam verbs' own
+# failure terminals (rewind-failed / rewind-timeout / enterwatchmode timeout all
+# log at ERROR), so a watch or rewind that half-worked cannot pass on the required
+# tokens alone.
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+# REPORT-ONLY (gating=false is the default and the ARMING is a later operator
+# decision through GHOSTLIFE_ARMED_SPECS): the per-recId balance the regexes above
+# cannot express, plus the census floor. INTERIM window: the reading run is
+# expected to measure spawned=8 (parent + 6 boosters + core child); min=3 is the
+# same honest floor as recordings.count (parent + core + >=1 booster ghost).
+# requireBalanced is the actual tripwire: EVERY spawned recId must carry a
+# MeshDestroyed - a ghost that lingers past playback (the derender bug class) is
+# an unbalanced row with its vessel name in the report.
+[expectations.ghostLifecycle]
+# RE-PINNED: both flights measured spawned=8 (the full census - every
+# recording rendered a mesh) with unbalanced=0. Floor, not exact pin: the
+# window is re-pinned while still REPORT-ONLY, and the arming pass may
+# tighten it further with its own three-run evidence.
+spawned = { min = 8 }
+requireBalanced = true
+
+# REPORT-ONLY: no Re-Fly machinery may have run. The core-discard RP is authored
+# and promoted at commit (GS-2's population) but nothing here invokes it, and
+# Rewind-to-Launch builds neither supersede rows nor tombstones (the product line
+# says so: "this is NOT a Re-Fly"). rewindPoints deliberately UNDECLARED: whether
+# the RP survives the rewind reload is itself unmeasured until the reading run.
+[expectations.rewind]
+supersedeRows = { max = 0 }
+tombstones    = { max = 0 }
+
+# REPORT-ONLY structural shape, RE-PINNED from the green run `_2204`'s parse:
+# recordings=8, branchPoints {JointBreak: 5} (three booster-pair drops + the
+# core discard; every split coalesces as JointBreak - GS-2's measured
+# correction, not Breakup), terminalStates {Destroyed: 6, SubOrbital: 2} (six
+# crashed boosters+debris, the suborbital pod stack and probe core at commit).
+# Floors rather than exact pins while the block is report-only: bp coalescing
+# and impact timing can plausibly move the census by one.
+[expectations.recordings.structure]
+trees          = { min = 1, max = 1 }
+committedTrees = { min = 1, max = 1 }
+recordings     = { min = 8 }
+branchPoints   = { JointBreak = { min = 4 } }
+terminalStates = { SubOrbital = { min = 2 }, Destroyed = { min = 4 } }
+
+[runtime]
+# WALL clock for the WHOLE drive phase including KSP boot: 300 LoadGame + 1600
+# mission + fast SetSetting/FlushAndQuit + ~400 boot and margin. The mission
+# budget is sized to the machine's own HEALTHY worst case, summed honestly
+# rather than hoped past (the second review re-computed it and the first
+# number, 1300, left ~25 s of slack at the caps): Kerbal X rollout reload
+# (~120 s) + the 420 s flight-clock cap + 20 s coast + four bridge round-trips
+# + the rewind reload (the machine's own poll window allows 420 s precisely so
+# a healthy load that used its whole C# deferral budget is not misread) + the
+# watcher rollout reload (~120 s) + the REAL-TIME playback wait, which spans
+# from the rewound clock (StartUT-15) to commitUT+30 (~455 s at the flight
+# cap; the mission never warps in v1) ~= 1275 s at every cap simultaneously,
+# plus real headroom for a slow machine. Nominal is far lower (~600-700 s);
+# the budget is a kill backstop, not a target.
+budgetSeconds = 2400
+
+[retry]
+policy = "once"
+
+[expectedFail]
+# EMPTY, deliberately - an expectedFail key would demote the exact derender
+# regression this lane exists to catch.
+bugId = ""

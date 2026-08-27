@@ -84,6 +84,19 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void RewindToLaunchVerb_UsesItsBudget()
+        {
+            // InvokeRewindToLaunch is the same cold-save parse + scene settle as
+            // InvokeRewind, via a different entry point, so it is sized identically (300 s)
+            // rather than riding the 60 s default.
+            Assert.Equal(300.0, DeferralBudget.BudgetSeconds("InvokeRewindToLaunch"));
+            Assert.Equal(DeferralBudget.InvokeRewindToLaunchSeconds,
+                DeferralBudget.BudgetSeconds("InvokeRewindToLaunch"));
+            Assert.Equal(DeferralBudget.BudgetSeconds("InvokeRewind"),
+                DeferralBudget.BudgetSeconds("InvokeRewindToLaunch"));
+        }
+
+        [Fact]
         public void ShouldTimeout_False_WithinBudget()
         {
             // First deferred at t=100, now t=140, budget 60 -> not yet.

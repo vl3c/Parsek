@@ -213,6 +213,19 @@ IMPLEMENTED_SEAM_VERBS: Tuple[str, ...] = (
     # steps that behave differently under the overlay. 27 total, mirroring the C#
     # TestCommandVerbs.ImplementedVerbs set exactly.
     "EnterMapView", "ExitMapView",
+    # Rewind-to-LAUNCH. ADDITIVE (the SaveGame / EVA / ExportRenderManifest shape, not
+    # a promotion): the reserved envelope carried FlySlot / SealSlot / StashSlot, all of
+    # them slot verbs against Rewind-to-SEPARATION's RewindPoint model, and none of them
+    # this. TWO-PHASE like InvokeRewind and for the same mechanical reason - it copies a
+    # quicksave, reloads the world, and the terminal cannot be emitted until the new
+    # scene settles - except that where InvokeRewind lands back in FLIGHT this one ends
+    # in SPACECENTER, which is why its terminal payload names the rewound recording and
+    # tree (`rewound=true rec= tree= adjustedUT=`) rather than a live vessel. Its `tree=`
+    # arg is OPTIONAL and auto-selects when exactly one committed tree exists; the
+    # ambiguity that arg exists to resolve is a REJECTED (`ambiguous-tree`), never a
+    # silent pick. 28 total, mirroring the C# TestCommandVerbs.ImplementedVerbs set
+    # exactly.
+    "InvokeRewindToLaunch",
 )
 
 # The M-A7 export verb, named once. Referenced by the verb/block coupling rule in
@@ -445,8 +458,15 @@ STEP_WAIT_MARGIN_SECONDS = 60
 # EnterWatchMode is deliberately ABSENT: it IS two-phase, but its completion is a
 # camera read-back that lands within a frame or two, so it rides the plain 60 s
 # default like KscAction.
+# InvokeRewindToLaunch joins for InvokeRewind's reason VERBATIM: it is the same
+# quicksave-copy + scene-reload shape, so its terminal is gated on a whole world load
+# settling (here into SPACECENTER rather than back into FLIGHT), and the 540 s cap +
+# step-wait margin must govern any budget a spec declares for it. Membership here is
+# about that CAP, not about being two-phase - ExitToSpaceCenter is two-phase and
+# deliberately absent, because a scene EXIT settles where a scene RELOAD does not.
 DEFERRED_SEAM_VERBS: Tuple[str, ...] = ("RunTests", "LoadGame", "InvokeRewind", "TimeJump",
-                                        "EvaChuteDeploy", "StartLoopPlayback")
+                                        "EvaChuteDeploy", "StartLoopPlayback",
+                                        "InvokeRewindToLaunch")
 
 # Per-verb seam-side DISPATCH deferral budgets (seconds), mirroring the C#
 # DeferralBudget.BudgetSeconds table (TestCommands/TestCommandDispatcher.cs). A verb
@@ -501,6 +521,15 @@ DISPATCH_DEFERRAL_BUDGET_SECONDS: Dict[str, float] = {
     # because its completion is a camera read-back, so the default row here is
     # already correct.
     "StartLoopPlayback": 120.0,
+    # Rewind-to-LAUNCH mirrors the C# InvokeRewind row (300 s) rather than the 120 s
+    # scene-exit class, because it does what InvokeRewind does: copy a quicksave off
+    # disk, tear the world down and load a cold save back in. Sizing it like
+    # ExitToSpaceCenter would let the harness step-wait KILL a healthy SPACECENTER
+    # bootstrap at ~180 s and convert a retryable seam TIMEOUT into a terminal KILLED.
+    # It is ALSO a DEFERRED_SEAM_VERB, so this row bounds the head-defer while the
+    # 540 s cap bounds any spec-declared budget - both apply, as they do for
+    # LoadGame / InvokeRewind.
+    "InvokeRewindToLaunch": 300.0,
 }
 
 # Per-verb TAIL ROLE: what a seam verb DOES, used to decide whether it may still be
@@ -641,6 +670,13 @@ SEAM_VERB_TAIL_ROLE: Dict[str, str] = {
     # tail buys no evidence and would add a step to every such tail.
     "EnterMapView": TAIL_ROLE_WORLD_MUTATING,
     "ExitMapView": TAIL_ROLE_WORLD_MUTATING,
+    # Rewind-to-LAUNCH is world-mutating, and it is the least borderline row in this
+    # table: it REPLACES THE LOADED WORLD from a quicksave and rewrites the career
+    # pools with it - InvokeRewind's call and LoadGame's, at once. Driving it on an
+    # unmet run would discard the very state the collect-logs snapshot exists to
+    # preserve. Emphatically not `cleanup` despite ending in SPACECENTER: FlushAndQuit
+    # owns the quit, and a rewind that reloads the save is not a no-cost close.
+    "InvokeRewindToLaunch": TAIL_ROLE_WORLD_MUTATING,
 }
 
 # ---------------------------------------------------------------------------
@@ -751,6 +787,13 @@ SEAM_VERB_POST_MISSION_ROLE: Dict[str, str] = {
     # disagree on purpose: both are WORLD-MUTATING on the tail axis and `recording` here.
     "EnterMapView": POST_MISSION_ROLE_RECORDING,
     "ExitMapView": POST_MISSION_ROLE_RECORDING,
+    # Rewind-to-LAUNCH is `recording`, inheriting InvokeRewind's row verbatim: its OK
+    # means "Parsek rewound the tree to its launch and SPACECENTER settled", a claim
+    # about a PARSEK FEATURE UNDER TEST, not about a kerbal's physical in-world state.
+    # The `outcome` set is exactly the verbs whose verdict is that kerbal claim; routing
+    # a rewind defect through mission-outcome would name the wrong cause AND skip the
+    # save-reading verifiers that can actually describe it.
+    "InvokeRewindToLaunch": POST_MISSION_ROLE_RECORDING,
 }
 
 
@@ -3507,6 +3550,24 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
             expectations.get(rendercompose.RENDER_COMPOSITION_BLOCK)))
     warnings.extend(rendercompose.render_composition_expectation_warnings(expectations))
 
+    # Ghost-lifecycle verifier spec surface: [expectations.ghostLifecycle]. Same
+    # rationale as the three blocks above - a malformed window, a non-bool
+    # `gating` / `requireBalanced`, or an uncompilable `destroyedReasons.forbidden`
+    # pattern must be a pre-launch rejection, never a clause that silently
+    # evaluates as a no-op. The regex compile in particular mirrors
+    # `logContracts.required` / `forbidden`: a broken pattern discovered
+    # post-flight costs a whole KSP boot, and an evaluator that swallowed the
+    # error would report "nothing matched" for a clause that never ran.
+    if ghostlife.GHOST_LIFECYCLE_BLOCK in expectations:
+        errors.extend(ghostlife.validate_ghost_lifecycle_expectations(
+            expectations.get(ghostlife.GHOST_LIFECYCLE_BLOCK)))
+    # The TRACER coupling rides as a WARNING rather than an error, deliberately -
+    # see the rationale on `ghost_lifecycle_expectation_warnings` (the vacuity
+    # floor already reds the tracer-off run, and an error would refuse that
+    # floor's own negative control).
+    warnings.extend(ghostlife.ghost_lifecycle_expectation_warnings(
+        expectations, steps))
+
     # VERB / BLOCK COUPLING. `PARSEK_RENDER_MANIFEST` is armed at launch by the
     # DECLARATION of [expectations.renderComposition] and by nothing else, so a
     # spec that drives ExportRenderManifest expecting OK without declaring the
@@ -3543,10 +3604,21 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
     # hard spec error (never launch KSP for an unassertable run). TimeJump + ledger
     # stays allowed (design-blessed: a forward jump keeps the seed + manifest sum
     # valid). M-A5 integration item 1.
+    #
+    # InvokeRewindToLaunch joins the refused set for the SAME mechanical reason and not
+    # by analogy: it restores a quicksave, so the career pools after it are whatever
+    # that file carried, which the seed + manifest contract cannot reconstruct. The
+    # deferral is identical (L4), so the message names it too. SCOPE HONESTY: this
+    # check sees only `driver.steps` - a MISSION that drives the verb over the seam
+    # bridge (GS-4's kx_rewind_watch does exactly that) is invisible to it, so a
+    # future lane pairing a bridge-driven rewind with [expectations.ledger] is NOT
+    # refused here. GS-4 declares no ledger block, so no committed spec authors that
+    # unassertable run today; a mission-aware pairing check would need the machine's
+    # emitted-verb set, which spec validation cannot know statically.
     if "ledger" in expectations:
         for i, step in enumerate(steps):
             scmd = (step or {}).get("cmd")
-            if scmd in ("InvokeRewind", "AnswerMergeDialog"):
+            if scmd in ("InvokeRewind", "InvokeRewindToLaunch", "AnswerMergeDialog"):
                 errors.append(
                     "driver.steps[%d].cmd: %r cannot pair with [expectations.ledger] -- a "
                     "rewind/merge rewrites the career pools the seed+manifest contract cannot "
@@ -3647,6 +3719,7 @@ if _PROVISION_DIR not in _sys.path:
 import provlib  # noqa: E402  (the M-A6 pure sibling; admission reuse, design)
 import saveparse  # noqa: E402  (the M-C2/R9 pure sibling; save-parse spec-surface validation lives there so validator + evaluator share one vocabulary)
 import rendercompose  # noqa: E402  (the M-A7 pure sibling; same reason - the render-composition spec surface is validated by the module that evaluates it)
+import ghostlife  # noqa: E402  (the ghost-lifecycle pure sibling; same reason - the [expectations.ghostLifecycle] surface is validated by the module that evaluates it)
 
 
 def build_expected_admission(
@@ -5562,6 +5635,14 @@ PARSEK_FAIL_SUBKINDS: Tuple[str, ...] = (
     # NO committed spec arming it; the RENDERCOMPOSE_ARMED_SPECS sweep in
     # test_hlib.py keeps that set deliberate.
     "render-composition",
+    # A GATING-armed [expectations.ghostLifecycle] mismatch
+    # (ghostlife.evaluate_ghost_lifecycle). Its own failure class for the same
+    # reason the two above are: a ghost-lifecycle red names WHAT THE FLIGHT SCENE
+    # SPAWNED (or failed to), which no expectation regex over the log states and
+    # which the render-composition manifest - a MAP-pipeline record - cannot see.
+    # Ships REPORT-ONLY with NO committed spec arming it; the GHOSTLIFE_ARMED_SPECS
+    # sweep in test_hlib.py keeps that set deliberate.
+    "ghost-lifecycle",
 )
 
 # Subkinds a bugId-ONLY expectedFail key may NOT demote to EXPECTED-FAIL. An
@@ -5703,6 +5784,21 @@ _SEAM_REFUSAL_SUBKINDS: Dict[str, str] = {
     "no-flight-instance": "driver-gate",
     "no-watchable-ghost": "driver-gate",
     "watch-not-entered": "driver-gate",
+    # Rewind-to-LAUNCH. Its taxonomy splits the same way InvokeRewind's does, so the
+    # rows follow InvokeRewind's calls rather than inventing new ones:
+    #   `rewind-gate <reason>` is the precondition gate declining - the `refly-gate`
+    #     row's exact shape, compound reason and all (it arrives percent-encoded as
+    #     `rewind-gate%20<reason>` and classifies off the head token), so driver-GATE.
+    #   `no-committed-tree` is a GATE, not an arg fault: the spec named nothing wrong -
+    #     the run simply reached a state with no committed tree to rewind. It is the
+    #     `loop-not-armed` call, and the fix is an earlier step, not a spelling.
+    #   `ambiguous-tree` is ARG-class: more than one committed tree exists and the
+    #     OPTIONAL `tree=` arg is what disambiguates, so the spec has to name one.
+    # `unknown-tree` needs no row - it is already mapped to driver-arg above and shared
+    # verbatim (this table is keyed by msg token alone, never by (verb, msg)).
+    "rewind-gate": "driver-gate",
+    "no-committed-tree": "driver-gate",
+    "ambiguous-tree": "driver-arg",
     # NOT mapped, deliberately: StartLoopPlayback's `jump-timeout`. Like switch-threw /
     # switch-refused-by-stock it is a POST-arm terminal - the clock jump was initiated
     # and never landed - so it rides the coarse driver-verdict-mismatch rather than
@@ -5785,7 +5881,8 @@ def classify_verdict(driver: Dict, verifiers: Dict, expected_fail: Dict,
       analyzer RED=1 real fail -> PARSEK-FAIL; stale-only/baseline-only -> INVALID
       post-mission outcome step unmet -> PARSEK-FAIL(mission-outcome)
       log-contract / results / anomaly / unity-exception / expectation /
-          save-structure / render-composition / ledger -> PARSEK-FAIL
+          save-structure / render-composition / ghost-lifecycle / ledger
+          -> PARSEK-FAIL
       else -> PASS
     ``retryable`` is a recommendation; ``should_retry`` is the authority
     combining attempt + policy.
@@ -5877,6 +5974,17 @@ def classify_verdict(driver: Dict, verifiers: Dict, expected_fail: Dict,
                 # the career ledger.
                 base = V(VERDICT_PARSEK_FAIL, "render-composition",
                          "gating render-composition expectations mismatch")
+            elif verifiers.get("ghost_lifecycle_mismatch", False):
+                # Only reachable for a scenario that DECLARED
+                # [expectations.ghostLifecycle] with gating = true; the row is
+                # report-only otherwise, so this branch is inert for every
+                # committed spec today (pinned by the GHOSTLIFE_ARMED_SPECS
+                # sweep). Placed after render-composition and before ledger: a
+                # lifecycle red is a claim about what the FLIGHT SCENE spawned,
+                # which is downstream of what the map drew and upstream of the
+                # career ledger.
+                base = V(VERDICT_PARSEK_FAIL, "ghost-lifecycle",
+                         "gating ghost-lifecycle expectations mismatch")
             elif verifiers.get("ledger_drift", False):
                 base = V(VERDICT_PARSEK_FAIL, "ledger", "world/ledger oracle drift")
             else:

@@ -1,0 +1,484 @@
+# Declared param schema for mission kx_rewind_watch (the ghost-render-lifecycle
+# lane: fly a staged Kerbal X, commit, Rewind-to-LAUNCH, launch a watcher onto the
+# pad, and watch the first flight replay as a ghost).
+#
+# hlib.validate_spec does NOT read this file itself: run.py (shell / I/O) parses
+# every harness/missions/<mission>.schema.toml with tomllib into a registry
+# { mission-name -> schema-dict } and INJECTS it as validate_spec's
+# `mission_schemas` argument. hlib's PURE validator (_validate_mission_params)
+# then drives required-key presence and per-value type/range checks from the
+# `params` table below. Shape consumed by hlib:
+#   {"params": {"<name>": {"required": bool, "type": "<t>", "min": <num?>, "max": <num?>}}}
+# where <t> in {float, int, number, window, list, string, bool}. hlib reads
+# `params` and NOTHING else, and it consults min/max only on the numeric types -
+# a bound on a string/list/window declaration reads as checked and checks nothing
+# (both pinned by hlib's MissionSchemaDeclaredTypeTests).
+#
+# NOTHING HERE IS REQUIRED. Every key has a live default in
+# `mlib.kxrw_params_from_dict`, and the machine's fail-closed behaviour does not
+# depend on any of them being declared: an omitted key takes the default, and the
+# two defaults that could bite (the fueled-core throttle epsilon and the playback
+# frame cap) are both bounds rather than permissions. A spec that wants a
+# different flight length or a different watcher declares only what it changes.
+# Every value is a WINDOW / threshold / budget, never a golden trajectory.
+
+# ---- craft + site -------------------------------------------------------------
+
+# The craft flown, recorded, committed and then REPLAYED. `Kerbal X` is the
+# committed fixture at harness/fixtures/ships/, and the machine's staging plan is
+# derived from THAT file's inverse stages (istg 6/5/4/3/2). Pointing this at a
+# craft with a different staging layout without re-reading the machine header is
+# how a green run stages the wrong thing.
+#
+# IT IS A FILE NAME, NOT A VESSEL NAME. `launch_vessel` resolves
+# `<save>/Ships/VAB/<craftName>.craft`; the name the ACTIVE VESSEL reads back is
+# the `ship = ` line INSIDE that file, and the two are only equal by coincidence.
+# See rolloutExpectedVesselName below for the identity half of the gate.
+[params.craftName]
+required = false
+type = "string"
+
+# THE EXPECTED VESSEL NAME for the ROLLOUT gate: what the ACTIVE VESSEL must READ
+# BACK (after .strip()) before the machine will stage anything, because
+# `activate_next_stage` stages whatever is active and this lane's own save
+# pre-places a different craft on the pad. Defaults to `craftName`.
+#
+# IT IS DECLARED SEPARATELY BECAUSE STOCK CRAFT FILES SHIP A LOCALIZATION TOKEN AS
+# THEIR SHIP NAME. `Jumping Flea.craft` opens `ship = #autoLOC_501224`, and KSP
+# never localizes it on the way out - `ShipConstruct.LoadShip` / `Vessel.GetName`
+# hand the raw token to kRPC and the save persists `name = #autoLOC_501224`. So on
+# a stock craft the FILE name and the VESSEL name differ, a gate that compares
+# against the file name never settles, and the phase deadlocks into its give-up on
+# EVERY run. That coincidence is a trap for every future stock-craft lane: a lane
+# flying a stock craft either declares the `#autoLOC_*` token here or re-authors
+# the fixture's `ship =` line (which is what this lane did to its Jumping Flea).
+# The give-up text names both the file and the expected name, and says so.
+[params.rolloutExpectedVesselName]
+required = false
+type = "string"
+
+# The pad/runway kRPC launches BOTH craft from (SpaceCenter.launch_vessel's
+# launch_site): the ROLLOUT puts `craftName` here, and after the rewind the
+# WATCHER-LAUNCH puts `watcherCraftName` here too. One site for both is
+# deliberate - the watcher has to come up where the recorded flight did, or the
+# ghost replays somewhere it cannot be seen from.
+[params.launchSite]
+required = false
+type = "string"
+
+# The craft launched onto the (now clear) pad AFTER the rewind, from which the
+# replay is watched. It is never flown: it exists so the flight scene has a live
+# vessel, because a ghost needs somewhere to be watched FROM. Small and
+# cheap-to-launch is the whole specification - `Jumping Flea` is the stock choice.
+# It must exist as <save>/Ships/VAB/<name>.craft or launch_vessel raises. A FILE
+# name, like craftName; the identity half is watcherExpectedVesselName.
+[params.watcherCraftName]
+required = false
+type = "string"
+
+# THE EXPECTED VESSEL NAME for the WATCHER-READY gate - the same discipline as the
+# rollout, and for the same reason (a launch is a scene reload, so "a craft on the
+# pad in PRE_LAUNCH" was already true of whatever it replaced). Defaults to
+# `watcherCraftName`. Same #autoLOC trap as rolloutExpectedVesselName above, and
+# this is the param it actually bit: the committed
+# `fixtures/saves/gs1-two-stage-pad/Ships/VAB/Jumping Flea.craft` shipped
+# `ship = #autoLOC_501224` (stock's own line) while the gate compared against
+# "Jumping Flea", so WATCHER-READY could only ever burn its bound. The fixture now
+# reads `ship = Jumping Flea`; this key is what makes the next such craft a
+# one-line declaration instead of a re-authored fixture.
+[params.watcherExpectedVesselName]
+required = false
+type = "string"
+
+# ---- rollout ------------------------------------------------------------------
+
+# Frames in which the rolled-out craft must become the ACTIVE vessel, reading back
+# `craftName` in a `rolloutReadySituations` situation. Generous: it spans a full
+# FLIGHT scene reload (kRPC's LaunchVessel recovers the pad occupant and brings the
+# subject up in its place), every frame of which arrives vessel_lost.
+[params.rolloutFrames]
+required = false
+type = "int"
+min = 1
+max = 10000
+
+# Situations the ROLLED-OUT craft must read. PRE_LAUNCH only, and deliberately
+# NARROWER than watcherReadySituations: a craft that is already LANDED or FLYING is
+# not one that just rolled out, and accepting those would let the gate pass on the
+# very pad occupant the rollout exists to replace.
+[params.rolloutReadySituations]
+required = false
+type = "list"
+
+[params.rolloutReadyDebounceFrames]
+required = false
+type = "int"
+min = 1
+max = 50
+
+# ---- ascent -------------------------------------------------------------------
+
+[params.launchThrottle]
+required = false
+type = "float"
+min = 0.0
+max = 1.0
+
+# The gravity-turn program: 90 deg (straight up) below turnStartAltitudeMeters,
+# turnFinalPitchDeg at and above turnEndAltitudeMeters, linear in between, on
+# turnHeadingDeg. A PROGRAM, not a trajectory: nothing asserts the resulting
+# track, and the only thing riding on it is that the flight leaves the pad and
+# gains altitude for a few minutes so there is a real recording to replay.
+[params.turnStartAltitudeMeters]
+required = false
+type = "number"
+min = 0.0
+
+[params.turnEndAltitudeMeters]
+required = false
+type = "number"
+min = 0.0
+
+[params.turnFinalPitchDeg]
+required = false
+type = "number"
+min = -90.0
+max = 90.0
+
+[params.turnHeadingDeg]
+required = false
+type = "number"
+min = 0.0
+max = 360.0
+
+# Re-command the autopilot only when the programmed pitch has moved this far. A
+# COST knob, not a flight knob: one RPC per poll for a value that changes by
+# hundredths of a degree is pure waste, and the AP holds its last target between
+# commands.
+[params.pitchCommandStepDeg]
+required = false
+type = "number"
+min = 0.0
+
+# ---- staging ------------------------------------------------------------------
+
+# Radial-decoupler stages fired between launch and the core drop. THREE on the
+# committed Kerbal X (istg 5, 4 and 3, two decouplers each). This is a fact about
+# the craft file, so it moves only when the craft does.
+[params.boosterStageCount]
+required = false
+type = "int"
+min = 0
+max = 10
+
+# Fraction of the PEAK available thrust at or below which the boosters read as
+# flamed out. Peak-relative rather than absolute because LV-T45 available thrust
+# RISES with altitude (vac ISP), so an absolute floor would be a bet on one
+# altitude.
+[params.boosterDropThrustFraction]
+required = false
+type = "float"
+min = 0.0
+max = 1.0
+
+# The peak must first reach this before the fraction test above can fire - the
+# "there WAS an engine" half of the reading (GS-1's pre_stage_thrust discipline).
+# Without it the ignition frame's 0 N satisfies `0 <= 0 * fraction` and the
+# boosters come off on the pad.
+[params.boosterLiveThrustFloorNewtons]
+required = false
+type = "number"
+min = 0.0
+
+# Two BACKSTOPS, either of which arms the drop on its own: a craft whose thrust
+# channel never moves must still shed its stages. Neither is a tuning knob.
+[params.boosterDropBackstopAltitudeMeters]
+required = false
+type = "number"
+min = 0.0
+
+[params.boosterDropBackstopSeconds]
+required = false
+type = "number"
+min = 0.0
+
+# Frames held between a throttle cut and the stage click it precedes, so engine
+# thrust has decayed before a decoupler blows (GS-1's stageSettleFrames verbatim,
+# and GS-1 flight 2's collision is why it exists).
+[params.stageSettleFrames]
+required = false
+type = "int"
+min = 1
+max = 50
+
+# |throttle| at or below which the LIVE READBACK counts as OFF. THE fueled-core
+# discard is gated on this reading, never on the cut having been commanded, so it
+# is the one epsilon here that is about safety rather than tuning. An UNREAD
+# (NaN) throttle is not zero.
+[params.throttleZeroEpsilon]
+required = false
+type = "float"
+min = 0.0
+max = 1.0
+
+# ---- the fueled-core discard, the coast, and the flight bound -----------------
+
+# The core comes off when the orbit apoapsis reaches this OR the flight has run
+# coreDiscardMaxFlightSeconds, whichever fires first. The clock arm is what keeps
+# the RECORDED SPAN bounded - and the recorded span is what the playback wait
+# later spends in REAL TIME, so these two numbers set the length of the whole run.
+[params.coreDiscardApoapsisMeters]
+required = false
+type = "number"
+min = 0.0
+
+[params.coreDiscardMaxFlightSeconds]
+required = false
+type = "number"
+min = 0.0
+
+# Game seconds coasted on the remaining top stack (the Poodle is deliberately
+# never ignited) before the seam bridge runs, so the recorder authors real
+# post-separation coverage on BOTH halves of the split.
+[params.coastSeconds]
+required = false
+type = "number"
+min = 0.0
+
+# Hard bound on the WHOLE pre-commit flight, measured from the launch click. ONE
+# bound over the flight rather than a budget per phase: the ascent legitimately
+# bounces between ASCENT and the staging phases, so a per-phase clock resets on
+# every bounce and bounds nothing.
+[params.flightMaxSeconds]
+required = false
+type = "number"
+min = 0.0
+
+# ---- FRAME budgets ------------------------------------------------------------
+#
+# FRAMES, not game seconds, and the reason is structural: Rewind-to-Launch puts
+# the clock back to launchUT-15 s, so `ut - phaseEntryUt` is NEGATIVE past the
+# rewind and a game-time budget can never expire - the phase would hang with no
+# named give-up. R1 established the rule; this lane extends it to every
+# post-flight phase. The seam bridge BLOCKS inside perform() for its whole poll
+# window, so a terminal token normally lands on the very next frame; these bounds
+# exist for the case where the action never executed at all (no seam configured ->
+# an immediate ERROR token) or the result never rides a snapshot.
+
+[params.stageCutFrames]
+required = false
+type = "int"
+min = 1
+max = 10000
+
+[params.treeStateFrames]
+required = false
+type = "int"
+min = 1
+max = 10000
+
+[params.commitFrames]
+required = false
+type = "int"
+min = 1
+max = 10000
+
+[params.stopFrames]
+required = false
+type = "int"
+min = 1
+max = 10000
+
+# RECORDER-IDLE's bound. Each frame in the phase either issues one RecordingState
+# probe or reads its reply, so this is ~half that many probes. It exists because
+# the dispatcher REJECTS a rewind `recording-active` while a recorder is live, and
+# the commit-then-keep-flying promotion re-arms one ~14 ms after CommitTree
+# returns OK (R1 flight 1 died on exactly that).
+[params.idleFrames]
+required = false
+type = "int"
+min = 1
+max = 10000
+
+[params.rewindFrames]
+required = false
+type = "int"
+min = 1
+max = 10000
+
+# SPACECENTER's bound: frames in which the OBSERVED backward clock must appear
+# after InvokeRewindToLaunch answers OK. Generous, because it straddles a full
+# world teardown + cold load and every frame of it arrives as a vessel_lost
+# snapshot (SPACECENTER has no active vessel).
+[params.spaceCenterFrames]
+required = false
+type = "int"
+min = 1
+max = 10000
+
+# AUTORECORD-OFF's bound: frames in which the `SetSetting autoRecordOnLaunch=false`
+# step must answer. It is a one-frame AnyScene verb riding the 60 s C# default, so
+# its reply lands on the very next frame; this bounds a seam that never answers at
+# all. A non-OK answer is FATAL rather than bounded - leaving the setting armed
+# means the watcher launch auto-starts a second recording in the save the spec's
+# log contracts are about to read.
+[params.autoRecordOffFrames]
+required = false
+type = "int"
+min = 1
+max = 10000
+
+# WATCHER-READY's bound: frames in which the watcher craft must settle into one of
+# watcherReadySituations after its launch_vessel click.
+[params.watcherLaunchFrames]
+required = false
+type = "int"
+min = 1
+max = 10000
+
+# MAP-VIEW / WATCH bounds. These bound SILENCE, not refusal: a REJECTED render
+# verb is recorded and flown past by design (it is a Parsek finding, carried by
+# the spec's log contracts), and only a seam that never answers at all - a
+# transport fault - trips these.
+[params.mapViewFrames]
+required = false
+type = "int"
+min = 1
+max = 10000
+
+# watchFrames bounds silence PER ATTEMPT (the WATCH phase can issue several - see
+# watchEntryRetryFrames below), and it also bounds the pre-attempt hold.
+[params.watchFrames]
+required = false
+type = "int"
+min = 1
+max = 10000
+
+# ---- the WATCH entry race (MEASURED on the GS-4 reading run) ------------------
+#
+# THE RACE, in that run's own stamps. The lane issued its single EnterWatchMode at
+# 00:48:27 and Parsek answered REJECTED `no-watchable-ghost`; the parent ghost's
+# `phase=MeshSpawned ... vessel=Kerbal X` landed at 00:48:32. Five seconds early.
+# Watch never entered, so the parent's derender came out as `stale past-end ghost
+# (no longer held)` instead of a watch-hold reason - and the run red on BOTH the
+# `enterwatchmode complete: index=` token and the parent MeshDestroyed alternation.
+# The flight itself was fine (MISSION-OK; ghostLifecycle spawned=8 destroyLines=8
+# unbalanced=0): the DRIVER asked too early. That is a measurement, not a defect,
+# and RETRYING is the fix - failing was what the measurement cost.
+#
+# WHY THE WINDOW OPENS WHERE IT DOES. The committed recording spans
+# [launchUT, commitUT], a non-loop ghost replays at its RECORDED absolute UTs, and
+# Rewind-to-Launch had put the clock back to launchUT - 15 s - so the parent ghost
+# does not exist until the live clock reaches launchUT. The machine already stamps
+# launchUT itself (at the PRELAUNCH click) and the run proved both readings sit on
+# the same clock, so no new observation is needed to know when to ask.
+#
+# Seconds past launchUT the clock must reach before the FIRST EnterWatchMode goes
+# out. A RACE SHORTENER rather than a gate: an unreadable clock asks immediately
+# instead of burning the phase, because the retry loop below is the actual fix.
+[params.watchEntryLeadSeconds]
+required = false
+type = "number"
+min = 0.0
+
+# THE WHOLE WATCH-ENTRY BUDGET, measured from the phase's entry: the hold above
+# AND every retry below. One budget because both are the same wait - the game clock
+# reaching a ghost - and deliberately NOT watchFrames, which the hold alone can
+# consume (the machine arrives at ~launchUT-15 and the window opens at
+# launchUT+lead, so ~20 s = ~40 frames at the 0.5 s poll = watchFrames' entire
+# default; bounding the hold with it would put a give-up on the normal case).
+# watchFrames keeps its own narrower job: the SILENCE bound of ONE attempt.
+#
+# Within it, a `no-watchable-ghost` refusal is RE-ASKED (a fresh wire tag per
+# attempt, on a fixed internal cadence). That refusal is the only one meaning "not
+# yet" rather than "no": every other terminal still records and advances on the
+# spot, bound exhaustion still records the last rejection and advances, and NOTHING
+# here is fatal - the record-do-not-fail rule for render verbs is untouched.
+# Generous on purpose: an over-short bound rebuilds the lost watch leg this exists
+# to prevent, and the bound's only cost is real time in a phase already waiting on
+# a clock.
+[params.watchEntryRetryFrames]
+required = false
+type = "int"
+min = 1
+max = 10000
+
+# THE PLAYBACK WAIT'S ONLY BOUND, and the one cap that stops this mission running
+# forever. Frames rather than UT because a STUCK clock is precisely the failure a
+# UT budget cannot see; at the standard 0.5 s poll the default (1600) is ~13 real
+# minutes. A breach is MISSION-FLAKE naming the target it never reached.
+#
+# IT IS SIZED OFF recordedSpanWindowSeconds' MAX, and the two knobs move together.
+# The wait walks the clock from the post-rewind reading (launchUT - 15 s) to
+# commitUT + playbackMarginSeconds, i.e. span + 45 s of REAL time (this lane uses
+# no warp anywhere). At the 600 s span ceiling that is 645 s = 1290 frames, which
+# the previous 1200 default could not have covered at all: a max-span flight would
+# have flaked on the cap rather than on anything real. Raising either number
+# without the other rebuilds that inconsistency.
+[params.playbackWaitFrames]
+required = false
+type = "int"
+min = 1
+max = 100000
+
+# ---- the OBSERVED rewind gate + the watcher settle ---------------------------
+
+# Seconds the game clock must have run BACKWARD before the rewind counts as having
+# happened. THE OBSERVED GATE: InvokeRewindToLaunch answering OK is a COMMANDED
+# reading, and a rewind that did not move the clock did not happen. A healthy
+# cycle regresses by the whole recorded span plus the 15 s pre-launch lead, so any
+# positive floor is comfortable; the floor only keeps float noise from qualifying.
+[params.minUtRegressionSeconds]
+required = false
+type = "number"
+min = 0.001
+
+# Situations the WATCHER must read before the render verbs are driven. PRE_LAUNCH
+# is what a freshly launched craft sitting on the pad reports; LANDED is accepted
+# because KSP flips to it once physics settles under the clamps. The gate ALSO
+# requires the active vessel to read back `watcherCraftName` - same discipline as
+# the rollout, and for the same reason (a launch is a scene reload, so "a craft on
+# the pad in PRE_LAUNCH" was already true of whatever it replaced).
+[params.watcherReadySituations]
+required = false
+type = "list"
+
+[params.watcherReadyDebounceFrames]
+required = false
+type = "int"
+min = 1
+max = 50
+
+# ---- the playback wait --------------------------------------------------------
+
+# Game seconds past the RECORDED END the clock must reach before the mission is
+# done. The recorded span is [launchUT, commitUT], both stamped by the machine,
+# and a non-loop ghost replays at its recorded absolute UTs - so passing commitUT
+# is what puts the ghost's whole lifecycle (spawn -> replay -> RETIRE) inside the
+# log. The margin is what keeps the retire itself inside it rather than one frame
+# past the end.
+[params.playbackMarginSeconds]
+required = false
+type = "number"
+min = 0.0
+
+# ---- assertion window ---------------------------------------------------------
+
+# {min, max} game seconds the committed recording must span (commitUT - launchUT).
+# A WINDOW on the flight this mission actually flew, never a golden duration - and
+# sizing evidence for the operator, because this span is exactly what the playback
+# wait spends in REAL TIME afterwards. THE MAX IS TIED TO playbackWaitFrames: a
+# ceiling this window admits but that cap cannot sit through is a lane whose own
+# assertion window contradicts its own bound. Move the two together.
+[params.recordedSpanWindowSeconds]
+required = false
+type = "window"
+
+# Airborne frozen-telemetry samples before the craft is presumed destroyed (KSP
+# hands active-vessel to invalid debris and kRPC then reports bit-identical orbit
+# telemetry forever while UT advances). FLIGHT phases only.
+[params.frozenTelemetrySamples]
+required = false
+type = "int"
+min = 2
+max = 1000

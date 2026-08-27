@@ -43,6 +43,7 @@ for _p in (LIB_DIR, PROVISION_DIR):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
+import ghostlife  # noqa: E402  (the pure sibling behind the ghostLifecycle row)
 import hlib  # noqa: E402
 import machinelock  # noqa: E402  (shared lock I/O; pure decisions live in provlib)
 import oracle  # noqa: E402
@@ -2043,10 +2044,17 @@ def run_verifiers(spec: Dict, instance_dir: str, run_save_name: str,
     save_dir = os.path.join(instance_dir, "saves", run_save_name)
     log_path = os.path.join(instance_dir, "KSP.log")
     log_text = ""
+    # ghostlife distinguishes "we looked and saw zero lines" (empty str) from "we
+    # never looked" (None) - a missing or unopenable KSP.log must reach it as the
+    # latter, or the declared block reports "tracer off or nothing rendered" for a
+    # log that was never read. Every OTHER consumer of log_text keeps the empty
+    # string it always had.
+    ghostlife_log_text: Optional[str] = None
     if os.path.isfile(log_path):
         try:
             with open(log_path, "r", encoding="utf-8", errors="replace") as fh:
                 log_text = fh.read()
+            ghostlife_log_text = log_text
         except OSError:
             log_text = ""
 
@@ -2280,6 +2288,36 @@ def run_verifiers(spec: Dict, instance_dir: str, run_save_name: str,
                                      "reason": "killed-triage-only"}
         logger.info("Verify", "verify unityExceptions status=REPORT (killed-triage-only) "
                               "total=%d counts=%s" % (killed_ue.total, dict(killed_ue.counts)))
+        # The ghost-lifecycle row DOES run on a killed attempt, triage-only, and it
+        # follows the unityExceptions precedent rather than the saveParse /
+        # renderCompose one BECAUSE OF ITS SOURCE: those two read the produced SAVE
+        # and the teardown-flushed manifest, which a watchdog kill tears; this one
+        # reads the collected KSP.log, which the kill does not - the lines were
+        # written as the meshes appeared, long before the hang. On the run whose
+        # ghosts stopped appearing, that census is the evidence an operator most
+        # wants. NEVER gating here regardless of a declared block: KILLED precedes
+        # every verifier flag in classify_verdict, and a torn attempt must not be
+        # judged on a floor it may have been killed before reaching.
+        killed_gl = ghostlife.parse_ghost_lifecycle(ghostlife_log_text)
+        killed_gl_observed = ghostlife.observed_ghost_lifecycle_facets(killed_gl)
+        killed_gl_facets = killed_gl_observed.get(ghostlife.GHOST_LIFECYCLE_BLOCK) or {}
+        detail["ghostLifecycle"] = {
+            "status": ghostlife.STATUS_REPORT, "reason": "killed-triage-only",
+            "gating": False,
+            # `blocks` mirrors the DECLARATION on this non-evaluating path (see
+            # the SKIPPED row's comment): triage output must not contradict its
+            # own `declared` field.
+            "blocks": list(ghostlife.declared_ghost_lifecycle_blocks(expectations)),
+            "armedBlocks": [], "mismatches": [],
+            "declared": ghostlife.declared_ghost_lifecycle_block(expectations),
+            "observed": killed_gl_observed,
+            "parsed": killed_gl.parsed, "parseError": killed_gl.error}
+        logger.info("Verify", "verify ghostLifecycle status=REPORT (killed-triage-only) "
+                              "spawned=%s spawnLines=%s destroyLines=%s unbalanced=%s"
+                    % (killed_gl_facets.get("spawned", "-"),
+                       killed_gl_facets.get("spawnLines", "-"),
+                       killed_gl_facets.get("destroyLines", "-"),
+                       len(killed_gl_facets.get("unbalanced", []) or [])))
         # The ledger-oracle verifier is SKIPPED on any KILLED attempt: a torn save is
         # never ground truth (design edge 11), regardless of whether it was declared.
         ledger_active_killed = (expectations.get("ledger") is not None
@@ -2580,6 +2618,80 @@ def run_verifiers(spec: Dict, instance_dir: str, run_save_name: str,
                                   "(not gating; arm with gating = true inside the "
                                   "declared block after reading report-only runs): %s"
                         % (len(rc_report_only), rc_report_only))
+
+    # 7d. Ghost-lifecycle verifier. Scans the COLLECTED KSP.log for the
+    # GhostRenderTrace flight-scene mesh spawn/destroy events
+    # (`phase=MeshSpawned` / `phase=MeshDestroyed`) and evaluates
+    # [expectations.ghostLifecycle]. It reads `log_text`, which this function
+    # already holds for the logContracts / anomaly / unityExceptions rows, so the
+    # row costs no second read of a multi-hundred-megabyte file.
+    #
+    # REPORT-ONLY by default and by intent: the row ships with NO committed spec
+    # arming it (guarded by the GHOSTLIFE_ARMED_SPECS sweep in test_hlib.py), so
+    # landing it cannot move any nightly's verdict; arming is a per-scenario
+    # operator decision taken only after a report-only reading run whose facets
+    # match the declared windows.
+    #
+    # WHY IT EXISTS BESIDE renderCompose rather than inside it: that row reads the
+    # MAP pipeline's manifest, and the flight-scene mesh is a different surface
+    # with a different failure mode. A change that stopped spawning ghost meshes
+    # flies green past every other row - the recordings still exist, still carry
+    # points, and the save topology is unchanged.
+    #
+    # The scan runs UNCONDITIONALLY (not only when a block is declared), the
+    # renderCompose convention: the facets are how a lane earns its first honest
+    # window off a green report-only run. Gated on driver_valid for the saveParse
+    # / renderCompose reason - a driver-INVALID run never got the playback moment
+    # these lines describe, so the row stays SKIPPED with the facets recorded.
+    gl_snapshot = ghostlife.parse_ghost_lifecycle(ghostlife_log_text)
+    if not driver_valid:
+        detail["ghostLifecycle"] = {
+            "status": "SKIPPED", "reason": "driver-invalid", "gating": False,
+            # `blocks` mirrors what the spec DECLARED here (unlike the evaluated
+            # path, where it is what the evaluator judged): a SKIPPED row must
+            # not read "carried no assertion" while its own `declared` says
+            # otherwise.
+            "blocks": list(ghostlife.declared_ghost_lifecycle_blocks(expectations)),
+            "armedBlocks": [], "mismatches": [],
+            # Recorded on the SKIPPED path too: a driver-INVALID control flight
+            # still has to say which assertion it was carrying.
+            "declared": ghostlife.declared_ghost_lifecycle_block(expectations),
+            "observed": ghostlife.observed_ghost_lifecycle_facets(gl_snapshot),
+            "parsed": gl_snapshot.parsed, "parseError": gl_snapshot.error}
+        logger.info("Verify", "verify ghostLifecycle status=SKIPPED reason=driver-invalid")
+    else:
+        gl = ghostlife.evaluate_ghost_lifecycle(expectations, gl_snapshot)
+        if gl.gating:
+            verifiers["ghost_lifecycle_mismatch"] = (
+                gl.status == ghostlife.STATUS_FAIL)
+        gl_facets = (gl.observed.get(ghostlife.GHOST_LIFECYCLE_BLOCK) or {})
+        detail["ghostLifecycle"] = {
+            "status": gl.status, "reason": "", "gating": gl.gating,
+            "blocks": list(gl.blocks), "armedBlocks": list(gl.armed_blocks),
+            "declared": gl.declared,
+            "mismatches": list(gl.mismatches), "observed": dict(gl.observed),
+            "parsed": gl.parsed, "parseError": gl.parse_error,
+        }
+        logger.info("Verify", "verify ghostLifecycle status=%s gating=%s blocks=%s armed=%s "
+                              "spawned=%s spawnLines=%s destroyLines=%s "
+                              "unbalanced=%s malformed=%s reasons=%s mismatches=%d "
+                              "declared=%s"
+                    % (gl.status, gl.gating, list(gl.blocks) or "-",
+                       list(gl.armed_blocks) or "-",
+                       gl_facets.get("spawned", "-"),
+                       gl_facets.get("spawnLines", "-"),
+                       gl_facets.get("destroyLines", "-"),
+                       len(gl_facets.get("unbalanced", []) or []),
+                       gl_facets.get("malformed", "-"),
+                       gl_facets.get("destroyedReasons", "-"),
+                       len(gl.mismatches),
+                       gl.declared if gl.declared is not None else "-"))
+        gl_report_only = [m for m in gl.mismatches if m not in gl.armed_mismatches]
+        if gl_report_only:
+            logger.warn("Verify", "ghostLifecycle recorded %d report-only mismatch(es) "
+                                  "(not gating; arm with gating = true inside the "
+                                  "declared block after reading report-only runs): %s"
+                        % (len(gl_report_only), gl_report_only))
 
     # 8. Ledger oracle (M-B2). Active iff the scenario declares [expectations.ledger]
     # OR [expectations.world]; else SKIPPED(no-ledger-block-declared), the reserved
@@ -3850,6 +3962,22 @@ def print_dry_run_plan(selected: Sequence[Dict], instance_root_fn, logger: Harne
                             % (", ".join(rc_declared), rc_assertions))
         else:
             verify_line += ", renderCompose(facets only, no block declared)"
+        # ghostLifecycle (row 7d) - the SAME three states, and the same lesson.
+        # The declared KEY/VALUES ride here too, for the `2026-08-25_1811` reason:
+        # a negative control applied by editing this block has to be readable
+        # pre-flight, before the machine lock.
+        gl_declared = ghostlife.declared_ghost_lifecycle_blocks(exp)
+        gl_armed = ghostlife.armed_ghost_lifecycle_blocks(exp)
+        gl_block = ghostlife.declared_ghost_lifecycle_block(exp)
+        gl_assertions = "" if gl_block is None else "; declared: %s" % (gl_block,)
+        if gl_armed:
+            verify_line += (", ghostLifecycle(armed: %s -> PARSEK-FAIL(ghost-lifecycle) "
+                            "on a mismatch%s)" % (", ".join(gl_armed), gl_assertions))
+        elif gl_declared:
+            verify_line += (", ghostLifecycle(report-only: %s%s)"
+                            % (", ".join(gl_declared), gl_assertions))
+        else:
+            verify_line += ", ghostLifecycle(facets only, no block declared)"
         if ledger_block is not None or world_block is not None:
             verify_line += (", ledgerOracle(manifest-capture + oracle diff -> PARSEK-FAIL(ledger) on hard drift)")
         print(verify_line)

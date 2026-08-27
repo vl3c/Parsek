@@ -432,7 +432,8 @@ class KrpcMissionControl(MissionControl):
                  read_periapsis: bool = False,
                  read_landing: bool = False,
                  read_camera: bool = False,
-                 read_science: bool = False) -> None:
+                 read_science: bool = False,
+                 read_vessel_name: bool = False) -> None:
         self._use_mechjeb = use_mechjeb
         self._client_name = client_name
         # OPT-IN B-DOCK docking/rendezvous/transfer telemetry (design section 5.2).
@@ -509,6 +510,14 @@ class KrpcMissionControl(MissionControl):
         # mission whose entire subject is what those channels say, and it is the
         # same trade the landing lane's three reads make.
         self._read_science = bool(read_science)
+        # OPT-IN read of kRPC Vessel.Name, ON only for kx_rewind_watch, so every
+        # other mission's read_snapshot stays byte-identical (vessel_name keeps its
+        # "" UNREAD sentinel, which matches no declared name and therefore fails
+        # every identity gate CLOSED). It is what lets a machine tell the craft it
+        # just launched from the one the launch's scene reload replaced - see the
+        # field's note in mlib.TelemetrySnapshot.
+        self._read_vessel_name = bool(read_vessel_name)
+        self._warned_vessel_name_read = False
         # Dark-channel Warn latches for the two families (same discipline as the
         # executor / periapsis / landing / camera latches): both degrade to
         # sentinels that stand real machinery down, so each must NAME itself once
@@ -803,6 +812,25 @@ class KrpcMissionControl(MissionControl):
             # a drifted kRPC camera surface must name itself once instead of
             # producing a mute camera_mode-never-read give-up 40 frames later.
             camera_mode = ""
+            # "" = UNREAD, the fail-closed sentinel: it matches no declared craft
+            # name, so an unread channel can never satisfy a launch-identity gate.
+            vessel_name = ""
+            if self._read_vessel_name:
+                try:
+                    vessel_name = str(v.name)
+                except Exception as exc:
+                    vessel_name = ""
+                    if not self._warned_vessel_name_read:
+                        self._warned_vessel_name_read = True
+                        _stdout_sink(mlib.format_mission_log_line(
+                            "Warn", "Telemetry",
+                            "active vessel NAME UNREADABLE (%s: %s); vessel_name "
+                            "degrades to the \"\" UNREAD sentinel, which matches "
+                            "no declared craft name and so fails every "
+                            "launch-identity gate CLOSED - a rollout / watcher "
+                            "phase will flake its named give-up at its frame "
+                            "bound rather than fly the wrong craft. Logged once "
+                            "per run." % (type(exc).__name__, str(exc)[:120])))
             if self._read_camera:
                 try:
                     camera_mode = mlib.normalize_camera_mode(
@@ -966,6 +994,9 @@ class KrpcMissionControl(MissionControl):
                 # OBSERVED camera mode ("" = not read / read failed; fails the
                 # V1 staged-map-camera gate closed).
                 camera_mode=camera_mode,
+                # OBSERVED active-vessel name ("" = not read / read failed; fails
+                # every launch-identity gate closed).
+                vessel_name=vessel_name,
                 # Career science / recovery (all six at their UNREAD sentinels
                 # unless read_science; each fails its own gate closed).
                 science_experiment_count=science_experiments,
@@ -1033,6 +1064,38 @@ class KrpcMissionControl(MissionControl):
                                           crew_roster_status=crew_roster_status,
                                           career_funds=career_funds,
                                           career_science=career_science,
+                                          # THE FOURTH FAMILY THAT MUST SURVIVE
+                                          # THIS PATH, and the one whose absence
+                                          # was a LATENT DEADLOCK rather than a
+                                          # lost diagnostic.
+                                          #
+                                          # The seam poll does NOT run here: it
+                                          # runs inside perform(), which BLOCKS
+                                          # until the terminal lands and stores it
+                                          # on the control. read_snapshot's only
+                                          # job is to PUBLISH what is already
+                                          # stored - and a machine reads a seam
+                                          # terminal exclusively off a snapshot.
+                                          #
+                                          # Dropping the three fields here meant a
+                                          # terminal that arrived while the active
+                                          # vessel was unreadable could never be
+                                          # seen. That is not an edge case for a
+                                          # scene-straddling verb: it is the
+                                          # NORMAL case. InvokeRewind /
+                                          # InvokeRewindToLaunch / LoadGame all
+                                          # answer with the world torn down, and
+                                          # kx_rewind_watch spends every frame
+                                          # from its rewind to its watcher launch
+                                          # on this path - so its REWIND phase
+                                          # would have burned its whole frame
+                                          # bound and flaked on EVERY healthy run.
+                                          # `seam_commit_result` rides along for
+                                          # the same reason, one verb earlier.
+                                          seam_commit_result=self._seam_commit_result,
+                                          seam_command_result=self._seam_command_result,
+                                          seam_command_tag=self._seam_command_tag,
+                                          seam_command_payload=self._seam_command_payload,
                                           # THE THIRD THING THAT MUST SURVIVE
                                           # THIS PATH, and the argument is the
                                           # career pools' argument exactly: a
@@ -1047,24 +1110,114 @@ class KrpcMissionControl(MissionControl):
                                           # before the recovery.
                                           recover_request_result=self._recover_request_result)
 
-    def perform(self, action: "mlib.Action") -> None:
-        # Arming the roster watch is handled BEFORE the active-vessel resolve below:
-        # it issues no RPC of its own, and binding it to a live vessel would make the
-        # one channel designed to outlive the craft depend on the craft.
-        if action.kind == mlib.ACTION_SET_ROSTER_WATCH:
+    def _perform_launch_vessel(self, sc, action: "mlib.Action") -> None:
+        """ACTION_LAUNCH_VESSEL: put a fresh craft on the pad.
+
+        kRPC v0.5.4 SpaceCenter.launch_vessel(craft_directory, name, launch_site,
+        recover=True, crew=None, ...): resolves <save>/Ships/VAB/<name>.craft,
+        recovers any vessel already on the pad, then StartWithNewLaunch (a scene
+        reload focused on the new craft). crew MUST be passed as an explicit EMPTY
+        LIST by KEYWORD: the installed 0.5.4 client stub orders recover BEFORE crew
+        (a positional list lands on recover: "argument 3 must be bool"), and its
+        crew=None default fails protobuf coercion (None -> List(string) ValueError)
+        before the RPC is even sent - both caught by the first FORGE-bdock-station
+        live runs. The server doc contract is "Pass an empty list to use default
+        crew assignments" (pinned source SpaceCenter.cs LaunchVessel), so [] =
+        default manifest, controllable pod. Named crew seeding (the EVA-3 3-crew
+        pod) is threaded via action.crew, a tuple of KERBAL NAMES: crew=[names]
+        launches the pod with exactly those kerbals aboard. By NAME, never a count
+        -- kRPC 0.5.4 exposes no roster-enumeration API (only get_kerbal(name) +
+        launch_vessel(crew: List[str])), so a count could not be resolved to names
+        server-side. launch_site is likewise threaded from action.launch_site
+        (None -> "LaunchPad").
+
+        Both are DECLARED fields on mlib.Action (default None), so they are read
+        DIRECTLY: a getattr-with-default here would silently swallow a rename or a
+        hand-built action object missing the field, and quietly launch from the pad
+        with the default crew instead of failing loudly.
+
+        Re-resolves the MechJeb handles against the NEW active vessel and resets
+        the ascent-complete latch + the read-fail streak, so the fresh craft is
+        judged from its own engage.
+
+        EXTRACTED FROM THE perform() CHAIN (it used to be one `elif` among the
+        B-DOCK actions) so it can be dispatched ABOVE the `sc.active_vessel`
+        resolve: this is the one action a mission legitimately issues while NO
+        vessel exists, and `active_vessel` raises in SPACECENTER. The body is
+        unchanged."""
+        launch_site = action.launch_site or "LaunchPad"
+        crew_names = action.crew
+        crew_arg = [str(n) for n in crew_names] if crew_names else []
+        sc.launch_vessel("VAB", str(action.text), str(launch_site), crew=crew_arg)
+        self._mj_ever_enabled = False
+        self._read_fail_streak = 0
+        if self._use_mechjeb:
+            try:
+                self._mechjeb = self._conn.mech_jeb
+                self._ascent = self._mechjeb.ascent_autopilot
+            except Exception as exc:
+                _stdout_sink(mlib.format_mission_log_line(
+                    "Warn", "Launch",
+                    "MechJeb re-resolve after launch failed: %s" % (exc,)))
+
+    def _perform_vessel_free(self, action: "mlib.Action") -> None:
+        """Perform one action from ``mlib.VESSEL_FREE_ACTION_KINDS``.
+
+        These are the actions that touch NO vessel surface, so none of them may be
+        routed through ``perform()``'s ``sc.active_vessel`` resolve: that read
+        RAISES whenever the game is not in FLIGHT (SPACECENTER has no active vessel
+        at all) or is mid-scene-reload, and ``perform()`` is NOT wrapped by the fly
+        loop, so the raise would end the mission as a MISSION-ERROR rather than as
+        anything an operator could diagnose.
+
+        The SET is the authority (see its note in mlib) - not a hand-maintained
+        chain of positional special cases here, which is what this replaced and
+        which had no way to state its own rule. Adding a kind to the set and adding
+        a branch here is the whole wiring; the AST cell in `test_r1_seam_bridge.py`
+        pins that every member is dispatched above the resolve, and a behavioural
+        cell drives each one against a connection whose ``active_vessel`` raises."""
+        kind = action.kind
+        if kind == mlib.ACTION_SET_ROSTER_WATCH:
+            # Issues no RPC of its own, and the channel is designed to OUTLIVE the
+            # craft (a kerbal's roster status is a property of the kerbal), so
+            # binding it to a live vessel would be exactly backwards.
             self._roster_watch_name = str(action.text or "")
             _stdout_sink(mlib.format_mission_log_line(
                 "Info", "Roster", "roster watch armed kerbal=%r"
                 % (self._roster_watch_name,)))
             return
-        # Same placement rationale as the roster watch: it issues no RPC of its own,
-        # and the watched vessel is NOT the active one, so binding it to the active
-        # vessel resolve below would be exactly wrong.
-        if action.kind == mlib.ACTION_SET_SIBLING_WATCH:
+        if kind == mlib.ACTION_SET_SIBLING_WATCH:
+            # Same: no RPC, and the watched vessel is NOT the active one.
             self._sibling_watch_name = str(action.text or "")
             _stdout_sink(mlib.format_mission_log_line(
                 "Info", "Sibling", "sibling watch armed vessel=%r"
                 % (self._sibling_watch_name,)))
+            return
+        if kind == mlib.ACTION_PARSEK_COMMIT_TREE:
+            self._perform_seam_commit()
+            return
+        if kind == mlib.ACTION_PARSEK_SEAM_COMMAND:
+            self._perform_seam_command(action.seam_verb, action.seam_args,
+                                       action.seam_tag)
+            return
+        if kind == mlib.ACTION_LAUNCH_VESSEL:
+            # The one action a mission legitimately issues while no vessel exists.
+            # It needs the SpaceCenter service handle but never `v` / `control`.
+            self._perform_launch_vessel(self._conn.space_center, action)
+            return
+        raise ValueError(
+            "mlib.VESSEL_FREE_ACTION_KINDS declares %r but _perform_vessel_free "
+            "has no branch for it" % (kind,))
+
+    def perform(self, action: "mlib.Action") -> None:
+        # THE VESSEL-FREE SET IS DISPATCHED FIRST, and the set - not this line - is
+        # where membership is decided (mlib.VESSEL_FREE_ACTION_KINDS). Everything
+        # below this point may assume a live active vessel; nothing above it may
+        # touch one. BEHAVIOUR-PRESERVING for every pre-existing mission: no member
+        # ever read `v` or `control`, so a caller that had an active vessel sees
+        # exactly what it saw before.
+        if action.kind in mlib.VESSEL_FREE_ACTION_KINDS:
+            self._perform_vessel_free(action)
             return
         sc = self._conn.space_center
         v = sc.active_vessel
@@ -1159,6 +1312,25 @@ class KrpcMissionControl(MissionControl):
             ap.engage()
         elif kind == mlib.ACTION_AP_DISENGAGE:
             v.auto_pilot.disengage()
+        elif kind == mlib.ACTION_AP_SET_PITCH_HEADING:
+            # KX-REWIND-WATCH gravity turn. kRPC's NATIVE AutoPilot in the vessel's
+            # SURFACE reference frame: target_pitch_and_heading takes degrees in
+            # exactly that frame (pinned 0.5.4 client), so the frame is written
+            # EXPLICITLY rather than relying on the constructor default - a mission
+            # that had previously pointed the AP at an orbital or node frame (this
+            # runner does both) would otherwise steer a surface pitch through the
+            # wrong basis. engage() is re-issued every time: it is idempotent on an
+            # already-engaged AP and is what re-takes control after an
+            # ACTION_AP_DISENGAGE.
+            #
+            # COMMANDED ONLY. No machine gate reads "we emitted this"; the mission's
+            # OBSERVED channels are altitude / apoapsis / available_thrust. A failed
+            # steer degrades the ascent shape, never the evidence.
+            pitch, heading = action.pitch_heading
+            ap = v.auto_pilot
+            ap.reference_frame = v.surface_reference_frame
+            ap.target_pitch_and_heading(float(pitch), float(heading))
+            ap.engage()
         elif kind == mlib.ACTION_WARP_TO:
             # Blocking RAILS warp to the machine-chosen target UT (bounded hops;
             # mlib emits now + warpHopSeconds per decision frame). Blocking is
@@ -1730,48 +1902,6 @@ class KrpcMissionControl(MissionControl):
         # never name/pid; the runner resolves each intent against a captured kRPC
         # object handle. All best-effort + try/excepted where a live surface may
         # be absent; the machine's bounded give-ups own a non-advancing outcome.
-        elif kind == mlib.ACTION_LAUNCH_VESSEL:
-            # kRPC v0.5.4 SpaceCenter.launch_vessel(craft_directory, name,
-            # launch_site, recover=True, crew=None, ...): resolves
-            # <save>/Ships/VAB/<name>.craft, recovers any vessel already on the
-            # pad, then StartWithNewLaunch (a FLIGHT->FLIGHT reload focused on the
-            # new craft). crew MUST be passed as an explicit EMPTY LIST by KEYWORD:
-            # the installed 0.5.4 client stub orders recover BEFORE crew (a
-            # positional list lands on recover: "argument 3 must be bool"), and its
-            # crew=None default fails protobuf coercion (None -> List(string)
-            # ValueError) before the RPC is even sent - both caught by the first
-            # FORGE-bdock-station live runs. The server doc contract is "Pass an
-            # empty list to use default crew assignments" (pinned source
-            # SpaceCenter.cs LaunchVessel), so [] = default manifest, controllable
-            # pod. Named crew seeding (the EVA-3 3-crew pod) is threaded here via
-            # action.crew, a tuple of KERBAL NAMES: crew=[names] launches the pod
-            # with exactly those kerbals aboard, crew=[] keeps the default
-            # manifest. By NAME, never a count -- kRPC 0.5.4 exposes no
-            # roster-enumeration API (only get_kerbal(name) + launch_vessel(crew:
-            # List[str])), so a count could not be resolved to names server-side.
-            # launch_site is likewise threaded from action.launch_site (None ->
-            # "LaunchPad"). Re-resolve the MechJeb handles against the NEW active
-            # vessel and reset the ascent-complete latch + read-fail streak so the
-            # fresh craft is judged from its own engage.
-            # Both are DECLARED fields on mlib.Action (default None), so read them
-            # directly: a getattr-with-default here would silently swallow a rename
-            # or a hand-built action object missing the field, and quietly launch
-            # from the pad with the default crew instead of failing loudly.
-            launch_site = action.launch_site or "LaunchPad"
-            crew_names = action.crew
-            crew_arg = [str(n) for n in crew_names] if crew_names else []
-            sc.launch_vessel("VAB", str(action.text), str(launch_site),
-                             crew=crew_arg)
-            self._mj_ever_enabled = False
-            self._read_fail_streak = 0
-            if self._use_mechjeb:
-                try:
-                    self._mechjeb = self._conn.mech_jeb
-                    self._ascent = self._mechjeb.ascent_autopilot
-                except Exception as exc:
-                    _stdout_sink(mlib.format_mission_log_line(
-                        "Warn", "Launch",
-                        "MechJeb re-resolve after launch failed: %s" % (exc,)))
         elif kind == mlib.ACTION_CAPTURE_STATION:
             # Capture the Station handle (P9/Q4) while it IS the active vessel: the
             # vessel, its top docking port, and its per-resource station-side tanks.
@@ -1797,11 +1927,8 @@ class KrpcMissionControl(MissionControl):
                 "Info", "Capture",
                 "captured station handle port=%s tanks=%s"
                 % (self._station_port is not None, sorted(self._station_tanks.keys()))))
-        elif kind == mlib.ACTION_PARSEK_COMMIT_TREE:
-            self._perform_seam_commit()
-        elif kind == mlib.ACTION_PARSEK_SEAM_COMMAND:
-            self._perform_seam_command(action.seam_verb, action.seam_args,
-                                       action.seam_tag)
+        # The five mlib.VESSEL_FREE_ACTION_KINDS never reach this chain: they are
+        # dispatched at the TOP of perform(), above the active-vessel resolve.
         elif kind == mlib.ACTION_SET_TARGET_VESSEL:
             if self._station_vessel is not None:
                 sc.target_vessel = self._station_vessel

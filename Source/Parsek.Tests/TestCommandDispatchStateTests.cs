@@ -45,6 +45,7 @@ namespace Parsek.Tests
             public void ExportRenderManifest(ParsedCommand cmd) => Calls.Add("ExportRenderManifest");
             public void EnterMapView(ParsedCommand cmd) => Calls.Add("EnterMapView");
             public void ExitMapView(ParsedCommand cmd) => Calls.Add("ExitMapView");
+            public void InvokeRewindToLaunch(ParsedCommand cmd) => Calls.Add("InvokeRewindToLaunch");
         }
 
         [Fact]
@@ -101,6 +102,10 @@ namespace Parsek.Tests
         // catches a future "just widen it so the lane can call it from KSC".
         [InlineData("EnterMapView", "RequiresFlight")]
         [InlineData("ExitMapView", "RequiresFlight")]
+        // Rewind-to-Launch: RequiresFlight for the same reason InvokeRewind is - both
+        // reload the world out from under the current scene, and the Recordings-table "R"
+        // button this one reproduces is offered from the in-flight table.
+        [InlineData("InvokeRewindToLaunch", "RequiresFlight")]
         public void RequirementFor_MatchesTable(string verb, string expected)
         {
             Assert.Equal(expected, TestCommandDispatcher.RequirementFor(verb).ToString());
@@ -138,6 +143,7 @@ namespace Parsek.Tests
             fake.ExportRenderManifest(cmd);
             fake.EnterMapView(cmd);
             fake.ExitMapView(cmd);
+            fake.InvokeRewindToLaunch(cmd);
 
             // One interface method per implemented v1 verb, no more, no less.
             var interfaceMethods = typeof(ITestCommandExecutor).GetMethods();

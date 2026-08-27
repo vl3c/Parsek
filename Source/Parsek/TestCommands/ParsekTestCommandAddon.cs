@@ -752,6 +752,14 @@ namespace Parsek.TestCommands
                 TryCompleteAnswerMergeDialog(now);
                 return;
             }
+            // Rewind-to-Launch (the OTHER rewind mechanism), in the sibling
+            // ParsekTestCommandAddon.InvokeRewindToLaunch.cs partial. Same bounded-completion
+            // contract, keyed on the rewind flags clearing in a settled SPACECENTER.
+            if (completionVerb == "InvokeRewindToLaunch")
+            {
+                TryCompleteInvokeRewindToLaunch(now);
+                return;
+            }
             if (completionVerb == "TimeJump")
             {
                 // Sibling Lane B provides TryCompleteTimeJump (routes through
@@ -1141,6 +1149,12 @@ namespace Parsek.TestCommands
         void ITestCommandExecutor.EnterMapView(ParsedCommand cmd) => EnterMapViewImpl(cmd);
         void ITestCommandExecutor.ExitMapView(ParsedCommand cmd) => ExitMapViewImpl(cmd);
 
+        // Rewind-to-Launch: the body + its two-phase completion live in the sibling
+        // ParsekTestCommandAddon.InvokeRewindToLaunch.cs partial. Two-phase like
+        // InvokeRewind (it straddles a scene reload), but keyed on the rewind flags +
+        // settled SPACECENTER rather than on a re-fly marker.
+        void ITestCommandExecutor.InvokeRewindToLaunch(ParsedCommand cmd) => InvokeRewindToLaunchImpl(cmd);
+
         private void InvokeExecutor(ParsedCommand cmd)
         {
             ITestCommandExecutor exec = this;
@@ -1173,6 +1187,7 @@ namespace Parsek.TestCommands
                 case "ExportRenderManifest": exec.ExportRenderManifest(cmd); break;
                 case "EnterMapView": exec.EnterMapView(cmd); break;
                 case "ExitMapView": exec.ExitMapView(cmd); break;
+                case "InvokeRewindToLaunch": exec.InvokeRewindToLaunch(cmd); break;
                 default:
                     // Unreachable: DecideDispatch rejects unknown/reserved verbs before Execute.
                     SetExecResult("ERROR", null, "unknown-command");

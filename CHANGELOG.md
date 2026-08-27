@@ -8,6 +8,26 @@ All notable changes to Parsek are documented here.
 
 ### Dev
 
+- A new automated test flies the whole "watch your old launch" workflow end to
+  end: it launches a Kerbal X, drops the spent booster stages (shutting the
+  engines off before discarding the last big stage with fuel still in it),
+  rewinds the game back to the launch, puts a small rocket on the now-empty pad,
+  opens the map, presses Watch on the replaying ghost, and then checks that
+  every ghost the replay created - the main rocket AND each discarded stage -
+  actually appeared on screen and disappeared again when the replay finished.
+  This exists because a play session appeared to show booster ghosts not
+  showing up after separation; from now on that kind of regression fails a
+  test run instead of waiting for someone to notice by eye. Three pieces of
+  machinery were added to make it drivable: a test-only command that presses
+  the Recordings table's "Rewind to Launch" button (inert outside the test
+  harness), a checker that pairs up every ghost's appear/disappear log lines,
+  and the scripted mission that flies the rocket. The whole thing was then
+  flown for real, twice: the first flight failed only because the test pressed
+  Watch a few seconds before the ghost appeared (the test now waits and
+  retries), and the second flight passed everything - all eight ghosts (the
+  rocket, its six boosters, and the discarded core stage) appeared and
+  disappeared exactly as recorded. Test-tooling only; no gameplay change.
+
 - A new automated test mission was written: the first one that flies a spacecraft
   HOME to Kerbin from another planet. Every interplanetary test flight so far has
   gone outward from Kerbin, and the one return trip that exists only hops from a

@@ -14,6 +14,80 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~GS4-FIRST-FLIGHT-RISKS~~: the ghost-derender tripwire lane's pre-flight interim pins [OPENED 2026-08-27 with the GS-4 lane. **DISCHARGED 2026-08-27 THE SAME DAY**: reading run `2026-08-27_2145` (MISSION-OK attempt 1; red on exactly the two watch tokens - the pre-spawn EnterWatchMode race, fixed as the machine's WATCH hold-then-retry loop) then green run `2026-08-27_2204` PASS attempt 1, every verifier clean, census spawned=8/destroyLines=8/unbalanced=0 measured on BOTH flights. Windows re-pinned to the measurement; ghostLifecycle stays report-only pending the standard arming discipline. Status authority: `docs/dev/autotest-status.md` -> Live-proven. The entry below is kept as the pre-flight record]
+
+**The motivation is a SUSPECTED, UNCONFIRMED product bug:** a manual play
+session (reported 2026-08-27) appeared to show BOOSTER GHOSTS NOT RENDERING
+after separation during a replay. Nothing was collected, so there is no run id,
+no log, and no confirmed defect - which is exactly why the lane exists: `GS-4-
+kerbalx-rewind-watch` drives the full player workflow (staged Kerbal X ascent,
+fueled-core discard engines-off, commit, Rewind-to-Launch via the new
+`InvokeRewindToLaunch` seam verb, Jumping Flea watch anchor, map view + watch
+mode, playback to completion) and asserts every spawned ghost - parent AND each
+separated stage - both RENDERS (`phase=MeshSpawned`) and DERENDERS
+(`phase=MeshDestroyed`), with the per-recId balance done by the new
+`[expectations.ghostLifecycle]` evaluator (`harness/lib/ghostlife.py`,
+verifier row 7d). If the sighting is a real regression, the reading run reds on
+the missing `vessel=Kerbal X Debris` MeshSpawned token or the census floor.
+
+The interim facts the reading run must settle (updated 2026-08-28 after the
+5-agent PR review; the debris NAME and the census of 8 moved from "unmeasured"
+to MEASURED - the operator's s15 save carries a real Kerbal X tree reading
+vesselName = "Kerbal X" (1) + "Kerbal X Debris" (6) + "Kerbal X Probe" (1),
+the same field the tracer prints):
+1. `sc.launch_vessel` from the SPACECENTER scene has never been driven live
+   (the runner's scene-independent dispatch removes the `active_vessel`
+   raise that would have killed it; kRPC's call is a SpaceCenter service call).
+2. Pad occupancy after the rewind is unmeasured (`recover=True` handles both
+   branches: the strip should leave the pad clear, and a leftover is recovered).
+3. Watch-entry geometry is timing-dependent (the ghost must be within 300 km of
+   the pad when the WATCH bridge step runs; nominal timeline has it mid-ascent,
+   tens of km up). A geometry miss is a retune, not a Parsek defect.
+4. THE DEBRIS RENDER WINDOWS are the lane's binding constraint: booster debris
+   recordings carry a 60 s TTL (`BackgroundRecorder.DebrisTTLSeconds`), all six
+   ghost windows live in [dropUT, dropUT+60], and no ghost engine runs outside
+   FLIGHT - the watcher must reach its flight scene before the first pair's
+   window closes (~T+100 nominal; the rewind lands at T-15 and the SC stint +
+   rollout costs ~45-90 s wall). A slow machine can miss the earliest windows
+   for a scheduling reason, not a product one.
+5. On a red reading run, grep `"debris with no snapshot, skipping"` (Verbose,
+   GhostPlaybackEngine.cs:6902 - the #232 green-sphere suppression) FIRST: a
+   null coalescer pre-capture silently skips a debris ghost and is a different
+   investigation from the derender regression this lane hunts.
+6. This is the FIRST committed lane to open map view, so the map-ghost ERROR
+   surface has never been swept under the forbidden=[Parsek][ERROR] contract
+   with atmospheric/debris ghosts live.
+
+TRAP RECORDED (found by the review, fixed pre-flight): stock craft FILES name
+their ships with localization tokens - the stock Jumping Flea's `ship =` line
+is `#autoLOC_501224`, and KSP/kRPC surface the RAW token as the live
+vesselName. Any mission gate comparing a live vessel name against a stock
+craft's human name will never match; the committed fixture copy's `ship =`
+line is rewritten to the literal `Jumping Flea`, and the machine's expected
+vessel names are declarable separately from the craft file names.
+
+After the reading run: re-pin the interim tokens/windows, then run the standard
+three-run arming discipline for `[expectations.ghostLifecycle]` (roster
+`GHOSTLIFE_ARMED_SPECS` in `harness/lib/test_hlib.py`).
+
+## GS4-WATCH-DISTANCE-CUTOFF: the watch-mode 300 km distance cutoff has no automated probe, and GS-4 deliberately does not carry one [OPENED 2026-08-27 while scoping GS-4 (the operator asked for it; v1 kept simple by agreement). TODO, not a defect]
+
+`WatchModeController.TryResolveWatchEntryState` refuses entry when the ghost is
+beyond `WatchEnterCutoffMeters` (300 km) or on another body, and logs
+`EnterWatchMode refused: ghost #N ... is XXXkm from active vessel (max 300km)`.
+Every committed `EnterWatchMode expect = "REJECTED"` lane (V4, V6M, V8, ...)
+pins the refusal from a FOREIGN-ORBIT geometry, which conflates the same-body
+distance cutoff with the different-body guard - the specific 300 km boundary
+has never been the measured variable. GS-4 cannot probe it in the same
+playback as its successful watch: once watching, the guard never re-checks,
+and waiting for the ghost to fly far enough to harvest the refusal forfeits
+the watch entry the lane exists for. A follow-up lane (or a second GS-4 phase
+after a loop restart) should: enter watch near the pad (proven by GS-4), let
+playback end, then re-attempt `EnterWatchMode` at a moment the replay ghost is
+provably beyond 300 km on the SAME body and pin the distance-refusal line
+itself (the `max 300km` spelling), not just the REJECTED verdict. More watch
+probes (retarget, explosion hold - the unclaimed D6
+`watch-mode-retarget-explosion-hold` value) can ride the same follow-up.
 ## FIXTURE-DUNA-PARK-PROBE-CANNOT-RETURN-TO-KERBIN: the DD1 probe every committed Duna-parked fixture carries is ~550 m/s short of a Kerbin return, so the reserved `B29-duna-kerbin-return` lane could not be flown as specified [MEASURED 2026-08-26 off `fixtures/saves/duna-park-probe/persistent.sfs` while opening B29's Phase-0 door. FIXTURE PROPERTY, REPORT-ONLY - never a Parsek defect and never a spec defect; it blocked one lane's PRODUCTION, not any product question. ROUTED AROUND the same day by re-scoping B29 to depart Jool; see the second entry below]
 
 THE ARITHMETIC, derived from the fixture's own bytes rather than from a delta-v map:

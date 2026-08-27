@@ -8765,15 +8765,27 @@ namespace Parsek
             // Fire event BEFORE clearing so subscribers can inspect ghost state if needed
             OnAllGhostsDestroying?.Invoke();
 
-            // Destroy all primary ghost GOs
+            // Destroy all primary ghost GOs. Mesh DISAPPEAR EVENT per ghost, the same
+            // MeshDestroyed emit DestroyGhost makes: this bulk path tears the meshes down
+            // without going through DestroyGhost, so without it a clean teardown (scene
+            // exit, quit, rewind) left every ghost's MeshSpawned unpaired and read as a
+            // mesh leak to the ghostlife verifier's requireBalanced pairing. No trajectory
+            // list here (DestroyAllGhosts takes none) - the state carries its own
+            // recordingId + vesselName, which is what the tracer falls back to.
             var keys = new List<int>(ghostStates.Keys);
             foreach (int key in keys)
             {
                 if (ghostStates.TryGetValue(key, out var state))
+                {
+                    EmitMeshLifecycleTrace("MeshDestroyed", key, null, state, "engine teardown");
                     DestroyGhostResources(state);
+                }
             }
 
-            // Destroy all overlap ghost GOs
+            // Destroy all overlap ghost GOs. NO lifecycle emit here: an overlap shell is a
+            // loop-cycle copy of a primary ghost, not its own MeshSpawned/MeshDestroyed
+            // pair, so emitting would unbalance the per-recording pairing rather than close
+            // it.
             foreach (var kvp in overlapGhosts)
             {
                 for (int i = 0; i < kvp.Value.Count; i++)

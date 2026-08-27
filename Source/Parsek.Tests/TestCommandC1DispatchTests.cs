@@ -10,6 +10,10 @@ namespace Parsek.Tests
     /// load-in-flight / recording-active, AnswerMergeDialog must defer until a re-fly popup
     /// or marker exists, and KscAction must defer until the career (and, for
     /// upgrade-facility, the SPACECENTER scene) is ready.
+    ///
+    /// <para>Also covers <c>InvokeRewindToLaunch</c>, which is not an M-C1 verb but shares
+    /// InvokeRewind's guard triple case-for-case, so its rows belong next to the ones they
+    /// mirror rather than in a file of their own.</para>
     /// </summary>
     public class TestCommandC1DispatchTests
     {
@@ -92,6 +96,74 @@ namespace Parsek.Tests
         public void InvokeRewind_ReadyInFlight_Executes()
         {
             var r = TestCommandDispatcher.DecideDispatch(Cmd("id=1 cmd=InvokeRewind rp=r slot=1"), Flight());
+            Assert.Equal(DispatchDecision.Execute, r.Decision);
+        }
+
+        // ----- InvokeRewindToLaunch -----
+        // The OTHER rewind mechanism (RecordingStore.InitiateRewind, the Recordings-table
+        // "R" button) shares InvokeRewind's guard triple exactly, so these rows are the
+        // mirror of the six above. They exist because the guards live in a per-verb switch
+        // case: a future edit that touched only the InvokeRewind case would silently leave
+        // the plain rewind able to race a merge journal / a load / a live recorder.
+
+        [Fact]
+        public void InvokeRewindToLaunch_OutsideFlight_Defers_NotInFlight()
+        {
+            AssertDefer(TestCommandDispatcher.DecideDispatch(Cmd("id=1 cmd=InvokeRewindToLaunch"), MainMenu()),
+                "not-in-flight");
+        }
+
+        [Fact]
+        public void InvokeRewindToLaunch_MergeJournalInFlight_Rejects()
+        {
+            var st = Flight();
+            st.MergeJournalInFlight = true;
+            AssertReject(TestCommandDispatcher.DecideDispatch(Cmd("id=1 cmd=InvokeRewindToLaunch"), st),
+                "merge-journal-in-flight");
+        }
+
+        [Fact]
+        public void InvokeRewindToLaunch_LoadInFlight_Rejects()
+        {
+            var st = Flight();
+            st.LoadInFlight = true;
+            AssertReject(TestCommandDispatcher.DecideDispatch(Cmd("id=1 cmd=InvokeRewindToLaunch"), st),
+                "load-in-flight");
+        }
+
+        [Fact]
+        public void InvokeRewindToLaunch_RecordingActive_Rejects()
+        {
+            var st = Flight();
+            st.Recording = true;
+            AssertReject(TestCommandDispatcher.DecideDispatch(Cmd("id=1 cmd=InvokeRewindToLaunch"), st),
+                "recording-active");
+        }
+
+        [Fact]
+        public void InvokeRewindToLaunch_MergeJournalTakesPrecedenceOverRecording()
+        {
+            var st = Flight();
+            st.MergeJournalInFlight = true;
+            st.Recording = true;
+            AssertReject(TestCommandDispatcher.DecideDispatch(Cmd("id=1 cmd=InvokeRewindToLaunch"), st),
+                "merge-journal-in-flight");
+        }
+
+        [Fact]
+        public void InvokeRewindToLaunch_ReadyInFlight_Executes()
+        {
+            // No args at all is a legal wire form: the tree auto-selects when the save
+            // holds exactly one committed tree (the executor-side ResolveTarget decides).
+            var r = TestCommandDispatcher.DecideDispatch(Cmd("id=1 cmd=InvokeRewindToLaunch"), Flight());
+            Assert.Equal(DispatchDecision.Execute, r.Decision);
+        }
+
+        [Fact]
+        public void InvokeRewindToLaunch_WithTreeArg_ReadyInFlight_Executes()
+        {
+            var r = TestCommandDispatcher.DecideDispatch(
+                Cmd("id=1 cmd=InvokeRewindToLaunch tree=tree_a"), Flight());
             Assert.Equal(DispatchDecision.Execute, r.Decision);
         }
 

@@ -22,6 +22,11 @@ Everything the harness fetches or generates lives UNDER `harness/`:
   re-derivation / RC-* rule set behind the `renderCompose` verifier row
   (`[expectations.renderComposition]`, evaluated over the produced
   `parsek-render-manifest.txt`; REPORT-ONLY, no committed spec arms it),
+  + `ghostlife.py`, the pure flight-scene ghost-lifecycle parser/evaluator
+  behind the `ghostLifecycle` verifier row (`[expectations.ghostLifecycle]`:
+  GhostRenderTrace MeshSpawned/MeshDestroyed per-recId spawn/destroy balance,
+  spawn-census window, zero-spawn vacuity floor; REPORT-ONLY unless armed via
+  `GHOSTLIFE_ARMED_SPECS` - empty as shipped),
   `provision/` (`provlib.py` pure, `provision.py`
   shell), `missions/` (M-B1: mission shells + `lib/mlib.py` pure mission
   decisions + `bootstrap_venv.py`), and their `test_*.py`. run.py drives
@@ -393,7 +398,7 @@ the state a scenario needs. Three populations are exhaust, all pruned by
 | Not committed | Why | Gate |
 | --- | --- | --- |
 | `*_vessel.craft.txt`, `*_ghost.craft.txt` | derived; the mod rebuilds them from the committed binaries | `CommittedFixtureMirrorTests` |
-| `Parsek/Saves/parsek_rw_*.sfs` + their `rewindSave =` hints | legacy Rewind-to-LAUNCH quicksaves; no spec or seam verb reaches them, and the one analyzer rule that looks (`Inv9RewindPoint`) only checks existence and parseability, never content | `CommittedFixtureRewindSaveTests` |
+| `Parsek/Saves/parsek_rw_*.sfs` + their `rewindSave =` hints | Rewind-to-LAUNCH quicksaves are RUN exhaust, not fixture payload: the `InvokeRewindToLaunch` seam verb (added 2026-08-27 with GS-4) reaches the one the run's OWN recording captured, never a committed one - a fixture-committed `parsek_rw_*` would be a stale world snapshot nothing can validate, and the one analyzer rule that looks (`Inv9RewindPoint`) only checks existence and parseability, never content | `CommittedFixtureRewindSaveTests` |
 | `quicksave.sfs` / `quicksave.loadmeta` | near-copy of the fixture's own `persistent.sfs`; every in-game quickload uses a NAMED slot | `test_no_fixture_commits_a_quicksave` |
 
 Two look like exhaust and are **payload** - do not confuse them:

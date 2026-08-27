@@ -48,6 +48,7 @@ for _p in (HARNESS_ROOT, HERE):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
+import ghostlife  # noqa: E402
 import hlib  # noqa: E402
 import oracle  # noqa: E402
 import rendercompose  # noqa: E402
@@ -72,8 +73,14 @@ class FakeRuntime(run.Runtime):
     def __init__(self, mode, mission_mode="ok", venv_ok=True, seed_mode="ok",
                  career_funds=25000.0, career_science=0.0, career_rep=0.0,
                  analyzer_fail_calls=0, produced_parsed=True, inject_noop=False,
-                 render_manifest_text=None):
+                 render_manifest_text=None, ghost_lifecycle_log_text=None):
         self.mode = mode
+        # The GhostRenderTrace mesh-lifecycle lines the fake KSP "writes" into its
+        # KSP.log, APPENDED at launch for the render-manifest reason below (after
+        # staging, which is where a real run's lines land). Append, never write:
+        # the fake KSP appends its own session markers to the same file, and
+        # clobbering them would break every other row that reads the log.
+        self.ghost_lifecycle_log_text = ghost_lifecycle_log_text
         # M-A7: the text the fake KSP "writes" as its render manifest, dropped at
         # LAUNCH time - i.e. AFTER staging, which is where the real recorder's
         # scene-exit / teardown flush lands. Writing it before run_attempt would
@@ -144,6 +151,9 @@ class FakeRuntime(run.Runtime):
             with open(os.path.join(cwd, run.RENDER_MANIFEST_FILENAME),
                       "w", encoding="utf-8") as fh:
                 fh.write(self.render_manifest_text)
+        if self.ghost_lifecycle_log_text is not None:
+            with open(os.path.join(cwd, "KSP.log"), "a", encoding="utf-8") as fh:
+                fh.write(self.ghost_lifecycle_log_text)
         return subprocess.Popen(
             [exe, FAKE_KSP, "--root", cwd, "--mode", self.mode],
             env=env, cwd=cwd,
@@ -768,6 +778,118 @@ class FakeKspSmokeTests(unittest.TestCase):
         self.assertEqual(["renderComposition"], rc["armedBlocks"])
         self.assertTrue(any("dwells" in m for m in rc["mismatches"]))
 
+    # ---- ghostLifecycle (row 7d) ----------------------------------------
+
+    #: Production-shaped GhostRenderTrace mesh-lifecycle lines, appended to the
+    #: fake KSP.log at launch. One balanced recording plus one that spawns and
+    #: never destroys, so a single corpus exercises both the count facet and the
+    #: balance ledger. The vessel name and the destroy reason both carry SPACES -
+    #: the property a whitespace-split parser would silently truncate.
+    GHOST_LIFECYCLE_LOG = "".join(
+        "[LOG] [Parsek][INFO][GhostRenderTrace] phase=%s rec=%s recId=%s "
+        "ghostIndex=%d frame=%d currentUT=100.000 playbackUT=50.000 "
+        "vessel=%s reason=%s\n" % row
+        for row in (
+            ("MeshSpawned", "smoke001", "smoke001aaaa", 0, 10,
+             "Kerbal X Mk2", "ghost-created"),
+            ("MeshSpawned", "smoke002", "smoke002bbbb", 1, 11,
+             "Munar Lander", "ghost-created"),
+            ("MeshDestroyed", "smoke001", "smoke001aaaa", 0, 90,
+             "Kerbal X Mk2", "playback completed"),
+        ))
+
+    def _run_ghost_lifecycle(self, block=None, drop_lines=True):
+        spec = _make_spec(self.template, 30, 600)
+        spec["id"] = "SMOKE-ghostlifecycle"
+        if block is not None:
+            spec["expectations"][ghostlife.GHOST_LIFECYCLE_BLOCK] = copy.deepcopy(block)
+        rt = FakeRuntime("pass", ghost_lifecycle_log_text=(
+            self.GHOST_LIFECYCLE_LOG if drop_lines else None))
+        result = run.run_attempt(spec, self.instance, self.tmp, rt, attempt=1,
+                                 prior_boot_crashed=False, logger=self.logger)
+        return result, rt
+
+    def test_ghost_lifecycle_row_reports_facets_with_no_block(self):
+        """The default state of every committed spec today: no block declared, so
+        the row lands REPORT-ONLY carrying the measured facets and moving no
+        verdict. The facets are recorded UNCONDITIONALLY - that is how a lane
+        earns its first honest window off a green report-only run."""
+        result, _ = self._run_ghost_lifecycle()
+        self.assertEqual(hlib.VERDICT_PASS, result["verdict"])
+        gl = result["verifiers"]["ghostLifecycle"]
+        self.assertEqual("REPORT", gl["status"])
+        self.assertFalse(gl["gating"])
+        self.assertEqual([], gl["blocks"])
+        self.assertEqual([], gl["armedBlocks"])
+        self.assertEqual([], gl["mismatches"])
+        self.assertIsNone(gl["declared"])
+        facets = gl["observed"][ghostlife.GHOST_LIFECYCLE_BLOCK]
+        self.assertEqual(2, facets["spawned"])
+        self.assertEqual(1, facets["destroyLines"])
+        self.assertEqual({"playback completed": 1}, facets["destroyedReasons"])
+        # The spaces survived the whole pipeline - log write, harness read, parse.
+        self.assertEqual(["Kerbal X Mk2", "Munar Lander"], facets["vessels"])
+        self.assertEqual([{"recId": "smoke002bbbb", "rec": "smoke002",
+                           "vessel": "Munar Lander"}], facets["unbalanced"])
+
+    def test_declared_block_reports_mismatches_without_moving_the_verdict(self):
+        """The reading run the arming workflow mandates: mismatches RECORDED,
+        verdict untouched. `requireBalanced` defaults ON, so the leaked recording
+        is reported even though the block declares nothing but a window."""
+        result, _ = self._run_ghost_lifecycle({"spawned": {"min": 1, "max": 8}})
+        self.assertEqual(hlib.VERDICT_PASS, result["verdict"])
+        gl = result["verifiers"]["ghostLifecycle"]
+        self.assertEqual("REPORT", gl["status"])
+        self.assertEqual(["ghostLifecycle"], gl["blocks"])
+        self.assertEqual([], gl["armedBlocks"])
+        self.assertEqual({"spawned": {"min": 1, "max": 8}}, gl["declared"])
+        self.assertTrue(any("requireBalanced" in m for m in gl["mismatches"]),
+                        gl["mismatches"])
+
+    def test_an_armed_block_moves_the_verdict(self):
+        """The whole point of arming, and the only path that can red a run:
+        PARSEK-FAIL(ghost-lifecycle). Unreachable for every committed spec today
+        (none arms the block) and pinned so it works the day the first lane is
+        promoted."""
+        result, _ = self._run_ghost_lifecycle(
+            {"gating": True, "spawned": {"min": 1, "max": 8}})
+        self.assertEqual(hlib.VERDICT_PARSEK_FAIL, result["verdict"])
+        self.assertEqual("ghost-lifecycle", result["subkind"])
+        gl = result["verifiers"]["ghostLifecycle"]
+        self.assertEqual("FAIL", gl["status"])
+        self.assertTrue(gl["gating"])
+        self.assertEqual(["ghostLifecycle"], gl["armedBlocks"])
+
+    def test_an_armed_block_passes_on_a_healthy_run(self):
+        result, _ = self._run_ghost_lifecycle(
+            {"gating": True, "spawned": {"min": 1, "max": 8},
+             "requireBalanced": False})
+        self.assertEqual(hlib.VERDICT_PASS, result["verdict"])
+        gl = result["verifiers"]["ghostLifecycle"]
+        self.assertEqual("PASS", gl["status"])
+        self.assertEqual([], gl["mismatches"])
+
+    def test_the_vacuity_floor_reds_a_run_that_rendered_nothing(self):
+        """THE ROW'S REASON TO EXIST: a declared block over a log with no
+        MeshSpawned lines - the tracer never armed, or the playback never spawned
+        a mesh - must MISMATCH, not pass vacuously. The window here is one the
+        zero measurement would otherwise SATISFY, so only the floor can red it."""
+        result, _ = self._run_ghost_lifecycle(
+            {"gating": True, "spawned": {"min": 0, "max": 4}}, drop_lines=False)
+        self.assertEqual(hlib.VERDICT_PARSEK_FAIL, result["verdict"])
+        self.assertEqual("ghost-lifecycle", result["subkind"])
+        gl = result["verifiers"]["ghostLifecycle"]
+        self.assertTrue(any("no MeshSpawned lines" in m for m in gl["mismatches"]),
+                        gl["mismatches"])
+
+    def test_no_block_over_an_empty_log_is_silent(self):
+        result, _ = self._run_ghost_lifecycle(drop_lines=False)
+        self.assertEqual(hlib.VERDICT_PASS, result["verdict"])
+        gl = result["verifiers"]["ghostLifecycle"]
+        self.assertEqual("REPORT", gl["status"])
+        self.assertEqual([], gl["mismatches"])
+        self.assertEqual(0, gl["observed"][ghostlife.GHOST_LIFECYCLE_BLOCK]["spawned"])
+
     def test_hang_is_killed_within_budget(self):
         """KILLED: the stub wedges on RunTests; the run-budget watchdog must kill
         the process tree within budget and classify KILLED with the killed-run
@@ -826,6 +948,17 @@ class FakeKspSmokeTests(unittest.TestCase):
         self.assertEqual({}, rc["observed"])
         self.assertEqual([], rc["findings"])
         self.assertEqual({}, rc["unevaluable"])
+        # The ghost-lifecycle row goes the OTHER way on a killed attempt, and the
+        # divergence is about the SOURCE: the two rows above read the produced
+        # save and the teardown-flushed manifest, which a kill tears; this one
+        # reads the KSP.log, which the kill does not. So it REPORTS triage-only
+        # (the unityExceptions precedent) instead of skipping. Never gating.
+        gl = result["verifiers"]["ghostLifecycle"]
+        self.assertEqual(ghostlife.STATUS_REPORT, gl["status"])
+        self.assertEqual("killed-triage-only", gl["reason"])
+        self.assertFalse(gl["gating"])
+        self.assertEqual([], gl["mismatches"])
+        self.assertIs(True, gl["parsed"])
         # Non-PASS snapshots diagnostics.
         self.assertTrue(result["collectLogs"]["ran"])
 

@@ -27,7 +27,7 @@ namespace Parsek.TestCommands
     /// </summary>
     internal static class TestCommandVerbs
     {
-        // Implemented (v1 + M-C1 batch 1 + M-C1.1 follow-up + M-C2 EVA batch + EVA-4 + R12 + the arrival-validation lane + the player-workflow lane + M-A7 + the map-view pair): 27 verbs.
+        // Implemented (v1 + M-C1 batch 1 + M-C1.1 follow-up + M-C2 EVA batch + EVA-4 + R12 + the arrival-validation lane + the player-workflow lane + M-A7 + the map-view pair + InvokeRewindToLaunch): 28 verbs.
         // M-C1 promoted InvokeRewind, AnswerMergeDialog, TimeJump, and KscAction from
         // Reserved to Implemented (design-autotest-seam-verbs-c1.md). The M-C1.1 follow-up
         // added SaveGame (the M-B3 L2/R6 persist-before-reload dependency). M-C2 added the
@@ -105,6 +105,18 @@ namespace Parsek.TestCommands
             // flight-scene steps that behave differently under the overlay.
             "EnterMapView",
             "ExitMapView",
+            // Rewind-to-Launch. ADDITIVE (27 -> 28 implemented, reserved unchanged at 7),
+            // like SaveGame, the EVA family, ExitToSpaceCenter, ExportRenderManifest and
+            // the map-view pair: the reserved envelope never carried a rewind-to-launch
+            // verb. It is emphatically NOT a second spelling of InvokeRewind - that verb
+            // drives the Re-Fly / Rewind-to-Separation system (RewindPoint + ChildSlot ->
+            // RewindInvoker.StartInvoke -> a ReFlySessionMarker and a merge journal), while
+            // this one drives the Recordings-table "R" button
+            // (RecordingStore.InitiateRewind: reload the parsek_rw_* launch quicksave, no
+            // RewindPoint, no marker, no journal, no supersede write). Two mechanisms, two
+            // verbs; folding them into one would make the wire token ambiguous about which
+            // half of the timeline machinery a spec exercised.
+            "InvokeRewindToLaunch",
         };
 
         // Reserved (recognized, not implemented in v1): 7 verbs.
