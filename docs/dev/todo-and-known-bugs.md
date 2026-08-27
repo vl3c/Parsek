@@ -14,6 +14,63 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## GS4-FIRST-FLIGHT-RISKS: the ghost-derender tripwire lane is authored end to end but unflown, and five specific facts are interim pins until its reading run [OPENED 2026-08-27 with the GS-4 lane (branch `kerbalx-watch-derender`). TODO, not a defect. Status authority: `docs/dev/autotest-status.md` -> "Committed, not yet green"]
+
+**The motivation is a SUSPECTED, UNCONFIRMED product bug:** a manual play
+session (reported 2026-08-27) appeared to show BOOSTER GHOSTS NOT RENDERING
+after separation during a replay. Nothing was collected, so there is no run id,
+no log, and no confirmed defect - which is exactly why the lane exists: `GS-4-
+kerbalx-rewind-watch` drives the full player workflow (staged Kerbal X ascent,
+fueled-core discard engines-off, commit, Rewind-to-Launch via the new
+`InvokeRewindToLaunch` seam verb, Jumping Flea watch anchor, map view + watch
+mode, playback to completion) and asserts every spawned ghost - parent AND each
+separated stage - both RENDERS (`phase=MeshSpawned`) and DERENDERS
+(`phase=MeshDestroyed`), with the per-recId balance done by the new
+`[expectations.ghostLifecycle]` evaluator (`harness/lib/ghostlife.py`,
+verifier row 7d). If the sighting is a real regression, the reading run reds on
+the missing `vessel=Kerbal X Debris` MeshSpawned token or the census floor.
+
+The five interim facts the reading run must settle (each marked [INTERIM] in
+the spec):
+1. `sc.launch_vessel` from the SPACECENTER scene has never been driven live
+   (the runner's scene-independent dispatch hoist removes the `active_vessel`
+   raise that would have killed it; kRPC's call is a SpaceCenter service call).
+2. Pad occupancy after the rewind is unmeasured (`recover=True` handles both
+   branches: the strip should leave the pad clear, and a leftover is recovered).
+3. The booster debris ghost NAME is unmeasured - the spec pins the stock
+   `Kerbal X Debris` spelling; re-pin from the log if KSP names them otherwise.
+4. The spawned-ghost census is expected 8 (parent + 6 booster debris + the
+   `Kerbal X Probe` controlled-decoupled core); the committed window is the
+   honest floor `spawned = { min = 3 }` until measured.
+5. Watch-entry geometry is timing-dependent (the ghost must be within 300 km of
+   the pad when the WATCH bridge step runs; nominal timeline has it mid-ascent,
+   tens of km up). A geometry miss is a retune, not a Parsek defect.
+
+After the reading run: re-pin the interim tokens/windows, then run the standard
+three-run arming discipline for `[expectations.ghostLifecycle]` (roster
+`GHOSTLIFE_ARMED_SPECS` in `harness/lib/test_hlib.py`).
+
+## GS4-WATCH-DISTANCE-CUTOFF: the watch-mode 300 km distance cutoff has no automated probe, and GS-4 deliberately does not carry one [OPENED 2026-08-27 while scoping GS-4 (the operator asked for it; v1 kept simple by agreement). TODO, not a defect]
+
+`WatchModeController.TryResolveWatchEntryState` refuses entry when the ghost is
+beyond `WatchEnterCutoffMeters` (300 km) or on another body, and logs
+`EnterWatchMode refused: ghost #N ... is XXXkm from active vessel (max 300km)`.
+Every committed `EnterWatchMode expect = "REJECTED"` lane (V4, V6M, V8, ...)
+pins the refusal from a FOREIGN-ORBIT geometry, which conflates the same-body
+distance cutoff with the different-body guard - the specific 300 km boundary
+has never been the measured variable. GS-4 cannot probe it in the same
+playback as its successful watch: once watching, the guard never re-checks,
+and waiting for the ghost to fly far enough to harvest the refusal forfeits
+the watch entry the lane exists for. A follow-up lane (or a second GS-4 phase
+after a loop restart) should: enter watch near the pad (proven by GS-4), let
+playback end, then re-attempt `EnterWatchMode` at a moment the replay ghost is
+provably beyond 300 km on the SAME body and pin the distance-refusal line
+itself (the `max 300km` spelling), not just the REJECTED verdict. More watch
+probes (retarget, explosion hold - the unclaimed D6
+`watch-mode-retarget-explosion-hold` value) can ride the same follow-up.
+
+---
+
 ## ~~V6M-CYCLE0-ARRIVALLOITER-DWELL-CLOSE-RECORD-LOST~~: on roughly one map-open flight in six the render-composition manifest never recorded the CLOSE of `V6M-mun-player-loop`'s cycle-0 ArrivalLoiter dwell, so a correctly-rendered cycle read as structurally different and RC-CYCLE red the run [FOUND 2026-08-26 on run `2026-08-26_1840`, the lane's `renderComposition` negative control, which was inverting a DIFFERENT window and could not have caused it. DIAGNOSED 2026-08-26 offline across all six archived map-open manifests: the defect is in the RECORDER's close bookkeeping, NOT in the renderer and NOT in the lane's jump targets. **FIXED AND CLOSED 2026-08-26** by the inter-cycle-tail fallback close, live-proven over four flights - see THE FIX at the end of this entry. Was filed the same day as V6M-CYCLE0-ARRIVALLOITER-DWELL-INTERMITTENTLY-ABSENT; renamed because that title asserted something the diagnosis refuted]
 
 **The original claim was wrong in the way that matters, and the correction is

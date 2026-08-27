@@ -8,6 +8,22 @@ All notable changes to Parsek are documented here.
 
 ### Dev
 
+- A new automated test flies the whole "watch your old launch" workflow end to
+  end: it launches a Kerbal X, drops the spent booster stages (shutting the
+  engines off before discarding the last big stage with fuel still in it),
+  rewinds the game back to the launch, puts a small rocket on the now-empty pad,
+  opens the map, presses Watch on the replaying ghost, and then checks that
+  every ghost the replay created - the main rocket AND each discarded stage -
+  actually appeared on screen and disappeared again when the replay finished.
+  This exists because a play session appeared to show booster ghosts not
+  showing up after separation; from now on that kind of regression fails a
+  test run instead of waiting for someone to notice by eye. Three pieces of
+  machinery were added to make it drivable: a test-only command that presses
+  the Recordings table's "Rewind to Launch" button (inert outside the test
+  harness), a checker that pairs up every ghost's appear/disappear log lines,
+  and the scripted mission that flies the rocket. Test-tooling only; no
+  gameplay change.
+
 - The looped Mun mission's render test now also requires that Parsek actually
   published which replay owned the map line, so a run where that bookkeeping
   quietly stops happening fails instead of quietly counting as "nothing to

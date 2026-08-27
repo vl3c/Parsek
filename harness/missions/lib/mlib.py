@@ -782,6 +782,16 @@ ACTION_MJ_PLAN_PARK_TRIM = "mj_plan_park_trim"              # value = None
 # allow_rails_warp).
 ACTION_AP_POINT_RETROGRADE = "ap_point_retrograde"         # value = None
 ACTION_AP_DISENGAGE = "ap_disengage"                       # value = None
+# KX-REWIND-WATCH gravity-turn steering. Drives kRPC's NATIVE AutoPilot in the
+# vessel's SURFACE reference frame (``target_pitch_and_heading(pitch, heading)``
+# + ``engage()``), which is the only steering surface available to a mission that
+# must NOT hand its staging sequence to MechJeb's autostage (this lane discards a
+# FUELED core deliberately, and an autostager would fight it). The payload rides
+# ``Action.pitch_heading`` = ``(pitchDeg, headingDeg)`` -- a dedicated field on the
+# ``camera_pose`` precedent, so no numeric consumer can mistake a heading for a dv
+# cap. COMMANDED only: nothing gates on this action having been emitted; the
+# OBSERVED channels are altitude / apoapsis / available_thrust exactly as in GS-1.
+ACTION_AP_SET_PITCH_HEADING = "ap_set_pitch_heading"       # pitch_heading = (deg, deg)
 ACTION_WARP_TO = "warp_to"                                 # value = target UT (s)
 # B5 transfer-planning actions (KRPC.MechJeb ManeuverPlanner + NodeExecutor;
 # surfaces verified against the darchambault KRPC.MechJeb 0.8.1 source at the
@@ -1043,6 +1053,38 @@ ACTION_CAMERA_SET_POSE = "camera_set_pose"                 # camera_pose = tuple
 ACTION_RUN_SCIENCE_EXPERIMENTS = "run_science_experiments"  # value = None
 ACTION_TRANSMIT_SCIENCE = "transmit_science"               # value = None
 ACTION_RECOVER_VESSEL = "recover_vessel"                   # value = None
+
+# THE ACTIONS THAT NEED NO ACTIVE VESSEL, and the SINGLE authority on which those
+# are. `KrpcMissionControl.perform` resolves `sc.active_vessel` for the whole
+# dispatch chain, and that read RAISES whenever the game is not in FLIGHT
+# (SPACECENTER has no active vessel at all) or is mid-scene-reload. `perform()` is
+# NOT wrapped by the fly loop, so such a raise ends the mission as a MISSION-ERROR
+# rather than as anything an operator can diagnose. Every kind listed here is
+# therefore dispatched BEFORE that resolve.
+#
+# Membership is a property OF THE ACTION - "does performing this touch a vessel
+# surface?" - not a property of any one mission, which is why it lives here beside
+# the constants rather than as a positional special case in the runner's chain:
+#   SET_ROSTER_WATCH / SET_SIBLING_WATCH  issue no RPC at all (they arm a name on
+#       the control), and both are ABOUT something other than the active vessel,
+#       so binding them to it would be exactly backwards.
+#   PARSEK_COMMIT_TREE / PARSEK_SEAM_COMMAND  write a line into a file and poll
+#       another. They touch the GAME only through the C# seam addon.
+#   LAUNCH_VESSEL  is a SpaceCenter SERVICE call (`sc.launch_vessel`), and it is
+#       the one action a mission legitimately issues while no vessel exists -
+#       kx_rewind_watch rolls its subject out over whatever is on the pad, and
+#       later puts a watcher craft on a pad its own rewind just cleared, from
+#       SPACECENTER.
+# ADDING A KIND HERE IS THE WHOLE WIRING: the runner dispatches the set, and the
+# AST cell in `test_r1_seam_bridge.py` pins that every member lands above the
+# resolve. A kind that touches `v` / `control` must NOT be added.
+VESSEL_FREE_ACTION_KINDS = frozenset((
+    ACTION_SET_ROSTER_WATCH,
+    ACTION_SET_SIBLING_WATCH,
+    ACTION_PARSEK_COMMIT_TREE,
+    ACTION_PARSEK_SEAM_COMMAND,
+    ACTION_LAUNCH_VESSEL,
+))
 
 # Tri-state vocabulary for TelemetrySnapshot.vessel_recoverable, spelled out so a
 # reader of a gate does not have to remember which way round the ints go (the
@@ -2742,6 +2784,33 @@ class TelemetrySnapshot:
     # frame that carries ISSUED is very often the very frame the craft is gone
     # on. Dropping it there would make every good recovery unobservable.
     recover_request_result: str = ""
+    # FAMILY 4 - the ACTIVE VESSEL'S OWN NAME (kRPC Vessel.Name), opt-in via
+    # ``read_vessel_name=True``. "" = UNREAD, the fail-closed sentinel (the
+    # craft_chute_state discipline): it matches no declared name, so a mission
+    # that does not opt in - which is every mission but kx_rewind_watch - can
+    # never satisfy a "the craft we launched is the one flying" gate with a
+    # fabricated value, and neither can a frame whose read faulted.
+    #
+    # WHY A MACHINE NEEDS IT AT ALL, since kRPC telemetry is already
+    # active-vessel-scoped: `sc.launch_vessel` performs a SCENE RELOAD, and the
+    # frames on either side of it are indistinguishable by orbit, situation or
+    # altitude when the craft it replaces was ALSO sitting on the pad. Without a
+    # name read, a machine that "waits for the launch to settle" cannot tell the
+    # new craft from the pad occupant it recovered, and would fly a whole mission
+    # against the wrong vessel. That is not hypothetical: this lane's own fixture
+    # pre-places a DIFFERENT craft on the LaunchPad in `situation=PRE_LAUNCH`.
+    #
+    # NOT a launch-identity discriminator, and must never be used as one. KSP
+    # vessel names are neither unique nor stable (two launches of one craft share
+    # a name; KSP appends " Debris" / " Probe" on splits). It answers exactly
+    # "what is the active vessel called right now", which is what a rollout gate
+    # needs and all it needs.
+    #
+    # It is DELIBERATELY NOT populated on a vessel_lost snapshot: a name is a
+    # property OF THE VESSEL, and a destroyed or absent one has none - the same
+    # rule the chute / science channels follow, and the opposite of the roster /
+    # career channels, which outlive the craft.
+    vessel_name: str = ""
 
 
 # ---------------------------------------------------------------------------
@@ -2864,6 +2933,13 @@ class Action:
     # bound; defaults None, so every pre-existing Action is constructed and
     # compared exactly as before.
     node_ut: Optional[float] = None
+    # ACTION_AP_SET_PITCH_HEADING payload: ``(pitchDeg, headingDeg)`` in the
+    # vessel's SURFACE reference frame. A dedicated field on the ``camera_pose``
+    # precedent rather than a reuse of ``value``/``limit``: ``limit`` is
+    # documented and read as a dv CAP, and a heading landing there would be a
+    # number no reader could tell from a bound. Defaults None, so every
+    # pre-existing Action is constructed and compared exactly as before.
+    pitch_heading: Optional[Tuple[float, float]] = None
 
 
 def seam_command_id(reserved_id: str, tag: str) -> str:
@@ -2898,6 +2974,15 @@ def seam_command_id(reserved_id: str, tag: str) -> str:
 SEAM_COMMAND_POLL_SECONDS_DEFAULT: float = 120.0
 SEAM_COMMAND_POLL_SECONDS_BY_VERB: Dict[str, float] = {
     "InvokeRewind": 420.0,       # StartInvoke + the scene reload + ConsumePostLoad
+    # Rewind-to-LAUNCH takes InvokeRewind's window VERBATIM, and for InvokeRewind's
+    # reason verbatim: it is the same quicksave-copy + world-teardown + cold-load
+    # shape, two-phase across a KSP scene reload (here settling into SPACECENTER
+    # rather than back into FLIGHT). hlib sizes its seam-side DISPATCH budget off
+    # the same row (`InvokeRewind`'s 300 s, not the 120 s scene-exit class); this
+    # table is the MISSION-side wall poll and must sit ABOVE that budget or a
+    # healthy load that used its whole deferral would be read as a wedged addon.
+    # 420 s is the bound, not the expectation.
+    "InvokeRewindToLaunch": 420.0,
     "AnswerMergeDialog": 240.0,  # answer-applied AND the post-answer scene settle
     "LoadGame": 420.0,           # realize the .sfs + StartAndFocusVessel
     # R12. ExitToSpaceCenter is the third scene-straddling verb, and it is entered here
@@ -2936,6 +3021,69 @@ def seam_command_poll_seconds(verb: str) -> float:
     the C# seam within a frame, so it never needs the long window."""
     return SEAM_COMMAND_POLL_SECONDS_BY_VERB.get(
         str(verb or ""), SEAM_COMMAND_POLL_SECONDS_DEFAULT)
+
+
+# --- READING ONE GENERALIZED SEAM REPLY. The three readers below are the SINGLE
+# home of the tag-gated reply contract, shared by every machine that drives the
+# generalized bridge (R1's rewind loop, KX-REWIND-WATCH). They were originally
+# written once per machine as byte-identical copies, citing the render tracers'
+# "self-contained formatter" rule - but that rule is about duplication ACROSS
+# FILES, where a shared helper would couple two subsystems. Two copies inside one
+# module are just two places for the fail-closed tag gate to drift apart, which is
+# the one property of this contract that must never drift.
+
+def _seam_result(snapshot: TelemetrySnapshot, tag: str) -> str:
+    """The terminal seam token for ``tag``, or "" when the latest generalized seam
+    result belongs to a DIFFERENT command (or none has landed).
+
+    THE TAG CHECK IS LOAD-BEARING AND FAILS CLOSED: without it the previous
+    command's OK would still be riding the snapshot when the next phase first
+    reads it, and that phase would advance on a result its own verb never
+    produced - the stale-result fail-open."""
+    if snapshot.seam_command_tag != tag:
+        return ""
+    return snapshot.seam_command_result or ""
+
+
+def _seam_payload(snapshot: TelemetrySnapshot, tag: str, key: str) -> str:
+    """A single payload field of the terminal response for ``tag``, or "".
+    Tag-gated for the same fail-closed reason as ``_seam_result``: a payload from
+    the PREVIOUS command must never be read as this one's."""
+    if snapshot.seam_command_tag != tag:
+        return ""
+    for k, v in (snapshot.seam_command_payload or ()):
+        if k == key:
+            return v
+    return ""
+
+
+def _seam_reject_reason(snapshot: TelemetrySnapshot, tag: str) -> str:
+    """Parsek's OWN refusal reason for ``tag``'s response, percent-decoded. "" when
+    the response carried no ``msg``.
+
+    Exists so a give-up can quote the refusal (``recording-active``,
+    ``unknown-tree``, ``refly-gate <reason>``) instead of guessing at a cause: the
+    first live R1 flight red on ``recording-active`` while its give-up text
+    speculated about the RewindPoint, which sent the operator to the wrong
+    object."""
+    return decode_seam_value(_seam_payload(snapshot, tag, "msg"))
+
+
+def _seam_because(reason: str) -> str:
+    """Render a Parsek-supplied refusal reason for a give-up message, or a truthful
+    admission that the seam gave none - never a guess at the cause."""
+    return ("Parsek's reason: %s" % reason) if reason else \
+        "the response carried no msg= reason"
+
+
+# The R1 spellings are KEPT as aliases rather than renamed away: they are called
+# BY NAME from `test_r1_rewind.py` and `test_cl3_refly_crew_tombstone.py`, whose
+# mutation notes cite them, and there is nothing to gain from editing a live-proven
+# lane's test vocabulary to land a de-duplication.
+_r1_seam_result = _seam_result
+_r1_seam_payload = _seam_payload
+_r1_reject_reason = _seam_reject_reason
+_r1_because = _seam_because
 
 
 def decode_seam_value(value: str) -> str:
@@ -6787,44 +6935,6 @@ def _r1_flake(state: R1State, reason: str) -> R1State:
     tell an operator which of the four ways the cycle can stall actually fired."""
     return replace(state, verdict=MISSION_FLAKE, flake_phase=state.phase,
                    flake_reason=reason, done=True)
-
-
-def _r1_seam_result(snapshot: TelemetrySnapshot, tag: str) -> str:
-    """The terminal seam token for ``tag``, or "" when the latest generalized
-    seam result belongs to a DIFFERENT command (or none has landed).
-
-    The tag check is load-bearing and fails CLOSED: without it the COMMIT
-    command's OK would still be riding the snapshot when REWIND first reads it,
-    and REWIND would advance on a result InvokeRewind never produced -- the
-    stale-result fail-open."""
-    if snapshot.seam_command_tag != tag:
-        return ""
-    return snapshot.seam_command_result or ""
-
-
-def _r1_seam_payload(snapshot: TelemetrySnapshot, tag: str, key: str) -> str:
-    """A single payload field of the terminal seam response for ``tag``, or "".
-    Tag-gated for the same fail-closed reason as ``_r1_seam_result``: a payload
-    from the PREVIOUS command must never be read as this one's."""
-    if snapshot.seam_command_tag != tag:
-        return ""
-    for k, v in (snapshot.seam_command_payload or ()):
-        if k == key:
-            return v
-    return ""
-
-
-def _r1_reject_reason(snapshot: TelemetrySnapshot, tag: str) -> str:
-    """Parsek's OWN refusal reason for ``tag``'s response, decoded. "" when the
-    response carried no ``msg``."""
-    return decode_seam_value(_r1_seam_payload(snapshot, tag, "msg"))
-
-
-def _r1_because(reason: str) -> str:
-    """Render a Parsek-supplied refusal reason for a give-up message, or a
-    truthful admission that the seam gave none - never a guess at the cause."""
-    return ("Parsek's reason: %s" % reason) if reason else \
-        "the response carried no msg= reason"
 
 
 def _r1_commit_action() -> Action:
@@ -19620,3 +19730,1468 @@ def evaluate_m3_assertions(frames, params: M3Params, phases_reached=(),
              "factors": list(params.dwell_ramp_factors),
              "stepFrames": params.dwell_ramp_step_frames}))
     return rows
+
+
+# ---------------------------------------------------------------------------
+# KX-REWIND-WATCH phase state machine (mission kx_rewind_watch).
+# Pure. THE FULL GHOST-RENDER-LIFECYCLE LANE: fly a staged Kerbal X, shed its
+# stages, commit + Rewind-to-LAUNCH, put a second craft on the pad, and WATCH the
+# first flight replay as a ghost while the clock walks the whole recorded span.
+#
+# WHAT THIS MISSION IS FOR, AND WHAT IT DELIBERATELY DOES NOT JUDGE. Its own
+# contract is exactly "the flights flew and the sequence was driven". Every claim
+# about what Parsek RENDERED - ghost spawn, map marker, trajectory polyline, watch
+# camera, retire - is the SPEC's, carried by its log contracts (the render manifest
+# / `enterwatchmode complete: index=` family) over the KSP.log this flight
+# produces. That split is the harness README's mission-vs-Parsek orthogonality
+# rule, and it is why the WATCH phase below RECORDS a refused EnterWatchMode and
+# advances anyway: converting a Parsek refusal into a driver-INVALID would discard
+# the very log the contracts read, and would retry an intermittent product defect
+# into a PASS.
+#
+# THE STAGING PLAN IS READ OFF THE CRAFT, NOT GUESSED.
+# `harness/fixtures/ships/Kerbal X.craft` (86 parts) declares these inverse
+# stages, and KSP fires them from the HIGHEST istg downward:
+#   istg=6  liquidEngineMainsail.v2 + SIX radial liquidEngine2 (LV-T45) + three
+#           launchClamp1              -> LAUNCH: light all seven engines, release
+#                                        the clamps. This is PRELAUNCH's one click.
+#   istg=5  radialDecoupler1-2 x2     -> drop booster pair 1
+#   istg=4  radialDecoupler1-2 x2     -> drop booster pair 2
+#   istg=3  radialDecoupler1-2 x2     -> drop booster pair 3
+#   istg=2  Decoupler.2               -> drop the CORE (probeStackLarge +
+#                                        asasmodule1-2 + Rockomax32.BW x3 +
+#                                        the Mainsail + six R8winglets)
+#   istg=1  liquidEngine2-2.v2        -> ignite the Poodle  (NEVER PRESSED HERE)
+#   istg=0  Decoupler.2               -> pod / heat-shield separation (NEVER
+#                                        PRESSED HERE)
+# THERE ARE NO SRBs ON THIS CRAFT. The six "boosters" are FL-T400 stacks with
+# LV-T45s, and every one of them carries a fuelLine into the central stack, so
+# they drain TOGETHER rather than in asparagus order. That is why the machine
+# takes ONE observed flame-out signal and then drops all three pairs back to back
+# under a settle wait, instead of waiting for a fresh thrust step per pair: after
+# the first pair leaves, the remaining four are already dry and no second step
+# would ever arrive. Dropping a pair that still had fuel would be harmless here
+# (a radial decoupler jettisons either way) - the mission needs stages shed, not
+# an optimal ascent.
+#
+# THE SUBJECT IS ROLLED OUT, NOT ASSUMED. The lane opens with a ROLLOUT phase
+# that calls `sc.launch_vessel(craftName)` and then WAITS until the active vessel
+# READS BACK that name in a pad situation. It exists because `activate_next_stage`
+# stages WHATEVER IS ACTIVE, and what is active at scene entry is whatever the
+# fixture left on the pad - which for this lane's own save is a DIFFERENT craft
+# ("GS1 Auto-Chute Booster", `situation=PRE_LAUNCH` on the LaunchPad). Without the
+# rollout the whole mission flies, records, commits, rewinds and watches the wrong
+# vessel, and every assertion row passes while doing it: nothing downstream reads
+# a craft identity, so there is no second chance to catch it.
+#
+# THE NAME READ IS THE GATE, and it has to be. kRPC's LaunchVessel is a scene
+# RELOAD with `recover=True`, so it recovers the pad occupant and brings the new
+# craft up in its place - and the frames on either side of that reload are
+# indistinguishable by situation, altitude or orbit when both craft are sitting on
+# the same pad. `TelemetrySnapshot.vessel_name` (opt-in `read_vessel_name`) is the
+# only channel that can tell them apart; its "" UNREAD sentinel matches no declared
+# name, so a shell that forgot the flag burns the rollout budget and names the
+# give-up instead of flying the wrong craft.
+#
+# THE ROLLOUT MUST NOT ITSELF START A RECORDING, and does not. Parsek's two
+# auto-record triggers are EVENTS: a situation change (PRE_LAUNCH -> FLYING, i.e.
+# the actual liftoff) and a stage activation. A rollout does neither - it ends with
+# the craft sitting in PRE_LAUNCH, unstaged - so the recording still begins at
+# PRELAUNCH's own stage click, one phase later.
+#
+# NOTHING STARTS THE RECORDER EXPLICITLY, AND THAT IS DELIBERATE. The scenario
+# pins `autoRecordOnLaunch=true` (the default) in its seam prelude and issues NO
+# StartRecording step; the Kerbal X recording begins at PRELAUNCH's OWN stage
+# click, through Parsek's first-staging-on-the-pad auto-record trigger
+# (`ParsekFlight.DecideStageActivateAutoRecord`). That trigger is an EVENT, so
+# nothing fires for a pre-placed pad craft at LoadGame - no situation change and
+# no stage activation happens for it - and the recording's start is therefore the
+# SAME instant this machine stamps as `launch_ut`. Two consequences worth stating
+# because a future edit could break either:
+#   (a) NO PHASE MAY ASSUME A LIVE RECORDER BEFORE PRELAUNCH HAS CLICKED. None
+#       does: the first thing that reads recorder state at all is TREE-STATE,
+#       which fails closed on an empty `tree=` payload - and "auto-record never
+#       fired" is exactly the shape that produces one, so that give-up already
+#       covers this whole failure class by name.
+#   (b) `recordedSpanSeconds` (commitUT - launchUT) IS the recording's own span
+#       rather than an approximation of it, because the click that starts the
+#       recorder is the click that stamps `launch_ut`.
+# The mirror obligation lands AFTER the rewind: the setting is still true, so the
+# WATCHER launch would auto-start a SECOND recording on the Jumping Flea. The
+# AUTORECORD-OFF phase turns it off first - see the bridge list below.
+#
+# THE FUELED-CORE DISCARD IS THE ONE HARD ORDERING RULE. The istg=2 click drops a
+# Mainsail core that still has propellant, and it is fired ONLY after the throttle
+# has been read back at zero (`throttle <= throttleZeroEpsilon`, OBSERVED off the
+# snapshot, never "we emitted a cut"). An unread throttle is NOT permission: the
+# CORE-CUT phase holds until it reads zero and then names
+# `refusing to discard the FUELED core` if it never does. Staging a live Mainsail
+# drives a thrusting core into the stack above it - GS-1 flight 2's collision,
+# with 1400 kN behind it.
+#
+# THE SEAM BRIDGE, AND WHY IT IS FIVE PHASES. The order is R1's, plus one probe in
+# front of it:
+#   TREE-STATE  RecordingState -> capture the LIVE recording's `tree=` id. The
+#               rewind verb addresses a TREE, and nothing else in a mission run
+#               knows that id (it is a fresh GUID). Read it BEFORE the commit,
+#               while a recorder is still live and the reply is guaranteed to name
+#               one.
+#   COMMIT      CommitTree. Its OK stamps `recording_end_ut`, which is the whole
+#               basis of the playback-wait arithmetic below.
+#   STOP        StopRecording. Idempotent-OK by construction; issued because the
+#               commit-then-keep-flying promotion re-arms a recorder ~14 ms later.
+#   IDLE        RecordingState until it READS `recording=false`. The dispatcher
+#               refuses a rewind `recording-active`, and ordering alone is an
+#               assumption where this is a reading (R1 flight 1 died on exactly
+#               that).
+#   REWIND      InvokeRewindToLaunch tree=<captured>.
+# and one more AFTER the reload has settled and the backward clock is OBSERVED:
+#   AUTORECORD-OFF  SetSetting name=autoRecordOnLaunch value=false. It runs HERE,
+#               between the SPACECENTER gate and the watcher launch, and the
+#               placement is the whole point: any earlier and it would disarm the
+#               trigger the Kerbal X's own recording depends on; any later and the
+#               Jumping Flea's launch has already auto-started a second recorder
+#               that nobody asked for, polluting the very save the spec's log
+#               contracts read. SetSetting is AnyScene / RequiresGameLoaded, so it
+#               dispatches from SPACECENTER with no active vessel. A non-OK is a
+#               DRIVER-SEQUENCING failure like every other bridge step here and
+#               flakes: flying on would measure a scenario nobody meant to run.
+#
+# PAST THE REWIND THE WORLD IS GONE, AND SO ARE TWO THINGS EVERY OTHER MACHINE
+# RELIES ON.
+#   (1) GAME-TIME BUDGETS CANNOT BOUND A PHASE. Rewind-to-Launch lands the clock
+#       at launchUT-15 s, so `ut - phase_entry_ut` is NEGATIVE and a game-time
+#       budget can never expire. Every post-flight phase here is bounded by a
+#       FRAME COUNT instead (R1's rule verbatim), and every give-up is named.
+#   (2) THERE IS NO ACTIVE VESSEL. The scene settles into SPACECENTER, where
+#       kRPC's `active_vessel` raises, so the runner's read-fail streak escalates
+#       and EVERY frame from the rewind until the watcher is on the pad arrives as
+#       a `vessel_lost` snapshot. That is the NORMAL reading here, not a loss, so
+#       vessel_lost is carved out for KXRW_POST_REWIND_PHASES - one contiguous
+#       block, not a blanket fail-open: it stays lethal for every flight phase
+#       before the rewind. A vessel_lost snapshot still carries `ut` (read off
+#       space_center, not the vessel), which is what keeps the SPACECENTER clock
+#       gate and the playback wait observable across the whole gap.
+#
+# THE PLAYBACK WAIT IS ARITHMETIC, NOT A GUESS. The machine TIMED the recording:
+# `launch_ut` is stamped on the PRELAUNCH click and `recording_end_ut` on the
+# frame CommitTree answered OK, so the committed recording spans exactly
+# [launch_ut, recording_end_ut]. Parsek replays a non-loop ghost at its RECORDED
+# absolute UTs, and the rewind put the clock back to launchUT-15, so the replay is
+# finished once the live clock passes `recording_end_ut`; the wait target is that
+# plus `playbackMarginSeconds` so the retire happens INSIDE the recorded log. No
+# warp is used (v1 keeps it simple), so the wait is real time - and it is bounded
+# by `playbackWaitFrames` rather than by a UT budget, because a STUCK clock is
+# precisely the failure a UT budget cannot see.
+# ---------------------------------------------------------------------------
+
+KXRW_ROLLOUT = "ROLLOUT"
+KXRW_PRELAUNCH = "PRELAUNCH"
+KXRW_ASCENT = "ASCENT"
+KXRW_BOOSTER_CUT = "BOOSTER-CUT"
+KXRW_BOOSTER_STAGE = "BOOSTER-STAGE"
+KXRW_CORE_CUT = "CORE-CUT"
+KXRW_CORE_DISCARD = "CORE-DISCARD"
+KXRW_COAST = "COAST"
+KXRW_TREE_STATE = "TREE-STATE"
+KXRW_COMMIT = "COMMIT"
+KXRW_STOP = "STOP"
+KXRW_RECORDER_IDLE = "RECORDER-IDLE"
+KXRW_REWIND = "REWIND"
+KXRW_SPACECENTER = "SPACECENTER"
+KXRW_AUTORECORD_OFF = "AUTORECORD-OFF"
+KXRW_WATCHER_LAUNCH = "WATCHER-LAUNCH"
+KXRW_WATCHER_READY = "WATCHER-READY"
+KXRW_MAP_VIEW = "MAP-VIEW"
+KXRW_WATCH = "WATCH"
+KXRW_PLAYBACK_WAIT = "PLAYBACK-WAIT"
+KXRW_DONE = "DONE"
+
+KXRW_PHASES: Tuple[str, ...] = (
+    KXRW_ROLLOUT, KXRW_PRELAUNCH, KXRW_ASCENT, KXRW_BOOSTER_CUT, KXRW_BOOSTER_STAGE,
+    KXRW_CORE_CUT, KXRW_CORE_DISCARD, KXRW_COAST, KXRW_TREE_STATE, KXRW_COMMIT,
+    KXRW_STOP, KXRW_RECORDER_IDLE, KXRW_REWIND, KXRW_SPACECENTER,
+    KXRW_AUTORECORD_OFF, KXRW_WATCHER_LAUNCH, KXRW_WATCHER_READY, KXRW_MAP_VIEW,
+    KXRW_WATCH, KXRW_PLAYBACK_WAIT, KXRW_DONE)
+
+# The FLIGHT phases: bounded by the whole-flight clock, vessel_lost is lethal, and
+# the frozen-telemetry (vessel-destroyed) detector runs.
+KXRW_FLIGHT_PHASES: Tuple[str, ...] = (
+    KXRW_ASCENT, KXRW_BOOSTER_CUT, KXRW_BOOSTER_STAGE, KXRW_CORE_CUT,
+    KXRW_CORE_DISCARD, KXRW_COAST)
+
+# The phases in which a `vessel_lost` snapshot is the EXPECTED reading rather
+# than a loss. From the frame InvokeRewindToLaunch is commanded (the scene tears
+# down under it) to the end of the mission: SPACECENTER has no active vessel at
+# all, and the watched replay's own craft is a GHOST, not a vessel kRPC can read.
+# It is ONE CONTIGUOUS BLOCK by design - a per-phase sprinkle is a hole somebody
+# widens later.
+KXRW_POST_REWIND_PHASES: Tuple[str, ...] = (
+    KXRW_REWIND, KXRW_SPACECENTER, KXRW_AUTORECORD_OFF, KXRW_WATCHER_LAUNCH,
+    KXRW_WATCHER_READY, KXRW_MAP_VIEW, KXRW_WATCH, KXRW_PLAYBACK_WAIT)
+
+# Every phase in which a `vessel_lost` snapshot is EXPECTED. TWO disjoint reasons,
+# deliberately spelled as a union of two named sets rather than as one flat list,
+# because they are not the same fact and a future edit should have to say which one
+# it is extending:
+#   ROLLOUT              - a FLIGHT->FLIGHT scene reload is running under the
+#                          mission (`sc.launch_vessel` recovers the pad occupant
+#                          and brings the subject up), so the active vessel handle
+#                          is legitimately dead for a few frames. The B-DOCK
+#                          Interceptor-launch precedent exactly.
+#   the post-rewind block - there is no active vessel AT ALL: the world reloaded
+#                          into SPACECENTER, and the craft being watched is a
+#                          GHOST, which kRPC cannot read as a vessel.
+# Everywhere else a lost vessel is a destroyed craft and terminates the mission.
+KXRW_VESSEL_LOST_EXPECTED_PHASES: Tuple[str, ...] = (
+    (KXRW_ROLLOUT,) + KXRW_POST_REWIND_PHASES)
+
+# Per-command seam tags. Distinct by construction: the C# seam SKIPS DUPLICATE
+# IDS, so a reused tag makes the second command a silent no-op whose poll then
+# expires as a TIMEOUT that reads like a wedged addon (R1 flight 1's lesson).
+KXRW_TAG_COMMIT = "commit"
+KXRW_TAG_STOP = "stop"
+KXRW_TAG_REWIND = "rewind"
+KXRW_TAG_AUTORECORD = "autorec"
+KXRW_TAG_MAP = "map"
+KXRW_TAG_WATCH = "watch"
+
+# The Parsek setting the AUTORECORD-OFF step turns off, and the value it writes.
+# A CONSTANT rather than a param: it is a Parsek setting KEY, not a tuning knob,
+# and a lane that pointed this at a different key would be a different lane. The
+# spelling is the one hlib's `spec_expects_live_recording` already matches on, so
+# a rename would red there too.
+KXRW_AUTORECORD_SETTING = "autoRecordOnLaunch"
+KXRW_AUTORECORD_OFF_VALUE = "false"
+
+
+def kxrw_tree_probe_tag(probe: int) -> str:
+    """Tag for TREE-STATE probe ``probe`` (``tree0``, ``tree1``, ...). Each probe
+    issues the SAME verb, so each needs its OWN wire id."""
+    return "tree%d" % int(probe)
+
+
+def kxrw_idle_probe_tag(probe: int) -> str:
+    """Tag for RECORDER-IDLE probe ``probe`` (``idle0``, ...). A SEPARATE family
+    from ``tree*`` so an idle probe can never collide with a tree probe at the
+    same index."""
+    return "idle%d" % int(probe)
+
+
+# Situations that prove the Kerbal X actually left the pad. GS-1's measured
+# reason: KSP reports `situation = LANDED` well past the pad, so an ungated read
+# resolves rows against a craft still climbing.
+KXRW_AIRBORNE_SITUATIONS: Tuple[str, ...] = ("FLYING", "SUB_ORBITAL", "ORBITING",
+                                             "ESCAPING")
+
+
+def kxrw_gravity_turn_pitch(altitude: float, turn_start_alt: float,
+                            turn_end_alt: float,
+                            final_pitch: float) -> Optional[float]:
+    """The commanded surface PITCH (degrees) for ``altitude`` on the linear
+    gravity-turn program, or None when the altitude is unreadable.
+
+    90 deg (straight up) AT AND BELOW ``turn_start_alt``; ``final_pitch`` at and
+    above ``turn_end_alt``; linear in between. Returns None on a non-finite
+    altitude so the caller emits NOTHING rather than steering on a garbage reading
+    - the AP then holds its last target, which is the right answer for one bad
+    poll. A degenerate window (end <= start) snaps to ``final_pitch`` ABOVE the
+    start rather than dividing by zero; the vertical branch owns the boundary
+    altitude itself, so start == end == altitude reads 90."""
+    if not _is_finite(altitude):
+        return None
+    if altitude <= turn_start_alt:
+        return 90.0
+    if turn_end_alt <= turn_start_alt or altitude >= turn_end_alt:
+        return float(final_pitch)
+    frac = (altitude - turn_start_alt) / (turn_end_alt - turn_start_alt)
+    return 90.0 - (90.0 - float(final_pitch)) * frac
+
+
+def kxrw_playback_target_ut(recording_end_ut: float, margin: float) -> float:
+    """The UT the live clock must pass before the committed recording's ghost has
+    finished replaying: the recorded END plus ``margin``.
+
+    NaN when either input is unreadable, and NaN FAILS THE WAIT CLOSED (the gate
+    requires a finite target), so a mission that never captured a commit UT burns
+    its frame bound and names the give-up instead of declaring a replay it could
+    not have watched."""
+    if not _is_finite(recording_end_ut) or not _is_finite(margin):
+        return float("nan")
+    return float(recording_end_ut) + float(margin)
+
+
+def kxrw_playback_complete(ut: float, target_ut: float) -> bool:
+    """True iff the live clock has reached the playback target. Both readings must
+    be finite (fail closed)."""
+    return _is_finite(ut) and _is_finite(target_ut) and ut >= target_ut
+
+
+def kxrw_throttle_is_zero(throttle: float, epsilon: float) -> bool:
+    """OBSERVED-zero throttle: a FINITE readback at or below ``epsilon``.
+
+    An unread throttle (NaN) is NOT zero. That is the whole point of the helper:
+    the fueled-core discard is gated on this, and "we emitted a cut" is a
+    COMMANDED reading of exactly the kind that produced B1's inert chute, the
+    B-DOCK docking AP and EVA-4's ladder release."""
+    return _is_finite(throttle) and abs(float(throttle)) <= float(epsilon)
+
+
+@dataclass(frozen=True)
+class KxrwParams:
+    """kx_rewind_watch tuning (spec [driver.missionParams]). Every value is a
+    WINDOW / threshold / budget, never a golden trajectory."""
+    # --- craft + site -------------------------------------------------------
+    craft_name: str = "Kerbal X"
+    launch_site: str = "LaunchPad"
+    # The craft launched onto the (now clear) pad AFTER the rewind, from which the
+    # replay is watched. Never flown - it exists to give the flight scene a live
+    # vessel so a ghost has somewhere to be watched FROM.
+    watcher_craft_name: str = "Jumping Flea"
+
+    # --- rollout (put THIS craft on the pad, over whatever was there) -------
+    # Frames in which the rolled-out craft must become the active vessel, reading
+    # back `craft_name` in a `rollout_ready_situations` situation. Generous: it
+    # spans a full FLIGHT scene reload, every frame of which arrives vessel_lost.
+    rollout_frames: int = 240
+    # Situations the ROLLED-OUT craft must read. PRE_LAUNCH only, deliberately
+    # narrower than the watcher's set: a craft that is already LANDED or FLYING is
+    # not a craft that just rolled out, and accepting those would let the gate pass
+    # on the pad occupant the rollout was supposed to replace.
+    rollout_ready_situations: Tuple[str, ...] = ("PRE_LAUNCH",)
+    rollout_ready_debounce: int = 2
+
+    # --- ascent -------------------------------------------------------------
+    launch_throttle: float = 1.0
+    turn_start_alt: float = 1000.0
+    turn_end_alt: float = 45000.0
+    turn_final_pitch: float = 25.0
+    turn_heading: float = 90.0
+    # Re-command the AP only when the programmed pitch has moved this far. One RPC
+    # per poll for a value that changes by hundredths of a degree is pure waste;
+    # the AP holds its last target between commands.
+    pitch_step: float = 2.0
+
+    # --- staging ------------------------------------------------------------
+    # Radial-decoupler stages between launch and the core drop (istg 5/4/3 on the
+    # committed Kerbal X = 3).
+    booster_stage_count: int = 3
+    # Fraction of the PEAK available thrust at or below which the boosters read as
+    # flamed out. Peak-relative rather than absolute because LV-T45 available
+    # thrust RISES with altitude (vac ISP), so an absolute floor would be a bet on
+    # one altitude.
+    booster_drop_thrust_fraction: float = 0.85
+    # The peak must first reach this before the fraction test can fire - the "there
+    # WAS an engine" half of the reading (GS-1's pre_stage_thrust discipline). At
+    # ignition the reading passes through 0, and `0 <= 0 * fraction` is true.
+    booster_live_thrust_floor: float = 100000.0
+    # Backstops, either of which arms the drop on its own: a craft whose thrust
+    # channel never moves must still shed its stages.
+    booster_drop_backstop_alt: float = 20000.0
+    booster_drop_backstop_seconds: float = 90.0
+    # Frames held between a throttle cut and the stage click it precedes.
+    stage_settle_frames: int = 2
+    # |throttle| at or below which the readback counts as OFF.
+    throttle_zero_epsilon: float = 0.01
+
+    # --- the fueled-core discard + coast ------------------------------------
+    core_discard_apoapsis: float = 60000.0
+    # Seconds since launch at which the core is discarded regardless of apoapsis.
+    # THE FLIGHT-LENGTH KNOB: the recorded span is what the playback wait later
+    # spends in real time, so this is the number that keeps the whole run sane.
+    core_discard_max_flight_seconds: float = 200.0
+    # Game seconds coasted on the remaining top stack (Poodle unlit - the mission
+    # deliberately never presses istg=1) before the seam bridge runs, so the
+    # recorder authors real post-separation coverage on both halves.
+    coast_seconds: float = 20.0
+    # Hard bound on the WHOLE pre-commit flight, measured from the launch click.
+    flight_max_seconds: float = 420.0
+
+    # --- FRAME budgets (see the header: a game-time budget cannot bound a phase
+    # whose clock has been rewound) ------------------------------------------
+    stage_cut_frames: int = 40
+    tree_frames: int = 40
+    commit_frames: int = 40
+    stop_frames: int = 40
+    idle_frames: int = 40
+    rewind_frames: int = 40
+    space_center_frames: int = 120
+    # AUTORECORD-OFF's bound. SetSetting is a one-frame AnyScene verb riding the
+    # 60 s C# default, so its reply lands on the very next frame; this bounds a
+    # seam that never answers at all.
+    auto_record_off_frames: int = 40
+    watcher_launch_frames: int = 240
+    map_view_frames: int = 40
+    watch_frames: int = 40
+    # The playback wait's ONLY bound. Frames, because a stuck clock is exactly
+    # what a UT budget cannot see; at the standard 0.5 s poll this is ~10 min.
+    playback_wait_frames: int = 1200
+
+    # --- the OBSERVED rewind gate + the watcher settle -----------------------
+    # Seconds the clock must have run BACKWARD before the rewind counts as having
+    # happened. Rewind-to-Launch lands at launchUT-15 s, so a healthy cycle
+    # regresses by the whole recorded span plus 15 s.
+    min_ut_regression: float = 1.0
+    watcher_ready_situations: Tuple[str, ...] = ("PRE_LAUNCH", "LANDED")
+    watcher_ready_debounce: int = 2
+
+    # --- the playback wait ---------------------------------------------------
+    playback_margin: float = 30.0
+
+    # --- assertion window ----------------------------------------------------
+    # (min, max) game seconds the committed recording must span. A WINDOW on the
+    # flight this mission actually flew, not a golden duration.
+    recorded_span_window: Tuple[float, float] = (60.0, 600.0)
+    frozen_sample_limit: int = 10
+
+
+def kxrw_params_from_dict(params: Dict) -> KxrwParams:
+    """Build ``KxrwParams`` from a spec ``missionParams`` dict. Tolerant of
+    int/float; the span window is the ``{min, max}`` sub-table (a WINDOW)."""
+    params = params or {}
+    window = params.get("recordedSpanWindowSeconds", {}) or {}
+    return KxrwParams(
+        craft_name=str(params.get("craftName", "Kerbal X") or "Kerbal X"),
+        launch_site=str(params.get("launchSite", "LaunchPad") or "LaunchPad"),
+        watcher_craft_name=str(
+            params.get("watcherCraftName", "Jumping Flea") or "Jumping Flea"),
+        rollout_frames=int(params.get("rolloutFrames", 240)),
+        rollout_ready_situations=tuple(
+            params.get("rolloutReadySituations", ("PRE_LAUNCH",))),
+        rollout_ready_debounce=int(params.get("rolloutReadyDebounceFrames", 2)),
+        launch_throttle=float(params.get("launchThrottle", 1.0)),
+        turn_start_alt=float(params.get("turnStartAltitudeMeters", 1000.0)),
+        turn_end_alt=float(params.get("turnEndAltitudeMeters", 45000.0)),
+        turn_final_pitch=float(params.get("turnFinalPitchDeg", 25.0)),
+        turn_heading=float(params.get("turnHeadingDeg", 90.0)),
+        pitch_step=float(params.get("pitchCommandStepDeg", 2.0)),
+        booster_stage_count=int(params.get("boosterStageCount", 3)),
+        booster_drop_thrust_fraction=float(
+            params.get("boosterDropThrustFraction", 0.85)),
+        booster_live_thrust_floor=float(
+            params.get("boosterLiveThrustFloorNewtons", 100000.0)),
+        booster_drop_backstop_alt=float(
+            params.get("boosterDropBackstopAltitudeMeters", 20000.0)),
+        booster_drop_backstop_seconds=float(
+            params.get("boosterDropBackstopSeconds", 90.0)),
+        stage_settle_frames=int(params.get("stageSettleFrames", 2)),
+        throttle_zero_epsilon=float(params.get("throttleZeroEpsilon", 0.01)),
+        core_discard_apoapsis=float(params.get("coreDiscardApoapsisMeters", 60000.0)),
+        core_discard_max_flight_seconds=float(
+            params.get("coreDiscardMaxFlightSeconds", 200.0)),
+        coast_seconds=float(params.get("coastSeconds", 20.0)),
+        flight_max_seconds=float(params.get("flightMaxSeconds", 420.0)),
+        stage_cut_frames=int(params.get("stageCutFrames", 40)),
+        tree_frames=int(params.get("treeStateFrames", 40)),
+        commit_frames=int(params.get("commitFrames", 40)),
+        stop_frames=int(params.get("stopFrames", 40)),
+        idle_frames=int(params.get("idleFrames", 40)),
+        rewind_frames=int(params.get("rewindFrames", 40)),
+        space_center_frames=int(params.get("spaceCenterFrames", 120)),
+        auto_record_off_frames=int(params.get("autoRecordOffFrames", 40)),
+        watcher_launch_frames=int(params.get("watcherLaunchFrames", 240)),
+        map_view_frames=int(params.get("mapViewFrames", 40)),
+        watch_frames=int(params.get("watchFrames", 40)),
+        playback_wait_frames=int(params.get("playbackWaitFrames", 1200)),
+        min_ut_regression=float(params.get("minUtRegressionSeconds", 1.0)),
+        watcher_ready_situations=tuple(
+            params.get("watcherReadySituations", ("PRE_LAUNCH", "LANDED"))),
+        watcher_ready_debounce=int(params.get("watcherReadyDebounceFrames", 2)),
+        playback_margin=float(params.get("playbackMarginSeconds", 30.0)),
+        recorded_span_window=(float(window.get("min", 60.0)),
+                              float(window.get("max", 600.0))),
+        frozen_sample_limit=int(params.get("frozenTelemetrySamples", 10)),
+    )
+
+
+@dataclass(frozen=True)
+class KxrwState:
+    """kx_rewind_watch machine state. ``verdict`` is None while running and at the
+    DONE terminal (the assertions then judge OK vs ASSERT-FAIL); a named give-up
+    sets MISSION-FLAKE with ``flake_phase`` + ``flake_reason``, and a destroyed
+    craft in a FLIGHT phase sets MISSION-ASSERT-FAIL with ``loss_reason``."""
+    params: KxrwParams
+    phase: str = KXRW_ROLLOUT
+    phase_entry_ut: float = 0.0
+    # Frames spent in the CURRENT phase. THE post-rewind bound (see header), and
+    # also the settle counter every cut/launch gate reads - there is deliberately
+    # no second per-phase counter beside it, because a duplicate that is only ever
+    # equal to this one is a duplicate that can drift.
+    phase_frames: int = 0
+    phases_reached: Tuple[str, ...] = (KXRW_ROLLOUT,)
+
+    # --- rollout: getting the RIGHT craft onto the pad -----------------------
+    rollout_launch_commanded: bool = False
+    rollout_ready_streak: int = 0
+    rollout_ready_observed: bool = False
+    # The last name actually READ off the active vessel during the rollout, so a
+    # give-up can say WHICH craft it was looking at rather than only that it was
+    # not the right one. "" = never read (the shell did not opt into the channel,
+    # or every read faulted).
+    rollout_vessel_name: str = ""
+    # Frames of the rollout that arrived with no readable vessel. EXPECTED (the
+    # reload), carried for the record rather than for a gate.
+    rollout_vessel_lost_frames: int = 0
+
+    # --- the flown recording's own clock ------------------------------------
+    # Stamped on the PRELAUNCH click and on the frame CommitTree answered OK.
+    # Together they ARE the committed recording's UT span, and the playback wait
+    # is arithmetic over them.
+    launch_ut: float = float("nan")
+    recording_end_ut: float = float("nan")
+
+    # --- ascent / staging ---------------------------------------------------
+    peak_apoapsis: Optional[float] = None
+    airborne_seen: bool = False
+    ascent_peak_thrust: float = float("nan")
+    last_pitch_cmd: float = float("nan")
+    booster_drops_done: int = 0
+    booster_drop_armed_by: str = ""     # thrust | altitude | clock ("" = not armed)
+    # OBSERVED: the throttle read at/below the epsilon while holding the cut that
+    # precedes a stage click. Two separate latches, because only the CORE one is a
+    # hard precondition (a booster decoupler jettisons a dead stage either way).
+    booster_cut_throttle_observed: bool = False
+    core_cut_throttle_observed: bool = False
+    core_cut_throttle_reading: float = float("nan")
+    core_discard_ut: float = float("nan")
+    core_discard_altitude: float = float("nan")
+    core_discard_commanded: bool = False
+
+    # --- the seam bridge ----------------------------------------------------
+    tree_probe: int = 0
+    tree_id: str = ""
+    commit_result: str = ""
+    stop_result: str = ""
+    idle_probe: int = 0
+    recorder_idle_reading: str = ""
+    recorder_idle_observed: bool = False
+    rewind_result: str = ""
+    rewind_reject_reason: str = ""
+
+    # --- the OBSERVED rewind ------------------------------------------------
+    pre_rewind_ut: float = float("nan")
+    post_rewind_ut: float = float("nan")
+    ut_regression: float = float("nan")
+
+    # --- disarming auto-record before the SECOND launch ---------------------
+    # The terminal token of the SetSetting step. "" = none landed yet. Unlike the
+    # two RENDER verbs below, a non-OK here is FATAL: leaving autoRecordOnLaunch
+    # armed means the watcher launch starts a recording nobody asked for, in the
+    # save the spec's log contracts are about to read.
+    autorecord_off_result: str = ""
+
+    # --- the watcher + the watch --------------------------------------------
+    watcher_launch_commanded: bool = False
+    watcher_ready_streak: int = 0
+    watcher_ready_situation: str = ""
+    watcher_ready_vessel_name: str = ""
+    watcher_ready_observed: bool = False
+    # TERMINAL TOKENS, RECORDED AND NEVER FATAL. "" = no terminal landed (which IS
+    # fatal - a silent seam is a transport fault, not a Parsek verdict); "OK" /
+    # "ERROR" / "TIMEOUT" all advance the machine. The runner collapses a REJECTED
+    # verdict into "ERROR", so Parsek's own refusal word (`unknown-tree`,
+    # `no-flight-instance`, `already-watching`, ...) lives in the decoded `msg`
+    # payload carried beside it.
+    map_view_result: str = ""
+    map_view_reject_reason: str = ""
+    watch_result: str = ""
+    watch_reject_reason: str = ""
+
+    # --- the playback wait ---------------------------------------------------
+    playback_target_ut: float = float("nan")
+    playback_last_ut: float = float("nan")
+    playback_reached: bool = False
+    # Post-rewind frames that arrived with no readable vessel. EXPECTED (the
+    # SPACECENTER gap), carried for the record rather than for a gate.
+    post_rewind_vessel_lost_frames: int = 0
+
+    verdict: Optional[str] = None
+    flake_phase: Optional[str] = None
+    flake_reason: Optional[str] = None
+    loss_reason: Optional[str] = None
+    done: bool = False
+
+    frozen_sig: Optional[FrozenSignature] = None
+    frozen_count: int = 0
+    last_finite_altitude: Optional[float] = None
+
+
+def kxrw_initial_state(params: KxrwParams) -> KxrwState:
+    """Fresh kx_rewind_watch machine at ROLLOUT - NOT at PRELAUNCH. The lane opens
+    by putting its OWN craft on the pad, because `activate_next_stage` stages
+    whatever is active and what is active at scene entry is whatever the fixture
+    left there. Params ride in the state so the per-frame ``kxrw_decide`` keeps the
+    ``(state, snapshot)`` signature."""
+    return KxrwState(params=params)
+
+
+def _kxrw_enter(state: KxrwState, new_phase: str, ut: float) -> KxrwState:
+    """Transition into ``new_phase``, stamping the phase-entry UT and resetting the
+    frame counter. DONE sets ``done`` with verdict None - the assertions judge."""
+    entry = ut if _is_finite(ut) else state.phase_entry_ut
+    return replace(
+        state,
+        phase=new_phase,
+        phase_entry_ut=entry,
+        phase_frames=0,
+        phases_reached=state.phases_reached + (new_phase,),
+        done=(new_phase == KXRW_DONE),
+    )
+
+
+def _kxrw_flake(state: KxrwState, reason: str) -> KxrwState:
+    """Terminate MISSION-FLAKE (driver-INVALID, retryable) with a DISTINCTLY NAMED
+    reason. Every give-up routes through here: a bare 'phase X timed out' would not
+    tell an operator which of the dozen ways this lane can stall actually fired."""
+    return replace(state, verdict=MISSION_FLAKE, flake_phase=state.phase,
+                   flake_reason=reason, done=True)
+
+
+def kxrw_launch_settled(vessel_lost: bool, vessel_name: str, situation: str,
+                        expected_name: str,
+                        situations: Tuple[str, ...]) -> bool:
+    """True iff a just-launched craft has SETTLED: a live frame, in one of
+    ``situations``, whose active vessel READS BACK ``expected_name``.
+
+    Shared by both launches this lane performs (the subject's ROLLOUT and the
+    watcher's), because they are the same operation and a gate that is weaker on
+    one of them is a hole on that one. Three fail-closed properties, each of which
+    is the whole point of a conjunct:
+      - a ``vessel_lost`` frame settles NOTHING. It is the EXPECTED reading during
+        the reload, so it must hold the streak at zero rather than satisfy it.
+      - an UNREAD name ("") never matches a declared one. A shell that forgot
+        ``read_vessel_name`` therefore burns its frame bound and names the give-up,
+        instead of flying whatever happened to be on the pad.
+      - the situation is checked as well as the name, so a craft of the right name
+        that is already airborne (or wreckage of it) is not "settled on the pad".
+    An EMPTY ``expected_name`` degrades to a situation-only gate, which is the
+    honest behaviour for a caller that declared no name - not a licence to skip the
+    read when one WAS declared."""
+    if vessel_lost:
+        return False
+    if situation not in situations:
+        return False
+    want = str(expected_name or "").strip()
+    if not want:
+        return True
+    got = str(vessel_name or "").strip()
+    return bool(got) and got == want
+
+
+def _kxrw_seam_action(verb: str, tag: str,
+                      args: Tuple[Tuple[str, str], ...] = ()) -> Action:
+    return Action(ACTION_PARSEK_SEAM_COMMAND, seam_verb=verb, seam_args=args,
+                  seam_tag=tag)
+
+
+def _kxrw_flight_over_budget(state: KxrwState,
+                             snapshot: TelemetrySnapshot) -> bool:
+    """True iff the WHOLE pre-commit flight has out-run ``flightMaxSeconds`` since
+    the launch click. ONE bound over the flight rather than a budget per phase: the
+    ascent legitimately bounces between ASCENT and the staging phases, so a
+    per-phase clock resets on every bounce and bounds nothing."""
+    if not _is_finite(state.launch_ut) or not _is_finite(snapshot.ut):
+        return False
+    return (snapshot.ut - state.launch_ut) > state.params.flight_max_seconds
+
+
+def _kxrw_booster_drop_due(state: KxrwState, snapshot: TelemetrySnapshot) -> str:
+    """Why the next booster pair should come off NOW, or "" for not yet.
+
+    Three arming reasons, checked in evidence order and each NAMED so the result
+    JSON says which one actually fired:
+      thrust    - OBSERVED flame-out: available thrust has fallen to
+                  ``boosterDropThrustFraction`` of a peak that first reached the
+                  live-engine floor. The peak floor is the "there WAS an engine"
+                  half; without it the ignition frame's 0 N satisfies
+                  ``0 <= 0 * fraction`` and drops the boosters on the pad.
+      altitude  - backstop: past ``boosterDropBackstopAltitudeMeters``.
+      clock     - backstop: past ``boosterDropBackstopSeconds`` since launch.
+    Both backstops exist because a craft whose thrust channel never moves must
+    still shed its stages; neither is a tuning knob."""
+    p = state.params
+    if _is_finite(state.ascent_peak_thrust) \
+            and state.ascent_peak_thrust >= p.booster_live_thrust_floor \
+            and _is_finite(snapshot.available_thrust) \
+            and snapshot.available_thrust <= (state.ascent_peak_thrust
+                                              * p.booster_drop_thrust_fraction):
+        return "thrust"
+    if _is_finite(snapshot.altitude) \
+            and snapshot.altitude >= p.booster_drop_backstop_alt:
+        return "altitude"
+    if _is_finite(snapshot.ut) and _is_finite(state.launch_ut) \
+            and (snapshot.ut - state.launch_ut) >= p.booster_drop_backstop_seconds:
+        return "clock"
+    return ""
+
+
+def _kxrw_core_discard_due(state: KxrwState, snapshot: TelemetrySnapshot) -> bool:
+    """True once the fueled core should come off: the orbit apoapsis has reached
+    ``coreDiscardApoapsisMeters``, or the flight has run
+    ``coreDiscardMaxFlightSeconds`` since launch. The clock arm is what keeps the
+    recorded span - and therefore the real-time playback wait - bounded."""
+    p = state.params
+    if _is_finite(snapshot.apoapsis) and snapshot.apoapsis >= p.core_discard_apoapsis:
+        return True
+    return (_is_finite(snapshot.ut) and _is_finite(state.launch_ut)
+            and (snapshot.ut - state.launch_ut) >= p.core_discard_max_flight_seconds)
+
+
+def _kxrw_pitch_actions(state: KxrwState,
+                        snapshot: TelemetrySnapshot) -> Tuple[KxrwState, List[Action]]:
+    """Emit the gravity-turn steering command IF the programmed pitch has moved at
+    least ``pitchCommandStepDeg`` since the last one. Returns (state, actions). An
+    unreadable altitude emits nothing and the AP holds its last target - the right
+    answer for one bad poll, and never a steer on a garbage reading."""
+    pitch = kxrw_gravity_turn_pitch(snapshot.altitude, state.params.turn_start_alt,
+                                    state.params.turn_end_alt,
+                                    state.params.turn_final_pitch)
+    if pitch is None:
+        return state, []
+    if _is_finite(state.last_pitch_cmd) \
+            and abs(pitch - state.last_pitch_cmd) < state.params.pitch_step:
+        return state, []
+    return (replace(state, last_pitch_cmd=pitch),
+            [Action(ACTION_AP_SET_PITCH_HEADING,
+                    pitch_heading=(float(pitch), float(state.params.turn_heading)))])
+
+
+def kxrw_decide(state: KxrwState,
+                snapshot: TelemetrySnapshot) -> Tuple[KxrwState, List[Action]]:
+    """Advance the kx_rewind_watch machine one frame; return (new_state, actions).
+
+    ROLLOUT puts the mission's OWN craft on the pad and waits until the active
+    vessel reads back its name (`activate_next_stage` stages whatever is ACTIVE,
+    and what is active at scene entry is whatever the fixture left there).
+    PRELAUNCH then fires the istg=6 click (all seven engines + the clamps) and
+    stamps the recording's launch UT - which is also the instant Parsek's
+    auto-record trigger starts recording. ASCENT steers the programmed gravity turn and hands
+    off to the staging pair (BOOSTER-CUT holds a throttle cut, BOOSTER-STAGE fires
+    one radial-decoupler stage) once per declared booster stage, then to CORE-CUT /
+    CORE-DISCARD, which drop the FUELED Mainsail core only after the throttle has
+    been READ at zero. COAST authors post-separation coverage. The five seam phases
+    capture the tree id, commit, stop, OBSERVE the recorder idle, and command
+    InvokeRewindToLaunch. SPACECENTER waits out the reload and gates on the
+    OBSERVED backward clock, then AUTORECORD-OFF disarms `autoRecordOnLaunch` -
+    the same setting that auto-started this flight's OWN recording at the
+    PRELAUNCH click - so the watcher does not bring a second recorder with it.
+    WATCHER-LAUNCH / WATCHER-READY put a second craft on the pad; MAP-VIEW and WATCH drive the two render verbs and RECORD their
+    verdicts without ever failing on them; PLAYBACK-WAIT walks the clock past the
+    recorded span. DONE is terminal with verdict None.
+
+    Once ``done`` the machine is idempotent."""
+    if state.done:
+        return state, []
+
+    p = state.params
+    peak = _update_peak(state.peak_apoapsis, snapshot.apoapsis)
+    state = replace(state, peak_apoapsis=peak, phase_frames=state.phase_frames + 1)
+
+    live = not snapshot.vessel_lost
+    if live and _is_finite(snapshot.altitude):
+        state = replace(state, last_finite_altitude=snapshot.altitude)
+    if live and not state.airborne_seen \
+            and snapshot.situation in KXRW_AIRBORNE_SITUATIONS:
+        state = replace(state, airborne_seen=True)
+    # Running peak available thrust, live frames only. Updated BEFORE any gate so
+    # the first post-ignition reading is already in the peak when the drop test
+    # runs.
+    if live and _is_finite(snapshot.available_thrust):
+        if not _is_finite(state.ascent_peak_thrust) \
+                or snapshot.available_thrust > state.ascent_peak_thrust:
+            state = replace(state, ascent_peak_thrust=snapshot.available_thrust)
+
+    # VESSEL LOSS. Lethal everywhere EXCEPT the post-rewind block, where having no
+    # readable active vessel is the NORMAL reading (SPACECENTER has none at all).
+    # See KXRW_POST_REWIND_PHASES.
+    if snapshot.vessel_lost:
+        if state.phase == KXRW_ROLLOUT:
+            # The rollout's own FLIGHT->FLIGHT reload is running under us.
+            state = replace(
+                state,
+                rollout_vessel_lost_frames=state.rollout_vessel_lost_frames + 1)
+        elif state.phase in KXRW_POST_REWIND_PHASES:
+            state = replace(
+                state,
+                post_rewind_vessel_lost_frames=(
+                    state.post_rewind_vessel_lost_frames + 1))
+        else:
+            return replace(
+                state, done=True, verdict=MISSION_ASSERT_FAIL,
+                loss_reason=(
+                    "vessel-lost (unreadable after repeated telemetry failures) in "
+                    "phase %s; last altitude %s m, airborneSeen=%s"
+                    % (state.phase, _obs_fmt(state.last_finite_altitude),
+                       "true" if state.airborne_seen else "false"))), []
+
+    # FROZEN TELEMETRY (KSP destroyed the craft and handed active-vessel to
+    # debris) + the whole-flight budget: FLIGHT phases only, exactly as GS-1 and
+    # B-DOCK scope their own.
+    if state.phase in KXRW_FLIGHT_PHASES:
+        limit = p.frozen_sample_limit
+        new_sig, new_count, tripped = _advance_frozen_count(
+            state.frozen_sig, state.frozen_count, snapshot, limit)
+        if tripped:
+            return replace(
+                state, frozen_sig=new_sig, frozen_count=new_count, done=True,
+                verdict=MISSION_ASSERT_FAIL,
+                loss_reason=("vessel-lost (telemetry frozen %d consecutive samples "
+                             "while airborne; vessel presumed destroyed)" % limit)), []
+        state = replace(state, frozen_sig=new_sig, frozen_count=new_count)
+        if _kxrw_flight_over_budget(state, snapshot):
+            return _kxrw_flake(
+                state,
+                "phase %s: the flight out-ran flightMaxSeconds (%.0f s since the "
+                "launch click) before the tree was committed. The recorded span is "
+                "what the playback wait later spends in REAL TIME, so an unbounded "
+                "flight is an unbounded run"
+                % (state.phase, p.flight_max_seconds)), []
+
+    # ---- ROLLOUT: put THIS craft on the pad, over whatever was there --------
+    if state.phase == KXRW_ROLLOUT:
+        if not state.rollout_launch_commanded:
+            # ONE click, on the phase's first frame. kRPC's LaunchVessel recovers
+            # the pad occupant and reloads FLIGHT onto the new craft (the B-DOCK
+            # Interceptor precedent), so the next few frames legitimately arrive
+            # with a dead vessel handle - which KXRW_VESSEL_LOST_EXPECTED_PHASES
+            # carves out for exactly this phase.
+            #
+            # It starts NO recording: Parsek's auto-record triggers are a situation
+            # change (PRE_LAUNCH -> FLYING) and a stage activation, and a rollout
+            # performs neither. The recorder still arms at PRELAUNCH's stage click.
+            return (replace(state, rollout_launch_commanded=True),
+                    [Action(ACTION_LAUNCH_VESSEL, text=p.craft_name,
+                            launch_site=p.launch_site)])
+        settled = kxrw_launch_settled(snapshot.vessel_lost, snapshot.vessel_name,
+                                      snapshot.situation, p.craft_name,
+                                      p.rollout_ready_situations)
+        streak = state.rollout_ready_streak + 1 if settled else 0
+        st = replace(state, rollout_ready_streak=streak,
+                     rollout_vessel_name=((snapshot.vessel_name
+                                           or state.rollout_vessel_name)
+                                          if live else state.rollout_vessel_name))
+        if streak >= max(1, p.rollout_ready_debounce):
+            return _kxrw_enter(replace(st, rollout_ready_observed=True),
+                               KXRW_PRELAUNCH, snapshot.ut), []
+        if st.phase_frames > p.rollout_frames:
+            return _kxrw_flake(
+                st,
+                "phase %s: %r never became the active vessel in one of %s within "
+                "%d frames (last name read %r, last situation %s). Staging would "
+                "fire on whatever IS active - this lane's own fixture pre-places a "
+                "DIFFERENT craft on the pad - and every row downstream would pass "
+                "while measuring the wrong vessel. An UNREAD name means the shell "
+                "did not opt into read_vessel_name"
+                % (KXRW_ROLLOUT, p.craft_name, list(p.rollout_ready_situations),
+                   p.rollout_frames, st.rollout_vessel_name or "",
+                   snapshot.situation or "UNREAD")), []
+        return st, []
+
+    # ---- PRELAUNCH: one click, which is ALSO what starts the recorder -------
+    # Nothing issues StartRecording anywhere in this lane. The scenario pins
+    # `autoRecordOnLaunch=true` and Parsek's first-staging-on-the-pad trigger
+    # starts the recording on THIS click, which is why `launch_ut` stamped here is
+    # the recording's own start rather than an approximation of it.
+    if state.phase == KXRW_PRELAUNCH:
+        st = replace(state,
+                     launch_ut=(snapshot.ut if _is_finite(snapshot.ut)
+                                else float("nan")))
+        # istg=6: Mainsail + six LV-T45 radials + the three launch clamps, in ONE
+        # click, exactly as a player pressing space would.
+        actions = [Action(ACTION_SET_THROTTLE, p.launch_throttle),
+                   Action(ACTION_ACTIVATE_STAGE)]
+        st, steer = _kxrw_pitch_actions(st, snapshot)
+        return _kxrw_enter(st, KXRW_ASCENT, snapshot.ut), actions + steer
+
+    # ---- ASCENT: steer, and hand off to whichever gate opens first ---------
+    if state.phase == KXRW_ASCENT:
+        if state.booster_drops_done < p.booster_stage_count:
+            armed = _kxrw_booster_drop_due(state, snapshot)
+            if armed:
+                # CUT AND RETURN. The settle wait is the ONLY thing standing
+                # between the cut and a decoupler, and firing one while the
+                # boosters are still pushing drives a spent pair into the stack.
+                st = replace(state, booster_drop_armed_by=armed,
+                             booster_cut_throttle_observed=False)
+                return (_kxrw_enter(st, KXRW_BOOSTER_CUT, snapshot.ut),
+                        [Action(ACTION_CUT_THROTTLE, 0.0)])
+        # The core gate is checked even with drops outstanding: a flight that has
+        # reached its apoapsis target or its clock backstop must proceed rather
+        # than hold for a stage signal that is not coming.
+        if _kxrw_core_discard_due(state, snapshot):
+            st = replace(state, core_cut_throttle_observed=False)
+            return (_kxrw_enter(st, KXRW_CORE_CUT, snapshot.ut),
+                    [Action(ACTION_CUT_THROTTLE, 0.0), Action(ACTION_AP_DISENGAGE)])
+        st, steer = _kxrw_pitch_actions(state, snapshot)
+        return st, steer
+
+    # ---- BOOSTER-CUT / BOOSTER-STAGE ---------------------------------------
+    if state.phase == KXRW_BOOSTER_CUT:
+        # `phase_frames` IS the settle counter: it was reset by the transition into
+        # this phase and incremented once at the top of this frame, so on the Nth
+        # frame here it reads exactly N. A second field tracking the same number is
+        # a second thing to keep in step, and the one that drifts is the one the
+        # decoupler gate reads.
+        observed = (state.booster_cut_throttle_observed
+                    or kxrw_throttle_is_zero(snapshot.throttle,
+                                             p.throttle_zero_epsilon))
+        st = replace(state, booster_cut_throttle_observed=observed)
+        if st.phase_frames >= max(1, p.stage_settle_frames) and observed:
+            return _kxrw_enter(st, KXRW_BOOSTER_STAGE, snapshot.ut), []
+        if st.phase_frames > p.stage_cut_frames:
+            # NOT a hard precondition for a booster (a radial decoupler jettisons a
+            # dead stage whether or not the throttle reads off), but a throttle that
+            # will not read zero is the SAME channel the fueled-core discard depends
+            # on. Naming it here, one stage early, is what stops the run discovering
+            # it on the click that matters.
+            return _kxrw_flake(
+                st,
+                "phase %s: the throttle never read <= %.3f within %d frames (last "
+                "readback %s) before booster drop %d/%d; the fueled-core discard is "
+                "gated on this same readback"
+                % (KXRW_BOOSTER_CUT, p.throttle_zero_epsilon, p.stage_cut_frames,
+                   _obs_fmt(snapshot.throttle), st.booster_drops_done + 1,
+                   p.booster_stage_count)), []
+        return st, []
+
+    if state.phase == KXRW_BOOSTER_STAGE:
+        drops = state.booster_drops_done + 1
+        st = replace(state, booster_drops_done=drops,
+                     booster_cut_throttle_observed=False)
+        actions: List[Action] = [Action(ACTION_ACTIVATE_STAGE)]
+        if drops < p.booster_stage_count:
+            # Straight back into the cut for the next pair. The six boosters share
+            # fuel lines into the core and therefore drain TOGETHER, so no second
+            # thrust step is coming; the settle wait, not a fresh reading, is what
+            # separates the clicks.
+            return _kxrw_enter(st, KXRW_BOOSTER_CUT, snapshot.ut), actions
+        # Last pair away: throttle back up and keep climbing on the core.
+        actions.append(Action(ACTION_SET_THROTTLE, p.launch_throttle))
+        return _kxrw_enter(st, KXRW_ASCENT, snapshot.ut), actions
+
+    # ---- CORE-CUT: the one hard ordering rule ------------------------------
+    if state.phase == KXRW_CORE_CUT:
+        # `phase_frames` is the settle counter here too - see BOOSTER-CUT.
+        zero_now = kxrw_throttle_is_zero(snapshot.throttle, p.throttle_zero_epsilon)
+        st = replace(state,
+                     core_cut_throttle_observed=(state.core_cut_throttle_observed
+                                                 or zero_now),
+                     core_cut_throttle_reading=(snapshot.throttle if zero_now
+                                                else state.core_cut_throttle_reading))
+        if (st.phase_frames >= max(1, p.stage_settle_frames)
+                and st.core_cut_throttle_observed):
+            return _kxrw_enter(st, KXRW_CORE_DISCARD, snapshot.ut), []
+        if st.phase_frames > p.stage_cut_frames:
+            # FAIL CLOSED, and this is the give-up the whole lane is built around:
+            # an UNREAD or non-zero throttle is not permission to stage a Mainsail
+            # core that still has propellant in it.
+            return _kxrw_flake(
+                st,
+                "phase %s: refusing to discard the FUELED core - the throttle never "
+                "read <= %.3f within %d frames (last readback %s). Staging a live "
+                "Mainsail drives a thrusting core into the stack above it"
+                % (KXRW_CORE_CUT, p.throttle_zero_epsilon, p.stage_cut_frames,
+                   _obs_fmt(snapshot.throttle))), []
+        return st, []
+
+    if state.phase == KXRW_CORE_DISCARD:
+        # One-frame waypoint. istg=2: the Decoupler.2 above the Mainsail, dropping
+        # the still-fueled core with its engines OBSERVED off.
+        st = replace(state, core_discard_commanded=True,
+                     core_discard_ut=(snapshot.ut if _is_finite(snapshot.ut)
+                                      else float("nan")),
+                     core_discard_altitude=(snapshot.altitude
+                                            if _is_finite(snapshot.altitude)
+                                            else float("nan")))
+        return (_kxrw_enter(st, KXRW_COAST, snapshot.ut),
+                [Action(ACTION_ACTIVATE_STAGE)])
+
+    # ---- COAST: let the recorder author post-separation coverage -----------
+    if state.phase == KXRW_COAST:
+        if _is_finite(snapshot.ut) \
+                and (snapshot.ut - state.phase_entry_ut) >= p.coast_seconds:
+            return (_kxrw_enter(replace(state, tree_probe=0), KXRW_TREE_STATE,
+                                snapshot.ut),
+                    [_kxrw_seam_action("RecordingState", kxrw_tree_probe_tag(0))])
+        return state, []
+
+    # ---- TREE-STATE: learn the tree id the rewind will address -------------
+    if state.phase == KXRW_TREE_STATE:
+        tag = kxrw_tree_probe_tag(state.tree_probe)
+        result = _seam_result(snapshot, tag)
+        if result == "OK":
+            tree = _seam_payload(snapshot, tag, "tree")
+            if tree:
+                return (_kxrw_enter(replace(state, tree_id=tree), KXRW_COMMIT,
+                                    snapshot.ut),
+                        [_kxrw_seam_action("CommitTree", KXRW_TAG_COMMIT)])
+            st = replace(state, tree_probe=state.tree_probe + 1)
+            if st.phase_frames > p.tree_frames:
+                return _kxrw_flake(
+                    st,
+                    "phase %s: RecordingState answered OK but carried no readable "
+                    "`tree` field after %d frames (%d probe(s)). "
+                    "InvokeRewindToLaunch addresses a TREE and is REJECTED "
+                    "`unknown-tree` without one, so there is nothing to command"
+                    % (KXRW_TREE_STATE, p.tree_frames, st.tree_probe)), []
+            return st, [_kxrw_seam_action("RecordingState",
+                                          kxrw_tree_probe_tag(st.tree_probe))]
+        if result in ("ERROR", "TIMEOUT"):
+            return _kxrw_flake(
+                state,
+                "phase %s: the RecordingState seam command returned %s (%s); the "
+                "tree id the rewind addresses could not be read"
+                % (KXRW_TREE_STATE, result,
+                   _seam_because(_seam_reject_reason(snapshot, tag)))), []
+        if state.phase_frames > p.tree_frames:
+            return _kxrw_flake(
+                state,
+                "phase %s: the RecordingState seam command never answered within %d "
+                "frames (no terminal token rode a snapshot; the seam bridge may not "
+                "be configured for this mission)"
+                % (KXRW_TREE_STATE, p.tree_frames)), []
+        return state, []
+
+    # ---- COMMIT -------------------------------------------------------------
+    if state.phase == KXRW_COMMIT:
+        result = _seam_result(snapshot, KXRW_TAG_COMMIT)
+        if result == "OK":
+            # THE RECORDING'S END UT. Everything the playback wait computes hangs
+            # off this stamp, so it is taken on the frame the commit ANSWERED, not
+            # on the frame it was issued.
+            st = replace(state, commit_result="OK",
+                         recording_end_ut=(snapshot.ut if _is_finite(snapshot.ut)
+                                           else float("nan")))
+            return (_kxrw_enter(st, KXRW_STOP, snapshot.ut),
+                    [_kxrw_seam_action("StopRecording", KXRW_TAG_STOP)])
+        if result in ("ERROR", "TIMEOUT"):
+            return _kxrw_flake(
+                replace(state, commit_result=result),
+                "phase %s: the tree-commit seam command returned %s (%s), so there "
+                "is no committed recording to rewind past or to replay"
+                % (KXRW_COMMIT, result,
+                   _seam_because(_seam_reject_reason(snapshot, KXRW_TAG_COMMIT)))), []
+        if state.phase_frames > p.commit_frames:
+            return _kxrw_flake(
+                state,
+                "phase %s: the tree-commit seam command never answered within %d "
+                "frames" % (KXRW_COMMIT, p.commit_frames)), []
+        return state, []
+
+    # ---- STOP ---------------------------------------------------------------
+    if state.phase == KXRW_STOP:
+        result = _seam_result(snapshot, KXRW_TAG_STOP)
+        if result == "OK":
+            # A COMMANDED reading. Do not take it as proof - go and OBSERVE.
+            return (_kxrw_enter(replace(state, stop_result="OK", idle_probe=0),
+                                KXRW_RECORDER_IDLE, snapshot.ut),
+                    [_kxrw_seam_action("RecordingState", kxrw_idle_probe_tag(0))])
+        if result in ("ERROR", "TIMEOUT"):
+            return _kxrw_flake(
+                replace(state, stop_result=result),
+                "phase %s: the StopRecording seam command returned %s (%s); the "
+                "recorder cannot be confirmed stopped, and the rewind dispatch is "
+                "refused `recording-active` while one is live"
+                % (KXRW_STOP, result,
+                   _seam_because(_seam_reject_reason(snapshot, KXRW_TAG_STOP)))), []
+        if state.phase_frames > p.stop_frames:
+            return _kxrw_flake(
+                state,
+                "phase %s: the StopRecording seam command never answered within %d "
+                "frames" % (KXRW_STOP, p.stop_frames)), []
+        return state, []
+
+    # ---- RECORDER-IDLE: the dispatcher gate, carried as an OBSERVATION -----
+    if state.phase == KXRW_RECORDER_IDLE:
+        tag = kxrw_idle_probe_tag(state.idle_probe)
+        result = _seam_result(snapshot, tag)
+        if result == "OK":
+            reading = _seam_payload(snapshot, tag, "recording")
+            if reading == "false":
+                st = replace(state, recorder_idle_reading=reading,
+                             recorder_idle_observed=True,
+                             # Stamp the pre-rewind clock on the SAME frame the
+                             # rewind is commanded, so the regression gate compares
+                             # against the tightest possible "before".
+                             pre_rewind_ut=snapshot.ut)
+                return (_kxrw_enter(st, KXRW_REWIND, snapshot.ut),
+                        [_kxrw_seam_action(
+                            "InvokeRewindToLaunch", KXRW_TAG_REWIND,
+                            (("tree", str(st.tree_id)),))])
+            if reading == "true":
+                st = replace(state, recorder_idle_reading=reading,
+                             idle_probe=state.idle_probe + 1)
+                if st.phase_frames > p.idle_frames:
+                    return _kxrw_flake(
+                        st,
+                        "phase %s: StopRecording reported OK but RecordingState "
+                        "still read recording=true after %d frames (%d probe(s)); "
+                        "InvokeRewindToLaunch would be REJECTED `recording-active`"
+                        % (KXRW_RECORDER_IDLE, p.idle_frames, st.idle_probe)), []
+                return st, [_kxrw_seam_action("RecordingState",
+                                              kxrw_idle_probe_tag(st.idle_probe))]
+            # OK with no readable `recording` field: FAIL CLOSED. An unreadable
+            # recorder state is not permission to command an irreversible rewind.
+            return _kxrw_flake(
+                replace(state, recorder_idle_reading=reading),
+                "phase %s: the RecordingState reply carried no readable `recording` "
+                "field (read %r), so the recorder cannot be confirmed idle; refusing "
+                "to command InvokeRewindToLaunch on an unverified gate"
+                % (KXRW_RECORDER_IDLE, reading)), []
+        if result in ("ERROR", "TIMEOUT"):
+            return _kxrw_flake(
+                state,
+                "phase %s: the RecordingState seam command returned %s (%s); the "
+                "recorder-idle precondition could not be observed"
+                % (KXRW_RECORDER_IDLE, result,
+                   _seam_because(_seam_reject_reason(snapshot, tag)))), []
+        if state.phase_frames > p.idle_frames:
+            return _kxrw_flake(
+                state,
+                "phase %s: the RecordingState seam command never answered within %d "
+                "frames" % (KXRW_RECORDER_IDLE, p.idle_frames)), []
+        return state, []
+
+    # ---- REWIND -------------------------------------------------------------
+    if state.phase == KXRW_REWIND:
+        result = _seam_result(snapshot, KXRW_TAG_REWIND)
+        if result == "OK":
+            return (_kxrw_enter(replace(state, rewind_result="OK"),
+                                KXRW_SPACECENTER, snapshot.ut), [])
+        if result in ("ERROR", "TIMEOUT"):
+            # Surface PARSEK's OWN reason verbatim. The refusal vocabulary is
+            # `unknown-tree | no-committed-tree | ambiguous-tree | rewind-gate
+            # <reason>` plus the dispatch refusals `merge-journal-in-flight |
+            # load-in-flight | recording-active`; guessing at which one fired is
+            # what sent R1's operator hunting the wrong object on flight 1.
+            reason = _seam_reject_reason(snapshot, KXRW_TAG_REWIND)
+            return _kxrw_flake(
+                replace(state, rewind_result=result, rewind_reject_reason=reason),
+                "phase %s: InvokeRewindToLaunch returned %s for tree=%s; %s"
+                % (KXRW_REWIND, result, state.tree_id or "<unread>",
+                   _seam_because(reason))), []
+        if state.phase_frames > p.rewind_frames:
+            return _kxrw_flake(
+                state,
+                "phase %s: the InvokeRewindToLaunch seam command never answered "
+                "within %d frames" % (KXRW_REWIND, p.rewind_frames)), []
+        return state, []
+
+    # ---- SPACECENTER: the OBSERVED backward clock --------------------------
+    if state.phase == KXRW_SPACECENTER:
+        # NOT "did the verb answer OK" (it already did, that is how we got here)
+        # but "did the game clock actually go back". A Rewind-to-Launch loads an
+        # earlier quicksave, so UT must read LOWER than the value stamped on the
+        # command frame; nothing in normal play can produce that (UT is monotonic
+        # and this lane issues no TimeJump), so the reading IS the rewind.
+        regression = float("nan")
+        if _is_finite(state.pre_rewind_ut) and _is_finite(snapshot.ut):
+            regression = state.pre_rewind_ut - snapshot.ut
+        if _is_finite(regression) and regression >= p.min_ut_regression:
+            st = replace(state, post_rewind_ut=snapshot.ut, ut_regression=regression,
+                         watcher_ready_streak=0)
+            # DISARM AUTO-RECORD BEFORE THE SECOND LAUNCH, and only now. The
+            # Kerbal X's own recording was started by PRELAUNCH's stage click
+            # through this very setting, so turning it off any earlier would have
+            # disarmed the trigger the whole lane depends on; leaving it on any
+            # longer means the watcher's launch auto-starts a second recorder.
+            return (_kxrw_enter(st, KXRW_AUTORECORD_OFF, snapshot.ut),
+                    [_kxrw_seam_action(
+                        "SetSetting", KXRW_TAG_AUTORECORD,
+                        (("name", KXRW_AUTORECORD_SETTING),
+                         ("value", KXRW_AUTORECORD_OFF_VALUE)))])
+        if state.phase_frames > p.space_center_frames:
+            return _kxrw_flake(
+                replace(state, ut_regression=regression),
+                "phase %s: InvokeRewindToLaunch reported OK but the OBSERVED game "
+                "clock never ran backward within %d frames (preUT=%s nowUT=%s "
+                "regression=%s s, required >= %.1f s). The seam's OK is a COMMANDED "
+                "reading and is never on its own evidence that the world moved"
+                % (KXRW_SPACECENTER, p.space_center_frames,
+                   _obs_fmt(state.pre_rewind_ut), _obs_fmt(snapshot.ut),
+                   _obs_fmt(regression), p.min_ut_regression)), []
+        return state, []
+
+    # ---- AUTORECORD-OFF: stop the watcher launch starting a second recorder -
+    if state.phase == KXRW_AUTORECORD_OFF:
+        result = _seam_result(snapshot, KXRW_TAG_AUTORECORD)
+        if result == "OK":
+            return (_kxrw_enter(replace(state, autorecord_off_result="OK"),
+                                KXRW_WATCHER_LAUNCH, snapshot.ut), [])
+        if result in ("ERROR", "TIMEOUT"):
+            # FATAL, unlike the two RENDER verbs. This is not a Parsek verdict
+            # about a replay - it is a DRIVER-SEQUENCING precondition, and flying
+            # on with the setting still armed would put an unasked-for second
+            # recording into the very save the spec's log contracts read. That is
+            # measuring a scenario nobody meant to run, which is precisely what a
+            # driver-INVALID is for.
+            return _kxrw_flake(
+                replace(state, autorecord_off_result=result),
+                "phase %s: SetSetting %s=%s returned %s (%s); the watcher launch "
+                "would auto-start a SECOND recording on top of the one this lane "
+                "is about to watch replay"
+                % (KXRW_AUTORECORD_OFF, KXRW_AUTORECORD_SETTING,
+                   KXRW_AUTORECORD_OFF_VALUE, result,
+                   _seam_because(_seam_reject_reason(snapshot,
+                                                     KXRW_TAG_AUTORECORD)))), []
+        if state.phase_frames > p.auto_record_off_frames:
+            return _kxrw_flake(
+                state,
+                "phase %s: the SetSetting seam command never answered within %d "
+                "frames" % (KXRW_AUTORECORD_OFF, p.auto_record_off_frames)), []
+        return state, []
+
+    # ---- WATCHER-LAUNCH / WATCHER-READY ------------------------------------
+    if state.phase == KXRW_WATCHER_LAUNCH:
+        # ONE click, on the phase's first frame. kRPC's LaunchVessel is a
+        # SpaceCenter SERVICE call, so it works from SPACECENTER with no active
+        # vessel - and its recover=True default is a no-op on a pad the rewind
+        # already cleared.
+        st = replace(state, watcher_launch_commanded=True, watcher_ready_streak=0)
+        return (_kxrw_enter(st, KXRW_WATCHER_READY, snapshot.ut),
+                [Action(ACTION_LAUNCH_VESSEL, text=p.watcher_craft_name,
+                        launch_site=p.launch_site)])
+
+    if state.phase == KXRW_WATCHER_READY:
+        # THE SAME GATE THE ROLLOUT USES, and for the same reason: a launch is a
+        # scene reload, and "a craft is on the pad in PRE_LAUNCH" was already true
+        # of whatever the reload replaced. Only the NAME read distinguishes them.
+        settled = kxrw_launch_settled(snapshot.vessel_lost, snapshot.vessel_name,
+                                      snapshot.situation, p.watcher_craft_name,
+                                      p.watcher_ready_situations)
+        streak = state.watcher_ready_streak + 1 if settled else 0
+        st = replace(state, watcher_ready_streak=streak,
+                     watcher_ready_situation=(snapshot.situation if settled
+                                              else state.watcher_ready_situation),
+                     watcher_ready_vessel_name=((snapshot.vessel_name
+                                                 or state.watcher_ready_vessel_name)
+                                                if live
+                                                else state.watcher_ready_vessel_name))
+        if streak >= max(1, p.watcher_ready_debounce):
+            return (_kxrw_enter(replace(st, watcher_ready_observed=True),
+                                KXRW_MAP_VIEW, snapshot.ut),
+                    [_kxrw_seam_action("EnterMapView", KXRW_TAG_MAP)])
+        if st.phase_frames > p.watcher_launch_frames:
+            return _kxrw_flake(
+                st,
+                "phase %s: %r never became the active vessel in one of %s within "
+                "%d frames (last name read %r, last situation %s); with no live "
+                "vessel in FLIGHT there is nothing to watch the replay from"
+                % (KXRW_WATCHER_READY, p.watcher_craft_name,
+                   list(p.watcher_ready_situations), p.watcher_launch_frames,
+                   st.watcher_ready_vessel_name or "",
+                   snapshot.situation or "UNREAD")), []
+        return st, []
+
+    # ---- MAP-VIEW / WATCH: RECORD the verdict, never fail on it ------------
+    if state.phase == KXRW_MAP_VIEW:
+        result = _seam_result(snapshot, KXRW_TAG_MAP)
+        if result:
+            # ANY terminal token advances - OK, or the "ERROR" the runner maps a
+            # REJECTED verdict onto. A refused render verb is a PARSEK finding and
+            # belongs to the spec's log contracts; failing the mission on it would
+            # be driver-INVALID, which discards the very KSP.log those contracts
+            # read and retries a product defect into a PASS.
+            st = replace(state, map_view_result=result,
+                         map_view_reject_reason=_seam_reject_reason(
+                             snapshot, KXRW_TAG_MAP))
+            return (_kxrw_enter(st, KXRW_WATCH, snapshot.ut),
+                    [_kxrw_seam_action("EnterWatchMode", KXRW_TAG_WATCH)])
+        if state.phase_frames > p.map_view_frames:
+            # A SILENT seam is a different animal from a refused verb: no verdict
+            # was rendered at all, so there is nothing to record and the transport
+            # itself is suspect.
+            return _kxrw_flake(
+                state,
+                "phase %s: the EnterMapView seam command never answered within %d "
+                "frames (no terminal token rode a snapshot). A REFUSED verb would "
+                "have been recorded and flown past; a SILENT one means the bridge "
+                "itself is not answering" % (KXRW_MAP_VIEW, p.map_view_frames)), []
+        return state, []
+
+    if state.phase == KXRW_WATCH:
+        result = _seam_result(snapshot, KXRW_TAG_WATCH)
+        if result:
+            # NO index argument is sent: the auto-select is deliberate, since the
+            # Kerbal X ghost replaying over the pad is the only candidate. Whatever
+            # Parsek answers is RECORDED and the mission flies on - see MAP-VIEW.
+            st = replace(state, watch_result=result,
+                         watch_reject_reason=_seam_reject_reason(
+                             snapshot, KXRW_TAG_WATCH),
+                         playback_target_ut=kxrw_playback_target_ut(
+                             state.recording_end_ut, p.playback_margin))
+            return _kxrw_enter(st, KXRW_PLAYBACK_WAIT, snapshot.ut), []
+        if state.phase_frames > p.watch_frames:
+            return _kxrw_flake(
+                state,
+                "phase %s: the EnterWatchMode seam command never answered within %d "
+                "frames (no terminal token rode a snapshot). A REJECTED watch is "
+                "recorded and flown past by design; a SILENT one means the bridge "
+                "itself is not answering" % (KXRW_WATCH, p.watch_frames)), []
+        return state, []
+
+    # ---- PLAYBACK-WAIT: walk the clock past the whole recorded span --------
+    if state.phase == KXRW_PLAYBACK_WAIT:
+        st = replace(state,
+                     playback_last_ut=(snapshot.ut if _is_finite(snapshot.ut)
+                                       else state.playback_last_ut))
+        if kxrw_playback_complete(snapshot.ut, st.playback_target_ut):
+            return _kxrw_enter(replace(st, playback_reached=True), KXRW_DONE,
+                               snapshot.ut), []
+        if st.phase_frames > p.playback_wait_frames:
+            # THE CAP. Frames, not UT: a STUCK clock is precisely the failure a UT
+            # budget cannot see, and this give-up is the only thing between it and
+            # a mission that never ends.
+            return _kxrw_flake(
+                st,
+                "phase %s: the clock never reached the playback target within %d "
+                "frames (nowUT=%s targetUT=%s = recordedEnd %s + margin %.0f s). "
+                "Either the replay never ran to its end or the clock is not "
+                "advancing"
+                % (KXRW_PLAYBACK_WAIT, p.playback_wait_frames,
+                   _obs_fmt(snapshot.ut), _obs_fmt(st.playback_target_ut),
+                   _obs_fmt(st.recording_end_ut), p.playback_margin)), []
+        return st, []
+
+    return _kxrw_flake(state, "phase %s: unreachable phase" % state.phase), []
+
+
+def evaluate_kxrw_assertions(frames, params: KxrwParams,
+                             state=None) -> List[AssertionOutcome]:
+    """Evaluate the eight kx_rewind_watch driver-validity assertions.
+
+    Every row is MACHINE-CARRIED evidence stamped on the frame that produced it
+    (the B5/B6/R1 shape), so ``frames`` is read for nothing but the peak apoapsis:
+    the tail of this flight runs across a just-reloaded scene where a transient read
+    failure would otherwise flip a finished pass into a spurious FLAKE.
+
+    - ``coreDiscardedWithEnginesOff``: the fueled-core stage click went out AND the
+      throttle had been READ at/below throttleZeroEpsilon first. THE row this lane
+      exists to protect; a commanded-cut latch would satisfy it while a live
+      Mainsail staged into the stack.
+    - ``boosterStagesDropped``: as many radial-decoupler clicks as the craft
+      declares stages (3 on the committed Kerbal X).
+    - ``recordedSpanSeconds``: commit UT minus launch UT inside
+      recordedSpanWindowSeconds. Sizing evidence - the span is what the playback
+      wait later spends in REAL TIME.
+    - ``treeCommitted``: a tree id was READ and CommitTree answered OK.
+    - ``rewoundToLaunch``: InvokeRewindToLaunch answered OK **and** the clock was
+      OBSERVED running backward by at least minUtRegressionSeconds. The verb's OK
+      alone is a COMMANDED reading and rides in the detail, never as the evidence.
+    - ``watcherOnPad``: a live vessel was OBSERVED settled in FLIGHT after the
+      watcher launch. Without it there is no scene to watch a ghost from.
+    - ``renderVerbsDriven``: BOTH render verbs rendered a terminal verdict. MET ON
+      A REJECTION BY DESIGN - the row certifies the sequence was driven, and what
+      Parsek answered is carried in the detail for the spec's log contracts to
+      judge. Making this fail on a refusal would convert a product defect into a
+      retryable driver-INVALID and throw the evidence away.
+    - ``playbackWatchedOut``: the clock passed recordedEnd + playbackMarginSeconds,
+      so the whole ghost lifecycle (spawn -> replay -> retire) is inside the log.
+    """
+    frames = list(frames or [])
+    launch_ut = getattr(state, "launch_ut", float("nan"))
+    end_ut = getattr(state, "recording_end_ut", float("nan"))
+
+    core_ok = bool(getattr(state, "core_discard_commanded", False)
+                   and getattr(state, "core_cut_throttle_observed", False))
+    core = AssertionOutcome(
+        "coreDiscardedWithEnginesOff", core_ok,
+        getattr(state, "core_cut_throttle_reading", float("nan")),
+        {"throttleZeroEpsilon": params.throttle_zero_epsilon,
+         "stageCommanded": bool(getattr(state, "core_discard_commanded", False)),
+         "throttleObservedZero": bool(
+             getattr(state, "core_cut_throttle_observed", False)),
+         "discardUT": getattr(state, "core_discard_ut", None),
+         "discardAltitude": getattr(state, "core_discard_altitude", None)})
+
+    drops = int(getattr(state, "booster_drops_done", 0))
+    boosters = AssertionOutcome(
+        "boosterStagesDropped", drops >= params.booster_stage_count, drops,
+        {"required": params.booster_stage_count,
+         "armedBy": getattr(state, "booster_drop_armed_by", "") or "none",
+         "peakThrustNewtons": getattr(state, "ascent_peak_thrust", float("nan"))})
+
+    lo, hi = params.recorded_span_window
+    span = float("nan")
+    if _is_finite(launch_ut) and _is_finite(end_ut):
+        span = end_ut - launch_ut
+    span_row = AssertionOutcome(
+        "recordedSpanSeconds", bool(_is_finite(span) and lo <= span <= hi), span,
+        {"window": [lo, hi],
+         "launchUT": launch_ut if _is_finite(launch_ut) else None,
+         "commitUT": end_ut if _is_finite(end_ut) else None,
+         "peakApoapsis": _peak_finite(frames, lambda f: f.apoapsis),
+         # WHICH CRAFT this span is of. A precondition of the flight rather than a
+         # ninth row (the machine cannot leave ROLLOUT without the name matching),
+         # but it belongs on the row that describes the flight: a span measured
+         # against the wrong vessel is the failure this evidence exists to make
+         # visible in the result JSON.
+         "craft": params.craft_name,
+         "rolloutObservedName": getattr(state, "rollout_vessel_name", "") or "UNREAD",
+         "rolloutVesselLostFrames": int(
+             getattr(state, "rollout_vessel_lost_frames", 0))})
+
+    tree_id = getattr(state, "tree_id", "") or ""
+    committed = AssertionOutcome(
+        "treeCommitted",
+        bool(tree_id) and getattr(state, "commit_result", "") == "OK",
+        tree_id or None,
+        {"commitResult": getattr(state, "commit_result", "") or "NONE",
+         "stopResult": getattr(state, "stop_result", "") or "NONE",
+         "recorderIdleObserved": bool(
+             getattr(state, "recorder_idle_observed", False)),
+         "recorderIdleReading": (getattr(state, "recorder_idle_reading", "")
+                                 or "UNREAD")})
+
+    regression = getattr(state, "ut_regression", float("nan"))
+    rewound = AssertionOutcome(
+        "rewoundToLaunch",
+        bool(getattr(state, "rewind_result", "") == "OK"
+             and _is_finite(regression) and regression >= params.min_ut_regression),
+        regression,
+        {"required": params.min_ut_regression,
+         "seamResult": getattr(state, "rewind_result", "") or "NONE",
+         "rejectReason": getattr(state, "rewind_reject_reason", "") or None,
+         "preRewindUT": getattr(state, "pre_rewind_ut", None),
+         "postRewindUT": getattr(state, "post_rewind_ut", None),
+         "tree": tree_id or None})
+
+    watcher = AssertionOutcome(
+        "watcherOnPad", bool(getattr(state, "watcher_ready_observed", False)),
+        getattr(state, "watcher_ready_situation", "") or None,
+        {"craft": params.watcher_craft_name,
+         "observedName": getattr(state, "watcher_ready_vessel_name", "") or "UNREAD",
+         "accepted": list(params.watcher_ready_situations),
+         "debounceK": params.watcher_ready_debounce,
+         "launchCommanded": bool(getattr(state, "watcher_launch_commanded", False)),
+         # The disarm is a PRECONDITION of this launch, not a separate outcome:
+         # the machine cannot reach WATCHER-LAUNCH without it having answered OK,
+         # so it rides here as evidence rather than as a ninth row.
+         "autoRecordDisabled": getattr(state, "autorecord_off_result", "") or "NONE",
+         "autoRecordSetting": KXRW_AUTORECORD_SETTING,
+         "postRewindVesselLostFrames": int(
+             getattr(state, "post_rewind_vessel_lost_frames", 0))})
+
+    map_result = getattr(state, "map_view_result", "") or ""
+    watch_result = getattr(state, "watch_result", "") or ""
+    render = AssertionOutcome(
+        "renderVerbsDriven", bool(map_result and watch_result),
+        "%s/%s" % (map_result or "NONE", watch_result or "NONE"),
+        {"enterMapViewResult": map_result or "NONE",
+         "enterMapViewReason": getattr(state, "map_view_reject_reason", "") or None,
+         "enterWatchModeResult": watch_result or "NONE",
+         "enterWatchModeReason": getattr(state, "watch_reject_reason", "") or None,
+         # Spelled out on the row itself so nobody "fixes" it into a gate: a
+         # REJECTED render verb is Parsek's finding, carried by the spec's log
+         # contracts, and this row is met either way.
+         "metOnRejectionByDesign": True})
+
+    playback = AssertionOutcome(
+        "playbackWatchedOut", bool(getattr(state, "playback_reached", False)),
+        getattr(state, "playback_last_ut", float("nan")),
+        {"targetUT": getattr(state, "playback_target_ut", None),
+         "marginSeconds": params.playback_margin,
+         "recordedEndUT": end_ut if _is_finite(end_ut) else None,
+         "frameCap": params.playback_wait_frames})
+
+    return [core, boosters, span_row, committed, rewound, watcher, render, playback]

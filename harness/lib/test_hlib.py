@@ -24,6 +24,7 @@ import textwrap
 import tomllib
 import unittest
 
+import ghostlife
 import hlib
 import rendercompose
 import saveparse
@@ -990,8 +991,10 @@ class SpecValidationRejectTests(unittest.TestCase):
         # envelope, like SaveGame and the EVA family), so reserved stays at 7. 27 after
         # the map-view pair (EnterMapView / ExitMapView), additive the same way - the
         # reserved envelope never carried a camera / scene-presentation verb - so reserved
-        # is STILL 7.
-        self.assertEqual(len(hlib.IMPLEMENTED_SEAM_VERBS), 27)
+        # is STILL 7. 28 after InvokeRewindToLaunch, additive the same way: the reserved
+        # envelope's rewind names (FlySlot / SealSlot / StashSlot) are all SLOT verbs
+        # against Rewind-to-SEPARATION's RewindPoint model, so reserved is STILL 7.
+        self.assertEqual(len(hlib.IMPLEMENTED_SEAM_VERBS), 28)
         self.assertEqual(len(hlib.RESERVED_SEAM_VERBS), 7)
 
     def test_ma7_export_render_manifest_implemented_not_reserved(self):
@@ -1067,6 +1070,90 @@ class SpecValidationRejectTests(unittest.TestCase):
                 v = self._reject(m)
                 self.assertFalse(any(verb in e for e in v.errors),
                                  "%s wrongly flagged: %s" % (verb, list(v.errors)))
+
+    def test_rewind_to_launch_verb_implemented_not_reserved(self):
+        # ADDITIVE (never in the RESERVED envelope), the SaveGame / EVA /
+        # ExportRenderManifest shape rather than a promotion. The reserved envelope's
+        # rewind names are all SLOT verbs against Rewind-to-SEPARATION's RewindPoint
+        # model, so none of them is this verb under another spelling - asserted, not
+        # assumed, because a promotion and an addition have different bookkeeping.
+        self.assertIn("InvokeRewindToLaunch", hlib.IMPLEMENTED_SEAM_VERBS)
+        self.assertNotIn("InvokeRewindToLaunch", hlib.RESERVED_SEAM_VERBS)
+        for slot_verb in ("FlySlot", "SealSlot", "StashSlot"):
+            self.assertIn(slot_verb, hlib.RESERVED_SEAM_VERBS)
+
+    def test_rewind_to_launch_step_accepted(self):
+        # A spec step using the verb is not flagged RESERVED / unknown. The base
+        # carries [expectations.ledger], which this verb CANNOT pair with (the L4
+        # deferral, its own cell below), so drop it here - this cell is about verb
+        # ACCEPTANCE and the ledger rejection would mask it.
+        for args in ({}, {"tree": "tree-1"}):
+            with self.subTest(args=args):
+                def m(s, _args=args):
+                    s.get("expectations", {}).pop("ledger", None)
+                    s["driver"]["steps"].insert(
+                        1, {"cmd": "InvokeRewindToLaunch", "args": _args,
+                            "expect": "OK"})
+                v = self._reject(m)
+                self.assertFalse(
+                    any("InvokeRewindToLaunch" in e for e in v.errors),
+                    "InvokeRewindToLaunch wrongly flagged: %s" % list(v.errors))
+
+    def test_rewind_to_launch_is_two_phase_deferred(self):
+        # It joins DEFERRED_SEAM_VERBS for InvokeRewind's reason verbatim (a whole
+        # world reload gates the terminal), and its dispatch budget mirrors the C#
+        # InvokeRewindSeconds = 300 rather than the 120 s scene-EXIT class.
+        self.assertIn("InvokeRewindToLaunch", hlib.DEFERRED_SEAM_VERBS)
+        self.assertEqual(300.0, hlib.dispatch_deferral_budget("InvokeRewindToLaunch"))
+        self.assertEqual(hlib.dispatch_deferral_budget("InvokeRewind"),
+                         hlib.dispatch_deferral_budget("InvokeRewindToLaunch"))
+
+    def test_rewind_to_launch_budget_cap(self):
+        # A deferred verb step over the 540 s cap is rejected (S8), same as
+        # InvokeRewind / TimeJump.
+        def m(s):
+            s.get("expectations", {}).pop("ledger", None)
+            s["driver"]["steps"].insert(
+                1, {"cmd": "InvokeRewindToLaunch", "expect": "OK", "budget": 600})
+        v = self._reject(m)
+        self.assertFalse(v.ok)
+        self.assertTrue(
+            any("InvokeRewindToLaunch" in e and "540" in e for e in v.errors),
+            "expected S8 budget-cap error: %s" % list(v.errors))
+
+    def test_rewind_to_launch_cannot_pair_with_a_ledger_block(self):
+        # The InvokeRewind rejection extended to the launch rewind: restoring a
+        # quicksave rewrites the career pools the seed+manifest contract cannot
+        # reconstruct, and the rewound-career oracle is DEFERRED to L4. The base
+        # already declares [expectations.ledger].
+        def m(s):
+            s["driver"]["steps"].insert(
+                1, {"cmd": "InvokeRewindToLaunch", "expect": "OK"})
+        v = self._reject(m)
+        self.assertFalse(v.ok)
+        self.assertTrue(
+            any("InvokeRewindToLaunch" in e and "L4" in e and "ledger" in e
+                for e in v.errors),
+            "expected ledger+InvokeRewindToLaunch L4-deferral rejection: %s"
+            % list(v.errors))
+
+    def test_rewind_to_launch_refusal_reasons_classify(self):
+        # The verb's REJECTED taxonomy maps to the finer driver-* subkinds instead of
+        # collapsing to the coarse driver-verdict-mismatch. `rewind-gate` is compound
+        # on the wire (percent-encoded), so it must classify off the head token the way
+        # `refly-gate` does.
+        self.assertEqual("driver-gate",
+                         hlib.classify_seam_refusal_subkind("rewind-gate%20not-ready"))
+        self.assertEqual("driver-gate",
+                         hlib.classify_seam_refusal_subkind("no-committed-tree"))
+        self.assertEqual("driver-arg",
+                         hlib.classify_seam_refusal_subkind("ambiguous-tree"))
+        # Shared with the loop lanes, mapped once: this table is keyed by msg token
+        # alone, never by (verb, msg).
+        self.assertEqual("driver-arg",
+                         hlib.classify_seam_refusal_subkind("unknown-tree"))
+        for sk in ("driver-gate", "driver-arg"):
+            self.assertIn(sk, hlib.RETRYABLE_INVALID_SUBKINDS)
 
     def test_no_committed_spec_trips_the_export_verb_coupling_rule(self):
         # Repo-wide, DISCOVERED rather than hardcoded: a rule the committed corpus
@@ -5256,6 +5343,14 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # reading run and the arming sequence its header specifies. Nothing is
         # outstanding beyond flying it, which is what `--tier operator` is for.
         "GS-1-auto-chute-booster.toml":     "FLOWN 4x 2026-08-05 (flight 4 PASS) and ARMED; operator tier is now an open PROMOTION call, not debt",
+        # AUTHORED, NOT YET FLOWN (the GS-1 pre-flight shape): operator tier is
+        # the standard first-flight calibration discipline - a reading run over
+        # deliberately INTERIM pins (its STATUS block names which: the booster
+        # debris ghost NAME, the spawned-ghost census, the watch-entry timing),
+        # then re-pin and the ghostLifecycle arming sequence its header
+        # specifies. Nothing is owed a human beyond flying it, which is what
+        # `--tier operator` is for.
+        "GS-4-kerbalx-rewind-watch.toml":   "AUTHORED 2026-08-27, UNFLOWN; operator tier is the first-flight calibration discipline (reading run -> re-pin -> arm), not debt",
         # The FIFTH forge, same mechanism again: it stamps gs2-orbital-stack by
         # flying the live-proven forge_lko ascent with the new parkAttached=true,
         # which skips the SEPARATE phase so the stack is parked ATTACHED. Its
@@ -7132,6 +7227,214 @@ class RenderComposeVerifierWiringTests(unittest.TestCase):
                              cmds[-2:],
                              "%s: expected the manifest export immediately before "
                              "FlushAndQuit, got %s" % (name, cmds[-2:]))
+
+
+class GhostLifecycleVerifierWiringTests(unittest.TestCase):
+    """The ghost-lifecycle verifier's hlib-side wiring: spec-surface validation
+    routes through ``hlib.validate_spec``, the gating flag classifies its own
+    PARSEK-FAIL subkind at the right precedence, and - the SAFETY PROPERTY,
+    mirroring the two rows before it - arming stays a deliberate, per-scenario,
+    live-proven act.
+
+    The guarantee AS SHIPPED is the strong form both predecessors shipped with:
+    NO committed spec arms ``gating = true``, so landing the row cannot move any
+    nightly's verdict. When that phase ends the roster below becomes an ALLOWLIST
+    and a spec joining it needs an explicit edit here citing its run ids - the
+    save-structure / render-composition workflow verbatim.
+
+    NAMING: the roster is deliberately NOT called ``*ARMED_ALLOWLIST``.
+    ``harness/missions/lib/test_cl3_refly_crew_tombstone.py`` scrapes the
+    save-structure roster out of THIS FILE'S SOURCE with a first-match
+    ``ARMED_ALLOWLIST\\s*=\\s*\\{([^}]*)\\}`` regex; a second symbol whose name
+    ends in ``ARMED_ALLOWLIST`` would be a coin-flip on file order. The
+    ``RENDERCOMPOSE_ARMED_SPECS`` precedent is followed exactly."""
+
+    # THE ARMED ROSTER, empty as shipped. An entry follows the RENDERCOMPOSE /
+    # save-structure convention: name the READING run the windows were authored
+    # from, then the ARMED RE-FLIGHT and the NEGATIVE CONTROL that discharge the
+    # three-run workflow.
+    GHOSTLIFE_ARMED_SPECS = set()
+
+    def test_no_committed_spec_arms_ghost_lifecycle_gating(self):
+        armed = []
+        for name in sorted(n for n in os.listdir(SCENARIOS_DIR) if n.endswith(".toml")):
+            with open(os.path.join(SCENARIOS_DIR, name), "rb") as fh:
+                spec = tomllib.load(fh)
+            if ghostlife.gating_armed(spec.get("expectations") or {}):
+                armed.append(name)
+        self.assertEqual(sorted(self.GHOSTLIFE_ARMED_SPECS), armed,
+                         "the set of specs arming ghost-lifecycle gating changed; arming "
+                         "is a per-scenario operator decision taken only after a "
+                         "report-only reading run whose facets match the declared "
+                         "windows - add the spec here in the same commit that arms it, "
+                         "citing the run id")
+
+    def test_gating_mismatch_classifies_ghost_lifecycle_parsek_fail(self):
+        d, v = _clean_pass_facts()
+        v["ghost_lifecycle_mismatch"] = True
+        verdict = hlib.classify_verdict(d, v, {"bugId": ""}, 1, "once")
+        self.assertEqual(("PARSEK-FAIL", "ghost-lifecycle"),
+                         (verdict.verdict, verdict.subkind))
+        self.assertIn("ghost-lifecycle", hlib.PARSEK_FAIL_SUBKINDS)
+
+    def test_absent_flag_is_a_pass_not_a_fail(self):
+        # The report-only default in the classifier: with the flag ABSENT (every
+        # run today, since run.py only sets it under `if gl.gating:`) the verdict
+        # is an ordinary PASS. A `verifiers.get(..., True)` slip would red every
+        # run in the suite.
+        d, v = _clean_pass_facts()
+        self.assertNotIn("ghost_lifecycle_mismatch", v)
+        self.assertEqual("PASS", hlib.classify_verdict(d, v, {"bugId": ""}, 1, "once").verdict)
+        v["ghost_lifecycle_mismatch"] = False
+        self.assertEqual("PASS", hlib.classify_verdict(d, v, {"bugId": ""}, 1, "once").verdict)
+
+    def test_precedence_after_render_composition_and_before_ledger(self):
+        # Placement is the claim: a run that reds BOTH compositionally and on the
+        # flight-scene lifecycle is named by render-composition (what the map drew
+        # is upstream), and a run that reds BOTH on the lifecycle and on the
+        # ledger is named by ghost-lifecycle.
+        d, v = _clean_pass_facts()
+        v["render_composition_mismatch"] = True
+        v["ghost_lifecycle_mismatch"] = True
+        self.assertEqual("render-composition",
+                         hlib.classify_verdict(d, v, {"bugId": ""}, 1, "once").subkind)
+        d, v = _clean_pass_facts()
+        v["ghost_lifecycle_mismatch"] = True
+        v["ledger_drift"] = True
+        self.assertEqual("ghost-lifecycle",
+                         hlib.classify_verdict(d, v, {"bugId": ""}, 1, "once").subkind)
+
+    def test_parsek_fail_is_never_retried(self):
+        verdict = hlib.Verdict("PARSEK-FAIL", "ghost-lifecycle", False, "x")
+        self.assertFalse(hlib.should_retry(verdict, 1, "once"))
+
+    # -- validate_spec routing -------------------------------------------------
+
+    def _spec_with(self, block, tracer_on=True):
+        spec = copy.deepcopy(load_spec("B1-pad-hop.toml"))
+        spec["expectations"][ghostlife.GHOST_LIFECYCLE_BLOCK] = block
+        if tracer_on:
+            # Index 1, not 0: step 0 must be LoadGame (validate_spec's own rule).
+            spec["driver"]["steps"].insert(
+                1, {"cmd": "SetSetting",
+                    "args": {"name": "ghostRenderTracing", "value": "true"},
+                    "expect": "OK"})
+        return spec
+
+    def test_malformed_window_rejects_pre_launch(self):
+        res = hlib.validate_spec(self._spec_with({"spawned": "lots"}), load_registry())
+        self.assertFalse(res.ok)
+        self.assertTrue(any("ghostLifecycle" in e for e in res.errors), res.errors)
+
+    def test_unknown_key_rejects_pre_launch(self):
+        res = hlib.validate_spec(self._spec_with({"minSpawned": 3}), load_registry())
+        self.assertFalse(res.ok)
+        self.assertTrue(any("unknown key" in e and "ghostLifecycle" in e
+                            for e in res.errors), res.errors)
+
+    def test_bad_forbidden_regex_rejects_pre_launch(self):
+        res = hlib.validate_spec(
+            self._spec_with({"destroyedReasons": {"forbidden": ["(unclosed"]}}),
+            load_registry())
+        self.assertFalse(res.ok)
+        self.assertTrue(any("not a valid regex" in e for e in res.errors), res.errors)
+
+    def test_a_well_formed_report_only_block_validates(self):
+        block = {"spawned": {"min": 1, "max": 8}, "requireBalanced": True,
+                 "destroyedReasons": {"forbidden": ["explod"]}}
+        spec = self._spec_with(block)
+        res = hlib.validate_spec(spec, load_registry())
+        self.assertTrue(res.ok, res.errors)
+        self.assertEqual([], [w for w in res.warnings if "ghostLifecycle" in w],
+                         res.warnings)
+        exp = spec["expectations"]
+        self.assertEqual(("ghostLifecycle",),
+                         ghostlife.declared_ghost_lifecycle_blocks(exp))
+        self.assertFalse(ghostlife.gating_armed(exp))
+
+    def test_an_armed_bare_block_validates_unlike_its_two_siblings(self):
+        # The documented divergence from saveparse / rendercompose: an armed bare
+        # block here still asserts the vacuity floor plus the requireBalanced
+        # default, so it is NOT a gate that can never red.
+        res = hlib.validate_spec(self._spec_with({"gating": True}), load_registry())
+        self.assertTrue(res.ok, res.errors)
+
+    def test_the_tracer_coupling_warns_but_never_rejects(self):
+        # The declared block with no `SetSetting ghostRenderTracing = true` step.
+        # A WARNING and not an error, deliberately - the vacuity floor already
+        # reds the tracer-off run, and an error would refuse that floor's own
+        # negative control.
+        res = hlib.validate_spec(
+            self._spec_with({"spawned": {"min": 1}}, tracer_on=False),
+            load_registry())
+        self.assertTrue(res.ok, res.errors)
+        self.assertTrue(any("ghostRenderTracing" in w for w in res.warnings),
+                        res.warnings)
+
+    # THE DECLARER roster, distinct from the armed one. An entry records WHY the
+    # lane declares the block and where its windows came from, so a spec picking
+    # the block up (or dropping it) is always a deliberate, reviewed edit - the
+    # RENDERCOMPOSE_DECLARER_SPECS convention exactly.
+    GHOSTLIFE_DECLARER_SPECS = {
+        # [D] THE FIRST DECLARER, and the lane the evaluator was built FOR: the
+        #     full player-workflow derender tripwire (staged Kerbal X ascent ->
+        #     commit -> Rewind-to-Launch -> Jumping Flea watch anchor -> map view
+        #     + watch mode -> playback to completion). Its `spawned = { min = 3 }`
+        #     window and the requireBalanced default are INTERIM PINS authored
+        #     BEFORE the first flight (the spec's STATUS block says so): the
+        #     reading run is expected to measure spawned=8 (parent + 6 booster
+        #     debris + the "Kerbal X Probe" controlled-decoupled core), and the
+        #     re-pin + arming (through GHOSTLIFE_ARMED_SPECS above) follow the
+        #     standard three-run discipline AFTER that measurement. REPORT-ONLY
+        #     until then.
+        "GS-4-kerbalx-rewind-watch.toml",
+    }
+
+    def test_ghost_lifecycle_declarers_are_the_recorded_roster(self):
+        """Pinned so a declarer is always a deliberate edit, in BOTH directions
+        (the RENDERCOMPOSE declarer-roster rationale): a spec picking the block up
+        by accident starts gating-adjacent measurement its author never argued
+        for, and a spec LOSING the block silently stops measuring the derender
+        balance its own name promises."""
+        declarers = []
+        for name in sorted(n for n in os.listdir(SCENARIOS_DIR) if n.endswith(".toml")):
+            with open(os.path.join(SCENARIOS_DIR, name), "rb") as fh:
+                spec = tomllib.load(fh)
+            if ghostlife.declared_ghost_lifecycle_blocks(spec.get("expectations") or {}):
+                declarers.append(name)
+        self.assertEqual(sorted(self.GHOSTLIFE_DECLARER_SPECS), declarers,
+                         "the set of specs declaring [expectations.ghostLifecycle] "
+                         "changed; record the decision in the roster here in the "
+                         "same commit (why the lane declares it, and where its "
+                         "windows came from)")
+
+    def test_every_declarer_arms_the_flight_tracer(self):
+        """The declarer-side half of the tracer coupling (validate_spec only WARNS,
+        deliberately - see test_the_tracer_coupling_warns_but_never_rejects). A
+        COMMITTED declarer with no `SetSetting ghostRenderTracing=true` step would
+        fly straight into the vacuity floor on every run, so the roster refuses the
+        shape outright rather than letting a lane ship a guaranteed red."""
+        for name in sorted(self.GHOSTLIFE_DECLARER_SPECS):
+            with open(os.path.join(SCENARIOS_DIR, name), "rb") as fh:
+                spec = tomllib.load(fh)
+            steps = (spec.get("driver") or {}).get("steps") or []
+            armed = any(
+                step.get("cmd") == "SetSetting"
+                and (step.get("args") or {}).get("name") == "ghostRenderTracing"
+                and (step.get("args") or {}).get("value") == "true"
+                for step in steps)
+            self.assertTrue(armed,
+                            "%s declares [expectations.ghostLifecycle] but never "
+                            "arms ghostRenderTracing; the tracer is the block's "
+                            "only measurement surface" % name)
+
+    def test_armed_roster_is_subset_of_declarers(self):
+        # Arming without a declaration cannot happen - the block IS the
+        # declaration (the rendercompose arming-state rule).
+        self.assertLessEqual(self.GHOSTLIFE_ARMED_SPECS,
+                             self.GHOSTLIFE_DECLARER_SPECS,
+                             "a spec is in GHOSTLIFE_ARMED_SPECS without declaring "
+                             "the block")
 
 
 class WorldRosterDeclarerTests(unittest.TestCase):
@@ -12782,7 +13085,14 @@ class SharedShipsManifestTests(unittest.TestCase):
         An earlier version of this cell asserted only that each saveTemplate leaf
         was a real directory and that EXISTING rows resolve -- both of which stay
         true when a row is dropped, so it could not see the failure it was named
-        for. This is the strong form: physical-or-declared, per launching spec."""
+        for. This is the strong form: physical-or-declared, per launching spec.
+
+        `watcherCraftName` is swept alongside `craftName` (added with GS-4, whose
+        kx_rewind_watch mission `launch_vessel`s a SECOND craft after the rewind):
+        every param that a mission resolves through `<save>/Ships/VAB/<name>.craft`
+        must pass the same physical-or-declared gate, or the run boots and dies at
+        the watcher rollout with the identical misdirection this cell exists to
+        prevent."""
         manifest = _read_manifest()
         library = set(_library_ship_names())
         unresolved = []
@@ -12790,19 +13100,21 @@ class SharedShipsManifestTests(unittest.TestCase):
             with open(os.path.join(SCENARIOS_DIR, name), "rb") as fh:
                 spec = tomllib.load(fh)
             params = ((spec.get("driver", {}) or {}).get("missionParams", {}) or {})
-            craft = params.get("craftName")
-            if not craft:
+            crafts = [params.get(key) for key in ("craftName", "watcherCraftName")]
+            crafts = [c for c in crafts if c]
+            if not crafts:
                 continue
             leaf = ((spec.get("fixture", {}) or {}).get("saveTemplate", "")
                     ).replace("\\", "/").rstrip("/").rsplit("/", 1)[-1]
-            physical = os.path.isfile(os.path.join(
-                FIXTURE_SAVES_DIR, leaf, *(hlib.SHARED_SHIPS_DEST_SEGMENTS
-                                           + (craft + hlib.SHARED_SHIP_SUFFIX,))))
-            declared = craft in manifest.get(leaf, ()) and craft in library
-            if not (physical or declared):
-                unresolved.append("%s: %s launches %r from %r, which carries it "
-                                  "neither physically nor via shared-ships.toml"
-                                  % (name, name[:-5], craft, leaf))
+            for craft in crafts:
+                physical = os.path.isfile(os.path.join(
+                    FIXTURE_SAVES_DIR, leaf, *(hlib.SHARED_SHIPS_DEST_SEGMENTS
+                                               + (craft + hlib.SHARED_SHIP_SUFFIX,))))
+                declared = craft in manifest.get(leaf, ()) and craft in library
+                if not (physical or declared):
+                    unresolved.append("%s: %s launches %r from %r, which carries it "
+                                      "neither physically nor via shared-ships.toml"
+                                      % (name, name[:-5], craft, leaf))
         self.assertEqual([], unresolved, "\n".join(unresolved))
 
     # LANES COMMITTED AHEAD OF THE FIXTURE THEY CONSUME, mapped to the fixture leaf
@@ -13240,10 +13552,21 @@ class CommittedFixtureRewindSaveTests(unittest.TestCase):
 
     `Parsek/Saves/parsek_rw_*.sfs` is `Recording.RewindSaveFileName` payload, and
     arrived in six recorded fixtures as harvest exhaust rather than by decision:
-    137,355 lines over 7 files. Nothing automated reads it - no spec names one, no
-    seam verb reaches it (`InvokeRewind` is Rewind-to-SEPARATION and targets
-    `Parsek/RewindPoints/<rpId>.sfs` through `RewindInvoker`, a different system),
-    and the analyzer's Inv9RewindPoint only does existence + parse checks.
+    137,355 lines over 7 files. Nothing automated reads it - no spec names one, and
+    the analyzer's Inv9RewindPoint only does existence + parse checks.
+
+    THE SEAM HALF OF THAT CLAIM NARROWED when `InvokeRewindToLaunch` landed. It used
+    to read "no seam verb reaches it", true while `InvokeRewind` was the only rewind
+    verb (that one is Rewind-to-SEPARATION and targets
+    `Parsek/RewindPoints/<rpId>.sfs` through `RewindInvoker`, a different system).
+    `InvokeRewindToLaunch` drives Rewind-to-LAUNCH, so it CAN reach this payload. The
+    cells below are unaffected TODAY because the one committed lane that drives the
+    verb (`GS-4-kerbalx-rewind-watch`, over the kx_rewind_watch mission's seam
+    bridge) rewinds to a quicksave its OWN in-run recording captured, never a
+    fixture-committed one - its fixture (`gs1-two-stage-pad`) carries no
+    `parsek_rw_*` payload, which is exactly what these cells enforce. A spec that
+    drives the verb against a fixture-committed rewind save must re-check both
+    halves here, not just the RewindPoints one.
 
     The FILE and the HINT must go together. A `rewindSave = ` key pointing at a
     deleted file is a dangling reference: Inv9RewindPoint raises WARN for it, and

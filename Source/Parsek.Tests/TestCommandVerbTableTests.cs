@@ -39,6 +39,7 @@ namespace Parsek.Tests
         [InlineData("EnterWatchMode")]
         [InlineData("EnterMapView")]
         [InlineData("ExitMapView")]
+        [InlineData("InvokeRewindToLaunch")]
         public void ImplementedVerbs_ClassifyImplemented(string verb)
         {
             Assert.Equal(TestCommandVerbClass.Implemented, TestCommandVerbs.Classify(verb));
@@ -77,8 +78,15 @@ namespace Parsek.Tests
             // MissionConfig promotion (1) + the player-workflow lane's
             // StartLoopPlayback + EnterWatchMode promotions (2)
             // + M-A7 ExportRenderManifest (1) + the map-view pair EnterMapView +
-            // ExitMapView (2), which takes the total to 27. Mirrored by
-            // hlib.IMPLEMENTED_SEAM_VERBS.
+            // ExitMapView (2) + InvokeRewindToLaunch (1), which takes the total to 28.
+            // Mirrored by hlib.IMPLEMENTED_SEAM_VERBS.
+            //
+            // InvokeRewindToLaunch is ADDITIVE (27 -> 28 implemented, reserved unchanged at
+            // 7): the reserved envelope never carried a rewind-to-launch verb. It is NOT a
+            // second spelling of InvokeRewind - that verb drives the Re-Fly /
+            // Rewind-to-Separation system (RewindPoint + slot -> RewindInvoker.StartInvoke
+            // -> a ReFlySessionMarker), this one drives the Recordings-table "R" button
+            // (RecordingStore.InitiateRewind: no RewindPoint, no marker, no merge journal).
             //
             // The map-view pair is ADDITIVE too (27 implemented, reserved unchanged at 7):
             // the reserved envelope never carried a camera / scene-presentation verb.
@@ -94,7 +102,7 @@ namespace Parsek.Tests
             // (20 -> 21 implemented, 11 -> 10 reserved) - its wire token is byte-identical
             // before and after and only the response changed. A future name that appears in
             // BOTH sets, or in neither, is what these two numbers catch.
-            Assert.Equal(27, TestCommandVerbs.ImplementedVerbNames.Count);
+            Assert.Equal(28, TestCommandVerbs.ImplementedVerbNames.Count);
             Assert.Equal(7, TestCommandVerbs.ReservedVerbNames.Count);
         }
 
