@@ -112,6 +112,44 @@ distinct producers. `V20T` therefore tolerates `icon-teleport` BARE citing `2026
 with the ceiling (6 = 2x measured) argued as prose per the V24W/V25M convention because
 `test_no_committed_spec_arms_a_count_budget` holds the budget mechanism inert suite-wide.
 
+**AND A HOST-LEVEL STATEMENT THE THIRD ROUND SETTLED, WHICH IS THE SHARPEST THING ON THIS
+ENTRY: THE FLIGHT HOST'S `ProtoOrbitLine` LENS IS SEGMENT-ZERO-ONLY INDEPENDENT OF JUMP
+ORDER.**
+
+The experiment that settled it was a deliberate spec-shape round rather than an argument.
+`V20M`'s jump table was REORDERED coast-epoch-first (round 4) on the mechanism above -
+protos are created once, at the first jump that brings them into existence - specifically
+to manufacture a Kerbin-framed FLIGHT proto and see whether the lens would then report it.
+Reading run 3 (`2026-08-27_1925`, PASS attempt 1) produced exactly that and the lens still
+did not report it:
+
+- **The creation census moved by exactly one instance, in the predicted direction.**
+  Seam-first (runs 1-2): 5 Jool-park / 6 Jool-escape / 28 Sun / **2 on seg#13** / 0 Kerbin.
+  Coast-first (run 3): the same, except **1 on seg#13 and 1 on
+  `segmentUT=60366107.0-60392908.2` = seg#16, the KERBIN ARRIVAL COAST**, with
+  `referenceBody=Kerbin` x1. The instance that moved is cycle 1, born at the new first
+  jump; cycle 21, born at the untouched cycle-2 seam bracket, stayed on the Sun side - an
+  IN-RUN CONTROL, one flight carrying both orders over one fixture.
+- **The render side confirmed it too**: `phase=GhostCreated surface=ProtoIcon
+  pid=1578985464 ... body=Kerbin scene=FLIGHT` printed once, at that jump.
+- **And `phase=body-orbit surface=ProtoOrbitLine` printed 41 lines, ALL
+  `body=Jool sma=590325785`** - segment zero - on the very run that contained a
+  Kerbin-CREATED FLIGHT proto.
+
+So the creation side is Kerbin-framed and the end-of-frame lens is not, on the same run,
+for the same recording: **the difference between the two hosts is the HOST, not the jump
+order.** The corpus behind the statement is **105 FLIGHT-era `phase=body-orbit` samples
+across three runs, two jump orders and four forty-tick dwells** (41 + 41 on V20M runs 1
+and 3, 23 in V20T's FLIGHT prelude), not one of which reads anything but segment zero -
+against the TS host's 36 samples in the same corpus carrying the real frames, including
+the only `body=Kerbin sma=-392275` line anywhere in it.
+**NO MECHANISM IS CLAIMED AND NO PRODUCT CHANGE IS PROPOSED.** What it cost, and what it
+bought: `V20M` cannot carry a `ProtoOrbitLine` destination pin at all, so the flight-map
+third of roadmap G2's bar is NOT discharged on a rendered-orbit token and its D14 `kerbin`
+cell rests on the `GhostCreated` ProtoIcon form plus the seed-side token; `V20T`
+discharges the TS third on a rendered-frame token. That asymmetry is now a measurement
+rather than a suspicion, and it is why the pair CANNOT share one negative control.
+
 **WHAT IT SHARPENS ABOUT THE EXISTING FAMILY** (`MAPRENDER-ICON-OFF-ORBIT-CREATION-FRAME-AFTER-JUMP`),
 with NO mechanism claimed for either point:
 
@@ -307,9 +345,32 @@ outcomes named in the spec. If it stays silent with a seg#16 creation present, "
 ProtoOrbitLine lens is segment-zero-only independent of jump order" is a sharp host-level statement
 no committed lane has yet made, and it belongs on the entry above.
 
-**REMAINING: the round-4 reading run on V20M's reordered table, then the arming pass off both lanes'
-OWN bytes, then the per-lane negative controls (TWO, not one shared - the halves pin different
-lenses), and then `V20K`.** One cost neither lane can price from committed bytes and both write down:
+**THE ROUND-4 RUN FLEW AND BOTH PRE-REGISTRATIONS LANDED**: `2026-08-27_1925`, PASS attempt 1,
+wall 71 s, every verifier PASS or SKIPPED. The creation census gained exactly ONE instance on
+seg#16 (the Kerbin arrival coast) while the untouched cycle-2 seam bracket kept its instance on
+the Sun side - the in-run control working - and
+`phase=GhostCreated surface=ProtoIcon ... body=Kerbin scene=FLIGHT` printed once, at the cycle-1
+coast jump. The open question resolved to its SECOND branch and is written up on the entry
+above: 41 `phase=body-orbit` lines, all segment zero, on a run containing a Kerbin-CREATED
+FLIGHT proto - **the FLIGHT host's ProtoOrbitLine lens is segment-zero-only independent of jump
+order**. Holding that token out of `required` at round 4 was therefore correct.
+
+**ROUND 5 IS THE ARMING PASS AND IT IS DONE (2026-08-27).** Both lanes armed off their OWN green
+bytes - V20M off `2026-08-27_1925`, V20T off `2026-08-27_1913` - with `[expectations.rewind]`
+and `[expectations.recordings.structure]` both `gating = true` on the measured facets (rewind
+all 0; trees {1,2} keeping V2's duplicate-writer width, committedTrees / recordings {1,1},
+terminalStates {Orbiting: min 1}) and `[expectations.recordings] count` tightened {1,3} ->
+{1,1}. Every window was already met by both lanes' runs, so the arming re-pinned nothing and
+moved no verdict. V20M ALONE promotes the measured
+`Split summary: .*exoCoastBodyChangeKept=2 splittableButRejected=0` into `required` while V20T
+pins the COUNT - one gate per fact across the pair. NO routing token is promoted and NO D11
+cell is claimed; `renderComposition` stays declared-bare pending the operator's tier-cadence
+decision. Both lanes are in `test_hlib`'s `ARMED_ALLOWLIST` with the arming rationale.
+
+**REMAINING: the two armed re-flights, then the two PER-LANE negative controls (named in each
+spec header with a tomllib pre-flight gate - V20M inverts its `scene=FLIGHT` ProtoIcon body
+clause, V20T its `scene=TRACKSTATION` one; they CANNOT share one, because the hosts' lenses are
+now measurably different), and then `V20K`.** One cost neither lane can price from committed bytes and both write down:
 the schedules traverse 66.8 Ms (V20M) and 34.2 Ms (V20T) of game time in instantaneous
 `Planetarium` clock sets, and KSP's on-rails propagation cost at that magnitude is
 UNMEASURED - a death on a TimeJump watchdog would be a reading, not a calibration

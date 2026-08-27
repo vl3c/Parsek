@@ -6024,6 +6024,42 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
                        # roadmap confirmation criterion (b).
                        "V19M-laythe-jool-player-loop.toml",
                        "V19T-laythe-jool-ts-arrival.toml",
+                       # V20M / V20T, the first KERBIN-ARRIVAL loop pair (the
+                       # planet-to-Kerbin half of G2, where V19 did moon-to-parent):
+                       # `rewind` (all max 0 - the family's replay-observation claim,
+                       # here across a 32.6 Ms self-overlapping span whose 1,630,328.8 s
+                       # re-arms every jump crosses) + `structure` (trees {1,2} for V2's
+                       # duplicate-writer hazard, everything else pinned at the measured
+                       # 1/1 with terminalStates {Orbiting: 1}; recordings {1,1} is the
+                       # sharp form of the reading-era {1,3} window, which admitted a
+                       # load-time split at EITHER of this subject's TWO body seams and
+                       # never saw one). Armed 2026-08-27 off their OWN green runs -
+                       # `2026-08-27_1925` (V20M reading run 3, PASS attempt 1, wall
+                       # 71 s, the coast-epoch-first reorder round) and `2026-08-27_1913`
+                       # (V20T reading run 2, PASS attempt 1, wall 61 s, with the
+                       # `icon-teleport` tolerance live). BOTH lanes measured 0/0/0/0 and
+                       # 1/1/1 {Orbiting: 1} with points 739/739/739 before arming - and
+                       # so did V20M's run 2 and V20T's run 1, so the payload is armed
+                       # off FOUR agreeing measurements through TWO scene chains and TWO
+                       # jump orders. The arming re-pinned nothing and moved no verdict.
+                       # `[expectations.recordings] count` tightens {1,3} -> {1,1} on
+                       # both, and V20M ALONE promotes the measured `Split summary:
+                       # .*exoCoastBodyChangeKept=2 splittableButRejected=0` into
+                       # `required` (the V14M/V19M precedent; this subject is the FIRST
+                       # in the corpus whose cohesion depends on
+                       # `ShouldKeepCohesiveCrossBodyExoCoast`'s SECOND disjunct) while
+                       # V20T pins the COUNT - one gate per fact across the pair, the
+                       # V19M/V19T split verbatim. NO routing token is promoted on either
+                       # lane and NO D11 cell is claimed.
+                       # OWED: the two armed re-flights and the two PER-LANE negative
+                       # controls. This pair CANNOT share one control, for the V19
+                       # reason: V20M's own lens is `phase=GhostCreated
+                       # surface=ProtoIcon ... body=Kerbin scene=FLIGHT` and V20T's is
+                       # the `scene=TRACKSTATION` form, so one inversion would prove
+                       # exactly one of them. Each spec header carries its own inversion
+                       # and the tomllib pre-flight gate for it.
+                       "V20M-jool-kerbin-player-loop.toml",
+                       "V20T-jool-kerbin-ts-arrival.toml",
                        # V21M / V21T: `rewind` (all max 0 - the family's
                        # replay-observation claim at a SECOND moon-to-moon
                        # parent) + `structure` (trees {1,2} for V2's

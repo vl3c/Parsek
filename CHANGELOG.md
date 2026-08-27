@@ -75,9 +75,17 @@ All notable changes to Parsek are documented here.
   somewhere else first. So it now visits the arrival first, and asks again for the
   stronger check. Digging into the logs to set that up also turned up something the
   notes now record plainly: one of the two ways Parsek reports what it drew appears to
-  behave differently in the flight map than in the Tracking Station, on 64 samples
-  across two runs. That is written down as an open question the next run answers, not
-  as a conclusion, and nothing is being changed on the strength of it.
+  behave differently in the flight map than in the Tracking Station. That run then
+  settled it. Visiting the arrival first did put a replay on the homecoming leg, and
+  one of the two reports said so - but the other still described it as being on the
+  orbit the recording starts from. So the difference really is between the two
+  screens rather than the order of the clock, which is now written down as a plain
+  finding with the evidence behind it and, again, nothing changed on its strength.
+  With both tests passing and their numbers repeating run to run, the checks they had
+  been merely watching were switched on to enforce: they now fail if the returning
+  flight's recorded structure changes, or if the two arrival legs stop being kept
+  whole as one journey. Each also has its own deliberate sabotage test written down
+  for the operator to run, to prove the checks can actually fail.
   Test-tooling only; no gameplay change.
 - The looped Mun mission's render test now also requires that Parsek actually
   published which replay owned the map line, so a run where that bookkeeping
