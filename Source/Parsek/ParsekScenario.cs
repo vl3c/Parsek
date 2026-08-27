@@ -2904,6 +2904,18 @@ namespace Parsek
                     node != null && (node.nodes.Count > 0 || node.values.Count > 2);
                 ParsekSettingsPersistence.ApplyTo(
                     ParsekSettings.Current, scenarioNodePopulated: scenarioNodePopulated);
+                // The hidden-but-kept settings (auto-record trio, autoMerge,
+                // forceFaithfulLoopPlayback) have no player-facing UI since the 2026-08-27
+                // settings simplification, so a stale save-stored value (e.g. autoMerge=False
+                // from an older career) is clamped back to the shipping value here - unless
+                // an automation env hook is armed, in which case the harness keeps authority
+                // over these fields (fixture pins + SetSetting must survive scene loads).
+                if (!ParsekSettings.AutomationEnvPresent
+                    && ParsekSettings.ClampHiddenSettingsToShippingValues(ParsekSettings.Current))
+                {
+                    ParsekLog.Info("Settings",
+                        "Hidden settings clamped to shipping values (stale save-stored values overridden)");
+                }
                 ParsekLog.RecState("OnLoad:settings-applied", CaptureScenarioRecorderState());
 
                 var recordings = RecordingStore.CommittedRecordings;

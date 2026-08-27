@@ -9169,11 +9169,10 @@ namespace Parsek
                                              ?? LoopTiming.DefaultLoopIntervalSeconds;
             // Phase-lock (mission periodicity): the same live-body seam the flight engine + KSC use.
             IBodyInfo bodyInfo = FlightGlobalsBodyInfo.Instance;
-            // Pass the resolved mode explicitly: MissionLoopUnitBuilder.Build defaults to Tight, but the
-            // running setting (Loose default) is what every per-frame pass uses, so do not rely on the
+            // Pass the mode explicitly: MissionLoopUnitBuilder.Build defaults to Tight, but the
+            // pinned product mode (Loose) is what every per-frame pass uses, so do not rely on the
             // builder's parameter default here.
-            TransitedBodyRotationMode tbrMode = ParsekSettings.Current?.TransitedBodyRotationMode
-                                                ?? TransitedBodyRotationMode.Loose;
+            TransitedBodyRotationMode tbrMode = ParsekSettings.LandingBodyAlignmentMode;
             // Force-faithful product knob: same explicit-pass rule as tbrMode (the builder default is
             // false, but read the running setting so this startup pass matches the per-frame passes).
             bool forceFaithful = ParsekSettings.Current?.forceFaithfulLoopPlayback ?? false;

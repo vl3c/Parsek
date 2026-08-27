@@ -38,7 +38,6 @@ namespace Parsek.Tests
         [InlineData("samplingDensity", "0", 0)]
         [InlineData("samplingDensity", "1", 1)]
         [InlineData("samplingDensity", "2", 2)]
-        [InlineData("transitedBodyRotationModeIndex", "2", 2)]
         public void Accept_Int_InRange(string name, string raw, int expected)
         {
             var r = SettingWhitelist.TryApply(name, raw);
@@ -61,7 +60,6 @@ namespace Parsek.Tests
         [Theory]
         [InlineData("samplingDensity", "5")]   // out of range 0..2
         [InlineData("samplingDensity", "-1")]  // out of range
-        [InlineData("transitedBodyRotationModeIndex", "3")]
         [InlineData("ghostAudioVolume", "1.5")] // out of range 0..1
         [InlineData("ghostAudioVolume", "0,7")] // comma locale -> InvariantCulture rejects
         [InlineData("autoMerge", "yes")]        // non-bool
@@ -80,6 +78,12 @@ namespace Parsek.Tests
         [InlineData("someOtherField")]
         [InlineData("autoLoopIntervalSeconds")] // a real ParsekSettings field, but NOT whitelisted
         [InlineData("")]
+        // The four settings deleted by the 2026-08-27 settings simplification must
+        // reject like any unknown name (their behaviors are permanently on / fixed):
+        [InlineData("transitedBodyRotationModeIndex")]
+        [InlineData("autoBackupExistingSaves")]
+        [InlineData("showCommittedFutureOverlays")]
+        [InlineData("blockCommittedActions")]
         public void Reject_NonWhitelisted(string name)
         {
             var r = SettingWhitelist.TryApply(name, "true");
@@ -89,7 +93,7 @@ namespace Parsek.Tests
             Assert.Null(r.RecordMethod);
         }
 
-        // ----- Persistence route for all 17 -----
+        // ----- Persistence route for all 13 -----
 
         [Theory]
         [InlineData("autoRecordOnLaunch")]
@@ -99,7 +103,6 @@ namespace Parsek.Tests
         [InlineData("verboseLogging")]
         [InlineData("samplingDensity")]
         [InlineData("ghostAudioVolume")]
-        [InlineData("transitedBodyRotationModeIndex")]
         [InlineData("forceFaithfulLoopPlayback")]
         public void Route_GameParametersOnly_NoRecordMethod(string name)
         {
@@ -114,9 +117,6 @@ namespace Parsek.Tests
         [InlineData("mapRenderTracing", "RecordMapRenderTracing")]
         [InlineData("ledgerTracing", "RecordLedgerTracing")]
         [InlineData("writeReadableSidecarMirrors", "RecordReadableSidecarMirrors")] // name asymmetry
-        [InlineData("autoBackupExistingSaves", "RecordAutoBackupExistingSaves")]
-        [InlineData("showCommittedFutureOverlays", "RecordShowCommittedFutureOverlays")]
-        [InlineData("blockCommittedActions", "RecordBlockCommittedActions")]
         [InlineData("showRouteLines", "RecordShowRouteLines")]
         public void Route_SidecarTracked_CarriesExactRecordMethod(string name, string expectedMethod)
         {
@@ -127,9 +127,9 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void Whitelist_HasExactly17Entries_8Tracked()
+        public void Whitelist_HasExactly13Entries_5Tracked()
         {
-            Assert.Equal(17, SettingWhitelist.WhitelistedNames.Count);
+            Assert.Equal(13, SettingWhitelist.WhitelistedNames.Count);
 
             int tracked = 0;
             foreach (string name in SettingWhitelist.WhitelistedNames)
@@ -146,7 +146,7 @@ namespace Parsek.Tests
                     Assert.Null(r.RecordMethod);
                 }
             }
-            Assert.Equal(8, tracked);
+            Assert.Equal(5, tracked);
         }
 
         [Fact]
@@ -174,7 +174,6 @@ namespace Parsek.Tests
             switch (name)
             {
                 case "samplingDensity":
-                case "transitedBodyRotationModeIndex":
                     return "1";
                 case "ghostAudioVolume":
                     return "0.5";

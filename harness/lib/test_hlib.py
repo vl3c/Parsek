@@ -11232,13 +11232,18 @@ class SettingsSidecarBaselineTests(unittest.TestCase):
         self.assertEqual([], hlib.settings_sidecar_tracers_on(body))
 
     def test_baseline_writes_no_key_the_mod_does_not_read(self):
-        # The five OTHER sidecar-tracked settings must stay UNSET so the fixture's
+        # The two OTHER sidecar-tracked settings must stay UNSET so the fixture's
         # own GameParameters keep governing them (a stored value would override
-        # every save on the instance, which is the bug being fixed).
+        # every save on the instance, which is the bug being fixed). The 2026-08-27
+        # settings simplification shrank this residue from five keys to these two.
         values = hlib.parse_settings_sidecar(hlib.render_settings_sidecar_baseline())
-        for key in ("writeReadableSidecarMirrors", "autoBackupExistingSaves",
-                    "showCommittedFutureOverlays", "blockCommittedActions",
-                    "showRouteLines"):
+        for key in ("writeReadableSidecarMirrors", "showRouteLines"):
+            self.assertNotIn(key, values, key)
+        # The three keys RETIRED by that simplification are no longer read by the
+        # mod at all; a baseline that started writing one would be pure noise that
+        # masks a future authoring mistake, so pin their absence separately.
+        for key in ("autoBackupExistingSaves", "showCommittedFutureOverlays",
+                    "blockCommittedActions"):
             self.assertNotIn(key, values, key)
 
     def test_leaked_tracer_is_detected_in_the_real_leaked_shape(self):

@@ -4,7 +4,7 @@ using System.Globalization;
 namespace Parsek.TestCommands
 {
     /// <summary>
-    /// Where a whitelisted setting is authoritatively persisted. 8 of the 16 are
+    /// Where a whitelisted setting is authoritatively persisted. 5 of the 13 are
     /// NOT authoritative through <c>GameParameters.CustomParameterNode</c>: for
     /// those the <c>ParsekSettingsPersistence</c> sidecar
     /// (<c>GameData/Parsek/PluginData/settings.cfg</c>) is authoritative and
@@ -75,13 +75,19 @@ namespace Parsek.TestCommands
             public string RecordMethod; // null for GameParameters-only
         }
 
-        // The 17 whitelisted settings. Fields and Record* method names verified
+        // The 13 whitelisted settings. Fields and Record* method names verified
         // against ParsekSettings.cs and ParsekSettingsPersistence.cs. Note the name
         // asymmetry: setting `writeReadableSidecarMirrors` -> method
         // `RecordReadableSidecarMirrors` (the method drops the "write" prefix).
+        // transitedBodyRotationModeIndex / autoBackupExistingSaves /
+        // showCommittedFutureOverlays / blockCommittedActions were DELETED with their
+        // settings in the 2026-08-27 settings simplification (the behaviors are
+        // permanently on / fixed); the auto-record trio, autoMerge and
+        // forceFaithfulLoopPlayback stay whitelisted precisely because the harness
+        // pins them per-run now that the Settings window no longer draws them.
         private static readonly Dictionary<string, Entry> Table = new Dictionary<string, Entry>
         {
-            // --- GameParameters-only (9) ---
+            // --- GameParameters-only (8) ---
             ["autoRecordOnLaunch"] = Bool(PersistenceRoute.GameParameters, null),
             ["autoRecordOnEva"] = Bool(PersistenceRoute.GameParameters, null),
             ["autoRecordOnFirstModificationAfterSwitch"] = Bool(PersistenceRoute.GameParameters, null),
@@ -89,17 +95,13 @@ namespace Parsek.TestCommands
             ["verboseLogging"] = Bool(PersistenceRoute.GameParameters, null),
             ["samplingDensity"] = Int(0, 2, PersistenceRoute.GameParameters, null),
             ["ghostAudioVolume"] = Float(0.0, 1.0, PersistenceRoute.GameParameters, null),
-            ["transitedBodyRotationModeIndex"] = Int(0, 2, PersistenceRoute.GameParameters, null),
             ["forceFaithfulLoopPlayback"] = Bool(PersistenceRoute.GameParameters, null),
 
-            // --- GameParameters + ParsekSettingsPersistence sidecar (8 tracked) ---
+            // --- GameParameters + ParsekSettingsPersistence sidecar (5 tracked) ---
             ["ghostRenderTracing"] = Bool(PersistenceRoute.GameParametersPlusSidecar, "RecordGhostRenderTracing"),
             ["mapRenderTracing"] = Bool(PersistenceRoute.GameParametersPlusSidecar, "RecordMapRenderTracing"),
             ["ledgerTracing"] = Bool(PersistenceRoute.GameParametersPlusSidecar, "RecordLedgerTracing"),
             ["writeReadableSidecarMirrors"] = Bool(PersistenceRoute.GameParametersPlusSidecar, "RecordReadableSidecarMirrors"),
-            ["autoBackupExistingSaves"] = Bool(PersistenceRoute.GameParametersPlusSidecar, "RecordAutoBackupExistingSaves"),
-            ["showCommittedFutureOverlays"] = Bool(PersistenceRoute.GameParametersPlusSidecar, "RecordShowCommittedFutureOverlays"),
-            ["blockCommittedActions"] = Bool(PersistenceRoute.GameParametersPlusSidecar, "RecordBlockCommittedActions"),
             ["showRouteLines"] = Bool(PersistenceRoute.GameParametersPlusSidecar, "RecordShowRouteLines"),
         };
 

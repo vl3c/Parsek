@@ -35,11 +35,7 @@ namespace Parsek.Tests
             LedgerOrchestrator.ResetForTesting();
             EffectiveState.ResetCachesForTesting();
             ParsekScenario.ResetInstanceForTesting();
-            ParsekSettings.CurrentOverrideForTesting = new ParsekSettings
-            {
-                showCommittedFutureOverlays = true,
-                blockCommittedActions = true
-            };
+            ParsekSettings.CurrentOverrideForTesting = new ParsekSettings();
         }
 
         public void Dispose()
@@ -350,18 +346,19 @@ namespace Parsek.Tests
         }
 
         /// <summary>
-        /// E10: Overlay setting off skips decoration while click-blocks remain separate. Fails if the master overlay toggle is ignored.
+        /// E10 (rewritten for the 2026-08-27 settings simplification): committed-future
+        /// overlays are unconditional - the ShouldApplyOverlays gate was deleted with the
+        /// showCommittedFutureOverlays setting. Fails if someone reintroduces a gate
+        /// method without revisiting that decision.
         /// </summary>
         [Fact]
-        public void E10_OverlaySettingDisabled_ShouldApplyOverlaysFalse()
+        public void E10_OverlayGateStaysDeleted()
         {
-            ParsekSettings.CurrentOverrideForTesting = new ParsekSettings
-            {
-                showCommittedFutureOverlays = false,
-                blockCommittedActions = true
-            };
-
-            Assert.False(StockUiOverlayController.ShouldApplyOverlays());
+            Assert.Null(typeof(StockUiOverlayController).GetMethod(
+                "ShouldApplyOverlays",
+                System.Reflection.BindingFlags.Static
+                | System.Reflection.BindingFlags.Public
+                | System.Reflection.BindingFlags.NonPublic));
         }
 
         /// <summary>

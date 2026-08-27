@@ -34,8 +34,7 @@ namespace Parsek.Tests
             RecordingStore.ResetForTesting();
             LedgerOrchestrator.ResetForTesting();
             GameStateRecorder.ResetForTesting();
-            ParsekSettings.CurrentOverrideForTesting =
-                new ParsekSettings { blockCommittedActions = true };
+            ParsekSettings.CurrentOverrideForTesting = new ParsekSettings();
 
             CommittedActionDialog.TestHookForTesting = (action, reason, detail) =>
             {
@@ -112,26 +111,6 @@ namespace Parsek.Tests
                 line.Contains("[VERBOSE][KerbalHirePatch]") &&
                 line.Contains("bypass") &&
                 line.Contains("replay in progress"));
-            Assert.DoesNotContain(logLines, line => line.Contains("[CommittedAction]"));
-        }
-
-        /// <summary>
-        /// Edge case E11 from §9. Fails if disabling committed-action click-blocks still blocks a committed hire.
-        /// </summary>
-        [Fact]
-        public void KerbalHirePatch_ClickBlockSettingDisabled_AllowsCommittedAndLogs()
-        {
-            AddMilestone(Event(GameStateEventType.CrewHired, "Disabled Setting Kerman", ut: 45678.0));
-            ParsekSettings.CurrentOverrideForTesting =
-                new ParsekSettings { blockCommittedActions = false };
-
-            bool allowed = KerbalHirePatch.ShouldAllowHire("Disabled Setting Kerman");
-
-            Assert.True(allowed);
-            Assert.False(dialogHookCalled);
-            Assert.Contains(logLines, line =>
-                line.Contains("[VERBOSE][KerbalHirePatch]") &&
-                line.Contains("feature disabled by ParsekSettings"));
             Assert.DoesNotContain(logLines, line => line.Contains("[CommittedAction]"));
         }
 

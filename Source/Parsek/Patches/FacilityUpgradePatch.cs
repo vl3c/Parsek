@@ -45,13 +45,6 @@ namespace Parsek.Patches
             string facilityId = facility.id;
             if (string.IsNullOrEmpty(facilityId)) return false;
 
-            if (!(ParsekSettings.Current?.blockCommittedActions ?? true))
-            {
-                ParsekLog.Verbose("FacilityUpgradePatch",
-                    "feature disabled by ParsekSettings");
-                return false;
-            }
-
             if (GameStateRecorder.IsReplayingActions)
             {
                 ParsekLog.Verbose("FacilityUpgradePatch",

@@ -39,13 +39,6 @@ namespace Parsek.Patches
         {
             if (string.IsNullOrEmpty(kerbalName)) return true;
 
-            if (!(ParsekSettings.Current?.blockCommittedActions ?? true))
-            {
-                ParsekLog.Verbose("KerbalHirePatch",
-                    "feature disabled by ParsekSettings");
-                return true;
-            }
-
             if (GameStateRecorder.IsReplayingActions)
             {
                 ParsekLog.Verbose("KerbalHirePatch",

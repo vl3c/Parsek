@@ -79,8 +79,11 @@ namespace Parsek.Tests
         {
             // Main window: both hosts (ParsekFlight, ParsekKSC) pin GUILayout.Width(250).
             yield return new object[] { "ParsekUI.cs", 250f, 8, TooltipEchoBox.DoubleLine };
-            // Settings: DrawIfOpen seeds new Rect(..., 280, 600) on first open.
-            yield return new object[] { "UI/SettingsWindowUI.cs", 280f, 15, TooltipEchoBox.DoubleLine };
+            // Settings: DrawIfOpen seeds new Rect(..., 280, 600) on first open. The floor
+            // dropped 15 -> 10 with the 2026-08-27 settings simplification (the Recording,
+            // Stock UI, auto-backup, landing-body-alignment and force-faithful controls
+            // and their tooltips were retired).
+            yield return new object[] { "UI/SettingsWindowUI.cs", 280f, 10, TooltipEchoBox.DoubleLine };
             // Gloops Flight Recorder: first-open DefaultWindowWidth = 280.
             yield return new object[] { "UI/GloopsRecorderUI.cs", 280f, 3, TooltipEchoBox.DoubleLine };
             // Kerbals: DefaultWindowWidth = 410 (half of Career's 820, side by side).

@@ -57,39 +57,38 @@ namespace Parsek.Tests
         [Fact]
         public void BuildDefaults_MatchesSettingsWindowResetValues()
         {
+            // Covers only what the simplified window still draws (the 2026-08-27
+            // settings simplification retired the Recording / Stock UI sections and
+            // the hidden/hardwired settings; the Defaults button no longer touches
+            // those).
             SettingsWindowPresentation.SettingsDefaults defaults =
                 SettingsWindowPresentation.BuildDefaults();
 
-            Assert.True(defaults.AutoRecordOnLaunch);
-            Assert.True(defaults.AutoRecordOnEva);
-            Assert.True(defaults.AutoRecordOnFirstModificationAfterSwitch);
-            Assert.True(defaults.AutoMerge);
             Assert.True(defaults.VerboseLogging);
             Assert.True(defaults.WriteReadableSidecarMirrors);
+            Assert.True(defaults.ShowRouteLines);
             Assert.Equal(SamplingDensity.Medium, defaults.SamplingDensityLevel);
             Assert.Equal((double)(float)LoopTiming.DefaultLoopIntervalSeconds, (double)defaults.AutoLoopIntervalSeconds, 6);
             Assert.Equal(LoopTimeUnit.Sec, defaults.AutoLoopDisplayUnit);
-            Assert.True(defaults.ShowCommittedFutureOverlays);
-            Assert.True(defaults.BlockCommittedActions);
         }
 
         /// <summary>
-        /// The shipping default for a setting lives in TWO places: the
-        /// <see cref="ParsekSettings"/> field initializer (what a save with no stored
-        /// key resolves to) and <see cref="SettingsWindowPresentation.BuildDefaults"/>
-        /// (what the Settings window's Defaults button writes). Flipping one and not
-        /// the other makes "Defaults" silently disagree with a fresh install, so pin
-        /// them together.
-        ///
-        /// Fails if: either autoMerge default is flipped without the other.
+        /// The hidden-but-kept settings (auto-record trio, autoMerge,
+        /// forceFaithfulLoopPlayback) no longer appear in BuildDefaults - their
+        /// shipping value IS the <see cref="ParsekSettings"/> field initializer, and
+        /// the harness command seam is the only writer. Pin the hardwired values so
+        /// an accidental default flip fails a test instead of silently changing the
+        /// player-facing behavior.
         /// </summary>
         [Fact]
-        public void BuildDefaults_AutoMerge_MatchesSettingsFieldDefault()
+        public void HiddenSettings_FieldDefaults_ArePinned()
         {
-            SettingsWindowPresentation.SettingsDefaults defaults =
-                SettingsWindowPresentation.BuildDefaults();
-
-            Assert.Equal(new ParsekSettings().autoMerge, defaults.AutoMerge);
+            var s = new ParsekSettings();
+            Assert.True(s.autoRecordOnLaunch);
+            Assert.True(s.autoRecordOnEva);
+            Assert.True(s.autoRecordOnFirstModificationAfterSwitch);
+            Assert.True(s.autoMerge);
+            Assert.False(s.forceFaithfulLoopPlayback);
         }
     }
 }

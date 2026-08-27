@@ -303,8 +303,7 @@ namespace Parsek
             // Phase-lock (mission periodicity): the same live-body seam the flight engine + KSC use,
             // so all three scenes phase-lock identically.
             IBodyInfo bodyInfo = FlightGlobalsBodyInfo.Instance;
-            TransitedBodyRotationMode tbrMode = ParsekSettings.Current?.TransitedBodyRotationMode
-                                                ?? TransitedBodyRotationMode.Loose;
+            TransitedBodyRotationMode tbrMode = ParsekSettings.LandingBodyAlignmentMode;
             // Force-faithful product knob (mirrors ParsekFlight / ParsekKSC).
             bool forceFaithful = ParsekSettings.Current?.forceFaithfulLoopPlayback ?? false;
 

@@ -91,21 +91,17 @@ namespace Parsek
         MissionsLoopControls,
 
         /// <summary>
-        /// Settings section "Looping": the global auto-launch period + its unit button, the
-        /// landing-body alignment A/B mode, and the force-faithful (no re-aim) toggle.
-        /// <para>The Settings half of the section 4.5 decision. All three are manual-loop
-        /// AUTHORING knobs - each one only changes how a looped mission replays - so hiding
-        /// the per-mission controls while leaving the globals that govern them would split
-        /// one decision across two windows. The auto-launch period is the sharpest case: it
-        /// IS the period of any mission whose unit is Auto, i.e. exactly the value the
-        /// hidden loop-period cell would show.</para>
-        /// <para>Reaches routes, unlike the Missions-tab half:
-        /// <c>TransitedBodyRotationMode</c> and <c>forceFaithfulLoopPlayback</c> are folded
-        /// into the route delivery clock too (<c>RouteOrchestrator</c>). Route CADENCE is
-        /// not affected - a route-backing mission is built <c>LoopTimeUnit.Sec</c> with
-        /// <c>LoopIntervalSeconds = route.DispatchInterval</c>, authored in the Logistics
-        /// window Basic keeps - and both knobs ship on the defaults a route wants (Loose,
-        /// re-aim on), so a Basic player's routes run correctly untouched.</para>
+        /// Settings section "Looping": the global auto-launch period + its unit button.
+        /// (The landing-body alignment mode and force-faithful toggle that used to share
+        /// the section were retired/hidden by the 2026-08-27 settings simplification.)
+        /// <para>The Settings half of the section 4.5 decision: the period is a manual-loop
+        /// AUTHORING knob, so hiding the per-mission controls while leaving the global that
+        /// governs them would split one decision across two windows. It IS the period of
+        /// any mission whose unit is Auto, i.e. exactly the value the hidden loop-period
+        /// cell would show.</para>
+        /// <para>Route CADENCE is not affected - a route-backing mission is built
+        /// <c>LoopTimeUnit.Sec</c> with <c>LoopIntervalSeconds = route.DispatchInterval</c>,
+        /// authored in the Logistics window Basic keeps.</para>
         /// </summary>
         SettingsSectionLooping,
 

@@ -140,6 +140,8 @@ namespace Parsek.Tests
         // Design section 4 / the "Result" paragraph: Basic hides exactly Diagnostics and
         // Sample Density. Everything else in the window is unconditional, including the
         // Interface section that hosts the mode toggle itself and Data Management.
+        // (The Recording and Stock UI sections were retired outright by the 2026-08-27
+        // settings simplification, so they no longer exist in either mode.)
         [Fact]
         public void NoOtherSettingsSectionIsGated()
         {
@@ -148,9 +150,7 @@ namespace Parsek.Tests
             foreach (string drawCall in new[]
                      {
                          "DrawInterfaceSettings(s);",
-                         "DrawRecordingSettings(s);",
                          "DrawGhostSettings(s);",
-                         "DrawStockUiSettings(s);",
                          "DrawDataManagementSettings(s);",
                      })
             {

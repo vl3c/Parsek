@@ -176,11 +176,10 @@ namespace Parsek
         /// before brand-new so a Parsek-touched save is never captured.
         /// </summary>
         internal static bool ShouldBackup(
-            bool isColdLoad, bool enabled, bool markerExists, bool footprintPresent,
+            bool isColdLoad, bool markerExists, bool footprintPresent,
             bool isBackupFolder, bool isBrandNewEmpty, out string reason)
         {
             if (!isColdLoad) { reason = "not-cold-load"; return false; }
-            if (!enabled) { reason = "disabled"; return false; }
             if (markerExists) { reason = "marker-present"; return false; }
             if (isBackupFolder) { reason = "is-backup-folder"; return false; }
             if (footprintPresent) { reason = "already-parsek-footprint"; return false; }
@@ -248,7 +247,9 @@ namespace Parsek
         {
             try
             {
-                bool enabled = ParsekSettings.Current?.autoBackupExistingSaves ?? true;
+                // The backup is unconditional since the 2026-08-27 settings simplification
+                // retired the autoBackupExistingSaves setting: it runs once per save, and a
+                // player who does not want the extra Load-menu entry can delete it.
 
                 // Fast path: a prior successful backup wrote the marker.
                 if (DoneMarkerExists())
@@ -308,7 +309,7 @@ namespace Parsek
                     brandNew = false;
                 }
 
-                if (!ShouldBackup(true, enabled, false, footprint, isBackupFolder, brandNew, out string reason))
+                if (!ShouldBackup(true, false, footprint, isBackupFolder, brandNew, out string reason))
                 {
                     ParsekLog.Info(Tag, $"Skip: reason={reason} save='{saveName}'");
                     return;

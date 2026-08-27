@@ -609,23 +609,11 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void TransitedBodyRotationMode_SettingsLabelAndCycle()
+        public void LandingBodyAlignmentMode_IsPinnedLoose()
         {
-            // Guards the Settings UI A/B control: the three labels and the Drop -> Loose -> Tight -> Drop
-            // cycle order.
-            Assert.Equal("Off (frequent)",
-                SettingsWindowUI.TransitedBodyRotationModeLabel(TransitedBodyRotationMode.Drop));
-            Assert.Equal("Loose (~monthly)",
-                SettingsWindowUI.TransitedBodyRotationModeLabel(TransitedBodyRotationMode.Loose));
-            Assert.Equal("Precise (rare)",
-                SettingsWindowUI.TransitedBodyRotationModeLabel(TransitedBodyRotationMode.Tight));
-
-            Assert.Equal(TransitedBodyRotationMode.Loose,
-                SettingsWindowUI.CycleTransitedBodyRotationMode(TransitedBodyRotationMode.Drop));
-            Assert.Equal(TransitedBodyRotationMode.Tight,
-                SettingsWindowUI.CycleTransitedBodyRotationMode(TransitedBodyRotationMode.Loose));
-            Assert.Equal(TransitedBodyRotationMode.Drop,
-                SettingsWindowUI.CycleTransitedBodyRotationMode(TransitedBodyRotationMode.Tight));
+            // The 2026-08-27 settings simplification retired the Settings UI A/B control;
+            // the whole re-aim/periodicity stack now runs on this single pinned mode.
+            Assert.Equal(TransitedBodyRotationMode.Loose, ParsekSettings.LandingBodyAlignmentMode);
         }
 
         [Fact]

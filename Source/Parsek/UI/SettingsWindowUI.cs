@@ -5,7 +5,9 @@ namespace Parsek
 {
     /// <summary>
     /// Settings window extracted from ParsekUI.
-    /// Manages all Parsek settings: recording, looping, ghosts, diagnostics, sampling density, data management.
+    /// Manages all Parsek settings: interface mode, looping period, ghosts, diagnostics,
+    /// sampling density, data management (the Recording and Stock UI sections were
+    /// retired by the 2026-08-27 settings simplification).
     /// </summary>
     internal class SettingsWindowUI
     {
@@ -73,8 +75,9 @@ namespace Parsek
                 // The 600 above is a guess, not a measurement, and GUILayout only fixes it
                 // in one direction: a window resolves to Max(passedHeight, contentMin), so
                 // content TALLER than 600 auto-grows, while content SHORTER leaves dead
-                // space at the bottom - which is exactly Basic since it hides the Looping
-                // section (fit ~534; Advanced ~948 masked this for both modes until then).
+                // space at the bottom. Since the 2026-08-27 settings simplification shrank
+                // the window, BOTH modes fit under the 600 seed, so every first open needs
+                // the measured fit (before it, only Basic did - Advanced masked the bug).
                 // Request the same height fit a mode switch gets, so the first open lands
                 // on the measured height in either mode. Requesting here is equivalent to
                 // the Update-latch path: this branch runs once, at the top of the first
@@ -351,21 +354,21 @@ namespace Parsek
             }
 
             // Each hidden section's trailing GUILayout.Space separator lives INSIDE its gate,
-            // or Basic shows a double gap where the section used to be. Interface / Recording
-            // / Ghosts / Stock UI / Data Management are visible in both modes and stay
-            // unwrapped. (`complexity` is latched above, before the edit-state check.)
+            // or Basic shows a double gap where the section used to be. Interface / Ghosts /
+            // Data Management are visible in both modes and stay unwrapped. (`complexity` is
+            // latched above, before the edit-state check.) The former Recording and Stock UI
+            // sections were retired in the 2026-08-27 settings simplification: auto-record
+            // and auto-merge are hardwired ON (fields survive for the harness command seam),
+            // and the committed-future overlays + committed-action click blocks are always
+            // active.
             DrawInterfaceSettings(s);
-            GUILayout.Space(SpacingSmall);
-            DrawRecordingSettings(s);
             GUILayout.Space(SpacingSmall);
 
             // Manual-loop authoring, global half (design section 4.5): the auto-launch period
-            // that IS the period of any Auto-unit mission, plus the landing-body alignment and
-            // force-faithful A/B knobs. Hidden with the Missions tab's per-mission loop
-            // controls - one decision, so it does not straddle two windows. Route DELIVERY is
-            // unaffected (a route-backing mission carries its own Sec-unit DispatchInterval,
-            // authored in Logistics, which Basic keeps) and both A/B knobs ship on the defaults
-            // a route wants.
+            // that IS the period of any Auto-unit mission. Hidden with the Missions tab's
+            // per-mission loop controls - one decision, so it does not straddle two windows.
+            // Route DELIVERY is unaffected (a route-backing mission carries its own Sec-unit
+            // DispatchInterval, authored in Logistics, which Basic keeps).
             if (UiSurfaceVisibility.IsVisible(UiSurface.SettingsSectionLooping, complexity))
             {
                 DrawLoopingSettings(s);
@@ -373,8 +376,6 @@ namespace Parsek
             }
 
             DrawGhostSettings(s);
-            GUILayout.Space(SpacingSmall);
-            DrawStockUiSettings(s);
             GUILayout.Space(SpacingSmall);
 
             // Developer instrumentation (verbose logging, the three tracing toggles, the
@@ -411,35 +412,20 @@ namespace Parsek
                 ParsekLog.Verbose("UI", "Settings Defaults button clicked");
                 SettingsWindowPresentation.SettingsDefaults defaults =
                     SettingsWindowPresentation.BuildDefaults();
-                bool priorShowCommittedFutureOverlays = s.showCommittedFutureOverlays;
-                s.autoRecordOnLaunch = defaults.AutoRecordOnLaunch;
-                s.autoRecordOnEva = defaults.AutoRecordOnEva;
-                s.autoRecordOnFirstModificationAfterSwitch =
-                    defaults.AutoRecordOnFirstModificationAfterSwitch;
-                s.autoMerge = defaults.AutoMerge;
                 s.verboseLogging = defaults.VerboseLogging;
                 s.ghostRenderTracing = false;
                 s.mapRenderTracing = false;
                 s.ledgerTracing = false;
                 s.writeReadableSidecarMirrors = defaults.WriteReadableSidecarMirrors;
-                s.autoBackupExistingSaves = defaults.AutoBackupExistingSaves;
                 s.showRouteLines = defaults.ShowRouteLines;
                 s.SamplingDensityLevel = defaults.SamplingDensityLevel;
                 s.autoLoopIntervalSeconds = defaults.AutoLoopIntervalSeconds;
                 s.AutoLoopDisplayUnit = defaults.AutoLoopDisplayUnit;
-                s.showCommittedFutureOverlays = defaults.ShowCommittedFutureOverlays;
-                s.blockCommittedActions = defaults.BlockCommittedActions;
                 ParsekSettingsPersistence.RecordReadableSidecarMirrors(s.writeReadableSidecarMirrors);
-                ParsekSettingsPersistence.RecordAutoBackupExistingSaves(s.autoBackupExistingSaves);
                 ParsekSettingsPersistence.RecordShowRouteLines(s.showRouteLines);
-                ParsekSettingsPersistence.RecordShowCommittedFutureOverlays(s.showCommittedFutureOverlays);
-                ParsekSettingsPersistence.RecordBlockCommittedActions(s.blockCommittedActions);
                 ParsekSettingsPersistence.RecordGhostRenderTracing(s.ghostRenderTracing);
                 ParsekSettingsPersistence.RecordMapRenderTracing(s.mapRenderTracing);
                 ParsekSettingsPersistence.RecordLedgerTracing(s.ledgerTracing);
-                // blockCommittedActions needs no controller refresh; click-block patches read it at call time.
-                if (s.showCommittedFutureOverlays != priorShowCommittedFutureOverlays)
-                    StockUiOverlayController.RefreshOpenScreensAfterSettingsChanged();
                 RecordingStore.ReconcileReadableSidecarMirrorsForKnownRecordings();
                 // Defaults rewrites autoLoopIntervalSeconds, so any in-progress edit of it is
                 // stale: end it through the shared teardown (rect + keyboard focus too), not by
@@ -535,47 +521,6 @@ namespace Parsek
                 ? "Show only the core loop: Timeline, Missions, Logistics, and Settings."
                 : "Show every Parsek window and settings section.";
 
-        private void DrawRecordingSettings(ParsekSettings s)
-        {
-            GUILayout.Label("Recording", parentUI.GetSectionHeaderStyle());
-            bool autoRecordOnLaunch = GUILayout.Toggle(s.autoRecordOnLaunch,
-                new GUIContent(" Auto-record on launch", "Start recording when a vessel leaves the pad or runway"));
-            if (autoRecordOnLaunch != s.autoRecordOnLaunch)
-            {
-                s.autoRecordOnLaunch = autoRecordOnLaunch;
-                ParsekLog.Info("UI", $"Setting changed: autoRecordOnLaunch={s.autoRecordOnLaunch}");
-            }
-
-            bool autoRecordOnEva = GUILayout.Toggle(s.autoRecordOnEva,
-                new GUIContent(" Auto-record on EVA", "Start recording when a kerbal goes EVA from the pad"));
-            if (autoRecordOnEva != s.autoRecordOnEva)
-            {
-                s.autoRecordOnEva = autoRecordOnEva;
-                ParsekLog.Info("UI", $"Setting changed: autoRecordOnEva={s.autoRecordOnEva}");
-            }
-
-            bool autoRecordOnFirstModificationAfterSwitch = GUILayout.Toggle(
-                s.autoRecordOnFirstModificationAfterSwitch,
-                new GUIContent(
-                    " Auto-record on first modification after switch",
-                    "Start recording at the first real change after a vessel switch."));
-            if (autoRecordOnFirstModificationAfterSwitch != s.autoRecordOnFirstModificationAfterSwitch)
-            {
-                s.autoRecordOnFirstModificationAfterSwitch = autoRecordOnFirstModificationAfterSwitch;
-                ParsekLog.Info("UI",
-                    $"Setting changed: autoRecordOnFirstModificationAfterSwitch={s.autoRecordOnFirstModificationAfterSwitch}");
-            }
-
-            bool autoMerge = GUILayout.Toggle(s.autoMerge,
-                new GUIContent(" Auto-merge recordings",
-                    "Commit recordings automatically. Off = confirm each one in a dialog."));
-            if (autoMerge != s.autoMerge)
-            {
-                s.autoMerge = autoMerge;
-                ParsekLog.Info("UI", $"Setting changed: autoMerge={s.autoMerge}");
-            }
-        }
-
         private void DrawLoopingSettings(ParsekSettings s)
         {
             GUILayout.Label("Looping", parentUI.GetSectionHeaderStyle());
@@ -627,59 +572,6 @@ namespace Parsek
                 }
             }
             GUILayout.EndHorizontal();
-
-            // Zero-drift A/B flag: how a looped mission that LANDS on another body (the Mun, or an
-            // interplanetary destination such as Duna) aligns that landed-on body's rotation at each
-            // faithful relaunch. The launch pad is always aligned exactly; this only trades the
-            // relaunch cadence (same-parent) or the per-cycle arrival hold + destination-loiter trim
-            // (interplanetary) against the approach-to-landing handoff seam on the destination body.
-            GUILayout.BeginHorizontal();
-            GUILayout.Label(new GUIContent("Landing-body alignment",
-                "How closely a landed-on body lines up each relaunch; finer = rarer."),
-                GUILayout.Width(150));
-            if (GUILayout.Button(TransitedBodyRotationModeLabel(s.TransitedBodyRotationMode),
-                    GUILayout.Width(120)))
-            {
-                s.TransitedBodyRotationMode = CycleTransitedBodyRotationMode(s.TransitedBodyRotationMode);
-                ParsekLog.Info("UI",
-                    $"Setting changed: transitedBodyRotationMode={s.TransitedBodyRotationMode}");
-            }
-            GUILayout.EndHorizontal();
-
-            // Force-faithful A/B knob: an interplanetary looped mission normally re-aims each
-            // transfer at the destination's actual position per launch window. Turning this on
-            // replays the recorded trajectory verbatim on the loop clock instead.
-            bool forceFaithful = GUILayout.Toggle(s.forceFaithfulLoopPlayback,
-                new GUIContent(" Force faithful loop playback (no re-aim)",
-                    "Replay the recorded transfer verbatim; the ghost misses most cycles."));
-            if (forceFaithful != s.forceFaithfulLoopPlayback)
-            {
-                s.forceFaithfulLoopPlayback = forceFaithful;
-                ParsekLog.Info("UI",
-                    $"Setting changed: forceFaithfulLoopPlayback={s.forceFaithfulLoopPlayback}");
-            }
-        }
-
-        /// <summary>The cycle-button label for the landing-body alignment A/B mode. Pure.</summary>
-        internal static string TransitedBodyRotationModeLabel(TransitedBodyRotationMode mode)
-        {
-            switch (mode)
-            {
-                case TransitedBodyRotationMode.Drop: return "Off (frequent)";
-                case TransitedBodyRotationMode.Loose: return "Loose (~monthly)";
-                default: return "Precise (rare)";
-            }
-        }
-
-        /// <summary>Cycles the landing-body alignment A/B mode (Drop -&gt; Loose -&gt; Tight -&gt; Drop). Pure.</summary>
-        internal static TransitedBodyRotationMode CycleTransitedBodyRotationMode(TransitedBodyRotationMode mode)
-        {
-            switch (mode)
-            {
-                case TransitedBodyRotationMode.Drop: return TransitedBodyRotationMode.Loose;
-                case TransitedBodyRotationMode.Loose: return TransitedBodyRotationMode.Tight;
-                default: return TransitedBodyRotationMode.Drop;
-            }
         }
 
         private void DrawGhostSettings(ParsekSettings s)
@@ -710,33 +602,6 @@ namespace Parsek
                 s.showRouteLines = showRouteLines;
                 ParsekSettingsPersistence.RecordShowRouteLines(showRouteLines);
                 ParsekLog.Info("UI", $"Setting changed: showRouteLines={showRouteLines}");
-            }
-        }
-
-        private void DrawStockUiSettings(ParsekSettings s)
-        {
-            GUILayout.Label("Stock UI", parentUI.GetSectionHeaderStyle());
-
-            bool showCommittedFutureOverlays = GUILayout.Toggle(s.showCommittedFutureOverlays,
-                new GUIContent(" Show committed-future overlays in stock UI",
-                    "Mark committed R&D, Astronaut Complex and Mission Control actions."));
-            if (showCommittedFutureOverlays != s.showCommittedFutureOverlays)
-            {
-                s.showCommittedFutureOverlays = showCommittedFutureOverlays;
-                ParsekSettingsPersistence.RecordShowCommittedFutureOverlays(showCommittedFutureOverlays);
-                ParsekLog.Info("UI", $"Setting changed: showCommittedFutureOverlays={showCommittedFutureOverlays}");
-                StockUiOverlayController.RefreshOpenScreensAfterSettingsChanged();
-            }
-
-            bool blockCommittedActions = GUILayout.Toggle(s.blockCommittedActions,
-                new GUIContent(" Block player actions that conflict with committed timeline",
-                    "Block stock clicks that would repeat an already-committed action."));
-            if (blockCommittedActions != s.blockCommittedActions)
-            {
-                s.blockCommittedActions = blockCommittedActions;
-                ParsekSettingsPersistence.RecordBlockCommittedActions(blockCommittedActions);
-                // No overlay refresh here: this setting only gates click-block predicates.
-                ParsekLog.Info("UI", $"Setting changed: blockCommittedActions={blockCommittedActions}");
             }
         }
 
@@ -843,16 +708,6 @@ namespace Parsek
         private void DrawDataManagementSettings(ParsekSettings s)
         {
             GUILayout.Label("Data Management", parentUI.GetSectionHeaderStyle());
-
-            bool autoBackupExistingSaves = GUILayout.Toggle(s.autoBackupExistingSaves,
-                new GUIContent(" Auto-backup existing saves before first use",
-                    "Copy a Parsek-free save to a 'pre-Parsek' Load-menu entry, once."));
-            if (autoBackupExistingSaves != s.autoBackupExistingSaves)
-            {
-                s.autoBackupExistingSaves = autoBackupExistingSaves;
-                ParsekSettingsPersistence.RecordAutoBackupExistingSaves(autoBackupExistingSaves);
-                ParsekLog.Info("UI", $"Setting changed: autoBackupExistingSaves={autoBackupExistingSaves}");
-            }
 
             // [ERS-exempt] reason: the wipe-all button reports the raw count of
             // stored recordings (including NotCommitted / superseded) because the

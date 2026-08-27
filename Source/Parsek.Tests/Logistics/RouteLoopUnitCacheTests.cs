@@ -180,8 +180,7 @@ namespace Parsek.Tests.Logistics
                 RecordingStore.CommittedRecordings,
                 autoLoop,
                 FlightGlobalsBodyInfo.Instance,
-                ParsekSettings.Current?.TransitedBodyRotationMode
-                    ?? TransitedBodyRotationMode.Loose);
+                ParsekSettings.LandingBodyAlignmentMode);
             Assert.Equal(1, set.Count);
             foreach (var kvp in set.UnitsByOwner)
             {
