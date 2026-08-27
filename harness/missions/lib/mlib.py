@@ -1967,6 +1967,53 @@ STOCK_BODY_GRAVITY: Dict[str, Tuple[float, float, float]] = {
     # high-energy tail does not merely overshoot the target - it LEAVES THE
     # PARENT SYSTEM. See B30's escapeSoiSpeedMps derivation.
     "Mun": (6.5138398e10, 200_000.0, 2_429_559.1),
+    #
+    # KERBIN, added for `B29-jool-kerbin-return` (G2). NOTE THIS IS THE FIRST ROW
+    # ADDED FOR A **TARGET** BODY RATHER THAN A RELAY HOME BODY: B29 is not a relay
+    # and never calls `escape_node_plan`, but `capture_node_plan` needs the target's
+    # mu (to size the capture) and R (to turn kRPC ALTITUDE readings into radii), so
+    # the table's consumers are now two. Its rule is unchanged and every number has
+    # an in-repo source:
+    #   mu 3.5316e12  - `Source/Parsek.Tests/Bug278FinalizeLimboTests.cs:722`
+    #     (`TestBodyRegistry.Install(("Kerbin", 600000.0, 3.5316e12), ...)`), the same
+    #     value `scripts/reaim_sim.py:21` carries at full precision (3.5316000e12) and
+    #     `harness/missions/lib/test_b30_mun_minmus.py:49` already imports.
+    #   R 600,000     - the same Install call, and `Source/Parsek/SessionMerger.cs:35`.
+    #   SOI 84,159,286 - quoted in THIS TABLE's own Mun comment above ("Kerbin's SOI is
+    #     only 7.01x Mun's orbital radius (84,159,286 / 12,000,000)").
+    #
+    # THE THIRD NUMBER IS NOT LOAD-BEARING HERE, and saying so matters because it is
+    # load-bearing in both rows above. Those are ESCAPE rows, where the SOI radius is
+    # where the patched conic hands the vessel over and therefore what the burn is
+    # sized against (B26 flight 2's defect A). `capture_node_plan` sizes against the
+    # ARRIVAL PERIAPSIS, read live off the craft's own orbit, and never references
+    # r_soi at all. The value is carried for table symmetry and for whoever adds an
+    # escape from Kerbin later.
+    "Kerbin": (3.5316e12, 600_000.0, 84_159_286.0),
+    #
+    # JOOL, added when `B29-jool-kerbin-return` re-scoped onto the PARENT-RELAY
+    # mode after flight 2 (2026-08-27) MEASURED the plain planner's failure shape
+    # from the 584,321 km fixture park: MechJeb's OperationInterplanetaryTransfer
+    # did NOT refuse (the B26-flight-1 shape the lane pre-registered) - it PLANNED,
+    # 110 m/s cheaper than the Hohmann ledger, with an asymptote bad enough that
+    # the arrival read ecc 12.535 / v_inf ~5,116 m/s at Kerbin against the
+    # Hohmann's 2,713, pricing the capture at 3,625.035 m/s on a craft that had
+    # ~2,000 left. The relay is the route around it, and the relay's escape needs
+    # this row. THE FIRST ROW WHOSE HOME BODY IS A PLANET: the escape contract is
+    # body-generic (nothing in `escape_node_plan` reads moon-ness), and the SOI
+    # radius is load-bearing exactly as the header warns - at a 590.3 Mm park
+    # periapsis, 2mu*(1/r_pe - 1/r_soi) = 727,138 m^2/s^2, so an escape asking for
+    # 450 m/s AT THE BOUNDARY costs a 964.2 m/s periapsis speed (node ~272.4 m/s
+    # over the 691.8 m/s park). In-repo sources:
+    #   mu 2.82528e14 - `Source/Parsek.Tests/MultiMoonAlignmentTests.cs:22` (the
+    #     stock Jool-system constant every alignment cell derives from), and
+    #     `harness/missions/lib/test_b25_laythe_orbit.py:45` (MU_JOOL).
+    #   R 6,000,000   - `harness/missions/lib/test_b29_jool_kerbin.py`
+    #     (JOOL_RADIUS, the fixture-park bracket cells).
+    #   SOI 2.4559852e9 - `Source/Parsek.Tests/MissionPeriodicityTests.cs:1648`
+    #     (`f.Soi["Jool"]`), quoted at full precision as 2,455,985,185 m in
+    #     `harness/missions/b22_jool_orbit.py`'s header.
+    "Jool": (2.82528e14, 6_000_000.0, 2.4559852e9),
 }
 STOCK_HELIO_ELEMENTS: Dict[str, Tuple[float, float, float, float]] = {
     "Kerbin": (13_599_840_256.0, 0.0, 3.14, 0.0),
@@ -3829,6 +3876,31 @@ class B5Params:
                                            # a Mun/Minmus arrival is hours of game
                                            # time (spec key
                                            # captureBurnTimeoutSeconds).
+    # --- ELLIPTICAL CAPTURE (B29). 0.0 = OFF = every lane flown to date, byte
+    # for byte: PLAN-CAPTURE emits ACTION_MJ_PLAN_CAPTURE (MechJeb's
+    # operation_circularize at the arrival periapsis) exactly as before.
+    capture_elliptical_apoapsis: float = 0.0
+                                           # > 0: capture into a BOUND ELLIPSE
+                                           # whose apoapsis is this ALTITUDE (m
+                                           # above the target body), instead of
+                                           # circularizing. PLAN-CAPTURE then
+                                           # computes ONE retrograde node at the
+                                           # arrival periapsis (capture_node_plan)
+                                           # and places it through the SAME kRPC
+                                           # add_node seam the parent-relay
+                                           # escape uses; the SAME NodeExecutor
+                                           # flies it and _b5_capture_achieved
+                                           # judges the result against the
+                                           # unchanged park triple. WHY IT EXISTS:
+                                           # an inbound interplanetary arrival is
+                                           # the first case where circularizing at
+                                           # periapsis is not merely expensive but
+                                           # UNAFFORDABLE -- B29's Kerbin arrival
+                                           # prices the circularization at
+                                           # 1,926.12 m/s against 1,188.07 for the
+                                           # ellipse, a 738.05 m/s difference on a
+                                           # craft with 3,967 m/s total. Spec key
+                                           # captureEllipticalApoapsisMeters.
     park_min_periapsis: float = 0.0        # PARK gate: the captured orbit's
                                            # periapsis floor (m above the target
                                            # body). Fails CLOSED on a NaN read
@@ -4112,6 +4184,64 @@ def b5_params_from_dict(params: Dict) -> B5Params:
             "with no relay to modify it is INERT and the spec would silently "
             "fly the ordinary transfer machine while reading as if it had "
             "asked to park at a parent")
+    _cap_ell = float(params.get("captureEllipticalApoapsisMeters", 0.0))
+    if _cap_ell > 0.0:
+        # THE FOUR IMPLICATIONS THE ELLIPTICAL CAPTURE RESTS ON. Every one of
+        # them is a SILENT degradation rather than a style point, which is why
+        # they are asserted at load instead of documented: each failure mode
+        # below produces a mission that runs, burns fuel, and then cannot finish
+        # -- the most expensive shape of defect this harness has.
+        if not bool(params.get("captureEnabled", False)):
+            raise ValueError(
+                "captureEllipticalApoapsisMeters requires captureEnabled: the "
+                "key only ever changes what PLAN-CAPTURE emits, and with the "
+                "capture tail off NO capture phase is reachable at all -- so "
+                "the spec would fly the plain flyby machine while reading as "
+                "if it had asked for an elliptical park")
+        _park_max_ap = float(params.get("parkMaxApoapsisMeters", 0.0))
+        if _park_max_ap > 0.0 and _cap_ell > _park_max_ap:
+            raise ValueError(
+                "captureEllipticalApoapsisMeters %.1f exceeds "
+                "parkMaxApoapsisMeters %.1f: the machine would aim at an "
+                "apoapsis its OWN park gate (_b5_capture_achieved) then "
+                "rejects, so a PERFECTLY FLOWN capture could never satisfy "
+                "capturedInTargetOrbit and the lane would burn its park budget "
+                "on an orbit it asked for" % (_cap_ell, _park_max_ap))
+        _cc_pe = float(params.get("courseCorrectPeriapsisMeters", 0.0))
+        if _cc_pe > 0.0 and _cap_ell <= _cc_pe:
+            raise ValueError(
+                "captureEllipticalApoapsisMeters %.1f is at or below "
+                "courseCorrectPeriapsisMeters %.1f: the corrections aim the "
+                "ARRIVAL PERIAPSIS at the latter, so an 'apoapsis' at or under "
+                "it is not an ellipse -- capture_node_plan would compute a "
+                "PROGRADE dv and the node would raise the orbit instead of "
+                "closing it" % (_cap_ell, _cc_pe))
+        # THE ECCENTRICITY IMPLICATION, and it is the one a reader is most
+        # likely to get wrong by eye. The delivered ellipse's eccentricity is
+        # fully determined at LOAD by the two altitudes plus the target body's
+        # radius -- (ra - rp) / (ra + rp) -- and `_b5_capture_achieved` caps it
+        # with `parkMaxEccentricity`, whose default (0.5) is BELOW what any
+        # affordable inbound capture ellipse produces (B29's is 0.7959). So the
+        # obvious spec -- set the apoapsis, leave the park triple at the values
+        # every prior lane used -- is EXACTLY the one that deadlocks, and it
+        # deadlocks only after the capture burn has been flown. Checked here so
+        # it costs a load error rather than a flight.
+        _tgt = str(params.get("targetBodyName", "Mun"))
+        _tgt_radius = _body_gravity(_tgt)[1]
+        _cc_pe_eff = _cc_pe if _cc_pe > 0.0 else 0.0
+        _ra = _tgt_radius + _cap_ell
+        _rp = _tgt_radius + _cc_pe_eff
+        _ecc = (_ra - _rp) / (_ra + _rp)
+        _ecc_cap = float(params.get("parkMaxEccentricity", 0.5))
+        if _ecc > _ecc_cap:
+            raise ValueError(
+                "captureEllipticalApoapsisMeters %.1f over target %r (radius "
+                "%.1f) with courseCorrectPeriapsisMeters %.1f delivers "
+                "eccentricity %.4f, above parkMaxEccentricity %.4f: the park "
+                "gate would reject the very orbit the capture node is computed "
+                "to produce. Raise parkMaxEccentricity to cover %.4f, or lower "
+                "the apoapsis" % (_cap_ell, _tgt, _tgt_radius, _cc_pe_eff,
+                                  _ecc, _ecc_cap, _ecc))
     if bool(params.get("parentRelayTransfer", False)):
         # THE FIVE IMPLICATIONS THE RELAY MODE RESTS ON, asserted rather than
         # documented. Each one is a silent-degradation risk, not a style point:
@@ -4329,6 +4459,8 @@ def b5_params_from_dict(params: Dict) -> B5Params:
         capture_enabled=bool(params.get("captureEnabled", False)),
         capture_plan_timeout=float(params.get("capturePlanTimeoutSeconds", 300.0)),
         capture_burn_timeout=float(params.get("captureBurnTimeoutSeconds", 40000.0)),
+        capture_elliptical_apoapsis=float(
+            params.get("captureEllipticalApoapsisMeters", 0.0)),
         park_min_periapsis=float(params.get("parkMinPeriapsisMeters", 0.0)),
         park_max_apoapsis=float(params.get("parkMaxApoapsisMeters", 0.0)),
         park_max_eccentricity=float(params.get("parkMaxEccentricity", 0.5)),
@@ -10399,6 +10531,144 @@ def escape_node_plan(params: B5Params,
     return EscapeNodePlan(node_ut=float(snapshot.ut) + lead, dv=float(dv))
 
 
+@dataclass(frozen=True)
+class CaptureNodePlan:
+    """One computed ELLIPTICAL capture node, or a NAMED refusal. Same contract as
+    ``EscapeNodePlan``: ``reason`` is "" exactly when the node is computable, and
+    when it is set ``node_ut`` / ``dv`` are None and the caller must NOT emit."""
+    node_ut: Optional[float] = None
+    dv: Optional[float] = None
+    reason: str = ""
+
+
+def capture_node_plan(params: B5Params,
+                      snapshot: TelemetrySnapshot) -> CaptureNodePlan:
+    """Compute the ONE retrograde node that closes a hyperbolic arrival into a
+    BOUND ELLIPSE with apoapsis ``capture_elliptical_apoapsis``. Pure.
+
+    THE ARITHMETIC, and it is deliberately the whole of it. The node is placed at
+    the ARRIVAL PERIAPSIS -- the same instant, and for the same three reasons,
+    that ``escape_node_plan`` places the escape at the park's periapsis (the one
+    radius telemetry states exactly, the Oberth-optimal point, and a clock
+    ``time_to_periapsis`` already reads) -- and there:
+
+        r_p   = R_target + periapsis_altitude               (exact radius)
+        sma   = R_target + (apoapsis_alt + periapsis_alt)/2 (the ARRIVAL orbit's,
+                                                             NEGATIVE on a
+                                                             hyperbola)
+        v_hyp = sqrt(mu * (2/r_p - 1/sma))                  (vis-viva, EXACT)
+        r_a   = R_target + capture_elliptical_apoapsis      (the WANTED apoapsis)
+        a_t   = (r_p + r_a) / 2                             (the wanted ellipse)
+        v_ell = sqrt(mu * (2/r_p - 1/a_t))
+        dv    = v_ell - v_hyp                               (NEGATIVE = retrograde)
+
+    **THE SIGN IS THE CONTRACT.** ``dv`` is returned NEGATIVE and handed to the
+    runner's ``add_node(ut, prograde=dv)`` verbatim, because a capture is a
+    retrograde burn and kRPC's prograde component carries the sign. A caller that
+    takes ``abs()`` here would raise the orbit instead of closing it, which is
+    why the non-negative case is REFUSED by name below rather than normalised.
+
+    **WHY `sma` STILL WORKS ON A HYPERBOLA**, since a reader will check it: KSP
+    reports a hyperbolic apoapsis as the large NEGATIVE number ``2*sma - r_p -
+    R``, so ``R + (ap + pe)/2`` evaluates to the (negative) semi-major axis on a
+    hyperbola exactly as it evaluates to the positive one on an ellipse. The same
+    expression, unchanged, spans both -- and vis-viva with a negative ``sma``
+    gives the larger hyperbolic speed, which is the whole point. No separate
+    branch, and therefore no branch to get wrong.
+
+    **WHY NOT v_inf.** The energy that matters is the one the craft HAS at the
+    periapsis it is actually at, read off this frame's own orbit, not one
+    reconstructed from an asymptotic excess. That is the identical lesson
+    ``escape_node_plan`` paid for in B26 flight 2's defect A, applied at the
+    arrival end: the SOI boundary is not infinity, and a quantity defined there
+    is not the quantity the burn is applied against.
+
+    EVERY READING FAILS CLOSED. A non-finite UT / apsis / periapsis clock, a
+    wrong body, a degenerate radius, a wanted apoapsis at or below the arrival
+    periapsis, a degenerate vis-viva term and a non-negative dv each REFUSE the
+    node with their own reason. Refusing costs a bounded re-plan; emitting a node
+    computed from a bad reading costs the flight."""
+    if params.capture_elliptical_apoapsis <= 0.0:
+        return CaptureNodePlan(reason="elliptical capture is not armed")
+    try:
+        mu, radius, _soi = _body_gravity(params.target_body)
+    except ValueError as exc:                      # pragma: no cover - load-gated
+        return CaptureNodePlan(reason=str(exc))
+    if snapshot.body != params.target_body:
+        return CaptureNodePlan(
+            reason="body reads %r, not the target body %r"
+                   % (snapshot.body or "<blank>", params.target_body))
+    if not (_is_finite(snapshot.ut) and _is_finite(snapshot.periapsis)
+            and _is_finite(snapshot.apoapsis)
+            and _is_finite(snapshot.time_to_periapsis)):
+        return CaptureNodePlan(
+            reason=("unreadable orbit: ut=%s pe=%s ap=%s ttPe=%s"
+                    % (_obs_fmt(snapshot.ut), _obs_fmt(snapshot.periapsis),
+                       _obs_fmt(snapshot.apoapsis),
+                       _obs_fmt(snapshot.time_to_periapsis))))
+    r_p = radius + float(snapshot.periapsis)
+    if r_p <= 0.0:
+        return CaptureNodePlan(
+            reason="degenerate arrival periapsis radius %.1f" % (r_p,))
+    r_a = radius + params.capture_elliptical_apoapsis
+    if r_a <= r_p:
+        return CaptureNodePlan(
+            reason="wanted apoapsis radius %.1f is at or below the arrival "
+                   "periapsis radius %.1f -- that is not an ellipse"
+                   % (r_a, r_p))
+    sma = radius + (float(snapshot.apoapsis) + float(snapshot.periapsis)) / 2.0
+    vis_viva = 2.0 / r_p - 1.0 / sma if sma != 0.0 else 0.0
+    if vis_viva <= 0.0:
+        return CaptureNodePlan(
+            reason="degenerate arrival vis-viva term %.6g at rPe=%.1f sma=%.1f"
+                   % (vis_viva, r_p, sma))
+    v_hyp = math.sqrt(mu * vis_viva)
+    a_t = (r_p + r_a) / 2.0
+    v_ell = math.sqrt(mu * (2.0 / r_p - 1.0 / a_t))
+    dv = v_ell - v_hyp
+    if not _is_finite(dv) or dv >= 0.0:
+        return CaptureNodePlan(
+            reason="capture dv %s is not negative (speed at the arrival "
+                   "periapsis is %.1f m/s, the wanted ellipse needs %.1f m/s "
+                   "there -- the arrival is already at or inside the target "
+                   "ellipse, so there is nothing to capture)"
+                   % (_obs_fmt(dv), v_hyp, v_ell))
+    lead = float(snapshot.time_to_periapsis)
+    if lead < 0.0:
+        return CaptureNodePlan(
+            reason="time_to_periapsis %.1f is negative" % (lead,))
+    # NO min-lead roll-forward, and the ASYMMETRY WITH `escape_node_plan` IS
+    # DELIBERATE. That function may take the FOLLOWING periapsis because a park
+    # is periodic and the next one is one period away. An arrival hyperbola has
+    # exactly ONE periapsis: rolling forward would place the node after the craft
+    # has left the SOI, on a pass that does not exist. A lead too short for the
+    # executor is owned by the CAPTURE-BURN no-start classifier's HOLD/REPLAN
+    # ladder, which is the actor that can actually do something about it.
+    return CaptureNodePlan(node_ut=float(snapshot.ut) + lead, dv=float(dv))
+
+
+def _b5_capture_plan_action(params: B5Params,
+                            snapshot: TelemetrySnapshot) -> Optional[Action]:
+    """The ONE dispatch point for what PLAN-CAPTURE emits, so the entry and the
+    retry cadence cannot drift apart.
+
+    Elliptical capture OFF (every lane flown to date): MechJeb's
+    ``operation_circularize`` at the arrival periapsis, byte for byte as before.
+    ON: the computed retrograde node, through the SAME kRPC ``add_node`` seam the
+    parent-relay escape uses -- ``text`` names the phase so the runner's log line
+    reads "capture node added" rather than borrowing the escape's noun.
+
+    Returns None when the elliptical node is REFUSED this frame; the caller then
+    emits nothing and the plan cadence retries, exactly as B5_ESCAPE does."""
+    if params.capture_elliptical_apoapsis <= 0.0:
+        return Action(ACTION_MJ_PLAN_CAPTURE)
+    plan = capture_node_plan(params, snapshot)
+    if plan.reason:
+        return None
+    return Action(ACTION_ADD_MANEUVER_NODE, value=plan.dv,
+                  node_ut=plan.node_ut, text="Capture")
+
+
 def _relay_escape_burn_done(params: B5Params,
                             snapshot: TelemetrySnapshot) -> bool:
     """PARENT-RELAY STAGE-1 burn-done evidence: the home-frame orbit will LEAVE.
@@ -11458,10 +11728,17 @@ def _b5_enter_plan_capture(state: B5State, snapshot: TelemetrySnapshot,
     else:
         prelude = []
         entered_warp_cmd = state.warp_cmd
-    if issue_plan:
+    # ELLIPTICAL CAPTURE: the emitted plan is the dispatch's, and a REFUSED node
+    # takes the not-issued path rather than burning an attempt on nothing --
+    # `plan_attempts` stays 0 and `last_plan_ut` is backdated, so the next poll
+    # issues attempt 1 against a fresher orbit read. Off the flag `capture_action`
+    # is always the MechJeb circularize and this is the pre-B29 code byte for byte.
+    capture_action = _b5_capture_plan_action(state.params, snapshot) \
+        if issue_plan else None
+    if issue_plan and capture_action is not None:
         last_plan_ut = snapshot.ut if _is_finite(snapshot.ut) else 0.0
         attempts = 1
-        plan_actions = [Action(ACTION_MJ_PLAN_CAPTURE)]
+        plan_actions = [capture_action]
     else:
         last_plan_ut = ((snapshot.ut - state.params.plan_retry_seconds)
                         if _is_finite(snapshot.ut) else 0.0)
@@ -13290,7 +13567,14 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
             state = replace(state, capture_node_bad_streak=0)
         new_state, actions = _b5_plan_phase(
             state, snapshot, peak,
-            plan_action=Action(ACTION_MJ_PLAN_CAPTURE),
+            # THE DISPATCH, not a literal: with captureEllipticalApoapsisMeters
+            # armed this is the computed retrograde node (None on a refusal --
+            # the B5_ESCAPE contract, the cadence retries); off the flag it is
+            # ACTION_MJ_PLAN_CAPTURE, unchanged. The node-UT sanity gate above
+            # stays fully meaningful either way: capture_node_plan places the
+            # node at `ut + time_to_periapsis`, which is exactly what
+            # `capture_node_at_periapsis` measures.
+            plan_action=_b5_capture_plan_action(state.params, snapshot),
             burn_phase=B5_CAPTURE_BURN,
             # No fall-through: unlike a best-effort course correction, a capture
             # node IS the mission. PLAN_MAX_ATTEMPTS with no node (the planner

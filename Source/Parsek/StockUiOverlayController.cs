@@ -66,19 +66,6 @@ namespace Parsek
         private bool astronautOpen;
         private bool missionOpen;
 
-        internal static void RefreshOpenScreensAfterSettingsChanged()
-        {
-            var controller = UnityEngine.Object.FindObjectOfType<StockUiOverlayController>();
-            if (controller == null)
-            {
-                ParsekLog.Verbose(Tag,
-                    "StockUiOverlay: settings changed but controller not present - RebuildAllVisible no-op");
-                return;
-            }
-
-            controller.ScheduleRebuildAllVisible("settings changed");
-        }
-
         private void Awake()
         {
             RDController.OnRDTreeSpawn.Add(OnRdTreeSpawn);
@@ -220,12 +207,6 @@ namespace Parsek
                 return;
 
             StripOverlays(controller.transform, TechOverlayName);
-            if (!ShouldApplyOverlays())
-            {
-                ParsekLog.Info(Tag,
-                    "StockUiOverlay: feature disabled by ParsekSettings - R&D decorations skipped");
-                return;
-            }
 
             var marks = BuildTechMarks();
             ParsekLog.Verbose(Tag,
@@ -265,12 +246,6 @@ namespace Parsek
                 return;
 
             StripOverlays(complex.transform, KerbalOverlayName);
-            if (!ShouldApplyOverlays())
-            {
-                ParsekLog.Info(Tag,
-                    "StockUiOverlay: feature disabled by ParsekSettings - Astronaut decorations skipped");
-                return;
-            }
 
             List<Transform> listRoots;
             if (!TryGetAstronautListRoots(complex, out listRoots))
@@ -336,12 +311,6 @@ namespace Parsek
                 return;
 
             StripOverlays(missionControl.transform, ContractOverlayName);
-            if (!ShouldApplyOverlays())
-            {
-                ParsekLog.Info(Tag,
-                    "StockUiOverlay: feature disabled by ParsekSettings - MissionControl decorations skipped");
-                return;
-            }
 
             var marks = BuildContractMarks();
             ParsekLog.Verbose(Tag,
@@ -389,11 +358,6 @@ namespace Parsek
 
             ParsekLog.Verbose(Tag,
                 $"StockUiOverlay: MissionControl decorated contractCount={decorated}");
-        }
-
-        internal static bool ShouldApplyOverlays()
-        {
-            return ParsekSettings.Current?.showCommittedFutureOverlays ?? true;
         }
 
         internal static Dictionary<string, TechNodeOverlayMark> BuildTechMarks()

@@ -5212,6 +5212,22 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # remains open is the ordinary operator -> nightly PROMOTION call, which
         # is the shape H34/H35 above already record. Nothing technical is owed.
         "B28-laythe-jool-return.toml":      "tier=operator by the calibration discipline (the B18-B26 family's tier), NOT debt; FLOWN 2026-08-20_2330 PASS attempt 1 (the full chain through ORBIT-COMMITTED, all eight assertions met, every verifier green) - what is open is the ordinary operator -> nightly PROMOTION call, the H34/H35 shape",
+        # B29, tier=operator by the SAME calibration discipline and at the earliest
+        # point of it: AUTHORED 2026-08-26 AND NEVER FLOWN. Every window in the spec
+        # is DERIVED (from `jool-park-nerv`'s own bytes plus the stock body
+        # constants) rather than measured, which is precisely what the operator tier
+        # is for on a first-flight B lane. NOT DEBT: nothing is outstanding that a
+        # human decision would discharge - what is owed is the FLIGHT, and the tier
+        # is the mechanism that schedules it rather than a marker of unfinished
+        # human work. It carries one thing B23-B28 did not, and it is written down
+        # here because it is the reason a reader might expect a tag: pre-registration
+        # (1) in the spec records an UNTESTED ASSUMPTION (no committed lane has ever
+        # run a non-relay `interplanetaryTransfer` from a non-Kerbin park) together
+        # with the MechJeb refusal shape it would produce. That is a pre-registered
+        # question with a named outcome, not an operator debt - if it fires the run
+        # is driver-INVALID and report-only, and the re-argument belongs in the
+        # spec's flight ledger.
+        "B29-jool-kerbin-return.toml":      "tier=operator by the calibration discipline (the B18-B28 family's tier) at its earliest point, NOT debt; AUTHORED 2026-08-26 and NEVER FLOWN, every window derived rather than measured, so what is owed is the first flight and not a human call",
         # The V19 pair, tier=operator by the same calibration discipline and for
         # the same reason as every V lane before them: their windows were DERIVED
         # from B28's harvested bytes and the first run was a calibration reading.
@@ -5232,6 +5248,25 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # shape H34/H35 above record.
         "V19M-laythe-jool-player-loop.toml": "tier=operator by the calibration discipline (derived windows, first run is a calibration reading), NOT debt; committed 2026-08-21 and DISCIPLINE-COMPLETE the same day - reading `2026-08-21_0746` PASS attempt 1 (wall 98 s), ARMED off its own bytes, armed re-flight `_0852` PASS with saveParse gating and 0 mismatches, and its OWN negative control `_0855` PARSEK-FAIL(expectation) on 1 mismatch (`surface=ProtoOrbitLine .*body=Vall`) with saveParse still PASS, then reverted; what is open is the ordinary operator -> nightly PROMOTION call, the H34/H35 shape",
         "V19T-laythe-jool-ts-arrival.toml":  "tier=operator by the calibration discipline (derived windows, first run is a calibration reading), NOT debt; committed 2026-08-21 and DISCIPLINE-COMPLETE the same day - reading `2026-08-21_0750` PASS attempt 1 (wall 60 s), ARMED off its own bytes, armed re-flight `_0854` PASS, its OWN negative control `_0858` PARSEK-FAIL(expectation) on 1 mismatch (`surface=ProtoIcon ... body=Vall scene=TRACKSTATION`) with saveParse still PASS, and revert confirmation `_0859` PASS; `_0857` was an ATTEMPTED control that PASSED because a mis-escaped regex made no edit, so it is an extra armed confirmation and NOT a control; what is open is the ordinary operator -> nightly PROMOTION call, the H34/H35 shape",
+        # The V20 pair, tier=operator by the same calibration discipline every V
+        # lane before them carries, and at the EARLIEST point of it: AUTHORED
+        # 2026-08-27 off `kerbin-return-recorded`'s harvested bytes and NEVER
+        # FLOWN. Both are READING-RUN specs by construction - nothing armed, no
+        # `gating = true` anywhere, no routing token in `required` - so what is
+        # owed is the FIRST FLIGHT, not a human review call. NOT DEBT.
+        # What they add beyond V19: the first KERBIN-ARRIVAL loop subject (planet
+        # -> Kerbin, where V19 read moon -> parent), and with it the first loop
+        # subject whose span is measured in Kerbin YEARS - 32,606,575.77 s,
+        # 2,719x V19's - which is what makes their destination pin the most
+        # falsifiable in the program: exactly ONE of twenty live instances is
+        # Kerbin-framed at any observation epoch, and on the TS half it is the
+        # OLDEST and therefore the last to spawn under the 2-per-tick throttle.
+        # THE KSC THIRD IS DELIBERATELY NOT THEIRS: `V20K` over the same bytes is
+        # where the KSC-host question becomes either a closed payoff or a cited
+        # limitation, and under roadmap confirmation criterion (c) no limitation
+        # may be written up before that run exists.
+        "V20M-jool-kerbin-player-loop.toml": "tier=operator by the calibration discipline (derived windows, first run is a calibration reading), NOT debt; AUTHORED 2026-08-27 off `kerbin-return-recorded` and NOT YET FLOWN - the flight-map half of the suite's first KERBIN-ARRIVAL loop pair, reading-run posture with nothing armed; what is open is the FLIGHT itself, not a human review call",
+        "V20T-jool-kerbin-ts-arrival.toml":  "tier=operator by the calibration discipline (derived windows, first run is a calibration reading), NOT debt; AUTHORED 2026-08-27 off `kerbin-return-recorded` and NOT YET FLOWN - the Tracking-Station half of the same pair, reading-run posture with nothing armed and the TS init-walk reading pre-registered in both directions; what is open is the FLIGHT itself, not a human review call",
         # THE G4 REPLICATION LANE, tier=operator by the same calibration
         # discipline the whole B18-B28 family carries: its windows are DERIVED
         # (from the fixture's own bytes, from cited stock constants and from
@@ -6085,6 +6120,42 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
                        # roadmap confirmation criterion (b).
                        "V19M-laythe-jool-player-loop.toml",
                        "V19T-laythe-jool-ts-arrival.toml",
+                       # V20M / V20T, the first KERBIN-ARRIVAL loop pair (the
+                       # planet-to-Kerbin half of G2, where V19 did moon-to-parent):
+                       # `rewind` (all max 0 - the family's replay-observation claim,
+                       # here across a 32.6 Ms self-overlapping span whose 1,630,328.8 s
+                       # re-arms every jump crosses) + `structure` (trees {1,2} for V2's
+                       # duplicate-writer hazard, everything else pinned at the measured
+                       # 1/1 with terminalStates {Orbiting: 1}; recordings {1,1} is the
+                       # sharp form of the reading-era {1,3} window, which admitted a
+                       # load-time split at EITHER of this subject's TWO body seams and
+                       # never saw one). Armed 2026-08-27 off their OWN green runs -
+                       # `2026-08-27_1925` (V20M reading run 3, PASS attempt 1, wall
+                       # 71 s, the coast-epoch-first reorder round) and `2026-08-27_1913`
+                       # (V20T reading run 2, PASS attempt 1, wall 61 s, with the
+                       # `icon-teleport` tolerance live). BOTH lanes measured 0/0/0/0 and
+                       # 1/1/1 {Orbiting: 1} with points 739/739/739 before arming - and
+                       # so did V20M's run 2 and V20T's run 1, so the payload is armed
+                       # off FOUR agreeing measurements through TWO scene chains and TWO
+                       # jump orders. The arming re-pinned nothing and moved no verdict.
+                       # `[expectations.recordings] count` tightens {1,3} -> {1,1} on
+                       # both, and V20M ALONE promotes the measured `Split summary:
+                       # .*exoCoastBodyChangeKept=2 splittableButRejected=0` into
+                       # `required` (the V14M/V19M precedent; this subject is the FIRST
+                       # in the corpus whose cohesion depends on
+                       # `ShouldKeepCohesiveCrossBodyExoCoast`'s SECOND disjunct) while
+                       # V20T pins the COUNT - one gate per fact across the pair, the
+                       # V19M/V19T split verbatim. NO routing token is promoted on either
+                       # lane and NO D11 cell is claimed.
+                       # OWED: the two armed re-flights and the two PER-LANE negative
+                       # controls. This pair CANNOT share one control, for the V19
+                       # reason: V20M's own lens is `phase=GhostCreated
+                       # surface=ProtoIcon ... body=Kerbin scene=FLIGHT` and V20T's is
+                       # the `scene=TRACKSTATION` form, so one inversion would prove
+                       # exactly one of them. Each spec header carries its own inversion
+                       # and the tomllib pre-flight gate for it.
+                       "V20M-jool-kerbin-player-loop.toml",
+                       "V20T-jool-kerbin-ts-arrival.toml",
                        # V21M / V21T: `rewind` (all max 0 - the family's
                        # replay-observation claim at a SECOND moon-to-moon
                        # parent) + `structure` (trees {1,2} for V2's
@@ -6975,6 +7046,22 @@ class RenderComposeVerifierWiringTests(unittest.TestCase):
                                     # [K] FIRST KSC-host manifest ever; ghostRenderTracing
                                     #     NEWLY armed (see the exposure paragraph above).
                                     "V22K-kerbin-splashdown-ksc-arrival.toml",
+                                    # -- THE V20 PAIR, 2026-08-27: BOTH BARE, both
+                                    # reading-pending, and both NEW LANES authored against
+                                    # the `kerbin-return-recorded` harvest rather than
+                                    # re-declarations of a lane that had already flown - so
+                                    # each owes a FIRST FLIGHT before it owes a window.
+                                    # [M] the suite's first KERBIN-ARRIVAL loop subject and
+                                    #     by far its longest span (32,606,575.77 s = 3.54
+                                    #     Kerbin years, 2,719x V19M's), so the manifest's
+                                    #     per-leg composition is measured over an ownership
+                                    #     window no prior declarer has produced.
+                                    "V20M-jool-kerbin-player-loop.toml",
+                                    # [T] the TS half of the same pair. ghostRenderTracing
+                                    #     is NEWLY armed here relative to V19T, which is not
+                                    #     a declarer - V14T's TS-host precedent and its
+                                    #     exposure note apply unchanged.
+                                    "V20T-jool-kerbin-ts-arrival.toml",
                                     # -- PHASE 4 / WAVE B, 2026-08-26: TWO NEW SUBJECTS,
                                     # both bare, both reading-pending, and neither a
                                     # re-declaration of an existing shape. Unlike Wave A -
@@ -7011,7 +7098,32 @@ class RenderComposeVerifierWiringTests(unittest.TestCase):
                                     #     the first to carry a DESTINATION-side loiter cut
                                     #     (43,963.92 s at the Duna capture) rather than
                                     #     V8's launch-side one.
-                                    "V25M-duna-park-player-loop.toml"}
+                                    "V25M-duna-park-player-loop.toml",
+                                    # -- PHASE 4, 2026-08-26: ONE NEW **PRODUCER** LANE,
+                                    # bare and reading-pending, and the first declarer
+                                    # that is not a V-lane at all.
+                                    #
+                                    # [-] THE FIRST INBOUND INTERPLANETARY SUBJECT: a
+                                    #     Jool-rooted recording that ARRIVES AT KERBIN,
+                                    #     closing the planet-to-Kerbin half of G2. It is a
+                                    #     FLIGHT-scene PRODUCER and claims no render-host
+                                    #     dimension, but it arms ALL THREE tracers like
+                                    #     every other declarer: the seam capture is
+                                    #     `MapRenderTrace.IsEnabled`-gated, so declaring
+                                    #     without them would green while measuring
+                                    #     nothing. `ghostRenderTracing` and
+                                    #     `mapRenderTracing` are NEWLY armed here, and the
+                                    #     exposure costs no re-baseline because the lane
+                                    #     has no flown shape to perturb.
+                                    #     WHY DECLARE A PRODUCER AT ALL: this is the only
+                                    #     lane that will ever take a manifest on a
+                                    #     recording whose ARRIVAL BODY is Kerbin while its
+                                    #     FIRST POINT is not - the exact pair
+                                    #     `ParsekKSC.IsKscStructurallyEligible`
+                                    #     discriminates on, and the question V20K exists
+                                    #     to settle. NEVER FLOWN, so it owes a first
+                                    #     flight before it owes a window.
+                                    "B29-jool-kerbin-return.toml"}
 
     def test_render_composition_declarers_are_the_recorded_roster(self):
         """Pinned so a declarer is always a deliberate edit, in BOTH directions. A
@@ -11424,13 +11536,18 @@ class SettingsSidecarBaselineTests(unittest.TestCase):
         self.assertEqual([], hlib.settings_sidecar_tracers_on(body))
 
     def test_baseline_writes_no_key_the_mod_does_not_read(self):
-        # The five OTHER sidecar-tracked settings must stay UNSET so the fixture's
+        # The two OTHER sidecar-tracked settings must stay UNSET so the fixture's
         # own GameParameters keep governing them (a stored value would override
-        # every save on the instance, which is the bug being fixed).
+        # every save on the instance, which is the bug being fixed). The 2026-08-27
+        # settings simplification shrank this residue from five keys to these two.
         values = hlib.parse_settings_sidecar(hlib.render_settings_sidecar_baseline())
-        for key in ("writeReadableSidecarMirrors", "autoBackupExistingSaves",
-                    "showCommittedFutureOverlays", "blockCommittedActions",
-                    "showRouteLines"):
+        for key in ("writeReadableSidecarMirrors", "showRouteLines"):
+            self.assertNotIn(key, values, key)
+        # The three keys RETIRED by that simplification are no longer read by the
+        # mod at all; a baseline that started writing one would be pure noise that
+        # masks a future authoring mistake, so pin their absence separately.
+        for key in ("autoBackupExistingSaves", "showCommittedFutureOverlays",
+                    "blockCommittedActions"):
             self.assertNotIn(key, values, key)
 
     def test_leaked_tracer_is_detected_in_the_real_leaked_shape(self):

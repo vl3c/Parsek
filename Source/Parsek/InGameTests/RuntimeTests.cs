@@ -20830,14 +20830,13 @@ namespace Parsek.InGameTests
             out ParsekSettings settings,
             out bool priorValue)
         {
+            // Committed-future overlays are permanently on since the 2026-08-27 settings
+            // simplification retired showCommittedFutureOverlays; there is nothing to
+            // flip or capture. The helper pair survives as no-ops so the six overlay
+            // tests' setup/teardown call sites stay unchanged.
             settings = ParsekSettings.Current;
             priorValue = true;
-            if (settings == null)
-                return false;
-
-            priorValue = settings.showCommittedFutureOverlays;
-            settings.showCommittedFutureOverlays = true;
-            return true;
+            return settings != null;
         }
 
         private static void RestoreCommittedOverlaySetting(
@@ -20845,8 +20844,7 @@ namespace Parsek.InGameTests
             bool priorValue,
             bool settingCaptured)
         {
-            if (settingCaptured && settings != null)
-                settings.showCommittedFutureOverlays = priorValue;
+            // No-op: the overlay setting no longer exists (see TryEnableCommittedOverlaySetting).
         }
 
         private static bool TryEnterSpaceCenterBuilding<T>(

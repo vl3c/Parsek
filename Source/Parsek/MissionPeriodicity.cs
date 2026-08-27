@@ -113,10 +113,11 @@ namespace Parsek
     /// <summary>
     /// How the zero-drift schedule treats a TRANSITED (non-launch) body's surface-handoff rotation
     /// constraint (e.g. a Mun landing). The launch-body rotation (the pad) ALWAYS keeps its tight
-    /// 0.25 deg tolerance; this only governs the landing on a body the mission travels to. A
-    /// player-settable A/B flag (<c>ParsekSettings.transitedBodyRotationMode</c>) because it trades
-    /// the relaunch cadence against the approach-&gt;landing handoff seam. See
-    /// docs/dev/plans/zero-drift-reschedule.md.
+    /// 0.25 deg tolerance; this only governs the landing on a body the mission travels to. The
+    /// product runs on the single pinned mode <c>ParsekSettings.LandingBodyAlignmentMode</c>
+    /// (Loose; the player-settable A/B knob was retired in the 2026-08-27 settings
+    /// simplification) - the other values remain exercised by unit tests, which pass the mode
+    /// directly. See docs/dev/plans/zero-drift-reschedule.md.
     /// </summary>
     internal enum TransitedBodyRotationMode
     {

@@ -1253,21 +1253,17 @@ namespace Parsek.TestCommands
                 case "verboseLogging": s.verboseLogging = r.BoolValue; break;
                 case "samplingDensity": s.samplingDensity = r.IntValue; break;
                 case "ghostAudioVolume": s.ghostAudioVolume = r.FloatValue; break;
-                case "transitedBodyRotationModeIndex": s.transitedBodyRotationModeIndex = r.IntValue; break;
                 case "forceFaithfulLoopPlayback": s.forceFaithfulLoopPlayback = r.BoolValue; break;
                 case "ghostRenderTracing": s.ghostRenderTracing = r.BoolValue; break;
                 case "mapRenderTracing": s.mapRenderTracing = r.BoolValue; break;
                 case "ledgerTracing": s.ledgerTracing = r.BoolValue; break;
                 case "writeReadableSidecarMirrors": s.writeReadableSidecarMirrors = r.BoolValue; break;
-                case "autoBackupExistingSaves": s.autoBackupExistingSaves = r.BoolValue; break;
-                case "showCommittedFutureOverlays": s.showCommittedFutureOverlays = r.BoolValue; break;
-                case "blockCommittedActions": s.blockCommittedActions = r.BoolValue; break;
                 case "showRouteLines": s.showRouteLines = r.BoolValue; break;
             }
         }
 
         // Invokes the exact ParsekSettingsPersistence.Record* member for a
-        // sidecar-tracked setting (mirrors UI/SettingsWindowUI). All 8 tracked settings
+        // sidecar-tracked setting (mirrors UI/SettingsWindowUI). All 5 tracked settings
         // are bools, so every Record* takes r.BoolValue.
         private void InvokeRecordMethod(SettingApplyResult r)
         {
@@ -1277,9 +1273,6 @@ namespace Parsek.TestCommands
                 case "RecordMapRenderTracing": ParsekSettingsPersistence.RecordMapRenderTracing(r.BoolValue); break;
                 case "RecordLedgerTracing": ParsekSettingsPersistence.RecordLedgerTracing(r.BoolValue); break;
                 case "RecordReadableSidecarMirrors": ParsekSettingsPersistence.RecordReadableSidecarMirrors(r.BoolValue); break;
-                case "RecordAutoBackupExistingSaves": ParsekSettingsPersistence.RecordAutoBackupExistingSaves(r.BoolValue); break;
-                case "RecordShowCommittedFutureOverlays": ParsekSettingsPersistence.RecordShowCommittedFutureOverlays(r.BoolValue); break;
-                case "RecordBlockCommittedActions": ParsekSettingsPersistence.RecordBlockCommittedActions(r.BoolValue); break;
                 case "RecordShowRouteLines": ParsekSettingsPersistence.RecordShowRouteLines(r.BoolValue); break;
             }
         }
@@ -2365,15 +2358,11 @@ namespace Parsek.TestCommands
                 case "verboseLogging": return Bool(s.verboseLogging);
                 case "samplingDensity": return Int(s.samplingDensity);
                 case "ghostAudioVolume": return s.ghostAudioVolume.ToString("R", CultureInfo.InvariantCulture);
-                case "transitedBodyRotationModeIndex": return Int(s.transitedBodyRotationModeIndex);
                 case "forceFaithfulLoopPlayback": return Bool(s.forceFaithfulLoopPlayback);
                 case "ghostRenderTracing": return Bool(s.ghostRenderTracing);
                 case "mapRenderTracing": return Bool(s.mapRenderTracing);
                 case "ledgerTracing": return Bool(s.ledgerTracing);
                 case "writeReadableSidecarMirrors": return Bool(s.writeReadableSidecarMirrors);
-                case "autoBackupExistingSaves": return Bool(s.autoBackupExistingSaves);
-                case "showCommittedFutureOverlays": return Bool(s.showCommittedFutureOverlays);
-                case "blockCommittedActions": return Bool(s.blockCommittedActions);
                 case "showRouteLines": return Bool(s.showRouteLines);
                 default: return "?";
             }

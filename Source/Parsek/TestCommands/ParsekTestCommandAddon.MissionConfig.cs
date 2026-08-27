@@ -129,8 +129,7 @@ namespace Parsek.TestCommands
                     ParsekSettings.Current?.autoLoopIntervalSeconds
                     ?? LoopTiming.DefaultLoopIntervalSeconds;
                 TransitedBodyRotationMode tbrMode =
-                    ParsekSettings.Current?.TransitedBodyRotationMode
-                    ?? TransitedBodyRotationMode.Loose;
+                    ParsekSettings.LandingBodyAlignmentMode;
                 bool forceFaithful =
                     ParsekSettings.Current?.forceFaithfulLoopPlayback ?? false;
                 // [ERS-exempt] The raw CommittedRecordings read below (the

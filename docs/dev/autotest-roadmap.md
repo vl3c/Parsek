@@ -1286,9 +1286,17 @@ must never carry them.
 | Kerbin -> planet, classifier-declined profile | faithful | none | NO (see note) |
 | Moon -> sibling moon | faithful | V17M/V17T, V21M/V21T | YES |
 | Return leg, moon -> its own parent | faithful | V19M/V19T | YES (map + TS) |
-| Return leg, planet -> Kerbin | unmeasured | none | NO - G2 |
+| Return leg, planet -> Kerbin | faithful | V20M/V20T | YES (map + TS; see note) |
 
-Six scoping notes the table cannot carry without becoming a status doc:
+Seven scoping notes the table cannot carry without becoming a status doc:
+
+- The planet-to-Kerbin row's `YES (map + TS)` is CLASS-LEVEL and the two hosts are
+  confirmed on DIFFERENT LENSES, which the G2 entry below states in full. The TS
+  third is discharged on a RENDERED-FRAME token; the flight-map third is
+  discharged on a ghost-proto CREATION-frame token plus a seed-side arrival token,
+  because that host's proto ORBIT-LINE lens was measured segment-zero-only. The
+  KSC third is NOT confirmed and belongs to `V20K`. The row says YES for the class
+  and the note is where the asymmetry lives.
 
 - The phase-lock row's scene coverage is its ARMED halves - V6M/V6T, V14T,
   V15T, V16T. It does NOT include V7T, which is RED BY FINDING and
@@ -1420,14 +1428,38 @@ alongside and unused.
 THE B-RANGE ROSTER, because it is now full enough that the next author cannot
 pick a free id by eye: **B27** G1 (`B27-station-route`), **B28** G2 moon-to-parent
 (`B28-laythe-jool-return`, FLOWN 2026-08-20 and committed), **B29** G2
-planet-to-Kerbin (`B29-duna-kerbin-return`), **B30** G4
-(`B30-mun-minmus-transfer`). **B31 IS RESERVED HERE AND NEW: the Kerbin -> Duna
-SETUP lane B29 needs and does not have.** B29 departs a Duna-orbit fixture, and
-every committed Duna-parked fixture carries the DD1 probe with only ~1,180 m/s -
+planet-to-Kerbin (`B29-jool-kerbin-return`, AUTHORED 2026-08-26 and committed,
+NEVER FLOWN), **B30** G4 (`B30-mun-minmus-transfer`). **B31 remains reserved for
+a Kerbin -> Duna SETUP flight, DEMOTED from "the lane B29 needs" to a
+when-wanted breadth point.**
+
+**THE B29 / B31 ENTRY IS REWRITTEN AS OF 2026-08-26 AND THE DELETED VERSION'S
+FINDING IS KEPT, because it was right about the arithmetic and wrong only about
+what follows from it.** It read: B29 departs a Duna-orbit fixture, every
+committed Duna-parked fixture carries the DD1 probe with only ~1,180 m/s -
 short of a Kerbin capture - so B29 needs a subject flown to a Duna park with
-enough margin to come back. That setup flight is a lane in its own right and had
-no id; it has one now, so B29's author does not silently reuse B29 for two
-flights or invent a colliding number. Nothing for B31 is built.
+enough margin to come back, and B31 is that setup lane, ranked ahead of B29.
+
+THE ARITHMETIC IS CONFIRMED AND SHARPENED, derived from the fixture's own bytes
+rather than from memory: `duna-park-probe`'s DD1 probe carries **1,097.5 m/s**
+(dry 1.6300 t; LiquidFuel 56.214143897950763 + Oxidizer 68.706157991791599 =
+0.62460 t; LV-909 at the 345 s vacuum Isp its stock cfg declares) against
+**1,645 m/s** needed - 585.0 for the ejection from its 718 km park plus 1,060.5
+for a Kerbin capture-and-circularize - i.e. ~550 m/s short, 50% over budget, and
+STRUCTURAL rather than tunable (a lower-periapsis two-burn Oberth ejection saves
+12 m/s; the probe has no heat shield and there is no aerobrake verb).
+
+WHAT DOES NOT FOLLOW IS THAT B29 MUST WAIT ON B31. A sweep of every committed
+fixture for a craft ORBITING a planet found `jool-park-nerv` - already
+Parsek-stripped, already crewed, already carrying a heat shield and chutes, and
+carrying ~3,967 m/s against the 2,506.6 a Jool -> Kerbin return costs. **Jool and
+Duna are both direct children of the Sun, so Jool -> Kerbin and Duna -> Kerbin
+are the IDENTICAL sibling-planet inbound relation** and the class G2 wants
+measured is unchanged. B29 is therefore re-scoped to `B29-jool-kerbin-return`
+and costs no setup flight at all. B31 stays reserved so the id cannot be reused,
+and is now a G9-style when-wanted breadth point - the Duna-origin instance of a
+class B29 already measures - rather than a blocker for anything. Nothing for B31
+is built.
 
 **G1 - Route-driven rendering.** One committed SAME-BODY supply route over the
 BDOCK station fixture, driving a real looped ghost (`B27-station-route`, lanes
@@ -1530,8 +1562,16 @@ every route network touches - and it is the ONLY thing that activates the KSC
 render host, whose Kerbin gate makes it vacuous on every outbound lane.
 Cheapest representatives, both reusing committed fixtures:
 `B28-laythe-jool-return` (depart `laythe-park-nerv`, park in Jool orbit - a
-one-burn escape, no transfer planner involved) and `B29-duna-kerbin-return`
-(depart a Duna-orbit fixture, return to LKO). Routing is genuinely open: nobody
+one-burn escape, no transfer planner involved) and `B29-jool-kerbin-return`
+(depart `jool-park-nerv`, capture into a Kerbin ellipse). **THAT SECOND NAME AND
+ITS PARK SHAPE BOTH CHANGED ON 2026-08-26** - it was `B29-duna-kerbin-return`,
+departing a Duna-orbit fixture and returning to LKO - and the reasons are the
+B-range roster's re-scope entry above (the Duna fixture is ~550 m/s short, and
+Jool -> Kerbin is the identical sibling-planet inbound relation) plus a
+margin descope recorded in the spec: circularizing at the Kerbin arrival
+periapsis costs 1,926.12 m/s against a 6,000 km-apoapsis ellipse's 1,188.07, and
+**what this gap's lanes read off the product is a KERBIN-FRAME ARRIVAL, not an
+altitude**, so the ellipse costs the measurement nothing. Routing is genuinely open: nobody
 has measured whether the same-parent classification and the re-aim classifier
 treat the INVERTED direction symmetrically, and the mirror-direction lesson
 (PRs #1474/#1475) says walk the mirror rather than assume it. Lanes:
@@ -1556,13 +1596,52 @@ Jool park satisfies `helioIdx`, the missing-heliocentric-leg decline every prior
 V lane printed cannot fire, and the arrival scan instead finds no body that is
 neither Jool nor Laythe. Per-lane detail lives in `autotest-status.md`.
 
-The PLANET-TO-KERBIN half - `B29-duna-kerbin-return`, `V20M`/`V20T`, and the
-`V20K` KSC lane - DOES NOT EXIST. No subject, no lanes, and (per the correction
-below) the KSC payoff this entry was ranked for is still UNPROVEN rather than
-delivered, since V19's subject is Laythe-rooted and cannot enter the KSC host at
-all. So: two of the three hosts confirmed at ONE of the two directions. G2 stays
-OPEN, and closing it is B29 + V20M/V20T + V20K, with the `B31` Kerbin -> Duna
-setup lane above ahead of them.
+**UPDATE 2026-08-27: THE PLANET-TO-KERBIN HALF IS CLOSED FOR PRODUCTION ON THE
+FLIGHT-MAP AND TRACKING-STATION THIRDS. THE KSC THIRD IS NOT, SO G2 IS STILL NOT
+BOOKED.** `B29-jool-kerbin-return` FLEW GREEN on its third attempt (flight 3,
+2026-08-27, PASS attempt 1, MISSION-OK) after two INVALID calibration reads and a
+re-scope onto a two-stage parent relay, and was harvested as
+`fixtures/saves/kerbin-return-recorded` - **the first recording in the corpus
+that arrives at Kerbin from another planet**. The `V20M`/`V20T` pair over those
+bytes is LIVE-PROVEN AND ARMED and completed the full discipline the same day:
+readings, an armed re-flight each, and **its OWN per-lane negative control each**,
+both red on exactly one inverted RENDER token with every other verifier row -
+including the now-gating `saveParse` - green. That pairing is what proves the red
+is on the render pin rather than on the evaluator, and it is the second discharge
+of criterion (b) in this program after V19. Per-lane run chains, verdicts and
+arming payloads live in `autotest-status.md`; they are not repeated here.
+
+THE ROUTING CAME BACK **R3, FAITHFUL**, as it did for the moon-to-parent half -
+but by a DIFFERENT and deeper door, which is the class fact this entry was
+ranked for. This is the first committed subject whose ARRIVAL SCAN SUCCEEDS: the
+classifier walks all the way past the direct-child, cross-parent and multi-hop
+guards and the transfer-run reconstruction, and declines only at the
+partial-transfer departure gate, on a string no committed lane had ever printed
+(`transfer departs from a heliocentric parking orbit or mid-course correction
+(deferred); staying faithful`). So the inverted direction is confirmed faithful
+at BOTH of its representative classes, by two different mechanisms.
+
+**THE TWO CONFIRMED HOSTS ARE CONFIRMED ON DIFFERENT LENSES, AND THE ASYMMETRY IS
+A MEASUREMENT RATHER THAN A CONVENIENCE.** The TS third is discharged on a
+RENDERED-FRAME token (a ghost proto materialized in a Kerbin body frame in the
+tracking station). The flight-map third is discharged on a ghost-proto
+CREATION-frame token plus a seed-side arrival token, because that host's proto
+ORBIT-LINE lens was measured to report the recording's FIRST segment for every
+proto regardless of what frame the proto was created in - across three runs, two
+deliberately different jump orders and four long dwells, including a run that
+contained a Kerbin-CREATED flight proto. **That is an instrument/host limitation,
+not a lane defect and not a product bug**, it is filed report-only on
+`docs/dev/todo-and-known-bugs.md` ->
+TIMEJUMP-CANNOT-OBSERVE-LIVE-FRAME-OVERLAP-PROTOS-ON-LONG-PITCH-SUBJECTS with no
+mechanism claimed, and it would only become answerable if the M-A2 seam grammar
+ever gains a WARP verb (it has none, and inventing one to make a pin reachable is
+exactly what a reading round must not do). **DO NOT READ THE MATRIX'S CLASS-LEVEL
+`YES` AS "both hosts on the same lens".**
+
+**WHAT REMAINS FOR G2, AND IT IS ONE THING:** `V20K`, the KSC host lane over
+these same bytes, per the correction below. `B31` IS NOT AHEAD OF IT - the
+re-scope removed the Duna-origin dependency entirely and B31 is now a when-wanted
+breadth point (see the B-range roster above).
 
 **CORRECTION TO THIS ENTRY'S KSC PREMISE (2026-08-21) - AN INSPECTION, NOT A
 MEASUREMENT.** The sentence above claims the return direction "is the ONLY thing
@@ -1576,7 +1655,10 @@ recording's FIRST point, not its arrival body - and the Update loop
 unless it has a leftover ghost to destroy. **BOTH cheapest representatives named
 above are rooted at a foreign body**: B28's harvested recording starts at Laythe
 (its `.prec` string table carries Laythe and Jool and ZERO occurrences of
-Kerbin), and B29 would start at Duna. So a return leg that ARRIVES at Kerbin may
+Kerbin), and B29 starts at JOOL since its 2026-08-26 re-scope - it would equally
+have started at Duna before it, so **the re-scope changes nothing about this
+correction**: both candidate origins are foreign and the gate reads the first
+point either way. So a return leg that ARRIVES at Kerbin may
 still be excluded from the KSC host whole, and this entry's KSC payoff is
 UNPROVEN rather than delivered. Two consequences to carry forward. (1) The
 V19M/V19T pair discharges the flight-map and Tracking-Station thirds of the
@@ -1586,6 +1668,16 @@ confirmation criterion (c) it may NOT be written up as a documented limitation
 anywhere - not here, not in a spec, not in a status row. `V20K` (over B29's
 Kerbin-arrival recording) is where it gets MEASURED, and only that run can
 convert this paragraph into either a closed payoff or a cited limitation.
+**AMENDED 2026-08-27: THE RECORDING NOW EXISTS AND THE QUESTION IS SHARPER, NOT
+ANSWERED.** `kerbin-return-recorded`'s first POINT reads `body = Jool`, so the
+outright-rejection gate above still looks like it fires - but this is also the
+FIRST recording in the corpus that has Kerbin-bodied points at all (56 in its
+final section), which is a genuinely different input to the per-point playback
+gate than B28's zero-occurrences-of-Kerbin subject presented. That difference is
+exactly what `V20K` measures. Criterion (c) is UNCHANGED and binding: until that
+run exists, nothing about the KSC host may be written up as a documented
+limitation here, in a spec, or in a status row - and the V20M/V20T specs and
+status rows have been held to it.
 
 **G3 - Surface endpoints.** Every committed loop lane ends at an ORBIT. A loop
 whose recording ENDS LANDED OR SPLASHED exercises a different render stack, and
@@ -1656,7 +1748,8 @@ transfer fixtures have.
   flyable rather than first reserved. The correction above establishes that
   `IsKscStructurallyEligible` rejects on `Points[0].bodyName != "Kerbin"` - the
   recording's FIRST point - and notes that BOTH G2 representatives are rooted at
-  a foreign body (B28's recording starts at Laythe; B29's would start at Duna),
+  a foreign body (B28's recording starts at Laythe; B29's starts at Jool since
+  its 2026-08-26 re-scope, and would have started at Duna before it),
   so V20K may be excluded from the host WHOLE and its KSC payoff is unproven. A
   Kerbin ascent-to-splashdown subject is rooted at Kerbin and stays Kerbin-frame
   END TO END, so it clears both that gate and the per-point one. That makes this

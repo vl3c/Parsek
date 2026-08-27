@@ -28,6 +28,91 @@ All notable changes to Parsek are documented here.
   rocket, its six boosters, and the discarded core stage) appeared and
   disappeared exactly as recorded. Test-tooling only; no gameplay change.
 
+- A new automated test mission was written: the first one that flies a spacecraft
+  HOME to Kerbin from another planet. Every interplanetary test flight so far has
+  gone outward from Kerbin, and the one return trip that exists only hops from a
+  moon back to the planet it orbits - so a recording that ARRIVES at Kerbin from
+  deep space, which is what half the map-drawing code will eventually be asked to
+  draw, had never been produced at all. The new mission starts a crewed ship
+  already parked at Jool, waits for the transfer window, burns for home, corrects
+  twice on the way in, and captures into a Kerbin orbit before saving the flight.
+  It has now flown, on its third attempt, and the flight it recorded is saved for
+  other tests to read.
+  Two things had to change to make it possible. The mission originally planned
+  would have departed Duna, and checking the saved Duna spacecraft's actual fuel
+  showed it cannot get home - it carries about 1,100 m/s of manoeuvring
+  capability against roughly 1,645 needed, a 50% shortfall that no amount of
+  clever flying closes. A sweep of every saved spacecraft parked at every planet
+  found one that can, already prepared and already carrying a heat shield and
+  parachutes, so the mission departs Jool instead; what is being measured is
+  unchanged, because Jool and Duna are both planets orbiting the Sun and the trip
+  home is the same kind of trip from either. And the test harness could
+  previously only ever finish an arrival by circularizing, which at Kerbin costs
+  1,926 m/s where settling into an elliptical orbit costs 1,188 - so it gained
+  the ability to aim for an elliptical parking orbit instead. That is off by
+  default and every existing mission behaves identically without it.
+  The first two flights then taught the mission how it actually has to fly.
+  Flight one exposed an inherited course-correction cap sized for moon hops,
+  which silently discarded the correction the trip needed (fixed to the
+  interplanetary calibration). Flight two got all the way to Kerbin and revealed
+  the real problem: asking the autopilot to plan the departure directly from the
+  very high Jool parking orbit produces a technically-valid transfer that
+  arrives nearly twice as fast as a proper one - the capture burn it then
+  honestly computed was three times what the tank held, and the ship ran dry
+  still going too fast to stay. So the mission now leaves in two stages, the
+  same proven way the moon-to-moon missions do: a small self-computed escape
+  burn out of Jool's gravity, then a properly-timed transfer planned in solar
+  orbit, which arrives at the speed the fuel budget was built for.
+  Two new automated tests were then written on top of the flight it recorded: one
+  watches the replay of that arrival on the in-flight map, the other watches it in
+  the Tracking Station. The first of them has now been run once, and it did what a
+  first run is for: almost everything it predicted about the replay turned out
+  right, down to fractions of a second, but the one thing it was really there to
+  check - that the returning ship is drawn in Kerbin's own frame - never happened.
+  Looking at why turned up something worth knowing: when a replay is this long, the
+  twenty copies of the flight that play at once all end up drawn on the orbit the
+  recording STARTS on, whatever part of the journey each copy is actually up to. The
+  test cannot tell whether that also happens while someone is simply playing with
+  the clock running, because it can only jump the clock rather than run it forward,
+  so the finding is written down and nothing is being changed on the strength of it.
+  Both tests were re-aimed at something they can actually see - that Parsek works out
+  the arrival orbit around Kerbin from the recording's own data - which is a smaller
+  claim than the original one, and both files say so plainly rather than quietly
+  settling for it. Re-run, the map test then passed cleanly.
+  The Tracking Station test flew for the first time straight afterwards and was the
+  more interesting of the two. It found that the re-aiming had been too cautious: on
+  its own timing the returning ship IS drawn in Kerbin's frame, so the stronger check
+  went back in. It also caught the earlier finding actually happening - three replays
+  visibly snapping from the part of the journey they were on back to the orbit the
+  recording starts on, while the clock was simply running at normal speed. The test
+  reports that rather than ignoring it, and it is recorded as something to understand
+  rather than something being fixed on the spot.
+  Re-run with that allowance, it passed too, and the count came back identical.
+  The upshot was a small asymmetry: what the Tracking Station could show about a ship
+  coming home, the in-flight map could not - and the reason turned out to be the order
+  in which the map test moves the clock. Replays are pinned to whichever leg of the
+  journey they are on the FIRST time the test jumps, and the map test was jumping
+  somewhere else first. So it now visits the arrival first, and asks again for the
+  stronger check. Digging into the logs to set that up also turned up something the
+  notes now record plainly: one of the two ways Parsek reports what it drew appears to
+  behave differently in the flight map than in the Tracking Station. That run then
+  settled it. Visiting the arrival first did put a replay on the homecoming leg, and
+  one of the two reports said so - but the other still described it as being on the
+  orbit the recording starts from. So the difference really is between the two
+  screens rather than the order of the clock, which is now written down as a plain
+  finding with the evidence behind it and, again, nothing changed on its strength.
+  With both tests passing and their numbers repeating run to run, the checks they had
+  been merely watching were switched on to enforce: they now fail if the returning
+  flight's recorded structure changes, or if the two arrival legs stop being kept
+  whole as one journey. Both were then re-run with the enforcement live and passed
+  unchanged, and both were deliberately sabotaged once - each told to look for the
+  ship arriving at the wrong planet - to check they can actually fail. Each failed
+  on exactly that one thing and nothing else, which is what makes the passing runs
+  worth something; the sabotage was undone afterwards. Both tests are now complete
+  and the return-from-another-planet case is covered on the in-flight map and in the
+  Tracking Station, with the one thing the map cannot show recorded as a known limit
+  of the test tooling rather than quietly ignored.
+  Test-tooling only; no gameplay change.
 - The looped Mun mission's render test now also requires that Parsek actually
   published which replay owned the map line, so a run where that bookkeeping
   quietly stops happening fails instead of quietly counting as "nothing to
@@ -530,17 +615,35 @@ All notable changes to Parsek are documented here.
 
 ### Settings
 
+- The Settings window got a lot smaller. Nine options that no longer earned their
+  place were removed or hardwired:
+  - Always on now, toggle deleted: the one-time pre-Parsek save backup, the
+    committed-future overlays in the stock R&D / Astronaut Complex / Mission
+    Control screens, and the click-blocks that stop you from repeating an action a
+    committed mission already performed (double-spending its reserved funds or
+    science).
+  - Hardwired ON for players, toggle hidden: the three auto-record switches
+    (launch, EVA, first modification after switch) and auto-merge - recording and
+    committing everything is the mod's premise. The fields survive because the
+    automated-testing harness pins them per-run through its command seam.
+  - Landing-body alignment is fixed at Loose (~monthly relaunch alignment, a
+    few-km handoff seam); the Off / Precise A/B knob is gone.
+  - "Force faithful loop playback (no re-aim)" left the window too; the harness
+    A/B lanes still set it through the command seam.
+  Old saves that stored a different value for one of the hidden switches (e.g.
+  `autoMerge = False` from an earlier release) are clamped back to the shipping
+  values on load, so what the window shows and what the mod does can no longer
+  disagree. What remains: Basic/Advanced, the auto-launch loop period, ghost
+  audio, route lines on the map, the Diagnostics section, sample density, and the
+  wipe buttons.
+
 - Finished missions now go onto the timeline on their own. "Auto-merge recordings"
   ships ON, so leaving a flight no longer opens the "Merge to Timeline / Discard"
   confirmation dialog for every mission you fly - the recording is simply committed,
-  the way it would have been if you had clicked Merge. The setting is unchanged and
-  still there: turn it off in Settings (or the stock difficulty tab) and the
-  per-mission dialog comes back exactly as before.
-  Worth knowing if you are upgrading: this changes NEW saves only. KSP writes every
-  Parsek setting into a save each time it saves, so any career you have already
-  played with Parsek installed has `autoMerge = False` stored in it and will keep
-  asking - flip the toggle yourself once if you want the new behaviour there. A save
-  started from here on gets it out of the box.
+  the way it would have been if you had clicked Merge. (As of the settings
+  simplification above, auto-merge is permanently on for players - the toggle is
+  gone from Settings and the stock difficulty tab, and a career that stored
+  `autoMerge = False` from an earlier session is clamped back to ON on load.)
   The reason it stayed off until now was that the automatic path used to be lossy:
   it committed the mission ghost-only and threw away the vessel's final state, so a
   craft you left alive in orbit or on a surface never re-appeared as a real vessel at

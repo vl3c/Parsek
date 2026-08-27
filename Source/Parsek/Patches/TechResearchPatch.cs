@@ -34,13 +34,6 @@ namespace Parsek.Patches
             string techId = tech.techID;
             if (string.IsNullOrEmpty(techId)) return false;
 
-            if (!(ParsekSettings.Current?.blockCommittedActions ?? true))
-            {
-                ParsekLog.Verbose("TechResearchPatch",
-                    "feature disabled by ParsekSettings");
-                return false;
-            }
-
             if (GameStateRecorder.IsReplayingActions)
             {
                 ParsekLog.Verbose("TechResearchPatch",
