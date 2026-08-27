@@ -871,8 +871,7 @@ namespace Parsek
                                              ?? LoopTiming.DefaultLoopIntervalSeconds;
             // Phase-lock (mission periodicity): the same live-body seam the flight engine + TS use.
             IBodyInfo bodyInfo = FlightGlobalsBodyInfo.Instance;
-            TransitedBodyRotationMode tbrMode = ParsekSettings.Current?.TransitedBodyRotationMode
-                                                ?? TransitedBodyRotationMode.Loose;
+            TransitedBodyRotationMode tbrMode = ParsekSettings.LandingBodyAlignmentMode;
             // Force-faithful product knob (mirrors ParsekFlight / ParsekTrackingStation).
             bool forceFaithful = ParsekSettings.Current?.forceFaithfulLoopPlayback ?? false;
 

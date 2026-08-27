@@ -1340,10 +1340,9 @@ namespace Parsek
                 double autoLoopIntervalSeconds = settings != null
                     ? settings.autoLoopIntervalSeconds
                     : LoopTiming.DefaultLoopIntervalSeconds;
-                // Same transited-body rotation A/B mode the scene drivers use, so the display mirror
-                // matches the engine's schedule (a flipped flag rebuilds via the signature).
-                TransitedBodyRotationMode tbrMode = settings?.TransitedBodyRotationMode
-                                                    ?? TransitedBodyRotationMode.Loose;
+                // Same pinned transited-body rotation mode the scene drivers use, so the display
+                // mirror matches the engine's schedule.
+                TransitedBodyRotationMode tbrMode = ParsekSettings.LandingBodyAlignmentMode;
                 // Same force-faithful product knob the scene drivers read, so the display mirror
                 // shows the faithful schedule whenever the player forces it.
                 bool forceFaithful = settings?.forceFaithfulLoopPlayback ?? false;

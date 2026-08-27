@@ -34,7 +34,7 @@ namespace Parsek.InGameTests
             double autoLoopIntervalSeconds = ParsekSettings.Current?.autoLoopIntervalSeconds
                                              ?? LoopTiming.DefaultLoopIntervalSeconds;
             TransitedBodyRotationMode tbrMode =
-                ParsekSettings.Current?.TransitedBodyRotationMode ?? TransitedBodyRotationMode.Loose;
+                ParsekSettings.LandingBodyAlignmentMode;
 
             if (!RealSaveMissionFinder.TryFindReaimMission(
                     FlightGlobalsBodyInfo.Instance, autoLoopIntervalSeconds, tbrMode,
@@ -193,7 +193,7 @@ namespace Parsek.InGameTests
             double autoLoopIntervalSeconds = ParsekSettings.Current?.autoLoopIntervalSeconds
                                              ?? LoopTiming.DefaultLoopIntervalSeconds;
             TransitedBodyRotationMode tbrMode =
-                ParsekSettings.Current?.TransitedBodyRotationMode ?? TransitedBodyRotationMode.Loose;
+                ParsekSettings.LandingBodyAlignmentMode;
 
             if (!RealSaveMissionFinder.TryFindJointArrivalMission(
                     FlightGlobalsBodyInfo.Instance, autoLoopIntervalSeconds, tbrMode,
@@ -341,7 +341,7 @@ namespace Parsek.InGameTests
             // (3) The zero-drift scheduler, wired EXACTLY as the live builder wires it
             //     (extraction constraints/support/UT0 + launchBodyName + the settings mode).
             TransitedBodyRotationMode tbrMode =
-                ParsekSettings.Current?.TransitedBodyRotationMode ?? TransitedBodyRotationMode.Loose;
+                ParsekSettings.LandingBodyAlignmentMode;
             bool built = MissionPeriodicity.TryBuildRelaunchSchedule(
                 extraction.Constraints, extraction.Support, extraction.UT0, extraction.UT0,
                 FlightGlobalsBodyInfo.Instance, out MissionRelaunchSchedule schedule,

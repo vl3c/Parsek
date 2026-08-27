@@ -218,7 +218,7 @@ namespace Parsek.InGameTests
             var loopUnits = MissionLoopUnitBuilder.Build(
                 MissionStore.Missions, RecordingStore.CommittedTrees, committed,
                 autoLoopIntervalSeconds, FlightGlobalsBodyInfo.Instance,
-                ParsekSettings.Current?.TransitedBodyRotationMode ?? TransitedBodyRotationMode.Loose);
+                ParsekSettings.LandingBodyAlignmentMode);
 
             int cap = GhostPlayback.MaxOverlapGhostsPerRecording;
             double currentUT = Planetarium.GetUniversalTime();
@@ -286,7 +286,7 @@ namespace Parsek.InGameTests
             var loopUnits = MissionLoopUnitBuilder.Build(
                 MissionStore.Missions, RecordingStore.CommittedTrees, committed,
                 autoLoopIntervalSeconds, FlightGlobalsBodyInfo.Instance,
-                ParsekSettings.Current?.TransitedBodyRotationMode ?? TransitedBodyRotationMode.Loose);
+                ParsekSettings.LandingBodyAlignmentMode);
 
             int cap = GhostPlayback.MaxOverlapGhostsPerRecording;
             double currentUT = Planetarium.GetUniversalTime();

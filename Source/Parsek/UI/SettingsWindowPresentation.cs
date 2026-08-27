@@ -15,21 +15,19 @@ namespace Parsek
             internal bool WasClamped;
         }
 
+        /// <summary>
+        /// The Defaults button's reset values, covering only the settings the window
+        /// still draws (the 2026-08-27 settings simplification retired the Recording
+        /// and Stock UI sections; hidden/hardwired settings are not reset here).
+        /// </summary>
         internal struct SettingsDefaults
         {
-            internal bool AutoRecordOnLaunch;
-            internal bool AutoRecordOnEva;
-            internal bool AutoRecordOnFirstModificationAfterSwitch;
-            internal bool AutoMerge;
             internal bool VerboseLogging;
             internal bool WriteReadableSidecarMirrors;
-            internal bool AutoBackupExistingSaves;
             internal bool ShowRouteLines;
             internal SamplingDensity SamplingDensityLevel;
             internal float AutoLoopIntervalSeconds;
             internal LoopTimeUnit AutoLoopDisplayUnit;
-            internal bool ShowCommittedFutureOverlays;
-            internal bool BlockCommittedActions;
         }
 
         internal static bool TryResolveAutoLoopEdit(
@@ -58,21 +56,12 @@ namespace Parsek
         {
             return new SettingsDefaults
             {
-                AutoRecordOnLaunch = true,
-                AutoRecordOnEva = true,
-                AutoRecordOnFirstModificationAfterSwitch = true,
-                // Must stay in step with the ParsekSettings.autoMerge field default
-                // (ON since 0.10.4); pinned by SettingsWindowPresentationTests.
-                AutoMerge = true,
                 VerboseLogging = true,
                 WriteReadableSidecarMirrors = true,
-                AutoBackupExistingSaves = true,
                 ShowRouteLines = true,
                 SamplingDensityLevel = SamplingDensity.Medium,
                 AutoLoopIntervalSeconds = (float)LoopTiming.DefaultLoopIntervalSeconds,
-                AutoLoopDisplayUnit = LoopTimeUnit.Sec,
-                ShowCommittedFutureOverlays = true,
-                BlockCommittedActions = true
+                AutoLoopDisplayUnit = LoopTimeUnit.Sec
             };
         }
 

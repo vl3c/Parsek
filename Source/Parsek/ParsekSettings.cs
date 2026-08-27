@@ -29,16 +29,16 @@ namespace Parsek
         public override int SectionOrder => 1;
         public override bool HasPresets => false;
 
-        [GameParameters.CustomParameterUI("Auto-record on launch",
-            toolTip = "Automatically start recording when a vessel leaves the pad or runway")]
+        // The three auto-record toggles are HIDDEN by design (2026-08-27 settings
+        // simplification): recording everything is the mod's premise, so players
+        // always run with all three ON. The fields survive (no CustomParameterUI,
+        // not drawn in the Settings window) because harness scenarios pin them
+        // per-run through the M-A2 command seam (SettingWhitelist), including
+        // deliberate autoRecordOnLaunch=false fixture flights.
         public bool autoRecordOnLaunch = true;
 
-        [GameParameters.CustomParameterUI("Auto-record on EVA",
-            toolTip = "Automatically start recording when a kerbal goes EVA from the pad")]
         public bool autoRecordOnEva = true;
 
-        [GameParameters.CustomParameterUI("Auto-record on first modification after switch",
-            toolTip = "Automatically arm after switching to a real vessel and start recording on the first meaningful physical change")]
         public bool autoRecordOnFirstModificationAfterSwitch = true;
 
         /// <summary>
@@ -57,12 +57,12 @@ namespace Parsek
         /// longer lossy" is a statement about the Finalized path, not a universal one.
         /// Re-Fly exits and MAINMENU still show their dialog regardless.</para>
         ///
-        /// <para>The reset-to-defaults value lives in
-        /// <see cref="SettingsWindowPresentation.BuildDefaults"/>; the two are pinned
-        /// together by <c>SettingsWindowPresentationTests</c>.</para>
+        /// <para>HIDDEN by design (2026-08-27 settings simplification): players always
+        /// run with auto-merge ON; the per-recording confirmation dialog is no longer
+        /// player-selectable. The field survives because harness scenarios pin
+        /// <c>autoMerge=true</c> through the M-A2 command seam as the exit verb's
+        /// supported shape (and other lanes rely on setting it explicitly).</para>
         /// </summary>
-        [GameParameters.CustomParameterUI("Auto-merge recordings",
-            toolTip = "When enabled, recordings are committed to the timeline automatically. When disabled, a confirmation dialog appears after each recording.")]
         public bool autoMerge = true;
 
         [GameParameters.CustomParameterUI("Verbose logging",
@@ -85,17 +85,12 @@ namespace Parsek
             toolTip = "When enabled, also write human-readable .txt mirrors of recording sidecars for debugging and binary/text comparison")]
         public bool writeReadableSidecarMirrors = true;
 
-        [GameParameters.CustomParameterUI("Auto-backup existing saves before first use",
-            toolTip = "When on, the first time Parsek opens a save that has no Parsek data yet, it copies that save to a separate timestamped 'pre-Parsek' entry in the Load menu, so you can always return to your career as it was before installing Parsek. Runs once per save.")]
-        public bool autoBackupExistingSaves = true;
-
-        [GameParameters.CustomParameterUI("Show committed-future overlays in stock UI",
-            toolTip = "When on, stock R&D, Astronaut Complex, and Mission Control screens show actions already committed on the timeline")]
-        public bool showCommittedFutureOverlays = true;
-
-        [GameParameters.CustomParameterUI("Block player actions that conflict with committed timeline",
-            toolTip = "When on, stock UI actions already committed by pending recordings are blocked to preserve timeline consistency")]
-        public bool blockCommittedActions = true;
+        // autoBackupExistingSaves, showCommittedFutureOverlays and blockCommittedActions
+        // were DELETED in the 2026-08-27 settings simplification: the pre-Parsek backup
+        // always runs (PreParsekBackup), committed-future overlays always draw
+        // (StockUiOverlayController), and committed-action click blocking is always
+        // active (TechResearch/FacilityUpgrade/ContractAccept/KerbalHire patches).
+        // Stale keys in existing saves / settings.cfg are silently ignored on load.
 
         [GameParameters.CustomParameterUI("Show supply route paths on map",
             toolTip = "When on, each committed same-body supply route draws its recorded launch-to-dock path as a line on the flight map and Tracking Station, so you can see where a route runs")]
@@ -224,15 +219,18 @@ namespace Parsek
         public float autoLoopIntervalSeconds = (float)LoopTiming.DefaultLoopIntervalSeconds;
         public int autoLoopTimeUnit = 0; // 0=Sec, 1=Min, 2=Hour
 
-        // Zero-drift A/B flag: how a looped mission that LANDS on a TRANSITED body (e.g. the Mun)
-        // treats that body's landing rotation when scheduling faithful relaunch windows. The launch
-        // pad always stays tight; this only governs the landed-on body. Stored as an int index for
-        // persistence (the TransitedBodyRotationMode enum is internal):
-        //   0=Drop  (shortest cadence ~15 Kerbin days for the stock Mun; handoff seam up to the SOI),
-        //   1=Loose (~1-2 Kerbin months; small handoff seam, a few km),
-        //   2=Tight (~1.65 Kerbin years; pixel-perfect handoff = the original behavior).
-        // Default Loose. See docs/dev/plans/zero-drift-reschedule.md.
-        public int transitedBodyRotationModeIndex = (int)TransitedBodyRotationMode.Loose;
+        /// <summary>
+        /// How a looped mission that LANDS on a TRANSITED body (e.g. the Mun) treats that
+        /// body's landing rotation when scheduling faithful relaunch windows. The launch pad
+        /// always stays tight; this only governs the landed-on body. Permanently
+        /// <see cref="Parsek.TransitedBodyRotationMode.Loose"/> (~1-2 Kerbin month cadence,
+        /// few-km handoff seam) since the 2026-08-27 settings simplification retired the
+        /// player-facing A/B knob (was <c>transitedBodyRotationModeIndex</c>). The Drop /
+        /// Tight enum values remain reachable from unit tests, which pass the mode directly.
+        /// See docs/dev/plans/zero-drift-reschedule.md.
+        /// </summary>
+        internal const TransitedBodyRotationMode LandingBodyAlignmentMode =
+            Parsek.TransitedBodyRotationMode.Loose;
 
         /// <summary>
         /// Forces a re-aim-SUPPORTED looped mission to FAITHFUL playback (the verbatim recorded
@@ -240,26 +238,12 @@ namespace Parsek
         /// the auto-by-target behaviour is unchanged unless a player deliberately turns this on
         /// (A/B comparison of re-aim against the recording, or a preference for the verbatim
         /// trajectory). Persisted through GameParameters ONLY - deliberately NOT recorded in
-        /// ParsekSettingsPersistence, mirroring <see cref="transitedBodyRotationModeIndex"/>, so
-        /// the knob cannot leak instance-wide across harness runs.
+        /// ParsekSettingsPersistence, so the knob cannot leak instance-wide across harness
+        /// runs. HIDDEN from the Settings window since the 2026-08-27 settings
+        /// simplification; the harness V8/V9 A/B lanes still pin it per-run through the
+        /// M-A2 command seam.
         /// </summary>
         public bool forceFaithfulLoopPlayback = false;
-
-        /// <summary>Typed accessor for <see cref="transitedBodyRotationModeIndex"/>, clamped to a
-        /// valid mode (defaults to Loose on an out-of-range index).</summary>
-        internal TransitedBodyRotationMode TransitedBodyRotationMode
-        {
-            get
-            {
-                int i = transitedBodyRotationModeIndex;
-                if (i == (int)Parsek.TransitedBodyRotationMode.Drop
-                    || i == (int)Parsek.TransitedBodyRotationMode.Loose
-                    || i == (int)Parsek.TransitedBodyRotationMode.Tight)
-                    return (TransitedBodyRotationMode)i;
-                return Parsek.TransitedBodyRotationMode.Loose;
-            }
-            set => transitedBodyRotationModeIndex = (int)value;
-        }
 
         [GameParameters.CustomFloatParameterUI("Ghost audio volume", minValue = 0f, maxValue = 1f,
             stepCount = 20, displayFormat = "P0",
@@ -277,6 +261,59 @@ namespace Parsek
 
         public static ParsekSettings Current =>
             CurrentOverrideForTesting ?? HighLogic.CurrentGame?.Parameters?.CustomParams<ParsekSettings>();
+
+        /// <summary>
+        /// Clamps the hidden-but-kept settings (the auto-record trio, autoMerge,
+        /// forceFaithfulLoopPlayback) back to their shipping values. KSP round-trips every
+        /// GameParameters field through the save, so a career played before the 2026-08-27
+        /// settings simplification can carry e.g. <c>autoMerge = False</c> - a value the
+        /// player can no longer see or change anywhere. For players those stored values are
+        /// stale, not intent, so <c>ParsekScenario.OnLoad</c> clamps them on every load -
+        /// UNLESS an automation env hook is armed (<see cref="AutomationEnvPresent"/>),
+        /// because the harness pins these per-run through fixture saves and the M-A2
+        /// command seam and must keep control. Pure and silent; the caller logs.
+        /// Returns true when any value changed.
+        /// </summary>
+        internal static bool ClampHiddenSettingsToShippingValues(ParsekSettings s)
+        {
+            if (s == null) return false;
+            bool changed = !s.autoRecordOnLaunch || !s.autoRecordOnEva
+                || !s.autoRecordOnFirstModificationAfterSwitch || !s.autoMerge
+                || s.forceFaithfulLoopPlayback;
+            s.autoRecordOnLaunch = true;
+            s.autoRecordOnEva = true;
+            s.autoRecordOnFirstModificationAfterSwitch = true;
+            s.autoMerge = true;
+            s.forceFaithfulLoopPlayback = false;
+            return changed;
+        }
+
+        /// <summary>
+        /// Whether any Parsek automation env hook is armed for this process
+        /// (PARSEK_TEST_COMMANDS=1, the M-A2 command seam; or PARSEK_AUTORUN_TESTS set,
+        /// the M-A3 autorun hook). Read ONCE per process like the hooks themselves -
+        /// changing the env after start has no effect. Gates the hidden-settings clamp
+        /// above: an armed harness keeps authority over the hidden fields.
+        /// </summary>
+        internal static bool AutomationEnvPresent
+        {
+            get
+            {
+                if (!automationEnvPresent.HasValue)
+                {
+                    automationEnvPresent =
+                        Environment.GetEnvironmentVariable("PARSEK_TEST_COMMANDS") == "1"
+                        || !string.IsNullOrEmpty(
+                            Environment.GetEnvironmentVariable("PARSEK_AUTORUN_TESTS"));
+                }
+                return automationEnvPresent.Value;
+            }
+        }
+
+        private static bool? automationEnvPresent;
+
+        /// <summary>Test-only: clears the cached automation-env read.</summary>
+        internal static void ResetAutomationEnvCacheForTesting() => automationEnvPresent = null;
 
         /// <summary>
         /// Test-only override for <see cref="Current"/>. Lets unit tests exercise

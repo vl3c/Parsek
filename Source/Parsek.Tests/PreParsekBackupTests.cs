@@ -7,9 +7,9 @@ namespace Parsek.Tests
 {
     /// <summary>
     /// Tests for the pre-Parsek safety backup feature: the pure decision helpers in
-    /// <see cref="PreParsekBackup"/>, the <see cref="FileIOUtils.CopyDirectory"/> helper it uses,
-    /// and the persistence round-trip / defaults wiring for the
-    /// <c>autoBackupExistingSaves</c> setting.
+    /// <see cref="PreParsekBackup"/> and the <see cref="FileIOUtils.CopyDirectory"/> helper it
+    /// uses. (The backup is unconditional since the 2026-08-27 settings simplification retired
+    /// the <c>autoBackupExistingSaves</c> setting.)
     /// </summary>
     [Collection("Sequential")]
     public class PreParsekBackupTests : IDisposable
@@ -42,22 +42,23 @@ namespace Parsek.Tests
         // ------------------------------------------------------------------ ShouldBackup
 
         [Theory]
-        // isColdLoad, enabled, marker, footprint, isBackup, brandNew -> expected, expectedReason.
+        // isColdLoad, marker, footprint, isBackup, brandNew -> expected, expectedReason.
         // The reason literals are grepped verbatim by the in-game runbook in
         // docs/dev/todo-and-known-bugs.md, so they are pinned here - a rename must fail a test.
-        [InlineData(true, true, false, false, false, false, true, "eligible")]
-        [InlineData(false, true, false, false, false, false, false, "not-cold-load")]
-        [InlineData(true, false, false, false, false, false, false, "disabled")]
-        [InlineData(true, true, true, false, false, false, false, "marker-present")]
-        [InlineData(true, true, false, true, false, false, false, "already-parsek-footprint")]
-        [InlineData(true, true, false, false, true, false, false, "is-backup-folder")]
-        [InlineData(true, true, false, false, false, true, false, "brand-new-empty")]
+        // (The "disabled" row died with the autoBackupExistingSaves setting in the
+        // 2026-08-27 settings simplification: the backup is unconditional now.)
+        [InlineData(true, false, false, false, false, true, "eligible")]
+        [InlineData(false, false, false, false, false, false, "not-cold-load")]
+        [InlineData(true, true, false, false, false, false, "marker-present")]
+        [InlineData(true, false, true, false, false, false, "already-parsek-footprint")]
+        [InlineData(true, false, false, true, false, false, "is-backup-folder")]
+        [InlineData(true, false, false, false, true, false, "brand-new-empty")]
         public void ShouldBackup_TruthTable(
-            bool cold, bool enabled, bool marker, bool footprint, bool isBackup, bool brandNew,
+            bool cold, bool marker, bool footprint, bool isBackup, bool brandNew,
             bool expected, string expectedReason)
         {
             bool actual = PreParsekBackup.ShouldBackup(
-                cold, enabled, marker, footprint, isBackup, brandNew, out string reason);
+                cold, marker, footprint, isBackup, brandNew, out string reason);
             Assert.Equal(expected, actual);
             Assert.Equal(expectedReason, reason);
         }
@@ -67,7 +68,7 @@ namespace Parsek.Tests
         {
             // Both footprint and brandNew true: footprint must win (skip reason=already-parsek-footprint),
             // never capturing a Parsek-touched file as "pristine".
-            PreParsekBackup.ShouldBackup(true, true, false, true, false, true, out string reason);
+            PreParsekBackup.ShouldBackup(true, false, true, false, true, out string reason);
             Assert.Equal("already-parsek-footprint", reason);
         }
 
@@ -327,29 +328,5 @@ namespace Parsek.Tests
             Assert.Contains(logLines, l => l.Contains("[Test]") && l.Contains("CopyDirectory") && l.Contains("failed"));
         }
 
-        // ------------------------------------------------------------------ Settings round-trip / defaults
-
-        [Fact]
-        public void AutoBackupExistingSaves_RoundTripsThroughPersistentStore()
-        {
-            var settings = new ParsekSettings { autoBackupExistingSaves = true };
-            ParsekSettingsPersistence.SetStoredAutoBackupExistingSavesForTesting(false);
-
-            ParsekSettingsPersistence.ApplyTo(settings);
-
-            Assert.False(settings.autoBackupExistingSaves);
-            Assert.Equal(false, ParsekSettingsPersistence.GetStoredAutoBackupExistingSaves());
-            Assert.Contains(logLines, line =>
-                line.Contains("[SettingsStore]") &&
-                line.Contains("autoBackupExistingSaves") &&
-                line.Contains("True -> False"));
-        }
-
-        [Fact]
-        public void Defaults_EnableAutoBackup()
-        {
-            Assert.True(SettingsWindowPresentation.BuildDefaults().AutoBackupExistingSaves);
-            Assert.True(new ParsekSettings().autoBackupExistingSaves);
-        }
     }
 }

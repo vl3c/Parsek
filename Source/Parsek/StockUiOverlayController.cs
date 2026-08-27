@@ -66,19 +66,6 @@ namespace Parsek
         private bool astronautOpen;
         private bool missionOpen;
 
-        internal static void RefreshOpenScreensAfterSettingsChanged()
-        {
-            var controller = UnityEngine.Object.FindObjectOfType<StockUiOverlayController>();
-            if (controller == null)
-            {
-                ParsekLog.Verbose(Tag,
-                    "StockUiOverlay: settings changed but controller not present - RebuildAllVisible no-op");
-                return;
-            }
-
-            controller.ScheduleRebuildAllVisible("settings changed");
-        }
-
         private void Awake()
         {
             RDController.OnRDTreeSpawn.Add(OnRdTreeSpawn);
@@ -393,7 +380,11 @@ namespace Parsek
 
         internal static bool ShouldApplyOverlays()
         {
-            return ParsekSettings.Current?.showCommittedFutureOverlays ?? true;
+            // Permanently true since the 2026-08-27 settings simplification retired the
+            // showCommittedFutureOverlays setting: committed-future overlays always draw.
+            // Kept as a method (rather than inlining) so the call sites keep reading as
+            // the single gate they were designed around.
+            return true;
         }
 
         internal static Dictionary<string, TechNodeOverlayMark> BuildTechMarks()

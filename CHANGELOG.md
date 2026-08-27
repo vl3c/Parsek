@@ -510,17 +510,35 @@ All notable changes to Parsek are documented here.
 
 ### Settings
 
+- The Settings window got a lot smaller. Nine options that no longer earned their
+  place were removed or hardwired:
+  - Always on now, toggle deleted: the one-time pre-Parsek save backup, the
+    committed-future overlays in the stock R&D / Astronaut Complex / Mission
+    Control screens, and the click-blocks that stop you from repeating an action a
+    committed mission already performed (double-spending its reserved funds or
+    science).
+  - Hardwired ON for players, toggle hidden: the three auto-record switches
+    (launch, EVA, first modification after switch) and auto-merge - recording and
+    committing everything is the mod's premise. The fields survive because the
+    automated-testing harness pins them per-run through its command seam.
+  - Landing-body alignment is fixed at Loose (~monthly relaunch alignment, a
+    few-km handoff seam); the Off / Precise A/B knob is gone.
+  - "Force faithful loop playback (no re-aim)" left the window too; the harness
+    A/B lanes still set it through the command seam.
+  Old saves that stored a different value for one of the hidden switches (e.g.
+  `autoMerge = False` from an earlier release) are clamped back to the shipping
+  values on load, so what the window shows and what the mod does can no longer
+  disagree. What remains: Basic/Advanced, the auto-launch loop period, ghost
+  audio, route lines on the map, the Diagnostics section, sample density, and the
+  wipe buttons.
+
 - Finished missions now go onto the timeline on their own. "Auto-merge recordings"
   ships ON, so leaving a flight no longer opens the "Merge to Timeline / Discard"
   confirmation dialog for every mission you fly - the recording is simply committed,
-  the way it would have been if you had clicked Merge. The setting is unchanged and
-  still there: turn it off in Settings (or the stock difficulty tab) and the
-  per-mission dialog comes back exactly as before.
-  Worth knowing if you are upgrading: this changes NEW saves only. KSP writes every
-  Parsek setting into a save each time it saves, so any career you have already
-  played with Parsek installed has `autoMerge = False` stored in it and will keep
-  asking - flip the toggle yourself once if you want the new behaviour there. A save
-  started from here on gets it out of the box.
+  the way it would have been if you had clicked Merge. (As of the settings
+  simplification above, auto-merge is permanently on for players - the toggle is
+  gone from Settings and the stock difficulty tab, and a career that stored
+  `autoMerge = False` from an earlier session is clamped back to ON on load.)
   The reason it stayed off until now was that the automatic path used to be lossy:
   it committed the mission ghost-only and threw away the vessel's final state, so a
   craft you left alive in orbit or on a surface never re-appeared as a real vessel at

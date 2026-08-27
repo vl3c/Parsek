@@ -18704,9 +18704,8 @@ namespace Parsek
             // mission snaps its phase anchor to the next faithful launch window. An unsupported
             // config (cross-parent / rendezvous / no constraint) falls back to today's behavior.
             IBodyInfo bodyInfo = FlightGlobalsBodyInfo.Instance;
-            // Zero-drift A/B flag: how a looped mission's transited-body landing rotation is treated.
-            TransitedBodyRotationMode tbrMode = ParsekSettings.Current?.TransitedBodyRotationMode
-                                                ?? TransitedBodyRotationMode.Loose;
+            // Zero-drift mode (pinned Loose): how a looped mission's transited-body landing rotation is treated.
+            TransitedBodyRotationMode tbrMode = ParsekSettings.LandingBodyAlignmentMode;
             // Force-faithful product knob: when on, a re-aim-SUPPORTED mission stays on the verbatim
             // recorded trajectory instead of auto-engaging re-aim. Folded into the signature too, so
             // flipping it in Settings rebuilds the cached set.

@@ -30,6 +30,38 @@ namespace Parsek.Tests
         }
 
         /// <summary>
+        /// The hidden-but-kept settings have no player-facing UI, so a stale value KSP
+        /// round-tripped through an old save must be clamped back to the shipping value on
+        /// load (ParsekScenario.OnLoad, players only - an armed harness keeps authority).
+        /// Pins the pure clamp core: every drifted field is reset, and the changed flag is
+        /// true exactly when something actually moved.
+        /// </summary>
+        [Fact]
+        public void ClampHiddenSettingsToShippingValues_ResetsDriftAndReportsChange()
+        {
+            var drifted = new ParsekSettings
+            {
+                autoRecordOnLaunch = false,
+                autoRecordOnEva = false,
+                autoRecordOnFirstModificationAfterSwitch = false,
+                autoMerge = false,
+                forceFaithfulLoopPlayback = true,
+            };
+
+            Assert.True(ParsekSettings.ClampHiddenSettingsToShippingValues(drifted));
+            Assert.True(drifted.autoRecordOnLaunch);
+            Assert.True(drifted.autoRecordOnEva);
+            Assert.True(drifted.autoRecordOnFirstModificationAfterSwitch);
+            Assert.True(drifted.autoMerge);
+            Assert.False(drifted.forceFaithfulLoopPlayback);
+
+            // Already-shipping values: no-op, and reported as such (the caller only logs
+            // when something moved).
+            Assert.False(ParsekSettings.ClampHiddenSettingsToShippingValues(drifted));
+            Assert.False(ParsekSettings.ClampHiddenSettingsToShippingValues(null));
+        }
+
+        /// <summary>
         /// Pins the shipping default of the auto-merge toggle. Defaults ON since
         /// 0.10.4: the silent auto-commit path now commits with full spawn-at-end
         /// fidelity (it used to be lossy, which is what kept the default OFF), so a
@@ -48,15 +80,26 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void AutoRecordOnSwitchSettings_UseCustomParameterUiAttribute()
+        public void HiddenSettings_CarryNoCustomParameterUiAttribute()
         {
-            // Fails if: the first-modification toggle is renamed / removed / loses
-            // its [GameParameters.CustomParameterUI] annotation and stops showing
-            // up in the KSP difficulty options panel.
-            FieldInfo field = typeof(ParsekSettings).GetField(
-                nameof(ParsekSettings.autoRecordOnFirstModificationAfterSwitch));
-            Assert.NotNull(field);
-            Assert.NotNull(field.GetCustomAttribute<GameParameters.CustomParameterUI>());
+            // The 2026-08-27 settings simplification HID the auto-record trio and
+            // autoMerge from every UI (Settings window and the KSP difficulty panel);
+            // the harness command seam is their only writer. Fails if someone
+            // re-annotates one of them, which would resurface a second writer in the
+            // stock difficulty screen.
+            foreach (string name in new[]
+            {
+                nameof(ParsekSettings.autoRecordOnLaunch),
+                nameof(ParsekSettings.autoRecordOnEva),
+                nameof(ParsekSettings.autoRecordOnFirstModificationAfterSwitch),
+                nameof(ParsekSettings.autoMerge),
+                nameof(ParsekSettings.forceFaithfulLoopPlayback),
+            })
+            {
+                FieldInfo field = typeof(ParsekSettings).GetField(name);
+                Assert.NotNull(field);
+                Assert.Null(field.GetCustomAttribute<GameParameters.CustomParameterUI>());
+            }
         }
 
         [Fact]

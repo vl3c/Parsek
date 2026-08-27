@@ -2197,7 +2197,7 @@ namespace Parsek.Logistics
         /// snapshot, so member indices align. It also passes the IDENTICAL
         /// phase-lock seams the render path uses
         /// (<c>FlightGlobalsBodyInfo.Instance</c> +
-        /// <see cref="ParsekSettings.TransitedBodyRotationMode"/>) so the delivery
+        /// <see cref="ParsekSettings.LandingBodyAlignmentMode"/>) so the delivery
         /// clock's <c>CadenceSeconds</c> / <c>PhaseAnchorUT</c> match the rendered
         /// ghost's exactly (DEL-1): a supported looping mission snaps its phase
         /// anchor to the next faithful launch window, and an unsupported config
@@ -2261,8 +2261,7 @@ namespace Parsek.Logistics
             // no phase-lock, byte-identical to the pre-DEL-1 bodyInfo:null path, so
             // tests on the LoopUnitResolverForTesting seam are unaffected.
             IBodyInfo bodyInfo = FlightGlobalsBodyInfo.Instance;
-            TransitedBodyRotationMode tbrMode = ParsekSettings.Current?.TransitedBodyRotationMode
-                                                ?? TransitedBodyRotationMode.Loose;
+            TransitedBodyRotationMode tbrMode = ParsekSettings.LandingBodyAlignmentMode;
             // Force-faithful product knob: read (and folded into builderSignature below) exactly like
             // tbrMode, so flipping it in Settings invalidates THIS route's cached loop unit too and
             // the delivery clock keeps matching the render seams' schedule.

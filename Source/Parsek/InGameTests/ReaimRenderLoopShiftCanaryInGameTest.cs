@@ -67,7 +67,7 @@ namespace Parsek.InGameTests
             double autoLoopIntervalSeconds = ParsekSettings.Current?.autoLoopIntervalSeconds
                                              ?? LoopTiming.DefaultLoopIntervalSeconds;
             TransitedBodyRotationMode tbrMode =
-                ParsekSettings.Current?.TransitedBodyRotationMode ?? TransitedBodyRotationMode.Loose;
+                ParsekSettings.LandingBodyAlignmentMode;
 
             if (!RealSaveMissionFinder.TryFindReaimMission(
                     FlightGlobalsBodyInfo.Instance, autoLoopIntervalSeconds, tbrMode,
