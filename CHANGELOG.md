@@ -45,11 +45,20 @@ All notable changes to Parsek are documented here.
   orbit, which arrives at the speed the fuel budget was built for.
   Two new automated tests were then written on top of the flight it recorded: one
   watches the replay of that arrival on the in-flight map, the other watches it in
-  the Tracking Station, and both check that Parsek really draws the returning ship
-  in Kerbin's own frame rather than just happening to have the clock in the right
-  place. Neither has been run yet - every number in them is worked out from the
-  saved flight rather than observed, which is what their first runs are for - and
-  neither one fails the run over anything it is still measuring.
+  the Tracking Station. The first of them has now been run once, and it did what a
+  first run is for: almost everything it predicted about the replay turned out
+  right, down to fractions of a second, but the one thing it was really there to
+  check - that the returning ship is drawn in Kerbin's own frame - never happened.
+  Looking at why turned up something worth knowing: when a replay is this long, the
+  twenty copies of the flight that play at once all end up drawn on the orbit the
+  recording STARTS on, whatever part of the journey each copy is actually up to. The
+  test cannot tell whether that also happens while someone is simply playing with
+  the clock running, because it can only jump the clock rather than run it forward,
+  so the finding is written down and nothing is being changed on the strength of it.
+  Both tests were re-aimed at something they can actually see - that Parsek works out
+  the arrival orbit around Kerbin from the recording's own data - which is a smaller
+  claim than the original one, and both files say so plainly rather than quietly
+  settling for it.
   Test-tooling only; no gameplay change.
 - The looped Mun mission's render test now also requires that Parsek actually
   published which replay owned the map line, so a run where that bookkeeping

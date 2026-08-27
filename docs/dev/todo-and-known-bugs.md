@@ -51,6 +51,76 @@ breadth point rather than a blocker - see the roadmap's rewritten roster entry.
 
 ---
 
+## TIMEJUMP-CANNOT-OBSERVE-LIVE-FRAME-OVERLAP-PROTOS-ON-LONG-PITCH-SUBJECTS: on a 32.6 Ms loop span every ghost proto reads back on the recording's FIRST segment at every reachable jump epoch, and 36 of 41 of them were CREATED on a different orbit than the probe read [MEASURED 2026-08-27 by `V20M-jool-kerbin-player-loop` reading run 1 (`2026-08-27_1828`, PARSEK-FAIL(expectation) on exactly this - its own destination-frame render pin). REPORT-ONLY, NO MECHANISM CLAIMED, NO product change proposed. Same family as MAPRENDER-ICON-OFF-ORBIT-CREATION-FRAME-AFTER-JUMP, which it sharpens in two ways]
+
+**WHAT WAS MEASURED**, off `logs/2026-08-27_2129_V20M-jool-kerbin-player-loop/KSP.log`, on
+`fixtures/saves/kerbin-return-recorded` (ONE recording, TRACK_SECTION span 32,606,575.774644222 s,
+`overlapCadence` = spanDur/20 = **1,630,328.788732211 s**, twenty concurrent overlap instances):
+
+- **41 `phase=body-orbit surface=ProtoOrbitLine` reads, ALL of them `body=Jool sma=590325785
+  ecc=0.0000`** - the recording's FIRST orbit segment (the Jool park, seg#0) - at every one of the
+  ten jump epochs and for every instance.
+- **Every pid emitted EXACTLY ONE sample, all `from=[(first)]`.** The probe never observed a single
+  proto change orbit across ten jumps.
+- **THE CREATION SIDE IS CORRECT PER INSTANCE AND THE READ-BACK IS NOT.** Matching
+  `Created ghost vessel ghostPid=N` against `phase=body-orbit pid=N`: cycles 0/19/20/39/40 were
+  created on the Jool park, 16-18 and 36-38 on the Jool escape hyperbola
+  (`sma=10246978796`), 2-15 and 22-35 on the Sun transfer (`sma=40960547563`), and cycles 1 and 21
+  on seg#13, the LAST Sun coast (`sma=40758641878`, `segmentUT=60364419.7-60366070.3`) - exactly
+  the segment the lane's own arithmetic puts them on at the epoch they were created. **36 of the 41
+  protos were created on one orbit and read back at end of frame on another.** The five that
+  "match" are exactly the five seeded on the Jool park anyway.
+
+**WHAT IT SHARPENS ABOUT THE EXISTING FAMILY** (`MAPRENDER-ICON-OFF-ORBIT-CREATION-FRAME-AFTER-JUMP`),
+with NO mechanism claimed for either point:
+
+1. **THE FRAME EVERY PROTO SETTLES ON IS SEGMENT ZERO, NOT ITS OWN CREATION FRAME.** The family
+   entry describes protos reverting to the frame they were CREATED in. Here cycle 1 was created
+   `body=Sun sma=40758641878 referenceBody=Sun` and read back `body=Jool sma=590325785`. "Creation
+   frame" and "segment zero" coincide on every prior subject because those lanes' jumps land near
+   the start of a short span; on a 32.6 Ms span they separate, and they separate for 36 of 41.
+2. **IT IS PERMANENT UNDER THE INSTRUMENT, NOT TRANSIENT.** V17M measured the reversion as a
+   transient that self-corrects at the next distant epoch. With a 1,630,328.8 s overlap pitch every
+   jump in a ten-jump table crosses many re-arms, so there is no reachable jump epoch at which a
+   proto reads anything but segment 0.
+
+**THE HONEST SPLIT, AND BOTH HALVES MATTER.**
+
+- **INSTRUMENT LIMITATION.** The M-A2 seam grammar has NO WARP VERB: `TimeJump` epoch-shifts the
+  `Planetarium` clock and stops warp. So "let the clock run live across the Sun->Kerbin window
+  entry and watch the protos track their own segments" is not expressible today, and **a reading
+  re-pin must not add product code to make its own pin reachable.** A player at live warp re-arms
+  instances one at a time and crosses boundaries with the clock running; whether the render is
+  correct in THAT regime is NOT measured here and this instrument cannot measure it on a subject
+  whose overlap pitch is 1.63 Ms. **NOTHING BELOW IS A CLAIM THAT LIVE PLAY IS BROKEN.**
+- **PRODUCT OBSERVATION.** A proto whose creation line reads `referenceBody=Sun sma=40758641878`
+  and whose end-of-frame orbit reads `body=Jool sma=590325785` is a divergence the product
+  produced; the instrument only made it visible. Note also that
+  `MapRenderTrace.ReconcileLineState`'s `decision-vs-truth` reconcile did NOT fire
+  (`anomalySweep hits=[] counts={}`) - it compares line/icon STATE, not the orbit key, so this
+  particular divergence has no existing anomaly surface at all.
+
+**CONSEQUENCE ALREADY TAKEN, and it is a re-pin rather than a fix.** `V20M`'s destination-frame
+render token (`phase=body-orbit surface=ProtoOrbitLine .*body=Kerbin`) is unreachable at EVERY
+epoch on this subject, so it is kept verbatim in that spec's header as a refuted pre-registration
+and replaced in `required` by the seed-side
+`OrbitReseed] TryFromHistoricalLatLonAltAndRecordedVelocityWithEpoch: body=Kerbin` plus an
+anti-emptiness ghost floor and a load-time endpoint premise. `V20T`'s
+`phase=GhostCreated surface=ProtoIcon ... body=Kerbin scene=TRACKSTATION` pin was re-cut the same
+way BEFORE it flew, because the same run measured 41 ProtoIcon lines splitting Jool 11 / Sun 30
+with ZERO Kerbin over the shared `GhostMapPresence` creation path. **THAT IS A DEMOTION FROM A
+RENDERED-FRAME CLAIM TO A SEED-SIDE ONE, and the rendered-frame Kerbin claim roadmap G2 asks for
+STAYS OWED** - by `V20K`, or by whatever future run can reach live-frame protos on a long-pitch
+subject.
+
+**WHAT WOULD CLOSE THIS, none of it proposed here:** a seam verb that advances the clock at warp
+rather than epoch-shifting it; or a shorter-span Kerbin-arrival subject whose overlap pitch is
+small enough that a jump can land between re-arms; or an orbit-key half added to the
+`decision-vs-truth` reconcile so the seed-versus-truth divergence raises on its own instead of
+being found by hand.
+
+---
+
 ## B29-JOOL-KERBIN-RETURN-AUTHORED-NEVER-FLOWN: the suite's first INBOUND interplanetary subject [OPENED 2026-08-26 on branch `b29-duna-return`. FLIGHTS 1-2 FLOWN 2026-08-27 (both INVALID, both calibration reads); RE-SCOPED ONTO THE PARENT-RELAY MODE the same day; **FLIGHT 3 PASS ATTEMPT 1 the same day** - the subject EXISTS, harvested as `fixtures/saves/kerbin-return-recorded` (one recording, 739 points, seams Jool->Sun / Sun->Kerbin, Orbiting-at-Kerbin terminal). REMAINING: the V20 lanes off the harvested bytes. TODO, not a defect]
 
 `B29-jool-kerbin-return` is committed: spec, mission shell, schema, registration
@@ -118,9 +188,37 @@ The derivations worth naming, because a re-harvest would move them:
     depends on `ShouldKeepCohesiveCrossBodyExoCoast`'s SECOND disjunct (ExoPropulsive ->
     ExoBallistic, kept whole only because both sections are OrbitalCheckpoint-framed).
 
-**REMAINING: the two reading runs, then the arming pass off their OWN bytes, then the
-per-lane negative controls (TWO, not one shared - the halves pin different lenses), and
-then `V20K`.** One cost neither lane can price from committed bytes and both write down:
+**V20M READING RUN 1 HAS FLOWN: `2026-08-27_1828`, PARSEK-FAIL(expectation), attempt 1,
+wall 74 s, EXACTLY ONE mismatch - its own destination-frame render pin - and every other
+verifier green.** Every other pre-registration held, most of them to the digit: spanDur
+echoed 32,606,575.774644222; the seeded anchor landed 0.006 s out
+(`phaseAnchor=60393899.994155549`, the closest seed in the V program to date); the two
+`relaunchUt=` echoes differ by exactly one span; NO jump UT moved and every one landed
+within 0.006 s of its intended replay offset; the routing measured **R3** with the
+predicted decline string VERBATIM (`transfer departs from a heliocentric parking orbit or
+mid-course correction (deferred); staying faithful` - never printed by any committed lane
+before, and reached only because this is the first subject whose arrival scan succeeds),
+the predicted `off=32578749.191816326` to the digit, and `P` = Kerbin's own solar period;
+and the optimizer printed `evaluated=2 ... exoCoastBodyChangeKept=2
+splittableButRejected=0`, **the first measured exercise of
+`ShouldKeepCohesiveCrossBodyExoCoast`'s SECOND disjunct at a real seam**. What missed is
+the anti-vacuity pin, and the mechanism has its own entry above
+(TIMEJUMP-CANNOT-OBSERVE-LIVE-FRAME-OVERLAP-PROTOS-ON-LONG-PITCH-SUBJECTS): every proto
+reads back on the recording's FIRST segment at every reachable epoch, and 36 of 41 were
+created on a different orbit than the probe read.
+**BOTH LANES WERE RE-PINNED IN ROUND 2** - V20M off its own run, V20T PRE-EMPTIVELY off
+its sibling's, because the same measurement kills its ProtoIcon `body=Kerbin` pin too
+(41 ProtoIcon lines, Jool 11 / Sun 30, ZERO Kerbin, over the shared `GhostMapPresence`
+creation path). Both refuted pins are KEPT VERBATIM in their headers; both lanes now pin
+the seed-side `OrbitReseed] ... body=Kerbin` token plus an anti-emptiness ghost floor and
+a load-time endpoint premise. **THAT IS A DEMOTION AND IT IS RECORDED AS ONE: the
+rendered-frame Kerbin claim roadmap G2's bar asks for is NOT discharged by either lane and
+STAYS OWED.** Both specs keep READING-RUN posture - nothing armed, no window tightened,
+the measured `exoCoastBodyChangeKept=2` recorded rather than promoted.
+
+**REMAINING: V20M reading run 2 on the re-pinned tokens and V20T reading run 1, then the
+arming pass off their OWN bytes, then the per-lane negative controls (TWO, not one shared
+- the halves pin different lenses), and then `V20K`.** One cost neither lane can price from committed bytes and both write down:
 the schedules traverse 66.8 Ms (V20M) and 34.2 Ms (V20T) of game time in instantaneous
 `Planetarium` clock sets, and KSP's on-rails propagation cost at that magnitude is
 UNMEASURED - a death on a TimeJump watchdog would be a reading, not a calibration
@@ -4353,7 +4451,7 @@ separation from V7M's teardown NRE, and the named experiment that would move it.
 
 ---
 
-## MAPRENDER-ICON-OFF-ORBIT-CREATION-FRAME-AFTER-JUMP: a ghost's proto ICON sits tens of degrees around its own orbit line on the CREATION frame, after a single large TimeJump onto an epoch just inside a foreign moon's SOI [MEASURED 2026-08-18 by `V14T-ike-ts-arrival`, REPRODUCED on its armed run, shown PARENT-INDEPENDENT by `V15T-gilly-ts-arrival`, and measured at a THIRD parent 2026-08-19 by `V16T-laythe-ts-arrival` (Jool/Laythe, 129.15 deg) - which also produced the FIRST count > 1 reading (TWO raises, one frame, two proto pids) and a SECOND LENS showing the same creation-frame binding gap. **RECURRED AT COUNT 2 ON V16T's ARMED RUN `2026-08-19_2212` (PASS attempt 1, the tolerance doing its job)**. **THEN TWICE SILENT: `V17T-laythe-vall-ts-arrival` 2026-08-20 and `V19T-laythe-jool-ts-arrival` 2026-08-21, so the raise is DETERMINISTIC ONLY WITHIN THE V14T/V15T/V16T SUBJECT SHAPE and NOT across the family** - an earlier version of this bracket named only those three lanes and called the behaviour deterministic full stop, which the body has now contradicted twice. V19T was authored as the discriminator between V17T's two simultaneous variables and NARROWS THE CAUSE: nested-SOI is EXCLUDED, self-overlap is the surviving candidate, no mechanism claimed (see the table in the body). REPORT-ONLY: self-correcting, tolerated by name in the three specs that raise it, `allowedAnomalies` deliberately EMPTY on the two silent lanes; NO product change is proposed]
+## MAPRENDER-ICON-OFF-ORBIT-CREATION-FRAME-AFTER-JUMP: a ghost's proto ICON sits tens of degrees around its own orbit line on the CREATION frame, after a single large TimeJump onto an epoch just inside a foreign moon's SOI [MEASURED 2026-08-18 by `V14T-ike-ts-arrival`, REPRODUCED on its armed run, shown PARENT-INDEPENDENT by `V15T-gilly-ts-arrival`, and measured at a THIRD parent 2026-08-19 by `V16T-laythe-ts-arrival` (Jool/Laythe, 129.15 deg) - which also produced the FIRST count > 1 reading (TWO raises, one frame, two proto pids) and a SECOND LENS showing the same creation-frame binding gap. **RECURRED AT COUNT 2 ON V16T's ARMED RUN `2026-08-19_2212` (PASS attempt 1, the tolerance doing its job)**. **THEN TWICE SILENT: `V17T-laythe-vall-ts-arrival` 2026-08-20 and `V19T-laythe-jool-ts-arrival` 2026-08-21, so the raise is DETERMINISTIC ONLY WITHIN THE V14T/V15T/V16T SUBJECT SHAPE and NOT across the family** - an earlier version of this bracket named only those three lanes and called the behaviour deterministic full stop, which the body has now contradicted twice. V19T was authored as the discriminator between V17T's two simultaneous variables and NARROWS THE CAUSE: nested-SOI is EXCLUDED, self-overlap is the surviving candidate, no mechanism claimed (see the table in the body). **AND SHARPENED 2026-08-27 BY `V20M-jool-kerbin-player-loop` reading run 1 - see TIMEJUMP-CANNOT-OBSERVE-LIVE-FRAME-OVERLAP-PROTOS-ON-LONG-PITCH-SUBJECTS, which is the same family: on a 32.6 Ms span the frame every proto settles on is SEGMENT ZERO rather than its own CREATION frame (the two coincide on short spans and separated for 36 of 41 protos there), and the reversion is PERMANENT under the instrument rather than the transient V17M measured. No mechanism claimed for either.** REPORT-ONLY: self-correcting, tolerated by name in the three specs that raise it, `allowedAnomalies` deliberately EMPTY on the silent lanes; NO product change is proposed]
 
 `V14T-ike-ts-arrival` run `2026-08-18_2337` came back PARSEK-FAIL(anomaly) on
 attempt 1 with **all sixteen steps green** - every tracking-station route line
