@@ -86,7 +86,9 @@ namespace Parsek
 
         private void OnGUI()
         {
-            if (!active || !StockUiOverlayController.ShouldApplyOverlays())
+            // No overlay gate: committed-future overlays are unconditional since the
+            // 2026-08-27 settings simplification (showCommittedFutureOverlays removed).
+            if (!active)
                 return;
 
             Vector2 mouse = Input.mousePosition;

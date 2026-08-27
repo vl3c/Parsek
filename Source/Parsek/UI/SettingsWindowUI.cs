@@ -5,7 +5,9 @@ namespace Parsek
 {
     /// <summary>
     /// Settings window extracted from ParsekUI.
-    /// Manages all Parsek settings: recording, looping, ghosts, diagnostics, sampling density, data management.
+    /// Manages all Parsek settings: interface mode, looping period, ghosts, diagnostics,
+    /// sampling density, data management (the Recording and Stock UI sections were
+    /// retired by the 2026-08-27 settings simplification).
     /// </summary>
     internal class SettingsWindowUI
     {
@@ -73,8 +75,9 @@ namespace Parsek
                 // The 600 above is a guess, not a measurement, and GUILayout only fixes it
                 // in one direction: a window resolves to Max(passedHeight, contentMin), so
                 // content TALLER than 600 auto-grows, while content SHORTER leaves dead
-                // space at the bottom - which is exactly Basic since it hides the Looping
-                // section (fit ~534; Advanced ~948 masked this for both modes until then).
+                // space at the bottom. Since the 2026-08-27 settings simplification shrank
+                // the window, BOTH modes fit under the 600 seed, so every first open needs
+                // the measured fit (before it, only Basic did - Advanced masked the bug).
                 // Request the same height fit a mode switch gets, so the first open lands
                 // on the measured height in either mode. Requesting here is equivalent to
                 // the Update-latch path: this branch runs once, at the top of the first

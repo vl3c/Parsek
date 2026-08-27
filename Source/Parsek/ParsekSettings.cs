@@ -273,6 +273,11 @@ namespace Parsek
         /// because the harness pins these per-run through fixture saves and the M-A2
         /// command seam and must keep control. Pure and silent; the caller logs.
         /// Returns true when any value changed.
+        ///
+        /// <para>Invariant for MANUAL in-game test batches (Ctrl+Shift+T on the dev
+        /// instance, no automation env): the clamp is armed there, so a test that flips
+        /// one of these fields must finish its assertions without crossing a scene load -
+        /// any intervening <c>ParsekScenario.OnLoad</c> resets the field mid-test.</para>
         /// </summary>
         internal static bool ClampHiddenSettingsToShippingValues(ParsekSettings s)
         {
@@ -301,10 +306,19 @@ namespace Parsek
             {
                 if (!automationEnvPresent.HasValue)
                 {
+                    // The env-var names and the seam's arm predicate belong to the hooks
+                    // themselves - referenced here, never re-spelled, so a rename cannot
+                    // silently disarm this gate and let the clamp fire under the harness.
+                    // The autorun half is deliberately looser than AutorunHooks.Parse's
+                    // arming (any non-empty value counts, whitespace included): erring
+                    // toward NOT clamping is the safe direction.
                     automationEnvPresent =
-                        Environment.GetEnvironmentVariable("PARSEK_TEST_COMMANDS") == "1"
+                        TestCommands.ParsekTestCommandAddon.IsArmed(
+                            Environment.GetEnvironmentVariable(
+                                TestCommands.ParsekTestCommandAddon.EnvVarName))
                         || !string.IsNullOrEmpty(
-                            Environment.GetEnvironmentVariable("PARSEK_AUTORUN_TESTS"));
+                            Environment.GetEnvironmentVariable(
+                                InGameTests.TestRunnerShortcut.EnvTestsVar));
                 }
                 return automationEnvPresent.Value;
             }

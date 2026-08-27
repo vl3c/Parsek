@@ -2262,9 +2262,10 @@ namespace Parsek.Logistics
             // tests on the LoopUnitResolverForTesting seam are unaffected.
             IBodyInfo bodyInfo = FlightGlobalsBodyInfo.Instance;
             TransitedBodyRotationMode tbrMode = ParsekSettings.LandingBodyAlignmentMode;
-            // Force-faithful product knob: read (and folded into builderSignature below) exactly like
-            // tbrMode, so flipping it in Settings invalidates THIS route's cached loop unit too and
-            // the delivery clock keeps matching the render seams' schedule.
+            // Force-faithful knob (harness-only since the 2026-08-27 settings simplification;
+            // set via the M-A2 command seam): read and folded into builderSignature below, so a
+            // flipped value invalidates THIS route's cached loop unit too and the delivery clock
+            // keeps matching the render seams' schedule.
             bool forceFaithful = ParsekSettings.Current?.forceFaithfulLoopPlayback ?? false;
 
             // (M-MIS-11 item 1) Cache keys. The builder signature is the SAME

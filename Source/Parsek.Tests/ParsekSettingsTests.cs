@@ -3,6 +3,9 @@ using Xunit;
 
 namespace Parsek.Tests
 {
+    // Sequential: the AutomationEnvPresent test below mutates process-wide env vars
+    // and the static automation-env cache.
+    [Collection("Sequential")]
     public class ParsekSettingsTests
     {
         [Fact]
@@ -59,6 +62,46 @@ namespace Parsek.Tests
             // when something moved).
             Assert.False(ParsekSettings.ClampHiddenSettingsToShippingValues(drifted));
             Assert.False(ParsekSettings.ClampHiddenSettingsToShippingValues(null));
+        }
+
+        /// <summary>
+        /// The clamp's automation gate must arm off the hooks' OWN env vars: the command
+        /// seam's exact arm value, and any non-empty autorun value. If this gate ever went
+        /// false under a harness launch, the clamp would overwrite fixture-pinned /
+        /// SetSetting hidden-field values (~40 committed fixtures pin autoMerge=False) at
+        /// every scene load. Drives the read-once cache through its test seam; env vars
+        /// are process-wide, hence [Collection("Sequential")] on this class.
+        /// </summary>
+        [Theory]
+        [InlineData("1", null, true)]    // command seam armed (the harness's unconditional launch shape)
+        [InlineData("0", null, false)]   // seam is exact-match fail-closed
+        [InlineData(null, "Missions", true)]  // autorun batch armed
+        [InlineData(null, null, false)]  // player session: clamp active
+        public void AutomationEnvPresent_ArmsOffTheHookEnvVars(
+            string testCommands, string autorunTests, bool expected)
+        {
+            string priorSeam = System.Environment.GetEnvironmentVariable(
+                TestCommands.ParsekTestCommandAddon.EnvVarName);
+            string priorAutorun = System.Environment.GetEnvironmentVariable(
+                InGameTests.TestRunnerShortcut.EnvTestsVar);
+            try
+            {
+                System.Environment.SetEnvironmentVariable(
+                    TestCommands.ParsekTestCommandAddon.EnvVarName, testCommands);
+                System.Environment.SetEnvironmentVariable(
+                    InGameTests.TestRunnerShortcut.EnvTestsVar, autorunTests);
+                ParsekSettings.ResetAutomationEnvCacheForTesting();
+
+                Assert.Equal(expected, ParsekSettings.AutomationEnvPresent);
+            }
+            finally
+            {
+                System.Environment.SetEnvironmentVariable(
+                    TestCommands.ParsekTestCommandAddon.EnvVarName, priorSeam);
+                System.Environment.SetEnvironmentVariable(
+                    InGameTests.TestRunnerShortcut.EnvTestsVar, priorAutorun);
+                ParsekSettings.ResetAutomationEnvCacheForTesting();
+            }
         }
 
         /// <summary>

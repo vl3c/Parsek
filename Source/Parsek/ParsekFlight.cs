@@ -18706,9 +18706,10 @@ namespace Parsek
             IBodyInfo bodyInfo = FlightGlobalsBodyInfo.Instance;
             // Zero-drift mode (pinned Loose): how a looped mission's transited-body landing rotation is treated.
             TransitedBodyRotationMode tbrMode = ParsekSettings.LandingBodyAlignmentMode;
-            // Force-faithful product knob: when on, a re-aim-SUPPORTED mission stays on the verbatim
+            // Force-faithful knob (harness-only since the 2026-08-27 settings simplification; set
+            // via the M-A2 command seam): when on, a re-aim-SUPPORTED mission stays on the verbatim
             // recorded trajectory instead of auto-engaging re-aim. Folded into the signature too, so
-            // flipping it in Settings rebuilds the cached set.
+            // a flipped value rebuilds the cached set.
             bool forceFaithful = ParsekSettings.Current?.forceFaithfulLoopPlayback ?? false;
 
             // === Supply-route render union (Phase 3) ===

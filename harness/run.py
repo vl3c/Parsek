@@ -3017,6 +3017,14 @@ def run_attempt(spec: Dict, instance_dir: str, umbrella_root: str, runtime: Runt
 
         # ---- LAUNCH ------------------------------------------------------
         env = dict(os.environ)
+        # LOAD-BEARING and deliberately UNCONDITIONAL: besides arming the M-A2
+        # command seam, this env var (or PARSEK_AUTORUN_TESTS below) is what stops
+        # ParsekScenario.OnLoad's hidden-settings clamp (ParsekSettings
+        # .AutomationEnvPresent) from overwriting fixture-pinned / SetSetting
+        # values of autoRecordOnLaunch / autoRecordOnEva /
+        # autoRecordOnFirstModificationAfterSwitch / autoMerge /
+        # forceFaithfulLoopPlayback at every scene load. ~40 committed fixtures
+        # pin autoMerge=False; making this conditional would silently flip them.
         env["PARSEK_TEST_COMMANDS"] = "1"
         autorun = (spec.get("driver", {}) or {}).get("autorun")
         if autorun and autorun.get("tests"):

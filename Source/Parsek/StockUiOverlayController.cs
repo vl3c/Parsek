@@ -207,12 +207,6 @@ namespace Parsek
                 return;
 
             StripOverlays(controller.transform, TechOverlayName);
-            if (!ShouldApplyOverlays())
-            {
-                ParsekLog.Info(Tag,
-                    "StockUiOverlay: feature disabled by ParsekSettings - R&D decorations skipped");
-                return;
-            }
 
             var marks = BuildTechMarks();
             ParsekLog.Verbose(Tag,
@@ -252,12 +246,6 @@ namespace Parsek
                 return;
 
             StripOverlays(complex.transform, KerbalOverlayName);
-            if (!ShouldApplyOverlays())
-            {
-                ParsekLog.Info(Tag,
-                    "StockUiOverlay: feature disabled by ParsekSettings - Astronaut decorations skipped");
-                return;
-            }
 
             List<Transform> listRoots;
             if (!TryGetAstronautListRoots(complex, out listRoots))
@@ -323,12 +311,6 @@ namespace Parsek
                 return;
 
             StripOverlays(missionControl.transform, ContractOverlayName);
-            if (!ShouldApplyOverlays())
-            {
-                ParsekLog.Info(Tag,
-                    "StockUiOverlay: feature disabled by ParsekSettings - MissionControl decorations skipped");
-                return;
-            }
 
             var marks = BuildContractMarks();
             ParsekLog.Verbose(Tag,
@@ -376,15 +358,6 @@ namespace Parsek
 
             ParsekLog.Verbose(Tag,
                 $"StockUiOverlay: MissionControl decorated contractCount={decorated}");
-        }
-
-        internal static bool ShouldApplyOverlays()
-        {
-            // Permanently true since the 2026-08-27 settings simplification retired the
-            // showCommittedFutureOverlays setting: committed-future overlays always draw.
-            // Kept as a method (rather than inlining) so the call sites keep reading as
-            // the single gate they were designed around.
-            return true;
         }
 
         internal static Dictionary<string, TechNodeOverlayMark> BuildTechMarks()

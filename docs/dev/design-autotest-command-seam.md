@@ -296,11 +296,13 @@ and as a last-resort tie-break when a PID cannot be probed.
 parse-and-range check. There is no reflective "set any field": the dispatcher switches on
 the whitelisted name and calls a typed setter, so the command is data, never code.
 
-The **persistence route** column is load-bearing. 8 of the 16 whitelisted settings are
-NOT authoritatively persisted through `GameParameters.CustomParameterNode`: for
-`writeReadableSidecarMirrors`, `showCommittedFutureOverlays`, `blockCommittedActions`,
-`showRouteLines`, `autoBackupExistingSaves`, `ghostRenderTracing`, `mapRenderTracing`,
-and `ledgerTracing`, the `ParsekSettingsPersistence` sidecar
+The **persistence route** column is load-bearing. 5 of the 13 whitelisted settings are
+NOT authoritatively persisted through `GameParameters.CustomParameterNode` (13/5 since
+the 2026-08-27 settings simplification retired `showCommittedFutureOverlays`,
+`blockCommittedActions`, `autoBackupExistingSaves` and `transitedBodyRotationModeIndex`
+-- SetSetting on any of those four now rejects `setting-not-whitelisted`): for
+`writeReadableSidecarMirrors`, `showRouteLines`, `ghostRenderTracing`,
+`mapRenderTracing`, and `ledgerTracing`, the `ParsekSettingsPersistence` sidecar
 (`GameData/Parsek/settings.cfg`) is authoritative -- `ParsekScenario.OnLoad` calls
 `ParsekSettingsPersistence.ApplyTo(ParsekSettings.Current)`, which OVERWRITES the
 `GameParameters` values on EVERY save load. A dispatcher that only mutated the live field
@@ -320,13 +322,14 @@ the same), not through the `GameParameters` field alone.
 | `mapRenderTracing` | bool | true/false | `mapRenderTracing` | GameParameters + `ParsekSettingsPersistence.Record*` |
 | `ledgerTracing` | bool | true/false | `ledgerTracing` | GameParameters + `ParsekSettingsPersistence.Record*` |
 | `writeReadableSidecarMirrors` | bool | true/false | `writeReadableSidecarMirrors` | GameParameters + `ParsekSettingsPersistence.Record*` |
-| `autoBackupExistingSaves` | bool | true/false | `autoBackupExistingSaves` | GameParameters + `ParsekSettingsPersistence.Record*` |
-| `showCommittedFutureOverlays` | bool | true/false | `showCommittedFutureOverlays` | GameParameters + `ParsekSettingsPersistence.Record*` |
-| `blockCommittedActions` | bool | true/false | `blockCommittedActions` | GameParameters + `ParsekSettingsPersistence.Record*` |
 | `showRouteLines` | bool | true/false | `showRouteLines` | GameParameters + `ParsekSettingsPersistence.Record*` |
 | `samplingDensity` | int | 0..2 | `samplingDensity` | GameParameters |
 | `ghostAudioVolume` | float | 0.0..1.0 (InvariantCulture) | `ghostAudioVolume` | GameParameters |
-| `transitedBodyRotationModeIndex` | int | 0..2 | `transitedBodyRotationModeIndex` | GameParameters |
+
+(Removed 2026-08-27 with their settings: `autoBackupExistingSaves`,
+`showCommittedFutureOverlays`, `blockCommittedActions` -- behaviors permanently on --
+and `transitedBodyRotationModeIndex` -- landing-body alignment pinned Loose via
+`ParsekSettings.LandingBodyAlignmentMode`.)
 
 An unknown name -> `REJECTED msg=setting-not-whitelisted`. A value that fails the typed
 parse or range -> `REJECTED msg=setting-value-invalid`. The setter mutates the live
@@ -1191,10 +1194,10 @@ Unit tests (each: input -> expected -> what makes it fail):
 - **Whitelist rejects arbitrary field.** `name=someOtherField` -> `REJECTED
   not-whitelisted`; assert no reflective set occurs. Fails if the dispatcher can set a
   non-whitelisted field (the security-critical test - proves commands are data, not code).
-- **Tracked-setting persistence route.** Each of the 8
+- **Tracked-setting persistence route.** Each of the 5
   `ParsekSettingsPersistence`-authoritative names (`writeReadableSidecarMirrors`,
-  `showCommittedFutureOverlays`, `blockCommittedActions`, `showRouteLines`,
-  `autoBackupExistingSaves`, `ghostRenderTracing`, `mapRenderTracing`, `ledgerTracing`)
+  `showRouteLines`, `ghostRenderTracing`, `mapRenderTracing`, `ledgerTracing`; 8 before
+  the 2026-08-27 settings simplification)
   routes through the matching `ParsekSettingsPersistence.Record*` call (asserted via the
   persistence seam / a spy), and the 8 GameParameters-only names do NOT. Fails if a tracked
   setting is written only to the live field, which `ParsekScenario.OnLoad`'s `ApplyTo`

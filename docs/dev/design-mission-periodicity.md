@@ -477,7 +477,9 @@ loop shift while the destination keeps rotating, and the inertial capture orbit 
 Bug-2 offset.
 
 This is the deferred cross-parent twin of the same-parent "Landing-body alignment"
-control (Off/Loose/Precise) that already ships for Mun/Minmus missions. The cross-parent
+control (Off/Loose/Precise) that shipped for Mun/Minmus missions at the time of this
+design (the 2026-08-27 settings simplification later retired the control and pinned the
+mode at Loose via `ParsekSettings.LandingBodyAlignmentMode`). The cross-parent
 version was flagged `UnsupportedCrossParent` and deferred to "Phase 4." This is that
 phase, reframed: the controlling variable is the destination-SOI arrival UT (decoupled
 from the launch UT by re-aim's per-window regeneration), not a synodic-period launch-UT
@@ -623,9 +625,10 @@ a global resonance and never relaxes the HARD synodic-cadence requirement.
 The destination is, by construction, a TRANSITED (non-launch) body, so it slots into the
 existing `TransitedBodyRotationMode { Drop, Loose, Tight }` enum and the
 `ScheduleToleranceSecondsFor` dispatch with zero new tolerance vocabulary (the UI labels
-Off, Loose, Precise map to enum `Drop`, `Loose`, `Tight` respectively). The existing
-"Landing-body alignment" cycle button governs it; only the tooltip widens to name an
-interplanetary destination as well as the Mun.
+Off, Loose, Precise mapped to enum `Drop`, `Loose`, `Tight` respectively). At design time
+the "Landing-body alignment" cycle button governed it; since the 2026-08-27 settings
+simplification the mode is pinned Loose (`ParsekSettings.LandingBodyAlignmentMode`) and
+the other values are exercised by tests only.
 
 - **`DestRotation` tolerance:**
   - Precise (Tight): `T_rot(dest) * (0.25/360)` (`RotationToleranceFraction`, line 480).

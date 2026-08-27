@@ -346,14 +346,19 @@ namespace Parsek.Tests
         }
 
         /// <summary>
-        /// E10 (rewritten for the 2026-08-27 settings simplification): the overlay gate is
-        /// permanently open now that showCommittedFutureOverlays is retired. Fails if
-        /// someone reintroduces a condition into ShouldApplyOverlays.
+        /// E10 (rewritten for the 2026-08-27 settings simplification): committed-future
+        /// overlays are unconditional - the ShouldApplyOverlays gate was deleted with the
+        /// showCommittedFutureOverlays setting. Fails if someone reintroduces a gate
+        /// method without revisiting that decision.
         /// </summary>
         [Fact]
-        public void E10_OverlaysAlwaysApply()
+        public void E10_OverlayGateStaysDeleted()
         {
-            Assert.True(StockUiOverlayController.ShouldApplyOverlays());
+            Assert.Null(typeof(StockUiOverlayController).GetMethod(
+                "ShouldApplyOverlays",
+                System.Reflection.BindingFlags.Static
+                | System.Reflection.BindingFlags.Public
+                | System.Reflection.BindingFlags.NonPublic));
         }
 
         /// <summary>
