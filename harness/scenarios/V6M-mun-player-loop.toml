@@ -508,6 +508,59 @@ id = "V6M-mun-player-loop"
 #            same DLL, `2026-08-26_1929` PASS with its windows reproduced exactly, and the
 #            fallback fired ZERO times there - that lane emits no `inter-cycle-tail` event
 #            at all, so the arming never happens.
+#   UPGRADE  **2026-08-26 - `ownershipChanges = { min = 1 }` ADDED, and it discharges the
+#            deferral the ARMED row recorded.** The ARMED row above declined the key for a
+#            stated reason (it was not windowable at arming, and the schema fix that made
+#            it windowable landed in ANOTHER lane's change - PR #1546, V18T's arming -
+#            which may not silently upgrade an already-armed block). This is that
+#            separate arming pass: one window added, its own armed re-flight, its own
+#            negative control, and NOTHING ELSE TOUCHED - the four existing windows keep
+#            their exact values and the flown shape is byte-identical.
+#            THE WINDOW IS A FLOOR ONLY, argued in full at the block itself. Two reasons
+#            in one sentence each. (1) It is the RC-OWN success criterion the MAP-OPEN
+#            RE-FLY row PRE-REGISTERED before any map-open run existed -
+#            `ownershipChanges > 0`, "ONE record anywhere proves the walk published" - so
+#            the floor states the pre-registration rather than a count read back from the
+#            runs that satisfied it. (2) The measured 6 is NOT independent: it is 2 x
+#            `treatments.TracedPath`, and `_1840` demonstrates the coupling by holding at
+#            6 while `dwells` fell to 4, so a ceiling would re-gate the dwell population
+#            that `dwells` already governs.
+#            EVIDENCE, RE-READ FROM THE ARCHIVED RESULT JSONS rather than from this file:
+#            `ownershipChanges = 6` on ALL TWELVE map-open flights this lane has flown
+#            (`_1745`, `_1838`, `_1840`, `_1842`, `_1843`, `_1844`, `_1918`, `_1919`,
+#            `_1920`, `_1925`, `_1926`, `_1927`), and 0 on the one map-CLOSED reading
+#            `2026-08-25_2056`. Zero variance across twelve, and the single 0 is exactly
+#            the condition the facet exists to separate.
+#            WHAT IT BUYS OVER THE INDIRECT ARMING: `gating = true` already reds an
+#            RC-OWN FAIL, but it CANNOT red the stand-down - a lane that stopped opening
+#            the map takes RC-OWN to the `ownership-publish-surface-never-ran` unevaluable
+#            and greens inside the `unevaluable` ceiling. The floor is the first clause in
+#            this block that asserts the publish surface RAN, positively.
+#   DONE     **ARMED RE-FLIGHT `2026-08-26_2042` - PASS attempt 1**, gating=True,
+#            armedBlocks=['renderComposition'], ZERO mismatches and zero findings at every
+#            level, with the upgraded block declared (five assertions, `ownershipChanges:
+#            {min: 1}` among them in the run JSON's `declared`). Facets reproduced the
+#            canonical green shape: `ownershipChanges 6` (the thirteenth map-open flight
+#            to read it), dwells 5, cycles 2, transitions 5, treatments {StockConic 2,
+#            TracedPath 3}, seamKinds {rigid 21, flexible-soi 3}, unevaluable 79 - inside
+#            the 300 ceiling and inside the 75-112 spread the four earlier re-flights set.
+#   DONE     **NEGATIVE CONTROL `2026-08-26_2043` -
+#            `PARSEK-FAIL(render-composition)` attempt 1**, off a temporary
+#            `ownershipChanges = { min = 50 }` applied by a LINE-ANCHORED edit of the real
+#            key (a python pass asserting EXACTLY ONE line starting `ownershipChanges`,
+#            then `grep -n '^ownershipChanges'` AND `run.py --dry-run`'s `declared:` line
+#            before launch - the V24W `_1811` miss is why the second check is mandatory).
+#            EXACTLY ONE mismatch and it names the upgraded clause:
+#            `renderComposition.ownershipChanges 6 < min 50`. Every SIBLING VERIFIER ROW
+#            stayed clean (driverValidity / analyzer red=0 / logValidate / anomalySweep /
+#            expectations / testResults PASS, saveParse PASS on its own two armed blocks,
+#            unityExceptions REPORT), zero findings at every level stood beside the one
+#            mismatch, and the composition facets equalled the PASSing flight's - so the
+#            red is THIS lane's newly armed declaration and not the shared evaluator.
+#            NOT SHARED with V18T, whose control inverted `routeLineBuilds`: this is the
+#            first negative control the suite has flown on `ownershipChanges` itself.
+#            Reverted in the same change on the re-grepped real key, spec byte-identical
+#            to the pre-control state (checked, not assumed).
 #
 #            (ORIGINAL OWED ENTRY, kept for the audit trail.) The blocker the ARMED row
 #            points at is now actionable: R12's `EnterMapView` / `ExitMapView` verbs
@@ -1207,23 +1260,51 @@ forbidden = [
 #     collapsed the chain to one seam kind would green every count window above and red
 #     exactly here. The vocabulary is `rendercompose.SEAM_KINDS_REQUIRABLE`.
 #
+#   ownershipChanges = { min = 1 }        ADDED 2026-08-26 IN ITS OWN ARMING PASS, one
+#     day after the four windows above, and it is THE RC-OWN PREMISE MADE FIRST-CLASS.
+#     THE FLOOR IS THE PRE-REGISTERED CRITERION, VERBATIM. Before the map-open re-fly
+#     ever flew, the header's MAP-OPEN RE-FLY row wrote down what would refute it:
+#     "`ownershipChanges > 0` (the publish surface ran at all; the discriminator is
+#     GLOBAL, so ONE record anywhere proves the walk published)". `{ min = 1 }` IS that
+#     sentence as an assertion - not a window derived from a count, which is why the
+#     measured 6 does not appear in it.
+#     MEASURED 6 ON EVERY MAP-OPEN FLIGHT THIS LANE HAS EVER FLOWN - twelve of them,
+#     re-read out of the archived result JSONs rather than copied from this file:
+#     `2026-08-26_1745` (reading B), `_1838` / `_1842` / `_1843` / `_1844` (the four
+#     armed re-flights), `_1840` (the `cycles` negative control), `_1918` / `_1919` /
+#     `_1920` (the wrong-first-cut fallback reds), `_1925` / `_1926` / `_1927` (the
+#     determinism proof). Twelve readings, one integer, zero variance. The only 0 in the
+#     lane's history is reading A `2026-08-25_2056`, which flew with the map CLOSED -
+#     i.e. the facet separates exactly the condition it is meant to.
+#     WHY A FLOOR AND NOT A PIN, DESPITE THAT ZERO VARIANCE. `ownershipChanges` counts
+#     one appear/disappear PAIR per TracedPath dwell, so 6 is 2 x `treatments.TracedPath`
+#     and NOT an independent quantity. The `_1840` run proves the coupling and its
+#     direction in one reading: that flight lost a dwell close (`dwells` 4, `transitions`
+#     4, `treatments.StockConic` 2 -> 1) and `ownershipChanges` STAYED 6, because
+#     TracedPath stayed 3. A ceiling here would therefore re-gate the TracedPath dwell
+#     population - which is `dwells`'s job and `requireSeamKinds`' job - and a second
+#     window over the same fact reds twice for one cause and says nothing new. The floor
+#     asserts the one thing no other clause in this block does: THAT THE PUBLISH SURFACE
+#     RAN. Same shape and same argument as V18T's `routeLineBuilds = { min = 1 }`.
+#     WHAT IT ADDS OVER THE INDIRECT ARMING IT REPLACES. `gating = true` already gates
+#     every FAIL-level finding, so an RC-OWN regression of reading A's shape (a visible
+#     TracedPath dwell with no ownership record) already reds. What it could NOT catch is
+#     the STAND-DOWN: a lane that silently stopped opening the map takes RC-OWN to
+#     `ownership-publish-surface-never-ran`, an unevaluable, and GREENS - the census
+#     entry moves inside the `unevaluable` ceiling unnoticed. Until now that was stated
+#     only by a NEGATIVE (the absence of a reason from the census) and only in the run
+#     JSON, never in a declaration. This floor turns it into a positive assertion that
+#     reds. It is the exact hole the schema-gap todo named.
+#     THE KEY BECAME WINDOWABLE on 2026-08-26 (`RENDER_COMPOSITION_WINDOW_KEYS` now
+#     carries it plus the two route keys; todo
+#     RENDERCOMPOSE-OWNERSHIPCHANGES-IS-NOT-WINDOWABLE, shipped with V18T's arming). It
+#     was deliberately NOT declared here in that change: upgrading an ALREADY ARMED
+#     lane's window set needs its own armed re-flight and negative control ON THIS LANE,
+#     which is this pass. NOTHING IN THE FLOWN SHAPE MOVED here either - no jump UT, no
+#     step, no budget, no tolerance, no other expectation, and none of the four windows
+#     above was re-pinned. The S4.1 rule holds across the upgrade.
+#
 # NOT DECLARED:
-#   * `ownershipChanges` - AT ARMING IT COULD NOT BE, which was a fact about the schema
-#     and not a choice: `rendercompose.RENDER_COMPOSITION_WINDOW_KEYS` was exactly
-#     ("dwells", "cycles", "unevaluable"), the list keys are ("warpBuckets",
-#     "requireSeamKinds"), and `validate_render_composition_expectations` rejected any
-#     other key outright pre-launch. Inventing a key here to carry the RC-OWN premise
-#     would have been authoring a facet, not arming a lane. THE PREMISE IS STILL ARMED,
-#     and completely, just indirectly: `gating = true` gates on every FAIL-level rule
-#     finding, so the exact three RC-OWN FAILs reading A raised would now classify
-#     `PARSEK-FAIL(render-composition)` instead of being report-only. What a first-class
-#     `ownershipChanges = { min = 1 }` would add over that is a floor on the PUBLISH
-#     surface running at all - which today is stated only by the ABSENCE of
-#     `ownership-publish-surface-never-ran` from the census. The gap was filed as a
-#     harness improvement in `docs/dev/todo-and-known-bugs.md` and CLOSED LATER THE SAME
-#     DAY: the key IS windowable now. IT IS STILL NOT DECLARED HERE, deliberately -
-#     upgrading an already-armed lane's window set needs its own armed re-flight and
-#     negative control on this lane, which is a separate arming pass and not an edit.
 #   * `warpBuckets` - NEVER on this lane (header section 6, last prediction): every clock
 #     move is an instantaneous TimeJump, so the histogram is 1x-only by construction and
 #     a bucket window would gate on the drive shape rather than on the product. V24W is
@@ -1231,6 +1312,7 @@ forbidden = [
 gating = true
 dwells = { min = 1, max = 32 }
 cycles = { min = 2, max = 16 }
+ownershipChanges = { min = 1 }
 unevaluable = { max = 300 }
 requireSeamKinds = ["rigid", "flexible-soi"]
 

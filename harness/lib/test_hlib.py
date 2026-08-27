@@ -6433,21 +6433,69 @@ class RenderComposeVerifierWiringTests(unittest.TestCase):
         # `seam-endpoint-skipped` (83 map-open, 109 map-closed) plus one
         # `warp-hold-traversal-evidence-absent`, i.e. it moves with endpoint population
         # and frame timing, not with correctness.
-        # `ownershipChanges` IS NOT DECLARED. At arming it COULD not be - it was a
+        # `ownershipChanges` WAS NOT DECLARED AT ARMING and COULD not be - it was a
         # recorded FACET and not a windowable key, and the block validator rejected any
         # other key outright - so the RC-OWN premise (ownership is conserved on this
-        # subject) is armed INDIRECTLY and completely: with `gating = true` every
-        # FAIL-level rule finding gates, so the three RC-OWN FAILs reading A raised would
-        # now classify `PARSEK-FAIL(render-composition)`. The schema gap was filed as a
-        # harness improvement rather than invented here, and CLOSED LATER THE SAME DAY:
-        # `RENDER_COMPOSITION_WINDOW_KEYS` now carries `ownershipChanges` (plus the two
-        # route keys) - see docs/dev/todo-and-known-bugs.md ->
-        # RENDERCOMPOSE-OWNERSHIPCHANGES-IS-NOT-WINDOWABLE. THIS BLOCK STILL DOES NOT
-        # DECLARE IT, deliberately: adding a window to an ALREADY ARMED lane needs its
-        # own armed re-flight + negative control on THIS lane, and an
-        # `ownershipChanges = { min = 6 }` written off flights that never evaluated it
-        # would be a prediction read back as a measurement - the exact failure this
-        # entry's deferral was recorded to avoid. Deferred to its own arming pass.
+        # subject) was armed INDIRECTLY: with `gating = true` every FAIL-level rule
+        # finding gates, so the three RC-OWN FAILs reading A raised would classify
+        # `PARSEK-FAIL(render-composition)`. The schema gap was filed as a harness
+        # improvement rather than invented in the arming pass, and CLOSED LATER THE SAME
+        # DAY in ANOTHER lane's change (PR #1546, V18T's arming):
+        # `RENDER_COMPOSITION_WINDOW_KEYS` now carries `ownershipChanges` plus the two
+        # route keys - docs/dev/todo-and-known-bugs.md ->
+        # RENDERCOMPOSE-OWNERSHIPCHANGES-IS-NOT-WINDOWABLE. That change deliberately did
+        # NOT upgrade this block: an already-armed lane's window set may only grow
+        # through its own armed re-flight + negative control, never as a follow-up edit
+        # riding someone else's commit.
+        # ** UPGRADE 2026-08-26, THAT DEFERRED PASS, FLOWN: `ownershipChanges = { min = 1 }`
+        # DECLARED.** Nothing else moved - the four windows above keep their exact values,
+        # the flown shape is byte-identical, no jump UT / step / budget / tolerance / other
+        # expectation was touched (S4.1 across an upgrade).
+        # A FLOOR ONLY, and the floor is the PRE-REGISTERED CRITERION VERBATIM: the
+        # header's MAP-OPEN RE-FLY row wrote `ownershipChanges > 0` - "the discriminator
+        # is GLOBAL, so ONE record anywhere proves the walk published" - BEFORE any
+        # map-open run existed, so `{min = 1}` states the pre-registration rather than a
+        # count read back from the runs that satisfied it.
+        # NO CEILING, for a measured reason rather than caution. `ownershipChanges` is one
+        # appear/disappear PAIR per TracedPath dwell, i.e. 2 x `treatments.TracedPath`,
+        # NOT an independent quantity - and `_1840` demonstrates the coupling in a single
+        # reading: that flight lost a dwell close (dwells 4, transitions 4, StockConic
+        # 2 -> 1) and `ownershipChanges` HELD AT 6 because TracedPath held at 3. A ceiling
+        # would therefore re-gate the dwell population `dwells` already governs, red-ing
+        # twice for one cause. Same shape and same argument as V18T's
+        # `routeLineBuilds = {min = 1}`.
+        # THE EVIDENCE, re-read from the archived result JSONs rather than from the spec's
+        # own prose: `ownershipChanges = 6` on ALL TWELVE map-open flights the lane has
+        # flown (_1745, _1838, _1840, _1842, _1843, _1844, _1918, _1919, _1920, _1925,
+        # _1926, _1927) and 0 on the single map-CLOSED reading 2026-08-25_2056. Zero
+        # variance across twelve; the one 0 is exactly the condition the facet separates.
+        # WHAT THE FLOOR ADDS OVER THE INDIRECT ARMING, which is the whole point: gating
+        # already reds an RC-OWN FAIL, but it CANNOT red the STAND-DOWN. A lane that
+        # silently stopped opening the map takes RC-OWN to the
+        # `ownership-publish-surface-never-ran` unevaluable and GREENS, the census entry
+        # absorbed inside the 300 ceiling. Until now that was stated only by a NEGATIVE
+        # (a reason absent from the census) and only in the run JSON, never in a
+        # declaration. This is the block's first positive assertion that the publish
+        # surface RAN.
+        # UPGRADE ARMED RE-FLIGHT: `2026-08-26_2042` PASS attempt 1, gating=True,
+        # armedBlocks=['renderComposition'], ZERO mismatches, zero findings at every
+        # level, `declared` recording `ownershipChanges: {min: 1}` among five assertions.
+        # ownershipChanges 6 (the thirteenth map-open reading), dwells 5, cycles 2,
+        # transitions 5, treatments {StockConic 2, TracedPath 3}, seamKinds {rigid 21,
+        # flexible-soi 3}, unevaluable 79 - inside the ceiling and inside the 75-112
+        # spread the four pre-upgrade re-flights set.
+        # UPGRADE NEGATIVE CONTROL: `2026-08-26_2043`, temporary
+        # `ownershipChanges = { min = 50 }` applied by a LINE-ANCHORED edit of the real key
+        # (a python pass asserting EXACTLY ONE line starting `ownershipChanges`, then
+        # `grep -n '^ownershipChanges'` AND `run.py --dry-run`'s `declared:` line before
+        # launch), red on exactly `PARSEK-FAIL(render-composition)` with EXACTLY ONE
+        # mismatch, `renderComposition.ownershipChanges 6 < min 50`. Every sibling row
+        # stayed clean (driverValidity / analyzer red=0 / logValidate / anomalySweep /
+        # expectations / testResults PASS, saveParse PASS on its own two armed blocks,
+        # unityExceptions REPORT). THE SUITE'S FIRST NEGATIVE CONTROL ON `ownershipChanges`
+        # itself - not shared with V18T, whose control inverted `routeLineBuilds`.
+        # Reverted in the same change on the re-grepped real key, spec byte-identical to
+        # the pre-control state.
         # `warpBuckets` never (1x-only by construction, instantaneous TimeJumps).
         # ARMED RE-FLIGHT: DISCHARGED FOUR TIMES - `2026-08-26_1838`, `_1842`, `_1843`,
         # `_1844`, all PASS attempt 1 with gating=True,
