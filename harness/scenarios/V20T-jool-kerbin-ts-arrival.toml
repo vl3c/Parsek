@@ -1,0 +1,1158 @@
+schema = 1
+id = "V20T-jool-kerbin-ts-arrival"
+# =====================================================================================
+# V20T: THE TRACKING-STATION OBSERVATION OF A LOOPED **KERBIN ARRIVAL** - the TS half of
+# the V20 pair, and the first TS loop subject whose recording arrives at KERBIN FROM
+# ANOTHER PLANET.
+#
+# ITS SUBJECT EXISTS AND WAS FLOWN BEFORE THIS SPEC WAS WRITTEN.
+# `B29-jool-kerbin-return` FLIGHT 3 came back PASS attempt 1 on 2026-08-27 (MISSION-OK,
+# wall 2,103 s, all eight assertions met), and its produced save is the committed
+# `fixtures/saves/kerbin-return-recorded` harvest. So there is no `PENDING_FIXTURE_LANES`
+# exemption here and no zero tree id: EVERY number below is read off those bytes, and the
+# ones that are arithmetic say so.
+#
+# NOTHING IN THIS FILE IS ARMED. It is a READING-RUN spec: no `gating = true` anywhere,
+# no routing token in `required`, every window derived rather than measured. **THIS LANE
+# HAS NEVER FLOWN.**
+#
+# **TWO READING RUNS HAVE FLOWN AND THE SECOND IS GREEN.**
+# RUN 1 `2026-08-27_1857`: PARSEK-FAIL(anomaly), attempt 1, wall 61 s - A PRE-REGISTERED
+# CORRECT CATCH RATHER THAN A LANE DEFECT.
+# **RUN 2 `2026-08-27_1913`: PASS ATTEMPT 1, wall 61 s, EVERY VERIFIER PASS OR SKIPPED**
+# with the tolerated token - `anomalySweep status=PASS hits=[] allowed=['icon-teleport']
+# hitCounts={'icon-teleport': 3}`, `expectations PASS mismatches=0` over all THIRTEEN
+# required tokens, analyzer red=0, logValidate PASS, saveParse REPORT 739/739/739 with
+# every rewind facet 0, renderCompose REPORT 0 FAIL. **THE ANOMALY COUNT RECURRED AT THE
+# IDENTICAL 3**, so the ceiling arithmetic in `allowedAnomalies` now stands off a PAIR
+# rather than a single sample - which is exactly what that block said reading 2 was for.
+# **THIS LANE IS ARM-READY** (not armed; arming is a separate operator decision).
+# RUN 1's ledger: Section 10 is
+# the full ledger. The short form: driverValidity PASS with ALL THIRTEEN required tokens
+# matched, analyzer red=0, logValidate PASS, saveParse clean, renderCompose 0 FAIL, and
+# the ONLY hit is `icon-teleport x3` - now tolerated BY NAME with that run beside it.
+# **THREE THINGS THIS LANE PRE-REGISTERED WERE ANSWERED AT ONCE**: the endpoint-tail seed
+# is NOT FLIGHT-only (45 hits in TS), the TS init walk took READING B (`created 1`,
+# `noOrbit=0`), and - the one that cost a correction - **THE PRE-EMPTIVE RE-PIN BELOW WAS
+# WRONG AND ITS PIN IS RESTORED** (section 5A).
+#
+# **AND ITS SIBLING FLEW FIRST, WHICH IS WHERE THE PRE-EMPTIVE RE-PIN CAME FROM.**
+# V20M reading run `2026-08-27_1828` (PARSEK-FAIL(expectation), attempt 1, wall 74 s,
+# ONE mismatch - its own destination-frame render token) measured, over the SAME
+# `GhostMapPresence` proto-creation path this lane uses, that a ghost proto's rendered
+# body frame on this subject is NEVER Kerbin at any epoch. **SECTION 5A CARRIES THE
+# PRE-EMPTIVE RE-PIN**: the `phase=GhostCreated surface=ProtoIcon ... body=Kerbin
+# scene=TRACKSTATION` token this file shipped with is KEPT VERBATIM there and REMOVED
+# from `required`, replaced by a body-free TS proto floor plus the same seed-side arrival
+# token V20M re-pinned onto. **RE-PINNING A LANE OFF ITS SIBLING'S MEASUREMENT RATHER
+# THAN FLYING A KNOWN-DEAD PIN IS THE POINT OF AUTHORING THEM AS A PAIR** - and the
+# honest cost is that the replacement's reachability IN THE TRACKING STATION is itself
+# unmeasured, which section 5A pre-registers as one of the things this lane's first run
+# now measures.
+#
+# ---------------------------------------------------------------------------------
+# WHY THE STEP CHAIN LOOKS LIKE THIS - V5's precondition, unchanged and still binding.
+# MissionConfig, StartLoopPlayback and TimeJump are ALL `RequiresFlight` in
+# `TestCommandDispatcher.Preconditions`: in TRACKSTATION each would DEFER `not-in-flight`
+# until its budget expired and the run would die on a timeout having armed nothing. So
+# arming and clock work happen in FLIGHT, are PERSISTED, and only then re-entered in TS:
+#   FLIGHT: kill the entry stub -> arm tracers -> MissionConfig (loop ON)
+#           -> StartLoopPlayback -> ONE TimeJump into the cycle-1 Kerbin arrival coast
+#   SaveGame (persists the armed MissionStore state AND the jumped clock; ghost
+#             ProtoVessels are stripped by GhostMapPresence.StripFromSave)
+#   TRACKSTATION: LoadGame scene=trackstation, then the forty-tick dwell block.
+# There is no shorter honest chain. The V19T/V17T/V16T/V15T/V14T shape is reproduced
+# VERBATIM in SHAPE - same verbs, same order, same re-kill pair - and only the tree id,
+# the one jump UT and the pinned body differ.
+#
+# THE RE-KILL PAIR BEFORE THE TS LOAD IS NOT BELT-AND-BRACES: V5 run 1 attempt 1 died
+# there on `reject cmd=LoadGame reason=recording-active`, because the scene-entry
+# promotion recorder RE-ARMS on some entry orderings and not others. Running the pair
+# immediately before the load the guard rejects is the only placement that makes the
+# outcome deterministic.
+#
+# =====================================================================================
+# 1. THE SUBJECT, MEASURED OFF THE COMMITTED BYTES
+# =====================================================================================
+#   tree id      = 6c0002fea2134f688e2c3e9252026543   ("Duna Rocket", persistent.sfs)
+#   recording id = 6d171d14ef474fbf95c69ada863bda12   (ONE member, ONE .prec sidecar)
+#   save UT      = 60,393,898.254155263
+#   POINT span   = 27,787,321.159510821 -> 60,393,894.394154631 (32,606,573.234643809 s)
+# **THE UNIT DOES NOT USE THE POINT SPAN.** The loop unit uses the TRACK_SECTION
+# envelope, and the trap is DERIVED FRESH for this subject rather than inherited:
+#   ut0     = **27,787,321.139510822**  (0.020000000 s BEFORE the first POINT)
+#   spanEnd = **60,393,896.914155044**  (**2.520000413 s PAST** the last POINT)
+#   spanDur = **32,606,575.774644222 s** (2.540000413 s longer than the POINT span)
+# V17M measured 0.020 / 1.060 s on its own subject and V19M 0.020 / 1.360 s on its own,
+# so the deltas are a property of the SURFACE and must be re-measured per subject rather
+# than copied. Anything sized against the POINT span is short by 2.520 s at the tail end.
+# NOTE THE TWO POINT COUNTS ARE DIFFERENT SURFACES AND BOTH ARE RIGHT: the sidecar
+# carries **749** POINT nodes while the `.sfs` metadata the C# codec writes reads
+# `pointCount = 739`. Nothing below pins either.
+#
+# **EIGHTEEN ORBIT_SEGMENTs, every one `isPredicted=False`**, Jool 0-4 then Sun 5-13 then
+# Kerbin 14-17, so exactly TWO body-change seams:
+#   seg#4  end / seg#5  start = **36,198,519.425954551**  (the Jool->Sun seam)
+#   seg#13 end / seg#14 start = **60,366,070.331327148**  (the SUN->KERBIN ARRIVAL seam)
+#   seg#16 Kerbin arrival coast 60,366,107.016874090 -> 60,392,908.239061728
+#   seg#17 end                  60,393,505.214090839     <- THE LAST ORBIT SOURCE
+#   segment-less tail           60,393,505.214 -> 60,393,896.914  (**391.700 s**; the
+#                               206.300 s `env=1` capture burn sits inside it)
+# The Kerbin conics are HYPERBOLIC (sma -392,274.880 m, ecc 2.7877, inc 16.4427 deg) -
+# the approach hyperbola - because the capture burn fires AFTER the last ORBIT_SEGMENT
+# ends. The Kerbin-frame stretch of the recording is **27,826.582828 s** long.
+#
+# **42 TRACK_SECTIONs**, counted off the committed sidecar: **24 at `ref=0`** (Absolute,
+# point-carrying) and **18 at `ref=2`** (`TrackSection.ReferenceFrame.OrbitalCheckpoint`,
+# one wrapping each ORBIT_SEGMENT), and **ZERO at `ref=1`** - so no Relative-frame
+# resolution anywhere in this subject. The `ref=2` sections are exactly the ones that
+# carry an orbit SOURCE, which is the surface section 3's jump placement and section 5's
+# init-walk question both turn on.
+# **THE PARKED TAIL IS SEGMENT-LESS.** That is the B25/V16M/V19M shape, and it is the
+# exact shape V17T run 1 measured a TS init walk doing something specific with - section 5.
+#
+# =====================================================================================
+# 2. THE LOOP CLOCK, AND WHY THIS LANE SELF-OVERLAPS BY A FACTOR OF 54,344
+# =====================================================================================
+# Cadence is `Auto` -> `max(spanDur, LoopTiming.MinCycleDuration = 5.0)` = spanDur. The
+# per-instance launch cadence is then
+#   ComputeEffectiveLaunchCadence(30.0, spanDur, 20)
+#     = max(ParsekSettings.autoLoopIntervalSeconds default 30.0, spanDur / 20)
+#     = **1,630,328.788732211 s**        <- THE CAP DOMINATES BY 54,344x
+# (`GhostPlayback.MaxOverlapMissionInstances = 20`,
+# `LoopTiming.DefaultLoopIntervalSeconds = 30.0`, `LoopTiming.MinCycleDuration = 5.0`,
+# all in `Source/Parsek/ParsekConfig.cs`.)
+#
+# So the loop SELF-OVERLAPS - up to 20 concurrent instances launched 1,630,328.8 s apart
+# - and because `overlapCadence` is EXACTLY `spanDur / 20`, instance 21 is exactly one
+# span after instance 1. That is V17M's identity, third subject.
+# **THIS IS BY FAR THE LONGEST-SPAN LOOP SUBJECT THE PROGRAM HAS CARRIED**: 32,606,575.8 s
+# is 3.54 Kerbin years and 2,719x V19T's 11,991.8 s span. Section 4 is where that changes
+# what the forty-tick dwell has to buy.
+#
+# THE ANCHOR IS THE ONE SEEDED NUMBER IN THIS FILE AND IT IS NOT A BYTE FACT. With
+# phase-lock skipped the anchor is "the UT the loop was enabled at"; the save restores UT
+# **60,393,898.254155263** and a handful of fast seam verbs run at 1x before
+# `MissionConfig`, so the seed is
+#   **A ~ 60,393,900 (+/- 3 s)**   i.e. saveUT + 1.746 s
+# The line that re-pins it is `startloopplayback initiated: relaunchUt=`, which is
+# required below for exactly that reason.
+# **THE PAIR WILL NOT SHARE AN ANCHOR AND THAT IS EXPECTED, NOT A DEFECT.** V19M and
+# V19T measured 28,829,021.194 and 28,829,020.914 on ONE fixture - 0.280 s apart -
+# because their FLIGHT phases run a different count of fast verbs before `MissionConfig`.
+# A seeded anchor is a per-run quantity, not a fixture constant. **THE TWO LANES STILL
+# OBSERVE THE SAME JUMP UT, WHICH IS WHAT THE PAIR IS FOR.** A 3 s anchor error moves the
+# ghost's replay clock by 3 s against margins of 8,039.888 s and 8,636.863 s at the one
+# jump (section 3) - 0.037% of the nearest one.
+#
+# =====================================================================================
+# 3. THE ONE JUMP, AND WHY IT IS THE COAST-DWELL EPOCH RATHER THAN THE TAIL
+# =====================================================================================
+#   cycle-1 relaunch  R1 = A + 1 * 1,630,328.788732211 = **62,024,228.788732**
+#   **THE JUMP        R1 + 32,597,547.211               = 94,621,776**
+#
+# IT IS V20M's CYCLE-1 COAST-DWELL EPOCH, REUSED VERBATIM, so the two lanes observe the
+# SAME INSTANT from the two scenes. That is the whole reason a pair is authored as a pair
+# rather than as two specs about one fixture: any difference the reading turns up is then
+# a SCENE difference, because the clock is byte-identical.
+#
+# **AND THE EPOCH IS CHOSEN TO LAND INSIDE THE KERBIN ARRIVAL COAST SEGMENT, WHERE AN
+# ORBIT SOURCE EXISTS.** The replay shift is `R1 - ut0` = **34,236,907.649221 s**, so
+# seg#16 replays over
+#   [**94,603,014.666**, **94,629,815.888**]
+# and 94,621,776 sits **70.0018% through it**, **8,039.888 s** inside its far end and
+# **8,636.863 s** short of the replayed segment-less tail onset at 94,630,412.863.
+# THE SEEDED ALTERNATIVE from V20M's own table - the TAIL READ at R1 + 32,606,430.211 =
+# 94,630,659 - falls inside the replayed SEGMENT-LESS tail. **THIS LANE DOES NOT TAKE
+# IT**, deliberately: a TS lane whose whole anti-vacuity duty is "a ghost was materialized
+# in a KERBIN frame" must not park its single observation on the one stretch of the
+# recording that carries no orbit source at all. Section 1 records that tail as a measured
+# property of the subject and section 5 records what it may do to the init walk; parking
+# ON it is a different experiment and it is not this one.
+#
+# THE JUMP IS STRICTLY FORWARD, and the delta is DERIVED rather than measured: the
+# restored clock is 60,393,898.254 and `StartLoopPlayback` first advances it to about
+# `R1 - 15` = 62,024,213.789 (the product's `FastForwardToEventUT` targets the relaunch
+# epoch MINUS 15 s, which V19T MEASURED on its own run), so the TimeJump's own forward
+# delta is about **+32,597,562.2 s**. Both the raw +34,227,877.7 s from the restored
+# clock and the post-warp figure are strictly forward and the conclusion is unchanged;
+# the smaller one is the one a reader should use.
+# **A NON-FORWARD JUMP ANSWERS `REJECTED` WITH REASON `backward-jump`, AND THAT REDS THE
+# STEP**: `ParsekTestCommandAddon.TimeJumpKscAction.cs:55-57` logs the Warn AND calls
+# `SetExecResult("REJECTED", null, "backward-jump")`, and this step carries
+# `expect = "OK"`, so the step goes unmet and the run is driver-INVALID on both attempts.
+# The forbid below is a redundant grep-stable marker of that catch, kept for family
+# convention. The case NOTHING catches is a jump that lands FORWARD at the WRONG epoch:
+# read `anchorUt=` and `relaunchUt=`.
+#
+# **ONE COST NO PRIOR V-T LANE CARRIED.** This single jump traverses **34.23 Ms of game
+# time** (about 3.7 Kerbin years) in one instantaneous `Planetarium` clock set, and KSP
+# must on-rails-propagate every vessel and SpaceObject in the produced save across it -
+# including the asteroid and the two debris vessels the save carries. That cost is
+# UNMEASURED at this magnitude. The step budget is a 300 s watchdog; if the run dies
+# there rather than on a verdict, THAT is the reading and the fix is a budget, not a
+# re-seeded jump.
+#
+# =====================================================================================
+# 4. THE FORTY-TICK TS DWELL IS SPAWN-THROTTLE HEADROOM, AND ON THIS SUBJECT IT IS
+#    LOAD-BEARING IN A WAY IT WAS NOT ON V19T
+# =====================================================================================
+# V16M's forty-tick block exists to push a SECOND census emission past a 5.0 s
+# VerboseRateLimited window. **THAT IS NOT WHY IT IS HERE**, and copying it for that
+# reason would be copying a number without its argument. V17T run 1 (2026-08-20_1917)
+# measured the real mechanism on a self-overlapping TS subject:
+#
+#   overlap-instance creation runs **NEWEST-CYCLE-FIRST** at
+#   `GhostPlayback.MaxSpawnsPerFrame = 2` per lifecycle tick, so the OLDEST live cycle
+#   spawns LAST. Its two-tick TS phase gave the scene ~0.65 s = 3 ticks = 6 ghosts
+#   (cycles 14-19) and FlushAndQuit ended the scene before cycle 1's turn - **6 of 20**.
+#   The SAME epoch in the FLIGHT phase created all 20, so the pin was satisfiable; the
+#   scene simply had to live long enough.
+#
+# THE ARITHMETIC FOR THIS SUBJECT, with its inputs named because it is arithmetic and not
+# a measurement. Instance k is alive at the observation epoch when `(t - A) - k*pitch`
+# lies in [0, spanDur]; at t = 94,621,776 that resolves to **k = 1..20**, i.e. all twenty
+# have launched and none has expired. A KERBIN-framed instance is one whose replay offset
+# exceeds the 32,578,749.192 s arrival-seam offset, and since the Kerbin window is only
+# **27,826.583 s** against a **1,630,328.8 s** pitch - the pitch is **58.6x WIDER than the
+# window** - **AT MOST ONE INSTANCE CAN EVER BE KERBIN-FRAMED.** The derived census is:
+#     **Kerbin 1 / Sun 14 / Jool-escape 3 / Jool-park 2**
+# and the Kerbin one is **INSTANCE 1, THE OLDEST - THEREFORE THE VERY LAST TO SPAWN**
+# under newest-first ordering. At 2 per tick it appears at about **tick 10 of 10**, i.e.
+# dead last. **FORTY RecordingState ticks (>= 10 wall s at run.py's 0.25 s poll floor,
+# V16M's proven sizing) is ~4x that.**
+#
+# **AND THAT IS WHY THIS BLOCK IS LOAD-BEARING HERE IN A WAY IT WAS NOT ON V19T.** V19T's
+# subject had EIGHT Jool-framed instances spread through the spawn order, so a short TS
+# phase that read only 6 of 20 would still probably have caught one. **HERE THERE IS
+# EXACTLY ONE, AND IT SPAWNS LAST.** A TS phase cut off at 6 of 20 - the V17T measurement,
+# on this exact throttle - would read six Sun-framed and Jool-framed ghosts and MISS THE
+# ARRIVAL-LEG INSTANCE ENTIRELY, and the `body=Kerbin` pin would go unmet with no other
+# error in the log. The dwell is the whole reason the pin is reachable.
+# THE EXACT LIVE COUNT IS A READING this run reports rather than a number pinned anywhere
+# below (V19T measured 37 ghosts on its own dwell, against 20 instances, because the
+# lifecycle also re-materializes; nothing here predicts that number).
+#
+# =====================================================================================
+# 5. THE TS INIT WALK - BOTH READINGS PRE-REGISTERED, NEITHER GATED
+# =====================================================================================
+# V14T/V15T/V16T all required `ParsekTrackingStation initialized: created [1-9][0-9]*
+# ghost vessel\(s\)` as their TS anti-vacuity gate. V17T RETIRED it, because run 1
+# measured init-ZERO as the CORRECT product outcome on its subject: with the loop armed,
+# the init walk evaluates the BASE recording at the entry epoch and skips it `noOrbit=1`
+# when the recording's tail is segment-less (no visibleSegment / terminalOrbit /
+# endpointTail / stateVector source resolves), and every real ghost then comes from the
+# per-lifecycle-tick DYNAMIC overlap path instead. V19T then measured the OPPOSITE -
+# `created 1` with `noOrbit=0` and `visibleSegment=1` - on a subject whose jump landed
+# inside a segmented coast.
+#
+# **THIS SUBJECT SITS ON BOTH SIDES OF THAT, EXACTLY AS V19T's DID.** Its parked tail IS
+# segment-less (section 1) - the same shape V17T measured init-zero on - but this lane's
+# jump lands INSIDE the replayed Kerbin arrival coast (section 3), where an orbit source
+# demonstrably exists. Whether the init walk finds one AT THE ENTRY EPOCH depends on which
+# clock it evaluates the base recording against, and that is GENUINELY OPEN at this
+# subject:
+#
+#   READING A - INIT-ZERO. The walk reads the base recording on its OWN unshifted
+#     timeline, where the entry epoch is 34,227,879 s past the recording's end and the
+#     only candidate source is the segment-less tail. V17T's measurement.
+#   READING B - INIT-NONZERO. The walk reads the loop-shifted clock, where the entry
+#     epoch is 70% through a real Kerbin ORBIT_SEGMENT and a source resolves cleanly.
+#     V19T's measurement, on a subject shaped the same way this one is.
+#
+# **B IS THE RANKED PREDICTION** on the V19T precedent, and it is deliberately NOT gated:
+# a ranking over two enumerated readings is not a measurement.
+#
+# **MEASURED ON RUN 1 (`2026-08-27_1857`): IT IS READING B.**
+#   `CreateGhostVesselsFromCommittedRecordings: created=1 from 1 recordings
+#    sources(visibleSegment=1 terminalOrbit=0 endpointTail=0 stateVector=0) (skipped:
+#    ... noOrbit=0 ...)`
+#   `ParsekTrackingStation initialized: created 1 ghost vessel(s), fixed 0 orbit
+#    renderer(s), trackingStationSuppressed=0, orbitSourceDiagnostics=aggregated`
+# `created 1` with `noOrbit=0` and the source resolving as `visibleSegment` - the walk DID
+# find an orbit source, because this lane's jump lands INSIDE the SEGMENTED Kerbin arrival
+# coast rather than on the segment-less tail. Exactly the distinction READING B named
+# before the flight, and the same answer V19T's own subject gave. BOTH readings were
+# pre-registered here, NEITHER was gated, and the losing branch stays on the record.
+# **CONSEQUENCE, AND IT IS DELIBERATELY NOT TAKEN YET:** `created 0 ghost vessel\(s\)` is
+# now a MEASURED-live, FIREABLE forbid on this lane, exactly as it became on V19T - but
+# V19T added it at its ARMING pass, not at its reading pass, and this lane is still at the
+# reading pass (run 1 red on the anomaly). It is ARM-READY and recorded as such. THE LINE THAT SETTLES IT:
+# `ParsekTrackingStation initialized: created N ghost vessel(s)` against the walk's own
+# `noOrbit=` skip counter on the same boot. **NEITHER READING IS GATED** - the init line
+# is neither required nor forbidden, and the anti-vacuity duty is carried entirely by the
+# two DYNAMIC-path tokens, which an empty tracking station cannot satisfy in either world.
+# **AND `created 0 ghost vessel\(s\)` IS THEREFORE NOT IN `forbidden`**, exactly as it was
+# not on V19T's own reading run: a forbid on the init line would gate one branch of a
+# question this spec declares open. If the run measures `created 1`, the S1.4 rule says
+# arm the bare token WITH the run that shows it - at the arming pass, not here.
+#
+# =====================================================================================
+# 5A. THE PRE-EMPTIVE RE-PIN, OFF V20M's RUN 1 AND BEFORE THIS LANE FLIES
+# =====================================================================================
+# **THE PIN THIS FILE SHIPPED WITH, KEPT VERBATIM AND NOT DELETED:**
+#
+#     phase=GhostCreated surface=ProtoIcon pid=\d+ .*body=Kerbin scene=TRACKSTATION
+#
+# It was V6T's `body=Mun` pin with the body swapped, and its LENS ARGUMENT was and
+# remains correct - the visited set {Jool, Sun, Kerbin} looks nested-SOI and is not, so
+# the fail-closed root-frame render that made V17T's `body=Vall` pin structurally
+# unsatisfiable cannot arise here (V20M header section 5).
+#
+# **IT IS REFUTED ANYWAY, AND THE REFUTATION IS MEASURED - ON V20M's RUN, IN FLIGHT, OVER
+# THE PROTO-CREATION PATH BOTH SCENES SHARE.** Run `2026-08-27_1828`:
+#   * 41 `phase=GhostCreated surface=ProtoIcon` lines, body distribution **Jool 11 /
+#     Sun 30. ZERO Kerbin.** The ProtoIcon `body=` reads the ghost VESSEL's main body, and
+#     for a heliocentric-framed proto that is the Sun.
+#   * 41 `Created ghost vessel ... orbitSource=overlap-instance-segment` lines, with
+#     `referenceBody=` Jool 11 / Sun 30 - **NO instance was ever created on a Kerbin
+#     segment**, not even the one whose replay clock sat inside the Kerbin arrival coast.
+#     Cycles 1 and 21 were created on seg#13 (the last SUN coast, ending AT the arrival
+#     seam), which is exactly where section 3's arithmetic puts them at the epoch they
+#     were created.
+#   * 41 `phase=body-orbit surface=ProtoOrbitLine` reads, ALL on the recording's FIRST
+#     segment (`body=Jool sma=590325785`), each pid emitting exactly one sample.
+# **THE TS SCENE CANNOT ESCAPE THIS, BECAUSE IT IS THE SAME CODE.** The TS host
+# materializes overlap instances through the same `CreateOverlapInstanceVessel` ->
+# `BuildAndLoadGhostProtoVessel` path (that is why V19T's own anti-vacuity token is the
+# `orbitSource=overlap-instance-segment` line), and the TS INIT walk creates protos from
+# the same `GhostMapPresence` seeding. **FLYING THIS LANE WITH A KNOWN-DEAD PIN WOULD BUY
+# A SECOND PARSEK-FAIL AND NO NEW INFORMATION**, so the pin is re-cut here rather than
+# after the fact. Nothing else in the flown shape moves: no step, no jump, no budget, no
+# setting.
+#
+# **THE REPLACEMENTS, AND WHAT EACH ONE HONESTLY CLAIMS.**
+#   (1) `phase=GhostCreated surface=ProtoIcon pid=\d+ .*scene=TRACKSTATION` - THE SAME
+#       TOKEN WITH THE BODY CLAUSE REMOVED. It keeps the TS-specific proto floor (an
+#       empty tracking station cannot green it; V19T measured 37 of these) and drops
+#       exactly the clause that is unreachable. It is a PRESENCE claim, not a
+#       destination claim, and it is labelled as one.
+#   (2) `OrbitReseed\] TryFromHistoricalLatLonAltAndRecordedVelocityWithEpoch: body=Kerbin`
+#       - THE DESTINATION TOKEN, the same one V20M re-pinned onto, and for the same
+#       argued reason: `OrbitSeedResolver.TryDeriveTailOrbitSeed(..., MapPresence)`
+#       resolves the ghost proto's ENDPOINT-TAIL orbit from the RECORDING's own latest
+#       coast frame in the recording's endpoint body's frame, `body` being
+#       `FindBodyByName(RecordingEndpointResolver.TryGetPreferredEndpointBodyName(traj))`
+#       = KERBIN because this is the corpus's first Kerbin arrival. Both call sites are
+#       in `GhostMapPresence.cs` (`:4673`, `:10594`), so nothing but ghost-proto
+#       machinery reaches the emitter and the produced save's own Kerbin-parked craft
+#       cannot satisfy it; the emitter is `ParsekLog.Verbose`, NOT rate-limited.
+#       **IT IS A SEED-SIDE CLAIM WHERE THE REFUTED ONE WAS A RENDERED-FRAME CLAIM.**
+#       That is a DEMOTION, it is NOT what roadmap G2's TS third asks for, and the
+#       rendered-frame Kerbin claim on this host STAYS OWED.
+#   (3) `ShouldPopulateTerminalOrbitFromLastSegment: .*explicit endpoint body=Kerbin` -
+#       the LOAD-TIME structural premise (measured once on V20M's run), that the
+#       recording's KERBIN endpoint survives the load and its cached terminal orbit stays
+#       authoritative over the hyperbolic approach segment.
+#
+# **THE ONE THING THIS RE-PIN CANNOT SETTLE FROM A SIBLING'S LOG, PRE-REGISTERED AS A
+# READING RATHER THAN ASSUMED AWAY.** Token (2) was measured 41 times IN FLIGHT. Both its
+# call sites are scene-agnostic `GhostMapPresence` code and it fired once per proto
+# creation, and the TS host creates protos - so the expectation is that it fires there
+# too. **BUT NO COMMITTED RUN HAS SEEN IT IN TRACKSTATION**, and if it does not print
+# there the reading is "the endpoint-tail map-presence seed is FLIGHT-only", which is a
+# real finding about the TS host and worth the run. That is stated here BEFORE the flight
+# so it cannot be written afterwards.
+# **ANSWERED BY RUN 1: NO, IT IS NOT FLIGHT-ONLY.** `2026-08-27_1857` printed
+# `OrbitReseed] ... body=Kerbin` **45 times** with the tracking station up, so the
+# endpoint-tail map-presence seed is scene-agnostic exactly as the code walk said. The
+# pre-registered alternative is refuted and recorded rather than deleted.
+#
+# ---------------------------------------------------------------------------------
+# **AND THE PRE-EMPTIVE REMOVAL WAS WRONG. THIS LANE'S OWN RUN REFUTED IT, AND THE PIN IS
+# RESTORED.**
+# ---------------------------------------------------------------------------------
+# Run 1 matched `phase=GhostCreated surface=ProtoIcon pid=\d+ .*body=Kerbin
+# scene=TRACKSTATION` **ONCE** (pid 531221388, frame 8116, currentUT 94,621,778.600), and
+# one more time in its own FLIGHT prelude (pid 17209614, frame 7935). So the token this
+# file removed on a sibling's evidence was reachable on THIS lane all along, and it is
+# put back in `required` per the S1.4 rule - armed WITH the run that shows it.
+#
+# **WHY THE SIBLING'S MEASUREMENT DID NOT TRANSFER, AND IT IS AN EXACT REASON RATHER THAN
+# A SHRUG.** Overlap-instance protos are created ONCE, at the first jump that brings them
+# into existence, on the segment covering their replay clock AT THAT INSTANT - and they
+# are not re-created by later jumps.
+#   * V20M jumps to its SEAM BRACKET first (`-180 s`, the SUN side of the arrival seam)
+#     and creates all twenty instances there. At that epoch NO instance is Kerbin-framed -
+#     its own header section 3 derives exactly that, and its run confirmed cycles 1 and 21
+#     landing on seg#13, the last SUN coast. The later coast-epoch jump creates nothing
+#     new, so no Kerbin-framed proto is ever born on that lane.
+#   * THIS LANE HAS EXACTLY ONE JUMP AND IT IS THE COAST EPOCH, where instance 1's replay
+#     clock is inside the Kerbin arrival coast. Run 1's creation census proves it:
+#     `segmentUT=60366107.0-60392908.2` - **seg#16, the KERBIN ARRIVAL COAST** - appears
+#     twice (once per scene), against 6 Jool-park / 6 Jool-escape / 28 Sun. The instance
+#     the arithmetic said would be Kerbin-framed WAS, and it rendered a Kerbin-framed
+#     ProtoIcon in both scenes.
+# **SO THE PAIR NOW SPLITS ON G2's BAR, AND THE SPLIT IS THE HONEST STATEMENT.** This lane
+# carries a RENDERED-FRAME destination token again and the TS third of the bar is
+# discharged on it; V20M's flight-map third is NOT, because its own jump order gives it no
+# Kerbin-framed proto to render. Whether re-ordering V20M's jumps (coast epoch first)
+# would recover it is a REAL candidate for a future round and is deliberately NOT taken
+# here: that lane just flew GREEN on its re-pinned tokens, and moving a jump in the flown
+# shape after a green run is exactly the S4.1 violation the discipline exists to prevent.
+# The seed token and the load-time premise STAY in `required` beside the restored pin -
+# they are cheap, they are measured, and they cover the case where a future re-pin or a
+# re-harvest moves the one Kerbin-framed instance out of the observed epoch.
+#
+# =====================================================================================
+# 6. THE PRE-REGISTERED ANOMALY, AND WHAT THIS LANE ADDS TO THE FAMILY
+# =====================================================================================
+# `docs/dev/todo-and-known-bugs.md` -> MAPRENDER-ICON-OFF-ORBIT-CREATION-FRAME-AFTER-JUMP.
+# THE HISTORY, STATED EXACTLY:
+#   * `icon-off-orbit` on the ghost-proto CREATION frame fired on **ALL SIX RUNS** of
+#     V14T, V15T and V16T, at THREE parents (Duna/Ike 94.05 deg, Eve/Gilly 26.49,
+#     Jool/Laythe 129.15), while the stepped-bracket V14M/V15M/V16M controls stayed
+#     silent on all six of theirs. V16T additionally measured the first count > 1.
+#   * **V17T BROKE THE STREAK** (self-overlapping YES, nested-SOI YES: silent), and
+#     **V19T NARROWED IT** (self-overlapping YES, nested-SOI NO: silent), which EXCLUDED
+#     nested-SOI as the cause and left SELF-OVERLAP as the surviving candidate - present
+#     in both silent cases, absent in all six raising ones. **NO MECHANISM WAS CLAIMED**
+#     and the honest qualifier stands: a third variable nobody has named would defeat it.
+#
+# **WHAT THIS LANE ADDS IS A THIRD, MUCH MORE EXTREME POINT ON THE SELF-OVERLAP AXIS.**
+# V17T and V19T were both self-overlapping at a pitch of `span/20` where the span was
+# ~12 ks. Here the same ratio holds but the span is 32.6 Ms, so the instances are spread
+# **2,719x further apart in recorded time** and only ONE of twenty is destination-framed
+# (section 4). If self-overlap really is what suppresses the trigger, silence here is a
+# third confirmation at an extreme parameter value; **if it RAISES here, self-overlap
+# alone is not sufficient and the surviving candidate falls too**, which would reopen the
+# family entry to a variable nobody has yet named. Either outcome is a real reading.
+# HONEST QUALIFIER, inherited unchanged: that is a RANKING over enumerated candidates,
+# not a proof.
+#
+# **MEASURED ON RUN 1: `icon-off-orbit` WAS SILENT, AND THE SWEEP RED ON SOMETHING ELSE.**
+# `anomalySweep hitCounts {icon-teleport: 3}` and nothing more - zero `icon-off-orbit`,
+# zero `loop-seam-teleport`, zero `line-blink`, `unlistedReasons=[]`. So the family table
+# above gains its row and the ranking above SURVIVES:
+#   V14T / V15T / V16T   6 runs, 3 parents   self-overlapping NO   nested-SOI NO   RAISED 6/6
+#   V17T                                     self-overlapping YES  nested-SOI YES   silent
+#   V19T                                     self-overlapping YES  nested-SOI NO    silent
+#   **V20T (this run)                        self-overlapping YES  nested-SOI NO    silent**
+# - and it is silent at the EXTREME parameter value this section said it would test:
+# instances spread 2,719x further apart in recorded time than V17T's or V19T's, only one
+# of twenty destination-framed. **THAT IS A THIRD CONFIRMATION FOR SELF-OVERLAP AS THE
+# SURVIVING CANDIDATE, at a value no prior lane reached. STILL NO MECHANISM IS CLAIMED**
+# and the honest qualifier is unchanged: a third variable nobody has named would defeat
+# it. `icon-off-orbit` therefore STAYS OUT of `allowedAnomalies` - a token silent on three
+# consecutive lanes must not be pre-tolerated on the fourth.
+# **WHAT DID FIRE IS A DIFFERENT TOKEN AND A DIFFERENT FINDING**, and it is argued in the
+# `allowedAnomalies` block: three `icon-teleport` raises at `warpRate=1`, each naming a
+# from/to orbit pair that shows a proto being re-seeded off the post-escape Jool ellipse
+# onto SEGMENT ZERO. That is the settle-to-segment-zero mechanism V20M could only see as
+# an end state, caught here as the TRANSITION.
+#
+# **SO THIS LANE SHIPPED `allowedAnomalies = []` ON PURPOSE AND GATED ON NEITHER OUTCOME.**
+# Pre-tolerating the token would swallow the only measurement this pair can make about the
+# family; a PARSEK-FAIL(anomaly) with every step green is a pre-registered correct catch,
+# and a clean sweep is an equally load-bearing reading. If it fires, arm the BARE token
+# WITH the run that shows it (the S1.4 rule), and note V16T's reading already moved the
+# deferred ceiling from `maxCount = 1` to 2.
+#
+# =====================================================================================
+# 7. POSTURE - READING RUN, NOTHING ARMED
+# =====================================================================================
+# `required` is TEN tokens, V19T's set with the body swapped. The re-aim trio and every
+# phase-lock artifact stay OUT of BOTH lists, for V19M's reason and for a sharper one
+# here: this pair is where the INBOUND interplanetary routing is READ, and V20M's header
+# section 2 walks the classifier to a decline string - `transfer departs from a
+# heliocentric parking orbit or mid-course correction (deferred); staying faithful` - that
+# NO COMMITTED LANE HAS EVER PRINTED, reached only because this is the FIRST subject whose
+# arrival scan succeeds at all. Requiring or forbidding any of those tokens would gate on
+# an answer this pair exists to measure. `factory chain rec=... reaimed=True|False` is the
+# single sharpest discriminator and is therefore left UNREQUIRED and UNFORBIDDEN. (If you
+# grep for it, grep `reaimed=` ALONE: `MapRender/PhaseFactory.cs:118` interposes
+# `window=[...]` between `reaimed=` and `faithfulFallback=`, so a longer literal quote
+# matches nothing and reads like "no factory chain line at all".)
+#
+# The PROTO-ORBIT-LINE pin that coverage criterion (a) owes this subject
+# (`docs/dev/autotest-roadmap.md` -> "The loop-render coverage program" -> "Confirmation
+# criteria" -> (a)) belongs to V20M and is deliberately NOT duplicated here, so the pair
+# cannot drift. **THE LENS DECISION ITSELF IS V20M's HEADER SECTION 5 AND IT IS THE MOST
+# IMPORTANT DERIVATION IN THE PAIR**, so its conclusion is restated once here because this
+# lane's own pin depends on it: the visited set {Jool, Sun, Kerbin} LOOKS nested (the Sun
+# has TWO visited children) and is NOT, because `NestedSoiSubtree.FindNestedRoot`
+# (`NestedSoiSubtree.cs:202-219`) requires the shared parent to be NON-ROOT and detects
+# the root both when the delegate reports its parent as null and when it reports it as
+# ITSELF (live KSP `Sun.referenceBody == Sun`). The comment at `:212-214` names this exact
+# shape - live `["Kerbin","Sun","Duna"]`, the mirror of ours - as the reason that guard
+# exists. So there is NO fail-closed root-frame render here, the proto lenses are intact,
+# and a `body=Kerbin` pin is structurally satisfiable rather than unsatisfiable the way
+# V17T/V17M's `body=Vall` was. This lane's TS anti-vacuity is the two dynamic-path tokens
+# in section 5's sense - the overlap-instance creation line and the ProtoIcon body frame.
+#
+# **ARMED 2026-08-27 OFF THIS LANE'S OWN GREEN READING RUN 2, `2026-08-27_1913`.**
+# `[expectations.rewind]` and `[expectations.recordings.structure]` both carry
+# `gating = true` on the measured facets (rewind all 0; trees {1,2} keeping V2's
+# duplicate-writer width, committedTrees and recordings pinned {1,1}, terminalStates
+# {Orbiting: min 1}), and `[expectations.recordings] count` tightens {1,3} -> {1,1}.
+# **EVERY WINDOW WAS ALREADY MET BY BOTH OF THIS LANE'S RUNS BEFORE ARMING, so the arming
+# re-pinned NOTHING and moved NO verdict** (the V19M bar). The payload is byte-identical
+# to V20M's, across four green measurements between the two lanes - the pair's determinism
+# statement.
+# **NOT ARMED, DELIBERATELY:** no routing token and NO D11 cell (this pair MEASURES the
+# routing); `[expectations.renderComposition]` STAYS DECLARED-BARE (its windows are a
+# later operator decision on tier cadence under the M-A7 wave process); the
+# `Split summary: .*exoCoastBodyChangeKept=2` MECHANISM token is armed on V20M ONLY while
+# this lane pins the COUNT, one gate per fact across the pair; and
+# `created 0 ghost vessel\(s\)` STAYS OUT of `forbidden` even though run 1 measured
+# `created 1` - V19T added that forbid at its arming pass and this lane deliberately does
+# not, because section 5 pre-registers BOTH init-walk readings and a forbid there would
+# retroactively gate one branch of a question this spec declared open. It is ARM-READY and
+# recorded as such; a future pass may take it with the two runs cited.
+# V5's rule that a DOUBLE-ENTRY spec owes the tighter pin is what makes the rewind arm
+# worth most here: this spec writes a save mid-run and reads it back through a SECOND
+# scene load, the shape in which a stray durable write is easiest to miss.
+# **OWED:** the armed re-flight, then the negative control named in section 8.
+#
+# =====================================================================================
+# 8. THE NEGATIVE CONTROL owed by coverage criterion (b) - **NOT YET FLOWN**
+# =====================================================================================
+# Criterion (b) requires the control to invert a REQUIRED **RENDER** TOKEN. The standing
+# shared inversion every pre-V19 pair used - a temporary `rewind.supersedeRows` minimum -
+# proves the `saveParse` EVALUATOR can red and proves nothing about whether the render
+# pins can.
+#
+# THE INVERSION, pre-registered here so it cannot be written after the fact. One
+# character-run inside ONE array and nothing else changed - no step, no jump, no budget,
+# no setting:
+#
+#     [expectations.logContracts].required
+#         phase=GhostCreated surface=ProtoIcon pid=\d+ .*body=Kerbin scene=TRACKSTATION
+#     becomes
+#         phase=GhostCreated surface=ProtoIcon pid=\d+ .*body=Duna scene=TRACKSTATION
+#
+# `Duna` because this recording never visits it (the eighteen ORBIT_SEGMENTs are Jool,
+# Sun and Kerbin only), this lane never enters its SOI, and it is a SIBLING PLANET of both
+# the origin and the destination - so the inverted token reds precisely because the render
+# never puts this ghost in a Duna body frame, which proves the pin measures the RENDERED
+# BODY FRAME rather than proving the evaluator works.
+#
+# **NAMED AT THE ARMING PASS, 2026-08-27: THE TOKEN TO INVERT IS THIS LANE'S OWN TS LENS**
+# (it is back in `required` after round 3 restored it):
+#
+#     [expectations.logContracts].required
+#         phase=GhostCreated surface=ProtoIcon pid=\d+ .*body=Kerbin scene=TRACKSTATION
+#     becomes
+#         phase=GhostCreated surface=ProtoIcon pid=\d+ .*body=Duna scene=TRACKSTATION
+#
+# ONE character-run inside ONE array. Change NOTHING else - no step, no jump, no budget,
+# no setting, no window - and leave every COMMENT copy of the token intact. NOTE the
+# body-free floor `phase=GhostCreated surface=ProtoIcon pid=\d+ .*scene=TRACKSTATION` sits
+# in the same array and MUST NOT be touched: it would still match, which is exactly right -
+# the control must red on the BODY clause alone, with the rest of the contract green.
+#
+# **THE PRE-FLIGHT GATE, AND IT IS NOT OPTIONAL.** `2026-08-21_0857` (V19T's own history)
+# was ATTEMPTED as a control and PASSED, because a mis-escaped regex silently made NO EDIT
+# and the unmodified spec flew. **A CONTROL THAT PASSES IS A FAILED CONTROL,
+# indistinguishable from a spec that cannot red.** Before launching, assert the INVERTED
+# token is in the PARSED array, not merely in the file text:
+#
+#     python -c "import tomllib; r=tomllib.load(open(
+#       'harness/scenarios/V20T-jool-kerbin-ts-arrival.toml','rb'
+#       ))['expectations']['logContracts']['required']; \
+#       assert any('body=Duna scene=TRACKSTATION' in t for t in r), 'INVERSION DID NOT LAND'; \
+#       assert not any('body=Kerbin scene=TRACKSTATION' in t for t in r), 'ORIGINAL STILL PRESENT'; \
+#       print('inversion armed')"
+#
+# Fly, expect `PARSEK-FAIL(expectation)` with ONE mismatch naming exactly that token and
+# every other verifier row clean - including `saveParse`, whose two blocks are now GATING,
+# because that PAIRING is the whole proof: the red must be on the RENDER pin and not on
+# the evaluator. Then REVERT and confirm the reverted spec still passes.
+#
+# **THE PAIR MUST RUN TWO CONTROLS, NOT ONE SHARED.** V20M inverts its `scene=FLIGHT`
+# ProtoIcon form; this lane inverts the `scene=TRACKSTATION` one. The halves pin DIFFERENT
+# LENSES ON DIFFERENT HOSTS, and V20M's run 3 proved that is not a formality - the FLIGHT
+# host's ProtoOrbitLine lens is segment-zero-only where the TS host's reads real frames -
+# so one shared inversion would prove exactly one of them. That is the V19 pair's own
+# lesson, applied from the start rather than discovered.
+#
+# =====================================================================================
+# 11. WHAT ACTUALLY HAPPENED - THE DISCIPLINE, CLOSED 2026-08-27
+# =====================================================================================
+#   READING 1        `2026-08-27_1857`  PARSEK-FAIL(anomaly), attempt 1, wall 61 s - the
+#                    pre-registered correct catch (`icon-teleport x3`), with all thirteen
+#                    required tokens matched and everything else green. Section 10.
+#   READING 2        `2026-08-27_1913`  PASS attempt 1, wall 61 s, with the tolerance
+#                    live and the count RECURRING at the identical 3.
+#   ARMED RE-FLIGHT  `2026-08-27_1939` -> `_1940_a2`  **PASS on attempt 2, wall 119 s,
+#                    `note=flakedThenPassed`** - and the flake is ledgered honestly
+#                    because it is the retry contract working, not a Parsek fault.
+#                    ATTEMPT 1 came back `INVALID` subkind `driver-verdict-mismatch`:
+#                    ONE step of 56 unmet, `{"cmd": "LoadGame", "id": "0014", "expect":
+#                    "OK", "verdict": "REJECTED"}`, and the log names the reason -
+#                    `reject id=0014 cmd=LoadGame reason=recording-active`. **THAT IS THE
+#                    EXACT CLASS THIS FILE PRE-REGISTERED IN TWO PLACES**: the header's
+#                    re-kill-pair paragraph ("V5 run 1 attempt 1 died there on `reject
+#                    cmd=LoadGame reason=recording-active`, because the scene-entry
+#                    promotion recorder RE-ARMS on some entry orderings and not others")
+#                    and `[retry]` ("one retry absorbs the V5 promotion-recorder re-arm
+#                    race"). It is DRIVER-INVALID, never PARSEK-FAIL: the run reached no
+#                    verdict about the product, every save-reading verifier was SKIPPED,
+#                    and the retry the spec prices for exactly this spent itself and
+#                    landed green. ATTEMPT 2: `driverValidity allMet=True`, `saveParse
+#                    PASS gating=True armed=['rewind','recordings.structure']
+#                    mismatches=[]`, `expectations mismatches=0` over all thirteen
+#                    tokens, `anomalySweep PASS hits=[] counts={'icon-teleport': 3}
+#                    allowed=['icon-teleport']` - the tolerance doing its job at the
+#                    measured count for the THIRD run running. So the arming moved no
+#                    verdict and re-pinned nothing.
+#   NEGATIVE CONTROL `2026-08-27_1942`  **PARSEK-FAIL(expectation), attempt 1, wall 61 s,
+#                    EXACTLY ONE MISMATCH**, naming this lane's own TS render pin:
+#
+#                        logContracts.required not matched:
+#                        phase=GhostCreated surface=ProtoIcon pid=\d+ .*body=Duna
+#                        scene=TRACKSTATION
+#
+#                    **AND THE PAIRING IS THE WHOLE PROOF**: `driverValidity PASS
+#                    allMet=True`, analyzer red=0, logValidate PASS, `anomalySweep PASS`
+#                    with `icon-teleport 3` inside its tolerance, and **`saveParse PASS
+#                    with gating=True on both armed blocks and mismatches=[]`**. The red
+#                    is provably on the RENDER PIN and not on the evaluator. NOTE the
+#                    body-free TS floor was deliberately left untouched in the same array
+#                    and still matched, which is what makes the red land on the BODY
+#                    CLAUSE ALONE - the design section 8 specified. Spec REVERTED
+#                    immediately after and verified clean.
+# **THIS LANE IS DISCIPLINE-COMPLETE.** What remains is the ordinary operator -> nightly
+# PROMOTION call, plus two deferred decisions that are NOT debt: the
+# `[expectations.renderComposition]` windows (an operator call on tier cadence under the
+# M-A7 wave process) and the `created 0 ghost vessel\(s\)` forbid, which is ARM-READY
+# off run 1's measured `created 1` and deliberately not taken because section 5
+# pre-registers BOTH init-walk readings.
+#
+# =====================================================================================
+# 9. SCOPE LIMIT - THE KSC THIRD IS NOT THIS LANE'S AND IS NOT SETTLED BY IT
+# =====================================================================================
+# `docs/dev/autotest-roadmap.md` -> G2 states the bar as "destination-frame render tokens
+# at derived epochs on the flight map, the TS, and the KSC host". **THIS LANE OWNS THE TS
+# THIRD AND V20M OWNS THE FLIGHT-MAP THIRD.** The KSC third is `V20K`, reserved BY THAT
+# NAME by the roadmap's G2 correction over exactly these bytes.
+#
+# **AND UNLIKE B28's SUBJECT, THE KSC QUESTION HERE IS OPEN RATHER THAN CLOSED - WHICH IS
+# PRECISELY WHY NOTHING MAY BE WRITTEN UP ABOUT IT YET.** `ParsekKSC.Playback` hard-gates
+# every point and every segment on `bodyName != "Kerbin"` with skip reason `non-kerbin`
+# (`ParsekKSC.Playback.cs:288-297` and `:362-372`), and one level above that
+# `ParsekKSC.IsKscStructurallyEligible` (`ParsekKSC.cs:1488`) rejects a recording OUTRIGHT
+# on `rec.Points[0].bodyName != "Kerbin"` - **the FIRST point, not the arrival body**.
+# MEASURED on the committed sidecar: this recording's first POINT reads `body = Jool`
+# (the Jool park it departs from), so the outright-rejection gate LOOKS like it fires
+# here too - but this is also the first recording in the corpus that HAS Kerbin-bodied
+# points at all (56 of them in the final section alone), which is a genuinely different
+# input to the playback gate than B28's zero-occurrences-of-`Kerbin` subject presented.
+# **WHETHER THAT MATTERS IS A V20K MEASUREMENT AND NOT A V20M/V20T ONE. UNDER
+# CONFIRMATION CRITERION (c) NO LIMITATION MAY BE WRITTEN UP BEFORE A V20K RUN EXISTS**,
+# so this pair claims exactly two of G2's three hosts and asserts nothing about the third.
+# Two green armed V20 runs are NOT G2 closed.
+#
+# =====================================================================================
+# 10. WHAT ACTUALLY HAPPENED - READING RUN 1, `2026-08-27_1857`
+# =====================================================================================
+# PARSEK-FAIL(anomaly), attempt 1, wall 61 s, KSP exit 0. **A PRE-REGISTERED CORRECT
+# CATCH**, not a lane defect: the `allowedAnomalies` block above shipped EMPTY on purpose
+# precisely so a first raise would be measured rather than swallowed.
+#
+# **THE CHAIN WAS OTHERWISE PERFECT.** driverValidity PASS `allExpectedMet=True`;
+# **ALL THIRTEEN required tokens matched** (verified line by line against the collected
+# `KSP.log`: 1 / 1 / 1 / 1 / 1 / 1 / 20 / 21 / 1 / 45 / 1 / 3 / 4); zero forbidden
+# tokens; analyzer PASS red=0; logValidate PASS; saveParse REPORT clean; renderCompose
+# REPORT parsed with 0 FAIL. `expectations` reads SKIPPED with reason `short-circuit`
+# because the anomaly verdict lands first - which is WHY the thirteen tokens are stated
+# above as a hand verification against the log rather than as a verifier result.
+#
+# **THE THREE PRE-REGISTERED QUESTIONS, ALL ANSWERED.**
+#   (a) IS THE ENDPOINT-TAIL SEED FLIGHT-ONLY? **NO.**
+#       `OrbitReseed] TryFromHistoricalLatLonAltAndRecordedVelocityWithEpoch: body=Kerbin`
+#       printed **45 times** with the tracking station up. Section 5A's pre-registered
+#       alternative is refuted and kept.
+#   (b) THE TS INIT WALK: **READING B** (`created 1`, `noOrbit=0`, `visibleSegment=1`) -
+#       section 5.
+#   (c) THE `icon-off-orbit` DISCRIMINATOR: **SILENT**, a third confirmation for
+#       self-overlap at an extreme parameter value - section 6.
+#
+# **AND ONE THING THIS FILE GOT WRONG, CORRECTED LOUDLY RATHER THAN QUIETLY.** The round-2
+# pre-emptive re-pin removed the `body=Kerbin scene=TRACKSTATION` ProtoIcon pin on V20M's
+# FLIGHT-only evidence. **THIS LANE'S OWN RUN MATCHED IT** - once in TRACKSTATION (pid
+# 531221388, frame 8116) and once in its FLIGHT prelude (pid 17209614, frame 7935) - and
+# its creation census shows why: `segmentUT=60366107.0-60392908.2`, **seg#16, the KERBIN
+# ARRIVAL COAST**, twice (once per scene) against 6 Jool-park / 6 Jool-escape / 28 Sun.
+# The instance section 4's arithmetic said would be Kerbin-framed WAS. The pin is
+# RESTORED per the S1.4 rule and section 5A carries the exact reason the sibling's
+# measurement did not transfer (jump ORDER: V20M creates every proto at its seam-bracket
+# leg, on the Sun side, and never re-creates them at the coast epoch).
+# **THE LESSON IS WORTH MORE THAN THE PIN**: re-pinning off a sibling's log is a good
+# default and it was still wrong here, because the two lanes differ in the ONE variable
+# that decides proto framing - which epoch their FIRST jump lands on. A pre-emptive re-pin
+# is a prediction, and predictions get flown, not assumed.
+#
+# **THE ANOMALY, AND WHY IT IS THE BEST THING THIS RUN PRODUCED.** Three `icon-teleport`
+# raises, all at the coast-dwell epoch (frames 7998 x2 and 8014, `currentUT`
+# 94,621,776.560 / .820), each `warpRate=1 dt=0.0167` and each reading
+# `fromOrbit=[Jool|10246978796|0.9424] toOrbit=[sma=590325785 ecc=0.0000] body=Jool` with
+# `dPos` 334,981,793 m / 1,623,652,431 m / 2,935,994,339 m. The `from` orbit is the
+# post-escape Jool ellipse (seg#2-4, a = 1.0247e10 ecc 0.9424, to the digit); the `to`
+# orbit is SEGMENT ZERO. **V20M could only observe the settle-to-segment-zero behaviour as
+# an END STATE - 36 of 41 protos already there, one sample each, nothing caught in
+# motion. THIS RUN CAUGHT THE TRANSITION**, in the direction that matters (from the
+# CORRECT per-instance segment TO segment zero), at TS DWELL TIME rather than across a
+# jump, and at 1x rather than under warp. It is the strongest evidence in
+# TIMEJUMP-CANNOT-OBSERVE-LIVE-FRAME-OVERLAP-PROTOS-ON-LONG-PITCH-SUBJECTS and it is also
+# a per-raise warp attribution datum the OPEN `MapRenderProbe` threshold entry explicitly
+# asks for: these three are NOT threshold false positives.
+# =====================================================================================
+tier = "operator"
+description = "**THE TRACKING-STATION HALF OF THE V20 PAIR - THE FIRST TS LOOP SUBJECT THAT ARRIVES AT KERBIN FROM ANOTHER PLANET. TWO READING RUNS FLOWN 2026-08-27 AND THE SECOND IS GREEN.** RUN 1 (`2026-08-27_1857`), PARSEK-FAIL(anomaly) attempt 1, wall 61 s - a PRE-REGISTERED CORRECT CATCH rather than a lane defect. **RUN 2 (`2026-08-27_1913`): PASS ATTEMPT 1, wall 61 s, EVERY VERIFIER PASS OR SKIPPED** with the tolerated token - `anomalySweep PASS hits=[] allowed=['icon-teleport'] hitCounts={'icon-teleport': 3}`, `expectations PASS mismatches=0` over all thirteen required tokens, saveParse REPORT 739/739/739 with every rewind facet 0, renderCompose 0 FAIL. **THE COUNT RECURRED AT THE IDENTICAL 3**, so the ceiling (6 = 2x measured) now stands off a PAIR rather than one sample. **ROUND 5 THEN ARMED THE LANE OFF THAT RUN**: `[expectations.rewind]` and `[expectations.recordings.structure]` both `gating = true` on the measured facets (rewind all 0; trees {1,2} keeping V2's duplicate-writer width, committedTrees and recordings {1,1}, terminalStates {Orbiting: min 1}) and `[expectations.recordings] count` tightened {1,3} -> {1,1} - a payload BYTE-IDENTICAL to V20M's across four green measurements between the two lanes, which is the pair's determinism statement. Every window was already met by both of this lane's runs, so the arming re-pinned nothing and moved no verdict. **THIS LANE PINS THE COUNT AND V20M PINS THE COHESION MECHANISM** (`Split summary: .*exoCoastBodyChangeKept=2 splittableButRejected=0` is armed on V20M only) - one gate per fact across the pair, the V19M/V19T split verbatim. NO routing token, NO D11 cell, `renderComposition` stays declared-bare, and `created 0 ghost vessel(s)` deliberately stays OUT of `forbidden` even though run 1 measured `created 1`, because section 5 pre-registers BOTH init-walk readings and a forbid would retroactively gate one branch of a question this spec declared open (ARM-READY, recorded as such). **THE NEGATIVE CONTROL IS NAMED AND OWED**: invert this lane's OWN TS lens, `phase=GhostCreated surface=ProtoIcon pid=\\d+ .*body=Kerbin scene=TRACKSTATION` -> `... body=Duna scene=TRACKSTATION`, one character-run inside the required array, leaving the body-free TS floor untouched so the red lands on the BODY clause alone, behind a tomllib pre-flight gate asserting the inverted token is in the PARSED array - because `2026-08-21_0857` PASSED as a control when a mis-escaped regex silently made no edit, and **a control that passes is a failed control**. **THE PAIR CANNOT SHARE ONE CONTROL**: V20M's run 3 measured the FLIGHT host's ProtoOrbitLine lens as segment-zero-only where this host reads real frames, so the two lenses are measurably different and one inversion would prove exactly one of them. **BOTH FLEW ON 2026-08-27 AND THIS LANE IS DISCIPLINE-COMPLETE.** ARMED RE-FLIGHT `2026-08-27_1939` -> `_1940_a2`: **PASS on attempt 2, wall 119 s, `note=flakedThenPassed`**, and the flake is ledgered honestly as the retry contract working rather than a Parsek fault - attempt 1 came back INVALID `driver-verdict-mismatch` on ONE step of 56, `LoadGame id=0014 expect=OK verdict=REJECTED` with the log naming `reason=recording-active`, which is the EXACT class this file pre-registers twice (the re-kill-pair paragraph's V5 promotion-recorder re-arm race, and `[retry]`'s pricing of it); driver-INVALID reaches no verdict about the product and every save-reading verifier was SKIPPED. Attempt 2 ran green with `saveParse PASS gating=True armed=['rewind','recordings.structure'] mismatches=[]`, all thirteen tokens matched and `icon-teleport 3` inside tolerance for the third run running - so the arming moved no verdict. NEGATIVE CONTROL `2026-08-27_1942`: **PARSEK-FAIL(expectation), attempt 1, EXACTLY ONE mismatch** - `logContracts.required not matched: phase=GhostCreated surface=ProtoIcon pid=\\d+ .*body=Duna scene=TRACKSTATION` - with driverValidity PASS allMet, anomalySweep PASS (icon-teleport 3 tolerated) and **saveParse PASS with gating=True on both armed blocks**, the pairing that proves the red is on the RENDER PIN and not the evaluator; the body-free TS floor was left untouched and still matched, so the red lands on the BODY CLAUSE ALONE exactly as designed. Spec reverted and verified clean. TWO THINGS ARE DELIBERATELY LEFT OPEN AND ARE NOT DEBT: the `renderComposition` windows (an operator call on tier cadence) and the `created 0 ghost vessel(s)` forbid, ARM-READY off run 1's measured `created 1` and untaken because section 5 pre-registers BOTH init-walk readings.** RUN 1's chain was otherwise PERFECT: driverValidity PASS `allExpectedMet=True`, all THIRTEEN required tokens matched (hand-verified against the collected `KSP.log`: 1/1/1/1/1/1/20/21/1/45/1/3/4), zero forbidden tokens, analyzer red=0, logValidate PASS, saveParse REPORT clean, renderCompose REPORT 0 FAIL; `expectations` reads SKIPPED `short-circuit` because the anomaly verdict lands first. The ONLY hit is **`icon-teleport x3`**, now tolerated BY NAME with that run beside it. **THREE PRE-REGISTERED QUESTIONS WERE ANSWERED AT ONCE**: the endpoint-tail seed is NOT FLIGHT-only (`OrbitReseed] ... body=Kerbin` printed **45 times** with the tracking station up), the TS init walk took **READING B** (`created 1`, `noOrbit=0`, `visibleSegment=1` - V19T's answer, not V17T's), and `icon-off-orbit` was **SILENT**, a third confirmation for self-overlap as the surviving candidate at a parameter value no prior lane reached. **ARMED 2026-08-27 AT ROUND 5, OFF READING RUN 2'S OWN BYTES.** Runs 1-2 were pure reading-run posture; the arming is written FROM their facets and re-pinned nothing. **ONE OF ITS PINS WAS RE-CUT BEFORE IT EVER FLEW, AND THEN ITS OWN RUN PUT THE PIN BACK - THE CORRECTION IS RECORDED LOUDLY RATHER THAN QUIETLY.** V20M's reading run `2026-08-27_1828` (PARSEK-FAIL(expectation), one mismatch - its own destination-frame render token) measured, over the SAME `GhostMapPresence` proto-creation path this host uses, that a ghost proto's rendered body frame on this subject is NEVER Kerbin at any epoch: 41 `phase=GhostCreated surface=ProtoIcon` lines split **Jool 11 / Sun 30 with ZERO Kerbin**, 41 created ghosts carry `referenceBody=` Jool 11 / Sun 30 with no instance ever seeded on a Kerbin segment, and all 41 `phase=body-orbit` reads sit on the recording's FIRST segment. So `phase=GhostCreated surface=ProtoIcon pid=\\d+ .*body=Kerbin scene=TRACKSTATION` is KEPT VERBATIM in header section 5A and REMOVED from `required`, replaced by the same token with the body clause dropped (the TS proto FLOOR - an empty tracking station still cannot green it; V19T measured 37), by the seed-side arrival token V20M re-pinned onto (`OrbitReseed] TryFromHistoricalLatLonAltAndRecordedVelocityWithEpoch: body=Kerbin` - the ghost proto's ENDPOINT-TAIL orbit resolving from the RECORDING's own Kerbin-frame bytes via `OrbitSeedResolver.TryDeriveTailOrbitSeed(..., MapPresence)`, whose `body` is the recording's endpoint body; both call sites in `GhostMapPresence.cs`, not rate-limited, measured 41x in FLIGHT), and by the load-time premise `ShouldPopulateTerminalOrbitFromLastSegment: .*explicit endpoint body=Kerbin`. **AND THAT PRE-EMPTIVE REMOVAL WAS WRONG. RUN 1 MATCHED THE ORIGINAL PIN** - once in TRACKSTATION (pid 531221388, frame 8116) and once in its own FLIGHT prelude (pid 17209614, frame 7935) - **so it is RESTORED** per the S1.4 rule, and the lane carries a RENDERED-FRAME destination token again alongside the seed-side one. **WHY THE SIBLING'S MEASUREMENT DID NOT TRANSFER IS AN EXACT REASON RATHER THAN A SHRUG**: overlap-instance protos are created ONCE, at the first jump that brings them into existence, on the segment covering their replay clock AT THAT INSTANT, and later jumps do not re-create them. V20M jumps to its SEAM BRACKET first (the SUN side of the arrival seam) and creates all twenty there, where no instance is Kerbin-framed; THIS LANE HAS EXACTLY ONE JUMP AND IT IS THE COAST EPOCH, and its creation census proves the difference - `segmentUT=60366107.0-60392908.2`, **seg#16, the KERBIN ARRIVAL COAST**, twice (once per scene) against 6 Jool-park / 6 Jool-escape / 28 Sun. **THE LESSON IS WORTH MORE THAN THE PIN**: re-pinning off a sibling's log is a good default and was still wrong here, because the two lanes differ in the ONE variable that decides proto framing - which epoch their FIRST jump lands on. A pre-emptive re-pin is a prediction, and predictions get flown, not assumed. **SO THE PAIR NOW SPLITS ON G2's BAR**: this lane discharges the TS third on a rendered-frame token; V20M's flight-map third is NOT discharged, because its jump order gives it no Kerbin-framed proto to render, and re-ordering its jumps after a green run would be exactly the S4.1 violation the discipline prevents. Its subject was flown first: `B29-jool-kerbin-return` FLIGHT 3 (2026-08-27, PASS attempt 1, MISSION-OK, wall 2,103 s), harvested as `kerbin-return-recorded` - tree 6c0002fea2134f688e2c3e9252026543 (\"Duna Rocket\"), ONE recording 6d171d14ef474fbf95c69ada863bda12, save UT 60,393,898.254155263, **EIGHTEEN non-predicted ORBIT_SEGMENTs (Jool 0-4, Sun 5-13, Kerbin 14-17) and therefore TWO body-change seams** at 36,198,519.425954551 (Jool->Sun) and **60,366,070.331327148 (the SUN->KERBIN arrival)**, plus **42 TRACK_SECTIONs - 24 `ref=0` Absolute, 18 `ref=2` OrbitalCheckpoint (one per ORBIT_SEGMENT), ZERO `ref=1`**, so no Relative-frame resolution anywhere and the `ref=2` sections are exactly the ones carrying an orbit SOURCE. The Kerbin conics are HYPERBOLIC (sma -392,274.880 m, ecc 2.7877, inc 16.4427) because the capture burn fires AFTER the last ORBIT_SEGMENT ends at 60,393,505.214090839, leaving a **391.700 s SEGMENT-LESS parked tail** with the 206.300 s `env=1` capture burn inside it; the Kerbin-frame stretch of the recording is **27,826.583 s** long. The sidecar carries 749 POINT nodes against the `.sfs` `pointCount = 739`; both are right and neither is pinned. **THE SPAN-END TRAP IS RE-DERIVED FRESH RATHER THAN INHERITED**: POINT span [27,787,321.159510821, 60,393,894.394154631] = 32,606,573.234643809 s, but the unit uses the TRACK_SECTION envelope [**27,787,321.139510822**, **60,393,896.914155044**] = **32,606,575.774644222 s** - ut0 0.020 s BEFORE the first POINT and spanEnd **2.520 s PAST** the last (V17M measured 0.020 / 1.060 and V19M 0.020 / 1.360 on their own subjects, so the deltas belong to the surface and must be re-measured per subject). Cadence is Auto -> spanDur; `ComputeEffectiveLaunchCadence(30.0, spanDur, 20)` = **1,630,328.788732211 s**, so the 20x cap dominates `DefaultLoopIntervalSeconds` by **54,344x**, up to 20 concurrent instances run 1,630,328.8 s apart, and instance 21 lands exactly one span after instance 1. **THIS IS BY FAR THE LONGEST-SPAN LOOP SUBJECT THE PROGRAM HAS CARRIED - 3.54 Kerbin years, 2,719x V19T's span.** The ONE seeded number is the anchor: **A ~ 60,393,900 (+/- 3 s)**, i.e. saveUT + 1.746 s; the pair will NOT share it and that is expected, since V19M and V19T measured 0.280 s apart on ONE fixture because their FLIGHT phases run a different count of fast verbs before `MissionConfig` - the two lanes still observe the SAME JUMP UT, which is what the pair is for. **THE ONE JUMP IS 94,621,776 = V20M's cycle-1 COAST-DWELL epoch reused VERBATIM** so the two lanes observe the same instant from the two scenes: with R1 = 62,024,228.788732 the replay shift is 34,236,907.649221 s, seg#16 replays over [94,603,014.666, 94,629,815.888], and the jump sits **70.0018% through it, 8,039.888 s inside its far end and 8,636.863 s short of the replayed segment-less tail onset at 94,630,412.863**. The seeded TAIL READ at 94,630,659 is deliberately NOT taken: a TS lane whose anti-vacuity duty is a materialized Kerbin-frame ghost must not park its single observation on the one stretch carrying no orbit source. The jump is strictly forward (about +32,597,562 s at the verb, because StartLoopPlayback has already advanced the clock to ~R1 minus 15 s - the `FastForwardToEventUT` offset V19T measured). **THE FORTY-TICK TS DWELL IS SPAWN-THROTTLE HEADROOM AND ON THIS SUBJECT IT IS LOAD-BEARING IN A WAY IT WAS NOT ON V19T.** V17T run 1 measured overlap-instance creation running NEWEST-CYCLE-FIRST at `MaxSpawnsPerFrame = 2` per lifecycle tick, so the OLDEST live cycle spawns LAST, and its two-tick TS phase was cut off at 6 of 20 before cycle 1's turn. Here all twenty instances are alive at the observation epoch, but the Kerbin window is **27,826.583 s of a 32,606,575.8 s span (0.0853%)** against a launch pitch **58.6x wider than the window**, so **AT MOST ONE INSTANCE CAN EVER BE KERBIN-FRAMED** - the derived census is **Kerbin 1 / Sun 14 / Jool-escape 3 / Jool-park 2** and the Kerbin one is INSTANCE 1, the OLDEST, therefore THE VERY LAST TO SPAWN, arriving about tick 10. **A TS phase cut off at 6 of 20 would miss the arrival-leg instance entirely and the `body=Kerbin` pin would go unmet with no other error in the log**; forty ticks (>= 10 wall s at run.py's 0.25 s poll floor, V16M's proven sizing) is ~4x the headroom that needs, and the exact live count is a reading this run reports rather than a number pinned anywhere. **THE TS INIT WALK IS PRE-REGISTERED IN BOTH DIRECTIONS AND GATED IN NEITHER**: READING A is init-ZERO (V17T's measurement on a segment-less-tail subject) and READING B is init-NONZERO (V19T's, on a jump landing inside a segmented coast). This subject sits on both sides - segment-less tail, but a jump inside the Kerbin arrival coast - so **B is the RANKED prediction and deliberately not a gate**, and `created 0 ghost vessel(s)` is correspondingly NOT in `forbidden`, exactly as it was not on V19T's own reading run. **RUN 1 PICKED B**, so that forbid is now MEASURED-live and ARM-READY - and deliberately still not taken, because V19T added it at its ARMING pass and this lane is still at the reading pass. **THE `icon-off-orbit` FAMILY GETS A THIRD, MORE EXTREME POINT.** V14T/V15T/V16T raised it on 6 of 6 runs at three parents (self-overlapping NO, nested-SOI NO); V17T was silent (YES/YES); V19T was silent (YES/NO), which EXCLUDED nested-SOI and left SELF-OVERLAP as the surviving candidate with no mechanism claimed. This lane is self-overlapping at the same `span/20` ratio but with instances spread **2,719x further apart in recorded time** and only ONE of twenty destination-framed: silence is a third confirmation at an extreme parameter value, and **a RAISE would show self-overlap alone is not sufficient and knock out the surviving candidate too**. Either outcome was a real reading and neither was gated - and the run measured SILENCE, so `icon-off-orbit` stays OUT of `allowedAnomalies`: a token silent on three consecutive lanes must not be pre-tolerated on the fourth. **WHAT DID FIRE IS A DIFFERENT TOKEN AND THE BEST THING THIS RUN PRODUCED.** Three `icon-teleport` raises, all at the coast-dwell epoch (frames 7998 x2 and 8014, currentUT 94,621,776.560 / .820), each at **`warpRate=1 dt=0.0167`** and each reading `fromOrbit=[Jool|10246978796|0.9424] toOrbit=[sma=590325785 ecc=0.0000] body=Jool` with dPos 334,981,793 / 1,623,652,431 / 2,935,994,339 m. The `from` orbit is the post-escape Jool ellipse (seg#2-4, a = 1.0247e10 ecc 0.9424, to the digit); the `to` orbit is SEGMENT ZERO. **V20M could only see the settle-to-segment-zero behaviour as an END STATE - 36 of 41 protos already there, one sample each. THIS RUN CAUGHT THE TRANSITION**, in the direction that matters (from the CORRECT per-instance segment TO segment zero), at TS DWELL TIME rather than across a jump, and at 1x rather than under warp - so these three are also a per-raise warp attribution datum the OPEN `MapRenderProbe` threshold entry explicitly asks for, and they are NOT threshold false positives. Tolerated BARE with the run beside it (ceiling 6 = 2x measured, argued as prose per the V24W/V25M convention because `test_no_committed_spec_arms_a_count_budget` holds the budget mechanism inert suite-wide). THIRTEEN required tokens after the round-2 re-pin and the round-3 restore - V19T's set, the three round-2 replacements, and the round-3 restored body pin - including the two R12 route lines and the dynamic-path gates (`GhostMap] Created ghost vessel .*orbitSource=overlap-instance-segment .*scene=TRACKSTATION` and `phase=GhostCreated surface=ProtoIcon pid=\\d+ .*body=Kerbin scene=TRACKSTATION`). **THE LENS ARGUMENT BEHIND THAT SECOND PIN IS V20M's HEADER SECTION 5, RESTATED ONCE HERE BECAUSE THIS LANE DEPENDED ON IT, AND IT REMAINS CORRECT EVEN THOUGH THE PIN ITSELF IS REFUTED**: the visited set {Jool, Sun, Kerbin} LOOKS nested (the Sun has TWO visited children) and is NOT, because `NestedSoiSubtree.FindNestedRoot` (`NestedSoiSubtree.cs:202-219`) requires the shared parent to be NON-ROOT and detects the root both when its parent reports null and when it reports ITSELF (live KSP `Sun.referenceBody == Sun`) - and the comment at `:212-214` names live `[\"Kerbin\",\"Sun\",\"Duna\"]`, the exact mirror of our sequence, as the reason that guard exists. So there is no fail-closed root-frame render and the proto lenses are intact - a `body=Kerbin` pin is not STRUCTURALLY unsatisfiable the way V17T's `body=Vall` was. **WHAT V20M's RUN MEASURED IS A DIFFERENT AND NARROWER FAILURE: the lens is intact but has nothing destination-framed to REPORT on this subject under this instrument**, because every proto settles on the recording's FIRST segment. The lens choice was right; the reachability was not, and only a flight could tell them apart. FORBIDDEN IS THREE - the ERROR floor, the parity over-tolerance pin, and the backward-jump marker, which is a REDUNDANT grep-stable echo rather than a load-bearing guard because `SetExecResult(\"REJECTED\", null, \"backward-jump\")` makes the STEP itself go unmet and the run driver-INVALID. **ONE COST NO PRIOR V-T LANE CARRIED**: the single jump traverses 34.23 Ms of game time (~3.7 Kerbin years) in one instantaneous `Planetarium` clock set, and KSP must on-rails-propagate every vessel and SpaceObject in the save - including an asteroid and two debris vessels - across it; that cost is UNMEASURED at this magnitude, so a death on the 300 s step watchdog is a READING about propagation cost rather than a calibration failure. `[expectations.recordings] count` is WIDE at {1,3} because there are TWO splittable candidates; the code-read prediction is COHESION at both, and the Sun->Kerbin seam is the **FIRST in the corpus to depend on `ShouldKeepCohesiveCrossBodyExoCoast`'s SECOND disjunct** (left side `env=1` ExoPropulsive, right side `env=2` ExoBallistic, so only the on-rails clause - both sides `ReferenceFrame.OrbitalCheckpoint` - keeps it whole). THE NEGATIVE CONTROL owed by criterion (b) is pre-registered and NOT yet flown: invert `body=Kerbin` -> `body=Duna` inside the required array only, `Duna` chosen as a sibling planet of both origin and destination that this recording never visits; the PAIR must run TWO controls because the halves pin different lenses; and **a control that PASSES is a FAILED control**, as V19T's `2026-08-21_0857` demonstrated when a mis-escaped regex silently made no edit. **SCOPE LIMIT: THIS LANE OWNS THE TS THIRD OF G2's BAR AND V20M THE FLIGHT-MAP THIRD; THE KSC THIRD IS `V20K` OVER THESE SAME BYTES AND IS OPEN RATHER THAN CLOSED.** `IsKscStructurallyEligible` (`ParsekKSC.cs:1488`) rejects on `rec.Points[0].bodyName != \"Kerbin\"` and this recording's first POINT reads `body = Jool`, so the gate LOOKS like it fires - but this is also the first recording in the corpus that HAS Kerbin-bodied points at all (56 in the final section alone), a genuinely different input to the playback gate than B28's zero-occurrences subject. **Under confirmation criterion (c) no limitation may be written up before a V20K run exists**, so this pair claims exactly two of the three hosts and asserts nothing about the third. NO D11 CELL IS CLAIMED: the routing is what this pair MEASURES, and V20M's header walks the classifier to a decline string no committed lane has ever printed. Retry once."
+instanceProfile = "stock-minimal"
+tags = ["V20", "tracking-station", "loop-arrival", "return-leg", "inbound-interplanetary",
+        "kerbin-arrival", "kerbin", "jool", "sun", "two-stage-relay", "map-render"]
+
+[fixture]
+# COMMITTED, and produced by a green flight rather than predicted: the
+# `B29-jool-kerbin-return` FLIGHT 3 harvest (2026-08-27, PASS attempt 1, MISSION-OK).
+# V20M walks the same bytes and its [fixture] block is not restated here so the pair
+# cannot drift.
+# WHAT THIS LANE DEPENDS ON, measured: ONE committed tree
+# (6c0002fea2134f688e2c3e9252026543, "Duna Rocket"), ONE recording
+# (6d171d14ef474fbf95c69ada863bda12, ONE `.prec` sidecar of 749 POINT nodes reported as
+# `pointCount` 739), EIGHTEEN non-predicted ORBIT_SEGMENTs across exactly TWO body-change
+# seams, terminal Orbiting at KERBIN, zero durable rows (supersedeRows 0, tombstones 0,
+# rewindPoints 0 on the fixture's own saveParse facets), CREWED subject (Valentina Kerman
+# in the mk1pod.v2, carried through from B25's delivered `jool-park-nerv` state via B29).
+# THE FINAL PARK, for a reader checking the conic against the render: sma
+# 3,670,509.7586827436 m, ecc 0.80931045445302174, inc 16.442681138876893 about KERBIN,
+# i.e. the 99,928 x 6,041,092 m ALTITUDE ellipse B29's flight ledger records, period
+# 23,510.3 s.
+# NOTE FOR A READER CHECKING THE SAVE BY HAND: it also carries an asteroid
+# (`Ast. VPA-167`) and TWO `Duna Rocket Debris` vessels from the original ascent. None is
+# a Parsek recording - `recordings = 1` is the whole tree - but all three are real
+# on-rails bodies KSP must propagate across this lane's 34.23 Ms jump, which is part of
+# why section 3 prices that cost explicitly.
+saveTemplate       = "fixtures/saves/kerbin-return-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  # Kill the scene-entry auto-recorder. HARD precondition, not hygiene: the SECOND
+  # LoadGame below is REJECTED `recording-active` by the dispatch guard if a recorder is
+  # live, and SaveGame would persist a half-recorded stub into the save the TS half then
+  # reads.
+  { cmd = "StopRecording",                                                   expect = "OK" },
+  { cmd = "DiscardTree",                                                     expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  # mapRenderTracing arms the map/TS tracer + probe; verboseLogging is LOAD-BEARING (the
+  # Tier-B truth lines are Verbose - the V1 lesson); ghostRenderTracing is carried because
+  # `[expectations.renderComposition]` requires all three of a declarer and because the
+  # manifest's seam capture is tracer-gated (V14T's precedent, the first TS-host
+  # manifest). Settings are process-global, so all three survive the LoadGame into TS.
+  { cmd = "SetSetting", args = { name = "ghostRenderTracing", value = "true" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "mapRenderTracing",   value = "true" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" }, expect = "OK" },
+  # ARM (FLIGHT-only): the production MissionStore.SetLoopEnabled path. THIS is where an
+  # INBOUND INTERPLANETARY tree either reaches ApplyReaim or does not - V20M's header
+  # section 2 walks the classifier all the way to the partial-transfer departure gate,
+  # which is the deepest any committed subject has ever reached. TREE ID read off the
+  # harvested fixture's RECORDING_TREE node.
+  { cmd = "MissionConfig", args = { tree = "6c0002fea2134f688e2c3e9252026543", loop = "true" }, expect = "OK" },
+  # WARP TO CYCLE 1's LAUNCH (FLIGHT-only): an instantaneous Planetarium clock set. Its
+  # `relaunchUt=` echo is the number the whole seed table hangs off (section 2).
+  { cmd = "StartLoopPlayback", args = { tree = "6c0002fea2134f688e2c3e9252026543" }, expect = "OK", budget = 300 },
+  # THE ONE JUMP (FLIGHT-only): V20M's cycle-1 COAST-DWELL epoch, reused VERBATIM so the
+  # two lanes observe the SAME instant from the two scenes. DERIVED at 70.0018% through
+  # the replayed Kerbin arrival coast seg#16 [94,603,014.666, 94,629,815.888] - 8,039.888 s
+  # inside its far end and 8,636.863 s short of the replayed segment-less tail onset - so
+  # an orbit source exists at the observed instant, which is what makes READING B live
+  # (section 5). Strictly forward: about +32,597,562 s at the verb, because
+  # StartLoopPlayback has already advanced the clock to ~R1 minus 15 s. Section 3 carries
+  # the derivation, the rejected tail-read alternative, and the unmeasured propagation
+  # cost of a 34.23 Ms hop.
+  { cmd = "TimeJump", args = { ut = "94621776" }, expect = "OK", budget = 300 },
+  # PERSIST the armed mission state + the jumped clock.
+  { cmd = "SaveGame",   args = { name = "persistent" },                      expect = "OK" },
+  # RE-KILL THE RECORDER immediately before the load the guard rejects (V5's measured
+  # re-arm race - see the header).
+  { cmd = "StopRecording",                                                   expect = "OK" },
+  { cmd = "DiscardTree",                                                     expect = "OK" },
+  # RE-ENTER IN THE TRACKING STATION (R12's additive `scene=` arg, the H23 route).
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent", scene = "trackstation" }, expect = "OK", budget = 300 },
+  # FORTY DWELL TICKS - SPAWN-THROTTLE HEADROOM, NOT CENSUS PACING (section 4), and on
+  # THIS subject the block is what makes the anti-vacuity pin reachable at all.
+  # Overlap-instance creation runs NEWEST-CYCLE-FIRST at `MaxSpawnsPerFrame = 2` per
+  # lifecycle tick, so the OLDEST live cycle spawns LAST; V17T run 1's two-tick TS phase
+  # gave ~0.65 s = 3 ticks = 6 ghosts and cut cycle 1 off at 6 of 20. Here EXACTLY ONE of
+  # the twenty live instances is Kerbin-framed (the Kerbin window is 0.0853% of the span
+  # against a pitch 58.6x wider than it), and it is instance 1 - the OLDEST, hence the
+  # very last to spawn, at about tick 10. Forty RecordingState ticks (>= 10 wall s at
+  # run.py's 0.25 s poll floor, V16M's proven sizing) is ~4x that headroom.
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  # M-A7 RENDER-COMPOSITION CAPTURE. Placement pinned by
+  # `test_every_declarer_exports_immediately_before_teardown`: the recorder accumulates
+  # from Awake, so taking it HERE takes the manifest at a chosen instant - after the full
+  # forty-tick fill-in - rather than leaving the composition to the scene-exit auto-flush
+  # that follows `FlushAndQuit`. INERT by construction
+  # (`hlib.SEAM_VERB_TAIL_ROLE["ExportRenderManifest"]` = inert).
+  { cmd = "ExportRenderManifest",                        expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                    expect = "OK" },
+]
+
+# CLAIM-IS-NOT-GATE, and this is the thin TS list a reading run owes.
+#   D14 `scene-ts` is gated by the two R12 route tokens; `sandbox` by the fixture. THIS
+#     IS THE FIRST TIME A TS LOOP LANE CLAIMS `kerbin` AS AN ARRIVAL FRAME rather than as
+#     a departure environment.
+#     **THE GATE BEHIND `kerbin` WAS DEMOTED AT THE PRE-EMPTIVE RE-PIN AND THE DEMOTION
+#     IS RECORDED RATHER THAN GLOSSED.** It was to be the RENDERED-FRAME token
+#     (`phase=GhostCreated surface=ProtoIcon ... body=Kerbin scene=TRACKSTATION`, V6T's
+#     `body=Mun` pin with the body swapped), which V20M's run measured as unreachable on
+#     this subject over the shared proto-creation path (41 ProtoIcon lines, Jool 11 /
+#     Sun 30, zero Kerbin). It is now the SEED-SIDE token
+#     (`OrbitReseed\] ... body=Kerbin`), backed by the load-time endpoint premise and the
+#     body-free TS proto floor. It is still NOT an epoch claim - the seed token is
+#     ghost-proto machinery driven by the RECORDING's own Kerbin-frame bytes - **but it
+#     is NOT the rendered-frame claim roadmap G2's TS third asks for, and THAT CLAIM
+#     STAYS OWED.** A reader treating this cell as discharging G2's TS third would be
+#     over-reading it.
+# DELIBERATELY NOT CLAIMED: `jool` and `sun`. The recording HAS long Jool and Sun phases
+#   and nineteen of the twenty live instances are in them at the observed epoch, but this
+#   lane pins no Jool- or Sun-framed token, and a claim whose gate is somebody else's
+#   token is a claim about a coincidence. Also not claimed: any D11 cell (routing is what
+#   this pair MEASURES - V20M's header walks the classifier to a decline string no
+#   committed lane has printed, and claiming a cell would be claiming that answer before
+#   the reading), D6 `ghost-map-presence` (the TS ProtoVessel lifecycle is H23/H28's
+#   contract), and D9 `fast-forward` (V20M owns it).
+[dimensionsCovered]
+D14 = ["kerbin", "scene-ts", "sandbox"]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING (hlib.validate_spec rejects a bare allowedAnomalies written
+# after any [expectations.<sub>] header).
+#
+# **EMPTY ON PURPOSE, AND THE OUTCOME IS GATED IN NEITHER DIRECTION** - section 6.
+# `icon-off-orbit` on the ghost-proto creation frame fired on ALL SIX runs of V14T, V15T
+# and V16T at three parents while the stepped-bracket controls stayed silent on all six of
+# theirs; V17T's two runs then swept CLEAN, and V19T's clean sweep EXCLUDED nested-SOI and
+# left SELF-OVERLAP as the surviving candidate with no mechanism claimed. This lane is
+# self-overlapping at the same `span/20` ratio but with the instances spread 2,719x
+# further apart in recorded time and only ONE of twenty destination-framed, so silence is
+# a third confirmation at an extreme parameter value and a RAISE would knock out the
+# surviving candidate. Both are worth exactly nothing if the token is pre-tolerated.
+# A PARSEK-FAIL(anomaly) with every step green is the pre-registered correct catch; a
+# clean sweep is an equally load-bearing reading.
+# THE ARMING RECIPE if it fires: add the BARE token (not a count budget - the whole-set
+# invariant `MisplacedAllowedAnomaliesRejectionTests.test_no_committed_spec_arms_a_count_budget`
+# ships that mechanism INERT) WITH the run that shows it, per the S1.4 rule.
+#
+# **IT FIRED, AND NOT ON THE TOKEN THIS SECTION WAS WATCHING.** Reading run 1
+# (`2026-08-27_1857`) came back `PARSEK-FAIL(anomaly)` with `hitCounts {icon-teleport: 3}`
+# and NOTHING ELSE - `icon-off-orbit` stayed SILENT, which is section 6's own
+# measurement and is recorded there. Every other row on that run was green
+# (driverValidity PASS, all TWELVE required tokens matched, analyzer red=0, logValidate
+# PASS, saveParse clean, renderCompose 0 FAIL), so this is the pre-registered CORRECT
+# CATCH the recipe above describes, not a lane defect. The token is tolerated BELOW WITH
+# that run, per the S1.4 rule.
+#
+# **AND THESE THREE RAISES ARE NOT THE `icon-teleport` CLASS THE SUITE HAS BEEN
+# TOLERATING - THAT IS THE WHOLE REASON THEY ARE WORTH RECORDING.**
+# `docs/dev/todo-and-known-bugs.md` -> "`MapRenderProbe`'s `icon-jump` / `icon-teleport`
+# threshold looks over-sensitive above warp1000" is the open family V24W (65 raises) and
+# V25M (4) tolerate, and the owed work on it is a PER-RAISE WARP ATTRIBUTION. All three
+# raises here carry **`warpRate=1 dt=0.0167`** - dead 1x, the regime that entry's
+# hypothesis says should be clean - and each one names the orbit pair it jumped between:
+#     `fromOrbit=[Jool|10246978796|0.9424] toOrbit=[sma=590325785 ecc=0.0000] body=Jool`
+# `10246978796 / 0.9424` is THE POST-ESCAPE JOOL ELLIPSE, seg#2-4 of this recording to
+# the digit; `590325785 / 0.0000` is SEGMENT ZERO, the Jool park. **SO THESE ARE NOT
+# THRESHOLD FALSE POSITIVES: they are three protos being RE-SEEDED off their own correct
+# escape-segment orbit onto segment zero, mid-dwell, caught as position teleports of
+# 334,981,793 m / 1,623,652,431 m / 2,935,994,339 m** (24.2M x / 117.3M x / 212.2M x the
+# probe's own expected step) at `currentUT` 94,621,776.560 (frames 7998, two protos) and
+# 94,621,776.820 (frame 8014). They belong to
+# **TIMEJUMP-CANNOT-OBSERVE-LIVE-FRAME-OVERLAP-PROTOS-ON-LONG-PITCH-SUBJECTS**, and they
+# are the strongest evidence in that entry: V20M could only see the settle-to-segment-zero
+# behaviour as an END STATE (36 of 41 protos already there, one sample each); **this run
+# caught the TRANSITION ITSELF, in the right direction - FROM the correct per-instance
+# segment TO segment zero - and at TS DWELL TIME rather than across a jump.** That is
+# creation-correct / settle-wrong, demonstrated rather than inferred.
+#
+# CEILING ARITHMETIC, recorded as PROSE per the V24W/V25M convention because the ceiling
+# CANNOT BE DECLARED while the whole-suite inert-budget invariant stands
+# (`test_no_committed_spec_arms_a_count_budget` plus
+# `test_every_committed_spec_parses_under_the_budget_surface`; V14T and V15T each wrote a
+# `maxCount` first and each backed it out): at 2x measured the ceiling is
+# **`icon-teleport` 6**. 2x rather than V24W's 4x for V25M's reason - the count is small
+# and single-sourced, so a wide band would tolerate almost any regression while 2x still
+# reds a doubling. Reading 2 either reproduces 3 or the arithmetic is re-derived off the
+# pair. **READING 2 (`2026-08-27_1913`) REPRODUCED 3 EXACTLY** - PASS attempt 1 with the
+# token tolerated and `hits=[]` - so the ceiling of 6 stands off the pair and nothing was
+# re-derived.
+allowedAnomalies = [
+  # 3 raises, `2026-08-27_1857`, ALL at `warpRate=1` and all reading
+  # `fromOrbit=[Jool|10246978796|0.9424] toOrbit=[sma=590325785 ecc=0.0000]` - the
+  # post-escape Jool ellipse re-seeded onto SEGMENT ZERO, at the coast-dwell epoch. NOT
+  # the warp-threshold over-sensitivity family V24W and V25M tolerate under this same
+  # token (see the block comment); filed under
+  # TIMEJUMP-CANNOT-OBSERVE-LIVE-FRAME-OVERLAP-PROTOS-ON-LONG-PITCH-SUBJECTS, where they
+  # are the first capture of the TRANSITION rather than the end state. Ceiling 6 (2x
+  # measured) pending the budget-mechanism allowlist move.
+  "icon-teleport",
+]
+
+[expectations.recordings]
+# TWO body-change seams, so ONE recording is the prediction and the window admits a
+# LOAD-TIME optimizer split at EITHER of them - which is why this is {1,3} where V19T's
+# one-seam subject used {1,2}. This lane starts no recording of its own, and the fixture
+# ships exactly ONE `.prec` sidecar, so the count can move only through that walk - which
+# fires on THIS lane's LoadGame, not on B29's flight.
+#
+# THE CODE-READ PREDICTION IS COHESION AT BOTH, by DIFFERENT disjuncts of
+# `ShouldKeepCohesiveCrossBodyExoCoast` - the detail is in V20M's `[expectations.recordings]`
+# comment and is not duplicated here beyond the headline, so the pair cannot drift: the
+# JOOL->SUN seam is both-sides-ExoBallistic (clause (a), the ordinary rule every earlier
+# loop lane measured), while the **SUN->KERBIN seam is the FIRST IN THE CORPUS to depend on
+# clause (b)** - its left side is `env=1` ExoPropulsive and its right `env=2` ExoBallistic,
+# so only the on-rails disjunct (both sections `ReferenceFrame.OrbitalCheckpoint`) keeps it
+# whole. **TIGHTENED {1,3} -> {1,1} AT THE ARMING PASS, 2026-08-27.** The admitted split
+# DID NOT MATERIALIZE on either of this lane's runs: both measured `recordings.count = 1`
+# and both printed `Split summary: rec=6d171d14ef474fbf95c69ada863bda12 evaluated=2 ...
+# exoCoastBodyChangeKept=2 splittableButRejected=0` - byte-identical to what all three of
+# V20M's runs printed over the same fixture. The wide {1,3} window STAYS ON THE RECORD as
+# the committed reading-era admission; it is subsumed by this gate.
+# **THIS LANE PINS THE COUNT AND ITS SIBLING PINS THE MECHANISM** - the
+# `Split summary: .*exoCoastBodyChangeKept=2 splittableButRejected=0` REQUIRED token is
+# armed on V20M ONLY. One gate per fact across the pair is the point of authoring them as
+# a pair, and it is the V19M/V19T split verbatim.
+count = { min = 1, max = 1 }
+
+[expectations.logContracts]
+# **THIRTEEN TOKENS AFTER THE ROUND-2 RE-PIN AND THE ROUND-3 RESTORE** (it was ten; V20M's run
+# `2026-08-27_1828` refuted one of them before this lane ever flew - header section 5A -
+# so that one is REMOVED here, KEPT VERBATIM below, and three replacements take its
+# place). What a reader will notice missing is missing on purpose:
+# `Orbital(...) same-parent`, `support=Supported`, any `PhaseLock APPLIED` form and the
+# whole re-aim trio are the ROUTING, and this pair is where the INBOUND interplanetary
+# routing is READ rather than asserted - requiring or forbidding any of them would gate on
+# an answer this pair exists to measure.
+#   "missionconfig applied:" / "SetLoopEnabled: loop ON" - the loop is ARMED through the
+#     production path, in FLIGHT, before the save; the first also echoes the anchor, which
+#     is the number to read when re-calibrating the jump.
+#   "startloopplayback initiated:" - the clock work entered the production door and echoed
+#     the resolved relaunchUt. ROAD-INDEPENDENT and the single most important line in this
+#     log for the re-pin, because the anchor is the ONE seeded number.
+#   "FastForwardToEventUT: jumping to UT=" - the jump entered the production door.
+# THE TWO R12 ROUTE LINES, verbatim from V19T with nothing changed - the trackstation
+#     BRANCH was taken and the load COMPLETED against the TrackingStation expected scene
+#     (H23's pins; this fixture has a focusable vessel and would otherwise route to
+#     FLIGHT, so a TRACKSTATION landing can only mean the requested scene overrode the
+#     save-derived route - the claim is falsifiable).
+# THE TWO TS ANTI-VACUITY GATES, both on the DYNAMIC overlap path (section 5), because the
+# init walk's answer at this subject is PRE-REGISTERED IN BOTH DIRECTIONS and must not be
+# gated:
+#   "GhostMap\\] Created ghost vessel .*orbitSource=overlap-instance-segment .*scene=TRACKSTATION"
+#     - the dynamic overlap path actually materializing a loop instance IN the TS. An
+#     empty tracking station cannot green this in either init-walk world.
+#   **THE REFUTED PIN, RECORDED HERE AND NOT IN THE ARRAY** (header section 5A). The
+#     original TS destination token was
+#         `phase=GhostCreated surface=ProtoIcon pid=\d+ .*body=Kerbin scene=TRACKSTATION`
+#     - V6T's `body=Mun` pin with the body swapped, meant to turn the D14 `kerbin` claim
+#     from an EPOCH claim into a RENDERED-FRAME claim. Its LENS argument is unchanged and
+#     still correct (not nested-SOI, so V17T's structurally-unsatisfiable case cannot
+#     arise). It is refuted anyway, and by a MEASUREMENT rather than a worry: V20M's run
+#     `2026-08-27_1828` produced 41 `phase=GhostCreated surface=ProtoIcon` lines with
+#     body distribution **Jool 11 / Sun 30 and ZERO Kerbin**, and 41 created ghosts with
+#     `referenceBody=` Jool 11 / Sun 30 - no instance on a Kerbin segment at all, over
+#     the same `GhostMapPresence` creation path the TS host uses.
+#   THE THREE REPLACEMENTS:
+#   "phase=GhostCreated surface=ProtoIcon pid=\\d+ .*scene=TRACKSTATION" - the SAME token
+#     with the body clause removed: the TS-specific PROTO FLOOR. An empty tracking
+#     station cannot green it (V19T measured 37). A PRESENCE claim, not a destination
+#     claim, and labelled as one.
+#   "OrbitReseed\\] TryFromHistoricalLatLonAltAndRecordedVelocityWithEpoch: body=Kerbin" -
+#     THE RE-PINNED DESTINATION TOKEN, shared with V20M and argued in header section 5A:
+#     the ghost proto's ENDPOINT-TAIL orbit resolving from the RECORDING's own
+#     Kerbin-frame bytes, via `OrbitSeedResolver.TryDeriveTailOrbitSeed(..., MapPresence)`
+#     whose `body` is the RECORDING's endpoint body. Ghost-proto machinery only (both
+#     call sites in `GhostMapPresence.cs`), so the produced save's own Kerbin-parked craft
+#     cannot satisfy it, and `ParsekLog.Verbose` rather than rate-limited. **A SEED-SIDE
+#     CLAIM, NOT A RENDERED-FRAME ONE - a DEMOTION, and the rendered-frame Kerbin claim on
+#     this host stays OWED.** MEASURED 41x in FLIGHT on V20M's run; ITS TS REACHABILITY IS
+#     UNMEASURED and is one of the things this lane's first run measures.
+#   "ShouldPopulateTerminalOrbitFromLastSegment: .*explicit endpoint body=Kerbin" - the
+#     LOAD-TIME structural premise that the recording's KERBIN endpoint survives the load
+#     and its cached terminal orbit stays authoritative over the hyperbolic approach
+#     segment. Measured once on V20M's run. A LOAD-TIME token; it says nothing about any
+#     render.
+# THE PROBE / LENS PRESENCE PINS (V6T/V14T/V15T/V16T/V17T/V19T's, verbatim):
+#   "faithful-parity summary sampled=\\d+ overTolerance=\\d+" - emitted only when the
+#     per-pid parity pass touched the lens, so PRESENCE cannot be produced by a frame with
+#     no resolved ghost. `sampled=[1-9]` is NOT pinned (the standing
+#     FAITHFUL-PARITY-SEED-FRAGMENT-REBASE blind spot).
+#   "seam-endpoint summary evaluated=\\d+ outsideSoi=\\d+" - the PRESENCE form, and it
+#     STAYS presence-only: a TS dwell characteristically reads the structural
+#     `evaluated=0 skip.no-cross-body-successor=1`, and V16T MEASURED that this lens can
+#     raise a nonzero from a creation-frame binding artifact rather than from real drift,
+#     so the VALUE is a reading and not a contract - doubly so here, where the subject has
+#     TWO seams rather than one.
+required  = [
+  "missionconfig applied:",
+  "SetLoopEnabled: loop ON",
+  "startloopplayback initiated:",
+  "FastForwardToEventUT: jumping to UT=",
+  "loadgame trackstation route: booting to TRACKSTATION save=",
+  "loadgame complete scene=TRACKSTATION save=.* game-loaded=true expected=TrackingStation",
+  "GhostMap\\] Created ghost vessel .*orbitSource=overlap-instance-segment .*scene=TRACKSTATION",
+  "phase=GhostCreated surface=ProtoIcon pid=\\d+ .*scene=TRACKSTATION",
+  # **RESTORED 2026-08-27 off THIS lane's OWN reading run 1** (`2026-08-27_1857`), which
+  # matched it once - the S1.4 rule, arm the token WITH the run that shows it. Header
+  # section 5A carries the whole arc: it was removed PRE-EMPTIVELY off V20M's FLIGHT-only
+  # measurement, and this lane's own run REFUTED that removal.
+  "phase=GhostCreated surface=ProtoIcon pid=\\d+ .*body=Kerbin scene=TRACKSTATION",
+  "OrbitReseed\\] TryFromHistoricalLatLonAltAndRecordedVelocityWithEpoch: body=Kerbin",
+  "ShouldPopulateTerminalOrbitFromLastSegment: .*explicit endpoint body=Kerbin",
+  "faithful-parity summary sampled=\\d+ overTolerance=\\d+",
+  "seam-endpoint summary evaluated=\\d+ outsideSoi=\\d+",
+]
+# THREE, and each guards a PREMISE rather than deferring a MEASUREMENT.
+# NOTE what is NOT here, in both directions:
+#   * the re-aim trio (`[ReaimDiag]` / `ENGAGED re-aim` / `FORCED FAITHFUL`) and every
+#     phase-lock artifact - V19M's posture for V19M's reason, sharper here because this is
+#     the FIRST subject in the corpus whose arrival scan succeeds and which therefore has a
+#     real chance of engaging.
+#   * `created 0 ghost vessel\(s\)` - section 5 pre-registers BOTH init-walk readings and
+#     gates on NEITHER, so a forbid on the init line would gate exactly one branch of a
+#     question this spec declares open. V19T's own reading run did not carry it either;
+#     it was armed only after that run measured `created 1`, which is the S1.4 rule.
+#   * the `icon-off-orbit` raise this lane may or may not produce is the anomaly sweep's
+#     surface, not logContracts', and it is handled - by being deliberately untolerated -
+#     in `allowedAnomalies` above.
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  # THE V3C RUN-3 MARKER, a REDUNDANT grep-stable echo rather than a load-bearing guard:
+  # `ParsekTestCommandAddon.TimeJumpKscAction.cs:55-57` logs the Warn AND calls
+  # `SetExecResult("REJECTED", null, "backward-jump")`, and the TimeJump step carries
+  # `expect = "OK"`, so the STEP itself goes unmet and the run is driver-INVALID on both
+  # attempts. Kept for family convention. The case NOTHING catches is a jump that lands
+  # FORWARD at the WRONG epoch: read `anchorUt=` and `relaunchUt=` (section 2).
+  "timejump refused reason=backward-jump",
+  # The S1.6/S1.7 parity pin verbatim: any faithful-parity sample OVER tolerance is a
+  # rendered-vs-recorded drift, which is a RENDER defect rather than a reading about the
+  # routing. Road-independent.
+  "faithful-parity summary sampled=\\d+ overTolerance=[1-9][0-9]*",
+]
+
+[expectations.rewind]
+# **ARMED 2026-08-27** off THIS lane's OWN green reading run 2, `2026-08-27_1913` (PASS
+# attempt 1, wall 61 s, with the `icon-teleport` tolerance live), whose saveParse REPORT
+# measured rewindPoints=0, supersedeRows=0, tombstones=0, rewindRetirements=0 - the same
+# four zeros run 1 measured on the identical flown shape. **EVERY WINDOW BELOW WAS ALREADY
+# MET BY BOTH RUNS, SO THE ARMING RE-PINNED NOTHING AND MOVED NO VERDICT** (the S4.1 bar).
+# This is the V14T/V15T/V16T/V17T/V19T discipline verbatim: arm from THIS lane's own
+# measured facets, never from predicted ones.
+# V5's rule that a DOUBLE-ENTRY spec owes the tighter pin is what makes the rewind arm
+# worth most here - this spec writes a save mid-run and reads it back through a SECOND
+# scene load, the shape in which a stray durable write is easiest to miss, and the second
+# load additionally drives the dynamic overlap path through a full fill-in.
+# The CLAIM being predicted is that a FLIGHT-arm / SaveGame / TS-re-entry observation
+# authors NOTHING durable, and it is worth more on this shape than on a single-scene dwell
+# for V5's reason - this spec writes a save mid-run and reads it back through a SECOND
+# scene load, the shape in which a stray durable write is easiest to miss, and here the
+# second load additionally drives the dynamic overlap path through a full fill-in across a
+# 34.23 Ms clock hop.
+gating = true
+rewindPoints  = { max = 0 }
+supersedeRows = { max = 0 }
+tombstones    = { max = 0 }
+
+[expectations.recordings.structure]
+# **ARMED 2026-08-27**, same green run `2026-08-27_1913`, which measured trees=1,
+# committedTrees=1, recordings=1, terminalStates {Orbiting: 1}, branchPoints {},
+# duplicateRecordingIds [] with points 739/739/739 unparsed 0 - the exact on-disk count of
+# the harvested fixture, so the double-entry chain authored nothing and split nothing.
+# **THE PAYLOAD IS BYTE-IDENTICAL TO V20M's** - both lanes measured 0/0/0/0 and 1/1/1
+# {Orbiting: 1} over the same fixture through two different scene chains, and across FOUR
+# green runs between them. That identity is the pair's determinism statement, the same one
+# V17M/V17T and V19M/V19T made.
+# THE PRE-FLIGHT REASON THIS BLOCK WAS REPORT-ONLY IS KEPT ON THE RECORD RATHER THAN
+# DELETED: a report-only block of PREDICTED numbers reads like a measurement (V17T's
+# stated reason for leaving it out on its own first run). It has now been run twice.
+#
+# `trees` keeps V2's max = 2 - the documented duplicate-tree writer hazard -
+# deliberately WIDER than the measurement rather than pinned to it.
+gating = true
+trees          = { min = 1, max = 2 }
+committedTrees = { min = 1, max = 1 }
+recordings     = { min = 1, max = 1 }
+terminalStates = { Orbiting = { min = 1 } }
+
+[expectations.renderComposition]
+# M-A7 - DECLARED BARE ON PURPOSE: no `gating`, no window, no list. Declaring is what sets
+# `PARSEK_RENDER_MANIFEST=1` at launch and arms the C# recorder at Awake, and
+# `rendercompose` then records its facets UNCONDITIONALLY on a parseable manifest - which
+# is how a lane earns its first honest window off a green report-only run. A window
+# written today would be a PREDICTION read back as though it were a measurement.
+# TRACERS: all three are armed by this lane's settings block. `ghostRenderTracing` is NEW
+# relative to V19T, which did not carry it (and is not a declarer); V14T's TS-host
+# manifest set that precedent and its exposure note applies here unchanged.
+# READING PENDING.
+
+[runtime]
+# 300 LoadGame + 300 StartLoopPlayback + 300 TimeJump + 300 LoadGame(TS) + the fast
+# non-deferred verbs + the forty-tick dwell (>= 10 wall s at run.py's 0.25 s poll floor) +
+# KSP boot + collect. V6T, V14T, V15T and V16T all measured 50 s end to end on the
+# sixteen-step form, and V19T's 54-step shape measured 60 s.
+# **BUT THE ONE JUMP HERE TRAVERSES 34.23 Ms OF GAME TIME AGAINST V19T's 9.77 ks** - and
+# KSP must on-rails-propagate every vessel and SpaceObject in the save across it. That
+# cost is UNMEASURED at this magnitude (section 3 prices it explicitly), so the family's
+# 2,400 is carried unchanged as the watchdog it is, with the note that a TimeJump budget
+# death is a READING about propagation cost and not a calibration failure.
+budgetSeconds = 2400
+
+[retry]
+# One retry absorbs the V5 promotion-recorder re-arm race and the transient TS-re-entry
+# `LoadGame REJECTED` deferred-save busy class V17T's attempt 1 hit. It does NOT absorb a
+# mis-seeded anchor: that reproduces exactly on attempt 2, which is the point. NOTE it is
+# ALSO budgeted to spend itself if the `icon-off-orbit` token fires, since it is
+# deliberately un-tolerated so the sweep can measure it - in that case the run reports
+# PARSEK-FAIL(anomaly) on both attempts, and that is a pre-registered outcome priced here
+# rather than discovered.
+policy = "once"
+
+[expectedFail]
+bugId = ""

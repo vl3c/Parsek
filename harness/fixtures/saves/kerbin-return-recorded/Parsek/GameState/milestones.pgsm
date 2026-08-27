@@ -1,0 +1,107 @@
+version = 1
+MILESTONE
+{
+	id = a61bf2cfa61d42fd88c4179ea8cf1e19
+	startUT = 0
+	endUT = 27787321.139510822
+	recordingId = 
+	committed = True
+	lastReplayedIdx = 0
+	GAME_STATE_EVENT
+	{
+		ut = 27787319.959510848
+		type = 18
+		key = Orbit
+		detail = funds=12000;rep=2;sci=1
+	}
+}
+MILESTONE
+{
+	id = 1db581e46c204501b8191944a8f63842
+	startUT = 27787321.139510822
+	endUT = 37098792.152095005
+	recordingId = 
+	committed = True
+	lastReplayedIdx = 1
+	GAME_STATE_EVENT
+	{
+		ut = 36198519.425954551
+		type = 18
+		key = Jool/Escape
+		detail = funds=18000;rep=1;sci=0
+		recordingId = 6d171d14ef474fbf95c69ada863bda12
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 36198519.425954551
+		type = 18
+		key = Sun/Flyby
+		detail = funds=19000;rep=1;sci=0
+		recordingId = 6d171d14ef474fbf95c69ada863bda12
+	}
+}
+MILESTONE
+{
+	id = 67d53238730e456e8247ccdd5d861ed9
+	startUT = 37098792.152095005
+	endUT = 60393729.454127595
+	recordingId = 
+	committed = True
+	lastReplayedIdx = 6
+	GAME_STATE_EVENT
+	{
+		ut = 60366070.331327148
+		type = 18
+		key = Sun/Escape
+		detail = funds=13680;rep=1;sci=0
+		recordingId = 6d171d14ef474fbf95c69ada863bda12
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 60366070.331327148
+		type = 18
+		key = RecordsAltitude
+		detail = funds=24000;rep=3;sci=1
+		recordingId = 6d171d14ef474fbf95c69ada863bda12
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 60366070.331327148
+		type = 18
+		key = RecordsAltitude
+		detail = funds=0;rep=0;sci=0
+		recordingId = 6d171d14ef474fbf95c69ada863bda12
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 60366070.331327148
+		type = 18
+		key = RecordsSpeed
+		detail = funds=24000;rep=3;sci=1
+		recordingId = 6d171d14ef474fbf95c69ada863bda12
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 60366070.331327148
+		type = 18
+		key = RecordsSpeed
+		detail = funds=0;rep=0;sci=0
+		recordingId = 6d171d14ef474fbf95c69ada863bda12
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 60393509.054091468
+		type = 18
+		key = RecordsDistance
+		detail = funds=24000;rep=3;sci=1
+		recordingId = 6d171d14ef474fbf95c69ada863bda12
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 60393509.054091468
+		type = 18
+		key = RecordsDistance
+		detail = funds=0;rep=0;sci=0
+		recordingId = 6d171d14ef474fbf95c69ada863bda12
+	}
+}
