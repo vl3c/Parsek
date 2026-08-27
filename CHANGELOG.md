@@ -16,8 +16,8 @@ All notable changes to Parsek are documented here.
   draw, had never been produced at all. The new mission starts a crewed ship
   already parked at Jool, waits for the transfer window, burns for home, corrects
   twice on the way in, and captures into a Kerbin orbit before saving the flight.
-  It has not been flown yet; every number in it is calculated rather than
-  measured, which is exactly what its first run is for.
+  It has now flown, on its third attempt, and the flight it recorded is saved for
+  other tests to read.
   Two things had to change to make it possible. The mission originally planned
   would have departed Duna, and checking the saved Duna spacecraft's actual fuel
   showed it cannot get home - it carries about 1,100 m/s of manoeuvring
@@ -43,6 +43,13 @@ All notable changes to Parsek are documented here.
   same proven way the moon-to-moon missions do: a small self-computed escape
   burn out of Jool's gravity, then a properly-timed transfer planned in solar
   orbit, which arrives at the speed the fuel budget was built for.
+  Two new automated tests were then written on top of the flight it recorded: one
+  watches the replay of that arrival on the in-flight map, the other watches it in
+  the Tracking Station, and both check that Parsek really draws the returning ship
+  in Kerbin's own frame rather than just happening to have the clock in the right
+  place. Neither has been run yet - every number in them is worked out from the
+  saved flight rather than observed, which is what their first runs are for - and
+  neither one fails the run over anything it is still measuring.
   Test-tooling only; no gameplay change.
 - The looped Mun mission's render test now also requires that Parsek actually
   published which replay owned the map line, so a run where that bookkeeping

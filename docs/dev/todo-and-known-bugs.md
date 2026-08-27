@@ -66,10 +66,70 @@ escape at the park periapsis, stage-2 Sun-frame Hohmann to Kerbin at the next
 window (nominal 1,756.23 m/s), two corrections, and the 1,188.07 m/s elliptical
 capture into the 150,000 x 6,000,000 m Kerbin ellipse before committing the tree.
 
-WHAT IS OWED, in order: the first flight; then the harvest; then `V20M` / `V20T` /
-`V20K` authored off the HARVESTED bytes. The V lanes are deliberately NOT committed
+WHAT WAS OWED, in order: the first flight; then the harvest; then `V20M` / `V20T` /
+`V20K` authored off the HARVESTED bytes. The V lanes were deliberately NOT committed
 ahead of the flight - the V21/G3a lesson is that a lane written against predicted
 bytes costs re-pin rounds when the subject can be flown first.
+
+**THE FIRST TWO OF THOSE THREE NOW EXIST (2026-08-27).** `V20M-jool-kerbin-player-loop`
+(flight-map host) and `V20T-jool-kerbin-ts-arrival` (Tracking-Station host) are
+committed, authored entirely off `kerbin-return-recorded`'s bytes, and both are pure
+READING-RUN specs: nothing armed, no `gating = true` anywhere, no routing token in
+`required`, `[expectations.renderComposition]` declared BARE with all three tracers on,
+and `[expectations.rewind]` / `[expectations.recordings.structure]` report-only. The
+fixture is registered in `test_saveparse.RECORDED_FIXTURES` and both lanes in
+`test_hlib`'s operator-tier inventory and `RENDERCOMPOSE_DECLARER_SPECS`.
+The derivations worth naming, because a re-harvest would move them:
+  * SPAN. The unit reads the TRACK_SECTION envelope
+    [27,787,321.139510822, 60,393,896.914155044] = **32,606,575.774644222 s**, with the
+    span-end trap re-derived FRESH for this subject at 0.020 s / **2.520 s** rather than
+    inherited from V19M's 0.020 / 1.360. `overlapCadence` = spanDur/20 =
+    **1,630,328.788732211 s**, so the 20x cap beats the 30 s default by 54,344x. It is
+    the LONGEST-SPAN loop subject the program has carried - 3.54 Kerbin years, 2,719x
+    V19M's.
+  * ANTI-VACUITY, and this is the one a reader should check first. The visited set
+    {Jool, Sun, Kerbin} LOOKS nested-SOI - the Sun has TWO visited children - but
+    `NestedSoiSubtree.FindNestedRoot`'s self-reference guard rejects the Sun as a root,
+    and its own comment names live `["Kerbin","Sun","Duna"]` (the mirror of our sequence)
+    as the reason that guard exists. So there is no fail-closed root-frame render, the
+    proto lenses are intact, and V17M's TracedPath-shadow workaround is deliberately not
+    used. The pins are `phase=body-orbit surface=ProtoOrbitLine .*body=Kerbin` (V20M) and
+    `phase=GhostCreated surface=ProtoIcon pid=\d+ .*body=Kerbin scene=TRACKSTATION`
+    (V20T). They are the most FALSIFIABLE destination pins in the program: the Kerbin
+    window is 0.0853% of the span against a launch pitch 58.6x wider than it, so the
+    derived census at every observation epoch is Kerbin 1 / Sun 14 / Jool-escape 3 /
+    Jool-park 2 - ONE ghost of twenty - and on the TS half that one is the OLDEST
+    instance, hence the LAST to spawn under the 2-per-tick throttle, which is what makes
+    the forty-tick dwell load-bearing rather than hygiene.
+  * ROUTING, pre-registered and gated on nothing. R2 is the deepest any committed subject
+    has reached into `ReaimClassifier.Classify`: the arrival scan SUCCEEDS at seg#14
+    (the door V19M's two-body subject could not open), and the walk predicts a decline at
+    the partial-transfer departure gate on a string no committed lane has printed -
+    `transfer departs from a heliocentric parking orbit or mid-course correction
+    (deferred); staying faithful` - refused three independent ways by
+    `IsHeliocentricParkingDeparture` (the Sun predecessor traverses 0.010649 rev of its
+    own period so no closed park run is detected; ecc 0.16402257 > 0.1; sma 13.28% off
+    Jool's own heliocentric value against a 10% tolerance). A commissioning prediction is
+    corrected in the spec rather than silently applied: the `wholeRevs >= 1` conjunct is
+    scoped to COMMON-ANCESTOR runs, NOT to the recording's Jool park (whose real
+    0.702186-rev arithmetic is recorded as a subject property, not as a gate).
+  * OPTIMIZER. `recordings.count` is WIDE at {1,3} because there are TWO splittable body
+    seams, and the Sun->Kerbin one is the FIRST in the corpus whose predicted cohesion
+    depends on `ShouldKeepCohesiveCrossBodyExoCoast`'s SECOND disjunct (ExoPropulsive ->
+    ExoBallistic, kept whole only because both sections are OrbitalCheckpoint-framed).
+
+**REMAINING: the two reading runs, then the arming pass off their OWN bytes, then the
+per-lane negative controls (TWO, not one shared - the halves pin different lenses), and
+then `V20K`.** One cost neither lane can price from committed bytes and both write down:
+the schedules traverse 66.8 Ms (V20M) and 34.2 Ms (V20T) of game time in instantaneous
+`Planetarium` clock sets, and KSP's on-rails propagation cost at that magnitude is
+UNMEASURED - a death on a TimeJump watchdog would be a reading, not a calibration
+failure. **THE KSC QUESTION STAYS OPEN AND NOTHING MAY BE WRITTEN UP ABOUT IT**:
+`IsKscStructurallyEligible` rejects on `Points[0].bodyName != "Kerbin"` and this
+recording's first POINT is at Jool, but it is also the first recording in the corpus
+that HAS Kerbin-bodied points at all, which is a different input to the playback gate
+than B28's subject presented. Under roadmap confirmation criterion (c) that becomes
+either a closed payoff or a cited limitation only once a `V20K` run exists.
 
 LKO WAS DESCOPED FOR MARGIN and the roadmap's G2 entry is updated to say so:
 circularizing at the arrival periapsis costs 1,926.12 m/s against the ellipse's

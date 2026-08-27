@@ -5161,6 +5161,25 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # shape H34/H35 above record.
         "V19M-laythe-jool-player-loop.toml": "tier=operator by the calibration discipline (derived windows, first run is a calibration reading), NOT debt; committed 2026-08-21 and DISCIPLINE-COMPLETE the same day - reading `2026-08-21_0746` PASS attempt 1 (wall 98 s), ARMED off its own bytes, armed re-flight `_0852` PASS with saveParse gating and 0 mismatches, and its OWN negative control `_0855` PARSEK-FAIL(expectation) on 1 mismatch (`surface=ProtoOrbitLine .*body=Vall`) with saveParse still PASS, then reverted; what is open is the ordinary operator -> nightly PROMOTION call, the H34/H35 shape",
         "V19T-laythe-jool-ts-arrival.toml":  "tier=operator by the calibration discipline (derived windows, first run is a calibration reading), NOT debt; committed 2026-08-21 and DISCIPLINE-COMPLETE the same day - reading `2026-08-21_0750` PASS attempt 1 (wall 60 s), ARMED off its own bytes, armed re-flight `_0854` PASS, its OWN negative control `_0858` PARSEK-FAIL(expectation) on 1 mismatch (`surface=ProtoIcon ... body=Vall scene=TRACKSTATION`) with saveParse still PASS, and revert confirmation `_0859` PASS; `_0857` was an ATTEMPTED control that PASSED because a mis-escaped regex made no edit, so it is an extra armed confirmation and NOT a control; what is open is the ordinary operator -> nightly PROMOTION call, the H34/H35 shape",
+        # The V20 pair, tier=operator by the same calibration discipline every V
+        # lane before them carries, and at the EARLIEST point of it: AUTHORED
+        # 2026-08-27 off `kerbin-return-recorded`'s harvested bytes and NEVER
+        # FLOWN. Both are READING-RUN specs by construction - nothing armed, no
+        # `gating = true` anywhere, no routing token in `required` - so what is
+        # owed is the FIRST FLIGHT, not a human review call. NOT DEBT.
+        # What they add beyond V19: the first KERBIN-ARRIVAL loop subject (planet
+        # -> Kerbin, where V19 read moon -> parent), and with it the first loop
+        # subject whose span is measured in Kerbin YEARS - 32,606,575.77 s,
+        # 2,719x V19's - which is what makes their destination pin the most
+        # falsifiable in the program: exactly ONE of twenty live instances is
+        # Kerbin-framed at any observation epoch, and on the TS half it is the
+        # OLDEST and therefore the last to spawn under the 2-per-tick throttle.
+        # THE KSC THIRD IS DELIBERATELY NOT THEIRS: `V20K` over the same bytes is
+        # where the KSC-host question becomes either a closed payoff or a cited
+        # limitation, and under roadmap confirmation criterion (c) no limitation
+        # may be written up before that run exists.
+        "V20M-jool-kerbin-player-loop.toml": "tier=operator by the calibration discipline (derived windows, first run is a calibration reading), NOT debt; AUTHORED 2026-08-27 off `kerbin-return-recorded` and NOT YET FLOWN - the flight-map half of the suite's first KERBIN-ARRIVAL loop pair, reading-run posture with nothing armed; what is open is the FLIGHT itself, not a human review call",
+        "V20T-jool-kerbin-ts-arrival.toml":  "tier=operator by the calibration discipline (derived windows, first run is a calibration reading), NOT debt; AUTHORED 2026-08-27 off `kerbin-return-recorded` and NOT YET FLOWN - the Tracking-Station half of the same pair, reading-run posture with nothing armed and the TS init-walk reading pre-registered in both directions; what is open is the FLIGHT itself, not a human review call",
         # THE G4 REPLICATION LANE, tier=operator by the same calibration
         # discipline the whole B18-B28 family carries: its windows are DERIVED
         # (from the fixture's own bytes, from cited stock constants and from
@@ -6895,6 +6914,22 @@ class RenderComposeVerifierWiringTests(unittest.TestCase):
                                     # [K] FIRST KSC-host manifest ever; ghostRenderTracing
                                     #     NEWLY armed (see the exposure paragraph above).
                                     "V22K-kerbin-splashdown-ksc-arrival.toml",
+                                    # -- THE V20 PAIR, 2026-08-27: BOTH BARE, both
+                                    # reading-pending, and both NEW LANES authored against
+                                    # the `kerbin-return-recorded` harvest rather than
+                                    # re-declarations of a lane that had already flown - so
+                                    # each owes a FIRST FLIGHT before it owes a window.
+                                    # [M] the suite's first KERBIN-ARRIVAL loop subject and
+                                    #     by far its longest span (32,606,575.77 s = 3.54
+                                    #     Kerbin years, 2,719x V19M's), so the manifest's
+                                    #     per-leg composition is measured over an ownership
+                                    #     window no prior declarer has produced.
+                                    "V20M-jool-kerbin-player-loop.toml",
+                                    # [T] the TS half of the same pair. ghostRenderTracing
+                                    #     is NEWLY armed here relative to V19T, which is not
+                                    #     a declarer - V14T's TS-host precedent and its
+                                    #     exposure note apply unchanged.
+                                    "V20T-jool-kerbin-ts-arrival.toml",
                                     # -- PHASE 4 / WAVE B, 2026-08-26: TWO NEW SUBJECTS,
                                     # both bare, both reading-pending, and neither a
                                     # re-declaration of an existing shape. Unlike Wave A -

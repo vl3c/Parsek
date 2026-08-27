@@ -1186,6 +1186,43 @@ class CommittedFixtureSweepTests(unittest.TestCase):
             "recordingIds": ["28f5cc0158c8461eb995ea1e505aa67e"],
             "schemaGeneration": 4,
         },
+        # PROVENANCE: kerbin-return-recorded <- B29-jool-kerbin-return FLIGHT 3, run
+        # 2026-08-27, PASS attempt 1 (MISSION-OK, wall 2,103 s, all eight assertions
+        # met), --keep-parsek. The crewed Duna Rocket departs the Parsek-stripped
+        # `jool-park-nerv` park on a TWO-STAGE PARENT RELAY - a 272.36 m/s escape node
+        # out of Jool's SOI, then a 1,455.20 m/s Sun-frame Hohmann node, two corrections
+        # totalling 22.97, and a -1,350.10 m/s capture into a 99,928 x 6,041,092 m KERBIN
+        # ellipse at ecc 0.809 inc 16.44.
+        #
+        # **IT IS THE FIRST RECORDING IN THE CORPUS THAT ARRIVES AT KERBIN FROM ANOTHER
+        # PLANET**, which is why it exists alongside `jool-return-recorded` (the
+        # moon-to-parent inversion) rather than duplicating it: that one closed the
+        # moon-to-parent half of G2, this one closes the planet-to-Kerbin half, and the
+        # V20 pair reads the RENDER of the arrival off these bytes.
+        #
+        # STRUCTURALLY it is the longest-span subject in the corpus by a wide margin:
+        # EIGHTEEN ORBIT_SEGMENTs (Jool 0-4, Sun 5-13, Kerbin 14-17) across **TWO**
+        # body-change seams at 36,198,519.425954551 (Jool->Sun) and 60,366,070.331327148
+        # (Sun->Kerbin), 42 TRACK_SECTIONs (24 `ref=0`, 18 `ref=2`, zero `ref=1`), a
+        # TRACK_SECTION envelope of [27,787,321.139510822, 60,393,896.914155044] =
+        # 32,606,575.774644222 s, and a **391.700 s SEGMENT-LESS parked tail** from the
+        # last ORBIT_SEGMENT's end at 60,393,505.214090839 - the capture burn fires
+        # INSIDE that tail, so the Kerbin conics on disk are the HYPERBOLIC approach
+        # (sma -392,274.880 m, ecc 2.7877) and never the delivered park.
+        # THE SEGMENT-LESS TAIL AND THE TWO SEAMS ARE BOTH LOAD-BEARING for the V20 pair
+        # (jump placement, the TS init-walk reading, and a `recordings` count window that
+        # must admit TWO splittable candidates rather than one), so a re-harvest that
+        # changed either would move those lanes' posture and not just their numbers.
+        "kerbin-return-recorded": {
+            "trees": 1, "committedTrees": 1, "recordings": 1,
+            "supersedes": 0, "tombstones": 0, "rewind_points": 0,
+            "rewind_retirements": 0,
+            "terminalStates": {"Orbiting": 1},
+            "branchPoints": {},
+            "minAuthoritativeSidecars": 4,
+            "recordingIds": ["6d171d14ef474fbf95c69ada863bda12"],
+            "schemaGeneration": 4,
+        },
         # --- THE MOON LOOP-VALIDATION PAIR -------------------------------
         # PROVENANCE: mun-orbit-recorded  <- B11-mun-orbit, run
         # 2026-08-08_1458, PASS attempt 1, wall 1321 s (harvested
