@@ -1286,9 +1286,17 @@ must never carry them.
 | Kerbin -> planet, classifier-declined profile | faithful | none | NO (see note) |
 | Moon -> sibling moon | faithful | V17M/V17T, V21M/V21T | YES |
 | Return leg, moon -> its own parent | faithful | V19M/V19T | YES (map + TS) |
-| Return leg, planet -> Kerbin | unmeasured | none (subject `B29-jool-kerbin-return` AUTHORED 2026-08-26, never flown) | NO - G2 |
+| Return leg, planet -> Kerbin | faithful | V20M/V20T | YES (map + TS; see note) |
 
-Six scoping notes the table cannot carry without becoming a status doc:
+Seven scoping notes the table cannot carry without becoming a status doc:
+
+- The planet-to-Kerbin row's `YES (map + TS)` is CLASS-LEVEL and the two hosts are
+  confirmed on DIFFERENT LENSES, which the G2 entry below states in full. The TS
+  third is discharged on a RENDERED-FRAME token; the flight-map third is
+  discharged on a ghost-proto CREATION-frame token plus a seed-side arrival token,
+  because that host's proto ORBIT-LINE lens was measured segment-zero-only. The
+  KSC third is NOT confirmed and belongs to `V20K`. The row says YES for the class
+  and the note is where the asymmetry lives.
 
 - The phase-lock row's scene coverage is its ARMED halves - V6M/V6T, V14T,
   V15T, V16T. It does NOT include V7T, which is RED BY FINDING and
@@ -1588,20 +1596,52 @@ Jool park satisfies `helioIdx`, the missing-heliocentric-leg decline every prior
 V lane printed cannot fire, and the arrival scan instead finds no body that is
 neither Jool nor Laythe. Per-lane detail lives in `autotest-status.md`.
 
-**UPDATE 2026-08-26: THE PLANET-TO-KERBIN HALF HAS A COMMITTED SUBJECT SPEC AND
-STILL HAS NO MEASUREMENT. DO NOT BOOK ANY PART OF IT.**
-`B29-jool-kerbin-return` is AUTHORED and committed; it has NEVER FLOWN, and
-every window in it is DERIVED from `jool-park-nerv`'s bytes rather than measured.
-`V20M`/`V20T`/`V20K` DO NOT EXIST and are deliberately not authored ahead of that
-flight - the V21/G3a lesson is that a lane written against predicted bytes costs
-re-pin rounds when the subject can be flown first. So the honest state is: a
-spec exists, no subject recording exists, no lane exists, and the KSC payoff this
-entry was ranked for is still UNPROVEN rather than delivered (per the correction
-below, and see the amendment to it just after). Two of the three hosts remain
-confirmed at ONE of the two directions. G2 stays OPEN, and closing it is a green
-B29 flight + a harvested subject + V20M/V20T + V20K. **`B31` IS NO LONGER AHEAD
-OF THEM**: the re-scope removed the Duna-origin dependency entirely, and B31 is
-now a when-wanted breadth point (see the B-range roster above).
+**UPDATE 2026-08-27: THE PLANET-TO-KERBIN HALF IS CLOSED FOR PRODUCTION ON THE
+FLIGHT-MAP AND TRACKING-STATION THIRDS. THE KSC THIRD IS NOT, SO G2 IS STILL NOT
+BOOKED.** `B29-jool-kerbin-return` FLEW GREEN on its third attempt (flight 3,
+2026-08-27, PASS attempt 1, MISSION-OK) after two INVALID calibration reads and a
+re-scope onto a two-stage parent relay, and was harvested as
+`fixtures/saves/kerbin-return-recorded` - **the first recording in the corpus
+that arrives at Kerbin from another planet**. The `V20M`/`V20T` pair over those
+bytes is LIVE-PROVEN AND ARMED and completed the full discipline the same day:
+readings, an armed re-flight each, and **its OWN per-lane negative control each**,
+both red on exactly one inverted RENDER token with every other verifier row -
+including the now-gating `saveParse` - green. That pairing is what proves the red
+is on the render pin rather than on the evaluator, and it is the second discharge
+of criterion (b) in this program after V19. Per-lane run chains, verdicts and
+arming payloads live in `autotest-status.md`; they are not repeated here.
+
+THE ROUTING CAME BACK **R3, FAITHFUL**, as it did for the moon-to-parent half -
+but by a DIFFERENT and deeper door, which is the class fact this entry was
+ranked for. This is the first committed subject whose ARRIVAL SCAN SUCCEEDS: the
+classifier walks all the way past the direct-child, cross-parent and multi-hop
+guards and the transfer-run reconstruction, and declines only at the
+partial-transfer departure gate, on a string no committed lane had ever printed
+(`transfer departs from a heliocentric parking orbit or mid-course correction
+(deferred); staying faithful`). So the inverted direction is confirmed faithful
+at BOTH of its representative classes, by two different mechanisms.
+
+**THE TWO CONFIRMED HOSTS ARE CONFIRMED ON DIFFERENT LENSES, AND THE ASYMMETRY IS
+A MEASUREMENT RATHER THAN A CONVENIENCE.** The TS third is discharged on a
+RENDERED-FRAME token (a ghost proto materialized in a Kerbin body frame in the
+tracking station). The flight-map third is discharged on a ghost-proto
+CREATION-frame token plus a seed-side arrival token, because that host's proto
+ORBIT-LINE lens was measured to report the recording's FIRST segment for every
+proto regardless of what frame the proto was created in - across three runs, two
+deliberately different jump orders and four long dwells, including a run that
+contained a Kerbin-CREATED flight proto. **That is an instrument/host limitation,
+not a lane defect and not a product bug**, it is filed report-only on
+`docs/dev/todo-and-known-bugs.md` ->
+TIMEJUMP-CANNOT-OBSERVE-LIVE-FRAME-OVERLAP-PROTOS-ON-LONG-PITCH-SUBJECTS with no
+mechanism claimed, and it would only become answerable if the M-A2 seam grammar
+ever gains a WARP verb (it has none, and inventing one to make a pin reachable is
+exactly what a reading round must not do). **DO NOT READ THE MATRIX'S CLASS-LEVEL
+`YES` AS "both hosts on the same lens".**
+
+**WHAT REMAINS FOR G2, AND IT IS ONE THING:** `V20K`, the KSC host lane over
+these same bytes, per the correction below. `B31` IS NOT AHEAD OF IT - the
+re-scope removed the Duna-origin dependency entirely and B31 is now a when-wanted
+breadth point (see the B-range roster above).
 
 **CORRECTION TO THIS ENTRY'S KSC PREMISE (2026-08-21) - AN INSPECTION, NOT A
 MEASUREMENT.** The sentence above claims the return direction "is the ONLY thing
@@ -1628,6 +1668,16 @@ confirmation criterion (c) it may NOT be written up as a documented limitation
 anywhere - not here, not in a spec, not in a status row. `V20K` (over B29's
 Kerbin-arrival recording) is where it gets MEASURED, and only that run can
 convert this paragraph into either a closed payoff or a cited limitation.
+**AMENDED 2026-08-27: THE RECORDING NOW EXISTS AND THE QUESTION IS SHARPER, NOT
+ANSWERED.** `kerbin-return-recorded`'s first POINT reads `body = Jool`, so the
+outright-rejection gate above still looks like it fires - but this is also the
+FIRST recording in the corpus that has Kerbin-bodied points at all (56 in its
+final section), which is a genuinely different input to the per-point playback
+gate than B28's zero-occurrences-of-Kerbin subject presented. That difference is
+exactly what `V20K` measures. Criterion (c) is UNCHANGED and binding: until that
+run exists, nothing about the KSC host may be written up as a documented
+limitation here, in a spec, or in a status row - and the V20M/V20T specs and
+status rows have been held to it.
 
 **G3 - Surface endpoints.** Every committed loop lane ends at an ORBIT. A loop
 whose recording ENDS LANDED OR SPLASHED exercises a different render stack, and

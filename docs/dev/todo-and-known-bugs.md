@@ -367,10 +367,45 @@ pins the COUNT - one gate per fact across the pair. NO routing token is promoted
 cell is claimed; `renderComposition` stays declared-bare pending the operator's tier-cadence
 decision. Both lanes are in `test_hlib`'s `ARMED_ALLOWLIST` with the arming rationale.
 
-**REMAINING: the two armed re-flights, then the two PER-LANE negative controls (named in each
-spec header with a tomllib pre-flight gate - V20M inverts its `scene=FLIGHT` ProtoIcon body
-clause, V20T its `scene=TRACKSTATION` one; they CANNOT share one, because the hosts' lenses are
-now measurably different), and then `V20K`.** One cost neither lane can price from committed bytes and both write down:
+**ALL FOUR OF THOSE FLEW ON 2026-08-27 AND BOTH LANES ARE DISCIPLINE-COMPLETE.**
+  * V20M ARMED RE-FLIGHT `2026-08-27_1938`: PASS attempt 1, wall 75 s, `saveParse PASS
+    gating=True armed=['rewind','recordings.structure'] mismatches=[]` with all eleven required
+    tokens matched - so the arming moved no verdict and re-pinned nothing, measured rather than
+    argued.
+  * V20T ARMED RE-FLIGHT `2026-08-27_1939` -> `_1940_a2`: PASS on attempt 2, wall 119 s,
+    `note=flakedThenPassed`. **THE FLAKE IS LEDGERED HONESTLY BECAUSE IT IS THE RETRY CONTRACT
+    WORKING**: attempt 1 was INVALID `driver-verdict-mismatch` on ONE step of 56 - `LoadGame
+    id=0014 expect=OK verdict=REJECTED`, log reason `recording-active` - which is the EXACT class
+    the spec pre-registers twice (the re-kill-pair paragraph's V5 promotion-recorder re-arm race,
+    and `[retry]`'s pricing of it). Driver-INVALID, never PARSEK-FAIL: it reached no verdict about
+    the product and every save-reading verifier was SKIPPED.
+  * BOTH NEGATIVE CONTROLS RED ON DEMAND, each on its OWN lens, each with EXACTLY ONE mismatch and
+    every other verifier row clean **including the now-gating `saveParse` (PASS, gating=True)** -
+    the pairing that proves the red is on the RENDER PIN and not on the evaluator:
+    `2026-08-27_1941` on `phase=GhostCreated surface=ProtoIcon pid=\d+ .*body=Duna scene=FLIGHT`
+    and `2026-08-27_1942` on the `scene=TRACKSTATION` form (with the body-free TS floor left
+    untouched, so the red lands on the BODY CLAUSE ALONE). Both specs reverted and verified clean.
+  * The class matrix row and the G2 gap entry in `docs/dev/autotest-roadmap.md` are updated: the
+    planet-to-Kerbin half is CLOSED FOR PRODUCTION on the flight-map and TS thirds, with the
+    lens asymmetry stated rather than smoothed over.
+
+**REMAINING, AND IT IS SHORT.**
+  1. **`V20K`** - the KSC host lane over these same bytes. Still reserved, still the only thing
+     standing between G2 and closure, and still ungated by confirmation criterion (c): until that
+     run exists, nothing about the KSC host may be written up as a documented limitation anywhere.
+     The question is now SHARPER rather than answered - `kerbin-return-recorded`'s first POINT is
+     at Jool so `IsKscStructurallyEligible` still looks like it rejects, but this is the first
+     recording in the corpus with Kerbin-bodied points at all (56 in its final section), a
+     different input to the per-point playback gate than B28's subject presented.
+  2. **Deferred OPERATOR decisions, none of them debt.** (a) The `renderComposition` windows on
+     both lanes - declared bare on purpose; windows are written from facets accumulated on tier
+     cadence under the M-A7 wave process. (b) V20T's `created 0 ghost vessel\(s\)` forbid -
+     ARM-READY off run 1's measured `created 1` and deliberately untaken, because that spec
+     pre-registers BOTH init-walk readings and a forbid would retroactively gate one branch of a
+     question it declared open. (c) The rendered-frame `ProtoOrbitLine` claim on the FLIGHT host -
+     only answerable if the M-A2 seam grammar ever gains a WARP verb; it has none today, and
+     inventing one to make a pin reachable is what a reading round must not do.
+  3. The ordinary operator -> nightly PROMOTION call on both lanes. One cost neither lane can price from committed bytes and both write down:
 the schedules traverse 66.8 Ms (V20M) and 34.2 Ms (V20T) of game time in instantaneous
 `Planetarium` clock sets, and KSP's on-rails propagation cost at that magnitude is
 UNMEASURED - a death on a TimeJump watchdog would be a reading, not a calibration

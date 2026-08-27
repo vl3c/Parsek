@@ -84,8 +84,14 @@ All notable changes to Parsek are documented here.
   With both tests passing and their numbers repeating run to run, the checks they had
   been merely watching were switched on to enforce: they now fail if the returning
   flight's recorded structure changes, or if the two arrival legs stop being kept
-  whole as one journey. Each also has its own deliberate sabotage test written down
-  for the operator to run, to prove the checks can actually fail.
+  whole as one journey. Both were then re-run with the enforcement live and passed
+  unchanged, and both were deliberately sabotaged once - each told to look for the
+  ship arriving at the wrong planet - to check they can actually fail. Each failed
+  on exactly that one thing and nothing else, which is what makes the passing runs
+  worth something; the sabotage was undone afterwards. Both tests are now complete
+  and the return-from-another-planet case is covered on the in-flight map and in the
+  Tracking Station, with the one thing the map cannot show recorded as a known limit
+  of the test tooling rather than quietly ignored.
   Test-tooling only; no gameplay change.
 - The looped Mun mission's render test now also requires that Parsek actually
   published which replay owned the map line, so a run where that bookkeeping
