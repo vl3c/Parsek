@@ -51,7 +51,7 @@ breadth point rather than a blocker - see the roadmap's rewritten roster entry.
 
 ---
 
-## B29-JOOL-KERBIN-RETURN-AUTHORED-NEVER-FLOWN: the suite's first INBOUND interplanetary subject has a committed spec and no green flight yet, so the planet-to-Kerbin half of roadmap gap G2 has a plan and still has no measurement [OPENED 2026-08-26 on branch `b29-duna-return`. FLIGHTS 1-2 FLOWN 2026-08-27 (both INVALID, both calibration reads); RE-SCOPED ONTO THE PARENT-RELAY MODE the same day - see the spec's two flight ledgers. TODO, not a defect]
+## B29-JOOL-KERBIN-RETURN-AUTHORED-NEVER-FLOWN: the suite's first INBOUND interplanetary subject [OPENED 2026-08-26 on branch `b29-duna-return`. FLIGHTS 1-2 FLOWN 2026-08-27 (both INVALID, both calibration reads); RE-SCOPED ONTO THE PARENT-RELAY MODE the same day; **FLIGHT 3 PASS ATTEMPT 1 the same day** - the subject EXISTS, harvested as `fixtures/saves/kerbin-return-recorded` (one recording, 739 points, seams Jool->Sun / Sun->Kerbin, Orbiting-at-Kerbin terminal). REMAINING: the V20 lanes off the harvested bytes. TODO, not a defect]
 
 `B29-jool-kerbin-return` is committed: spec, mission shell, schema, registration
 cells and a bare `[expectations.renderComposition]` declaration. FLIGHT 1

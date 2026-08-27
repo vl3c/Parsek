@@ -71,6 +71,32 @@ id = "B29-jool-kerbin-return"
 #     end to end at Jool scale, and the elliptical capture planner priced a
 #     LIVE arrival correctly at its first hostile input.
 # ---------------------------------------------------------------------------------
+# FLIGHT 3 LEDGER (2026-08-27, run PASS ATTEMPT 1, MISSION-OK, every verifier
+# PASS/SKIPPED, mission wall 2,103 s - THE RELAY RE-SCOPE, GREEN FIRST TRY):
+# (a) THE ESCAPE NODE AGREED WITH THE DERIVATION TO 2 CM/S: 272.36 m/s flown
+#     against the 272.38 derived at the fixture park (node ut 31,552,118.5,
+#     placed and read back through the same kRPC add_node seam B26 proved).
+# (b) STAGE 2 CAME IN 300 UNDER NOMINAL: the Sun-frame Hohmann planned
+#     1,455.20 m/s against the 1,756.23 nominal - the 450 m/s handoff residual
+#     helped rather than hurt this time - and the resulting transfer needed
+#     0.11 m/s (negligible, removed) + 1.97 + 21.00 m/s of corrections against
+#     flight 2's 268-establishing rounds: the relay's window-timed plan IS the
+#     intercept the direct plan never had.
+# (c) THE CAPTURE PRICED AT -1,350.10 m/s (derived 1,188.07 + the arrival
+#     residual, inside the ledgered band), delivered 99,928 x 6,041,092 m at
+#     ecc 0.809 inc 16.44 deg - inside the park triple (pe>=90,000,
+#     ap<=8,900,000, ecc<=0.85) with flybyPeriapsisFloor met at 100,733 m.
+#     Total spent ~3,100.7 m/s of the committed 3,967 - the margin the relay
+#     ladder promised. All EIGHT assertions met, escapedHomeSoi included.
+# (d) THE PRODUCT: one tree, ONE recording (6d171d14ef474fbf95c69ada863bda12,
+#     guid 5384d5f4fe8244d782aaa5cb79345562), 739 points, 42 TRACK_SECTIONs,
+#     62 PART_EVENTs, explicit span 27,787,321.16 -> 60,393,894.39
+#     (32,606,573.2 s), with BOTH inbound body seams in order: Jool -> Sun at
+#     36,198,519.43 and Sun -> KERBIN at 60,366,070.33, then a 27,827 s
+#     Kerbin-frame tail to the Orbiting-at-Kerbin terminal. Harvested as
+#     `fixtures/saves/kerbin-return-recorded` (--keep-parsek, ORBITING).
+#     V20M / V20T author off THESE bytes.
+# ---------------------------------------------------------------------------------
 # =====================================================================================
 # B29: THE FIRST RECORDING IN THE SUITE THAT ARRIVES AT KERBIN FROM ANOTHER PLANET.
 # The crewed Duna Rocket starts ALREADY PARKED around JOOL, escapes on a
