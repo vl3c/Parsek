@@ -21,8 +21,12 @@ All notable changes to Parsek are documented here.
   machinery were added to make it drivable: a test-only command that presses
   the Recordings table's "Rewind to Launch" button (inert outside the test
   harness), a checker that pairs up every ghost's appear/disappear log lines,
-  and the scripted mission that flies the rocket. Test-tooling only; no
-  gameplay change.
+  and the scripted mission that flies the rocket. The whole thing was then
+  flown for real, twice: the first flight failed only because the test pressed
+  Watch a few seconds before the ghost appeared (the test now waits and
+  retries), and the second flight passed everything - all eight ghosts (the
+  rocket, its six boosters, and the discarded core stage) appeared and
+  disappeared exactly as recorded. Test-tooling only; no gameplay change.
 
 - The looped Mun mission's render test now also requires that Parsek actually
   published which replay owned the map line, so a run where that bookkeeping

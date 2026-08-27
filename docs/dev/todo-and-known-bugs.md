@@ -14,7 +14,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## GS4-FIRST-FLIGHT-RISKS: the ghost-derender tripwire lane is authored end to end but unflown, and five specific facts are interim pins until its reading run [OPENED 2026-08-27 with the GS-4 lane (branch `kerbalx-watch-derender`). TODO, not a defect. Status authority: `docs/dev/autotest-status.md` -> "Committed, not yet green"]
+## ~~GS4-FIRST-FLIGHT-RISKS~~: the ghost-derender tripwire lane's pre-flight interim pins [OPENED 2026-08-27 with the GS-4 lane. **DISCHARGED 2026-08-27 THE SAME DAY**: reading run `2026-08-27_2145` (MISSION-OK attempt 1; red on exactly the two watch tokens - the pre-spawn EnterWatchMode race, fixed as the machine's WATCH hold-then-retry loop) then green run `2026-08-27_2204` PASS attempt 1, every verifier clean, census spawned=8/destroyLines=8/unbalanced=0 measured on BOTH flights. Windows re-pinned to the measurement; ghostLifecycle stays report-only pending the standard arming discipline. Status authority: `docs/dev/autotest-status.md` -> Live-proven. The entry below is kept as the pre-flight record]
 
 **The motivation is a SUSPECTED, UNCONFIRMED product bug:** a manual play
 session (reported 2026-08-27) appeared to show BOOSTER GHOSTS NOT RENDERING

@@ -346,7 +346,58 @@ type = "int"
 min = 1
 max = 10000
 
+# watchFrames bounds silence PER ATTEMPT (the WATCH phase can issue several - see
+# watchEntryRetryFrames below), and it also bounds the pre-attempt hold.
 [params.watchFrames]
+required = false
+type = "int"
+min = 1
+max = 10000
+
+# ---- the WATCH entry race (MEASURED on the GS-4 reading run) ------------------
+#
+# THE RACE, in that run's own stamps. The lane issued its single EnterWatchMode at
+# 00:48:27 and Parsek answered REJECTED `no-watchable-ghost`; the parent ghost's
+# `phase=MeshSpawned ... vessel=Kerbal X` landed at 00:48:32. Five seconds early.
+# Watch never entered, so the parent's derender came out as `stale past-end ghost
+# (no longer held)` instead of a watch-hold reason - and the run red on BOTH the
+# `enterwatchmode complete: index=` token and the parent MeshDestroyed alternation.
+# The flight itself was fine (MISSION-OK; ghostLifecycle spawned=8 destroyLines=8
+# unbalanced=0): the DRIVER asked too early. That is a measurement, not a defect,
+# and RETRYING is the fix - failing was what the measurement cost.
+#
+# WHY THE WINDOW OPENS WHERE IT DOES. The committed recording spans
+# [launchUT, commitUT], a non-loop ghost replays at its RECORDED absolute UTs, and
+# Rewind-to-Launch had put the clock back to launchUT - 15 s - so the parent ghost
+# does not exist until the live clock reaches launchUT. The machine already stamps
+# launchUT itself (at the PRELAUNCH click) and the run proved both readings sit on
+# the same clock, so no new observation is needed to know when to ask.
+#
+# Seconds past launchUT the clock must reach before the FIRST EnterWatchMode goes
+# out. A RACE SHORTENER rather than a gate: an unreadable clock asks immediately
+# instead of burning the phase, because the retry loop below is the actual fix.
+[params.watchEntryLeadSeconds]
+required = false
+type = "number"
+min = 0.0
+
+# THE WHOLE WATCH-ENTRY BUDGET, measured from the phase's entry: the hold above
+# AND every retry below. One budget because both are the same wait - the game clock
+# reaching a ghost - and deliberately NOT watchFrames, which the hold alone can
+# consume (the machine arrives at ~launchUT-15 and the window opens at
+# launchUT+lead, so ~20 s = ~40 frames at the 0.5 s poll = watchFrames' entire
+# default; bounding the hold with it would put a give-up on the normal case).
+# watchFrames keeps its own narrower job: the SILENCE bound of ONE attempt.
+#
+# Within it, a `no-watchable-ghost` refusal is RE-ASKED (a fresh wire tag per
+# attempt, on a fixed internal cadence). That refusal is the only one meaning "not
+# yet" rather than "no": every other terminal still records and advances on the
+# spot, bound exhaustion still records the last rejection and advances, and NOTHING
+# here is fatal - the record-do-not-fail rule for render verbs is untouched.
+# Generous on purpose: an over-short bound rebuilds the lost watch leg this exists
+# to prevent, and the bound's only cost is real time in a phase already waiting on
+# a clock.
+[params.watchEntryRetryFrames]
 required = false
 type = "int"
 min = 1

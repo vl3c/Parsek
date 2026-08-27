@@ -5343,15 +5343,15 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # reading run and the arming sequence its header specifies. Nothing is
         # outstanding beyond flying it, which is what `--tier operator` is for.
         "GS-1-auto-chute-booster.toml":     "FLOWN 4x 2026-08-05 (flight 4 PASS) and ARMED; operator tier is now an open PROMOTION call, not debt",
-        # AUTHORED, NOT YET FLOWN (the GS-1 pre-flight shape): operator tier is
-        # the standard first-flight calibration discipline - a reading run over
-        # deliberately INTERIM pins (its STATUS block names which: the
-        # watch-entry timing, the 60 s debris-TTL render windows, the
-        # debris-no-snapshot skip diagnostic; the debris NAME and the census of
-        # 8 are already MEASURED off s15 save bytes), then re-pin and the
-        # ghostLifecycle arming sequence its header specifies. Nothing is owed
-        # a human beyond flying it, which is what `--tier operator` is for.
-        "GS-4-kerbalx-rewind-watch.toml":   "AUTHORED 2026-08-27, UNFLOWN; operator tier is the first-flight calibration discipline (reading run -> re-pin -> arm), not debt",
+        # FLOWN GREEN 2026-08-27, same-day discipline: reading run
+        # `2026-08-27_2145` (MISSION-OK attempt 1; red on exactly the two
+        # watch tokens - the pre-spawn EnterWatchMode race, fixed as the WATCH
+        # hold-then-retry loop) then green run `2026-08-27_2204` PASS attempt
+        # 1, windows re-pinned to the measured census (spawned=8,
+        # unbalanced=0, both flights). What remains open is the ghostLifecycle
+        # ARMING pass (three-run discipline, GHOSTLIFE_ARMED_SPECS) and the
+        # ordinary cadence PROMOTION call - the GS-1/GS-2/GS-3 shape exactly.
+        "GS-4-kerbalx-rewind-watch.toml":   "FLOWN GREEN 2026-08-27 (2145 reading, 2204 green, both attempt 1); operator tier is now the arming + PROMOTION call, not debt",
         # The FIFTH forge, same mechanism again: it stamps gs2-orbital-stack by
         # flying the live-proven forge_lko ascent with the new parkAttached=true,
         # which skips the SEPARATE phase so the stack is parked ATTACHED. Its
@@ -7380,15 +7380,14 @@ class GhostLifecycleVerifierWiringTests(unittest.TestCase):
         # [D] THE FIRST DECLARER, and the lane the evaluator was built FOR: the
         #     full player-workflow derender tripwire (staged Kerbal X ascent ->
         #     commit -> Rewind-to-Launch -> Jumping Flea watch anchor -> map view
-        #     + watch mode -> playback to completion). Its `spawned = { min = 3 }`
-        #     window and the requireBalanced default are INTERIM PINS authored
-        #     BEFORE the first flight (the spec's STATUS block says so): the
-        #     census of 8 (parent + 6 booster debris + the "Kerbal X Probe"
-        #     controlled-decoupled core) is measured off s15 save bytes and the
-        #     reading run is expected to confirm it live, and the re-pin +
-        #     arming (through GHOSTLIFE_ARMED_SPECS above) follow the standard
-        #     three-run discipline AFTER that confirmation. REPORT-ONLY until
-        #     then.
+        #     + watch mode -> playback to completion). FLOWN GREEN 2026-08-27:
+        #     both flights (`2026-08-27_2145` reading, `2026-08-27_2204` green)
+        #     measured the census EXACTLY - spawned=8 (parent + 6 booster
+        #     debris + the "Kerbal X Probe" controlled-decoupled core),
+        #     destroyLines=8, unbalanced=0 - and the window is RE-PINNED to
+        #     `spawned = { min = 8 }`, still REPORT-ONLY. Arming (through
+        #     GHOSTLIFE_ARMED_SPECS above) follows the standard three-run
+        #     discipline as its own pass.
         "GS-4-kerbalx-rewind-watch.toml",
     }
 

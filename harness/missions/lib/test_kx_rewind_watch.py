@@ -1046,6 +1046,19 @@ class RenderVerbsAreRecordedNotJudgedTests(unittest.TestCase):
                                  recording_end_ut=400.0, tree_id=tree_id)
         return st
 
+    def _to_first_watch_attempt(self, tree_id="", **over):
+        """MAP-VIEW's terminal, then the frame on which WATCH issues its first
+        EnterWatchMode. `launch_ut` is UNREAD on these hand-built states, so the
+        window gate fails OPEN and the attempt goes out on the phase's first frame
+        (that degrade has its own cell in WatchEntryRaceTests)."""
+        st = self._to_map_view(tree_id=tree_id, **over)
+        st, acts = mlib.kxrw_decide(st, seam("map", "OK", (), ut=250.0))
+        self.assertEqual(mlib.KXRW_WATCH, st.phase)
+        # The command NO LONGER rides the MAP-VIEW transition: that one frame of
+        # eagerness is what the GS-4 reading run lost its whole watch leg to.
+        self.assertEqual([], acts)
+        return mlib.kxrw_decide(st, snap(ut=250.5))
+
     def test_a_rejected_watch_records_the_verdict_and_flies_on(self):
         st = self._to_map_view()
         st, acts = mlib.kxrw_decide(
@@ -1053,9 +1066,11 @@ class RenderVerbsAreRecordedNotJudgedTests(unittest.TestCase):
         self.assertEqual(mlib.KXRW_WATCH, st.phase)
         self.assertEqual("ERROR", st.map_view_result)
         self.assertEqual("no-flight-instance", st.map_view_reject_reason)
+        self.assertEqual([], acts)
+        st, acts = mlib.kxrw_decide(st, snap(ut=250.5))
         self.assertEqual(["EnterWatchMode"], [a.seam_verb for a in acts])
         st, _ = mlib.kxrw_decide(
-            st, seam("watch", "ERROR", (("msg", "unknown-tree"),), ut=251.0))
+            st, seam("watch0", "ERROR", (("msg", "unknown-tree"),), ut=251.0))
         self.assertFalse(st.done)
         self.assertIsNone(st.verdict)
         self.assertEqual(mlib.KXRW_PLAYBACK_WAIT, st.phase)
@@ -1073,8 +1088,7 @@ class RenderVerbsAreRecordedNotJudgedTests(unittest.TestCase):
 
         No `index` though: the committed-list index is an ordering nothing in a
         mission run owns."""
-        st = self._to_map_view(tree_id="t_kx")
-        _, acts = mlib.kxrw_decide(st, seam("map", "OK", (), ut=250.0))
+        _, acts = self._to_first_watch_attempt(tree_id="t_kx")
         self.assertEqual("EnterWatchMode", acts[0].seam_verb)
         self.assertEqual((("tree", "t_kx"),), acts[0].seam_args)
         self.assertNotIn("index", dict(acts[0].seam_args))
@@ -1095,11 +1109,10 @@ class RenderVerbsAreRecordedNotJudgedTests(unittest.TestCase):
         the tree is still first-match-wins by committed index - so which recording
         was actually watched has to be visible in the result JSON. It is evidence:
         the row is met either way."""
-        st = self._to_map_view(tree_id="t_kx")
-        st, _ = mlib.kxrw_decide(st, seam("map", "OK", (), ut=250.0))
+        st, _ = self._to_first_watch_attempt(tree_id="t_kx")
         st, _ = mlib.kxrw_decide(
-            st, seam("watch", "OK", (("index", "2"), ("recId", "rec_abc"),
-                                     ("watching", "true")), ut=251.0))
+            st, seam("watch0", "OK", (("index", "2"), ("recId", "rec_abc"),
+                                      ("watching", "true")), ut=251.0))
         self.assertEqual("2", st.watch_selected_index)
         self.assertEqual("rec_abc", st.watch_selected_rec_id)
         p = mlib.kxrw_params_from_dict(params())
@@ -1144,6 +1157,222 @@ class RenderVerbsAreRecordedNotJudgedTests(unittest.TestCase):
         self.assertIn("never answered", st.flake_reason)
 
 
+class WatchEntryRaceTests(unittest.TestCase):
+    """THE GS-4 READING RUN'S ONE FINDING, pinned in both halves.
+
+    That run flew clean (MISSION-OK, ghostLifecycle spawned=8 destroyLines=8
+    unbalanced=0) and still red on two required tokens, from one cause: the single
+    EnterWatchMode went out at 00:48:27 and Parsek answered REJECTED
+    `no-watchable-ghost`, while the parent ghost's `phase=MeshSpawned ...
+    vessel=Kerbal X` landed at 00:48:32. Watch never entered, so the parent's
+    derender came out `stale past-end ghost (no longer held)` instead of a
+    watch-hold reason. The ghost does not exist until the clock reaches
+    `launch_ut` - a non-loop ghost replays at its RECORDED absolute UTs and the
+    rewind had dropped the clock to launchUT-15 - so the machine now HOLDS for the
+    window and RE-ASKS that one refusal. Nothing here became fatal."""
+
+    def _watching(self, **over):
+        """A WATCH-phase machine with a REAL launch_ut, so the window gate is live
+        rather than degraded."""
+        over.setdefault("playbackMarginSeconds", 30.0)
+        return dataclasses.replace(machine(**over), phase=mlib.KXRW_WATCH,
+                                   launch_ut=1000.0, recording_end_ut=1200.0,
+                                   tree_id="t_kx")
+
+    def test_no_attempt_goes_out_before_the_replay_window_opens(self):
+        """MUTATION: issue on the phase's first frame (the shape before this fix)
+        and the very first command below goes out at launchUT-15, which is what the
+        reading run did and what Parsek rightly refused."""
+        st = self._watching(watchEntryLeadSeconds=5.0)
+        # The whole pre-window walk: the post-rewind clock climbing to launchUT.
+        for ut in (985.0, 990.0, 999.9, 1004.99):
+            st, acts = mlib.kxrw_decide(st, snap(ut=ut))
+            self.assertEqual([], acts, "attempted at ut=%s" % ut)
+            self.assertEqual(mlib.KXRW_WATCH, st.phase)
+            self.assertEqual(0, st.watch_attempts)
+        # launchUT + lead exactly: inclusive, and the ask goes out scoped.
+        st, acts = mlib.kxrw_decide(st, snap(ut=1005.0))
+        self.assertEqual(["EnterWatchMode"], [a.seam_verb for a in acts])
+        self.assertEqual("watch0", acts[0].seam_tag)
+        self.assertEqual((("tree", "t_kx"),), acts[0].seam_args)
+        self.assertEqual(1, st.watch_attempts)
+
+    def test_the_window_gate_fails_open_on_an_unreadable_clock(self):
+        """The OPPOSITE direction from the fueled-core discard's fail-closed read,
+        and deliberately: the lead only shortens a race the retry loop already
+        fixes, so an unreadable clock must ask rather than burn the phase. MUTATION:
+        fail closed here and an unread `ut` costs the whole watch leg to protect
+        nothing."""
+        self.assertTrue(mlib.kxrw_watch_window_open(float("nan"), 1000.0, 5.0))
+        self.assertTrue(mlib.kxrw_watch_window_open(1000.0, float("nan"), 5.0))
+        self.assertFalse(mlib.kxrw_watch_window_open(1004.9, 1000.0, 5.0))
+        self.assertTrue(mlib.kxrw_watch_window_open(1005.0, 1000.0, 5.0))
+
+    def test_a_no_watchable_ghost_refusal_is_re_asked_under_a_fresh_tag(self):
+        """THE FIX. The refusal means "not yet", so the machine waits out the
+        cadence and asks again with a NEW wire id - the C# seam SKIPS DUPLICATE
+        IDS, so a reused tag would make every retry a silent no-op that then
+        expires as a TIMEOUT reading like a wedged addon. MUTATION: advance on the
+        first rejection (the shape before this fix) and the lane records a refusal
+        it could have ridden out."""
+        st = self._watching(watchEntryLeadSeconds=0.0)
+        st, acts = mlib.kxrw_decide(st, snap(ut=1000.0))
+        self.assertEqual("watch0", acts[0].seam_tag)
+        st, acts = mlib.kxrw_decide(
+            st, seam("watch0", "ERROR", (("msg", "no-watchable-ghost"),),
+                     ut=1000.5))
+        # RECORDED but NOT advanced: still WATCH, and no command this frame.
+        self.assertEqual(mlib.KXRW_WATCH, st.phase)
+        self.assertEqual([], acts)
+        self.assertEqual("no-watchable-ghost", st.watch_reject_reason)
+        # The cadence is held before re-asking - one command a frame would spend
+        # the whole bound on commands.
+        tags = []
+        ut = 1001.0
+        for _ in range(mlib.KXRW_WATCH_RETRY_CADENCE_FRAMES + 2):
+            st, acts = mlib.kxrw_decide(st, snap(ut=ut))
+            tags += [a.seam_tag for a in acts]
+            ut += 0.5
+            if tags:
+                break
+        self.assertEqual(["watch1"], tags)
+        # Second refusal, then an OK on the THIRD probe: recorded and advanced.
+        st, _ = mlib.kxrw_decide(
+            st, seam("watch1", "ERROR", (("msg", "no-watchable-ghost"),), ut=ut))
+        self.assertEqual(mlib.KXRW_WATCH, st.phase)
+        tags = []
+        for _ in range(mlib.KXRW_WATCH_RETRY_CADENCE_FRAMES + 2):
+            ut += 0.5
+            st, acts = mlib.kxrw_decide(st, snap(ut=ut))
+            tags += [a.seam_tag for a in acts]
+            if tags:
+                break
+        self.assertEqual(["watch2"], tags)
+        st, _ = mlib.kxrw_decide(
+            st, seam("watch2", "OK", (("index", "0"), ("recId", "rec_kx")),
+                     ut=ut + 0.5))
+        self.assertEqual(mlib.KXRW_PLAYBACK_WAIT, st.phase)
+        self.assertEqual("OK", st.watch_result)
+        self.assertEqual("0", st.watch_selected_index)
+        self.assertEqual("rec_kx", st.watch_selected_rec_id)
+        self.assertEqual(3, st.watch_attempts)
+        # Every tag distinct: three commands, three wire ids.
+        self.assertEqual(3, len({"watch0", "watch1", "watch2"}))
+        self.assertFalse(st.done)
+        self.assertIsNone(st.verdict)
+
+    def test_any_other_rejection_still_records_and_advances_immediately(self):
+        """The retry is NARROW by construction: only `no-watchable-ghost` means
+        "not yet". A verdict about THIS world is recorded and flown past on the
+        spot, exactly as before - re-asking would re-collect the same answer while
+        delaying the playback wait that puts the ghost's retire in the log.
+        MUTATION: retry on any refusal and this hangs for the whole bound."""
+        for reason in ("unknown-tree", "no-flight-instance", "already-watching",
+                       "watch-not-entered"):
+            st = self._watching(watchEntryLeadSeconds=0.0)
+            st, _ = mlib.kxrw_decide(st, snap(ut=1000.0))
+            st, acts = mlib.kxrw_decide(
+                st, seam("watch0", "ERROR", (("msg", reason),), ut=1000.5))
+            self.assertEqual(mlib.KXRW_PLAYBACK_WAIT, st.phase, reason)
+            self.assertEqual([], acts, reason)
+            self.assertEqual(reason, st.watch_reject_reason)
+            self.assertEqual(1, st.watch_attempts)
+            self.assertEqual(1230.0, st.playback_target_ut)   # 1200 + 30
+            self.assertFalse(st.done)
+        # And the predicate itself, in both directions.
+        self.assertTrue(mlib.kxrw_watch_entry_retryable(
+            "ERROR", "no-watchable-ghost"))
+        self.assertFalse(mlib.kxrw_watch_entry_retryable("OK", ""))
+        self.assertFalse(mlib.kxrw_watch_entry_retryable("ERROR", "unknown-tree"))
+        self.assertFalse(mlib.kxrw_watch_entry_retryable("", ""))
+
+    def test_the_retry_bound_advances_with_the_last_rejection_recorded(self):
+        """Bound exhaustion is NOT a give-up: the ghost's spawn / replay / retire
+        is in the log either way and the spec's contracts judge it, so the machine
+        records the last refusal and flies the playback wait. MUTATION: flake here
+        and a race the lane could not win becomes a driver-INVALID that discards
+        the very evidence the contracts read."""
+        st = self._watching(watchEntryLeadSeconds=0.0, watchEntryRetryFrames=25)
+        ut = 1000.0
+        for _ in range(80):
+            tag = mlib.kxrw_watch_probe_tag(st.watch_probe)
+            if st.watch_awaiting_since >= 0 and st.watch_attempts:
+                s = seam(tag, "ERROR", (("msg", "no-watchable-ghost"),), ut=ut)
+            else:
+                s = snap(ut=ut)
+            st, _ = mlib.kxrw_decide(st, s)
+            ut += 0.5
+            if st.phase != mlib.KXRW_WATCH:
+                break
+        self.assertEqual(mlib.KXRW_PLAYBACK_WAIT, st.phase)
+        self.assertFalse(st.done)
+        self.assertIsNone(st.verdict)
+        self.assertEqual("ERROR", st.watch_result)
+        self.assertEqual("no-watchable-ghost", st.watch_reject_reason)
+        self.assertGreater(st.watch_attempts, 1)
+        self.assertEqual(1230.0, st.playback_target_ut)
+        # The row is still MET - it certifies the sequence was driven, and how hard
+        # the watch had to try is carried as detail.
+        p = mlib.kxrw_params_from_dict(params())
+        row = [r for r in mlib.evaluate_kxrw_assertions([], p, st)
+               if r.name == "renderVerbsDriven"][0]
+        self.assertEqual(st.watch_attempts, row.detail["enterWatchModeAttempts"])
+
+    def test_a_stuck_clock_that_never_opens_the_window_names_its_own_giveup(self):
+        """The one give-up the hold adds. It is a DRIVER failure (the clock never
+        advanced), not a Parsek verdict about a replay - so unlike every refusal it
+        flakes, and it says which clock it was waiting on."""
+        st = self._watching(watchEntryLeadSeconds=5.0, watchEntryRetryFrames=4)
+        for _ in range(10):
+            st, acts = mlib.kxrw_decide(st, snap(ut=985.0))
+            self.assertEqual([], acts)
+            if st.done:
+                break
+        self.assertTrue(st.done)
+        self.assertEqual(mlib.MISSION_FLAKE, st.verdict)
+        self.assertEqual(mlib.KXRW_WATCH, st.flake_phase)
+        self.assertIn("never reached the replay window", st.flake_reason)
+        self.assertIn("no-watchable-ghost", st.flake_reason)
+        self.assertEqual(0, st.watch_attempts)
+
+    def test_a_retry_that_goes_dark_still_trips_the_per_attempt_silence_bound(self):
+        """`watchFrames` keeps its own narrower job after this change: it bounds
+        ONE attempt's silence, measured from the frame that attempt went out. So a
+        RETRY that never answers is caught the same way the first ask is - a
+        silent seam is a transport fault at any attempt number."""
+        st = self._watching(watchEntryLeadSeconds=0.0, watchFrames=3)
+        st, _ = mlib.kxrw_decide(st, snap(ut=1000.0))
+        st, _ = mlib.kxrw_decide(
+            st, seam("watch0", "ERROR", (("msg", "no-watchable-ghost"),),
+                     ut=1000.5))
+        ut = 1001.0
+        issued = False
+        for _ in range(40):
+            st, acts = mlib.kxrw_decide(st, snap(ut=ut))
+            issued = issued or bool(acts)
+            ut += 0.5
+            if st.done:
+                break
+        self.assertTrue(issued, "the retry never went out")
+        self.assertTrue(st.done)
+        self.assertEqual(mlib.MISSION_FLAKE, st.verdict)
+        self.assertEqual(mlib.KXRW_WATCH, st.flake_phase)
+        self.assertIn("never answered", st.flake_reason)
+        self.assertIn("watch1", st.flake_reason)
+
+    def test_the_two_new_knobs_are_declared_and_default_sanely(self):
+        p = mlib.kxrw_params_from_dict(params())
+        self.assertEqual(5.0, p.watch_entry_lead_seconds)
+        self.assertEqual(240, p.watch_entry_retry_frames)
+        # The hold alone can need ~(rewind lead + entry lead) of game time, which at
+        # the 0.5 s poll is ~40 frames - `watchFrames`' ENTIRE default. That is why
+        # the phase budget is a separate, larger knob. MUTATION: bound the hold with
+        # watchFrames and the normal case sits on a give-up.
+        p2 = mlib.kxrw_params_from_dict(params())
+        hold_frames_needed = (15.0 + p2.watch_entry_lead_seconds) / 0.5
+        self.assertGreater(p2.watch_entry_retry_frames, hold_frames_needed)
+
+
 class PlaybackWaitTests(unittest.TestCase):
     """The wait is ARITHMETIC over two stamps the machine took itself, and its cap
     is measured in FRAMES because a stuck clock is what a UT budget cannot see."""
@@ -1165,7 +1394,11 @@ class PlaybackWaitTests(unittest.TestCase):
     def test_the_wait_ends_when_the_clock_passes_the_recorded_span(self):
         st = dataclasses.replace(machine(playbackMarginSeconds=30.0),
                                  phase=mlib.KXRW_WATCH, recording_end_ut=400.0)
-        st, _ = mlib.kxrw_decide(st, seam("watch", "OK", (), ut=200.0))
+        # Frame 1 issues the attempt (unread launch_ut -> the window gate fails
+        # open); frame 2 carries its terminal.
+        st, acts = mlib.kxrw_decide(st, snap(ut=199.0))
+        self.assertEqual(["EnterWatchMode"], [a.seam_verb for a in acts])
+        st, _ = mlib.kxrw_decide(st, seam("watch0", "OK", (), ut=200.0))
         self.assertEqual(430.0, st.playback_target_ut)
         st, _ = mlib.kxrw_decide(st, snap(ut=429.0))
         self.assertEqual(mlib.KXRW_PLAYBACK_WAIT, st.phase)
@@ -1280,10 +1513,21 @@ class HappyPathTests(unittest.TestCase):
         st, acts = mlib.kxrw_decide(st, snap(ut=991.0, situation="PRE_LAUNCH",
                                              vessel_name=WATCHER))
         self.assertEqual(mlib.KXRW_MAP_VIEW, st.phase)
-        st, _ = mlib.kxrw_decide(st, seam("map", "OK", (), ut=992.0,
-                                          situation="PRE_LAUNCH"))
-        st, _ = mlib.kxrw_decide(st, seam("watch", "OK", (("index", "0"),), ut=993.0,
-                                          situation="PRE_LAUNCH"))
+        st, acts = mlib.kxrw_decide(st, seam("map", "OK", (), ut=992.0,
+                                             situation="PRE_LAUNCH"))
+        self.assertEqual(mlib.KXRW_WATCH, st.phase)
+        self.assertEqual([], acts)
+        # THE HOLD. The replay window opens at launchUT (1000) + lead (5); the
+        # post-rewind clock is still walking up from launchUT-15, so no attempt may
+        # go out yet - this is exactly the five seconds the reading run lost.
+        for ut in (993.0, 998.0, 1004.9):
+            st, acts = mlib.kxrw_decide(st, snap(ut=ut, situation="PRE_LAUNCH"))
+            self.assertEqual([], acts)
+            self.assertEqual(mlib.KXRW_WATCH, st.phase)
+        st, acts = mlib.kxrw_decide(st, snap(ut=1005.0, situation="PRE_LAUNCH"))
+        self.assertEqual(["EnterWatchMode"], [a.seam_verb for a in acts])
+        st, _ = mlib.kxrw_decide(st, seam("watch0", "OK", (("index", "0"),),
+                                          ut=1006.0, situation="PRE_LAUNCH"))
         self.assertEqual(mlib.KXRW_PLAYBACK_WAIT, st.phase)
         self.assertEqual(1230.0, st.playback_target_ut)     # 1200 commit + 30
         st, _ = mlib.kxrw_decide(st, snap(ut=1231.0, situation="PRE_LAUNCH"))

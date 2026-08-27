@@ -96,13 +96,38 @@ id = "GS-4-kerbalx-rewind-watch"
 # also the scene-ksc proof.
 #
 # =====================================================================================
-# STATUS: AUTHORED, NOT YET FLOWN. Numeric windows below are INTERIM PINS to be
-# re-pinned from the first reading run (the GS-2 re-pin contract). The debris
-# NAME and the census are NOT guesses: the operator's s15 save carries a real
-# Kerbal X tree whose recordings read vesselName = "Kerbal X" (1) +
-# "Kerbal X Debris" (6) + "Kerbal X Probe" (1) - the census of 8 and the exact
-# spelling, and EmitMeshLifecycleTrace prints the same field. What remains
-# genuinely unmeasured until the reading run:
+# STATUS: FLOWN GREEN 2026-08-27, two flights, and every window below is
+# RE-PINNED FROM MEASUREMENT (the GS-2 re-pin contract):
+#   - READING run `2026-08-27_2145`: MISSION-OK attempt 1 (all 26 phase
+#     transitions, 282 s mission wall), ghostLifecycle measured spawned=8
+#     spawnLines=8 destroyLines=8 unbalanced=0 malformed=0 - the predicted
+#     census EXACTLY - and red PARSEK-FAIL(expectations) on precisely the two
+#     watch tokens, both one root cause: the single EnterWatchMode was issued
+#     5 s before the engine's first spawn frame in the freshly-loaded watcher
+#     scene (`no-watchable-ghost` at 00:48:27, parent MeshSpawned 00:48:32),
+#     so the parent ended `stale past-end ghost (no longer held)`. THE RED WAS
+#     THE MEASUREMENT: the machine gained the WATCH hold-then-retry loop
+#     (watchEntryLeadSeconds / watchEntryRetryFrames) from it.
+#   - GREEN run `2026-08-27_2204`: PASS attempt 1, every verifier
+#     PASS/SKIPPED/REPORT, mismatches=0. Watch entered on retry
+#     (renderVerbsDriven OK/OK), the watched parent ended
+#     `watch hold expired`, and the census repeated exactly: spawned=8,
+#     destroyLines=8, unbalanced=0 (reasons: parent-anchored debris outside
+#     relative coverage x4, playback completed x2, stale past-end x1 - the
+#     UNWATCHED probe child - watch hold expired x1 - the watched parent).
+#   - OBSERVED, not gated: the core-discard RewindPoint IS authored live
+#     (`RewindPoint begin: rp=... slots=2 controllablePids=2 focusSlot=0`) and
+#     is GONE after the rewind (`ReapOrphanedRPs: reaped=0 remaining=0`,
+#     saveParse rewindPoints=0) - the rewind lands before its branch point.
+#     Recorded here so the [expectations.rewind] block's silence on
+#     rewindPoints stays a decision, not an oversight.
+#   - unityExceptions REPORT: 4 NREs on the reading run, 1 on the green run,
+#     all stock KSP scene-change/teardown noise (KnowledgeBase / UIApp
+#     OnDestroy), none from a Parsek call site.
+# The debris NAME and the census of 8 were pre-measured off the operator's s15
+# save bytes (vesselName = "Kerbal X" (1) + "Kerbal X Debris" (6) +
+# "Kerbal X Probe" (1)) and both flights confirmed them live. Pre-flight risk
+# notes, kept for the record (all discharged or downgraded by the flights):
 #   - WATCH-ENTRY TIMING (the 300 km geometry is favourable but unflown);
 #   - THE DEBRIS RENDER WINDOWS: booster debris recordings carry a 60 s TTL
 #     (BackgroundRecorder.DebrisTTLSeconds, applied at ParsekFlight.cs:7695),
@@ -234,14 +259,14 @@ D14 = ["kerbin", "sandbox", "scene-flight", "scene-ksc", "scene-map"]
 allowedAnomalies = []
 
 [expectations.recordings]
-# INTERIM PIN (re-pin from the reading run). Expected shape: parent recording
-# ("Kerbal X" -> pod stack) + controlled-decoupled core child ("Kerbal X Probe")
-# + up to 6 booster debris recordings = 8. The floor of 3 is the meaningful
-# guard: parent + core child + AT LEAST ONE booster debris recording - a count
-# of 2 would mean the booster drops produced no debris recordings at all, and a
-# lane about booster ghosts must not pass on it. Ceiling loose (single-point
-# pruning, TTL policy and impact timing all move the debris census).
-count = { min = 3, max = 12 }
+# RE-PINNED TO THE MEASUREMENT (both flights, `_2145` and `_2204`): parent
+# recording ("Kerbal X" -> pod stack) + 6 booster debris + the
+# controlled-decoupled core child ("Kerbal X Probe") = 8, exactly, twice. The
+# population is structural (three radial pairs + one core decoupler on a fixed
+# craft), not marginal, so the pin is exact per the B19 re-pin-do-not-widen
+# contract; if a future flight sheds differently, re-pin to the new measured
+# value and record which recording moved.
+count = { min = 8, max = 8 }
 
 [expectations.logContracts]
 # GROUPS, ordered as the run emits them. [MEASURED] = the exact line was measured
@@ -327,7 +352,11 @@ forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 # MeshDestroyed - a ghost that lingers past playback (the derender bug class) is
 # an unbalanced row with its vessel name in the report.
 [expectations.ghostLifecycle]
-spawned = { min = 3 }
+# RE-PINNED: both flights measured spawned=8 (the full census - every
+# recording rendered a mesh) with unbalanced=0. Floor, not exact pin: the
+# window is re-pinned while still REPORT-ONLY, and the arming pass may
+# tighten it further with its own three-run evidence.
+spawned = { min = 8 }
 requireBalanced = true
 
 # REPORT-ONLY: no Re-Fly machinery may have run. The core-discard RP is authored
@@ -339,14 +368,19 @@ requireBalanced = true
 supersedeRows = { max = 0 }
 tombstones    = { max = 0 }
 
-# REPORT-ONLY structural shape, best-guess windows for reading-run legibility.
-# JointBreak >= 1: the core discard's branch point (the DECOUPLE split coalesces
-# as BranchPointType.JointBreak - GS-2's measured correction, not Breakup).
+# REPORT-ONLY structural shape, RE-PINNED from the green run `_2204`'s parse:
+# recordings=8, branchPoints {JointBreak: 5} (three booster-pair drops + the
+# core discard; every split coalesces as JointBreak - GS-2's measured
+# correction, not Breakup), terminalStates {Destroyed: 6, SubOrbital: 2} (six
+# crashed boosters+debris, the suborbital pod stack and probe core at commit).
+# Floors rather than exact pins while the block is report-only: bp coalescing
+# and impact timing can plausibly move the census by one.
 [expectations.recordings.structure]
 trees          = { min = 1, max = 1 }
 committedTrees = { min = 1, max = 1 }
-recordings     = { min = 3 }
-branchPoints   = { JointBreak = { min = 1 } }
+recordings     = { min = 8 }
+branchPoints   = { JointBreak = { min = 4 } }
+terminalStates = { SubOrbital = { min = 2 }, Destroyed = { min = 4 } }
 
 [runtime]
 # WALL clock for the WHOLE drive phase including KSP boot: 300 LoadGame + 1600

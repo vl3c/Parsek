@@ -459,6 +459,16 @@
         "2026-08-05T09:04:43Z": 100.0
       }
     },
+    "GS-4-kerbalx-rewind-watch": {
+      "last": 330.0,
+      "lastVsP50": 1.0,
+      "n": 1,
+      "p50": 330.0,
+      "p95": 330.0,
+      "samples": {
+        "2026-08-27T22:10:26Z": 330.0
+      }
+    },
     "H10-finalize-backfill": {
       "last": 56.0,
       "lastVsP50": 1.0,

@@ -19992,7 +19992,25 @@ KXRW_TAG_STOP = "stop"
 KXRW_TAG_REWIND = "rewind"
 KXRW_TAG_AUTORECORD = "autorec"
 KXRW_TAG_MAP = "map"
+# A tag FAMILY prefix, not a single tag: the WATCH phase can issue several
+# EnterWatchMode attempts (see below), and each needs its own wire id.
 KXRW_TAG_WATCH = "watch"
+
+# Parsek's OWN refusal word for "nothing is watchable YET" - the one refusal this
+# lane RETRIES rather than merely records, because the GS-4 reading run proved it
+# is a RACE and not a verdict (see the WATCH phase header). Every other refusal is
+# still recorded and flown past. A CONSTANT because it is a Parsek vocabulary word
+# (`ParsekTestCommandAddon.EnterWatchModeImpl`: `SetExecResult("REJECTED", null,
+# "no-watchable-ghost")`), not a tuning knob.
+KXRW_WATCH_RETRYABLE_REASON = "no-watchable-ghost"
+
+# Frames held between one `no-watchable-ghost` rejection and the next attempt. A
+# CONSTANT rather than a param: the seam BLOCKS inside perform() and its terminal
+# lands on the very next frame, so re-issuing on every frame would spend the whole
+# retry bound in commands to cover a window this covers with a tenth of them. What
+# is being waited on is a replay window opening on the GAME clock; nothing about
+# that is per-scenario.
+KXRW_WATCH_RETRY_CADENCE_FRAMES = 10
 
 # The Parsek setting the AUTORECORD-OFF step turns off, and the value it writes.
 # A CONSTANT rather than a param: it is a Parsek setting KEY, not a tuning knob,
@@ -20007,6 +20025,54 @@ def kxrw_tree_probe_tag(probe: int) -> str:
     """Tag for TREE-STATE probe ``probe`` (``tree0``, ``tree1``, ...). Each probe
     issues the SAME verb, so each needs its OWN wire id."""
     return "tree%d" % int(probe)
+
+
+def kxrw_watch_probe_tag(probe: int) -> str:
+    """Tag for WATCH attempt ``probe`` (``watch0``, ``watch1``, ...). Its OWN
+    family, for the same reason ``idle*`` is: the phase re-issues the SAME verb
+    after a retryable refusal, and the C# seam SKIPS DUPLICATE IDS - a reused tag
+    would make every attempt after the first a silent no-op whose poll then expires
+    as a TIMEOUT that reads like a wedged addon."""
+    return "%s%d" % (KXRW_TAG_WATCH, int(probe))
+
+
+def kxrw_watch_window_open(ut: float, launch_ut: float, lead: float) -> bool:
+    """True once the committed recording's replay window has been open for at
+    least ``lead`` seconds - i.e. ``ut >= launch_ut + lead``.
+
+    THE WINDOW OPENS AT `launch_ut`, and that is measured rather than assumed: the
+    committed recording spans [launch_ut, recording_end_ut], a non-loop ghost
+    replays at its RECORDED absolute UTs, and the rewind put the clock back to
+    launchUT-15 - so the parent ghost does not exist until the live clock reaches
+    launch_ut. The GS-4 reading run measured exactly that: the single
+    EnterWatchMode went out at 00:48:27 and was REJECTED `no-watchable-ghost`,
+    while `phase=MeshSpawned ... vessel=Kerbal X` landed at 00:48:32 - five
+    seconds later. Both stamps are on the SAME clock the machine already holds.
+
+    FAIL OPEN on an unreadable stamp (attempt immediately). The lead is a race
+    SHORTENER, not a safety gate - the retry loop is what actually fixes the race -
+    so an unreadable clock must not burn the phase holding for a window it cannot
+    see. That is the opposite of the fueled-core discard's fail-closed reading,
+    and deliberately so: there the unread channel guards an irreversible physical
+    act, here it only decides whether to ask a question one probe early."""
+    if not _is_finite(ut) or not _is_finite(launch_ut) or not _is_finite(lead):
+        return True
+    return float(ut) >= float(launch_ut) + float(lead)
+
+
+def kxrw_watch_entry_retryable(result: str, reason: str) -> bool:
+    """True iff an EnterWatchMode terminal is the RACE refusal this phase retries.
+
+    Narrow by construction: a non-OK terminal whose Parsek reason names
+    ``no-watchable-ghost``. Every other refusal (``unknown-tree``,
+    ``no-flight-instance``, ``already-watching``, ``index-out-of-range``, a
+    ``watch-not-entered`` ERROR) is a VERDICT about this world rather than a
+    statement that the world is not ready yet, so it is recorded and flown past
+    immediately - re-asking would only re-collect the same answer while the
+    playback wait it delays is the thing that puts the ghost's retire in the log."""
+    if not result or result == "OK":
+        return False
+    return KXRW_WATCH_RETRYABLE_REASON in str(reason or "")
 
 
 def kxrw_idle_probe_tag(probe: int) -> str:
@@ -20212,7 +20278,22 @@ class KxrwParams:
     auto_record_off_frames: int = 40
     watcher_launch_frames: int = 240
     map_view_frames: int = 40
+    # WATCH's SILENCE bound, per attempt: frames in which one EnterWatchMode must
+    # render SOME terminal. It also bounds the pre-attempt hold below.
     watch_frames: int = 40
+    # Seconds past `launch_ut` the clock must reach before the FIRST EnterWatchMode
+    # goes out. The replay window opens AT launch_ut (a non-loop ghost replays at
+    # its recorded absolute UTs), and the watcher can be on the pad seconds before
+    # that - the GS-4 reading run measured a 5 s miss and lost the whole watch leg
+    # to it. A RACE SHORTENER, not a gate: the retry loop is the actual fix.
+    watch_entry_lead_seconds: float = 5.0
+    # THE WHOLE WATCH-ENTRY BUDGET, measured from phase entry: the hold AND every
+    # retry. One budget because both are the same wait (the game clock reaching a
+    # ghost), and deliberately not `watchFrames` - the hold alone can need ~40
+    # frames, which is that param's whole default. Generous on purpose: an
+    # over-short bound turns the race back into the lost watch leg it just cost a
+    # flight, and the cost is only real time in a phase already waiting.
+    watch_entry_retry_frames: int = 240
     # The playback wait's ONLY bound. Frames, because a stuck clock is exactly
     # what a UT budget cannot see; at the standard 0.5 s poll this is ~13 min.
     #
@@ -20305,6 +20386,9 @@ def kxrw_params_from_dict(params: Dict) -> KxrwParams:
         watcher_launch_frames=int(params.get("watcherLaunchFrames", 240)),
         map_view_frames=int(params.get("mapViewFrames", 40)),
         watch_frames=int(params.get("watchFrames", 40)),
+        watch_entry_lead_seconds=float(
+            params.get("watchEntryLeadSeconds", 5.0)),
+        watch_entry_retry_frames=int(params.get("watchEntryRetryFrames", 240)),
         playback_wait_frames=int(params.get("playbackWaitFrames", 1600)),
         min_ut_regression=float(params.get("minUtRegressionSeconds", 1.0)),
         watcher_ready_situations=tuple(
@@ -20419,6 +20503,20 @@ class KxrwState:
     # index. "" = the payload carried no such field (a REJECTED watch carries none).
     watch_selected_index: str = ""
     watch_selected_rec_id: str = ""
+    # --- the WATCH hold + retry loop (the GS-4 reading run's one finding) ------
+    # `watch_probe` indexes the tag family; `watch_attempts` counts commands
+    # actually issued (evidence: "how hard did we have to try"). The three frame
+    # stamps are all `phase_frames` readings, so they need no second counter:
+    #   watch_first_attempt_frame  -1 = still HOLDING for the replay window.
+    #   watch_awaiting_since       -1 = in the retry cooldown; else the frame the
+    #                              CURRENT attempt went out (its silence bound).
+    #   watch_last_reject_frame    the frame the retryable refusal landed (the
+    #                              cadence clock).
+    watch_probe: int = 0
+    watch_attempts: int = 0
+    watch_first_attempt_frame: int = -1
+    watch_awaiting_since: int = -1
+    watch_last_reject_frame: int = -1
 
     # --- the playback wait ---------------------------------------------------
     playback_target_ut: float = float("nan")
@@ -20604,10 +20702,12 @@ def kxrw_decide(state: KxrwState,
     the same setting that auto-started this flight's OWN recording at the
     PRELAUNCH click - so the watcher does not bring a second recorder with it.
     WATCHER-LAUNCH / WATCHER-READY put a second craft on the pad; MAP-VIEW and
-    WATCH drive the two render verbs (the watch SCOPED to the captured tree, so its
-    auto-select cannot land on this flight's own booster debris) and RECORD their
-    verdicts without ever failing on them; PLAYBACK-WAIT walks the clock past the
-    recorded span. DONE is terminal with verdict None.
+    WATCH drive the two render verbs (the watch HELD until the replay window has
+    opened, SCOPED to the captured tree so its auto-select cannot land on this
+    flight's own booster debris, and RE-ASKED while Parsek answers
+    `no-watchable-ghost`) and RECORD their verdicts without ever failing on them;
+    PLAYBACK-WAIT walks the clock past the recorded span. DONE is terminal with
+    verdict None.
 
     Once ``done`` the machine is idempotent."""
     if state.done:
@@ -21174,9 +21274,12 @@ def kxrw_decide(state: KxrwState,
             st = replace(state, map_view_result=result,
                          map_view_reject_reason=_seam_reject_reason(
                              snapshot, KXRW_TAG_MAP))
-            return (_kxrw_enter(st, KXRW_WATCH, snapshot.ut),
-                    [_kxrw_seam_action("EnterWatchMode", KXRW_TAG_WATCH,
-                                       kxrw_watch_seam_args(st.tree_id))])
+            # NO EnterWatchMode rides this transition any more. WATCH now HOLDS for
+            # the replay window before its first attempt (see the phase below); the
+            # command used to go out here, one frame after the map opened, which is
+            # exactly what put it five seconds ahead of the ghost on GS-4's reading
+            # run.
+            return _kxrw_enter(st, KXRW_WATCH, snapshot.ut), []
         if state.phase_frames > p.map_view_frames:
             # A SILENT seam is a different animal from a refused verb: no verdict
             # was rendered at all, so there is nothing to record and the transport
@@ -21189,30 +21292,122 @@ def kxrw_decide(state: KxrwState,
                 "itself is not answering" % (KXRW_MAP_VIEW, p.map_view_frames)), []
         return state, []
 
+    # ---- WATCH: hold for the replay window, then ASK UNTIL THE GHOST IS THERE --
+    # THE GS-4 READING RUN'S ONE FINDING, and it was a RACE, not a Parsek defect.
+    # The lane issued its single EnterWatchMode at 00:48:27 and Parsek answered
+    # REJECTED `no-watchable-ghost`; `phase=MeshSpawned ... vessel=Kerbal X` landed
+    # at 00:48:32. The parent ghost did not exist yet - the committed recording
+    # spans [launch_ut, recording_end_ut] and a non-loop ghost replays at its
+    # RECORDED absolute UTs, so the window opens at launch_ut and the rewind had
+    # dropped the clock to launchUT-15. Watch never entered, and the parent's
+    # derender therefore came out as `stale past-end ghost (no longer held)`
+    # instead of a watch-hold reason: TWO required tokens lost to one early ask.
+    #
+    # So the phase now does two things it did not:
+    #   (1) HOLDS until `ut >= launch_ut + watchEntryLeadSeconds`. The machine
+    #       already holds launch_ut, and the run proved both stamps are the same
+    #       clock. It FAILS OPEN on an unreadable clock (`kxrw_watch_window_open`).
+    #   (2) RE-ASKS a `no-watchable-ghost` refusal on a cadence under a FRESH tag.
+    #       That refusal is the only one meaning "not yet" rather than "no"; every
+    #       other terminal still records and advances on the spot, and bound
+    #       exhaustion still records the last rejection and advances. NOTHING here
+    #       became fatal - the record-do-not-fail rule for render verbs is
+    #       untouched, and the only give-up added is for a stuck clock.
+    #
+    # TWO BOUNDS, AND THEY MEASURE DIFFERENT THINGS.
+    #   `watchEntryRetryFrames` bounds the WHOLE phase from entry - the hold AND
+    #       every retry - because both are the same activity (waiting on the game
+    #       clock for a ghost to exist) and splitting them would be two budgets for
+    #       one wait. It is deliberately NOT `watchFrames`: the machine arrives here
+    #       at roughly launchUT-15 and the window opens at launchUT+lead, so the
+    #       hold alone can need ~20 s = ~40 frames at the 0.5 s poll - exactly
+    #       `watchFrames`' default. Bounding the hold with it would put a give-up
+    #       on the boundary of the normal case.
+    #   `watchFrames` keeps its own job: the SILENCE bound of ONE seam command,
+    #       measured from the frame that attempt went out, so a retry that goes dark
+    #       is caught the same way the first ask is.
     if state.phase == KXRW_WATCH:
-        result = _seam_result(snapshot, KXRW_TAG_WATCH)
+        # (A) HOLDING: the window has not opened, so no command has gone out yet.
+        if state.watch_first_attempt_frame < 0:
+            if kxrw_watch_window_open(snapshot.ut, state.launch_ut,
+                                      p.watch_entry_lead_seconds):
+                st = replace(state, watch_first_attempt_frame=state.phase_frames,
+                             watch_awaiting_since=state.phase_frames,
+                             watch_attempts=1)
+                # SCOPED to the captured tree and with NO index (see
+                # `kxrw_watch_seam_args`): the auto-select is deliberate, but it is
+                # not allowed to range over this flight's booster debris.
+                return st, [_kxrw_seam_action(
+                    "EnterWatchMode", kxrw_watch_probe_tag(st.watch_probe),
+                    kxrw_watch_seam_args(st.tree_id))]
+            if state.phase_frames > p.watch_entry_retry_frames:
+                # The clock never reached the window at all. NOT a Parsek verdict
+                # about a replay - the replay never became askable - so it is a
+                # driver give-up like the other clock gates in this machine.
+                return _kxrw_flake(
+                    state,
+                    "phase %s: the clock never reached the replay window within %d "
+                    "frames (nowUT=%s, window opens at launchUT %s + lead %.1f s). "
+                    "EnterWatchMode is REJECTED `%s` until the ghost exists, which "
+                    "is what asking early cost the GS-4 reading run"
+                    % (KXRW_WATCH, p.watch_entry_retry_frames, _obs_fmt(snapshot.ut),
+                       _obs_fmt(state.launch_ut), p.watch_entry_lead_seconds,
+                       KXRW_WATCH_RETRYABLE_REASON)), []
+            return state, []
+
+        # (B) COOLDOWN between a retryable refusal and the next ask.
+        if state.watch_awaiting_since < 0:
+            if state.phase_frames > p.watch_entry_retry_frames:
+                # BOUND EXHAUSTED: record the LAST rejection and fly on, exactly as
+                # a single refusal always did. The playback wait still has to run -
+                # the ghost's own spawn / replay / retire is in the log either way,
+                # and the spec's contracts judge what Parsek did with it.
+                return _kxrw_enter(
+                    replace(state, playback_target_ut=kxrw_playback_target_ut(
+                        state.recording_end_ut, p.playback_margin)),
+                    KXRW_PLAYBACK_WAIT, snapshot.ut), []
+            if (state.phase_frames - state.watch_last_reject_frame
+                    >= KXRW_WATCH_RETRY_CADENCE_FRAMES):
+                st = replace(state, watch_probe=state.watch_probe + 1,
+                             watch_attempts=state.watch_attempts + 1,
+                             watch_awaiting_since=state.phase_frames)
+                return st, [_kxrw_seam_action(
+                    "EnterWatchMode", kxrw_watch_probe_tag(st.watch_probe),
+                    kxrw_watch_seam_args(st.tree_id))]
+            return state, []
+
+        # (C) AWAITING this attempt's terminal.
+        tag = kxrw_watch_probe_tag(state.watch_probe)
+        result = _seam_result(snapshot, tag)
         if result:
-            # The command was issued SCOPED to the captured tree and with no index
-            # (see `kxrw_watch_seam_args`): the auto-select is deliberate, but it is
-            # NOT allowed to range over this flight's booster debris. Whatever
-            # Parsek answers is RECORDED and the mission flies on - see MAP-VIEW.
-            st = replace(state, watch_result=result,
-                         watch_reject_reason=_seam_reject_reason(
-                             snapshot, KXRW_TAG_WATCH),
-                         watch_selected_index=_seam_payload(
-                             snapshot, KXRW_TAG_WATCH, "index"),
-                         watch_selected_rec_id=_seam_payload(
-                             snapshot, KXRW_TAG_WATCH, "recId"),
-                         playback_target_ut=kxrw_playback_target_ut(
-                             state.recording_end_ut, p.playback_margin))
-            return _kxrw_enter(st, KXRW_PLAYBACK_WAIT, snapshot.ut), []
-        if state.phase_frames > p.watch_frames:
+            reason = _seam_reject_reason(snapshot, tag)
+            st = replace(state, watch_result=result, watch_reject_reason=reason,
+                         watch_selected_index=_seam_payload(snapshot, tag, "index"),
+                         watch_selected_rec_id=_seam_payload(snapshot, tag, "recId"))
+            if kxrw_watch_entry_retryable(result, reason):
+                # "NOT YET", not "no". Drop into the cooldown; (B) owns the bound.
+                return replace(st, watch_awaiting_since=-1,
+                               watch_last_reject_frame=state.phase_frames), []
+            # ANY other terminal - OK, or the "ERROR" the runner maps a REJECTED
+            # verdict onto - is RECORDED and the mission flies on. A refused render
+            # verb is a PARSEK finding and belongs to the spec's log contracts;
+            # failing the mission on it would be driver-INVALID, which discards the
+            # very KSP.log those contracts read.
+            return _kxrw_enter(
+                replace(st, playback_target_ut=kxrw_playback_target_ut(
+                    state.recording_end_ut, p.playback_margin)),
+                KXRW_PLAYBACK_WAIT, snapshot.ut), []
+        if state.phase_frames - state.watch_awaiting_since > p.watch_frames:
+            # Bounded PER ATTEMPT, so a retry that goes dark is caught the same way
+            # the first ask is. A REJECTED watch is recorded and flown past by
+            # design; a SILENT one means the bridge itself is not answering.
             return _kxrw_flake(
                 state,
-                "phase %s: the EnterWatchMode seam command never answered within %d "
-                "frames (no terminal token rode a snapshot). A REJECTED watch is "
+                "phase %s: EnterWatchMode attempt %d (tag %s) never answered within "
+                "%d frames (no terminal token rode a snapshot). A REJECTED watch is "
                 "recorded and flown past by design; a SILENT one means the bridge "
-                "itself is not answering" % (KXRW_WATCH, p.watch_frames)), []
+                "itself is not answering"
+                % (KXRW_WATCH, state.watch_attempts, tag, p.watch_frames)), []
         return state, []
 
     # ---- PLAYBACK-WAIT: walk the clock past the whole recorded span --------
@@ -21383,6 +21578,11 @@ def evaluate_kxrw_assertions(frames, params: KxrwParams,
              getattr(state, "watch_selected_index", "") or None),
          "enterWatchModeSelectedRecId": (
              getattr(state, "watch_selected_rec_id", "") or None),
+         # HOW HARD THE WATCH HAD TO TRY. 1 = it took on the first ask; >1 means
+         # the lane rode out the `no-watchable-ghost` race the GS-4 reading run
+         # measured. An operator reading a run where watch never entered needs to
+         # see whether the retry loop ran at all before blaming the product.
+         "enterWatchModeAttempts": int(getattr(state, "watch_attempts", 0)),
          # Spelled out on the row itself so nobody "fixes" it into a gate: a
          # REJECTED render verb is Parsek's finding, carried by the spec's log
          # contracts, and this row is met either way.

@@ -31,8 +31,22 @@ THE PHASE PLAN (``mlib.kxrw_decide``; every state name is an ``mlib.KXRW_*``):
       -> AUTORECORD-OFF (seam SetSetting autoRecordOnLaunch=false)
       -> WATCHER-LAUNCH -> WATCHER-READY
       -> MAP-VIEW     (seam EnterMapView)               } verdicts RECORDED,
-      -> WATCH        (seam EnterWatchMode tree=<same>) } never fatal
+      -> WATCH        (seam EnterWatchMode tree=<same>, } never fatal
+                       HELD until the replay window is
+                       open, RE-ASKED while Parsek says
+                       `no-watchable-ghost`)
       -> PLAYBACK-WAIT-> DONE
+
+WATCH HOLDS AND THEN KEEPS ASKING, and the GS-4 reading run is why. It issued one
+EnterWatchMode at 00:48:27, five seconds before the parent ghost's
+``phase=MeshSpawned ... vessel=Kerbal X`` at 00:48:32, and Parsek rightly answered
+REJECTED ``no-watchable-ghost``: the committed recording replays at its RECORDED
+absolute UTs, so nothing is watchable until the clock reaches ``launch_ut``. Watch
+never entered and the parent then derendered as a stale past-end ghost, costing two
+required tokens on a flight that was otherwise clean. The machine now waits out
+``watchEntryLeadSeconds`` past its own ``launch_ut`` stamp and re-asks that one
+refusal under a fresh tag until ``watchEntryRetryFrames``. Everything else about
+the render verbs is unchanged: still recorded, still never fatal.
 
 THE LANE ROLLS ITS OWN SUBJECT OUT FIRST, and that is not ceremony.
 ``activate_next_stage`` stages WHATEVER IS ACTIVE, and what is active at scene
