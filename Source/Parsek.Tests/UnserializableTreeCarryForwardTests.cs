@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using Xunit;
@@ -55,6 +55,8 @@ namespace Parsek.Tests
             HighLogic.SaveFolder = originalSaveFolder;
             HighLogic.LoadedScene = originalScene;
             ParsekScenario.PersistentSavePathOverrideForTesting = null;
+            ParsekScenario.CarriedRecordingSidecarExistsOverrideForTesting = null;
+            ParsekScenario.SaveTargetFileNameHintForCurrentSave = null;
             RecordingStore.SkipSidecarCurrencyCheckForTesting = false;
             RecordingStore.ClearDurableCommittedRecordingIdHint();
             for (int i = 0; i < cleanupFiles.Count; i++)
@@ -90,6 +92,9 @@ namespace Parsek.Tests
 
             RecordingTree tree = MakeUnserializableTree("tree-x", "Mun Program", "rec-x");
             RecordingStore.AddCommittedTreeForTesting(tree);
+            // The reconciliation keeps a carried RECORDING only when its sidecar is on
+            // disk; outside KSP the real probe cannot resolve a path, so declare it.
+            ParsekScenario.CarriedRecordingSidecarExistsOverrideForTesting = _ => true;
             ParsekScenario.PersistentSavePathOverrideForTesting =
                 WriteTempPersistentSfs(("tree-x", "Mun Program", "rec-x"));
 
@@ -118,6 +123,7 @@ namespace Parsek.Tests
 
             RecordingStore.AddCommittedTreeForTesting(
                 MakeUnserializableTree("tree-y", "Minmus Program", "rec-y"));
+            ParsekScenario.CarriedRecordingSidecarExistsOverrideForTesting = _ => true;
             // On-disk save carries a DIFFERENT tree, so there is no node for tree-y.
             ParsekScenario.PersistentSavePathOverrideForTesting =
                 WriteTempPersistentSfs(("tree-other", "Other", "rec-other"));
@@ -172,23 +178,121 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void TryCarryForward_MissingOrUnparseableFile_ReturnsFalseAndNeverThrows()
+        public void TryCarryForward_NullInputs_ReturnFalseAndNeverThrow()
         {
             var node = new ConfigNode("ParsekScenario");
-            Assert.False(ParsekScenario.TryCarryForwardCommittedTreeNodeFromDiskSave(
-                node, Path.Combine(Path.GetTempPath(), "parsek-absent-" + Guid.NewGuid().ToString("N") + ".sfs"), "tree-x"));
-            Assert.False(ParsekScenario.TryCarryForwardCommittedTreeNodeFromDiskSave(node, null, "tree-x"));
-            Assert.False(ParsekScenario.TryCarryForwardCommittedTreeNodeFromDiskSave(node, "some.sfs", null));
-            Assert.False(ParsekScenario.TryCarryForwardCommittedTreeNodeFromDiskSave(null, "some.sfs", "tree-x"));
+            var live = new RecordingTree { Id = "tree-x" };
+            Assert.False(ParsekScenario.TryCarryForwardCommittedTreeNodeFromLoadedSave(
+                node, null, live, out _, out _));
+            Assert.False(ParsekScenario.TryCarryForwardCommittedTreeNodeFromLoadedSave(
+                null, new ConfigNode("ParsekScenario"), live, out _, out _));
+            Assert.False(ParsekScenario.TryCarryForwardCommittedTreeNodeFromLoadedSave(
+                node, new ConfigNode("ParsekScenario"), null, out _, out _));
+            Assert.False(ParsekScenario.TryCarryForwardCommittedTreeNodeFromLoadedSave(
+                node, new ConfigNode("ParsekScenario"), new RecordingTree { Id = null }, out _, out _));
             Assert.Empty(node.GetNodes("RECORDING_TREE"));
+        }
+
+        // catches: THE RESURRECTION. The on-disk node is older than memory, so carried
+        // verbatim it re-lists recordings the player has since deleted - ids whose
+        // sidecars are gone, leaving the save disagreeing with the corpus the next load's
+        // orphan reap works against. Only recordings the LIVE tree still has AND whose
+        // sidecars are on disk may be carried.
+        [Fact]
+        public void CarryForward_DropsRecordingsTheLiveTreeNoLongerHas()
+        {
+            var live = new RecordingTree { Id = "tree-r", TreeName = "Reconciled", RootRecordingId = "rec-keep" };
+            live.AddOrReplaceRecording(new Recording { RecordingId = "rec-keep", TreeId = "tree-r" });
+            ParsekScenario.CarriedRecordingSidecarExistsOverrideForTesting = _ => true;
+
+            ConfigNode source = BuildParsekNode("tree-r", "Reconciled", "rec-keep", "rec-deleted");
+            var target = new ConfigNode("ParsekScenario");
+
+            Assert.True(ParsekScenario.TryCarryForwardCommittedTreeNodeFromLoadedSave(
+                target, source, live, out int carried, out int dropped));
+
+            Assert.Equal(1, carried);
+            Assert.Equal(1, dropped);
+            ConfigNode[] recs = target.GetNodes("RECORDING_TREE")[0].GetNodes("RECORDING");
+            Assert.Single(recs);
+            Assert.Equal("rec-keep", recs[0].GetValue("recordingId"));
+        }
+
+        // The other half: the id is still in the live tree but its sidecar is gone, so
+        // carrying it would describe data this save no longer has.
+        [Fact]
+        public void CarryForward_DropsRecordingsWhoseSidecarsAreGone()
+        {
+            var live = new RecordingTree { Id = "tree-s", TreeName = "Sidecars", RootRecordingId = "rec-a" };
+            live.AddOrReplaceRecording(new Recording { RecordingId = "rec-a", TreeId = "tree-s" });
+            live.AddOrReplaceRecording(new Recording { RecordingId = "rec-b", TreeId = "tree-s" });
+            ParsekScenario.CarriedRecordingSidecarExistsOverrideForTesting =
+                id => string.Equals(id, "rec-a", StringComparison.Ordinal);
+
+            ConfigNode source = BuildParsekNode("tree-s", "Sidecars", "rec-a", "rec-b");
+            var target = new ConfigNode("ParsekScenario");
+
+            Assert.True(ParsekScenario.TryCarryForwardCommittedTreeNodeFromLoadedSave(
+                target, source, live, out int carried, out int dropped));
+
+            Assert.Equal(1, carried);
+            Assert.Equal(1, dropped);
+            Assert.Equal("rec-a",
+                target.GetNodes("RECORDING_TREE")[0].GetNodes("RECORDING")[0].GetValue("recordingId"));
+        }
+
+        // Reconciled down to nothing: a husk is not worth writing and would itself read
+        // as a corrupt tree, so the carry is refused rather than writing an empty shell.
+        [Fact]
+        public void CarryForward_RefusesWhenReconciliationLeavesNoRecordings()
+        {
+            var live = new RecordingTree { Id = "tree-e", TreeName = "Empty", RootRecordingId = "rec-live" };
+            live.AddOrReplaceRecording(new Recording { RecordingId = "rec-live", TreeId = "tree-e" });
+            ParsekScenario.CarriedRecordingSidecarExistsOverrideForTesting = _ => true;
+
+            ConfigNode source = BuildParsekNode("tree-e", "Empty", "rec-gone-1", "rec-gone-2");
+            var target = new ConfigNode("ParsekScenario");
+            logLines.Clear();
+
+            Assert.False(ParsekScenario.TryCarryForwardCommittedTreeNodeFromLoadedSave(
+                target, source, live, out int carried, out int dropped));
+
+            Assert.Equal(0, carried);
+            Assert.Equal(2, dropped);
+            Assert.Empty(target.GetNodes("RECORDING_TREE"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[Scenario]") && l.Contains("would resurrect deleted data"));
+        }
+
+        [Fact]
+        public void IsCarriedRecordingStillReal_RequiresBothHalves()
+        {
+            var live = new RecordingTree { Id = "t", RootRecordingId = "rec-1" };
+            live.AddOrReplaceRecording(new Recording { RecordingId = "rec-1", TreeId = "t" });
+
+            ParsekScenario.CarriedRecordingSidecarExistsOverrideForTesting = _ => true;
+            Assert.True(ParsekScenario.IsCarriedRecordingStillReal(live, "rec-1"));
+            Assert.False(ParsekScenario.IsCarriedRecordingStillReal(live, "rec-absent"));
+
+            ParsekScenario.CarriedRecordingSidecarExistsOverrideForTesting = _ => false;
+            Assert.False(ParsekScenario.IsCarriedRecordingStillReal(live, "rec-1"));
+
+            Assert.False(ParsekScenario.IsCarriedRecordingStillReal(null, "rec-1"));
+            Assert.False(ParsekScenario.IsCarriedRecordingStillReal(live, null));
         }
 
         // ==================================================================
         // Fix C - the committed-overlap discard guard's durable input
         // ==================================================================
 
+        // Finding 5: the parked (isActive / isPending) nodes' recordings MUST be in the
+        // hint. TryRestoreActiveTreeNode / TryRestorePendingTreeNode restore exactly those
+        // nodes later in the SAME OnLoad, so their sidecars are about to be hydrated -
+        // deleting them in the discard window loses data the load was seconds from
+        // bringing back. The tree actually being discarded is the in-memory stale pending
+        // tree from a PREVIOUS save, which is not in this node at all.
         [Fact]
-        public void CollectCommittedRecordingIds_ReadsCommittedTreesOnly()
+        public void CollectCommittedRecordingIds_IncludesParkedNodesAboutToBeRestored()
         {
             var parsek = new ConfigNode("ParsekScenario");
             ConfigNode committed = parsek.AddNode("RECORDING_TREE");
@@ -196,23 +300,22 @@ namespace Parsek.Tests
             committed.AddNode("RECORDING").AddValue("recordingId", "rec-1");
             committed.AddNode("RECORDING").AddValue("recordingId", "rec-2");
 
-            // The parked clone whose discard would otherwise delete rec-1/rec-2's files:
-            // its own node must NOT contribute ids (it is the thing being discarded).
             ConfigNode active = parsek.AddNode("RECORDING_TREE");
-            active.AddValue("id", "tree-a");
+            active.AddValue("id", "tree-b");
             active.AddValue("isActive", "True");
-            active.AddNode("RECORDING").AddValue("recordingId", "rec-1");
+            active.AddNode("RECORDING").AddValue("recordingId", "rec-active");
             ConfigNode pending = parsek.AddNode("RECORDING_TREE");
-            pending.AddValue("id", "tree-b");
+            pending.AddValue("id", "tree-c");
             pending.AddValue("isPending", "True");
-            pending.AddNode("RECORDING").AddValue("recordingId", "rec-3");
+            pending.AddNode("RECORDING").AddValue("recordingId", "rec-pending");
 
             HashSet<string> ids = ParsekScenario.CollectCommittedRecordingIdsFromScenarioNode(parsek);
 
-            Assert.Equal(2, ids.Count);
+            Assert.Equal(4, ids.Count);
             Assert.Contains("rec-1", ids);
             Assert.Contains("rec-2", ids);
-            Assert.DoesNotContain("rec-3", ids);
+            Assert.Contains("rec-active", ids);
+            Assert.Contains("rec-pending", ids);
             Assert.Empty(ParsekScenario.CollectCommittedRecordingIdsFromScenarioNode(null));
         }
 
@@ -357,6 +460,20 @@ namespace Parsek.Tests
             RecordingStore.CleanOrphanFilesDirectoryOverrideForTesting = recordingsDir;
             cleanupRoots.Add(root);
             return recordingsDir;
+        }
+
+        /// <summary>An in-memory ParsekScenario node holding one committed tree with the
+        /// given recording ids - the "on-disk save" input to the carry-forward.</summary>
+        private static ConfigNode BuildParsekNode(
+            string treeId, string treeName, params string[] recordingIds)
+        {
+            var parsek = new ConfigNode("ParsekScenario");
+            ConfigNode treeNode = parsek.AddNode("RECORDING_TREE");
+            treeNode.AddValue("id", treeId);
+            treeNode.AddValue("treeName", treeName);
+            for (int i = 0; i < recordingIds.Length; i++)
+                treeNode.AddNode("RECORDING").AddValue("recordingId", recordingIds[i]);
+            return parsek;
         }
 
         /// <summary>

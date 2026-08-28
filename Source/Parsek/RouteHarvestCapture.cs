@@ -84,6 +84,34 @@ namespace Parsek
         }
 
         /// <summary>
+        /// How long after the rails boundary a transition may still be labelled
+        /// <c>trigger=rails-exit</c>, in GAME seconds. The funnel flag deliberately
+        /// survives no-transition polls (so a close landing a few frames after unpack
+        /// still reads as the boundary's), but left unbounded it would equally label a
+        /// player toggle minutes later - asserting a causal link to a warp exit that is
+        /// not there. A few seconds covers the settle-and-close a real rails exit
+        /// produces and excludes anything a player did afterwards.
+        /// </summary>
+        internal const double RailsExitLabelMaxAgeSeconds = 5.0;
+
+        /// <summary>
+        /// Whether an armed rails-exit label still describes the transition being
+        /// emitted. False when nothing is armed, when the arm carries no UT (NaN -
+        /// never stamped), when the clock ran backwards past the arm (a quickload or
+        /// rewind moved UT), or when more than
+        /// <see cref="RailsExitLabelMaxAgeSeconds"/> of game time has elapsed.
+        /// </summary>
+        internal static bool IsRailsExitLabelStillValid(
+            bool railsExitPending, double armedUT, double nowUT)
+        {
+            if (!railsExitPending) return false;
+            if (double.IsNaN(armedUT) || double.IsNaN(nowUT)) return false;
+            double age = nowUT - armedUT;
+            if (age < 0.0) return false;
+            return age <= RailsExitLabelMaxAgeSeconds;
+        }
+
+        /// <summary>
         /// Rails-entry re-baseline rule (plan D4 warp rule): with a window
         /// already open, production continues inside it (no action); with
         /// converters active and NO window open (activation raced the poll),

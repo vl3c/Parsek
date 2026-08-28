@@ -1753,28 +1753,82 @@ namespace Parsek.InGameTests
         }
 
         /// <summary>
+        /// Latch: set once an in-game batch teardown / recovery path has actually written
+        /// the campaign's persistent.sfs back to its batch-start bytes. Read by the M-A2
+        /// command seam's <c>FlushAndQuit</c>, whose own <c>GamePersistence.SaveGame</c>
+        /// would otherwise be the LAST write to that file and would put the batch's
+        /// leftover in-memory state back on disk over the restore.
+        ///
+        /// <para><b>Narrowly scoped, and it has to be.</b> The suppression is correct only
+        /// while the restore is still the intended final state of the file the flush would
+        /// write. Two things end that, and BOTH clear the latch:</para>
+        /// <list type="number">
+        ///   <item><description>A DIFFERENT save folder - tracked as
+        ///   <see cref="BatchBaselineRestoredSaveFolder"/> and compared by
+        ///   <c>TestCommandFlushAndQuit.ShouldSuppressSaveAfterBatchRestore</c>. A restore
+        ///   of campaign A says nothing about a flush targeting campaign B.</description></item>
+        ///   <item><description>Anything state-mutating after it - a game load, a return to
+        ///   the main menu, or ANY subsequent mutating seam verb (the dispatch hook in
+        ///   <c>ParsekTestCommandAddon</c>, keyed on
+        ///   <c>TestCommandVerbs.IsStateMutatingVerb</c>). S4.2-refly-world-preservation is
+        ///   the case that proves this necessary: it runs RunTests -> AnswerMergeDialog
+        ///   {merge} -> FlushAndQuit and its produced save MUST be the merge tail written
+        ///   AFTER the batch. An unscoped latch silently discarded that merge.</description></item>
+        /// </list>
+        /// <para>The H38-H41 teardown -> FlushAndQuit flow is unaffected: nothing runs in
+        /// between, so the latch survives and the restore stays the last write. A run that
+        /// never ran a batch teardown never sets it, so a non-batch FlushAndQuit is
+        /// byte-identical to its pre-suppression behaviour.</para>
+        /// </summary>
+        internal static bool BatchBaselinePersistentSaveRestored { get; private set; }
+
+        /// <summary>
+        /// The <c>HighLogic.SaveFolder</c> the latched restore actually wrote into, so the
+        /// suppression can refuse to apply to a flush targeting a different campaign.
+        /// Null whenever the latch is clear.
+        /// </summary>
+        internal static string BatchBaselineRestoredSaveFolder { get; private set; }
+
+        /// <summary>
+        /// Clears the latch because something happened that the batch-start restore no
+        /// longer describes: a game load, a main-menu transition, or a mutating seam verb.
+        /// Idempotent and cheap (one bool test on the common path); logs only on a real
+        /// transition, so the clear is greppable next to the suppression it disarms.
+        /// </summary>
+        internal static void NotifyStateMutatedAfterBatchBaselineRestore(string reason)
+        {
+            if (!BatchBaselinePersistentSaveRestored)
+                return;
+            ParsekLog.Info(Tag,
+                "Batch baseline: latch cleared, FlushAndQuit saves are live again "
+                + $"(reason={reason ?? "<none>"} "
+                + $"restoredSaveFolder='{BatchBaselineRestoredSaveFolder ?? "<none>"}') - the "
+                + "batch-start restore is no longer the intended final state of the save");
+            BatchBaselinePersistentSaveRestored = false;
+            BatchBaselineRestoredSaveFolder = null;
+        }
+
+        /// <summary>Test seam: clears the latch so xUnit cells can drive both branches.</summary>
+        internal static void ResetBatchBaselinePersistentSaveRestoredForTesting()
+        {
+            BatchBaselinePersistentSaveRestored = false;
+            BatchBaselineRestoredSaveFolder = null;
+        }
+
+        /// <summary>Test seam: arms the latch for a named save folder.</summary>
+        internal static void SetBatchBaselinePersistentSaveRestoredForTesting(string saveFolder)
+        {
+            BatchBaselinePersistentSaveRestored = true;
+            BatchBaselineRestoredSaveFolder = saveFolder;
+        }
+
+        /// <summary>
         /// Restores the campaign's persistent.sfs from the batch-start backup
         /// via the atomic safe-write (tmp + rename) path. Returns true when the
         /// backup is consumable (restored, or nothing to restore); false only
         /// when a backup existed but the restore failed, so the caller keeps the
         /// .bak for manual recovery. Never throws.
         /// </summary>
-        /// <summary>
-        /// Process-scoped latch: set once an in-game batch teardown / recovery path has
-        /// actually written the campaign's persistent.sfs back to its batch-start bytes.
-        /// Read by the M-A2 command seam's <c>FlushAndQuit</c>, whose own
-        /// <c>GamePersistence.SaveGame</c> would otherwise be the LAST write to that file
-        /// and would put the batch's leftover in-memory state back on disk over the
-        /// restore. Never reset within the process: once a batch has restored the save,
-        /// nothing later in that process may re-save over it. A run that never ran a batch
-        /// teardown leaves it false, so a non-batch FlushAndQuit saves normally.
-        /// </summary>
-        internal static bool BatchBaselinePersistentSaveRestored { get; private set; }
-
-        /// <summary>Test seam: clears the latch so xUnit cells can drive both branches.</summary>
-        internal static void ResetBatchBaselinePersistentSaveRestoredForTesting()
-            => BatchBaselinePersistentSaveRestored = false;
-
         private static bool RestoreCampaignPersistentSave(string backupPath)
         {
             if (string.IsNullOrEmpty(backupPath))
@@ -1801,8 +1855,10 @@ namespace Parsek.InGameTests
                 FileIOUtils.SafeWriteBytes(bytes, persistentPath, Tag);
                 // Latch AFTER the write commits: from here on this restore is the intended
                 // final on-disk state, so the command seam's FlushAndQuit must not save the
-                // live game over it (see BatchBaselinePersistentSaveRestored).
+                // live game over it (see BatchBaselinePersistentSaveRestored). Scoped to the
+                // save folder actually written, and cleared by anything that mutates after.
                 BatchBaselinePersistentSaveRestored = true;
+                BatchBaselineRestoredSaveFolder = HighLogic.SaveFolder;
                 ParsekLog.Info(Tag,
                     $"Batch baseline: restored campaign persistent.sfs ({bytes.Length} bytes) "
                     + "from batch-start backup; later FlushAndQuit saves are suppressed so this "

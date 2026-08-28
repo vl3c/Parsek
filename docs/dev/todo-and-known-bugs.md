@@ -54,38 +54,105 @@ and the guard is defeated by ordering alone.
 **(C) the trigger.** `RecordingStore.SetDurableCommittedRecordingIdHint` /
 `IsDurableCommittedRecordingIdHint` / `ClearDurableCommittedRecordingIdHint`, with the pure
 decision `ShouldPreserveCommittedOverlapOnPendingDiscard(committedInMemory, durableHint)`.
-`ParsekScenario.CollectCommittedRecordingIdsFromScenarioNode` (pure over the ConfigNode;
-active/pending marker trees excluded, since those are what a discard IS entitled to
-destroy) publishes the SAVE NODE's committed ids around `DiscardStalePendingState()` in a
+`ParsekScenario.CollectCommittedRecordingIdsFromScenarioNode` (pure over the ConfigNode)
+publishes the SAVE NODE's recording ids around `DiscardStalePendingState()` in a
 try/finally. Both discard guards - the event/milestone purge AND the sidecar delete - now
 consult it. Deliberately NOT fixed by reordering OnLoad: the discard precedes
 `ClearCommittedInternal` / `ValidateChains` for reasons of its own, and the save file is
 the correct authority for that window regardless.
 
+The collector takes ids from EVERY `RECORDING_TREE` node, parked ones included. The first
+version excluded `isActive` / `isPending` nodes on the reasoning that a parked node is
+what a discard is entitled to destroy; the branch review corrected it, and the correction
+is the point: `TryRestoreActiveTreeNode` / `TryRestorePendingTreeNode` restore exactly
+those nodes LATER IN THE SAME OnLoad, so their recordings are in the population "this save
+is about to have" and their sidecars are what the restore hydrates from. The tree the
+discard is actually destroying is the IN-MEMORY stale pending tree left over from a
+previous save - it is not in this node at all, so including the parked nodes cannot
+protect it by accident.
+
 **(B) the invariant - A SAVE MUST NEVER DELETE A TREE IT CANNOT SERIALIZE.**
 `ParsekScenario.SaveTreeRecordings`'s both-or-neither skip no longer `continue`s past the
 `AddNode`: it carries the tree's last-known-good RECORDING_TREE node forward from the
-on-disk save (`TryCarryForwardCommittedTreeNodeFromDiskSave` + `FindCommittedTreeNodeById`,
+on-disk save (`TryCarryForwardCommittedTreeNodeFromLoadedSave` + `FindCommittedTreeNodeById`,
 siblings of the load-fault guard's `TryRehydrateCommittedTreesAndMissionsFromDiskSave`),
 Warn on success and **Error** when there is nothing to carry. Implemented independently of
 (C): (C) removes this trigger, (B) is the invariant that stops ANY future sidecar fault
 from deleting a mission.
 
+Three properties the branch review added, each closing a way the carry could do harm:
+
+- **Reconciled against the live tree.** The on-disk node is OLDER than memory, so carried
+  verbatim it RESURRECTS recordings the player has since deleted - and those ids then
+  reference sidecars that are gone, leaving the save disagreeing with the corpus the next
+  load's orphan reap works against (which deletes files nothing references, i.e. NEWER
+  data). A carried `RECORDING` is kept only when the LIVE tree still has that id AND its
+  trajectory sidecar is on disk (`IsCarriedRecordingStillReal`); everything else is
+  dropped, counted and logged. Reconciled down to zero, the carry is REFUSED rather than
+  writing a husk that would itself read as a corrupt tree.
+- **Target-file first.** The first version hard-read the campaign `persistent.sfs` for
+  every save target, so a quicksave would have received the CAMPAIGN's node - a foreign
+  timeline. `TryLoadCarryForwardSourceParsekNode` now prefers the file this save is
+  overwriting when it exists. RESIDUAL RISK, documented on that method: stock does NOT
+  expose the target save name inside `ScenarioModule.OnSave` (`GamePersistence.SaveGame`
+  keeps `saveFileName` local and calls `game.Save(node)` before writing), so the target is
+  known only via `SaveTargetFileNameHintForCurrentSave`, which Parsek-driven call sites can
+  set and a stock F5 quicksave cannot. When the target is unknown the campaign save is used
+  - and the reconciliation above is what makes that safe: a cross-timeline read cannot
+  introduce recordings this game does not have. What it can still do is carry a stale FIELD
+  value from the campaign's copy of the same tree, which is strictly better than dropping
+  the tree, the only alternative on this path.
+- **One parse per save.** The `ConfigNode.Load` is lazy and hoisted to at most once per
+  `SaveTreeRecordings` invocation, shared across every failing tree, and is not performed
+  at all on the healthy path.
+
 **(A) the harness ordering defect.** `InGameTestRunner.BatchBaselinePersistentSaveRestored`
 latches inside `RestoreCampaignPersistentSave` the moment the revert commits (covering the
-teardown, cancel and force-revert call sites); `TestCommandFlushAndQuit.ShouldSave` takes it
-as a third argument and `FlushAndQuitImpl` logs `flushandquit: save suppressed (batch
-baseline already restored)` and skips its `GamePersistence.SaveGame`. A non-batch
-FlushAndQuit never sets the latch and saves exactly as before.
+teardown, cancel and force-revert call sites); `FlushAndQuitImpl` logs `flushandquit: save
+suppressed (batch baseline already restored)` and skips its `GamePersistence.SaveGame`. A
+non-batch FlushAndQuit never sets the latch and saves exactly as before.
+
+**THE SUPPRESSION IS SCOPED, and the scoping is the load-bearing part.** The first version
+latched process-wide, forever, unkeyed by save folder - which silently broke
+`S4.2-refly-world-preservation`, whose steps are `RunTests -> AnswerMergeDialog{merge} ->
+FlushAndQuit` and whose produced save MUST be the merge tail written AFTER the batch. Two
+conditions now gate it, both in the pure
+`TestCommandFlushAndQuit.ShouldSuppressSaveAfterBatchRestore(latched, restoredSaveFolder,
+currentSaveFolder)`:
+
+1. **Same save folder.** `BatchBaselineRestoredSaveFolder` records what the restore actually
+   wrote; a restore of campaign A never suppresses a flush into campaign B (nothing restored
+   B, so suppressing there would simply lose its save). Ordinal comparison - a case-fold
+   would be the wrong equality on a case-sensitive filesystem. An unresolvable folder on
+   either side fails the comparison, i.e. saves.
+2. **Nothing mutated since.** `NotifyStateMutatedAfterBatchBaselineRestore` clears the latch
+   from three places: the cold `OnLoad` (a game load), the main-menu transition, and the
+   seam's `InvokeExecutor` dispatch for any verb `TestCommandVerbs.IsStateMutatingVerb`
+   accepts. That verb table is an ALLOW-LIST of the harmless verbs (`RecordingState`,
+   `ExportRenderManifest`, and `FlushAndQuit` itself, which is the reader) with everything
+   else - including an unknown or later-added verb - counted as mutating, so the fail-safe
+   direction is "assume it mutated -> clear -> save normally".
+
+The hook sits at DISPATCH rather than completion on purpose: `RunTests` is itself mutating
+and clears the latch on the way in, then its own teardown re-arms it as the batch ends - so
+H38-H41's `RunTests -> FlushAndQuit` still suppresses, while S4.2's merge in between clears
+it and writes the tail. S4.2's spec comment now states this dependency explicitly.
 
 ### Guards
 
-`Source/Parsek.Tests/UnserializableTreeCarryForwardTests.cs` (13 cells): the invariant end
-to end through the real `SaveTreeRecordings` (unserializable tree keeps its node WITH its
-RECORDING payload), the loud drop when there is nothing to carry, the healthy tree
-unaffected, the node finders, the pure overlap-decision matrix, the hint round-trip, and
-the cold-load overlap discard routing overlap ids to preserve plus its negative control.
-`TestCommandFlushAndQuitTests` gains the suppression matrix.
+`Source/Parsek.Tests/UnserializableTreeCarryForwardTests.cs`: the invariant end to end
+through the real `SaveTreeRecordings` (unserializable tree keeps its node WITH its RECORDING
+payload), the loud drop when there is nothing to carry, the healthy tree unaffected, the
+node finders, the reconciliation trio (drops a recording the live tree no longer has; drops
+one whose sidecar is gone; refuses the carry when reconciliation empties the node), the pure
+overlap-decision matrix, the hint round-trip, the hint INCLUDING parked nodes about to be
+restored, and the cold-load overlap discard routing overlap ids to preserve plus its
+negative control. `TestCommandFlushAndQuitTests` carries the suppression matrix, the
+save-folder scoping matrix, and the mutating-verb classification (which pins
+`AnswerMergeDialog` as mutating - the cell that would catch S4.2 losing its merge tail
+again). `RouteHarvestCaptureTests` carries the rails-exit label window, its `[InlineData]`
+rows anchored on the MEASURED H38 ages so the pinned `trigger=rails-exit` token is provably
+unaffected.
 
 NOTE for the next discard-path test author: the sidecar DELETE cannot be asserted by file
 existence headlessly - `DeleteRecordingFiles` resolves through
@@ -196,9 +263,41 @@ Three coordinated changes, all in the D4 funnel:
    warp unpacks a vessel the poll then adopts with no exit event of its own, and
    arming the same bool at both boundaries is idempotent.
 
+### THE ACCEPTED TRADE-OFF (recorded 2026-08-29 by the branch review)
+
+The packed gate is a REFUSAL TO GUESS, and it costs something. A converter
+ENABLED while the vessel is packed does not open its window at the moment it was
+enabled - the poll is not running - so its window opens only at UNPACK, and any
+production between the enable and the unpack is unattributed. That is deliberate:
+a packed frame's manifest is whatever the last stock catch-up left, so a window
+opened there would bracket an interval nothing witnessed and report a number
+Parsek did not measure. An unattributed gap is a smaller lie than an invented
+figure, and the delivery analysis treats unwitnessed gain as un-harvested rather
+than as harvested. The reverse case is already covered: a converter enabled
+BEFORE the warp has its window open across the whole warp (the rails-entry
+re-baseline), which is the common shape for a mining rig.
+
+### THE LABEL VALIDITY WINDOW (added 2026-08-29 by the branch review)
+
+Consume-on-transition-only fixed the flag being burned early, but left it valid
+FOREVER: with no transition after a rails exit, a player toggle minutes later
+would still be labelled `trigger=rails-exit`, asserting a causal link to a
+boundary it has nothing to do with. Each arm now stamps
+`harvestRailsExitPollArmedUT`, and
+`RouteHarvestCapture.IsRailsExitLabelStillValid` honours the label only within
+`RailsExitLabelMaxAgeSeconds = 5.0` GAME seconds (also rejecting an unstamped arm
+and a backwards clock, i.e. a quickload / rewind). MEASURED against the live H38
+flights, the real ages are 0.02 s (exit arm -> close, run `2026-08-28_1858`: exit
+UT 27.64, close UT 27.66) and 0.42 s (entry arm -> close), so the WarpToggle
+cell's pinned `trigger=rails-exit` token is unaffected; those two ages are the
+`[InlineData]` rows of `IsRailsExitLabelStillValid_BoundedToTheBoundary`.
+
 Breadcrumbs: `Harvest funnel consumed at transition:` (Verbose, at the consume
-site) and `Harvest poll skipped on packed frame:` (VerboseRateLimited, at the
-new gate). Unit-guarded by `RouteHarvestCaptureTests`
+site), `Harvest funnel label expired:` (Verbose, when the window lapses) and
+`Harvest poll skipped on packed frame:` (VerboseRateLimited, at the new gate -
+via the `Func<string>` overload, since it runs on every packed frame of a surface
+warp and the eager interpolation contradicted the method's own zero-allocation
+contract). Unit-guarded by `RouteHarvestCaptureTests`
 (`ShouldRunHarvestPoll_Matrix`, `ShouldConsumeRailsExitFunnel_OnlyOnEmittedTransition`,
 `RailsExitFunnel_SurvivesSteadyStatePollsUntilTheClose`). **LIVE-PROVEN
 2026-08-28** by `HarvestCapture_WarpToggle_RebaselinesAtRailsTransitions`:

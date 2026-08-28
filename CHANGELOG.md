@@ -112,8 +112,15 @@ All notable changes to Parsek are documented here.
   before the batch started; the command that then shuts the game down was saving
   the live game one more time on its way out, writing the batch's leftovers back
   over that restore. The shutdown command now skips its save when a batch has
-  already restored the file, and says so in the log. A shutdown outside a test
-  batch saves exactly as before. Test-tooling only; no gameplay change.
+  already restored the file, and says so in the log. That skip is deliberately
+  narrow, because "the restore is the last word" stops being true the moment
+  anything else happens: it applies only to the exact save the restore wrote, and
+  it is cancelled by loading a game, returning to the main menu, or any later
+  command that can change something a save would capture. One rig scenario turns
+  on precisely that - it runs a batch, then merges a re-flown mission, then shuts
+  down, and the merge is the entire point of the save it produces. A shutdown
+  outside a test batch saves exactly as before. Test-tooling only; no gameplay
+  change.
 - Ten more supply-route in-game tests were making silent assumptions about the
   save they run in, and the two new recorded-flight test runs caught all of them.
   Nine assumed the rocket they deliver onto has an EMPTY fuel tank. Parsek will

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
@@ -1211,6 +1211,14 @@ namespace Parsek
         // recorder is off rails again consumes it (poll runs only off-rails),
         // attributing a warp-period toggle at the exit boundary.
         private bool harvestRailsExitPollPending;
+
+        /// <summary>
+        /// UT at which <see cref="harvestRailsExitPollPending"/> was armed, so the
+        /// rails-exit label can expire instead of surviving until the next transition of
+        /// any kind. NaN when nothing is armed. See
+        /// <see cref="RouteHarvestCapture.IsRailsExitLabelStillValid"/>.
+        /// </summary>
+        private double harvestRailsExitPollArmedUT = double.NaN;
 
         /// <summary>
         /// Read-only view of the controller identity captured at the most recent
@@ -6658,6 +6666,7 @@ namespace Parsek
             openHarvestWindow = null;
             lastStopClosedHarvestWindow = null;
             harvestRailsExitPollPending = false;
+            harvestRailsExitPollArmedUT = double.NaN;
 
             hasPersistentRotation = AssemblyLoader.loadedAssemblies.Any(
                 a => a.name == "PersistentRotation");
@@ -7225,13 +7234,17 @@ namespace Parsek
                 return;
             if (!RouteHarvestCapture.ShouldRunHarvestPoll(IsGloopsMode, v.packed))
             {
+                // Func<string> overload: this runs on EVERY packed physics frame of a
+                // surface warp (tens per second) and the eager interpolation would build a
+                // string per frame only for the rate limiter to drop it - exactly what this
+                // method's own zero-allocation contract forbids.
                 if (!IsGloopsMode)
                     ParsekLog.VerboseRateLimited("Recorder", "harvest-poll-packed-skip",
-                        $"Harvest poll skipped on packed frame: vessel='{v.vesselName}' " +
-                        $"pid={v.persistentId.ToString(CultureInfo.InvariantCulture)} " +
-                        $"sit={v.situation} isOnRails={(isOnRails ? "1" : "0")} " +
-                        $"railsExitPending={(harvestRailsExitPollPending ? "1" : "0")} " +
-                        $"windowOpen={(openHarvestWindow != null ? "1" : "0")}");
+                        () => $"Harvest poll skipped on packed frame: vessel='{v.vesselName}' " +
+                            $"pid={v.persistentId.ToString(CultureInfo.InvariantCulture)} " +
+                            $"sit={v.situation} isOnRails={(isOnRails ? "1" : "0")} " +
+                            $"railsExitPending={(harvestRailsExitPollPending ? "1" : "0")} " +
+                            $"windowOpen={(openHarvestWindow != null ? "1" : "0")}");
                 return;
             }
 
@@ -7246,10 +7259,24 @@ namespace Parsek
             if (!RouteHarvestCapture.ShouldConsumeRailsExitFunnel(transition))
                 return; // no transition: the funnel flag stays armed by design
 
-            string trigger = harvestRailsExitPollPending ? "rails-exit" : "toggle";
-            harvestRailsExitPollPending = false;
-
             double ut = Planetarium.GetUniversalTime();
+            // The rails-exit label is only true NEAR the boundary. Left unbounded the flag
+            // survives until the next transition of any kind, so a player toggle minutes
+            // later would be attributed to a warp exit it has nothing to do with. Bound it
+            // to the UT stamped at the exit.
+            bool railsExitLabelValid = RouteHarvestCapture.IsRailsExitLabelStillValid(
+                harvestRailsExitPollPending, harvestRailsExitPollArmedUT, ut);
+            string trigger = railsExitLabelValid ? "rails-exit" : "toggle";
+            if (harvestRailsExitPollPending && !railsExitLabelValid)
+                ParsekLog.Verbose("Recorder",
+                    "Harvest funnel label expired: the armed rails-exit label is older than " +
+                    $"{RouteHarvestCapture.RailsExitLabelMaxAgeSeconds.ToString("R", CultureInfo.InvariantCulture)}s " +
+                    $"(armedUT={harvestRailsExitPollArmedUT.ToString("F2", CultureInfo.InvariantCulture)} " +
+                    $"ut={ut.ToString("F2", CultureInfo.InvariantCulture)}); attributing this transition " +
+                    "to a player toggle instead");
+            harvestRailsExitPollPending = false;
+            harvestRailsExitPollArmedUT = double.NaN;
+
             ParsekLog.Verbose("Recorder",
                 $"Harvest funnel consumed at transition: trigger={trigger} " +
                 $"transition={transition} anyActive={(anyActive ? "1" : "0")} " +
@@ -7304,6 +7331,7 @@ namespace Parsek
                 return;
 
             harvestRailsExitPollPending = true;
+            harvestRailsExitPollArmedUT = Planetarium.GetUniversalTime();
 
             bool anyActive = IsAnyCachedConverterActive();
             if (openHarvestWindow != null)
@@ -10490,6 +10518,7 @@ namespace Parsek
             // entry - arm the exit-poll funnel (open-at-start already handled
             // any active converter in StartRecording).
             harvestRailsExitPollPending = true;
+            harvestRailsExitPollArmedUT = Planetarium.GetUniversalTime();
 
             // Recording started on rails — switch initial ABSOLUTE section to ORBITAL_CHECKPOINT
             CloseCurrentTrackSection(packedUT);
@@ -10720,6 +10749,7 @@ namespace Parsek
             // attribute. Setting the flag is idempotent with the entry-side arm in
             // HandleHarvestRailsEntry.
             harvestRailsExitPollPending = true;
+            harvestRailsExitPollArmedUT = Planetarium.GetUniversalTime();
 
             // Surface vessel went on rails without orbit segment — sample boundary point for continuity
             if (!isOnRails)

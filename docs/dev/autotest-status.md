@@ -2225,7 +2225,11 @@ injected synthetic corpus that `injectedRecordings = "none"` withholds by design
 ### In-game batch wiring: Phase-4 Wave 1, H41-H54 (14)
 
 AUTHORED AND FLOWN 2026-08-28. **ALL FOURTEEN LIVE-PROVEN: fourteen flights, every one
-PASS attempt 1, ZERO failed cells anywhere in the wave.** Confirm runs pending.
+PASS attempt 1, ZERO failed cells anywhere in the wave.** CONFIRMED 2026-08-29: the
+nine reading-form lanes were re-flown against their exact pins after the pinning
+commit - all nine PASS attempt 1 (the five blind-exact lanes' first flights already
+served as their pin proof, the H7-H20 convention). What remains on the wave is the
+per-lane tier promotion call, a human decision.
 Fourteen lanes from a roster audit of the
 undriven `[InGameTest]` categories - thirteen on the ordinary batch path (H42-H54,
 joining `IngameBatchWiringGroupTests`) and one isolated (H41, joining

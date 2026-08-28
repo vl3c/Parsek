@@ -144,6 +144,38 @@ namespace Parsek.Tests
             Assert.Equal("rails-exit", trigger);
         }
 
+        // ---------- Rails-exit label validity window (plan D4 warp rule) ----------
+
+        // catches: the funnel flag surviving no-transition polls FOREVER, so a player
+        // toggle minutes after a warp exit is labelled trigger=rails-exit - asserting a
+        // causal link to a boundary it has nothing to do with. The flag must still be
+        // armed AND the transition must land near the boundary. The two "true" ages at
+        // the top are the MEASURED H38 shape (run 2026-08-28_1858: rails exit at UT
+        // 27.64, close at 27.66; entry-side arm at 27.24), so the WarpToggle cell's
+        // pinned trigger=rails-exit token is unaffected by this bound.
+        [Theory]
+        [InlineData(true, 1000.0, 1000.02, true)]   // measured: close 0.02s after the exit
+        [InlineData(true, 1000.0, 1000.42, true)]   // measured: the entry-side arm's age
+        [InlineData(true, 1000.0, 1005.0, true)]    // exactly at the bound
+        [InlineData(true, 1000.0, 1005.01, false)]  // just past it -> a player toggle
+        [InlineData(true, 1000.0, 1600.0, false)]   // ten minutes later
+        [InlineData(false, 1000.0, 1000.02, false)] // nothing armed
+        [InlineData(true, 1000.0, 999.0, false)]    // clock ran backwards (quickload / rewind)
+        public void IsRailsExitLabelStillValid_BoundedToTheBoundary(
+            bool pending, double armedUT, double nowUT, bool expected)
+        {
+            Assert.Equal(expected,
+                RouteHarvestCapture.IsRailsExitLabelStillValid(pending, armedUT, nowUT));
+        }
+
+        // An arm that never stamped a UT cannot claim the boundary label.
+        [Fact]
+        public void IsRailsExitLabelStillValid_UnstampedArmIsInvalid()
+        {
+            Assert.False(RouteHarvestCapture.IsRailsExitLabelStillValid(true, double.NaN, 1000.0));
+            Assert.False(RouteHarvestCapture.IsRailsExitLabelStillValid(true, 1000.0, double.NaN));
+        }
+
         // ---------- Rails-entry re-baseline (plan D4 warp rule) ----------
 
         // catches: warp-period production going unwitnessed when activation
