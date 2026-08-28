@@ -20225,6 +20225,7 @@ KXRW_AUTORECORD_OFF = "AUTORECORD-OFF"
 KXRW_WATCHER_LAUNCH = "WATCHER-LAUNCH"
 KXRW_WATCHER_READY = "WATCHER-READY"
 KXRW_MAP_VIEW = "MAP-VIEW"
+KXRW_MAP_EXIT = "MAP-EXIT"
 KXRW_WATCH = "WATCH"
 KXRW_PLAYBACK_WAIT = "PLAYBACK-WAIT"
 KXRW_DONE = "DONE"
@@ -20234,7 +20235,7 @@ KXRW_PHASES: Tuple[str, ...] = (
     KXRW_CORE_CUT, KXRW_CORE_DISCARD, KXRW_COAST, KXRW_TREE_STATE, KXRW_COMMIT,
     KXRW_STOP, KXRW_RECORDER_IDLE, KXRW_REWIND, KXRW_SPACECENTER,
     KXRW_AUTORECORD_OFF, KXRW_WATCHER_LAUNCH, KXRW_WATCHER_READY, KXRW_MAP_VIEW,
-    KXRW_WATCH, KXRW_PLAYBACK_WAIT, KXRW_DONE)
+    KXRW_MAP_EXIT, KXRW_WATCH, KXRW_PLAYBACK_WAIT, KXRW_DONE)
 
 # The FLIGHT phases: bounded by the whole-flight clock, vessel_lost is lethal, and
 # the frozen-telemetry (vessel-destroyed) detector runs.
@@ -20250,7 +20251,8 @@ KXRW_FLIGHT_PHASES: Tuple[str, ...] = (
 # widens later.
 KXRW_POST_REWIND_PHASES: Tuple[str, ...] = (
     KXRW_REWIND, KXRW_SPACECENTER, KXRW_AUTORECORD_OFF, KXRW_WATCHER_LAUNCH,
-    KXRW_WATCHER_READY, KXRW_MAP_VIEW, KXRW_WATCH, KXRW_PLAYBACK_WAIT)
+    KXRW_WATCHER_READY, KXRW_MAP_VIEW, KXRW_MAP_EXIT, KXRW_WATCH,
+    KXRW_PLAYBACK_WAIT)
 
 # Every phase in which a `vessel_lost` snapshot is EXPECTED. TWO disjoint reasons,
 # deliberately spelled as a union of two named sets rather than as one flat list,
@@ -20276,6 +20278,10 @@ KXRW_TAG_STOP = "stop"
 KXRW_TAG_REWIND = "rewind"
 KXRW_TAG_AUTORECORD = "autorec"
 KXRW_TAG_MAP = "map"
+# The map CLOSE. Its own tag rather than a reuse of `map`: it is a SECOND command,
+# and the C# seam skips duplicate ids - reusing `map` would make the close a silent
+# no-op whose poll then expires as a TIMEOUT that reads like a wedged addon.
+KXRW_TAG_MAP_EXIT = "mapexit"
 # A tag FAMILY prefix, not a single tag: the WATCH phase can issue several
 # EnterWatchMode attempts (see below), and each needs its own wire id.
 KXRW_TAG_WATCH = "watch"
@@ -20775,6 +20781,12 @@ class KxrwState:
     # payload carried beside it.
     map_view_result: str = ""
     map_view_reject_reason: str = ""
+    # The map CLOSE's own terminal, mirroring the pair above exactly. It is the
+    # OPERATOR RULE's evidence: watching must happen in FLIGHT view, not under the
+    # map overlay, so the sequence is EnterMapView -> ExitMapView -> EnterWatchMode
+    # and the close's verdict has to be as visible in the result JSON as the open's.
+    map_exit_result: str = ""
+    map_exit_reject_reason: str = ""
     watch_result: str = ""
     watch_reject_reason: str = ""
     # WHICH recording the scoped auto-select actually landed on, read off the
@@ -20985,11 +20997,13 @@ def kxrw_decide(state: KxrwState,
     OBSERVED backward clock, then AUTORECORD-OFF disarms `autoRecordOnLaunch` -
     the same setting that auto-started this flight's OWN recording at the
     PRELAUNCH click - so the watcher does not bring a second recorder with it.
-    WATCHER-LAUNCH / WATCHER-READY put a second craft on the pad; MAP-VIEW and
-    WATCH drive the two render verbs (the watch HELD until the replay window has
-    opened, SCOPED to the captured tree so its auto-select cannot land on this
-    flight's own booster debris, and RE-ASKED while Parsek answers
-    `no-watchable-ghost`) and RECORD their verdicts without ever failing on them;
+    WATCHER-LAUNCH / WATCHER-READY put a second craft on the pad; MAP-VIEW,
+    MAP-EXIT and WATCH drive the three render verbs (the map is opened and then
+    CLOSED AGAIN before the watch, because the operator rule is that the replay is
+    watched in FLIGHT view rather than under the map overlay; the watch HELD until
+    the replay window has opened, SCOPED to the captured tree so its auto-select
+    cannot land on this flight's own booster debris, and RE-ASKED while Parsek
+    answers `no-watchable-ghost`) and RECORD their verdicts without ever failing;
     PLAYBACK-WAIT walks the clock past the recorded span. DONE is terminal with
     verdict None.
 
@@ -21546,7 +21560,7 @@ def kxrw_decide(state: KxrwState,
                    snapshot.situation or "UNREAD")), []
         return st, []
 
-    # ---- MAP-VIEW / WATCH: RECORD the verdict, never fail on it ------------
+    # ---- MAP-VIEW / MAP-EXIT / WATCH: RECORD the verdict, never fail on it --
     if state.phase == KXRW_MAP_VIEW:
         result = _seam_result(snapshot, KXRW_TAG_MAP)
         if result:
@@ -21562,8 +21576,9 @@ def kxrw_decide(state: KxrwState,
             # the replay window before its first attempt (see the phase below); the
             # command used to go out here, one frame after the map opened, which is
             # exactly what put it five seconds ahead of the ghost on GS-4's reading
-            # run.
-            return _kxrw_enter(st, KXRW_WATCH, snapshot.ut), []
+            # run. What DOES ride it is the map CLOSE - see MAP-EXIT.
+            return (_kxrw_enter(st, KXRW_MAP_EXIT, snapshot.ut),
+                    [_kxrw_seam_action("ExitMapView", KXRW_TAG_MAP_EXIT)])
         if state.phase_frames > p.map_view_frames:
             # A SILENT seam is a different animal from a refused verb: no verdict
             # was rendered at all, so there is nothing to record and the transport
@@ -21574,6 +21589,42 @@ def kxrw_decide(state: KxrwState,
                 "frames (no terminal token rode a snapshot). A REFUSED verb would "
                 "have been recorded and flown past; a SILENT one means the bridge "
                 "itself is not answering" % (KXRW_MAP_VIEW, p.map_view_frames)), []
+        return state, []
+
+    # ---- MAP-EXIT: CLOSE the map again before the watch ---------------------
+    # THE OPERATOR RULE. Opening the map is the "go to it" half of the player
+    # workflow; the WATCHING itself has to happen with the map CLOSED, or the ghost
+    # meshes this whole lane exists to see are behind the map overlay rather than on
+    # screen. The machine used to walk MAP-VIEW -> WATCH with the map still open, so
+    # the watch camera drove under it. The close is its OWN phase rather than a
+    # fire-and-forget on the way past, because a seam command whose terminal nobody
+    # waits for is a command that can be silently skipped as a duplicate id or
+    # answer REJECTED with nothing recording it.
+    #
+    # SAME RECORD-DON'T-FAIL SEMANTICS AS MAP-VIEW, for the same reason: a refused
+    # render verb is a PARSEK finding carried by the spec's log contracts
+    # (`exitmapview ok mapOpen=false` is a REQUIRED token there), and failing the
+    # mission on it would be driver-INVALID - which discards the very KSP.log those
+    # contracts read and retries a product defect into a PASS. Only SILENCE flakes.
+    #
+    # THE SILENCE BOUND IS `mapViewFrames`, REUSED DELIBERATELY. It is the same kind
+    # of wait as the open's - one single-phase AnyScene toggle verb answering on the
+    # very next frame - so a second knob would be two names for one number, and the
+    # one that drifts is the one nobody re-pins.
+    if state.phase == KXRW_MAP_EXIT:
+        result = _seam_result(snapshot, KXRW_TAG_MAP_EXIT)
+        if result:
+            st = replace(state, map_exit_result=result,
+                         map_exit_reject_reason=_seam_reject_reason(
+                             snapshot, KXRW_TAG_MAP_EXIT))
+            return _kxrw_enter(st, KXRW_WATCH, snapshot.ut), []
+        if state.phase_frames > p.map_view_frames:
+            return _kxrw_flake(
+                state,
+                "phase %s: the ExitMapView seam command never answered within %d "
+                "frames (no terminal token rode a snapshot). A REFUSED verb would "
+                "have been recorded and flown past; a SILENT one means the bridge "
+                "itself is not answering" % (KXRW_MAP_EXIT, p.map_view_frames)), []
         return state, []
 
     # ---- WATCH: hold for the replay window, then ASK UNTIL THE GHOST IS THERE --
@@ -21744,11 +21795,15 @@ def evaluate_kxrw_assertions(frames, params: KxrwParams,
       alone is a COMMANDED reading and rides in the detail, never as the evidence.
     - ``watcherOnPad``: a live vessel was OBSERVED settled in FLIGHT after the
       watcher launch. Without it there is no scene to watch a ghost from.
-    - ``renderVerbsDriven``: BOTH render verbs rendered a terminal verdict. MET ON
-      A REJECTION BY DESIGN - the row certifies the sequence was driven, and what
-      Parsek answered is carried in the detail for the spec's log contracts to
-      judge. Making this fail on a refusal would convert a product defect into a
-      retryable driver-INVALID and throw the evidence away.
+    - ``renderVerbsDriven``: ALL THREE render verbs rendered a terminal verdict -
+      ``EnterMapView``, ``ExitMapView`` and ``EnterWatchMode``, in that order, and
+      the value reads ``<open>/<close>/<watch>``. The CLOSE is a full member of the
+      row rather than a courtesy: the operator rule is that the replay is watched in
+      FLIGHT view, so a run whose map never closed watched the ghost behind the map
+      overlay. MET ON A REJECTION BY DESIGN - the row certifies the sequence was
+      driven, and what Parsek answered is carried in the detail for the spec's log
+      contracts to judge. Making this fail on a refusal would convert a product
+      defect into a retryable driver-INVALID and throw the evidence away.
     - ``playbackWatchedOut``: the clock passed recordedEnd + playbackMarginSeconds,
       so the whole ghost lifecycle (spawn -> replay -> retire) is inside the log.
     """
@@ -21843,12 +21898,20 @@ def evaluate_kxrw_assertions(frames, params: KxrwParams,
              getattr(state, "post_rewind_vessel_lost_frames", 0))})
 
     map_result = getattr(state, "map_view_result", "") or ""
+    map_exit_result = getattr(state, "map_exit_result", "") or ""
     watch_result = getattr(state, "watch_result", "") or ""
     render = AssertionOutcome(
-        "renderVerbsDriven", bool(map_result and watch_result),
-        "%s/%s" % (map_result or "NONE", watch_result or "NONE"),
+        # THREE verbs now, not two: the map CLOSE sits between the open and the
+        # watch because the operator rule is that watching happens in FLIGHT view,
+        # so a close that never rendered a terminal is a sequence that was not
+        # driven. The value reads "<open>/<close>/<watch>".
+        "renderVerbsDriven", bool(map_result and map_exit_result and watch_result),
+        "%s/%s/%s" % (map_result or "NONE", map_exit_result or "NONE",
+                      watch_result or "NONE"),
         {"enterMapViewResult": map_result or "NONE",
          "enterMapViewReason": getattr(state, "map_view_reject_reason", "") or None,
+         "exitMapViewResult": map_exit_result or "NONE",
+         "exitMapViewReason": getattr(state, "map_exit_reject_reason", "") or None,
          "enterWatchModeResult": watch_result or "NONE",
          "enterWatchModeReason": getattr(state, "watch_reject_reason", "") or None,
          # WHAT THE SCOPED AUTO-SELECT ACTUALLY PICKED. `tree=` keeps the walk

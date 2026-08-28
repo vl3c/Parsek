@@ -70,7 +70,7 @@ After the reading run: re-pin the interim tokens/windows, then run the standard
 three-run arming discipline for `[expectations.ghostLifecycle]` (roster
 `GHOSTLIFE_ARMED_SPECS` in `harness/lib/test_hlib.py`).
 
-## GS4-WATCH-DISTANCE-CUTOFF: the watch-mode 300 km distance cutoff has no automated probe, and GS-4 deliberately does not carry one [OPENED 2026-08-27 while scoping GS-4 (the operator asked for it; v1 kept simple by agreement). TODO, not a defect]
+## ~~GS4-WATCH-DISTANCE-CUTOFF~~: the watch-mode 300 km distance cutoff had no automated probe [OPENED 2026-08-27. **DISCHARGED 2026-08-28**: `W1-watch-distance-cutoff` flew PASS attempt 1 (run `2026-08-28_1624`) - the far probe (chain member 1, 1,069 km same-body) drew the real `max 300km` refusal line and the near probe (member 2, 463 m, map closed per the flight-view rule) entered watch. Flight 1 refuted the single-recording derivation (the load-time optimizer splits the fixture flight into a 3-member chain; loaded corpus != on-disk corpus) - the lesson is recorded in the spec header. The entry below is kept as the design record]
 
 `WatchModeController.TryResolveWatchEntryState` refuses entry when the ghost is
 beyond `WatchEnterCutoffMeters` (300 km) or on another body, and logs
@@ -88,6 +88,98 @@ provably beyond 300 km on the SAME body and pin the distance-refusal line
 itself (the `max 300km` spelling), not just the REJECTED verdict. More watch
 probes (retarget, explosion hold - the unclaimed D6
 `watch-mode-retarget-explosion-hold` value) can ride the same follow-up.
+
+**THE LANE IS AUTHORED (2026-08-28): `harness/scenarios/W1-watch-distance-cutoff.toml`,
+committed-not-flown, tier operator. NOT DISCHARGED - this entry closes when it flies.
+READING RUN 1 (`2026-08-28_1902`, both attempts) FLEW INVALID AND REFUTED THE SPEC'S
+SUBJECT MAP, NOT THE PRODUCT; the lane is re-derived off that run's own bytes.**
+
+It probes the boundary in ONE loop cycle over V22M's `kerbin-splashdown-recorded`,
+whose geometry is the only committed one that crosses the cutoff during a single
+replay: the fixture's active vessel is the B4 pod LANDED at lon 86.6977, 161.26 deg of
+arc east of KSC, so the replay starts 1,184.2 km away and ends ON TOP of it. REFUSED at
+1,069.7 km (jump UT 21984), then ENTERED at 0.46 km (jump UT 22764) - same tree, same
+body, same scene, only the separation moves. Both figures are now MEASURED rather than
+modelled.
+
+**WHAT RUN 1 REFUTED, AND IT IS A FIXTURE-READING LESSON WORTH KEEPING: THE LOADED
+CORPUS IS NOT THE COMMITTED ONE.** The spec's first round read the fixture's seven
+on-disk recordings and addressed the parent "Kerbal X" (`28b6e543...`, `explicitStartUT`
+34.54, `explicitEndUT` 1274.68) as committed index 0 for its whole 1,240 s. The
+LOAD-TIME OPTIMIZER splits it TWICE on persisted phase changes -
+`sec=6 splitUT=212.20 Atmospheric->ExoBallistic`, then
+`sec=17 splitUT=853.74 ExoBallistic->Atmospheric` - so the runtime committed list is
+NINE, and the three "Kerbal X" segments are scheduled by the mission loop unit as CHAIN
+MEMBERS with exactly one live at a time:
+
+    idx 0  recording UT [  34.54,  212.20]  ASCENT   (keeps 28b6e543)
+    idx 1  recording UT [ 212.20,  853.72]  COAST    (fresh id)
+    idx 2  recording UT [ 853.72, 1276.42]  DESCENT + TOUCHDOWN
+    idx 3-8                                  the six debris recordings
+
+At both probe epochs index 0 was `mission-loop-unit-inactive` - no ghost state at all -
+so `flight.EnterWatchMode(0)` refused on the MISSING-STATE guard above the body and
+distance guards and wrote no CameraFollow line. Both steps met their `expect` and the
+run red on the missing tokens. **The split ids (`ef0370ad`, `c6453770` on that run, with
+the intermediate first-split half `5c6ffe73` in the same log) are fresh GUIDs per load
+and must never be pinned**; index ORDER is deterministic via
+`RecordingStore.InsertCommittedAfter`, and the round-2 spec proves the layout in-run
+from id-free lines instead (both split candidates, the `members=3` unit line, member
+#0's window, and each probe's own `camera-live member #x->#y at loopUT=` transition).
+
+**WHAT RUN 1 VALIDATED WHILE REFUTING THE INDEX**: the derived loop clock to the
+millisecond (L1 = UT0 + Kerbin's rotation period = 34.5399999999998 + 21,549.425183089826
+= 21,583.965183089826, logged as both `phaseAnchor=` and `relaunchUt=`, so
+loopUT = currentUT - 21,583.965183089826 + 34.5399999999998); the body-fixed ECEF
+separation model to 0.1% (1,068.8 km derived at loopUT 434.6 against 1,069,651 m
+measured); and the pod's position (probe B's ghost at world (393.10,-0.95,-245.57) =
+463.5 m from the floating-origin centre).
+
+FOUR THINGS SETTLED FROM THE CODE AND THE FLIGHT, each of which would otherwise have
+made the lane vacuous:
+
+1. **AUTO-SELECT CANNOT REACH THE GUARD.** The seam verb's no-`index` branch resolves
+   through `TestCommandEnterWatchMode.ResolveAutoWatchIndex`, whose conjunction
+   includes `IsGhostWithinVisualRange` -> `WatchModeController.IsWithinWatchEntryRange`
+   - literally the same 300 km predicate the guard enforces. A far auto-select probe
+   therefore returns `REJECTED reason=no-watchable-ghost` BEFORE
+   `flight.EnterWatchMode(index)` runs, and the refusal line is never written; `tree=`
+   is only a scope filter on the same walk. Both probes pass an explicit `index`
+   (`1` far, `2` near), the only path into `TryResolveWatchEntryState`.
+2. **THE FAR PROBE'S VERDICT IS `ERROR`, NOT `REJECTED`.** `EnterWatchMode` is void and
+   refuses silently, so the verb defers on the read-back
+   `IsWatchingGhost && WatchedRecordingIndex == index`, never sees it, and terminates
+   `ERROR msg=watch-not-entered`. Its C# deferral budget is the dispatcher DEFAULT of
+   60 s and the harness's per-step default is ALSO 60 s, so the step carries
+   `budget = 120` to stop the two racing - which run 1 confirmed works (the product's
+   terminal landed at elapsed=60.0s and the step read it).
+3. **THE `XXXkm` FIELD RENDERS DIGITS. The round-1 `Infinity` prediction is REFUTED.**
+   The reasoning behind it was sound as far as it went - the guard prints
+   `(float)(gs.lastDistance / 1000)` at F0, `lastDistance` is cached from the ghost MESH
+   transform, and `ResolvePlaybackActiveVesselDistance` returns `double.MaxValue` when
+   `state.ghost == null` - but the steady state at the probe-A epoch is not what it
+   assumed: run 1 logged 65 consecutive `phase=GuardSkip ... reason=hidden-by-zone_
+   distance=<n>m` lines, one per second across the whole dwell, every one a finite metre
+   count (1,069,651 m falling ~1.14 km/s to 995,904 m). `FormatPlaybackDistanceForLog`
+   prints the literal `unresolved` for `MaxValue` and any non-finite value, so a printed
+   number IS proof that the read the guard makes resolves. The token is therefore the
+   digits form this entry originally asked for, `is [0-9]+km from active vessel
+   \(max 300km\)`, deliberately not tightened to four digits because the dwell crosses
+   1,000 km.
+4. **THE BODY CHECK ABOVE THE GUARD IS SATISFIED AT SPAWN.**
+   `TryResolveWatchEntryState` compares `lastInterpolatedBodyName` before it reads any
+   distance, and round 1 feared only a positioning pass could stamp it (which the Beyond
+   zone skips). `GhostPlaybackEngine.CreatePendingSpawnState` calls
+   `state.SetInterpolated(...)` ON THE SPAWN FRAME, which run 1 shows at the probe-A
+   epoch verbatim: `Pending spawn interpolation seed: vessel='Kerbal X'
+   lifecycle=StandardEnter UT=434.6 body='Kerbin' altitude=82048.5`. That line is now a
+   REQUIRED token - the reachability premise of the whole lane, pinned so a regression
+   that stops stamping the body reds there naming the cause.
+
+The retarget / explosion-hold probes are still NOT written and
+`watch-mode-retarget-explosion-hold` stays unclaimed; W1 claims the NEW D6 value
+`watch-entry-distance-cutoff` instead.
+
 ## FIXTURE-DUNA-PARK-PROBE-CANNOT-RETURN-TO-KERBIN: the DD1 probe every committed Duna-parked fixture carries is ~550 m/s short of a Kerbin return, so the reserved `B29-duna-kerbin-return` lane could not be flown as specified [MEASURED 2026-08-26 off `fixtures/saves/duna-park-probe/persistent.sfs` while opening B29's Phase-0 door. FIXTURE PROPERTY, REPORT-ONLY - never a Parsek defect and never a spec defect; it blocked one lane's PRODUCTION, not any product question. ROUTED AROUND the same day by re-scoping B29 to depart Jool; see the second entry below]
 
 THE ARITHMETIC, derived from the fixture's own bytes rather than from a delta-v map:

@@ -8,6 +8,37 @@ All notable changes to Parsek are documented here.
 
 ### Dev
 
+- The ghost appear/disappear checker from the "watch your old launch" test is
+  now enforcing rather than just reporting: it was re-flown twice with the gate
+  live (both green) and once with a deliberately impossible expectation (which
+  failed exactly as it should), so from now on a replay where any ghost fails
+  to appear or fails to go away fails the test run outright. The test was also
+  changed to close the map before pressing Watch, so the replay is actually
+  watched in flight view with the ghost meshes on screen rather than under the
+  map overlay. Test-tooling only; no gameplay change.
+- A new automated test asks the one question about Watch that no test has ever
+  actually asked: how far away is too far? Watch mode refuses to point the
+  camera at a ghost more than 300 km from the vessel you are flying, but every
+  existing test that saw that refusal was watching a ghost around a DIFFERENT
+  planet - where a separate rule refuses first, and silently - so "too far" and
+  "somewhere else entirely" were never told apart. The new test replays one
+  recorded Kerbin flight past a vessel parked where that flight ended, and
+  presses Watch twice during the same replay: once while the ghost is a
+  thousand kilometres away on the far side of the planet, where it must be
+  turned down for distance and say so, and once as it comes in to land half a
+  kilometre away, where it must work. Nothing changes between the two attempts
+  except how far away the ghost is. The replay's whole distance curve, including
+  the exact moment it crosses the 300 km line, was worked out from the
+  recording's own saved data rather than guessed. Its first trial run did not
+  get that far: it pressed Watch on the wrong part of the flight, because the
+  game quietly splits a recorded flight into separate ascent, coast and descent
+  pieces when it loads and replays them in turn, and the piece the test named
+  was not the one playing at either moment - so Watch turned it down for a
+  reason that had nothing to do with distance. The test now names the right
+  pieces, and that same run confirmed the replay clock and the distance figures
+  it was built on, the latter to a tenth of a percent. Not yet flown green.
+  Test-tooling only; no gameplay change.
+
 - A new automated test flies the whole "watch your old launch" workflow end to
   end: it launches a Kerbal X, drops the spent booster stages (shutting the
   engines off before discarding the last big stage with fuel still in it),

@@ -5267,6 +5267,21 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # may be written up before that run exists.
         "V20M-jool-kerbin-player-loop.toml": "tier=operator by the calibration discipline (derived windows, first run is a calibration reading), NOT debt; AUTHORED 2026-08-27 off `kerbin-return-recorded` and NOT YET FLOWN - the flight-map half of the suite's first KERBIN-ARRIVAL loop pair, reading-run posture with nothing armed; what is open is the FLIGHT itself, not a human review call",
         "V20T-jool-kerbin-ts-arrival.toml":  "tier=operator by the calibration discipline (derived windows, first run is a calibration reading), NOT debt; AUTHORED 2026-08-27 off `kerbin-return-recorded` and NOT YET FLOWN - the Tracking-Station half of the same pair, reading-run posture with nothing armed and the TS init-walk reading pre-registered in both directions; what is open is the FLIGHT itself, not a human review call",
+        # W1: the GS-4 follow-up the ghost-derender lane deliberately did not carry
+        # (`docs/dev/todo-and-known-bugs.md` -> GS4-WATCH-DISTANCE-CUTOFF). Same
+        # posture as the V20 pair above: tier=operator by the calibration discipline,
+        # not by debt - and READING RUN 1 (`2026-08-28_1902`) is exactly what that
+        # discipline is for. It flew INVALID and refuted the spec's SUBJECT MAP (the
+        # load-time optimizer splits the fixture's parent recording into three chain
+        # members, so committed index 0 is the ASCENT segment alone and was inactive
+        # at both probe epochs) while VALIDATING the derived loop clock to the
+        # millisecond and the body-fixed separation model to 0.1%, and ANSWERING both
+        # of the spec's pre-registered open questions (the distance field renders
+        # digits; the body check above the guard is satisfied at spawn). Round 2
+        # re-points the probes at the coast and descent members off that run's own
+        # bytes; nothing is armed and no evaluator block is declared. What is open is
+        # the next FLIGHT, not a human review call.
+        "W1-watch-distance-cutoff.toml":     "tier=operator by the calibration discipline (derived geometry, the first runs are calibration readings), NOT debt; AUTHORED 2026-08-28 over V22M's `kerbin-splashdown-recorded`, READING RUN 1 flew INVALID and refuted the spec's SUBJECT MAP rather than the product, round 2 re-derived off that run's bytes and NOT YET FLOWN GREEN - the watch-entry 300 km cutoff as the single measured variable (REFUSED at 1,069.7 km on the coast chain member then ENTERED at 0.46 km on the descent member, both MEASURED), nothing armed; what is open is the FLIGHT itself, not a human review call",
         # THE G4 REPLICATION LANE, tier=operator by the same calibration
         # discipline the whole B18-B28 family carries: its windows are DERIVED
         # (from the fixture's own bytes, from cited stock constants and from
@@ -7362,11 +7377,25 @@ class GhostLifecycleVerifierWiringTests(unittest.TestCase):
     ends in ``ARMED_ALLOWLIST`` would be a coin-flip on file order. The
     ``RENDERCOMPOSE_ARMED_SPECS`` precedent is followed exactly."""
 
-    # THE ARMED ROSTER, empty as shipped. An entry follows the RENDERCOMPOSE /
-    # save-structure convention: name the READING run the windows were authored
-    # from, then the ARMED RE-FLIGHT and the NEGATIVE CONTROL that discharge the
-    # three-run workflow.
-    GHOSTLIFE_ARMED_SPECS = set()
+    # THE ARMED ROSTER. An entry follows the RENDERCOMPOSE / save-structure
+    # convention: name the READING run the windows were authored from, then the
+    # ARMED RE-FLIGHT and the NEGATIVE CONTROL that discharge the three-run
+    # workflow.
+    GHOSTLIFE_ARMED_SPECS = {
+        # ARMED 2026-08-28. Windows authored from TWO green measurements of the
+        # same census (reading run `2026-08-27_2145` red only on the
+        # since-fixed watch-entry race; green run `2026-08-27_2204` PASS
+        # attempt 1) - both read spawned=8 destroyLines=8 unbalanced=0 against
+        # the armed `spawned = { min = 8 }` + requireBalanced. Armed re-flight
+        # and negative-control run ids: recorded below in this comment by the
+        # arming pass's own flights (see the spec's ARMED comment).
+        # ARMED RE-FLIGHTS: `2026-08-28_1527` (PASS attempt 1, gate live) and
+        # `2026-08-28_1544` (PASS attempt 1 on the final MAP-EXIT flight-view
+        # sequence - the map is closed before watch entry).
+        # NEGATIVE CONTROL: `2026-08-28_1550` - temporary spawned={min 9} red
+        # PARSEK-FAIL(ghost-lifecycle) on exactly that window, then reverted.
+        "GS-4-kerbalx-rewind-watch.toml",
+    }
 
     def test_no_committed_spec_arms_ghost_lifecycle_gating(self):
         armed = []

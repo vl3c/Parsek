@@ -575,7 +575,16 @@ class SceneReloadToleranceTests(unittest.TestCase):
         self.assertEqual(
             (mlib.KXRW_REWIND, mlib.KXRW_SPACECENTER, mlib.KXRW_AUTORECORD_OFF,
              mlib.KXRW_WATCHER_LAUNCH, mlib.KXRW_WATCHER_READY, mlib.KXRW_MAP_VIEW,
-             mlib.KXRW_WATCH, mlib.KXRW_PLAYBACK_WAIT),
+             mlib.KXRW_MAP_EXIT, mlib.KXRW_WATCH, mlib.KXRW_PLAYBACK_WAIT),
+            mlib.KXRW_POST_REWIND_PHASES)
+        # MAP-EXIT sits in the block for the SAME reason MAP-VIEW does, and the
+        # block's own rule is that it is ONE CONTIGUOUS RUN from the rewind to the
+        # end - carving a single render phase back out would put a hole in the
+        # middle of it, which is precisely the "per-phase sprinkle" the header
+        # forbids. MUTATION: drop MAP-EXIT here and the tuple stops being contiguous.
+        self.assertEqual(
+            mlib.KXRW_PHASES[mlib.KXRW_PHASES.index(mlib.KXRW_REWIND):
+                             mlib.KXRW_PHASES.index(mlib.KXRW_DONE)],
             mlib.KXRW_POST_REWIND_PHASES)
         # The union the machine actually consults is the post-rewind block PLUS the
         # rollout, whose FLIGHT->FLIGHT reload is a second, DIFFERENT reason for a
@@ -697,6 +706,7 @@ class AutoRecordDisarmTests(unittest.TestCase):
             snap(ut=52.0, situation="PRE_LAUNCH", vessel_name=WATCHER),
             snap(ut=53.0, situation="PRE_LAUNCH", vessel_name=WATCHER),
             seam("map", "OK", (), ut=54.0, situation="PRE_LAUNCH"),
+            seam("mapexit", "OK", (), ut=54.5, situation="PRE_LAUNCH"),
             seam("watch", "OK", (), ut=55.0, situation="PRE_LAUNCH"),
         ]
         for s in script:
@@ -705,7 +715,7 @@ class AutoRecordDisarmTests(unittest.TestCase):
         self.assertNotIn("StartRecording", verbs)
         self.assertEqual(
             {"RecordingState", "CommitTree", "StopRecording",
-             "InvokeRewindToLaunch", "SetSetting", "EnterMapView",
+             "InvokeRewindToLaunch", "SetSetting", "EnterMapView", "ExitMapView",
              "EnterWatchMode"},
             verbs)
 
@@ -1037,7 +1047,7 @@ class RolloutTests(unittest.TestCase):
 
 
 class RenderVerbsAreRecordedNotJudgedTests(unittest.TestCase):
-    """THE MISSION-VS-PARSEK ORTHOGONALITY RULE, applied to the two render verbs.
+    """THE MISSION-VS-PARSEK ORTHOGONALITY RULE, applied to the three render verbs.
     A REFUSED verb is Parsek's finding and belongs to the spec's log contracts; a
     driver-INVALID here would discard the very KSP.log they read."""
 
@@ -1046,26 +1056,38 @@ class RenderVerbsAreRecordedNotJudgedTests(unittest.TestCase):
                                  recording_end_ut=400.0, tree_id=tree_id)
         return st
 
-    def _to_first_watch_attempt(self, tree_id="", **over):
-        """MAP-VIEW's terminal, then the frame on which WATCH issues its first
-        EnterWatchMode. `launch_ut` is UNREAD on these hand-built states, so the
-        window gate fails OPEN and the attempt goes out on the phase's first frame
-        (that degrade has its own cell in WatchEntryRaceTests)."""
+    def _to_watch(self, tree_id="", **over):
+        """MAP-VIEW's terminal, then MAP-EXIT's, landing the machine in WATCH with
+        the map CLOSED - which is the state every watch cell below is about."""
         st = self._to_map_view(tree_id=tree_id, **over)
         st, acts = mlib.kxrw_decide(st, seam("map", "OK", (), ut=250.0))
+        self.assertEqual(mlib.KXRW_MAP_EXIT, st.phase)
+        self.assertEqual(["ExitMapView"], [a.seam_verb for a in acts])
+        st, acts = mlib.kxrw_decide(st, seam("mapexit", "OK", (), ut=250.2))
         self.assertEqual(mlib.KXRW_WATCH, st.phase)
-        # The command NO LONGER rides the MAP-VIEW transition: that one frame of
-        # eagerness is what the GS-4 reading run lost its whole watch leg to.
+        # NO EnterWatchMode rides the map close either: that one frame of eagerness
+        # is what the GS-4 reading run lost its whole watch leg to.
         self.assertEqual([], acts)
+        return st
+
+    def _to_first_watch_attempt(self, tree_id="", **over):
+        """...and then the frame on which WATCH issues its first EnterWatchMode.
+        `launch_ut` is UNREAD on these hand-built states, so the window gate fails
+        OPEN and the attempt goes out on the phase's first frame (that degrade has
+        its own cell in WatchEntryRaceTests)."""
+        st = self._to_watch(tree_id=tree_id, **over)
         return mlib.kxrw_decide(st, snap(ut=250.5))
 
     def test_a_rejected_watch_records_the_verdict_and_flies_on(self):
         st = self._to_map_view()
         st, acts = mlib.kxrw_decide(
             st, seam("map", "ERROR", (("msg", "no-flight-instance"),), ut=250.0))
-        self.assertEqual(mlib.KXRW_WATCH, st.phase)
+        self.assertEqual(mlib.KXRW_MAP_EXIT, st.phase)
         self.assertEqual("ERROR", st.map_view_result)
         self.assertEqual("no-flight-instance", st.map_view_reject_reason)
+        self.assertEqual(["ExitMapView"], [a.seam_verb for a in acts])
+        st, acts = mlib.kxrw_decide(st, seam("mapexit", "OK", (), ut=250.2))
+        self.assertEqual(mlib.KXRW_WATCH, st.phase)
         self.assertEqual([], acts)
         st, acts = mlib.kxrw_decide(st, snap(ut=250.5))
         self.assertEqual(["EnterWatchMode"], [a.seam_verb for a in acts])
@@ -1126,6 +1148,8 @@ class RenderVerbsAreRecordedNotJudgedTests(unittest.TestCase):
         p = mlib.kxrw_params_from_dict(params())
         st = dataclasses.replace(machine(), map_view_result="ERROR",
                                  map_view_reject_reason="no-flight-instance",
+                                 map_exit_result="ERROR",
+                                 map_exit_reject_reason="mapview-refused",
                                  watch_result="ERROR",
                                  watch_reject_reason="already-watching")
         row = [r for r in mlib.evaluate_kxrw_assertions([], p, st)
@@ -1133,20 +1157,32 @@ class RenderVerbsAreRecordedNotJudgedTests(unittest.TestCase):
         self.assertTrue(row.met)
         self.assertTrue(row.detail["metOnRejectionByDesign"])
         self.assertEqual("already-watching", row.detail["enterWatchModeReason"])
+        self.assertEqual("mapview-refused", row.detail["exitMapViewReason"])
+        self.assertEqual("ERROR/ERROR/ERROR", row.value)
 
     def test_a_verb_that_never_answered_at_all_does_not_meet_the_row(self):
         p = mlib.kxrw_params_from_dict(params())
-        st = dataclasses.replace(machine(), map_view_result="OK", watch_result="")
+        st = dataclasses.replace(machine(), map_view_result="OK",
+                                 map_exit_result="OK", watch_result="")
         row = [r for r in mlib.evaluate_kxrw_assertions([], p, st)
                if r.name == "renderVerbsDriven"][0]
         self.assertFalse(row.met)
+        # ...and the map CLOSE is a FULL MEMBER of the row, not a courtesy: a run
+        # that opened the map, watched under the overlay and never closed it did not
+        # drive the sequence the operator rule names. MUTATION: drop the exit
+        # conjunct from the row and this half reds.
+        st = dataclasses.replace(machine(), map_view_result="OK",
+                                 map_exit_result="", watch_result="OK")
+        row = [r for r in mlib.evaluate_kxrw_assertions([], p, st)
+               if r.name == "renderVerbsDriven"][0]
+        self.assertFalse(row.met)
+        self.assertEqual("OK/NONE/OK", row.value)
 
     def test_a_silent_seam_is_a_transport_fault_and_flakes(self):
         """The distinction the lane depends on: a REFUSED verb rendered a verdict
         and is recorded; a SILENT one rendered nothing, so there is nothing to
         record and the bridge itself is suspect."""
-        st = self._to_map_view(watchFrames=3)
-        st, _ = mlib.kxrw_decide(st, seam("map", "OK", (), ut=250.0))
+        st = self._to_watch(watchFrames=3)
         for i in range(6):
             st, _ = mlib.kxrw_decide(st, snap(ut=251.0 + i))
             if st.done:
@@ -1155,6 +1191,105 @@ class RenderVerbsAreRecordedNotJudgedTests(unittest.TestCase):
         self.assertEqual(mlib.MISSION_FLAKE, st.verdict)
         self.assertEqual(mlib.KXRW_WATCH, st.flake_phase)
         self.assertIn("never answered", st.flake_reason)
+
+
+class MapClosedBeforeTheWatchTests(unittest.TestCase):
+    """THE OPERATOR RULE: the replay is WATCHED IN FLIGHT VIEW, never under the map
+    overlay. Opening the map is the "go to it" half of the player workflow; the
+    watching itself has to happen with the map CLOSED, or the ghost meshes this
+    whole lane exists to see are behind the overlay rather than on screen. The
+    machine used to walk MAP-VIEW -> WATCH with the map still open, so the watch
+    camera drove under it - and nothing in the lane could tell, because a map that
+    never closed leaves no token and no row."""
+
+    def _to_map_view(self, **over):
+        return dataclasses.replace(machine(**over), phase=mlib.KXRW_MAP_VIEW,
+                                   recording_end_ut=400.0, tree_id="t_kx")
+
+    def test_map_exit_sits_between_the_open_and_the_watch(self):
+        """The phase order IS the rule. MUTATION: move MAP-EXIT after WATCH and the
+        map closes only once the watch camera has already driven under it."""
+        self.assertEqual(22, len(mlib.KXRW_PHASES))
+        self.assertEqual(len(set(mlib.KXRW_PHASES)), len(mlib.KXRW_PHASES))
+        i = mlib.KXRW_PHASES.index
+        self.assertEqual(i(mlib.KXRW_MAP_VIEW) + 1, i(mlib.KXRW_MAP_EXIT))
+        self.assertEqual(i(mlib.KXRW_MAP_EXIT) + 1, i(mlib.KXRW_WATCH))
+        # Its own wire id: the C# seam SKIPS DUPLICATE IDS, so a close reusing the
+        # open's tag would be a silent no-op whose poll expires as a TIMEOUT that
+        # reads like a wedged addon.
+        self.assertNotEqual(mlib.KXRW_TAG_MAP, mlib.KXRW_TAG_MAP_EXIT)
+
+    def test_the_map_view_terminal_commands_the_close(self):
+        st, acts = mlib.kxrw_decide(self._to_map_view(),
+                                    seam("map", "OK", (), ut=250.0))
+        self.assertEqual(mlib.KXRW_MAP_EXIT, st.phase)
+        self.assertEqual(1, len(acts))
+        self.assertEqual(mlib.ACTION_PARSEK_SEAM_COMMAND, acts[0].kind)
+        self.assertEqual("ExitMapView", acts[0].seam_verb)
+        self.assertEqual(mlib.KXRW_TAG_MAP_EXIT, acts[0].seam_tag)
+        self.assertEqual((), acts[0].seam_args)
+        # No EnterWatchMode rides it either - the hold owns that (WatchEntryRace).
+        st, acts = mlib.kxrw_decide(st, snap(ut=250.2))
+        self.assertEqual(mlib.KXRW_MAP_EXIT, st.phase)
+        self.assertEqual([], acts)
+
+    def test_any_map_exit_terminal_records_the_verdict_and_advances(self):
+        """RECORD-DON'T-FAIL, identical to MAP-VIEW's: a refused render verb is a
+        PARSEK finding carried by the spec's log contracts, and failing the mission
+        on it would be driver-INVALID - discarding the very KSP.log they read.
+        MUTATION: flake on a non-OK here and a product refusal becomes a retry."""
+        for result, reason in (("OK", ""), ("ERROR", "mapview-refused"),
+                               ("ERROR", "mapview-unavailable"),
+                               ("TIMEOUT", "")):
+            st, _ = mlib.kxrw_decide(self._to_map_view(),
+                                     seam("map", "OK", (), ut=250.0))
+            args = (("msg", reason),) if reason else ()
+            st, acts = mlib.kxrw_decide(st, seam("mapexit", result, args,
+                                                 ut=250.5))
+            self.assertEqual(mlib.KXRW_WATCH, st.phase, result)
+            self.assertFalse(st.done, result)
+            self.assertIsNone(st.verdict, result)
+            self.assertEqual([], acts, result)
+            self.assertEqual(result, st.map_exit_result)
+            self.assertEqual(reason, st.map_exit_reject_reason)
+
+    def test_the_close_verdict_reaches_the_render_row(self):
+        """The exit verdict is surfaced exactly the way the open's and the watch's
+        are: the row value reads <open>/<close>/<watch>."""
+        st, _ = mlib.kxrw_decide(self._to_map_view(),
+                                 seam("map", "OK", (), ut=250.0))
+        st, _ = mlib.kxrw_decide(
+            st, seam("mapexit", "ERROR", (("msg", "mapview-refused"),), ut=250.5))
+        st, _ = mlib.kxrw_decide(st, snap(ut=251.0))
+        st, _ = mlib.kxrw_decide(st, seam("watch0", "OK", (("index", "0"),),
+                                          ut=251.5))
+        p = mlib.kxrw_params_from_dict(params())
+        row = [r for r in mlib.evaluate_kxrw_assertions([], p, st)
+               if r.name == "renderVerbsDriven"][0]
+        self.assertTrue(row.met)
+        self.assertEqual("OK/ERROR/OK", row.value)
+        self.assertEqual("ERROR", row.detail["exitMapViewResult"])
+        self.assertEqual("mapview-refused", row.detail["exitMapViewReason"])
+
+    def test_a_silent_close_is_a_transport_fault_and_flakes(self):
+        """Same asymmetry the open carries: a REFUSED close rendered a verdict and
+        is recorded; a SILENT one rendered nothing, so the bridge itself is
+        suspect. The bound is `mapViewFrames`, REUSED deliberately - the close is
+        the same kind of wait as the open (one single-phase toggle verb answering
+        on the next frame), and a second knob would be two names for one number."""
+        st, _ = mlib.kxrw_decide(self._to_map_view(mapViewFrames=3),
+                                 seam("map", "OK", (), ut=250.0))
+        for i in range(8):
+            st, acts = mlib.kxrw_decide(st, snap(ut=251.0 + i))
+            self.assertEqual([], acts)
+            if st.done:
+                break
+        self.assertTrue(st.done)
+        self.assertEqual(mlib.MISSION_FLAKE, st.verdict)
+        self.assertEqual(mlib.KXRW_MAP_EXIT, st.flake_phase)
+        self.assertIn("ExitMapView", st.flake_reason)
+        self.assertIn("never answered", st.flake_reason)
+        self.assertNotIn(mlib.KXRW_WATCH, st.phases_reached)
 
 
 class WatchEntryRaceTests(unittest.TestCase):
@@ -1515,6 +1650,12 @@ class HappyPathTests(unittest.TestCase):
         self.assertEqual(mlib.KXRW_MAP_VIEW, st.phase)
         st, acts = mlib.kxrw_decide(st, seam("map", "OK", (), ut=992.0,
                                              situation="PRE_LAUNCH"))
+        # THE MAP CLOSES AGAIN BEFORE THE WATCH: the operator rule is that the
+        # replay is watched in FLIGHT view, not under the map overlay.
+        self.assertEqual(mlib.KXRW_MAP_EXIT, st.phase)
+        self.assertEqual(["ExitMapView"], [a.seam_verb for a in acts])
+        st, acts = mlib.kxrw_decide(st, seam("mapexit", "OK", (), ut=992.5,
+                                             situation="PRE_LAUNCH"))
         self.assertEqual(mlib.KXRW_WATCH, st.phase)
         self.assertEqual([], acts)
         # THE HOLD. The replay window opens at launchUT (1000) + lead (5); the
@@ -1535,11 +1676,19 @@ class HappyPathTests(unittest.TestCase):
         self.assertTrue(st.done)
         self.assertIsNone(st.verdict)
 
+        # EVERY declared phase was actually walked - the chain joins up end to end,
+        # all 22 of them. MUTATION: wire any phase's exit to the wrong successor and
+        # the skipped one shows up here even when its own per-phase cell passes.
+        self.assertEqual(set(mlib.KXRW_PHASES), set(st.phases_reached))
+        self.assertEqual(22, len(mlib.KXRW_PHASES))
+
         rows = mlib.evaluate_kxrw_assertions([], mlib.kxrw_params_from_dict(pdict),
                                              st)
         unmet = [r.name for r in rows if not r.met]
         self.assertEqual([], unmet, [r.to_dict() for r in rows])
         self.assertEqual(8, len(rows))
+        render = [r for r in rows if r.name == "renderVerbsDriven"][0]
+        self.assertEqual("OK/OK/OK", render.value)
 
     def test_the_machine_is_idempotent_once_done(self):
         st = dataclasses.replace(machine(), done=True, phase=mlib.KXRW_DONE)
