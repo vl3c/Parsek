@@ -28,6 +28,23 @@ All notable changes to Parsek are documented here.
 
 ### Dev
 
+- The map-render watchdog that reports a ghost's orbit line "blinking" no
+  longer cries wolf at the one moment the line is *supposed* to go out for
+  good. When a replayed flight reaches the end of its recorded orbit and hands
+  over to its drawn descent path, the orbit line is switched off deliberately
+  and never comes back. Under fast time warp a single frame can be over two
+  minutes long, so that switch-off can land only a few frames after the line
+  lit up at the start of the same short window - close enough for the watchdog
+  to read one permanent, designed handover as a flicker. It now recognises that
+  handover, but only on the exact evidence that proves it: the render pipeline
+  saying it owns the path this frame, plus the line's previous switch-on being
+  a verified in-window one. Crucially, whenever the map is actually open and
+  the drawing pass really ran, the exemption also demands that something was in
+  fact drawn - so a handover that claims the path and then leaves the map blank
+  still gets reported, which is the failure this watchdog exists to catch. The
+  artifact was traced to two runs nine days and two codebases apart raising the
+  identical event at the identical moment, which is what ruled out any recent
+  change as the cause. Diagnostics only; nothing you see in game changes.
 - The ghost appear/disappear checker from the "watch your old launch" test is
   now enforcing rather than just reporting: it was re-flown twice with the gate
   live (both green) and once with a deliberately impossible expectation (which

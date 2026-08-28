@@ -720,6 +720,20 @@ namespace Parsek.Patches
         /// must therefore never read as covered. Widening this is how the exemption would start masking
         /// real blinks; <c>LineBlinkWindowExitExemptionTests</c> source-gates every stamp site by
         /// enum-value spelling and count.</para></param>
+        /// <param name="handoff">Pass a NON-<c>None</c> value ONLY from a branch whose own condition IS
+        /// the designed-handoff measurement. Today that is EXACTLY ONE branch: the
+        /// <c>director-traced-path-suppress</c> return below, whose condition IS
+        /// <c>ShadowRenderDriver.IsTracedPathOwnedThisFrame</c>. It rides the render intent to the
+        /// end-of-frame probe, where <c>MapRenderTrace.ResolveTracedPathHandoffExempt</c> uses it (in
+        /// conjunction with a proven inside-window lit half, and with the polyline's actual coverage
+        /// whenever the ownership-publish surface ran) to keep the gated <c>line-blink</c> anomaly from
+        /// raising on the DESIGNED StockConic -&gt; TracedPath descent handoff
+        /// (V15M-LINEBLINK-IS-TRACEDPATH-HANDOFF-CADENCE).
+        ///
+        /// <para>Defaults <c>None</c>, and every other branch MUST leave it there - hiding the line for
+        /// polyline ownership, below-atmosphere, a stale-segment reseed or a terminal suppress is a
+        /// different fact, and stamping any of them would widen the exemption past its measurement.
+        /// <c>LineBlinkWindowExitExemptionTests</c> source-gates the spelling and count.</para></param>
         private static void LogOrbitLineDecision(
             uint vesselPid,
             string reason,
@@ -732,7 +746,9 @@ namespace Parsek.Patches
             double startUT,
             double endUT,
             MapRenderTrace.RenderWindowCoverage windowCoverage =
-                MapRenderTrace.RenderWindowCoverage.Unknown)
+                MapRenderTrace.RenderWindowCoverage.Unknown,
+            MapRenderTrace.LineHandoffKind handoff =
+                MapRenderTrace.LineHandoffKind.None)
         {
             // Record the authoritative line/icon decision so the end-of-frame MapRenderProbe can
             // reconcile it against the actually-rendered state on this same frame (decision-vs-truth,
@@ -740,7 +756,7 @@ namespace Parsek.Patches
             if (MapRenderTrace.IsEnabled)
             {
                 MapRenderTrace.RecordLineIntent(
-                    vesselPid, lineActive, drawIcons.ToString(), reason, windowCoverage);
+                    vesselPid, lineActive, drawIcons.ToString(), reason, windowCoverage, handoff);
 
                 // Unified LineVisibilityChange EVENT: pair the decision/reason side (recordingId + WHY the
                 // proto orbit line / icon appeared / disappeared / was suppressed) with the probe's pid-only
@@ -838,7 +854,17 @@ namespace Parsek.Patches
                     hasBounds: false,
                     Planetarium.GetUniversalTime(),
                     double.NaN,
-                    double.NaN);
+                    double.NaN,
+                    // THE handoff stamp, and the only one: this branch's own condition
+                    // (IsTracedPathOwnedThisFrame) IS the measurement, so recording it is a positive
+                    // fact about a real, permanent transition rather than a widened blink window. It
+                    // deliberately does NOT stamp windowCoverage: this decision hides the line because
+                    // the spine handed the leg to the polyline, NOT because the clock left the
+                    // recording's rendered body-frame window, and conflating the two would let the
+                    // window-transition exemption fire on a within-window suppress. See
+                    // MapRenderTrace.ResolveTracedPathHandoffExempt
+                    // (V15M-LINEBLINK-IS-TRACEDPATH-HANDOFF-CADENCE).
+                    handoff: MapRenderTrace.LineHandoffKind.TracedPathOwned);
                 return;
             }
 

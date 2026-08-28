@@ -398,8 +398,13 @@ ANOMALY_REASONS_RAISED_UNGATED: Tuple[Tuple[str, str], ...] = (
     #     which is where the raise is decided. It is NOT the wrapper call's own line
     #     and is not derived by shifting the previous number - read the guard out of
     #     the source when re-pinning it.
+    #
+    # The seam pointer moved AGAIN, 2303 -> 2348, on 2026-08-28: the line-blink
+    # TracedPath-handoff exemption (V15M-LINEBLINK-IS-TRACEDPATH-HANDOFF-CADENCE)
+    # landed above it in the same file. Nothing about the seam instrument changed;
+    # the new number was re-derived from the scan, not shifted by arithmetic.
     ("factory-parity", "Source/Parsek/MapRender/ShadowRenderDriver.cs:726"),
-    ("seam-endpoint-outside-soi", "Source/Parsek/MapRenderProbe.cs:2303"),
+    ("seam-endpoint-outside-soi", "Source/Parsek/MapRenderProbe.cs:2348"),
 )
 
 # RETIRED tokens: gated once, raised by nothing, REMOVED from ANOMALY_TOKENS

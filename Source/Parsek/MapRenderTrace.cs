@@ -1023,6 +1023,19 @@ namespace Parsek
         /// i.e. shape (2) with nothing dark. Ownership is still the right question for HIDING the
         /// conic and is unchanged; it is just the wrong question for "did the map go dark".
         /// Defaults false so every existing call site is byte-identical.</para>
+        ///
+        /// <para><paramref name="tracedPathHandoffExempt"/> suppresses the blink when the DARK half of
+        /// the pair was the Director's designed StockConic -&gt; TracedPath descent handoff
+        /// (V15M-LINEBLINK-IS-TRACEDPATH-HANDOFF-CADENCE). Distinct from
+        /// <paramref name="offWindowCovered"/>, which needs a FINISHED dark window and therefore only
+        /// exists on the re-activation edge: this handoff is caught on the DARK edge, and in the
+        /// map-CLOSED flight lane where it was measured the polyline's ownership/paint surface never ran
+        /// at all, so no coverage bit exists on either edge. See
+        /// <see cref="ResolveTracedPathHandoffExempt"/> for the conjuncts, and note that the exemption
+        /// is NOT a widened window: the OFF edge's own branch condition
+        /// (<c>IsTracedPathOwnedThisFrame</c>) IS the measurement, and the lit half must still be a
+        /// proven <see cref="LineToggleVerdict.InsideWindowOn"/>. Defaults false so every existing call
+        /// site is byte-identical.</para>
         /// </summary>
         internal static bool IsLineBlink(
             bool toggled,
@@ -1031,7 +1044,8 @@ namespace Parsek
             int currentFrame,
             bool bodyChanged = false,
             bool offWindowCovered = false,
-            bool windowTransitionExempt = false)
+            bool windowTransitionExempt = false,
+            bool tracedPathHandoffExempt = false)
         {
             if (!toggled)
                 return false;
@@ -1051,6 +1065,12 @@ namespace Parsek
             // That is one legitimate transition out and one back, not a flicker. See
             // ResolveWindowTransitionExempt - in particular why one half is never enough.
             if (windowTransitionExempt)
+                return false;
+            // The dark half was the Director's DESIGNED StockConic -> TracedPath descent handoff, and
+            // the lit half was a proven inside-window ON. A permanent ownership handoff is one correct
+            // transition, not a flicker out and back. See ResolveTracedPathHandoffExempt - in particular
+            // why the map-OPEN case must also prove the polyline actually covered the ghost.
+            if (tracedPathHandoffExempt)
                 return false;
             int sinceLast = currentFrame - lastToggleFrame;
             return sinceLast >= 0 && sinceLast <= LineBlinkFrameWindow;
@@ -1184,6 +1204,103 @@ namespace Parsek
                     && priorToggle == LineToggleVerdict.WindowExitOff;
             return currentToggle == LineToggleVerdict.WindowExitOff
                 && priorToggle == LineToggleVerdict.InsideWindowOn;
+        }
+
+        /// <summary>
+        /// What DESIGNED render handoff, if any, a line decision was. Like
+        /// <see cref="RenderWindowCoverage"/> this is stamped ONLY where the branch condition IS the
+        /// measurement, and <see cref="None"/> is the FAIL-CLOSED default every other decision keeps.
+        /// Deliberately an ENUM rather than a bool for the same reason coverage is: an enum-valued stamp
+        /// must be SPELLED at every call site, so counting the spellings is a source gate a stray
+        /// trailing positional <c>true</c> cannot slip past
+        /// (<c>LineBlinkWindowExitExemptionTests</c>).
+        /// </summary>
+        internal enum LineHandoffKind
+        {
+            /// <summary>Not a designed handoff, or the site did not measure one. Every decision except
+            /// the single stamp site below, and every frame our Postfix did not run.</summary>
+            None = 0,
+            /// <summary>The Director's spine says a non-orbital (TracedPath) leg OWNS this pid this
+            /// frame, so the proto conic must hand off to it. Stamped at EXACTLY one site: the
+            /// <c>director-traced-path-suppress</c> branch in <c>GhostOrbitLinePatch</c>, whose branch
+            /// condition IS <c>ShadowRenderDriver.IsTracedPathOwnedThisFrame</c>.</summary>
+            TracedPathOwned,
+        }
+
+        /// <summary>
+        /// PURE: was this DARK toggle the Director's DESIGNED StockConic -&gt; TracedPath descent
+        /// handoff rather than a flicker? Feeds <see cref="IsLineBlink"/>'s
+        /// <c>tracedPathHandoffExempt</c> guard. V15M-LINEBLINK-IS-TRACEDPATH-HANDOFF-CADENCE.
+        ///
+        /// <para>THE SHAPE (measured identically nine days and two codebases apart - recId
+        /// <c>77f724bb</c>, <c>currentUT=16656457.000</c>, runs <c>2026-08-19_1810</c> and
+        /// <c>2026-08-28_1703</c>): after a loop rollover the proto re-resolves onto the recording's
+        /// ~170 s terminal Gilly orbital window and lights <c>director-stockconic-visible</c> (a proven
+        /// <see cref="LineToggleVerdict.InsideWindowOn"/>). A few ~130 s warp frames later the drive
+        /// clock crosses into the TracedPath descent leg, <c>IsTracedPathOwnedThisFrame</c> flips true,
+        /// and the Postfix kills the line with <c>director-traced-path-suppress</c>. The proto never
+        /// relights - it retires. A PERMANENT designed handoff; only the frame cadence (5 and 8 frames
+        /// there, 10 - just outside <see cref="LineBlinkFrameWindow"/> - for the first incarnation of
+        /// each run) decides whether the detector calls it a blink.</para>
+        ///
+        /// <para>WHY NO EXISTING EXEMPTION REACHES IT: <c>bodyChanged</c> is false (Gilly-&gt;Gilly);
+        /// <c>windowTransitionExempt</c> needs an <see cref="RenderWindowCoverage.Outside"/> stamp the
+        /// suppress site never writes (it is not one of the four measuring sites, and must not become
+        /// one - it hides the line for a DIFFERENT reason than a clock leaving the window); and
+        /// <c>offWindowCovered</c> is structurally false, because the polyline's ownership / paint
+        /// publish sits past <c>MapView.MapIsEnabled</c> in the Driver's LateUpdate and V15M is a
+        /// map-CLOSED flight lane, so no coverage bit exists at all.</para>
+        ///
+        /// <para>FAIL-CLOSED ON EVERY CONJUNCT, and the last one is the anti-masking rule:</para>
+        /// <para>(1) This frame must be the DARK edge, DEFINITIVELY (a degenerate read is never
+        /// evidence).</para>
+        /// <para>(2) Our Postfix must have DECIDED this frame, and its decision must AGREE with the
+        /// truth read (an ON decision against a dark truth is the <c>decision-vs-truth</c> anomaly's
+        /// business and must not be laundered into an exemption).</para>
+        /// <para>(3) The decision's handoff stamp must be
+        /// <see cref="LineHandoffKind.TracedPathOwned"/> - the positive fact, written only where the
+        /// branch condition is the measurement.</para>
+        /// <para>(4) The LIT half must be a proven <see cref="LineToggleVerdict.InsideWindowOn"/>, the
+        /// same both-halves discipline <see cref="ResolveWindowTransitionExempt"/> enforces. A handoff
+        /// that follows an unproven lit edge (<c>parking-conic-loiter-hold</c>, <c>terminal-visible</c>,
+        /// a line lit behind our back) still raises.</para>
+        /// <para>(5) <b>THE CONJUNCTION.</b> When the ownership/paint PUBLISH SURFACE RAN this frame
+        /// (<paramref name="publishSurfaceRan"/> - the polyline Driver's decide walk completed, i.e. the
+        /// map is open and the scene / controller gates passed), the polyline must ALSO actually have
+        /// covered this ghost (<paramref name="polylineCovered"/> = painted or owned). Without that
+        /// conjunct the selector alone would exempt a map-OPEN handoff in which TracedPath claims
+        /// ownership and then never draws - a genuinely dark map, and exactly the defect this detector
+        /// exists to catch. The selector carries the exemption ALONE only when the publish surface never
+        /// ran (<c>ownership-publish-surface-never-ran</c>), where the bit is structurally unavailable
+        /// and no line is visible to any viewer, so a "blink" has no observer.</para>
+        /// </summary>
+        internal static bool ResolveTracedPathHandoffExempt(
+            bool lineDefinitivelyOff,
+            bool hasFreshIntent,
+            bool intentLineActive,
+            LineHandoffKind intentHandoff,
+            bool hasPriorToggle,
+            LineToggleVerdict priorToggle,
+            bool publishSurfaceRan,
+            bool polylineCovered)
+        {
+            // (1) DARK edge only, and definitively so.
+            if (!lineDefinitivelyOff)
+                return false;
+            // (2) A fresh decision that AGREES with the truth read.
+            if (!hasFreshIntent || intentLineActive)
+                return false;
+            // (3) The positive fact: the Director's spine owns this pid's leg this frame.
+            if (intentHandoff != LineHandoffKind.TracedPathOwned)
+                return false;
+            // (4) The lit half must be proven inside the rendered window.
+            if (!hasPriorToggle || priorToggle != LineToggleVerdict.InsideWindowOn)
+                return false;
+            // (5) Map OPEN (the publish surface ran): the polyline must actually have covered the ghost,
+            // or this is a real dark handoff and must raise.
+            if (publishSurfaceRan && !polylineCovered)
+                return false;
+            return true;
         }
 
         /// <summary>
@@ -1713,6 +1830,14 @@ namespace Parsek
             /// <see cref="ClassifyLineToggle"/>; see its remarks for why a generic bounds comparison
             /// would be the wrong signal and why <c>Inside</c> must be positive.</summary>
             public RenderWindowCoverage WindowCoverage;
+
+            /// <summary>Which DESIGNED render handoff this decision was, if any. Stamped at exactly one
+            /// site - <c>GhostOrbitLinePatch</c>'s <c>director-traced-path-suppress</c> branch, whose
+            /// condition IS <c>IsTracedPathOwnedThisFrame</c>. <c>None</c> everywhere else. Consumed by
+            /// <see cref="ResolveTracedPathHandoffExempt"/>; it rides the SAME single-writer channel as
+            /// <see cref="WindowCoverage"/> (<see cref="RecordLineIntent"/>), so the source gates that
+            /// pin that channel pin this one too.</summary>
+            public LineHandoffKind Handoff;
         }
 
         private static readonly Dictionary<string, LineRenderIntent> lineIntentByPid =
@@ -1723,7 +1848,8 @@ namespace Parsek
         /// disabled.</summary>
         internal static void RecordLineIntent(
             uint pid, bool lineActive, string drawIcons, string reason,
-            RenderWindowCoverage windowCoverage = RenderWindowCoverage.Unknown)
+            RenderWindowCoverage windowCoverage = RenderWindowCoverage.Unknown,
+            LineHandoffKind handoff = LineHandoffKind.None)
         {
             if (!IsEnabled)
                 return;
@@ -1733,7 +1859,8 @@ namespace Parsek
                 LineActive = lineActive,
                 DrawIcons = drawIcons,
                 Reason = reason,
-                WindowCoverage = windowCoverage
+                WindowCoverage = windowCoverage,
+                Handoff = handoff
             };
         }
 

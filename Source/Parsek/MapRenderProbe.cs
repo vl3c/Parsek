@@ -823,6 +823,32 @@ namespace Parsek
                     // verdict in the latter.
                     hasPriorToggle: hasLastToggle,
                     priorToggle: priorToggleVerdict);
+                // THE DESIGNED HANDOFF (V15M-LINEBLINK-IS-TRACEDPATH-HANDOFF-CADENCE): this frame's OFF
+                // is the Director's StockConic -> TracedPath descent handoff, whose branch condition
+                // (IsTracedPathOwnedThisFrame) IS the measurement the intent carries here. The lit half
+                // must still be a proven InsideWindowOn, and - the anti-masking conjunct - whenever the
+                // ownership/paint PUBLISH SURFACE actually ran this frame, the polyline must also have
+                // covered this ghost. Reading it: the surface sits past MapView.MapIsEnabled inside the
+                // Driver's -50 LateUpdate, so a map-CLOSED flight lane leaves polylinePainted /
+                // polylineOwns false for a reason that has nothing to do with darkness - and in that
+                // lane no line is on screen for anyone to see blink. With the map OPEN the bits are
+                // real, and a TracedPath that claims the leg and then never draws it is a genuinely
+                // dark handoff that must keep raising.
+                bool publishSurfaceRan =
+                    Parsek.Display.GhostTrajectoryPolylineRenderer.DidOwnershipPublishRunOnFrame(frame);
+                bool tracedPathHandoffExempt = MapRenderTrace.ResolveTracedPathHandoffExempt(
+                    lineDefinitivelyOff: lineActive == "False",
+                    hasFreshIntent: hasFreshLineIntent,
+                    intentLineActive: lineIntent.LineActive,
+                    intentHandoff: lineIntent.Handoff,
+                    hasPriorToggle: hasLastToggle,
+                    priorToggle: priorToggleVerdict,
+                    publishSurfaceRan: publishSurfaceRan,
+                    // Painted OR owned: ownership is the narrower "is the HEAD inside a drawn CURRENT
+                    // leg" and is a subset of paint on the tracing-on path, so the disjunction is the
+                    // honest "did the map have ANY line for this ghost" - the same question the
+                    // offWindowCovered accounting asks, asked here on the dark edge.
+                    polylineCovered: polylinePainted || polylineOwns);
                 if (MapRenderTrace.IsLineBlink(
                         toggled: true,
                         hasLastToggleFrame: hasLastToggle,
@@ -830,7 +856,8 @@ namespace Parsek
                         currentFrame: frame,
                         bodyChanged: toggleCrossedBody,
                         offWindowCovered: offWindowCovered,
-                        windowTransitionExempt: windowTransitionExempt))
+                        windowTransitionExempt: windowTransitionExempt,
+                        tracedPathHandoffExempt: tracedPathHandoffExempt))
                 {
                     // The three coverage fields ride the line so a collected log states WHICH shape
                     // raised. READ THEM WITH lineActive/prevActive: on the RE-ACTIVATION edge
@@ -864,15 +891,26 @@ namespace Parsek
                             "lineActive={0} prevActive={1} lastToggleFrame={2} sinceFrames={3} body={4} "
                             + "offWindowCovered={5} polylinePainted={6} polylineOwns={7} "
                             + "windowTransitionExempt={8} bodyChanged={9} toggleVerdict={10} "
-                            + "priorToggleVerdict={11} intentReason={12}",
+                            + "priorToggleVerdict={11} intentReason={12} "
+                            + "tracedPathHandoffExempt={13} intentHandoff={14} publishSurfaceRan={15}",
                             lineActive, prevLineActive, lastToggle, frame - lastToggle, bodyName,
                             offWindowCovered, polylinePainted, polylineOwns,
                             windowTransitionExempt, toggleCrossedBody,
                             currentToggleVerdict, priorToggleVerdict,
-                            hasFreshLineIntent ? lineIntent.Reason : "(no-fresh-intent)"),
+                            hasFreshLineIntent ? lineIntent.Reason : "(no-fresh-intent)",
+                            // Like windowTransitionExempt these are FALSE on every raise by
+                            // construction; intentHandoff + publishSurfaceRan are what say WHY, so a
+                            // reader can tell "not a designed handoff at all" from "a handoff whose
+                            // map-open coverage proof was missing" without joining to another line.
+                            tracedPathHandoffExempt,
+                            hasFreshLineIntent
+                                ? lineIntent.Handoff.ToString()
+                                : "(no-fresh-intent)",
+                            publishSurfaceRan),
                         recId);
                 }
-                else if ((offWindowCovered || windowTransitionExempt) && hasLastToggle
+                else if ((offWindowCovered || windowTransitionExempt || tracedPathHandoffExempt)
+                         && hasLastToggle
                          && frame - lastToggle >= 0 && frame - lastToggle <= MapRenderTrace.LineBlinkFrameWindow)
                 {
                     // THE GUARD FIRED: a raise the pre-guard detector would have made was suppressed
@@ -884,13 +922,14 @@ namespace Parsek
                     // over-firing. VerboseOnChange-free: this is rare (once per painted window) and the
                     // frame numbers make each occurrence distinct.
                     // WHICH guard fired is now stated per-flag instead of being hardcoded True: this
-                    // branch covers the painted-dark-window guard AND the window-exit guard, and a
-                    // reader auditing "is the exemption over-firing?" needs to know which one ate the
-                    // raise. bodyChanged rides along too even though it is not in this branch's
-                    // condition: IsLineBlink checks it FIRST, so a pair that a body change would also
-                    // have exempted would otherwise read as a coverage suppression and overstate these
-                    // two guards' reach. intentReason is THIS FRAME'S decision - on the re-activation
-                    // edge that is the ON, not the OFF half (see the raise branch above).
+                    // branch covers the painted-dark-window guard, the window-exit guard AND the
+                    // TracedPath-handoff guard, and a reader auditing "is the exemption over-firing?"
+                    // needs to know which one ate the raise. bodyChanged rides along too even though it
+                    // is not in this branch's condition: IsLineBlink checks it FIRST, so a pair that a
+                    // body change would also have exempted would otherwise read as a coverage
+                    // suppression and overstate these guards' reach. intentReason is THIS FRAME'S
+                    // decision - on the re-activation edge that is the ON, not the OFF half (see the
+                    // raise branch above).
                     MapRenderTrace.EmitOnChange(
                         "line-blink-suppressed",
                         MapRenderTrace.RenderSurface.ProtoOrbitLine, pidKey, currentUT, currentUT,
@@ -898,12 +937,18 @@ namespace Parsek
                             "lineActive={0} prevActive={1} lastToggleFrame={2} sinceFrames={3} body={4} "
                             + "offWindowCovered={5} polylinePainted={6} polylineOwns={7} "
                             + "windowTransitionExempt={8} bodyChanged={9} toggleVerdict={10} "
-                            + "priorToggleVerdict={11} intentReason={12}",
+                            + "priorToggleVerdict={11} intentReason={12} "
+                            + "tracedPathHandoffExempt={13} intentHandoff={14} publishSurfaceRan={15}",
                             lineActive, prevLineActive, lastToggle, frame - lastToggle, bodyName,
                             offWindowCovered, polylinePainted, polylineOwns,
                             windowTransitionExempt, toggleCrossedBody,
                             currentToggleVerdict, priorToggleVerdict,
-                            hasFreshLineIntent ? lineIntent.Reason : "(no-fresh-intent)"),
+                            hasFreshLineIntent ? lineIntent.Reason : "(no-fresh-intent)",
+                            tracedPathHandoffExempt,
+                            hasFreshLineIntent
+                                ? lineIntent.Handoff.ToString()
+                                : "(no-fresh-intent)",
+                            publishSurfaceRan),
                         recId);
                 }
                 lastLineToggleFrame[pid] = frame;
