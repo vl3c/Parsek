@@ -3414,7 +3414,7 @@ gate toward backing up, which is the direction its own doc-comment asks for. Car
 CHANGELOG 0.10.4 Fixes.
 
 
-## WATCH-LOOPED-PARK-TARGET-LOSS-NRE-STORM: watch mode survives a loop RE-ARM with a null camera target and throws stock NREs on EVERY frame from there to scene end - 306 of them in 1.26 s [MEASURED 2026-08-19 by `V15M-gilly-player-loop`'s reading run and REPRODUCED on its armed re-flight the same day (447 then 443 total on byte-identical shapes), the FIRST successful watch entry on a looped arrival park. REPORT-ONLY: `unityExceptions` is report-only and BOTH runs PASSED; NO product change is proposed by this lane]
+## ~~WATCH-LOOPED-PARK-TARGET-LOSS-NRE-STORM: watch mode survives a loop RE-ARM with a null camera target and throws stock NREs on EVERY frame from there to scene end - 306 of them in 1.26 s~~ [MEASURED 2026-08-19 by `V15M-gilly-player-loop`'s reading run and REPRODUCED on its armed re-flight the same day (447 then 443 total on byte-identical shapes), the FIRST successful watch entry on a looped arrival park. **MECHANISM ESTABLISHED AND FIXED 2026-08-28**, branch `watch-mode-fixes`, from the ARCHIVED log of the reproducing run (`logs/2026-08-19_2111_V15M-gilly-player-loop/KSP.log`) rather than a re-flight - see THE MECHANISM, ESTABLISHED and THE FIX below. The lane's own verdict is unchanged: `unityExceptions` stays report-only and no ceiling is armed]
 ## ~~DOCK-PARTNER-STAMP-GATED-ON-ROUTE-ELIGIBILITY: a route-ineligible dock discarded the partner identity forever~~ [FOUND by the 2026-08-12 dock/loop-coherence analysis (I2-iii); FIXED 2026-08-12, branch `dock-partner-stamp` (design `docs/dev/design-dock-event-graph.md` 6.1, PR sequence step 1)]
 
 `BranchPoint.TargetVesselPersistentId` was fed by the route-eligibility-GATED
@@ -4828,7 +4828,110 @@ nothing in this suite by itself - the committed rows are frozen at the era they
 were recorded in. If the magnitude moves WITHOUT a re-harvest, a RECALC-side change
 has occurred and must be investigated rather than re-pinned.
 
-## WATCH-LOOPED-PARK-TARGET-LOSS-NRE-STORM: watch mode survives a loop RE-ARM with a null camera target and throws stock NREs on EVERY frame from there to scene end - 306 of them in 1.26 s [MEASURED 2026-08-19 by `V15M-gilly-player-loop`'s reading run and REPRODUCED on its armed re-flight the same day (447 then 443 total on byte-identical shapes), the FIRST successful watch entry on a looped arrival park. REPORT-ONLY: `unityExceptions` is report-only and BOTH runs PASSED; NO product change is proposed by this lane]
+## ~~WATCH-LOOPED-PARK-TARGET-LOSS-NRE-STORM: watch mode survives a loop RE-ARM with a null camera target and throws stock NREs on EVERY frame from there to scene end - 306 of them in 1.26 s~~ [MEASURED 2026-08-19 by `V15M-gilly-player-loop`'s reading run and REPRODUCED on its armed re-flight the same day (447 then 443 total on byte-identical shapes), the FIRST successful watch entry on a looped arrival park. **MECHANISM ESTABLISHED AND FIXED 2026-08-28**, branch `watch-mode-fixes`, from the ARCHIVED log of the reproducing run (`logs/2026-08-19_2111_V15M-gilly-player-loop/KSP.log`) rather than a re-flight - see THE MECHANISM, ESTABLISHED and THE FIX below. The lane's own verdict is unchanged: `unityExceptions` stays report-only and no ceiling is armed]
+
+### THE MECHANISM, ESTABLISHED (2026-08-28) - and it is a Parsek defect after all
+
+The original write-up ends "which of `actualTarget`, the horizon proxy or the retired
+ghost is the null is UNDIAGNOSED here", and keeps the entry report-only on the strength
+of "NO PARSEK FRAME APPEARS IN ANY OF THE 306 IN-FLIGHT STACKS". Both statements are
+still true. What they do NOT establish - and what the collected log does - is that the
+null the stock code trips over is one **Parsek's own camera state put there**.
+
+The evidence is `logs/2026-08-19_2111_V15M-gilly-player-loop/KSP.log`, the collected
+snapshot of the reproducing run (443 NREs, the armed re-flight's count). Four lines, in
+order, all frame 7163:
+
+    11498 [INFO][GhostRenderTrace] phase=MeshDestroyed rec=77f724bb ... reason=chain-loop unit cycle change
+    11525 [EXC] NullReferenceException: CrewHatchController.LateUpdate ()          <- first NRE
+    11537 [INFO][CameraFollow] Watched cycle lost - falling back to primary cycle=1
+    11539 [WARN][CameraFollow] Watch camera infrastructure unavailable: ... reason=flight-camera-missing
+
+Read line 11539 first, because it is the line the original write-up did not have.
+`reason=flight-camera-missing` is `ClassifyWatchCameraInfrastructure(hasFlightCamera:
+false, ...)`, i.e. `GetFlightCameraSafe()` returned null - so **`FlightCamera.fetch`
+itself read as Unity-null from that frame on**. It is not a transient: the log carries
+exactly ONE such Warn (the site is rate-limited at 5 s, so a single line over a 1.26 s
+storm means it re-entered every frame), and the teardown exit at 21:11:20.215 logs
+`Exiting watch mode ... returning to #autoLOC_501232` with **no** following
+`FlightCamera.SetTargetVessel restored` Verbose - the branch that only runs when the
+camera resolves. The camera never came back.
+
+That reframes the two production lines the original entry quotes. `actualTarget=null` on
+the `cycle-fallback` line is `FlightCamera.fetch != null ? FlightCamera.fetch.Target :
+null` answering **null because `fetch` is null**, not because the target was cleared. And
+the fallback's own retarget is guarded by `if (FlightCamera.fetch != null)`, so on that
+frame **the rebind never ran at all** - the branch logged "falling back to primary" and
+adopted the primary's cycle while binding nothing.
+
+THREE DEFECTS, and each is nameable in the source:
+
+1. **The camera was left holding a transform that was about to be destroyed.** The watch
+   camera's target was the `horizonProxy` under the cycle-0 ghost's `cameraPivot`;
+   `GhostPlaybackEngine`'s unit-cycle-change branch calls `DestroyGhost(i, ..., reason:
+   "chain-loop unit cycle change")` to rebuild the ghost for a clean per-cycle visual, and
+   nothing detaches the camera first. `ParsekFlight.EnterWatchMode`'s #895 comment already
+   names that exact state - "the camera target becomes a destroyed Unity object and stock
+   per-frame systems (FlightGlobals.UpdateInformation, Sun, AmbienceControl,
+   CrewHatchController, UIPartActionController) throw an NRE every frame, flooding the log
+   and freezing the game" - and the thrower set the original write-up tabulated is that
+   list, member for member. #895 guards the failed-SWITCH path; the loop-cycle rebuild is
+   the path it does not cover, and V15M is the first run in the suite that ever reaches it.
+2. **The cycle fallback committed a rebind that never happened** (above), so the session
+   adopted a new cycle with no camera bound and reported it as a successful fallback.
+3. **Watch mode had no bound on the resulting state.** `UpdateWatchCamera`'s
+   camera-infrastructure branch `return`ed WITHOUT counting, from ABOVE the
+   `watchNoTargetFrames >= 3` safety net - so the net could never see this cause. Watch
+   stayed armed for ~86 frames and was only ended by the harness's own `ExitWatchMode` verb
+   ~2 s later. Had the scene run for ten minutes it would have stayed armed for ten minutes.
+
+WHAT IS STILL NOT ESTABLISHED, stated so nobody promotes it: **why `FlightCamera.fetch`
+itself went null.** The leading reading is that stock `FlightCamera` did not survive its
+own target being destroyed under it, which is consistent with #895's documented failure
+mode and with the ordering above - but no stack names `FlightCamera`, nothing was
+decompiled for this, and the alternative (something unrelated tore the camera down and
+Parsek's dangling target is incidental) is not excluded. The fix does not depend on which
+it is: defects 1-3 are wrong on their own terms.
+
+### THE FIX (2026-08-28, branch `watch-mode-fixes`)
+
+One preventive change and two convergence guarantees, matching the three defects:
+
+1. `WatchModeController.NotifyWatchedGhostDestroying`, called from
+   `ParsekPlaybackPolicy.HandleGhostDestroyed` - which the engine fires BEFORE it tears the
+   GameObject hierarchy down. When the camera is bound inside the doomed ghost it is moved
+   onto a standalone `ParsekWatchCycleBridge` anchor at that transform's pose, so it never
+   holds a destroyed object and the view does not snap to the player. The anchor is retired
+   as soon as something rebinds the camera to a real ghost transform
+   (`ReleaseWatchCycleBridgeAnchorIfSuperseded`), and on watch exit. Pure predicate:
+   `ShouldBridgeWatchCameraOffDestroyedGhost`.
+2. `FindWatchedGhostState`'s cycle fallback now checks the retarget's return value and
+   commits only on a rebind that took; otherwise it releases the target with a Warn naming
+   the refusal. Pure predicate: `ClassifyWatchCycleFallback`.
+3. `UpdateWatchCamera` routes BOTH loss causes - ghost-side (no state / no camera pivot)
+   and KSP-side (no `FlightCamera` / transform / parent) - through one classifier,
+   `ClassifyWatchTargetLoss`, and one budget, `WatchNoTargetExitFrames = 3`. A camera that
+   cannot be resolved for the budget exits watch cleanly instead of leaving the session
+   armed. `RestoreCameraAfterWatchExit` is already null-camera safe, so the exit is safe on
+   exactly the path that needs it.
+
+Pinned by `Source/Parsek.Tests/WatchModeTargetLossTests.cs` (the regression cell asserts
+the V15M SHAPE - a valid ghost target with the camera gone - reaches `ExitWatch`).
+
+**WHAT THE FIX IS AND IS NOT CLAIMED TO DO.** It removes Parsek's dangling camera target
+across the re-arm and bounds the armed-but-unusable state to three frames. It is NOT
+claimed to zero the stock NRE population, because the stacks are stock-only and the
+`FlightCamera` teardown itself is unexplained (above); if the camera dies for an unrelated
+reason the throws are unaffected by anything Parsek does. **The measurement that would
+settle it is the one this entry already names: re-fly `V15M-gilly-player-loop` unchanged
+and read `unityExceptions`.** The prediction, recorded before the re-flight: the count
+falls sharply - the storm should end at the safety-net exit rather than at
+`Application.Quit` - and the `Watch camera bridged off destroying ghost #0` line appears at
+the cycle turnover. A count still in the 400s with that line present would falsify defect 1
+as the cause and leave the `FlightCamera` teardown as an independent finding. Open
+questions 1, 2 and 4 below are unaffected; **open question 3 ("which reference is null, and
+whether the camera should be dropping watch entirely on a lost cycle rather than falling
+back to a target it cannot resolve") is ANSWERED** - it should, and it now does.
 
 `V15M-gilly-player-loop` run `2026-08-19_1736` came back **PASS attempt 1** with all
 21 steps met and `anomalySweep hits=[]`. It also read `unityExceptions total=447`,
@@ -10745,7 +10848,95 @@ which is why it shipped as its own entry rather than as a residual on that one.
 
 ---
 
-## WATCH-ENTRY-REFUSED-INSIDE-QUOTED-RANGE: watch-mode auto-select refuses far inside the 300 km range term it actually evaluates, and WHICH conjunction term refuses is UNESTABLISHED [BOUNDARY FOUND 2026-08-08 by V7M-minmus-player-loop, measured four times; MECHANISM CORRECTED 2026-08-09]
+## WATCH-ENTRY-REFUSED-INSIDE-QUOTED-RANGE: watch-mode auto-select refuses far inside the 300 km range term it actually evaluates, because the render-zone hide starves the SAME-BODY term [BOUNDARY FOUND 2026-08-08 by V7M-minmus-player-loop, measured four times; MECHANISM CORRECTED 2026-08-09; **REFUSING TERM ESTABLISHED 2026-08-28**, branch `watch-mode-fixes` - see THE REFUSING TERM below. The REFUSAL ITSELF IS DELIBERATELY UNCHANGED (armed V-family lanes pin it); what shipped is the reporting: the reject branch now names the term, and the affordance no longer claims a different body]
+
+### THE REFUSING TERM, ESTABLISHED (2026-08-28) - it is `IsGhostOnSameBody`
+
+Established by CODE READING plus the ARCHIVED logs of the flights that measured it, not
+by the re-flight the section below specifies; the re-flight is no longer needed to answer
+it, and the instrumentation it asked for shipped anyway (see THE EXPERIMENT, SHIPPED).
+
+THE CHAIN, in production order:
+
+    WatchModeController.IsGhostOnSameBody(i)
+      -> GhostPlaybackEngine.IsGhostOnBody(i, FlightGlobals.ActiveVessel.mainBody.name)
+      -> state.lastInterpolatedBodyName == bodyName
+
+`lastInterpolatedBodyName` is written on the POSITIONING path only -
+`GhostPlaybackState.SetInterpolated` from the positioner, plus the two endpoint paths in
+`GhostPlaybackEngine` - and every one of those sites is BELOW the render-zone hide's early
+return (`if (zoneResult.hiddenByZone) { ... HandleHiddenGhostVisualState(...); return
+true; }`, the primary path; the loop / overlap paths have their own). **A ghost the zone
+has hidden on every frame since it spawned has therefore never been positioned, carries a
+NULL body name, and `null == "Minmus"` is false.** The `zone=Beyond` hide the original
+write-up identified as "the plausible shared DRIVER" is the driver, and this is the term
+it starves.
+
+THE LOG CORROBORATION, from `logs/2026-08-08_1908_V7Mc-watch-calibration/KSP.log` (the
+`_1607` calibration attempt, one of the four archived flights the section below tabulates):
+
+- Both refusals - `enterwatchmode rejected reason=no-watchable-ghost` at 19:08:31.389 and
+  19:08:32.895 - are preceded by that ghost's `phase=GuardSkip rec=775188af ...
+  reason=hidden-by-zone_distance=144378m`.
+- The FIRST `phase=AfterUpdate rec=775188af ... body=Minmus` in the whole run is at
+  19:08:33.667 - **after both refusals**, and after the successful
+  `enterwatchmode initiated` at 19:08:33.656. Nothing wrote a body name for that ghost
+  before the entry that succeeded.
+- Same frame, same ghost: `[i=1 rec=775188af skip=None aru=F hd=T hs=T ...][out:vis=F
+  retired=F zone=Beyond rdist=144356m]`.
+
+That last line falsifies the two hypotheses this entry had ranked ahead of the body term.
+It is only emitted for a NON-NULL ghost state, so **`HasActiveGhost` - the leading
+hypothesis - passed**, exactly as the caveat already suspected from the code ("only
+requires a non-null `ghostStates` entry"). And it prints `rdist=144356m`, written by
+`CachePlaybackDistances` ABOVE the hide, so **the range term evaluated 144,356 m against
+`WatchEnterCutoffMeters = 300_000f` and passed** - which the section below had already
+excluded on a code reading and which is now confirmed against the number.
+
+So the corrected reading of the four-flight table below: at every one of 144,349 /
+144,356 / 144,365 / 191,49x / 198,711 m the conjunction refused on `IsGhostOnSameBody`,
+and it refused for a ghost that WAS on the same body (Minmus) and merely un-rendered.
+
+### THE EXPERIMENT, SHIPPED (2026-08-28) - reporting only, no behaviour change
+
+The discriminating experiment this entry specified ("Emit the per-candidate triple on the
+reject branch") is in, because it is worth having permanently even though the code reading
+answered the question first: `ParsekTestCommandAddon.EnterWatchMode`'s reject branch now
+appends `candidates=[i ghost=T body=F range=T],...` (formatter
+`TestCommandEnterWatchMode.DescribeWatchCandidates`, pure and unit-tested; out-of-scope
+entries render `scope=F` with no triple, because the applier deliberately does not sample
+the three live probes for them and printing their default falses would invent a
+measurement). The wire response is untouched - `SetExecResult("REJECTED", null,
+"no-watchable-ghost")` is unchanged, so `hlib`'s reason mapping is unaffected.
+
+### THE PLAYER-FACING FOLLOW-UP - the FALSE half fixed, the refusal left alone
+
+The follow-up below said it could not be specified until the refusing term was known. It
+is now, and it splits cleanly in two:
+
+- **SHIPPED: the affordance stops making a false statement.** With the body name unset,
+  `sameBody=false`, and `RecordingsTableUI.GetWatchButtonReason` / `GetWatchButtonTooltip`
+  reported *"Ghost is on a different body"* - said to a player 144 km from their own replay
+  in orbit of the SAME moon. Both now take a `bodyResolved` flag (defaulted true, so an
+  unmeasured caller keeps the historic meaning) fed by
+  `WatchModeController.IsGhostBodyResolved`, and answer *"not rendered"* / "too far away to
+  be drawn right now, so Parsek cannot tell which body it is at - get closer and the Watch
+  button comes back" when the ghost has no body name to compare. The Timeline W button
+  reuses the same strings through `BuildWatchButtonDescriptor`. Pinned in
+  `Source/Parsek.Tests/WatchModeTargetLossTests.cs`.
+- **NOT TAKEN: making the entry succeed at 144 km.** Resolving the body from the recording
+  when the ghost has not been positioned would flip the conjunction and let watch entry
+  succeed anywhere inside 300 km. There is a real argument for it - `HasActiveGhost`'s own
+  doc-comment says "hidden-tier ghosts may have unloaded visuals but are still watchable",
+  and `EnsureGhostVisualsLoadedForWatch` exists precisely to load them at entry - but it is
+  a PRODUCT BEHAVIOUR CHANGE with a measured blast radius: NINE committed specs pin
+  `EnterWatchMode expect = "REJECTED"` - `V4`, `V6M`, `V7M`, `V8`, `V14M`, `V16M`, `V17M`,
+  `V19M`, `V20M` (grepped, not remembered) - and every one of them would red. That is a coordinated decision for
+  whoever owns those lanes, not a side effect of diagnosing the term. **Do NOT take it as
+  part of a bug-fix pass.** Owner: whoever owns `WatchModeController` / the V-family specs.
+
+The rest of this entry is the original write-up, kept in place because the corrections are
+only legible against what they replace.
 
 **THIS ENTRY IS THE SINGLE AUTHORITY for the watch-entry finding.** Every other
 site - the V4 / V6M / V7M spec headers, the `docs/dev/autotest-status.md` rows,

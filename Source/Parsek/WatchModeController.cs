@@ -80,6 +80,13 @@ namespace Parsek
         // logged dist=80568m. Mirrors the existing `watchNoTargetFrames`
         // safety-net pattern for the no-camera-target path.
         internal const int WatchExitCutoffDebounceFrames = 3;
+        // Consecutive frames a watch session may spend with NO usable camera target
+        // before it exits. Shared by both causes (ghost state / camera pivot gone, and
+        // KSP-side FlightCamera infrastructure gone) via ClassifyWatchTargetLoss.
+        // WATCH-LOOPED-PARK-TARGET-LOSS-NRE-STORM: the infrastructure cause used to be
+        // uncounted, so a session could stay armed with nothing bound for the rest of
+        // the scene (V15M measured ~86 such frames).
+        internal const int WatchNoTargetExitFrames = 3;
         // Watch-mode tunables (entry camera defaults, pending-bridge budget) live
         // in ParsekConfig.cs under WatchMode.*. WatchModeLockId / WatchModeLockMask
         // are KSP ControlLocks identifiers and stay local.
@@ -91,6 +98,7 @@ namespace Parsek
         private long watchedOverlapCycleIndex = -1;    // which overlap cycle the camera is following (-1 = ready for next, -2 = holding after explosion)
         private double overlapRetargetAfterUT = -1;    // delay re-target after watched cycle explodes
         private GameObject overlapCameraAnchor;        // temp anchor so FlightCamera doesn't reference destroyed ghost
+        private GameObject watchCycleBridgeAnchor;     // temp anchor parked at the watched ghost's last pose while the engine rebuilds it (loop-unit cycle change)
         private int overlapBridgeLastRetryFrame = -1;  // prevent double-counting bridge retries within one frame
         private Vessel savedCameraVessel;
         private float savedCameraDistance;
@@ -216,6 +224,97 @@ namespace Parsek
 
             DestroyUnityObjectSafe(overlapCameraAnchor);
             overlapCameraAnchor = null;
+        }
+
+        private void DestroyWatchCycleBridgeAnchor()
+        {
+            if (!IsUnityObjectAvailable(watchCycleBridgeAnchor))
+            {
+                watchCycleBridgeAnchor = null;
+                return;
+            }
+
+            DestroyUnityObjectSafe(watchCycleBridgeAnchor);
+            watchCycleBridgeAnchor = null;
+        }
+
+        /// <summary>
+        /// Retires the loop-cycle bridge anchor once the camera has been rebound to a real
+        /// ghost transform. Only ever destroys an anchor the camera is NOT pointing at, so
+        /// it can never recreate the dangling-target hazard it exists to prevent.
+        /// </summary>
+        private void ReleaseWatchCycleBridgeAnchorIfSuperseded(FlightCamera flightCamera)
+        {
+            if (!IsUnityObjectAvailable(watchCycleBridgeAnchor))
+            {
+                watchCycleBridgeAnchor = null;
+                return;
+            }
+            if (flightCamera == null)
+                return;
+            if (flightCamera.Target == watchCycleBridgeAnchor.transform)
+                return;
+
+            ParsekLog.Verbose("CameraFollow",
+                $"Watch cycle bridge released: rec=#{watchedRecordingIndex} " +
+                $"id={watchedRecordingId ?? "null"} cycle={watchedOverlapCycleIndex} " +
+                $"(camera rebound to '{flightCamera.Target?.name ?? "null"}')");
+            DestroyWatchCycleBridgeAnchor();
+        }
+
+        /// <summary>
+        /// WATCH-LOOPED-PARK-TARGET-LOSS-NRE-STORM. Called from
+        /// <c>ParsekPlaybackPolicy.HandleGhostDestroyed</c>, which the engine fires BEFORE it
+        /// tears the ghost's GameObject hierarchy down, so this is the last frame-safe moment
+        /// to get the watch camera off a transform that is about to become a destroyed Unity
+        /// object.
+        ///
+        /// <para>The measured trigger is the loop re-arm: a mission loop unit advances a
+        /// cycle, <c>GhostPlaybackEngine</c> destroys the watched primary for a clean
+        /// per-cycle rebuild ("chain-loop unit cycle change"), and until the next camera
+        /// update rebinds it, <c>FlightCamera.Target</c> is the dead <c>horizonProxy</c>.
+        /// #895 already documents that exact state as the cause of the stock per-frame NRE
+        /// storm; this closes the cycle-change path it did not cover. The camera is parked on
+        /// a standalone anchor at the doomed transform's pose - not snapped back to the
+        /// player - so a normal loop watch is visually unchanged.</para>
+        /// </summary>
+        internal void NotifyWatchedGhostDestroying(int destroyedIndex, GhostPlaybackState state)
+        {
+            if (watchedRecordingIndex < 0 || destroyedIndex != watchedRecordingIndex)
+                return;
+
+            FlightCamera flightCamera = GetFlightCameraSafe();
+            Transform target = flightCamera != null ? flightCamera.Target : null;
+            bool targetBelongs = target != null && state != null
+                && (target == state.horizonProxy
+                    || target == state.cameraPivot
+                    || (state.ghost != null && target.IsChildOf(state.ghost.transform)));
+
+            if (!ShouldBridgeWatchCameraOffDestroyedGhost(
+                    watchedRecordingIndex, destroyedIndex,
+                    flightCamera != null, target != null, targetBelongs))
+            {
+                ParsekLog.VerboseRateLimited("CameraFollow",
+                    "watch-destroy-no-bridge:" + destroyedIndex.ToString(CultureInfo.InvariantCulture),
+                    $"Watched ghost #{destroyedIndex} destroyed with no camera bridge needed: " +
+                    $"id={watchedRecordingId ?? "null"} cycle={watchedOverlapCycleIndex} " +
+                    $"hasCamera={flightCamera != null} target='{target?.name ?? "null"}' " +
+                    $"targetBelongsToGhost={targetBelongs}",
+                    2.0);
+                return;
+            }
+
+            DestroyWatchCycleBridgeAnchor();
+            watchCycleBridgeAnchor = new GameObject("ParsekWatchCycleBridge");
+            watchCycleBridgeAnchor.transform.position = target.position;
+            watchCycleBridgeAnchor.transform.rotation = target.rotation;
+            flightCamera.SetTargetTransform(watchCycleBridgeAnchor.transform);
+
+            ParsekLog.Info("CameraFollow",
+                $"Watch camera bridged off destroying ghost #{destroyedIndex} " +
+                $"id={watchedRecordingId ?? "null"} cycle={watchedOverlapCycleIndex} " +
+                $"target='{target.name}' pos={FormatVector3ForLogs(target.position)} " +
+                $"(bridge anchor holds the pose until the rebuilt ghost is rebound)");
         }
 
         // Drives the cutoff debounce counter from inside the per-frame
@@ -725,6 +824,25 @@ namespace Parsek
         internal bool IsGhostOnSameBody(int index)
         {
             return host.Engine.IsGhostOnBody(index, FlightGlobals.ActiveVessel?.mainBody?.name);
+        }
+
+        /// <summary>
+        /// True when the ghost at index has a body name to compare at all.
+        ///
+        /// <para>WATCH-ENTRY-REFUSED-INSIDE-QUOTED-RANGE: <c>lastInterpolatedBodyName</c> is
+        /// written only on the POSITIONING path, which the render-zone hide
+        /// (<c>GhostPlaybackEngine</c>'s <c>hiddenByZone</c> early return) skips. A ghost
+        /// hidden by the LOD zone on every frame since it spawned therefore carries a NULL
+        /// body name, and <see cref="IsGhostOnSameBody"/> compares null against the active
+        /// body and answers false - so the refusal reads as "different body" when the ghost
+        /// is on the SAME body and merely un-rendered. This distinguishes the two so the
+        /// affordances can say which one it is. It does NOT change the conjunction: watch
+        /// entry still requires a resolved, matching body (the armed V-family lanes pin that
+        /// refusal by name).</para>
+        /// </summary>
+        internal bool IsGhostBodyResolved(int index)
+        {
+            return !string.IsNullOrEmpty(host.Engine.GetGhostBodyName(index));
         }
 
         /// <summary>
@@ -1631,6 +1749,14 @@ namespace Parsek
                 DestroyOverlapCameraAnchor();
             else
                 overlapCameraAnchor = null;
+            // The cycle bridge is only ever a stand-in for a ghost transform that no longer
+            // exists; a session teardown that keeps the camera on it (destroyOverlapAnchor
+            // false, i.e. a watch switch) would leave the SAME dangling-target hazard the
+            // bridge exists to prevent, so it follows the overlap anchor's contract exactly.
+            if (destroyOverlapAnchor)
+                DestroyWatchCycleBridgeAnchor();
+            else
+                watchCycleBridgeAnchor = null;
             overlapBridgeLastRetryFrame = -1;
             savedCameraVessel = null;
             savedCameraDistance = 0f;
@@ -2359,34 +2485,50 @@ namespace Parsek
                 flightCamera != null,
                 cameraTransform != null,
                 cameraParent != null);
-            if (cameraInfraReason != "ready")
-            {
-                ParsekLog.WarnRateLimited(
-                    "CameraFollow",
-                    "watch-camera-infra:" + watchedRecordingIndex.ToString(CultureInfo.InvariantCulture) +
-                    ":" + cameraInfraReason,
-                    BuildWatchCameraInfrastructureMessage(
-                        watchedRecordingIndex,
-                        watchedRecordingId,
-                        cameraInfraReason,
-                        state?.vesselName,
-                        watchedOverlapCycleIndex,
-                        GetLoadedSceneNameSafe(),
-                        state != null,
-                        state?.ghost != null,
-                        state?.cameraPivot != null),
-                    minIntervalSeconds: 5.0);
-                return;
-            }
+            bool cameraInfraReady = cameraInfraReason == "ready";
 
-            if (state == null || state.cameraPivot == null)
+            // WATCH-LOOPED-PARK-TARGET-LOSS-NRE-STORM: both loss causes are counted by ONE
+            // net now. The camera-infrastructure case used to `return` uncounted from above
+            // the ghost-side net, so a session whose FlightCamera never resolved again stayed
+            // armed to scene end with nothing bound to it (V15M measured one
+            // `flight-camera-missing` Warn, ~86 frames of stock NREs and no camera restore at
+            // teardown). Waiting a few frames is still correct - a one-frame gap at a ghost
+            // rebuild is routine - but the wait is now bounded.
+            WatchTargetLossAction lossAction = ClassifyWatchTargetLoss(
+                cameraInfraReady,
+                state != null,
+                state?.cameraPivot != null,
+                watchNoTargetFrames + 1,
+                WatchNoTargetExitFrames);
+
+            if (lossAction != WatchTargetLossAction.Continue)
             {
-                // No valid target -- count frames and exit if persistent
                 watchNoTargetFrames++;
-                if (watchNoTargetFrames >= 3)
+                if (!cameraInfraReady)
+                {
+                    ParsekLog.WarnRateLimited(
+                        "CameraFollow",
+                        "watch-camera-infra:" + watchedRecordingIndex.ToString(CultureInfo.InvariantCulture) +
+                        ":" + cameraInfraReason,
+                        BuildWatchCameraInfrastructureMessage(
+                            watchedRecordingIndex,
+                            watchedRecordingId,
+                            cameraInfraReason,
+                            state?.vesselName,
+                            watchedOverlapCycleIndex,
+                            GetLoadedSceneNameSafe(),
+                            state != null,
+                            state?.ghost != null,
+                            state?.cameraPivot != null),
+                        minIntervalSeconds: 5.0);
+                }
+                if (lossAction == WatchTargetLossAction.ExitWatch)
                 {
                     ParsekLog.Warn("CameraFollow",
-                        $"No valid camera target for {watchNoTargetFrames} frames \u2014 exiting watch mode");
+                        $"No valid camera target for {watchNoTargetFrames} frames " +
+                        $"(cause={(cameraInfraReady ? "ghost-target-missing" : cameraInfraReason)} " +
+                        $"rec=#{watchedRecordingIndex} id={watchedRecordingId ?? "null"} " +
+                        $"cycle={watchedOverlapCycleIndex}) \u2014 exiting watch mode");
                     ExitWatchModePreservingLineage();
                 }
                 return;
@@ -2394,6 +2536,10 @@ namespace Parsek
 
             // Valid target found -- reset safety counter
             watchNoTargetFrames = 0;
+
+            // Something rebound the camera off the cycle bridge (the fallback retarget, a
+            // transfer, or a fresh entry) -- the bridge has done its job, retire it.
+            ReleaseWatchCycleBridgeAnchorIfSuperseded(flightCamera);
 
             // Keep sharpness zeroed -- KSP resets it on various events
             flightCamera.pivotTranslateSharpness = 0f;
@@ -2677,15 +2823,45 @@ namespace Parsek
                             && !TryEnsurePrimaryWatchGhostLoaded(primary, out primary))
                             primary = null;
                     }
-                    if (primary != null && primary.ghost != null && primary.cameraPivot != null)
+                    bool primaryUsable = primary != null && primary.ghost != null && primary.cameraPivot != null;
+                    // WATCH-LOOPED-PARK-TARGET-LOSS-NRE-STORM: the retarget is what makes the
+                    // fallback real. It used to be fired-and-forgotten behind a
+                    // `FlightCamera.fetch != null` guard, so when the camera was gone the
+                    // rebind was SKIPPED and the branch still announced the fallback and
+                    // adopted the primary's cycle - the V15M log's `cycle-fallback` line reads
+                    // `actualTarget=null targetMatches=False` one line later for exactly that
+                    // reason, and the session then rode on with nothing bound. Commit only on
+                    // a rebind that actually took; otherwise release the target so the
+                    // per-frame safety net converges on a clean exit.
+                    bool retargeted = primaryUsable
+                        && FlightCamera.fetch != null
+                        && TryRetargetWatchCameraPreservingState(primary);
+                    switch (ClassifyWatchCycleFallback(primaryUsable, retargeted))
                     {
-                        state = primary;
-                        watchedOverlapCycleIndex = primary.loopCycleIndex;
-                        if (FlightCamera.fetch != null)
-                            TryRetargetWatchCameraPreservingState(primary);
-                        ParsekLog.Info("CameraFollow",
-                            $"Watched cycle lost \u2014 falling back to primary cycle={primary.loopCycleIndex}");
-                        LogWatchFocusStateChanged(primary, force: true, context: "cycle-fallback");
+                        case WatchCycleFallbackDecision.Commit:
+                            state = primary;
+                            watchedOverlapCycleIndex = primary.loopCycleIndex;
+                            ParsekLog.Info("CameraFollow",
+                                $"Watched cycle lost \u2014 falling back to primary cycle={primary.loopCycleIndex}");
+                            LogWatchFocusStateChanged(primary, force: true, context: "cycle-fallback");
+                            break;
+                        case WatchCycleFallbackDecision.ReleaseTarget:
+                            ParsekLog.WarnRateLimited("CameraFollow",
+                                "watch-cycle-fallback-unbound:" + watchedRecordingIndex.ToString(CultureInfo.InvariantCulture),
+                                $"Watched cycle lost and the camera refused the rebind to primary " +
+                                $"cycle={primary.loopCycleIndex} (rec=#{watchedRecordingIndex} " +
+                                $"id={watchedRecordingId ?? "null"}) \u2014 releasing the watch target " +
+                                "instead of claiming a bound fallback; the no-target safety net will exit watch",
+                                minIntervalSeconds: 5.0);
+                            break;
+                        case WatchCycleFallbackDecision.NoPrimary:
+                            ParsekLog.VerboseRateLimited("CameraFollow",
+                                "watch-cycle-fallback-no-primary:" + watchedRecordingIndex.ToString(CultureInfo.InvariantCulture),
+                                $"Watched cycle lost with no usable primary ghost " +
+                                $"(rec=#{watchedRecordingIndex} id={watchedRecordingId ?? "null"} " +
+                                $"cycle={watchedOverlapCycleIndex}) \u2014 waiting for the next spawn",
+                                5.0);
+                            break;
                     }
                 }
             }

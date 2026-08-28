@@ -144,8 +144,14 @@ namespace Parsek.TestCommands
                 index = TestCommandEnterWatchMode.ResolveAutoWatchIndex(candidates);
                 if (index < 0)
                 {
+                    // WATCH-ENTRY-REFUSED-INSIDE-QUOTED-RANGE: name the refusing conjunct.
+                    // `no-watchable-ghost` is the failure of the CONJUNCTION and by itself
+                    // says nothing about which of the three terms said no - the finding cost
+                    // two documentation passes and a wrong mechanism claim for exactly that
+                    // reason. Reporting only; the decision above is untouched.
                     ParsekLog.Warn(Tag,
-                        $"enterwatchmode rejected reason=no-watchable-ghost committed={count} tree={treeArg ?? "(any)"}");
+                        $"enterwatchmode rejected reason=no-watchable-ghost committed={count} tree={treeArg ?? "(any)"} " +
+                        $"candidates={TestCommandEnterWatchMode.DescribeWatchCandidates(candidates)}");
                     SetExecResult("REJECTED", null, "no-watchable-ghost");
                     return;
                 }
@@ -322,6 +328,45 @@ namespace Parsek.TestCommands
                     return c.Index;
             }
             return -1;
+        }
+
+        /// <summary>
+        /// The per-candidate conjunction triple, rendered for the REJECTED branch.
+        ///
+        /// <para>WATCH-ENTRY-REFUSED-INSIDE-QUOTED-RANGE named this the discriminating
+        /// experiment: the auto-selector already computes all three terms per candidate and
+        /// used to throw them away, so a refusal logged only <c>reason=no-watchable-ghost</c>
+        /// and named no term. This is REPORTING ONLY - it changes no decision - and it makes
+        /// the refusing conjunct readable straight off any future log instead of requiring a
+        /// code reading plus an archived-log cross-check.</para>
+        ///
+        /// <para>Out-of-scope candidates render as <c>scope=F</c> with no triple: the applier
+        /// deliberately does not sample the three live ghost-state probes for them, so
+        /// printing their default <c>false</c>s would invent a measurement.</para>
+        /// </summary>
+        internal static string DescribeWatchCandidates(IReadOnlyList<WatchCandidate> candidates)
+        {
+            if (candidates == null || candidates.Count == 0)
+                return "(none)";
+
+            var sb = new System.Text.StringBuilder();
+            for (int i = 0; i < candidates.Count; i++)
+            {
+                WatchCandidate c = candidates[i];
+                if (sb.Length > 0)
+                    sb.Append(',');
+                sb.Append('[').Append(c.Index.ToString(CultureInfo.InvariantCulture));
+                if (!c.InScope)
+                {
+                    sb.Append(" scope=F]");
+                    continue;
+                }
+                sb.Append(" ghost=").Append(c.HasActiveGhost ? 'T' : 'F')
+                  .Append(" body=").Append(c.OnSameBody ? 'T' : 'F')
+                  .Append(" range=").Append(c.WithinVisualRange ? 'T' : 'F')
+                  .Append(']');
+            }
+            return sb.ToString();
         }
 
         /// <summary>

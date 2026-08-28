@@ -19738,6 +19738,7 @@ namespace Parsek
         internal bool HasActiveGhost(int index) => watchMode.HasActiveGhost(index);
         internal bool IsGhostWithinVisualRange(int index) => watchMode.IsGhostWithinVisualRange(index);
         internal bool IsGhostOnSameBody(int index) => watchMode.IsGhostOnSameBody(index);
+        internal bool IsGhostBodyResolved(int index) => watchMode.IsGhostBodyResolved(index);
         internal void EnterWatchMode(int index) => watchMode.EnterWatchMode(index);
         internal void ExitWatchMode(bool skipCameraRestore = false) => watchMode.ExitWatchMode(skipCameraRestore);
 

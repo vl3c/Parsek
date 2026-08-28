@@ -1,0 +1,325 @@
+using System;
+using System.Collections.Generic;
+using Parsek.TestCommands;
+using Xunit;
+
+namespace Parsek.Tests
+{
+    /// <summary>
+    /// Pins the two watch-mode findings this file was written for.
+    ///
+    /// <para>WATCH-LOOPED-PARK-TARGET-LOSS-NRE-STORM - watch mode survived a loop re-arm with
+    /// nothing bound to the camera and stayed armed to scene end. The cells below pin the two
+    /// decisions that now bound it: every target-loss cause is COUNTED by one safety net, and a
+    /// cycle fallback is only committed when the camera rebind actually took.</para>
+    ///
+    /// <para>WATCH-ENTRY-REFUSED-INSIDE-QUOTED-RANGE - watch auto-select refused far inside the
+    /// 300 km range term. The cells below pin the established mechanism at the seam that
+    /// produces it, using the values `V7M-minmus-player-loop` measured.</para>
+    /// </summary>
+    [Collection("Sequential")]
+    public class WatchModeTargetLossTests : IDisposable
+    {
+        private readonly List<string> logLines = new List<string>();
+
+        public WatchModeTargetLossTests()
+        {
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+        }
+
+        public void Dispose()
+        {
+            ParsekLog.ResetTestOverrides();
+        }
+
+        // ---------------------------------------------------------------
+        // WATCH-LOOPED-PARK-TARGET-LOSS-NRE-STORM
+        // ---------------------------------------------------------------
+
+        [Fact]
+        public void ClassifyWatchTargetLoss_ContinuesOnlyWhenCameraAndGhostBothResolve()
+        {
+            Assert.Equal(
+                WatchModeController.WatchTargetLossAction.Continue,
+                WatchModeController.ClassifyWatchTargetLoss(
+                    cameraInfrastructureReady: true,
+                    hasGhostState: true,
+                    hasCameraPivot: true,
+                    consecutiveLostFrames: 1,
+                    exitAfterFrames: WatchModeController.WatchNoTargetExitFrames));
+        }
+
+        /// <summary>
+        /// THE REGRESSION CELL. The measured V15M state is a VALID ghost target (state present,
+        /// camera pivot present) with the KSP camera gone: the old code took an uncounted early
+        /// return from ABOVE the ghost-side net for exactly this shape, so the session never
+        /// converged. Counting it is the fix, and this asserts the count reaches an exit.
+        /// </summary>
+        [Fact]
+        public void ClassifyWatchTargetLoss_CountsMissingCameraInfrastructureToAnExit()
+        {
+            const int budget = WatchModeController.WatchNoTargetExitFrames;
+
+            for (int frame = 1; frame < budget; frame++)
+            {
+                Assert.Equal(
+                    WatchModeController.WatchTargetLossAction.Wait,
+                    WatchModeController.ClassifyWatchTargetLoss(
+                        cameraInfrastructureReady: false,
+                        hasGhostState: true,
+                        hasCameraPivot: true,
+                        consecutiveLostFrames: frame,
+                        exitAfterFrames: budget));
+            }
+
+            Assert.Equal(
+                WatchModeController.WatchTargetLossAction.ExitWatch,
+                WatchModeController.ClassifyWatchTargetLoss(
+                    cameraInfrastructureReady: false,
+                    hasGhostState: true,
+                    hasCameraPivot: true,
+                    consecutiveLostFrames: budget,
+                    exitAfterFrames: budget));
+        }
+
+        [Fact]
+        public void ClassifyWatchTargetLoss_StillCountsTheLegacyGhostSideCauses()
+        {
+            const int budget = WatchModeController.WatchNoTargetExitFrames;
+
+            Assert.Equal(
+                WatchModeController.WatchTargetLossAction.ExitWatch,
+                WatchModeController.ClassifyWatchTargetLoss(
+                    cameraInfrastructureReady: true,
+                    hasGhostState: false,
+                    hasCameraPivot: false,
+                    consecutiveLostFrames: budget,
+                    exitAfterFrames: budget));
+
+            Assert.Equal(
+                WatchModeController.WatchTargetLossAction.Wait,
+                WatchModeController.ClassifyWatchTargetLoss(
+                    cameraInfrastructureReady: true,
+                    hasGhostState: true,
+                    hasCameraPivot: false,
+                    consecutiveLostFrames: 1,
+                    exitAfterFrames: budget));
+        }
+
+        [Fact]
+        public void ShouldBridgeWatchCameraOffDestroyedGhost_OnlyForTheWatchedIndexAndABoundTarget()
+        {
+            // The measured trigger: the watched index's ghost is destroyed for the loop-unit
+            // cycle rebuild while FlightCamera.Target is its horizonProxy.
+            Assert.True(WatchModeController.ShouldBridgeWatchCameraOffDestroyedGhost(
+                watchedRecordingIndex: 0,
+                destroyedRecordingIndex: 0,
+                hasFlightCamera: true,
+                hasCameraTarget: true,
+                targetBelongsToDestroyedGhost: true));
+
+            // A different recording's ghost dying must never move the watch camera.
+            Assert.False(WatchModeController.ShouldBridgeWatchCameraOffDestroyedGhost(
+                watchedRecordingIndex: 0,
+                destroyedRecordingIndex: 3,
+                hasFlightCamera: true,
+                hasCameraTarget: true,
+                targetBelongsToDestroyedGhost: true));
+
+            // Not watching at all.
+            Assert.False(WatchModeController.ShouldBridgeWatchCameraOffDestroyedGhost(
+                watchedRecordingIndex: -1,
+                destroyedRecordingIndex: -1,
+                hasFlightCamera: true,
+                hasCameraTarget: true,
+                targetBelongsToDestroyedGhost: true));
+
+            // Camera already points somewhere safe (e.g. the overlap anchor) - nothing to do.
+            Assert.False(WatchModeController.ShouldBridgeWatchCameraOffDestroyedGhost(
+                watchedRecordingIndex: 0,
+                destroyedRecordingIndex: 0,
+                hasFlightCamera: true,
+                hasCameraTarget: true,
+                targetBelongsToDestroyedGhost: false));
+
+            // No camera to rebind.
+            Assert.False(WatchModeController.ShouldBridgeWatchCameraOffDestroyedGhost(
+                watchedRecordingIndex: 0,
+                destroyedRecordingIndex: 0,
+                hasFlightCamera: false,
+                hasCameraTarget: false,
+                targetBelongsToDestroyedGhost: true));
+        }
+
+        /// <summary>
+        /// The V15M line `Watched cycle lost - falling back to primary cycle=1` was followed
+        /// immediately by `actualTarget=null targetMatches=False`: the primary WAS usable, the
+        /// rebind was skipped because FlightCamera was gone, and the fallback committed anyway.
+        /// </summary>
+        [Fact]
+        public void ClassifyWatchCycleFallback_RefusesToCommitAFallbackTheCameraDidNotTake()
+        {
+            Assert.Equal(
+                WatchModeController.WatchCycleFallbackDecision.Commit,
+                WatchModeController.ClassifyWatchCycleFallback(
+                    primaryUsable: true, retargetSucceeded: true));
+
+            Assert.Equal(
+                WatchModeController.WatchCycleFallbackDecision.ReleaseTarget,
+                WatchModeController.ClassifyWatchCycleFallback(
+                    primaryUsable: true, retargetSucceeded: false));
+
+            Assert.Equal(
+                WatchModeController.WatchCycleFallbackDecision.NoPrimary,
+                WatchModeController.ClassifyWatchCycleFallback(
+                    primaryUsable: false, retargetSucceeded: false));
+        }
+
+        // ---------------------------------------------------------------
+        // WATCH-ENTRY-REFUSED-INSIDE-QUOTED-RANGE
+        // ---------------------------------------------------------------
+
+        /// <summary>
+        /// V7M's measured separations, against the constant the production range predicate
+        /// actually uses. All four archived readings are comfortably INSIDE 300 km, so the range
+        /// term returned true on every refusing frame - which is what excludes it as the cause.
+        /// </summary>
+        [Theory]
+        [InlineData(144349.0)]
+        [InlineData(144356.0)]
+        [InlineData(144365.0)]
+        [InlineData(191499.0)]
+        [InlineData(198711.0)]
+        public void IsWithinWatchEntryRange_AcceptsEveryV7mRefusalDistance(double measuredMeters)
+        {
+            Assert.True(measuredMeters < WatchModeController.WatchEnterCutoffMeters);
+            Assert.True(WatchModeController.IsWithinWatchEntryRange(measuredMeters));
+        }
+
+        /// <summary>
+        /// THE ESTABLISHED MECHANISM, at the seam that produces it.
+        /// <c>GhostPlaybackState.lastInterpolatedBodyName</c> is written only on the POSITIONING
+        /// path, which the render-zone hide (<c>hiddenByZone</c>) early-returns above. A ghost
+        /// hidden on every frame since it spawned therefore carries a NULL body name, and
+        /// <c>IsGhostOnBody</c> compares null against the active vessel's body and answers
+        /// false. That is the refusing conjunct - not <c>HasActiveGhost</c> (the state IS
+        /// present, as the same frame's `engine-frame-iter` line proves by printing its zone and
+        /// distance) and not the range term (previous cell).
+        /// </summary>
+        [Fact]
+        public void IsGhostOnBody_RefusesAHiddenGhostThatWasNeverPositioned()
+        {
+            var engine = new GhostPlaybackEngine(positioner: null);
+            var neverPositioned = new GhostPlaybackState
+            {
+                // 144,356 m: V7Mc run `_1607`'s cycle-1 park reading. lastDistance IS written
+                // (CachePlaybackDistances runs ABOVE the hide early return), which is why the
+                // range term could evaluate a real sub-300 km number and pass.
+                lastDistance = 144356.0,
+                lastInterpolatedBodyName = null,
+            };
+            engine.ghostStates[1] = neverPositioned;
+
+            Assert.False(engine.IsGhostOnBody(1, "Minmus"));
+
+            // One positioning pass is all it takes; the ghost was on Minmus the whole time.
+            neverPositioned.SetInterpolated(new InterpolationResult
+            {
+                bodyName = "Minmus",
+                altitude = 40585.23,
+            });
+            Assert.True(engine.IsGhostOnBody(1, "Minmus"));
+        }
+
+        /// <summary>
+        /// The refusal as the auto-selector sees it, with the V7M triple: an active ghost, in
+        /// range, and a body term that says no. The conjunction refuses, and the reject-branch
+        /// report now NAMES the term instead of leaving `no-watchable-ghost` to be attributed by
+        /// guesswork (the finding's first mechanism claim was wrong for exactly that reason).
+        /// </summary>
+        [Fact]
+        public void AutoSelectRefusesOnTheBodyTermAndTheReportNamesIt()
+        {
+            var candidates = new List<TestCommandEnterWatchMode.WatchCandidate>
+            {
+                new TestCommandEnterWatchMode.WatchCandidate
+                {
+                    Index = 0, InScope = true,
+                    HasActiveGhost = true, OnSameBody = false, WithinVisualRange = false,
+                },
+                new TestCommandEnterWatchMode.WatchCandidate
+                {
+                    Index = 1, InScope = true,
+                    HasActiveGhost = true, OnSameBody = false, WithinVisualRange = true,
+                },
+                new TestCommandEnterWatchMode.WatchCandidate
+                {
+                    Index = 2, InScope = false,
+                },
+            };
+
+            Assert.Equal(-1, TestCommandEnterWatchMode.ResolveAutoWatchIndex(candidates));
+
+            string report = TestCommandEnterWatchMode.DescribeWatchCandidates(candidates);
+            Assert.Equal("[0 ghost=T body=F range=F],[1 ghost=T body=F range=T],[2 scope=F]", report);
+        }
+
+        [Fact]
+        public void DescribeWatchCandidates_HandlesEmptyAndNull()
+        {
+            Assert.Equal("(none)", TestCommandEnterWatchMode.DescribeWatchCandidates(null));
+            Assert.Equal("(none)", TestCommandEnterWatchMode.DescribeWatchCandidates(
+                new List<TestCommandEnterWatchMode.WatchCandidate>()));
+        }
+
+        /// <summary>
+        /// The affordance used to tell a player 144 km from their own ghost, on the SAME body,
+        /// that the ghost "is on a different body". The refusal is unchanged; the explanation is
+        /// no longer false.
+        /// </summary>
+        [Fact]
+        public void WatchButtonExplainsAnUnresolvedBodyAsNotRenderedRatherThanDifferentBody()
+        {
+            Assert.Equal("disabled (not rendered)",
+                RecordingsTableUI.GetWatchButtonReason(
+                    canWatch: false, hasGhost: true, sameBody: false, inRange: true,
+                    isDebris: false, bodyResolved: false));
+
+            Assert.Equal("disabled (different body)",
+                RecordingsTableUI.GetWatchButtonReason(
+                    canWatch: false, hasGhost: true, sameBody: false, inRange: true,
+                    isDebris: false, bodyResolved: true));
+
+            // The default keeps the historic meaning for callers that do not measure it.
+            Assert.Equal("disabled (different body)",
+                RecordingsTableUI.GetWatchButtonReason(
+                    canWatch: false, hasGhost: true, sameBody: false, inRange: true,
+                    isDebris: false));
+
+            string unresolvedTooltip = RecordingsTableUI.GetWatchButtonTooltip(
+                isWatching: false, hasGhost: true, sameBody: false, inRange: true,
+                isDebris: false, bodyResolved: false);
+            Assert.DoesNotContain("different body", unresolvedTooltip);
+            Assert.Contains("too far away to be drawn", unresolvedTooltip);
+
+            Assert.Equal("Ghost is on a different body",
+                RecordingsTableUI.GetWatchButtonTooltip(
+                    isWatching: false, hasGhost: true, sameBody: false, inRange: true,
+                    isDebris: false, bodyResolved: true));
+        }
+
+        /// <summary>
+        /// The Timeline W button reuses the table's strings, so it must carry the same split.
+        /// </summary>
+        [Fact]
+        public void TimelineWatchDescriptorCarriesTheUnresolvedBodyExplanation()
+        {
+            var descriptor = TimelineWindowUI.BuildWatchButtonDescriptor(
+                isWatching: false, hasGhost: true, sameBody: false, inRange: true,
+                isDebris: false, bodyResolved: false);
+
+            Assert.False(descriptor.CanWatch);
+            Assert.Contains("too far away to be drawn", descriptor.Tooltip);
+        }
+    }
+}
