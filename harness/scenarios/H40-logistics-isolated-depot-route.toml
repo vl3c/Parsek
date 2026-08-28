@@ -1,0 +1,312 @@
+schema = 1
+id = "H40-logistics-isolated-depot-route"
+tier = "operator"
+# =====================================================================================
+# THE ISOLATED `Logistics` BATCH AGAINST A **LIVE COMMITTED ROUTE**. The third host for
+# the same 46 admitted cells, and the only one in the suite where a real `ROUTE` node -
+# Active, GhostDriving, with four `SOURCE_REF` rows carrying `routeProofHash` values and
+# a `ROUTE_CONNECTION_WINDOWS` dock window - exists while the batch runs.
+#
+# WHAT MAKES THIS A DIFFERENT SUBJECT FROM H39, stated precisely because "another
+# recorded fixture" would not justify a boot. H38 measured the 46 cells over an EMPTY
+# store (a purpose-built pad rig, zero trees). H39 measures them over a RECORDED store
+# (two committed trees, 19 recordings, one dock window) - but `bdock-recorded` carries no
+# `ROUTE` node at all: H35's own header records that its route-owning tree cannot even
+# become a route candidate, because `RouteCandidateFinder.IsTreeFullySealed` requires
+# every recording to be `MergeState.Immutable` and two of its recordings are
+# `CommittedProvisional`, while the `SealSlot` seam verb that would seal one is RESERVED
+# (`not-implemented-v1`; see ROUTE-CANDIDACY-GATED-ON-SEAL-NO-SEAM-PATH in
+# todo-and-known-bugs.md). `depot-route-recorded` is the B27 harvest that HAS one, and it
+# is the suite's ONLY committed Active route. So the axis this lane adds is
+# ROUTE-PRESENT vs ROUTE-ABSENT, and every route-reading cell in the category
+# (`LogisticsRouteStoreRuntimeTests`, `LogisticsRouteDispatchRuntimeTests`,
+# `LogisticsRouteTreeGuardRuntimeTests`, `RouteRewindRedeliveryInGameTest`,
+# the `RouteOnMissions` trio) has, until now, only ever executed against state a test
+# forged in-body.
+#
+# -------------------------------------------------------------------------------------
+# WHAT THIS LANE DOES **NOT** BUY, DERIVED BEFORE ANY FLIGHT SO IT IS NOT DISCOVERED AS A
+# DISAPPOINTMENT. The obvious hope is that an ORBITING `Depot` - the route's own STOP
+# TARGET - finally puts a dock window on the active-as-TARGET branch and pays H38's skip
+# roster #5 and #6. IT DOES NOT, and the reason is a property of the PREDICATES plus the
+# committed bytes rather than of this host:
+#
+#   1. NONE OF THE THREE `RouteProof_*` CELLS READS `FlightGlobals.ActiveVessel`.
+#      All three are pure walks over committed windows
+#      (`LogisticsRouteProofRuntimeTests.cs:14-90`); "active-as-X" names the RECORDED
+#      role of the window, not who is flying. So which vessel this fixture makes active
+#      is irrelevant to all three.
+#        initiator : some window with TransferTargetVesselPid == Recording.VesselPersistentId
+#        target    : some window with TransferTargetVesselPid != Recording.VesselPersistentId
+#        cross-tree: the target predicate AND the target pid matching a CommittedRecordings
+#                    entry - and it `return false`s on the initiator case FIRST (`:69`)
+#   2. THIS FIXTURE'S ONE WINDOW IS ON THE INITIATOR BRANCH, measured off the bytes:
+#        owning RECORDING vesselName=Depot  vesselPersistentId=3620499050
+#        WINDOW windowId=dock-17478.248634212287-target-3620499050
+#               transferTargetPid=3620499050  transferKind=DockingPort
+#      target pid == owning recording pid, so it is the initiator case, so the target
+#      cell's strict-complement predicate finds nothing and the cross-tree cell
+#      short-circuits before its committed-partner walk.
+#   3. IT IS THE **SAME PID** AS `bdock-recorded`'s WINDOW (3620499050 in both), and that
+#      is the `persistentId` trap rather than a coincidence: KSP BAKES `persistentId`
+#      into the `.craft` and reuses it verbatim on every launch, so two vessels descended
+#      from the same stock `Kerbal X` carry the same baked pid and a dock between them
+#      lands on the initiator branch BY ARITHMETIC, whatever physically happened.
+#
+# CONSEQUENCE, and it is the transferable finding: the suite's ENTIRE committed corpus
+# contains exactly TWO `ROUTE_CONNECTION_WINDOWS` nodes, and BOTH are initiator-branch
+# for the same baked-pid reason. `RouteProof_ActiveAsTargetDockWindow_HasEndpointProof`
+# and `RouteProof_CrossTreeCommittedPartner_HasEndpointProof` are therefore a HARVEST
+# requirement, not a lane requirement: closing them needs a recorded dock between two
+# craft with DIFFERENT baked `persistentId`s. Pointing a third spec at existing bytes
+# cannot do it, and this lane is authored knowing that.
+#
+# LIKEWISE `RouteOriginProof_StartedDockedToNonKsc_ProducerLandsProof` (H38 skip #2):
+# `grep -c ROUTE_ORIGIN_PROOF` reads **0** here and 0 on `bdock-recorded`. No committed
+# mission profile in the suite starts docked to a non-PRELAUNCH partner, so there is no
+# node to land on and no host can change that.
+#
+# -------------------------------------------------------------------------------------
+# EXPECTED-SKIP HYPOTHESES - PREDICTIONS, PINNED BY NOTHING. The census refutes or
+# confirms them; that is what the flight is for.
+#   PREDICTED PASS
+#     * `RouteProof_ActiveAsInitiatorDockWindow_HasEndpointProof` - the one window is
+#       initiator-branch, so the walk finds it. Pays H38 skip #4 (as H39 also does).
+#     * `RouteOriginProof_StartedOnRunway_ProducerSkipsProof` - this save carries EIGHT
+#       `startSituation` values of which TWO read `Prelaunch`, so the producer has a
+#       PRELAUNCH-started committed recording to assert `proof=null` over. Pays H38
+#       skip #3.
+#   PREDICTED SKIP, for reasons above: the target cell, the cross-tree cell, the
+#     docked-origin producer cell.
+#   PREDICTED SKIP, host capability (the trade this fixture makes against the H38 rig):
+#     * NO BaseConverter aboard the `Depot` (`grep -c ModuleResourceConverter` = 0), so
+#       both `HarvestCapture_ConverterToggle_*` cells and
+#       `HarvestCapture_WarpToggle_RebaselinesAtRailsTransitions` - all three of which
+#       H38 measured PASSING after the f98d5477a fix - skip with the literal advice
+#       "a stock fuel cell suffices - add one to the test craft".
+#     * ONE `ModuleInventoryPart` only, so
+#       `Delivery_MultiModule_FirstContainerFullSecondReceives` skips (it needs a FIRST
+#       module it can fill and a LATER one with a slot free).
+#   THE HOST-SPECIFIC RISK, and the sharpest thing this lane can discover: the `Depot`'s
+#     LiquidFuel tank is **720 / 720 - COMPLETELY FULL, zero free capacity**, where the
+#     H38 rig was deliberately part-full and `bdock-recorded` carries 15.772 free. The
+#     loaded-path `Delivery_LoadedVessel_AppliesResourceTransfer` pre-drains the first LF
+#     tank before asserting its +5.0 top-up, so it should MAKE its own headroom and pass;
+#     any cell that checks free capacity BEFORE draining will skip. The unloaded-depot
+#     path is unaffected either way - `AdjustSnapshotLiquidFuel` rewrites the SNAPSHOT's
+#     amount AND maxAmount, so the spawned depot is shaped rather than inherited. If the
+#     census shows loaded-path skips on a free-capacity reason, THAT is the finding, and
+#     it is a product/test observation rather than a fixture complaint.
+# =====================================================================================
+description = "READING RUN: the isolated Logistics batch (46 admitted cells, 38 of them restore-after-run) over depot-route-recorded - the suite's ONLY committed Active GhostDriving route, with four SOURCE_REF routeProofHash rows and a real dock window - the first time the route-reading Logistics cells execute against a committed ROUTE node rather than one a test forged in-body."
+instanceProfile = "stock-minimal"
+tags = ["ingame-batch", "isolated-batch", "logistics", "route", "depot",
+        "recorded-fixture", "H40", "pending-flight"]
+
+[fixture]
+# `depot-route-recorded`, V18T's host: the B27 harvest, and the suite's only committed
+# Active route. MEASURED on the committed bytes:
+#   route 5420f805...  status = Active, scope SameBody (Kerbin -> Kerbin), DockingPort
+#                      STOP onto the `Depot`, recordedDockUT 17478.248634212287,
+#                      dispatchInterval 16058.001895760137, four SOURCE_REF rows each
+#                      carrying a routeProofHash, ONE ROUTE_CONNECTION_WINDOWS node,
+#                      ZERO ROUTE_ORIGIN_PROOF nodes
+#   22 committed `.prec` sidecars; a Dock AND an Undock branch point (the suite's first
+#   of each) and two multi-member chains
+#   active vessel: index 9 of 19, `Depot`, type=Ship, sit=ORBITING at ~203 x 215 km
+#   around Kerbin, 28 parts, 1 `ModuleEngines`, ONE LiquidFuel tank at 720 / 720 (FULL),
+#   one `ModuleInventoryPart`, NO BaseConverter, persistentId 3620499050. SANDBOX.
+#
+# IT DOES NOT SATISFY THE OLD `staging` FIXTURE PREDICATE, AND THAT IS CORRECT RATHER
+# THAN A WAIVER - same argument as H39's, not repeated: `Logistics` never stages (one
+# grep hit across 18 files, and it is a COMMENT about a RECORDED start situation), the
+# group test now routes each category to a NAMED capability via `FIXTURE_REQUIREMENTS`,
+# and a new positive control runs `staging` over a recorded host and requires it to be
+# REJECTED so the PRELAUNCH check cannot be deleted to make these lanes pass.
+#
+# `injectedRecordings = "none"` is REQUIRED rather than chosen: the payload is carried by
+# the TEMPLATE, and injecting on top would make the recordings count un-attributable.
+saveTemplate       = "fixtures/saves/depot-route-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+# THE KILL TRIPLE, identical to H35's and H39's and load-bearing for the same measured
+# reason: loading a RECORDED save whose own parked craft is active resumes a
+# promotion-stub recording ~1 s into the scene, BEFORE any step can run (the V-corpus
+# lesson, V2 flight 4 / V5 run 1). StopRecording is idempotent-OK and DiscardTree answers
+# OK with nothing-discarded when no plain tree is live, so the pair is safe on any entry
+# state. V18T carries the same triple over these exact bytes.
+#
+# THE STOP/LOAD RACE IS A KNOWN, QUANTIFIED FLAKE ON THIS FIXTURE and is carried here as
+# a warning rather than a fix. V18T hit `reject id=0016 cmd=LoadGame reason=recording-active`
+# on a MID-RUN LoadGame one step after a StopRecording that had answered OK - TWICE, on
+# the identical step, across two readings; `coverage/flake.json` quarantines it at rate
+# 0.50. V18T's own header notes a re-arm race behind it ("start 50.294 -> StopRecording
+# 50.599 -> a SECOND start 50.842"). This driver has NO mid-run LoadGame so it cannot hit
+# that reject, but the same race one layer down would put a live recorder under
+# `CaptureBatchBaseline`'s clean `.bak`. `retry policy = "once"` is the cover. IF a first
+# attempt dies at or around the batch start, read the log for a recorder still active
+# past the DiscardTree before concluding anything about Logistics - on this fixture that
+# is the prior, not the exception.
+#
+# NO TimeJump, deliberately, and it is the difference from V18T. That lane parks the
+# clock either side of the dock instant to observe a render moment; this one asserts
+# nothing about the render clock and wants the route in its AS-COMMITTED state, so
+# advancing time would only add a variable. It does mean the route may TICK during the
+# batch on its own cadence, which is one of the unknowns the count window below absorbs.
+#
+# verboseLogging=true is REQUIRED, not cosmetic: the per-test PASSED / SKIPPED lines are
+# Verbose and the CENSUS is the entire product of a reading run.
+#
+# The 540 s RunTests budget is `hlib.MAX_DEFERRED_STEP_BUDGET_SECONDS`, the cap.
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                    expect = "OK" },
+  { cmd = "DiscardTree",                                                      expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" },  expect = "OK" },
+  { cmd = "RunTests",   args = { category = "Logistics", isolated = "true" }, expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit",                                                     expect = "OK" },
+]
+
+[dimensionsCovered]
+# HONEST AND MINIMAL - the boot facts only, both riding the loadgame token below.
+#
+# NO D10 VALUE IS CLAIMED, and the temptation is stronger here than anywhere: this is the
+# only host with a committed Active route, and `docked-depot-origin`, `route-map-lines`
+# and `multi-stop` all sit in the registry with few or no declarers. CLAIM-IS-NOT-GATE
+# settles it - a value is declarable only when a REQUIRED token would red if the
+# behaviour stopped, and this spec pins no cell token until the census says which cells
+# execute. `route-map-lines` is V18T's already and is earned by a RENDER facet this lane
+# does not export. The first post-reading commit is where any claim here is earned.
+D14 = ["sandbox", "scene-flight"]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING (the H7 lesson): run.py reads
+# `expectations.allowedAnomalies`, and a bare key after an `[expectations.<sub>]` header
+# is TOML-scoped to that sub-table and never read. No tracer is armed here, so the empty
+# list is honest - and note V18T arms three tracers on this fixture, which this lane
+# deliberately does not: no render facet is asserted.
+allowedAnomalies = []
+
+[expectations.recordings]
+# A READING WINDOW, inherited from the only committed lane that has flown these bytes.
+# V18T pins `{20, 30}` over the same 22 staged sidecars and states the reasoning this
+# lane adopts: the floor sits BELOW the fixture's own 22 as MARGIN FOR THE UNKNOWN rather
+# than as a prediction that something merges, and "a reading BELOW 22 is to be
+# INVESTIGATED, not window-widened".
+#
+# WHY THAT MATTERS MORE HERE THAN ANYWHERE ELSE, in V18T's words and they apply verbatim:
+# a load-time optimizer merge or split landing on any of the FOUR ROUTE SOURCE recordings
+# moves a `startUT` / `endUT` and flips the route to `SourceChanged` - "the one failure
+# mode that would make this lane green and empty at the same time". This save presents
+# `SplitAtUT` and `CanAutoMerge` with candidate populations no prior fixture did (a Dock
+# and an Undock branch point, two multi-member chains), and the optimizer has never been
+# observed on these bytes.
+#
+# THE CEILING IS RAISED 30 -> 35 against V18T's, for one reason V18T does not have: 38
+# restore-flagged cells build real trees mid-run, and whether the per-test baseline
+# restore plus the batch teardown revert reaps every one of them from DISK (the `.bak`
+# revert covers `persistent.sfs`; `.prec` sidecars live beside it) is unmeasured. That is
+# what a reading window is for. Narrow to the measured value and leave INTERIM_PIN_IDS
+# in the same commit.
+count = { min = 20, max = 35 }
+
+[expectations.logContracts]
+# EVIDENCE STANDING: NOT FLOWN. Every number is ATTRIBUTE-derived or MEASURED BY V18T ON
+# THIS FIXTURE; nothing is measured for THIS lane, and the tally split is left open.
+#
+# ---------------------------------------------------------------------------------
+# DERIVED, NOT GUESSED:
+#   hlib.derive_batch_tally(decls, "Logistics", "FLIGHT", isolated=True)
+#     -> total=47  scene_skipped=1  batch_skipped=0  executable=46
+#   hlib.derive_batch_tally(decls, "Logistics", "FLIGHT")
+#     -> total=47  scene_skipped=1  batch_skipped=38 executable=8
+# The derivation is ATTRIBUTE-level and therefore HOST-INDEPENDENT: H34, H35, H38, H39
+# and this lane all pin `total=47`, and adding one Logistics `[InGameTest]` moves all
+# five in the same commit. `CommittedBatchTallySourceSyncTests` reds locally when it does.
+#
+#  - total=47 is ATTRIBUTE-EXACT: 47 `[InGameTest(Category = "Logistics")]` declarations
+#    across 18 files. BATCH_COMPLETE's `total` counts FILTERED tests too.
+#  - The ATTRIBUTE FLOOR for `skipped` is 1 (the one SPACECENTER cell H34 owns). On the
+#    ISOLATED path NOTHING is batch-skipped, because all 38 batch-disabled Logistics
+#    declarations carry the restore flag - which is why the baseline-slot literal is 38.
+#  - passed / skipped are LEFT OPEN. The predictions are rostered in the header as
+#    hypotheses; pinning a guessed split would either red on a correct run or be widened
+#    afterwards until it accepted anything.
+#  - THE OPEN FORM IS `passed=(?:9|[1-9][0-9]+)`, i.e. passed >= 9, and NOT the usual
+#    `passed=[1-9][0-9]*`. The ceiling it rests on is attribute-level and host-independent:
+#    the ORDINARY path admits 8 Logistics declarations at FLIGHT, so a run that silently
+#    lost, ignored or misspelled the isolated arg prints a line with passed <= 8, and the
+#    plain interim spelling MATCHES `passed=8`. `passed >= 9` is exactly "more tests
+#    passed than the ordinary filter could even admit"; `IsolatedBatchWiringGroupTests`
+#    sweeps the whole 0..8 range and requires the pin to reject all of it.
+#    `skipped=[0-9]+` stays open - with `total` and `passed` constrained it carries no
+#    discrimination of its own.
+#  - failed=0 is the ASSERTION. H38's run 1 is the worked example of why a reading run
+#    still gates it: it red on `failed=2` and produced one product defect and two test
+#    defects.
+#  - scene=FLIGHT is the fixture's Focusable route (V18T's FLIGHT prelude proves it boots
+#    there with no `scene=` argument) and is the B10 fail-open guard; the `loadgame
+#    complete` token pins the same fact one layer earlier, where a KSC boot is legible as
+#    a boot fault rather than as a tally.
+#
+# THE ROUTE ANTI-VACUITY TOKEN, and it is what makes this lane's subject non-optional.
+# `RevalidateSources reason=.* routes=1 transitioned=0` is emitted at Info by
+# `RouteStore.RevalidateSources` (`RouteStore.cs:1487`), called from
+# `ParsekScenario.OnLoad` (`:3792`) on every load - so it is scene-independent and fires
+# on this driver's FLIGHT boot. V18T pins the identical pattern and MEASURED it on both
+# of its readings over these bytes. `routes=1` proves the committed route survived the
+# load as a route at all, and `transitioned=0` proves that pass did not flip it to
+# `SourceChanged` / `MissingSourceRecording` / `EndpointLost` under the load-time
+# optimizer. Without it a run in which the route was eaten on load reads exactly like a
+# run in which every route cell simply had nothing to say.
+#
+# ITS LIMIT, STATED RATHER THAN OVERSOLD: `transitioned` counts routes that CHANGED state
+# in THAT pass, and the isolated batch reloads the save once per restore-flagged test, so
+# a route flipped on the FIRST load would report `transitioned=0` on all the later ones
+# and the token would still match. The complement would be a `forbidden` on the
+# `Route <id> Active->SourceChanged` transition line - and it is deliberately NOT added,
+# because `LogisticsRouteDispatchRuntimeTests` exists precisely to drive
+# `RevalidateSources` into flipping a route it forged in-body, so forbidding that line
+# would red a correct run. The honest reading is: this token is a necessary condition,
+# not a sufficient one, and the census plus the recordings floor above are what close the
+# gap on a first flight.
+#
+# NO CELL TOKENS ARE PINNED, deliberately - not even the two the header predicts will
+# pass. Both predictions rest on H35's measurements on a DIFFERENT fixture and on this
+# fixture's bytes, never on a run of this lane, and the isolated path interleaves 38
+# per-test quickload restores between the cells. Whether a restore-flagged cell can
+# perturb a later read-side walk is exactly the question a first census answers.
+required  = [
+  "loadgame complete scene=FLIGHT save=.* game-loaded=true expected=Flight",
+  "RevalidateSources reason=.* routes=1 transitioned=0",
+  "runtests start category=Logistics isolated=true",
+  "Using batch baseline slot .* for 38 restore-after-run test\\(s\\)",
+  "BATCH_COMPLETE v1 total=47 passed=(?:9|[1-9][0-9]+) failed=0 skipped=[0-9]+ category=Logistics scene=FLIGHT",
+]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+[runtime]
+# Budget arithmetic (M-A5 S8): every deferred seam verb gets
+# `required_step_wait(max(step budget, SEAM_FALLBACK_DEFERRAL_SECONDS=600))` = 660 s, and
+# BOTH LoadGame and RunTests are deferred, so the worst case is 660 + 660 = 1320. 1400
+# clears it.
+#
+# This is the heaviest of the three Logistics isolated hosts and the headroom is the
+# point. H38 measured 250 s wall over the same 46 cells on a 6-part rig with an empty
+# store; this LoadGame restores 22 recordings, two multi-member chains, a Dock and an
+# Undock branch point AND a live route into a FLIGHT scene, and then all 38
+# restore-flagged cells quickload that scene again. A slow or wedged restore is the
+# plausible failure, and a KILLED run prints NO tally - which on a reading run destroys
+# the flight's entire product. If the first flight measures a wall near 1400, raise THIS
+# number rather than the step budgets, which are already at the deferred cap.
+budgetSeconds = 1400
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

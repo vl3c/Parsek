@@ -68,6 +68,24 @@ All notable changes to Parsek are documented here.
   a way the total alone could look healthy while something had gone quiet: the
   harvesting fix, and the test that used to give up in silence.
   Test-tooling only; no gameplay change, and nothing ships with the mod.
+- Two more automated runs of that same set of supply-route tests, this time over
+  saved games that already contain flight history - because the purpose-built
+  launchpad rocket has none, so everything those tests have concluded so far was
+  concluded against a game with no recorded flights in it at all. One of the two
+  runs uses a save holding a real recorded docking; the other uses the only saved
+  game that carries a live supply route, so the tests that read route data will
+  finally read a real one instead of one they had to invent for themselves.
+  Neither has been flown yet, and both are written in the same deliberately
+  modest form the first one was. Reading the tests before writing the runs also
+  settled something worth writing down: three of the tests that were expected to
+  come alive on these saves still cannot, and not for want of the right save.
+  They look for a docking between two craft the game can tell apart by an
+  identifier it stamps into the craft file itself - and both recorded dockings we
+  have are between craft built from the same stock rocket, which therefore share
+  that stamp. No amount of choosing a different save fixes that. It needs a fresh
+  recording of two genuinely different craft docking, which is now written down
+  as a requirement rather than left as a surprise for a future run.
+  Test-tooling only; no gameplay change, and nothing ships with the mod.
 - The ghost appear/disappear checker from the "watch your old launch" test is
   now enforcing rather than just reporting: it was re-flown twice with the gate
   live (both green) and once with a deliberately impossible expectation (which

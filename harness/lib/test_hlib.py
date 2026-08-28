@@ -3582,8 +3582,17 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
         # FLIGHT filter admits, while the other 38 are AllowBatchExecution = false +
         # RestoreBatchFlightBaselineAfterExecution = true and were reachable by no
         # unattended path at all. Isolated executable at FLIGHT is 46 vs the ordinary
-        # 8. NOT FLOWN - see INTERIM_PIN_IDS below.
+        # 8. FLOWN TWICE 2026-08-28 and PINNED WHOLE.
         "H38-logistics-isolated": ("Logistics", 47),
+        # The SAME category on TWO RECORDED hosts, and the reason there are
+        # three Logistics members rather than one: the tally is derived PER
+        # MEMBER from (category, scene), but the run-time split is a FIXTURE
+        # property, and these two hosts carry recorded state `logi-cargo-pad`
+        # cannot. H38 measured seven run-time skips and named five of them as
+        # ONE debt - a dock-window / origin-proof RECORDED subject - which is
+        # exactly what these two answer. Both NOT FLOWN; see INTERIM_PIN_IDS.
+        "H39-logistics-isolated-bdock": ("Logistics", 47),
+        "H40-logistics-isolated-depot-route": ("Logistics", 47),
     }
 
     # Members whose category is only PARTLY batch-disabled, i.e. the ordinary path
@@ -3600,8 +3609,13 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
     # H38 joins for the same reason with a wider margin: at FLIGHT the ordinary
     # filter admits 8 `Logistics` declarations (which H35 already flies) and the
     # isolated one admits 46, so the arg buys 38 real cells.
+    # H39 and H40 join on the identical arithmetic - the derivation is
+    # attribute-level, so it is the same 8-vs-46 for every Logistics member
+    # regardless of which host it boots.
     PARTLY_BATCH_DISABLED_IDS = {"R7a-rewind-session-absent",
-                                 "H38-logistics-isolated"}
+                                 "H38-logistics-isolated",
+                                 "H39-logistics-isolated-bdock",
+                                 "H40-logistics-isolated-depot-route"}
 
     # Members whose tally split has NOT been measured yet, mirroring
     # IngameBatchWiringGroupTests.INTERIM_PIN_IDS for the isolated family. A member
@@ -3647,7 +3661,21 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
     #
     # It must stay a set LITERAL of ids (or a `set()` call when empty, never a `{}`
     # literal, which would be an empty DICT and make every membership read False).
-    INTERIM_PIN_IDS: set = set()
+    #
+    # AND BACK TO TWO ON 2026-08-28, in the same wave, for the two RECORDED-host
+    # Logistics lanes `H39-logistics-isolated-bdock` and
+    # `H40-logistics-isolated-depot-route`. They are interim for a DIFFERENT reason
+    # than H38 was, and the difference decides what their first flights mean. H38's
+    # unknown was whether a purpose-BUILT craft satisfied five preconditions - a
+    # property of a file this repo authors. Theirs is what a RECORDED CORPUS happens
+    # to CONTAIN: which dock windows exist and on which branch, which committed
+    # recordings started in PRELAUNCH, whether a committed route survives the
+    # load-time optimizer. No attribute, no craft property and no amount of reading
+    # the .sfs settles a run-time `InGameAssert.Skip` that walks committed trees.
+    # Both carry an expected-skip HYPOTHESIS in their headers, written as predictions
+    # and deliberately NOT as pins, precisely so the first census can refute them.
+    INTERIM_PIN_IDS = {"H39-logistics-isolated-bdock",
+                       "H40-logistics-isolated-depot-route"}
 
     # id -> measured `skipped=` for members whose RUN-TIME InGameAssert.Skip guards
     # push the split above the attribute-derived floor. The attributes give a FLOOR
@@ -4011,35 +4039,124 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
                 self.assertIsNotNone(parsed, sid)
                 self.assertEqual(parsed.category, category)
 
-    @staticmethod
-    def _fixture_flight_problems(sfs_path):
-        """Why ``sfs_path``'s ACTIVE vessel cannot fly a staging test. Empty = fine.
+    # category -> the NAMED CAPABILITY its cells need of the host's ACTIVE vessel.
+    #
+    # GENERALISED-BY-H39/H40, and the same shape as the two GENERALISED-BY-R7A moves
+    # above: a property that happened to be true of every member so far had been
+    # written as if it were the group's invariant. Here it was `sit = PRELAUNCH` plus
+    # at least one `ModuleEngines`, which is the STAGING requirement and nothing else.
+    # It exists because H21's `SceneExitMerge` cells call
+    # `StageManager.ActivateNextStage()` and then wait for the vessel to leave
+    # PRELAUNCH and clear 80 m, so an engineless or already-flying host makes both
+    # cells self-skip and print the all-skipped tally the isolated arg exists to rule
+    # out.
+    #
+    # `Logistics` DOES NOT STAGE, and that is a MEASURED fact about the source rather
+    # than a convenience. A grep for `ActivateNextStage`, `Situations.PRELAUNCH`,
+    # `WaitForRecordingToLeavePrelaunch` and `ClassifyLaunchWaitTimeout` across all 18
+    # `Logistics` test files plus the helper they share returns exactly ONE hit, and
+    # it is a COMMENT about a RECORDED start situation
+    # (`LogisticsRouteProducerRuntimeTests.cs:165`, quoting
+    # `VesselSpawner.HumanizeSituation(Vessel.Situations.PRELAUNCH)` to explain what a
+    # committed recording's `startSituation` field holds). Not one Logistics cell
+    # stages, and not one reads the LIVE situation. `UnloadedFuelVesselFixture`'s own
+    # docstring says a "fueled PRELAUNCH pad rocket satisfies them after the unpack
+    # wait" - a SUFFICIENT condition offered as an example, never a necessary one, and
+    # reading it as necessary is what encoded PRELAUNCH here in the first place.
+    #
+    # WHAT LOGISTICS ACTUALLY NEEDS is the capability that helper's own failure path
+    # names. `EnsureUnloadedLiquidFuelVessel` snapshots the ACTIVE vessel with
+    # `VesselSpawner.TryBackupSnapshot`, rewrites the snapshot's FIRST LiquidFuel tank
+    # to the required stored / free floors and re-spawns it as the unloaded depot - so
+    # with no LiquidFuel RESOURCE node on the active vessel it returns
+    # `reason = "no-liquidfuel-resource"` and every unloaded-depot cell skips. That is
+    # the Logistics analogue of H21's engineless host: the same failure mode, the same
+    # tally that is indistinguishable from a broken isolated arg, a different missing
+    # capability.
+    #
+    # FAIL-CLOSED BY DESIGN - there is NO default. A new isolated member whose
+    # category is absent from this table reds by name rather than silently inheriting
+    # a requirement that may not fit it, which is precisely the mistake this
+    # generalisation is correcting.
+    FIXTURE_REQUIREMENTS = {
+        # Both cells stage and then wait to clear 80 m.
+        "SceneExitMerge": "staging",
+        # CaptureRPOnStaging / SavePathRootThenMove / WarpZeroedDuringSave stage the
+        # active vessel to force a separation, so R7a's host genuinely owes PRELAUNCH
+        # + engines and keeps the original requirement, unchanged and unweakened.
+        "Rewind": "staging",
+        # See the derivation above: never stages, needs a snapshottable active vessel
+        # carrying shapeable LiquidFuel.
+        "Logistics": "logistics",
+    }
 
-        ONE implementation, used by both the real cell and the positive control
-        below. Duplicating the checks instead left the engine floor weakenable to
-        ">= 0" with the control still green, because the control was only asserting
-        properties OF the control fixture rather than running the predicate ON it.
-        """
-        problems = []
+    @staticmethod
+    def _active_vessel_block(sfs_path):
+        """``(block, index)`` for the save's ACTIVE vessel, or ``(None, reason)``."""
         with open(sfs_path, encoding="utf-8", errors="replace") as fh:
             body = fh.read()
         active = re.search(r"activeVessel = (\d+)", body)
         if active is None:
-            return ["no activeVessel declared"]
+            return None, "no activeVessel declared"
         idx = int(active.group(1))
         blocks = re.split(r"^\s*VESSEL\s*$", body, flags=re.M)[1:]
         if len(blocks) <= idx:
-            return ["activeVessel=%d but only %d VESSEL nodes" % (idx, len(blocks))]
+            return None, ("activeVessel=%d but only %d VESSEL nodes"
+                          % (idx, len(blocks)))
         # Scoped to the ACTIVE vessel, not the whole file: a fixture with an
         # engine-bearing ORBITER and an engineless PRELAUNCH active vessel passes a
-        # file-wide substring check while producing exactly the all-skipped tally
-        # this predicate exists to prevent. b2-lko-craft really does carry two.
-        vessel = blocks[idx]
-        if "sit = PRELAUNCH" not in vessel:
-            problems.append("active vessel (index %d) is not PRELAUNCH" % idx)
-        if vessel.count("name = ModuleEngines") < 1:
-            problems.append("active vessel (index %d) carries NO ModuleEngines" % idx)
-        return problems
+        # file-wide substring check while producing exactly the all-skipped tally this
+        # predicate exists to prevent. b2-lko-craft really does carry two.
+        return blocks[idx], idx
+
+    @classmethod
+    def _fixture_flight_problems(cls, sfs_path, requirement="staging"):
+        """Why ``sfs_path``'s ACTIVE vessel cannot fly ``requirement``'s cells.
+
+        Empty list = fine. ONE implementation per requirement, used by BOTH the real
+        cell and the positive controls below. Duplicating the checks instead left the
+        engine floor weakenable to ">= 0" with the control still green, because the
+        control was only asserting properties OF the control fixture rather than
+        running the predicate ON it - and that argument is exactly why each control
+        below runs a NAMED requirement over a fixture known to be wrong FOR THAT
+        requirement, rather than over a fixture that is merely wrong for something.
+        """
+        vessel, idx = cls._active_vessel_block(sfs_path)
+        if vessel is None:
+            return [idx]
+        problems = []
+        if requirement == "staging":
+            if "sit = PRELAUNCH" not in vessel:
+                problems.append("active vessel (index %d) is not PRELAUNCH" % idx)
+            if vessel.count("name = ModuleEngines") < 1:
+                problems.append(
+                    "active vessel (index %d) carries NO ModuleEngines" % idx)
+            return problems
+        if requirement == "logistics":
+            # (a) A real craft to snapshot. `VesselSpawner.TryBackupSnapshot` has
+            #     nothing to copy off a part-less VESSEL node - an asteroid /
+            #     SpaceObject is the realistic way a fixture lands here, and
+            #     `logi-cargo-pad` really does carry one as its OTHER vessel - and
+            #     every unloaded-depot cell then skips.
+            if not re.search(r"^\t\t\tPART\s*$", vessel, flags=re.M):
+                problems.append(
+                    "active vessel (index %d) declares no PART nodes - there is "
+                    "nothing for TryBackupSnapshot to copy" % idx)
+            # (b) The capability the helper's own skip reason names. A RESOURCE node
+            #     with maxAmount = 0 is not a tank the snapshot rewrite can shape, so
+            #     the floor is POSITIVE CAPACITY rather than mere presence of the
+            #     string - a presence check would pass on a drained placeholder.
+            tanks = re.findall(
+                r"name = LiquidFuel\s*\n\s*amount = [0-9.eE+-]+"
+                r"\s*\n\s*maxAmount = ([0-9.eE+-]+)", vessel)
+            if not any(float(m) > 0.0 for m in tanks):
+                problems.append(
+                    "active vessel (index %d) carries NO LiquidFuel RESOURCE node "
+                    "with positive maxAmount - UnloadedFuelVesselFixture returns "
+                    "reason=no-liquidfuel-resource and every unloaded-depot cell "
+                    "skips" % idx)
+            return problems
+        return ["unknown fixture requirement %r" % requirement]
 
     def test_each_pins_an_isolated_path_only_proof_token(self):
         # The tally alone cannot distinguish "the isolated route ran" from "the
@@ -4098,39 +4215,175 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
                 self.assertIn("runtests start category=%s isolated=true" % category, req,
                               "%s must pin the seam's own isolated echo" % sid)
 
-    def test_each_pins_a_zero_recordings_count(self):
-        # For an isolated spec this doubles as the CAMPAIGN-ISOLATION assertion: the
-        # tests create real trees mid-run and the batch teardown reverts
-        # persistent.sfs from the pre-batch .bak, so a non-zero count means the
-        # restore contract did not hold - the property R5 is betting on.
+    def test_each_pins_the_recordings_count_its_fixture_implies(self):
+        # For an isolated spec the recordings pin doubles as the CAMPAIGN-ISOLATION
+        # assertion: the tests create real trees mid-run and the batch teardown
+        # reverts persistent.sfs from the pre-batch .bak, so a produced count that
+        # does not match the STAGED one means the restore contract did not hold -
+        # the property R5 is betting on.
+        #
+        # GENERALISED-BY-H39/H40, and this one had the SAME shape of error as the
+        # fixture predicate. It read `injectedRecordings == "none"` -> the produced
+        # save must carry ZERO recordings, which conflates "injects nothing" with
+        # "starts with nothing". True of H21 (b2-lko-craft), R7a (career-pad-craft)
+        # and H38 (logi-cargo-pad), all of which stage an empty corpus. NOT true of a
+        # RECORDED-fixture host: `bdock-recorded` stages 19 `.prec` sidecars and
+        # `depot-route-recorded` 22, carried by the TEMPLATE rather than injected -
+        # which is exactly why `injectedRecordings` must stay "none" for them (an
+        # injected corpus on top would make the count un-attributable, the same rule
+        # `IngameBatchWiringGroupTests` states for H35). Pinning {0, 0} there would
+        # assert the batch DESTROYED the committed corpus.
+        #
+        # So the discriminator is the TEMPLATE's staged sidecar count, read off disk,
+        # not the injection field - and both branches keep a real assertion.
         for sid, spec in sorted(self.specs.items()):
             with self.subTest(spec=sid):
                 fixture = spec.get("fixture", {}) or {}
                 count = ((spec.get("expectations", {}) or {})
                          .get("recordings", {}) or {}).get("count", {}) or {}
-                if fixture.get("injectedRecordings") == "none":
+                template = fixture.get("saveTemplate", "")
+                self.assertTrue(template.startswith("fixtures/saves/"), sid)
+                rec_dir = os.path.join(HARNESS_ROOT,
+                                       template.replace("/", os.sep),
+                                       "Parsek", "Recordings")
+                staged = ([f for f in os.listdir(rec_dir) if f.endswith(".prec")]
+                          if os.path.isdir(rec_dir) else [])
+                if not staged:
+                    self.assertEqual("none", fixture.get("injectedRecordings"), sid)
                     self.assertEqual(
                         {"min": 0, "max": 0}, count,
-                        "%s injects nothing, so the produced save must carry no "
-                        "recordings; a window here would accept a leaked tree or a "
-                        "failed baseline revert" % sid)
-                else:
-                    self.assertGreater(count.get("min", 0), 0, sid)
+                        "%s stages an EMPTY corpus and injects nothing, so the "
+                        "produced save must carry no recordings; a window here would "
+                        "accept a leaked tree or a failed baseline revert" % sid)
+                    continue
+                # RECORDED host. Injection must stay off, or the pinned count cannot
+                # be attributed to the template.
+                self.assertEqual(
+                    "none", fixture.get("injectedRecordings"),
+                    "%s carries its payload in the TEMPLATE; injecting on top would "
+                    "make the pinned count un-attributable" % sid)
+                self.assertGreater(
+                    count.get("min", 0), 0,
+                    "%s stages %d .prec sidecar(s) and its whole premise is that the "
+                    "batch walks recorded state - a floor of 0 would accept a run "
+                    "that destroyed the corpus" % (sid, len(staged)))
+                self.assertGreaterEqual(
+                    count.get("max", 0), len(staged),
+                    "%s pins count=%s but its template stages %d .prec files, so the "
+                    "window cannot even contain the staged set and the spec reds on "
+                    "a correct run" % (sid, count, len(staged)))
+                if sid in self.INTERIM_PIN_IDS:
+                    # A reading run may declare a WINDOW: the load-time optimizer's
+                    # behaviour on a corpus nobody has batched over is a measurement,
+                    # and V18T pins {20, 30} over 22 staged on exactly that argument.
+                    # The floor above still forbids the vacuous {0, N}.
+                    continue
+                self.assertEqual(
+                    count.get("min"), count.get("max"),
+                    "%s has FLOWN, so it must pin its count EXACTLY (min == max): a "
+                    "range cannot tell a load-time optimizer split from a leaked "
+                    "promotion stub. Widen only by leaving INTERIM_PIN_IDS behind, "
+                    "never by re-opening a measured window" % sid)
 
-    def test_the_fixture_predicate_rejects_the_known_engineless_host(self):
-        # POSITIVE CONTROL: run the predicate ON the known-bad fixture and require
-        # it to complain. Without this, weakening the engine floor makes the real
-        # cell vacuous and nothing notices. gloops-airshow is the 14 ordinary
-        # H-specs' host and its active vessel is a 1-part engineless mk1-capsule.
-        problems = self._fixture_flight_problems(
-            os.path.join(HARNESS_ROOT, "fixtures/saves/gloops-airshow/persistent.sfs"))
+    # fixture -> the token each requirement's rejection message must carry when run
+    # over a host that is KNOWN-WRONG for it. One row per (requirement, failure
+    # mode), so a weakened check makes the real cell vacuous and this one reds.
+    #
+    # WHY EVERY ROW NAMES A TOKEN rather than just asserting non-empty: the original
+    # control asserted only that gloops-airshow produced SOME complaint, which a
+    # predicate that had lost its engine floor entirely would still satisfy via the
+    # PRELAUNCH check on a different host. Requiring the specific token pins WHICH
+    # check fired.
+    FIXTURE_PREDICATE_CONTROLS = (
+        # STAGING, missing engines. gloops-airshow is the 14 ordinary H-specs' host
+        # and its active vessel is a 1-part engineless mk1-capsule; both
+        # SceneExitMerge cells self-skip there and the batch prints the all-skipped
+        # tally the isolated arg exists to rule out.
+        ("staging", "gloops-airshow", "ModuleEngines"),
+        # STAGING, already flying. THE ROW THAT PROVES THE GENERALISATION DID NOT
+        # QUIETLY DELETE THE PRELAUNCH CHECK - `bdock-recorded`'s active vessel is an
+        # ORBITING Kerbal X WITH an engine, so it clears the engine floor and must
+        # still be rejected for staging. Without this row, dropping the PRELAUNCH
+        # branch to "make the new lanes pass" would go unnoticed, which is the single
+        # most likely way to get this change wrong.
+        ("staging", "bdock-recorded", "PRELAUNCH"),
+        # LOGISTICS, no fuel. gloops-airshow again, and it is wrong for BOTH
+        # requirements for DIFFERENT stated reasons: its 1-part mk1-capsule carries no
+        # LiquidFuel RESOURCE node at all, so `UnloadedFuelVesselFixture` returns
+        # `reason = no-liquidfuel-resource` and every unloaded-depot cell skips - the
+        # exact Logistics analogue of the engineless case.
+        ("logistics", "gloops-airshow", "LiquidFuel"),
+    )
+
+    def test_each_requirement_rejects_a_host_that_is_wrong_for_it(self):
+        # POSITIVE CONTROLS: run each NAMED requirement ON a host known to be wrong
+        # FOR THAT requirement and require it to complain, with the right token.
+        # Without these, weakening a floor makes the real cell vacuous and nothing
+        # notices.
+        for requirement, fixture, token in self.FIXTURE_PREDICATE_CONTROLS:
+            with self.subTest(requirement=requirement, fixture=fixture):
+                problems = self._fixture_flight_problems(
+                    os.path.join(HARNESS_ROOT, "fixtures", "saves", fixture,
+                                 "persistent.sfs"),
+                    requirement)
+                self.assertNotEqual(
+                    [], problems,
+                    "the %r requirement must REJECT %s. If this passes, that "
+                    "requirement has been weakened into a tautology and the real "
+                    "cell can no longer catch the fixture trap"
+                    % (requirement, fixture))
+                self.assertTrue(
+                    any(token in prob for prob in problems),
+                    "the %r requirement rejected %s, but not for the %s reason this "
+                    "control exists to pin: %s"
+                    % (requirement, fixture, token, problems))
+
+    def test_the_requirement_classes_are_not_interchangeable(self):
+        # The OTHER direction, and it is what keeps FIXTURE_REQUIREMENTS meaningful:
+        # if both requirements resolved to the same predicate the table would be
+        # decoration, every control above would still pass, and routing `Logistics`
+        # to `logistics` would buy nothing. Proven by CONSTRUCTION on a host that is
+        # ACCEPTABLE under one and REJECTED under the other.
+        sfs = os.path.join(HARNESS_ROOT, "fixtures", "saves", "bdock-recorded",
+                           "persistent.sfs")
         self.assertNotEqual(
-            [], problems,
-            "the fixture predicate must REJECT gloops-airshow - its active vessel is "
-            "engineless, so a staging test self-skips there and the batch prints the "
-            "same all-skipped tally the isolated arg exists to rule out. If this "
-            "passes, the predicate has been weakened into a tautology")
-        self.assertTrue(any("ModuleEngines" in p for p in problems), problems)
+            [], self._fixture_flight_problems(sfs, "staging"),
+            "bdock-recorded's active vessel is ORBITING and must fail `staging`")
+        self.assertEqual(
+            [], self._fixture_flight_problems(sfs, "logistics"),
+            "bdock-recorded's active vessel is a 28-part Kerbal X carrying a "
+            "LiquidFuel tank, so it must PASS `logistics` - if it does not, the "
+            "logistics requirement has inherited the staging one")
+
+    def test_an_unknown_requirement_fails_closed(self):
+        # FAIL-CLOSED: a typo in FIXTURE_REQUIREMENTS, or a category routed to a
+        # requirement nobody implemented, must red rather than return "no problems"
+        # and silently pass every fixture.
+        problems = self._fixture_flight_problems(
+            os.path.join(HARNESS_ROOT, "fixtures", "saves", "logi-cargo-pad",
+                         "persistent.sfs"),
+            "no-such-requirement")
+        self.assertNotEqual([], problems)
+        self.assertTrue(any("unknown fixture requirement" in p for p in problems),
+                        problems)
+
+    def test_every_member_category_declares_a_fixture_requirement(self):
+        # The table is fail-closed only if something checks it is TOTAL over the
+        # group. A member whose category is missing would otherwise KeyError deep
+        # inside the real cell with no explanation.
+        missing = sorted({self.GROUP[sid][0] for sid in self.GROUP}
+                         - set(self.FIXTURE_REQUIREMENTS))
+        self.assertEqual(
+            [], missing,
+            "these isolated-group categories declare no entry in "
+            "FIXTURE_REQUIREMENTS, so nobody has stated what their cells need of a "
+            "host: %s. Read the category's bodies and add a row - do NOT default it "
+            "to `staging`, which is a specific claim about StageManager" % missing)
+        unknown = sorted(set(self.FIXTURE_REQUIREMENTS.values())
+                         - {"staging", "logistics"})
+        self.assertEqual([], unknown,
+                         "FIXTURE_REQUIREMENTS names requirement(s) with no "
+                         "implementation in _fixture_flight_problems: %s" % unknown)
 
     def test_the_budget_clears_the_deferred_worst_case(self):
         # An isolated batch's plausible failure is a slow or wedged quickload, and a
@@ -4167,8 +4420,18 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
         # failure this spec exists to rule out, and therefore the single most
         # expensive way to get R5 wrong.
         #
-        # This cannot prove the craft has the TWR to clear 80 m in 30 s (only a live
-        # run does that, and H21 has), but it catches the engineless case statically.
+        # The requirement is now looked up PER CATEGORY (FIXTURE_REQUIREMENTS) rather
+        # than assumed to be staging - see that table for why, and note the check is
+        # not thereby weaker: the staging categories are held to exactly the same two
+        # conditions as before, and `Logistics` is held to the capability ITS helper's
+        # skip reason names instead of one no Logistics cell reads.
+        #
+        # WHAT IT STILL CANNOT PROVE, unchanged: a live property. It cannot show the
+        # craft has the TWR to clear 80 m in 30 s (only a run does that, and H21 has),
+        # and it cannot show a Logistics host's tank can be shaped to the live
+        # stored / free floors or that its corpus contains the dock windows a
+        # read-side cell wants. Those are the reading runs' job, which is why H39 and
+        # H40 carry expected-skip hypotheses rather than pins.
         for sid, spec in sorted(self.specs.items()):
             with self.subTest(spec=sid):
                 template = (spec.get("fixture", {}) or {}).get("saveTemplate", "")
@@ -4176,9 +4439,11 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
                 self.assertTrue(os.path.isfile(sfs),
                                 "%s names fixture %r but %s does not exist"
                                 % (sid, template, sfs))
+                requirement = self.FIXTURE_REQUIREMENTS[self.GROUP[sid][0]]
                 self.assertEqual(
-                    [], self._fixture_flight_problems(sfs),
-                    "%s's fixture %s cannot fly this category" % (sid, template))
+                    [], self._fixture_flight_problems(sfs, requirement),
+                    "%s's fixture %s cannot fly this category under the %r "
+                    "requirement" % (sid, template, requirement))
 
 
 class IsolatedAutorunEnvWiringTests(unittest.TestCase):
@@ -5367,6 +5632,16 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # name the planned H39 bdock-recorded dock-window lane, which is a separate
         # spec's scope rather than a debt this tag can carry.
         "H38-logistics-isolated.toml":      "FLOWN 2x 2026-08-28 (reading run found 1 product + 2 test defects, fixed at f98d5477a; run 2 PASS attempt 1) and PINNED WHOLE; confirm runs then the operator -> daily PROMOTION call are what remain, not debt",
+        # H39 / H40, tier=operator because they have NOT FLOWN - the same
+        # disposition H38 carried before its reading run, and the debt is a
+        # FLIGHT rather than a human call, carried by the `pending-flight` tag.
+        # `pending-operator` would be the WRONG tag for both: nothing is waiting
+        # on a person. Re-classify to the H34/H35/H38 shape (an open operator ->
+        # daily PROMOTION call) once each has flown, its census measured, its
+        # tally pinned whole and its id removed from
+        # IsolatedBatchWiringGroupTests.INTERIM_PIN_IDS.
+        "H39-logistics-isolated-bdock.toml": "tier=operator because it is a READING RUN that has not flown; debt is a flight, carried by the pending-flight tag - the same disposition H38 carried pre-flight",
+        "H40-logistics-isolated-depot-route.toml": "tier=operator because it is a READING RUN that has not flown; debt is a flight, carried by the pending-flight tag - the same disposition H38 carried pre-flight",
         # tier=operator by the CALIBRATION DISCIPLINE, the whole B18-B26 family's
         # tier, and NOT a debt: a first-flight B lane is operator because its
         # windows are derived rather than measured and the first run is a

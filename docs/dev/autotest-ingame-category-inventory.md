@@ -120,7 +120,7 @@ Two limits of this table, stated so nobody over-reads it:
 | `LedgerGroundTruth` | 2 | 2 | 0 | 0 | 0 | 1 | L2 | B |
 | `LocalizedName` | 3 | 3 | 3 | 3 | 0 | 0 | H29 | A |
 | `LogContracts` | 10 | 10 | 8 | 8 | 0 | 2 | H26 | A |
-| `Logistics` | 47 | 8 | 2 | 1 | 38 | 46 | H34 (SPACECENTER slice), H35 (FLIGHT ordinary slice), H38 (FLIGHT ISOLATED slice, flown 2026-08-28, executes 39) | B |
+| `Logistics` | 47 | 8 | 2 | 1 | 38 | 46 | H34 (SPACECENTER slice), H35 (FLIGHT ordinary slice), H38 (FLIGHT ISOLATED on a built pad rig, flown 2026-08-28, executes 39), H39 + H40 (the same ISOLATED slice on RECORDED hosts, reading runs pending) | B |
 | `LogisticsGrapple` | 4 | 3 | 0 | 0 | 1 | 2 | - | B |
 | `MapPresence` | 5 | 5 | 3 | 3 | 0 | 2 | H28 | A |
 | `MapRender` | 22 | 21 | 0 | 0 | 1 | 14 | S1.7 | B |
@@ -513,7 +513,7 @@ of its cells carry run-time Skip guards that only the fixture rules out.
 | `H22-ui-complexity-mode` | UiComplexityMode | 4 | The LIVE `InputLockManager`, which headless xUnit structurally cannot reach: entering Basic must force-close every gated window AND leave no Parsek control lock held, or the player's mouse soft-locks for the rest of the scene session |
 | `H23-tracking-station` | TrackingStation | 10 | The TRACKSTATION scene itself, unreachable by any driven run until R12. The TS scene host, the span-clock TS seam, the synthetic-ghost ProtoVessel lifecycle and Fly-strip, and the map/TS render tracer's LIVE Vectrosity line truth. Note it breaks A1's shape: its `LoadGame` carries `scene = "trackstation"`, so it is the only spec here whose batch runs outside FLIGHT |
 
-**A2 - the ISOLATED batch path (2 categories, 49 declarations).** `SceneExitMerge`,
+**A2 - the ISOLATED batch path (2 categories, 49 declarations, 4 specs).** `SceneExitMerge`,
 wired as `H21-scene-exit-merge-isolated`, tier `nightly`, over `b2-lko-craft`. It
 satisfies NONE of A1's three criteria as written, which is exactly why it needs
 stating separately rather than being appended to the table above:
@@ -570,10 +570,57 @@ the group's static fixture predicate - PRELAUNCH plus at least one `ModuleEngine
 the ACTIVE vessel - is a FLOOR that catches the H21 failure mode only; it says nothing
 about the other four, which is why the spec's own fixture block enumerates them.
 
+`Logistics` THEN GAINED TWO MORE ISOLATED SPECS ON 2026-08-28, and the reason is the
+one A2 exists to make legible: an isolated batch's split is a FIXTURE property, so the
+same 46 admitted cells measure a different thing on a different host.
+`H39-logistics-isolated-bdock` boots `bdock-recorded` and
+`H40-logistics-isolated-depot-route` boots `depot-route-recorded` - both RECORDED hosts,
+where H38's is a purpose-built pad rig with an EMPTY store. All 39 of H38's passes are
+therefore currently claims about a store with zero trees; these two re-run the identical
+population where committed trees, dock windows and (H40 only) a live Active route exist.
+Both are READING RUNS and both are declared in
+`IsolatedBatchWiringGroupTests.INTERIM_PIN_IDS`.
+
+THE PRE-FLIGHT DERIVATION IS THE INTERESTING PART, because it REFUTED half the reason
+they were commissioned and did so before either flew. H38's skip roster named five of its
+seven run-time skips as one debt - a missing RECORDED subject - and named
+`bdock-recorded` as the answer. Reading the predicates against the committed bytes says
+the corpus pays TWO and **structurally cannot pay three**: all three `RouteProof_*` cells
+are pure walks over committed windows and **none reads `FlightGlobals.ActiveVessel`**, so
+which vessel a host makes active is irrelevant to them; the entire committed corpus holds
+exactly TWO `ROUTE_CONNECTION_WINDOWS` nodes; and BOTH sit on the INITIATOR branch with
+the SAME pid 3620499050, because `persistentId` is craft-baked and two `Kerbal X`
+descendants therefore dock into their own pid. The target cell's predicate is the strict
+complement, and the cross-tree cell short-circuits on the initiator case before its
+committed-partner walk. `RouteOriginProof_StartedDockedToNonKsc_ProducerLandsProof` is
+the same story from the other side: `grep -c ROUTE_ORIGIN_PROOF` reads 0 on both
+fixtures. SO THE RESIDUE IS A HARVEST REQUIREMENT, NOT A LANE REQUIREMENT - closing those
+three needs a recorded dock between craft with DIFFERENT baked pids, and a mission that
+starts docked to a non-PRELAUNCH partner. This is exactly the "wiring them now produces
+green-looking specs that execute nothing" hazard bucket B4 warns about, caught one layer
+earlier than usual: at authoring time, by reading the predicate, rather than on a flight.
+
+THE FIXTURE PREDICATE WAS GENERALISED FOR THEM, and it is the third GENERALISED-BY move
+in that class. It required a PRELAUNCH active vessel with at least one `ModuleEngines` -
+which is the STAGING requirement, written when `SceneExitMerge` was the only member. Both
+new hosts are ORBITING. `Logistics` never stages: a grep for `ActivateNextStage`,
+`Situations.PRELAUNCH`, `WaitForRecordingToLeavePrelaunch` and
+`ClassifyLaunchWaitTimeout` across all 18 Logistics test files plus their shared helper
+returns ONE hit, and it is a comment about a RECORDED `startSituation`. The check is now
+a per-category capability table (fail-closed, no default), with `Logistics` held to what
+`UnloadedFuelVesselFixture`'s own failure path names - a snapshottable active vessel
+carrying LiquidFuel with positive capacity, or it returns
+`reason = no-liquidfuel-resource` and every unloaded-depot cell skips. That is the exact
+Logistics analogue of H21's engineless host, and a new positive control runs `staging`
+over a recorded host and requires REJECTION so the PRELAUNCH check cannot be deleted to
+make these lanes pass.
+
 | Spec | Category | Tests | Why it is worth a boot |
 |---|---|---|---|
 | `H21-scene-exit-merge-isolated` | SceneExitMerge | 2 | The R5 shakedown, and the D1 `commit-scene-exit` / `discard-rollback` cells no other mechanism produces: a real recording, a real launch, a real stock save-and-exit out of FLIGHT, and both branches of the pre-transition merge dialog |
 | `H38-logistics-isolated` | Logistics | 47 declared, 46 admitted, 38 of them restore-flagged | The 38 restore-after-run `Logistics` declarations no unattended path could execute before it: unloaded-depot origin debit, pickup, loaded and multi-module cargo delivery, harvest capture, multi-stop and multi-origin escrow, round-trip pairing. FLOWN 2026-08-28: reading run 1 found 1 product + 2 test defects (the D4 harvest rails funnel, fixed at `f98d5477a`), run 2 PASS attempt 1 measured `total=47 passed=39 failed=0 skipped=8`, now pinned WHOLE with two targeted cell tokens; confirm runs pending |
+| `H39-logistics-isolated-bdock` | Logistics | 47 declared, 46 admitted | The same 46 cells over `bdock-recorded` - the FIRST time the restore-flagged Logistics declarations run against a non-empty recording store (two committed trees, 19 recordings, one dock window). Pays two of H38's five missing-recorded-subject skips, and is the fixture-axis negative control on H38: the census delta says which of its 39 passes were RIG properties rather than universal ones. READING RUN, not yet flown |
+| `H40-logistics-isolated-depot-route` | Logistics | 47 declared, 46 admitted | The same 46 cells over `depot-route-recorded`, the suite's ONLY committed Active GhostDriving route (four `SOURCE_REF` rows carrying `routeProofHash`, a Dock and an Undock branch point, 22 recordings). The axis it adds is ROUTE-PRESENT vs ROUTE-ABSENT: every route-reading cell in the category has until now executed only against state a test forged in-body. Carries V18T's `RevalidateSources ... routes=1 transitioned=0` anti-vacuity token. READING RUN, not yet flown |
 
 ### Bucket B - wireable, but needs something first (81 categories, 451 declarations)
 
