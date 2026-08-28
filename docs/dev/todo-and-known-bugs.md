@@ -11586,6 +11586,26 @@ is now, and it splits cleanly in two:
   watchable (same body AND inside the entry cutoff). Overlap loops already skipped the
   reset; that path is untouched.
 
+  **ONE REAL BUG THE REVIEW FOUND INSIDE THE FIX'S OWN BLAST RADIUS**, and it gets its
+  own paragraph because seam 1 is what promoted it from latent to live.
+  `ResolveWatchPlaybackUT` honoured its `recordingIndex` PARAMETER only in the
+  unit-member branch; both loop branches read the `watchedRecordingIndex` FIELD. `recIdx`
+  is a DATA KEY in both helpers - `TryGetLoopSchedule` indexes the committed list with it
+  to find the recording's OWN slot in the sorted global auto-loop launch queue (the slot
+  sets `LaunchStartUT`), and `TryComputeLoopPlaybackUT` indexes `engine.loopPhaseOffsets`
+  with it. So while watching looping recording X, evaluating the term for looping row Y
+  resolved Y's playback UT from X's schedule slot and phase offset, off by
+  `(slotX - slotY) * launchGap`; a `-1` field drops the auto-schedule entirely. On a
+  multi-body loop that puts the resolved body on the wrong side of an SOI change and
+  hands the Watch affordance and `CycleToNextWatchable` a quietly WRONG answer - and
+  because the selector and the entry gate now share the term they AGREE on it, so it is
+  wrong rather than a timeout. Before seam 1 this ran only for the watched row (where
+  field == parameter) plus one entry-time call where the field was still -1 or stale;
+  seam 1 made it run for every committed row every frame. Both branches now take the
+  parameter. Sized by
+  `WatchEntryAcceptanceTests.LoopScheduleIsKeyedByTheRowsOwnIndex_NotTheWatchedOne` and
+  wired-pinned by the matching gate cell.
+
   **TESTS.** `Source/Parsek.Tests/WatchEntryAcceptanceTests.cs` (the V7M shape accepted,
   genuine cross-body still refused, trajectory-failure falls back to the cache, the
   current-reading precedence, the reset matrix, the evidence log line) plus
@@ -11622,10 +11642,33 @@ is now, and it splits cleanly in two:
   (it is emitted only by the real completion branch, so it still requires one genuine
   entry), and V7M's downstream desync instruments now run from INSIDE watch mode for the
   first time. If they move, the follow-up is to promote an `ExitWatchMode` verb - NOT to
-  re-roll the pin. V14M carries the same note plus one of its own: its
-  `[expectations.renderComposition]` block is ARMED AND GATING, and a run that enters
-  watch mode force-builds the watched ghost at full fidelity, a composition no archived
-  run of that lane produced.
+  re-roll the pin.
+
+  **V14M CARRIED A SECOND HAZARD OF ITS OWN, NOW DISCHARGED rather than merely noted.**
+  Its `[expectations.renderComposition]` block was ARMED AND GATING, and a run that
+  ENTERS watch mode force-builds the watched ghost's visuals at full fidelity and anchors
+  the camera to it - a composition no archived run of that lane produced, while every
+  window in the block was written from runs where BOTH watch attempts were refused. Left
+  armed, a red would have classified `PARSEK-FAIL(render-composition)` for a MIGRATION
+  reason: a product regression reported where the truth is "the windows describe the old
+  flown shape". The margins are wide (dwells measured 3 against `{1,32}`) and it might
+  well have held - but that is a prediction, and arming rests on a measurement. **IT IS
+  DE-ARMED**: `gating = false`, windows RETAINED verbatim as the record of
+  `2026-08-25_0953`, the entry removed from `RENDERCOMPOSE_ARMED_SPECS`, and its key-set
+  cell rewritten into a de-armed form (the spec flag and the roster are pinned to agree
+  by `test_every_declarers_arming_state_matches_the_recorded_rosters`; the block stays
+  DECLARED, because the declaration is what arms the C# recorder so the reading flight
+  still produces a manifest). One committed cell that used V14M as its armed subject was
+  re-pointed at V8. **THE RE-ARM IS OWED** after the watch-entry reading flight, off ITS
+  facets, on the ordinary three-run discipline.
+
+  **ONE DEFERRED-BY-DESIGN NOTE, per the visual/recording efficiency principle.** The
+  term's decision line is change-keyed AND lazily formatted (`VerboseOnChange`'s
+  `Func<string>` overload behind an `IsVerboseEnabled` short-circuit), because a ghost's
+  body changes at SOI scale while the term is evaluated per UI row per frame - eager
+  formatting would be N discarded interpolated strings per frame with the Recordings
+  window open. What remains per call is the cheap change key, deliberately: it is what
+  keeps the memo's answer and the emitted line describing the same decision.
 
 The rest of this entry is the original write-up, kept in place because the corrections are
 only legible against what they replace.

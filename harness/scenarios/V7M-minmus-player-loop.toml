@@ -541,9 +541,24 @@ steps = [
   #            was at MINMUS throughout. It now resolves the ghost's body from the
   #            recording's own trajectory at the loop-mapped playback UT, which at this
   #            epoch is the Minmus park - the observer's own body.
-  # A REJECTED here is now THE FINDING, not a spec bug: it would mean the trajectory
-  # resolution did not fire. Read the product's `Watch same-body term: ... evidence=`
-  # line, which names cache-current / trajectory-resolved / cache-fallback outright.
+  # A REJECTED here is now THE FINDING, not a spec bug - but READ THE RIGHT LINE FIRST,
+  # because there are TWO ways to get one and only one of them is about the body term:
+  #   (a) THE RANGE TERM, which is the likelier of the two and has nothing to do with
+  #       this change. `IsGhostWithinVisualRange` reads `state.lastDistance`, and a
+  #       ghost whose mesh has been torn down (`state.ghost == null`) with no cached
+  #       distance yet reports an unusable one - the auto-select then refuses on
+  #       `range=F` and the body term is NEVER CONSULTED. The reject branch prints the
+  #       per-candidate triple for exactly this
+  #       (`TestCommandEnterWatchMode.DescribeWatchCandidates`,
+  #       `candidates=[i ghost=T body=? range=F]`), so the triple is the FIRST thing to
+  #       read on a REJECTED here. A `range=F` at ~144 km is a ghost-lifecycle reading,
+  #       not a watch-entry one.
+  #   (b) THE BODY TERM, i.e. this change did not fire. Only claim this when the triple
+  #       shows `body=F range=T`; then read the product's
+  #       `Watch same-body term: ... evidence=` line, which names cache-current /
+  #       trajectory-resolved / cache-fallback outright. `evidence=cache-fallback` means
+  #       the recording's trajectory could not resolve at the loop-mapped UT at all,
+  #       which is a recording-shape finding rather than a term one.
   { cmd = "EnterWatchMode",                                                  expect = "OK" },
   # "Warp to..." AGAIN -> CYCLE 2 (predicted k=100, 2,154,976.940). The desync hunt's
   # second half.

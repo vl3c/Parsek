@@ -349,6 +349,80 @@ namespace Parsek.Tests
             Assert.True(decision.OnSameBody);
         }
 
+        /// <summary>
+        /// THE CROSS-INDEX SHAPE. Seam 1 made <c>ResolveWatchPlaybackUT</c> run for EVERY
+        /// committed row on every frame rather than only the watched one, so the index it
+        /// resolves a loop schedule with stopped being a formality. <c>recIdx</c> is a DATA KEY:
+        /// <c>TryResolveAutoLoopLaunchSchedule</c> uses it to find that recording's OWN slot in
+        /// the sorted global launch queue, and the slot is what sets <c>LaunchStartUT</c>.
+        ///
+        /// <para>This cell sizes the divergence the fix removes: a row resolved with a DIFFERENT
+        /// row's index comes back with that other row's schedule, off by
+        /// <c>(slotOther - slotOwn) * launchGap</c> - exactly what <c>ResolveWatchPlaybackUT</c>
+        /// did while it read the <c>watchedRecordingIndex</c> FIELD instead of its
+        /// <c>recordingIndex</c> PARAMETER. On a multi-body loop a shifted playback UT lands the
+        /// resolved body on the wrong side of an SOI change, and because the selector and the
+        /// entry gate share the term they agree on the wrong answer - silently wrong, not a
+        /// timeout.</para>
+        /// </summary>
+        [Fact]
+        public void LoopScheduleIsKeyedByTheRowsOwnIndex_NotTheWatchedOne()
+        {
+            var watched = MakeAutoLoopRec(startUT: 100, endUT: 150, id: "watched-X");
+            var other = MakeAutoLoopRec(startUT: 110, endUT: 160, id: "other-Y");
+            var third = MakeAutoLoopRec(startUT: 120, endUT: 170, id: "third-Z");
+            var trajectories = new List<IPlaybackTrajectory> { watched, other, third };
+            const double launchGap = 30.0;
+
+            // Each row's OWN index gives its OWN slot, and the slots are distinct.
+            Assert.True(GhostPlaybackLogic.TryResolveAutoLoopLaunchSchedule(
+                trajectories, 0, launchGap, out var watchedSchedule));
+            Assert.True(GhostPlaybackLogic.TryResolveAutoLoopLaunchSchedule(
+                trajectories, 1, launchGap, out var otherSchedule));
+            Assert.Equal(0, watchedSchedule.SlotIndex);
+            Assert.Equal(1, otherSchedule.SlotIndex);
+            Assert.Equal(100.0, watchedSchedule.LaunchStartUT, 6);
+            Assert.Equal(130.0, otherSchedule.LaunchStartUT, 6);
+
+            // THE BUG, stated as an equality: resolving row Y "with the watched index" is not a
+            // near-miss - it returns row X's schedule verbatim, a full launch gap out here.
+            Assert.NotEqual(otherSchedule.LaunchStartUT, watchedSchedule.LaunchStartUT);
+            Assert.Equal(
+                launchGap * (otherSchedule.SlotIndex - watchedSchedule.SlotIndex),
+                otherSchedule.LaunchStartUT - watchedSchedule.LaunchStartUT,
+                6);
+
+            // ...and the -1 the field carries before a watch session is assigned is not a
+            // harmless "unknown" either: it drops the auto-schedule entirely, so the caller
+            // silently falls back to the un-queued base interval.
+            Assert.False(GhostPlaybackLogic.TryResolveAutoLoopLaunchSchedule(
+                trajectories, -1, launchGap, out _));
+        }
+
+        private static Recording MakeAutoLoopRec(double startUT, double endUT, string id)
+        {
+            var rec = new Recording
+            {
+                RecordingId = id,
+                VesselName = id,
+                PlaybackEnabled = true,
+                LoopPlayback = true,
+                LoopIntervalSeconds = 999,
+                LoopTimeUnit = LoopTimeUnit.Auto,
+            };
+            rec.Points.Add(new TrajectoryPoint
+            {
+                ut = startUT, bodyName = "Kerbin",
+                rotation = Quaternion.identity, velocity = Vector3.zero,
+            });
+            rec.Points.Add(new TrajectoryPoint
+            {
+                ut = endUT, bodyName = "Kerbin",
+                rotation = Quaternion.identity, velocity = Vector3.zero,
+            });
+            return rec;
+        }
+
         // ---------------------------------------------------------------
         // Seam 2 - the loop-phase reset stands down for a watchable current phase
         // ---------------------------------------------------------------

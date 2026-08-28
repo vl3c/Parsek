@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Text;
 using Xunit;
@@ -71,21 +72,46 @@ namespace Parsek.Tests
             // its own `Engine.IsGhostOnBody` read, it would answer from the stale cache while the
             // rest of the product answered from the trajectory - the exact split this change
             // exists to remove.
-            foreach (string rel in new[]
+            // WALKED, NOT LISTED. The gate's whole purpose is catching GROWTH, and a hardcoded
+            // roster of today's consumers is satisfied by definition when a new one is added
+            // tomorrow. Everything under Source/Parsek is swept except the two files that are
+            // ALLOWED to name the engine method - it is declared in one of them and the other
+            // is the test-only in-game suite - and a new exemption has to be argued here.
+            string root = ParsekSourceRoot();
+            var exempt = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
             {
-                "ParsekFlight.cs",
-                "Patches/GhostVesselLoadPatch.cs",
-                "TestCommands/ParsekTestCommandAddon.EnterWatchMode.cs",
-                "UI/MissionsWindowUI.cs",
-                "UI/RecordingsTableUI.cs",
-                "UI/TimelineWindowUI.cs",
-            })
+                // Declares GhostPlaybackEngine.IsGhostOnBody. Kept: still correct, still
+                // unit-tested, just no longer what the watch-entry term answers with.
+                "GhostPlaybackEngine.cs",
+                // In-game (live-KSP) tests, not production consumers of the term.
+                "RuntimeTests.cs",
+            };
+
+            var offenders = new List<string>();
+            foreach (string path in Directory.GetFiles(root, "*.cs", SearchOption.AllDirectories))
             {
-                string src = StripComments(ReadParsekSource(rel));
-                Assert.False(src.Contains("IsGhostOnBody("),
-                    "watch-entry-acceptance gate: " + rel + " must reach the same-body term "
-                    + "through IsGhostOnSameBody, never through the engine's raw cache read.");
+                // Skip build output - bin/obj can hold generated or stale copies.
+                string rel = path.Substring(root.Length).TrimStart(
+                    Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                if (rel.StartsWith("bin" + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
+                    || rel.StartsWith("obj" + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+                if (exempt.Contains(Path.GetFileName(path)))
+                    continue;
+
+                if (StripComments(File.ReadAllText(path)).Contains("IsGhostOnBody("))
+                    offenders.Add(rel);
             }
+
+            Assert.True(offenders.Count == 0,
+                "watch-entry-acceptance gate: these files reach the same-body answer through "
+                + "the engine's raw cache read (GhostPlaybackEngine.IsGhostOnBody) instead of "
+                + "WatchModeController.IsGhostOnSameBody, so they would answer from a ghost's "
+                + "stale spawn seed while the rest of the product answers from its trajectory "
+                + "(WATCH-ENTRY-REFUSED-INSIDE-QUOTED-RANGE): "
+                + string.Join(", ", offenders.ToArray()));
 
             // ...and ParsekFlight's forwarder must still be a forwarder.
             string forwarder = StripComments(ReadParsekSource("ParsekFlight.cs"));
@@ -124,6 +150,33 @@ namespace Parsek.Tests
                 + "the order W1-watch-distance-cutoff's spec is derived against.");
         }
 
+        [Fact]
+        public void ResolveWatchPlaybackUT_KeysBothLoopHelpersOnItsParameterNotTheWatchedField()
+        {
+            // THE CROSS-INDEX BUG. `recIdx` is a DATA KEY in both helpers: TryGetLoopSchedule
+            // indexes the committed list with it to resolve THIS recording's auto-loop launch
+            // slot, and TryComputeLoopPlaybackUT indexes engine.loopPhaseOffsets with it.
+            // Reading the `watchedRecordingIndex` FIELD resolved row Y's playback UT from row
+            // X's schedule and phase offset - which seam 1 turned from a latent oddity into a
+            // per-row, per-frame wrong answer, because the body term now calls in here for
+            // every committed row. WatchEntryAcceptanceTests
+            // .LoopScheduleIsKeyedByTheRowsOwnIndex_NotTheWatchedOne sizes the divergence; this
+            // pins the wiring, which no headless cell can reach.
+            string body = MethodBody(ControllerPath, "private double ResolveWatchPlaybackUT(");
+
+            Assert.False(body.Contains("watchedRecordingIndex"),
+                "watch-entry-acceptance gate: ResolveWatchPlaybackUT must key its loop helpers "
+                + "on the recordingIndex PARAMETER, never on the watchedRecordingIndex FIELD - "
+                + "the field names a different recording (or is -1) whenever the term is "
+                + "evaluated for a row other than the watched one.");
+
+            // Both helpers must actually receive it; a call that dropped the arg would fall back
+            // to the -1 default and silently lose the auto-schedule.
+            Assert.Contains("TryGetLoopScheduleForWatch(", body);
+            Assert.Contains("recordingIndex,", body);
+            Assert.Contains("out double loopUT, out _, out _, recordingIndex)", body);
+        }
+
         // ---- (b) the loop-phase reset routes through the predicate ----
 
         [Fact]
@@ -136,7 +189,16 @@ namespace Parsek.Tests
             // Both new inputs must actually be MEASURED here. Passing constants would satisfy the
             // call above while restoring the pre-change decision.
             Assert.Contains("IsGhostOnSameBody(index)", body);
-            Assert.Contains("IsWithinWatchEntryRange(currentState.lastDistance)", body);
+
+            // The distance must come through the PACKAGED fallback the entry gate uses, not a
+            // raw `currentState.lastDistance` read - otherwise the reset-skip can diverge from
+            // the gate that just admitted the entry after a future edit to either one.
+            Assert.Contains("ResolveWatchDistanceMeters(currentState)", body);
+            Assert.Contains("IsWithinWatchEntryRange(currentPhaseDistanceMeters)", body);
+            Assert.False(body.Contains("IsWithinWatchEntryRange(currentState.lastDistance)"),
+                "watch-entry-acceptance gate: the reset predicate's range term must read the "
+                + "same distance the entry gate does (ResolveWatchDistanceMeters), not the raw "
+                + "cached field.");
 
             // THE REVERT THIS CELL EXISTS FOR: the three-term inline expression.
             Assert.False(
@@ -195,14 +257,21 @@ namespace Parsek.Tests
             return null;
         }
 
+        private static string ParsekSourceRoot()
+        {
+            string repo = Path.GetFullPath(Path.Combine(
+                AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", ".."));
+            string root = Path.Combine(repo, "Source", "Parsek");
+            if (!Directory.Exists(root))
+                root = Path.Combine(repo, "Parsek");
+            Assert.True(Directory.Exists(root), "Parsek source root not found at " + root);
+            return root;
+        }
+
         private static string ReadParsekSource(string relPath)
         {
-            string root = Path.GetFullPath(Path.Combine(
-                AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", ".."));
             string path = Path.Combine(
-                root, "Source", "Parsek", relPath.Replace('/', Path.DirectorySeparatorChar));
-            if (!File.Exists(path))
-                path = Path.Combine(root, "Parsek", relPath.Replace('/', Path.DirectorySeparatorChar));
+                ParsekSourceRoot(), relPath.Replace('/', Path.DirectorySeparatorChar));
             Assert.True(File.Exists(path), "Source file not found at " + path);
             return File.ReadAllText(path);
         }

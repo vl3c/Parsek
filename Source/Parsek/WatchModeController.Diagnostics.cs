@@ -426,6 +426,13 @@ namespace Parsek
         /// that decided. Change-keyed, not per-frame: the term is evaluated once per UI row per
         /// frame by several affordances, so a rate-limited line would still be the loudest thing
         /// in the log on a busy timeline.
+        ///
+        /// <para>The MESSAGE is built lazily (the <c>Func&lt;string&gt;</c>
+        /// <c>VerboseOnChange</c> overload) and the change key is the cheap half. A ghost's body
+        /// changes at SOI scale, so on an open Recordings window the overwhelmingly common path
+        /// is "key unchanged, nothing formatted" - the visual/recording efficiency principle
+        /// applied to a diagnostic: N rows x 60 fps of discarded interpolated strings is a real
+        /// per-frame allocation cost for a line that emits a handful of times per session.</para>
         /// </summary>
         internal static WatchBodyDecision ResolveAndLogWatchSameBodyDecision(
             int index,
@@ -440,18 +447,22 @@ namespace Parsek
             WatchBodyDecision decision = ResolveWatchSameBodyDecision(
                 hasState, cachedBodyName, zone, trajectoryResolved, trajectoryBodyName, activeBodyName);
 
+            if (!ParsekLog.IsVerboseEnabled)
+                return decision;
+
             string identity = string.IsNullOrEmpty(recordingId)
                 ? "watch-same-body-idx-" + index.ToString(CultureInfo.InvariantCulture)
                 : "watch-same-body-" + recordingId;
-            string stateKey = string.Format(CultureInfo.InvariantCulture,
-                "{0}|{1}|{2}|{3}",
-                decision.Evidence,
-                decision.OnSameBody ? "T" : "F",
+            string stateKey = string.Concat(
+                DescribeWatchBodyEvidence(decision.Evidence),
+                decision.OnSameBody ? "|T|" : "|F|",
                 decision.GhostBodyName ?? "(null)",
+                "|",
                 activeBodyName ?? "(null)");
 
             ParsekLog.VerboseOnChange("CameraFollow", identity, stateKey,
-                DescribeWatchSameBodyDecision(index, recordingId, decision, cachedBodyName, zone, activeBodyName));
+                () => DescribeWatchSameBodyDecision(
+                    index, recordingId, decision, cachedBodyName, zone, activeBodyName));
             return decision;
         }
 

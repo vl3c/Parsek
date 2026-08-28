@@ -945,6 +945,15 @@ namespace Parsek
             // row every frame, and the stale branch below walks the recording's trajectory; one
             // resolution per ghost per frame also keeps the decision and the diagnostics triple
             // reporting the same answer within a frame.
+            //
+            // ONE CASE IT DELIBERATELY DOES NOT CHASE: a ghost whose zone flips Beyond->Visual
+            // MID-FRAME, after this memo was taken but before the engine refreshed the cached
+            // reading. The memo then holds a trajectory-resolved answer while a cache-current
+            // one has become available. Both describe the same ghost at the same UT, so the
+            // answers agree except in the window where the two disagree about the body at all -
+            // and it self-corrects on the next frame, because the memo is keyed on
+            // `Time.frameCount`. Invalidating on the cached name instead would defeat the point
+            // of the memo (the name is exactly what the expensive branch exists to distrust).
             int frame = Time.frameCount;
             SameBodyTermMemo memo;
             if (sameBodyTermMemoByIndex.TryGetValue(index, out memo)
@@ -1895,7 +1904,15 @@ namespace Parsek
             bool usesOverlapLooping = shouldLoopPlayback
                 && GhostPlaybackLogic.IsOverlapLoop(loopIntervalSeconds, watchRecDuration);
             bool currentPhaseOnSameBody = IsGhostOnSameBody(index);
-            bool currentPhaseWithinEntryRange = IsWithinWatchEntryRange(currentState.lastDistance);
+            // Through the PACKAGED fallback, not `currentState.lastDistance` raw. The entry gate
+            // in TryResolveWatchEntryState deliberately falls back to a live transform measure
+            // when the cached distance is unset, and today all four combinations of the two
+            // reads agree - but a reset-skip that disagreed with the gate that just admitted the
+            // entry is exactly the divergence this seam exists to prevent, so they read the
+            // same number by construction rather than by coincidence.
+            double currentPhaseDistanceMeters = ResolveWatchDistanceMeters(currentState);
+            bool currentPhaseWithinEntryRange =
+                IsWithinWatchEntryRange(currentPhaseDistanceMeters);
             bool resetLoopPhaseForWatch = ShouldResetLoopPhaseForWatch(
                 zoneBeyond: currentState.currentZone == RenderingZone.Beyond,
                 shouldLoopPlayback: shouldLoopPlayback,
@@ -1908,7 +1925,7 @@ namespace Parsek
                 + $"zone={currentState.currentZone} loops={(shouldLoopPlayback ? "T" : "F")} "
                 + $"overlap={(usesOverlapLooping ? "T" : "F")} "
                 + $"phaseSameBody={(currentPhaseOnSameBody ? "T" : "F")} "
-                + $"phaseDist={FormatWatchDistanceForLogs(currentState.lastDistance)}");
+                + $"phaseDist={FormatWatchDistanceForLogs(currentPhaseDistanceMeters)}");
             if (resetLoopPhaseForWatch)
             {
                 ResetLoopPhaseForWatch(index, currentState, rec);
@@ -1970,6 +1987,11 @@ namespace Parsek
             watchedRecordingId = null;
             watchedOverlapCycleIndex = -1;
             overlapRetargetAfterUT = -1;
+            // Tidiness, not correctness: the memo is already keyed on Time.frameCount, so a
+            // stale entry can never be read on a later frame. Dropping it here keeps the
+            // dictionary from carrying indices of recordings a supersede or delete has since
+            // renumbered, for the rest of the scene.
+            sameBodyTermMemoByIndex.Clear();
             if (destroyOverlapAnchor)
                 DestroyOverlapCameraAnchor();
             else
@@ -3487,9 +3509,22 @@ namespace Parsek
             if (rec == null || !host.ShouldLoopPlaybackForWatch(rec))
                 return fallbackUT;
 
+            // `recordingIndex`, NOT the `watchedRecordingIndex` FIELD. `recIdx` is a DATA KEY
+            // in both helpers, not a "which ghost am I watching" flag: TryGetLoopSchedule
+            // indexes `cachedTrajectories` (the committed list) with it to resolve THIS
+            // recording's auto-loop launch schedule, and TryComputeLoopPlaybackUT below indexes
+            // `engine.loopPhaseOffsets` with it. Reading the field resolved row Y's playback UT
+            // from row X's schedule slot and phase offset whenever this ran for a row other
+            // than the watched one - which, now that the body term calls in here, is every
+            // Recordings-table row on every frame once anything is being watched. On a
+            // multi-body loop that puts the resolved body on the wrong side of an SOI change
+            // and hands the Watch affordance and CycleToNextWatchable a quietly WRONG answer
+            // (selector and entry gate agree on it, so it is wrong rather than a timeout).
+            // The field is also -1 or stale at the entry-time call from TryStartWatchSession,
+            // which runs before `watchedRecordingIndex` is assigned.
             if (!host.TryGetLoopScheduleForWatch(
                     rec,
-                    watchedRecordingIndex,
+                    recordingIndex,
                     out double playbackStartUT,
                     out double scheduleStartUT,
                     out double resolveDuration,
@@ -3525,7 +3560,7 @@ namespace Parsek
             }
 
             if (host.TryComputeLoopPlaybackUTForWatch(rec, Planetarium.GetUniversalTime(),
-                out double loopUT, out _, out _, watchedRecordingIndex))
+                out double loopUT, out _, out _, recordingIndex))
             {
                 return loopUT;
             }

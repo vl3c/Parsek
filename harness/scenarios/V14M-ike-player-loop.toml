@@ -261,13 +261,17 @@ id = "V14M-ike-player-loop"
 # `rdist=` digits at the same time so the next re-pin has a real chord to work from.
 # `retry = once` absorbs one unlucky geometry. If the step ping-pongs INVALID twice,
 # re-shape the step per the finding - NEVER re-roll for the pinned verdict.
-# ONE THING TO WATCH THAT V7M DOES NOT HAVE: this lane's
-# `[expectations.renderComposition]` block is ARMED AND GATING (dwells {1,32} measured
-# 3, cycles {1,16} measured 1). A run that ENTERS watch mode force-builds the watched
-# ghost's visuals at full fidelity and anchors the camera to it - a composition no
-# archived run of this lane produced. The margins are wide, but if that block reds on
-# the reading flight the cause is the watch entry, not a render regression: re-pin the
-# windows off the new bytes rather than reverting the step.
+# ONE THING V7M DOES NOT HAVE, AND IT IS WHY THIS LANE ALSO DE-ARMED A BLOCK IN THE
+# SAME CHANGE: `[expectations.renderComposition]` was ARMED AND GATING here (dwells
+# {1,32} measured 3, cycles {1,16} measured 1), and a run that ENTERS watch mode
+# force-builds the watched ghost's visuals at full fidelity and anchors the camera to
+# it - a composition NO archived run of this lane produced, while every window in that
+# block was written from runs where BOTH watch attempts were refused. Left armed, a red
+# would classify `PARSEK-FAIL(render-composition)` for a MIGRATION reason. The margins
+# are wide and it might well have held, but that is a prediction and arming rests on a
+# measurement - so the block is now `gating = false` with its windows RETAINED, and the
+# RE-ARM IS OWED off the reading flight's own facets. Full rationale at the block
+# itself, near the end of this file; section 6's ledger records the same.
 # AND NOTE: there is NO `ExitWatchMode` seam verb (`hlib.IMPLEMENTED_SEAM_VERBS` carries
 # 28 and no exit; `RESERVED_SEAM_VERBS` reserves none), so once the cycle-1 step enters,
 # the cycle-2 step auto-selects the same index and takes `ParsekTestCommandAddon`'s
@@ -308,9 +312,19 @@ id = "V14M-ike-player-loop"
 # (the V4/V5 precedent), and the V14 pair should do the same rather than two.
 #
 # ---------------------------------------------------------------------------------
-# 6. RENDER COMPOSITION (M-A7 Phase 3) - ARMED 2026-08-25, GATES
+# 6. RENDER COMPOSITION (M-A7 Phase 3) - ARMED 2026-08-25; DE-ARMED 2026-08-28
 # ---------------------------------------------------------------------------------
-# ARMING LEDGER, renderComposition:
+# **CURRENT POSTURE: DECLARED, REPORT-ONLY, WINDOWS RETAINED.** The block armed and
+# discharged its full three-run discipline on 2026-08-25 (the ledger below is that
+# record and is NOT retracted), and was DE-ARMED on 2026-08-28 for the watch-entry
+# migration: this lane's two `EnterWatchMode` pins flipped REJECTED -> OK, so the flown
+# shape now enters watch mode and force-builds the watched ghost at full fidelity - a
+# composition none of the runs below observed. Re-arm off the reading flight's own
+# facets, on the ordinary reading -> armed re-flight -> negative control discipline,
+# restoring this lane's entry in `RENDERCOMPOSE_ARMED_SPECS` (harness/lib/test_hlib.py)
+# with the new run ids. Rationale in full at the block itself, near the end of the file.
+#
+# ARMING LEDGER, renderComposition (2026-08-25, the pre-migration flown shape):
 #   READING  2026-08-25_0953 PASS attempt 1, wall 68 s, all 22 steps met (both
 #            EnterWatchMode REJECTED as pinned AT THE TIME - flipped to a PREDICTED
 #            `OK` on 2026-08-28, see section 4 - `ExportRenderManifest` OK).
@@ -895,7 +909,33 @@ terminalStates = { Orbiting = { min = 1 } }
 # each inverted a window of its own, which proves each lane's own clause rather than
 # re-proving the shared `rendercompose` evaluator. Run ids also recorded in
 # `RENDERCOMPOSE_ARMED_SPECS` and in header §6's ledger.
-gating = true
+#
+# =====================================================================================
+# DE-ARMED 2026-08-28 FOR THE WATCH-ENTRY MIGRATION READING FLIGHT. RE-ARM AFTER IT.
+# =====================================================================================
+# `gating` is FALSE below and the windows are RETAINED verbatim as the record of what
+# `2026-08-25_0953` measured. NOTHING ABOUT THE RENDER PIPELINE IS SUSPECTED - this is
+# the three-run discipline applied to a change in THIS LANE'S OWN FLOWN SHAPE.
+#
+# WHY. The two `EnterWatchMode` pins flipped `REJECTED` -> `OK` in the same change (see
+# header §4's REDONE arithmetic). A run that ENTERS watch mode force-builds the watched
+# ghost's visuals at full fidelity (`EnsureGhostVisualsLoadedForWatch`) and anchors the
+# camera to it for the rest of the flight - a composition NO archived run of this lane
+# has ever produced, and every window above was written from runs where both watch
+# attempts were refused. Leaving the block armed across that would let a red classify
+# `PARSEK-FAIL(render-composition)` for a MIGRATION reason, i.e. report a product
+# regression that is really "the windows describe the old shape". The margins are wide
+# (dwells measured 3 against {1,32}) and it might well have held - but "it probably
+# still fits" is a prediction, and arming is supposed to rest on a measurement.
+#
+# THE RE-ARM, and it is owed: after the watch-entry reading flight, re-arm off ITS
+# facets on the ordinary discipline (reading -> armed re-flight -> negative control),
+# writing the run ids into this block, header §6's ledger, and
+# `RENDERCOMPOSE_ARMED_SPECS` in `harness/lib/test_hlib.py` - from which this lane was
+# REMOVED in the same commit, because that roster and the spec's `gating` flag are
+# pinned to agree by `test_every_declarers_arming_state_matches_the_recorded_rosters`.
+# Tracked in docs/dev/todo-and-known-bugs.md -> WATCH-ENTRY-REFUSED-INSIDE-QUOTED-RANGE.
+gating = false
 dwells = { min = 1, max = 32 }
 cycles = { min = 1, max = 16 }
 unevaluable = { max = 200 }
