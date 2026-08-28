@@ -926,7 +926,87 @@ run could not answer about itself. The two operator traps above are unchanged an
 still live for any future control: edit the armed key BY LINE ANCHOR, never by
 substring, and read `--dry-run`'s `declared:` line before the machine lock.
 
-## RECORDER-SUSPECTED-DOUBLE-EMIT-AT-SOI-SEAM: at every SOI crossing of one recorded interplanetary transfer the recorder wrote TWO `TrackSection`s covering the IDENTICAL span - a frame-less Absolute shell beside the OrbitalCheckpoint - and `Inv2NoDoubleCover` FAILs on each [FOUND 2026-08-25 while harvesting `duna-one-recorded` from the operator's free-play save. SUSPECTED, NOT CONFIRMED: the pattern is measured, the CAUSE is not, and no product change is proposed here]
+## ~~RECORDER-SUSPECTED-DOUBLE-EMIT-AT-SOI-SEAM: at every SOI crossing of one recorded interplanetary transfer the recorder wrote TWO `TrackSection`s covering the IDENTICAL span - a frame-less Absolute shell beside the OrbitalCheckpoint - and `Inv2NoDoubleCover` FAILs on each~~ [FOUND 2026-08-25 while harvesting `duna-one-recorded` from the operator's free-play save. **CONFIRMED AND FIXED 2026-08-28** on branch `soi-seam-double-emit`: cause read out of the recorder source, reproduced headlessly off the recorder's own primitives, fixed at the producer]
+
+**CONFIRMED CAUSE - `FlightRecorder.OnVesselSOIChanged` opened a section that
+could never receive a frame.** The method is gated `if (!IsRecording || !isOnRails) return;`,
+so it runs ONLY while the vessel is packed. At the crossing it closed the open
+`OrbitalCheckpoint` section and opened the next one as
+`ReferenceFrame.Absolute` / `TrackSectionSource.Active`. But
+`FlightRecorder.OnPhysicsFrame` early-returns on `isOnRails`, so nothing can
+ever be sampled into that section - it is structurally frame-less from the
+moment it opens. Three consequences chain from that one line:
+
+1. `AddOrbitSegmentToCurrentTrackSection` refuses any section whose
+   `referenceFrame` is not `OrbitalCheckpoint`, so the new SOI's orbit segment
+   landed ONLY in the flat `Recording.OrbitSegments` cache - the open section
+   got no checkpoint payload either.
+2. `CloseCurrentTrackSection`'s seed-only discard is scoped to
+   `ReferenceFrame.Relative`, so at the next boundary (next SOI change,
+   go-off-rails, or finalize) the payload-less Absolute section was appended
+   verbatim, spanning `[soiUT, nextBoundaryUT]`.
+3. `OrbitSegmentCheckpointBridge.EnsureCheckpointSectionsForTopLevelOrbitSegments`
+   then promoted the flat segment into an `OrbitalCheckpoint` section over
+   EXACTLY that span (the empty shell is not "physical" -
+   `IsHigherPriorityPhysicalSection` requires frames or bodyFixedFrames - so it
+   never blocked promotion). Two sections, byte-equal `[startUT,endUT]`, one
+   empty Absolute + one checkpoint: the measured shape, at every seam and only
+   at seams, because this is the only site that opens an Absolute section while
+   `isOnRails` is true.
+
+**THE SHELL WAS NOT LOAD-BEARING - it actively defeated the thing its own
+comment claims to protect.** The `// (#251)` comment says the close/open pair
+exists so the optimizer can split at the SOI boundary. But
+`RecordingOptimizer.GetSectionBody` reads the body from `checkpoints[0]` or
+`frames[0]` and returns `null` for a payload-less section, so
+`SectionBodyChanged` returned false across the shell boundary and
+`IsSplittableEnvOrBodyBoundary` classified it `NotABoundary`. Every other
+consumer (playback per-section routing, the polyline builder, `saveparse`)
+resolves position from section payload the shell has none of.
+
+**THE FIX** (`FlightRecorder.ResolveSoiBoundarySectionFrame` +
+`TransitionTrackSectionAtSoiBoundary`): the seam's section frame now follows the
+rails state, matching what `OnVesselGoOnRails`, `OnVesselGoOffRails` and
+`ResumeAfterFalseAlarm` already do. On rails it opens
+`OrbitalCheckpoint`/`Checkpoint`, so `AddOrbitSegmentToCurrentTrackSection`
+attaches the new SOI's segment to THAT section and the bridge's promotion finds
+an exact match instead of synthesizing a duplicate.
+
+**Blast radius: none post-`Ensure`, by construction.** The write path
+(`RecordingStore.WriteTrajectorySidecar`) and the optimizer's own
+`FindSplitCandidatesForOptimizer` both call `Ensure` with the default
+`reconcileEmptySections: true`, whose `ReconcileEmptySectionsAgainstPayloadCoverage`
+(landed 2026-07-11/12, `CheckpointDoubleCoverTests`) already deleted the shell -
+leaving `[checkpointA, checkpointB]`. The fix produces that same pair directly.
+Optimizer rule 3(b) (`ShouldKeepCohesiveCrossBodyExoCoast`, checkpoint-framed on
+both sides) therefore fires exactly as it already did. What changes is only the
+pre-`Ensure` shape.
+
+**What this does NOT do.** Recordings already on disk keep their shells: the
+sidecar READ sites pass `reconcileEmptySections: false` by contract
+(normalize-on-rewrite, not byte-freeze-breaking), so a legacy recording loaded
+and analyzed still FAILs INV2 until some sanctioned flow rewrites it. That is
+the `duna-one-recorded` situation and it is deliberate - the committed fixture
+stays repaired by `harness/tools/build_duna_one_recorded.py`.
+
+**Reproduced before the fix, and pinned after it:**
+`Source/Parsek.Tests/SoiSeamDoubleEmitTests.cs` drives the recorder's own
+`StartNewTrackSection` / `AddOrbitSegmentToCurrentTrackSection` /
+`TransitionTrackSectionAtSoiBoundary` / `CloseCurrentTrackSection` across one
+on-rails interplanetary leg at the fixture's measured Kerbin -> Sun seam span,
+feeds the result through the READ-path `Ensure`, and evaluates the real
+`Inv2NoDoubleCover`. Against the pre-fix producer it raised
+`INV2 overlap ... a=[64044032.725027621,65004886.739419721] b=[<same>]` - the
+fixture's section 34/35 span, byte for byte. A `LegacyFramelessShellBeside...`
+cell keeps the on-disk shape reproducible and pins that the write path heals it.
+
+**The re-clip half of this entry is UNTOUCHED and still open.** The
+`ref=0`-shell-at-a-seam shape is what is fixed here. The other observed shape -
+one conic re-clipped by a second section carrying element-for-element identical
+`ORBIT_SEGMENT` payload, seen on `duna-park-recorded` idx 1/3 and on
+`depot-route-recorded` where there is no SOI crossing anywhere - is a DIFFERENT
+producer and is not addressed. See the closing paragraph below; it needs its own
+entry if it is ever pursued.
 
 **What was measured**, on recording `61e9177193444e329247d0e8288cf91e` (the Kerbin
 -> Duna transfer in `harness/fixtures/saves/duna-one-recorded`, recorded during the
@@ -956,7 +1036,10 @@ re-clipped, not a second orbit.
 glitch; a duplicate at every seam and nowhere else in a 75-section, 18.4-million-
 second recording is a code path. The natural reading is that the SOI-crossing
 close path emits its Absolute section AND lets the checkpoint path emit one over
-the same span, instead of the two dividing the timeline.
+the same span, instead of the two dividing the timeline. **That reading was
+correct**, and the confirmed mechanism at the top of this entry is its precise
+form: the SOI close path's Absolute section is structurally unfillable, and the
+checkpoint path then promotes over the same span.
 
 **The top-level `ORBIT_SEGMENT` list is CLEAN** - 22 entries, disjoint, no
 duplicate spans - so this is a `TrackSection` duplication, not an orbit-segment
@@ -969,32 +1052,33 @@ objects, and it only runs on an OFFLINE ANALYZER pass - which no free-play save
 ever gets. The first analyzer run over this recording (2026-08-25) turned up six
 FAILs on a recording nobody had any reason to doubt.
 
-**OPEN QUESTION - does the CURRENT recorder still do this?** Unknown, and it is
-the only thing worth doing next. The evidence above is from a mid-2026 recording;
-`FlightRecorder` / `BackgroundRecorder` and
-`RecordingStore.EnsureCheckpointSectionsForTopLevelOrbitSegments` have all moved
-since. Two ways to answer it, either sufficient:
-
-1. **Read the code**: the SOI-crossing section-close path in `FlightRecorder.cs`
-   plus the checkpoint-section producer, asking whether the two can both claim one
-   `[startUT,endUT]`.
-2. **Fly one**: any fresh recording that crosses an SOI, then
-   `scripts/analyze-recordings.ps1` over the produced save. No committed
-   RECORDED fixture reproduces the shape - the SOI-crossing siblings
-   (`vall-transfer-recorded`, `mun-minmus-recorded`) analyze clean - which is
-   itself weak evidence the path has changed, but they are DRIVEN flights on a
-   different profile, so it is not proof.
+**~~OPEN QUESTION - does the CURRENT recorder still do this?~~ ANSWERED
+2026-08-28, by route 1 (read the code), and the answer had TWO halves.** The
+PRODUCER was unchanged and still emitted the shell on every on-rails SOI
+crossing - that half is what the fix at the top of this entry closes. But the
+WRITE path had already stopped persisting it: `ReconcileEmptySectionsAgainstPayloadCoverage`
+landed 2026-07-11/12 (commits `dd8b0272c` / `985c9929a`, guarded by
+`CheckpointDoubleCoverTests`), AFTER the 2026-05..07 session that produced these
+recordings, and it removes a payload-less section covered by payload-bearing
+ones on every `Ensure` that runs with `reconcileEmptySections: true`. So a
+recording written by the current code was already coming out clean, while a
+recording READ from disk (the read sites pass `false`) still shows the shells -
+which is exactly why these harvested fixtures FAIL and the driven SOI-crossing
+siblings (`vall-transfer-recorded`, `mun-minmus-recorded`) analyze clean.
+Route 2 (fly one) is therefore not owed.
 
 **What was done instead, and its limit.** `harness/tools/build_duna_one_recorded.py`
 drops the six redundant sections from the committed fixture so the lane's
 fresh-save gate can be green. That is a FIXTURE repair on one file, not a fix: it
 changes no product code, and if the recorder still double-emits, the next
-free-play harvest will carry the same six.
+free-play harvest will carry the same six. (The fixture repair still stands and
+is still needed: the producer fix does not rewrite bytes already on disk.)
 
 **CORROBORATED TWICE ON 2026-08-26 by two further free-play harvests, and the
 "next free-play harvest will carry the same" sentence above is now a measurement
-rather than a prediction.** Neither new observation changes the SUSPECTED status -
-still no cause, still no product change proposed - but they narrow the shape:
+rather than a prediction.** (Read at the time as leaving the SUSPECTED status
+unchanged; in hindsight they are the six-for-six seam evidence that the confirmed
+cause above explains exactly.) They narrow the shape:
 
 - `duna-park-recorded` (tree `ced78481...` out of the SAME `s15` save, a
   DIFFERENT mission). Its transfer `aa48920e...` carried 52 sections with four
@@ -1017,7 +1101,11 @@ occurs on a purely Kerbin-orbital recording with no body change anywhere - while
 the `ref=0`-shell shape has still only ever been seen sitting exactly on a body
 seam, now across two missions and six seams. Those are plausibly two different
 producers, and a future investigation should not assume one fix covers both. The
-`ref=0` half remains the one this entry is filed about.
+`ref=0` half remains the one this entry is filed about. **That call held**: the
+`ref=0` half is confirmed and fixed above; the re-clip half is untouched and
+still unexplained, and it needs its own entry if it is ever pursued (the
+`depot-route-recorded` instance, with no body change anywhere in the recording,
+is the cheapest subject to start from).
 
 ## FIXTURE-DUNA-ONE-RECORDED-LANE-PENDING: the M-A7 RC-WARP subject is harvested, repaired and registered, but no scenario has flown against it yet [OPENED 2026-08-25 on branch `duna-one-fixture`. TODO, not a defect]
 
