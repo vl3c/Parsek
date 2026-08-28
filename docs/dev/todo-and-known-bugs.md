@@ -11614,12 +11614,69 @@ is now, and it splits cleanly in two:
   Unity-event code no headless cell can run, so unwiring either would restore the defect
   with the suite green. Gate-bite verified by reverting each seam in turn.
 
-  **MIGRATION STATUS - the two flipped pins are PREDICTED, not measured.**
-  `V7M-minmus-player-loop` (both stale-seed steps) and `V14M-ike-player-loop` (both steps,
-  after redoing its chord arithmetic against the real 300 km gate: 2a = 340.9 km admits
-  theta < 123.3 deg, so the fixed per-cycle chord is likelier INSIDE, ~2:1) now pin
-  `expect = "OK"` and are annotated PREDICTED pending reading flights, which are the next
-  step. The other seven of the nine specs keep `REJECTED` and got COMMENT-ONLY refreshes
+  **MIGRATION STATUS - FLOWN 2026-08-28, both reading flights done, and they split.**
+
+  **V7M-minmus-player-loop: `2026-08-28_1930`, PASS attempt 1, wall 53 s, mismatches=0.
+  THE FIX CAUGHT AT THE EXACT SHAPE THE LANE BRACKETED.** Cycle 1 logged
+  `Watch same-body term: rec=#1 sameBody=T evidence=trajectory-resolved ghostBody=Minmus
+  activeBody=Minmus cached=Kerbin zone=Beyond` - the 2026-08-08 spawn seed still present,
+  still saying Kerbin, no longer deciding - and `enterwatchmode complete: index=1`
+  followed. Cycle 2 read the same key (proved by `| suppressed=1` on the next line);
+  cycle 3 read `evidence=cache-current` at 51.6 km in-zone, the correct precedence. Both
+  flipped pins are now MEASURED OK. The three separations (144.4 / 191.5 / 51.6 km)
+  reproduce the archived 2026-08-08 readings to the tenth of a kilometre.
+  TWO THINGS THE RUN CORRECTED IN THIS WRITE-UP'S OWN PREDICTIONS:
+  (i) **the missing `ExitWatchMode` verb does not matter** - the product exits watch mode
+  by itself between cycles, because each `StartLoopPlayback` throws the ghost 2,000+ km
+  away and the 305 km debounce fires (`exceeded ghost camera cutoff (2292545m ... >=
+  305000m) after 3-frame debounce`). All three calls are FRESH entries, all three log
+  `complete:`, zero `already-watching:` lines exist, and the desync instruments are
+  therefore NOT read from inside watch mode as feared (`seam-endpoint summary
+  evaluated=1 outsideSoi=0`, `faithful-parity summary sampled=1 overTolerance=0`, 24
+  Minmus-framed proto surfaces, `unityExceptions total=0`).
+  (ii) **SEAM 2 IS UNTESTED BY V7M and must not be claimed off it.** All three entries
+  logged `reset=F ... loops=F`, and `loops=F` is the PRE-EXISTING
+  `ShouldLoopPlaybackForWatch` term: mission loop-unit members carry no per-recording
+  LoopPlayback flag (their clock comes from the unit span). The reset was already
+  short-circuited before the new terms were reached. Seam 2's headless matrix stands on
+  its own; no flight has exercised it yet.
+
+  **V14M-ike-player-loop: `2026-08-28_1932` / `_1933_a2`, BOTH INVALID on the flipped
+  pins - and the reading is the valuable half.** Measured, both epochs, both attempts:
+  `candidates=[0 ghost=T body=T range=F]` with
+  `Watch same-body term: ... sameBody=T evidence=trajectory-resolved ghostBody=Ike
+  cached=Duna zone=Beyond`. **THE BODY TERM PASSES** where every archived run read
+  `body=F` - the product change, measured on a second lane and a second body pair. The
+  RANGE term is what refuses, at a measured **449,601 m / 449,903 m**, 1.5x the 300 km
+  cutoff. **AND 449.7 km EXCEEDS 2a = 340.9 km, which falsifies the co-orbital PREMISE,
+  not merely the prediction**: two points on the observer's circle cannot be that far
+  apart, and the map trace says why - `body=Ike sma=-1230685 ecc=1.1385`, a hyperbola
+  whose periapsis radius a(1-e) = 170,449.9 m matches the observer's SMA 170,444.391 m to
+  5.5 m. The ghost is out along the Ike APPROACH hyperbola that grazes the park radius,
+  not parked on it, so the lane's `+20,000 s` park epoch lands in the approach. The ~2:1
+  figure was a prior computed FROM that premise and never described this epoch; this is
+  NOT "the phase landed in the outside third" and is not recorded as such. The pins are
+  therefore back at `REJECTED`, now MEASURED with digits and with the refusing term
+  named - strictly better than the unattributed REJECTED the lane carried before. Both
+  epochs resolve to the SAME replay instant (loopUT 9180398.38 / 9180398.52, 65,518 s of
+  raw UT apart), confirming the uniform one-P cadence to 0.14 s, which is why the two
+  separations differ by 302 m. Re-aiming that epoch into the circularized Ike segment is
+  a spec re-shape off a measurement and is deliberately NOT done in this change.
+  CONFIRMING RUN `2026-08-28_1940`: PASS attempt 1, 57 s, corrected pins, mismatches=0
+  (its 3 `unityExceptions` are stock-only frames - `KbApp_PlanetResources`,
+  `CrewHatchController.OnDestroy` - report-only and not this change).
+
+  **WHAT NOW REGRESSION-CATCHES THE TERM.** V7M is the direct guard: its two flipped
+  pins fail if the trajectory resolution stops firing. V14M guards the other half - its
+  `body=T` triple would revert to `body=F` - but only in the reject-branch report, since
+  its pins are REJECTED either way; the reading is in the log, not the verdict.
+  `W1-watch-distance-cutoff` independently guards the distance guard and the
+  body-before-distance ordering this change preserved.
+
+  **THE SPEC MIGRATION, FINAL.** ONE lane flips (`V7M`, two steps, now MEASURED OK);
+  `V14M` flipped and flipped BACK after its reading (two steps, now MEASURED REJECTED on
+  the RANGE term, with `body=T` recorded); its render-composition block is DE-ARMED with
+  a re-arm owed. The other seven of the nine specs keep `REJECTED` and got COMMENT-ONLY refreshes
   re-pointing each rationale at the term that actually refuses: V4 / V8 step 1 genuine
   cross-body, V4 / V6M / V8 step 2 measured or derived >300 km range, V16M / V17M / V19M /
   V20M the selector-level `no-watchable-ghost` their runs measured. **THE "~120 km"
@@ -11628,7 +11685,11 @@ is now, and it splits cleanly in two:
   either. The four-flight reading table above is NOT retracted - every distance in it
   stands and every verdict was true of the code that produced it.
 
-  **TWO THINGS THE DECISION PACKAGE GOT WRONG, both found by source reading.** The first
+  **THREE THINGS THIS WORK GOT WRONG AND THE EVIDENCE CORRECTED**, recorded because each
+  cost a wrong prediction that a reading then overturned. The third is the flights':
+  `V7M`'s already-watching prediction (the product exits watch mode by itself) and
+  `V14M`'s chord premise (the ghost is on the approach hyperbola, not the park) - both
+  written up at their lanes. The first two were found by source reading. The first
   is the call-site count and the missed inline duplicate above - "six call sites, all
   through the one fixed forwarder" was two short and missed the only site that decides.
   The second: **there is no `ExitWatchMode` seam verb.** `hlib.IMPLEMENTED_SEAM_VERBS` carries 28 and no exit,

@@ -95,30 +95,44 @@ id = "V7M-minmus-player-loop"
 # there to refuse GENUINELY cross-body watch for float-precision reasons; distance is a
 # separate term, and at <= 300 km the float-grid step is centimetres).
 #
-# SO THE CYCLE-1 AND CYCLE-2 `EnterWatchMode` PINS FLIP `REJECTED` -> `OK`, AND THEY
-# ARE **PREDICTED, NOT MEASURED**. Nothing in this file is a reading of the new product
-# until this lane flies again. The readings in section 2's table are NOT deleted and
-# NOT weakened: every distance in it stands, every verdict in it was true of the code
-# that produced it, and the table is exactly why the flipped pins are a prediction
-# worth making rather than a guess (all three separations sit inside 300 km, and all
-# three ghosts were provably at Minmus while being reported at Kerbin).
+# SO THE CYCLE-1 AND CYCLE-2 `EnterWatchMode` PINS FLIP `REJECTED` -> `OK`.
 #
-# WHAT THE READING FLIGHT MUST CHECK, beyond the two step verdicts:
-#   * `Watch same-body term: ... evidence=trajectory-resolved` on the cycle-1 attempt.
-#     That is the new decision line and it names which reading decided.
-#   * `Watch loop-phase decision: ... reset=F phaseSameBody=T` - the second seam. A
-#     non-overlap looping ghost at `zone=Beyond` used to have its loop phase RESET to
-#     `EffectiveLoopStartUT` on entry; for THIS lane that start is the Kerbin pad, tens
-#     of thousands of km from the Minmus observer, so the reset would teleport the
-#     camera cross-body and the 305 km exit debounce would auto-exit within frames. The
-#     reset now stands down when the current phase is itself watchable. A `reset=T` here
-#     with a successful entry is the shape to read carefully.
-#   * The downstream desync instruments, which now run from INSIDE watch mode for
-#     cycles 2 and 3. See the cycle-2 step comment: there is NO `ExitWatchMode` seam
-#     verb, so the lane cannot drop out between cycles.
-#   * `[expectations.renderComposition]` is declared BARE here, so a changed composition
-#     across the watch boundary moves no verdict on this lane - unlike V14M, whose block
-#     is armed.
+# **FLOWN AND MEASURED: reading run `2026-08-28_1930`, PASS attempt 1, wall 53 s, all 27
+# steps met, `expectations mismatches=0`.** The readings in section 2's table are NOT
+# deleted and NOT weakened - every distance in it stands, every verdict in it was true
+# of the code that produced it, and this run reproduced all three separations
+# (144.4 / 191.5 / 51.6 km) to the tenth of a kilometre on the same fixture.
+#
+# WHAT THE READING MEASURED, item by item against what it was asked to check:
+#   * **THE TERM, at the exact V7M shape.** `Watch same-body term: rec=#1 ... sameBody=T
+#     evidence=trajectory-resolved ghostBody=Minmus activeBody=Minmus cached=Kerbin
+#     zone=Beyond`. The 2026-08-08 spawn seed is STILL THERE and still says `Kerbin`;
+#     it simply no longer decides. Cycle 2 read the same key (proved by the `|
+#     suppressed=1` on the cycle-3 line); cycle 3 read `evidence=cache-current` at
+#     51.6 km, in-zone, which is the correct precedence.
+#   * **THE LOOP-PHASE SEAM DID NOT FIRE, AND IT WAS NEVER GOING TO ON THIS LANE.** All
+#     three entries logged `reset=F ... loops=F overlap=F phaseSameBody=T`. `loops=F` is
+#     the pre-existing `ShouldLoopPlaybackForWatch` term, and it is FALSE here because
+#     mission loop-unit members carry no per-recording LoopPlayback flag (their clock
+#     comes from the unit span - `Watch UT resolved via Mission span clock` is in the
+#     log). So the reset was already short-circuited before the new terms were reached:
+#     **seam 2 is UNTESTED by this lane** and must not be claimed off it. What the run
+#     does show is that the new terms answer sensibly where they are evaluated
+#     (`phaseSameBody=T` with 144.4 / 191.5 / 51.6 km all inside the entry cutoff).
+#   * **THE DESYNC INSTRUMENTS ARE UNPERTURBED, and the reason is a refuted prediction.**
+#     The write-up expected cycles 2/3 to run from inside watch mode because no
+#     `ExitWatchMode` seam verb exists. The product exits by itself: each
+#     `StartLoopPlayback` throws the ghost 2,000+ km away and the 305 km debounce fires
+#     (`exceeded ghost camera cutoff (2292545m ... >= 305000m) after 3-frame debounce`).
+#     All three calls are FRESH entries, all three log `enterwatchmode complete:`, and
+#     ZERO `already-watching:` lines exist. `seam-endpoint summary evaluated=1
+#     outsideSoi=0`, `faithful-parity summary sampled=1 overTolerance=0`, 24
+#     Minmus-framed proto surfaces, `anomalySweep hits=[]`, `unityExceptions total=0`
+#     (the end-inside-watch teardown NRE did not recur), `saveParse` armed and PASS with
+#     0/0/0 and points 846/302/23, recordings count 9.
+#   * `[expectations.renderComposition]` is declared BARE here, so nothing gated on the
+#     composition - it read `dwells=5 cycles=2 unevaluable=133` with one INFO finding,
+#     recorded for whenever this lane is armed.
 #
 # *** MECHANISM CORRECTION, 2026-08-09. THE PARAGRAPH THIS REPLACES IS PRESERVED
 # *** IMMEDIATELY BELOW, because the correction is only legible against it. What it
@@ -478,7 +492,7 @@ id = "V7M-minmus-player-loop"
 #            this lane's manifest is for.
 # =====================================================================================
 tier = "operator"
-description = "THE MINMUS PLAYER-LOOP LANE, the spec that BRACKETED the watch-entry boundary and then became the suite's FIRST watch-mode entry. Observer and ghost share a 98,463.595 m Minmus park, so their separation is constant within a cycle and moves only when the phase anchor does; cycles 1 and 2 measured 144,356 m and 191,499 m on the archived V7Mc calibration run `_1607` (144,349 m / 191,497 m on run `_1600`'s own archived log, 198,711 m on `_1601`) - all INSIDE the 300 km cutoff the production range term really uses (`WatchEnterCutoffMeters`, ParsekFlight.cs:19580 -> WatchModeController.cs:698), all REFUSED under the pre-2026-08-28 product - while cycle 3 at 51,503 m ENTERED, so the entry boundary was bracketed in (51.5 km, 144.3 km) and the range term was NOT what refused. THE REFUSING TERM WAS ESTABLISHED (`IsGhostOnSameBody`, answering from a stale spawn seed) AND THEN FIXED: the coordinated decision was TAKEN 2026-08-28, the term now resolves the ghost's body from its own trajectory, and THE CYCLE-1 AND CYCLE-2 PINS ARE NOW **PREDICTED OK, PENDING A READING FLIGHT** - see the header's WATCH-ENTRY MIGRATION banner and docs/dev/todo-and-known-bugs.md -> WATCH-ENTRY-REFUSED-INSIDE-QUOTED-RANGE, the single authority. Minmus is the one park whose separations land inside the quoted range and outside the old boundary, which is what made the measurement possible at all. At least one real entry is gated by the product's own `enterwatchmode complete:` line (measured at cycle 3, `zone=Visual rdist=51603m`, on the committed green run; predicted to move to cycle 1). Same-parent routing pinned positively (no re-aim, phase-lock + zero-drift, factory chain reaimed=False); three cycles feed the arrival-desync hunt."
+description = "THE MINMUS PLAYER-LOOP LANE, the spec that BRACKETED the watch-entry boundary and then became the suite's FIRST watch-mode entry. Observer and ghost share a 98,463.595 m Minmus park, so their separation is constant within a cycle and moves only when the phase anchor does; cycles 1 and 2 measured 144,356 m and 191,499 m on the archived V7Mc calibration run `_1607` (144,349 m / 191,497 m on run `_1600`'s own archived log, 198,711 m on `_1601`) - all INSIDE the 300 km cutoff the production range term really uses (`WatchEnterCutoffMeters`, ParsekFlight.cs:19580 -> WatchModeController.cs:698), all REFUSED under the pre-2026-08-28 product - while cycle 3 at 51,503 m ENTERED, so the entry boundary was bracketed in (51.5 km, 144.3 km) and the range term was NOT what refused. THE REFUSING TERM WAS ESTABLISHED (`IsGhostOnSameBody`, answering from a stale spawn seed) AND THEN FIXED: the coordinated decision was TAKEN 2026-08-28, the term now resolves the ghost's body from its own trajectory, and THE CYCLE-1 AND CYCLE-2 PINS ARE NOW **MEASURED OK** on reading run `2026-08-28_1930` (PASS attempt 1, 53 s, mismatches=0) - which caught the fix firing at the exact shape this lane bracketed: `sameBody=T evidence=trajectory-resolved ghostBody=Minmus cached=Kerbin`, the 2026-08-08 spawn seed still present, still stale, no longer deciding. See the header's WATCH-ENTRY MIGRATION banner and docs/dev/todo-and-known-bugs.md -> WATCH-ENTRY-REFUSED-INSIDE-QUOTED-RANGE, the single authority. Minmus is the one park whose separations land inside the quoted range and outside the old boundary, which is what made the measurement possible at all. At least one real entry is gated by the product's own `enterwatchmode complete:` line - and on `2026-08-28_1930` ALL THREE cycles bought it as fresh entries, because the product exits watch mode by itself between cycles on the 305 km debounce (the migration write-up predicted already-watching short-circuits; refuted, and the refutation is why the desync instruments are unperturbed). Same-parent routing pinned positively (no re-aim, phase-lock + zero-drift, factory chain reaimed=False); three cycles feed the arrival-desync hunt."
 instanceProfile = "stock-minimal"
 tags = ["V7", "player-loop", "watch-mode", "loop-playback", "phase-lock", "zero-drift", "minmus", "moon", "flown"]
 
@@ -523,12 +537,17 @@ steps = [
   { cmd = "TimeJump", args = { ut = "1345355" }, expect = "OK", budget = 300 },
   # CYCLE-1 PARK EPOCH: phaseAnchor + 276,900, deep inside the recorded Minmus park.
   { cmd = "TimeJump", args = { ut = "1354406" }, expect = "OK", budget = 300 },
-  # "Watch". **PREDICTION: OK - PREDICTED, PENDING THE READING FLIGHT.** This pin was
-  # `REJECTED` and it was MEASURED REJECTED four times; the PRODUCT then changed under
-  # it (WATCH-ENTRY-REFUSED-INSIDE-QUOTED-RANGE, coordinated decision TAKEN 2026-08-28),
-  # so the pin is a PREDICTION again and nothing here is measured until this lane flies.
-  # See the header's WATCH-ENTRY MIGRATION banner for the argument in full.
-  # WHY OK IS PREDICTED, term by term:
+  # "Watch". **MEASURED OK on reading run `2026-08-28_1930` (PASS attempt 1, wall 53 s).**
+  # This pin was `REJECTED` and MEASURED REJECTED four times; the PRODUCT changed under
+  # it (WATCH-ENTRY-REFUSED-INSIDE-QUOTED-RANGE, coordinated decision TAKEN 2026-08-28)
+  # and the reading flight confirmed the flip AT THIS EXACT SHAPE, verbatim:
+  #   `Watch same-body term: rec=#1 id=20fc25e6... sameBody=T evidence=trajectory-resolved
+  #    ghostBody=Minmus activeBody=Minmus cached=Kerbin zone=Beyond`
+  # `cached=Kerbin` is the 2026-08-08 spawn seed, still there, still stale, still saying
+  # Kerbin - and no longer deciding. The trajectory said Minmus and the entry completed
+  # (`enterwatchmode complete: index=1`). The separation the product logged at this step,
+  # `phaseDist=144.4km`, reproduces the archived 144,349 / 144,356 / 144,365 m readings.
+  # WHY OK WAS PREDICTED, term by term - all three confirmed by the run:
   #   range  - `rdist=144349m` (run `_1600`), `144356m` / `144365m` (the two V7Mc
   #            attempts), `198711m` (`_1601`, the outlier). Every one inside
   #            `WatchEnterCutoffMeters` = 300,000 m. This term ALWAYS passed.
@@ -570,33 +589,37 @@ steps = [
   # CYCLE-2 PARK EPOCH: the same +276,900 offset off the cycle-2 anchor.
   { cmd = "TimeJump", args = { ut = "2431877" }, expect = "OK", budget = 300 },
   # "Watch" again, an INDEPENDENT separation (the anchor moved, so the constant-within-
-  # a-cycle phase difference changes). **PREDICTION: OK - PREDICTED, PENDING THE
-  # READING FLIGHT**, same three-term argument as the cycle-1 step. Formerly
-  # MEASURED REJECTED at ~191.5 km (`rdist=191497m` on run `_1600`, `191499m` /
-  # `191493m` on the two V7Mc attempts - but see the reading ledger's ATTRIBUTION note:
-  # only `_1600`/`_1601` sampled at the cycle-2 park); also inside the 300 km range
-  # term, also on the same body, also seeded `Kerbin`.
+  # a-cycle phase difference changes). **MEASURED OK on `2026-08-28_1930`**, same
+  # three-term argument as the cycle-1 step, at `phaseDist=191.5km` - reproducing the
+  # archived `rdist=191497m` (`_1600`) / `191499m` / `191493m` (the two V7Mc attempts)
+  # to the tenth of a kilometre. Formerly MEASURED REJECTED there; also inside the
+  # 300 km range term, also on the same body, also seeded `Kerbin`.
+  # ITS OWN same-body line is SUPPRESSED in the log rather than absent, and that is
+  # evidence rather than a gap: the decision line is change-keyed, and the cycle-3 line
+  # carries `| suppressed=1` - exactly one intervening evaluation with an IDENTICAL key,
+  # i.e. this call also read `sameBody=T evidence=trajectory-resolved Minmus/Minmus`.
   #
-  # AND THIS ONE IS THE WEAKER PREDICTION OF THE TWO, deliberately written down as
-  # such. THE SEAM VERB `ExitWatchMode` DOES NOT EXIST - `hlib.IMPLEMENTED_SEAM_VERBS`
-  # carries 28 verbs and no exit, `RESERVED_SEAM_VERBS` does not reserve one either,
-  # and the C# `TestCommandVerbs.ImplementedVerbs` mirrors that set exactly - so this
-  # lane CANNOT drop out of watch mode between cycles the way the migration write-up
-  # assumed it could. Once the cycle-1 step enters, this call and the cycle-3 call
-  # auto-select the SAME index and take `ParsekTestCommandAddon`'s idempotent
-  # already-watching short-circuit: still `OK`, but by a different route, logging
-  # `enterwatchmode already-watching:` instead of `enterwatchmode complete:`.
-  # TWO CONSEQUENCES THE READING FLIGHT MUST CHECK, neither of them hidden here:
-  #   (1) the required `enterwatchmode complete: index=` token is now bought by the
-  #       CYCLE-1 entry rather than the cycle-3 one. It is still bought exactly once by
-  #       a real entry, which is all that token ever claimed.
-  #   (2) cycles 2 and 3 now run their StartLoopPlayback + arrival brackets FROM INSIDE
-  #       watch mode, which no archived run of this lane has done. The desync-hunt
-  #       instruments (`surface=Proto(Icon|OrbitLine) .*body=Minmus`,
-  #       `faithful-parity summary`, `seam-endpoint summary`) are read under a
-  #       camera-anchored, force-loaded full-fidelity ghost for the first time. If any
-  #       of them moves, THAT is the finding, and the fix is to promote an
-  #       `ExitWatchMode` seam verb - NOT to re-roll this pin.
+  # THE MIGRATION WRITE-UP PREDICTED A DIFFERENT ROUTE HERE AND THE RUN REFUTED IT -
+  # kept, because the refutation is the useful part. It said: since the seam verb
+  # `ExitWatchMode` DOES NOT EXIST (`hlib.IMPLEMENTED_SEAM_VERBS` carries 28 verbs and
+  # no exit, `RESERVED_SEAM_VERBS` reserves none, and the C#
+  # `TestCommandVerbs.ImplementedVerbs` mirrors that set exactly), this lane could not
+  # drop out of watch mode between cycles, so cycles 2 and 3 would auto-select the same
+  # index and take the idempotent already-watching short-circuit, running their
+  # StartLoopPlayback + arrival brackets FROM INSIDE watch mode.
+  # **WHAT ACTUALLY HAPPENS: THE PRODUCT EXITS WATCH MODE BY ITSELF, and the absent verb
+  # turns out not to matter.** The `StartLoopPlayback` that opens each next cycle jumps
+  # the clock, the ghost lands thousands of km away, and the watch-exit debounce fires:
+  #   `Ghost #1 "Kerbal X" exceeded ghost camera cutoff (2292545m ... >= 305000m) after
+  #    3-frame debounce - exiting watch mode`   (22:31:18.921, and again at 2,083,445 m
+  #    at 22:31:20.420)
+  # So ALL THREE calls are FRESH entries and all three log `enterwatchmode complete:`;
+  # ZERO `already-watching:` lines exist in the run. Both predicted consequences are
+  # therefore VOID: the required completion token is bought three times over rather than
+  # migrating to cycle 1, and the desync instruments are NOT read from inside watch mode
+  # - they run exactly the shape the archived flights ran. `seam-endpoint summary
+  # evaluated=1 outsideSoi=0`, `faithful-parity summary sampled=1 overTolerance=0` and
+  # 24 Minmus-framed proto surfaces all landed, `expectations mismatches=0`.
   { cmd = "EnterWatchMode",                                                  expect = "OK" },
   # CYCLE 3 - THE ONE THAT ENTERS WATCH MODE, and the reason this lane keeps a third
   # cycle. The calibration run 2026-08-08_1607 walked cycles 3/4/5 and measured the
@@ -618,13 +641,17 @@ steps = [
   # "Watch" - PINNED OK ON A MEASUREMENT, not a hope, and the only one of the three
   # that is still a measurement. This was the suite's first watch-mode entry on a
   # looped ghost at 51,503 m (`zone=Visual`).
-  # WHAT CHANGED AROUND IT (2026-08-28, WATCH-ENTRY-REFUSED-INSIDE-QUOTED-RANGE): with
-  # cycles 1 and 2 predicted to ENTER, this call is now expected to take the idempotent
-  # already-watching short-circuit rather than a fresh entry - the same `OK`, and the
-  # reason the required `enterwatchmode complete: index=` token below now describes the
-  # CYCLE-1 entry. That token is still the anti-vacuity gate it always was: it is
-  # emitted only by `TryCompleteEnterWatchMode`'s real completion branch and never by
-  # the short-circuit, so the run still has to have entered watch mode for real once.
+  # WHAT CHANGED AROUND IT (2026-08-28, WATCH-ENTRY-REFUSED-INSIDE-QUOTED-RANGE):
+  # NOTHING ABOUT THIS STEP, as it turned out. The migration write-up expected cycles 1
+  # and 2 to enter and hold the camera, leaving this call to take the idempotent
+  # already-watching short-circuit; the reading run `2026-08-28_1930` shows the product
+  # exiting watch mode on its own between cycles (the 305 km debounce, after each
+  # StartLoopPlayback throws the ghost 2,000+ km away), so this is a FRESH entry exactly
+  # as it always was. MEASURED: `evidence=cache-current ghostBody=Minmus cached=Minmus
+  # zone=Visual`, `phaseDist=51.6km` - reproducing the archived 51,503 / 51,603 m. Note
+  # the EVIDENCE differs from cycles 1 and 2 by design: at 51.6 km the ghost is inside
+  # the render zone, so its cached reading IS current and takes precedence over the
+  # trajectory. That precedence is the one thing this step now uniquely covers.
   { cmd = "EnterWatchMode",                                                  expect = "OK" },
   # M-A7 RENDER-COMPOSITION CAPTURE (Phase 3C, Wave A, 2026-08-26). PLACEMENT IS THE
   # ARGUMENT and it is pinned by `test_every_declarer_exports_immediately_before_teardown`:
