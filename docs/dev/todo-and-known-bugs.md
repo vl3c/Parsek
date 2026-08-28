@@ -4959,6 +4959,78 @@ questions 1, 2 and 4 below are unaffected; **open question 3 ("which reference i
 whether the camera should be dropping watch entirely on a lost cycle rather than falling
 back to a target it cannot resolve") is ANSWERED** - it should, and it now does.
 
+### THE RE-FLIGHT (2026-08-28, run `2026-08-28_1703`) - PREDICTION CONFIRMED
+
+Flown once on the provisioned `stock-minimal` instance against this branch's DLL
+(hash-verified byte-identical to the building worktree's own `bin/Debug/Parsek.dll`, and
+grepped for `ParsekWatchCycleBridge` + two new literal runs + three new identifiers).
+`V15M-gilly-player-loop`, unchanged shape, one attempt.
+
+**IN-FLIGHT NREs: 306 -> ZERO.** The whole run's `NullReferenceException` population is
+**4**, and all four land at 20:04:03.357-20:04:03.366, i.e. AFTER
+`flushandquit: Application.Quit` at 20:04:02.630, in scene teardown. One of them is
+literally `WatchModeController.RestoreCameraAfterWatchExit -> GetActiveVesselSafe ->
+FlightGlobals.get_ActiveVessel` - V7M's teardown finding, which the section above already
+separates from this one by name and which this fix never claimed to touch. Against the
+measured 443/447 (306 in-flight + teardown) this is the storm gone, not reduced.
+
+**AND THE THREE DEFECTS ARE VISIBLY FIXED, in order, on the same frames that used to
+fail.** From `harness/results/2026-08-28_1703_V15M-gilly-player-loop_shots/KSP.log`:
+
+    13039 [20:04:01.065] Watch camera bridged off destroying ghost #0 ... cycle=0
+                         target='horizonProxy' pos=(-67.6,519.1,-569.2)
+    13073 [20:04:01.076] Watched cycle lost - falling back to primary cycle=1
+    13074 [20:04:01.076] Watch focus (cycle-fallback): ... expectedTarget=horizonProxy
+                         actualTarget=horizonProxy targetMatches=True ... ghostBody=Eve
+    13075 [20:04:01.076] Watch cycle bridge released: ... (camera rebound to 'horizonProxy')
+
+Read line 13074 against the one this entry quotes from 2026-08-19: same context
+(`cycle-fallback`), same ghost, same Eve-at-56,159 km moment - and
+`actualTarget=null targetMatches=False` has become
+`actualTarget=horizonProxy targetMatches=True`. Defect 1's bridge fired (13039), defect
+2's fallback committed a rebind that actually took (13074), and the bridge retired itself
+the same frame (13075). There is **no `flight-camera-missing` line anywhere in the run**,
+so defect 3's counted net was never even needed - which is the expected result if the
+dangling target was what killed the camera, and is the strongest evidence available for
+that reading short of decompiling `FlightCamera`. Watch then stayed live for the rest of
+the flight, following the ghost back down to `dist=786m` at Gilly with `targetMatches=True`
+throughout.
+
+The budget caveat above is UNEXERCISED, not validated: `WatchNoTargetExitFrames` never
+fired because no frame lost its camera. It stays the falsifiable part.
+
+**THE LANE VERDICT IS PARSEK-FAIL, AND NOT ON THIS.** `anomalySweep hits=['line-blink']`,
+count 1, and `V15M`'s `allowedAnomalies` is empty so one raise reds it. `unityExceptions`
+never ran (`status=SKIPPED reason=short-circuit` behind the failing sweep) - the 4 above
+were counted by hand from the collected log. The raise:
+
+    13445 [20:04:01.813] phase=Anomaly surface=ProtoOrbitLine pid=4257410708
+          recId=77f724bb... frame=6932 reason=line-blink lineActive=False prevActive=True
+          sinceFrames=5 body=Gilly offWindowCovered=False polylinePainted=False
+          polylineOwns=False windowTransitionExempt=False bodyChanged=False
+          toggleVerdict=Other priorToggleVerdict=InsideWindowOn
+          intentReason=director-traced-path-suppress
+
+**ATTRIBUTION IS OPEN AND IS DELIBERATELY NOT CLAIMED HERE.** Two candidates, and this
+flight cannot separate them:
+
+- *Main moved.* `V15M` last flew 2026-08-19. Nine days of map-render work landed since
+  (the M-A7 render-composition wave through #1547, the #1551 map-trajectory validation),
+  and this raise is on the Director / TracedPath ownership path
+  (`intentReason=director-traced-path-suppress`), which none of this branch touches.
+- *Watch working changes what the map sees.* It fires at 20:04:01.813, the same
+  millisecond as the `Watch focus` line reading `zone=Visual dist=786m ghostBody=Gilly` -
+  the moment the now-live watch camera brings the ghost back into close range. In the
+  broken run the camera was dead from the re-arm on, so the watched-ghost LOD anchor
+  (`TryGetWatchedGhostAnchorWorldPosition`, which re-centres the render-distance radius on
+  the watched ghost) never moved through those zones at all. A watch session that actually
+  works is a different input to the map render path, and that is a real route even though
+  no line of this branch is on it.
+
+The discriminator is one flight of `V15M` on `origin/main` without this branch. It was not
+taken: this was the wave's one permitted flight. Do not record either candidate as the
+cause until that runs.
+
 `V15M-gilly-player-loop` run `2026-08-19_1736` came back **PASS attempt 1** with all
 21 steps met and `anomalySweep hits=[]`. It also read `unityExceptions total=447`,
 `status=REPORT` - by far the largest NRE population any loop lane has produced, against
@@ -5127,6 +5199,10 @@ a product regression at that resolution.
    in the suite reaches watch-across-a-loop-boundary at all.
 
 ### Nothing gates it
+
+(Superseded in part by THE RE-FLIGHT above, which measured 4 total / 0 in-flight and
+red'd the lane on an unrelated `line-blink`. Kept because the reasoning about why no
+ceiling was ever armed is what made the report-only reading the only usable signal.)
 
 `unityExceptions` is REPORT-ONLY on this lane (`status=REPORT`, `gating=false`,
 `maxTotal=null`) and the run is a PASS. No `[expectations.unityExceptions] maxTotal` is
