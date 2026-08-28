@@ -247,6 +247,16 @@ namespace Parsek
         internal static Action OnKspLoadAfterOldSaveEventReconcileForTesting;
 
         /// <summary>
+        /// STRATEGY-PREFIX-HOLDBACK-PERMANENT: the load-time unmatchable strategy-exchange
+        /// science residual (see
+        /// <see cref="ComputeUnmatchableStrategyScienceDebitBaseline"/>). Re-measured from
+        /// the on-disk state at every <see cref="OnKspLoad"/> - never persisted, because it
+        /// is a deterministic function of the store + ledger that were just loaded. 0 on a
+        /// post-capture-fix save, which is what makes the bound a no-op there.
+        /// </summary>
+        private static double unmatchableStrategyScienceDebitBaseline;
+
+        /// <summary>
         /// Sentinel value passed by <see cref="NotifyLedgerTreeCommitted"/> to recordings
         /// in a multi-recording tree that should NOT absorb any pending science subjects.
         /// Distinct from <c>null</c>, which means "read from the static list as usual"
@@ -2631,6 +2641,11 @@ namespace Parsek
             // Previous loads' TryRecoverBrokenLedgerOnLoad synthetics (persisted in the
             // ledger file) must NOT falsely register as "MigrateOldSaveEvents output".
             ResetMigrateOldSaveEventsForLoad();
+            // Drop the previous save's unmatchable strategy-exchange residual before
+            // anything in THIS load can read it. There is no save-unload hook to hang this
+            // on, and loading save B in a process that had save A open would otherwise let
+            // A's residual bound B's pending amount until the sweep below re-measures it.
+            unmatchableStrategyScienceDebitBaseline = 0.0;
             LedgerRecoveryFundsPairing.ClearConsumedRecoveryEventKeys();
             RecoveryPayoutContextStore.Clear("KSP load");
             // Log-before-clear so any stale entries from the previous session show up
@@ -2730,6 +2745,15 @@ namespace Parsek
             // action. The deferred-seed coroutine re-applies the cutoff once the clock is
             // ready, so a genuine future-timeline (post-rewind) cold load is still honored.
             // currentUtReady was computed above (it also gates row preservation in Reconcile).
+            //
+            // STRATEGY-PREFIX-HOLDBACK-PERMANENT: measure the unmatchable strategy-exchange
+            // science residual BEFORE the load recalc, so the very first PatchScience of the
+            // load already sees the bound and a pre-capture-fix save never emits the
+            // GUARDED DRAWDOWN clamp + player toast at all. Placed after Reconcile /
+            // MigrateOldSaveEvents / TryRecoverBrokenLedgerOnLoad so the sweep nets against
+            // the same ledger rows the recalc is about to walk.
+            CaptureUnmatchableStrategyScienceDebitBaselineOnLoad();
+
             bool hasFutureActions = HasActionsAfterUT(maxUT);
             bool useCurrentUtCutoff =
                 useCurrentUtCutoffForFutureActions && currentUtReady && hasFutureActions;
@@ -3817,13 +3841,20 @@ namespace Parsek
         /// and flows through <see cref="OnRecordingCommitted"/>; this path is for KSC /
         /// pre-recording callbacks where no future recording commit can own the subject.
         /// </summary>
+        /// <param name="launchGuid">
+        /// KERBAL-XP-RECOVERY-PICK-IS-NAME-AND-UT-ONLY stage 1: the recovering vessel's live
+        /// launch guid, when the caller's <c>ProtoVessel</c> supplies one. Null (the default,
+        /// and what every non-recovery caller passes) makes the recovery candidate filter
+        /// inert, preserving the historical name+UT pick.
+        /// </param>
         /// <returns>
         /// True when the subject was handled by the direct path, including duplicate
         /// suppression. False means the caller should keep the subject pending.
         /// </returns>
         internal static bool TryRecordKscScienceSubject(
             PendingScienceSubject subject,
-            string vesselName)
+            string vesselName,
+            string launchGuid = null)
         {
             Initialize();
 
@@ -3842,7 +3873,7 @@ namespace Parsek
                 return false;
             }
 
-            string recordingId = ResolveKscScienceRecordingId(subject, vesselName);
+            string recordingId = ResolveKscScienceRecordingId(subject, vesselName, launchGuid);
             var routedSubject = subject;
             routedSubject.recordingId = recordingId ?? "";
 
@@ -4006,7 +4037,8 @@ namespace Parsek
 
         private static string ResolveKscScienceRecordingId(
             PendingScienceSubject subject,
-            string vesselName)
+            string vesselName,
+            string launchGuid = null)
         {
             if (!string.Equals(
                     subject.reasonKey ?? "",
@@ -4024,7 +4056,9 @@ namespace Parsek
                 return null;
             }
 
-            return PickRecoveryRecordingId(vesselName, subject.captureUT);
+            return PickRecoveryRecordingId(
+                RecoveredVesselIdentity.FromRawName(vesselName, launchGuid),
+                subject.captureUT);
         }
 
         /// <summary>
@@ -4381,7 +4415,9 @@ namespace Parsek
         /// <list type="number">
         ///   <item>Recording whose <c>[StartUT, EndUT]</c> brackets <paramref name="ut"/>
         ///   (the flight that actually covers the recovery moment). If multiple bracket,
-        ///   pick the one with the largest EndUT.</item>
+        ///   pick the one with the largest EndUT — EXCEPT that the live Re-Fly session's
+        ///   admitted provisional wins outright when it is among the bracketing set (see
+        ///   the bracket-tie note below).</item>
         ///   <item>Most recent flight that ended at or before <paramref name="ut"/>
         ///   (largest EndUT with EndUT &lt;= ut).</item>
         ///   <item>Global latest by EndUT (preserved fallback for recoveries whose metadata
@@ -4407,8 +4443,10 @@ namespace Parsek
         ///     actions <c>RecordingTreeSplitter</c> retags to the superseded TIP — and
         ///     <c>CommitTombstones</c> would then tombstone a REAL payout away.
         ///     <c>RecordingId</c> is the tombstone SCOPING KEY
-        ///     (<c>TombstoneAttributionHelper.InSupersedeScope</c>, no UT guard), not a
-        ///     cosmetic label.
+        ///     (<c>TombstoneAttributionHelper.InSupersedeScope</c>, no UT guard of its own),
+        ///     not a cosmetic label. The write-set's separate pre-rewind screen does NOT
+        ///     save this case: a mid-session payout's UT is at or after the rewind point
+        ///     by construction, so it passes that screen and is tombstoned.
         ///   </description></item>
         ///   <item><description>
         ///     Any OTHER NotCommitted recording is a zombie awaiting <c>LoadTimeSweep</c> and
@@ -4416,8 +4454,65 @@ namespace Parsek
         ///     phantom-attribution route this closes.
         ///   </description></item>
         /// </list>
+        /// <para>
+        /// <b>Bracket ties prefer the admitted session provisional</b>
+        /// (TOMBSTONE-BRACKET-TIE-MID-SESSION-PAYOUT). A payout earned DURING the re-fly at
+        /// <c>rewindUT &lt;= ut &lt;= origin.EndUT</c> is bracketed by BOTH the origin child
+        /// and the provisional (whose StartUT is ~<c>rewindUT</c>). While the provisional has
+        /// not yet flown past where the original flight ended, largest-EndUT hands the tie to
+        /// the ORIGIN CHILD — whose post-rewind rows <c>RecordingTreeSplitter</c> retags to
+        /// the superseded TIP, so <c>CommitTombstones</c> retires a payout that really was
+        /// earned on the surviving fork. The row's UT is <c>&gt;= rewindUT</c> by
+        /// construction, so the write-set's pre-rewind screen
+        /// (<c>TombstoneAttributionHelper.IsPreRewindAttributedAction</c>) cannot save it:
+        /// the defect is the ATTRIBUTION, not the retirement, so the fix belongs here.
+        /// </para>
+        /// <para>
+        /// The override is scoped to tier 1 only and is inert whenever no session is armed
+        /// (<c>sessionProvisionalId</c> is null, so nothing can be admitted). An unbound /
+        /// trajectory-less provisional degrades to the status quo on its own: with no
+        /// trajectory bounds and no <c>ExplicitStartUT</c>/<c>ExplicitEndUT</c>,
+        /// <see cref="Recording.StartUT"/> and <see cref="Recording.EndUT"/> both resolve to
+        /// <c>0.0</c>, so it brackets nothing but a <c>ut == 0.0</c> recovery. Tiers 2 and 3
+        /// keep their existing max-EndUT semantics untouched.
+        /// </para>
+        /// <para>
+        /// <b>The tie-break's identity test is DELIBERATELY WIDER than the NotCommitted
+        /// eligibility rule above:</b> it asks only "is this the marker's provisional?", with
+        /// no <c>MergeState</c> qualifier. That is not an accident of the hoist. On the
+        /// <c>preserveMarker: true</c> merge paths there is a real window in which the
+        /// provisional has already flipped to <c>CommittedProvisional</c> / <c>Immutable</c>
+        /// while the session marker is STILL armed, and preferring it there is correct for
+        /// the same reason as before the flip: it is the fork that survives, and past
+        /// <c>SupersedeCommit.AppendRelations</c> it is provably not in the supersede
+        /// subtree. Narrowing this test back to <c>NotCommitted</c> would reopen the bracket
+        /// tie for exactly that window.
+        /// </para>
+        /// <para>
+        /// <b>What this override does NOT decide, and what now narrows it:</b> the tie-break
+        /// is name-blind - it inherits whatever candidate set reaches the tier walk. A
+        /// same-name DIFFERENT-LAUNCH recovery during an armed session (an unrelated earlier
+        /// launch of the same craft, still flying and recovered mid-session) would tag to
+        /// the provisional where max-EndUT picked another recording; no career value is lost
+        /// on either outcome, and the misattribution is the pre-existing name-identity class
+        /// (<see cref="VesselLaunchIdentity"/>), not something this override introduced.
+        /// <see cref="FilterRecoveryCandidatesByLaunchGuid"/> now narrows exactly that class
+        /// AHEAD of the tier walk, and the two COMPOSE rather than fight: the origin child
+        /// and the provisional share the same inherited launch guid, so the filter never
+        /// separates the two sides of this tie, while a foreign launch it drops is one this
+        /// tie-break can then never see. Filter first, then tiers.
+        /// </para>
         /// Returns null when no eligible recording matches <paramref name="vesselName"/>;
         /// no-candidate is preferred over a doomed one.
+        /// <para>
+        /// KERBAL-XP-RECOVERY-PICK-IS-NAME-AND-UT-ONLY stage 1: the name-matching candidate
+        /// set is passed through <see cref="FilterRecoveryCandidatesByLaunchGuid"/> BEFORE
+        /// the tier walk, so a candidate whose recorded launch guid conclusively differs from
+        /// the recovering vessel's never reaches the tiers. This overload carries no live
+        /// guid (its callers only have a name), so for it the filter is inert by
+        /// construction; the identity overload is where a seam with a <c>ProtoVessel</c>
+        /// supplies one.
+        /// </para>
         /// Internal static for testability.
         /// </summary>
         internal static string PickRecoveryRecordingId(string vesselName, double ut)
@@ -4439,23 +4534,124 @@ namespace Parsek
             return scenario.ActiveReFlySessionMarker?.ActiveReFlyRecordingId;
         }
 
+        /// <summary>
+        /// KERBAL-XP-RECOVERY-PICK-IS-NAME-AND-UT-ONLY stage 1: does a name-matching
+        /// candidate recording belong to a launch the recovering vessel CONCLUSIVELY is not?
+        ///
+        /// <para>
+        /// The predicate is <see cref="VesselLaunchIdentity.GuidsConclusivelyDiffer"/> and
+        /// nothing stricter, on purpose. <c>persistentId</c> is craft-baked and reused on
+        /// every launch of a craft, so it cannot separate two launches of one craft name; the
+        /// launch <c>Guid</c> can. But the recovery seam cannot PROMISE a guid on either side
+        /// (a pre-guid recording carries none; a recovery reached through a path with no
+        /// <c>ProtoVessel</c> supplies none), so
+        /// <c>ResurrectionRetirementEligibility.IsPositivelySameLaunch</c> - which requires a
+        /// known guid on BOTH sides - is the wrong shape here: it would retire the
+        /// correlation for every legacy recording, trading a rare wrong pick for a common
+        /// missing one. An unknown guid on either side is NOT conclusive, so the candidate
+        /// survives and the picker behaves exactly as it did before this filter existed.
+        /// </para>
+        ///
+        /// <para>
+        /// The Re-Fly provisional is safe by construction, not by exemption:
+        /// <c>RewindInvoker.CopyInheritedIdentityForFork</c> inherits the origin's
+        /// <c>RecordedVesselGuid</c> (the fork restores from a quicksave that preserves the
+        /// origin's <c>Vessel.id</c>), and a provisional built before that copy carries a
+        /// null guid - both non-conclusive, so the session-aware NotCommitted rule above is
+        /// untouched.
+        /// </para>
+        /// </summary>
+        internal static bool IsConclusiveLaunchGuidMismatch(Recording rec, string liveLaunchGuid)
+        {
+            if (rec == null) return false;
+            return VesselLaunchIdentity.GuidsConclusivelyDiffer(
+                rec.RecordedVesselGuid, liveLaunchGuid);
+        }
+
+        /// <summary>
+        /// Applies <see cref="IsConclusiveLaunchGuidMismatch"/> to an ordered candidate set,
+        /// returning the survivors IN INPUT ORDER and reporting how many were dropped.
+        ///
+        /// <para>
+        /// <b>MONOTONE by construction.</b> The result is a subsequence of the input: the
+        /// filter can only REMOVE candidates, never add or reorder one. That is what makes it
+        /// the safe half of the fix - a recovery whose pick was already correct cannot be
+        /// turned into a wrong pick by it, only into the same pick or (when every candidate
+        /// is a conclusively different launch) into the existing
+        /// <c>reason=no-recovery-recording</c> refusal. It runs BEFORE tier selection, so the
+        /// bracketing / most-recent-ended / global-latest walk is unchanged and simply sees a
+        /// smaller set.
+        /// </para>
+        ///
+        /// <para>
+        /// A null/empty <paramref name="liveLaunchGuid"/> is the documented no-op: every
+        /// candidate survives and <paramref name="dropped"/> is 0.
+        /// </para>
+        /// </summary>
+        internal static List<Recording> FilterRecoveryCandidatesByLaunchGuid(
+            IReadOnlyList<Recording> candidates, string liveLaunchGuid, out int dropped)
+        {
+            dropped = 0;
+            var survivors = new List<Recording>(candidates?.Count ?? 0);
+            if (candidates == null) return survivors;
+
+            for (int i = 0; i < candidates.Count; i++)
+            {
+                var rec = candidates[i];
+                if (IsConclusiveLaunchGuidMismatch(rec, liveLaunchGuid))
+                {
+                    dropped++;
+                    continue;
+                }
+                survivors.Add(rec);
+            }
+            return survivors;
+        }
+
+        /// <summary>
+        /// The active Re-Fly session's provisional recording, IF it is present in
+        /// <paramref name="candidates"/>, else null.
+        ///
+        /// <para>
+        /// <b>Callers must pass the POST-FILTER candidate set.</b> This exists so that
+        /// "the session provisional is admitted" means admitted to the set the tier walk
+        /// actually walks, not merely to the name-match set. A tier tie-break that preferred
+        /// a provisional resolved from the pre-filter set could reinstate a candidate
+        /// <see cref="FilterRecoveryCandidatesByLaunchGuid"/> removed, which would break the
+        /// filter's monotone property - the property the whole stage-1 safety argument rests
+        /// on (KERBAL-XP-RECOVERY-PICK-IS-NAME-AND-UT-ONLY).
+        /// </para>
+        /// </summary>
+        internal static Recording FindSessionProvisionalAmong(
+            IReadOnlyList<Recording> candidates, string sessionProvisionalId)
+        {
+            if (candidates == null || string.IsNullOrEmpty(sessionProvisionalId))
+                return null;
+
+            for (int i = 0; i < candidates.Count; i++)
+            {
+                var rec = candidates[i];
+                if (rec == null) continue;
+                if (string.Equals(rec.RecordingId, sessionProvisionalId, StringComparison.Ordinal))
+                    return rec;
+            }
+            return null;
+        }
+
         internal static string PickRecoveryRecordingId(RecoveredVesselIdentity identity, double ut)
         {
             var recordings = RecordingStore.CommittedRecordings;
             if (recordings == null) return null;
 
-            Recording bracketing = null;       // tier 1
-            Recording mostRecentEnded = null;  // tier 2
-            Recording globalLatest = null;     // tier 3
-            int candidateCount = 0;
             int skippedZombieNotCommitted = 0;
-            bool admittedSessionProvisional = false;
 
             // The ACTIVE session's provisional is a legitimate target (it survives the
             // merge as the fork); every other NotCommitted recording is a zombie whose
             // id would dangle. Resolved once, outside the loop.
             string sessionProvisionalId = ResolveActiveReFlyProvisionalRecordingId();
 
+            // Pass 1: the name+eligibility candidate set, in store order.
+            var nameMatches = new List<Recording>();
             for (int i = 0; i < recordings.Count; i++)
             {
                 var rec = recordings[i];
@@ -4473,12 +4669,71 @@ namespace Parsek
                         if (identity.MatchesName(rec.VesselName)) skippedZombieNotCommitted++;
                         continue;
                     }
-                    if (identity.MatchesName(rec.VesselName))
-                        admittedSessionProvisional = true;
                 }
                 if (!identity.MatchesName(rec.VesselName)) continue;
-                candidateCount++;
+                nameMatches.Add(rec);
+            }
 
+            // Pass 2: KERBAL-XP-RECOVERY-PICK-IS-NAME-AND-UT-ONLY stage 1. Drop candidates
+            // whose recorded launch guid conclusively differs from the recovering vessel's.
+            // Monotone and BEFORE the tier walk, so the tiers below are untouched.
+            var candidates = FilterRecoveryCandidatesByLaunchGuid(
+                nameMatches, identity.LaunchGuid, out int guidDropped);
+            int candidateCount = candidates.Count;
+
+            // THE SESSION PROVISIONAL IS RESOLVED FROM THE POST-FILTER SET, NOT PASS 1.
+            // Anything reading this - the summary line, and the tier-1 tie-break below -
+            // must see the set the tier walk actually walks. Deriving it from the name-match
+            // set instead would let a tie-break resurrect a candidate this filter removed,
+            // silently breaking the monotone property that is the whole safety argument for
+            // the filter.
+            // THE REBASE REQUIREMENT NAMED HERE HAS BEEN MET, and this is now a live
+            // constraint rather than a forward-looking one: the
+            // TOMBSTONE-BRACKET-TIE-MID-SESSION-PAYOUT tie-break landed in the tier-1 body
+            // below and consumes THIS reference by identity (ReferenceEquals against a
+            // member of `candidates`). It does NOT re-derive the provisional from
+            // `nameMatches`, from a raw store walk, or from a per-iteration id comparison -
+            // all three would reinstate a filtered-out candidate. Filter first, then tiers:
+            // the two compose because a guid the filter would drop is one this tie-break
+            // can then never see. Keep it that way.
+            Recording admittedSessionProvisional =
+                FindSessionProvisionalAmong(candidates, sessionProvisionalId);
+
+            // ONE LINE PER PICK, NOT PER RECOVERY. The funds and XP legs pick once, but the
+            // science leg picks once per science subject, so a science-heavy recovery emits
+            // one of these per subject. That is bounded by the subject count and each line is
+            // independently true, so it is left un-rate-limited rather than collapsed - a
+            // dropped candidate is an attribution-changing decision on every leg that makes it.
+            if (guidDropped > 0)
+            {
+                ParsekLog.Info(Tag,
+                    $"PickRecoveryRecordingId guid filter: {identity.FormatForLog()} " +
+                    $"ut={ut.ToString("F1", CultureInfo.InvariantCulture)} " +
+                    $"dropped={guidDropped.ToString(CultureInfo.InvariantCulture)} " +
+                    $"remaining={candidateCount.ToString(CultureInfo.InvariantCulture)} " +
+                    $"reason=guid-conclusive-mismatch");
+            }
+            else if (nameMatches.Count > 0)
+            {
+                // Nothing dropped - but WHY is the load-bearing half, and a silent no-drop
+                // cannot be told apart from a filter that never ran. Naming the two states
+                // is what lets a live proof read "the filter was active and agreed" off the
+                // log instead of inferring it. Same one-line-per-PICK bound as above.
+                ParsekLog.Verbose(Tag,
+                    $"PickRecoveryRecordingId guid filter: {identity.FormatForLog()} " +
+                    $"ut={ut.ToString("F1", CultureInfo.InvariantCulture)} " +
+                    $"dropped=0 remaining={candidateCount.ToString(CultureInfo.InvariantCulture)} " +
+                    $"reason={(identity.HasLaunchGuid ? "no-conclusive-mismatch" : "live-launch-guid-unknown")}");
+            }
+
+            Recording bracketing = null;                   // tier 1 (largest EndUT)
+            Recording bracketingSessionProvisional = null; // tier 1 tie-break override
+            Recording mostRecentEnded = null;              // tier 2
+            Recording globalLatest = null;                 // tier 3
+
+            for (int i = 0; i < candidates.Count; i++)
+            {
+                var rec = candidates[i];
                 double startUT = rec.StartUT;
                 double endUT = rec.EndUT;
 
@@ -4487,6 +4742,17 @@ namespace Parsek
                 {
                     if (bracketing == null || endUT > bracketing.EndUT)
                         bracketing = rec;
+                    // TOMBSTONE-BRACKET-TIE-MID-SESSION-PAYOUT: the live session's
+                    // provisional outranks largest-EndUT inside tier 1. It is the fork
+                    // that SURVIVES the merge, so a mid-session payout tagged to it is
+                    // out of the supersede subtree instead of being tombstoned away.
+                    // Identity comes from `admittedSessionProvisional`, which is a member
+                    // of `candidates` BY CONSTRUCTION - see the post-filter note above.
+                    // ReferenceEquals, deliberately: an id comparison here would re-derive
+                    // the provisional inside the tier walk and could match a recording the
+                    // guid filter dropped, which is exactly what that note forbids.
+                    if (ReferenceEquals(rec, admittedSessionProvisional))
+                        bracketingSessionProvisional = rec;
                 }
 
                 // Tier 2: ended at or before ut
@@ -4501,7 +4767,10 @@ namespace Parsek
                     globalLatest = rec;
             }
 
-            Recording pick = bracketing ?? mostRecentEnded ?? globalLatest;
+            // Tier-1 resolution: the admitted session provisional wins the bracket tie.
+            Recording bracketPick = bracketingSessionProvisional ?? bracketing;
+
+            Recording pick = bracketPick ?? mostRecentEnded ?? globalLatest;
             if (pick == null)
             {
                 // Worth a positive trace: when the only name matches were zombie
@@ -4511,21 +4780,33 @@ namespace Parsek
                 {
                     ParsekLog.Verbose(Tag,
                         $"PickRecoveryRecordingId: {identity.FormatForLog()} " +
-                        $"ut={ut.ToString("F1", CultureInfo.InvariantCulture)} candidates=0 " +
+                        $"ut={ut.ToString("F1", CultureInfo.InvariantCulture)} " +
+                        $"nameMatches={nameMatches.Count.ToString(CultureInfo.InvariantCulture)} survivors=0 " +
                         $"skippedZombieNotCommitted={skippedZombieNotCommitted} tier=none " +
                         $"pick=<null> (only zombie provisionals matched; payout left untagged)");
                 }
                 return null;
             }
 
-            string tier = bracketing != null ? "bracketing"
+            string tier = bracketPick != null ? "bracketing"
                         : mostRecentEnded != null ? "most-recent-ended"
                         : "global-latest";
+            // The tie decision rides the existing tier line rather than a second line:
+            // one grep per pick, and the token is meaningless off tier 1 by construction.
+            string bracketTie = bracketingSessionProvisional != null ? "session-provisional"
+                              : bracketPick != null ? "max-end-ut"
+                              : "n/a";
+            // `candidates=` is deliberately NOT reused here: it used to mean the name-match
+            // count and would now silently mean the survivor count. Both are logged under
+            // unambiguous names instead, and nothing pinned the old token.
             ParsekLog.Verbose(Tag,
                 $"PickRecoveryRecordingId: {identity.FormatForLog()} ut={ut.ToString("F1", CultureInfo.InvariantCulture)} " +
-                $"candidates={candidateCount} skippedZombieNotCommitted={skippedZombieNotCommitted} " +
-                $"sessionProvisionalAdmitted={admittedSessionProvisional} " +
-                $"tier={tier} pick={pick.RecordingId}");
+                $"nameMatches={nameMatches.Count.ToString(CultureInfo.InvariantCulture)} " +
+                $"survivors={candidateCount.ToString(CultureInfo.InvariantCulture)} " +
+                $"guidDropped={guidDropped.ToString(CultureInfo.InvariantCulture)} " +
+                $"skippedZombieNotCommitted={skippedZombieNotCommitted} " +
+                $"sessionProvisionalAdmitted={admittedSessionProvisional != null} " +
+                $"tier={tier} bracketTie={bracketTie} pick={pick.RecordingId}");
 
             return pick.RecordingId;
         }
@@ -4915,81 +5196,379 @@ namespace Parsek
         /// <param name="visibilityFilter">Optional per-event gate. Production passes
         /// <c>GameStateStore.IsEventVisibleToCurrentTimeline</c> so a retired timeline's
         /// events cannot hold a phantom adjustment open; tests pass null.</param>
+        /// <param name="unmatchableBaseline">The load-time unmatchable residual measured by
+        /// <see cref="ComputeUnmatchableStrategyScienceDebitBaseline"/>: the part of the
+        /// observed population that no future row can EVER ingest, because it was written
+        /// before the capture fix (PR #1483) existed. Subtracted from the observed side so
+        /// a pre-fix save's orphaned event stops holding the patch target back on every
+        /// recalc for the rest of the save's life (STRATEGY-PREFIX-HOLDBACK-PERMANENT).
+        /// Defaults to 0, so every pre-existing caller and every unit cell keeps the
+        /// original unbounded netting.</param>
         /// </summary>
         internal static double ComputePendingUncommittedStrategyScienceDebit(
             IReadOnlyList<GameStateEvent> events,
             IReadOnlyList<GameAction> ledgerActions,
-            Func<GameStateEvent, bool> visibilityFilter = null)
+            Func<GameStateEvent, bool> visibilityFilter = null,
+            double unmatchableBaseline = 0.0)
         {
-            double observedDebit = 0.0;
-            if (events != null)
-            {
-                for (int i = 0; i < events.Count; i++)
-                {
-                    var evt = events[i];
-                    if (evt.eventType != GameStateEventType.ScienceChanged)
-                        continue;
-                    if (!string.Equals(
-                            evt.key,
-                            GameStateEventConverter.StrategyInputReasonKey,
-                            StringComparison.Ordinal))
-                    {
-                        continue;
-                    }
-                    if (evt.valueAfter >= evt.valueBefore)
-                        continue;
-                    if (visibilityFilter != null && !visibilityFilter(evt))
-                        continue;
+            double observedDebit = SumObservedStrategyInputScienceDebits(
+                events, visibilityFilter, null);
 
-                    observedDebit += evt.valueBefore - evt.valueAfter;
-                }
+            // STRATEGY-PREFIX-HOLDBACK-PERMANENT. Bound the OBSERVED side by the residual
+            // that was already proven unmatchable when the save loaded. The drawdown guard
+            // is untouched (it is correct; the pending adjustment is what overstays) and
+            // the committed side keeps its exchanger-only filter, so the observed /
+            // committed symmetry the unbounded window depends on survives: the baseline is
+            // itself a NET of the SAME two populations, so an ownerless KSC exchange and a
+            // discard's re-homed untagged row still cancel exactly as before. See
+            // ComputeUnmatchableStrategyScienceDebitBaseline.
+            if (unmatchableBaseline > 0.0)
+            {
+                observedDebit -= unmatchableBaseline;
+                if (observedDebit < 0.0)
+                    observedDebit = 0.0;
             }
 
             if (observedDebit <= 0.1)
                 return 0.0;
 
-            double committedDebit = 0.0;
-            if (ledgerActions != null)
-            {
-                for (int i = 0; i < ledgerActions.Count; i++)
-                {
-                    var action = ledgerActions[i];
-                    if (action == null)
-                        continue;
-                    if (action.Type != GameActionType.StrategyScienceDebit)
-                        continue;
-                    // EXCHANGER rows only. The observed side above is built from stored
-                    // ScienceChanged(StrategyInput) events, which the QUERY family never
-                    // produces (it mutates a CurrencyModifierQuery in place and the
-                    // resulting ScienceChanged carries the ORIGINAL reason). A converter
-                    // row therefore has no observed counterpart, and counting it here
-                    // would subtract it from a genuine exchanger pending amount -
-                    // under-adjusting the patch target by exactly the converter's take
-                    // and re-opening the clamp+toast this helper exists to prevent.
-                    // Converter rows need no pending adjustment of their own: the door
-                    // writes them synchronously, so they are never "still catching up".
-                    if (action.ConversionSource != StrategyConversionSource.Exchanger)
-                        continue;
-
-                    committedDebit += action.Cost;
-                }
-            }
+            double committedDebit = SumCommittedExchangerStrategyScienceDebits(ledgerActions);
 
             double pendingDebit = observedDebit - committedDebit;
             return pendingDebit > 0.1 ? pendingDebit : 0.0;
         }
 
         /// <summary>
-        /// Live wrapper over <see cref="ComputePendingUncommittedStrategyScienceDebit"/>.
-        /// Passes the current GameStateStore / ledger state and the current-timeline
-        /// visibility gate.
+        /// The OBSERVED side of the exchanger pending family, factored out so the pending
+        /// helper and the load-time baseline sweep below evaluate the SAME four predicates
+        /// (ScienceChanged / StrategyInput key / debit sign / visibility) over the same
+        /// store. A second hand-written copy would be a second thing to keep in step.
         /// </summary>
-        internal static double GetPendingUncommittedStrategyScienceDebit()
+        /// <param name="extraGate">Optional additional per-event gate applied after the
+        /// four shared predicates. The baseline sweep passes "this event can no longer
+        /// gain a row"; the pending helper passes null.</param>
+        private static double SumObservedStrategyInputScienceDebits(
+            IReadOnlyList<GameStateEvent> events,
+            Func<GameStateEvent, bool> visibilityFilter,
+            Func<GameStateEvent, bool> extraGate)
         {
+            double observedDebit = 0.0;
+            if (events == null)
+                return observedDebit;
+
+            for (int i = 0; i < events.Count; i++)
+            {
+                var evt = events[i];
+                if (evt.eventType != GameStateEventType.ScienceChanged)
+                    continue;
+                if (!string.Equals(
+                        evt.key,
+                        GameStateEventConverter.StrategyInputReasonKey,
+                        StringComparison.Ordinal))
+                {
+                    continue;
+                }
+                if (evt.valueAfter >= evt.valueBefore)
+                    continue;
+                if (visibilityFilter != null && !visibilityFilter(evt))
+                    continue;
+                if (extraGate != null && !extraGate(evt))
+                    continue;
+
+                observedDebit += evt.valueBefore - evt.valueAfter;
+            }
+
+            return observedDebit;
+        }
+
+        /// <summary>
+        /// The COMMITTED side of the exchanger pending family, factored out for the same
+        /// reason as <see cref="SumObservedStrategyInputScienceDebits"/>.
+        ///
+        /// <para>EXCHANGER rows only. The observed side is built from stored
+        /// ScienceChanged(StrategyInput) events, which the QUERY family never produces (it
+        /// mutates a CurrencyModifierQuery in place and the resulting ScienceChanged
+        /// carries the ORIGINAL reason). A converter row therefore has no observed
+        /// counterpart, and counting it here would subtract it from a genuine exchanger
+        /// pending amount - under-adjusting the patch target by exactly the converter's
+        /// take and re-opening the clamp+toast this helper exists to prevent. Converter
+        /// rows need no pending adjustment of their own: the door writes them
+        /// synchronously, so they are never "still catching up".</para>
+        ///
+        /// <para>Tagged and untagged rows alike, deliberately: the population must mirror
+        /// the observed side's, which is what makes the unbounded window safe across a
+        /// non-rewind discard (<c>PreserveIrreversibleLiveGameplayOnDiscard</c> re-homes
+        /// the debit as an UNTAGGED row, which stays here and cancels the orphaned
+        /// event).</para>
+        /// </summary>
+        private static double SumCommittedExchangerStrategyScienceDebits(
+            IReadOnlyList<GameAction> ledgerActions)
+        {
+            double committedDebit = 0.0;
+            if (ledgerActions == null)
+                return committedDebit;
+
+            for (int i = 0; i < ledgerActions.Count; i++)
+            {
+                var action = ledgerActions[i];
+                if (action == null)
+                    continue;
+                if (action.Type != GameActionType.StrategyScienceDebit)
+                    continue;
+                if (action.ConversionSource != StrategyConversionSource.Exchanger)
+                    continue;
+
+                committedDebit += action.Cost;
+            }
+
+            return committedDebit;
+        }
+
+        /// <summary>
+        /// STRATEGY-PREFIX-HOLDBACK-PERMANENT: the one-time load-sweep reconciliation that
+        /// bounds <see cref="ComputePendingUncommittedStrategyScienceDebit"/>'s observed
+        /// side.
+        ///
+        /// <para>THE DEFECT. The pending helper's window is deliberately unbounded in UT -
+        /// the race it covers (KSP debits the pool at the exchange, the matching
+        /// <see cref="GameActionType.StrategyScienceDebit"/> row lands at recording COMMIT)
+        /// stays open for as long as the flight lasts, so a recent-UT window like its two
+        /// siblings' would never see it. On a save whose exchange predates the capture fix
+        /// the stored <c>ScienceChanged(StrategyInput)</c> event exists but the row never
+        /// will, so the un-ingested gap is permanent: the adjustment holds the patch target
+        /// back by the exchange's full take on EVERY recalc and the drawdown guard clamps
+        /// (WARN + player toast) each time, forever. Measured live at exactly 108.84
+        /// science on the test career's original <c>researchIPsellout</c> exchange
+        /// (<c>logs/2026-08-19_0002_strategy-multi-live</c>).</para>
+        ///
+        /// <para>THE BOUND. Only two writers ever produce a
+        /// <see cref="GameActionType.StrategyScienceDebit"/> exchanger row: the live KSC
+        /// door (<c>OnKscSpending</c>, synchronous with the event) and the commit-time
+        /// converter (<c>ConvertStrategyExchangeScience</c>, scoped to the committing
+        /// recording's id). So an observed event can still gain a row if and only if it is
+        /// TAGGED to a recording that has not committed yet. Every other visible observed
+        /// event - untagged, or tagged to an already-committed recording - has had its one
+        /// chance. This sweep sums exactly those, nets them against the committed side, and
+        /// returns the unmatchable residual.</para>
+        ///
+        /// <para>WHY THIS SHAPE AND NOT A NARROWER PREDICATE. The observed and committed
+        /// populations must stay symmetric w.r.t. <c>RecordingId</c> - that symmetry is
+        /// what lets an ownerless KSC-door exchange cancel itself and lets a non-rewind
+        /// discard's re-homed UNTAGGED row cancel its orphaned event
+        /// (<c>PreserveIrreversibleLiveGameplayOnDiscard</c>). Filtering the observed side
+        /// on tag WITHOUT mirroring the committed side would break exactly that. Returning
+        /// a NET residual instead keeps both populations intact: a matched pair cancels
+        /// inside this sweep and contributes nothing, so on an already-correct (post-fix)
+        /// save the residual is 0 and the pending helper is byte-identical to before -
+        /// which is also what makes re-running the sweep on every load idempotent.</para>
+        ///
+        /// <para>ONE QUALIFICATION on that symmetry, so it is not read as unconditional:
+        /// when the residual is nonzero the committed side appears in BOTH terms of the
+        /// pending algebra and cancels out of it, so an exchanger ROW paired with a
+        /// STILL-REACHABLE event would be subtracted twice. That pairing cannot occur on a
+        /// well-formed save - a row exists only after its recording committed or the KSC
+        /// door ran, and either makes the event unreachable - so it is reachable only via a
+        /// torn write (a ledger that landed the row while the store kept an uncommitted
+        /// recording id). The direction is under-holding-back, i.e. toward the guard
+        /// clamping rather than toward a wrong pool value.</para>
+        ///
+        /// <para>The result is DETERMINISTIC from the on-disk state, so it is recomputed
+        /// from scratch at every load rather than persisted - no schema change, and no
+        /// stale marker to reconcile. It is deliberately NOT a retro-fill: nothing is
+        /// written to the ledger, so the reconstruction is untouched and
+        /// <c>LedgerLoadMigration.IsMigrationConvertibleEvent</c>'s "pre-fix history stays
+        /// pre-fix" rule is not disturbed.</para>
+        /// </summary>
+        /// <param name="rowStillReachable">REQUIRED per-event predicate: true when a future
+        /// row can still ingest this event. Production passes
+        /// <see cref="CanStrategyScienceDebitRowStillLand"/>; tests pass their own. Not
+        /// optional on purpose - a null would read as "nothing is reachable", which
+        /// fail-opens toward maximum cancellation.</param>
+        internal static double ComputeUnmatchableStrategyScienceDebitBaseline(
+            IReadOnlyList<GameStateEvent> events,
+            IReadOnlyList<GameAction> ledgerActions,
+            Func<GameStateEvent, bool> visibilityFilter,
+            Func<GameStateEvent, bool> rowStillReachable)
+        {
+            if (rowStillReachable == null)
+                throw new ArgumentNullException(nameof(rowStillReachable));
+
+            double unmatchableObserved = SumObservedStrategyInputScienceDebits(
+                events, visibilityFilter, e => !rowStillReachable(e));
+
+            if (unmatchableObserved <= 0.1)
+                return 0.0;
+
+            double committedDebit = SumCommittedExchangerStrategyScienceDebits(ledgerActions);
+
+            double residual = unmatchableObserved - committedDebit;
+            return residual > 0.1 ? residual : 0.0;
+        }
+
+        /// <summary>
+        /// THE SECOND HALF OF THE FIX, and the one that keeps it symmetric (Finding 2 of the
+        /// `strategy-prefix-holdback` review). The load sweep above is POPULATION-based: it
+        /// answers "how much observed debit can never be ingested". It cannot answer "is the
+        /// reconstruction ALREADY running high by that amount", and the two pre-fix saves in
+        /// the wild differ on exactly that:
+        ///
+        /// <list type="bullet">
+        /// <item><b>Shape A</b> - the reconstruction agrees with the live pool
+        /// (<c>preStrategyRunning == live</c>). 15 of the 18 science clamps in
+        /// <c>logs/2026-08-19_0002_strategy-multi-live</c> are this shape (e.g.
+        /// <c>running=94.487645842134953 live=203.32925415039063
+        /// wouldBeTarget=203.32925415039063</c>: <c>live - running</c> is the exchange take
+        /// to the digit and <c>wouldBeTarget == clampedTo == live</c>, i.e. a pure NO-OP
+        /// WARN). Here the pending adjustment invents the discrepancy it then reports, and
+        /// the target subtraction is inert because
+        /// <c>AdjustSciencePatchTargetForPendingStrategyScienceDebit</c> early-returns when
+        /// the target is already at/below live. THE FILED DEFECT.</item>
+        /// <item><b>Shape B</b> - the reconstruction runs high by exactly the un-ingested
+        /// take (<c>preStrategyRunning == live + take</c>), because the ledger holds the
+        /// exchange's FUNDS credit and no science debit row. This is the DOCUMENTED
+        /// <c>C2Career</c> fixture shape (<c>C2CareerLedgerReplayTests</c> pins
+        /// <c>recon - save = +108.84171851920314</c>). Here the pending adjustment is doing
+        /// REAL work: it pulls both the target and the discriminator down onto live, and the
+        /// save is SILENT. Cancelling it outright would make the target overshoot live by
+        /// the take, trip <c>IsGuardableUplift</c>, and produce a permanent
+        /// <c>GUARDED UPLIFT clamped</c> WARN plus the "Held your science at the spent value"
+        /// toast - re-creating the forbidden class in the mirror direction, on the very save
+        /// the fixture suite documents.</item>
+        /// </list>
+        ///
+        /// <para>So the unmatchable residual is WITHHELD ONLY TO THE EXTENT THE
+        /// RECONSTRUCTION DOES NOT ALREADY CARRY IT: subtract the measured overhang
+        /// (<c>preStrategyRunning - live</c>, floored at 0) from the baseline and clamp to
+        /// [0, baseline]. Shape A has overhang 0 -> the whole residual is withheld -> pending
+        /// 0 -> no clamp. Shape B has overhang == take -> nothing is withheld -> pending ==
+        /// take -> byte-identical to main. Anything in between lands the discriminator
+        /// exactly ON live rather than on either side of it.</para>
+        ///
+        /// <para>SAFETY DIRECTION: this can only ever SHRINK the pending adjustment, never
+        /// grow it, so it cannot mask a leak. A genuine over-count larger than the residual
+        /// (<c>overhang &gt; baseline</c>) withholds nothing and clamps exactly as main does;
+        /// a genuine missing-earning DRAWDOWN (<c>overhang &lt; 0</c>) still reads below live
+        /// after the withhold and still clamps - with a discriminator that no longer
+        /// double-counts the phantom, so the reported number is the honest one.</para>
+        /// </summary>
+        /// <param name="preStrategyRunning">The running science balance with the two SIBLING
+        /// pending adjusters already folded in and the strategy one not yet applied - i.e.
+        /// the exact value the strategy debit is about to be subtracted from. Using the
+        /// same basis on both sides is what makes the target adjuster and the guard
+        /// discriminator resolve the identical pending amount.</param>
+        internal static double ResolveEffectiveUnmatchableStrategyScienceBaseline(
+            double unmatchableBaseline, double preStrategyRunning, double currentLiveScience)
+        {
+            if (unmatchableBaseline <= 0.0)
+                return 0.0;
+
+            double overhang = preStrategyRunning - currentLiveScience;
+            if (overhang <= 0.0)
+                return unmatchableBaseline;
+
+            double withheld = unmatchableBaseline - overhang;
+            return withheld > 0.0 ? withheld : 0.0;
+        }
+
+        /// <summary>
+        /// Production reachability predicate for
+        /// <see cref="ComputeUnmatchableStrategyScienceDebitBaseline"/>: an observed
+        /// <c>ScienceChanged(StrategyInput)</c> debit can still gain its
+        /// <see cref="GameActionType.StrategyScienceDebit"/> row only while it is tagged to
+        /// a recording whose COMMIT has not run yet (the commit-time converter is the only
+        /// writer left for it - the KSC door writes its row synchronously and is long
+        /// past). Untagged, or tagged to an already-committed recording, means the row is
+        /// unrecoverable.
+        ///
+        /// <para>Deliberately expressed as "not committed" rather than "is the live active
+        /// tree": at <see cref="OnKspLoad"/> time <c>ParsekFlight.Instance</c> may not be up
+        /// yet, and a mid-flight save's in-flight recording must not be mis-read as
+        /// unreachable and have its genuine hold-back cancelled. A by-id committed lookup
+        /// is available and correct at every load order.</para>
+        /// </summary>
+        internal static bool CanStrategyScienceDebitRowStillLand(GameStateEvent evt)
+        {
+            string recordingId = evt.recordingId;
+            if (string.IsNullOrEmpty(recordingId))
+                return false;
+            return !RecordingStore.IsCommittedRecordingId(recordingId);
+        }
+
+        /// <summary>
+        /// Re-measures <see cref="unmatchableStrategyScienceDebitBaseline"/> from the
+        /// just-loaded store + ledger. Called once per <see cref="OnKspLoad"/>, after the
+        /// ledger has been reconciled / repaired / migrated and before the load recalc, so
+        /// the sweep sees the same rows the recalc is about to walk.
+        /// </summary>
+        private static void CaptureUnmatchableStrategyScienceDebitBaselineOnLoad()
+        {
+            double previous = unmatchableStrategyScienceDebitBaseline;
+            unmatchableStrategyScienceDebitBaseline = ComputeUnmatchableStrategyScienceDebitBaseline(
+                GameStateStore.Events,
+                Ledger.Actions,
+                GameStateStore.IsEventVisibleToCurrentTimeline,
+                CanStrategyScienceDebitRowStillLand);
+
+            if (unmatchableStrategyScienceDebitBaseline > 0.0)
+            {
+                ParsekLog.Info(Tag,
+                    "Unmatchable strategy-exchange science baseline: " +
+                    unmatchableStrategyScienceDebitBaseline.ToString("R", CultureInfo.InvariantCulture) +
+                    " (was " + previous.ToString("R", CultureInfo.InvariantCulture) + "). " +
+                    "This save carries stored ScienceChanged(StrategyInput) debit(s) that no " +
+                    "future StrategyScienceDebit row can ingest (pre-capture-fix exchange); " +
+                    "the pending adjustment is bounded by this amount so the drawdown guard " +
+                    "stops clamping on every recalc. See STRATEGY-PREFIX-HOLDBACK-PERMANENT.");
+            }
+            else
+            {
+                ParsekLog.Verbose(Tag,
+                    "Unmatchable strategy-exchange science baseline: 0 (was " +
+                    previous.ToString("R", CultureInfo.InvariantCulture) +
+                    ") - every observed strategy-exchange science debit is either still " +
+                    "committable or already ingested.");
+            }
+        }
+
+        /// <summary>Test seam for the load-time baseline (production sets it in OnKspLoad).</summary>
+        internal static void SetUnmatchableStrategyScienceDebitBaselineForTesting(double value)
+        {
+            unmatchableStrategyScienceDebitBaseline = value;
+        }
+
+        /// <summary>Test-only reader paired with the setter above.</summary>
+        internal static double GetUnmatchableStrategyScienceDebitBaselineForTesting()
+        {
+            return unmatchableStrategyScienceDebitBaseline;
+        }
+
+        /// <summary>
+        /// Live wrapper over <see cref="ComputePendingUncommittedStrategyScienceDebit"/>.
+        /// Passes the current GameStateStore / ledger state, the current-timeline
+        /// visibility gate, and the load-time unmatchable baseline resolved against the
+        /// reconstruction's ACTUAL overhang
+        /// (<see cref="ResolveEffectiveUnmatchableStrategyScienceBaseline"/>).
+        ///
+        /// <para>Both live consumers - the patch-target adjuster and the drawdown-guard
+        /// discriminator - must call this with the SAME two numbers so they resolve the
+        /// identical pending amount; <c>KspStatePatcher.PatchScience</c> computes
+        /// <paramref name="preStrategyRunning"/> once via
+        /// <c>ComputePreStrategyPendingAdjustedRunningScience</c> and hands it to both.
+        /// There is deliberately NO parameterless overload: one would silently apply the
+        /// whole baseline and re-open the shape-B uplift this resolver exists to
+        /// prevent.</para>
+        /// </summary>
+        internal static double GetPendingUncommittedStrategyScienceDebit(
+            double preStrategyRunning, double currentLiveScience)
+        {
+            double effectiveBaseline = ResolveEffectiveUnmatchableStrategyScienceBaseline(
+                unmatchableStrategyScienceDebitBaseline, preStrategyRunning, currentLiveScience);
+
             return ComputePendingUncommittedStrategyScienceDebit(
                 GameStateStore.Events,
                 Ledger.Actions,
-                GameStateStore.IsEventVisibleToCurrentTimeline);
+                GameStateStore.IsEventVisibleToCurrentTimeline,
+                effectiveBaseline);
         }
 
         /// <summary>
@@ -5305,6 +5884,7 @@ namespace Parsek
             scienceTrackedOverrideForTesting = null;
             repTrackedOverrideForTesting = null;
             ResetMigrateOldSaveEventsForTesting();
+            unmatchableStrategyScienceDebitBaseline = 0.0;
             kscSequenceCounter = 0;
             emittedReconcileWarnKeys.Clear();
             emittedScienceReconcileDumpKeys.Clear();

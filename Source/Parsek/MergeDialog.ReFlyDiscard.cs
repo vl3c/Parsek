@@ -292,7 +292,9 @@ namespace Parsek
             // attempt's store events and files but never touched Ledger.Actions, so a payout
             // earned during the attempt kept a tag pointing at a recording this discard
             // deletes. RecordingId is the tombstone scoping key
-            // (TombstoneAttributionHelper.InSupersedeScope, no UT guard) and FundsEarning /
+            // (TombstoneAttributionHelper.InSupersedeScope, no UT guard of its own; the
+            // write-set's pre-rewind screen protects only rows earned before the rewind
+            // point) and FundsEarning /
             // ScienceEarning are tombstone-eligible, so a stale tag can later scope a
             // tombstone onto a REAL payout. Clearing keeps the row and its career effect.
             // Accepted exposure: untagged rows become eligible for PruneOrphanActionsAfterUT,

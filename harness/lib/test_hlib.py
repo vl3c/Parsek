@@ -8435,8 +8435,9 @@ class AnomalyGroundTruthEnumerationTests(unittest.TestCase):
         # every set assertion below trivially true.
         self.assertGreaterEqual(len(self.raised), 15)
         # 1012 -> 1021 when the M-A7 recorder hooks landed above it in the same file;
-        # the raise site itself is unchanged.
-        self.assertIn("Source/Parsek/MapRenderProbe.cs:1021",
+        # 1021 -> 1079 (2026-08-28) when the line-blink TracedPath-handoff exemption
+        # landed above it. The raise site itself is unchanged both times.
+        self.assertIn("Source/Parsek/MapRenderProbe.cs:1079",
                       self.raised.get("icon-teleport", []))
         self.assertIn("Source/Parsek/GameActions/FacilityStatePatcher.cs:158",
                       self.raised.get("ledger-vs-truth", []))
@@ -8479,7 +8480,7 @@ class AnomalyGroundTruthEnumerationTests(unittest.TestCase):
         self.assertEqual(
             [("unaccounted-drawn-recording", "Source/Parsek/MapRenderProbe.cs:544"),
              ("factory-parity", "Source/Parsek/MapRender/ShadowRenderDriver.cs:726"),
-             ("seam-endpoint-outside-soi", "Source/Parsek/MapRenderProbe.cs:2303")],
+             ("seam-endpoint-outside-soi", "Source/Parsek/MapRenderProbe.cs:2361")],
             list(hlib.ANOMALY_REASONS_RAISED_UNGATED),
             "the report-only instrument list changed - that is a calibration "
             "decision (defect signal vs instrument), not a bookkeeping edit")

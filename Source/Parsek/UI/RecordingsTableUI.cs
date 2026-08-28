@@ -958,19 +958,34 @@ namespace Parsek
             return true;
         }
 
+        /// <summary>
+        /// WATCH-ENTRY-REFUSED-INSIDE-QUOTED-RANGE. <c>bodyReadingCurrent</c> splits the
+        /// <c>!sameBody</c> refusal into the two things it actually covers. The body a ghost
+        /// reports is seeded at spawn and refreshed only while it is being positioned, which
+        /// the render-zone hide skips - so a ghost the zone has hidden answers with a
+        /// spawn-time value that may be arbitrarily stale, and the same-body comparison
+        /// answers false. V7M measured exactly that: a ghost reporting <c>Kerbin</c> while
+        /// both it and the observer were at Minmus, 144 km apart, and the affordance told the
+        /// player it was on a different body. The refusal itself is unchanged; only the
+        /// explanation is. Defaulted to <c>true</c> so the historic meaning is what a caller
+        /// that does not measure it gets.
+        /// </summary>
         internal static string GetWatchButtonReason(
-            bool canWatch, bool hasGhost, bool sameBody, bool inRange, bool isDebris)
+            bool canWatch, bool hasGhost, bool sameBody, bool inRange, bool isDebris,
+            bool bodyReadingCurrent = true)
         {
             if (canWatch) return "enabled";
             if (isDebris) return "disabled (debris)";
             if (!hasGhost) return "disabled (no ghost)";
-            if (!sameBody) return "disabled (different body)";
+            if (!sameBody) return bodyReadingCurrent ? "disabled (different body)" : "disabled (not rendered)";
             if (!inRange) return "disabled (out of range)";
             return "disabled (unknown)";
         }
 
+        /// <inheritdoc cref="GetWatchButtonReason"/>
         internal static string GetWatchButtonTooltip(
-            bool isWatching, bool hasGhost, bool sameBody, bool inRange, bool isDebris)
+            bool isWatching, bool hasGhost, bool sameBody, bool inRange, bool isDebris,
+            bool bodyReadingCurrent = true)
         {
             if (isWatching)
                 return "Exit watch mode";
@@ -979,7 +994,10 @@ namespace Parsek
             if (!hasGhost)
                 return "No active ghost - recording is in the past/future or has no trajectory points";
             if (!sameBody)
-                return "Ghost is on a different body";
+                return bodyReadingCurrent
+                    ? "Ghost is on a different body"
+                    : "Ghost is too far away to be drawn right now, so Parsek cannot tell which body it is at - "
+                      + "get closer and the Watch button comes back";
             if (!inRange)
                 return "Ghost is beyond the fixed 300 km watch range";
             return "Follow ghost in watch mode";
@@ -1984,6 +2002,7 @@ namespace Parsek
                 bool hasGhost = flight.HasActiveGhost(ri);
                 bool sameBody = flight.IsGhostOnSameBody(ri);
                 bool inRange = flight.IsGhostWithinVisualRange(ri);
+                bool bodyReadingCurrent = flight.IsGhostBodyReadingCurrent(ri);
                 bool isWatching = flight.WatchedRecordingIndex == ri;
                 bool canWatch = IsWatchButtonEnabled(hasGhost, sameBody, inRange, rec.IsDebris);
 
@@ -1999,16 +2018,16 @@ namespace Parsek
                 string watchKey = rec.RecordingId;
                 if (UpdateWatchButtonTransitionCache(lastCanWatchByRecId, watchKey, canWatch))
                 {
-                    string reason = GetWatchButtonReason(canWatch, hasGhost, sameBody, inRange, rec.IsDebris);
+                    string reason = GetWatchButtonReason(canWatch, hasGhost, sameBody, inRange, rec.IsDebris, bodyReadingCurrent);
                     ParsekLog.Info("UI",
                         $"Watch button #{ri} \"{rec.VesselName}\" {reason} " +
-                        $"(hasGhost={hasGhost} sameBody={sameBody} inRange={inRange} debris={rec.IsDebris}) " +
+                        $"(hasGhost={hasGhost} sameBody={sameBody} bodyReadingCurrent={bodyReadingCurrent} inRange={inRange} debris={rec.IsDebris}) " +
                         $"{BuildWatchObservabilitySuffix(flight, ri)}");
                 }
 
                 GUI.enabled = ShouldEnableWatchButton(canWatch, isWatching);
                 string watchLabel = isWatching ? "W*" : "W";
-                string watchTooltip = GetWatchButtonTooltip(isWatching, hasGhost, sameBody, inRange, rec.IsDebris);
+                string watchTooltip = GetWatchButtonTooltip(isWatching, hasGhost, sameBody, inRange, rec.IsDebris, bodyReadingCurrent);
                 var watchContent = new GUIContent(watchLabel, watchTooltip);
                 if (DrawBodyCenteredButton(watchContent, ColW_Watch))
                 {

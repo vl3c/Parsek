@@ -254,6 +254,13 @@ count = { min = 1 }
 # attempt's OWN zero points, not on the origin's copied anchor tail - the timing
 # subtlety the pre-fix reading could not resolve, now settled by a live line.
 #
+# TOKEN DRIFT since that measurement (2026-08-28, the BODYFIXEDFRAMES-INVISIBLE-TO-BOTH-
+# EMPTINESS-PREDICATES fix): `DescribeSupersedePayload` now emits `bodyFixedSections=<n>`
+# between `playableSections=` and `preReFlyAnchorPoints=`, so the middle line quoted
+# above no longer renders verbatim. It is KEPT as the archived measurement rather than
+# hand-edited into a line no run ever emitted. Nothing executable is affected: this
+# spec's logContracts match individual tokens, not the line as a sequence.
+#
 # FLAKE, recorded because it cost an attempt and is NOT the product: attempt 1 came
 # back INVALID(driver) `subkind=seam-timeout` on step 4, `AnswerMergeDialog` deferring
 # 120 s on `reason=no-refly-dialog`. Its batch was green (`total=6 passed=6`) and its
