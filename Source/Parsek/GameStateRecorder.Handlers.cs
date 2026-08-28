@@ -1613,9 +1613,15 @@ namespace Parsek
             int ledgerRows = 0;
             if (untaggedEvents.Count > 0)
             {
+                // KERBAL-XP-RECOVERY-PICK-IS-NAME-AND-UT-ONLY stage 1: the live launch guid
+                // travels with the identity so the picker can drop name-matching recordings
+                // belonging to a DIFFERENT launch of the same craft. Null when KSP hands us
+                // no vessel guid, which makes the filter inert - see
+                // VesselLaunchIdentity.ReadLaunchGuid.
                 ledgerRows = LedgerOrchestrator.TryRecordRecoveryKerbalExperience(
                     untaggedEvents,
-                    RecoveredVesselIdentity.FromRawName(pv.vesselName),
+                    RecoveredVesselIdentity.FromRawName(
+                        pv.vesselName, VesselLaunchIdentity.ReadLaunchGuid(pv)),
                     ut);
                 untaggedNoLedgerRow += untaggedEvents.Count - ledgerRows;
             }
