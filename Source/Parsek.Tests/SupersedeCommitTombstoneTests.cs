@@ -888,5 +888,168 @@ namespace Parsek.Tests
             var elsAfter = EffectiveState.ComputeELS();
             Assert.DoesNotContain(elsAfter, a => a.ActionId == death.ActionId);
         }
+
+        // ---------- TOMBSTONE-SCOPE-HAS-NO-UT-GUARD -------------------------
+
+        private static GameAction FundsEarning(string recordingId, double ut,
+            float funds = 5000f)
+        {
+            return new GameAction
+            {
+                ActionId = "act_" + Guid.NewGuid().ToString("N"),
+                Type = GameActionType.FundsEarning,
+                RecordingId = recordingId,
+                FundsReward = funds,
+                UT = ut,
+            };
+        }
+
+        [Fact]
+        public void IsPreRewindAttributedAction_StrictlyBeforeCutoff_True()
+        {
+            var a = FundsEarning("rec_origin", 99.0);
+            Assert.True(TombstoneAttributionHelper.IsPreRewindAttributedAction(a, 100.0));
+        }
+
+        [Fact]
+        public void IsPreRewindAttributedAction_AtCutoff_False_MirrorsSplitterRetag()
+        {
+            // RecordingTreeSplitter step 2.9 retags `a.UT >= rewindUT` to TIP. The
+            // boundary sample belongs to the REPLACED half, so it must stay tombstonable.
+            var a = FundsEarning("rec_origin", 100.0);
+            Assert.False(TombstoneAttributionHelper.IsPreRewindAttributedAction(a, 100.0));
+        }
+
+        [Fact]
+        public void IsPreRewindAttributedAction_NaNCutoffOrNaNActionUT_False()
+        {
+            var a = FundsEarning("rec_origin", 10.0);
+            Assert.False(TombstoneAttributionHelper.IsPreRewindAttributedAction(a, double.NaN));
+
+            var nanUt = FundsEarning("rec_origin", double.NaN);
+            Assert.False(TombstoneAttributionHelper.IsPreRewindAttributedAction(nanUt, 100.0));
+            Assert.False(TombstoneAttributionHelper.IsPreRewindAttributedAction(null, 100.0));
+        }
+
+        [Theory]
+        [InlineData(120.0, 0.0, 120.0)]           // RewindPointUT preferred
+        [InlineData(double.NaN, 90.0, 90.0)]      // legacy marker: InvokedUT fallback
+        [InlineData(double.NaN, 0.0, double.NaN)] // neither usable: guard inert
+        [InlineData(0.0, 0.0, double.NaN)]        // non-positive rewind UT: guard inert
+        public void ComputeTombstoneRewindCutoffUT_FieldPreference(
+            double rewindPointUT, double invokedUT, double expected)
+        {
+            var marker = Marker("rec_origin", "rec_provisional");
+            marker.RewindPointUT = rewindPointUT;
+            marker.InvokedUT = invokedUT;
+
+            double actual = SupersedeCommit.ComputeTombstoneRewindCutoffUT(marker);
+            if (double.IsNaN(expected))
+                Assert.True(double.IsNaN(actual), $"expected NaN, got {actual}");
+            else
+                Assert.Equal(expected, actual);
+        }
+
+        [Fact]
+        public void ComputeTombstoneRewindCutoffUT_CarriesNoEpsilon_UnlikePreRewindCutoff()
+        {
+            // The two cutoffs deliberately differ: the debris carve-out biases a sampled
+            // StartUT by an epsilon, while the tombstone guard must mirror the splitter's
+            // raw `a.UT >= rewindUT` exactly. Pin the difference so a future "unify these"
+            // refactor reds here instead of silently tombstoning kept rows.
+            var marker = Marker("rec_origin", "rec_provisional");
+            marker.RewindPointUT = 500.0;
+
+            Assert.Equal(500.0, SupersedeCommit.ComputeTombstoneRewindCutoffUT(marker));
+            Assert.Equal(
+                500.0 - EffectiveState.PidPeerStartUtEpsilonSeconds,
+                SupersedeCommit.ComputePreRewindCutoff(marker));
+        }
+
+        [Fact]
+        public void CommitTombstones_PreRewindPayoutAttributedToOriginChild_NotTombstoned()
+        {
+            // The filed shape: a payout earned BEFORE the rewind point brackets to the
+            // origin child, the origin child lands in the supersede subtree, and (pre-fix)
+            // the bare subtree-id containment test tombstoned a real payout belonging to
+            // the half of the flight the merge KEEPS.
+            InstallOriginClosureFixture("rec_origin", "rec_inside", "rec_outside");
+            var provisional = AddProvisional("rec_provisional", "tree_1",
+                TerminalState.Landed, supersedeTargetId: "rec_origin");
+            var marker = Marker("rec_origin", "rec_provisional");
+            marker.RewindPointUT = 1000.0;
+            var scenario = InstallScenario(marker);
+
+            var preRewindPayout = FundsEarning("rec_origin", 900.0);
+            var postRewindPayout = FundsEarning("rec_origin", 1100.0);
+            var atRewindPayout = FundsEarning("rec_inside", 1000.0);
+            Ledger.AddAction(preRewindPayout);
+            Ledger.AddAction(postRewindPayout);
+            Ledger.AddAction(atRewindPayout);
+
+            SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
+
+            var tombstoned = new HashSet<string>(
+                scenario.LedgerTombstones.Select(t => t.ActionId));
+            Assert.DoesNotContain(preRewindPayout.ActionId, tombstoned);
+            Assert.Contains(postRewindPayout.ActionId, tombstoned);
+            Assert.Contains(atRewindPayout.ActionId, tombstoned);
+
+            // The kept payout survives into the ELS — the property that actually matters.
+            var els = EffectiveState.ComputeELS();
+            Assert.Contains(els, a => a.ActionId == preRewindPayout.ActionId);
+            Assert.DoesNotContain(els, a => a.ActionId == postRewindPayout.ActionId);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[LedgerSwap]") && l.Contains("PreRewindTombstoneGuard: kept 1 "));
+        }
+
+        [Fact]
+        public void CommitTombstones_LegacyMarkerWithoutRewindUT_GuardInert()
+        {
+            // A marker carrying neither a rewind-point UT nor an invoked UT has no cutoff,
+            // so the guard must not change what a legacy merge retires.
+            InstallOriginClosureFixture("rec_origin", "rec_inside", "rec_outside");
+            var provisional = AddProvisional("rec_provisional", "tree_1",
+                TerminalState.Landed, supersedeTargetId: "rec_origin");
+            var marker = Marker("rec_origin", "rec_provisional");
+            marker.RewindPointUT = double.NaN;
+            marker.InvokedUT = 0.0;
+            var scenario = InstallScenario(marker);
+
+            var earlyPayout = FundsEarning("rec_origin", 1.0);
+            Ledger.AddAction(earlyPayout);
+
+            SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
+
+            Assert.Contains(scenario.LedgerTombstones, t => t.ActionId == earlyPayout.ActionId);
+            Assert.Contains(logLines, l =>
+                l.Contains("PreRewindTombstoneGuard: kept 0 ") && l.Contains("cutoffUT=<none>"));
+        }
+
+        [Fact]
+        public void CommitTombstones_PreRewindKerbalDeath_SurvivesTheMerge()
+        {
+            // The death happened on the kept flight. Tombstoning it would re-animate a
+            // kerbal the player lost before ever rewinding.
+            InstallOriginClosureFixture("rec_origin", "rec_inside", "rec_outside");
+            var provisional = AddProvisional("rec_provisional", "tree_1",
+                TerminalState.Landed, supersedeTargetId: "rec_origin");
+            var marker = Marker("rec_origin", "rec_provisional");
+            marker.RewindPointUT = 300.0;
+            var scenario = InstallScenario(marker);
+
+            var death = KerbalDeath("rec_origin", 250.0, kerbalName: "Jeb");
+            var bundledRep = RepPenalty("rec_origin", 250.0, ReputationPenaltySource.KerbalDeath);
+            Ledger.AddAction(death);
+            Ledger.AddAction(bundledRep);
+
+            SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
+
+            var tombstoned = new HashSet<string>(
+                scenario.LedgerTombstones.Select(t => t.ActionId));
+            Assert.DoesNotContain(death.ActionId, tombstoned);
+            Assert.DoesNotContain(bundledRep.ActionId, tombstoned);
+        }
     }
 }

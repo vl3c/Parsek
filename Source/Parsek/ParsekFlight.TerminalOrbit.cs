@@ -350,13 +350,22 @@ namespace Parsek
         /// True when any track section carries renderable payload, per the merge
         /// predicate's own per-section notion. Conservative: a null / empty section
         /// list is no payload.
+        ///
+        /// <para>
+        /// Reads <see cref="PlaybackTrajectoryBoundsResolver.HasAuthoredRenderablePayload"/>,
+        /// which counts a parent-anchored section's <c>bodyFixedFrames</c> primary
+        /// surface (>= 2 samples) as payload alongside <c>frames</c> / <c>checkpoints</c>
+        /// — BODYFIXEDFRAMES-INVISIBLE-TO-BOTH-EMPTINESS-PREDICATES. The merge's
+        /// <c>SupersedeCommit.HasPlayableSupersedePayload</c> reads the SAME predicate,
+        /// so prune and merge continue to agree on sections.
+        /// </para>
         /// </summary>
         private static bool HasPlayableTrackSection(Recording rec)
         {
             if (rec.TrackSections == null) return false;
             for (int i = 0; i < rec.TrackSections.Count; i++)
             {
-                if (PlaybackTrajectoryBoundsResolver.HasPlayablePayload(rec.TrackSections[i]))
+                if (PlaybackTrajectoryBoundsResolver.HasAuthoredRenderablePayload(rec.TrackSections[i]))
                     return true;
             }
             return false;

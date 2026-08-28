@@ -206,7 +206,9 @@ namespace Parsek.Analyzer.Rules
         // SCOPE OF THE DAMAGE, stated carefully because it is easy to get wrong:
         // RecordingId is NOT a cosmetic label in general -- it is the tombstone scoping
         // key at merge (TombstoneAttributionHelper.InSupersedeScope is bare subtree-id
-        // containment with NO UT guard, and FundsEarning / ScienceEarning are
+        // containment with no UT guard of its own; the write-set's separate pre-rewind
+        // screen, TombstoneAttributionHelper.IsPreRewindAttributedAction, protects only
+        // rows earned before the rewind point, and FundsEarning / ScienceEarning are
         // tombstone-eligible), so a WRONG-but-live tag can get a real payout tombstoned
         // away. What this rule reports is narrower: a tag pointing at an id no recording
         // owns. Such an id cannot be a member of any supersede subtree, so it cannot

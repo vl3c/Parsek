@@ -389,7 +389,10 @@ namespace Parsek
         /// This is the retire-time tag re-home. It exists because
         /// <see cref="GameAction.RecordingId"/> is NOT cosmetic: it is the tombstone
         /// scoping key at merge (<c>TombstoneAttributionHelper.InSupersedeScope</c> is a
-        /// bare subtree-id containment test with no UT guard, and FundsEarning /
+        /// bare subtree-id containment test with no UT guard of its own — the write-set's
+        /// pre-rewind screen is a separate term,
+        /// <c>TombstoneAttributionHelper.IsPreRewindAttributedAction</c>, and it protects
+        /// only rows earned BEFORE the rewind point — and FundsEarning /
         /// ScienceEarning are tombstone-eligible). A row left tagged to a recording that
         /// has been retired or discarded is therefore worse than untidy — the id can be
         /// swept into a supersede subtree and the real payout tombstoned away. Clearing

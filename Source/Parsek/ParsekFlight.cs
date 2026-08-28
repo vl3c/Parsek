@@ -5203,6 +5203,47 @@ namespace Parsek
             return partnerPidFromEvent;
         }
 
+        /// <summary>
+        /// PHANTOM-SUPERSEDE-RIDES-GATED-PID: resolves the pid whose committed terminal
+        /// spawn a dock merge must suppress, returning 0 when the suppression does not
+        /// apply.
+        ///
+        /// <para>
+        /// The absorbed-vessel spawn suppression is a PARTNER-IDENTITY concern, not a
+        /// route concern, so it reads the branch point's ungated couple-event partner
+        /// stamp (<see cref="BranchPoint.TargetVesselPersistentId"/>, produced by
+        /// <see cref="BuildMergeBranchData"/> from
+        /// <see cref="ResolveBranchPartnerStampPid"/> with a legacy fallback to the gated
+        /// route pid) rather than the route-eligibility-gated
+        /// <c>routeTargetVesselPid</c>. The gated pid is 0 whenever route eligibility
+        /// fails — most sharply for a Parsek-SPAWNED partner, whose live pid is its
+        /// KSP-unique spawn pid while <c>IsKnownDockPartnerForRoute</c> only ever
+        /// compares against <see cref="Recording.VesselPersistentId"/>, so the partner is
+        /// "unknown" for route purposes and the suppression never ran. That is exactly
+        /// the population <see cref="RecordingStore.MarkTerminalSpawnSupersededByDockMerge"/>
+        /// matches on its spawn-pid route, i.e. the phantom re-materialisation the
+        /// suppression exists to prevent.
+        /// </para>
+        ///
+        /// <para>
+        /// The EVA-grab carve-out survives the switch: both
+        /// <see cref="ResolveBranchPartnerStampPid"/> and
+        /// <see cref="SuppressRouteWindowForEvaGrab"/> zero their pid for an EVA couple,
+        /// so a claw / kerbal grab still suppresses nothing.
+        /// </para>
+        /// </summary>
+        internal static uint ResolveDockMergeSpawnSuppressionPid(
+            BranchPointType branchType, uint branchStampPid, uint mergedVesselPid)
+        {
+            // Dock-only: boarding does not absorb a separate spawned / adopted committed
+            // leaf, and Board callers stamp no partner anyway.
+            if (branchType != BranchPointType.Dock) return 0u;
+            // 0 = no resolvable partner; == merged means the partner survived AS the
+            // merged vessel, so its terminal spawn is owned by the live continuation.
+            if (branchStampPid == 0u || branchStampPid == mergedVesselPid) return 0u;
+            return branchStampPid;
+        }
+
         internal static uint ResolveDockRouteTargetPid(
             bool activeWasDockTarget,
             uint mergedVesselPid,
@@ -6312,36 +6353,40 @@ namespace Parsek
             // rover a logistics transport docked into), that leaf's live vessel just
             // disappeared into the merged vessel. Suppress its terminal spawn so the
             // spawn-death check + KSCSpawn don't later materialise a duplicate at the
-            // runway. routeTargetVesselPid is the absorbed endpoint pid (the dock branch
-            // point's TargetVesselPersistentId); skip when it survived as the merged vessel.
+            // runway.
+            //
+            // PHANTOM-SUPERSEDE-RIDES-GATED-PID: the absorbed pid is the branch point's
+            // UNGATED couple-event partner stamp (bp.TargetVesselPersistentId), not the
+            // route-eligibility-gated routeTargetVesselPid. Suppression is a partner-
+            // identity question; a dock that absorbs a Parsek-recorded vessel but fails
+            // route eligibility absorbs it just as physically. See
+            // ResolveDockMergeSpawnSuppressionPid for the mechanism and the EVA carve-out.
             //
             // Marked at MERGE time (not commit time) and never reverted: the dock physically
             // merges the two vessels, which a later active-tree discard does NOT undo, so the
             // absorbed leaf must stay suppressed even if mergedChild is never committed (and
             // commit-time-only marking would re-expose the phantom on discard). A dangling
             // supersede id is harmless because ShouldSpawnAtRecordingEnd uses the field only as
-            // a non-empty gate. Dock-only: boarding does not absorb a separate spawned/adopted
-            // committed leaf, and Board callers pass routeTargetVesselPid=0 anyway.
-            if (branchType == BranchPointType.Dock
-                && routeTargetVesselPid != 0
-                && routeTargetVesselPid != mergedVesselPid)
+            // a non-empty gate.
+            uint spawnSuppressionPid = ResolveDockMergeSpawnSuppressionPid(
+                branchType, bp.TargetVesselPersistentId, mergedVesselPid);
+            if (spawnSuppressionPid != 0)
             {
                 string absorbedLaunchGuid =
                     (pendingDockPartnerSnapshot != null
-                     && pendingDockPartnerSnapshotPid == routeTargetVesselPid)
+                     && pendingDockPartnerSnapshotPid == spawnSuppressionPid)
                         ? VesselLaunchIdentity.TryReadVesselGuid(pendingDockPartnerSnapshot)
                         : null;
                 int superseded = RecordingStore.MarkTerminalSpawnSupersededByDockMerge(
-                    routeTargetVesselPid,
+                    spawnSuppressionPid,
                     absorbedLaunchGuid,
                     mergedVesselPid,
                     mergedChild.RecordingId,
                     "CreateMergeBranch");
-                if (superseded > 0)
-                    ParsekLog.Info("Flight",
-                        $"Dock-merge superseded {superseded} committed terminal spawn(s): " +
-                        $"absorbedPid={routeTargetVesselPid} mergedPid={mergedVesselPid} " +
-                        $"continuation={mergedChild.RecordingId}");
+                ParsekLog.Info("Flight",
+                    $"Dock-merge superseded {superseded} committed terminal spawn(s): " +
+                    $"absorbedPid={spawnSuppressionPid} routeTargetPid={routeTargetVesselPid} " +
+                    $"mergedPid={mergedVesselPid} continuation={mergedChild.RecordingId}");
             }
 
             // 9. Set active recording
