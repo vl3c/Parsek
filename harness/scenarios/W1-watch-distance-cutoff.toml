@@ -1,0 +1,442 @@
+schema = 1
+id = "W1-watch-distance-cutoff"
+# =====================================================================================
+# THE WATCH-ENTRY 300 km DISTANCE CUTOFF, MADE THE SINGLE MEASURED VARIABLE.
+#
+# AUTHORED 2026-08-28. READING RUN 1 (`2026-08-28_1902`, both attempts) flew INVALID and
+# REFUTED THE SPEC'S CENTRAL ASSUMPTION - not the product. Round 2 is re-derived off that
+# run's own bytes; section 2A is the ledger. Everything still marked [INTERIM] is a
+# prediction, everything marked [MEASURED] came back from run 1.
+#
+# -------------------------------------------------------------------------------------
+# 0. WHAT THIS LANE MEASURES
+# -------------------------------------------------------------------------------------
+# `WatchModeController.TryResolveWatchEntryState` refuses watch entry when the ghost is
+# at or beyond `WatchEnterCutoffMeters` (300 km) from the ACTIVE VESSEL on the SAME body,
+# and logs
+#
+#     [Parsek][INFO][CameraFollow] EnterWatchMode refused: ghost #N "<vessel>"
+#         is <D>km from active vessel (max 300km)
+#
+# No committed lane has ever pinned THAT line. Every `EnterWatchMode expect = "REJECTED"`
+# in the V family refuses from a FOREIGN-ORBIT geometry, where the different-body guard
+# (which sits ABOVE the distance guard in the same method and returns without logging
+# anything) and the distance guard are conflated: same verdict, unmeasured cause. This
+# lane holds BODY, VESSEL, TREE and SCENE constant - one Kerbin recording chain, one
+# Kerbin-landed active vessel - and moves ONLY the separation, across the boundary,
+# inside a single loop cycle:
+#
+#     probe A (REFUSED)  ghost 1,069.7 km away [MEASURED]  -> the distance line, pinned
+#     probe B (ENTERED)  ghost     0.46 km away [MEASURED] -> `enterwatchmode complete:`
+#
+# Opened as `docs/dev/todo-and-known-bugs.md` -> GS4-WATCH-DISTANCE-CUTOFF, which GS-4
+# declined to carry (once watching, the guard never re-checks, so one playback cannot
+# hold both a successful watch and a distance refusal on the SAME entry - this lane does
+# it with two entries, refused first).
+#
+# -------------------------------------------------------------------------------------
+# 1. THE CRUX: HOW THE VERB REACHES THE DISTANCE GUARD AT ALL
+# -------------------------------------------------------------------------------------
+# READ FROM THE CODE, because getting it wrong makes the lane vacuous rather than red.
+#
+# `EnterWatchMode` with NO `index` arg AUTO-SELECTS, and its conjunction
+# (`TestCommandEnterWatchMode.ResolveAutoWatchIndex`, mirroring
+# `MissionsWindowUI.ResolveMissionWatchTarget`) is
+#
+#     HasActiveGhost && IsGhostOnSameBody && IsGhostWithinVisualRange
+#
+# and `ParsekFlight.IsGhostWithinVisualRange` delegates to
+# `WatchModeController.IsGhostWithinVisualRange`, whose unwatched branch is
+# `IsWithinWatchEntryRange(s.lastDistance)` - i.e. THE SAME 300 km predicate the guard
+# enforces. So a beyond-300 km same-body ghost fails the auto-select conjunction and the
+# verb returns `REJECTED reason=no-watchable-ghost` BEFORE `flight.EnterWatchMode(index)`
+# is ever called, and the CameraFollow distance line is never written. An auto-select far
+# probe pins nothing about the cutoff; it pins the verb's own pre-filter.
+#
+# THEREFORE BOTH PROBES PASS AN EXPLICIT `index`. The explicit branch
+# (`ParsekTestCommandAddon.EnterWatchModeImpl`) range-checks the index against
+# `RecordingStore.CommittedRecordings.Count` and nothing else, then calls
+# `flight.EnterWatchMode(index)` straight into `TryResolveWatchEntryState`, which is the
+# only path that reaches the distance guard. `tree =` does NOT do this - it is a SCOPE
+# filter for the same auto-select walk, so it would refuse for the same reason.
+#
+# WHAT THE REFUSED VERB RETURNS. `EnterWatchMode` is void and refuses SILENTLY, so the
+# verb defers on the read-back `IsWatchingGhost && WatchedRecordingIndex == index`, never
+# sees it, and terminates on its budget as **`ERROR` msg=`watch-not-entered`**
+# (`WatchEntryCompletionDecision.WatchTimeout`) - NOT `REJECTED`. [MEASURED run 1: both
+# probes ended exactly so, `timeout id=... deferred=60.0s reason=watch-not-entered`.]
+#
+# THE 60 s COLLISION, and why each probe carries `budget = 120`. The C# deferral budget
+# for `EnterWatchMode` is the dispatcher DEFAULT of 60 s (`TestCommandDispatcher`), and
+# the harness's own per-step default (`run.py::DEFAULT_STEP_BUDGET_SECONDS`) is ALSO
+# 60 s. Left at the default the two expire in the same second and which wins is a race.
+# [MEASURED run 1: the product's terminal landed at elapsed=60.0s and the step read it,
+# so 120 did its job.]
+#
+# -------------------------------------------------------------------------------------
+# 2. THE FIXTURE
+# -------------------------------------------------------------------------------------
+# `fixtures/saves/kerbin-splashdown-recorded` - V22M's subject, harvested from
+# `B4-reentry-splashdown` run 2026-08-24_1431. It is the ONE committed fixture whose
+# geometry crosses the cutoff during a single replay, and it does so by 3.5x on one side
+# and 600x on the other:
+#
+#   ACTIVE VESSEL  `persistent.sfs` FLIGHTSTATE `activeVessel = 1` -> the second VESSEL
+#                  node, `#autoLOC_501232`, type Ship, sit LANDED, at
+#                  lat -0.12039427646756619 / lon 86.697704505109499 / alt 152.476 m -
+#                  the B4 pod, parked where the recorded flight ended, 161.26 deg of arc
+#                  east of KSC. It never moves: the lane launches nothing.
+#   SAVE CLOCK     UT = 1276.6235614006234.
+#   ON DISK        SEVEN recordings in tree `c05c834cd2754892b4588e7ce9220c3f`: ONE
+#                  "Kerbal X" (`28b6e543d67c4d1c9e4763b451c01df5`, 1285 points,
+#                  `explicitStartUT` 34.5399999999998, `explicitEndUT`
+#                  1274.6835614006252) and six "Kerbal X Debris".
+#
+# -------------------------------------------------------------------------------------
+# 2A. WHAT RUN 1 REFUTED: THE LOADED CORPUS IS NOT THE COMMITTED ONE
+# -------------------------------------------------------------------------------------
+# ROUND 1 ASSUMED the on-disk parent recording is what index 0 addresses for its whole
+# 1,240 s. IT IS NOT. **The load-time optimizer SPLITS it twice on persisted phase
+# changes**, so the runtime committed list is NINE, not seven [MEASURED]:
+#
+#     Optimizer: Split candidate (PersistedPhaseChange): rec=28b6e543... sec=6
+#                splitUT=212.20 prev=Atmospheric next=ExoBallistic
+#     Optimizer: Split candidate (PersistedPhaseChange): rec=<run-generated> sec=17
+#                splitUT=853.74 prev=ExoBallistic next=Atmospheric
+#
+#   idx 0  "Kerbal X"        recording UT [  34.54,  212.20]  ASCENT   (keeps 28b6e543)
+#   idx 1  "Kerbal X"        recording UT [ 212.20,  853.72]  COAST    (fresh id)
+#   idx 2  "Kerbal X"        recording UT [ 853.72, 1276.42]  DESCENT + TOUCHDOWN
+#   idx 3-8 "Kerbal X Debris"                                 the six booster records
+#
+# AND THE LOOP UNIT SCHEDULES THOSE THREE AS CHAIN MEMBERS, exactly one live at a time:
+#
+#     Mission: MissionLoopUnit: mission='Kerbal X' tree=c05c834c... members=3
+#              span=[34.5399999999998,1276.4235614006236] spanDur=1241.8835614006239
+#              cadence=21549.425183089825 phaseAnchor=21583.965183089826
+#     Engine:  Chain-loop unit owner=0 camera-live member #0->#1 at loopUT=434.57
+#     Engine:  Chain-loop unit owner=0 member #0 hidden: loopUT=434.57 outside its
+#              window [34.54,212.20]
+#
+# So at BOTH of round 1's probe offsets, index 0 was `mission-loop-unit-inactive` - no
+# ghost state at all - and `flight.EnterWatchMode(0)` refused on the missing-state guard
+# ABOVE the body and distance guards, writing no CameraFollow line. Both steps met their
+# `expect` and the run red on the missing tokens: **the legible red section 5 of round 1
+# pre-registered, arriving for a cause that section had not imagined**. The failure was
+# in the SUBJECT MAP, not in the geometry and not in the product.
+#
+# THREE THINGS THAT RUN VALIDATED WHILE REFUTING THE INDEX:
+#   - THE LOOP CLOCK IS EXACTLY AS DERIVED. Round 1 derived L1 = UT0 + Kerbin's rotation
+#     period = 34.5399999999998 + 21,549.425183089826 = **21,583.965183089826**; run 1
+#     logged `phaseAnchor=21583.965183089826` and `startloopplayback initiated:
+#     relaunchUt=21583.965183089826`. The replay clock is therefore
+#         loopUT = currentUT - 21583.965183089826 + 34.5399999999998
+#     and both jump UTs land where they were meant to, to the millisecond.
+#   - THE SEPARATION MODEL IS RIGHT TO 0.1%. Round 1's body-fixed ECEF interpolation put
+#     the ghost 1,068.8 km out at loopUT 434.6; the engine measured **1,069,651 m**.
+#   - THE POD IS WHERE THE BYTES SAY. Probe B's frame put the ghost at world
+#     (393.10, -0.95, -245.57) - 463.5 m from the floating-origin centre, i.e. from the
+#     active vessel - against a predicted 0.5 km.
+#
+# THE SPLIT IDS ARE RUN-GENERATED AND MUST NEVER BE PINNED. Run 1's coast segment was
+# `ef0370ad...` and its descent segment `c6453770...`, while the same log's intermediate
+# first-split half was `5c6ffe73...` - fresh GUIDs, so a `recId=` pin for index 1 or 2
+# would red on the next load for no product reason. INDEX ORDER, by contrast, is
+# deterministic (`RecordingStore.InsertCommittedAfter` puts each tail immediately after
+# its head, so the three chain members occupy 0/1/2 and the debris shift to 3-8), and the
+# tokens below prove the layout from id-free lines instead: the two split candidates, the
+# `members=3` unit line, member #0's window, and each probe's own
+# `camera-live member #x->#y at loopUT=` transition.
+#
+# -------------------------------------------------------------------------------------
+# 3. THE PROBES, RE-PLACED ONTO THE CHAIN
+# -------------------------------------------------------------------------------------
+#   PROBE A   `index = "1"` (the COAST member), `ut = 21984` -> loopUT 434.575, which is
+#             222 s into member #1's [212.20, 853.72] window and 419 s clear of its end,
+#             so the 20-step dwell plus the full 60 s refusal cannot walk out of it.
+#             SEPARATION [MEASURED across the whole of run 1's dwell at this exact
+#             epoch]: 1,069,651 m at loopUT 434.595, falling ~1.14 km/s to 995,904 m at
+#             loopUT 499.375. The probe fires at the near end of that walk, so the
+#             printed value should read ~1,06x km. **NEVER below 3.3x the cutoff.**
+#   PROBE B   `index = "2"` (the DESCENT member), `ut = 22764` -> loopUT 1214.575 =
+#             touchdown - 60.1 s, 361 s into member #2's [853.72, 1276.42] window and
+#             61.85 s clear of its end. [MEASURED at this exact epoch in run 1:
+#             `camera-live member #1->#2 at loopUT=1214.57`, `MeshSpawned
+#             reason=ghost-created` ON THE JUMP FRAME, then `AfterUpdate ... active=true
+#             ... body=Kerbin alt=616.09` - a live, positioned, in-range ghost 463.5 m
+#             from the active vessel.] Inside the 300 km entry cutoff by three orders of
+#             magnitude, and inside the 10 km full-fidelity radius.
+#
+# Both jumps are FORWARD from `StartLoopPlayback`'s own jump to relaunch - 15 s, and
+# forward from each other; `timejump refused reason=backward-jump` is FORBIDDEN below.
+# The ORDER is forced: within one cycle the separation falls monotonically, so far comes
+# before near, and crossing into cycle 2 to reverse it would put ~20,300 s of loop pause
+# between the probes for no gain.
+#
+# -------------------------------------------------------------------------------------
+# 4. MAP STATE - STATED EXPLICITLY, AS THE OPERATOR REQUIRES
+# -------------------------------------------------------------------------------------
+# THE LANE NEVER OPENS MAP VIEW. `EnterMapView` is not in the step list. `ExitMapView`
+# runs before BOTH probes anyway, and `exitmapview ok mapOpen=false` is REQUIRED:
+#
+#   - for probe B (the entry that must SUCCEED) it is the standing rule - watch mode
+#     drives the FLIGHT camera and must not run under the map overlay - and the token is
+#     the proof the map was shut, not an assumption that it was never opened;
+#   - for probe A the map state is NOT the measured variable (the guard reads
+#     `gs.lastDistance`, which no camera mode touches), and the step is there only so
+#     both probes run under IDENTICAL conditions with the separation the one difference.
+#
+# Because the map is never entered, both calls take the already-in-state branch and log
+# `exitmapview ok mapOpen=false already=True`; the token stops at `mapOpen=false`.
+#
+# -------------------------------------------------------------------------------------
+# 5. THE TWO ROUND-1 OPEN QUESTIONS ARE NOW ANSWERED, AND THE TOKENS SHARPENED
+# -------------------------------------------------------------------------------------
+# (A) **WHAT THE DISTANCE FIELD RENDERS: DIGITS.** Round 1 predicted `Infinity`, on the
+# reasoning that the guard prints `(float)(gs.lastDistance / 1000)` at F0, that
+# `lastDistance` is cached from the ghost MESH transform, and that
+# `GhostPlaybackEngine.ResolvePlaybackActiveVesselDistance` returns `double.MaxValue`
+# when `state.ghost == null` - which it believed to be the steady state beyond the 120 km
+# mesh boundary. RUN 1 REFUTES IT AT THE PROBE-A EPOCH: 65 consecutive `phase=GuardSkip
+# ... reason=hidden-by-zone_distance=<n>m` lines, one per second across the entire dwell,
+# every one a finite metre count. That IS the proof, because
+# `FormatPlaybackDistanceForLog` prints the literal `unresolved` for `MaxValue` and for
+# any non-finite value - so a printed number means the very read the guard makes was
+# resolvable on that frame. The required token is therefore the digits form the todo
+# entry asked for: `is [0-9]+km from active vessel \(max 300km\)`. It is deliberately not
+# tightened to `is 1[0-9]{3}km`: run 1's own dwell walked 1,069.7 -> 995.9 km, crossing
+# the four-digit boundary, and the probe's firing frame is not fixed to the second.
+#
+# (B) **WHETHER THE BODY CHECK ABOVE THE GUARD IS EVEN SATISFIED: YES, AT SPAWN.**
+# `TryResolveWatchEntryState` compares `gs.lastInterpolatedBodyName` before it reads any
+# distance, and that field is stamped by `SetInterpolated`. Round 1 feared only a
+# positioning pass could stamp it and that the Beyond zone skips positioning.
+# `GhostPlaybackEngine.CreatePendingSpawnState` calls `state.SetInterpolated(...)` ON THE
+# SPAWN FRAME and logs it, which run 1 shows at the probe-A epoch verbatim:
+# `Pending spawn interpolation seed: vessel='Kerbal X' lifecycle=StandardEnter UT=434.6
+# body='Kerbin' altitude=82048.5`. That line is REQUIRED below - it is the reachability
+# premise of the whole lane, and pinning it means a future regression that stops stamping
+# the body reds HERE, naming the cause, instead of leaving a silent refusal to diagnose.
+#
+# WHAT A RED STILL MEANS. The guard line missing while the seed and camera-live tokens
+# match would say the refusal took a branch above the distance check for a NEW reason -
+# a product finding, and the diagnostics are already armed for it: `ghostRenderTracing`
+# gives the `phase=GuardSkip ... reason=` census per ghostIndex (the exact instrument
+# that diagnosed round 1) and `verboseLogging` gives the Zone tracer's
+# `Mesh torn down: ... anchorDist=`, which prints the same `lastDistance` the guard reads.
+#
+# -------------------------------------------------------------------------------------
+# 6. WHY `[Parsek][ERROR]` IS NOT FORBIDDEN HERE
+# -------------------------------------------------------------------------------------
+# Every V-family lane forbids it. This one CANNOT: probe A's refusal is a designed
+# outcome, and the verb's timeout path writes `ParsekLog.Error(Tag, "enterwatchmode
+# timeout elapsed=...")` by contract. Forbidding the level would forbid the measurement.
+# The token is REQUIRED instead - the verb-side half of the same event, so both halves of
+# probe A (the product's guard line and the seam's terminal) have to appear.
+#
+# -------------------------------------------------------------------------------------
+# 7. BUDGET ARITHMETIC
+# -------------------------------------------------------------------------------------
+#   LoadGame 300 + StartLoopPlayback 300 + TimeJump 300 x2 + EnterWatchMode 120 x2
+#   = 1,440 s of declared step ceilings, of which probe A's 120 is the only one this lane
+#   EXPECTS to spend (the refusal always runs to the C# 60 s timeout; run 1 spent exactly
+#   60.0 s on each of its two probes). The ~43 `RecordingState` dwell steps add
+#   ~0.25-0.5 s each (`POLL_INTERVAL_SECONDS`) and as much game time at 1x, which is why
+#   section 3 states each probe's clearance to its member's window END.
+#   Run 1 reached FlushAndQuit in ~200 s of KSP wall with TWO full 60 s timeouts; round 2
+#   spends one. `budgetSeconds = 1800` clears the declared ceilings and the realistic
+#   path by ~9x.
+#
+# -------------------------------------------------------------------------------------
+# 8. WHAT IS NOT HERE
+# -------------------------------------------------------------------------------------
+# NOTHING IS ARMED and no evaluator block is declared. `[expectations.rewind]`,
+# `[expectations.recordings.structure]`, `[expectations.ghostLifecycle]` and
+# `[expectations.renderComposition]` are all deliberately ABSENT: this lane moves one
+# variable, and declaring a block would either predict a window nobody measured or arm a
+# second subject inside a probe that has not yet made its own measurement. The retarget /
+# explosion-hold probes the todo entry mentions are NOT here either, and the unclaimed D6
+# `watch-mode-retarget-explosion-hold` value stays unclaimed - different semantics.
+# =====================================================================================
+tier = "operator"
+description = "READING RUN 1 (`2026-08-28_1902`) FLEW INVALID AND REFUTED THE SPEC'S SUBJECT MAP, NOT THE PRODUCT; ROUND 2 IS RE-DERIVED OFF THAT RUN'S BYTES. The watch-entry 300 km cutoff as the SINGLE measured variable: one Kerbin recording chain replayed against the fixture's own Kerbin-landed pod, probed twice inside one loop cycle - REFUSED at 1,069.7 km and ENTERED at 0.46 km, both figures MEASURED - so body, vessel, tree and scene are held constant and only the separation moves. Closes the conflation every committed `EnterWatchMode expect=REJECTED` lane carries, where a foreign-orbit geometry makes the different-body guard and the distance guard indistinguishable. THE CRUX, read from the code: the verb's auto-select conjunction already filters on `IsGhostWithinVisualRange`, which IS the same 300 km predicate, so a far auto-select probe returns `no-watchable-ghost` before the guard ever runs - both probes therefore pass an explicit `index`, the only path into `TryResolveWatchEntryState`, and the far one expects `ERROR msg=watch-not-entered` (the silent-refusal timeout), never `REJECTED`. WHAT RUN 1 REFUTED: the load-time optimizer SPLITS the fixture's single 1,240 s parent recording twice on persisted phase changes (212.20 Atmospheric->ExoBallistic, 853.74 ExoBallistic->Atmospheric), so the runtime corpus is NINE recordings and index 0 is the ASCENT segment alone - inactive at both probe epochs, which refused above the distance guard and wrote no line. The probes now name the COAST member (index 1) and the DESCENT member (index 2), and the split ids are run-generated GUIDs that are deliberately NOT pinned; the layout is proven in-run from id-free lines instead (both split candidates, `members=3`, member #0's window, and each probe's own `camera-live member #x->#y at loopUT=` transition). WHAT RUN 1 VALIDATED: the derived loop clock to the millisecond (`phaseAnchor=21583.965183089826`), the body-fixed separation model to 0.1% (1,068.8 km derived vs 1,069,651 m measured), and the pod's position (463.5 m from the descent ghost). Both round-1 open questions are now ANSWERED and the tokens sharpened - the distance field renders DIGITS (65 consecutive finite `hidden-by-zone_distance=` prints, where `unresolved` is what a non-finite read would print), and the body check above the guard is satisfied at SPAWN by `CreatePendingSpawnState`'s `SetInterpolated`, whose seed line is now itself a required token. Map view is never opened and `ExitMapView` runs before both probes; `[Parsek][ERROR]` is deliberately NOT forbidden, because the refusal's own timeout line is a required token. Nothing armed, no evaluator block declared."
+instanceProfile = "stock-minimal"
+tags = ["W1", "watch-mode", "distance-cutoff", "loop-playback", "kerbin", "boundary-probe"]
+
+[fixture]
+# Reused VERBATIM from V22M-kerbin-splashdown-player-loop: same save template, same
+# tree, nothing injected and no craft staged. The lane launches nothing - the "active
+# vessel" it measures separation against is the fixture's own landed B4 pod, as saved.
+saveTemplate       = "fixtures/saves/kerbin-splashdown-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                   expect = "OK" },
+  { cmd = "DiscardTree",                                                     expect = "OK" },
+  # autoRecordOnLaunch off: nothing launches here, but a stray recording would shift the
+  # committed ordinals both probes address.
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  # The two diagnostics section 5 names, and the pair that diagnosed run 1: the per-index
+  # `phase=GuardSkip ... reason=` census, and the Zone tracer's `Mesh torn down: ...
+  # anchorDist=` line, which prints the same `lastDistance` the distance guard reads.
+  { cmd = "SetSetting", args = { name = "ghostRenderTracing", value = "true" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" }, expect = "OK" },
+  { cmd = "MissionConfig", args = { tree = "c05c834cd2754892b4588e7ce9220c3f", loop = "true" }, expect = "OK" },
+  { cmd = "StartLoopPlayback", args = { tree = "c05c834cd2754892b4588e7ce9220c3f" }, expect = "OK", budget = 300 },
+
+  # ---- PROBE A: the COAST member 1,069.7 km away on Kerbin; entry must be REFUSED ----
+  # loopUT 434.575, inside member #1's [212.20, 853.72] window with 419 s of clearance.
+  { cmd = "TimeJump", args = { ut = "21984" }, expect = "OK", budget = 300 },
+  # Dwell so the engine runs frames at this clock before the probe. Run 1 measured the
+  # member #0->#1 hand-off ON the jump frame and a time-sliced 73-part mesh build
+  # resolving a finite distance within a frame or two, so this is comfortable, not tight.
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "ExitMapView",                                                     expect = "OK" },
+  # expect = ERROR, NOT REJECTED: the guard refuses silently and the verb's read-back
+  # never confirms, so it terminates on budget as msg=watch-not-entered. budget = 120 so
+  # the C# 60 s deferral answers before the harness's own 60 s step default.
+  { cmd = "EnterWatchMode", args = { index = "1" }, expect = "ERROR", budget = 120 },
+
+  # ---- PROBE B: the DESCENT member 0.46 km away; entry must SUCCEED ------------------
+  # loopUT 1214.575 = touchdown - 60.1 s, inside member #2's [853.72, 1276.42] window
+  # with 61.85 s of clearance - which is why this dwell is shorter than probe A's.
+  { cmd = "TimeJump", args = { ut = "22764" }, expect = "OK", budget = 300 },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  # The watch camera must run with the map CLOSED (operator rule). Never opened here, so
+  # this takes the already-in-state branch and still writes `mapOpen=false`.
+  { cmd = "ExitMapView",                                                     expect = "OK" },
+  { cmd = "EnterWatchMode", args = { index = "2" }, expect = "OK", budget = 120 },
+  # Let the watch stand for a few frames so the entry is observable in the log rather
+  # than torn down by the very next verb.
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "FlushAndQuit",                                                    expect = "OK" },
+]
+
+[dimensionsCovered]
+# D6 `watch-entry-distance-cutoff` is NEW, added with this lane per the growth rule the
+# D9 `world-preservation` entry set; the registry comment carries the argument for why no
+# existing value stretches to cover it. CLAIM-IS-NOT-GATE: the claim rides the REQUIRED
+# tokens below (the refusal line at ~1,070 km and the entry at 0.46 km), nothing
+# report-only.
+D6  = ["watch-entry-distance-cutoff"]
+D9  = ["fast-forward"]
+D14 = ["kerbin", "scene-flight", "sandbox"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# The corpus this lane addresses is the LOADED one - NINE after the two load-time splits
+# (section 2A), from seven on disk. The window is V22M's and stays wide: this lane
+# asserts the chain layout through the logContract tokens, which name the mechanism, not
+# through a count that would also accept a differently-shaped nine.
+count = { min = 1, max = 12 }
+
+[expectations.logContracts]
+# ---------------------------------------------------------------------------------
+# ROUND 2, re-cut off reading run `2026-08-28_1902`. THIRTEEN of the eighteen tokens
+# below were re-matched against that run's collected log after the re-cut (counts: 1, 1,
+# 1, 1, 1, 1, 3, 26, 2, 1, 1, 2, 1). The FIVE that miss are exactly the five gated on the
+# corrected indices - both `enterwatchmode initiated: index=1|2 recId=` lines, the
+# refusal line, and probe B's two entry halves - which the run could not reach because
+# round 1 addressed index 0. Those five are [INTERIM]; the rest are [MEASURED].
+# ---------------------------------------------------------------------------------
+required  = [
+  # -- the loop is running on the derived clock ------------------------------------
+  "missionconfig applied:",
+  "SetLoopEnabled: loop ON",
+  "startloopplayback initiated:",
+  "FastForwardToEventUT: jumping to UT=",
+  # -- THE SUBJECT MAP, id-free: the two load-time splits that create the three chain
+  # -- members, and the unit that schedules them. This is the family that would have
+  # -- caught round 1's error on the ground.
+  "Split candidate \\(PersistedPhaseChange\\): rec=28b6e543d67c4d1c9e4763b451c01df5 sec=6 splitUT=212\\.20 prev=Atmospheric next=ExoBallistic",
+  "Split candidate \\(PersistedPhaseChange\\): rec=[0-9a-f]{32} sec=17 splitUT=853\\.74 prev=ExoBallistic next=Atmospheric",
+  "MissionLoopUnit: mission='Kerbal X' tree=c05c834cd2754892b4588e7ce9220c3f members=3",
+  "Chain-loop unit owner=0 member #0 hidden: loopUT=[0-9.]+ outside its window \\[34\\.54,212\\.20\\]",
+  # -- the map is shut for both probes (operator rule; section 4) -------------------
+  "exitmapview ok mapOpen=false",
+  # -- PROBE A: the COAST member is the live one at this epoch ----------------------
+  "Chain-loop unit owner=0 camera-live member #0->#1 at loopUT=434\\.5",
+  # its ghost is SPAWN-SEEDED with a body name, which is the reachability premise of the
+  # whole lane (section 5B): without this stamp the guard refuses one branch higher.
+  "Pending spawn interpolation seed: vessel='Kerbal X' lifecycle=StandardEnter UT=434\\.[0-9] body='Kerbin'",
+  "enterwatchmode initiated: index=1 recId=",
+  # -- PROBE A: THE LINE THIS LANE EXISTS FOR [INTERIM - never yet reached] ---------
+  # `WatchModeController.TryResolveWatchEntryState`, verbatim. Reaching it proves: ghost
+  # resolved, SAME body (the body check sits above it and returns silently), NOT within
+  # 300 km. The digits form is justified by run 1's 65 finite
+  # `hidden-by-zone_distance=` prints at this exact epoch (section 5A).
+  "EnterWatchMode refused: ghost #1 \"Kerbal X\" is [0-9]+km from active vessel \\(max 300km\\)",
+  # -- PROBE A: the seam's own half of the same event -------------------------------
+  "enterwatchmode timeout elapsed=",
+  # -- PROBE B: the DESCENT member is the live one at this epoch --------------------
+  "Chain-loop unit owner=0 camera-live member #1->#2 at loopUT=1214\\.5",
+  "enterwatchmode initiated: index=2 recId=",
+  # -- PROBE B: entry ACCEPTED at 0.46 km, both halves [INTERIM - never yet reached] -
+  "Entering watch mode for recording #2 \"Kerbal X\"",
+  "enterwatchmode complete: index=2",
+]
+forbidden = [
+  # V22M round 1's trap. On this lane a refused jump would leave a probe at the wrong
+  # separation - the one thing that would make either verdict meaningless.
+  "timejump refused reason=backward-jump",
+  # The auto-select pre-filter (section 1). If this appears, some step reached the verb
+  # WITHOUT an index and the distance guard was never the decider.
+  "enterwatchmode rejected reason=no-watchable-ghost",
+  # NOT forbidden here, deliberately: `\[Parsek\]\[ERROR\]`. Probe A's refusal writes one
+  # BY CONTRACT (section 6), and it is a required token above.
+]
+
+[runtime]
+budgetSeconds = 1800
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

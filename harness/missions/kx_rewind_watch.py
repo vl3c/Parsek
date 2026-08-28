@@ -31,7 +31,11 @@ THE PHASE PLAN (``mlib.kxrw_decide``; every state name is an ``mlib.KXRW_*``):
       -> AUTORECORD-OFF (seam SetSetting autoRecordOnLaunch=false)
       -> WATCHER-LAUNCH -> WATCHER-READY
       -> MAP-VIEW     (seam EnterMapView)               } verdicts RECORDED,
-      -> WATCH        (seam EnterWatchMode tree=<same>, } never fatal
+      -> MAP-EXIT     (seam ExitMapView - the operator  } never fatal
+                       rule: WATCHING happens in FLIGHT
+                       view, so the map is closed again
+                       before watch entry)
+      -> WATCH        (seam EnterWatchMode tree=<same>, }
                        HELD until the replay window is
                        open, RE-ASKED while Parsek says
                        `no-watchable-ghost`)

@@ -6,8 +6,10 @@ id = "GS-4-kerbalx-rewind-watch"
 # core discarded with its engines provably off), commit, REWIND TO LAUNCH (the
 # Recordings-table "R" button semantics: `RecordingStore.InitiateRewind` loading the
 # `parsek_rw_*` quicksave captured at recording start - NOT the Rewind-to-Separation
-# / Re-Fly system), put a Jumping Flea on the now-clear pad, open MAP VIEW, press
-# WATCH on the replaying Kerbal X ghost, sit through the playback, and then hold the
+# / Re-Fly system), put a Jumping Flea on the now-clear pad, open MAP VIEW, CLOSE IT
+# AGAIN (map view is the player's "go to it" step; the watching itself happens in
+# FLIGHT view, or the ghost meshes are behind the overlay), press WATCH on the
+# replaying Kerbal X ghost, sit through the playback, and then hold the
 # flight ghost render tracer to account: every ghost the replay spawned - the main
 # vessel AND every separated stage - must show a MeshSpawned AND a matching
 # MeshDestroyed. The motivating regression is real: booster ghosts observed NOT
@@ -298,8 +300,17 @@ count = { min = 8, max = 8 }
 #   "invokerewindtolaunch complete rec="  seam verb terminal (Info)
 #       Emitted only when IsRewinding cleared IN SPACECENTER - the scene-ksc proof.
 #
-# GROUP 4 - MAP + WATCH.
+# GROUP 4 - MAP, THEN BACK TO FLIGHT, THEN WATCH.
 #   "entermapview ok mapOpen=true"        ParsekTestCommandAddon.MapView.cs:93 (Info)
+#   "exitmapview ok mapOpen=false"        SAME EMITTER, same line - one body serves
+#       both directions and only the verb word and the mapOpen value differ.
+#       THE OPERATOR RULE, made checkable: map view is the "go to it" step of the
+#       player workflow, but the WATCHING must happen with the map CLOSED, so the
+#       ghost meshes this lane exists to see are on screen instead of behind the
+#       overlay. The mission drives EnterMapView -> ExitMapView -> EnterWatchMode
+#       in that order, and this read-back token (of the same MapView.MapIsEnabled
+#       property the open reads) is the proof the map was actually shut before the
+#       watch camera took over - a claim no other token in this spec can make.
 #   "enterwatchmode complete: index="     seam verb terminal (Info) [MEASURED - V7M/V15M]
 #       The genuine-entry token (a bare OK is also satisfied by the idempotent
 #       already-watching path, which is why the TOKEN is required, not the verdict).
@@ -330,6 +341,7 @@ required  = ["Auto-record started \\((?:PRELAUNCH|LANDED|first staging on pad)",
              "Rewind-to-Launch initiated to UT",
              "invokerewindtolaunch complete rec=",
              "entermapview ok mapOpen=true",
+             "exitmapview ok mapOpen=false",
              "enterwatchmode complete: index=",
              "phase=MeshSpawned [^\\r\\n]*vessel=Kerbal X reason=ghost-created",
              "phase=MeshSpawned [^\\r\\n]*vessel=Kerbal X Probe reason=ghost-created",
@@ -352,10 +364,17 @@ forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 # MeshDestroyed - a ghost that lingers past playback (the derender bug class) is
 # an unbalanced row with its vessel name in the report.
 [expectations.ghostLifecycle]
-# RE-PINNED: both flights measured spawned=8 (the full census - every
-# recording rendered a mesh) with unbalanced=0. Floor, not exact pin: the
-# window is re-pinned while still REPORT-ONLY, and the arming pass may
-# tighten it further with its own three-run evidence.
+# ARMED 2026-08-28, three-run discipline DISCHARGED: windows authored from the
+# reading measurements (`2026-08-27_2145` / `2026-08-27_2204`, both spawned=8
+# destroyLines=8 unbalanced=0); armed re-flights `2026-08-28_1527` (pre
+# MAP-EXIT) and `2026-08-28_1544` (the final flight-view sequence) both PASS
+# attempt 1 with the gate live; negative control `2026-08-28_1550` (temporary
+# spawned={min 9}) red PARSEK-FAIL(ghost-lifecycle) on exactly that window,
+# then reverted. Roster: GHOSTLIFE_ARMED_SPECS in harness/lib/test_hlib.py. The armed statement: at least the full measured
+# census of 8 ghost meshes RENDERS, and every spawned mesh is DESTROYED again
+# - the derender regression class this lane exists for now gates as
+# PARSEK-FAIL(ghost-lifecycle).
+gating = true
 spawned = { min = 8 }
 requireBalanced = true
 
