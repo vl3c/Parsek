@@ -120,7 +120,7 @@ Two limits of this table, stated so nobody over-reads it:
 | `LedgerGroundTruth` | 2 | 2 | 0 | 0 | 0 | 1 | L2 | B |
 | `LocalizedName` | 3 | 3 | 3 | 3 | 0 | 0 | H29 | A |
 | `LogContracts` | 10 | 10 | 8 | 8 | 0 | 2 | H26 | A |
-| `Logistics` | 47 | 8 | 2 | 1 | 38 | 46 | H34 (SPACECENTER slice), H35 (FLIGHT slice) | B |
+| `Logistics` | 47 | 8 | 2 | 1 | 38 | 46 | H34 (SPACECENTER slice), H35 (FLIGHT ordinary slice), H38 (FLIGHT ISOLATED slice, reading-run pending) | B |
 | `LogisticsGrapple` | 4 | 3 | 0 | 0 | 1 | 2 | - | B |
 | `MapPresence` | 5 | 5 | 3 | 3 | 0 | 2 | H28 | A |
 | `MapRender` | 22 | 21 | 0 | 0 | 1 | 14 | S1.7 | B |
@@ -214,7 +214,9 @@ reputation-INPUT converter measurement cell and the high-reputation curve
 corroboration cell to the same L3 pair, and 408 when the `funds-debit-capture`
 wave took it from 9 to 10 with the funds-INPUT converter measurement cell). `H35-logistics-route-proof` (2026-08-11) moves NEITHER number -
 it is the second spec on a category H34 already counted - which is exactly the
-distortion the paragraph after next is about.
+distortion the paragraph after next is about, and
+`H38-logistics-isolated` (2026-08-28) moves neither for the same reason, being
+the THIRD spec on that same already-counted category.
 
 `RenderComposition` (1 declaration, M-A7) is the 105th category and moves the DRIVEN
 numbers not at all: it ships undriven, in bucket B, waiting on the `renderCompose`
@@ -319,6 +321,21 @@ number from 2 to 6 while moving the headline number by zero. The bucket letters 
 unchanged: `Logistics` stays **B**, on the same footing as `GhostMap` (S1.6),
 `GhostPlayback` (S1.4) and `Missions` (M1) - driven, partially, without meeting
 bucket A1's whole-category admission shape.
+
+THE THIRD SPEC IS THE ONE THAT MOVES THAT HONEST NUMBER, and by a lot:
+`H38-logistics-isolated` (authored 2026-08-28, READING RUN, not yet flown) drives
+the category through the ISOLATED entry point, where the admission filter is
+`AllowBatchExecution || RestoreBatchFlightBaselineAfterExecution` and all 38 of
+the batch-disabled declarations carry the restore flag. So the 41 that "never
+execute anywhere" becomes 3 - the run-time fixture-shape self-skips - and the
+admitted population goes from 8 to 46. NOTHING IS CLAIMED OFF THAT UNTIL IT FLIES:
+admitted is not executed, the spec's tally split is deliberately unpinned, and the
+38 cells guard at run time on things no attribute predicts (what
+`UnloadedFuelVesselFixture` managed to snapshot and re-spawn, live LF
+stored/free floors, inventory PROBE ORDER as KSP actually walks it, a converter
+that will activate on the pad, warp/unpack races). The bucket letter is unchanged
+for now and for the same reason - `Logistics` leaves **B** when a flown spec
+measures the split, not when one is authored.
 
 The 2026-08-05 wave (`wire-wave-2`, H26-H31) wired exactly the list the previous
 revision of this doc named as "the honest next wave": all five B6 members that
@@ -471,7 +488,7 @@ of its cells carry run-time Skip guards that only the fixture rules out.
 | `H22-ui-complexity-mode` | UiComplexityMode | 4 | The LIVE `InputLockManager`, which headless xUnit structurally cannot reach: entering Basic must force-close every gated window AND leave no Parsek control lock held, or the player's mouse soft-locks for the rest of the scene session |
 | `H23-tracking-station` | TrackingStation | 10 | The TRACKSTATION scene itself, unreachable by any driven run until R12. The TS scene host, the span-clock TS seam, the synthetic-ghost ProtoVessel lifecycle and Fly-strip, and the map/TS render tracer's LIVE Vectrosity line truth. Note it breaks A1's shape: its `LoadGame` carries `scene = "trackstation"`, so it is the only spec here whose batch runs outside FLIGHT |
 
-**A2 - the ISOLATED batch path (1 category, 2 declarations).** `SceneExitMerge`,
+**A2 - the ISOLATED batch path (2 categories, 49 declarations).** `SceneExitMerge`,
 wired as `H21-scene-exit-merge-isolated`, tier `nightly`, over `b2-lko-craft`. It
 satisfies NONE of A1's three criteria as written, which is exactly why it needs
 stating separately rather than being appended to the table above:
@@ -494,9 +511,44 @@ stating separately rather than being appended to the table above:
    73-part stock launcher (8 engines, PRELAUNCH) that 11 committed flight specs
    already fly.
 
+`Logistics` JOINED A2 ON 2026-08-28, wired as `H38-logistics-isolated`, tier
+`operator`, over the purpose-built `logi-cargo-pad`. It is a DIFFERENT SHAPE from H21
+on two of the three counts above, and both are worth stating because the next isolated
+spec will look more like H38 than like H21:
+
+1. Its `Exec FLIGHT` is **8**, not 0. `Logistics` is only PARTLY batch-disabled - 38 of
+   its 47 declarations are `AllowBatchExecution = false`, one more is scene-ineligible
+   at FLIGHT, and the remaining 8 are batch-eligible on the ORDINARY path (exactly
+   H35's slice). So the isolated arg earns its place by admitting 46 where the ordinary
+   filter admits 8: STRICTLY MORE, rather than being the only way to run anything, and
+   the id is declared in `IsolatedBatchWiringGroupTests.PARTLY_BATCH_DISABLED_IDS`
+   alongside `R7a`. TWO CONSEQUENCES FOLLOW, both easy to get wrong. The baseline-slot
+   literal is **38** - neither the category total nor the admitted count - because the
+   runner logs `ordered.Count(t => t.RestoreBatchFlightBaselineAfterExecution)` over the
+   ADMITTED batch. And the tally's open interim form has to be a floor ABOVE the
+   ordinary path's executable ceiling: the usual `passed=[1-9][0-9]*` would accept
+   `passed=8`, the exact line a run that silently lost the isolated arg prints, so the
+   spec pins `passed=(?:9|[1-9][0-9]+)` and a group cell sweeps the whole 0..8 range to
+   prove the rejection.
+2. It is a READING RUN and has not flown, so its split is deliberately unpinned and the
+   id sits in `IsolatedBatchWiringGroupTests.INTERIM_PIN_IDS` - the same convention the
+   ordinary H-series group uses for a pre-measurement member. The obligation that
+   carries: the first flight measures the split, the pin is replaced whole, a
+   `MEASURED_SKIPPED` entry is added if the run-time guards push `skipped` above the
+   attribute floor of 1, and the id leaves the set, in the same commit.
+
+The FIXTURE point is the same as H21's, and it is the whole reason this lane needed a
+forge before it could need a spec. `Logistics` self-skips on five preconditions that no
+stock craft and no prior committed fixture meets at once (listed under B4 below);
+`FORGE-logi-pad` stamped `logi-cargo-pad` to meet all five in a six-part rig. Note that
+the group's static fixture predicate - PRELAUNCH plus at least one `ModuleEngines` on
+the ACTIVE vessel - is a FLOOR that catches the H21 failure mode only; it says nothing
+about the other four, which is why the spec's own fixture block enumerates them.
+
 | Spec | Category | Tests | Why it is worth a boot |
 |---|---|---|---|
 | `H21-scene-exit-merge-isolated` | SceneExitMerge | 2 | The R5 shakedown, and the D1 `commit-scene-exit` / `discard-rollback` cells no other mechanism produces: a real recording, a real launch, a real stock save-and-exit out of FLIGHT, and both branches of the pre-transition merge dialog |
+| `H38-logistics-isolated` | Logistics | 47 declared, 46 admitted, 38 of them restore-flagged | The 38 restore-after-run `Logistics` declarations no unattended path could execute before it: unloaded-depot origin debit, pickup, loaded and multi-module cargo delivery, harvest capture, multi-stop and multi-origin escrow, round-trip pairing. READING RUN, not yet flown - tally split deliberately open, no cell tokens pinned |
 
 ### Bucket B - wireable, but needs something first (81 categories, 451 declarations)
 
@@ -606,6 +658,29 @@ recorded fixture can un-skip read-side cells that no guard read would have fixed
 Second, "wired" is not "covered": going from a recording-free fixture to a recorded
 one took this category's executed count from 2 to 6 of 47, and the residue is
 FIXTURE SHAPE, which is a harvest problem rather than a spec problem.
+
+AND THE 38 ARE NO LONGER UNWIRED. `H38-logistics-isolated` (2026-08-28, READING
+RUN, not yet flown) drives them through the R5 ISOLATED entry point, which admits
+`AllowBatchExecution || RestoreBatchFlightBaselineAfterExecution` - and all 38
+batch-disabled Logistics declarations carry the restore flag. THE THIRD LESSON
+FOR THE REMAINING B4 WORK, and the most transferable one: where H35 answered a
+read-side skip with a harvested fixture, H38 answered a PRECONDITION skip with a
+purpose-BUILT one. Reading the 38 guards produced five concrete craft
+requirements - a PRELAUNCH pad rocket with a `ModuleEngines` (so
+`UnloadedFuelVesselFixture` can snapshot the active vessel and re-spawn the copy
+as an UNLOADED depot), at least one `LiquidFuel` RESOURCE node, a PARTIALLY
+filled flow-enabled LF tank on the LIVE craft (the loaded-path delivery cell
+pre-drains the first tank and asserts a +5.0 LF top-up, so it needs debitable
+fuel AND headroom at once), a `BaseConverter`-derived module, and TWO
+`ModuleInventoryPart` containers in probe order with the FIRST nearly full and a
+LATER one free - none of which any stock craft or committed fixture met at once.
+The answer was to AUTHOR a craft from those five requirements
+(`harness/tools/build_logi_craft.py`, a derivation record with a byte-identity
+drift gate) and forge a pad save from it (`FORGE-logi-pad` ->
+`fixtures/saves/logi-cargo-pad`). For the remaining B4 categories that is the
+cheaper road wherever the guards name capabilities rather than history: a guard
+that wants a PART is a craft-building problem, and a guard that wants a PAST is a
+harvest problem.
 
 An earlier revision of this paragraph opened the list with `Rewind` (37) and closed
 "the payoff is high for `Rewind` and `GhostLifecycle` in particular". Half of that

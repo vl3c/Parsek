@@ -1,0 +1,312 @@
+schema = 1
+id = "H38-logistics-isolated"
+tier = "operator"
+# THE THIRD SLICE OF `Logistics`, AND THE ONE THAT IS ACTUALLY THE CATEGORY.
+#
+# `Logistics` is the largest in-game category in the tree - 47 declarations - and
+# until now the harness drove 10 of them across two specs, both on the ORDINARY
+# batch path:
+#   H34-logistics-inter-body  - the 2 SPACECENTER-eligible declarations.
+#   H35-logistics-route-proof - the 8 FLIGHT-eligible ones on the ordinary filter.
+# The other 38 are `AllowBatchExecution = false` + `RestoreBatchFlightBaselineAfter-
+# Execution = true`. They are the inventory doc's bucket B4 in its purest form: 38
+# already-written tests whose authors decided a per-test quickload baseline makes
+# them batch-safe, and which NO unattended path could reach until R5 added the seam's
+# `isolated` argument. H38 is the spec that reaches them.
+#
+# THE ARG IS NOT DECORATION HERE, and the arithmetic is stated because
+# IsolatedBatchWiringGroupTests checks it both ways:
+#   hlib.derive_batch_tally(decls, "Logistics", "FLIGHT")                -> executable 8
+#   hlib.derive_batch_tally(decls, "Logistics", "FLIGHT", isolated=True) -> executable 46
+# So the isolated filter admits 46 where the ordinary one admits 8. `Logistics` is
+# only PARTLY batch-disabled, exactly like R7a's `Rewind` and unlike H21's
+# `SceneExitMerge`, so this spec is declared in
+# IsolatedBatchWiringGroupTests.PARTLY_BATCH_DISABLED_IDS: the arg earns its place by
+# admitting STRICTLY MORE, not by being the only way to run anything.
+#
+# THIS IS A READING RUN. It has never flown. Its tally split is deliberately left
+# OPEN (see the derivation block under [expectations.logContracts]) and the id is
+# declared in IsolatedBatchWiringGroupTests.INTERIM_PIN_IDS, which is the same
+# convention IngameBatchWiringGroupTests uses for a pre-measurement member. The
+# obligation that comes with that declaration: the FIRST flight measures the split,
+# the pin is replaced with the whole tally, a MEASURED_SKIPPED entry is added if the
+# run-time guards push `skipped` above the attribute floor of 1, and the id LEAVES
+# INTERIM_PIN_IDS in the same commit. An interim pin that outlives its first flight
+# is a weakening, not a convenience.
+description = "Run the in-game Logistics category through the ISOLATED batch entry point over the purpose-built logi-cargo-pad rig: the 38 restore-after-run declarations - unloaded-depot origin debit, pickup, loaded and multi-module delivery, harvest capture, multi-stop and multi-origin escrow, round-trip pairing - that no unattended path could execute before this spec."
+instanceProfile = "stock-minimal"
+tags = ["ingame-batch", "isolated-batch", "logistics", "H38", "pending-flight"]
+
+[fixture]
+# NOT gloops-airshow, NOT bdock-recorded, NOT depot-route-recorded, and this is the
+# single most important line in the spec - the H21 lesson applied to a category with
+# five preconditions instead of one.
+#
+# The isolated-group fixture predicate (IsolatedBatchWiringGroupTests::
+# test_the_fixture_can_actually_fly_the_category) demands only two properties of the
+# ACTIVE vessel: `sit = PRELAUNCH` and at least one `ModuleEngines`. That predicate is
+# a FLOOR, not the requirement - it exists because H21's engineless host would have
+# produced a green-looking all-skipped tally. `Logistics` needs four more properties
+# on top of it, and the reason each committed candidate fails is worth writing down
+# once so it is not rediscovered:
+#
+#   * `bdock-recorded` (H35's host) - its active vessel is a PARKED Kerbal X in
+#     ORBIT, not a PRELAUNCH pad rocket, so it fails the group predicate outright.
+#     `UnloadedFuelVesselFixture` snapshots the ACTIVE vessel and re-spawns the copy
+#     into a 250 km parking orbit as the UNLOADED depot the origin-debit / pickup /
+#     multi-stop cells need, and it wants a pad rocket to snapshot.
+#   * `depot-route-recorded` - same shape and the same failure: a recorded
+#     mid-mission state, not a pad state. Neither recorded fixture carries a craft
+#     with two `ModuleInventoryPart` containers in the order the multi-module cell
+#     needs, and neither carries a `BaseConverter`-derived module at all.
+#   * `b2-lko-craft` (H21's host) - PRELAUNCH with 8 engines, so it clears the group
+#     predicate, and it still fails `Logistics`: no `BaseConverter`, and its cargo
+#     inventory shape is whatever the stock launcher happens to have rather than the
+#     first-full / later-free pair the handoff cell requires.
+#
+# WHAT THE RIG CARRIES, named against the skip strings that demanded it (the full
+# derivation is `harness/tools/build_logi_craft.py`'s module docstring, L1-L5):
+#   L1 PRELAUNCH pad rocket + `liquidEngine2` (LV-T45)  -> `UnloadedFuelVesselFixture`
+#      has an active pad vessel to snapshot and re-spawn as the unloaded depot.
+#   L2 a `LiquidFuel` RESOURCE node                     -> without one that fixture
+#      returns `reason = "no-liquidfuel-resource"` and EVERY unloaded-depot cell
+#      skips.
+#   L3 an FL-T400 at LF 100/180 + Ox 122/220, flowState=True -> the loaded-path
+#      `Delivery_LoadedVessel_AppliesResourceTransfer` pre-drains the first LF tank
+#      and asserts a +5.0 LF top-up, so it needs debitable fuel AND free capacity at
+#      once. A full tank fails it as surely as an empty one.
+#   L4 a stock `FuelCell` (BaseConverter-derived)       -> the two HarvestCapture
+#      cells skip with the literal advice "a stock fuel cell suffices - add one to
+#      the test craft". A drill cannot substitute: it wants ground contact and ore.
+#   L5 TWO `ModuleInventoryPart` containers in PROBE ORDER - a 3-slot
+#      `smallCargoContainer` FIRST holding an `evaRepairKit` + an `evaScienceKit`
+#      with one slot free, then a 9-slot `cargoContainer` empty. The multi-module
+#      cell fills every empty slot of the FIRST module and then needs a LATER one
+#      with a slot free, or it skips "No later inventory module has an empty slot
+#      left". The root is a `probeCoreOcto2.v2` and NOT a pod precisely because every
+#      stock command pod carries its own `ModuleInventoryPart` and would displace the
+#      small container from first place in probe order.
+#
+# MEASURED on the committed fixture: 6-part active vessel `Logi Cargo Rig`, PRELAUNCH,
+# 1 `ModuleEngines`, 1 BaseConverter, 2 `ModuleInventoryPart` (the save's part-node
+# count reads higher because inventory STOREDPART nodes are parts too). SANDBOX, so no
+# career state is at risk. Two VESSEL nodes: the rig (activeVessel) and the stock
+# asteroid `Ast. VPA-167`, a `SpaceObject` carrying no LiquidFuel - so the rig's tank
+# is the save's ONLY LF resource node and nothing can shadow it.
+#
+# PROVENANCE: stamped by `FORGE-logi-pad` (boots `bdock-forge-base`, launches the
+# committed `Logi Cargo Rig.craft` uncrewed onto the LaunchPad, settles PRELAUNCH,
+# SaveGame) and harvested with `harvest_bdock_station.py --run-save bdock-forge-base
+# --target-name logi-cargo-pad --expect-situation PRELAUNCH`. The craft itself is
+# authored BY CONSTRUCTION by `build_logi_craft.py` and drift-gated byte-for-byte by
+# `harness/lib/test_logi_cargo_rig.py`, so a hand edit to the rig reds the unit suite
+# rather than this flight.
+#
+# injectedRecordings = "none" is a MEASURED choice, not a default. Every one of the 38
+# restore-flagged cells BUILDS the state it needs in-body (a snapshot-derived unloaded
+# depot, a forged route, an escrow ledger) and reaps it; an injected corpus would add
+# store noise and buy nothing. It also keeps the produced-save assertion below sharp.
+saveTemplate = "fixtures/saves/logi-cargo-pad"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+# MIRRORS R7a's shape exactly, with ONE addition (verboseLogging) and ONE deliberate
+# omission (the kill triple).
+#
+# NO KILL TRIPLE, and the contrast with H35 is the point. H35 carries
+# StopRecording / DiscardTree immediately after LoadGame because it loads a RECORDED
+# save whose own parked craft is active, and the committed-tree restore path resumes a
+# promotion-stub recording ~1 s into the scene before any step can run (the V-corpus
+# lesson). `logi-cargo-pad` is a FRESH, UN-RECORDED pad fixture - zero trees, zero
+# recordings, zero sidecars, verified by test_saveparse's committed-fixture sweep - so
+# there is nothing to stop and nothing to discard. The pair would be a harmless no-op,
+# but writing steps that assert nothing is how a driver stops being readable.
+#
+# autoRecordOnLaunch=false: the standard pin every H-spec carries. Nothing here stages
+# the rig, so auto-record has no trigger, but pinning it removes the possibility
+# outright rather than resting on that - and a recording started mid-batch would break
+# the zero-recordings assertion below, which is this spec's campaign-isolation proof.
+#
+# verboseLogging=true is REQUIRED, not cosmetic, and for the same reason H35 carries
+# it: `InGameTestRunner` writes each cell's per-test PASSED / SKIPPED line at Verbose.
+# A reading run whose whole purpose is to census WHICH of the 46 admitted cells passed
+# and which self-skipped is blind without it - the BATCH_COMPLETE tally would give the
+# totals and nothing else, and correcting the interim pin needs the names.
+#
+# The 540 s RunTests budget is hlib.MAX_DEFERRED_STEP_BUDGET_SECONDS, the cap, and it
+# is not padding: the isolated path is a real quickload per restore-flagged test, so
+# this batch costs on the order of 38 FLIGHT scene reloads plus a baseline prime. That
+# is what runtime.budgetSeconds below is sized against.
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" },  expect = "OK" },
+  { cmd = "RunTests",   args = { category = "Logistics", isolated = "true" }, expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit",                                                     expect = "OK" },
+]
+
+[dimensionsCovered]
+# HONEST AND MINIMAL, because a reading run has measured nothing yet. Only the boot
+# facts are earned, and both ride the loadgame line: `scene-flight` is gated by the
+# fixture's Focusable route (a fixture that stopped being focusable would land at the
+# KSC and red the pinned scene token on the tally), and `sandbox` is the fixture's own
+# `Mode = SANDBOX`.
+#
+# NO D10 VALUE IS CLAIMED, deliberately, and this repeats H35's reasoning rather than
+# departing from it. The ten zero-declarer D10 rows (docked-depot-origin,
+# claw-producer, inventory-cargo, harvest-provenance, multi-stop, multi-origin-escrow,
+# round-trip-pair, hold-reasons, destination-full-gate, route-map-lines) name exactly
+# the behaviours the 38 cells exercise, and it is tempting to claim several here. They
+# are NOT claimable off an unflown spec: claim-is-not-gate means a value may only be
+# declared when a PINNED token would red if the behaviour stopped, and this spec pins
+# no cell token at all until the reading run says which cells actually execute. The
+# first post-reading commit is where those claims are earned, one per cell whose echo
+# gets pinned.
+D14 = ["sandbox", "scene-flight"]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING (the H7 lesson): run.py reads
+# `expectations.allowedAnomalies`, and a bare key written AFTER an
+# `[expectations.<sub>]` header is TOML-scoped to that sub-table and never read.
+# hlib.validate_spec rejects the misplaced form, so this must stay ahead of the
+# sub-tables. No tracer is armed by this spec, so the empty list is the honest
+# declaration.
+allowedAnomalies = []
+
+[expectations.recordings]
+# Zero, and it doubles as the CAMPAIGN-ISOLATION assertion exactly as H21's and R7a's
+# do. The staged fixture carries no recordings, nothing in the driver records, and
+# several of the 38 cells build real trees and route state mid-run. The isolated path's
+# per-test baseline restore plus the batch teardown revert from the pre-batch `.bak`
+# must leave the produced save clean. A non-zero count here is NOT "a test leaked" - it
+# is the restore contract failing, which is the property the whole isolated path rests
+# on, and it should red loudly.
+count = { min = 0, max = 0 }
+
+[expectations.logContracts]
+# EVIDENCE STANDING: NOT FLOWN. Every number below is DERIVED from the `[InGameTest]`
+# attributes; nothing here is measured, and the split is deliberately left open.
+#
+# ---------------------------------------------------------------------------------
+# DERIVED, NOT GUESSED. The commands, so the next reader re-runs them rather than
+# trusting this block:
+#   decls = hlib.parse_ingame_test_declarations(<each file under Source/Parsek>)
+#   hlib.derive_batch_tally(decls, "Logistics", "FLIGHT", isolated=True)
+#     -> total=47  scene_skipped=1  batch_skipped=0  executable=46
+#   hlib.derive_batch_tally(decls, "Logistics", "FLIGHT")
+#     -> total=47  scene_skipped=1  batch_skipped=38  executable=8
+# The `isolated` argument is REQUIRED to reproduce the first line: this driver sends
+# `isolated = "true"`, and the call WITHOUT it models the ordinary entry point that
+# H35 flies.
+#
+# WHAT EACH TOKEN RESTS ON:
+#
+#  - total=47 is ATTRIBUTE-EXACT and the only statically certain token: 47
+#    `[InGameTest(Category = "Logistics")]` declarations across 18 files.
+#    BATCH_COMPLETE's `total` is `allTests.Count(Status != NotRun)` over the single
+#    batch, so it counts FILTERED tests too - which is why H34 (SPACECENTER), H35
+#    (FLIGHT ordinary) and this spec all pin the same 47 while executing 2, 8 and 46
+#    respectively. Kept in sync with the source by CommittedBatchTallySourceSyncTests:
+#    adding one Logistics `[InGameTest]` moves ALL THREE pins, in the same commit.
+#
+#  - The ATTRIBUTE FLOOR for `skipped` is 1, and only 1. Exactly one declaration is
+#    scene-ineligible at FLIGHT - `InterBodyRoute_RealBuilder_ClassifiesReaimWindows_
+#    AndModuloFires` (RouteInterBodyBuilderShapeInGameTest.cs), the SPACECENTER cell
+#    H34 owns. On the ISOLATED path NOTHING is batch-skipped: the filter is
+#    `AllowBatchExecution || RestoreBatchFlightBaselineAfterExecution`, and all 38
+#    batch-disabled Logistics declarations carry the restore flag, so all 38 are
+#    admitted. (That is also why the baseline-slot literal below is 38 and not 47 -
+#    see its own note.)
+#
+#  - passed / skipped are LEFT OPEN, and the open form is chosen rather than
+#    defaulted to. Run-time `InGameAssert.Skip` guards decide the real split and no
+#    static analysis settles them: the 38 cells guard on what
+#    `UnloadedFuelVesselFixture` managed to snapshot and re-spawn, on live resource
+#    floors (`FixtureMinStoredLf` 10.0 / 14.0, `FixtureMinFreeCapacity` up to 18.0),
+#    on inventory PROBE ORDER as KSP actually walks it, on a converter that will
+#    ACTIVATE on the pad, and on warp/unpack races. The rig was built to satisfy all
+#    of them - that is its entire purpose - but assumptions A4 (inventory probe order)
+#    and A5 (resource floors) in `build_logi_craft.py` are explicitly the two that
+#    ONLY a Logistics batch can falsify. Pinning a guessed split would either red on a
+#    correct run or, worse, be widened afterwards until it accepted anything.
+#
+#  - THE OPEN FORM IS `passed=(?:9|[1-9][0-9]+)`, i.e. passed >= 9, and it is NOT the
+#    usual `passed=[1-9][0-9]*` interim spelling. That spelling would be WRONG here
+#    and the reason is the whole R5 thesis:
+#      * the vacuous family (`passed=0 failed=0`, which forces total == skipped) is
+#        rejected by either form - `[1-9]` cannot match 0 - so anti-vacuity alone does
+#        not decide between them;
+#      * but the ORDINARY path's ceiling at FLIGHT is 8 executable, so the line a run
+#        that silently LOST, ignored or misspelled the isolated arg would print is
+#        `total=47 passed=8 failed=0 skipped=39` (H35 measured 5/42 on its own host,
+#        i.e. at or below that ceiling). `passed=[1-9][0-9]*` MATCHES `passed=8` and
+#        would read that degraded run as GREEN. `passed >= 9` cannot: it is exactly
+#        the statement "more tests passed than the ordinary filter could even admit",
+#        which is the only thing this spec exists to prove and the only floor that
+#        cannot be met without the isolated route running.
+#    IsolatedBatchWiringGroupTests::test_each_pin_rejects_both_the_vacuous_and_the_
+#    non_isolated_line asserts both rejections mechanically against synthesized lines.
+#    `skipped=[0-9]+` stays fully open - with `total` and `passed` constrained it
+#    carries no discrimination of its own, and constraining it would be a guess.
+#
+#  - failed=0 is the ASSERTION, pinned hard as on every batch spec. A reading run may
+#    legitimately discover that a cell SKIPS; a cell that FAILS is a finding either
+#    way.
+#
+#  - scene=FLIGHT is the fixture's Focusable route (the rig is the active vessel and
+#    LoadGame carries no `scene=` argument) and is LOAD-BEARING: at SPACECENTER the
+#    split inverts entirely and the batch would run H34's 2-cell slice. Pinning the
+#    scene ON the tally line is the B10 fail-open guard.
+#
+# THE BASELINE-SLOT LITERAL IS 38, NOT 47 and NOT 46. The runner logs
+# `ordered.Count(t => t.RestoreBatchFlightBaselineAfterExecution)` over the ADMITTED
+# batch (InGameTestRunner.PrepareBatchFlightRestoreExecution) - the 38 restore-flagged
+# Logistics declarations, every one of them Scene = FLIGHT, so all 38 survive scene
+# eligibility. The other 8 admitted cells are batch-eligible outright and carry no
+# restore flag. That line is emitted ONLY by PrepareBatchFlightRestoreExecution, which
+# RunCategory never calls at all, so it is proof of the ISOLATED entry point
+# INDEPENDENT of the tally - and only if N is a LITERAL: a `[0-9]+` there is satisfied
+# by a batch that admitted a completely different population, which is why the group
+# test demands the literal.
+#
+# THE SEAM ECHO is the third pin and the canary for the provisioning trap: the harness
+# flies the `automation/stock-minimal` instance, NOT the one `dotnet build` deploys to,
+# so this line's ABSENCE means a stale Parsek.dll rather than a Parsek regression. It
+# is emitted by ParsekTestCommandAddon.RunTestsImpl on the exact step this driver
+# sends.
+#
+# NO CELL TOKENS ARE PINNED YET, deliberately. Which cell echoes exist and at which
+# level is exactly what the reading run reports; pinning any of them now would be
+# guessing at a string. The verboseLogging step is what makes them readable when it
+# flies.
+required  = [
+  "runtests start category=Logistics isolated=true",
+  "Using batch baseline slot .* for 38 restore-after-run test\\(s\\)",
+  "BATCH_COMPLETE v1 total=47 passed=(?:9|[1-9][0-9]+) failed=0 skipped=[0-9]+ category=Logistics scene=FLIGHT",
+]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+[runtime]
+# Budget arithmetic (M-A5 S8), and it is the deferred worst case rather than an
+# estimate of the batch. run.py gives EVERY deferred seam verb
+# `required_step_wait(max(step budget, SEAM_FALLBACK_DEFERRAL_SECONDS=600))` = 660 s
+# regardless of the declared step budget, and BOTH LoadGame and RunTests are deferred -
+# so the worst case is 660 + 660 = 1320. 1400 clears it.
+#
+# The headroom matters more here than on any prior isolated spec. H21's batch was 2
+# quickloads and measured 29.6 s; R7a's was 6 and measured ~68 s wall. This one admits
+# 38 restore-flagged cells, i.e. ~38 real FLIGHT scene reloads plus a baseline prime,
+# on a 6-part craft. A slow or wedged restore is the plausible failure mode, and a
+# KILLED run prints NO tally at all - which is strictly worse than waiting, because
+# the tally is the entire product of a reading run. If the first flight measures a wall
+# anywhere near 1400 this number needs raising, not the step budgets (which are already
+# at the deferred cap).
+budgetSeconds = 1400
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

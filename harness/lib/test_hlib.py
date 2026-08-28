@@ -3577,6 +3577,13 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
     GROUP = {
         "H21-scene-exit-merge-isolated": ("SceneExitMerge", 2),
         "R7a-rewind-session-absent": ("Rewind", 38),
+        # The THIRD slice of `Logistics` and the one that is actually the category:
+        # H34 owns its 2 SPACECENTER-eligible declarations and H35 the 8 the ORDINARY
+        # FLIGHT filter admits, while the other 38 are AllowBatchExecution = false +
+        # RestoreBatchFlightBaselineAfterExecution = true and were reachable by no
+        # unattended path at all. Isolated executable at FLIGHT is 46 vs the ordinary
+        # 8. NOT FLOWN - see INTERIM_PIN_IDS below.
+        "H38-logistics-isolated": ("Logistics", 47),
     }
 
     # Members whose category is only PARTLY batch-disabled, i.e. the ordinary path
@@ -3589,7 +3596,50 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
     # STRICTLY MORE than the ordinary filter rather than by being the only way to
     # run anything; the strict "ordinary executes zero" property is still asserted
     # for every member NOT listed here, so H21 does not lose a check.
-    PARTLY_BATCH_DISABLED_IDS = {"R7a-rewind-session-absent"}
+    #
+    # H38 joins for the same reason with a wider margin: at FLIGHT the ordinary
+    # filter admits 8 `Logistics` declarations (which H35 already flies) and the
+    # isolated one admits 46, so the arg buys 38 real cells.
+    PARTLY_BATCH_DISABLED_IDS = {"R7a-rewind-session-absent",
+                                 "H38-logistics-isolated"}
+
+    # Members whose tally split has NOT been measured yet, mirroring
+    # IngameBatchWiringGroupTests.INTERIM_PIN_IDS for the isolated family. A member
+    # listed here may leave `passed=` and `skipped=` unpinned (a regex class rather
+    # than a literal); it must still pin `total=` literally, and the two cells below
+    # that would otherwise demand the whole split skip it.
+    #
+    # EMPTY IS ITS HEALTHY STATE. The obligation an entry carries: the FIRST flight
+    # measures the split, the spec's pin is replaced with the whole tally, a
+    # MEASURED_SKIPPED entry is added if the run-time guards push `skipped` above the
+    # attribute floor, and the id LEAVES this set in the same commit. An interim pin
+    # that outlives its first flight is a weakening, not a convenience.
+    #
+    # WHAT IS STILL ASSERTED FOR AN INTERIM MEMBER, so this is not a hole: the
+    # `total=` literal is checked against the source derivation by
+    # test_each_pinned_total_agrees_with_the_isolated_derivation, the seam echo and
+    # the LITERAL restore-count token are still demanded, the ordinary-path contrast
+    # (isolated admits strictly more) is still derived both ways, and
+    # test_each_pin_rejects_both_the_vacuous_and_the_non_isolated_line still runs
+    # unchanged - which is the load-bearing one, because it is what forces the
+    # interim spelling to be a floor ABOVE the ordinary path's executable ceiling
+    # rather than the usual `passed=[1-9][0-9]*`. For H38 that ceiling is 8, so the
+    # spec pins `passed=(?:9|[1-9][0-9]+)`; the plain interim spelling would accept
+    # `passed=8`, the exact line a run that silently lost the isolated arg prints.
+    #
+    #   H38-logistics-isolated - authored as a READING RUN. Its 46 admitted cells
+    #   guard at run time on what UnloadedFuelVesselFixture managed to snapshot and
+    #   re-spawn, on live LF stored/free floors, on inventory PROBE ORDER as KSP
+    #   actually walks it, on a converter that will activate on the pad, and on
+    #   warp/unpack races - none of which any attribute predicts. The purpose-built
+    #   `logi-cargo-pad` rig exists to satisfy every one of them, but assumptions A4
+    #   (inventory probe order) and A5 (resource floors) in
+    #   `harness/tools/build_logi_craft.py` are explicitly the two that ONLY a
+    #   Logistics batch can falsify.
+    #
+    # It must stay a set LITERAL of ids (or a `set()` call when empty, never a `{}`
+    # literal, which would be an empty DICT and make every membership read False).
+    INTERIM_PIN_IDS = {"H38-logistics-isolated"}
 
     # id -> measured `skipped=` for members whose RUN-TIME InGameAssert.Skip guards
     # push the split above the attribute-derived floor. The attributes give a FLOOR
@@ -3780,6 +3830,16 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
                 # Whole-tally pin, never the `passed=[1-9][0-9]*` interim form: R5's
                 # proof IS the passed/skipped split, so leaving either unpinned would
                 # accept the very tally the change exists to move.
+                #
+                # EXCEPT for a DECLARED interim member, which has not flown yet and
+                # whose split no attribute predicts. The exemption is narrow: the
+                # `total=` literal above is still cross-checked against the source,
+                # and the vacuous / non-isolated rejection cell below still runs
+                # unchanged, which is what keeps an interim pin from accepting the
+                # ordinary path's line. See INTERIM_PIN_IDS for the obligation an
+                # entry carries.
+                if sid in self.INTERIM_PIN_IDS:
+                    continue
                 self.assertIsNotNone(pin.passed, sid)
                 self.assertIsNotNone(pin.skipped, sid)
                 # GENERALISED-BY-R7A. This used to read `(derived.total, 0, 0)`,
@@ -3804,6 +3864,71 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
                     "%s: pinned tally disagrees with the isolated derivation at "
                     "scene=%s (attribute floor %d, expected skipped %d)"
                     % (sid, pin.scene, derived.attribute_skipped, expected_skipped))
+
+    def test_the_interim_pin_members_are_declared_and_deliberately_loose(self):
+        # Guards the OTHER direction, exactly as IngameBatchWiringGroupTests does for
+        # the ordinary family: the interim form leaves the split unpinned by design,
+        # so an ACCIDENTAL interim pin is a real weakening and a STALE one (an entry
+        # left behind after the spec's first flight measured the split) silently keeps
+        # a member exempt forever. Both are caught by requiring the declared set and
+        # the observed looseness to agree exactly.
+        for sid, spec in sorted(self.specs.items()):
+            with self.subTest(spec=sid):
+                lc = (spec.get("expectations", {}) or {}).get("logContracts", {}) or {}
+                pin = hlib.resolve_batch_tally_pin(lc.get("required", []) or [])
+                loose = pin.passed is None or pin.skipped is None
+                self.assertEqual(
+                    sid in self.INTERIM_PIN_IDS, loose,
+                    "%s: interim-vs-whole pin state disagrees with INTERIM_PIN_IDS. "
+                    "A spec that has now FLOWN must pin its measured split whole and "
+                    "leave the set; a spec that has not must be declared in it" % sid)
+                self.assertIsNotNone(
+                    pin.total,
+                    "%s must pin total= even when the split is unmeasured - it is the "
+                    "one token the [InGameTest] attributes derive exactly" % sid)
+        self.assertLessEqual(
+            self.INTERIM_PIN_IDS, set(self.GROUP),
+            "INTERIM_PIN_IDS names ids that are not GROUP members: %s"
+            % sorted(self.INTERIM_PIN_IDS - set(self.GROUP)))
+
+    def test_an_interim_pin_still_rejects_the_ordinary_paths_executable_ceiling(self):
+        # THE CELL THAT MAKES THE INTERIM EXEMPTION SAFE, and it is not implied by the
+        # rejection cell below - that one synthesizes ONE ordinary line, from the
+        # ATTRIBUTE split. The real risk of a loose `passed=` is broader: an isolated
+        # spec that lost its arg prints SOME line with passed <= (ordinary executable),
+        # because the ordinary filter cannot admit more than that however the run-time
+        # guards fall. So sweep the WHOLE range and require the pin to reject all of
+        # it. The usual `passed=[1-9][0-9]*` interim spelling FAILS this for any member
+        # whose ordinary path executes 2 or more, which is why H38 pins passed >= 9.
+        prefix = "[LOG 00:00:00.000] [Parsek][INFO][TestRunner] "
+        for sid in sorted(self.INTERIM_PIN_IDS):
+            with self.subTest(spec=sid):
+                spec = self.specs[sid]
+                category, _ = self.GROUP[sid]
+                lc = (spec.get("expectations", {}) or {}).get("logContracts", {}) or {}
+                req = lc.get("required", []) or []
+                batch_pats = [p for p in req if "BATCH_COMPLETE" in p]
+                self.assertEqual(1, len(batch_pats), sid)
+                pat = batch_pats[0]
+                scene = hlib.resolve_batch_tally_pin(batch_pats).scene
+                ord_ = hlib.derive_batch_tally(self.decls, category, scene)
+                self.assertGreater(ord_.executable, 0,
+                                   "%s is declared PARTLY batch-disabled but the "
+                                   "ordinary path executes nothing - this sweep would "
+                                   "be inert" % sid)
+                for passed in range(0, ord_.executable + 1):
+                    line = (prefix + "BATCH_COMPLETE v1 total=%d passed=%d failed=0 "
+                            "skipped=%d category=%s scene=%s"
+                            % (ord_.total, passed, ord_.total - passed, category,
+                               scene))
+                    self.assertNotRegex(
+                        line, pat,
+                        "%s's interim pin ACCEPTS passed=%d, which is within the "
+                        "ORDINARY path's executable ceiling of %d at scene=%s - so a "
+                        "run that silently lost the isolated arg could read GREEN. An "
+                        "interim pin on a partly-batch-disabled category must pin "
+                        "passed >= %d, not the plain [1-9][0-9]* form"
+                        % (sid, passed, ord_.executable, scene, ord_.executable + 1))
 
     def test_each_pin_rejects_both_the_vacuous_and_the_non_isolated_line(self):
         # END-TO-END round trip. Three lines are synthesized from the derivation and
@@ -5202,6 +5327,16 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # todo entry, not a debt this tag can carry. (Flown as
         # `H33-logistics-route-proof`; renamed H35 for the same collision.)
         "H35-logistics-route-proof.toml":   "FLOWN 3x 2026-08-11 (reading + two confirms, all PASS attempt 1) and PINNED WHOLE; operator tier is an open PROMOTION call, not debt",
+        # tier=operator because it has NOT FLOWN, the same disposition its own
+        # fixture forge carries: a first-flight lane is operator until a reading run
+        # measures it, and putting an unflown 46-cell isolated batch on a cadence
+        # would flake a tier rather than test anything. The outstanding work is a
+        # FLIGHT, not a human call, and the `pending-flight` tag carries that debt -
+        # so `pending-operator` would be the wrong tag, exactly as it is on
+        # FORGE-logi-pad. Re-classify to the H34/H35 shape (an open operator ->
+        # daily PROMOTION call) once the reading run has been flown, its split
+        # measured, and the interim pin replaced.
+        "H38-logistics-isolated.toml":      "tier=operator because it is a READING RUN that has not flown; debt carried by the pending-flight tag (a flight, not a human call), same disposition as FORGE-logi-pad which stamps its fixture",
         # tier=operator by the CALIBRATION DISCIPLINE, the whole B18-B26 family's
         # tier, and NOT a debt: a first-flight B lane is operator because its
         # windows are derived rather than measured and the first run is a
@@ -5417,6 +5552,15 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # the committed stock `Duna Rocket` (KerbalX, Steltuck) onto the pad with
         # one named crew for the Dres program. Flown + harvested 2026-08-11.
         "FORGE-b18-dres-pad.toml":          "forge-mechanism - manual by design; FLOWN 2026-08-11 (PASS attempt 1, 105 s wall), fixture b18-dres-pad committed + registered",
+        # The SEVENTH forge, same mechanism argument as the six above: it launches
+        # the committed `Logi Cargo Rig` (built by construction,
+        # build_logi_craft.py) onto the pad UNCREWED to stamp `logi-cargo-pad`, the
+        # fixture the future isolated Logistics lane (H38) will consume. NOT FLOWN
+        # yet, which is the one way it differs from its siblings - but that debt
+        # rides the `pending-flight` tag and its own status row, exactly as
+        # FORGE-gs1-two-stage's and FORGE-b17-duna-pad's did before they flew, and
+        # it is a flight to run rather than an operator REVIEW debt.
+        "FORGE-logi-pad.toml":              "forge-mechanism - manual by design; NOT FLOWN yet (debt carried by the pending-flight tag), stamps logi-cargo-pad for the H38 isolated Logistics lane",
         # B18 is operator BY THE CALIBRATION DISCIPLINE (the V1/V2 precedent), and
         # for a reason particular to it: it is the FIRST flight of a DOWNLOADED
         # human-built craft, so its recordings-count window and its debris

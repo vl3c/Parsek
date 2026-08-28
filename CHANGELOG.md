@@ -8,6 +8,25 @@ All notable changes to Parsek are documented here.
 
 ### Dev
 
+- Groundwork for testing the supply-route features automatically. The biggest
+  block of in-game tests Parsek has - the ones covering supply routes, cargo
+  deliveries and resource harvesting - has never been runnable by the automated
+  test rig, because every one of them quietly gives up unless the rocket it
+  finds on the launchpad happens to carry a very specific combination of
+  equipment: an engine, a part-full fuel tank it can both drain and top up, a
+  fuel cell it can switch on and off, and two cargo containers with the first
+  one nearly full and the second one empty. No stock rocket and none of the
+  rig's existing test rockets has all of that at once, so those tests skipped
+  themselves in silence. A small purpose-built rocket that has all of it is now
+  assembled from parts by a script - which doubles as the written record of why
+  each part is there, and as the check that nobody quietly edits the rocket by
+  hand - along with the automated run that will put it on the pad and save the
+  game there, and the test run itself that will finally put all of those
+  supply-route tests through their paces on it. That run is written to be
+  deliberately modest about what it claims: until it has actually been flown
+  once, it only insists that noticeably more tests pass than could ever have run
+  the old way, rather than pretending to know the exact result in advance.
+  Test-tooling only; no gameplay change, and nothing ships with the mod.
 - The ghost appear/disappear checker from the "watch your old launch" test is
   now enforcing rather than just reporting: it was re-flown twice with the gate
   live (both green) and once with a deliberately impossible expectation (which
