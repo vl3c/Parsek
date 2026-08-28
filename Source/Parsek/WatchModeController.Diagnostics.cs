@@ -287,6 +287,63 @@ namespace Parsek
             return hasFlightCamera && hasCameraTarget && targetBelongsToDestroyedGhost;
         }
 
+        /// <summary>
+        /// The Warn a watch session emits when it gives up on an unresolvable camera target.
+        /// Pure so the token a future log grep depends on (<c>cause=</c>) is pinned by a test
+        /// rather than only by the per-frame driver that emits it, which no headless cell can run.
+        /// </summary>
+        internal static string BuildWatchTargetLossExitMessage(
+            int lostFrames,
+            bool cameraInfrastructureReady,
+            string cameraInfrastructureReason,
+            int recordingIndex,
+            string recordingId,
+            long cycleIndex)
+        {
+            string cause = cameraInfrastructureReady
+                ? "ghost-target-missing"
+                : (string.IsNullOrEmpty(cameraInfrastructureReason) ? "(none)" : cameraInfrastructureReason);
+            return string.Format(CultureInfo.InvariantCulture,
+                "No valid camera target for {0} frames (cause={1} rec=#{2} id={3} cycle={4}) — exiting watch mode",
+                lostFrames,
+                cause,
+                recordingIndex,
+                string.IsNullOrEmpty(recordingId) ? "null" : recordingId,
+                cycleIndex);
+        }
+
+        /// <summary>What the per-frame Continue path must do about a live cycle bridge anchor.</summary>
+        internal enum WatchCycleBridgeDisposition
+        {
+            /// <summary>No anchor to resolve.</summary>
+            None,
+            /// <summary>Something already rebound the camera off the anchor - destroy it.</summary>
+            Release,
+            /// <summary>Camera is still on the anchor and a real target exists - rebind, then destroy.</summary>
+            RebindThenRelease,
+            /// <summary>Camera is on the anchor and there is nothing to rebind to yet - keep it alive.</summary>
+            Hold,
+        }
+
+        /// <summary>
+        /// The bridge anchor's release rule. "Retired as soon as something rebinds" is only
+        /// self-enforcing if the frame that notices ALSO rebinds: a destroy + respawn that does
+        /// not change the watched cycle index never enters <c>FindWatchedGhostState</c>'s cycle
+        /// fallback, so nothing else would take the camera off the anchor and the watch would
+        /// freeze on a static GameObject for the rest of the session.
+        /// </summary>
+        internal static WatchCycleBridgeDisposition ClassifyWatchCycleBridgeDisposition(
+            bool hasBridgeAnchor, bool cameraBoundToBridge, bool replacementTargetUsable)
+        {
+            if (!hasBridgeAnchor)
+                return WatchCycleBridgeDisposition.None;
+            if (!cameraBoundToBridge)
+                return WatchCycleBridgeDisposition.Release;
+            return replacementTargetUsable
+                ? WatchCycleBridgeDisposition.RebindThenRelease
+                : WatchCycleBridgeDisposition.Hold;
+        }
+
         /// <summary>What <see cref="FindWatchedGhostState"/> may do when the tracked loop cycle is gone.</summary>
         internal enum WatchCycleFallbackDecision
         {

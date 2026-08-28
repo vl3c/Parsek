@@ -50,10 +50,17 @@ namespace Parsek.Tests
         }
 
         /// <summary>
-        /// THE REGRESSION CELL. The measured V15M state is a VALID ghost target (state present,
-        /// camera pivot present) with the KSP camera gone: the old code took an uncounted early
-        /// return from ABOVE the ghost-side net for exactly this shape, so the session never
-        /// converged. Counting it is the fix, and this asserts the count reaches an exit.
+        /// The measured V15M state is a VALID ghost target (state present, camera pivot
+        /// present) with the KSP camera gone: the old code took an uncounted early return from
+        /// ABOVE the ghost-side net for exactly this shape, so the session never converged.
+        /// Counting it is the fix, and this asserts the count reaches an exit.
+        ///
+        /// <para>HONEST SCOPE: this pins the CLASSIFIER, which did not exist before the fix -
+        /// on origin/main it would fail to COMPILE rather than fail an assertion, so it is not
+        /// a regression cell in the "revert and watch it go red" sense. The production site
+        /// that consumes it is per-frame Unity code no headless cell can run; what stops that
+        /// site being silently reverted is <see cref="WatchModeTargetLossWiringGateTests"/>,
+        /// not this file.</para>
         /// </summary>
         [Fact]
         public void ClassifyWatchTargetLoss_CountsMissingCameraInfrastructureToAnExit()
@@ -173,6 +180,86 @@ namespace Parsek.Tests
                 WatchModeController.WatchCycleFallbackDecision.NoPrimary,
                 WatchModeController.ClassifyWatchCycleFallback(
                     primaryUsable: false, retargetSucceeded: false));
+        }
+
+        /// <summary>
+        /// The bridge anchor must clear itself rather than wait for some other path to rebind.
+        /// A destroy + respawn at an UNCHANGED cycle index never enters the cycle fallback, so
+        /// "release once something rebinds" alone would leave the camera on a static GameObject
+        /// for the rest of the session (HorizonLocked frozen, mismatch Warn repeating forever).
+        /// </summary>
+        [Fact]
+        public void ClassifyWatchCycleBridgeDisposition_RebindsWhenTheCameraIsStillOnTheAnchor()
+        {
+            Assert.Equal(
+                WatchModeController.WatchCycleBridgeDisposition.None,
+                WatchModeController.ClassifyWatchCycleBridgeDisposition(
+                    hasBridgeAnchor: false, cameraBoundToBridge: false, replacementTargetUsable: true));
+
+            // Something else already rebound (the cycle fallback, a transfer, a fresh entry).
+            Assert.Equal(
+                WatchModeController.WatchCycleBridgeDisposition.Release,
+                WatchModeController.ClassifyWatchCycleBridgeDisposition(
+                    hasBridgeAnchor: true, cameraBoundToBridge: false, replacementTargetUsable: true));
+
+            // THE CELL THIS EXISTS FOR: nothing else will, so this frame must.
+            Assert.Equal(
+                WatchModeController.WatchCycleBridgeDisposition.RebindThenRelease,
+                WatchModeController.ClassifyWatchCycleBridgeDisposition(
+                    hasBridgeAnchor: true, cameraBoundToBridge: true, replacementTargetUsable: true));
+
+            // Nothing to rebind to yet - the anchor is a LIVE object, so holding it is safe and
+            // is strictly better than releasing the camera onto a destroyed transform.
+            Assert.Equal(
+                WatchModeController.WatchCycleBridgeDisposition.Hold,
+                WatchModeController.ClassifyWatchCycleBridgeDisposition(
+                    hasBridgeAnchor: true, cameraBoundToBridge: true, replacementTargetUsable: false));
+        }
+
+        /// <summary>
+        /// The exit Warn's grep tokens, asserted through the log sink the way CLAUDE.md's
+        /// log-capture pattern prescribes. `cause=` is what a future reader slices the two loss
+        /// causes apart by, and it did not exist before this fix (the old line named no cause at
+        /// all). The message builder is pure precisely so this token is pinned somewhere; that
+        /// <c>UpdateWatchCamera</c> emits it through <c>ParsekLog.Warn("CameraFollow", ...)</c>
+        /// is pinned by <see cref="WatchModeTargetLossWiringGateTests"/>.
+        /// </summary>
+        [Fact]
+        public void WatchTargetLossExitWarnNamesTheCauseAndTheSession()
+        {
+            ParsekLog.Warn("CameraFollow",
+                WatchModeController.BuildWatchTargetLossExitMessage(
+                    lostFrames: 3,
+                    cameraInfrastructureReady: false,
+                    cameraInfrastructureReason: "flight-camera-missing",
+                    recordingIndex: 0,
+                    recordingId: "77f724bb1d4844c3b132a1ccc00a7df3",
+                    cycleIndex: 1));
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[WARN]")
+                && l.Contains("[CameraFollow]")
+                && l.Contains("cause=flight-camera-missing")
+                && l.Contains("rec=#0")
+                && l.Contains("id=77f724bb1d4844c3b132a1ccc00a7df3")
+                && l.Contains("cycle=1")
+                && l.Contains("exiting watch mode"));
+
+            // The ghost-side cause must remain distinguishable in the same field.
+            logLines.Clear();
+            ParsekLog.Warn("CameraFollow",
+                WatchModeController.BuildWatchTargetLossExitMessage(
+                    lostFrames: 3,
+                    cameraInfrastructureReady: true,
+                    cameraInfrastructureReason: "ready",
+                    recordingIndex: 2,
+                    recordingId: null,
+                    cycleIndex: -1));
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[CameraFollow]")
+                && l.Contains("cause=ghost-target-missing")
+                && l.Contains("id=null"));
         }
 
         // ---------------------------------------------------------------

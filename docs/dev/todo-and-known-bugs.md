@@ -4915,8 +4915,34 @@ One preventive change and two convergence guarantees, matching the three defects
    armed. `RestoreCameraAfterWatchExit` is already null-camera safe, so the exit is safe on
    exactly the path that needs it.
 
-Pinned by `Source/Parsek.Tests/WatchModeTargetLossTests.cs` (the regression cell asserts
-the V15M SHAPE - a valid ghost target with the camera gone - reaches `ExitWatch`).
+**THE BUDGET IS INHERITED, NOT MEASURED, AND THAT IS THE FALSIFIABLE PART.** Before this
+change, camera-infrastructure loss waited INDEFINITELY; it now exits after
+`WatchNoTargetExitFrames = 3`. The 3 comes from the ghost-side net, which was sized for a
+different failure (a spawn race), not from any measurement of how long a legitimate KSP
+camera gap can last - and the nearest sibling budget in this file,
+`MaxPendingOverlapBridgeFrames`, is looser. So a real >3-frame `FlightCamera` gap that
+would previously have been ridden out now drops the player out of watch mode. Nothing
+in the suite exhibits such a gap (the only measured one never ended at all), which is why
+3 shipped rather than a bigger invented number - but this is a behaviour change on a path
+that used to have none, and it is the half of the V15M re-fly prediction that can come
+back wrong. If the re-fly shows watch exiting on a transient rather than on the storm,
+raise the budget for the camera-infra cause specifically; do NOT remove the bound.
+
+Pinned by `Source/Parsek.Tests/WatchModeTargetLossTests.cs` (pure classifiers, the
+`cause=` log token) and by `Source/Parsek.Tests/WatchModeTargetLossWiringGateTests.cs`,
+a source gate over the three production wiring sites - the destroy-time bridge call in
+`ParsekPlaybackPolicy.HandleGhostDestroyed`, the camera-infra loss routing through
+`ClassifyWatchTargetLoss` (pinned BY ORDER, so restoring the uncounted early return reds
+it), and the fallback capturing the retarget's return value. Every site is per-frame or
+Unity-event code no headless cell can execute, so without the gate any one of them could
+be deleted with the whole suite green; each of the five reverts was applied and measured
+to red the gate.
+
+`NotifyWatchedGhostDestroying` is wrapped in a broad catch for a specific reason:
+`GhostPlaybackEngine.DestroyGhost` fires `OnGhostDestroyed` with no try/catch and BEFORE
+`ghostStates.Remove(index)`, so a throw out of the bridge would unwind the destroy and
+leave a ghost that is neither torn down nor removed - the loop could never rebuild it,
+which is strictly worse than the storm, on the exact frame the storm used to land.
 
 **WHAT THE FIX IS AND IS NOT CLAIMED TO DO.** It removes Parsek's dangling camera target
 across the re-arm and bounds the armed-but-unusable state to three frames. It is NOT
@@ -10864,13 +10890,29 @@ THE CHAIN, in production order:
 
 `lastInterpolatedBodyName` is written on the POSITIONING path only -
 `GhostPlaybackState.SetInterpolated` from the positioner, plus the two endpoint paths in
-`GhostPlaybackEngine` - and every one of those sites is BELOW the render-zone hide's early
-return (`if (zoneResult.hiddenByZone) { ... HandleHiddenGhostVisualState(...); return
-true; }`, the primary path; the loop / overlap paths have their own). **A ghost the zone
-has hidden on every frame since it spawned has therefore never been positioned, carries a
-NULL body name, and `null == "Minmus"` is false.** The `zone=Beyond` hide the original
-write-up identified as "the plausible shared DRIVER" is the driver, and this is the term
-it starves.
+`GhostPlaybackEngine`. The ordinary per-frame route to all of them is BELOW the
+render-zone hide's early return (`if (zoneResult.hiddenByZone) { ...
+HandleHiddenGhostVisualState(...); return true; }`, the primary path; the loop / overlap
+paths have their own). **A ghost the zone has hidden on every frame since it spawned is
+therefore normally never positioned, carries a NULL body name, and `null == "Minmus"` is
+false.** The `zone=Beyond` hide the original write-up identified as "the plausible shared
+DRIVER" is the driver, and this is the term it starves.
+
+**THE REFUSAL IS NOT DETERMINISTIC, and the reason is one branch inside the hide itself.**
+`HandleHiddenGhostVisualState` is not purely a hide: `ShouldPrewarmHiddenGhost` can send a
+hidden ghost at ANY distance through `PositionLoadedGhostAtPlaybackUT` when a qualifying
+part event falls inside the lookahead window, and that path DOES write
+`lastInterpolatedBodyName`. So the accurate statement is **"a hidden ghost that has not
+been prewarm-positioned"**, not "a hidden ghost". A ghost whose replay happens to carry a
+prewarm-qualifying event near the sampled epoch would pass the body term at 144 km and
+enter watch; V7M's did not, on four flights, which is why the boundary reads as sharp
+there. Do not restate this finding as "the render zone always refuses" - that is the
+over-claim the first two write-ups of this entry were made of, in a third shape.
+
+THE SHIPPED CODE IS UNAFFECTED BY THE CORRECTION. The reject-branch triple and
+`IsGhostBodyResolved` both read the ACTUAL state (`lastInterpolatedBodyName` present or
+not), so a prewarmed ghost reports `body=T` and a normal affordance; neither assumes the
+distance rule.
 
 THE LOG CORROBORATION, from `logs/2026-08-08_1908_V7Mc-watch-calibration/KSP.log` (the
 `_1607` calibration attempt, one of the four archived flights the section below tabulates):
