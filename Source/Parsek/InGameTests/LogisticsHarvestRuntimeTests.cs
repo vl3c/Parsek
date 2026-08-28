@@ -75,6 +75,28 @@ namespace Parsek.InGameTests
                 "DiscardActiveTreeForSuppressedSceneExit",
                 System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
 
+        /// <summary>
+        /// The recorder -> tree flush
+        /// (<c>ParsekFlight.FlushRecorderToTreeRecording(FlightRecorder, RecordingTree)</c>).
+        /// <c>StopRecording</c> alone only builds the RECORDER-side capture; the
+        /// logistics surfaces (<c>RouteHarvestWindows</c> /
+        /// <c>RouteRunManifest</c>) reach the TREE recording only through this
+        /// flush's <c>ApplyCapturedLogisticsMetadataToRecording</c> call, which
+        /// production runs at commit / scene exit. These tests discard their tree
+        /// instead of committing it, so they drive the real flush themselves
+        /// rather than reading a tree surface nothing ever wrote. Non-public;
+        /// resolved once via the same reflection as
+        /// <see cref="DiscardSuppressedSceneExitMethod"/> - null only if the
+        /// method is ever renamed, in which case callers Skip naming the surface.
+        /// </summary>
+        private static readonly System.Reflection.MethodInfo FlushRecorderToTreeMethod =
+            typeof(ParsekFlight).GetMethod(
+                "FlushRecorderToTreeRecording",
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic,
+                null,
+                new[] { typeof(FlightRecorder), typeof(RecordingTree) },
+                null);
+
         private const double ResourceTolerance = 0.01;
         private const float RecordingStartTimeoutSeconds = 5f;
         private const float LogWaitTimeoutSeconds = 10f;
@@ -177,6 +199,7 @@ namespace Parsek.InGameTests
                 InGameAssert.IsNotNull(tree, "Active tree should exist while recording");
                 string recId = tree.ActiveRecordingId;
                 flight.StopRecording();
+                FlushStoppedRecorderIntoTree(flight, tree, "RouteHarvestWindows");
 
                 // ASSERT 3 (yield-free block).
                 Recording stopped = null;
@@ -312,6 +335,7 @@ namespace Parsek.InGameTests
                 InGameAssert.IsNotNull(tree, "Active tree should exist while recording");
                 string recId = tree.ActiveRecordingId;
                 flight.StopRecording();
+                FlushStoppedRecorderIntoTree(flight, tree, "RouteRunManifest / RouteHarvestWindows");
 
                 Recording stopped = null;
                 InGameAssert.IsTrue(
@@ -486,6 +510,7 @@ namespace Parsek.InGameTests
                 InGameAssert.IsNotNull(tree, "Active tree should exist while recording");
                 string recId = tree.ActiveRecordingId;
                 flight.StopRecording();
+                FlushStoppedRecorderIntoTree(flight, tree, "RouteHarvestWindows");
 
                 Recording stopped = null;
                 InGameAssert.IsTrue(
@@ -688,6 +713,49 @@ namespace Parsek.InGameTests
                 reason,
                 false
             });
+        }
+
+        /// <summary>
+        /// Drives ParsekFlight's REAL recorder -> tree flush after
+        /// <c>StopRecording</c>, so the tree recording carries the forwarded
+        /// logistics surfaces the assertions read. Without it the tests assert
+        /// against a tree recording whose <c>RouteHarvestWindows</c> /
+        /// <c>RouteRunManifest</c> are still null: production performs this flush
+        /// at commit / scene exit, and these tests reach neither (their
+        /// <c>finally</c> discards the tree). Skips - naming the surface it could
+        /// not produce - rather than failing on a missing reflection surface or a
+        /// vanished recorder, so a rename reads as an unrun gate, not a product
+        /// defect.
+        /// </summary>
+        private static void FlushStoppedRecorderIntoTree(
+            ParsekFlight flight, RecordingTree tree, string surface)
+        {
+            if (FlushRecorderToTreeMethod == null)
+                InGameAssert.Skip(
+                    "ParsekFlight.FlushRecorderToTreeRecording reflection surface unavailable; " +
+                    $"cannot forward the stopped recorder's capture onto the tree recording to read {surface}");
+            if (tree == null)
+                InGameAssert.Skip($"No active tree after StopRecording; cannot read {surface}");
+
+            FlightRecorder rec = flight != null ? flight.ActiveRecorderForSerialization : null;
+            if (rec == null)
+                InGameAssert.Skip(
+                    $"No active recorder after StopRecording; cannot forward the capture to read {surface}");
+
+            try
+            {
+                FlushRecorderToTreeMethod.Invoke(flight, new object[] { rec, tree });
+            }
+            catch (System.Reflection.TargetInvocationException ex)
+            {
+                Exception inner = ex.InnerException ?? ex;
+                InGameAssert.Fail(
+                    $"FlushRecorderToTreeRecording threw {inner.GetType().Name}: {inner.Message}");
+            }
+
+            ParsekLog.Verbose("TestRunner",
+                $"LogisticsHarvest: flushed the stopped recorder into tree recording " +
+                $"'{tree.ActiveRecordingId ?? "<none>"}' before reading {surface}");
         }
 
         private static List<BaseConverter> FindConverters(Vessel vessel)

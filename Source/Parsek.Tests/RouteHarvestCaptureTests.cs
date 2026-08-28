@@ -76,6 +76,74 @@ namespace Parsek.Tests
                 RouteHarvestCapture.EvaluateTransition(anyConverterActive: false, windowOpen: true));
         }
 
+        // ---------- Rails gate for the poll (plan D4) ----------
+
+        // catches: the harvest poll opening/closing a window off a PACKED
+        // frame's manifest. OnPhysicsFrame's isOnRails gate does NOT cover a
+        // surface-situation vessel (OnVesselGoOnRails early-returns for
+        // LANDED/SPLASHED/PRELAUNCH BEFORE setting isOnRails), so the vessel's
+        // own packed flag is the gate.
+        [Theory]
+        [InlineData(false, false, true)]   // off-rails, capturing: run
+        [InlineData(false, true, false)]   // packed: never run
+        [InlineData(true, false, false)]   // gloops: no harvest capture at all
+        [InlineData(true, true, false)]
+        public void ShouldRunHarvestPoll_Matrix(bool gloopsMode, bool vesselPacked, bool expected)
+        {
+            Assert.Equal(expected, RouteHarvestCapture.ShouldRunHarvestPoll(gloopsMode, vesselPacked));
+        }
+
+        // ---------- Rails-exit funnel consume (plan D4 warp rule) ----------
+
+        // catches: a no-transition poll burning the rails-exit label, so the
+        // close the warp-period toggle earned is attributed trigger=toggle. The
+        // flag may only be consumed by a poll that actually emits a transition.
+        [Theory]
+        [InlineData((int)HarvestActivityTransition.None, false)]
+        [InlineData((int)HarvestActivityTransition.Open, true)]
+        [InlineData((int)HarvestActivityTransition.Close, true)]
+        public void ShouldConsumeRailsExitFunnel_OnlyOnEmittedTransition(int transition, bool expected)
+        {
+            Assert.Equal(expected,
+                RouteHarvestCapture.ShouldConsumeRailsExitFunnel((HarvestActivityTransition)transition));
+        }
+
+        // catches: the exact H38 shape - a landed drill rig warps with its
+        // window open, the converter is toggled OFF while packed, and the first
+        // off-rails poll must still see the funnel armed. Steady-state polls
+        // between the exit and the close decide None, and None must not consume.
+        [Fact]
+        public void RailsExitFunnel_SurvivesSteadyStatePollsUntilTheClose()
+        {
+            bool railsExitPending = true;
+
+            // Steady-state polls after the exit: converter still reads active
+            // for a frame or two, window open -> None, flag must survive.
+            for (int i = 0; i < 3; i++)
+            {
+                HarvestActivityTransition steady = RouteHarvestCapture.EvaluateTransition(
+                    anyConverterActive: true, windowOpen: true);
+                if (RouteHarvestCapture.ShouldConsumeRailsExitFunnel(steady))
+                    railsExitPending = false;
+            }
+            Assert.True(railsExitPending, "A None poll must not consume the rails-exit funnel flag");
+
+            // The close finally lands and takes the boundary label.
+            HardCloseAssert(ref railsExitPending);
+        }
+
+        private static void HardCloseAssert(ref bool railsExitPending)
+        {
+            HarvestActivityTransition close = RouteHarvestCapture.EvaluateTransition(
+                anyConverterActive: false, windowOpen: true);
+            Assert.Equal(HarvestActivityTransition.Close, close);
+            Assert.True(RouteHarvestCapture.ShouldConsumeRailsExitFunnel(close));
+
+            string trigger = railsExitPending ? "rails-exit" : "toggle";
+            railsExitPending = false;
+            Assert.Equal("rails-exit", trigger);
+        }
+
         // ---------- Rails-entry re-baseline (plan D4 warp rule) ----------
 
         // catches: warp-period production going unwitnessed when activation

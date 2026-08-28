@@ -14,6 +14,74 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~D4-HARVEST-POLL-IS-NOT-RAILS-GATED-ON-SURFACE-VESSELS~~: the M2 harvest poll ran on PACKED frames for every LANDED / SPLASHED / PRELAUNCH vessel, and the rails-exit funnel flag was burned by the first no-transition poll instead of by the transition it labelled [FOUND 2026-08-28 by the first isolated Logistics batch (H38 reading run, `logs/2026-08-28_2105_H38-logistics-isolated`) and diagnosed against the source. TWO PRODUCT BUGS IN ONE FUNNEL, both on the D4 warp rule. **FIXED THE SAME DAY** on branch `logistics-isolated-lanes` - see THE FIX below]
+
+**Bug 1 - the invariant the code states is not the invariant it enforces.**
+`FlightRecorder.PollHarvestActivity` is documented (and asserted in-game) as
+rails-gated: no harvest window may open or close while the vessel is packed,
+because the only resource figures readable there are whatever the last stock
+catch-up left, so a window bracketed off them witnesses nothing. The gate was
+`OnPhysicsFrame`'s `if (isOnRails) return;` - and `OnVesselGoOnRails`
+early-returns for LANDED / SPLASHED / PRELAUNCH (and for below-atmosphere)
+BEFORE setting `isOnRails`, deliberately, because that flag gates orbit-segment
+creation and SOI handling and a surface vessel has no valid Keplerian arc. So
+the whole surface population - every mining rig, which is the ONLY population
+this feature exists for - polled straight through a warp with the gate reading
+"not on rails". The recorder's own `onphysicsframe-packed` breadcrumb had been
+observing packed frames reaching that method for a long time.
+
+**Bug 2 - the funnel flag never survived to its own transition.**
+`harvestRailsExitPollPending` labels the first post-warp transition
+`trigger=rails-exit`, so a converter switched off during warp is attributed to
+the boundary rather than to an ordinary mid-flight toggle. It was read and
+cleared at the TOP of the poll, above the `transition == None` early return, so
+any no-transition poll consumed it. Bug 1 made that certain (packed steady-state
+frames burned it during the warp itself), but it was independently reachable:
+one idle off-rails frame between the exit and the converter's state settling is
+enough. Compounding it, the flag was armed only at rails ENTRY - the exit path
+(`OnVesselGoOffRails`) never armed it in either branch.
+
+### THE FIX
+
+Three coordinated changes, all in the D4 funnel:
+
+1. `RouteHarvestCapture.ShouldRunHarvestPoll(gloopsMode, vesselPacked)` - new
+   pure predicate; `PollHarvestActivity` now gates on the vessel's own `packed`
+   flag, which is the authoritative rails state for this decision.
+   `isOnRails` is deliberately NOT set in the surface branch - that would
+   regress landed recordings.
+2. `RouteHarvestCapture.ShouldConsumeRailsExitFunnel(transition)` - the flag is
+   consumed only when a transition is actually emitted; a `None` poll leaves it
+   armed.
+3. `OnVesselGoOffRails` arms the funnel ABOVE the surface early-return, so both
+   exit branches arm it. The entry-side arm in `HandleHarvestRailsEntry` is
+   KEPT: `OnVesselGoOffRails` early-returns unless the unpacking vessel is both
+   the active vessel and the recorded pid, so a vessel switch taken across a
+   warp unpacks a vessel the poll then adopts with no exit event of its own, and
+   arming the same bool at both boundaries is idempotent.
+
+Breadcrumbs: `Harvest funnel consumed at transition:` (Verbose, at the consume
+site) and `Harvest poll skipped on packed frame:` (VerboseRateLimited, at the
+new gate). Unit-guarded by `RouteHarvestCaptureTests`
+(`ShouldRunHarvestPoll_Matrix`, `ShouldConsumeRailsExitFunnel_OnlyOnEmittedTransition`,
+`RailsExitFunnel_SurvivesSteadyStatePollsUntilTheClose`); the live proof is
+`HarvestCapture_WarpToggle_RebaselinesAtRailsTransitions` on the next isolated
+Logistics batch.
+
+**Found alongside two in-game TEST defects in the same batch** (fixed in the
+same change, no product involvement): the three `LogisticsHarvestRuntimeTests`
+capture tests read `RouteHarvestWindows` / `RouteRunManifest` off the TREE
+recording right after `StopRecording`, but the recorder -> tree flush
+(`ParsekFlight.FlushRecorderToTreeRecording` ->
+`ApplyCapturedLogisticsMetadataToRecording`) runs only at commit / scene exit,
+which those tests never reach - they now drive the real flush themselves before
+reading. And `LogisticsRouteProofRuntimeTests.CollectStoredParts` bound
+`GetProperty("KeysList")` Public-only against an internal property on
+`DictionaryValueList`, so the inventory-move finder saw zero stored parts on a
+fully loaded container - it now uses the public compile-time API
+(`ModuleInventoryPart.storedParts` + `InventorySlots`), the walk
+`LogisticsDeliveryRuntimeTests` already used.
+
 ## ~~GS4-FIRST-FLIGHT-RISKS~~: the ghost-derender tripwire lane's pre-flight interim pins [OPENED 2026-08-27 with the GS-4 lane. **DISCHARGED 2026-08-27 THE SAME DAY**: reading run `2026-08-27_2145` (MISSION-OK attempt 1; red on exactly the two watch tokens - the pre-spawn EnterWatchMode race, fixed as the machine's WATCH hold-then-retry loop) then green run `2026-08-27_2204` PASS attempt 1, every verifier clean, census spawned=8/destroyLines=8/unbalanced=0 measured on BOTH flights. Windows re-pinned to the measurement; ghostLifecycle stays report-only pending the standard arming discipline. Status authority: `docs/dev/autotest-status.md` -> Live-proven. The entry below is kept as the pre-flight record]
 
 **The motivation is a SUSPECTED, UNCONFIRMED product bug:** a manual play

@@ -8,6 +8,25 @@ All notable changes to Parsek are documented here.
 
 ### Dev
 
+- Three of the resource-harvesting in-game tests were reading the wrong copy of
+  the flight and could not have passed as written. While a flight is being
+  recorded, what the recorder has gathered and what the flight's stored
+  recording holds are two separate things; the recorder's harvest windows and
+  cargo manifest are handed over to the stored recording only when the flight is
+  committed or the scene is left. These tests stop their recording, read the
+  stored copy immediately, and then throw the whole thing away without ever
+  committing it - so the windows and the manifest they were checking for were
+  always empty, whatever the recorder had actually captured, and the tests
+  reported a Parsek fault that was entirely their own. They now perform that
+  same hand-over themselves after stopping, so what they check is the real
+  forwarded result. Test-tooling only; no gameplay change.
+- The cargo-move route-proof test can now see the cargo it needs. It read a
+  container's occupied slots through a general-purpose lookup asked only for
+  publicly-visible parts of the game's own code - and the list of occupied slots
+  is not one of those - so it read every container as empty and gave up with "no
+  stored cargo item found" on a fully loaded craft. It now reads the container
+  directly, the way the neighbouring delivery tests already did.
+  Test-tooling only; no gameplay change.
 - Groundwork for testing the supply-route features automatically. The biggest
   block of in-game tests Parsek has - the ones covering supply routes, cargo
   deliveries and resource harvesting - has never been runnable by the automated
@@ -705,6 +724,8 @@ All notable changes to Parsek are documented here.
   an uncommitted mission still asks.
 
 ### Fixes
+
+- Harvesting on a landed mining rig is now recorded correctly across time warp. Parsek brackets resource harvesting into windows - one opens when a converter or drill starts and closes when it stops - so a later delivery can tell mined cargo apart from carried cargo. Those windows must never open or close while the craft is packed away under warp, because the resource figures readable there are whatever the game last caught up to rather than anything Parsek watched. For a craft in orbit that rule held. For a LANDED, splashed or on-the-pad craft it did not: the game leaves a surface craft where it is under warp, so Parsek's own on-rails bookkeeping is deliberately never switched on for it, and the check meant to keep the harvest poll off warp frames read "not warping" for the entire warp. Two things went wrong as a result, and both are fixed. The poll ran on packed frames and could open or close a window off resource figures nobody witnessed - it now sits out every packed frame, judged by whether the craft is actually packed rather than by that bookkeeping. And the marker that says "the next harvesting decision belongs to the moment warp ended" was being used up by the first idle frame after the warp instead of by the decision it was meant for, so a drill switched off during a warp had its window closed and labelled an ordinary mid-flight toggle - the marker now survives until a real decision consumes it, and it is set when warp ends as well as when it begins, including for the surface craft whose warp exit had never set it at all.
 
 - The experience your crew earns from a recovered flight is now recorded in your career history, so re-flying that mission takes it back. Parsek watched the game hand out that experience and wrote down what happened, but it filed the note without saying which flight it belonged to - and a note that belongs to no flight can never be undone by re-flying one. So it deliberately kept the note and recorded nothing in the career history, on the grounds that a permanent entry nothing could reverse would be worse than a missing one. It now works out which recorded flight the recovery belongs to, exactly the way the recovery's refund and its science already do, and files the experience against that flight - which means re-flying the mission retires the experience along with the refund and the science, all together, rather than leaving your crew credited for a flight that no longer happened. A recovery Parsek cannot match to a recorded flight is still left uncredited rather than filed loose. Recovering a craft with several crew aboard now records every one of them, where an earlier version of this would have kept only the first.
 

@@ -7137,16 +7137,41 @@ namespace Parsek
         /// Per-frame harvest poll (plan D4): N bool reads + one int compare in
         /// the steady state, zero allocations; manifest extraction happens only
         /// at open/close transitions (player-toggle or rails-transition
-        /// frequency). Consumes the rails-exit pending flag for transition
-        /// attribution. Steady state logs nothing.
+        /// frequency). Steady state logs nothing.
+        ///
+        /// <para><b>Rails gate.</b> The poll must never open or close a window
+        /// off a PACKED frame's manifest.
+        /// <see cref="OnPhysicsFrame"/>'s <c>isOnRails</c> gate does not deliver
+        /// that on its own: <see cref="OnVesselGoOnRails"/> early-returns for
+        /// LANDED / SPLASHED / PRELAUNCH (and for below-atmosphere) BEFORE
+        /// setting <c>isOnRails</c>, so a packed surface vessel keeps ticking
+        /// physics frames with <c>isOnRails == false</c>. The vessel's own
+        /// <c>packed</c> flag is therefore the gate here
+        /// (<see cref="RouteHarvestCapture.ShouldRunHarvestPoll"/>). Do NOT
+        /// "fix" that by setting <c>isOnRails</c> in the surface branch - it
+        /// gates orbit-segment creation and SOI handling.</para>
+        ///
+        /// <para><b>Funnel consume.</b> The rails-exit pending flag is consumed
+        /// only when a transition is actually emitted
+        /// (<see cref="RouteHarvestCapture.ShouldConsumeRailsExitFunnel"/>), so
+        /// a no-transition poll cannot burn the boundary label before the
+        /// warp-period toggle's close reaches it.</para>
         /// </summary>
         private void PollHarvestActivity(Vessel v)
         {
-            if (IsGloopsMode || v == null)
+            if (v == null)
                 return;
-
-            string trigger = harvestRailsExitPollPending ? "rails-exit" : "toggle";
-            harvestRailsExitPollPending = false;
+            if (!RouteHarvestCapture.ShouldRunHarvestPoll(IsGloopsMode, v.packed))
+            {
+                if (!IsGloopsMode)
+                    ParsekLog.VerboseRateLimited("Recorder", "harvest-poll-packed-skip",
+                        $"Harvest poll skipped on packed frame: vessel='{v.vesselName}' " +
+                        $"pid={v.persistentId.ToString(CultureInfo.InvariantCulture)} " +
+                        $"sit={v.situation} isOnRails={(isOnRails ? "1" : "0")} " +
+                        $"railsExitPending={(harvestRailsExitPollPending ? "1" : "0")} " +
+                        $"windowOpen={(openHarvestWindow != null ? "1" : "0")}");
+                return;
+            }
 
             int partCount = v.parts != null ? v.parts.Count : 0;
             if (partCount != cachedConverterPartCount)
@@ -7156,10 +7181,20 @@ namespace Parsek
             HarvestActivityTransition transition = RouteHarvestCapture.EvaluateTransition(
                 anyActive,
                 openHarvestWindow != null);
-            if (transition == HarvestActivityTransition.None)
-                return;
+            if (!RouteHarvestCapture.ShouldConsumeRailsExitFunnel(transition))
+                return; // no transition: the funnel flag stays armed by design
+
+            string trigger = harvestRailsExitPollPending ? "rails-exit" : "toggle";
+            harvestRailsExitPollPending = false;
 
             double ut = Planetarium.GetUniversalTime();
+            ParsekLog.Verbose("Recorder",
+                $"Harvest funnel consumed at transition: trigger={trigger} " +
+                $"transition={transition} anyActive={(anyActive ? "1" : "0")} " +
+                $"vessel='{v.vesselName}' pid={v.persistentId.ToString(CultureInfo.InvariantCulture)} " +
+                $"recVessel={RecordingVesselId.ToString(CultureInfo.InvariantCulture)} " +
+                $"ut={ut.ToString("F2", CultureInfo.InvariantCulture)}");
+
             if (transition == HarvestActivityTransition.Open)
                 OpenHarvestWindow(v, ut, atRecordingStart: false, trigger: trigger);
             else
@@ -7188,7 +7223,18 @@ namespace Parsek
         /// Rails-ENTRY re-baseline (plan D4 warp rule): with a window open it
         /// stays open (production continues inside it); with converters active
         /// and no window open (activation raced the poll), open one AT the
-        /// rails boundary. Always arms the rails-exit poll funnel.
+        /// rails boundary.
+        ///
+        /// <para><b>Why this also arms the exit funnel.</b> The authoritative
+        /// arm is at the rails EXIT (<see cref="OnVesselGoOffRails"/>), which is
+        /// what guarantees the first off-rails poll after a pack carries
+        /// <c>trigger=rails-exit</c>. This entry-side arm covers the case where
+        /// the exit event never reaches THIS recorder while its polls resume
+        /// anyway: <see cref="OnVesselGoOffRails"/> early-returns unless the
+        /// unpacking vessel is both the active vessel AND the recorded pid, so a
+        /// vessel switch taken across the warp unpacks a vessel the poll then
+        /// adopts (<c>HandleVesselSwitchDuringRecording</c>) with no exit event
+        /// of its own. Arming the same bool at both boundaries is idempotent.</para>
         /// </summary>
         private void HandleHarvestRailsEntry(Vessel v)
         {
@@ -10602,6 +10648,16 @@ namespace Parsek
                 return;
             }
             if (v.persistentId != RecordingVesselId) return;
+
+            // M2 harvest rails-EXIT funnel (plan D4 warp rule). Armed here, ABOVE
+            // the surface early-return, so BOTH exit branches arm it: the first
+            // off-rails poll after any pack must carry trigger=rails-exit, and the
+            // surface-situation vessel - which packs without isOnRails ever being
+            // set, and so returns below without touching the orbital bookkeeping -
+            // is exactly the one whose warp-period toggle the funnel has to
+            // attribute. Setting the flag is idempotent with the entry-side arm in
+            // HandleHarvestRailsEntry.
+            harvestRailsExitPollPending = true;
 
             // Surface vessel went on rails without orbit segment — sample boundary point for continuity
             if (!isOnRails)

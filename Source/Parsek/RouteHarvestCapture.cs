@@ -54,6 +54,36 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Rails gate for the per-frame poll (plan D4). The poll reads a LIVE
+        /// resource manifest at its transitions, so it may only run on an
+        /// UNPACKED frame: a packed vessel's resource state is whatever the
+        /// last stock catch-up left, and a window opened or closed there
+        /// brackets an interval nothing witnessed. The vessel's own
+        /// <c>packed</c> flag is the authoritative rails state for this gate -
+        /// the recorder's <c>isOnRails</c> bookkeeping is NOT a substitute,
+        /// because a LANDED / SPLASHED / PRELAUNCH (or below-atmosphere) vessel
+        /// packs without it ever being set. Gloops mode captures no harvest at
+        /// all.
+        /// </summary>
+        internal static bool ShouldRunHarvestPoll(bool gloopsMode, bool vesselPacked)
+        {
+            return !gloopsMode && !vesselPacked;
+        }
+
+        /// <summary>
+        /// Funnel-consume rule (plan D4 warp rule): the rails-exit pending flag
+        /// is consumed ONLY by a poll that actually emits a transition. A
+        /// no-transition poll must leave it armed - otherwise the first
+        /// steady-state frame after the rails exit burns the label and the
+        /// close that the warp-period toggle earned is attributed
+        /// <c>trigger=toggle</c> instead of <c>trigger=rails-exit</c>.
+        /// </summary>
+        internal static bool ShouldConsumeRailsExitFunnel(HarvestActivityTransition transition)
+        {
+            return transition != HarvestActivityTransition.None;
+        }
+
+        /// <summary>
         /// Rails-entry re-baseline rule (plan D4 warp rule): with a window
         /// already open, production continues inside it (no action); with
         /// converters active and NO window open (activation raced the poll),
