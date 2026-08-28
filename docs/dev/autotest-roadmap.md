@@ -2062,6 +2062,134 @@ Forensics live in `docs/dev/todo-and-known-bugs.md`; this is a pointer index onl
 
 ---
 
+## The ghost-replay coverage program (GS-4 derivatives)
+
+Added 2026-08-28, after PR #1550/#1553 landed and live-proved the pattern this
+section generalizes: fly a profile, commit, REWIND TO LAUNCH
+(`InvokeRewindToLaunch`), roll a watcher onto the pad, and WATCH the replay in
+FLIGHT VIEW with the armed `ghostLifecycle` evaluator holding every spawned
+mesh to a destroy. The load-bearing realization: **GS-4 is a template, not a
+lane.** Every profile the mission library can fly is now a ghost-render
+subject ON DEMAND - no pre-harvested fixture, no injected recording - because
+the subject is produced, committed and replayed inside one run. That is the
+capability the V-family never had (every V-lane needs a committed fixture its
+producer flew first), and it is what makes the D7 part-event region reachable
+at all: a purpose-built craft can fire any visual event on a scripted timeline
+and have the REPLAY of that event gated the same day.
+
+Direction-document rules as for the loop-render program: status of individual
+lanes stays in `autotest-status.md`; this section owns the taxonomy, the gap
+register and the sequencing. These are OPERATOR-tier calibration flights and
+rank inside that budget; the standing verdict that the nightly lane does not
+grow until the basics are gated stands unamended.
+
+What is confirmed today (the template's own proofs, all 2026-08-27/28):
+GS-4 (mesh-lifecycle-derender ARMED: spawn/destroy balance gates as
+PARSEK-FAIL(ghost-lifecycle); census 8/8/0 measured four flights running) and
+W1 (the same-body 300 km watch-entry boundary as the single measured
+variable, far probe drawing the real `max 300km` refusal, near probe entering
+at 463 m with the map closed - the flight-view watching rule is pinned by
+`exitmapview ok mapOpen=false`). Two refutation lessons are already banked in
+those specs' headers and MUST be read before authoring any derivative: the
+loaded corpus is not the on-disk corpus (the load-time optimizer splits
+fixture flights into chain members; probes target LIVE members, proven by
+id-free `camera-live member` tokens), and watch entry races the engine's
+first spawn frame (hold-then-retry, never a single eager ask).
+
+### Tier A - direct derivatives, one flight each, no new machinery
+
+1. **GS-6 part-event render sweep.** A purpose-built craft firing every visual
+   part event on a scripted timeline - chutes (two-phase AND cut), gear,
+   lights, panels/antennas/radiators, fairing, shroud, cargo bays, decoupler
+   destruction - flown, rewound, WATCHED, with per-event logContract tokens
+   pinned against the REPLAY. The largest empty region on the map: 10 of 16
+   D7 cells read UNCOVERED (`chute-cut`, `shroud`, `fairing`,
+   `panels-antennas-radiators`, `gear`, `bays`, `lights`,
+   `decouple-stage-destroy`, `engine-fx-legacy`, `engine-fx-effects`); one
+   flight can claim most of them. Craft note: legacy vs EFFECTS engine FX
+   needs both populations aboard (Mainsail/LV-T45 are legacy `fx_*` parts;
+   Spark/RAPIER carry real EFFECTS nodes - see the PristinePartFxResolver
+   entry in CLAUDE.md). The in-game H37 category tests part-event fidelity
+   headlessly; this is its flown-replay sibling and claims the D7 cells H37
+   cannot (CLAIM-IS-NOT-GATE: each cell needs its replay-side token).
+2. **Watch retarget + explosion hold.** D6
+   `watch-mode-retarget-explosion-hold` is the value the entire V-family
+   deliberately declined ("a measured REFUSAL is not evidence of it"; "an
+   ENTRY is evidence of neither"). GS-4 measured `auto-followed during hold`
+   once as a side effect; the derivative drives it deliberately: watch the
+   CORE CHILD (W1's `index=` targeting makes that reliable) through its
+   destruction for the explosion-hold path, or a crash-landing profile whose
+   multi-part breakup also claims D5 `crash-coalescing`. The 3-5 s hold and
+   its `watch hold expired` / retarget destroy reasons are already in the
+   ghostlife vocabulary.
+3. **Reentry FX** (D6 `reentry-fx` UNCOVERED): a B4-shaped reentry profile
+   rewound + watched, FX arm/disarm lines pinned during the replay.
+4. **Zone transitions** (D6 `zone-transitions` UNCOVERED): place the watcher
+   so the replay crosses the 120 km visual range; the engine-teardown
+   MeshDestroyed emit (added with GS-4's review round) plus the zone tracer's
+   torn-down/rebuilt lines make mesh unload/reload assertable for the first
+   time. Pair with a ghostLifecycle balance that must survive the round trip.
+5. **Debris lifecycle split** (D5 `staging-debris-ttl` /
+   `staging-debris-promotion`, both UNCOVERED): GS-4's flight already
+   produces the population; a variant asserts the TTL-expiry vs promotion
+   fork in the produced save through the saveParse structure block.
+
+### Tier B - the rewind system's own open questions
+
+6. **The vanished RewindPoint.** GS-4 OBSERVED (not gated) the core-discard
+   RP authored live (`slots=2 focusSlot=0`) and GONE after the rewind
+   (`ReapOrphanedRPs: remaining=0`, saveParse rewindPoints=0) - the rewind
+   lands before its branch point. DESIGN CALL FIRST: is a re-fly affordance
+   the player still deserves once the replay passes the branch point again,
+   or is rewound-out-of-existence the contract? Then a lane pins whichever
+   answer, the GS-1/GS-2 both-branches pattern.
+7. **Rewind-to-launch x Re-Fly interplay.** Rewind-to-launch on a tree
+   carrying supersede rows exercises `DropSupersedesRewoundOutOfExistence`
+   and D9 `load-time-sweep` (the dimension's one UNCOVERED cell) live -
+   both currently unit-level only. The verb hands the raw HEAD root by
+   measured design (splitter Step12); this lane is where that contract gets
+   its flight.
+8. **Repeat-rewind idempotence.** Rewind, watch to completion, rewind AGAIN
+   from the same committed tree. Cheap; proves the `parsek_rw_*` quicksave
+   lifecycle is reusable rather than one-shot.
+9. **Arm `unityExceptions`** on GS-4 and W1 (`maxTotal` windows) - the NRE
+   census is stable at 1-4 stock scene-change lines across four flights.
+
+### Tier C - machinery that raises the ceiling (build before the lanes that need it)
+
+10. **ghostlife v2.** Three additive surfaces, each motivated by a documented
+    gap: PER-CYCLE balance for loop playback (the loop demote path emits no
+    destroy by design - the evaluator's census caveat says spawnLines vs
+    destroyLines must not be read as a leak on a looping lane, which today
+    means loops simply cannot arm requireBalanced); per-vessel-name windows
+    (`Kerbal X Debris >= 6` is sharper than the census floor); and
+    `destroyedReasons.required`. Prerequisite for item 12.
+11. **A replay-parity evaluator.** The flight tracer's `AfterUpdate` lines
+    already carry `dM=` / `expectedDM=`; a pure evaluator over them turns D6
+    `recorded-vs-rendered-parity` into a GATEABLE NUMBER in the flight scene
+    - the quantitative sibling of the boolean derender tripwire, and the
+    honest home for D6 `attitude-preservation` (UNCOVERED) if rotation
+    residuals join the line.
+12. **Loop-cycle rendering on the GS-4 subject** (D6 `loop-period-modes`,
+    `self-overlap`, `overlap-expiry-soft-caps` - all UNCOVERED): loop the
+    committed Kerbal X tree, watch across a loop seam, gate per-cycle balance.
+    Blocked on item 10; do not author it against the v1 evaluator, whose own
+    caveat says the census misleads under loops.
+
+### Tier D - cheap seam-drivable D1 residue (no mission, step sequences only)
+
+13. `stop-on-switch`, `switch-segment-noop-discard`, `commit-abort`,
+    `discard-rollback`, `sub-2-point-drop` - all UNCOVERED, all reachable
+    with existing verbs; batch as one authoring pass, one flight each.
+
+Sequencing recommendation, stated once: Tier A item 1 first (largest coverage
+per flight), then item 2 (the long-declined D6 cell), then Tier C item 10 +
+its dependent loop lane (item 12) as one arc. Tier B rides operator judgment -
+item 6's design call costs nothing and should be taken early; Tier D is
+filler between calibration flights.
+
+---
+
 ## Trust and fail-open risks still outstanding
 
 What IS load-bearing today: the 8-verifier chain (driverValidity, batchComplete,
