@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Globalization;
 using KscActionExpectation = Parsek.KscActionExpectationClassifier.KscActionExpectation;
@@ -4475,6 +4475,32 @@ namespace Parsek
         /// <see cref="Recording.StartUT"/> and <see cref="Recording.EndUT"/> both resolve to
         /// <c>0.0</c>, so it brackets nothing but a <c>ut == 0.0</c> recovery. Tiers 2 and 3
         /// keep their existing max-EndUT semantics untouched.
+        /// </para>
+        /// <para>
+        /// <b>The tie-break's identity test is DELIBERATELY WIDER than the NotCommitted
+        /// eligibility rule above:</b> it asks only "is this the marker's provisional?", with
+        /// no <c>MergeState</c> qualifier. That is not an accident of the hoist. On the
+        /// <c>preserveMarker: true</c> merge paths there is a real window in which the
+        /// provisional has already flipped to <c>CommittedProvisional</c> / <c>Immutable</c>
+        /// while the session marker is STILL armed, and preferring it there is correct for
+        /// the same reason as before the flip: it is the fork that survives, and past
+        /// <c>SupersedeCommit.AppendRelations</c> it is provably not in the supersede
+        /// subtree. Narrowing this test back to <c>NotCommitted</c> would reopen the bracket
+        /// tie for exactly that window.
+        /// </para>
+        /// <para>
+        /// <b>What this override does NOT decide, and what now narrows it:</b> the tie-break
+        /// is name-blind - it inherits whatever candidate set reaches the tier walk. A
+        /// same-name DIFFERENT-LAUNCH recovery during an armed session (an unrelated earlier
+        /// launch of the same craft, still flying and recovered mid-session) would tag to
+        /// the provisional where max-EndUT picked another recording; no career value is lost
+        /// on either outcome, and the misattribution is the pre-existing name-identity class
+        /// (<see cref="VesselLaunchIdentity"/>), not something this override introduced.
+        /// <see cref="FilterRecoveryCandidatesByLaunchGuid"/> now narrows exactly that class
+        /// AHEAD of the tier walk, and the two COMPOSE rather than fight: the origin child
+        /// and the provisional share the same inherited launch guid, so the filter never
+        /// separates the two sides of this tie, while a foreign launch it drops is one this
+        /// tie-break can then never see. Filter first, then tiers.
         /// </para>
         /// Returns null when no eligible recording matches <paramref name="vesselName"/>;
         /// no-candidate is preferred over a doomed one.

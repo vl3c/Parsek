@@ -1931,15 +1931,26 @@ namespace Parsek.Tests
             // ResurrectionRetirementEligibility bundles a recovery's funds / science /
             // kerbal-XP rows by SHARED RecordingId, so the tie-break has to sit in the
             // ONE correlator all three legs resolve through, not in any single leg.
-            // Source-level pin: the science leg (ResolveKscScienceRecordingId) and the
-            // XP leg (TryRecordRecoveryKerbalExperience) both call PickRecoveryRecordingId,
-            // and the funds leg passes it to LedgerRecoveryFundsPairing as the delegate.
-            string src = System.IO.File.ReadAllText(System.IO.Path.Combine(
-                SyntheticRecordingTests.ResolveProjectRoot(),
-                "Source", "Parsek", "GameActions", "LedgerOrchestrator.cs"));
-            Assert.Contains("return PickRecoveryRecordingId(vesselName, subject.captureUT);", src);
-            Assert.Contains("string recordingId = PickRecoveryRecordingId(identity, ut);", src);
-            Assert.Contains("                PickRecoveryRecordingId,", src);
+            //
+            // The pin's job is "all three legs route through the one picker" - so it
+            // asserts each leg's METHOD BODY references PickRecoveryRecordingId, and
+            // NOTHING about the argument list or the indentation. An exact-call-text pin
+            // reds on a false alarm the moment a sibling branch changes a leg's argument
+            // spelling (e.g. the science leg taking an identity struct), and the obvious
+            // "fix" for a false alarm is to delete the assertion - which is how a real
+            // gate gets lost. Comment-stripped so the many <see cref="..."/> mentions in
+            // the doc-comments cannot satisfy it.
+            Assert.Contains("PickRecoveryRecordingId",
+                LedgerOrchestratorMethodBody(
+                    "private static string ResolveKscScienceRecordingId("));
+            Assert.Contains("PickRecoveryRecordingId",
+                LedgerOrchestratorMethodBody(
+                    "internal static int TryRecordRecoveryKerbalExperience("));
+            // The funds leg does not call it - it hands it to the pairing helper as the
+            // picker delegate, which is the same routing by another shape.
+            Assert.Contains("PickRecoveryRecordingId",
+                LedgerOrchestratorMethodBody(
+                    "private static bool TryAddVesselRecoveryFundsAction("));
 
             // And behaviourally: the XP leg's own pick follows the tie-break.
             InstallReFlySession("rec-provisional", "rec-origin");
@@ -1972,6 +1983,52 @@ namespace Parsek.Tests
                 a => a.Type == GameActionType.KerbalExperience);
             Assert.NotNull(xpRow);
             Assert.Equal("rec-provisional", xpRow.RecordingId);
+        }
+
+        /// <summary>
+        /// Brace-matched, comment-stripped body of one method in
+        /// <c>LedgerOrchestrator.cs</c>, in the wiring-gate style
+        /// (mirrors <c>SoiSeamProducerWiringGateTests.MethodBody</c>). Signature fragments
+        /// must be UNAMBIGUOUS - an ambiguous one fails loudly rather than pinning the
+        /// wrong body.
+        /// </summary>
+        private static string LedgerOrchestratorMethodBody(string signatureFragment)
+        {
+            string path = System.IO.Path.Combine(
+                SyntheticRecordingTests.ResolveProjectRoot(),
+                "Source", "Parsek", "GameActions", "LedgerOrchestrator.cs");
+            Assert.True(System.IO.File.Exists(path), "source not found at " + path);
+
+            // Strip line comments (which includes /// doc-comments) so the many
+            // <see cref="PickRecoveryRecordingId"/> mentions cannot satisfy a body scan.
+            var stripped = new System.Text.StringBuilder();
+            foreach (string line in System.IO.File.ReadAllText(path).Split('\n'))
+            {
+                int c = line.IndexOf("//", StringComparison.Ordinal);
+                stripped.Append(c >= 0 ? line.Substring(0, c) : line).Append('\n');
+            }
+            string src = stripped.ToString();
+
+            int sig = src.IndexOf(signatureFragment, StringComparison.Ordinal);
+            Assert.True(sig >= 0, "signature not found: " + signatureFragment);
+            Assert.True(src.IndexOf(signatureFragment, sig + 1, StringComparison.Ordinal) < 0,
+                "signature is ambiguous: " + signatureFragment);
+
+            int open = src.IndexOf('{', sig);
+            Assert.True(open >= 0, "no method body found for " + signatureFragment);
+
+            int depth = 0;
+            for (int i = open; i < src.Length; i++)
+            {
+                if (src[i] == '{') depth++;
+                else if (src[i] == '}')
+                {
+                    depth--;
+                    if (depth == 0) return src.Substring(open, i - open + 1);
+                }
+            }
+            Assert.True(false, "unbalanced braces after " + signatureFragment);
+            return null;
         }
 
         [Fact]

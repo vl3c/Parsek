@@ -8127,6 +8127,26 @@ a `ut == 0.0` recovery WOULD bracket a bounds-less provisional. That is a degene
 not a career moment, and it is called out here rather than guarded so nobody reads the
 claim as unconditional.)
 
+**Residual this does NOT close, stated so it is not mistaken for a new one: the candidate
+set is still gated by vessel NAME.** During an armed session a same-name DIFFERENT-LAUNCH
+recovery — an unrelated earlier launch of the same craft, still flying and recovered
+mid-session — is now systematically tagged to the provisional where max-`EndUT` would have
+picked another recording. No career value is lost on either outcome (the provisional
+survives the merge, and a Re-Fly discard clears the tag while keeping the row), and this is
+the pre-existing name-identity class described under the `persistentId` gotcha, not
+anything the tie-break introduced. **Its closer has since LANDED and this branch is rebased
+onto it:** PR #1558's `LedgerOrchestrator.FilterRecoveryCandidatesByLaunchGuid`
+(`VesselLaunchIdentity`, KERBAL-XP-RECOVERY-PICK-IS-NAME-AND-UT-ONLY stage 1) narrows the
+candidate set BEFORE tier selection. The two COMPOSE, filter first then tiers: the origin
+child and the provisional share the same inherited launch guid, so the filter never
+separates the two sides of this tie, while a foreign launch it drops is one the tie-break
+can then never see. The composition is STRUCTURAL, not incidental — the tie-break takes its
+provisional from `FindSessionProvisionalAmong(candidates, ...)`, i.e. the POST-FILTER
+reference, and matches it by `ReferenceEquals` inside the tier walk. Re-deriving it by id
+there would let the tie-break reinstate a candidate the filter removed and break the
+filter's monotone property, which is the whole safety argument for stage 1; the
+`REBASE REQUIREMENT` note at that site (now annotated MET) forbids exactly that.
+
 **The edit sits in the ONE correlator all three recovery legs share**, which the XP leg's
 doc-comment mandates ("Why THIS correlator and no other" —
 `ResurrectionRetirementEligibility` bundles a recovery's funds / science / kerbal-XP rows by
@@ -8167,6 +8187,17 @@ picker tags the provisional, the merge runs, and the payout is in the ELS while 
 contrast row tagged to the origin child at the same UT is correctly retired. Negative
 control run: with the tie-break disabled, all three of those cells red with
 `Expected: rec-provisional / Actual: rec-origin`.
+
+**The three-leg pin is deliberately CALL-SHAPE-ROBUST, and that is the point of it.** It
+asserts each leg's brace-matched, comment-stripped METHOD BODY references
+`PickRecoveryRecordingId`, and asserts NOTHING about the argument list or the indentation.
+An exact-call-text pin reds on a FALSE alarm the moment any leg's argument spelling changes
+— which is a live prospect, since guid-corroboration work is rewriting the science leg's
+call to take an identity struct — and the obvious remedy for a false alarm is to delete the
+assertion, which is how a real gate gets lost. The pin's job is "all three legs route
+through the ONE picker"; it pins that and nothing else. Proven in both directions: it reds
+when the science leg is rerouted to a different resolver, and stays green under the
+identity-struct call shape.
 
 The original filing follows.
 
