@@ -1381,7 +1381,7 @@ a limitation's clothes.
 
 Ranked by supply-run value per flight-hour. Each entry names the class, why it
 matters, the cheapest representative, the expected-but-unmeasured routing, and
-what counts as confirmation. Scenario ids B27-B31 and V18-V24 are RESERVED HERE
+what counts as confirmation. Scenario ids B27-B32 and V18-V26 are RESERVED HERE
 (across all their suffixes: the established `M` player/flight-map and `T`
 tracking-station lanes, plus `K` for a KSC-host lane - G2's correction below
 reserves `V20K`, and G3a reserves `V22K`, which is the first committed `K` lane)
@@ -1431,7 +1431,8 @@ pick a free id by eye: **B27** G1 (`B27-station-route`), **B28** G2 moon-to-pare
 planet-to-Kerbin (`B29-jool-kerbin-return`, AUTHORED 2026-08-26 and committed,
 NEVER FLOWN), **B30** G4 (`B30-mun-minmus-transfer`). **B31 remains reserved for
 a Kerbin -> Duna SETUP flight, DEMOTED from "the lane B29 needs" to a
-when-wanted breadth point.**
+when-wanted breadth point.** **B32** G10 (`B32-interbody-route`, a
+harvest-plus-builder stamp like B27, not a flight).
 
 **THE B29 / B31 ENTRY IS REWRITTEN AS OF 2026-08-26 AND THE DELETED VERSION'S
 FINDING IS KEPT, because it was right about the arithmetic and wrong only about
@@ -1957,6 +1958,31 @@ adds the inclined-and-eccentric MOON target the way Moho did for planets), plus
 deep-space return shapes. Breadth work; schedule opportunistically behind
 G1-G5.
 
+**G10 - INTER-BODY route composition** (`B32-interbody-route` subject stamp,
+lanes `V26M`/`V26T`). G1 stood up the route front door on a SAME-BODY route
+(`depot-route-recorded`, V18T armed - the suite's first armed route lane), but
+every route mechanism that is route-SPECIFIC in the render engages only
+inter-body: `ClassifyRouteScope = InterBody` has never been read live,
+`FilterLegsToEndpointBodies` (the ratified transfer-leg DROP - the deliberate
+gap in the overview line) has never dropped a leg on a driven run, the
+re-aimed route ghost's star-leg conics have never rendered under a route-owned
+clock, `DispatchWindowPeriod != 0` synodic cadence is unmeasured, and
+RC-ROUTE's endpoint-filter accounting plus RC-COVER's classification of the
+ratified transfer gap have never evaluated against non-vacuous data (on a
+SameBody subject those clauses are satisfied BY SCOPE). Subject provenance is
+the B27 lesson verbatim: route candidacy is seal-gated with no seam path, so
+B32 is a HARVEST-plus-builder stamp over an operator free-play save carrying
+one Active inter-body route (Kerbin -> Duna class, dispatch-windowed), not a
+forged fixture and not a flight. Lanes follow the V18T pattern (declare the
+`[expectations.renderComposition]` block, two readings, windows, armed
+re-flight, negative control); V26M additionally owes the map-open pair since
+it asserts ghost polyline facets. This is the highest-value remaining
+composition gap for the 20+-routes product claim: it is the one route shape
+players actually run between bodies, and no armed proof of it exists.
+Sequencing: behind nothing technically (the M-A7 instrument and the V18T
+grammar both exist); ahead of G8's multi-route co-residency, which wants this
+lane's subject class as one of its co-residents.
+
 **Cross-cutting instrument, not a gap: M-A7, the render composition manifest +
 verifier** (design authority `design-autotest-render-composition.md`; indexed
 as V8 of the visual program in `design-testing-unified.md` section 6 and in
@@ -1970,7 +1996,8 @@ outside the catalog - through a `renderCompose` chain row on the R9 arming
 discipline, across a declared warp matrix. It reserves NO scenario ids here:
 composition lanes extend committed V specs with a manifest step and an
 `[expectations.renderComposition]` block, and the route surfaces ride G1's
-B27 / V18M / V18T when those fly. Sequencing: independent of G2-G9; its
+B27 / V18M / V18T (V18T armed 2026-08-26) and G10's B32 / V26M / V26T for
+the inter-body shape. Sequencing: independent of G2-G9; its
 Phase 3 wants one committed loop lane per road (phase-lock, re-aim,
 faithful), all of which exist today, so it can start any time and every gap
 entry above gets a stronger confirmation bar once it lands.
