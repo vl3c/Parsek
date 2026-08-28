@@ -2820,7 +2820,47 @@ reclaim-refusal AND IO-refusal contracts are verified only on Windows runs; a
 POSIX-equivalent mechanism (injected failing rename / injected failing open)
 remains the upgrade path if anyone wants those dark spots lit.
 
-## AUTOMERGE-ON-BY-DEFAULT: is any player flow reachable that now auto-commits GHOST-ONLY where the dialog used to ask? [RAISED 2026-08-24 by the review panel on the default-flip PR (#1523) as PLAUSIBLE-not-confirmed. OPEN QUESTION, no defect demonstrated. The behaviour itself is by design and predates the flip; what changed is that it is now the DEFAULT answer]
+## AUTOMERGE-ON-BY-DEFAULT: is any player flow reachable that now auto-commits GHOST-ONLY where the dialog used to ask? [RAISED 2026-08-24 by the review panel on the default-flip PR (#1523) as PLAUSIBLE-not-confirmed. OPEN QUESTION, no defect demonstrated. The behaviour itself is by design and predates the flip; what changed is that it is now the DEFAULT answer. **RESTATED 2026-08-28 (branch `ledger-followups`) for the settings-simplification clamp: "on by default" is now "on UNCONDITIONALLY". ADOPTED RESOLUTION: leave the question PINNED, unclosed, awaiting the decisive evidence named below**]
+
+**The 2026-08-27 settings simplification (#1549) widened this question and invalidated
+half of #1523's scoping argument.** `autoMerge` is now a HIDDEN field with no player-facing
+UI, and `ParsekSettings.ClampHiddenSettingsToShippingValues`
+(`Source/Parsek/ParsekSettings.cs:282`, called from `ParsekScenario.OnLoad` ~:2913) forces
+it back to `true` on EVERY load unless an automation env hook is armed
+(`ParsekSettings.AutomationEnvPresent`) — verified in source, not assumed. Two consequences,
+both load-bearing:
+
+- **"On by default" is now "on unconditionally" for players.** There is no longer any way
+  for a player to be on the OFF path: no toggle to turn it off, and a stored `False` is
+  overwritten on the next load. Whatever flow this entry is asking about, if it exists,
+  every player is on it.
+- **#1523's "the flip reaches NEW saves only" paragraph is INVALIDATED** and is annotated
+  as such at its own entry. That paragraph's mechanism was correct — KSP's
+  `autoPersistance` writes every Parsek setting into every save, so an existing career
+  carries `autoMerge = False` and `Load` only overlays present keys — but the clamp now
+  runs AFTER that overlay and overrides the stored value. Existing careers reach the ON
+  path too, from their next load onward. The harness is unaffected: the clamp stands down
+  under an armed automation env hook, so fixture pins and `SetSetting autoMerge=` keep
+  authority exactly as that paragraph describes.
+
+**Adopted resolution: leave it pinned.** Still no reachable player flow constructed, and
+the widening does not by itself produce one — it changes the population on the path, not
+whether the path exists. Closing it on reasoning would be closing it on the same reasoning
+that has failed to settle it twice.
+
+**Decisive evidence (what would actually close it), and neither exists today:**
+1. The plan-§7 autoMerge-ON FLIGHT in-game cell — the live exercise of the ON path that
+   #1523 recorded as a coverage gap and that still does not exist.
+2. A driven harness scenario that COLD-LOADS a fixture save carrying a pending tree and
+   lands OUTSIDE FLIGHT, which is the precise precondition the auto-commit block gates on
+   (`LoadedScene != FLIGHT`). That measures whether a non-`Finalized` tree can reach the
+   site at all, rather than arguing from `TryRestorePendingTreeNode`.
+
+**Escalation trigger:** any repro of a player-recoverable tree silently committing
+ghost-only. At that point the remedy is scoped, not blanket — the dialog returns for the
+NON-re-fly, NON-`Finalized` case specifically. The re-fly ghost-only path stays silent on
+purpose (`silent-full-fidelity-autocommit.md` §10) and the `Finalized` full-fidelity path
+is already correct, so neither is in scope for the remedy.
 
 `ParsekScenario.AutoCommitPendingTreeOutsideFlight` routes through the dialog's own
 `MergeDialog.MergeCommit` + `BuildDefaultVesselDecisions` only when
@@ -2845,7 +2885,38 @@ back. Related: the in-game coverage gap recorded on the default-flip entry below
 cell that would exercise the ON path live does not exist, so neither question has a
 driven answer today.
 
-## SYNTHETIC-CONTRACT-FAIL-PENALTY-CLAMPED-BY-DRAWDOWN-GUARD: `PrePass` synthesizes the expired-deadline `ContractFail` and the reconstruction spends its penalties correctly, but `KspStatePatcher`'s guarded-drawdown protection refuses to write either pool back, so the debit never reaches the live career [MEASURED 2026-08-20 by `L5-career-contract-complete`'s green flight (run `2026-08-20_2240`), the FIRST run ever to drive `ContractsModule.PrePass`'s injection under a gate. REPORT-ONLY and GATED AS MEASURED: no product change is proposed by this lane, and the clamp is pinned so a change of behaviour has to be taken deliberately]
+## BEHAVIOR PIN — SYNTHETIC-CONTRACT-FAIL-PENALTY-CLAMPED-BY-DRAWDOWN-GUARD: the guarded-drawdown protection correctly refuses a synthetic `ContractFail` penalty that stock never debited [MEASURED 2026-08-20 by `L5-career-contract-complete`'s green flight (run `2026-08-20_2240`), the FIRST run ever to drive `ContractsModule.PrePass`'s injection under a gate. **RECLASSIFIED 2026-08-28 (branch `ledger-followups`) from open defect to a DOCUMENTED, MEASURED BEHAVIOR PIN.** REPORT-ONLY and GATED AS MEASURED: no product change is proposed, and the clamp is pinned so a change of behaviour has to be taken deliberately]
+
+**Not a defect — a pin. Read this paragraph before the evidence below.** The guard is
+behaving CORRECTLY here, and the shape it clamps CANNOT OCCUR IN A REAL CAREER. The
+fixture's contract B is ledger-only: `career-contract-pad` splices nothing into
+`ContractSystem`, so stock never knew B existed and therefore never debited the live pools
+for its failure. The reconstruction spends the penalty pack while the live pool stays put,
+which arrives at the patcher as a bare drawdown with no time-travel context — exactly the
+missing-earning-channel signature PR #1097's guard exists to refuse. In a real career stock
+applies the penalty to the live pool ITSELF at fail time and Parsek captures the terminal
+`ContractFail` row through `GameStateEventConverter.ConvertContractFailed`, so both sides
+step down by the same pack and there is nothing to clamp. The original header framed this
+as "the debit never reaches the live career", which reads as a defect statement; it is a
+correct refusal of a fixture-only shape. **Do NOT relax the earned-value guard on this
+entry's evidence.**
+
+**Escalation trigger — the ONE thing that would reopen this.** A driven scenario that flies
+a REAL STOCK contract failure (stock debits the live pool, Parsek captures the terminal
+row) and STILL measures a `GUARDED DRAWDOWN clamped` line. That, and only that, turns the
+parked policy question below into a live one. A clamp measured on this or any other
+ledger-only fixture does not, because the drawdown direction there is an artifact of the
+fixture's construction.
+
+**Two deferred hardening steps, recorded as FUTURE WORK — neither is done.**
+1. **Gate the walk-local property.** The produced `ledger.pgld` carrying NO synthetic
+   `type = 7` row is OBSERVED but UNGATED (see the note below). A `saveParse` /
+   `hlib` window asserting the absence would close the residual risk that a refactor
+   passing the LIVE action list to `PrePass` instead of the copy silently starts
+   persisting the injected row while this spec stays green.
+2. **Fly the real-stock-fail shape.** No committed run has ever driven a genuine stock
+   contract failure through the patcher. Until one exists, the real-stock-fail signature
+   is reasoned-from-source, not measured — and it is also the escalation trigger above.
 
 **What fires, and it all fires correctly.** `career-contract-pad` carries two
 fixture-authored `type = 5` rows and no terminal row; B's `deadlineUT = 100` sits
@@ -7921,7 +7992,7 @@ never feeds the `.analysis.txt` terminal `RED` token (`ReportWriter`: `RED=1` if
 `failNonBaselined + staleNonBaselined > 0`), so surfacing a pre-existing population cannot
 flip a gated run red.
 
-## ~~TOMBSTONE-SCOPE-HAS-NO-UT-GUARD: a pre-rewind payout attributed to the origin child is tombstoned at merge~~ [filed 2026-08-12 on branch `provisional-ledger-hygiene`. PRE-EXISTING — predates that branch and is NOT caused by it. **SUB-SHAPE (A) FIXED 2026-08-28, branch `ledger-hygiene-2`; SUB-SHAPE (B) STAYS OPEN and is re-filed below**]
+## ~~TOMBSTONE-SCOPE-HAS-NO-UT-GUARD: a pre-rewind payout attributed to the origin child is tombstoned at merge~~ [filed 2026-08-12 on branch `provisional-ledger-hygiene`. PRE-EXISTING — predates that branch and is NOT caused by it. **SUB-SHAPE (A) FIXED 2026-08-28, branch `ledger-hygiene-2`; SUB-SHAPE (B) re-filed below and FIXED 2026-08-28, branch `ledger-followups`**]
 
 **Fix (A).** `SupersedeCommit.CommitTombstones` now screens every in-scope action through
 `TombstoneAttributionHelper.IsPreRewindAttributedAction(a, cutoff)` before it reaches the
@@ -8026,7 +8097,109 @@ there the attribution is CORRECT — the payout does belong to the origin child 
 is in what the tombstone pass does with a correct tag. Options 1 and 2 are for the bracket-tie
 subset above, where the tag itself is the arguable part.
 
-## TOMBSTONE-BRACKET-TIE-MID-SESSION-PAYOUT: a payout earned DURING the re-fly can tie to the origin child and be tombstoned [OPEN, split out 2026-08-28 on branch `ledger-hygiene-2` when the UT guard closed sub-shape (A)]
+## ~~TOMBSTONE-BRACKET-TIE-MID-SESSION-PAYOUT: a payout earned DURING the re-fly can tie to the origin child and be tombstoned~~ [split out 2026-08-28 on branch `ledger-hygiene-2` when the UT guard closed sub-shape (A). **FIXED 2026-08-28, branch `ledger-followups`, via remedy 1 (the correlator tie-break)**]
+
+**Fix.** `LedgerOrchestrator.PickRecoveryRecordingId` now resolves tier 1 as
+`bracketingSessionProvisional ?? bracketing`: when the live Re-Fly session's ADMITTED
+provisional is among the recordings that bracket the recovery UT, it wins the tier-1 tie
+outright instead of losing it to largest-`EndUT`. The provisional is the fork that SURVIVES
+the merge, so a mid-session payout tagged to it is outside the supersede subtree and is
+never handed to `CommitTombstones` at all.
+
+**It reuses the state the session-aware NotCommitted rule already carries.** The
+per-iteration `isSessionProvisional` test (previously scoped inside the `MergeState ==
+NotCommitted` branch) is hoisted one level so tier 1 can read it; nothing new is resolved,
+looked up, or persisted. `sessionProvisionalId` is still resolved ONCE outside the loop
+through `ResolveActiveReFlyProvisionalRecordingId`.
+
+**Zero behaviour change when no session is armed**, and that is structural rather than a
+tested coincidence: with no marker `sessionProvisionalId` is null, so `isSessionProvisional`
+is false for every recording, `bracketingSessionProvisional` stays null, and the `??` falls
+straight through to the existing max-`EndUT` winner. Tiers 2 and 3 are untouched.
+
+**An unbound / trajectory-less provisional degrades to the status quo on its own** —
+verified against the bracketing predicate, not assumed. `RewindInvoker.BuildProvisionalRecording`
+sets neither points nor `ExplicitStartUT`/`ExplicitEndUT`, and `Recording.StartUT` /
+`Recording.EndUT` both fall back to `0.0` when `TryGetActualTrajectoryBounds` fails, so
+`startUT <= ut && ut <= endUT` holds only for a `ut == 0.0` recovery. R1-EMPTY-PROVISIONAL's
+shape therefore cannot capture a real payout through this override. (The one qualification:
+a `ut == 0.0` recovery WOULD bracket a bounds-less provisional. That is a degenerate clock,
+not a career moment, and it is called out here rather than guarded so nobody reads the
+claim as unconditional.)
+
+**Residual this does NOT close, stated so it is not mistaken for a new one: the candidate
+set is still gated by vessel NAME.** During an armed session a same-name DIFFERENT-LAUNCH
+recovery — an unrelated earlier launch of the same craft, still flying and recovered
+mid-session — is now systematically tagged to the provisional where max-`EndUT` would have
+picked another recording. No career value is lost on either outcome (the provisional
+survives the merge, and a Re-Fly discard clears the tag while keeping the row), and this is
+the pre-existing name-identity class described under the `persistentId` gotcha, not
+anything the tie-break introduced. **Its closer has since LANDED and this branch is rebased
+onto it:** PR #1558's `LedgerOrchestrator.FilterRecoveryCandidatesByLaunchGuid`
+(`VesselLaunchIdentity`, KERBAL-XP-RECOVERY-PICK-IS-NAME-AND-UT-ONLY stage 1) narrows the
+candidate set BEFORE tier selection. The two COMPOSE, filter first then tiers: the origin
+child and the provisional share the same inherited launch guid, so the filter never
+separates the two sides of this tie, while a foreign launch it drops is one the tie-break
+can then never see. The composition is STRUCTURAL, not incidental — the tie-break takes its
+provisional from `FindSessionProvisionalAmong(candidates, ...)`, i.e. the POST-FILTER
+reference, and matches it by `ReferenceEquals` inside the tier walk. Re-deriving it by id
+there would let the tie-break reinstate a candidate the filter removed and break the
+filter's monotone property, which is the whole safety argument for stage 1; the
+`REBASE REQUIREMENT` note at that site (now annotated MET) forbids exactly that.
+
+**The edit sits in the ONE correlator all three recovery legs share**, which the XP leg's
+doc-comment mandates ("Why THIS correlator and no other" —
+`ResurrectionRetirementEligibility` bundles a recovery's funds / science / kerbal-XP rows by
+SHARED `RecordingId` and retires them as a unit). Confirmed at the three call sites:
+recovery kerbal XP `TryRecordRecoveryKerbalExperience` (`LedgerOrchestrator.cs` ~:3969)
+calls it directly, recovery science `ResolveKscScienceRecordingId` (~:4051) calls it
+directly, and recovery funds passes it to `LedgerRecoveryFundsPairing.TryAddVesselRecoveryFundsAction`
+as the picker delegate (~:4344). All three move together; a per-leg fix would have split
+the bundle. `BracketTie_MovesAllThreeRecoveryLegsTogether` pins those three call shapes by
+source inspection so a future leg that resolves its own way reds here.
+
+**The tie decision rides the EXISTING `tier=` Verbose line** rather than a second line —
+one grep per pick. The line gains a `bracketTie=` token reading `session-provisional` /
+`max-end-ut` / `n/a` (the last off tier 1, where the token is meaningless by construction).
+
+**Option 2 (the UT-window carve-out at tombstone time) is REJECTED, and the derivation is
+recorded so nobody re-attempts it without the missing ingredient.** That remedy would
+exclude rows whose UT falls inside the live session's window from the supersede scope,
+whichever recording they are tagged to. It double-counts by construction: the ORIGINAL
+flight's rows in `[rewindUT, origin.EndUT]` occupy THE SAME UT WINDOW as the session's own
+rows — that overlap is exactly why the bracket tie exists in the first place — so a
+UT-only exclusion cannot tell "earned during the re-fly" from "earned on the replaced
+timeline". Applying it would spare both, resurrecting the replaced flight's payouts into
+the ELS alongside the re-fly's: the player gets paid twice for the same recovery. A sound
+carve-out would need a PERSISTED PER-ROW SESSION WATERMARK (a session id or sequence stamp
+on the `GameAction`, so a row can be attributed to a session rather than merely dated
+inside one). No such field exists on `GameAction` today, and adding one is a schema change
+with its own round-trip and back-compat surface. Do not re-open option 2 without it.
+
+Headless cover: 5 cells in `GameStateRecorderLedgerTests` (the fixed tie; the no-session
+max-`EndUT` pin; a session provisional that does NOT bracket, leaving the pick where it was;
+the unbound-provisional `StartUT == EndUT == 0.0` degradation asserted against the bounds
+themselves; and the three-leg correlator pin, which also drives the XP leg end to end) plus
+`SupersedeCommitTombstoneTests.MidSessionRecoveryPayout_TaggedByThePicker_SurvivesTheMergeIntoTheEls`
+— the end-to-end statement, driven through the REAL correlator rather than a hand-written
+tag: rewind at 500, origin `[100, 900]`, provisional `[500, 700]`, recovery at 600; the
+picker tags the provisional, the merge runs, and the payout is in the ELS while the
+contrast row tagged to the origin child at the same UT is correctly retired. Negative
+control run: with the tie-break disabled, all three of those cells red with
+`Expected: rec-provisional / Actual: rec-origin`.
+
+**The three-leg pin is deliberately CALL-SHAPE-ROBUST, and that is the point of it.** It
+asserts each leg's brace-matched, comment-stripped METHOD BODY references
+`PickRecoveryRecordingId`, and asserts NOTHING about the argument list or the indentation.
+An exact-call-text pin reds on a FALSE alarm the moment any leg's argument spelling changes
+— which is a live prospect, since guid-corroboration work is rewriting the science leg's
+call to take an identity struct — and the obvious remedy for a false alarm is to delete the
+assertion, which is how a real gate gets lost. The pin's job is "all three legs route
+through the ONE picker"; it pins that and nothing else. Proven in both directions: it reds
+when the science leg is rerouted to a different resolver, and stays green under the
+identity-struct call shape.
+
+The original filing follows.
 
 Sub-shape (B) of TOMBSTONE-SCOPE-HAS-NO-UT-GUARD above, kept OPEN because the UT guard
 that closed (A) provably cannot reach it. Read that entry's "A UT guard alone is NOT
@@ -18327,7 +18500,7 @@ Tests: bundle capture/restore round-trip with and without cutoff (before/at/stri
 
 Implements `docs/dev/plans/silent-full-fidelity-autocommit.md`. The `autoMerge` ON path used to commit ghost-only (`AutoCommitTreeGhostOnly` nulled every `VesselSnapshot`), and the finalized stable-terminal snapshot was nulled at OnLoad before its `_vessel.craft` sidecar was written, so a surviving vessel could not re-materialize at recording end (spawn-at-end lost). Fix routes the two outside-Flight auto-commit sites (warm scene-change fallback + cold-load pending-outside-flight, both in `ParsekScenario.OnLoad`) through a shared `AutoCommitPendingTreeOutsideFlight`, which calls the dialog's own `MergeDialog.MergeCommit` + `BuildDefaultVesselDecisions` when the new pure predicate `ParsekScenario.ShouldSilentFullFidelityCommit` qualifies (`isAutoMerge && Finalized && !reFlyActive && scene != MAINMENU`), else the lightweight ghost-only commit (re-fly / Limbo / MAINMENU / non-autoMerge). `ParsekFlight.CommitTreeSceneExit` now force-writes dirty sidecars (mirrors the autoMerge=OFF #289 loop) so the finalized snapshot is durable for the cold-load hydrate. The OnSave `SafetyNetAutoCommitPending` stays ghost-only (avoids a quicksave-inside-OnSave via `MergeCommit.RefreshQuicksaveAfterMerge`). #88 folded: landed/splashed exits no longer force an approval dialog under autoMerge; both gates removed (`SceneExitInterceptor.ShouldShowDialogBeforeSceneChange` landed/splashed row + the OnLoad `ShouldShowCommitApproval` gate), and `GhostPlaybackLogic.ShouldShowCommitApproval` + the now-dead `activeVesselLandedOrSplashed` params/wrappers deleted. Re-fly kept dialog/journal-gated (a silent `MergeCommit` would run `TryCommitReFlySupersede`); MAINMENU kept dialog. Default stays OFF. Impl-review fixes: the silent `MergeCommit` passes `refreshQuicksaveAfterCommit: false` (new param) so no `GamePersistence.SaveGame` runs inside OnLoad (re-entrant-OnSave / never-SaveGame-in-OnLoad rule); the now-dead `RecordingStore.PendingDestinationScene` field + writer removed; `ApplyVesselDecisions` widened to `internal static` with a retention test. Suites: xUnit 18176 (new `SilentFullFidelityCommitDecisionTests` + `MergeDialogVesselTests.ApplyVesselDecisions_KeepsSpawnableSnapshot_NullsGhostOnly`; `SceneExitInterceptorTests` landed/splashed cases flipped to None; `Bug156Tests` ShouldShowCommitApproval block removed).
 
-~~**PENDING-OPERATOR** (for the default-flip follow-up, per the design runbook): with autoMerge ON, verify (1) an LKO survivor exiting to Space Center persists as a real vessel, not a ghost; (2) a landed vessel exits to KSC silently (no dialog) and persists; (3) quit mid-mission then Resume commits full-fidelity on the cold-load path; (4) a crash then Revert rolls back cleanly (#434 intact); (5) a Re-Fly exit still shows its confirmation dialog. Then flip `ParsekSettings.autoMerge` + `UI/SettingsWindowPresentation` defaults in a follow-up PR.~~ **DONE** (branch `claude/auto-merge-recording-default-ry0v5g`): operator-verified in play, and the default flipped ON in both places (`ParsekSettings.autoMerge` field initializer + `SettingsWindowPresentation.BuildDefaults`). The two sites are now pinned together by `SettingsWindowPresentationTests.BuildDefaults_AutoMerge_MatchesSettingsFieldDefault`, and the shipping value by `ParsekSettingsTests.AutoMerge_DefaultOn`. Not flipped: `ParsekScenario.cachedAutoMerge`'s seed stays `false` on purpose - it governs only the window before any real settings instance has been read (`ParsekSettings.Current == null`), and there falling back to OFF shows a dialog the player can still answer, while falling back to ON would silently commit against a player who has explicitly turned auto-merge off. **The flip reaches NEW saves only.** `GameParameters.CustomParameterUI`'s string ctor sets `autoPersistance = true` (verified in Assembly-CSharp IL: `ldc.i4.1; stfld autoPersistance`), so `ParameterNode::Save` writes EVERY Parsek setting into the save's `ParsekSettings` node on every save - not just ones the player touched. Any career already played with Parsek installed therefore carries `autoMerge = False` and keeps it; `Load` only overlays keys that are present, so the ON initializer is reached solely by a save with no stored key. Corroborated on disk: 31 of the 38 committed harness fixture saves carry an explicit `autoMerge` line, and the 7 that do not have no `ParsekSettings` node at all. Do NOT describe this as "only saves that never touched the toggle" - that reading is wrong and was corrected in review. Harness: no committed spec changes meaning, but the reason is per-scenario rather than blanket. The 7 keyless fixtures back 23 scenarios; 18 set `autoRecordOnLaunch=false` and never build a tree, 3 already pin `SetSetting autoMerge=true` (`CL-2`, `L3-career-science-recover`, `L5`), and 2 fly for real on `career-pad-craft` and are safe by MECHANISM, not declaration: `CL-1` ends in `FlushAndQuit` from inside FLIGHT and both OnLoad auto-commit sites are gated `LoadedScene != FLIGHT` (and `ParsekFlight.ShowPostDestructionTreeMergeDialog` never reads `IsAutoMerge`), while `CL-3`'s only merge is the re-fly dialog, which `SceneExitInterceptor.ShouldShowDialogBeforeSceneChange` returns on `reFlyActive` BEFORE reaching the `!isAutoMerge` gate. Note also that no `Rewind`-category in-game cell touches `autoMerge` - the two cells that do are `SceneExitMerge`, driven by `H21` on the `autoMerge=False`-pinned `b2-lko-craft`.
+~~**PENDING-OPERATOR** (for the default-flip follow-up, per the design runbook): with autoMerge ON, verify (1) an LKO survivor exiting to Space Center persists as a real vessel, not a ghost; (2) a landed vessel exits to KSC silently (no dialog) and persists; (3) quit mid-mission then Resume commits full-fidelity on the cold-load path; (4) a crash then Revert rolls back cleanly (#434 intact); (5) a Re-Fly exit still shows its confirmation dialog. Then flip `ParsekSettings.autoMerge` + `UI/SettingsWindowPresentation` defaults in a follow-up PR.~~ **DONE** (branch `claude/auto-merge-recording-default-ry0v5g`): operator-verified in play, and the default flipped ON in both places (`ParsekSettings.autoMerge` field initializer + `SettingsWindowPresentation.BuildDefaults`). The two sites are now pinned together by `SettingsWindowPresentationTests.BuildDefaults_AutoMerge_MatchesSettingsFieldDefault`, and the shipping value by `ParsekSettingsTests.AutoMerge_DefaultOn`. Not flipped: `ParsekScenario.cachedAutoMerge`'s seed stays `false` on purpose - it governs only the window before any real settings instance has been read (`ParsekSettings.Current == null`), and there falling back to OFF shows a dialog the player can still answer, while falling back to ON would silently commit against a player who has explicitly turned auto-merge off. ~~**The flip reaches NEW saves only.**~~ **INVALIDATED 2026-08-28 by the settings-simplification clamp (#1549) — the mechanism below is still correct, its CONCLUSION is not. `autoMerge` is now a hidden field, and `ParsekSettings.ClampHiddenSettingsToShippingValues` (`Source/Parsek/ParsekSettings.cs:282`) forces it `true` on every `ParsekScenario.OnLoad` (~:2913) unless an automation env hook is armed. That clamp runs AFTER the `Load` overlay described below, so a stored `autoMerge = False` in an existing career is OVERRIDDEN rather than kept: every save reaches the ON path from its next load onward, and no player can be on the OFF path at all. Two halves of the paragraph SURVIVE unchanged — the persistence mechanism itself (every setting is written to every save, so an existing career really does carry the key), and the whole harness analysis that follows it (the clamp stands down under an armed automation env, so fixture pins and `SetSetting` keep authority exactly as described). What does NOT survive is "and keeps it", and anything downstream that scoped a risk to new saves only. See the AUTOMERGE-ON-BY-DEFAULT entry above, restated for this.** Original text, kept for its mechanism: `GameParameters.CustomParameterUI`'s string ctor sets `autoPersistance = true` (verified in Assembly-CSharp IL: `ldc.i4.1; stfld autoPersistance`), so `ParameterNode::Save` writes EVERY Parsek setting into the save's `ParsekSettings` node on every save - not just ones the player touched. Any career already played with Parsek installed therefore carries `autoMerge = False` and keeps it; `Load` only overlays keys that are present, so the ON initializer is reached solely by a save with no stored key. Corroborated on disk: 31 of the 38 committed harness fixture saves carry an explicit `autoMerge` line, and the 7 that do not have no `ParsekSettings` node at all. Do NOT describe this as "only saves that never touched the toggle" - that reading is wrong and was corrected in review. Harness: no committed spec changes meaning, but the reason is per-scenario rather than blanket. The 7 keyless fixtures back 23 scenarios; 18 set `autoRecordOnLaunch=false` and never build a tree, 3 already pin `SetSetting autoMerge=true` (`CL-2`, `L3-career-science-recover`, `L5`), and 2 fly for real on `career-pad-craft` and are safe by MECHANISM, not declaration: `CL-1` ends in `FlushAndQuit` from inside FLIGHT and both OnLoad auto-commit sites are gated `LoadedScene != FLIGHT` (and `ParsekFlight.ShowPostDestructionTreeMergeDialog` never reads `IsAutoMerge`), while `CL-3`'s only merge is the re-fly dialog, which `SceneExitInterceptor.ShouldShowDialogBeforeSceneChange` returns on `reFlyActive` BEFORE reaching the `!isAutoMerge` gate. Note also that no `Rewind`-category in-game cell touches `autoMerge` - the two cells that do are `SceneExitMerge`, driven by `H21` on the `autoMerge=False`-pinned `b2-lko-craft`.
 
 **Follow-up (open): the now-default ON path has no in-game cell.** The plan's own test contract (`silent-full-fidelity-autocommit.md` §7, "In-game") specifies a FLIGHT cell that, with `autoMerge=ON`, flies to a stable orbit, triggers the scene-exit commit and asserts the committed leaf is spawn-at-end eligible. That cell does not exist: the only two in-game cells touching the setting force it OFF. So the setting that just became the default is the one with the thinnest live coverage - its verification is the operator checklist above plus the new `Exit To Space Center (silent auto-commit, the default)` block in `docs/dev/manual-testing/test-general.md`. Deliberately NOT written blind on the default-flip PR (an in-game cell cannot be executed from a headless session, and an unexecuted FLIGHT assertion is worse than a documented gap). Raised by the PR review panel.
 
