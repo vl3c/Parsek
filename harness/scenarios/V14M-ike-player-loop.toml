@@ -309,22 +309,18 @@ id = "V14M-ike-player-loop"
 # `PlanetariumCamera:OnVesselDestroy`, one `CrewHatchController.OnDestroy` - the ordinary
 # background population V16M's header records for the same family. No ceiling is armed
 # here and none is proposed off a single reading.
-# THE RENDER-COMPOSITION BLOCK WAS DE-ARMED IN THE SAME CHANGE, AND THE FLIGHT THEN
-# REMOVED THE REASON: `[expectations.renderComposition]` was ARMED AND GATING here
-# (dwells {1,32} measured 3, cycles {1,16} measured 1), and it was de-armed because a
-# run that ENTERS watch mode force-builds the watched ghost at full fidelity - a
-# composition no archived run of this lane produced, while every window was written from
-# runs where BOTH watch attempts were refused. **THE READING FLIGHT MEASURED THAT THIS
-# LANE STILL DOES NOT ENTER WATCH MODE** (`range=F` at 449.7 km), so the flown shape is
-# unchanged and the de-arm's premise is gone. IT STAYS DE-ARMED IN THIS CHANGE ANYWAY,
-# for a reason that is not the original one: both runs were INVALID on the pinned
-# verdict, so `renderCompose` was SKIPPED (`reason=driver-invalid`) and produced NO
-# facets. Re-arming would therefore be arming on a prediction - the exact thing the
-# de-arm comment argues against - and arming is an operator decision taken off a run
-# that actually reached the verifier. THE RE-ARM IS OWED AND IS NOW CHEAP: with the pins
-# back at REJECTED this lane is driver-valid again, so its next ordinary flight produces
-# the bytes and the block goes back on unchanged. Full rationale at the block itself,
-# near the end of this file; section 6's ledger records the same.
+# THE RENDER-COMPOSITION BLOCK WENT OFF AND CAME BACK IN THE SAME CHANGE, AND THE FLIGHT
+# IS WHY: `[expectations.renderComposition]` was ARMED AND GATING here (dwells {1,32}
+# measured 3, cycles {1,16} measured 1), and was DE-ARMED when the pins were flipped,
+# because a run that ENTERS watch mode force-builds the watched ghost at full fidelity -
+# a composition no archived run of this lane produced, while every window was written
+# from runs where BOTH watch attempts were refused. **THE READING FLIGHT MEASURED THAT
+# THIS LANE STILL DOES NOT ENTER WATCH MODE** (`range=F` at 449.7 km), the pins went back
+# to REJECTED, and the de-arm's premise vanished with them. The confirming run
+# `2026-08-28_1940` then supplied the bytes the restoration needed (dwells 3, cycles 1,
+# unevaluable 59 - every retained window met), so the block is **ARMED AGAIN, with no
+# window value changed**. Full rationale at the block itself, near the end of this file;
+# section 6's ledger records the same.
 # AND NOTE: there is NO `ExitWatchMode` seam verb (`hlib.IMPLEMENTED_SEAM_VERBS` carries
 # 28 and no exit; `RESERVED_SEAM_VERBS` reserves none), so once the cycle-1 step enters,
 # the cycle-2 step auto-selects the same index and takes `ParsekTestCommandAddon`'s
@@ -367,27 +363,28 @@ id = "V14M-ike-player-loop"
 # ---------------------------------------------------------------------------------
 # 6. RENDER COMPOSITION (M-A7 Phase 3) - ARMED 2026-08-25; DE-ARMED 2026-08-28
 # ---------------------------------------------------------------------------------
-# **CURRENT POSTURE: DECLARED, REPORT-ONLY, WINDOWS RETAINED. RE-ARM OWED AND CHEAP.**
-# The block armed and discharged its full three-run discipline on 2026-08-25 (the ledger
-# below is that record and is NOT retracted), and was DE-ARMED on 2026-08-28 for the
-# watch-entry migration, when this lane's two `EnterWatchMode` pins were flipped
-# REJECTED -> OK and the flown shape was expected to start entering watch mode.
-# **THE READING FLIGHT REMOVED THAT PREMISE**: `2026-08-28_1932` / `_1933_a2` measured
-# `range=F` at 449.7 km, the lane still does not enter watch mode, and the pins are back
-# at REJECTED - so the flown shape is exactly what the 2026-08-25 windows were written
-# from. The block nonetheless stays de-armed HERE because both of those runs were
-# INVALID on the pinned verdict and `renderCompose` was SKIPPED (`reason=driver-invalid`)
-# - no facets at that point, so re-arming then would have been arming on a prediction.
-# **THE CONFIRMING RUN `2026-08-28_1940` (PASS) THEN SUPPLIED THE BASELINE, AND EVERY
-# RETAINED WINDOW WOULD HAVE PASSED IT: dwells 3 (window {1,32}), cycles 1 ({1,16}),
-# unevaluable 59 ({max 200}), findings FAIL 0 / WARN 0 / INFO 1, `mismatches=0` with the
-# declared block evaluated report-only.** The numbers are within noise of the
-# 2026-08-25 arming run (dwells 3, cycles 1, unevaluable 56), which is the statement the
-# re-arm needs: the flown shape did not move. RE-ARM is therefore a pure RESTORATION -
-# flip `gating` back to true, restore this lane's entry in `RENDERCOMPOSE_ARMED_SPECS`
-# (harness/lib/test_hlib.py), and turn
-# `test_v14m_keeps_its_render_composition_windows_while_de_armed` back into its armed
-# form. It is left to the operator's confirm-run decision rather than taken here.
+# **CURRENT POSTURE: ARMED AND GATING** - as it has been since 2026-08-25, apart from one
+# recorded round trip on 2026-08-28. The block armed and discharged its full three-run
+# discipline on 2026-08-25; the ledger below is that record and is NOT retracted.
+#
+# THE ROUND TRIP, because "it went off and came back" is the kind of thing a future
+# reader would otherwise re-litigate. The watch-entry migration DE-ARMED it when this
+# lane's two `EnterWatchMode` pins were flipped REJECTED -> OK: a run that ENTERS watch
+# mode force-builds the watched ghost at full fidelity, a composition no archived run of
+# this lane produced, while every window was written from runs where BOTH watch attempts
+# were refused. **THE READING FLIGHT REMOVED THAT PREMISE**: `2026-08-28_1932` /
+# `_1933_a2` measured `range=F` at 449.7 km, this lane still does not enter watch mode,
+# and the pins went back to REJECTED - so the flown shape is exactly what the 2026-08-25
+# windows were written from. **RE-ARMED off the confirming run `2026-08-28_1940`** (PASS
+# attempt 1, 57 s, corrected pins, `mismatches=0`): dwells 3 (window {1,32}), cycles 1
+# ({1,16}), unevaluable 59 ({max 200}), findings FAIL 0 / WARN 0 / INFO 1 - every
+# retained window met, within noise of the arming run's 3 / 1 / 56.
+#
+# **NO WINDOW VALUE CHANGED ACROSS THE WHOLE CYCLE.** That is what makes this a
+# RESTORATION rather than a re-pin, and it is the S4.1 rule holding through a de-arm as
+# well as through an arming. The 2026-08-25 three-run discipline is NOT re-run and NOT
+# re-claimed - it stands on its own runs below. What `_1940` establishes is the narrower
+# thing a restoration needs: the subject the windows describe did not move.
 # Rationale in full at the block itself, near the end of the file.
 #
 # ARMING LEDGER, renderComposition (2026-08-25, the pre-migration flown shape):
@@ -397,9 +394,10 @@ id = "V14M-ike-player-loop"
 #            renderCompose status=REPORT gating=false armedBlocks=[] mismatches=[] -
 #            the row read the manifest and could move no verdict, which is the whole
 #            point of a reading run. Facets in "WHAT THE READING RUN MEASURED" below.
-#   DE-ARMED 2026-08-28 (watch-entry migration). See the CURRENT POSTURE banner above:
-#            the premise was removed by the reading flight but no facets exist to
-#            re-arm from yet, because both runs were INVALID and renderCompose SKIPPED.
+#   ROUND TRIP 2026-08-28 (watch-entry migration): de-armed with the pin flip, RE-ARMED
+#            unchanged once the reading flight removed the premise. Measurement:
+#            `_1940` dwells 3 / cycles 1 / unevaluable 59. See the CURRENT POSTURE
+#            banner above; no window value moved.
 #   ARMED    2026-08-25 by operator decision, off the reading facets above and
 #            nothing else. FOUR assertions, each with its margin argued at the block
 #            itself (`[expectations.renderComposition]`, near the end of this file):
@@ -544,7 +542,7 @@ id = "V14M-ike-player-loop"
 # whose drive shape can carry them).
 # =====================================================================================
 tier = "operator"
-description = "LIVE-PROVEN AND ARMED on the full three-run discipline (BUT SEE SECTION 4: the 2026-08-28 watch-entry fix briefly flipped the two `EnterWatchMode` pins to `OK`; reading runs `2026-08-28_1932`/`_1933_a2` measured `candidates=[0 ghost=T body=T range=F]` at 449.6/449.9 km - the BODY term now PASSES via `evidence=trajectory-resolved ghostBody=Ike cached=Duna`, the RANGE term refuses, and 449.7 km > 2a = 340.9 km falsifies the co-orbital premise the chord arithmetic rested on, so the pins are back at `REJECTED`, now MEASURED with the refusing term named. The renderComposition block is DE-ARMED pending a re-arm off the corrected spec's next flight): reading 2026-08-18_2336 (PASS attempt 1, 50 s), armed re-flight 2026-08-19_0001 (PASS attempt 1, 51 s, every gated window green), negative control 2026-08-19_0003 (correctly PARSEK-FAIL(save-structure), reverted). The player workflow (arm -> Warp-to -> cross the arrival -> Watch), twice over, on B23's Duna->Ike recording - the suite's first loop subject whose LAUNCH BODY is not Kerbin. Ike is tidally locked to Duna, so Rotation(Duna) 65,517.859 s and Orbital(Ike) 65,517.862 s are equal to 3 ms, 22x inside MissionPeriodicity's 1e-6 relative equality band: the sharpest pre-flight prediction is that the product takes a THIRD road - `method=tidal-collapse` with `zeroDrift=no` and a UNIFORM one-P cadence - distinct from both V4's re-aim and V6M's non-uniform zero-drift schedule. MEASURED: the OUTCOMES held (`zeroDrift=no`, cadence exactly one P) but the MECHANISM did not - `method=single-orbital`, because `ExtractConstraints` emits `constraints=1` with NO Rotation(Duna) at all. An ORBIT-ROOTED recording has no surface phase, so the tidal-collapse branch never gets a second constraint to collapse and phase-lock is EXACT rather than within-tolerance. The predicted anchor held to 0.04 s and the load-time optimizer kept the same-parent crossing cohesive (`exoCoastBodyChangeKept=1`)."
+description = "LIVE-PROVEN AND ARMED on the full three-run discipline (BUT SEE SECTION 4: the 2026-08-28 watch-entry fix briefly flipped the two `EnterWatchMode` pins to `OK`; reading runs `2026-08-28_1932`/`_1933_a2` measured `candidates=[0 ghost=T body=T range=F]` at 449.6/449.9 km - the BODY term now PASSES via `evidence=trajectory-resolved ghostBody=Ike cached=Duna`, the RANGE term refuses, and 449.7 km > 2a = 340.9 km falsifies the co-orbital premise the chord arithmetic rested on, so the pins are back at `REJECTED`, now MEASURED with the refusing term named. The renderComposition block went off and back on in the same change - de-armed with the pin flip, RE-ARMED unchanged off confirming run `2026-08-28_1940` once the reading removed the premise, no window value moved): reading 2026-08-18_2336 (PASS attempt 1, 50 s), armed re-flight 2026-08-19_0001 (PASS attempt 1, 51 s, every gated window green), negative control 2026-08-19_0003 (correctly PARSEK-FAIL(save-structure), reverted). The player workflow (arm -> Warp-to -> cross the arrival -> Watch), twice over, on B23's Duna->Ike recording - the suite's first loop subject whose LAUNCH BODY is not Kerbin. Ike is tidally locked to Duna, so Rotation(Duna) 65,517.859 s and Orbital(Ike) 65,517.862 s are equal to 3 ms, 22x inside MissionPeriodicity's 1e-6 relative equality band: the sharpest pre-flight prediction is that the product takes a THIRD road - `method=tidal-collapse` with `zeroDrift=no` and a UNIFORM one-P cadence - distinct from both V4's re-aim and V6M's non-uniform zero-drift schedule. MEASURED: the OUTCOMES held (`zeroDrift=no`, cadence exactly one P) but the MECHANISM did not - `method=single-orbital`, because `ExtractConstraints` emits `constraints=1` with NO Rotation(Duna) at all. An ORBIT-ROOTED recording has no surface phase, so the tidal-collapse branch never gets a second constraint to collapse and phase-lock is EXACT rather than within-tolerance. The predicted anchor held to 0.04 s and the load-time optimizer kept the same-parent crossing cohesive (`exoCoastBodyChangeKept=1`)."
 instanceProfile = "stock-minimal"
 tags = ["V14", "player-loop", "watch-mode", "loop-playback", "phase-lock", "single-orbital", "ike", "duna", "same-parent", "moon", "flown"]
 
@@ -970,11 +968,11 @@ terminalStates = { Orbiting = { min = 1 } }
 #     pair, so there is nothing here to arm (V8 owns the cut, and its own reading
 #     could not evaluate it either).
 #
-# DE-ARM BASELINE (2026-08-28). The block is `gating = false` below; the confirming run
-# `2026-08-28_1940` (PASS, pins back at REJECTED) read dwells 3, cycles 1,
-# unevaluable 59, findings FAIL 0 / WARN 0 / INFO 1, mismatches 0 - every retained
-# window met, and within noise of the 2026-08-25 arming run (3 / 1 / 56). The re-arm is
-# a pure restoration; see the CURRENT POSTURE banner in header section 6.
+# RE-ARM MEASUREMENT (2026-08-28). The confirming run `2026-08-28_1940` (PASS, pins back
+# at REJECTED) read dwells 3, cycles 1, unevaluable 59, findings FAIL 0 / WARN 0 /
+# INFO 1, mismatches 0 - every retained window met, within noise of the 2026-08-25
+# arming run (3 / 1 / 56). That is the measurement the restoration rests on; see the
+# CURRENT POSTURE banner in header section 6.
 #
 # DISCIPLINE-COMPLETE 2026-08-25: the three-run workflow closed the same day. ARMED
 # RE-FLIGHT `2026-08-25_1050` PASS (gating=True, zero mismatches, sticky
@@ -987,31 +985,45 @@ terminalStates = { Orbiting = { min = 1 } }
 # `RENDERCOMPOSE_ARMED_SPECS` and in header §6's ledger.
 #
 # =====================================================================================
-# DE-ARMED 2026-08-28 FOR THE WATCH-ENTRY MIGRATION READING FLIGHT. RE-ARM AFTER IT.
+# THE 2026-08-28 DE-ARM / RE-ARM CYCLE, COMPLETED. `gating` IS TRUE AGAIN AND NO WINDOW
+# MOVED.
 # =====================================================================================
-# `gating` is FALSE below and the windows are RETAINED verbatim as the record of what
-# `2026-08-25_0953` measured. NOTHING ABOUT THE RENDER PIPELINE IS SUSPECTED - this is
-# the three-run discipline applied to a change in THIS LANE'S OWN FLOWN SHAPE.
+# A round trip that ended where it started, recorded because the REASONING is what makes
+# the current state readable - and because "it went off and came back" is exactly the
+# kind of thing a future reader would otherwise re-litigate.
 #
-# WHY. The two `EnterWatchMode` pins flipped `REJECTED` -> `OK` in the same change (see
-# header §4's REDONE arithmetic). A run that ENTERS watch mode force-builds the watched
-# ghost's visuals at full fidelity (`EnsureGhostVisualsLoadedForWatch`) and anchors the
-# camera to it for the rest of the flight - a composition NO archived run of this lane
-# has ever produced, and every window above was written from runs where both watch
-# attempts were refused. Leaving the block armed across that would let a red classify
-# `PARSEK-FAIL(render-composition)` for a MIGRATION reason, i.e. report a product
-# regression that is really "the windows describe the old shape". The margins are wide
-# (dwells measured 3 against {1,32}) and it might well have held - but "it probably
-# still fits" is a prediction, and arming is supposed to rest on a measurement.
+# DE-ARMED, temporarily, by the watch-entry migration. The two `EnterWatchMode` pins were
+# flipped `REJECTED` -> `OK` in that change (header §4), and a run that ENTERS watch mode
+# force-builds the watched ghost's visuals at full fidelity
+# (`EnsureGhostVisualsLoadedForWatch`) and anchors the camera to it - a composition NO
+# archived run of this lane had produced, while every window below was written from runs
+# where BOTH watch attempts were refused. Left armed across that, a red would have
+# classified `PARSEK-FAIL(render-composition)` for a MIGRATION reason: a product
+# regression reported where the truth is "the windows describe the old flown shape". The
+# margins are wide (dwells measured 3 against {1,32}) and it might well have held - but
+# "it probably still fits" is a prediction, and arming rests on a measurement.
 #
-# THE RE-ARM, and it is owed: after the watch-entry reading flight, re-arm off ITS
-# facets on the ordinary discipline (reading -> armed re-flight -> negative control),
-# writing the run ids into this block, header §6's ledger, and
-# `RENDERCOMPOSE_ARMED_SPECS` in `harness/lib/test_hlib.py` - from which this lane was
-# REMOVED in the same commit, because that roster and the spec's `gating` flag are
-# pinned to agree by `test_every_declarers_arming_state_matches_the_recorded_rosters`.
-# Tracked in docs/dev/todo-and-known-bugs.md -> WATCH-ENTRY-REFUSED-INSIDE-QUOTED-RANGE.
-gating = false
+# THE READING FLIGHT THEN REMOVED THE PREMISE. `2026-08-28_1932` / `_1933_a2` measured
+# `candidates=[0 ghost=T body=T range=F]` at 449.6 / 449.9 km: the BODY term now passes,
+# the RANGE term refuses, and THIS LANE STILL DOES NOT ENTER WATCH MODE. The pins went
+# back to `REJECTED` (header §4 carries the falsified co-orbital premise in full), so the
+# flown shape is the same one the 2026-08-25 windows were written from.
+#
+# RE-ARMED off the CONFIRMING run `2026-08-28_1940` (PASS attempt 1, 57 s, corrected
+# pins, `expectations mismatches=0`), which is the measurement the re-arm rests on:
+#     dwells 3   cycles 1   unevaluable 59   findings FAIL 0 / WARN 0 / INFO 1
+# against the 2026-08-25 arming run's 3 / 1 / 56 - every retained window met, and the
+# only movement is 3 unevaluables of endpoint-count noise, well inside a ceiling written
+# as a runaway guard. So this is a RESTORATION, not a re-pin: **NO WINDOW VALUE CHANGED
+# ACROSS THE WHOLE CYCLE**, which is the S4.1 rule holding through a de-arm as well as
+# through an arming.
+#
+# WHAT IS NOT CLAIMED. The 2026-08-25 three-run discipline (reading -> armed re-flight ->
+# negative control) is NOT re-run here and is not re-claimed; it stands on its own runs,
+# recorded in the ledger below, and this cycle neither strengthens nor weakens it. What
+# `_1940` establishes is the narrower thing a restoration needs: the subject the windows
+# describe did not move.
+gating = true
 dwells = { min = 1, max = 32 }
 cycles = { min = 1, max = 16 }
 unevaluable = { max = 200 }

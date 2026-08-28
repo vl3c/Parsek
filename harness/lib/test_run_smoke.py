@@ -3833,23 +3833,24 @@ class DryRunPlanVerifierEnumerationTests(unittest.TestCase):
     # silently stopped covering the branch on the day the lane armed.
 
     def test_an_armed_render_composition_spec_names_the_gate_and_subkind(self):
-        """COMMITTED subject (V8, armed 2026-08-25, discipline-complete the same day).
-
-        WAS V14M until 2026-08-28, when that lane was DE-ARMED for the watch-entry
-        migration (docs/dev/todo-and-known-bugs.md ->
-        WATCH-ENTRY-REFUSED-INSIDE-QUOTED-RANGE). Re-pointed at a sibling rather than
-        made synthetic: the cell's value is that a REAL committed spec renders the
-        armed plan line, and five committed lanes still arm the block."""
-        line = self._plan("V8-eve-player-loop")
+        """COMMITTED subject (V14M, armed 2026-08-25)."""
+        line = self._plan("V14M-ike-player-loop")
         self.assertIn("renderCompose(armed: renderComposition", line)
         self.assertIn("PARSEK-FAIL(render-composition)", line)
 
     def test_a_declared_but_unarmed_render_composition_block_renders_report_only(self):
-        """SYNTHETIC, and must stay so. It was written when every committed declarer
-        was ARMED; since 2026-08-28 V14M is a committed declared-but-unarmed lane, so
-        a real subject exists again - but only until its re-arm, and a cell that
-        followed the corpus would have to move twice more. The synthetic input states
-        the property unconditionally."""
+        """SYNTHETIC, and must stay so.
+
+        Its original note read "every committed declarer is now ARMED", which was true
+        of the four-declarer corpus it was written against and stopped being true on
+        2026-08-26, when Phase 3C/Wave B took the declarer roster to 24 against 6 armed
+        lanes. Committed declared-but-unarmed subjects are therefore the NORM now, not
+        the exception - but which lane is bare moves with every arming decision, and a
+        cell that named one would be re-pointed by unrelated work. The synthetic input
+        states the property unconditionally and does not participate in that churn.
+
+        (Corrected 2026-08-28 while the watch-entry change briefly de-armed V14M. The
+        de-arm was reverted in the same change; this note is not about it.)"""
         line = self._render({"id": "SYNTH-rc-declared", "driver": {"steps": []},
                              "expectations": {"renderComposition": {"dwells": {"min": 1}}}})
         self.assertIn("renderCompose(report-only: renderComposition", line)

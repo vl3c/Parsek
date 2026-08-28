@@ -11675,8 +11675,9 @@ is now, and it splits cleanly in two:
 
   **THE SPEC MIGRATION, FINAL.** ONE lane flips (`V7M`, two steps, now MEASURED OK);
   `V14M` flipped and flipped BACK after its reading (two steps, now MEASURED REJECTED on
-  the RANGE term, with `body=T` recorded); its render-composition block is DE-ARMED with
-  a re-arm owed. The other seven of the nine specs keep `REJECTED` and got COMMENT-ONLY refreshes
+  the RANGE term, with `body=T` recorded); its render-composition block went off and back
+  ON, unchanged, in the same change. **NET AGAINST MAIN: one lane's two pins flip, and
+  nothing else about the corpus's arming state moves.** The other seven of the nine specs keep `REJECTED` and got COMMENT-ONLY refreshes
   re-pointing each rationale at the term that actually refuses: V4 / V8 step 1 genuine
   cross-body, V4 / V6M / V8 step 2 measured or derived >300 km range, V16M / V17M / V19M /
   V20M the selector-level `no-watchable-ghost` their runs measured. **THE "~120 km"
@@ -11705,23 +11706,41 @@ is now, and it splits cleanly in two:
   first time. If they move, the follow-up is to promote an `ExitWatchMode` verb - NOT to
   re-roll the pin.
 
-  **V14M CARRIED A SECOND HAZARD OF ITS OWN, NOW DISCHARGED rather than merely noted.**
+  **V14M CARRIED A SECOND HAZARD OF ITS OWN: A DE-ARM / RE-ARM ROUND TRIP, COMPLETED.**
   Its `[expectations.renderComposition]` block was ARMED AND GATING, and a run that
   ENTERS watch mode force-builds the watched ghost's visuals at full fidelity and anchors
   the camera to it - a composition no archived run of that lane produced, while every
   window in the block was written from runs where BOTH watch attempts were refused. Left
-  armed, a red would have classified `PARSEK-FAIL(render-composition)` for a MIGRATION
-  reason: a product regression reported where the truth is "the windows describe the old
-  flown shape". The margins are wide (dwells measured 3 against `{1,32}`) and it might
-  well have held - but that is a prediction, and arming rests on a measurement. **IT IS
-  DE-ARMED**: `gating = false`, windows RETAINED verbatim as the record of
-  `2026-08-25_0953`, the entry removed from `RENDERCOMPOSE_ARMED_SPECS`, and its key-set
-  cell rewritten into a de-armed form (the spec flag and the roster are pinned to agree
-  by `test_every_declarers_arming_state_matches_the_recorded_rosters`; the block stays
-  DECLARED, because the declaration is what arms the C# recorder so the reading flight
-  still produces a manifest). One committed cell that used V14M as its armed subject was
-  re-pointed at V8. **THE RE-ARM IS OWED** after the watch-entry reading flight, off ITS
-  facets, on the ordinary three-run discipline.
+  armed across the pin flip, a red would have classified
+  `PARSEK-FAIL(render-composition)` for a MIGRATION reason: a product regression reported
+  where the truth is "the windows describe the old flown shape". The margins were wide
+  (dwells measured 3 against `{1,32}`) and it might well have held - but that is a
+  prediction, and arming rests on a measurement. So it was **DE-ARMED** with the flip:
+  `gating = false`, windows RETAINED verbatim, entry removed from
+  `RENDERCOMPOSE_ARMED_SPECS`, key-set cell rewritten into a de-armed form (the spec flag
+  and the roster are pinned to agree by
+  `test_every_declarers_arming_state_matches_the_recorded_rosters`), block kept DECLARED
+  so the C# recorder still armed and the reading flight still produced a manifest.
+
+  **THEN THE READING FLIGHT REMOVED THE PREMISE AND THE BLOCK WENT BACK ON, UNCHANGED.**
+  `2026-08-28_1932` / `_1933_a2` measured that this lane still does NOT enter watch mode
+  (`range=F` at 449.7 km); the pins returned to `REJECTED`; and the confirming run
+  `2026-08-28_1940` (PASS, corrected pins, `mismatches=0`) supplied the measurement a
+  restoration needs - **dwells 3, cycles 1, unevaluable 59, findings FAIL 0 / WARN 0 /
+  INFO 1, every retained window met**, within noise of the 2026-08-25 arming run's
+  3 / 1 / 56. **RE-ARMED**, with the roster entry restored, the key-set cell back in its
+  armed form, and the one committed smoke cell that had been re-pointed to V8 pointed
+  back at V14M. **NO WINDOW VALUE CHANGED ACROSS THE WHOLE CYCLE** - which is what makes
+  it a restoration rather than a re-pin, and is the S4.1 rule holding through a de-arm as
+  well as through an arming. The 2026-08-25 three-run discipline is neither re-run nor
+  re-claimed; `_1940` establishes only the narrower thing a restoration needs, that the
+  subject the windows describe did not move.
+
+  ONE PRE-EXISTING STALENESS SURFACED AND WAS FIXED IN PASSING (not caused by this
+  change): `test_run_smoke`'s declared-but-unarmed cell carried the note "every committed
+  declarer is now ARMED", true of the four-declarer corpus it was written against and
+  false since 2026-08-26, when the roster reached 24 declarers against 6 armed lanes. It
+  now states the reason that does not move with the corpus.
 
   **ONE DEFERRED-BY-DESIGN NOTE, per the visual/recording efficiency principle.** The
   term's decision line is change-keyed AND lazily formatted (`VerboseOnChange`'s

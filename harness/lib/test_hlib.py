@@ -6392,22 +6392,28 @@ class RenderComposeVerifierWiringTests(unittest.TestCase):
         # shared evaluator. Control reverted in the same change. V8 flew its OWN
         # control rather than sharing this one - see that entry.
         #
-        # ** DE-ARMED 2026-08-28 - ENTRY REMOVED, HISTORY KEPT. ** The lane's two
-        # `EnterWatchMode` pins flipped REJECTED -> OK in the watch-entry
-        # acceptance change (docs/dev/todo-and-known-bugs.md ->
-        # WATCH-ENTRY-REFUSED-INSIDE-QUOTED-RANGE), and a run that ENTERS watch
-        # mode force-builds the watched ghost at full fidelity and anchors the
-        # camera to it - a composition NO archived run of this lane produced,
-        # while every window above was written from runs where both watch attempts
-        # were REFUSED. Left armed, a red would classify
-        # `PARSEK-FAIL(render-composition)` for a MIGRATION reason. The margins are
-        # wide and it might have held; "probably still fits" is a prediction, and
-        # arming rests on a measurement. The spec now reads `gating = false` with
-        # the windows retained verbatim as the record of `2026-08-25_0953`.
-        # THE RE-ARM IS OWED after the watch-entry reading flight, on the ordinary
-        # three-run discipline, off ITS facets - at which point this entry comes
-        # back with the new run ids. The rows above are NOT retracted: they record
-        # what was measured and discharged under the pre-migration flown shape.
+        # ** ONE ROUND TRIP, 2026-08-28, COMPLETED - ENTRY RESTORED UNCHANGED. **
+        # The watch-entry acceptance change (docs/dev/todo-and-known-bugs.md ->
+        # WATCH-ENTRY-REFUSED-INSIDE-QUOTED-RANGE) flipped this lane's two
+        # `EnterWatchMode` pins REJECTED -> OK, and a run that ENTERS watch mode
+        # force-builds the watched ghost at full fidelity - a composition NO
+        # archived run of this lane produced, while every window above was written
+        # from runs where both watch attempts were REFUSED. Armed across that, a
+        # red would have classified `PARSEK-FAIL(render-composition)` for a
+        # MIGRATION reason, so the entry was REMOVED and the spec de-armed.
+        # THE READING FLIGHT THEN REMOVED THE PREMISE: `2026-08-28_1932` /
+        # `_1933_a2` measured `candidates=[0 ghost=T body=T range=F]` at
+        # 449.6/449.9 km - the body term passes, the RANGE term refuses, and this
+        # lane still does not enter watch mode - so the pins went back to REJECTED
+        # and the flown shape is the one the windows above describe.
+        # RE-ARMED off CONFIRMING RUN `2026-08-28_1940` (PASS attempt 1, 57 s,
+        # corrected pins, mismatches=0): dwells 3, cycles 1, unevaluable 59,
+        # findings FAIL 0 / WARN 0 / INFO 1 - every retained window met, within
+        # noise of the arming run's 3 / 1 / 56. NO WINDOW VALUE CHANGED ACROSS THE
+        # CYCLE, which is what makes it a RESTORATION rather than a re-pin; the
+        # 2026-08-25 three-run discipline recorded above is neither re-run nor
+        # re-claimed by it.
+        "V14M-ike-player-loop.toml",
         # V8: ARMED 2026-08-25 off its OWN report-only reading run
         # `2026-08-25_0956` (PASS attempt 1, same REPORT/zero-FAIL shape). Windows:
         # dwells {1,32} (measured 2), unevaluable {max 250} (measured 76 - 73 of
@@ -7218,53 +7224,26 @@ class RenderComposeVerifierWiringTests(unittest.TestCase):
         self.assertTrue(rendercompose.gating_armed(exp))
         return exp[rendercompose.RENDER_COMPOSITION_BLOCK]
 
-    def test_v14m_keeps_its_render_composition_windows_while_de_armed(self):
-        """V14M was ARMED 2026-08-25 off reading run `2026-08-25_0953` (dwells 3,
-        cycles 1 closed, unevaluable 56, seamKinds {rigid 14, flexible-soi 2}) and
-        DE-ARMED 2026-08-28 for the watch-entry migration.
+    def test_v14m_declares_the_render_composition_block_armed(self):
+        """V14M, ARMED 2026-08-25 off reading run `2026-08-25_0953`: dwells 3,
+        cycles 1 closed, unevaluable 56, seamKinds {rigid 14, flexible-soi 2}. Every
+        window below is that measurement with a stated margin.
 
-        THE CELL IS REWRITTEN RATHER THAN DELETED, the
-        `test_only_the_strict_allowlist_arms_the_runtests_strict_arg` precedent: a
-        de-arm that also dropped the window pins would let the measured numbers rot
-        while nothing watched them, and the re-arm would then have nothing to
-        compare against. So the statement changes from "these windows are armed" to
-        "these windows are RETAINED, verbatim, and the block is off" - which is
-        exactly the state a de-arm is supposed to leave behind.
-
-        WHY DE-ARMED: the lane's two `EnterWatchMode` pins flipped REJECTED -> OK
-        (docs/dev/todo-and-known-bugs.md ->
-        WATCH-ENTRY-REFUSED-INSIDE-QUOTED-RANGE), and a run that ENTERS watch mode
-        force-builds the watched ghost at full fidelity and anchors the camera to
-        it. Every window here was written from runs where BOTH watch attempts were
-        refused, so a red would classify `PARSEK-FAIL(render-composition)` for a
-        migration reason rather than a product one.
-
-        RE-ARM after the watch-entry reading flight, off ITS facets, on the ordinary
-        three-run discipline - and turn this cell back into the armed form when you
-        do."""
-        spec = load_spec("V14M-ike-player-loop.toml")
-        exp = spec["expectations"]
-        self.assertEqual(("renderComposition",),
-                         rendercompose.declared_composition_blocks(exp),
-                         "V14M must keep DECLARING the block while de-armed - the "
-                         "declaration is what arms the C# recorder at launch, so "
-                         "dropping it would stop the reading flight producing the "
-                         "manifest the re-arm has to read")
-        self.assertFalse(
-            rendercompose.gating_armed(exp),
-            "V14M's render-composition block is armed again; if that is deliberate, "
-            "restore its RENDERCOMPOSE_ARMED_SPECS entry with the reading / armed / "
-            "negative-control run ids of the flight it was armed off")
-        self.assertNotIn("V14M-ike-player-loop.toml", self.RENDERCOMPOSE_ARMED_SPECS,
-                         "the de-armed spec and the roster must agree")
-
-        block = exp[rendercompose.RENDER_COMPOSITION_BLOCK]
+        ONE ROUND TRIP, 2026-08-28, AND THE WINDOWS SURVIVED IT UNCHANGED. The
+        watch-entry acceptance change de-armed this block (its `EnterWatchMode` pins
+        were flipped REJECTED -> OK, and a run that enters watch mode composes
+        differently); the reading flight then measured that the lane still does NOT
+        enter watch mode, the pins went back, and confirming run `2026-08-28_1940`
+        re-measured dwells 3 / cycles 1 / unevaluable 59 - every window below met,
+        within noise of the arming run. So the pins here are the SAME NUMBERS they
+        have been since 2026-08-25, and this cell asserts them for the same reason it
+        always did. See RENDERCOMPOSE_ARMED_SPECS for the cycle's run ids."""
+        block = self._armed_block("V14M-ike-player-loop.toml")
         self.assertEqual({"gating", "dwells", "cycles", "unevaluable",
                           "requireSeamKinds"}, set(block),
-                         "a window was added to (or removed from) V14M's retained "
-                         "render-composition block; the windows are the record of "
-                         "`2026-08-25_0953` and the baseline the re-arm compares "
-                         "against - a de-arm is not a licence to edit them")
+                         "a window was added to (or removed from) V14M's ARMED "
+                         "render-composition block; every armed window needs its own "
+                         "report-only reading run behind it")
         self.assertEqual({"min": 1, "max": 32}, block["dwells"])
         self.assertEqual({"min": 1, "max": 16}, block["cycles"])
         self.assertEqual({"max": 200}, block["unevaluable"])
