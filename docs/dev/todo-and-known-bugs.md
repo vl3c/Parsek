@@ -14,6 +14,62 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~LOGISTICS-CELLS-ASSUME-AN-EMPTY-DESTINATION-TANK-AND-A-YOUNG-SAVE~~: ten in-game cells encoded a save property instead of stating a precondition, so two correct product refusals read as ten reds [FOUND 2026-08-28 by the H39/H40 recorded-host reading runs. TEST DEFECTS ONLY - both product gates behaved exactly as designed, and neither is changed. **FIXED THE SAME DAY** on branch `logistics-isolated-lanes`]
+
+**Family A - the full destination tank (9 cells).**
+`LiveRouteRuntimeEnvironment.DestinationHasCapacity` is an ALL-OR-NOTHING
+eligibility gate: a cycle fires only when the FULL delivery manifest fits the
+destination, because dispatch debits the origin for the full manifest. The H40
+fixture's active vessel carries a full 720/720 LiquidFuel tank, so the gate
+CORRECTLY held every synthetic cycle in `DestinationFull` and the cells reded on
+route-state / ledger assertions that were about something else entirely. The nine:
+`LogisticsOriginDebitRuntimeTests` x2 (loaded + unloaded origin), all four
+`LogisticsRoundTripRuntimeTests` cells, and `LogisticsMultiOriginRuntimeTests`
+x3 (`MultiOrigin_TwoSources`, `Shuttle_Refinery`, `MultiOrigin_SaveRoundTrip`).
+Every one resolves `FlightGlobals.ActiveVessel` as its delivery destination and
+never checked or created headroom; five OTHER cells passed only because each had
+independently grown its own inline drain.
+
+FIX: `Source/Parsek/InGameTests/Helpers/DestinationHeadroomFixture.cs` -
+`TryEnsureDestinationHeadroom` drains the MINIMUM needed across deliverable tanks,
+measuring deliverability through the PRODUCTION predicate
+(`RouteOrchestrator.ShouldDeliverToResource`, the same one
+`LiveDeliveryCapacityProbe.ProbeLoadedResourceFree` applies) so the headroom it
+creates cannot drift from the headroom the gate measures. Each cell hangs the
+restore on its existing finally / restore lambda. Two traps recorded: (1) in
+`OriginDebit_Loaded` the origin IS the destination, so the drain must run BEFORE
+`storedBefore` is measured or the pool assertion reads a stale baseline - which is
+why this is wired per-cell and NOT inside the shared `RunOriginDebitCrossing`;
+(2) `OriginGate_EmptyOrigin` and `MultiOrigin_OneSourceShort` are HOLD cells that
+must keep their empty/short vessels, and are deliberately untouched.
+
+The five inline pre-drains were deliberately NOT swapped onto the helper. They are
+a different contract: each drains ONE specific `PartResource` and then asserts on
+THAT reference (`fuelResource.amount == postDrain + expectedDelta`). A helper free
+to satisfy the deficit from any deliverable tank would leave the asserted tank full
+whenever another tank supplied the room, silently degrading those assertions to
+`tankCanReceive == false` / skipped rather than failing. Both docstrings say so.
+
+**Family B - the young save (1 cell).**
+`RouteRewindRedeliveryInGameTest` pinned `RewindCutoffUT = 1500` but left its
+synthetic route's `CreatedUT` at the `-1.0` default. `RouteStore.AddRoute` stamps
+the LIVE save UT whenever `CreatedUT < 0`, and `RouteRewindClassifier.Classify`
+parks any captured route with `CreatedUT > cutoff` on the DORMANT list - correctly:
+a route created after the rewind target does not exist yet on the re-flown
+timeline, and a dormant route is invisible to `TryGetRoute`. So the cell passed
+only on a save younger than ~25 minutes of game time and reded on every older one.
+FIX: `CreatedUT = SpanStartUT` (1000 < 1500), which models what the cell is
+actually about - a route that already existed before the rewind point. The inline
+comment claiming "RouteStore is NOT part of the reconciliation bundle" was
+factually wrong (the bundle captures BOTH route lists and re-splits them through
+`Classify`) and is replaced with the real contract; the assertion is strengthened
+to require the route is committed AND absent from `RouteStore.DormantRoutes`, so a
+future classifier change that parks it cannot read as a plain lookup miss.
+
+Cross-ref: these runs also PROVED the destination-full refusal branch fires live -
+see the **UPDATE 2026-08-28** paragraph on the D10 `destination-full-gate` row,
+inside `ROUTE-CANDIDACY-GATED-ON-SEAL-NO-SEAM-PATH` further down.
+
 ## ~~D4-HARVEST-POLL-IS-NOT-RAILS-GATED-ON-SURFACE-VESSELS~~: the M2 harvest poll ran on PACKED frames for every LANDED / SPLASHED / PRELAUNCH vessel, and the rails-exit funnel flag was burned by the first no-transition poll instead of by the transition it labelled [FOUND 2026-08-28 by the first isolated Logistics batch (H38 reading run, `logs/2026-08-28_2105_H38-logistics-isolated`) and diagnosed against the source. TWO PRODUCT BUGS IN ONE FUNNEL, both on the D4 warp rule. **FIXED THE SAME DAY** on branch `logistics-isolated-lanes` - see THE FIX below]
 
 **Bug 1 - the invariant the code states is not the invariant it enforces.**
@@ -9189,6 +9245,25 @@ fits`, x3) and `RouteStatus.DestinationFull` / `WaitDestinationFull` never fire,
 the unit could stop refusing a full destination entirely and all 39 cells would still
 pass. It needs a cell that drives the REFUSAL, not another lane. The two
 route-CREATION-shaped rows are still what the fix above would unblock.
+
+**UPDATE 2026-08-28 - the refusal branch IS now measured, on H40.** The
+recorded-host reading runs flew against a fixture whose active vessel carries a
+FULL 720/720 LiquidFuel tank, and the all-or-nothing gate did exactly what this
+note said was undriven: it held nine cells' synthetic cycles in `DestinationFull`
+across three suites (origin-debit x2, round-trip x4, multi-origin x3). That is the
+REFUSAL branch firing on a live flight, against a real craft, for the right
+reason - the evidence `destination-full-gate` was missing. Two caveats for the
+pinning round. (1) Those nine cells are being FIXED to create their own headroom
+(`DestinationHeadroomFixture`), so after the fix they take the permissive branch
+again and the refusal is no longer in their path - a claim must rest on a token a
+POST-FIX flight still emits, not on the reading run's incidental reds.
+(2) `LogisticsMultiOriginRuntimeTests.MultiOrigin_OneSourceShort_HoldsNamingSource`
+holds on `OriginLacksCargo`, not on the destination gate, so it is not the cell
+either. Claiming the row therefore still wants a cell that drives the refusal ON
+PURPOSE (a full destination it does not drain, asserting
+`RouteStatus.DestinationFull` + the `destination FULL ... holding cycle
+all-or-nothing` Verbose line) - but the reading runs have now proven the branch is
+reachable from a committed fixture, which is what was in doubt.
 
 ---
 

@@ -28,6 +28,29 @@ All notable changes to Parsek are documented here.
 
 ### Dev
 
+- Ten more supply-route in-game tests were making silent assumptions about the
+  save they run in, and the two new recorded-flight test runs caught all of them.
+  Nine assumed the rocket they deliver onto has an EMPTY fuel tank. Parsek will
+  only run a supply cycle when the whole delivery fits at the destination - a
+  deliberate all-or-nothing rule, so a half-delivered load can never be charged
+  for in full - and the test rocket's tank is full, so the product correctly
+  refused to run the cycle and the tests reded on assertions about something else
+  entirely. Five other tests had quietly grown their own little "empty the tank
+  first" step, which is why they passed. There is now one shared piece that makes
+  exactly as much room as the delivery needs, puts the fuel back afterwards, and
+  measures room the same way the product's own refusal does, so the two cannot
+  drift apart. The five that drain one specific tank and then check THAT tank
+  received the fuel keep their own step - a shared helper free to drain any tank
+  would quietly stop them checking anything. The tenth test assumed a YOUNG save:
+  it created a supply route and then rewound to a moment 25 minutes into the
+  flight, and a route is stamped with the time it was created, so on any save
+  older than that the product correctly parked the route as "not created yet on
+  this timeline" and the test could no longer find it. The route is now stamped
+  with a time before the rewind point, which is what the test was always about -
+  a route that already existed when you rewound - and it now also checks the route
+  was not parked, rather than only that it could be found. All ten were test-side;
+  the product refusals were right in every case. Test-tooling only; no gameplay
+  change.
 - Three of the resource-harvesting in-game tests were reading the wrong copy of
   the flight and could not have passed as written. While a flight is being
   recorded, what the recorder has gathered and what the flight's stored
