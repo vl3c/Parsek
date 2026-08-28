@@ -2547,6 +2547,89 @@ DEFERRALS TAKEN IN PHASES 1-2, each of which a lane author must know.
   CONSEQUENCE ALREADY TAKEN, tolerance not fix: V25M lists `line-blink` bare in
   `allowedAnomalies` citing `2026-08-26_1817`, ceiling 2 (2x measured) in
   prose, pending the budget-mechanism allowlist move.**
+- **V15M-LINEBLINK-IS-TRACEDPATH-HANDOFF-CADENCE: V15M's single `line-blink`
+  raise is the Director's DESIGNED StockConic->TracedPath descent handoff at
+  the Gilly loop tail, flagged only when frame cadence lands the toggle pair
+  inside the 8-frame blink window - pre-existing, deterministic in UT, and NOT
+  from PR #1556 or the map-render wave** [ATTRIBUTED 2026-08-28 by comparing
+  the #1556 confirmation flight `2026-08-28_1703` (branch `watch-mode-fixes`
+  fc49e71d5; collected log `logs/2026-08-28_2004_V15M-gilly-player-loop`)
+  against the lane's arming flight `2026-08-19_1810` (branch `gilly-loop-lane`
+  9301b945d; collected log `logs/2026-08-19_2111_V15M-gilly-player-loop`;
+  result JSON in `Parsek-gilly-loop-lane/harness/results`). Owner: whoever
+  owns the `MapRenderTrace` blink exemptions].
+  THE TWO RUNS RAISE THE IDENTICAL EVENT, NINE DAYS AND TWO CODEBASES APART:
+  same recId `77f724bb`, same `currentUT=16656457.000`, same
+  `intentReason=director-traced-path-suppress`, same missing-exemption
+  fingerprint (`offWindowCovered=False polylinePainted=False
+  polylineOwns=False windowTransitionExempt=False bodyChanged=False
+  priorToggleVerdict=InsideWindowOn toggleVerdict=Other`), `sinceFrames` 5
+  (2026-08-28) vs 8 (2026-08-19), both <= `LineBlinkFrameWindow=8`. The
+  2026-08-19 run predates the ENTIRE map-render wave (#1526-#1551; the M-A7
+  manifest landed 2026-08-25) and ran the dead-watch-camera code (it is the
+  443-NRE-storm flight), yet raised the same blink at the same UT. That kills
+  BOTH candidates PR #1556's todo note deliberately left open: "main moved"
+  (the raise existed before main moved) and "watch working changes what the
+  map sees" (the raise fires with the watch camera dead and alive alike; the
+  same-millisecond `Watch focus dist=786m` coincidence in `_1703` is script
+  ordering, not causation). **PR #1556 is EXONERATED, and so is the
+  map-render wave.** When #1556 merges, fold its unattributed note into this
+  entry.
+  MECHANISM (read off both traces, and replicated by BOTH ghost incarnations
+  within EACH run): after the loop-cycle rollover the proto re-resolves onto
+  the recording's tiny terminal Gilly orbital window (bodyFrame
+  [16656187.2, 16656357.5], ~170 s): line ON `director-stockconic-visible`
+  (Inside stamp). A few ~130 s warp frames later the drive clock crosses the
+  last recorded orbit segment's end into the TracedPath descent leg;
+  `ShadowRenderDriver.IsTracedPathOwnedThisFrame` flips true and the
+  `GhostOrbitLinePatch` Postfix kills the line with
+  `director-traced-path-suppress` (which stamps NO `RenderWindowCoverage` and
+  `hasBounds=false` BY DESIGN - it is not one of the four stamping sites).
+  The proto never relights: it retires ~25 frames later (`left-orbit-segments`,
+  "Orbit proto retired AT terminal orbit bound"). A designed, permanent
+  handoff - not a flicker.
+  WHY NO EXEMPTION CAN MATCH: `bodyChanged` false (Gilly->Gilly);
+  `windowTransitionExempt` needs an Outside stamp the suppress site never
+  writes; `polylinePainted`/`polylineOwns` false because ownership publishes
+  ONLY on an ACTUAL polyline draw and the Driver never drew this run - V15M is
+  a map-closed flight-scene lane (renderCompose:
+  `ownership-publish-surface-never-ran`). So the exempting fact the closed
+  V1-REPLAY-LINE-BLINK diagnosis established for handoffs (the
+  paint/ownership bit) is structurally unavailable exactly when the map is
+  closed - i.e. exactly when NO line is visible to any viewer and a "blink"
+  has no observer.
+  CADENCE, NOT CODE, DECIDES THE RAISE: in BOTH runs the FIRST incarnation
+  crossed the identical handoff one loop earlier and was NOT flagged
+  (`sinceFrames=10 > 8`: frames 6834->6844 in `_1703`, 7108->7118 in
+  `_1810`); the second incarnation landed at 5 and 8. Whether ~130 s/frame
+  stepping crosses the ~170 s terminal window in <= 8 frames is frame-rate
+  jitter. Corollary: **V15M has never had a green armed run** - the arming
+  flight itself red'd on this exact raise (its NRE storm took the attention),
+  so the 2026-08-28 red reproduces the lane's standing state; it is not a
+  regression.
+  NOT the creation-frame render family: that family (V20 artifacts,
+  TIMEJUMP-CANNOT-OBSERVE-LIVE-FRAME-OVERLAP-PROTOS-ON-LONG-PITCH-SUBJECTS)
+  is overlap protos
+  SETTLING onto segment zero at creation because jump order sets creation
+  frames. Here incarnation 2 was created correctly onto the loop-shifted
+  visible segment (segIdx 2-3, `from visible-segment`) and behaved per
+  contract until the designed handoff; TimeJump's only role is cadence.
+  FIX DIRECTIONS (not taken - file-only entry): (a) the principled exemption
+  EXISTS as a positive fact stamped at a site whose branch condition IS the
+  measurement: the OFF edge's branch condition is
+  `IsTracedPathOwnedThisFrame(pid, frame)` - "the Director's spine says a
+  non-orbital leg owns this pid this frame" is a measured transition fact,
+  not a widened window. Exempt an OFF whose intent is
+  `director-traced-path-suppress` with that selector true and a prior Inside
+  ON. CAVEAT to design around: bare, it would also exempt a map-OPEN handoff
+  where the polyline then FAILS to draw (a real dark gap) - so conjoin the
+  ownership/paint bit whenever the publish surface ran, and accept the
+  selector alone only when it never ran (the case with no visible line at
+  all). (b) V25M-style tolerance: list `line-blink` bare in V15M
+  `allowedAnomalies` citing `2026-08-19_1810` + `2026-08-28_1703` - same
+  unbounded-tolerance cost as the V24W/V25M precedents while the budget
+  mechanism stays inert. Preference: (a) - unlike RESEED-LAG above (a real
+  transient) this raise is a measurement artifact of a designed handoff.
 - **GHOST-MAP-TEARDOWN-NRE-WHEN-CAMERA-TARGETED: destroying a ghost map vessel
   that is the `PlanetariumCamera`'s current target NREs stock's KnowledgeBase
   during the forced retarget** [OPENED 2026-08-26 off V25M reading 3
