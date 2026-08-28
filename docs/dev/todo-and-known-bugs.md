@@ -5254,11 +5254,15 @@ gate), which is exactly why this needs writing down rather than leaving in a log
 
 **IT IS THE FIRST RUN THAT ACTUALLY WATCHES A LOOPED ARRIVAL PARK.** Every prior
 loop-lane watch attempt was REJECTED on separation - V6M, V6T, V7T, V14M and V14T all
-pin `expect = "REJECTED"` and measured it - and V7M, the one lane that DID enter,
-entered on a Minmus park and quit shortly after. `V15M` is the first to enter (a 27,024
-x 26,321 m Gilly park puts the co-orbiting observer and ghost 775 m apart, 1.51x inside
-the 120 km render-zone boundary; see WATCH-ENTRY-REFUSED-INSIDE-QUOTED-RANGE for what
-that boundary is and is not) **and then keep flying**: a second `StartLoopPlayback` and
+pinned `expect = "REJECTED"` and measured it (V14M's two pins were later flipped to a
+PREDICTED `OK` when the refusing term was fixed on 2026-08-28 - see
+WATCH-ENTRY-REFUSED-INSIDE-QUOTED-RANGE; the readings above are unaffected) - and V7M,
+the one lane that DID enter, entered on a Minmus park and quit shortly after. `V15M` is
+the first to enter (a 27,024 x 26,321 m Gilly park puts the co-orbiting observer and
+ghost 775 m apart, well inside the only distance gate on the entry path,
+`WatchEnterCutoffMeters` = 300 km; the "120 km render-zone boundary" this line used to
+cite is retired - see WATCH-ENTRY-REFUSED-INSIDE-QUOTED-RANGE for what that number is
+and is not) **and then keep flying**: a second `StartLoopPlayback` and
 four more `TimeJump`s run with watch mode still active.
 
 THE CONTROL IS IN THE SAME PROGRAM: `V15T-gilly-ts-arrival` (run `2026-08-19_1739`)
@@ -11382,7 +11386,7 @@ which is why it shipped as its own entry rather than as a residual on that one.
 
 ---
 
-## WATCH-ENTRY-REFUSED-INSIDE-QUOTED-RANGE: watch-mode auto-select refuses far inside the 300 km range term it actually evaluates, because the render-zone hide starves the SAME-BODY term [BOUNDARY FOUND 2026-08-08 by V7M-minmus-player-loop, measured four times; MECHANISM CORRECTED 2026-08-09; **REFUSING TERM ESTABLISHED 2026-08-28**, branch `watch-mode-fixes` - see THE REFUSING TERM below. The REFUSAL ITSELF IS DELIBERATELY UNCHANGED (armed V-family lanes pin it); what shipped is the reporting: the reject branch now names the term, and the affordance no longer claims a different body]
+## WATCH-ENTRY-REFUSED-INSIDE-QUOTED-RANGE: watch-mode auto-select refuses far inside the 300 km range term it actually evaluates, because the render-zone hide starves the SAME-BODY term [BOUNDARY FOUND 2026-08-08 by V7M-minmus-player-loop, measured four times; MECHANISM CORRECTED 2026-08-09; **REFUSING TERM ESTABLISHED 2026-08-28**, branch `watch-mode-fixes` - see THE REFUSING TERM below; **REFUSAL FIXED 2026-08-28**, branch `watch-entry-accept` - see THE PLAYER-FACING FOLLOW-UP -> TAKEN. Two shipments, in order: first the REPORTING (the reject branch names the term, the affordance no longer claims a different body), then the BEHAVIOUR (the same-body term resolves from the recording's trajectory instead of a stale spawn seed, so a same-body ghost inside the 300 km cutoff is accepted; genuinely cross-body still refuses, per design E5). The V7M / V14M pins that measured the refusal are now PREDICTED `OK` pending reading flights]
 
 ### THE REFUSING TERM, ESTABLISHED (2026-08-28) - it is `IsGhostOnSameBody`
 
@@ -11457,6 +11461,13 @@ reading is current - which is exactly the conflation that made the first draft d
 V7M's refusal as a genuine different-body case. A prewarmed or in-zone ghost still reports
 a real body comparison.
 
+THAT PREDICATE IS NO LONGER REPORTING-ONLY (2026-08-28, second shipment). It is now the
+DISPATCH for the body term itself: `IsGhostOnSameBody` consults it, and on a
+not-current reading resolves the ghost's body from its own trajectory instead. See THE
+PLAYER-FACING FOLLOW-UP -> TAKEN below. Its doc-comment in
+`WatchModeController.Diagnostics.cs` was updated to match; any text elsewhere still
+calling it reporting-only is stale.
+
 THE LOG CORROBORATION, from `logs/2026-08-08_1908_V7Mc-watch-calibration/KSP.log` (the
 `_1607` calibration attempt, one of the four archived flights the section below tabulates):
 
@@ -11481,6 +11492,9 @@ excluded on a code reading and which is now confirmed against the number.
 So the corrected reading of the four-flight table below: at every one of 144,349 /
 144,356 / 144,365 / 191,49x / 198,711 m the conjunction refused on `IsGhostOnSameBody`,
 and it refused for a ghost that WAS on the same body (Minmus) and merely un-rendered.
+THAT IS ALSO WHY THE FIX IS THE ONE IT IS: the readings did not need re-measuring, they
+needed believing. Every distance in the table below still stands; what is retired is the
+"~120 km boundary" reading of them (see TAKEN, below).
 
 ### THE EXPERIMENT, SHIPPED (2026-08-28) - reporting only, no behaviour change
 
@@ -11494,7 +11508,7 @@ the three live probes for them and printing their default falses would invent a
 measurement). The wire response is untouched - `SetExecResult("REJECTED", null,
 "no-watchable-ghost")` is unchanged, so `hlib`'s reason mapping is unaffected.
 
-### THE PLAYER-FACING FOLLOW-UP - the FALSE half fixed, the refusal left alone
+### THE PLAYER-FACING FOLLOW-UP - the FALSE half fixed first, then the refusal itself
 
 The follow-up below said it could not be specified until the refusing term was known. It
 is now, and it splits cleanly in two:
@@ -11510,16 +11524,108 @@ is now, and it splits cleanly in two:
   the Watch button comes back" whenever the ghost's body reading is stale or missing. The
   Timeline W button reuses the same strings through `BuildWatchButtonDescriptor`. Pinned in
   `Source/Parsek.Tests/WatchModeTargetLossTests.cs`.
-- **NOT TAKEN: making the entry succeed at 144 km.** Resolving the body from the recording
-  when the ghost has not been positioned would flip the conjunction and let watch entry
-  succeed anywhere inside 300 km. There is a real argument for it - `HasActiveGhost`'s own
-  doc-comment says "hidden-tier ghosts may have unloaded visuals but are still watchable",
-  and `EnsureGhostVisualsLoadedForWatch` exists precisely to load them at entry - but it is
-  a PRODUCT BEHAVIOUR CHANGE with a measured blast radius: NINE committed specs pin
-  `EnterWatchMode expect = "REJECTED"` - `V4`, `V6M`, `V7M`, `V8`, `V14M`, `V16M`, `V17M`,
-  `V19M`, `V20M` (grepped, not remembered) - and every one of them would red. That is a coordinated decision for
-  whoever owns those lanes, not a side effect of diagnosing the term. **Do NOT take it as
-  part of a bug-fix pass.** Owner: whoever owns `WatchModeController` / the V-family specs.
+- **TAKEN 2026-08-28: making the entry succeed at 144 km.** The paragraph this replaces
+  said NOT TAKEN and named the blast radius; the coordinated decision was then taken by
+  the owner of the V-family lanes, and this is what shipped. It is kept as a **TAKEN**
+  note rather than deleted because the reason it was deferred is the reason the shipped
+  shape looks the way it does.
+
+  **THE DESIGN INTENT IS WHAT SETTLED IT**, not the convenience. `docs/dev/done/
+  design-camera-follow-ghost.md` E5 ("Ghost on different celestial body", deferred to v2)
+  gives the same-body term exactly one job: refuse a GENUINELY cross-body watch, because
+  `FloatingOrigin` is centred on the active vessel and "a ghost millions of meters away
+  would have float precision jitter". DISTANCE IS A SEPARATE TERM
+  (`WatchEnterCutoffMeters = 300 km`), and at <= 300 km the float-grid step is
+  centimetres - `magnitude * 2^-23` is 3.6 cm at 300 km - so a same-body ghost inside the
+  cutoff is precisely the case E5 meant to ACCEPT. Refusing it was never the design; it
+  was the stale-seed defect wearing the design's clothes.
+
+  **SEAM 1 - the body term answers from the trajectory, not the cache.**
+  `WatchModeController.IsGhostOnSameBody` is the single forwarder every consumer reaches.
+  EIGHT call sites, not the six the decision package counted: seven through
+  `ParsekFlight.IsGhostOnSameBody` (the recordings table x2 - the row button and the group
+  W rotation - the Missions window watch target, the timeline W button, the map ghost menu
+  x2, and the M-A2 `enterwatchmode` candidate triple) plus the in-controller
+  `CycleToNextWatchable`.
+
+  **AND A NINTH THAT NO GREP FOR THE NAME FINDS, which is the one that mattered.**
+  `TryResolveWatchEntryState` - the gate inside `EnterWatchMode(index)` itself - carried an
+  INLINE DUPLICATE of the term (`gs.lastInterpolatedBodyName != activeBody`), so it was a
+  second reader of the same spawn seed. The eight sites above only pick an INDEX; this is
+  what actually admits or refuses the entry, and it refuses SILENTLY. Fixing only the
+  selector would have made the selector accept a ghost this method then refused without a
+  word - the M-A2 verb would time out with `enterwatchmode timeout ... watch-not-entered`
+  and an `[Parsek][ERROR]` line, which V7M forbids by name, so the flipped pin would have
+  red on a worse failure than the one it was fixing. It routes through the forwarder now,
+  above the distance guard as before (W1-watch-distance-cutoff's required refusal token
+  depends on that order). Pinned by
+  `WatchEntryAcceptanceWiringGateTests.TryResolveWatchEntryState_UsesTheForwarderRatherThanItsOwnInlineCacheRead`.
+
+  The forwarder now dispatches on the same `IsWatchBodyReadingCurrent` predicate the reporting fix
+  introduced: when the cached reading is NOT current it resolves the ghost's body
+  POSITIONING-FREE from its own recorded trajectory, via
+  `GhostPlaybackEngine.TryResolvePendingPlaybackInterpolation` at the loop-mapped UT
+  `ResolveWatchPlaybackUT` returns, and THAT decides. The stale cache is never the
+  deciding evidence in either direction - it cannot refuse a same-body ghost, and it
+  cannot rescue a cross-body one. It is consulted only when the trajectory cannot resolve
+  at all, which pins the pre-change answer for recordings nothing can resolve. Pure core
+  `ResolveWatchSameBodyDecision` + `ResolveAndLogWatchSameBodyDecision`
+  (`WatchModeController.Diagnostics.cs`), which emits one change-keyed
+  `Watch same-body term: ... evidence=cache-current|trajectory-resolved|cache-fallback`
+  line naming which reading decided.
+
+  **SEAM 2 - THE RESET TRAP, and it is the half that would have made seam 1 worse than
+  the refusal.** `TryStartWatchSession` resets a non-overlap looping ghost's loop phase to
+  `EffectiveLoopStartUT` whenever the ghost is at `zone=Beyond`. That is written for an
+  observer standing near the loop START. Seam 1 opens a second shape it is actively wrong
+  for: an observer at an ARRIVAL PARK whose ghost's current phase is alongside them, where
+  the loop start is another body ~46,000 km away - so entry would teleport the camera
+  cross-body and the 305 km exit debounce would auto-exit within frames, worse than
+  refusing and with a loop-phase reset left behind as a side effect. Pure predicate
+  `ShouldResetLoopPhaseForWatch` now skips the reset when the current phase is itself
+  watchable (same body AND inside the entry cutoff). Overlap loops already skipped the
+  reset; that path is untouched.
+
+  **TESTS.** `Source/Parsek.Tests/WatchEntryAcceptanceTests.cs` (the V7M shape accepted,
+  genuine cross-body still refused, trajectory-failure falls back to the cache, the
+  current-reading precedence, the reset matrix, the evidence log line) plus
+  `WatchEntryAcceptanceWiringGateTests.cs`, a source gate in the
+  `WatchModeTargetLossWiringGateTests` style - both production consumers are per-frame /
+  Unity-event code no headless cell can run, so unwiring either would restore the defect
+  with the suite green. Gate-bite verified by reverting each seam in turn.
+
+  **MIGRATION STATUS - the two flipped pins are PREDICTED, not measured.**
+  `V7M-minmus-player-loop` (both stale-seed steps) and `V14M-ike-player-loop` (both steps,
+  after redoing its chord arithmetic against the real 300 km gate: 2a = 340.9 km admits
+  theta < 123.3 deg, so the fixed per-cycle chord is likelier INSIDE, ~2:1) now pin
+  `expect = "OK"` and are annotated PREDICTED pending reading flights, which are the next
+  step. The other seven of the nine specs keep `REJECTED` and got COMMENT-ONLY refreshes
+  re-pointing each rationale at the term that actually refuses: V4 / V8 step 1 genuine
+  cross-body, V4 / V6M / V8 step 2 measured or derived >300 km range, V16M / V17M / V19M /
+  V20M the selector-level `no-watchable-ghost` their runs measured. **THE "~120 km"
+  DE-FACTO BOUNDARY IS RETIRED EVERYWHERE**: it was never a threshold the entry code
+  compared against, and now that the stale-seed term is fixed it is not a de-facto one
+  either. The four-flight reading table above is NOT retracted - every distance in it
+  stands and every verdict was true of the code that produced it.
+
+  **TWO THINGS THE DECISION PACKAGE GOT WRONG, both found by source reading.** The first
+  is the call-site count and the missed inline duplicate above - "six call sites, all
+  through the one fixed forwarder" was two short and missed the only site that decides.
+  The second: **there is no `ExitWatchMode` seam verb.** `hlib.IMPLEMENTED_SEAM_VERBS` carries 28 and no exit,
+  `RESERVED_SEAM_VERBS` reserves none, and the C# `TestCommandVerbs.ImplementedVerbs`
+  mirrors that set exactly. So V7M cannot drop out of watch mode between cycles: once its
+  cycle-1 step enters, cycles 2 and 3 auto-select the same index and take
+  `ParsekTestCommandAddon`'s idempotent already-watching short-circuit (still `OK`,
+  logging `enterwatchmode already-watching:` rather than `enterwatchmode complete:`). Two
+  consequences the reading flight must check, both written into the spec: the required
+  `enterwatchmode complete: index=` token moves from the cycle-3 step to the cycle-1 one
+  (it is emitted only by the real completion branch, so it still requires one genuine
+  entry), and V7M's downstream desync instruments now run from INSIDE watch mode for the
+  first time. If they move, the follow-up is to promote an `ExitWatchMode` verb - NOT to
+  re-roll the pin. V14M carries the same note plus one of its own: its
+  `[expectations.renderComposition]` block is ARMED AND GATING, and a run that enters
+  watch mode force-builds the watched ghost at full fidelity, a composition no archived
+  run of that lane produced.
 
 The rest of this entry is the original write-up, kept in place because the corrections are
 only legible against what they replace.

@@ -299,6 +299,12 @@ namespace Parsek.Tests
         /// contradicts it), not <c>HasActiveGhost</c> (the state IS present, as the same
         /// frame's `engine-frame-iter` line proves by printing its zone and distance), and not
         /// the range term (previous cell).</para>
+        ///
+        /// <para>SCOPE, since the coordinated decision was later TAKEN: this cell pins the
+        /// ENGINE-LEVEL cache read, which is unchanged and still exactly this stale. What changed
+        /// is that <c>WatchModeController.IsGhostOnSameBody</c> no longer DECIDES on it - see
+        /// <see cref="WatchEntryAcceptanceTests"/> for the term that now resolves the ghost's body
+        /// from its own trajectory and accepts this shape.</para>
         /// </summary>
         [Fact]
         public void IsGhostOnBody_RefusesAHiddenGhostHoldingItsStaleSpawnSeed()

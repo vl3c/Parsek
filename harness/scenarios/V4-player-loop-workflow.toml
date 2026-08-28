@@ -296,6 +296,12 @@ steps = [
   # index, no tree scope - exactly what a player pressing Watch with nothing
   # selected gets). PREDICTED REJECTED: the ghost is at Kerbin, the observer at
   # Duna, so IsGhostOnSameBody refuses before distance is even consulted.
+  # STILL THE REFUSING TERM AFTER THE 2026-08-28 WATCH-ENTRY CHANGE, and this is
+  # the case that change was careful to keep refusing: a GENUINELY cross-body ghost
+  # has no usable camera frame (design `docs/dev/done/design-camera-follow-ghost.md`
+  # E5 - FloatingOrigin is centred on the active vessel). What changed is only WHERE
+  # the term reads the ghost's body from - the recording's own trajectory instead of
+  # a possibly-stale positioning cache - and the trajectory here says Kerbin.
   { cmd = "EnterWatchMode",                                                  expect = "REJECTED" },
   # THE ARRIVAL-SEAM BRACKET, strictly forward, instantaneous, expected-null (see
   # the header's zone-wall paragraph). 28,781,184.52 is the corrected cycle-0
@@ -311,15 +317,21 @@ steps = [
   # body test can pass for a Duna-parked observer, so it is the only place the
   # watchable-chord question can actually be asked.
   { cmd = "TimeJump", args = { ut = "28812941" }, expect = "OK", budget = 300 },
-  # STEP 4: "Watch" again, same auto-select. PREDICTED REJECTED on the phase-chord
-  # arithmetic in the header - against V7M's MEASURED entry boundary (~120 km, and
-  # bracketed rather than read off a constant) that is a chord < ~120 km on this
-  # fixture's ~1,038 km-radius park, i.e. theta < 6.6 deg; against the production
-  # range term alone (WatchEnterCutoffMeters = 300 km) it would be 16.6 deg, and the
-  # measured 643,913 m is outside both. The "~10:1" odds this line used to quote are
-  # DROPPED with the rest of the uniform-draw framing (see the correction banner at
-  # the top of the file): the separation is a fixed per-cycle geometric fact, not a
-  # draw. An OK is the finding.
+  # STEP 4: "Watch" again, same auto-select. PREDICTED REJECTED, and MEASURED
+  # REJECTED at 643,913 m.
+  # THE REFUSING TERM IS THE RANGE TERM, RE-POINTED 2026-08-28. This comment used to
+  # measure the margin against V7M's "~120 km" bracket as well as the 300 km cutoff.
+  # THE ~120 KM NUMBER IS RETIRED: it was never a threshold the entry code compared
+  # against - it was a bracketed measurement of `IsGhostOnSameBody` answering from a
+  # stale spawn seed, and that term was fixed (docs/dev/todo-and-known-bugs.md ->
+  # WATCH-ENTRY-REFUSED-INSIDE-QUOTED-RANGE). This step's refusal does not depend on
+  # it and never did: 643,913 m is 2.15x outside `WatchEnterCutoffMeters` = 300,000 m
+  # (`WatchModeController.cs:71`), which is a hard range refusal at any body. On this
+  # fixture's ~1,038 km-radius park, entering would need a chord under 300 km, i.e.
+  # theta < 16.6 deg. The "~10:1" odds this line used to quote are DROPPED with the
+  # rest of the uniform-draw framing (see the correction banner at the top of the
+  # file): the separation is a fixed per-cycle geometric fact, not a draw. An OK is
+  # the finding.
   { cmd = "EnterWatchMode",                                                  expect = "REJECTED" },
   { cmd = "FlushAndQuit",                                                    expect = "OK" },
 ]

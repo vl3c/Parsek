@@ -690,6 +690,14 @@ id = "V20M-jool-kerbin-player-loop"
 # `GhostVisualRangeMeters = 120,000 m` (ParsekConfig.cs:41) is the RENDER-ZONE term and is
 # NOT the entry gate - V19M shipped a version of this section that computed every margin
 # against the wrong one, and the correction is inherited rather than re-made.
+# **AND AS OF 2026-08-28 IT IS NOT A DE-FACTO GATE EITHER.** V7M's "~120 km" bracket is
+# RETIRED: the render zone did drive its refusals, but through `IsGhostOnSameBody`
+# answering from a STALE SPAWN SEED rather than any distance test, and that term now
+# resolves the ghost's body from its own recorded trajectory (single authority
+# docs/dev/todo-and-known-bugs.md -> WATCH-ENTRY-REFUSED-INSIDE-QUOTED-RANGE). NOTHING IN
+# THIS SECTION MOVES - every margin here is already against 300 km, nineteen of twenty
+# instances are excluded by radius at 1e10-5e10 m, and the pinned refusal is argued at the
+# SELECTOR level rather than on a chord.
 #
 # **NINETEEN OF THE TWENTY INSTANCES ARE EXCLUDED BY RADIUS ALONE AND IT IS NOT CLOSE.**
 # The census in section 5 puts 14 instances on the Sun-framed transfer (heliocentric radii
@@ -1341,7 +1349,9 @@ steps = [
   # path), NOT on chord arithmetic - nineteen of twenty instances are excluded by radius
   # at 1e10-5e10 m, and the twentieth is genuinely open and said to be. V16M, V17M and
   # V19M all measured `reason=no-watchable-ghost committed=1 tree=(any)`. An OK is the
-  # finding.
+  # finding. UNAFFECTED BY THE 2026-08-28 WATCH-ENTRY CHANGE, which moved only where the
+  # SAME-BODY term reads a ghost's body from; a selector that resolves no candidate never
+  # evaluates that term at all.
   { cmd = "EnterWatchMode",                                                  expect = "REJECTED" },
   # STEP 4: "Warp to..." AGAIN - the desync hunt's second half, and a real player action
   # (mechanically StartLoopPlayback rebuilds the unit and resolves NextLaunchAfter(now)).
@@ -1412,8 +1422,8 @@ steps = [
   # CYCLE-2 TAIL READ: the same +32,606,430 offset off the cycle-2 relaunch (recorded UT
   # 60,393,751.576, 246.362 s past the tail start, 145.338 s of span left).
   { cmd = "TimeJump", args = { ut = "127237235" }, expect = "OK", budget = 300 },
-  # STEP 5: "Watch" again, same pinned verdict. A DIFFERENT verdict between the two
-  # attempts would itself be the reading.
+  # STEP 5: "Watch" again, same pinned verdict, same selector-level rationale. A
+  # DIFFERENT verdict between the two attempts would itself be the reading.
   { cmd = "EnterWatchMode",                                                  expect = "REJECTED" },
   # M-A7 RENDER-COMPOSITION CAPTURE. PLACEMENT IS THE ARGUMENT and it is pinned by
   # `test_every_declarer_exports_immediately_before_teardown`: the recorder accumulates

@@ -215,20 +215,66 @@ id = "V14M-ike-player-loop"
 # decides:
 #     2 * 170.444 km * sin(theta/2) < R
 # The production range term is `lastDistance < WatchEnterCutoffMeters` = 300,000 m
-# (ParsekFlight.cs:19580 -> WatchModeController.cs:698), which here admits theta up to
-# 123.3 deg - but V7M MEASURED entry REFUSED well inside 300 km and SUCCEEDING at
-# 51.5 km, bracketing the real boundary in (51.5 km, 144.3 km), and WHICH conjunction
-# term refuses inside 300 km is UNESTABLISHED (single authority:
-# docs/dev/todo-and-known-bugs.md -> WATCH-ENTRY-REFUSED-INSIDE-QUOTED-RANGE). Against
-# that measured ~120 km boundary the working condition is theta < 41.2 deg.
-# **PREDICTION: REJECTED - MEASURED REJECTED on BOTH cycles.** 2a = 340.9 km here, only 1.14x the 300 km cutoff, so this
-# lane sits closer to the boundary than V6M's Mun park (2a = 679 km) did - but still
-# on the reject side of the MEASURED one for ~89% of possible phases. The grammar has
-# ONE `expect` per step, so the likelier verdict is what is pinned; an `OK` lands as
-# driver-INVALID and IS THE INTERESTING FINDING (a co-orbiting observer CAN watch a
-# looped same-parent arrival's park tail). `retry = once` absorbs one unlucky
-# geometry. If the step ping-pongs INVALID twice, re-shape the step per the finding -
-# NEVER re-roll for the pinned verdict.
+# (ParsekFlight.cs:19580 -> WatchModeController.cs:698).
+#
+# SUPERSEDED ARITHMETIC, KEPT VERBATIM because the flip below is only legible against
+# it: "which here admits theta up to 123.3 deg - but V7M MEASURED entry REFUSED well
+# inside 300 km and SUCCEEDING at 51.5 km, bracketing the real boundary in (51.5 km,
+# 144.3 km), and WHICH conjunction term refuses inside 300 km is UNESTABLISHED ...
+# Against that measured ~120 km boundary the working condition is theta < 41.2 deg.
+# **PREDICTION: REJECTED - MEASURED REJECTED on BOTH cycles.** 2a = 340.9 km here, only
+# 1.14x the 300 km cutoff, so this lane sits closer to the boundary than V6M's Mun park
+# (2a = 679 km) did - but still on the reject side of the MEASURED one for ~89% of
+# possible phases."
+#
+# =====================================================================================
+# REDONE 2026-08-28 FOR A TRUE 300 KM GATE - **PREDICTION: OK, PENDING A READING FLIGHT**
+# =====================================================================================
+# THE ~120 KM DE-FACTO BOUNDARY IS GONE, and it was never a threshold the entry code
+# compared against - it was a BRACKETED MEASUREMENT whose real cause was
+# `IsGhostOnSameBody` answering from a STALE SPAWN SEED for any ghost the 120 km render
+# zone kept un-positioned. That term was fixed on 2026-08-28 (coordinated decision
+# TAKEN; single authority docs/dev/todo-and-known-bugs.md ->
+# WATCH-ENTRY-REFUSED-INSIDE-QUOTED-RANGE): it now resolves the ghost's body
+# positioning-free from its own recorded trajectory at the loop-mapped playback UT, so a
+# same-body ghost is accepted at any separation the RANGE term admits.
+#
+# THE ARITHMETIC REDONE AGAINST THE REAL GATE, and it INVERTS:
+#     chord = 2a * sin(theta/2) < 300,000 m
+#           => sin(theta/2) < 300,000 / 340,888.782 = 0.880234
+#           => theta/2 < 61.66 deg   =>   theta < 123.3 deg
+#   2a = 340.9 km is only 1.137x the cutoff, so the chord CLEARS 300 km ONLY in the
+#   narrow band theta in (123.3, 180] deg - 31.5% of the phase circle by arc measure.
+#   The fixed per-cycle chord is therefore LIKELIER INSIDE than outside, roughly 2:1.
+#   (Against the old ~120 km bracket the same sum ran the other way: theta < 41.2 deg,
+#   i.e. inside for only ~23% of phases. Same geometry, different gate.)
+# THE BODY TERM now passes here by construction rather than by luck: the observer is
+# Ike-parked, the ghost's current phase at the park epoch is that same recorded Ike
+# orbit, and the TRAJECTORY - not the spawn seed - is what answers.
+# **PREDICTION: OK on both cycles. PREDICTED, NOT MEASURED.** This lane has never flown
+# the fixed product, and the per-cycle separation digits were never extracted from the
+# archived runs (section 3 says so explicitly), so there is no measured chord to pin
+# against - only the 2:1 geometry above. The grammar has ONE `expect` per step, so the
+# likelier verdict is what is pinned; a REJECTED now lands as driver-INVALID and IS THE
+# FINDING. Read the product's `Watch same-body term: ... evidence=` line, which names
+# cache-current / trajectory-resolved / cache-fallback outright, and extract the
+# `rdist=` digits at the same time so the next re-pin has a real chord to work from.
+# `retry = once` absorbs one unlucky geometry. If the step ping-pongs INVALID twice,
+# re-shape the step per the finding - NEVER re-roll for the pinned verdict.
+# ONE THING TO WATCH THAT V7M DOES NOT HAVE: this lane's
+# `[expectations.renderComposition]` block is ARMED AND GATING (dwells {1,32} measured
+# 3, cycles {1,16} measured 1). A run that ENTERS watch mode force-builds the watched
+# ghost's visuals at full fidelity and anchors the camera to it - a composition no
+# archived run of this lane produced. The margins are wide, but if that block reds on
+# the reading flight the cause is the watch entry, not a render regression: re-pin the
+# windows off the new bytes rather than reverting the step.
+# AND NOTE: there is NO `ExitWatchMode` seam verb (`hlib.IMPLEMENTED_SEAM_VERBS` carries
+# 28 and no exit; `RESERVED_SEAM_VERBS` reserves none), so once the cycle-1 step enters,
+# the cycle-2 step auto-selects the same index and takes `ParsekTestCommandAddon`'s
+# idempotent already-watching short-circuit - still OK, logging `enterwatchmode
+# already-watching:` rather than `enterwatchmode complete:`. This lane requires neither
+# token, so nothing here depends on which route it takes; the desync comparison between
+# the two cycles does, and cycle 2 now runs from inside watch mode.
 # AND NOTE THE SEPARATION IS NOT A DRAW: both craft advance at the same rate on the
 # same orbit, so it is a fixed per-cycle geometric fact that moves only when the phase
 # anchor does (V6M's superseded-arithmetic banner, applied from the start here).
@@ -237,7 +283,9 @@ id = "V14M-ike-player-loop"
 # 5. POSTURE - ARMED 2026-08-18 OFF THIS LANE'S OWN READING RUN
 # ---------------------------------------------------------------------------------
 # READING RUN `2026-08-18_2336`: PASS attempt 1, wall 50 s, fully unattended. All 21
-# steps met, all 8 TimeJumps OK, both EnterWatchMode REJECTED as pinned,
+# steps met, all 8 TimeJumps OK, both EnterWatchMode REJECTED as pinned AT THE TIME
+# (that pin flipped to a PREDICTED `OK` on 2026-08-28 - see section 4's REDONE
+# arithmetic; this ledger records what the run measured, not what is pinned now),
 # `anomalySweep hits=[]`, zero Unity exceptions, recordings count 1, and zero
 # occurrences of every token now forbidden. NOTHING IN THE FLOWN SHAPE CHANGED AT
 # ARMING - no jump UT, no step, no budget moved; only the expectations grew. That is
@@ -264,7 +312,8 @@ id = "V14M-ike-player-loop"
 # ---------------------------------------------------------------------------------
 # ARMING LEDGER, renderComposition:
 #   READING  2026-08-25_0953 PASS attempt 1, wall 68 s, all 22 steps met (both
-#            EnterWatchMode REJECTED as pinned, `ExportRenderManifest` OK).
+#            EnterWatchMode REJECTED as pinned AT THE TIME - flipped to a PREDICTED
+#            `OK` on 2026-08-28, see section 4 - `ExportRenderManifest` OK).
 #            renderCompose status=REPORT gating=false armedBlocks=[] mismatches=[] -
 #            the row read the manifest and could move no verdict, which is the whole
 #            point of a reading run. Facets in "WHAT THE READING RUN MEASURED" below.
@@ -412,7 +461,7 @@ id = "V14M-ike-player-loop"
 # whose drive shape can carry them).
 # =====================================================================================
 tier = "operator"
-description = "LIVE-PROVEN AND ARMED on the full three-run discipline: reading 2026-08-18_2336 (PASS attempt 1, 50 s), armed re-flight 2026-08-19_0001 (PASS attempt 1, 51 s, every gated window green), negative control 2026-08-19_0003 (correctly PARSEK-FAIL(save-structure), reverted). The player workflow (arm -> Warp-to -> cross the arrival -> Watch), twice over, on B23's Duna->Ike recording - the suite's first loop subject whose LAUNCH BODY is not Kerbin. Ike is tidally locked to Duna, so Rotation(Duna) 65,517.859 s and Orbital(Ike) 65,517.862 s are equal to 3 ms, 22x inside MissionPeriodicity's 1e-6 relative equality band: the sharpest pre-flight prediction is that the product takes a THIRD road - `method=tidal-collapse` with `zeroDrift=no` and a UNIFORM one-P cadence - distinct from both V4's re-aim and V6M's non-uniform zero-drift schedule. MEASURED: the OUTCOMES held (`zeroDrift=no`, cadence exactly one P) but the MECHANISM did not - `method=single-orbital`, because `ExtractConstraints` emits `constraints=1` with NO Rotation(Duna) at all. An ORBIT-ROOTED recording has no surface phase, so the tidal-collapse branch never gets a second constraint to collapse and phase-lock is EXACT rather than within-tolerance. The predicted anchor held to 0.04 s and the load-time optimizer kept the same-parent crossing cohesive (`exoCoastBodyChangeKept=1`)."
+description = "LIVE-PROVEN AND ARMED on the full three-run discipline (BUT SEE SECTION 4: the two `EnterWatchMode` pins were re-predicted `REJECTED` -> `OK` on 2026-08-28 after the watch-entry same-body term was fixed, and are PREDICTED pending a reading flight): reading 2026-08-18_2336 (PASS attempt 1, 50 s), armed re-flight 2026-08-19_0001 (PASS attempt 1, 51 s, every gated window green), negative control 2026-08-19_0003 (correctly PARSEK-FAIL(save-structure), reverted). The player workflow (arm -> Warp-to -> cross the arrival -> Watch), twice over, on B23's Duna->Ike recording - the suite's first loop subject whose LAUNCH BODY is not Kerbin. Ike is tidally locked to Duna, so Rotation(Duna) 65,517.859 s and Orbital(Ike) 65,517.862 s are equal to 3 ms, 22x inside MissionPeriodicity's 1e-6 relative equality band: the sharpest pre-flight prediction is that the product takes a THIRD road - `method=tidal-collapse` with `zeroDrift=no` and a UNIFORM one-P cadence - distinct from both V4's re-aim and V6M's non-uniform zero-drift schedule. MEASURED: the OUTCOMES held (`zeroDrift=no`, cadence exactly one P) but the MECHANISM did not - `method=single-orbital`, because `ExtractConstraints` emits `constraints=1` with NO Rotation(Duna) at all. An ORBIT-ROOTED recording has no surface phase, so the tidal-collapse branch never gets a second constraint to collapse and phase-lock is EXACT rather than within-tolerance. The predicted anchor held to 0.04 s and the load-time optimizer kept the same-parent crossing cohesive (`exoCoastBodyChangeKept=1`)."
 instanceProfile = "stock-minimal"
 tags = ["V14", "player-loop", "watch-mode", "loop-playback", "phase-lock", "single-orbital", "ike", "duna", "same-parent", "moon", "flown"]
 
@@ -490,10 +539,14 @@ steps = [
   # asked at all. (V6M used +20,800 into a 21,708 s recording; +20,000 into this
   # 21,211 s one is the same "deep in the destination tail" position.)
   { cmd = "TimeJump", args = { ut = "9245916" }, expect = "OK", budget = 300 },
-  # STEP 3: "Watch", auto-select over all committed recordings. PREDICTED REJECTED on
-  # the chord arithmetic in header section 4 (2a = 340.9 km against a MEASURED entry
-  # boundary of ~120 km); an OK is the finding, not a spec bug.
-  { cmd = "EnterWatchMode",                                                  expect = "REJECTED" },
+  # STEP 3: "Watch", auto-select over all committed recordings. **PREDICTED OK** on the
+  # REDONE chord arithmetic in header section 4 (2a = 340.9 km against the real 300 km
+  # cutoff admits theta < 123.3 deg = 68.5% of the phase circle, so the fixed per-cycle
+  # chord is likelier INSIDE, ~2:1) plus a body term that now answers from the ghost's
+  # own trajectory rather than a stale spawn seed. PREDICTED, NOT MEASURED - this pin
+  # was `REJECTED` and MEASURED REJECTED twice under the pre-2026-08-28 product; a
+  # REJECTED now is the finding, not a spec bug.
+  { cmd = "EnterWatchMode",                                                  expect = "OK" },
   # STEP 4: "Warp to..." AGAIN - the desync hunt's second half. The verb rebuilds the
   # unit and resolves NextLaunchAfter(now); with `now` past cycle 1's park it should
   # land on CYCLE 2 (predicted A1 + one P = 9,291,433.828).
@@ -510,8 +563,14 @@ steps = [
   # EXACTLY one Ike orbital period, so - unlike V6M, where the anchor moved by a
   # non-uniform schedule step - the cycle-2 separation should be very close to
   # cycle 1's. Same pinned verdict, and a DIFFERENT verdict between the two watch
-  # steps would itself be the reading.
-  { cmd = "EnterWatchMode",                                                  expect = "REJECTED" },
+  # steps would itself be the reading. **PREDICTED OK**, same argument as step 3.
+  # NOTE THE ROUTE, though: if step 3 entered, this call auto-selects the same index
+  # and takes the idempotent already-watching short-circuit rather than a fresh entry
+  # (there is no `ExitWatchMode` seam verb - see header section 4). It is still `OK`,
+  # but a "different verdict between the two watch steps" can no longer be read as a
+  # pure separation difference once the first one is holding the camera; read the
+  # `rdist=` digits, not the verdict, for the cycle-to-cycle comparison.
+  { cmd = "EnterWatchMode",                                                  expect = "OK" },
   # M-A7 RENDER-COMPOSITION CAPTURE (Phase 3), and the position is the whole argument.
   # The recorder accumulates from Awake, so the manifest is a picture of everything the
   # render pipeline composed since scene entry - which means the ONLY thing placement
