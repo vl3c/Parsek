@@ -14,6 +14,86 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~QUICKLOAD-OVER-COMMITTED-RESTORE-OVERLAP-DELETES-TREE-ON-SAVE~~: a cold load's stale-pending discard deleted the COMMITTED tree's sidecars through a copy-on-write clone, and every save thereafter dropped the whole tree from persistent.sfs [FOUND 2026-08-28 by the H39/H40 isolated censuses (both recorded fixtures collapsed 21/22 recordings -> 9 in the produced save; H40's ROUTE survived with a dangling backingMissionTreeId). PLAYER-REACHABLE DATA LOSS, not a harness artefact. **FIXED 2026-08-29** on branch `logistics-isolated-lanes` in three parts]
+
+### The mechanism, measured
+
+Evidence: `logs/2026-08-28_2358_H40-logistics-isolated-depot-route/KSP.log`.
+
+1. `23:56:42.196` - recording `44129e52...` LOADS fine (`LoadRecordingFiles: id=44129e52...
+   hasVesselSnapshot=True hasGhostSnapshot=True`). Its `.prec` exists.
+2. `ParsekFlight.TryTakeCommittedTreeForSpawnedVesselRestore` DeepClones the matched
+   COMMITTED tree into the ACTIVE slot with **ids preserved** (copy-on-write overlap), so
+   clone and original resolve to the SAME sidecar paths.
+3. The clone is parked as the PENDING tree; a quickload follows.
+4. `23:56:46.365` - cold `OnLoad`: `OnLoad initial: discarding pending tree from previous
+   save` -> `DiscardPendingTree`.
+5. `23:56:46.367` onward - `DeleteRecordingFiles` for **all 13** of that tree's recordings,
+   `Deleted file: ...44129e52....prec` and friends. The collected save carries only the
+   OTHER tree's 9 `.prec` files.
+6. `23:56:47.389` onward - every later OnSave: `reason=trajectory-missing` ->
+   `SaveRecordingFiles: skipping write ... preserving on-disk .prec to avoid data loss
+   (bug #585 follow-up)` -> `remains unsafe to serialize` -> `OnSave: skipped tree ...`
+   and the RECORDING_TREE node is OMITTED. The condition is STICKY, so every save after
+   it omits the tree too.
+
+**The mark was NOT spurious** (the diagnosis's leading hypothesis): the `.prec` really had
+been deleted four seconds earlier.
+
+**Why the existing guard did not fire.** `DiscardPendingTree` has carried a
+committed-overlap guard since #431 - it refuses to purge events or delete sidecars for a
+recording id still present in committed history, which is exactly what makes the
+copy-on-write restore safe to throw away. It reads the IN-MEMORY committed store. In
+`ParsekScenario.OnLoad`'s cold-start branch `DiscardStalePendingState()` runs at
+`loadPhase = "stale-pending-discard"` **before** `LoadRecordingTrees(node, ...)` at
+`loadPhase = "recording-trees"`, so the store is empty, every id answers "not committed",
+and the guard is defeated by ordering alone.
+
+### The fix, three parts
+
+**(C) the trigger.** `RecordingStore.SetDurableCommittedRecordingIdHint` /
+`IsDurableCommittedRecordingIdHint` / `ClearDurableCommittedRecordingIdHint`, with the pure
+decision `ShouldPreserveCommittedOverlapOnPendingDiscard(committedInMemory, durableHint)`.
+`ParsekScenario.CollectCommittedRecordingIdsFromScenarioNode` (pure over the ConfigNode;
+active/pending marker trees excluded, since those are what a discard IS entitled to
+destroy) publishes the SAVE NODE's committed ids around `DiscardStalePendingState()` in a
+try/finally. Both discard guards - the event/milestone purge AND the sidecar delete - now
+consult it. Deliberately NOT fixed by reordering OnLoad: the discard precedes
+`ClearCommittedInternal` / `ValidateChains` for reasons of its own, and the save file is
+the correct authority for that window regardless.
+
+**(B) the invariant - A SAVE MUST NEVER DELETE A TREE IT CANNOT SERIALIZE.**
+`ParsekScenario.SaveTreeRecordings`'s both-or-neither skip no longer `continue`s past the
+`AddNode`: it carries the tree's last-known-good RECORDING_TREE node forward from the
+on-disk save (`TryCarryForwardCommittedTreeNodeFromDiskSave` + `FindCommittedTreeNodeById`,
+siblings of the load-fault guard's `TryRehydrateCommittedTreesAndMissionsFromDiskSave`),
+Warn on success and **Error** when there is nothing to carry. Implemented independently of
+(C): (C) removes this trigger, (B) is the invariant that stops ANY future sidecar fault
+from deleting a mission.
+
+**(A) the harness ordering defect.** `InGameTestRunner.BatchBaselinePersistentSaveRestored`
+latches inside `RestoreCampaignPersistentSave` the moment the revert commits (covering the
+teardown, cancel and force-revert call sites); `TestCommandFlushAndQuit.ShouldSave` takes it
+as a third argument and `FlushAndQuitImpl` logs `flushandquit: save suppressed (batch
+baseline already restored)` and skips its `GamePersistence.SaveGame`. A non-batch
+FlushAndQuit never sets the latch and saves exactly as before.
+
+### Guards
+
+`Source/Parsek.Tests/UnserializableTreeCarryForwardTests.cs` (13 cells): the invariant end
+to end through the real `SaveTreeRecordings` (unserializable tree keeps its node WITH its
+RECORDING payload), the loud drop when there is nothing to carry, the healthy tree
+unaffected, the node finders, the pure overlap-decision matrix, the hint round-trip, and
+the cold-load overlap discard routing overlap ids to preserve plus its negative control.
+`TestCommandFlushAndQuitTests` gains the suppression matrix.
+
+NOTE for the next discard-path test author: the sidecar DELETE cannot be asserted by file
+existence headlessly - `DeleteRecordingFiles` resolves through
+`KSPUtil.ApplicationRootPath`, which throws outside KSP, so a file-existence assertion
+passes without the delete branch ever being reachable. These cells assert the decision
+counters the discard logs instead. (The first draft of them was vacuous for exactly this
+reason and was rewritten.)
+
 ## ~~LOGISTICS-CELLS-ASSUME-AN-EMPTY-DESTINATION-TANK-AND-A-YOUNG-SAVE~~: ten in-game cells encoded a save property instead of stating a precondition, so two correct product refusals read as ten reds [FOUND 2026-08-28 by the H39/H40 recorded-host reading runs. TEST DEFECTS ONLY - both product gates behaved exactly as designed, and neither is changed. **FIXED THE SAME DAY** on branch `logistics-isolated-lanes`]
 
 **Family A - the full destination tank (9 cells).**

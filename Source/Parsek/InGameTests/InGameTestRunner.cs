@@ -1759,6 +1759,22 @@ namespace Parsek.InGameTests
         /// when a backup existed but the restore failed, so the caller keeps the
         /// .bak for manual recovery. Never throws.
         /// </summary>
+        /// <summary>
+        /// Process-scoped latch: set once an in-game batch teardown / recovery path has
+        /// actually written the campaign's persistent.sfs back to its batch-start bytes.
+        /// Read by the M-A2 command seam's <c>FlushAndQuit</c>, whose own
+        /// <c>GamePersistence.SaveGame</c> would otherwise be the LAST write to that file
+        /// and would put the batch's leftover in-memory state back on disk over the
+        /// restore. Never reset within the process: once a batch has restored the save,
+        /// nothing later in that process may re-save over it. A run that never ran a batch
+        /// teardown leaves it false, so a non-batch FlushAndQuit saves normally.
+        /// </summary>
+        internal static bool BatchBaselinePersistentSaveRestored { get; private set; }
+
+        /// <summary>Test seam: clears the latch so xUnit cells can drive both branches.</summary>
+        internal static void ResetBatchBaselinePersistentSaveRestoredForTesting()
+            => BatchBaselinePersistentSaveRestored = false;
+
         private static bool RestoreCampaignPersistentSave(string backupPath)
         {
             if (string.IsNullOrEmpty(backupPath))
@@ -1783,9 +1799,14 @@ namespace Parsek.InGameTests
 
                 byte[] bytes = File.ReadAllBytes(backupPath);
                 FileIOUtils.SafeWriteBytes(bytes, persistentPath, Tag);
+                // Latch AFTER the write commits: from here on this restore is the intended
+                // final on-disk state, so the command seam's FlushAndQuit must not save the
+                // live game over it (see BatchBaselinePersistentSaveRestored).
+                BatchBaselinePersistentSaveRestored = true;
                 ParsekLog.Info(Tag,
                     $"Batch baseline: restored campaign persistent.sfs ({bytes.Length} bytes) "
-                    + "from batch-start backup");
+                    + "from batch-start backup; later FlushAndQuit saves are suppressed so this "
+                    + "restore stays the last write");
                 return true;
             }
             catch (Exception ex)

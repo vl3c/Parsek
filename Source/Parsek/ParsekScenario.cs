@@ -1201,9 +1201,36 @@ namespace Parsek
 
                 if (!treeFilesCurrent)
                 {
+                    // A SAVE MUST NEVER DELETE A TREE IT CANNOT SERIALIZE. Skipping the
+                    // AddNode here used to omit the whole tree from persistent.sfs - and
+                    // because the skip condition (a recording whose sidecars are missing /
+                    // unwritable) is STICKY, every subsequent save omitted it too: one
+                    // unwritable recording permanently deleted an entire mission's metadata
+                    // from the campaign save. Carry the tree's last-known-good node forward
+                    // from the on-disk save instead, so the tree survives until the
+                    // underlying sidecar fault is repaired or the player recovers it.
                     ParsekLog.Warn("Scenario",
-                        $"OnSave: skipped tree '{tree.TreeName}' id={tree.Id ?? "<none>"} " +
-                        "because at least one recording could not be written with current v0 sidecars");
+                        $"OnSave: cannot write tree '{tree.TreeName}' id={tree.Id ?? "<none>"} " +
+                        "from memory because at least one recording could not be written with " +
+                        "current v0 sidecars");
+                    string carryPath = PersistentSavePathOverrideForTesting
+                        ?? RecordingPaths.ResolveSaveScopedPath(PersistentSaveFileName);
+                    if (TryCarryForwardCommittedTreeNodeFromDiskSave(node, carryPath, tree.Id))
+                    {
+                        ParsekLog.Warn("Scenario",
+                            $"OnSave: carried forward last-known-good RECORDING_TREE node for " +
+                            $"'{tree.TreeName}' id={tree.Id ?? "<none>"} from the on-disk save so " +
+                            "the unserializable tree is NOT dropped from this save. Investigate the " +
+                            "sidecar fault above; the tree's metadata is preserved meanwhile");
+                    }
+                    else
+                    {
+                        ParsekLog.Error("Scenario",
+                            $"OnSave: tree '{tree.TreeName}' id={tree.Id ?? "<none>"} could not be " +
+                            "written from memory AND has no last-known-good node in the on-disk save " +
+                            "to carry forward; it is being dropped from this save. Recover it from a " +
+                            "backup or quicksave.sfs");
+                    }
                     continue;
                 }
 
@@ -1354,6 +1381,63 @@ namespace Parsek
         /// LoadRecordingTrees) are replaced with the on-disk set. Deep-copies each node so the
         /// discarded loaded document is not aliased. Never throws.
         /// </summary>
+        /// <summary>
+        /// Pure node lookup: finds the COMMITTED RECORDING_TREE node whose <c>id</c>
+        /// equals <paramref name="treeId"/> inside a loaded ParsekScenario node, or
+        /// null. Active / pending marker nodes are skipped - carrying one forward as a
+        /// committed tree would resurrect a parked tree as committed history.
+        /// </summary>
+        internal static ConfigNode FindCommittedTreeNodeById(ConfigNode parsekNode, string treeId)
+        {
+            if (parsekNode == null || string.IsNullOrEmpty(treeId))
+                return null;
+            foreach (ConfigNode treeNode in parsekNode.GetNodes("RECORDING_TREE"))
+            {
+                if (treeNode == null) continue;
+                if (IsActiveTreeNode(treeNode) || IsPendingTreeNode(treeNode)) continue;
+                if (string.Equals(treeNode.GetValue("id"), treeId, StringComparison.Ordinal))
+                    return treeNode;
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// Copies ONE committed tree's last-known-good RECORDING_TREE node out of the
+        /// on-disk save (which KSP has not overwritten yet at OnSave time) into the node
+        /// being written, when the live tree cannot be serialized from memory. Deep-copies
+        /// so the discarded loaded document is not aliased. Returns false when the file is
+        /// missing / unparseable / carries no such committed tree. Never throws - a failed
+        /// carry-forward degrades to the pre-existing drop, never to a broken save.
+        /// </summary>
+        internal static bool TryCarryForwardCommittedTreeNodeFromDiskSave(
+            ConfigNode targetNode, string persistentSavePath, string treeId)
+        {
+            if (targetNode == null || string.IsNullOrEmpty(persistentSavePath) || string.IsNullOrEmpty(treeId))
+                return false;
+            try
+            {
+                if (!System.IO.File.Exists(persistentSavePath))
+                    return false;
+                ConfigNode root = ConfigNode.Load(persistentSavePath);
+                if (root == null)
+                    return false;
+                ConfigNode gameNode = root.GetNode("GAME") ?? root;
+                ConfigNode parsekNode = FindParsekScenarioNodeInGame(gameNode);
+                ConfigNode diskTree = FindCommittedTreeNodeById(parsekNode, treeId);
+                if (diskTree == null)
+                    return false;
+                targetNode.AddNode(diskTree.CreateCopy());
+                return true;
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn("Scenario",
+                    $"OnSave: failed to carry forward the last-known-good node for tree id={treeId} "
+                    + $"from '{persistentSavePath}': {ex.Message}");
+                return false;
+            }
+        }
+
         internal static int TryRehydrateCommittedTreesAndMissionsFromDiskSave(
             ConfigNode targetNode, string persistentSavePath, out int rehydratedMissions)
         {
@@ -3675,8 +3759,26 @@ namespace Parsek
                 loadPhase = "cold-start";
                 initialLoadDone = true;
 
-                loadPhase = "stale-pending-discard";
-                DiscardStalePendingState();
+                // The stale-pending discard below deletes the discarded tree's sidecars,
+                // and its committed-overlap guard reads the in-memory committed store -
+                // which LoadRecordingTrees has NOT populated yet at this point. A pending
+                // tree that is a copy-on-write clone of a committed one (the
+                // TryTakeCommittedTreeForSpawnedVesselRestore overlap, ids PRESERVED) would
+                // therefore take the COMMITTED tree's .prec files down with it, and every
+                // later save would drop that tree as unserializable. Publish the save
+                // node's own committed ids for exactly this window.
+                loadPhase = "durable-committed-id-hint";
+                RecordingStore.SetDurableCommittedRecordingIdHint(
+                    CollectCommittedRecordingIdsFromScenarioNode(node));
+                try
+                {
+                    loadPhase = "stale-pending-discard";
+                    DiscardStalePendingState();
+                }
+                finally
+                {
+                    RecordingStore.ClearDurableCommittedRecordingIdHint();
+                }
 
                 loadPhase = "clear-committed";
                 RecordingStore.ClearCommittedInternal();
@@ -5067,6 +5169,35 @@ namespace Parsek
         /// tree written by <c>SaveActiveTreeIfAny</c>, distinguished by the
         /// <c>isActive=True</c> key.
         /// </summary>
+        /// <summary>
+        /// Collects every recording id the save node declares under a COMMITTED
+        /// RECORDING_TREE (active / pending marker trees are skipped - those are the
+        /// ones a discard is entitled to destroy). Pure over the ConfigNode, so the
+        /// committed-overlap guard's input is unit-testable without a live save.
+        ///
+        /// <para>Feeds <see cref="RecordingStore.SetDurableCommittedRecordingIdHint"/>
+        /// for the cold-load window in which <c>DiscardStalePendingState</c> runs before
+        /// <c>LoadRecordingTrees</c> - see that method for the data-loss it prevents.</para>
+        /// </summary>
+        internal static HashSet<string> CollectCommittedRecordingIdsFromScenarioNode(ConfigNode node)
+        {
+            var ids = new HashSet<string>(StringComparer.Ordinal);
+            if (node == null)
+                return ids;
+            foreach (ConfigNode treeNode in node.GetNodes("RECORDING_TREE"))
+            {
+                if (treeNode == null) continue;
+                if (IsActiveTreeNode(treeNode) || IsPendingTreeNode(treeNode)) continue;
+                foreach (ConfigNode recNode in treeNode.GetNodes("RECORDING"))
+                {
+                    string recordingId = recNode?.GetValue("recordingId");
+                    if (!string.IsNullOrEmpty(recordingId))
+                        ids.Add(recordingId);
+                }
+            }
+            return ids;
+        }
+
         internal static bool IsActiveTreeNode(ConfigNode treeNode)
         {
             if (treeNode == null) return false;

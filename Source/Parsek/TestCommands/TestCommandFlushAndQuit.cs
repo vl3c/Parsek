@@ -16,9 +16,18 @@ namespace Parsek.TestCommands
         /// <summary>
         /// True when a game save should be forced: a game is loaded AND a save folder is
         /// resolved. With no game loaded (menu quit) there is nothing to save.
+        ///
+        /// <para><paramref name="batchBaselineAlreadyRestored"/> suppresses the save
+        /// outright. An in-game test batch reverts the campaign's persistent.sfs to its
+        /// batch-start bytes at teardown; that revert is the intended FINAL state of the
+        /// save. Saving the LIVE game over it afterwards writes back whatever in-memory
+        /// state the batch left behind - which is how a batch run ended up persisting a
+        /// scenario state the teardown had just undone. A NON-batch FlushAndQuit (nothing
+        /// restored this process) still saves normally.</para>
         /// </summary>
-        internal static bool ShouldSave(bool gameLoaded, bool saveFolderPresent)
-            => gameLoaded && saveFolderPresent;
+        internal static bool ShouldSave(
+            bool gameLoaded, bool saveFolderPresent, bool batchBaselineAlreadyRestored = false)
+            => gameLoaded && saveFolderPresent && !batchBaselineAlreadyRestored;
 
         internal static List<KeyValuePair<string, string>> BuildPayload(bool saved)
             => new List<KeyValuePair<string, string>>

@@ -8,6 +8,29 @@ All notable changes to Parsek are documented here.
 
 ### Fixed
 
+- A whole mission could vanish from your save after a quickload, and once it
+  went it never came back. It needed two things to line up. When you fly a craft
+  that one of your recorded missions is about, Parsek takes a working copy of
+  that mission so the flight can carry on from it - a copy that deliberately
+  keeps the original's names for everything, because it IS the same mission.
+  Loading a save then throws that working copy away, and the throwing-away step
+  deletes the recorded flight-path files belonging to it. It is supposed to
+  refuse when those files still belong to a mission you have kept, and it does -
+  except that on a fresh load the check runs a moment BEFORE Parsek has read your
+  kept missions back in, so it had nothing to check against and deleted the
+  originals. From then on the mission's flight paths were gone, and the second
+  half took over: when Parsek cannot write a mission's data out, it was leaving
+  that mission out of the save entirely rather than saving something wrong. That
+  is the right instinct and the wrong action - the mission was already written in
+  the save from last time, and dropping it deleted the only remaining copy. Both
+  halves are fixed. The throwing-away step now reads the save file itself for the
+  list of missions you have kept, so it can never delete a kept mission's files
+  while the list is still loading. And a mission Parsek cannot write is now
+  carried through from the previous save rather than dropped, with a loud
+  complaint in the log, so a data problem can never quietly delete a mission
+  again. Missions already lost this way cannot be recovered by the update; they
+  are recoverable from a quicksave or one of the automatic backups.
+
 - Every time a recorded flight crossed from one planet's or moon's area of
   influence into another while on rails, the recorder built a second, completely
   empty slice of timeline sitting exactly on top of the real one. That slice
@@ -28,6 +51,13 @@ All notable changes to Parsek are documented here.
 
 ### Dev
 
+- The automated test rig's own tidy-up could put back the very state it had just
+  cleaned. A test batch restores your save file to exactly the bytes it had
+  before the batch started; the command that then shuts the game down was saving
+  the live game one more time on its way out, writing the batch's leftovers back
+  over that restore. The shutdown command now skips its save when a batch has
+  already restored the file, and says so in the log. A shutdown outside a test
+  batch saves exactly as before. Test-tooling only; no gameplay change.
 - Ten more supply-route in-game tests were making silent assumptions about the
   save they run in, and the two new recorded-flight test runs caught all of them.
   Nine assumed the rocket they deliver onto has an EMPTY fuel tank. Parsek will

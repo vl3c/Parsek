@@ -27,6 +27,28 @@ namespace Parsek.Tests
             Assert.Equal(expected, TestCommandFlushAndQuit.ShouldSave(gameLoaded, saveFolderPresent));
         }
 
+        // catches: FlushAndQuit's SaveGame landing AFTER an in-game batch teardown has
+        // reverted persistent.sfs, writing the batch's leftover in-memory state back over
+        // the restore. The teardown's revert must be the last write to that file.
+        [Theory]
+        [InlineData(true, true, true, false)]   // batch restored -> suppressed
+        [InlineData(true, true, false, true)]   // non-batch quit -> saves as before
+        [InlineData(true, false, true, false)]  // suppression composes with the folder gate
+        [InlineData(false, true, true, false)]  // and with the no-game gate
+        public void ShouldSave_SuppressedAfterBatchBaselineRestore(
+            bool gameLoaded, bool saveFolderPresent, bool batchBaselineRestored, bool expected)
+        {
+            Assert.Equal(expected, TestCommandFlushAndQuit.ShouldSave(
+                gameLoaded, saveFolderPresent, batchBaselineRestored));
+        }
+
+        // The default keeps every pre-existing (non-batch) caller byte-identical.
+        [Fact]
+        public void ShouldSave_DefaultsToNotSuppressed()
+        {
+            Assert.True(TestCommandFlushAndQuit.ShouldSave(gameLoaded: true, saveFolderPresent: true));
+        }
+
         [Fact]
         public void BuildPayload_ReflectsSavedFlag()
         {

@@ -1359,9 +1359,22 @@ namespace Parsek.TestCommands
         {
             bool gameLoaded = HighLogic.CurrentGame != null;
             bool saveFolderPresent = !string.IsNullOrEmpty(HighLogic.SaveFolder);
+            // The batch teardown's persistent.sfs revert must be the LAST write to that
+            // file. When it has already committed this process, saving the live game here
+            // would write the batch's leftover in-memory state back over the restored
+            // bytes. Non-batch FlushAndQuit is unaffected (the flag is never set).
+            bool batchBaselineRestored = InGameTests.InGameTestRunner.BatchBaselinePersistentSaveRestored;
             bool saved = false;
 
-            if (TestCommandFlushAndQuit.ShouldSave(gameLoaded, saveFolderPresent))
+            if (batchBaselineRestored)
+            {
+                ParsekLog.Info(Tag,
+                    "flushandquit: save suppressed (batch baseline already restored) - the in-game "
+                    + "test batch teardown reverted persistent.sfs to its batch-start bytes and that "
+                    + "revert is the intended final state; quitting without re-saving");
+            }
+
+            if (TestCommandFlushAndQuit.ShouldSave(gameLoaded, saveFolderPresent, batchBaselineRestored))
             {
                 try
                 {
