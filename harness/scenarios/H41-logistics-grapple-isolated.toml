@@ -1,0 +1,238 @@
+schema = 1
+id = "H41-logistics-grapple-isolated"
+tier = "operator"
+# =====================================================================================
+# THE ISOLATED `LogisticsGrapple` LANE - the claw/asteroid sibling of the `Logistics`
+# family, and the first lane anywhere to execute
+# `GrappleCapture_ProgrammaticCoupleReleaseCycle_StampsAndCompletes`.
+#
+# WHAT THE ISOLATED ARG BUYS HERE, derived both ways:
+#   hlib.derive_batch_tally(decls, "LogisticsGrapple", "FLIGHT")                -> executable 3
+#   hlib.derive_batch_tally(decls, "LogisticsGrapple", "FLIGHT", isolated=True) -> executable 4
+# ONE cell, and it is the one the category exists for. `GrappleCapture_Programmatic-
+# CoupleReleaseCycle_StampsAndCompletes` is `AllowBatchExecution = false` +
+# `RestoreBatchFlightBaselineAfterExecution = true`, because it SELF-PROVISIONS: it
+# spawns a stock claw and a `PotatoRoid` near the active vessel, drives a programmatic
+# couple/release cycle through the real grapple path, and leans on the per-test
+# quickload baseline restore to put the world back. No unattended path could run it
+# before R5, and the ordinary batch still cannot.
+#
+# -------------------------------------------------------------------------------------
+# THE TALLY CANNOT DISCRIMINATE HERE, AND THAT IS A STRUCTURAL FACT RATHER THAN A
+# WEAKNESS OF THIS SPEC. It is stated up front because every other isolated lane in the
+# suite rests its proof on the tally, and this one cannot.
+#
+# The isolated filter admits 4 where the ordinary one admits 3 - a difference of exactly
+# ONE. So a SINGLE run-time skip anywhere in the batch makes the two paths print the
+# same line, and there is a run-time skip that is CERTAIN to fire (below). The predicted
+# isolated line is `total=4 passed=3 failed=0 skipped=1`, which is byte-identical to the
+# line the ordinary path would print if nothing self-skipped. No `passed=` floor can
+# separate them: the ordinary path's executable ceiling is 3 and the isolated path's
+# predicted passed count is also 3.
+#
+# THE DISCRIMINATION THEREFORE TRANSFERS TO THE ISOLATED-PATH-ONLY TOKENS, which is
+# exactly the mechanism `CommittedBatchTallySourceSyncTests` already describes for R7a:
+# "What CAN separate them is the seam's own echo ... the spec must pin that token
+# instead. This keeps the cell's thesis intact - a run that silently lost the arg still
+# reds - and only changes WHICH pinned evidence carries it." Two tokens carry it here:
+#   * `runtests start category=LogisticsGrapple isolated=true` - emitted by
+#     `ParsekTestCommandAddon.RunTestsImpl` only when the arg is present.
+#   * `Using batch baseline slot ... for 1 restore-after-run test(s)` - emitted ONLY by
+#     `InGameTestRunner.PrepareBatchFlightRestoreExecution`, which `RunCategory` never
+#     calls at all.
+# The id is declared in `IsolatedBatchWiringGroupTests.TALLY_CANNOT_DISCRIMINATE_IDS`,
+# and that declaration is EARNED rather than asserted: the group cell re-derives
+# `isolated.executable - ordinary.executable == 1` from the attributes and refuses the
+# exemption for any member where the tally could have done the job.
+#
+# NOTE THE BASELINE-SLOT LITERAL IS **1**, NOT 38. That number is
+# `ordered.Count(t => t.RestoreBatchFlightBaselineAfterExecution)` over the ADMITTED
+# batch, and `LogisticsGrapple` has exactly one restore-flagged declaration where
+# `Logistics` has 38. Copying 38 across from H38/H39/H40 would red on a correct run;
+# the group test demands the literal precisely so that cannot be assumed.
+#
+# -------------------------------------------------------------------------------------
+# EXPECTED-SKIP HYPOTHESIS - PREDICTIONS, PINNED BY NOTHING.
+#
+#   CERTAIN SKIP: `GrappleWindow_LiveRecordedClawCouple_StampedGrapple`, whose guard
+#   reads (`Source/Parsek/InGameTests/LogisticsGrappleRuntimeTests.cs`):
+#       "No recorded Grapple window in this save. The automated gate ..."
+#   It needs a PERSISTED Grapple window in a committed recording, and this host has no
+#   recordings at all. WORSE - AND THIS IS THE PART WORTH WRITING DOWN - it cannot be
+#   fixed by running the two cells together in one batch, because `GrappleCapture`'s own
+#   `RestoreBatchFlightBaselineAfterExecution` restore is what wipes the window it just
+#   stamped. The two cells are structurally unable to hand off to each other inside an
+#   isolated batch: the very mechanism that makes the capture cell batch-safe is the
+#   mechanism that destroys its output.
+#   SO THIS IS A NAMED HARVEST REQUIREMENT, not a lane requirement: closing it needs a
+#   committed fixture harvested from a flight that actually grappled - a claw couple
+#   recorded, committed and persisted - in the same shape `bdock-recorded` carries a
+#   dock window. No spec over an existing fixture can produce one.
+#
+#   PREDICTED PASS: `Classifier_LivePrefabs_ClassifyByProducerModule` and
+#   `PotatoRoid_PartLoaderAndSnapshotNameResolve` carry NO guard at all - they resolve
+#   stock prefabs through the live `PartLoader` and classify by producer module.
+#
+#   THE OPEN QUESTION IS `GrappleCapture` ITSELF, which carries TWELVE guards. The pad
+#   rig answers the ones a fixture can answer - a live `ParsekFlight`, a loaded+unpacked
+#   non-EVA active vessel, a launch site nowhere near a pole (the KSC is at ~0 deg
+#   latitude, and the guard trips within 5 degrees of one), and stock claw / `PotatoRoid`
+#   prefabs on a stock install. What no fixture settles is the SPAWN half: two
+#   `SpawnAtPosition` calls that can return 0, and two settle waits on the spawned pids.
+#   That is the measurement this reading run exists to take.
+# =====================================================================================
+description = "READING RUN: the in-game LogisticsGrapple category through the ISOLATED batch entry point over the logi-cargo-pad rig - the first execution anywhere of the self-provisioning GrappleCapture cell, which spawns a stock claw and a PotatoRoid and drives a programmatic couple/release cycle behind a per-test quickload restore."
+instanceProfile = "stock-minimal"
+tags = ["ingame-batch", "isolated-batch", "logistics", "grapple", "claw", "asteroid",
+        "H41", "pending-flight"]
+
+[fixture]
+# `logi-cargo-pad`, H38's host, and the reasons are DIFFERENT from H38's - which is
+# worth stating, because reusing a fixture for a different reason is how a fixture
+# requirement quietly rots.
+#
+# WHAT THIS LANE NEEDS OF IT, read off `GrappleCapture`'s twelve guards:
+#   * a live `ParsekFlight` and a loaded+unpacked ACTIVE VESSEL to spawn beside - the
+#     capture cell places the claw and the roid relative to it;
+#   * NOT an EVA kerbal ("a couple involving it would be EVA-suppressed");
+#   * NOT landed or splashed within 5 degrees of a pole, because the longitude maths the
+#     spawn placement uses degenerates there. The rig sits on the KSC LaunchPad at
+#     roughly 0 degrees latitude, which is as far from that guard as Kerbin allows;
+#   * stock `PotatoRoid` and claw prefabs in `PartLoader` - a stock-install property,
+#     not a fixture one.
+# It needs NOTHING of the rig's LiquidFuel, its FuelCell or its two cargo containers -
+# every one of the five properties `build_logi_craft.py` was written to satisfy is
+# irrelevant here. The rig is chosen because it is a committed PRELAUNCH pad host with
+# an ordinary controllable vessel, and any such host would do.
+#
+# THE FIXTURE REQUIREMENT CLASS IS THEREFORE `loaded-vessel`, NOT `logistics`, and the
+# group table says so explicitly rather than inheriting `Logistics`' row on the strength
+# of a similar category name. `LogisticsGrapple` needs a real active vessel to spawn
+# beside; it does not need a shapeable LiquidFuel tank, and it does not stage.
+#
+# `injectedRecordings = "none"`: nothing here reads a corpus. The one cell that wants
+# recorded state wants a GRAPPLE WINDOW specifically, which no synthetic row carries and
+# no injection can manufacture - see the harvest requirement in the header.
+saveTemplate       = "fixtures/saves/logi-cargo-pad"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+# NO KILL TRIPLE, and it is the same reasoning H38 uses on this same host: a fresh
+# un-recorded pad fixture has zero trees and zero recordings, so there is nothing to
+# stop and nothing to discard. The pair would be a harmless no-op, and writing steps
+# that assert nothing is how a driver stops being readable. H39 / H40 / H51 / H54 carry
+# the triple because THEIR hosts are recorded; this one does not.
+#
+# autoRecordOnLaunch=false: the standard pin. It matters more than usual here - the
+# capture cell SPAWNS VESSELS and drives a couple, and an auto-record firing on that
+# would put a tree in the produced save and break the zero-recordings assertion below,
+# which is this lane's campaign-isolation proof.
+#
+# verboseLogging=true is REQUIRED, not cosmetic: the per-test PASSED / SKIPPED lines are
+# Verbose, and the product of this reading run is the CENSUS - specifically WHICH of
+# `GrappleCapture`'s twelve guards fires, if any. A count alone cannot distinguish "the
+# spawn failed" from "the vessel was not unpacked yet", and those call for opposite
+# fixes.
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" },  expect = "OK" },
+  { cmd = "RunTests",   args = { category = "LogisticsGrapple", isolated = "true" }, expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit",                                                     expect = "OK" },
+]
+
+[dimensionsCovered]
+# HONEST AND MINIMAL - the boot facts only, both riding the loadgame token below.
+#
+# NO D10 VALUE IS CLAIMED. `claw-producer` is one of the registry's zero-declarer rows
+# and this is plainly the lane that would eventually earn it, but CLAIM-IS-NOT-GATE
+# means a value is declarable only when a REQUIRED token would red if the behaviour
+# stopped - and this spec pins no cell token at all until the census says whether the
+# capture cell executes. The first post-reading commit is where that claim is earned,
+# off the capture cell's own stamp echo.
+D14 = ["sandbox", "scene-flight"]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING (the H7 lesson): run.py reads
+# `expectations.allowedAnomalies`, and a bare key written AFTER an
+# `[expectations.<sub>]` header is TOML-scoped to that sub-table and never read.
+allowedAnomalies = []
+
+[expectations.recordings]
+# Zero, and it is a sharper assertion here than on any sibling. The capture cell spawns
+# TWO vessels and drives a real couple/release cycle; if any of that leaks a recording
+# or a tree into the produced save, the per-test baseline restore did not hold - which
+# is the entire property the isolated path rests on, and it should red loudly rather
+# than be absorbed by a window.
+count = { min = 0, max = 0 }
+
+[expectations.logContracts]
+# EVIDENCE STANDING: NOT FLOWN. Everything below is ATTRIBUTE-derived or read off the
+# source; nothing is measured, and the split is deliberately left open.
+#
+# ---------------------------------------------------------------------------------
+# DERIVED, NOT GUESSED:
+#   hlib.derive_batch_tally(decls, "LogisticsGrapple", "FLIGHT", isolated=True)
+#     -> total=4  scene_skipped=0  batch_skipped=0  executable=4
+#   hlib.derive_batch_tally(decls, "LogisticsGrapple", "FLIGHT")
+#     -> total=4  scene_skipped=0  batch_skipped=1  executable=3
+#   restore-flagged declarations admitted at FLIGHT -> 1
+#
+#  - total=4 is ATTRIBUTE-EXACT: 4 `[InGameTest(Category = "LogisticsGrapple")]`
+#    declarations across two files (`GrappleCaptureInGameTest.cs` 1,
+#    `LogisticsGrappleRuntimeTests.cs` 3), all `Scene = GameScenes.FLIGHT`. Kept in sync
+#    by `CommittedBatchTallySourceSyncTests`.
+#  - The ATTRIBUTE FLOOR for `skipped` is 0 on the isolated path: nothing is
+#    scene-ineligible at FLIGHT, and the single batch-disabled declaration carries the
+#    restore flag so the isolated filter admits it.
+#  - passed / skipped are LEFT OPEN, and here the open form is the PLAIN interim
+#    spelling `passed=[1-9][0-9]*` rather than the ordinary-ceiling floor H38 / H39 /
+#    H40 use. That is deliberate and is the header's whole point: with the isolated arg
+#    buying exactly ONE cell and one certain run-time skip, no floor can separate the
+#    two paths, so demanding one would be theatre. What the plain form still does is
+#    reject the entire vacuous family (`passed=0 failed=0`, which forces
+#    total == skipped), which is what the anti-vacuity gate needs.
+#  - failed=0 is the ASSERTION, and it is the one token most likely to earn its keep on
+#    a first flight: `GrappleCapture` drives a real couple and release, and H38's run 1
+#    is the worked example of a reading run red-ing on `failed=` and producing a product
+#    defect.
+#  - scene=FLIGHT is the fixture's Focusable route, MEASURED by H38 on this exact
+#    template, and it is the B10 fail-open guard.
+#
+# THE TWO STRUCTURAL TOKENS CARRY THE DISCRIMINATION (see the header). The baseline-slot
+# literal is 1 - derived, not copied from the Logistics lanes' 38 - and is emitted only
+# by `PrepareBatchFlightRestoreExecution`, which `RunCategory` never calls. The seam
+# echo is also the canary for the provisioning trap: the harness flies the
+# `automation/stock-minimal` instance, NOT the one `dotnet build` deploys to, so its
+# ABSENCE means a stale `Parsek.dll` rather than a Parsek regression.
+#
+# NO CELL TOKENS ARE PINNED. The capture cell's stamp echo is the obvious first pin
+# after the reading run, and it is deliberately not guessed at now.
+required  = [
+  "loadgame complete scene=FLIGHT save=.* game-loaded=true expected=Flight",
+  "runtests start category=LogisticsGrapple isolated=true",
+  "Using batch baseline slot .* for 1 restore-after-run test\\(s\\)",
+  "BATCH_COMPLETE v1 total=4 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=LogisticsGrapple scene=FLIGHT",
+]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+[runtime]
+# Budget arithmetic (M-A5 S8): every deferred seam verb gets
+# `required_step_wait(max(step budget, SEAM_FALLBACK_DEFERRAL_SECONDS=600))` = 660 s,
+# and BOTH LoadGame and RunTests are deferred, so the worst case is 660 + 660 = 1320.
+# 1400 clears it, which is the isolated family's convention and is enforced for this
+# family by `IsolatedBatchWiringGroupTests.test_the_budget_clears_the_deferred_worst_case`.
+#
+# The batch itself is small - four cells, ONE of them restore-flagged, so one baseline
+# prime plus one restore against a 6-part rig, where H38 pays 38 restores on the same
+# host and measured 250 s. The headroom is for the capture cell's two vessel spawns and
+# their settle waits, which are the only unbounded thing here.
+budgetSeconds = 1400
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

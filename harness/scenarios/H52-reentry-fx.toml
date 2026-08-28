@@ -1,0 +1,95 @@
+schema = 1
+id = "H52-reentry-fx"
+tier = "nightly"
+# PHASE-4 WAVE 1, the H7-H20 shape. Reentry FX emission gates on a live atmospheric body.
+#
+# WHAT IT COVERS: the reentry-FX gates - the lazy build on an empty ghost root clearing
+# its flag and counting a build, the doubled emission range for fire density, and the
+# speed gate matching the reentry-potential floor. All three read live atmospheric
+# parameters off `FlightGlobals.ActiveVessel.mainBody`, which headless xUnit has none of.
+#
+# THE REACHABILITY ARGUMENT, which is what earns the exact pin. Only ONE of the three
+# cells carries a guard at all: `Bug538_ReentryFireDensity_UsesDoubledEmissionRange`
+# skips when the "Active vessel body '{body.name}' has no usable atmosphere for
+# reentry-...". gloops-airshow's active vessel sits on KERBIN, which has an atmosphere,
+# so the guard cannot fire. The other two carry none. That is the whole scan - and it is
+# worth contrasting with H43 in this same wave, where a superficially similar
+# "one guarded cell" reading turned out to hide three live-geometry conditions.
+#
+# THE FORM IS AN EXACT PIN ON FIRST AUTHORING, the H7-H20 precedent, and it is earned
+# by a REACHABILITY argument rather than by an absence of guards. What the ordinary
+# group's own comment calls "a reachable-Skip scan" is the test: a guard that CANNOT
+# fire at this lane's boot is not a source of uncertainty, and pinning around it would
+# be superstition. Every guard in this category is enumerated above with the reason it
+# cannot fire here. If a first flight reds on the split, do NOT widen the pattern -
+# read the skip reason out of the log and correct the reachability argument, because
+# one of the statements above is then wrong.
+description = "Run the in-game ReentryFx category unattended: the lazy ghost-root FX build, the doubled fire-density emission range, and the speed gate matching the reentry-potential floor, all against live atmospheric parameters."
+instanceProfile = "stock-minimal"
+tags = ["ingame-batch", "phase4-wave1", "reentry-fx", "H52"]
+
+[fixture]
+# gloops-airshow, the wave host, and the one property that matters is that its
+# active vessel is on KERBIN - a body with a usable atmosphere. A host parked at
+# the Mun or in deep space would skip the fire-density cell and the pin below
+# would be wrong.
+saveTemplate = "fixtures/saves/gloops-airshow"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+# No verboseLogging: the only pinned token is BATCH_COMPLETE (Info), and an
+# EXACT-pinned lane has no census to read.
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "RunTests",   args = { category = "ReentryFx" }, expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit", expect = "OK" },
+]
+
+[dimensionsCovered]
+# HONEST and minimal. NOT claimed: any D2 ghost-visual value - these cells assert
+# the FX GATES (flag, range, speed floor), not that anything rendered; H15 owns
+# the corpus-wide ghost build.
+D14 = ["sandbox", "scene-flight"]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING (see H7): run.py reads `expectations.allowedAnomalies`,
+# and a bare key written AFTER an `[expectations.<sub>]` header is TOML-scoped to that
+# sub-table and never read.
+allowedAnomalies = []
+
+[expectations.recordings]
+# Zero: nothing here records.
+count = { min = 0, max = 0 }
+
+[expectations.logContracts]
+# ANTI-VACUITY: tally pinned WHOLE, and derivable exactly.
+#  - total=3 is ATTRIBUTE-EXACT: 3 `[InGameTest(Category = "ReentryFx")]` declarations,
+#    all `Scene = GameScenes.FLIGHT`, in `RuntimeTests.cs`. Nothing is batch-disabled, so
+#    the ATTRIBUTE FLOOR is 0.
+#  - skipped=0 rests on the reachability argument in the header: the single guard in the
+#    category is an atmosphere check, and this host is on Kerbin.
+#  - failed=0 is the ASSERTION.
+#  - passed=3 follows.
+#  - scene=FLIGHT is the gloops-airshow Focusable route, MEASURED by H13 / H5 / H29.
+required  = ["BATCH_COMPLETE v1 total=3 passed=3 failed=0 skipped=0 category=ReentryFx scene=FLIGHT"]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+[runtime]
+# 720, the H7-H20 wave convention. NOTE THE INHERITED FLAW rather than repeating it
+# silently: both LoadGame and RunTests are deferred seam verbs, so run.py waits
+# `required_step_wait(max(budget, 600))` = 660 s on each and the true worst case is
+# 1320 - a seam TIMEOUT here can surface as a harness KILL instead of a retryable
+# driver-INVALID, and run.py warns about exactly that. H21 documents it for the whole
+# family and deliberately did not change 14 committed budgets; this wave joins the
+# family rather than forking its own convention. Raising the whole wave is a separate
+# change with its own evidence.
+budgetSeconds = 720
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

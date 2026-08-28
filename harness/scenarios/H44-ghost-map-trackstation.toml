@@ -1,0 +1,126 @@
+schema = 1
+id = "H44-ghost-map-trackstation"
+tier = "nightly"
+# PHASE-4 WAVE 1, the H7-H20 shape. The TRACKSTATION slice of the largest undriven render category.
+#
+# WHAT IT COVERS: the tracking-station half of `GhostMap` - the render-parity baseline
+# on a known-good faithful ghost, the polyline leg builders and the TracedPath owned-leg
+# draw, the marker hold across a dropout, the ownership and marker-draw decision gates
+# on their LIVE dispatch, and the two icon-glide cells that only exist for the TS host.
+# 16 of the 25 declarations are FLIGHT-scoped and scene-skip here; that is the ATTRIBUTE
+# floor and it is why this lane is honestly the TS SLICE rather than the category.
+#
+# WHY A READING RUN - THE AUDIT'S "zero source self-skips" IS WRONG, and the reason is
+# sharp enough to be worth naming. Six of the nine admitted cells carry no guard at all.
+# The other three do, and one of them CANNOT PASS HERE BY CONSTRUCTION:
+#   * `GhostMapIconGlidesOnShortArc_TrackingStation` and
+#     `GhostMapIconGlidesAcrossRaiseGap_TrackingStation` guard on "Kerbin not found in
+#     FlightGlobals.Bodies", satisfied on a stock install - the H29 case.
+#   * `MarkerDrawDecision_DispatchesOnLiveGate_NoGap` guards on an ACTIVE PAD VESSEL
+#     that stages and leaves PRELAUNCH ("active pad vessel produced no launch thrust
+#     after staging", "active pad vessel burned its engines but never left PRELAUNCH").
+#     THIS LANE BOOTS TO TRACKSTATION, where there is no active vessel at all, so that
+#     cell skips whatever the fixture carries. Pinning `skipped=16` - the attribute
+#     floor, which is what an exact pin would assert - would therefore red on a correct
+#     run. PREDICTED: `skipped=17`, i.e. the floor plus that one cell. The census
+#     confirms or refutes it; it is not pinned.
+# The lane is worth flying anyway: the eight remaining cells are the TS render surface,
+# and nothing else in the suite executes them.
+#
+# THE FORM IS A READING RUN, and the id is declared in
+# `IngameBatchWiringGroupTests.INTERIM_PIN_IDS`: the split is left OPEN
+# (`passed=[1-9][0-9]*`, `skipped=[0-9]+`) because run-time `InGameAssert.Skip` guards
+# decide it and no attribute predicts them. The open form still rejects the whole
+# vacuous family (`passed=0 failed=0`, which forces total == skipped), which is the
+# property the anti-vacuity gate needs; what it does not do is assert a split nobody
+# has measured. OBLIGATION ON THE FIRST FLIGHT: measure the split off BATCH_COMPLETE,
+# replace the pin whole, declare any run-time skips in `RUNTIME_SKIPS` with their
+# reasons, and remove the id from INTERIM_PIN_IDS - in the same commit.
+description = "READING RUN: the TRACKSTATION slice of the in-game GhostMap category over the 274-row synthetic corpus - render-parity baseline, polyline leg builders, TracedPath owned-leg draw, marker dropout hold, and the two TS icon-glide cells."
+instanceProfile = "stock-minimal"
+tags = ["ingame-batch", "phase4-wave1", "ghost-map", "tracking-station", "H44"]
+
+[fixture]
+# gloops-airshow booted to TRACKSTATION via `LoadGame scene=trackstation` - the R12
+# argument, whose only other consumers are H23 (TrackingStation) and H34
+# (`scene=spacecenter`). Without it the fixture's Focusable route lands in FLIGHT
+# and the batch would run a completely different 9-cell slice.
+#
+# injectedRecordings = "all-synthetic"` IS THE ANTI-VACUITY GUARD, not a
+# decoration: this category walks `RecordingStore`, and over an empty store its
+# cells bail through their own guards while the tally still reads green. The 274-row
+# corpus is the same one H5 / H14 / H15 / H16 / H17 / H27 / H28 / H30 / H33 inject and
+# pin, so the count below is a MEASURED number carried by nine committed specs, and a
+# corpus that silently stopped landing reds on it rather than on a tally.
+saveTemplate = "fixtures/saves/gloops-airshow"
+injectedRecordings = "all-synthetic"
+craft = []
+
+[driver]
+kind = "seam"
+# verboseLogging=true: the CENSUS is the product, and the header's prediction about
+# `MarkerDrawDecision` needs that cell's skip reason by name to confirm.
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent", scene = "trackstation" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" }, expect = "OK" },
+  { cmd = "RunTests",   args = { category = "GhostMap" }, expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit", expect = "OK" },
+]
+
+[dimensionsCovered]
+# `scene-ksc` rather than `scene-flight`: this lane boots to the tracking station,
+# which is the KSC-side scene the registry's value covers, and the pinned
+# `scene=TRACKSTATION` token on the tally is what gates it. NOT claimed: any D10
+# render value - `route-map-lines` is V18T's and is earned by a render facet this
+# lane does not export.
+D14 = ["sandbox", "scene-ksc"]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING (see H7): run.py reads `expectations.allowedAnomalies`,
+# and a bare key written AFTER an `[expectations.<sub>]` header is TOML-scoped to that
+# sub-table and never read.
+allowedAnomalies = []
+
+[expectations.recordings]
+# The 274-row corpus, pinned exactly as its nine sibling specs pin it. It is the
+# ANTI-VACUITY guard for this category rather than a leak assertion: the parity
+# and polyline cells walk `RecordingStore`, and over an empty store they bail
+# through their own guards while the tally still reads green.
+count = { min = 274, max = 274 }
+
+[expectations.logContracts]
+# ANTI-VACUITY plus a DELIBERATELY OPEN SPLIT.
+#  - total=25 is ATTRIBUTE-EXACT: 25 `[InGameTest(Category = "GhostMap")]` declarations
+#    across six files. BATCH_COMPLETE's `total` counts FILTERED tests too, which is why
+#    it reads 25 while only 9 are admitted here.
+#  - The ATTRIBUTE FLOOR for `skipped` is 16 - the FLIGHT-scoped declarations that
+#    scene-skip at TRACKSTATION. Nothing is batch-disabled.
+#  - passed / skipped are OPEN, and the header explains why the floor is NOT the answer:
+#    `MarkerDrawDecision_DispatchesOnLiveGate_NoGap` needs an active pad vessel that
+#    stages, which cannot exist at TRACKSTATION, so the predicted line is
+#    `passed=8 skipped=17`. Pinning either that prediction or the floor would be
+#    asserting an unmeasured split.
+#  - failed=0 is the ASSERTION.
+#  - scene=TRACKSTATION is LOAD-BEARING and is the B10 fail-open guard: a boot that lost
+#    the `scene=` argument lands in FLIGHT and runs a different 9-cell slice, which this
+#    token rejects.
+required  = ["BATCH_COMPLETE v1 total=25 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=GhostMap scene=TRACKSTATION"]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+[runtime]
+# 720, the H7-H20 wave convention. NOTE THE INHERITED FLAW rather than repeating it
+# silently: both LoadGame and RunTests are deferred seam verbs, so run.py waits
+# `required_step_wait(max(budget, 600))` = 660 s on each and the true worst case is
+# 1320 - a seam TIMEOUT here can surface as a harness KILL instead of a retryable
+# driver-INVALID, and run.py warns about exactly that. H21 documents it for the whole
+# family and deliberately did not change 14 committed budgets; this wave joins the
+# family rather than forking its own convention. Raising the whole wave is a separate
+# change with its own evidence.
+budgetSeconds = 720
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

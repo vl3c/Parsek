@@ -1,0 +1,126 @@
+schema = 1
+id = "H51-save-load"
+tier = "nightly"
+# PHASE-4 WAVE 1, the H7-H20 shape. Save-scoped storage plumbing against a REAL recorded save.
+#
+# WHAT IT COVERS: the save-scoped storage plumbing - the recordings directory created
+# under the live save folder, the scenario module active, the external sidecar files
+# present, and current-format trajectory sidecars probing as BINARY rather than as the
+# readable `.txt` mirrors beside them. That last one is the reason this lane exists: it
+# is the only in-game assertion that the sidecar the loader will read is the
+# authoritative binary, and it needs real committed recordings to probe.
+#
+# THE REACHABILITY ARGUMENT, which is what earns the exact pin. Two cells carry guards
+# and both are answered by the fixture rather than by luck:
+#   * "requires a loaded game (creates save-scoped recordings directory" and "no
+#     SaveFolder set" - satisfied by any `LoadGame`.
+#   * "no current-format committed recordings in this save" - satisfied because
+#     `mun-orbit-recorded` is a RECORDED fixture whose eight `.prec` sidecars are pinned
+#     in `test_saveparse.py::RECORDED_FIXTURES`, and that pin asserts its
+#     `recordingSchemaGeneration` equals `RecordingStore.CurrentRecordingSchemaGeneration`.
+#     So "current-format" is not an assumption here - it is a committed, locally-gated
+#     fact, and if the schema generation ever moves the harness reds in `harness/lib`
+#     naming the fixture, before this lane ever flies.
+# The other two cells carry no guard at all.
+#
+# THE FORM IS AN EXACT PIN ON FIRST AUTHORING, the H7-H20 precedent, and it is earned
+# by a REACHABILITY argument rather than by an absence of guards. What the ordinary
+# group's own comment calls "a reachable-Skip scan" is the test: a guard that CANNOT
+# fire at this lane's boot is not a source of uncertainty, and pinning around it would
+# be superstition. Every guard in this category is enumerated above with the reason it
+# cannot fire here. If a first flight reds on the split, do NOT widen the pattern -
+# read the skip reason out of the log and correct the reachability argument, because
+# one of the statements above is then wrong.
+description = "Run the in-game SaveLoad category unattended against a real recorded save: the save-scoped recordings directory, scenario module liveness, external sidecar files, and current-format trajectory sidecars probing as binary."
+instanceProfile = "stock-minimal"
+tags = ["ingame-batch", "phase4-wave1", "save-load", "recorded-fixture", "H51"]
+
+[fixture]
+# mun-orbit-recorded, and it is the ONLY choice in this wave that a zero-recording
+# host cannot make: `CurrentFormatTrajectorySidecarsProbeAsBinary` skips on "no
+# current-format committed recordings in this save", so on gloops-airshow the one
+# cell this lane exists for would never execute. Eight committed `.prec` sidecars,
+# one committed tree, pinned shape in `RECORDED_FIXTURES`. SANDBOX.
+#
+# `injectedRecordings = "none"` is REQUIRED rather than chosen: the payload is
+# carried by the TEMPLATE, and injecting the synthetic corpus on top would make
+# the count pin un-attributable and the sidecar probe ambiguous about which
+# recording it read.
+saveTemplate = "fixtures/saves/mun-orbit-recorded"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+# THE KILL TRIPLE IS LOAD-BEARING on a RECORDED host and is what separates this
+# driver from the rest of the wave. Loading a save whose own parked craft is
+# active resumes a promotion-stub recording ~1 s into the scene, BEFORE any step
+# can run - measured across the V corpus (V2 flight 4, V5 run 1) and structural
+# rather than fixture-specific. StopRecording is idempotent-OK and DiscardTree
+# answers OK with nothing-discarded when no plain tree is live, so the pair is
+# safe on any entry state. Without it the stub would land in the produced save
+# and break the count pin below.
+#
+# No verboseLogging: the only pinned token is BATCH_COMPLETE (Info).
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording", expect = "OK" },
+  { cmd = "DiscardTree",   expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "RunTests",   args = { category = "SaveLoad" }, expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit", expect = "OK" },
+]
+
+[dimensionsCovered]
+# HONEST and minimal. NOT claimed: any D3 storage-format value - the sidecar cell
+# asserts the PROBE result (binary, not the .txt mirror), not the trajectory
+# contents; the analyzer owns format validation.
+D14 = ["sandbox", "scene-flight"]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING (see H7): run.py reads `expectations.allowedAnomalies`,
+# and a bare key written AFTER an `[expectations.<sub>]` header is TOML-scoped to that
+# sub-table and never read.
+allowedAnomalies = []
+
+[expectations.recordings]
+# NINE, not the fixture's own eight, and the extra one is MEASURED rather than
+# guessed: `V6M-mun-player-loop` and `V6T-mun-ts-arrival` both pin `{ 9, 9 }` over
+# this template on a FLIGHT boot, the difference being a deterministic LOAD-TIME
+# OPTIMIZER SPLIT that cuts one recording in two. The split is a pure function of
+# the recording applied at load, so it reproduces. A reading of 8 means the split
+# stopped happening and a reading of 10+ means a promotion stub survived the kill
+# triple; both are findings to INVESTIGATE rather than to widen.
+count = { min = 9, max = 9 }
+
+[expectations.logContracts]
+# ANTI-VACUITY: tally pinned WHOLE, and derivable exactly.
+#  - total=4 is ATTRIBUTE-EXACT: 4 `[InGameTest(Category = "SaveLoad")]` declarations in
+#    `RuntimeTests.cs`, all AnyScene, so the ATTRIBUTE FLOOR is 0.
+#  - skipped=0 rests on the reachability argument in the header, and note that one half
+#    of it is enforced LOCALLY rather than assumed: the "current-format" guard is
+#    answered by `RECORDED_FIXTURES`' schema-generation pin, which reds in `harness/lib`
+#    if the fixture ever falls behind `RecordingStore.CurrentRecordingSchemaGeneration`.
+#  - failed=0 is the ASSERTION.
+#  - passed=4 follows.
+#  - scene=FLIGHT is the fixture's Focusable route, MEASURED by V6M / V6T / B11 on this
+#    exact template.
+required  = ["BATCH_COMPLETE v1 total=4 passed=4 failed=0 skipped=0 category=SaveLoad scene=FLIGHT"]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+[runtime]
+# 720, the H7-H20 wave convention. NOTE THE INHERITED FLAW rather than repeating it
+# silently: both LoadGame and RunTests are deferred seam verbs, so run.py waits
+# `required_step_wait(max(budget, 600))` = 660 s on each and the true worst case is
+# 1320 - a seam TIMEOUT here can surface as a harness KILL instead of a retryable
+# driver-INVALID, and run.py warns about exactly that. H21 documents it for the whole
+# family and deliberately did not change 14 committed budgets; this wave joins the
+# family rather than forking its own convention. Raising the whole wave is a separate
+# change with its own evidence.
+budgetSeconds = 720
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

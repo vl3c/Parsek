@@ -1,0 +1,111 @@
+schema = 1
+id = "H49-tree-integrity"
+tier = "nightly"
+# PHASE-4 WAVE 1, the H7-H20 shape. Committed-tree structural invariants over the injected corpus.
+#
+# WHAT IT COVERS: the structural invariants of committed recording trees as the LIVE
+# store holds them - branch-point children resolving, parent links valid, background-map
+# entries resolving to eligible recordings, and the tree end-UT covering all leaves.
+# These are the invariants the offline analyzer checks on disk; this lane checks them
+# on the in-memory store after a real load.
+#
+# WHY A READING RUN, and the distinction matters because the audit called this exact.
+# Three of the four cells guard on properties of the CORPUS rather than of the scene:
+# "No branch point children to check", "No non-root recordings with parent links", "No
+# committed trees". The last is answered outright by injecting the 274-row corpus. The
+# first two are answered only if the corpus actually CONTAINS branch points and parent
+# links - and while reading `SyntheticRecordingTests.cs` says it authors both (75
+# `BranchPoint` references, 29 `WithParentRecordingId` / parent-link sites, including
+# `ChildBranchPointId` / `ParentBranchPointId` pairs and an `Undock` branch point), what
+# the INJECTOR actually lands in the produced save is a different statement from what
+# the generator can build. No committed spec has ever measured it. PREDICTED: all four
+# pass. That prediction is cheap to confirm and expensive to assume, which is what makes
+# it a census rather than a pin.
+#
+# THE FORM IS A READING RUN, and the id is declared in
+# `IngameBatchWiringGroupTests.INTERIM_PIN_IDS`: the split is left OPEN
+# (`passed=[1-9][0-9]*`, `skipped=[0-9]+`) because run-time `InGameAssert.Skip` guards
+# decide it and no attribute predicts them. The open form still rejects the whole
+# vacuous family (`passed=0 failed=0`, which forces total == skipped), which is the
+# property the anti-vacuity gate needs; what it does not do is assert a split nobody
+# has measured. OBLIGATION ON THE FIRST FLIGHT: measure the split off BATCH_COMPLETE,
+# replace the pin whole, declare any run-time skips in `RUNTIME_SKIPS` with their
+# reasons, and remove the id from INTERIM_PIN_IDS - in the same commit.
+description = "READING RUN: the in-game TreeIntegrity category over the 274-row synthetic corpus - branch-point children, parent links, background-map resolution and end-UT leaf coverage, checked against the live store after a real load."
+instanceProfile = "stock-minimal"
+tags = ["ingame-batch", "phase4-wave1", "tree-integrity", "corpus", "H49"]
+
+[fixture]
+# gloops-airshow, the wave host, plus the corpus which is what makes the batch mean
+# anything.
+#
+# injectedRecordings = "all-synthetic"` IS THE ANTI-VACUITY GUARD, not a
+# decoration: this category walks `RecordingStore`, and over an empty store its
+# cells bail through their own guards while the tally still reads green. The 274-row
+# corpus is the same one H5 / H14 / H15 / H16 / H17 / H27 / H28 / H30 / H33 inject and
+# pin, so the count below is a MEASURED number carried by nine committed specs, and a
+# corpus that silently stopped landing reds on it rather than on a tally.
+saveTemplate = "fixtures/saves/gloops-airshow"
+injectedRecordings = "all-synthetic"
+craft = []
+
+[driver]
+kind = "seam"
+# verboseLogging=true: the CENSUS is the product. The header's open question is
+# whether the INJECTED corpus lands branch points and parent links, and the answer
+# arrives as a skip reason naming which one is missing.
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" }, expect = "OK" },
+  { cmd = "RunTests",   args = { category = "TreeIntegrity" }, expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit", expect = "OK" },
+]
+
+[dimensionsCovered]
+# HONEST and minimal. NOT claimed: any D3 storage value - these cells assert tree
+# TOPOLOGY in memory and read no sidecar; H14 owns the corpus data-health sweep.
+D14 = ["sandbox", "scene-flight"]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING (see H7): run.py reads `expectations.allowedAnomalies`,
+# and a bare key written AFTER an `[expectations.<sub>]` header is TOML-scoped to that
+# sub-table and never read.
+allowedAnomalies = []
+
+[expectations.recordings]
+# The 274-row corpus, pinned exactly as its nine sibling specs pin it, and here it
+# is doubly load-bearing: it is both the ANTI-VACUITY guard (three of the four
+# cells skip outright on an empty store) and the subject.
+count = { min = 274, max = 274 }
+
+[expectations.logContracts]
+# ANTI-VACUITY plus a DELIBERATELY OPEN SPLIT.
+#  - total=4 is ATTRIBUTE-EXACT: 4 `[InGameTest(Category = "TreeIntegrity")]`
+#    declarations in `ExtendedRuntimeTests.cs`, all AnyScene, so the ATTRIBUTE FLOOR for
+#    `skipped` is 0 at any boot.
+#  - passed / skipped are OPEN for the reason in the header: three of the four guard on
+#    CORPUS SHAPE, which no attribute and no static read of the generator settles.
+#  - failed=0 is the ASSERTION.
+#  - scene=FLIGHT is the gloops-airshow Focusable route. The derivation would give the
+#    same admitted set at any scene (all four are AnyScene); the token is pinned anyway
+#    as a statement about the boot.
+required  = ["BATCH_COMPLETE v1 total=4 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=TreeIntegrity scene=FLIGHT"]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+[runtime]
+# 720, the H7-H20 wave convention. NOTE THE INHERITED FLAW rather than repeating it
+# silently: both LoadGame and RunTests are deferred seam verbs, so run.py waits
+# `required_step_wait(max(budget, 600))` = 660 s on each and the true worst case is
+# 1320 - a seam TIMEOUT here can surface as a harness KILL instead of a retryable
+# driver-INVALID, and run.py warns about exactly that. H21 documents it for the whole
+# family and deliberately did not change 14 committed budgets; this wave joins the
+# family rather than forking its own convention. Raising the whole wave is a separate
+# change with its own evidence.
+budgetSeconds = 720
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

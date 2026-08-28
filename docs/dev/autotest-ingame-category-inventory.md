@@ -90,7 +90,7 @@ Two limits of this table, stated so nobody over-reads it:
 | `AutoRecord` | 10 | 0 | 0 | 0 | 10 | 10 | - | B |
 | `BackgroundSeeder` | 2 | 2 | 0 | 0 | 0 | 2 | - | B |
 | `Bug289` | 2 | 2 | 0 | 0 | 0 | 0 | - | B |
-| `ClawCouple` | 2 | 2 | 0 | 0 | 0 | 2 | - | B |
+| `ClawCouple` | 2 | 2 | 0 | 0 | 0 | 2 | H42 | A |
 | `Coalescer` | 2 | 0 | 0 | 0 | 2 | 2 | - | B |
 | `ContinuationIntegrity` | 2 | 2 | 2 | 2 | 0 | 0 | - | B |
 | `Contracts` | 2 | 2 | 0 | 0 | 0 | 2 | - | B |
@@ -106,9 +106,9 @@ Two limits of this table, stated so nobody over-reads it:
 | `ForwardRender` | 1 | 1 | 0 | 0 | 0 | 0 | - | B |
 | `GameActionsHealth` | 4 | 4 | 4 | 4 | 0 | 3 | B10 / L1 | B |
 | `GhostAudio` | 9 | 8 | 3 | 2 | 0 | 1 | H30 | A |
-| `GhostChains` | 4 | 4 | 4 | 4 | 0 | 4 | - | B |
-| `GhostLifecycle` | 17 | 15 | 0 | 2 | 0 | 17 | - | B |
-| `GhostMap` | 25 | 16 | 0 | 9 | 0 | 11 | S1.6 | B |
+| `GhostChains` | 4 | 4 | 4 | 4 | 0 | 4 | H50 | A |
+| `GhostLifecycle` | 17 | 15 | 0 | 2 | 0 | 17 | - (see the 2026-08-29 note) | B |
+| `GhostMap` | 25 | 16 | 0 | 9 | 0 | 11 | S1.6, H44 (TRACKSTATION slice) | B |
 | `GhostMapOrbits` | 2 | 2 | 1 | 1 | 0 | 1 | - | B |
 | `GhostPlayback` | 42 | 41 | 1 | 1 | 1 | 12 | S1.4 | B |
 | `GhostVisuals` | 4 | 4 | 3 | 3 | 0 | 0 | H15 | A |
@@ -116,18 +116,18 @@ Two limits of this table, stated so nobody over-reads it:
 | `IncompleteBallistic` | 11 | 11 | 0 | 0 | 0 | 0 | H9 | A |
 | `KSP` | 6 | 6 | 4 | 4 | 0 | 0 | H13 | A |
 | `KspApiSanity` | 5 | 5 | 3 | 3 | 0 | 3 | H24 | A |
-| `Ledger` | 4 | 0 | 4 | 0 | 0 | 4 | - | B |
+| `Ledger` | 4 | 0 | 4 | 0 | 0 | 4 | H48 | A |
 | `LedgerGroundTruth` | 2 | 2 | 0 | 0 | 0 | 1 | L2 | B |
 | `LocalizedName` | 3 | 3 | 3 | 3 | 0 | 0 | H29 | A |
 | `LogContracts` | 10 | 10 | 8 | 8 | 0 | 2 | H26 | A |
 | `Logistics` | 47 | 8 | 2 | 1 | 38 | 46 | H34 (SPACECENTER slice), H35 (FLIGHT ordinary slice), H38 (FLIGHT ISOLATED on a built pad rig, flown 2026-08-28, executes 39), H39 + H40 (the same ISOLATED slice on RECORDED hosts, both flown 2026-08-28, executing 34 and 35). Union across all five: 42 of 47 | B |
-| `LogisticsGrapple` | 4 | 3 | 0 | 0 | 1 | 2 | - | B |
+| `LogisticsGrapple` | 4 | 3 | 0 | 0 | 1 | 2 | H41 (ISOLATED) | A |
 | `MapPresence` | 5 | 5 | 3 | 3 | 0 | 2 | H28 | A |
 | `MapRender` | 22 | 21 | 0 | 0 | 1 | 14 | S1.7 | B |
-| `MapView` | 4 | 3 | 3 | 4 | 0 | 2 | - | B |
+| `MapView` | 4 | 3 | 3 | 4 | 0 | 2 | H47 | A |
 | `MergeDialog` | 2 | 0 | 0 | 0 | 2 | 2 | - | B |
 | `MissionPhasing` | 2 | 2 | 0 | 0 | 0 | 0 | - | B |
-| `Missions` | 13 | 7 | 6 | 0 | 0 | 9 | M1 | B |
+| `Missions` | 13 | 7 | 6 | 0 | 0 | 9 | M1, H54 (FLIGHT slice) | B |
 | `Optimizer` | 2 | 0 | 2 | 0 | 0 | 2 | - | B |
 | `PartEventFX` | 6 | 6 | 0 | 0 | 0 | 6 | - | B |
 | `PartEventFidelity` | 5 | 5 | 0 | 0 | 0 | 5 | H37 | A |
@@ -150,7 +150,7 @@ Two limits of this table, stated so nobody over-reads it:
 | `RecordingFinalization` | 3 | 3 | 0 | 0 | 0 | 0 | H19 | A |
 | `RecordingInvariants` | 2 | 2 | 0 | 0 | 0 | 0 | H5 | B |
 | `RecordingStore` | 2 | 2 | 2 | 2 | 0 | 0 | - | B |
-| `ReentryFx` | 3 | 3 | 0 | 0 | 0 | 1 | - | B |
+| `ReentryFx` | 3 | 3 | 0 | 0 | 0 | 1 | H52 | A |
 | `RenderComposition` | 1 | 1 | 0 | 0 | 0 | 1 | - | B |
 | `ResourceManifest` | 1 | 1 | 0 | 0 | 0 | 0 | - | B |
 | `ResourceReconciliation` | 1 | 0 | 1 | 0 | 0 | 0 | - | B |
@@ -161,11 +161,11 @@ Two limits of this table, stated so nobody over-reads it:
 | `RewindSaves` | 1 | 1 | 1 | 1 | 0 | 1 | - | B |
 | `RouteLiveAnchor` | 1 | 1 | 0 | 0 | 0 | 1 | - | B |
 | `RouteRewindTimeline` | 7 | 7 | 7 | 7 | 0 | 1 | H6 | B |
-| `SaveLoad` | 4 | 4 | 4 | 4 | 0 | 2 | - | B |
-| `SceneAndPatch` | 7 | 4 | 3 | 2 | 0 | 4 | - | B |
+| `SaveLoad` | 4 | 4 | 4 | 4 | 0 | 2 | H51 | A |
+| `SceneAndPatch` | 7 | 4 | 3 | 2 | 0 | 4 | H53 (FLIGHT slice) | B |
 | `SceneExitMerge` | 2 | 0 | 0 | 0 | 2 | 2 | H21 | A |
 | `Serialization` | 4 | 4 | 4 | 4 | 0 | 1 | H25 | A |
-| `Settings` | 5 | 4 | 3 | 4 | 0 | 2 | - | B |
+| `Settings` | 5 | 4 | 3 | 4 | 0 | 2 | H46 | B |
 | `SnapshotBaseline` | 7 | 7 | 0 | 0 | 0 | 7 | H32 | A |
 | `SoiCrossingPlayback` | 3 | 3 | 0 | 0 | 0 | 3 | S1.8 | A |
 | `SpawnCollision` | 2 | 2 | 0 | 0 | 0 | 2 | - | B |
@@ -173,20 +173,20 @@ Two limits of this table, stated so nobody over-reads it:
 | `SpawnRotation` | 10 | 10 | 0 | 0 | 0 | 0 | H8 | A |
 | `SpawnTerminalOrbit` | 3 | 3 | 0 | 0 | 0 | 3 | - | B |
 | `Spawner` | 2 | 2 | 0 | 0 | 0 | 1 | - | B |
-| `StockUiOverlay` | 6 | 0 | 6 | 0 | 0 | 6 | - | B |
+| `StockUiOverlay` | 6 | 0 | 6 | 0 | 0 | 6 | H45 | A |
 | `StockWarpLimits` | 1 | 1 | 0 | 0 | 0 | 0 | - | B |
 | `StrategyLifecycle` | 10 | 0 | 10 | 0 | 0 | 10 | L3 | A |
 | `Structure` | 2 | 2 | 2 | 2 | 0 | 2 | - | B |
 | `SwitchIntentPatch` | 3 | 1 | 1 | 1 | 0 | 0 | - | B |
 | `SwitchSegment` | 6 | 6 | 0 | 0 | 0 | 0 | H12 | A |
 | `TerminalOrbit` | 2 | 2 | 2 | 2 | 0 | 2 | - | B |
-| `TerrainClearance` | 6 | 6 | 0 | 0 | 0 | 6 | - | B |
+| `TerrainClearance` | 6 | 6 | 0 | 0 | 0 | 6 | H43 | A |
 | `TestCommands` | 4 | 3 | 1 | 1 | 0 | 3 | - | B |
 | `TestRunner` | 2 | 2 | 2 | 2 | 0 | 0 | - | B |
 | `TestRunnerIsolation` | 2 | 1 | 2 | 1 | 0 | 1 | - | B |
 | `TrackingStation` | 10 | 0 | 0 | 9 | 1 | 3 | H23 | A |
 | `TrajectoryMath` | 8 | 8 | 8 | 8 | 0 | 0 | H7 | A |
-| `TreeIntegrity` | 4 | 4 | 4 | 4 | 0 | 3 | - | B |
+| `TreeIntegrity` | 4 | 4 | 4 | 4 | 0 | 3 | H49 | A |
 | `UiComplexityMode` | 4 | 4 | 0 | 0 | 0 | 4 | H22 | A |
 | `Unity` | 4 | 4 | 4 | 4 | 0 | 1 | - | B |
 | `WarpToTime` | 1 | 0 | 1 | 0 | 0 | 1 | - | B |
@@ -442,12 +442,12 @@ one wired category costs one KSP boot per cadence. Wiring all 74 undriven catego
 would mean 89 boots. The question is never "can this category run in a batch" but
 "is what it executes worth a boot".
 
-### Bucket A - wired now (20 categories, 140 declarations)
+### Bucket A - wired now (30 categories, 181 declarations)
 
 Two sub-classes, admitted on DIFFERENT grounds. Conflating them is how the isolated
 spec would end up pinned against the wrong derivation.
 
-**A1 - the ordinary batch path (15 categories, 81 declarations).** Fourteen shipped
+**A1 - the ordinary batch path (28 categories, 168 declarations).** Fourteen shipped
 as one wave, `H7`-`H20`, tier `nightly`, over the committed `gloops-airshow`
 fixture; `H22-ui-complexity-mode` joined afterward with the Basic/Advanced UI-mode
 feature, tier `daily`, over the same fixture. The admission test each had to pass:
@@ -531,7 +531,34 @@ of its cells carry run-time Skip guards that only the fixture rules out.
 | `H22-ui-complexity-mode` | UiComplexityMode | 4 | The LIVE `InputLockManager`, which headless xUnit structurally cannot reach: entering Basic must force-close every gated window AND leave no Parsek control lock held, or the player's mouse soft-locks for the rest of the scene session |
 | `H23-tracking-station` | TrackingStation | 10 | The TRACKSTATION scene itself, unreachable by any driven run until R12. The TS scene host, the span-clock TS seam, the synthetic-ghost ProtoVessel lifecycle and Fly-strip, and the map/TS render tracer's LIVE Vectrosity line truth. Note it breaks A1's shape: its `LoadGame` carries `scene = "trackstation"`, so it is the only spec here whose batch runs outside FLIGHT |
 
-**A2 - the ISOLATED batch path (2 categories, 49 declarations, 4 specs).** `SceneExitMerge`,
+PHASE-4 WAVE 1 (2026-08-29) MOVED FOURTEEN CATEGORIES OUT OF B, and the split is
+worth reading because only TEN of them landed in A. A category joins A when a lane
+drives it WHOLE at that lane's boot - zero scene-skips - which is true of `ClawCouple`
+(H42), `TerrainClearance` (H43), `StockUiOverlay` (H45), `MapView` (H47), `Ledger`
+(H48), `TreeIntegrity` (H49), `GhostChains` (H50), `SaveLoad` (H51), `ReentryFx` (H52)
+and `LogisticsGrapple` (H41, on the ISOLATED path). The other four are driven as
+SLICES and STAY IN B on `Logistics`' precedent - "driven, partially, without meeting
+bucket A1's whole-category admission shape": `GhostMap` (H44 takes the 9 TRACKSTATION-
+eligible of 25), `Missions` (H54 takes the 7 FLIGHT-eligible of 13), `SceneAndPatch`
+(H53 takes 4 of 7) and `Settings` (H46 takes 4 of 5). Each of those four leaves a
+NAMED residue that needs a sibling lane at another scene, not a change to the lane
+that exists.
+
+THE WAVE ALSO CORRECTED ITS OWN COMMISSIONING AUDIT, which is the durable lesson.
+That audit proposed nine of the thirteen ordinary lanes as "zero self-skips, pin
+exactly". Re-deriving each against the source says FIVE can. The error was counting
+guards rather than asking whether a guard can FIRE at the lane's own boot, and it went
+BOTH ways: `ClawCouple` and `ReentryFx` have guarded bodies and still pin exactly (a
+`PartLoader not ready` check cannot fire in a loaded FLIGHT scene; an atmosphere check
+cannot fire on Kerbin), while `TerrainClearance`, `GhostMap` and `StockUiOverlay` were
+proposed exact and are not. The `GhostMap` case is the sharpest: its
+`MarkerDrawDecision_DispatchesOnLiveGate_NoGap` cell guards on an ACTIVE PAD VESSEL
+that stages, which cannot exist at TRACKSTATION, so an exact pin at the attribute
+floor would have red on a correct run. The rule the wave leaves behind is written into
+`IngameBatchWiringGroupTests.INTERIM_PIN_IDS`: an exact pin is earned by an enumerated
+reachability argument in the spec header, one line per guard, or it is not earned.
+
+**A2 - the ISOLATED batch path (3 categories, 53 declarations, 5 specs).** `SceneExitMerge`,
 wired as `H21-scene-exit-merge-isolated`, tier `nightly`, over `b2-lko-craft`. It
 satisfies NONE of A1's three criteria as written, which is exactly why it needs
 stating separately rather than being appended to the table above:
@@ -643,7 +670,7 @@ make these lanes pass.
 | `H39-logistics-isolated-bdock` | Logistics | 47 declared, 46 admitted | The same 46 cells over `bdock-recorded` - the FIRST time the restore-flagged Logistics declarations run against a non-empty recording store (two committed trees, 19 recordings, one dock window). Pays two of H38's five missing-recorded-subject skips, and is the fixture-axis negative control on H38: the census delta says which of its 39 passes were RIG properties rather than universal ones - measured, 5 of them. FLOWN 3x 2026-08-28, pinned whole `47/34/0/13` with count 21; its census-2 recordings-floor red is half of how the tree-deletion data loss was found |
 | `H40-logistics-isolated-depot-route` | Logistics | 47 declared, 46 admitted | The same 46 cells over `depot-route-recorded`, the suite's ONLY committed Active GhostDriving route (four `SOURCE_REF` rows carrying `routeProofHash`, a Dock and an Undock branch point, 22 recordings). The axis it adds is ROUTE-PRESENT vs ROUTE-ABSENT: every route-reading cell in the category has until now executed only against state a test forged in-body. Carries the `RevalidateSources ... routes=1 transitioned=0` anti-vacuity token, tightened to `reason=OnLoad` by the census (the authored wildcard also matched on the route-less host). FLOWN 3x 2026-08-28, pinned whole `47/35/0/12` with count 22. It adds ZERO distinct declarations over `H38 ∪ H39` - its value is the execution context plus the nine-cell destination-headroom test-defect family its census 1 exposed against a 720/720 tank |
 
-### Bucket B - wireable, but needs something first (81 categories, 451 declarations)
+### Bucket B - wireable, but needs something first (71 categories, 410 declarations)
 
 Not one list but six reasons, and the reason is what decides whether it is worth
 doing.
@@ -807,6 +834,20 @@ bearing part:
   empty ghost set. Realistic yield is ~4 of 17 on `gloops-airshow` +
   `all-synthetic`. Unblocking the rest is generator/product work (an overlap-
   capable `WithLoopPlayback` interval, a mission-node author), not spec authoring.
+
+  NOTE ADDED 2026-08-29 (Phase-4 Wave 1), and it is a FLAG rather than a revision:
+  clause (b) above says "no committed asset authors a MISSION node with
+  `LoopPlayback = true`". That is no longer true of the committed corpus -
+  `fixtures/saves/duna-one-recorded` carries a MISSION node with
+  `loopPlayback = True`, which is precisely the condition (b) says nothing
+  satisfies, and `H54-missions` in this wave boots that very save. So the
+  2026-08-04 unreachability read NEEDS RE-DERIVATION: at minimum the mission-loop
+  clause, and possibly the ~11-of-17 headline that rests on it.
+  DELIBERATELY NOT RE-MEASURED HERE. Re-deriving 17 bodies against a fixture that
+  did not exist when the read was taken is its own piece of work with its own
+  evidence, and quietly editing the verdict without doing it would be worse than
+  leaving it flagged. What this note buys is that the next person to read "should
+  not be wired next" knows the premise moved. The row above is marked accordingly.
 
 ~~The honest next wave is therefore bucket B6 below (`LogContracts` 10,
 `GhostAudio` 9, `Diagnostics` 6, `MapPresence` 5, `LocalizedName` 3 - all

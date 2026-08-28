@@ -51,6 +51,31 @@ All notable changes to Parsek are documented here.
 
 ### Dev
 
+- Fourteen more of Parsek's in-game self-tests can now be run automatically. The
+  mod ships a large set of tests that only mean anything inside a running game -
+  they check things like the claw and asteroid parts loading, ghosts being held
+  clear of the ground, the decorations Parsek adds to the stock research and
+  astronaut screens, the map and tracking-station markers, and the save-file
+  plumbing - and none of these had any way to be run except by hand. Each one now
+  has an automated run of its own, on whichever saved game and whichever screen
+  that particular group of tests actually needs, which for four of them is not the
+  flight view at all.
+
+  Writing them turned up something worth recording, because it is the kind of
+  mistake that costs a whole test flight to discover. The plan these were written
+  from said nine of them could state their expected result exactly, on the grounds
+  that their tests contain no "give up" conditions. Checking each one against the
+  actual test code says only five can. The plan had counted whether a test LOOKS
+  like it might give up, when the question is whether it could actually do so in
+  the situation that particular run sets up - and it was wrong in both directions.
+  Two tests that do contain a give-up condition can still state their result
+  exactly, because the condition cannot happen once the game has loaded. Three
+  others cannot, and one of those would have failed on a perfectly healthy run: it
+  checks something that needs a rocket sitting on the launchpad, and its run
+  deliberately starts in the tracking station, where there is no rocket at all.
+  The nine that cannot state an exact result say so, and will be tightened once
+  they have actually been run.
+
 - The automated test rig's own tidy-up could put back the very state it had just
   cleaned. A test batch restores your save file to exactly the bytes it had
   before the batch started; the command that then shuts the game down was saving

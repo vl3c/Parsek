@@ -1,0 +1,130 @@
+schema = 1
+id = "H54-missions"
+tier = "nightly"
+# PHASE-4 WAVE 1, the H7-H20 shape. The FLIGHT slice of Missions against a REAL re-aim mission.
+#
+# WHAT IT COVERS: the FLIGHT-scoped Missions cells - the descent-handoff visibility
+# contract (one ghost at handoff, the transfer hidden while the descent plays), the
+# re-aim render loop-shift canary proving the Director orbit and the polyline read the
+# SAME loop shift, and the dock-composition row surfacing. These are the live render
+# consequences of a re-aim mission, and nothing headless can reach them.
+#
+# WHY A READING RUN, AND WHY THIS FIXTURE: the skip strings NAME the requirement
+# literally. Both re-aim cells skip with "no re-aim mission in the loaded save; load s15
+# (the Kerbin->Duna 'Duna ...')" - i.e. the test authors wrote the fixture requirement
+# into the guard. `duna-one-recorded` is the committed Kerbin->Duna save, so it is the
+# host those strings ask for. What remains genuinely open is the SECOND half of each
+# guard: "re-aim mission '{name}' carries no descent trigger" and "every probed sample
+# was hidden or zero-shift (live clock before the loop...)". Both are clock- and
+# shape-dependent on where the save's UT sits relative to the loop, which is a runtime
+# fact. Six of the seven admitted cells carry a guard. PREDICTED: the unguarded
+# dock-composition cell passes and the two re-aim cells reach at least their first
+# guard; beyond that the census decides.
+#
+# THE FORM IS A READING RUN, and the id is declared in
+# `IngameBatchWiringGroupTests.INTERIM_PIN_IDS`: the split is left OPEN
+# (`passed=[1-9][0-9]*`, `skipped=[0-9]+`) because run-time `InGameAssert.Skip` guards
+# decide it and no attribute predicts them. The open form still rejects the whole
+# vacuous family (`passed=0 failed=0`, which forces total == skipped), which is the
+# property the anti-vacuity gate needs; what it does not do is assert a split nobody
+# has measured. OBLIGATION ON THE FIRST FLIGHT: measure the split off BATCH_COMPLETE,
+# replace the pin whole, declare any run-time skips in `RUNTIME_SKIPS` with their
+# reasons, and remove the id from INTERIM_PIN_IDS - in the same commit.
+description = "READING RUN: the FLIGHT slice of the in-game Missions category against the committed Kerbin->Duna re-aim save its skip strings name literally - descent-handoff visibility, the render loop-shift canary, and dock composition rows."
+instanceProfile = "stock-minimal"
+tags = ["ingame-batch", "phase4-wave1", "missions", "re-aim", "recorded-fixture", "H54"]
+
+[fixture]
+# duna-one-recorded, and it is named by the tests themselves rather than chosen:
+# both re-aim cells' skip strings say "load s15 (the Kerbin->Duna 'Duna ...')",
+# and this is the committed harvest of that mission. 13 committed `.prec`
+# sidecars. SANDBOX.
+#
+# `injectedRecordings = "none"` is REQUIRED rather than chosen: the payload is
+# the TEMPLATE's own mission, and a synthetic corpus on top would make the count
+# un-attributable and could add a second re-aim mission for the picker to find.
+saveTemplate = "fixtures/saves/duna-one-recorded"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+# THE KILL TRIPLE IS LOAD-BEARING on a RECORDED host, exactly as on H51 and H35:
+# loading a save whose own parked craft is active resumes a promotion-stub
+# recording ~1 s into the scene before any step can run (the V-corpus lesson).
+# StopRecording is idempotent-OK and DiscardTree answers OK with
+# nothing-discarded when no plain tree is live.
+#
+# verboseLogging=true: the CENSUS is the product, and both re-aim cells have TWO
+# guard tiers - the census has to say WHICH one fired to be worth anything.
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording", expect = "OK" },
+  { cmd = "DiscardTree",   expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" }, expect = "OK" },
+  { cmd = "RunTests",   args = { category = "Missions" }, expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit", expect = "OK" },
+]
+
+[dimensionsCovered]
+# HONEST and minimal, and deliberately claims nothing about re-aim: V24W / V25M own
+# the measured re-aim render facets on this very fixture, and CLAIM-IS-NOT-GATE
+# means a value needs a REQUIRED token that reds if the behaviour stops. This lane
+# pins only a tally until the census says which cells execute.
+D14 = ["sandbox", "scene-flight"]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING (see H7): run.py reads `expectations.allowedAnomalies`,
+# and a bare key written AFTER an `[expectations.<sub>]` header is TOML-scoped to that
+# sub-table and never read.
+allowedAnomalies = []
+
+[expectations.recordings]
+# A READING WINDOW inherited from the two committed lanes that have flown these
+# bytes: `V24W-duna-one-warp-stair` pins `{ 10, 24 }` and
+# `V25M-duna-park-player-loop` pins `{ 12, 22 }` over the same 13 staged sidecars.
+# Neither is an exact measurement of a plain batch boot, and this lane adds a
+# variable neither had - a 7-cell batch that may build and reap trees - so the
+# CEILING is borrowed from the wider of the two rather than invented.
+#
+# THE FLOOR IS THE STAGED SET (13), NOT V24W's 10, and the difference is a real
+# assertion rather than tidiness: this lane's cells are READ-SIDE, so nothing here
+# has any business reducing the corpus, and a reading below 13 means committed
+# sidecars were destroyed - to be INVESTIGATED, never window-widened. (V24W and
+# V25M sit below 13 because they TimeJump and re-save, which this driver does not.)
+# `IngameBatchWiringGroupTests` enforces the floor >= staged rule for every
+# recorded-fixture member; it caught this window at 10 before it ever flew.
+# Narrow to the measured value and leave INTERIM_PIN_IDS in the same commit.
+count = { min = 13, max = 24 }
+
+[expectations.logContracts]
+# ANTI-VACUITY plus a DELIBERATELY OPEN SPLIT.
+#  - total=13 is ATTRIBUTE-EXACT: 13 `[InGameTest(Category = "Missions")]` declarations
+#    across eight files. The ATTRIBUTE FLOOR for `skipped` is 6 - six SPACECENTER-scoped
+#    declarations scene-skip at FLIGHT. Those six are a real residue this lane does not
+#    address; they need a SPACECENTER sibling, not a change here.
+#  - passed / skipped are OPEN for the reason in the header: six of the seven admitted
+#    cells guard, and the second tier of each re-aim guard is clock-dependent.
+#  - failed=0 is the ASSERTION.
+#  - scene=FLIGHT is the fixture's Focusable route, MEASURED by V24W / V25M on this exact
+#    template, and load-bearing because the skip floor is scene-derived.
+required  = ["BATCH_COMPLETE v1 total=13 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=Missions scene=FLIGHT"]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+[runtime]
+# 720, the H7-H20 wave convention. NOTE THE INHERITED FLAW rather than repeating it
+# silently: both LoadGame and RunTests are deferred seam verbs, so run.py waits
+# `required_step_wait(max(budget, 600))` = 660 s on each and the true worst case is
+# 1320 - a seam TIMEOUT here can surface as a harness KILL instead of a retryable
+# driver-INVALID, and run.py warns about exactly that. H21 documents it for the whole
+# family and deliberately did not change 14 committed budgets; this wave joins the
+# family rather than forking its own convention. Raising the whole wave is a separate
+# change with its own evidence.
+budgetSeconds = 720
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

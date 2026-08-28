@@ -3095,6 +3095,27 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
         # skipped=0`) after a first flight that red 3/5 on one product defect and one
         # fixture bug; the pin is whole and the id has left INTERIM_PIN_IDS.
         "H37-part-event-fidelity":   ("PartEventFidelity", 5, "FLIGHT"),
+        # PHASE-4 WAVE 1 (2026-08-29), thirteen lanes from the roster audit. They are
+        # NOT a homogeneous block and the table should not be read as one: four boot
+        # outside FLIGHT (two TRACKSTATION, two SPACECENTER), four inject the corpus,
+        # two run over RECORDED fixtures and carry a kill triple, and five pin their
+        # tally EXACTLY on first authoring while eight are reading runs. Which is which,
+        # and WHY, is in each spec's own header; the discriminator throughout is a
+        # REACHABILITY scan of the category's `InGameAssert.Skip` guards at that lane's
+        # boot, never a guard count.
+        "H42-claw-couple":           ("ClawCouple", 2, "FLIGHT"),
+        "H43-terrain-clearance":     ("TerrainClearance", 6, "FLIGHT"),
+        "H44-ghost-map-trackstation": ("GhostMap", 25, "TRACKSTATION"),
+        "H45-stock-ui-overlay":      ("StockUiOverlay", 6, "SPACECENTER"),
+        "H46-settings":              ("Settings", 5, "FLIGHT"),
+        "H47-map-view":              ("MapView", 4, "TRACKSTATION"),
+        "H48-ledger-drawdown":       ("Ledger", 4, "SPACECENTER"),
+        "H49-tree-integrity":        ("TreeIntegrity", 4, "FLIGHT"),
+        "H50-ghost-chains":          ("GhostChains", 4, "FLIGHT"),
+        "H51-save-load":             ("SaveLoad", 4, "FLIGHT"),
+        "H52-reentry-fx":            ("ReentryFx", 3, "FLIGHT"),
+        "H53-scene-and-patch":       ("SceneAndPatch", 7, "FLIGHT"),
+        "H54-missions":              ("Missions", 13, "FLIGHT"),
     }
 
     # Declared MEASURED run-time skips per member: InGameAssert.Skip firings the
@@ -3231,10 +3252,41 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
     #   guards were satisfied on stock-minimal, no RUNTIME_SKIPS entry is owed, and the pin
     #   is now whole.
     #
-    # All four specs now pin their tallies whole, so the set is empty again. It must stay a
-    # `set()` call rather than a `{}` literal, which would be an empty DICT - the two
-    # membership cells below would then answer False for every id and pass vacuously.
-    INTERIM_PIN_IDS: set = set()
+    # All four specs now pin their tallies whole, so the set was empty again.
+    #
+    # PHASE-4 WAVE 1 (2026-08-29) PUT EIGHT MEMBERS BACK IN IT, and the wave is worth
+    # reading as a single lesson about this set: the ROSTER AUDIT that proposed these
+    # thirteen lanes claimed nine of them had "zero self-skips" and could be pinned
+    # exactly. Re-deriving each one against the source before authoring says FIVE can.
+    # The audit counted guards in the wrong place - it read whether a category's cells
+    # LOOK guarded, where the question is whether a guard can FIRE at the lane's own
+    # boot. Both directions of that error appeared:
+    #   * `H42` (ClawCouple) and `H52` (ReentryFx) have guarded bodies and still pin
+    #     EXACTLY, because a `PartLoader not ready` check cannot fire in a loaded FLIGHT
+    #     scene and an atmosphere check cannot fire on Kerbin.
+    #   * `H43` (TerrainClearance), `H44` (GhostMap) and `H45` (StockUiOverlay) were all
+    #     proposed as exact and are NOT, because each hides a guard family the audit did
+    #     not open: three live-geometry conditions on the explosion-anchor cell, a
+    #     marker-decision cell that needs an active PAD vessel and therefore cannot pass
+    #     at TRACKSTATION AT ALL, and a contract-picker plus building-instance pair.
+    # The rule the wave leaves behind: an exact pin is earned by an enumerated
+    # reachability argument in the spec header, one line per guard, or it is not earned.
+    #
+    # The four corpus-backed and recorded-host members here are interim for a further
+    # reason worth separating: their guards are about what the STORE contains
+    # ("No branch point children to check", "No ghost chains computed", "No live active
+    # tree to use as a synth source"), and what an INJECTED corpus actually lands is a
+    # different statement from what its generator can build. No committed spec has
+    # measured it.
+    #
+    # It must stay a set LITERAL of ids (or a `set()` call when empty, never a `{}`
+    # literal, which would be an empty DICT - the two membership cells below would then
+    # answer False for every id and pass vacuously).
+    INTERIM_PIN_IDS = {
+        "H43-terrain-clearance", "H44-ghost-map-trackstation",
+        "H45-stock-ui-overlay", "H46-settings", "H49-tree-integrity",
+        "H50-ghost-chains", "H53-scene-and-patch", "H54-missions",
+    }
 
     # Every committed spec whose id matches this is an H-SERIES batch spec.
     # Membership is DISCOVERED from disk and then compared for set equality against
@@ -3279,10 +3331,10 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
         # cell below cannot catch either, because it compares two sets that shrink
         # together. Same shape as CommittedBatchTallySourceSyncTests's
         # test_the_source_tree_is_actually_readable.
-        self.assertEqual(30, len(self.GROUP),
-                         "the H7-H20 + H22-H37 group is 30 specs; if it genuinely changed "
-                         "size, update this floor AND the counts in "
-                         "docs/dev/autotest-ingame-category-inventory.md and "
+        self.assertEqual(43, len(self.GROUP),
+                         "the H7-H20 + H22-H37 + Phase-4 Wave 1 (H42-H54) group is 43 "
+                         "specs; if it genuinely changed size, update this floor AND the "
+                         "counts in docs/dev/autotest-ingame-category-inventory.md and "
                          "docs/dev/autotest-status.md in the same commit")
         # A RUNTIME_SKIPS key for a non-member is silently inert (both floor
         # cells read it via .get(sid, 0) over GROUP members only), so a stale
@@ -3469,10 +3521,19 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
         # the only committed assertion that those two land through the sidecar /
         # schema-gate load path. Same requirement either way: inject AND pin
         # non-zero, so a corpus that silently stopped landing reds.
+        # PHASE-4 WAVE 1 adds four, all of the ORIGINAL shape rather than H33's: each
+        # walks `RecordingStore` and would bail through its own guards over an empty
+        # store while the tally still read green. H44's parity and polyline cells, H49's
+        # tree-topology cells and H50's chain cells are the purest instances of that
+        # trap in the tree - three of H50's four guards are literally "No committed
+        # trees" - and H53 injects for ONE cell rather than for the batch (no ghosts, no
+        # ghost-map pids, nothing for the patch cell to check).
         corpus_backed = {"H14-corpus-data-health", "H15-corpus-ghost-visuals",
                          "H16-corpus-spawn-health", "H17-flight-integration",
                          "H27-diagnostics", "H28-map-presence", "H30-ghost-audio",
-                         "H33-recorded-signals"}
+                         "H33-recorded-signals",
+                         "H44-ghost-map-trackstation", "H49-tree-integrity",
+                         "H50-ghost-chains", "H53-scene-and-patch"}
         # THE THIRD SHAPE (wave 3, the spec now called H35). A RECORDED-FIXTURE member injects
         # NOTHING - `injectedRecordings = "none"`, same as the zero-pin majority -
         # but its saveTemplate is a harvested save whose own COMMITTED recordings
@@ -3492,7 +3553,15 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
         # (test_fixture_set_is_exactly_the_committed_set forces every
         # fixtures/saves/ dir into either the zero-recording set or the fully
         # pinned RECORDED_FIXTURES). A wrong-but-present payload reds THERE.
-        recorded_fixture = {"H35-logistics-route-proof"}
+        # PHASE-4 WAVE 1 adds two, and they are the two that also carry a KILL TRIPLE
+        # for the same reason H35 does: a recorded host resumes a promotion-stub
+        # recording ~1 s into the scene before any step can run. `H51-save-load` needs
+        # `mun-orbit-recorded` because its sidecar-probe cell skips outright without
+        # "current-format committed recordings"; `H54-missions` needs
+        # `duna-one-recorded` because the re-aim cells' skip strings NAME that mission
+        # ("load s15 (the Kerbin->Duna 'Duna ...')").
+        recorded_fixture = {"H35-logistics-route-proof", "H51-save-load",
+                            "H54-missions"}
         self.assertEqual(set(), corpus_backed & recorded_fixture,
                          "a member cannot be both corpus-backed and "
                          "recorded-fixture; the two rules contradict")
@@ -3516,10 +3585,13 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
                                        "%s must pin a non-zero count - its whole "
                                        "premise is that the batch walks recorded "
                                        "state" % sid)
-                    self.assertEqual(count.get("min"), count.get("max"),
-                                     "%s must pin its count EXACTLY (min == max): a "
-                                     "range cannot tell a load-time optimizer split "
-                                     "from a leaked promotion stub" % sid)
+                    if sid not in self.INTERIM_PIN_IDS:
+                        self.assertEqual(
+                            count.get("min"), count.get("max"),
+                            "%s must pin its count EXACTLY (min == max): a range cannot "
+                            "tell a load-time optimizer split from a leaked promotion "
+                            "stub. A WINDOW is allowed only while the id is declared in "
+                            "INTERIM_PIN_IDS, i.e. before its first flight" % sid)
                     template = fixture.get("saveTemplate", "")
                     self.assertTrue(template.startswith("fixtures/saves/"), sid)
                     rec_dir = os.path.join(
@@ -3595,6 +3667,13 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
         # remaining three are a HARVEST requirement now proven on both hosts.
         "H39-logistics-isolated-bdock": ("Logistics", 47),
         "H40-logistics-isolated-depot-route": ("Logistics", 47),
+        # A DIFFERENT CATEGORY, and the first member whose isolated arg buys exactly ONE
+        # cell. `LogisticsGrapple` has 4 declarations of which one - the
+        # self-provisioning GrappleCapture cell - is AllowBatchExecution = false +
+        # RestoreBatchFlightBaselineAfterExecution = true. See
+        # TALLY_CANNOT_DISCRIMINATE_IDS below for why that single-cell margin changes
+        # which pinned evidence carries the proof.
+        "H41-logistics-grapple-isolated": ("LogisticsGrapple", 4),
     }
 
     # Members whose category is only PARTLY batch-disabled, i.e. the ordinary path
@@ -3614,10 +3693,38 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
     # H39 and H40 join on the identical arithmetic - the derivation is
     # attribute-level, so it is the same 8-vs-46 for every Logistics member
     # regardless of which host it boots.
+    #
+    # H41 joins with the NARROWEST margin the set has ever held: ordinary 3, isolated 4.
+    # The arg still does real work - it is the only way to run the capture cell at all -
+    # but one cell of margin is what makes its tally non-discriminating, which is a
+    # separate declaration (TALLY_CANNOT_DISCRIMINATE_IDS).
     PARTLY_BATCH_DISABLED_IDS = {"R7a-rewind-session-absent",
                                  "H38-logistics-isolated",
                                  "H39-logistics-isolated-bdock",
-                                 "H40-logistics-isolated-depot-route"}
+                                 "H40-logistics-isolated-depot-route",
+                                 "H41-logistics-grapple-isolated"}
+
+    # Members whose BATCH_COMPLETE line cannot distinguish the isolated path from the
+    # ordinary one, whatever it is pinned to, so the discrimination duty transfers to
+    # the two isolated-path-only tokens every member already owes.
+    #
+    # WHY THIS IS NOT A LOOPHOLE. `CommittedBatchTallySourceSyncTests` already reasons
+    # this way for R7a - "What CAN separate them is the seam's own echo ... the spec
+    # must pin that token instead. This keeps the cell's thesis intact - a run that
+    # silently lost the arg still reds - and only changes WHICH pinned evidence carries
+    # it." What is new here is that the condition is now DERIVED rather than argued: the
+    # cell below re-computes `isolated.executable - ordinary.executable` from the
+    # attributes and grants the exemption ONLY at a margin of exactly 1, where a single
+    # run-time skip anywhere collapses the two lines onto each other. A member with a
+    # wider margin is refused the exemption and must keep discriminating on the tally,
+    # so this cannot be used to escape a floor that was merely inconvenient.
+    #
+    #   H41-logistics-grapple-isolated - ordinary 3, isolated 4, and one of the four
+    #   (`GrappleWindow_LiveRecordedClawCouple_StampedGrapple`) is a CERTAIN skip on any
+    #   host without a persisted Grapple window. Predicted isolated line
+    #   `total=4 passed=3 failed=0 skipped=1`, byte-identical to what the ordinary path
+    #   prints when nothing self-skips.
+    TALLY_CANNOT_DISCRIMINATE_IDS = {"H41-logistics-grapple-isolated"}
 
     # Members whose tally split has NOT been measured yet, mirroring
     # IngameBatchWiringGroupTests.INTERIM_PIN_IDS for the isolated family. A member
@@ -3699,7 +3806,15 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
     # headers were CONFIRMED and none refuted, with one unpredicted skip on H39
     # (`Escrow_CompetingRouteSeesReservation_Holds` - the shared source is too LARGE,
     # the mirror image of the risk that header worried about).
-    INTERIM_PIN_IDS: set = set()
+    #
+    # AND BACK TO ONE ON 2026-08-29 for `H41-logistics-grapple-isolated`, which is
+    # interim for a reason neither H38 nor H39/H40 had. Its demanding cell
+    # (`GrappleCapture_ProgrammaticCoupleReleaseCycle_StampsAndCompletes`) carries
+    # TWELVE guards, and the half that matters is not a fixture property at all: two
+    # `SpawnAtPosition` calls that can return 0 and two settle waits on the spawned
+    # pids. No save file and no attribute settles whether a programmatic claw spawn
+    # succeeds in an unattended batch - only a run does.
+    INTERIM_PIN_IDS = {"H41-logistics-grapple-isolated"}
 
     # id -> measured `skipped=` for members whose RUN-TIME InGameAssert.Skip guards
     # push the split above the attribute-derived floor. The attributes give a FLOOR
@@ -3995,7 +4110,7 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
         # it. The usual `passed=[1-9][0-9]*` interim spelling FAILS this for any member
         # whose ordinary path executes 2 or more, which is why H38 pins passed >= 9.
         prefix = "[LOG 00:00:00.000] [Parsek][INFO][TestRunner] "
-        for sid in sorted(self.INTERIM_PIN_IDS):
+        for sid in sorted(self.INTERIM_PIN_IDS - self.TALLY_CANNOT_DISCRIMINATE_IDS):
             with self.subTest(spec=sid):
                 spec = self.specs[sid]
                 category, _ = self.GROUP[sid]
@@ -4074,6 +4189,14 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
                                  "would print for the isolated derivation" % sid)
                 self.assertNotRegex(vacuous, pat, "%s: its pin ACCEPTS the vacuous "
                                                   "line" % sid)
+                if sid in self.TALLY_CANNOT_DISCRIMINATE_IDS:
+                    # DECLARED non-discriminating - the exemption is earned below by
+                    # test_the_tally_exemption_is_earned_by_a_one_cell_margin, and the
+                    # proof transfers to the two isolated-path-only tokens that
+                    # test_each_pins_an_isolated_path_only_proof_token and
+                    # test_each_pins_the_seam_isolated_arg_echo demand of EVERY member.
+                    # The vacuous rejection above still applies and is not exempted.
+                    continue
                 self.assertNotRegex(
                     non_isolated, pat,
                     "%s: its pin ACCEPTS the line the ORDINARY (non-isolated) path "
@@ -4132,6 +4255,17 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
         # See the derivation above: never stages, needs a snapshottable active vessel
         # carrying shapeable LiquidFuel.
         "Logistics": "logistics",
+        # `LogisticsGrapple` is a THIRD class, and giving it `Logistics`' row on the
+        # strength of a similar category name would have been the same mistake this
+        # table was created to fix. Its one demanding cell
+        # (`GrappleCapture_ProgrammaticCoupleReleaseCycle_StampsAndCompletes`) spawns a
+        # claw and a PotatoRoid BESIDE the active vessel and couples them
+        # programmatically, so what it needs is a real vessel to spawn beside: a live
+        # active vessel with parts, not an EVA kerbal. It does NOT stage, and it does
+        # NOT touch LiquidFuel - `UnloadedFuelVesselFixture` is not in its call graph at
+        # all, so holding it to the `logistics` requirement would assert a capability
+        # none of its cells reads.
+        "LogisticsGrapple": "loaded-vessel",
     }
 
     @staticmethod
@@ -4200,6 +4334,31 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
                     "reason=no-liquidfuel-resource and every unloaded-depot cell "
                     "skips" % idx)
             return problems
+        if requirement == "loaded-vessel":
+            # A real, controllable vessel to spawn beside and couple with. Two
+            # conditions, each traceable to a guard in
+            # `GrappleCaptureInGameTest.cs`:
+            #   (a) PART nodes - an EVA kerbal or a part-less SpaceObject is not
+            #       something the capture cell can place a claw against, and the cell
+            #       skips on "Active vessel is an EVA kerbal; a couple involving it
+            #       would be EVA-suppressed".
+            #   (b) NOT an asteroid / SpaceObject as the ACTIVE vessel, for the same
+            #       reason plus the couple itself.
+            # Deliberately NOT checked here: "loaded+unpacked" and the 5-degree pole
+            # guard. The first is a runtime state no .sfs settles, and the second is a
+            # live latitude the spec's own header argues about (the KSC sits near 0
+            # degrees). A static predicate that pretended to settle either would be
+            # claiming more than it can see - the floor is what a save file can prove.
+            if not re.search(r"^\t\t\tPART\s*$", vessel, flags=re.M):
+                problems.append(
+                    "active vessel (index %d) declares no PART nodes - there is nothing "
+                    "for the capture cell to spawn a claw beside" % idx)
+            vtype = re.search(r"^\t\t\ttype = (\S+)", vessel, flags=re.M)
+            if vtype is not None and vtype.group(1) in ("SpaceObject", "EVA", "Debris"):
+                problems.append(
+                    "active vessel (index %d) is type=%s - a couple involving it is "
+                    "EVA-suppressed or meaningless" % (idx, vtype.group(1)))
+            return problems
         return ["unknown fixture requirement %r" % requirement]
 
     def test_each_pins_an_isolated_path_only_proof_token(self):
@@ -4258,6 +4417,45 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
                        .get("logContracts", {}) or {}).get("required", []) or []
                 self.assertIn("runtests start category=%s isolated=true" % category, req,
                               "%s must pin the seam's own isolated echo" % sid)
+
+    def test_the_tally_exemption_is_earned_by_a_one_cell_margin(self):
+        # THE EXEMPTION MUST BE DERIVED, NOT DECLARED. A member may leave the
+        # ordinary-line rejection to its structural tokens ONLY when the tally provably
+        # cannot do the job - i.e. when the isolated filter admits exactly ONE more cell
+        # than the ordinary one, so a single run-time skip anywhere collapses the two
+        # lines onto each other. At a wider margin a floor exists and must be used.
+        self.assertLessEqual(
+            self.TALLY_CANNOT_DISCRIMINATE_IDS, set(self.GROUP),
+            "TALLY_CANNOT_DISCRIMINATE_IDS names ids that are not GROUP members: %s"
+            % sorted(self.TALLY_CANNOT_DISCRIMINATE_IDS - set(self.GROUP)))
+        for sid in sorted(self.TALLY_CANNOT_DISCRIMINATE_IDS):
+            with self.subTest(spec=sid):
+                spec = self.specs[sid]
+                category, _ = self.GROUP[sid]
+                req = ((spec.get("expectations", {}) or {})
+                       .get("logContracts", {}) or {}).get("required", []) or []
+                scene = hlib.resolve_batch_tally_pin(req).scene
+                iso = hlib.derive_batch_tally(self.decls, category, scene, isolated=True)
+                ordinary = hlib.derive_batch_tally(self.decls, category, scene)
+                self.assertEqual(
+                    1, iso.executable - ordinary.executable,
+                    "%s claims its tally cannot discriminate, but the isolated filter "
+                    "admits %d where the ordinary one admits %d at scene=%s. At a "
+                    "margin of %d a `passed=` floor above the ordinary ceiling DOES "
+                    "separate the two paths, so the exemption is not earned - pin the "
+                    "floor instead" % (sid, iso.executable, ordinary.executable, scene,
+                                       iso.executable - ordinary.executable))
+                # And the tokens the duty transferred TO must actually be there. The two
+                # dedicated cells assert this for every member; asserting it again here
+                # is what makes the exemption self-contained rather than dependent on a
+                # sibling cell nobody would think to check when editing this one.
+                self.assertIn("runtests start category=%s isolated=true" % category, req,
+                              "%s: the seam echo is now the ONLY thing separating this "
+                              "spec from an ordinary run" % sid)
+                self.assertTrue(
+                    any("batch baseline slot" in r for r in req),
+                    "%s: the baseline-slot line is now load-bearing and must be pinned"
+                    % sid)
 
     def test_each_pins_the_recordings_count_its_fixture_implies(self):
         # For an isolated spec the recordings pin doubles as the CAMPAIGN-ISOLATION
@@ -4357,6 +4555,23 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
         # `reason = no-liquidfuel-resource` and every unloaded-depot cell skips - the
         # exact Logistics analogue of the engineless case.
         ("logistics", "gloops-airshow", "LiquidFuel"),
+        # LOADED-VESSEL, wrong active-vessel TYPE. `mun-orbit-recorded`'s active vessel
+        # is a real craft, so the PART floor alone would accept every committed fixture
+        # and the class would be a tautology; this row runs the requirement over a save
+        # whose active vessel is an ASTEROID, which is the shape the capture cell cannot
+        # couple. Built as a temporary in-memory fixture rather than committed, since no
+        # committed save makes an asteroid active - see the cell below.
+        )
+
+    # (requirement, a synthetic active-vessel VESSEL block that must be REJECTED, token)
+    SYNTHETIC_PREDICATE_CONTROLS = (
+        ("loaded-vessel",
+         "activeVessel = 0\nVESSEL\n\t\t\tname = Ast. ABC-123\n\t\t\ttype = SpaceObject\n"
+         "\t\t\tPART\n\t\t\t{\n\t\t\t}\n",
+         "type=SpaceObject"),
+        ("loaded-vessel",
+         "activeVessel = 0\nVESSEL\n\t\t\tname = Bob Kerman\n\t\t\ttype = EVA\n",
+         "no PART nodes"),
     )
 
     def test_each_requirement_rejects_a_host_that_is_wrong_for_it(self):
@@ -4382,6 +4597,27 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
                     "control exists to pin: %s"
                     % (requirement, fixture, token, problems))
 
+    def test_each_requirement_rejects_a_synthetic_host_that_is_wrong_for_it(self):
+        # The committed-fixture controls above cannot cover every failure mode, because
+        # no committed save makes an ASTEROID or an EVA kerbal the active vessel - and a
+        # requirement whose only control is a fixture that fails it for a DIFFERENT
+        # reason is half-tested. These run the predicate over a synthesized save body
+        # instead, so each branch of `loaded-vessel` has a control of its own.
+        import tempfile
+        for requirement, body, token in self.SYNTHETIC_PREDICATE_CONTROLS:
+            with self.subTest(requirement=requirement, token=token):
+                fd, path = tempfile.mkstemp(suffix=".sfs")
+                try:
+                    with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                        fh.write(body)
+                    problems = self._fixture_flight_problems(path, requirement)
+                finally:
+                    os.unlink(path)
+                self.assertTrue(
+                    any(token in p for p in problems),
+                    "the %r requirement must reject this synthetic host for the %s "
+                    "reason; got %s" % (requirement, token, problems))
+
     def test_the_requirement_classes_are_not_interchangeable(self):
         # The OTHER direction, and it is what keeps FIXTURE_REQUIREMENTS meaningful:
         # if both requirements resolved to the same predicate the table would be
@@ -4398,6 +4634,19 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
             "bdock-recorded's active vessel is a 28-part Kerbal X carrying a "
             "LiquidFuel tank, so it must PASS `logistics` - if it does not, the "
             "logistics requirement has inherited the staging one")
+        # And the third class must not have collapsed into either of the other two:
+        # gloops-airshow's 1-part engineless, fuel-less mk1-capsule is REJECTED by both
+        # `staging` and `logistics` and must be ACCEPTED by `loaded-vessel`, which asks
+        # only for a real vessel to spawn beside.
+        gl = os.path.join(HARNESS_ROOT, "fixtures", "saves", "gloops-airshow",
+                          "persistent.sfs")
+        self.assertNotEqual([], self._fixture_flight_problems(gl, "staging"))
+        self.assertNotEqual([], self._fixture_flight_problems(gl, "logistics"))
+        self.assertEqual(
+            [], self._fixture_flight_problems(gl, "loaded-vessel"),
+            "gloops-airshow's active vessel is a real 1-part craft, so it must PASS "
+            "`loaded-vessel` - if it does not, that requirement has inherited one of "
+            "the other two and the table is decoration")
 
     def test_an_unknown_requirement_fails_closed(self):
         # FAIL-CLOSED: a typo in FIXTURE_REQUIREMENTS, or a category routed to a
@@ -4424,7 +4673,7 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
             "host: %s. Read the category's bodies and add a row - do NOT default it "
             "to `staging`, which is a specific claim about StageManager" % missing)
         unknown = sorted(set(self.FIXTURE_REQUIREMENTS.values())
-                         - {"staging", "logistics"})
+                         - {"staging", "logistics", "loaded-vessel"})
         self.assertEqual([], unknown,
                          "FIXTURE_REQUIREMENTS names requirement(s) with no "
                          "implementation in _fixture_flight_problems: %s" % unknown)
@@ -5701,6 +5950,13 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # which is a separate harvest's scope rather than a debt these tags carry.
         "H39-logistics-isolated-bdock.toml": "FLOWN 3x 2026-08-28 (test defect, then the recordings floor caught player-reachable tree-deletion data loss, then PASS) and PINNED WHOLE incl. count=21; confirm runs then the operator -> daily PROMOTION call are what remain, not debt",
         "H40-logistics-isolated-depot-route.toml": "FLOWN 3x 2026-08-28 (a nine-cell destination-headroom test-defect family, then the recordings floor caught the same tree-deletion data loss, then PASS) and PINNED WHOLE incl. count=22; confirm runs then the operator -> daily PROMOTION call are what remain, not debt",
+        # H41, tier=operator because it has NOT FLOWN - the same disposition H38 / H39 /
+        # H40 each carried pre-flight. The debt is a FLIGHT, not a human call, and the
+        # `pending-flight` tag carries it. Re-classify to the H34/H35 shape (an open
+        # operator -> daily PROMOTION call) once it has flown, its census measured, its
+        # tally pinned and its id removed from
+        # IsolatedBatchWiringGroupTests.INTERIM_PIN_IDS.
+        "H41-logistics-grapple-isolated.toml": "tier=operator because it is a READING RUN that has not flown; debt is a flight, carried by the pending-flight tag - the same disposition H38/H39/H40 each carried pre-flight",
         # tier=operator by the CALIBRATION DISCIPLINE, the whole B18-B26 family's
         # tier, and NOT a debt: a first-flight B lane is operator because its
         # windows are derived rather than measured and the first run is a
