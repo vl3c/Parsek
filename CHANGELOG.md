@@ -58,7 +58,12 @@ All notable changes to Parsek are documented here.
   came on. Both are written up as their own items rather than patched from a test
   change. The clock arithmetic the test now depends on is itself checked by an
   ordinary offline test, so if the save it starts from is ever replaced the
-  mismatch is caught in seconds instead of costing another trial run.
+  mismatch is caught in seconds instead of costing another trial run. After the
+  corrected trial flew clean twice, the check was switched from reporting to
+  enforcing and proven both ways in the same afternoon: re-flown with the gate
+  live (green), then once more with a deliberately impossible expectation
+  (which failed exactly as it should) - so from now on, a version of the game
+  that draws even one of the 243 parts wrong fails this test outright.
   Test-tooling only; no gameplay change.
 
 - The ghost appear/disappear checker from the "watch your old launch" test is
