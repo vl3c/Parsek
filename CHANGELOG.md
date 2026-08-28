@@ -6,6 +6,26 @@ All notable changes to Parsek are documented here.
 
 ## 0.10.4
 
+### Fixed
+
+- Every time a recorded flight crossed from one planet's or moon's area of
+  influence into another while on rails, the recorder built a second, completely
+  empty slice of timeline sitting exactly on top of the real one. That slice
+  could never hold anything: it was opened in the format used for hand-flown
+  physics, at a moment when the ship is on rails and no physics samples are ever
+  taken. Nothing on screen was ever wrong - the real slice beside it covers the
+  same stretch of time, so replays and map lines drew correctly. Since a cleanup
+  step added in July, saving a recording already threw the empty slice away, so
+  recordings written by recent versions were coming out correct on disk; it is
+  missions flown before that cleanup existed that still carry the duplicates,
+  and those are what the offline recording checker rejects. What was left was
+  the recorder building the broken shape in the first place, every crossing,
+  every time - and that is what changed here. The crossing now opens the slice
+  in the on-rails format it is actually in, so the new planet's orbit is stored
+  in it directly and there is nothing to clean up afterwards. Recordings already
+  on disk are not rewritten by this change; they are still repaired the next
+  time something saves them.
+
 ### Dev
 
 - The ghost appear/disappear checker from the "watch your old launch" test is

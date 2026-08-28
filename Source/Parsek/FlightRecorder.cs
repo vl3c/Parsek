@@ -5642,6 +5642,68 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Resolves the reference frame + source for the TrackSection opened on the far
+        /// side of an SOI boundary, following the rails state exactly as
+        /// OnVesselGoOnRails / OnVesselGoOffRails / ResumeAfterFalseAlarm do.
+        ///
+        /// ONLY THE onRails==true BRANCH SHIPS TODAY. The sole production caller is
+        /// OnVesselSOIChanged, whose own `if (!IsRecording || !isOnRails) return;` guard
+        /// proves onRails at the call. The off-rails branch is a defensive default that
+        /// keeps this a total function and states what a future off-rails SOI producer
+        /// would get; it is pinned by a unit cell, not reachable in production.
+        ///
+        /// RECORDER-SUSPECTED-DOUBLE-EMIT-AT-SOI-SEAM: this used to open Absolute
+        /// unconditionally, but OnVesselSOIChanged only runs while isOnRails is true and
+        /// OnPhysicsFrame early-returns on isOnRails — so an Absolute section opened here
+        /// could NEVER receive a frame. It closed payload-less at the next boundary while
+        /// the same span's orbit segment was promoted into an OrbitalCheckpoint section
+        /// by OrbitSegmentCheckpointBridge, giving two sections over byte-equal
+        /// [startUT,endUT] (INV2-NO-DOUBLE-COVER). Opening the checkpoint frame directly
+        /// lets AddOrbitSegmentToCurrentTrackSection attach the new SOI's segment to THIS
+        /// section (it refuses any non-OrbitalCheckpoint section), so the section carries
+        /// its own payload and nothing has to be synthesized alongside it.
+        /// </summary>
+        internal static void ResolveSoiBoundarySectionFrame(
+            bool onRails, out ReferenceFrame frame, out TrackSectionSource source)
+        {
+            if (onRails)
+            {
+                frame = ReferenceFrame.OrbitalCheckpoint;
+                source = TrackSectionSource.Checkpoint;
+                return;
+            }
+
+            frame = ReferenceFrame.Absolute;
+            source = TrackSectionSource.Active;
+        }
+
+        /// <summary>
+        /// Closes the open TrackSection at an SOI boundary and opens the next one (#251:
+        /// the optimizer only splits at section boundaries, so the crossing must be one).
+        /// </summary>
+        internal void TransitionTrackSectionAtSoiBoundary(
+            SegmentEnvironment env, double soiUT, bool onRails)
+        {
+            ReferenceFrame frame;
+            TrackSectionSource source;
+            ResolveSoiBoundarySectionFrame(onRails, out frame, out source);
+
+            // Grep-stable seam line, matching the three sibling transitions
+            // (OnVesselGoOnRails / OnVesselGoOffRails / InitializeOnRailsOrbitSegment).
+            // Emitted BEFORE the close so the previous frame is still readable.
+            string previousFrame = trackSectionActive
+                ? currentTrackSection.referenceFrame.ToString()
+                : "(none)";
+            ParsekLog.Info("Recorder",
+                $"Reference frame transition: {previousFrame} -> {frame} at SOI boundary " +
+                $"UT={soiUT.ToString("F2", CultureInfo.InvariantCulture)} " +
+                $"onRails={(onRails ? 1 : 0)} source={source}");
+
+            CloseCurrentTrackSection(soiUT);
+            StartNewTrackSection(env, frame, soiUT, source);
+        }
+
+        /// <summary>
         /// Closes the recorder's current open TrackSection at the given UT and immediately
         /// opens a continuation section with the same environment/reference metadata.
         /// Used by OnSave serialization flushes so the active tree persists the live
@@ -10681,11 +10743,10 @@ namespace Parsek
             // Close current TrackSection and start a new one at the SOI boundary (#251).
             // Without this, a single TrackSection spans both SOIs and the optimizer cannot
             // split at the SOI boundary (it only splits at section boundaries).
-            CloseCurrentTrackSection(soiUT);
             SegmentEnvironment currentEnv = environmentHysteresis != null
                 ? environmentHysteresis.CurrentEnvironment
                 : SegmentEnvironment.ExoBallistic;
-            StartNewTrackSection(currentEnv, ReferenceFrame.Absolute, soiUT);
+            TransitionTrackSectionAtSoiBoundary(currentEnv, soiUT, isOnRails);
 
             // Reseed atmosphere and altitude state for the new body
             ReseedAtmosphereState(v);
