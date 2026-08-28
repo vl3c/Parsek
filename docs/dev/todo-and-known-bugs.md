@@ -14,6 +14,23 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## GLOOPS-STANDALONE-WINDDOWN: Gloops UI retired from every mode; extraction to a standalone mod pending [OPENED 2026-08-28]
+
+Product decision (2026-08-28): Gloops becomes a standalone mod later, and Parsek
+gradually winds down player-facing ghost/recording-looping surfaces to focus on
+gameplay. **Step 1 shipped:** `UiSurface.MainButtonGloops` is retired in EVERY UI
+mode (Advanced included) via `UiSurfaceVisibility.IsRetired` — a retirement gate
+that outranks the Basic/Advanced decision in `IsVisible` — so the Gloops Flight
+Recorder launcher (the window's only opener) no longer draws. Visibility-only:
+the recording machinery (`ParsekFlight` gloops paths, `GloopsRecorderUI.cs`, the
+Gloops group, saved ghost-only recordings), the design-7.2 close-set entry, and
+the edge-case-11 in-progress guard all remain. Pinned by
+`RetiredSurfacesAreHiddenInEveryMode` / `AdvancedHidesOnlyRetiredSurfaces`
+(`UiComplexityModeTests.cs`); design amendment noted in
+`design-ui-basic-advanced.md` (2026-08-28). **Remaining:** the actual extraction
+(move `GloopsRecorderUI` + the gloops recorder paths out of Parsek) and deciding
+which further looping surfaces wind down next — both unscheduled.
+
 ## ~~GS4-FIRST-FLIGHT-RISKS~~: the ghost-derender tripwire lane's pre-flight interim pins [OPENED 2026-08-27 with the GS-4 lane. **DISCHARGED 2026-08-27 THE SAME DAY**: reading run `2026-08-27_2145` (MISSION-OK attempt 1; red on exactly the two watch tokens - the pre-spawn EnterWatchMode race, fixed as the machine's WATCH hold-then-retry loop) then green run `2026-08-27_2204` PASS attempt 1, every verifier clean, census spawned=8/destroyLines=8/unbalanced=0 measured on BOTH flights. Windows re-pinned to the measurement; ghostLifecycle stays report-only pending the standard arming discipline. Status authority: `docs/dev/autotest-status.md` -> Live-proven. The entry below is kept as the pre-flight record]
 
 **The motivation is a SUSPECTED, UNCONFIRMED product bug:** a manual play
