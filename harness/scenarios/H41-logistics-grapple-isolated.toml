@@ -80,11 +80,63 @@ tier = "operator"
 #   prefabs on a stock install. What no fixture settles is the SPAWN half: two
 #   `SpawnAtPosition` calls that can return 0, and two settle waits on the spawned pids.
 #   That is the measurement this reading run exists to take.
+#
 # =====================================================================================
-description = "READING RUN: the in-game LogisticsGrapple category through the ISOLATED batch entry point over the logi-cargo-pad rig - the first execution anywhere of the self-provisioning GrappleCapture cell, which spawns a stock claw and a PotatoRoid and drives a programmatic couple/release cycle behind a per-test quickload restore."
+# READING HISTORY - ONE CENSUS, AND EVERY PREDICTION ABOVE HELD.
+# `2026-08-28_2216`, **PASS attempt 1**, wall 57 s. Everything pinned below is quoted
+# from `harness/results/2026-08-28_2216_H41-logistics-grapple-isolated_shots/KSP.log`.
+#
+# MEASURED: `BATCH_COMPLETE v1 total=4 passed=3 failed=0 skipped=1
+# category=LogisticsGrapple scene=FLIGHT`, `recordings.count = 0`, every verifier PASS
+# or REPORT.
+#
+# **THE HEADLINE: `GrappleCapture` EXECUTED AND PASSED.** All twelve of its guards were
+# satisfied by the pad rig, both `SpawnAtPosition` calls returned live vessels, and both
+# settle waits completed - the open question this reading run existed to answer, answered
+# yes. The measured spawn half, for whoever has to re-derive it:
+#     GrappleCapture spawn: part=GrapplingDevice vessel='mmis10-claw-...-claw'
+#       pid=2674404298 offset=30m mode=surface lat=-0.0972 lon=-74.5548 alt=78.3
+#     GrappleCapture claw live after 76 frame(s): pid=2674404298 parts=1
+#     GrappleCapture spawn: part=PotatoRoid vessel='mmis10-claw-...-roid'
+#       pid=3350841882 offset=45m mode=surface lat=-0.0972 lon=-74.5534 alt=78.3
+#     GrappleCapture asteroid live after 76 frame(s): pid=3350841882 parts=1
+# Both settles took 76 frames, i.e. the waits are real and were not trivially satisfied.
+#
+# **THE TALLY-CANNOT-DISCRIMINATE PREDICTION WAS CONFIRMED BYTE FOR BYTE.** The header
+# above predicted `total=4 passed=3 failed=0 skipped=1`, "byte-identical to the line the
+# ordinary path would print if nothing self-skipped". That is EXACTLY what was measured.
+# So the exemption declared in `IsolatedBatchWiringGroupTests.TALLY_CANNOT_DISCRIMINATE_IDS`
+# is not a theoretical concession - the collision is now an observed fact, and the
+# discrimination rests entirely on the two structural tokens plus, from this commit, the
+# three cell tokens below. This lane is the one place in the suite where pinning cell
+# echoes is not optional polish.
+#
+# CERTAIN SKIP CONFIRMED, verbatim and complete - this is the whole roster (1 runtime
+# skip, 0 scene-filtered; the attribute floor at FLIGHT is 0):
+#   1 LogisticsGrappleRuntimeTests.GrappleWindow_LiveRecordedClawCouple_StampedGrapple -
+#     "No recorded Grapple window in this save. The automated gate
+#     (GrappleCaptureInGameTest, isolated tier) stamps and asserts a live grapple window
+#     in-session via the real couple/release primitives; this check stays as the
+#     stock-contact-capture evidence hook. Operator runbook (label mmis10-claw): start
+#     recording, grab an asteroid or derelict with the Advanced Grabbing Unit, then
+#     re-run. Grep: 'OnPartCouple producer classified' and 'Route proof dock window
+#     captured' with kind=Grapple."
+#     -> NOTE THE SKIP STRING NAMES THIS LANE'S OWN CELL as the automated gate, and names
+#        the exact two greps this spec now pins. The skip is therefore not a gap: it is
+#        the PERSISTED-window evidence hook standing down because the in-session gate
+#        covers the behaviour. Closing it remains a HARVEST requirement (a committed
+#        fixture from a flight that actually grappled), and it is structurally unfixable
+#        inside one isolated batch - `GrappleCapture`'s own restore is what wipes the
+#        window it just stamped.
+#
+# CONFIRM RUNS PENDING.
+# =====================================================================================
+description = "FLOWN: the in-game LogisticsGrapple category through the ISOLATED batch entry point over the logi-cargo-pad rig - the first execution anywhere of the self-provisioning GrappleCapture cell, which spawns a stock claw and a PotatoRoid and drives a programmatic couple/release cycle behind a per-test quickload restore. Flown 2026-08-28, PASS attempt 1: the capture cell executed and passed, all twelve of its guards satisfied, and its live couple is now the gating evidence for D10 claw-producer."
 instanceProfile = "stock-minimal"
+# `flown` replaced `pending-flight` on 2026-08-29 (the BDOCK-1 / CL-3 / H35 / H38 / H39
+# precedent): the lane has flown and every pin below is quoted from those bytes.
 tags = ["ingame-batch", "isolated-batch", "logistics", "grapple", "claw", "asteroid",
-        "H41", "pending-flight"]
+        "H41", "flown"]
 
 [fixture]
 # `logi-cargo-pad`, H38's host, and the reasons are DIFFERENT from H38's - which is
@@ -144,14 +196,45 @@ steps = [
 ]
 
 [dimensionsCovered]
-# HONEST AND MINIMAL - the boot facts only, both riding the loadgame token below.
+# **D10 `claw-producer` IS NOW CLAIMED, AND IT IS THE STRONGEST ZERO-DECLARER CLAIM THIS
+# WAVE MAKES** - the one place where a row is earned by a PRODUCTION EMITTER firing live
+# rather than by a tally. The authored form of this block said "the first post-reading
+# commit is where that claim is earned, off the capture cell's own stamp echo". This is
+# that commit, and the census earned it.
 #
-# NO D10 VALUE IS CLAIMED. `claw-producer` is one of the registry's zero-declarer rows
-# and this is plainly the lane that would eventually earn it, but CLAIM-IS-NOT-GATE
-# means a value is declarable only when a REQUIRED token would red if the behaviour
-# stopped - and this spec pins no cell token at all until the census says whether the
-# capture cell executes. The first post-reading commit is where that claim is earned,
-# off the capture cell's own stamp echo.
+# WHAT GATES IT, and why this clears the H38 bar rather than leaning on it. H38's four
+# D10 rows rest on a whole-tally token: correct, but indirect - a red says "a cell in
+# this category stopped passing". Here the claim rests on tokens that name the BEHAVIOUR,
+# one per stage of the claw's own couple -> stamp -> complete cycle, all three REQUIRED
+# and all three measured this run:
+#   CLASSIFY  `OnPartCouple producer classified: kind=Grapple fromPart=PotatoRoid
+#             toPart=GrapplingDevice involvesEva=False` - the PRODUCTION producer path
+#             (not a test seam) recognising a live claw-to-asteroid couple as a Grapple.
+#             If the classifier stopped recognising the claw, or mis-classified it as a
+#             DockingPort, this token reds DIRECTLY and says which.
+#   CAPTURE   `Route proof dock window captured: child=... kind=Grapple ...` - the route
+#             window actually being WRITTEN from that couple. This is the exact analogue
+#             of what `dock-producer` is claimed on (BDOCK-1's recorded dock producing a
+#             window), which is the precedent this row was defined against.
+#   COMPLETE  `GrappleCapture PASS: ... kind=Grapple targetPid=... complete=True
+#             roidGhostRenderers=1` - the window CLOSED on release, not merely opened.
+# A unit that stopped producing claw route windows cannot leave all three matching.
+#
+# THE TALLY CANNOT CARRY THIS CLAIM AND IT IS IMPORTANT TO SAY SO: this lane's
+# `passed=3 failed=0 skipped=1` is byte-identical to the ordinary path's line (see the
+# header), so unlike every other lane in the family the tally here proves nothing on its
+# own. The three tokens are not decoration layered on a working gate - they ARE the gate.
+#
+# NOT CLAIMED, deliberately:
+#  - D10 `dock-producer` - already declared by BDOCK-1, and re-claiming a covered row
+#    inflates the count without gating a new behaviour (the H34 rule). The Grapple path
+#    is a DIFFERENT producer branch, which is why `claw-producer` exists as its own row.
+#  - D10 `candidate-detection` / `delivery` / `pickup` - the capture cell's own echo
+#    reads `analysis=NoDeliveryManifest`, i.e. the couple produced a window and NO
+#    delivery. Nothing here moves cargo, and claiming a transfer row off a lane whose own
+#    log says there was no manifest would be exactly the inversion this discipline stops.
+#  - D14 - the boot facts, riding the loadgame token below.
+D10 = ["claw-producer"]
 D14 = ["sandbox", "scene-flight"]
 
 [expectations]
@@ -169,8 +252,9 @@ allowedAnomalies = []
 count = { min = 0, max = 0 }
 
 [expectations.logContracts]
-# EVIDENCE STANDING: NOT FLOWN. Everything below is ATTRIBUTE-derived or read off the
-# source; nothing is measured, and the split is deliberately left open.
+# EVIDENCE STANDING: FLOWN AND PINNED WHOLE. `total=` stays attribute-derived and
+# source-synced; the split and all three cell tokens are MEASURED, quoted from
+# `harness/results/2026-08-28_2216_H41-logistics-grapple-isolated_shots/KSP.log`.
 #
 # ---------------------------------------------------------------------------------
 # DERIVED, NOT GUESSED:
@@ -187,13 +271,16 @@ count = { min = 0, max = 0 }
 #  - The ATTRIBUTE FLOOR for `skipped` is 0 on the isolated path: nothing is
 #    scene-ineligible at FLIGHT, and the single batch-disabled declaration carries the
 #    restore flag so the isolated filter admits it.
-#  - passed / skipped are LEFT OPEN, and here the open form is the PLAIN interim
-#    spelling `passed=[1-9][0-9]*` rather than the ordinary-ceiling floor H38 / H39 /
-#    H40 use. That is deliberate and is the header's whole point: with the isolated arg
-#    buying exactly ONE cell and one certain run-time skip, no floor can separate the
-#    two paths, so demanding one would be theatre. What the plain form still does is
-#    reject the entire vacuous family (`passed=0 failed=0`, which forces
-#    total == skipped), which is what the anti-vacuity gate needs.
+#  - passed=3 and skipped=1 are MEASURED AND PINNED AS LITERALS, replacing the authored
+#    `passed=[1-9][0-9]* ... skipped=[0-9]+`. `skipped=1` is ABOVE the attribute floor of
+#    0 (nothing is scene-ineligible and the isolated filter admits the restore-flagged
+#    cell), so it is declared in `IsolatedBatchWiringGroupTests.MEASURED_SKIPPED`.
+#    WHAT THE LITERALS BUY, stated carefully because on THIS lane it is less than usual:
+#    they reject a degraded run whose split moved (a spawn that returned 0 would print
+#    `passed=2 skipped=2`, and the plain interim form ACCEPTED that). What they still
+#    cannot do is separate the isolated path from the ordinary one - that collision is
+#    structural, it was predicted byte for byte in the header, and it was confirmed. The
+#    tokens below are what carries it.
 #  - failed=0 is the ASSERTION, and it is the one token most likely to earn its keep on
 #    a first flight: `GrappleCapture` drives a real couple and release, and H38's run 1
 #    is the worked example of a reading run red-ing on `failed=` and producing a product
@@ -208,13 +295,47 @@ count = { min = 0, max = 0 }
 # `automation/stock-minimal` instance, NOT the one `dotnet build` deploys to, so its
 # ABSENCE means a stale `Parsek.dll` rather than a Parsek regression.
 #
-# NO CELL TOKENS ARE PINNED. The capture cell's stamp echo is the obvious first pin
-# after the reading run, and it is deliberately not guessed at now.
+# THREE CELL TOKENS, ONE PER STAGE OF THE CLAW CYCLE, and on this lane they are LOAD-
+# BEARING rather than supplementary - see [dimensionsCovered]. Three is more than the
+# one or two the sibling lanes pin, and the reason is the tally collision: every other
+# isolated lane has a discriminating tally to fall back on and this one does not, so the
+# evidence has to live somewhere. Each names a distinct step of one causal chain, so a
+# break anywhere in it reds a DIFFERENT token and the log says where. All three measured
+# exactly once in this run and ZERO times in H38's run over the same `logi-cargo-pad`
+# host (which runs no claw), so each is a property of what this lane DOES rather than of
+# where it boots:
+#
+#   1 CLASSIFY - the production producer path recognising a live claw-to-asteroid couple:
+#       [Parsek][...] OnPartCouple producer classified: kind=Grapple
+#       fromPart=PotatoRoid toPart=GrapplingDevice involvesEva=False
+#     (The run also emits the claw-to-probe-core couple one line earlier; this token pins
+#     the ASTEROID one, which is the branch `claw-producer` is about.)
+#   2 CAPTURE - the route window actually written from that couple:
+#       Route proof dock window captured: child=ef834c06... window=dock-...-target-...
+#       targetPid=3350841882 kind=Grapple transportParts=7 endpointParts=1
+#     Wildcarded on the ids and the UT-bearing window name: `window=dock-
+#     29.999999999999449-...` carries float noise and a spawn pid, neither stable.
+#   3 COMPLETE - the cell's own verdict, with the measured values that make it a
+#     statement rather than a name:
+#       GrappleCapture PASS: run=mmis10-claw-adf21837 window=dock-...-target-3350841882
+#       kind=Grapple targetPid=3350841882 complete=True roidGhostRenderers=1
+#       analysis=NoDeliveryManifest dockUT=30.00 undockUT=30.08
+#     `complete=True` is the load-bearing field - the window CLOSED on release, so this
+#     is the couple/release CYCLE and not merely a couple. `roidGhostRenderers=1` is
+#     pinned with it because it is the anti-vacuity half: a run where the asteroid ghost
+#     never built would still stamp a window.
+#
+# NOT PINNED, though measured: the plain `PASSED: GrappleCaptureInGameTest...` echo.
+# Token 3 IS that cell's pass line and carries its values, so pinning the bare name too
+# would be a strictly weaker duplicate of a token already required.
 required  = [
   "loadgame complete scene=FLIGHT save=.* game-loaded=true expected=Flight",
   "runtests start category=LogisticsGrapple isolated=true",
   "Using batch baseline slot .* for 1 restore-after-run test\\(s\\)",
-  "BATCH_COMPLETE v1 total=4 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=LogisticsGrapple scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=4 passed=3 failed=0 skipped=1 category=LogisticsGrapple scene=FLIGHT",
+  "OnPartCouple producer classified: kind=Grapple fromPart=PotatoRoid toPart=GrapplingDevice involvesEva=False",
+  "Route proof dock window captured: child=\\S+ window=\\S+ targetPid=[0-9]+ kind=Grapple",
+  "GrappleCapture PASS: run=\\S+ window=\\S+ kind=Grapple targetPid=[0-9]+ complete=True roidGhostRenderers=1",
 ]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 
@@ -229,6 +350,11 @@ forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 # prime plus one restore against a 6-part rig, where H38 pays 38 restores on the same
 # host and measured 250 s. The headroom is for the capture cell's two vessel spawns and
 # their settle waits, which are the only unbounded thing here.
+#
+# MEASURED AND KEPT: 57 s wall, the cheapest lane in the wave, with the capture cell
+# itself taking 3484.7 ms of it. The number STAYS at 1400: it covers the DEFERRED worst
+# case (660 + 660), not the observed wall, and the two settle waits - 76 frames each on
+# this run - are exactly the unbounded thing the headroom exists for.
 budgetSeconds = 1400
 
 [retry]

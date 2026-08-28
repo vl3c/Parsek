@@ -9317,8 +9317,23 @@ inverted - run 2's log carries the production `[Parsek][*][Route]` units firing 
 `PartnerGate ... HOLD WaitingForPartner` / `CLEAR`, `hold recorded
 kind=OriginLacksCargo`, `DispatchDebit`, `LoopRoute ... FIRED full cycle`,
 `Delivery write: ... path=loaded`), so these are real units, not read-side walkers.
-FIVE zero-declarer D10 rows remain: `docked-depot-origin`, `claw-producer`,
-`inventory-cargo`, `harvest-provenance`, `destination-full-gate`. The last of those
+FIVE zero-declarer D10 rows remained at that point: `docked-depot-origin`,
+~~`claw-producer`~~, `inventory-cargo`, `harvest-provenance`, `destination-full-gate`.
+**`claw-producer` LEFT THAT LIST ON 2026-08-29**, claimed by
+`H41-logistics-grapple-isolated` off its `2026-08-28_2216` flight - and it is the first
+zero-declarer D10 row in the suite earned by PRODUCTION EMITTERS rather than by a
+tally, which makes it the shape to copy. Three REQUIRED tokens name one causal chain:
+`OnPartCouple producer classified: kind=Grapple fromPart=PotatoRoid
+toPart=GrapplingDevice` (the production path recognising a live claw-to-asteroid
+couple), `Route proof dock window captured: ... kind=Grapple` (the window actually
+written - the exact analogue of what `dock-producer` is claimed on), and
+`GrappleCapture PASS: ... complete=True roidGhostRenderers=1` (the window CLOSED on
+release, plus the anti-vacuity half that the asteroid ghost built). A unit that stopped
+producing claw route windows cannot leave all three matching. Note that lane's tally
+CANNOT carry the claim - its `4/3/0/1` is byte-identical to what the ordinary batch
+path prints - so the tokens ARE the gate rather than decoration layered on one.
+FOUR REMAIN: `docked-depot-origin`, `inventory-cargo`, `harvest-provenance`,
+`destination-full-gate`. The last of those
 is the one H38 deliberately did NOT claim despite reaching it: the gate is exercised
 only on the permissive branch (`DestinationHasCapacity: route <id> full manifest
 fits`, x3) and `RouteStatus.DestinationFull` / `WaitDestinationFull` never fire, so

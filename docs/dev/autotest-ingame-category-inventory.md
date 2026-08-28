@@ -90,7 +90,7 @@ Two limits of this table, stated so nobody over-reads it:
 | `AutoRecord` | 10 | 0 | 0 | 0 | 10 | 10 | - | B |
 | `BackgroundSeeder` | 2 | 2 | 0 | 0 | 0 | 2 | - | B |
 | `Bug289` | 2 | 2 | 0 | 0 | 0 | 0 | - | B |
-| `ClawCouple` | 2 | 2 | 0 | 0 | 0 | 2 | H42 | A |
+| `ClawCouple` | 2 | 2 | 0 | 0 | 0 | 2 | H42 (flown 2026-08-28, executes 2 of 2) | A |
 | `Coalescer` | 2 | 0 | 0 | 0 | 2 | 2 | - | B |
 | `ContinuationIntegrity` | 2 | 2 | 2 | 2 | 0 | 0 | - | B |
 | `Contracts` | 2 | 2 | 0 | 0 | 0 | 2 | - | B |
@@ -106,9 +106,9 @@ Two limits of this table, stated so nobody over-reads it:
 | `ForwardRender` | 1 | 1 | 0 | 0 | 0 | 0 | - | B |
 | `GameActionsHealth` | 4 | 4 | 4 | 4 | 0 | 3 | B10 / L1 | B |
 | `GhostAudio` | 9 | 8 | 3 | 2 | 0 | 1 | H30 | A |
-| `GhostChains` | 4 | 4 | 4 | 4 | 0 | 4 | H50 | A |
+| `GhostChains` | 4 | 4 | 4 | 4 | 0 | 4 | H50 (flown 2026-08-28, executes 4 of 4) | A |
 | `GhostLifecycle` | 17 | 15 | 0 | 2 | 0 | 17 | - (see the 2026-08-29 note) | B |
-| `GhostMap` | 25 | 16 | 0 | 9 | 0 | 11 | S1.6, H44 (TRACKSTATION slice) | B |
+| `GhostMap` | 25 | 16 | 0 | 9 | 0 | 11 | S1.6, H44 (TRACKSTATION slice, flown 2026-08-28, executes 9 of 25 - the WHOLE TS slice, zero run-time skips) | B |
 | `GhostMapOrbits` | 2 | 2 | 1 | 1 | 0 | 1 | - | B |
 | `GhostPlayback` | 42 | 41 | 1 | 1 | 1 | 12 | S1.4 | B |
 | `GhostVisuals` | 4 | 4 | 3 | 3 | 0 | 0 | H15 | A |
@@ -116,18 +116,18 @@ Two limits of this table, stated so nobody over-reads it:
 | `IncompleteBallistic` | 11 | 11 | 0 | 0 | 0 | 0 | H9 | A |
 | `KSP` | 6 | 6 | 4 | 4 | 0 | 0 | H13 | A |
 | `KspApiSanity` | 5 | 5 | 3 | 3 | 0 | 3 | H24 | A |
-| `Ledger` | 4 | 0 | 4 | 0 | 0 | 4 | H48 | A |
+| `Ledger` | 4 | 0 | 4 | 0 | 0 | 4 | H48 (flown 2026-08-28, executes 4 of 4) | A |
 | `LedgerGroundTruth` | 2 | 2 | 0 | 0 | 0 | 1 | L2 | B |
 | `LocalizedName` | 3 | 3 | 3 | 3 | 0 | 0 | H29 | A |
 | `LogContracts` | 10 | 10 | 8 | 8 | 0 | 2 | H26 | A |
 | `Logistics` | 47 | 8 | 2 | 1 | 38 | 46 | H34 (SPACECENTER slice), H35 (FLIGHT ordinary slice), H38 (FLIGHT ISOLATED on a built pad rig, flown 2026-08-28, executes 39), H39 + H40 (the same ISOLATED slice on RECORDED hosts, both flown 2026-08-28, executing 34 and 35). Union across all five: 42 of 47 | B |
-| `LogisticsGrapple` | 4 | 3 | 0 | 0 | 1 | 2 | H41 (ISOLATED) | A |
+| `LogisticsGrapple` | 4 | 3 | 0 | 0 | 1 | 2 | H41 (ISOLATED, flown 2026-08-28, executes 3 of 4; the 4th wants a harvested Grapple window) | A |
 | `MapPresence` | 5 | 5 | 3 | 3 | 0 | 2 | H28 | A |
 | `MapRender` | 22 | 21 | 0 | 0 | 1 | 14 | S1.7 | B |
-| `MapView` | 4 | 3 | 3 | 4 | 0 | 2 | H47 | A |
+| `MapView` | 4 | 3 | 3 | 4 | 0 | 2 | H47 (flown 2026-08-28, executes 4 of 4) | A |
 | `MergeDialog` | 2 | 0 | 0 | 0 | 2 | 2 | - | B |
 | `MissionPhasing` | 2 | 2 | 0 | 0 | 0 | 0 | - | B |
-| `Missions` | 13 | 7 | 6 | 0 | 0 | 9 | M1, H54 (FLIGHT slice) | B |
+| `Missions` | 13 | 7 | 6 | 0 | 0 | 9 | M1, H54 (FLIGHT slice, flown 2026-08-28, executes **3 of 13** - see the archetype note below) | B |
 | `Optimizer` | 2 | 0 | 2 | 0 | 0 | 2 | - | B |
 | `PartEventFX` | 6 | 6 | 0 | 0 | 0 | 6 | - | B |
 | `PartEventFidelity` | 5 | 5 | 0 | 0 | 0 | 5 | H37 | A |
@@ -150,7 +150,7 @@ Two limits of this table, stated so nobody over-reads it:
 | `RecordingFinalization` | 3 | 3 | 0 | 0 | 0 | 0 | H19 | A |
 | `RecordingInvariants` | 2 | 2 | 0 | 0 | 0 | 0 | H5 | B |
 | `RecordingStore` | 2 | 2 | 2 | 2 | 0 | 0 | - | B |
-| `ReentryFx` | 3 | 3 | 0 | 0 | 0 | 1 | H52 | A |
+| `ReentryFx` | 3 | 3 | 0 | 0 | 0 | 1 | H52 (flown 2026-08-28, executes 3 of 3) | A |
 | `RenderComposition` | 1 | 1 | 0 | 0 | 0 | 1 | - | B |
 | `ResourceManifest` | 1 | 1 | 0 | 0 | 0 | 0 | - | B |
 | `ResourceReconciliation` | 1 | 0 | 1 | 0 | 0 | 0 | - | B |
@@ -161,11 +161,11 @@ Two limits of this table, stated so nobody over-reads it:
 | `RewindSaves` | 1 | 1 | 1 | 1 | 0 | 1 | - | B |
 | `RouteLiveAnchor` | 1 | 1 | 0 | 0 | 0 | 1 | - | B |
 | `RouteRewindTimeline` | 7 | 7 | 7 | 7 | 0 | 1 | H6 | B |
-| `SaveLoad` | 4 | 4 | 4 | 4 | 0 | 2 | H51 | A |
-| `SceneAndPatch` | 7 | 4 | 3 | 2 | 0 | 4 | H53 (FLIGHT slice) | B |
+| `SaveLoad` | 4 | 4 | 4 | 4 | 0 | 2 | H51 (flown 2026-08-28, executes 4 of 4) | A |
+| `SceneAndPatch` | 7 | 4 | 3 | 2 | 0 | 4 | H53 (FLIGHT slice, flown 2026-08-28, executes **2 of 7** - two residual skips are DRIVER-state, see below) | B |
 | `SceneExitMerge` | 2 | 0 | 0 | 0 | 2 | 2 | H21 | A |
 | `Serialization` | 4 | 4 | 4 | 4 | 0 | 1 | H25 | A |
-| `Settings` | 5 | 4 | 3 | 4 | 0 | 2 | H46 | B |
+| `Settings` | 5 | 4 | 3 | 4 | 0 | 2 | H46 (flown 2026-08-28, executes 4 of 5; the 5th is TRACKSTATION-scoped) | B |
 | `SnapshotBaseline` | 7 | 7 | 0 | 0 | 0 | 7 | H32 | A |
 | `SoiCrossingPlayback` | 3 | 3 | 0 | 0 | 0 | 3 | S1.8 | A |
 | `SpawnCollision` | 2 | 2 | 0 | 0 | 0 | 2 | - | B |
@@ -173,20 +173,20 @@ Two limits of this table, stated so nobody over-reads it:
 | `SpawnRotation` | 10 | 10 | 0 | 0 | 0 | 0 | H8 | A |
 | `SpawnTerminalOrbit` | 3 | 3 | 0 | 0 | 0 | 3 | - | B |
 | `Spawner` | 2 | 2 | 0 | 0 | 0 | 1 | - | B |
-| `StockUiOverlay` | 6 | 0 | 6 | 0 | 0 | 6 | H45 | A |
+| `StockUiOverlay` | 6 | 0 | 6 | 0 | 0 | 6 | H45 (flown 2026-08-28, executes 4 of 6; the 2 Mission Control cells want an OFFERED contract) | A |
 | `StockWarpLimits` | 1 | 1 | 0 | 0 | 0 | 0 | - | B |
 | `StrategyLifecycle` | 10 | 0 | 10 | 0 | 0 | 10 | L3 | A |
 | `Structure` | 2 | 2 | 2 | 2 | 0 | 2 | - | B |
 | `SwitchIntentPatch` | 3 | 1 | 1 | 1 | 0 | 0 | - | B |
 | `SwitchSegment` | 6 | 6 | 0 | 0 | 0 | 0 | H12 | A |
 | `TerminalOrbit` | 2 | 2 | 2 | 2 | 0 | 2 | - | B |
-| `TerrainClearance` | 6 | 6 | 0 | 0 | 0 | 6 | H43 | A |
+| `TerrainClearance` | 6 | 6 | 0 | 0 | 0 | 6 | H43 (flown 2026-08-28, executes 6 of 6) | A |
 | `TestCommands` | 4 | 3 | 1 | 1 | 0 | 3 | - | B |
 | `TestRunner` | 2 | 2 | 2 | 2 | 0 | 0 | - | B |
 | `TestRunnerIsolation` | 2 | 1 | 2 | 1 | 0 | 1 | - | B |
 | `TrackingStation` | 10 | 0 | 0 | 9 | 1 | 3 | H23 | A |
 | `TrajectoryMath` | 8 | 8 | 8 | 8 | 0 | 0 | H7 | A |
-| `TreeIntegrity` | 4 | 4 | 4 | 4 | 0 | 3 | H49 | A |
+| `TreeIntegrity` | 4 | 4 | 4 | 4 | 0 | 3 | H49 (flown 2026-08-28, executes 4 of 4) | A |
 | `UiComplexityMode` | 4 | 4 | 0 | 0 | 0 | 4 | H22 | A |
 | `Unity` | 4 | 4 | 4 | 4 | 0 | 1 | - | B |
 | `WarpToTime` | 1 | 0 | 1 | 0 | 0 | 1 | - | B |
@@ -544,6 +544,42 @@ eligible of 25), `Missions` (H54 takes the 7 FLIGHT-eligible of 13), `SceneAndPa
 NAMED residue that needs a sibling lane at another scene, not a change to the lane
 that exists.
 
+ALL FOURTEEN FLEW ON 2026-08-28, every one PASS attempt 1 with zero failed cells, and
+the MEASURED executed counts are now in the table's "Driven by" column. TWELVE LANES
+EXECUTED EXACTLY WHAT THE DERIVATION SAID THEY WOULD. **TWO DID NOT, and the shortfalls
+are the useful part of the wave:**
+
+- **`SceneAndPatch` executed 2 of its derived 4** (H53). Both residual skips are
+  DRIVER-STATE requirements rather than fixture ones, which is the distinction that
+  makes them actionable: `GhostPidsNotLoadedAsPhysicsVessels` ("No ghost map PIDs -
+  patch not exercised") needs playback armed so `ghostMapVesselPids` is non-empty, and
+  `OutsiderActiveTreeParsesAndRoutesToLimboVesselSwitch_Bug266` ("No live active tree
+  to use as a synth source") needs a `StartRecording` before the batch. NO HARVEST
+  CLOSES EITHER - a save file cannot contain a LIVE tree. Both are left standing
+  because closing them costs H53's `count = 274` corpus-integrity assertion, so they
+  belong to a lane that trades that away deliberately.
+- **`Missions` executed 3 of its derived 7** (H54), and its finding BOUNDS EVERY FUTURE
+  `Missions` LANE. `RealSaveMissionInGameTests.cs` holds FOUR mission ARCHETYPES -
+  re-aim, station rendezvous, joint landing+station arrival, off-Kerbin pad launch -
+  and **any one real save is at most one or two of them.** `duna-one-recorded` is a
+  single Kerbin->Duna re-aim mission, so it satisfied exactly the re-aim archetype and
+  skipped the other three by construction. THE DERIVED "7 EXECUTABLE" IS THEREFORE AN
+  ATTRIBUTE-LEVEL CEILING NO SINGLE-MISSION FIXTURE CAN REACH, and quoting it as a
+  lane's target overstates what a `Missions` lane can do. The fourth skip is a separate
+  and sharper lesson: **a fixture named by a skip string need not satisfy it.** The
+  descent-handoff cell FOUND this save's 'Duna One' mission, walked it, rejected it for
+  carrying no descent trigger (it is not a looped LANDING arrival), and named `s15` - an
+  OPERATOR save that is not a committed harness fixture at all. Two saves shared the
+  mission NAME the lane was chosen on while differing in the property the cell needed.
+  Reading a guard string as a fixture spec is a hypothesis, not a derivation.
+
+TWO SMALLER MEASURED CORRECTIONS, both against the slice framing above. `Settings`'
+fifth cell is SCENE-FILTERED (`GhostMarkerProtoVesselsHaveHardenedPartTolerances` is
+declared `Scene = TRACKSTATION`), not runtime-guarded, so its residue is scope rather
+than debt; and `GhostMap`'s TS slice executed ALL NINE admitted cells with zero
+run-time skips, so `skipped=16` is the pure attribute floor - see the audit correction
+below, which the flight overturned.
+
 THE WAVE ALSO CORRECTED ITS OWN COMMISSIONING AUDIT, which is the durable lesson.
 That audit proposed nine of the thirteen ordinary lanes as "zero self-skips, pin
 exactly". Re-deriving each against the source says FIVE can. The error was counting
@@ -557,6 +593,23 @@ that stages, which cannot exist at TRACKSTATION, so an exact pin at the attribut
 floor would have red on a correct run. The rule the wave leaves behind is written into
 `IngameBatchWiringGroupTests.INTERIM_PIN_IDS`: an exact pin is earned by an enumerated
 reachability argument in the spec header, one line per guard, or it is not earned.
+
+**AND THE FLIGHT OVERTURNED THE `GhostMap` HALF OF THAT CORRECTION** - the paragraph
+above is left standing on purpose, because the way it was wrong is the lesson. H44
+measured `skipped=16`, the attribute floor the audit proposed, and
+`MarkerDrawDecision_DispatchesOnLiveGate_NoGap` PASSED at TRACKSTATION in 0.9 ms. The
+source says why: that cell (`RuntimeTests.cs:10820`) carries NO GUARDS AT ALL - it
+seeds three synthetic pids through testing hooks and asserts the pure
+`ShouldDrawNonProtoMarkerForGhost` decision. The "active pad vessel" strings belong to
+`FlightIntegrationTests` (`RuntimeTests.cs:3197` and `:10934`), a DIFFERENT class in
+the same 10,000-line file, whose cells are FLIGHT-scoped and scene-skip here anyway.
+So the re-derivation made the same class of error as the audit it was correcting, in
+the opposite direction: **a guard read by grepping near a method NAME inherits its
+neighbours' guards.** Attribute a guard to the method BODY that contains it - the
+"source-derived guards use AST" house rule, arrived at from a third direction.
+`TerrainClearance` and `StockUiOverlay` were correctly re-derived as inexact (and both
+measured a split the attributes could not give); `GhostMap` was inexact for the wrong
+reason, and only the flight could say so.
 
 **A2 - the ISOLATED batch path (3 categories, 53 declarations, 5 specs).** `SceneExitMerge`,
 wired as `H21-scene-exit-merge-isolated`, tier `nightly`, over `b2-lko-craft`. It

@@ -22,18 +22,30 @@ tier = "nightly"
 # pass. That prediction is cheap to confirm and expensive to assume, which is what makes
 # it a census rather than a pin.
 #
-# THE FORM IS A READING RUN, and the id is declared in
-# `IngameBatchWiringGroupTests.INTERIM_PIN_IDS`: the split is left OPEN
-# (`passed=[1-9][0-9]*`, `skipped=[0-9]+`) because run-time `InGameAssert.Skip` guards
-# decide it and no attribute predicts them. The open form still rejects the whole
-# vacuous family (`passed=0 failed=0`, which forces total == skipped), which is the
-# property the anti-vacuity gate needs; what it does not do is assert a split nobody
-# has measured. OBLIGATION ON THE FIRST FLIGHT: measure the split off BATCH_COMPLETE,
-# replace the pin whole, declare any run-time skips in `RUNTIME_SKIPS` with their
-# reasons, and remove the id from INTERIM_PIN_IDS - in the same commit.
-description = "READING RUN: the in-game TreeIntegrity category over the 274-row synthetic corpus - branch-point children, parent links, background-map resolution and end-UT leaf coverage, checked against the live store after a real load."
+# -------------------------------------------------------------------------------------
+# READING HISTORY - ONE CENSUS, THE CORPUS-SHAPE WORRY DID NOT BITE.
+# `2026-08-28_2223`, **PASS attempt 1**, wall 71 s. MEASURED:
+#     BATCH_COMPLETE v1 total=4 passed=4 failed=0 skipped=0
+#     category=TreeIntegrity scene=FLIGHT
+# `recordings.count = 274` - the staged corpus exactly, intact through the batch.
+# Every verifier PASS or REPORT.
+#
+# ALL FOUR EXECUTED AND PASSED against the live 274-row store: `ParentLinksValid`,
+# `BranchPointChildrenExist`, `EndUTCoversAllLeaves` and
+# `BackgroundMapEntriesResolveToEligibleRecordings`. The open question was whether the
+# synthetic corpus would present these walkers with a shape they stand DOWN on rather
+# than validate - the "green because nothing was checked" failure. It did not:
+# `skipped=0` is MEASURED, no run-time guard fired anywhere in the run, and no
+# `RUNTIME_SKIPS` entry is owed.
+#
+# WHAT THE EXACT PIN NOW BUYS: `passed=4` together with `count = 274` says the walkers
+# ran over the WHOLE committed corpus. The open form would have accepted `passed=1` -
+# one walker running and three standing down on a corpus that had quietly lost its
+# branch points, which is exactly the degradation this category exists to catch.
+# CONFIRM RUNS PENDING.
+description = "FLOWN: the in-game TreeIntegrity category over the 274-row synthetic corpus - branch-point children, parent links, background-map resolution and end-UT leaf coverage, checked against the live store after a real load."
 instanceProfile = "stock-minimal"
-tags = ["ingame-batch", "phase4-wave1", "tree-integrity", "corpus", "H49"]
+tags = ["ingame-batch", "phase4-wave1", "tree-integrity", "corpus", "H49", "flown"]
 
 [fixture]
 # gloops-airshow, the wave host, plus the corpus which is what makes the batch mean
@@ -90,7 +102,7 @@ count = { min = 274, max = 274 }
 #  - scene=FLIGHT is the gloops-airshow Focusable route. The derivation would give the
 #    same admitted set at any scene (all four are AnyScene); the token is pinned anyway
 #    as a statement about the boot.
-required  = ["BATCH_COMPLETE v1 total=4 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=TreeIntegrity scene=FLIGHT"]
+required  = ["BATCH_COMPLETE v1 total=4 passed=4 failed=0 skipped=0 category=TreeIntegrity scene=FLIGHT"]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 
 [runtime]

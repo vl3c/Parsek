@@ -3176,6 +3176,38 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
         #     PRELAUNCH on the pad; the cell needs a mission that STARTS docked
         #     to a non-PRELAUNCH partner, which no committed profile produces.
         "H35-logistics-route-proof": 3,
+        # PHASE-4 WAVE 1 (measured 2026-08-28). Only THREE of the eight new members owe
+        # an entry; the rest skip on scene eligibility alone or not at all.
+        #
+        # H45 (`career-contract-pad`): both Mission Control overlay cells, identical
+        # reason - "No Mission Control offered contract row with a non-empty title/Guid
+        # is available (rows=0, contractRows=0, offeredRows=0, activeRows=0)". THE
+        # COUNTERS ARE THE POINT: the live screen instantiated and was WALKED and found
+        # nothing, so this is not the contract-picker rejecting a row's state - the
+        # fixture puts no OFFERED contract in front of the screen at all. A fixture
+        # property, exactly as the discipline above requires, and closable by a career
+        # save carrying one offered contract with a non-empty title and Guid.
+        "H45-stock-ui-overlay": 2,
+        # H53 (`gloops-airshow` + the 274-row corpus): "No ghost map PIDs - patch not
+        # exercised" and "No live active tree to use as a synth source". BOTH ARE
+        # DRIVER-STATE rather than fixture properties - the first wants playback armed
+        # so `ghostMapVesselPids` is non-empty, the second wants a `StartRecording`
+        # before the batch - so neither is closable by harvesting a better save, and
+        # both are left because closing them would cost this lane's `count = 274`
+        # corpus-integrity assertion. Recorded here so the entry is not later mistaken
+        # for a fixture shortfall.
+        "H53-scene-and-patch": 2,
+        # H54 (`duna-one-recorded`): four, and three of them are the same structural
+        # fact rather than four separate gaps. `RealSaveMissionInGameTests.cs` holds
+        # FOUR mission ARCHETYPES (re-aim, station rendezvous, joint landing+station
+        # arrival, off-Kerbin pad launch) and any ONE real save is at most one or two of
+        # them; this fixture is a single Kerbin->Duna re-aim mission, so it satisfies
+        # exactly the re-aim archetype and skips the other three by construction. The
+        # fourth is `DescentHandoff_OneGhostAtHandoff_...`, which FOUND this save's
+        # 'Duna One' mission and rejected it for carrying no descent trigger (it is not
+        # a looped LANDING arrival) while naming an OPERATOR save, `s15`, that is not a
+        # committed fixture. Each is satisfiable by its OWN harvest; none by this one.
+        "H54-missions": 4,
     }
 
     # NOTE the asymmetry this leaves: for 13 of the 16, the skipped= floor is
@@ -3279,14 +3311,52 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
     # different statement from what its generator can build. No committed spec has
     # measured it.
     #
+    # AND ALL EIGHT LEFT ON 2026-08-29, one flight each, every one PASS attempt 1.
+    # Measured splits: H43 6/0/0, H44 9/0/16, H45 4/0/2, H46 4/0/1, H49 4/0/0,
+    # H50 4/0/0, H53 2/0/5, H54 3/0/10. Four things the wave settled, kept here because
+    # they are what the NEXT interim member should be reasoned against:
+    #
+    #   1. THE INTERIM FORM EARNED ITS KEEP TWICE, BOTH TIMES BY THE PREDICTION BEING
+    #      TOO PESSIMISTIC RATHER THAN TOO OPTIMISTIC. H43's explosion-anchor cell
+    #      satisfied all three of its live-geometry guards, and BOTH of H46's
+    #      IMGUI-layout cells passed - so an unattended FLIGHT batch DOES lay out a
+    #      Settings window and DOES produce Repaint passes, which is the H22-class
+    #      unknown answered for anyone writing the next IMGUI cell.
+    #   2. **H44 REFUTED ITS OWN PREDICTION, AND THE ERROR IS INSTRUCTIVE.** Its header
+    #      predicted `skipped=17` because `MarkerDrawDecision_DispatchesOnLiveGate_NoGap`
+    #      "cannot pass at TRACKSTATION" - it guards on an active PAD vessel. It passed,
+    #      in 0.9 ms, and the source says why: that cell (`RuntimeTests.cs:10820`)
+    #      carries NO GUARDS AT ALL. The pad-vessel strings belong to
+    #      `FlightIntegrationTests` (`:3197`, `:10934`), a different class in the same
+    #      10,000-line file. A guard was attributed by PROXIMITY rather than by the
+    #      method body containing it - the "source-derived guards use AST" house rule,
+    #      arrived at from the other direction. NOTE THE PARAGRAPH ABOVE STILL SAYS
+    #      "cannot pass at TRACKSTATION AT ALL"; it is left standing deliberately, as
+    #      the record of what was believed before the flight.
+    #   3. TWO MEMBERS UNDER-RAN THEIR DERIVED EXECUTABLE AND NEITHER IS A DEFECT.
+    #      H53 ran 2 of 4: both residual skips are DRIVER-state requirements (ghost map
+    #      pids need playback armed; the Bug266 cell wants a live active tree that a
+    #      `StartRecording` step would create), so both are satisfiable but NOT by a
+    #      better save. H54 ran 3 of 7, and its finding bounds every future `Missions`
+    #      lane: `RealSaveMissionInGameTests.cs` holds FOUR mission ARCHETYPES and any
+    #      one real save is at most one or two of them, so "7 executable" is an
+    #      attribute-level ceiling no single-mission fixture can reach.
+    #   4. A FIXTURE NAMED BY A SKIP STRING NEED NOT SATISFY IT. H54 boots
+    #      `duna-one-recorded`; its descent-handoff cell FOUND the 'Duna One' mission,
+    #      walked it, rejected it for not being the looped LANDING variant, and named an
+    #      OPERATOR save (`s15`) that is not a committed fixture at all. Reading a guard
+    #      string as a fixture spec is a hypothesis, not a derivation.
+    #
+    # Only H45 / H53 / H54 owe a RUNTIME_SKIPS entry (2 / 2 / 4). H44's 16 and H46's 1
+    # are PURE SCENE FILTERING - the runner's own `Scene eligibility skip summary` line
+    # accounts for every one and neither run contains a single per-test `SKIPPED:` line -
+    # and that distinction is the one to keep straight: a scene skip is a lane's SCOPE,
+    # a run-time skip is its DEBT, and only the second is something a fixture could pay.
+    #
     # It must stay a set LITERAL of ids (or a `set()` call when empty, never a `{}`
     # literal, which would be an empty DICT - the two membership cells below would then
     # answer False for every id and pass vacuously).
-    INTERIM_PIN_IDS = {
-        "H43-terrain-clearance", "H44-ghost-map-trackstation",
-        "H45-stock-ui-overlay", "H46-settings", "H49-tree-integrity",
-        "H50-ghost-chains", "H53-scene-and-patch", "H54-missions",
-    }
+    INTERIM_PIN_IDS: set = set()
 
     # Every committed spec whose id matches this is an H-SERIES batch spec.
     # Membership is DISCOVERED from disk and then compared for set equality against
@@ -3814,7 +3884,33 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
     # `SpawnAtPosition` calls that can return 0 and two settle waits on the spawned
     # pids. No save file and no attribute settles whether a programmatic claw spawn
     # succeeds in an unattended batch - only a run does.
-    INTERIM_PIN_IDS = {"H41-logistics-grapple-isolated"}
+    #
+    # AND BACK TO EMPTY ON 2026-08-29. H41 flew `2026-08-28_2216`, PASS attempt 1, wall
+    # 57 s, measuring `total=4 passed=3 failed=0 skipped=1`. **THE CAPTURE CELL
+    # EXECUTED AND PASSED**: all twelve guards satisfied, both `SpawnAtPosition` calls
+    # returned live vessels, both settle waits completed in 76 frames each. The one
+    # skip is the predicted certain one
+    # (`GrappleWindow_LiveRecordedClawCouple_StampedGrapple`, which needs a PERSISTED
+    # Grapple window this host has no recordings to carry), declared as 1 in
+    # MEASURED_SKIPPED below.
+    #
+    # TWO THINGS THIS MEMBER LEAVES BEHIND, both unusual enough to keep:
+    #   * ITS TALLY-COLLISION PREDICTION WAS CONFIRMED BYTE FOR BYTE. The spec header
+    #     predicted `total=4 passed=3 failed=0 skipped=1` and called it "byte-identical
+    #     to the line the ordinary path would print if nothing self-skipped". It is.
+    #     So the `TALLY_CANNOT_DISCRIMINATE_IDS` exemption below is now backed by an
+    #     OBSERVED collision rather than a derived one, and the exact pin this commit
+    #     writes still cannot separate the two paths - only the structural and cell
+    #     tokens do. This is the one member of the family whose tally proves nothing
+    #     on its own.
+    #   * IT IS THE FIRST MEMBER TO EARN A ZERO-DECLARER D10 ROW OFF A PRODUCTION
+    #     EMITTER. `claw-producer` is claimed on three REQUIRED tokens naming one
+    #     causal chain - `OnPartCouple producer classified: kind=Grapple
+    #     fromPart=PotatoRoid toPart=GrapplingDevice`, `Route proof dock window
+    #     captured: ... kind=Grapple`, and the cell's own
+    #     `GrappleCapture PASS: ... complete=True` - where H38's four D10 rows rest on
+    #     a whole-tally token. A stronger gate, and the shape to copy.
+    INTERIM_PIN_IDS: set = set()
 
     # id -> measured `skipped=` for members whose RUN-TIME InGameAssert.Skip guards
     # push the split above the attribute-derived floor. The attributes give a FLOOR
@@ -3867,6 +3963,19 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
         # the measurement: the remaining eleven are the same on both, so they are
         # properties of the RECORDED-HOST SHAPE rather than of either fixture.
         "H40-logistics-isolated-depot-route": 12,
+        # H41 (`logi-cargo-pad`): 0 attribute-forced + 1 run-time, MEASURED off
+        # `2026-08-28_2216`. The one is `GrappleWindow_LiveRecordedClawCouple_
+        # StampedGrapple`, and its skip string names THIS LANE'S OWN capture cell as the
+        # automated gate that replaces it ("The automated gate (GrappleCaptureInGameTest,
+        # isolated tier) stamps and asserts a live grapple window in-session ... this
+        # check stays as the stock-contact-capture evidence hook"). So it is a
+        # PERSISTED-window evidence hook standing down while the in-session gate covers
+        # the behaviour, not a hole. Closing it is a HARVEST requirement - a committed
+        # fixture from a flight that actually grappled - and it is STRUCTURALLY
+        # unreachable inside one isolated batch, because `GrappleCapture`'s own
+        # `RestoreBatchFlightBaselineAfterExecution` restore wipes the window it just
+        # stamped. The two cells cannot hand off to each other by construction.
+        "H41-logistics-grapple-isolated": 1,
     }
 
     @classmethod
@@ -5950,13 +6059,22 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # which is a separate harvest's scope rather than a debt these tags carry.
         "H39-logistics-isolated-bdock.toml": "FLOWN 3x 2026-08-28 (test defect, then the recordings floor caught player-reachable tree-deletion data loss, then PASS) and PINNED WHOLE incl. count=21; confirm runs then the operator -> daily PROMOTION call are what remain, not debt",
         "H40-logistics-isolated-depot-route.toml": "FLOWN 3x 2026-08-28 (a nine-cell destination-headroom test-defect family, then the recordings floor caught the same tree-deletion data loss, then PASS) and PINNED WHOLE incl. count=22; confirm runs then the operator -> daily PROMOTION call are what remain, not debt",
-        # H41, tier=operator because it has NOT FLOWN - the same disposition H38 / H39 /
-        # H40 each carried pre-flight. The debt is a FLIGHT, not a human call, and the
-        # `pending-flight` tag carries it. Re-classify to the H34/H35 shape (an open
-        # operator -> daily PROMOTION call) once it has flown, its census measured, its
-        # tally pinned and its id removed from
-        # IsolatedBatchWiringGroupTests.INTERIM_PIN_IDS.
-        "H41-logistics-grapple-isolated.toml": "tier=operator because it is a READING RUN that has not flown; debt is a flight, carried by the pending-flight tag - the same disposition H38/H39/H40 each carried pre-flight",
+        # H41, RE-CLASSIFIED 2026-08-29 to the H34/H35/H38 shape - exactly what the
+        # previous revision of this comment asked for "once it has flown, its census
+        # measured, its tally pinned and its id removed from INTERIM_PIN_IDS". All four
+        # are done: run `2026-08-28_2216`, PASS attempt 1, `total=4 passed=3 failed=0
+        # skipped=1`, and the self-provisioning `GrappleCapture` cell EXECUTED AND
+        # PASSED - the first time anywhere - with all twelve of its guards satisfied and
+        # both programmatic vessel spawns settling in 76 frames each. The tag moved
+        # `pending-flight` -> `flown` in the same commit, and the lane now carries the
+        # suite's first D10 zero-declarer claim (`claw-producer`) earned off production
+        # emitters rather than a tally.
+        #
+        # WHAT REMAINS IS NOT DEBT: the confirm runs, then the ordinary operator ->
+        # daily PROMOTION call. Its one skip is a HARVEST requirement that is
+        # structurally unreachable from any single isolated batch (the capture cell's own
+        # baseline restore wipes the window it stamps), not outstanding work on the lane.
+        "H41-logistics-grapple-isolated.toml": "FLOWN 2026-08-28 PASS attempt 1 and PINNED WHOLE; the self-provisioning GrappleCapture cell executed and passed (first time anywhere) and now gates D10 claw-producer off three production tokens; confirm runs then the operator -> daily PROMOTION call are what remain, not debt",
         # tier=operator by the CALIBRATION DISCIPLINE, the whole B18-B26 family's
         # tier, and NOT a debt: a first-flight B lane is operator because its
         # windows are derived rather than measured and the first run is a

@@ -26,18 +26,32 @@ tier = "nightly"
 # skip that may not happen. PREDICTED: five pass; the sixth is the open question and
 # is the whole reason for the census.
 #
-# THE FORM IS A READING RUN, and the id is declared in
-# `IngameBatchWiringGroupTests.INTERIM_PIN_IDS`: the split is left OPEN
-# (`passed=[1-9][0-9]*`, `skipped=[0-9]+`) because run-time `InGameAssert.Skip` guards
-# decide it and no attribute predicts them. The open form still rejects the whole
-# vacuous family (`passed=0 failed=0`, which forces total == skipped), which is the
-# property the anti-vacuity gate needs; what it does not do is assert a split nobody
-# has measured. OBLIGATION ON THE FIRST FLIGHT: measure the split off BATCH_COMPLETE,
-# replace the pin whole, declare any run-time skips in `RUNTIME_SKIPS` with their
-# reasons, and remove the id from INTERIM_PIN_IDS - in the same commit.
-description = "READING RUN: the in-game TerrainClearance category unattended - landed-ghost terrain clamping evaluated against live PQS, including the explosion-anchor clamp whose three live-geometry guards no static reading can settle."
+# -------------------------------------------------------------------------------------
+# READING HISTORY - ONE CENSUS, AND THE OPEN QUESTION ANSWERED BETTER THAN PREDICTED.
+# `2026-08-28_2218`, **PASS attempt 1**, wall 51 s. MEASURED:
+#     BATCH_COMPLETE v1 total=6 passed=6 failed=0 skipped=0
+#     category=TerrainClearance scene=FLIGHT
+# `recordings.count = 0`; every verifier PASS or REPORT.
+#
+# **ALL THREE LIVE-GEOMETRY GUARDS HELD.** The prediction above was "five pass; the
+# sixth is the open question". The sixth -
+# `ExplosionAnchorPosition_BelowTerrain_ClampsBeforeWatchHold` - PASSED, so on this host
+# all three of its runtime guards were satisfied at once: Kerbin supplied PQS terrain,
+# the ghost anchor landed CLEAR of the terrain-clearance knee, and it landed CLOSE
+# ENOUGH to the floating origin. That is the whole point of having flown it - none of
+# the three is derivable, and the alternative to measuring was pinning a guess in one
+# direction or the other.
+#
+# THE SKIP ROSTER IS EMPTY, and `skipped=0` is now MEASURED rather than assumed. Both
+# halves matter: the attribute floor at FLIGHT is 0 (nothing scene-ineligible, nothing
+# batch-disabled) AND no run-time guard fired, so no `RUNTIME_SKIPS` entry is owed and
+# the pinned tally is the plain attribute derivation. What the exact pin asserts that
+# the open form did not: if that anchor ever lands the wrong side of the knee or of the
+# floating origin, `skipped=1` reds - where `passed=[1-9][0-9]*` would have accepted the
+# degraded five-cell run silently. CONFIRM RUNS PENDING.
+description = "FLOWN: the in-game TerrainClearance category unattended - landed-ghost terrain clamping evaluated against live PQS, including the explosion-anchor clamp whose three live-geometry guards no static reading can settle."
 instanceProfile = "stock-minimal"
-tags = ["ingame-batch", "phase4-wave1", "terrain", "H43"]
+tags = ["ingame-batch", "phase4-wave1", "terrain", "H43", "flown"]
 
 [fixture]
 # gloops-airshow: a FLIGHT scene with an active vessel on KERBIN, which is what the
@@ -87,7 +101,7 @@ count = { min = 0, max = 0 }
 #    executed cells.
 #  - failed=0 is the ASSERTION.
 #  - scene=FLIGHT is the gloops-airshow Focusable route, MEASURED by H13 / H5 / H29.
-required  = ["BATCH_COMPLETE v1 total=6 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=TerrainClearance scene=FLIGHT"]
+required  = ["BATCH_COMPLETE v1 total=6 passed=6 failed=0 skipped=0 category=TerrainClearance scene=FLIGHT"]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 
 [runtime]

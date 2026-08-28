@@ -18,18 +18,55 @@ tier = "nightly"
 # `PhysicsFramePatchCleanWhenIdle` pass; the other two are the open questions, and
 # the second one may be a standing fixture requirement rather than a one-off.
 #
-# THE FORM IS A READING RUN, and the id is declared in
-# `IngameBatchWiringGroupTests.INTERIM_PIN_IDS`: the split is left OPEN
-# (`passed=[1-9][0-9]*`, `skipped=[0-9]+`) because run-time `InGameAssert.Skip` guards
-# decide it and no attribute predicts them. The open form still rejects the whole
-# vacuous family (`passed=0 failed=0`, which forces total == skipped), which is the
-# property the anti-vacuity gate needs; what it does not do is assert a split nobody
-# has measured. OBLIGATION ON THE FIRST FLIGHT: measure the split off BATCH_COMPLETE,
-# replace the pin whole, declare any run-time skips in `RUNTIME_SKIPS` with their
-# reasons, and remove the id from INTERIM_PIN_IDS - in the same commit.
-description = "READING RUN: the FLIGHT slice of the in-game SceneAndPatch category over the 274-row synthetic corpus - ghost PIDs never loaded as physics vessels, PhysicsFrame patch hygiene, and the two Bug266 vessel-switch routing cells."
+# -------------------------------------------------------------------------------------
+# READING HISTORY - ONE CENSUS. **THIS LANE UNDER-RAN ITS DERIVED EXECUTABLE, AND THE
+# PREDICTION ABOVE IS WHY THAT IS A RESULT RATHER THAN A SURPRISE.**
+# `2026-08-28_2227`, **PASS attempt 1**, wall 70 s. MEASURED:
+#     BATCH_COMPLETE v1 total=7 passed=2 failed=0 skipped=5
+#     category=SceneAndPatch scene=FLIGHT
+# `recordings.count = 274` (the staged corpus, intact); every verifier PASS or REPORT.
+#
+# THE ARITHMETIC, so the under-run is legible rather than alarming: 7 declared, 3
+# SCENE-INELIGIBLE at FLIGHT - the runner's own summary, quoted:
+#     Scene eligibility skip summary: skipped=3 currentScene=FLIGHT
+#     byRequiredScene=SPACECENTER:2,TRACKSTATION:1
+# (i.e. `ParsekKscExistsInSpaceCenter`, `ParsekKscRelativePlaybackUsesRecordedAnchor`
+# and `ParsekTrackingStationExists`) - so **4 executable**, and 2 of those 4 ran. The
+# header predicted exactly this pair: "`PreTransitionForVesselSwitch_LiveTreeShape_Bug266`
+# (unguarded) and `PhysicsFramePatchCleanWhenIdle` pass; the other two are the open
+# questions". Both predicted passes passed; both predicted open questions skipped.
+# NOTHING WAS REFUTED.
+#
+# THE SKIP ROSTER - 3 scene-filtered (above) plus 2 run-time, verbatim, each classified
+# SATISFIABLE or STRUCTURAL because that is the decision a future reader actually faces:
+#   1 SceneAndPatchTests.GhostPidsNotLoadedAsPhysicsVessels -
+#     "No ghost map PIDs - patch not exercised"
+#     -> **SATISFIABLE, and by a DRIVER change rather than a fixture one.** The corpus
+#        is present (274 recordings) but nothing in this driver makes the engine SPAWN
+#        ghosts, so `ghostMapVesselPids` is empty and the `GhostVesselLoad` patch is
+#        never handed a pid to refuse. Closing it means arming playback (a loop, or a
+#        watch) before `RunTests` so map presence exists when the cell runs. NOT done
+#        here on purpose: this lane's subject is patch HYGIENE, and adding ghost
+#        spawning to reach one cell changes what the other three measure. It is a
+#        candidate for its own lane, not a widening of this one.
+#   2 SceneAndPatchTests.OutsiderActiveTreeParsesAndRoutesToLimboVesselSwitch_Bug266 -
+#     "No live active tree to use as a synth source"
+#     -> **SATISFIABLE, also from the driver: a `StartRecording` step before `RunTests`
+#        creates the live active tree the cell wants as its synth source.** The header
+#        wondered whether this was "a standing fixture requirement rather than a
+#        one-off"; the census says it is NEITHER - it is a DRIVER-STATE requirement, and
+#        the distinction matters because no amount of harvesting a better save produces
+#        a LIVE tree. Why it is not simply added here: `[expectations.recordings]` pins
+#        274 exactly as this lane's corpus-integrity assertion, and a recording started
+#        mid-run would land in the produced save and red it. Closing this cell means a
+#        lane that trades that assertion away deliberately.
+# SO BOTH RESIDUAL SKIPS ARE DRIVER-SATISFIABLE AND NEITHER IS STRUCTURAL - a better
+# answer than the header expected. Declared as 2 in
+# `IngameBatchWiringGroupTests.RUNTIME_SKIPS` so the tally pins WHOLE meanwhile.
+# CONFIRM RUNS PENDING.
+description = "FLOWN: the FLIGHT slice of the in-game SceneAndPatch category over the 274-row synthetic corpus - ghost PIDs never loaded as physics vessels, PhysicsFrame patch hygiene, and the two Bug266 vessel-switch routing cells."
 instanceProfile = "stock-minimal"
-tags = ["ingame-batch", "phase4-wave1", "harmony", "scene", "corpus", "H53"]
+tags = ["ingame-batch", "phase4-wave1", "harmony", "scene", "corpus", "H53", "flown"]
 
 [fixture]
 # gloops-airshow, the wave host, plus the corpus - which here is an anti-vacuity
@@ -85,7 +122,7 @@ count = { min = 274, max = 274 }
 #  - failed=0 is the ASSERTION.
 #  - scene=FLIGHT is the gloops-airshow Focusable route and is load-bearing, since the
 #    skip floor is scene-derived.
-required  = ["BATCH_COMPLETE v1 total=7 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=SceneAndPatch scene=FLIGHT"]
+required  = ["BATCH_COMPLETE v1 total=7 passed=2 failed=0 skipped=5 category=SceneAndPatch scene=FLIGHT"]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 
 [runtime]

@@ -76,6 +76,37 @@ All notable changes to Parsek are documented here.
   The nine that cannot state an exact result say so, and will be tightened once
   they have actually been run.
 
+  ALL FOURTEEN HAVE NOW BEEN RUN, and every one passed first time with nothing
+  failing anywhere - fourteen flights inside fourteen minutes of running the game.
+  All five of the runs that had stated an exact expected result up front turned
+  out to be right, and the nine that could not now state theirs from what was
+  measured. Three things came out of it that were worth the flying. Two runs did
+  BETTER than expected: a check on holding ghosts clear of the ground needed three
+  separate conditions to line up in the live world and got all three, and both of
+  the checks on Parsek's own on-screen window layout passed - which answers a
+  standing question about whether an unattended run ever draws a window at all,
+  and it does. One run contradicted the note above outright: the test said to need
+  a rocket on the launchpad needs nothing of the sort. It contains no give-up
+  conditions at all, and it passed in the tracking station in under a millisecond.
+  Those conditions had been read off a NEIGHBOURING test in the same very large
+  file. That is the same mistake the plan made, arrived at from a third direction,
+  and it is now written down in all three places it can bite.
+
+  The last finding is about test fixtures rather than tests. Two runs executed
+  fewer checks than expected, and neither is a fault. One needs the game to be in
+  a state a saved file cannot contain - a recording actually in progress - so no
+  amount of choosing a better save fixes it. The other is more useful: the mission
+  checks come in four flavours (a course-correcting flight, a station rendezvous, a
+  combined landing-and-station arrival, and a launch from somewhere other than
+  Kerbin), and any one real saved game is at most one or two of those. The save
+  used is a single Kerbin-to-Duna course-correcting mission, so it answered exactly
+  that one and stood the other three down. Worth stating plainly, because the
+  arithmetic that says "seven of these can run here" counts what the tests declare
+  rather than what any one saved game can be. A fourth check made the same point
+  from the other side: it found the mission named in its own give-up message,
+  looked at it, and stood down anyway, because it was the wrong variant of a
+  mission that happens to share the name.
+
 - The automated test rig's own tidy-up could put back the very state it had just
   cleaned. A test batch restores your save file to exactly the bytes it had
   before the batch started; the command that then shuts the game down was saving
