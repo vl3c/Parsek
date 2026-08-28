@@ -180,6 +180,172 @@ The retarget / explosion-hold probes are still NOT written and
 `watch-mode-retarget-explosion-hold` stays unclaimed; W1 claims the NEW D6 value
 `watch-entry-distance-cutoff` instead.
 
+## S19-PART-SHOWCASE-RENDER-READING-ITERATION: the synthetic PART SHOWCASE corpus had never been checked for actually RENDERING; the lane that checks it flew once, red on TIMING, and refuted two of its own premises [OPENED 2026-08-28 on branch `part-showcase-lane`. READING RUN 1 FLOWN 2026-08-28 (`2026-08-28_1945`, PARSEK-FAIL(expectation), spawned=0) - a SPEC refutation, not a product one; v2 committed the same day. TODO, not a defect. Status authority: `docs/dev/autotest-status.md` -> Committed, not yet green]
+
+Parsek auto-generates 243 looping, ghost-only, one-part recordings - one per part
+family member - standing in three rows 200-240 m in front of the KSC pad, each a 24 s
+static clip that toggles that part's own event pair eight times (lights, panels,
+antennas, gear, legs, bays, ladders, RCS, fairings, radiators, drills, deployed
+science, animation groups, chutes, docking ports, engine plates and heat shields,
+robotics, aero and control surfaces, wheels, animate-heat, colour changers, plus the
+inventory / flag / chute-repack / surface-rover singles). They exist so a human can
+stand on the pad and LOOK at every part's ghost - the design record is
+`docs/dev/done/2026-02-17-part-event-showcase-recordings-plan.md` - and until now
+nothing automated had ever looked.
+
+The gap is specific and it is NOT "no lane injects them": `S1.4-injected-playback`
+injects the very same rows inside `all-synthetic`. What S1.4 gates on is the in-game
+batch tally and the `.prec` sidecar count, and **a build that silently stopped BUILDING
+GHOST MESHES would satisfy both in full** - the recordings still exist, still carry
+points, still parse. Nothing in the suite read the flight-scene mesh trace over this
+corpus.
+
+`S1.9-part-showcase-render` closes that. It adds a `part-showcase` injection preset
+(the showcase corpus ALONE - no flight recordings, chains, trees or game actions),
+wired across all four surfaces `test_injection_preset_sync.py` pins and sharing ONE
+body (`SyntheticRecordingTests.AddPartShowcaseRecordings`) with `all-synthetic` so the
+two corpora cannot drift. It then loads the fixture, flips `ghostRenderTracing` (a
+sidecar-backed setting), and loads the SAME save again so the tracer is live from
+flight frame one - the ghost engine builds meshes from the first flight Update, so a
+post-load SetSetting arrives after the first census has already happened in the dark.
+26 REQUIRED `phase=MeshSpawned ... vessel=<row> reason=ghost-created` tokens, one per
+part family, plus a report-only whole-corpus census `spawned = { min = 243 }` and the
+per-part floor `ResolveAvailablePart failed for '` in `forbidden`.
+
+**READING RUN 1 FLEW AND RED, AND IT REFUTED THE SPEC IN TWO PLACES.** Run
+`2026-08-28_1945`, collected log `logs/2026-08-28_2246_S1.9-part-showcase-render`:
+PARSEK-FAIL(expectation), 33 of 33 required tokens unmatched, `ghostLifecycle` REPORT
+`spawned=0 spawnLines=0 destroyLines=0 parsed=True`. Neither refutation was about
+rendering.
+
+FIRST, THE WINDOW WAS NEVER OPEN - a timing defect in the lane, not a render defect in
+the product. The run's own rows say it: `Scenario load summary - UT: 21` against, for
+every one of the 243, `engine-frame-iter [i=N rec=... skip=None aru=F hd=T hs=F
+endUT=75.2][out:none]`. `skip=None` and `hd=T` mean the engine looked at each row,
+found the trajectory renderable, and correctly declined to spawn a ghost for a window
+that opens 30 s in the FUTURE of the clock. The lane then quit after ~8 instant probes.
+ZERO GHOSTS WERE EVER DUE. The v1 spec had assumed the corpus loops and is therefore
+always in window (see below); with that assumption gone it needed a clock jump, and had
+none. **v2 adds one absolute `TimeJump ut=55` into the measured window plus a four-step
+`deltaSeconds` staircase across it**, and the whole arithmetic is now mechanically
+guarded by `PartShowcaseWindowSyncTests` (harness/lib/test_hlib.py), which re-derives
+the window from the fixture bytes plus the C# clip constants and reds locally if a
+re-harvest or a clip change ever moves it. Negative control run while authoring it:
+flipping the entry target to 40 reds two of its four cells naming the exact numbers.
+
+SECOND, AND THE REAL FINDING: **the corpus does not loop at all** - see
+SHOWCASE-LOOPFLAG-STRIPPED-AT-LOAD immediately below. v1 pinned two tokens and a D6
+`self-overlap` claim on an overlap analysis that the run killed at the mechanism; all
+three are CUT in v2, replaced by a required token on the sanitizer line itself (which is
+now the premise the window arithmetic rests on) and by a `MeshDestroyed` token plus
+`requireBalanced = true`, both of which only become honest BECAUSE the windows end.
+
+WHAT THE RUN DID CONFIRM: `recordings.count = 243` measured on the flight (the local
+injector measurement transfers exactly); the double-LoadGame tracer trick works
+(`parsed=True`, so the tracer was armed and simply had nothing to report); analyzer
+red=0, logValidate / anomalySweep / driverValidity all PASS. Nothing was refuted about
+the 26 mesh tokens, the apply tokens or the `ResolveAvailablePart` forbid - none of them
+could fire without a ghost, so all stay [DERIVED] and reading run 2 is their first real
+test.
+
+OWED: reading run 2. If it still measures `spawned` short of 243, the fix is MORE DWELL
+at the entry phase - never a lowered census. The other pre-registered risks are
+unchanged: the `ResolveAvailablePart` forbid (the corpus names Making History and
+Breaking Ground parts; both expansions are present in
+`automation/stock-minimal/GameData/SquadExpansion`, checked on disk 2026-08-28, so a red
+there NAMES the part and is either a real resolution regression or a profile gap), the
+flag-plant row's own `Failed to spawn flag vessel` ERROR path, and the fact that no
+committed lane has ever put 243 ghosts in one scene under a gated
+`forbidden=[Parsek][ERROR]`.
+
+## SHOWCASE-COLORCHANGER-APPLY-UNOBSERVABLE: the colour-changer cabin-light apply line never fires on the showcase ghosts, so whether the emissive actually toggles is unmeasurable [MEASURED 2026-08-28 on S1.9 reading run 2 (`2026-08-28_2010`): all 25 colour-changer rows spawned meshes, zero `applied color changer cabin light` lines. OBSERVATION, report-only - possibly a real ghost-render gap, possibly Pattern-A discovery correctly finding nothing on these parts]
+
+`ApplyColorChangerLightState` (GhostPlaybackLogic.cs:6993) returns silently when
+the ghost's `colorChangerInfos` carries no `isCabinLight` entry for the pid - no
+line, no skip reason. On stock-minimal, S1.9's 25 "Part Showcase - Colour
+Changer" rows rendered meshes but produced zero apply lines, so either (a) the
+ghost visual builder's Pattern-A material discovery resolves nothing for these
+parts (a render gap: the cabin-light emissive never toggles on the ghost), or
+(b) the parts genuinely carry no Pattern-A cabin light and the showcase
+builder's event targeting is aspirational. Distinguishing (a) from (b) needs
+either a logged skip reason in the applier (the PART-EVENT-APPLIER-IS-UNLOGGED
+fix shape) or a manual eyeball of a colour-changer row mid-window. S1.9
+deliberately does NOT pin the token (its header records the measurement).
+
+## SHOWCASE-LOOPFLAG-STRIPPED-AT-LOAD: every part-showcase recording is authored `WithLoopPlayback(true)` and every one has that flag CLEARED on load, so the standing part exhibition does not actually loop in game [MEASURED 2026-08-28 by `S1.9-part-showcase-render` reading run 1 (`2026-08-28_1945`), which red for an unrelated timing reason and turned this up in the same log. REPORT-ONLY, NO product change proposed, NO mechanism blamed - the sanitizer is doing exactly what it was written to do]
+
+The line, verbatim from the collected log:
+
+```
+[Parsek][WARN][RecordingStore] SanitizeNonLoopableLoopPlayback: cleared LoopPlayback
+on 243 non-loopable recording(s) (debris or pure orbital coast; no Recordings-tab loop
+toggle, so the stale flag had no way to be cleared)
+```
+
+243 is the whole injected showcase corpus.
+`RecordingStore.SanitizeNonLoopableLoopPlayback` clears `LoopPlayback` on any recording
+that fails `Recording.IsLoopableRecording`, and a showcase row fails all five of that
+predicate's arms: it has no `LaunchSiteName`, its `StartSituation` is not `"Prelaunch"`,
+its `SegmentPhase` is none of atmo / approach / surface, its `DockTargetVesselPid` is 0,
+and it carries no viewable RELATIVE track. So
+`BuildPartShowcaseRecording`'s `WithLoopPlayback(loop: true, intervalSeconds: 0.0)` -
+and the same call in every sibling showcase builder - is a NO-OP at playback time. The
+rows play their 24 s clip once (30 s for the surface rover) and stop.
+
+WHY IT MATTERS, and why it is filed rather than fixed here:
+ - The showcase's whole purpose is to be a STANDING exhibition a human can walk up to
+   and look at. A one-shot window that opens 30 s after injection and closes 24 s later
+   is a different thing, and the discrepancy is invisible from the builder source, which
+   plainly asks for a loop.
+ - It also means anyone reading those builders (this lane's author included, at length)
+   will derive a self-overlap model of showcase playback that the game does not run.
+   That cost one flight here, and is exactly the kind of thing worth writing down.
+ - The sanitizer is NOT the defect. Its Warn text even explains its own reasoning ("no
+   Recordings-tab loop toggle, so the stale flag had no way to be cleared") - it exists
+   to clear flags on populations the UI cannot un-set. Whether showcase rows SHOULD
+   satisfy `IsLoopableRecording` (they are neither debris nor an orbital coast), or
+   whether the builders should stop asking for a loop they cannot have, is a product
+   decision with a real UI surface behind it, and not one a test lane should take.
+ - No harness lane depended on the loop before this one, and S1.9 v2 no longer does: it
+   pins the sanitizer line as a REQUIRED token, so if this ever changes the lane reds
+   and names it instead of silently changing meaning.
+
+## PART-EVENT-APPLIER-IS-UNLOGGED: the ghost part-event applier writes no per-family log line, so no automated test can distinguish "the recorded event was applied to the ghost" from "the event was silently skipped" for most part families [FOUND BY READING 2026-08-28 while authoring `S1.9-part-showcase-render`, from the source alone - NOT measured on a flight. OBSERVABILITY GAP, REPORT-ONLY. No product change made: this is the hot path under 243 simultaneous ghosts and the fix is a product decision, not a test-lane one]
+
+`GhostPlaybackLogic.ApplyPartEvents` is the sole apply path for flight, KSC and
+flight-preview ghosts, and it emits exactly ONE aggregate line per call -
+`Applied N part events for ghost #N (evtIdx now N)`, VerboseRateLimited. Its per-family
+handlers emit nothing at all: `ApplyLightPowerEvent`, `ApplyLightBlinkModeEvent` /
+`RateEvent`, `ApplyDeployableState` (which is also the ladder / drill / deployed-science
+/ animation-group / inflatable / radiator path), `ApplyDeployableBrokenState`,
+`ApplyCargoBayState`, `ApplyJettisonPanelState`, the inline `FairingJettisoned` arm,
+`SetEngineEmission` / `SetRcsEmission` themselves, `ApplyParachute*Event`,
+`ApplyRoboticEvent` on its normal path, and `ApplyInventoryPart*Event`.
+
+The only per-family apply evidence that exists today is `Part pid=N: applied heat
+level <Hot|Medium|Cold>` (the ThermalAnimation family), `Part pid=N: applied color
+changer cabin light state=<True|False>`, and `FX magnitude (engine|rcs) pid=N midx=N
+power=...` (which is suppressed entirely when nothing was scaled, so a match really is
+proof an emitter moved).
+
+WHAT IT COSTS, concretely: `S1.9-part-showcase-render` renders a showcase row for
+lights, gear, bays, fairings, panels and chutes and can prove the GHOST MESH was built
+for each - but it cannot claim D7 `lights`, `gear`, `bays`, `fairing`, `chute-cut` or
+`panels-antennas-radiators`, because CLAIM-IS-NOT-GATE requires a required token per
+cell and no token exists. Six registry cells stay unclaimable by any log-reading lane
+until this changes. The house rule is explicit that this should not be so
+(`.claude/CLAUDE.md`: "Every action, state transition, guard condition skip, and FX
+lifecycle event MUST be logged ... if it didn't get logged, it didn't happen").
+
+The shape a fix would have to respect, so nobody reaches for the obvious one: this runs
+per ghost per frame, and the showcase alone puts 243 ghosts in the scene at once with a
+new overlap primary every 5 s. A bare per-event `Verbose` would be a log flood. The
+convention the codebase already has for exactly this is `VerboseRateLimited` with a
+per-part-per-family key - the shape `Part pid=N: applied heat level ...` already uses -
+or a per-family counter folded into the existing aggregate line
+(`Applied N part events ... [lights=2 deployables=1 bays=1]`), which costs one line per
+ghost per interval rather than one per event.
+
 ## FIXTURE-DUNA-PARK-PROBE-CANNOT-RETURN-TO-KERBIN: the DD1 probe every committed Duna-parked fixture carries is ~550 m/s short of a Kerbin return, so the reserved `B29-duna-kerbin-return` lane could not be flown as specified [MEASURED 2026-08-26 off `fixtures/saves/duna-park-probe/persistent.sfs` while opening B29's Phase-0 door. FIXTURE PROPERTY, REPORT-ONLY - never a Parsek defect and never a spec defect; it blocked one lane's PRODUCTION, not any product question. ROUTED AROUND the same day by re-scoping B29 to depart Jool; see the second entry below]
 
 THE ARITHMETIC, derived from the fixture's own bytes rather than from a delta-v map:

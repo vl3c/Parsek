@@ -128,6 +128,9 @@ RP_SIDECAR_BY_PRESET = {
     "refly-world-preservation": "rp_wp_root",
     # The S1.8 SoiCrossingPlayback corpus: a committed tree only, no RP.
     "looped-interplanetary": None,
+    # S1.9's part-showcase corpus: every "Part Showcase - <part>" row and nothing
+    # else, committed trees only, no RP.
+    "part-showcase": None,
 }
 INJECTION_PRESETS = tuple(RP_SIDECAR_BY_PRESET)
 
