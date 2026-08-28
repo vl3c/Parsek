@@ -82,6 +82,15 @@ namespace Parsek
 
         private const string Tag = "Supersede";
         private const string SessionTag = "ReFlySession";
+
+        /// <summary>
+        /// Maximum per-row <c>PreRewindTombstoneGuard: keep ...</c> Verbose lines
+        /// <see cref="CommitTombstones"/> emits in one pass before falling back to the
+        /// summary alone. The kept-row count is unbounded in principle (it is a slice of
+        /// <c>Ledger.Actions</c>), so the batch-logging convention's "bounded under ~20"
+        /// escape is made explicit rather than assumed.
+        /// </summary>
+        internal const int PreRewindKeepLogCap = 20;
         private const string LedgerSwapTag = "LedgerSwap";
         private const char WorldActionCacheKeySeparator = '\u001f';
 
@@ -748,6 +757,17 @@ namespace Parsek
         /// ledger action's UT is stamped from the same clock the rewind point
         /// captured, so no jitter allowance is warranted and one would silently
         /// tombstone rows the splitter kept.
+        /// </para>
+        ///
+        /// <para>
+        /// The mirror is EXACT only on the <c>RewindPointUT</c> branch. The splitter
+        /// reads that field alone and does not split at all when it is NaN, while this
+        /// cutoff falls back to <see cref="ReFlySessionMarker.InvokedUT"/> for a legacy
+        /// marker that never persisted one. On that branch the two differ by the time
+        /// elapsed between the RP capture and the Re-Fly click (seconds, and
+        /// <c>InvokedUT &gt;= RewindPointUT</c>), so the guard keeps slightly MORE than
+        /// the splitter would have retagged — the safe direction, on a marker
+        /// population the splitter does not act on anyway.
         /// </para>
         /// </summary>
         internal static double ComputeTombstoneRewindCutoffUT(ReFlySessionMarker marker)
@@ -2353,11 +2373,27 @@ namespace Parsek
                 if (TombstoneAttributionHelper.IsPreRewindAttributedAction(a, rewindCutoffUT))
                 {
                     preRewindKept++;
-                    ParsekLog.Verbose(LedgerSwapTag,
-                        $"PreRewindTombstoneGuard: keep action={a.ActionId ?? "<no-id>"} " +
-                        $"type={a.Type} rec={a.RecordingId} " +
-                        $"ut={a.UT.ToString("R", CultureInfo.InvariantCulture)} " +
-                        $"cutoffUT={rewindCutoffUT.ToString("R", CultureInfo.InvariantCulture)}");
+                    // Per-row identity is logged rather than only summarised because
+                    // WHICH payout the guard saved is the whole forensic question when
+                    // a career reconciles differently than expected — a bare count
+                    // cannot answer it. The batch convention's bound is honoured with
+                    // an explicit cap instead of an assumption about how many rows a
+                    // subtree can hold; the summary line below is always complete.
+                    if (preRewindKept <= PreRewindKeepLogCap)
+                    {
+                        ParsekLog.Verbose(LedgerSwapTag,
+                            $"PreRewindTombstoneGuard: keep action={a.ActionId ?? "<no-id>"} " +
+                            $"type={a.Type} rec={a.RecordingId} " +
+                            $"ut={a.UT.ToString("R", CultureInfo.InvariantCulture)} " +
+                            $"cutoffUT={rewindCutoffUT.ToString("R", CultureInfo.InvariantCulture)}");
+                    }
+                    else if (preRewindKept == PreRewindKeepLogCap + 1)
+                    {
+                        ParsekLog.Verbose(LedgerSwapTag,
+                            $"PreRewindTombstoneGuard: further per-row keeps suppressed " +
+                            $"(cap={PreRewindKeepLogCap.ToString(CultureInfo.InvariantCulture)}); " +
+                            $"see the summary line for the total");
+                    }
                     continue;
                 }
                 List<GameAction> slice;

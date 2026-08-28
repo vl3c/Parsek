@@ -146,6 +146,42 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void TheThresholdConstantAgreesWithTheRendererGate()
+        {
+            // ParsekFlight.BodyFixedPrimaryCoversPlaybackUT is the copy that actually
+            // decides whether a ghost DRAWS - the same `Relative && bodyFixedFrames !=
+            // null && Count >= 2` triple, in the positioner. The emptiness predicate's
+            // whole claim is "keep what the renderer can draw", so this is the agreement
+            // that matters most; the coverage primitive above is the recorder-side twin.
+            var justUnder = BodyFixedOnlySection(
+                PlaybackTrajectoryBoundsResolver.MinBodyFixedPrimarySamples - 1);
+            var atThreshold = BodyFixedOnlySection(
+                PlaybackTrajectoryBoundsResolver.MinBodyFixedPrimarySamples);
+
+            Assert.False(ParsekFlight.BodyFixedPrimaryCoversPlaybackUT(
+                justUnder, playbackUT: 100.0, out _, out _));
+            Assert.False(
+                PlaybackTrajectoryBoundsResolver.HasAuthoredRenderablePayload(justUnder));
+
+            Assert.True(ParsekFlight.BodyFixedPrimaryCoversPlaybackUT(
+                atThreshold, playbackUT: 100.0,
+                out double firstUT, out double lastUT));
+            Assert.True(
+                PlaybackTrajectoryBoundsResolver.HasAuthoredRenderablePayload(atThreshold));
+            Assert.Equal(atThreshold.bodyFixedFrames[0].ut, firstUT);
+            Assert.Equal(
+                atThreshold.bodyFixedFrames[atThreshold.bodyFixedFrames.Count - 1].ut,
+                lastUT);
+
+            // The non-Relative rejection is part of the same triple on both sides.
+            var absolute = BodyFixedOnlySection(4, ReferenceFrame.Absolute);
+            Assert.False(ParsekFlight.BodyFixedPrimaryCoversPlaybackUT(
+                absolute, playbackUT: 100.0, out _, out _));
+            Assert.False(
+                PlaybackTrajectoryBoundsResolver.HasAuthoredRenderablePayload(absolute));
+        }
+
+        [Fact]
         public void BodyFixedPointsOnANonRelativeSection_DoNotCount()
         {
             // The recorder allocates bodyFixedFrames for the Relative frame and no

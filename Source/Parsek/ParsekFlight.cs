@@ -848,9 +848,14 @@ namespace Parsek
         // Branch-point partner stamp: the couple-event partner identity, decoupled from
         // route eligibility (design-dock-event-graph.md 6.1). Set WITHOUT the
         // snapshot/known-recording disjunct (EVA grabs still suppress), so a
-        // route-ineligible dock records who it docked with. Feeds ONLY
-        // BranchPoint.TargetVesselPersistentId; route windows / TransferKind / the
-        // phantom-spawn supersede keep the gated pendingDockRouteTargetPid.
+        // route-ineligible dock records who it docked with. Feeds
+        // BranchPoint.TargetVesselPersistentId, and THROUGH that stamp the
+        // absorbed-vessel spawn suppression (PHANTOM-SUPERSEDE-RIDES-GATED-PID: the
+        // suppression asks who the dock absorbed, which is a partner-identity
+        // question, not a route one - see ResolveDockMergeSpawnSuppressionPid; do NOT
+        // "restore" it to the gated pid). The ROUTE surfaces - route windows,
+        // TransferKind, TransferTargetVesselPid - keep the gated
+        // pendingDockRouteTargetPid.
         private uint pendingDockPartnerPid;
         // Connection producer that made the pending couple, classified from the live
         // onPartCouple parts (DockingPort / Grapple / Unknown). Stamped on the merge
@@ -5215,14 +5220,41 @@ namespace Parsek
         /// <see cref="BuildMergeBranchData"/> from
         /// <see cref="ResolveBranchPartnerStampPid"/> with a legacy fallback to the gated
         /// route pid) rather than the route-eligibility-gated
-        /// <c>routeTargetVesselPid</c>. The gated pid is 0 whenever route eligibility
-        /// fails — most sharply for a Parsek-SPAWNED partner, whose live pid is its
-        /// KSP-unique spawn pid while <c>IsKnownDockPartnerForRoute</c> only ever
-        /// compares against <see cref="Recording.VesselPersistentId"/>, so the partner is
-        /// "unknown" for route purposes and the suppression never ran. That is exactly
-        /// the population <see cref="RecordingStore.MarkTerminalSpawnSupersededByDockMerge"/>
-        /// matches on its spawn-pid route, i.e. the phantom re-materialisation the
-        /// suppression exists to prevent.
+        /// <c>routeTargetVesselPid</c>.
+        /// </para>
+        ///
+        /// <para>
+        /// <b>The newly-admitted population, stated precisely</b> — route eligibility is
+        /// a DISJUNCTION (<c>pid resolvable &amp;&amp; (partnerSnapshotCaptured ||
+        /// partnerKnown)</c>, both <c>OnPartCouple</c> paths), and
+        /// <c>partnerSnapshotCaptured</c> is true for any partner still loaded with parts
+        /// at couple time. So an ordinary physically-docking Parsek spawn WAS already
+        /// eligible; "Parsek spawns were route-unknown" is too broad a claim and is not
+        /// the mechanism. What the gated pid actually loses is the dock where the pid
+        /// resolves but BOTH disjuncts fail: no usable pre-couple snapshot (KSP already
+        /// reparented <c>data.from.vessel</c> onto <c>data.to.vessel</c> — the retroactive
+        /// path's own §5.1 note — or the partner has no parts, or
+        /// <c>VesselSpawner.TryBackupSnapshot</c> returned null) AND
+        /// <c>IsKnownDockPartnerForRoute</c> finds nothing, since it compares ONLY against
+        /// <see cref="Recording.VesselPersistentId"/> and a Parsek-spawned vessel is live
+        /// under its KSP-unique <c>SpawnedVesselPersistentId</c>. That narrow set is
+        /// nonetheless exactly what
+        /// <see cref="RecordingStore.MarkTerminalSpawnSupersededByDockMerge"/> matches on
+        /// its spawn-pid route, so it is real phantom exposure — the change is a strict
+        /// widening, never a re-aim.
+        /// </para>
+        ///
+        /// <para>
+        /// <b>Read the guid gate correctly for that population.</b> The
+        /// <c>absorbedLaunchGuid</c> the call site passes has exactly one source: the
+        /// pre-couple partner snapshot. For a newly-admitted dock that snapshot disjunct
+        /// was false by construction, so the guid is ALWAYS null there and the
+        /// <c>GuidsConclusivelyDiffer</c> gate is inert on 100% of the new population.
+        /// Safety comes from a different fact: <c>!partnerKnown</c> means no committed
+        /// recording carries <c>VesselPersistentId == absorbedPid</c>, so the guid-gated
+        /// <c>bakedPidMatch</c> route cannot fire at all — only the collision-free
+        /// <c>uniqueSpawnMatch</c> route can, and CLAUDE.md's identity rule sanctions that
+        /// one as pid-only precisely because a KSP-unique spawn pid cannot collide.
         /// </para>
         ///
         /// <para>

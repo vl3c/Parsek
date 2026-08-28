@@ -3317,20 +3317,46 @@ merged vessel, and 0 otherwise. The call site reads it instead of `routeTargetVe
 (for the guid read too). The old comment claiming `routeTargetVesselPid` IS "the dock branch
 point's TargetVesselPersistentId" had gone stale at the decoupling and is corrected.
 
-**The population this actually recovers, which is sharper than "route-ineligible docks" in
-general.** Route eligibility accepts a partner when a pre-couple snapshot was captured OR
-`IsKnownDockPartnerForRoute` finds a recording for the pid — and that helper compares
-against `Recording.VesselPersistentId` ONLY. A Parsek-SPAWNED vessel is live under its
-KSP-unique `SpawnedVesselPersistentId`, so it is "unknown" to the route check, while
-`MarkTerminalSpawnSupersededByDockMerge`'s own spawn-pid route matches exactly that pid.
-Docking into a craft Parsek itself placed in the world was therefore the case most likely
-to re-materialise a phantom AND the case the safeguard skipped. Where the partner is
-genuinely unknown to the store, the widening is inert: nothing matches either identity
-route and 0 rows are marked.
+**The population this actually recovers, stated precisely — the obvious version of this
+paragraph is WRONG, and was corrected in review before it could be read as authority.** The
+tempting claim is "a Parsek-SPAWNED partner is route-unknown, so the suppression never
+ran". Too broad. Route eligibility is a DISJUNCTION — `pid resolvable &&
+(partnerSnapshotCaptured || partnerKnown)`, in both `OnPartCouple` paths — and
+`partnerSnapshotCaptured` is true for ANY partner still loaded with parts at couple time.
+An ordinary physically-docking Parsek spawn satisfies that, so it WAS eligible pre-fix and
+the gated pid reached it fine.
 
-**Over-suppression risk is unchanged**, because the identity test inside
-`MarkTerminalSpawnSupersededByDockMerge` is untouched: the unique-spawn-pid route cannot
-collide, the craft-baked-pid route stays guid-gated, and the two accepted limitations
+What the gated pid actually loses is the narrower dock where the pid resolves but BOTH
+disjuncts fail:
+
+- no usable pre-couple snapshot — KSP already reparented `data.from.vessel` onto
+  `data.to.vessel` before the handler ran (the retroactive path's own §5.1 comment names
+  exactly this case), or the partner has no parts, or `VesselSpawner.TryBackupSnapshot`
+  returned null; AND
+- `IsKnownDockPartnerForRoute` finds nothing, because it compares ONLY against
+  `Recording.VesselPersistentId` while a Parsek-spawned vessel is live under its
+  KSP-unique `SpawnedVesselPersistentId`.
+
+That set is narrow, but it is exactly what `MarkTerminalSpawnSupersededByDockMerge` matches
+on its spawn-pid route — real phantom exposure. The change is a strict WIDENING (the stamp
+is a superset of the gated pid, falling back to it when absent), never a re-aim. Where the
+partner is genuinely unknown to the store, the widening is inert: nothing matches either
+identity route and 0 rows are marked.
+
+**The guid gate is INERT on the newly-admitted population, and the safety argument is a
+different one — record this, because the obvious reading is false.** `absorbedLaunchGuid`
+has exactly ONE source, the pre-couple partner snapshot, and a dock is newly admitted
+precisely BECAUSE that snapshot disjunct was false — so the guid is null on 100% of the new
+population and the `GuidsConclusivelyDiffer` gate can never reject there. "The guid gate
+still protects us" is NOT the argument. What protects it: `!partnerKnown` means no committed
+recording carries `VesselPersistentId == absorbedPid`, so `bakedPidMatch` — the ONLY
+guid-gated route — cannot fire at all. Only `uniqueSpawnMatch` can, and CLAUDE.md's identity
+rule sanctions that route as pid-only precisely because a KSP-unique spawn pid cannot
+collide across relaunches.
+
+**Over-suppression risk is otherwise unchanged**, because the identity test inside
+`MarkTerminalSpawnSupersededByDockMerge` is untouched: the craft-baked-pid route stays
+guid-gated for every dock that still supplies a guid, and the two accepted limitations
 documented on that method still read exactly as written. The EVA carve-out survives the
 switch because BOTH `ResolveBranchPartnerStampPid` and `SuppressRouteWindowForEvaGrab` zero
 their pid for an EVA couple — pinned by a cell that drives an EVA couple through the
@@ -7416,6 +7442,16 @@ UT comes off the same clock the rewind point captured. A third convention on thi
 would let a row the splitter kept still be tombstoned.
 `ComputeTombstoneRewindCutoffUT_CarriesNoEpsilon_UnlikePreRewindCutoff` pins the
 difference so a future "unify these" refactor reds instead of regressing silently.
+
+**The "bit-for-bit mirror" claim is exact only on the `RewindPointUT` branch, and that
+qualification matters.** The splitter reads `RewindPointUT` alone and declines to split at
+all when it is NaN, whereas this cutoff falls back to `InvokedUT` for a legacy marker that
+never persisted a rewind-point UT. On that branch the two cutoffs differ by however long
+elapsed between the RP capture and the player clicking Re-Fly — seconds, typically, and
+`InvokedUT >= RewindPointUT`, so the guard keeps slightly MORE than the splitter would have
+retagged. The divergence is therefore in the safe direction (keep the career effect) and
+only on a marker population the splitter does not act on anyway; it is a qualification on
+the claim, not a hole in it.
 
 **Composes with `IsPreRewindCarveOut` rather than duplicating it.** That predicate filters
 RECORDINGS out of the supersede write-set (and out of the subtree handed to

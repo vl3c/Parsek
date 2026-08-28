@@ -327,13 +327,21 @@ namespace Parsek
         /// The playable-section term closes the section-blind half of the documented
         /// divergence against <c>SupersedeCommit.HasPlayableSupersedePayload</c>: a
         /// section-authoritative recording (its trajectory lives in
-        /// <c>TrackSection.frames</c> / <c>checkpoints</c> rather than the flat
-        /// <c>Points</c> list) is renderable payload the merge predicate accepts, so
-        /// judging it empty here would prune a recording the merge would keep. Payload
-        /// is tested with the SAME per-section notion the merge uses
-        /// (<see cref="PlaybackTrajectoryBoundsResolver.HasPlayablePayload"/>) — this
-        /// narrows the divergence rather than inventing a third definition, and does
-        /// not change what counts as payload for the merge.
+        /// <c>TrackSection.frames</c> / <c>checkpoints</c> / <c>bodyFixedFrames</c>
+        /// rather than the flat <c>Points</c> list) is renderable payload the merge
+        /// predicate accepts, so judging it empty here would prune a recording the
+        /// merge would keep. Payload is tested with the SAME per-section notion the
+        /// merge uses
+        /// (<see cref="PlaybackTrajectoryBoundsResolver.HasAuthoredRenderablePayload"/>)
+        /// — one shared definition, not a third one.
+        /// </para>
+        /// <para>
+        /// That shared notion CHANGED when
+        /// BODYFIXEDFRAMES-INVISIBLE-TO-BOTH-EMPTINESS-PREDICATES was fixed: a
+        /// parent-anchored section whose only authored surface is
+        /// <c>bodyFixedFrames</c> (>= 2 samples) is now payload to the prune AND to
+        /// the merge, where before it was payload to neither. Both moved together, on
+        /// purpose — the invariant is that they agree, not that either stands still.
         /// </para>
         /// </summary>
         internal static bool IsZeroPointLeaf(Recording rec)
