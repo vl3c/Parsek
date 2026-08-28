@@ -1814,6 +1814,166 @@ namespace Parsek.Tests
             Assert.Equal("rec-committed-provisional", pick);
         }
 
+        // --- TOMBSTONE-BRACKET-TIE-MID-SESSION-PAYOUT ---------------------------
+        //
+        // A payout earned DURING the re-fly at `rewindUT <= ut <= origin.EndUT` is
+        // bracketed by BOTH the origin child and the session provisional (whose StartUT
+        // is ~rewindUT). Largest-EndUT hands that tie to the ORIGIN CHILD while the
+        // provisional has not yet flown past where the original flight ended - and the
+        // origin child's post-rewind rows are retagged to the superseded TIP, so the
+        // merge tombstones a payout that was really earned on the surviving fork. The
+        // row's UT is >= rewindUT by construction, so the pre-rewind write-set screen
+        // (IsPreRewindAttributedAction) cannot save it. The fix is here, in the
+        // attribution: the admitted session provisional wins tier-1 bracket ties.
+
+        [Fact]
+        public void PickRecoveryRecordingId_BracketTie_PrefersSessionProvisionalOverOriginChild()
+        {
+            // THE FIXED SHAPE. Rewind at 500; the provisional runs [500, 700] and the
+            // origin child [100, 900]. A recovery at 600 is bracketed by both, and the
+            // origin child carries the LARGER EndUT - so pre-fix it took the tag.
+            InstallReFlySession("rec-provisional", "rec-origin");
+
+            RecordingStore.AddRecordingWithTreeForTesting(PickerRec(
+                "rec-origin", "Reusable", MergeState.Immutable,
+                100.0, 900.0, TerminalState.Destroyed));
+            RecordingStore.AddRecordingWithTreeForTesting(PickerRec(
+                "rec-provisional", "Reusable", MergeState.NotCommitted,
+                500.0, 700.0, TerminalState.Orbiting));
+
+            ParsekLog.VerboseOverrideForTesting = true;
+            string pick = LedgerOrchestrator.PickRecoveryRecordingId("Reusable", 600.0);
+            Assert.Equal("rec-provisional", pick);
+
+            // The tie decision rides the EXISTING tier line - one grep per pick.
+            Assert.Contains(logLines, l =>
+                l.Contains("PickRecoveryRecordingId:")
+                && l.Contains("tier=bracketing")
+                && l.Contains("bracketTie=session-provisional")
+                && l.Contains("pick=rec-provisional"));
+        }
+
+        [Fact]
+        public void PickRecoveryRecordingId_BracketTie_NoSessionArmed_KeepsMaxEndUt()
+        {
+            // Zero behaviour change when no session is armed: the same two recordings,
+            // both committed, still resolve by largest EndUT. Pins today's pick.
+            RecordingStore.AddRecordingWithTreeForTesting(PickerRec(
+                "rec-origin", "Reusable", MergeState.Immutable,
+                100.0, 900.0, TerminalState.Destroyed));
+            RecordingStore.AddRecordingWithTreeForTesting(PickerRec(
+                "rec-later", "Reusable", MergeState.Immutable,
+                500.0, 700.0, TerminalState.Orbiting));
+
+            ParsekLog.VerboseOverrideForTesting = true;
+            string pick = LedgerOrchestrator.PickRecoveryRecordingId("Reusable", 600.0);
+            Assert.Equal("rec-origin", pick);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("PickRecoveryRecordingId:")
+                && l.Contains("tier=bracketing")
+                && l.Contains("bracketTie=max-end-ut"));
+        }
+
+        [Fact]
+        public void PickRecoveryRecordingId_SessionProvisionalThatDoesNotBracket_KeepsMaxEndUt()
+        {
+            // The override is scoped to tier 1. A session provisional that does NOT
+            // bracket the recovery UT leaves the pick exactly where it was: the origin
+            // child brackets and wins. (Provisional runs [700, 800]; recovery at 600.)
+            InstallReFlySession("rec-provisional", "rec-origin");
+
+            RecordingStore.AddRecordingWithTreeForTesting(PickerRec(
+                "rec-origin", "Reusable", MergeState.Immutable,
+                100.0, 900.0, TerminalState.Destroyed));
+            RecordingStore.AddRecordingWithTreeForTesting(PickerRec(
+                "rec-provisional", "Reusable", MergeState.NotCommitted,
+                700.0, 800.0, TerminalState.Orbiting));
+
+            string pick = LedgerOrchestrator.PickRecoveryRecordingId("Reusable", 600.0);
+            Assert.Equal("rec-origin", pick);
+        }
+
+        [Fact]
+        public void PickRecoveryRecordingId_UnboundProvisional_NeverBrackets_DegradesToStatusQuo()
+        {
+            // An unbound / trajectory-less provisional carries no points and no explicit
+            // bounds, so Recording.StartUT and Recording.EndUT BOTH resolve to 0.0 - it
+            // brackets nothing but a ut==0.0 recovery. The tie-break therefore cannot
+            // hand a real recovery to a provisional no recorder ever bound
+            // (R1-EMPTY-PROVISIONAL's shape). Verified against the bracketing predicate,
+            // not assumed.
+            InstallReFlySession("rec-unbound", "rec-origin");
+
+            var unbound = new Recording
+            {
+                RecordingId = "rec-unbound",
+                VesselName = "Reusable",
+                PreLaunchFunds = 50000.0,
+                MergeState = MergeState.NotCommitted,
+                TerminalStateValue = TerminalState.Orbiting,
+            };
+            Assert.Equal(0.0, unbound.StartUT);
+            Assert.Equal(0.0, unbound.EndUT);
+            RecordingStore.AddRecordingWithTreeForTesting(unbound);
+
+            RecordingStore.AddRecordingWithTreeForTesting(PickerRec(
+                "rec-origin", "Reusable", MergeState.Immutable,
+                100.0, 900.0, TerminalState.Destroyed));
+
+            string pick = LedgerOrchestrator.PickRecoveryRecordingId("Reusable", 600.0);
+            Assert.Equal("rec-origin", pick);
+        }
+
+        [Fact]
+        public void PickRecoveryRecordingId_BracketTie_MovesAllThreeRecoveryLegsTogether()
+        {
+            // ResurrectionRetirementEligibility bundles a recovery's funds / science /
+            // kerbal-XP rows by SHARED RecordingId, so the tie-break has to sit in the
+            // ONE correlator all three legs resolve through, not in any single leg.
+            // Source-level pin: the science leg (ResolveKscScienceRecordingId) and the
+            // XP leg (TryRecordRecoveryKerbalExperience) both call PickRecoveryRecordingId,
+            // and the funds leg passes it to LedgerRecoveryFundsPairing as the delegate.
+            string src = System.IO.File.ReadAllText(System.IO.Path.Combine(
+                SyntheticRecordingTests.ResolveProjectRoot(),
+                "Source", "Parsek", "GameActions", "LedgerOrchestrator.cs"));
+            Assert.Contains("return PickRecoveryRecordingId(vesselName, subject.captureUT);", src);
+            Assert.Contains("string recordingId = PickRecoveryRecordingId(identity, ut);", src);
+            Assert.Contains("                PickRecoveryRecordingId,", src);
+
+            // And behaviourally: the XP leg's own pick follows the tie-break.
+            InstallReFlySession("rec-provisional", "rec-origin");
+            RecordingStore.AddRecordingWithTreeForTesting(PickerRec(
+                "rec-origin", "Reusable", MergeState.Immutable,
+                100.0, 900.0, TerminalState.Destroyed));
+            RecordingStore.AddRecordingWithTreeForTesting(PickerRec(
+                "rec-provisional", "Reusable", MergeState.NotCommitted,
+                500.0, 700.0, TerminalState.Orbiting));
+
+            var xpEvents = new List<GameStateEvent>
+            {
+                new GameStateEvent
+                {
+                    ut = 600.0,
+                    eventType = GameStateEventType.ExperienceGained,
+                    key = "Jebediah Kerman",
+                    detail = "flight=1;entries="
+                             + KerbalCareerLogEntry.FormatSet(new List<KerbalCareerLogEntry>
+                               {
+                                   new KerbalCareerLogEntry(1, "Flight", "Kerbin"),
+                               })
+                             + ";trait=Pilot",
+                },
+            };
+            int written = LedgerOrchestrator.TryRecordRecoveryKerbalExperience(
+                xpEvents, RecoveredVesselIdentity.FromRawName("Reusable"), 600.0);
+            Assert.Equal(1, written);
+            var xpRow = Ledger.Actions.FirstOrDefault(
+                a => a.Type == GameActionType.KerbalExperience);
+            Assert.NotNull(xpRow);
+            Assert.Equal("rec-provisional", xpRow.RecordingId);
+        }
+
         [Fact]
         public void OnVesselRecoveryFunds_SameUtDifferentReasonKey_PicksVesselRecoveryEvent()
         {

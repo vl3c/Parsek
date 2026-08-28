@@ -7921,7 +7921,7 @@ never feeds the `.analysis.txt` terminal `RED` token (`ReportWriter`: `RED=1` if
 `failNonBaselined + staleNonBaselined > 0`), so surfacing a pre-existing population cannot
 flip a gated run red.
 
-## ~~TOMBSTONE-SCOPE-HAS-NO-UT-GUARD: a pre-rewind payout attributed to the origin child is tombstoned at merge~~ [filed 2026-08-12 on branch `provisional-ledger-hygiene`. PRE-EXISTING — predates that branch and is NOT caused by it. **SUB-SHAPE (A) FIXED 2026-08-28, branch `ledger-hygiene-2`; SUB-SHAPE (B) STAYS OPEN and is re-filed below**]
+## ~~TOMBSTONE-SCOPE-HAS-NO-UT-GUARD: a pre-rewind payout attributed to the origin child is tombstoned at merge~~ [filed 2026-08-12 on branch `provisional-ledger-hygiene`. PRE-EXISTING — predates that branch and is NOT caused by it. **SUB-SHAPE (A) FIXED 2026-08-28, branch `ledger-hygiene-2`; SUB-SHAPE (B) re-filed below and FIXED 2026-08-28, branch `ledger-followups`**]
 
 **Fix (A).** `SupersedeCommit.CommitTombstones` now screens every in-scope action through
 `TombstoneAttributionHelper.IsPreRewindAttributedAction(a, cutoff)` before it reaches the
@@ -8026,7 +8026,78 @@ there the attribution is CORRECT — the payout does belong to the origin child 
 is in what the tombstone pass does with a correct tag. Options 1 and 2 are for the bracket-tie
 subset above, where the tag itself is the arguable part.
 
-## TOMBSTONE-BRACKET-TIE-MID-SESSION-PAYOUT: a payout earned DURING the re-fly can tie to the origin child and be tombstoned [OPEN, split out 2026-08-28 on branch `ledger-hygiene-2` when the UT guard closed sub-shape (A)]
+## ~~TOMBSTONE-BRACKET-TIE-MID-SESSION-PAYOUT: a payout earned DURING the re-fly can tie to the origin child and be tombstoned~~ [split out 2026-08-28 on branch `ledger-hygiene-2` when the UT guard closed sub-shape (A). **FIXED 2026-08-28, branch `ledger-followups`, via remedy 1 (the correlator tie-break)**]
+
+**Fix.** `LedgerOrchestrator.PickRecoveryRecordingId` now resolves tier 1 as
+`bracketingSessionProvisional ?? bracketing`: when the live Re-Fly session's ADMITTED
+provisional is among the recordings that bracket the recovery UT, it wins the tier-1 tie
+outright instead of losing it to largest-`EndUT`. The provisional is the fork that SURVIVES
+the merge, so a mid-session payout tagged to it is outside the supersede subtree and is
+never handed to `CommitTombstones` at all.
+
+**It reuses the state the session-aware NotCommitted rule already carries.** The
+per-iteration `isSessionProvisional` test (previously scoped inside the `MergeState ==
+NotCommitted` branch) is hoisted one level so tier 1 can read it; nothing new is resolved,
+looked up, or persisted. `sessionProvisionalId` is still resolved ONCE outside the loop
+through `ResolveActiveReFlyProvisionalRecordingId`.
+
+**Zero behaviour change when no session is armed**, and that is structural rather than a
+tested coincidence: with no marker `sessionProvisionalId` is null, so `isSessionProvisional`
+is false for every recording, `bracketingSessionProvisional` stays null, and the `??` falls
+straight through to the existing max-`EndUT` winner. Tiers 2 and 3 are untouched.
+
+**An unbound / trajectory-less provisional degrades to the status quo on its own** —
+verified against the bracketing predicate, not assumed. `RewindInvoker.BuildProvisionalRecording`
+sets neither points nor `ExplicitStartUT`/`ExplicitEndUT`, and `Recording.StartUT` /
+`Recording.EndUT` both fall back to `0.0` when `TryGetActualTrajectoryBounds` fails, so
+`startUT <= ut && ut <= endUT` holds only for a `ut == 0.0` recovery. R1-EMPTY-PROVISIONAL's
+shape therefore cannot capture a real payout through this override. (The one qualification:
+a `ut == 0.0` recovery WOULD bracket a bounds-less provisional. That is a degenerate clock,
+not a career moment, and it is called out here rather than guarded so nobody reads the
+claim as unconditional.)
+
+**The edit sits in the ONE correlator all three recovery legs share**, which the XP leg's
+doc-comment mandates ("Why THIS correlator and no other" —
+`ResurrectionRetirementEligibility` bundles a recovery's funds / science / kerbal-XP rows by
+SHARED `RecordingId` and retires them as a unit). Confirmed at the three call sites:
+recovery kerbal XP `TryRecordRecoveryKerbalExperience` (`LedgerOrchestrator.cs` ~:3969)
+calls it directly, recovery science `ResolveKscScienceRecordingId` (~:4051) calls it
+directly, and recovery funds passes it to `LedgerRecoveryFundsPairing.TryAddVesselRecoveryFundsAction`
+as the picker delegate (~:4344). All three move together; a per-leg fix would have split
+the bundle. `BracketTie_MovesAllThreeRecoveryLegsTogether` pins those three call shapes by
+source inspection so a future leg that resolves its own way reds here.
+
+**The tie decision rides the EXISTING `tier=` Verbose line** rather than a second line —
+one grep per pick. The line gains a `bracketTie=` token reading `session-provisional` /
+`max-end-ut` / `n/a` (the last off tier 1, where the token is meaningless by construction).
+
+**Option 2 (the UT-window carve-out at tombstone time) is REJECTED, and the derivation is
+recorded so nobody re-attempts it without the missing ingredient.** That remedy would
+exclude rows whose UT falls inside the live session's window from the supersede scope,
+whichever recording they are tagged to. It double-counts by construction: the ORIGINAL
+flight's rows in `[rewindUT, origin.EndUT]` occupy THE SAME UT WINDOW as the session's own
+rows — that overlap is exactly why the bracket tie exists in the first place — so a
+UT-only exclusion cannot tell "earned during the re-fly" from "earned on the replaced
+timeline". Applying it would spare both, resurrecting the replaced flight's payouts into
+the ELS alongside the re-fly's: the player gets paid twice for the same recovery. A sound
+carve-out would need a PERSISTED PER-ROW SESSION WATERMARK (a session id or sequence stamp
+on the `GameAction`, so a row can be attributed to a session rather than merely dated
+inside one). No such field exists on `GameAction` today, and adding one is a schema change
+with its own round-trip and back-compat surface. Do not re-open option 2 without it.
+
+Headless cover: 5 cells in `GameStateRecorderLedgerTests` (the fixed tie; the no-session
+max-`EndUT` pin; a session provisional that does NOT bracket, leaving the pick where it was;
+the unbound-provisional `StartUT == EndUT == 0.0` degradation asserted against the bounds
+themselves; and the three-leg correlator pin, which also drives the XP leg end to end) plus
+`SupersedeCommitTombstoneTests.MidSessionRecoveryPayout_TaggedByThePicker_SurvivesTheMergeIntoTheEls`
+— the end-to-end statement, driven through the REAL correlator rather than a hand-written
+tag: rewind at 500, origin `[100, 900]`, provisional `[500, 700]`, recovery at 600; the
+picker tags the provisional, the merge runs, and the payout is in the ELS while the
+contrast row tagged to the origin child at the same UT is correctly retired. Negative
+control run: with the tie-break disabled, all three of those cells red with
+`Expected: rec-provisional / Actual: rec-origin`.
+
+The original filing follows.
 
 Sub-shape (B) of TOMBSTONE-SCOPE-HAS-NO-UT-GUARD above, kept OPEN because the UT guard
 that closed (A) provably cannot reach it. Read that entry's "A UT guard alone is NOT

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
 using KscActionExpectation = Parsek.KscActionExpectationClassifier.KscActionExpectation;
@@ -4415,7 +4415,9 @@ namespace Parsek
         /// <list type="number">
         ///   <item>Recording whose <c>[StartUT, EndUT]</c> brackets <paramref name="ut"/>
         ///   (the flight that actually covers the recovery moment). If multiple bracket,
-        ///   pick the one with the largest EndUT.</item>
+        ///   pick the one with the largest EndUT — EXCEPT that the live Re-Fly session's
+        ///   admitted provisional wins outright when it is among the bracketing set (see
+        ///   the bracket-tie note below).</item>
         ///   <item>Most recent flight that ended at or before <paramref name="ut"/>
         ///   (largest EndUT with EndUT &lt;= ut).</item>
         ///   <item>Global latest by EndUT (preserved fallback for recoveries whose metadata
@@ -4452,6 +4454,28 @@ namespace Parsek
         ///     phantom-attribution route this closes.
         ///   </description></item>
         /// </list>
+        /// <para>
+        /// <b>Bracket ties prefer the admitted session provisional</b>
+        /// (TOMBSTONE-BRACKET-TIE-MID-SESSION-PAYOUT). A payout earned DURING the re-fly at
+        /// <c>rewindUT &lt;= ut &lt;= origin.EndUT</c> is bracketed by BOTH the origin child
+        /// and the provisional (whose StartUT is ~<c>rewindUT</c>). While the provisional has
+        /// not yet flown past where the original flight ended, largest-EndUT hands the tie to
+        /// the ORIGIN CHILD — whose post-rewind rows <c>RecordingTreeSplitter</c> retags to
+        /// the superseded TIP, so <c>CommitTombstones</c> retires a payout that really was
+        /// earned on the surviving fork. The row's UT is <c>&gt;= rewindUT</c> by
+        /// construction, so the write-set's pre-rewind screen
+        /// (<c>TombstoneAttributionHelper.IsPreRewindAttributedAction</c>) cannot save it:
+        /// the defect is the ATTRIBUTION, not the retirement, so the fix belongs here.
+        /// </para>
+        /// <para>
+        /// The override is scoped to tier 1 only and is inert whenever no session is armed
+        /// (<c>sessionProvisionalId</c> is null, so nothing can be admitted). An unbound /
+        /// trajectory-less provisional degrades to the status quo on its own: with no
+        /// trajectory bounds and no <c>ExplicitStartUT</c>/<c>ExplicitEndUT</c>,
+        /// <see cref="Recording.StartUT"/> and <see cref="Recording.EndUT"/> both resolve to
+        /// <c>0.0</c>, so it brackets nothing but a <c>ut == 0.0</c> recovery. Tiers 2 and 3
+        /// keep their existing max-EndUT semantics untouched.
+        /// </para>
         /// Returns null when no eligible recording matches <paramref name="vesselName"/>;
         /// no-candidate is preferred over a doomed one.
         /// <para>
@@ -4632,15 +4656,20 @@ namespace Parsek
             int candidateCount = candidates.Count;
 
             // THE SESSION PROVISIONAL IS RESOLVED FROM THE POST-FILTER SET, NOT PASS 1.
-            // Anything reading this - the summary line today, and any future tier tie-break
-            // that prefers the active Re-Fly provisional - must see the set the tier walk
-            // actually walks. Deriving it from the name-match set instead would let a
-            // tie-break resurrect a candidate this filter removed, silently breaking the
-            // monotone property that is the whole safety argument for the filter.
-            // REBASE REQUIREMENT: if a tier tie-break lands here (or is merged in from a
-            // sibling branch that resolves the provisional in its own pass-1 loop), its
-            // candidate MUST come from `candidates`, never from `nameMatches` or a raw
-            // store walk.
+            // Anything reading this - the summary line, and the tier-1 tie-break below -
+            // must see the set the tier walk actually walks. Deriving it from the name-match
+            // set instead would let a tie-break resurrect a candidate this filter removed,
+            // silently breaking the monotone property that is the whole safety argument for
+            // the filter.
+            // THE REBASE REQUIREMENT NAMED HERE HAS BEEN MET, and this is now a live
+            // constraint rather than a forward-looking one: the
+            // TOMBSTONE-BRACKET-TIE-MID-SESSION-PAYOUT tie-break landed in the tier-1 body
+            // below and consumes THIS reference by identity (ReferenceEquals against a
+            // member of `candidates`). It does NOT re-derive the provisional from
+            // `nameMatches`, from a raw store walk, or from a per-iteration id comparison -
+            // all three would reinstate a filtered-out candidate. Filter first, then tiers:
+            // the two compose because a guid the filter would drop is one this tie-break
+            // can then never see. Keep it that way.
             Recording admittedSessionProvisional =
                 FindSessionProvisionalAmong(candidates, sessionProvisionalId);
 
@@ -4671,9 +4700,10 @@ namespace Parsek
                     $"reason={(identity.HasLaunchGuid ? "no-conclusive-mismatch" : "live-launch-guid-unknown")}");
             }
 
-            Recording bracketing = null;       // tier 1
-            Recording mostRecentEnded = null;  // tier 2
-            Recording globalLatest = null;     // tier 3
+            Recording bracketing = null;                   // tier 1 (largest EndUT)
+            Recording bracketingSessionProvisional = null; // tier 1 tie-break override
+            Recording mostRecentEnded = null;              // tier 2
+            Recording globalLatest = null;                 // tier 3
 
             for (int i = 0; i < candidates.Count; i++)
             {
@@ -4686,6 +4716,17 @@ namespace Parsek
                 {
                     if (bracketing == null || endUT > bracketing.EndUT)
                         bracketing = rec;
+                    // TOMBSTONE-BRACKET-TIE-MID-SESSION-PAYOUT: the live session's
+                    // provisional outranks largest-EndUT inside tier 1. It is the fork
+                    // that SURVIVES the merge, so a mid-session payout tagged to it is
+                    // out of the supersede subtree instead of being tombstoned away.
+                    // Identity comes from `admittedSessionProvisional`, which is a member
+                    // of `candidates` BY CONSTRUCTION - see the post-filter note above.
+                    // ReferenceEquals, deliberately: an id comparison here would re-derive
+                    // the provisional inside the tier walk and could match a recording the
+                    // guid filter dropped, which is exactly what that note forbids.
+                    if (ReferenceEquals(rec, admittedSessionProvisional))
+                        bracketingSessionProvisional = rec;
                 }
 
                 // Tier 2: ended at or before ut
@@ -4700,7 +4741,10 @@ namespace Parsek
                     globalLatest = rec;
             }
 
-            Recording pick = bracketing ?? mostRecentEnded ?? globalLatest;
+            // Tier-1 resolution: the admitted session provisional wins the bracket tie.
+            Recording bracketPick = bracketingSessionProvisional ?? bracketing;
+
+            Recording pick = bracketPick ?? mostRecentEnded ?? globalLatest;
             if (pick == null)
             {
                 // Worth a positive trace: when the only name matches were zombie
@@ -4718,9 +4762,14 @@ namespace Parsek
                 return null;
             }
 
-            string tier = bracketing != null ? "bracketing"
+            string tier = bracketPick != null ? "bracketing"
                         : mostRecentEnded != null ? "most-recent-ended"
                         : "global-latest";
+            // The tie decision rides the existing tier line rather than a second line:
+            // one grep per pick, and the token is meaningless off tier 1 by construction.
+            string bracketTie = bracketingSessionProvisional != null ? "session-provisional"
+                              : bracketPick != null ? "max-end-ut"
+                              : "n/a";
             // `candidates=` is deliberately NOT reused here: it used to mean the name-match
             // count and would now silently mean the survivor count. Both are logged under
             // unambiguous names instead, and nothing pinned the old token.
@@ -4731,7 +4780,7 @@ namespace Parsek
                 $"guidDropped={guidDropped.ToString(CultureInfo.InvariantCulture)} " +
                 $"skippedZombieNotCommitted={skippedZombieNotCommitted} " +
                 $"sessionProvisionalAdmitted={admittedSessionProvisional != null} " +
-                $"tier={tier} pick={pick.RecordingId}");
+                $"tier={tier} bracketTie={bracketTie} pick={pick.RecordingId}");
 
             return pick.RecordingId;
         }
