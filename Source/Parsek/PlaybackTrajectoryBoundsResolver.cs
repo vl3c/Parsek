@@ -12,6 +12,63 @@ namespace Parsek
             return section.frames != null && section.frames.Count > 0;
         }
 
+        /// <summary>
+        /// Minimum <see cref="TrackSection.bodyFixedFrames"/> sample count that makes
+        /// the body-fixed primary surface renderable coverage. Two, because the shadow
+        /// renderer INTERPOLATES between samples: a single body-fixed point cannot cover
+        /// a span and playback refuses to clamp it into a stale ghost. Same threshold
+        /// as <see cref="DebrisRelativeCoveragePrimitives.BodyFixedPrimaryFramesCoverUT"/>
+        /// and <c>TryGetBodyFixedPrimaryCoverageEndUT</c>, which are the recorder- and
+        /// playback-side statements of the same parent-anchored contract.
+        /// </summary>
+        internal const int MinBodyFixedPrimarySamples = 2;
+
+        /// <summary>
+        /// BODYFIXEDFRAMES-INVISIBLE-TO-BOTH-EMPTINESS-PREDICATES: the EMPTINESS notion
+        /// — "does this section carry any authored surface a consumer could render?" —
+        /// as distinct from <see cref="HasPlayablePayload"/>, which answers the narrower
+        /// "does this section carry the surface the BOUNDS walk knows how to read?".
+        ///
+        /// <para>
+        /// A parent-anchored Relative section records TWO surfaces:
+        /// <see cref="TrackSection.frames"/> (anchor-local offsets) and
+        /// <see cref="TrackSection.bodyFixedFrames"/> (body-fixed points), and the
+        /// parent-anchored contract names the LATTER the primary playback surface.
+        /// <see cref="HasPlayablePayload"/> reads only the former, so a section whose
+        /// only authored surface is <c>bodyFixedFrames</c> read as EMPTY to both
+        /// emptiness predicates built on it — <c>SupersedeCommit.HasPlayableSupersedePayload</c>
+        /// (merge) and <c>ParsekFlight.IsZeroPointLeaf</c> (prune) — while
+        /// <see cref="DebrisRelativeRecorderPolicy"/> treated the same bytes as
+        /// renderable coverage. The prune therefore deleted recordings the recorder had
+        /// just declared covered.
+        /// </para>
+        ///
+        /// <para>
+        /// This is DELIBERATELY a separate predicate rather than a widened
+        /// <see cref="HasPlayablePayload"/>. That helper gates
+        /// <see cref="TryGetPlayableTrackSectionPayloadBounds"/>, whose non-checkpoint
+        /// branch indexes <c>section.frames[0]</c> directly: widening it in place would
+        /// admit a frames-empty section into a walk that then dereferences the empty
+        /// list. Bounds resolution for the body-fixed surface is its own question with
+        /// its own consumers (<see cref="DebrisRelativeCoveragePrimitives"/>,
+        /// <c>DebrisRelativePlaybackPolicy</c>) and is untouched here.
+        /// </para>
+        /// </summary>
+        internal static bool HasAuthoredRenderablePayload(TrackSection section)
+        {
+            if (HasPlayablePayload(section))
+                return true;
+
+            // Body-fixed primary is authored only on Relative sections (the recorder
+            // allocates the list for that frame and no other), so the frame check is a
+            // contract assertion rather than a filter — but keeping it explicit stops a
+            // future producer from smuggling body-fixed points onto an Absolute or
+            // OrbitalCheckpoint section and having them silently count as coverage.
+            return section.referenceFrame == ReferenceFrame.Relative
+                && section.bodyFixedFrames != null
+                && section.bodyFixedFrames.Count >= MinBodyFixedPrimarySamples;
+        }
+
         internal static bool TryGetGhostPlayablePayloadBounds(
             IPlaybackTrajectory traj, out double startUT, out double endUT)
         {

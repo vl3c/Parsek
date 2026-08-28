@@ -848,9 +848,14 @@ namespace Parsek
         // Branch-point partner stamp: the couple-event partner identity, decoupled from
         // route eligibility (design-dock-event-graph.md 6.1). Set WITHOUT the
         // snapshot/known-recording disjunct (EVA grabs still suppress), so a
-        // route-ineligible dock records who it docked with. Feeds ONLY
-        // BranchPoint.TargetVesselPersistentId; route windows / TransferKind / the
-        // phantom-spawn supersede keep the gated pendingDockRouteTargetPid.
+        // route-ineligible dock records who it docked with. Feeds
+        // BranchPoint.TargetVesselPersistentId, and THROUGH that stamp the
+        // absorbed-vessel spawn suppression (PHANTOM-SUPERSEDE-RIDES-GATED-PID: the
+        // suppression asks who the dock absorbed, which is a partner-identity
+        // question, not a route one - see ResolveDockMergeSpawnSuppressionPid; do NOT
+        // "restore" it to the gated pid). The ROUTE surfaces - route windows,
+        // TransferKind, TransferTargetVesselPid - keep the gated
+        // pendingDockRouteTargetPid.
         private uint pendingDockPartnerPid;
         // Connection producer that made the pending couple, classified from the live
         // onPartCouple parts (DockingPort / Grapple / Unknown). Stamped on the merge
@@ -5203,6 +5208,74 @@ namespace Parsek
             return partnerPidFromEvent;
         }
 
+        /// <summary>
+        /// PHANTOM-SUPERSEDE-RIDES-GATED-PID: resolves the pid whose committed terminal
+        /// spawn a dock merge must suppress, returning 0 when the suppression does not
+        /// apply.
+        ///
+        /// <para>
+        /// The absorbed-vessel spawn suppression is a PARTNER-IDENTITY concern, not a
+        /// route concern, so it reads the branch point's ungated couple-event partner
+        /// stamp (<see cref="BranchPoint.TargetVesselPersistentId"/>, produced by
+        /// <see cref="BuildMergeBranchData"/> from
+        /// <see cref="ResolveBranchPartnerStampPid"/> with a legacy fallback to the gated
+        /// route pid) rather than the route-eligibility-gated
+        /// <c>routeTargetVesselPid</c>.
+        /// </para>
+        ///
+        /// <para>
+        /// <b>The newly-admitted population, stated precisely</b> — route eligibility is
+        /// a DISJUNCTION (<c>pid resolvable &amp;&amp; (partnerSnapshotCaptured ||
+        /// partnerKnown)</c>, both <c>OnPartCouple</c> paths), and
+        /// <c>partnerSnapshotCaptured</c> is true for any partner still loaded with parts
+        /// at couple time. So an ordinary physically-docking Parsek spawn WAS already
+        /// eligible; "Parsek spawns were route-unknown" is too broad a claim and is not
+        /// the mechanism. What the gated pid actually loses is the dock where the pid
+        /// resolves but BOTH disjuncts fail: no usable pre-couple snapshot (KSP already
+        /// reparented <c>data.from.vessel</c> onto <c>data.to.vessel</c> — the retroactive
+        /// path's own §5.1 note — or the partner has no parts, or
+        /// <c>VesselSpawner.TryBackupSnapshot</c> returned null) AND
+        /// <c>IsKnownDockPartnerForRoute</c> finds nothing, since it compares ONLY against
+        /// <see cref="Recording.VesselPersistentId"/> and a Parsek-spawned vessel is live
+        /// under its KSP-unique <c>SpawnedVesselPersistentId</c>. That narrow set is
+        /// nonetheless exactly what
+        /// <see cref="RecordingStore.MarkTerminalSpawnSupersededByDockMerge"/> matches on
+        /// its spawn-pid route, so it is real phantom exposure — the change is a strict
+        /// widening, never a re-aim.
+        /// </para>
+        ///
+        /// <para>
+        /// <b>Read the guid gate correctly for that population.</b> The
+        /// <c>absorbedLaunchGuid</c> the call site passes has exactly one source: the
+        /// pre-couple partner snapshot. For a newly-admitted dock that snapshot disjunct
+        /// was false by construction, so the guid is ALWAYS null there and the
+        /// <c>GuidsConclusivelyDiffer</c> gate is inert on 100% of the new population.
+        /// Safety comes from a different fact: <c>!partnerKnown</c> means no committed
+        /// recording carries <c>VesselPersistentId == absorbedPid</c>, so the guid-gated
+        /// <c>bakedPidMatch</c> route cannot fire at all — only the collision-free
+        /// <c>uniqueSpawnMatch</c> route can, and CLAUDE.md's identity rule sanctions that
+        /// one as pid-only precisely because a KSP-unique spawn pid cannot collide.
+        /// </para>
+        ///
+        /// <para>
+        /// The EVA-grab carve-out survives the switch: both
+        /// <see cref="ResolveBranchPartnerStampPid"/> and
+        /// <see cref="SuppressRouteWindowForEvaGrab"/> zero their pid for an EVA couple,
+        /// so a claw / kerbal grab still suppresses nothing.
+        /// </para>
+        /// </summary>
+        internal static uint ResolveDockMergeSpawnSuppressionPid(
+            BranchPointType branchType, uint branchStampPid, uint mergedVesselPid)
+        {
+            // Dock-only: boarding does not absorb a separate spawned / adopted committed
+            // leaf, and Board callers stamp no partner anyway.
+            if (branchType != BranchPointType.Dock) return 0u;
+            // 0 = no resolvable partner; == merged means the partner survived AS the
+            // merged vessel, so its terminal spawn is owned by the live continuation.
+            if (branchStampPid == 0u || branchStampPid == mergedVesselPid) return 0u;
+            return branchStampPid;
+        }
+
         internal static uint ResolveDockRouteTargetPid(
             bool activeWasDockTarget,
             uint mergedVesselPid,
@@ -6312,36 +6385,40 @@ namespace Parsek
             // rover a logistics transport docked into), that leaf's live vessel just
             // disappeared into the merged vessel. Suppress its terminal spawn so the
             // spawn-death check + KSCSpawn don't later materialise a duplicate at the
-            // runway. routeTargetVesselPid is the absorbed endpoint pid (the dock branch
-            // point's TargetVesselPersistentId); skip when it survived as the merged vessel.
+            // runway.
+            //
+            // PHANTOM-SUPERSEDE-RIDES-GATED-PID: the absorbed pid is the branch point's
+            // UNGATED couple-event partner stamp (bp.TargetVesselPersistentId), not the
+            // route-eligibility-gated routeTargetVesselPid. Suppression is a partner-
+            // identity question; a dock that absorbs a Parsek-recorded vessel but fails
+            // route eligibility absorbs it just as physically. See
+            // ResolveDockMergeSpawnSuppressionPid for the mechanism and the EVA carve-out.
             //
             // Marked at MERGE time (not commit time) and never reverted: the dock physically
             // merges the two vessels, which a later active-tree discard does NOT undo, so the
             // absorbed leaf must stay suppressed even if mergedChild is never committed (and
             // commit-time-only marking would re-expose the phantom on discard). A dangling
             // supersede id is harmless because ShouldSpawnAtRecordingEnd uses the field only as
-            // a non-empty gate. Dock-only: boarding does not absorb a separate spawned/adopted
-            // committed leaf, and Board callers pass routeTargetVesselPid=0 anyway.
-            if (branchType == BranchPointType.Dock
-                && routeTargetVesselPid != 0
-                && routeTargetVesselPid != mergedVesselPid)
+            // a non-empty gate.
+            uint spawnSuppressionPid = ResolveDockMergeSpawnSuppressionPid(
+                branchType, bp.TargetVesselPersistentId, mergedVesselPid);
+            if (spawnSuppressionPid != 0)
             {
                 string absorbedLaunchGuid =
                     (pendingDockPartnerSnapshot != null
-                     && pendingDockPartnerSnapshotPid == routeTargetVesselPid)
+                     && pendingDockPartnerSnapshotPid == spawnSuppressionPid)
                         ? VesselLaunchIdentity.TryReadVesselGuid(pendingDockPartnerSnapshot)
                         : null;
                 int superseded = RecordingStore.MarkTerminalSpawnSupersededByDockMerge(
-                    routeTargetVesselPid,
+                    spawnSuppressionPid,
                     absorbedLaunchGuid,
                     mergedVesselPid,
                     mergedChild.RecordingId,
                     "CreateMergeBranch");
-                if (superseded > 0)
-                    ParsekLog.Info("Flight",
-                        $"Dock-merge superseded {superseded} committed terminal spawn(s): " +
-                        $"absorbedPid={routeTargetVesselPid} mergedPid={mergedVesselPid} " +
-                        $"continuation={mergedChild.RecordingId}");
+                ParsekLog.Info("Flight",
+                    $"Dock-merge superseded {superseded} committed terminal spawn(s): " +
+                    $"absorbedPid={spawnSuppressionPid} routeTargetPid={routeTargetVesselPid} " +
+                    $"mergedPid={mergedVesselPid} continuation={mergedChild.RecordingId}");
             }
 
             // 9. Set active recording

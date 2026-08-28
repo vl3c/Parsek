@@ -4407,8 +4407,10 @@ namespace Parsek
         ///     actions <c>RecordingTreeSplitter</c> retags to the superseded TIP — and
         ///     <c>CommitTombstones</c> would then tombstone a REAL payout away.
         ///     <c>RecordingId</c> is the tombstone SCOPING KEY
-        ///     (<c>TombstoneAttributionHelper.InSupersedeScope</c>, no UT guard), not a
-        ///     cosmetic label.
+        ///     (<c>TombstoneAttributionHelper.InSupersedeScope</c>, no UT guard of its own),
+        ///     not a cosmetic label. The write-set's separate pre-rewind screen does NOT
+        ///     save this case: a mid-session payout's UT is at or after the rewind point
+        ///     by construction, so it passes that screen and is tombstoned.
         ///   </description></item>
         ///   <item><description>
         ///     Any OTHER NotCommitted recording is a zombie awaiting <c>LoadTimeSweep</c> and

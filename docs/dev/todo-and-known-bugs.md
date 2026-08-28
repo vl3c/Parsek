@@ -3430,7 +3430,7 @@ keep their zeros and degrade to prior behavior. Pinned by
 `DockStampDecouplingTests`; contract added as invariant 7 in
 `docs/dev/dock-undock-recording-structure.md` section 9.
 
-## PHANTOM-SUPERSEDE-RIDES-GATED-PID: absorbed-vessel spawn suppression skips route-ineligible docks
+## ~~PHANTOM-SUPERSEDE-RIDES-GATED-PID: absorbed-vessel spawn suppression skips route-ineligible docks~~ [filed during the stamp decoupling. **FIXED 2026-08-28, branch `ledger-hygiene-2`**]
 
 Noted during the stamp decoupling (design 6.1 step 3):
 `MarkTerminalSpawnSupersededByDockMerge` is called with the route-eligibility-
@@ -3441,6 +3441,68 @@ route eligibility does not mark the absorbed leaf's terminal spawn superseded
 partner-identity concern, not a route concern; rewiring it to the ungated
 `branchPartnerPid` is a deliberate behavior change deferred out of the stamp PR.
 Decide after the dock-event-graph work soaks.
+
+**Fix: the suppression now CONSUMES the stamp the decoupling already ships.** No new
+identity surface was needed — `BuildMergeBranchData` has stamped
+`bp.TargetVesselPersistentId` from the ungated `ResolveBranchPartnerStampPid` (with a
+legacy fallback to the gated route pid) since PR #1466, so the entire change is a new pure
+predicate `ParsekFlight.ResolveDockMergeSpawnSuppressionPid(branchType, branchStampPid,
+mergedVesselPid)` returning the stamp for a Dock whose partner did not survive as the
+merged vessel, and 0 otherwise. The call site reads it instead of `routeTargetVesselPid`
+(for the guid read too). The old comment claiming `routeTargetVesselPid` IS "the dock branch
+point's TargetVesselPersistentId" had gone stale at the decoupling and is corrected.
+
+**The population this actually recovers, stated precisely — the obvious version of this
+paragraph is WRONG, and was corrected in review before it could be read as authority.** The
+tempting claim is "a Parsek-SPAWNED partner is route-unknown, so the suppression never
+ran". Too broad. Route eligibility is a DISJUNCTION — `pid resolvable &&
+(partnerSnapshotCaptured || partnerKnown)`, in both `OnPartCouple` paths — and
+`partnerSnapshotCaptured` is true for ANY partner still loaded with parts at couple time.
+An ordinary physically-docking Parsek spawn satisfies that, so it WAS eligible pre-fix and
+the gated pid reached it fine.
+
+What the gated pid actually loses is the narrower dock where the pid resolves but BOTH
+disjuncts fail:
+
+- no usable pre-couple snapshot — KSP already reparented `data.from.vessel` onto
+  `data.to.vessel` before the handler ran (the retroactive path's own §5.1 comment names
+  exactly this case), or the partner has no parts, or `VesselSpawner.TryBackupSnapshot`
+  returned null; AND
+- `IsKnownDockPartnerForRoute` finds nothing, because it compares ONLY against
+  `Recording.VesselPersistentId` while a Parsek-spawned vessel is live under its
+  KSP-unique `SpawnedVesselPersistentId`.
+
+That set is narrow, but it is exactly what `MarkTerminalSpawnSupersededByDockMerge` matches
+on its spawn-pid route — real phantom exposure. The change is a strict WIDENING (the stamp
+is a superset of the gated pid, falling back to it when absent), never a re-aim. Where the
+partner is genuinely unknown to the store, the widening is inert: nothing matches either
+identity route and 0 rows are marked.
+
+**The guid gate is INERT on the newly-admitted population, and the safety argument is a
+different one — record this, because the obvious reading is false.** `absorbedLaunchGuid`
+has exactly ONE source, the pre-couple partner snapshot, and a dock is newly admitted
+precisely BECAUSE that snapshot disjunct was false — so the guid is null on 100% of the new
+population and the `GuidsConclusivelyDiffer` gate can never reject there. "The guid gate
+still protects us" is NOT the argument. What protects it: `!partnerKnown` means no committed
+recording carries `VesselPersistentId == absorbedPid`, so `bakedPidMatch` — the ONLY
+guid-gated route — cannot fire at all. Only `uniqueSpawnMatch` can, and CLAUDE.md's identity
+rule sanctions that route as pid-only precisely because a KSP-unique spawn pid cannot
+collide across relaunches.
+
+**Over-suppression risk is otherwise unchanged**, because the identity test inside
+`MarkTerminalSpawnSupersededByDockMerge` is untouched: the craft-baked-pid route stays
+guid-gated for every dock that still supplies a guid, and the two accepted limitations
+documented on that method still read exactly as written. The EVA carve-out survives the
+switch because BOTH `ResolveBranchPartnerStampPid` and `SuppressRouteWindowForEvaGrab` zero
+their pid for an EVA couple — pinned by a cell that drives an EVA couple through the
+builder and asserts the suppression pid comes out 0.
+
+The `Dock-merge superseded N ...` Info line is now emitted unconditionally (it was
+`superseded > 0` only) and carries both pids — `absorbedPid=` (the stamp, what the
+suppression used) and `routeTargetPid=` (the gated pid) — so a future log can tell a dock
+where the two disagreed from one where nothing matched. Headless cover: six cells in
+`DockStampDecouplingTests` (route-ineligible dock still suppresses, legacy no-stamp
+fallback, partner-survived no-op, no-partner no-op, non-Dock branch types, EVA grab).
 
 ## BDOCK-2-SAME-TREE-DOCK-COVERAGE: no harness scenario flies a same-tree cross-session dock
 
@@ -7490,7 +7552,56 @@ never feeds the `.analysis.txt` terminal `RED` token (`ReportWriter`: `RED=1` if
 `failNonBaselined + staleNonBaselined > 0`), so surfacing a pre-existing population cannot
 flip a gated run red.
 
-## TOMBSTONE-SCOPE-HAS-NO-UT-GUARD: a pre-rewind payout attributed to the origin child is tombstoned at merge [OPEN, filed 2026-08-12 on branch `provisional-ledger-hygiene`. PRE-EXISTING — predates that branch and is NOT caused by it]
+## ~~TOMBSTONE-SCOPE-HAS-NO-UT-GUARD: a pre-rewind payout attributed to the origin child is tombstoned at merge~~ [filed 2026-08-12 on branch `provisional-ledger-hygiene`. PRE-EXISTING — predates that branch and is NOT caused by it. **SUB-SHAPE (A) FIXED 2026-08-28, branch `ledger-hygiene-2`; SUB-SHAPE (B) STAYS OPEN and is re-filed below**]
+
+**Fix (A).** `SupersedeCommit.CommitTombstones` now screens every in-scope action through
+`TombstoneAttributionHelper.IsPreRewindAttributedAction(a, cutoff)` before it reaches the
+eligibility test, where `cutoff = SupersedeCommit.ComputeTombstoneRewindCutoffUT(marker)`.
+The guard is deliberately a SEPARATE term from `InSupersedeScope` rather than folded into
+it: subtree containment is an ATTRIBUTION key and the UT is a TIMELINE key, and keeping
+them apart is what makes each separately testable and the skip separately counted. Skips
+are logged per row at Verbose plus one grep-stable `PreRewindTombstoneGuard: kept N
+pre-rewind action(s) ... cutoffUT=` Info line per merge — deliberately its OWN line rather
+than a fourth term inside the `... N excluded (Seed=, Rollout=, Other=)` parens, whose
+rendered shape is pinned by CL-3's log contract and whose counters report ELIGIBILITY, not
+scope.
+
+**The cutoff carries NO epsilon, and that is the load-bearing detail.**
+`ComputeTombstoneRewindCutoffUT` takes the same field preference as
+`ComputePreRewindCutoff` (`RewindPointUT`, else `InvokedUT`, else NaN = guard inert for a
+legacy marker) but omits the `PidPeerStartUtEpsilonSeconds` bias, because it must agree
+bit-for-bit with `RecordingTreeSplitter`'s step-2.9 retag on the other side of the same
+seam (`a.UT >= rewindUT` moves to TIP, everything earlier stays on the kept HEAD). The
+debris cutoff biases a SAMPLED `StartUT`, where sampler jitter is real; a ledger action's
+UT comes off the same clock the rewind point captured. A third convention on this seam
+would let a row the splitter kept still be tombstoned.
+`ComputeTombstoneRewindCutoffUT_CarriesNoEpsilon_UnlikePreRewindCutoff` pins the
+difference so a future "unify these" refactor reds instead of regressing silently.
+
+**The "bit-for-bit mirror" claim is exact only on the `RewindPointUT` branch, and that
+qualification matters.** The splitter reads `RewindPointUT` alone and declines to split at
+all when it is NaN, whereas this cutoff falls back to `InvokedUT` for a legacy marker that
+never persisted a rewind-point UT. On that branch the two cutoffs differ by however long
+elapsed between the RP capture and the player clicking Re-Fly — seconds, typically, and
+`InvokedUT >= RewindPointUT`, so the guard keeps slightly MORE than the splitter would have
+retagged. The divergence is therefore in the safe direction (keep the career effect) and
+only on a marker population the splitter does not act on anyway; it is a qualification on
+the claim, not a hole in it.
+
+**Composes with `IsPreRewindCarveOut` rather than duplicating it.** That predicate filters
+RECORDINGS out of the supersede write-set (and out of the subtree handed to
+`CommitTombstones`); this one filters ACTIONS inside the surviving subtree. The two are
+complementary nets on the same seam: the carve-out saves a pre-rewind HEAD or pre-rewind
+debris wholesale, the UT guard saves individual pre-rewind rows attributed to a recording
+that legitimately IS superseded.
+
+Headless cover in `SupersedeCommitTombstoneTests`: the predicate's strict-`<` boundary
+(at-cutoff is tombstonable, mirroring the splitter), NaN cutoff / NaN action UT / null
+action, the cutoff's four field-preference cases, the epsilon-divergence pin, the
+end-to-end pre-rewind-payout-survives-into-the-ELS cell, the legacy-marker inert cell, and
+a pre-rewind kerbal death + its bundled rep penalty surviving the merge.
+
+The original filing follows, kept because sub-shape (B) is still live.
 
 Exposed by the review of the phantom-attribution work, and deliberately out of that branch's
 scope: fixing it is a policy question, not a hygiene edit.
@@ -7546,7 +7657,86 @@ there the attribution is CORRECT — the payout does belong to the origin child 
 is in what the tombstone pass does with a correct tag. Options 1 and 2 are for the bracket-tie
 subset above, where the tag itself is the arguable part.
 
-## BODYFIXEDFRAMES-INVISIBLE-TO-BOTH-EMPTINESS-PREDICATES: a section carrying only `bodyFixedFrames` is payload to neither predicate, yet renderable coverage to the recorder [OPEN, filed 2026-08-12 on branch `provisional-ledger-hygiene`]
+## TOMBSTONE-BRACKET-TIE-MID-SESSION-PAYOUT: a payout earned DURING the re-fly can tie to the origin child and be tombstoned [OPEN, split out 2026-08-28 on branch `ledger-hygiene-2` when the UT guard closed sub-shape (A)]
+
+Sub-shape (B) of TOMBSTONE-SCOPE-HAS-NO-UT-GUARD above, kept OPEN because the UT guard
+that closed (A) provably cannot reach it. Read that entry's "A UT guard alone is NOT
+sufficient" section for the full derivation; the short form:
+
+- The splitter only runs when the origin genuinely spans the rewind UT, so
+  `origin.EndUT > rewindUT` always holds.
+- A recovery at `rewindUT <= ut <= origin.EndUT` is bracketed by BOTH the origin child and
+  the session provisional, and tier 1's tie-break is largest `EndUT`. While the provisional
+  has not yet flown past where the original flight ended, the ORIGIN CHILD wins the tie and
+  takes the tag.
+- That row's UT is `>= rewindUT` **by construction**, so the shipped guard
+  (`IsPreRewindAttributedAction`) passes it straight through to tombstoning. This is not a
+  gap in the guard — it is the guard correctly declining to protect a row that really does
+  belong to the replaced half of the timeline. The defect is the ATTRIBUTION, not the
+  retirement.
+
+The two remedies remain as filed (prefer the admitted session provisional on bracket ties
+in `PickRecoveryRecordingId`, or carve session-window rows out at tombstone time), and the
+choice between them is still a tier-1-semantics question wanting its own read of the other
+tier-1 consumers. **Not attempted alongside the (A) fix on purpose:** (A) is a
+write-set-scope edit with a mechanical mirror to check it against (the splitter's step-2.9
+retag); (B) changes what the correlator MEANS by "the recording this payout belongs to",
+which touches the funds and science legs too. Landing them together would have made the
+mirror argument unfalsifiable.
+
+## ~~BODYFIXEDFRAMES-INVISIBLE-TO-BOTH-EMPTINESS-PREDICATES: a section carrying only `bodyFixedFrames` is payload to neither predicate, yet renderable coverage to the recorder~~ [filed 2026-08-12 on branch `provisional-ledger-hygiene`. **FIXED 2026-08-28, branch `ledger-hygiene-2`**]
+
+**Fix.** A NEW predicate, `PlaybackTrajectoryBoundsResolver.HasAuthoredRenderablePayload`,
+answers the EMPTINESS question ("does this section carry any authored surface a consumer
+could render?"), and both emptiness predicates now read it:
+`SupersedeCommit.HasPlayableSupersedePayload` (merge) and
+`ParsekFlight.HasPlayableTrackSection` (which serves BOTH `IsZeroPointLeaf`'s prune and the
+`ParsekFlight.Finalization.cs` "leaf has no playback data" WARN, so the third site the
+original filing named is covered by the same edit).
+
+**The threshold is TWO samples, and it is derived, not chosen.** The binding
+recorder-persistence invariant reads "`section.frames`, two-point `bodyFixedFrames`, or
+non-predicted checkpoints", and both coverage primitives
+(`DebrisRelativeCoveragePrimitives.BodyFixedPrimaryFramesCoverUT` /
+`TryGetBodyFixedPrimaryCoverageEndUT`) refuse a single sample because the shadow renderer
+INTERPOLATES between two — a single body-fixed point may never be clamped into a stale
+ghost. Claiming coverage the renderer would refuse is the failure mode a naive non-empty
+test would have introduced. Constant: `MinBodyFixedPrimarySamples = 2`, pinned against the
+primitive's own behavior. Body-fixed points on a non-Relative section do NOT count (the
+recorder allocates the list for that frame and no other; the check is a contract assertion
+against a future producer smuggling them onto an Absolute section).
+
+**`HasPlayablePayload` itself is UNCHANGED, and the original filing's warning was right
+about the reason.** That helper also gates `TryGetPlayableTrackSectionPayloadBounds`, whose
+non-checkpoint branch indexes `section.frames[0]` DIRECTLY — the defect shape here is a
+section with an allocated-but-EMPTY `frames` list, so widening the helper in place would
+have walked it straight into an out-of-range read. Bounds resolution for the body-fixed
+surface is its own question with its own consumers and is untouched.
+`TheBoundsWalkStillGatesOnTheNarrowPredicate_PinnedBySourceInspection` is the tripwire for
+anyone who later "simplifies" the two predicates back into one.
+
+**The sidecar-codec half of the cross-cutting worry resolved POSITIVELY, on inspection
+rather than assumption:** `TrajectoryTextSidecarCodec` writes `BODY_FIXED_POINT` nodes for
+every Relative section independently of `frames`, and reads them back into a fresh list, so
+a bodyFixedFrames-only section already round-trips. No codec change was needed; the
+round-trip is now pinned by a cell rather than left as a reading.
+
+**What changed at the merge, stated plainly:** a recording whose only surface is a
+two-or-more-sample body-fixed section now VALIDATES as a supersede target where it
+previously took the `outcome=refused-unflown-provisional` branch. That is the intended
+direction — it carries coverage the map and the replay draw — and it is the same "count
+real coverage as payload" move the entry's own inverse-nit paragraph already accepted for a
+1-frame `frames` section. The refusal line now prints `bodyFixedSections=` alongside
+`playableSections=` so the verdict explains itself; `playableSections=` keeps its measured
+meaning rather than being silently redefined.
+
+Headless cover: `BodyFixedFramesEmptinessInvariantTests` (10 cells — the two-sample
+threshold against the coverage primitive, the constant pin, the non-Relative rejection,
+prune-and-merge agreement in both directions, a 0/1/2/7-sample matrix through both public
+entry points, the narrow-predicate behavioral and source-level pins, and the sidecar
+round-trip).
+
+The original filing follows.
 
 `PlaybackTrajectoryBoundsResolver.HasPlayablePayload` reads `checkpoints` for an
 `OrbitalCheckpoint` section and `frames` for everything else. It never reads
@@ -7734,6 +7924,57 @@ uses" would have made both claims unfalsifiable at once.
 launch of one craft name, so the tiers are never in competition. A repro needs two
 launches of the same craft name with a recovery of the second - which is also the shape
 the eventual fix should be live-proven on.
+
+### RECOMMENDATION (written 2026-08-28 on branch `ledger-hygiene-2`; NO code change made)
+
+Reviewed as an explicitly out-of-scope question during that branch's wave, because the
+remedy is a design choice and the wrong pick is irreversible. The question posed was
+"guid corroboration or refusal?". **The answer is BOTH, in that order, applied to
+DIFFERENT scopes** - and the reason they are not alternatives is that they fix two
+different halves of the defect.
+
+**1. Guid corroboration as a FILTER, on all three legs (funds, science, XP).** Drop from
+the candidate set any name-matching recording whose `RecordedVesselGuid` CONCLUSIVELY
+DIFFERS from the recovering vessel's live `Vessel.id` -
+`VesselLaunchIdentity.GuidsConclusivelyDiffer` semantics, where an unknown guid on either
+side is NOT conclusive and the candidate survives. Two properties make this the safe half:
+it is MONOTONE (it can only remove candidates, never add or reorder one, so a pick that was
+already correct cannot become wrong), and it DEGRADES to today's behavior exactly when a
+guid is missing, so no legacy recording loses its correlation. Do NOT reach for the
+stricter `ResurrectionRetirementEligibility.IsPositivelySameLaunch` shape (pid equal AND
+both guids known AND equal) as the primary rule here: it requires a POSITIVE guid on both
+sides, which the recovery seam cannot promise, and it would silently retire the correlation
+for every pre-guid recording - trading a rare wrong pick for a common missing one.
+
+**2. Refusal as the tie-breaker of last resort, on the XP leg ONLY.** When the filtered
+candidate set still holds more than one recording and the winner is decided by a WEAK tier
+(`most-recent-ended` or `global-latest` rather than bracketing), refuse the XP write with a
+named, counted reason - `reason=ambiguous-recovery-recording`, mirroring the existing
+`reason=no-recovery-recording` fail-safe. Do NOT extend that refusal to funds or science.
+The asymmetry is the whole argument of this entry: a funds or science row is re-derived
+idempotently from the effective ledger on every recalc, so a mis-scoped one is WRONG BUT
+REVISABLE, and refusing it would drop a real payout to buy safety that leg does not need.
+An XP row feeds `KerbalsModule.ReassertCareerLogEntries`, whose facade appends with no
+remove counterpart, so a mis-scoped one is wrong AND UNREACHABLE except through a tombstone
+on the row - written by the wrong merge. Where the consequence is irreversible, a missing
+row (the pre-P9a behavior, already accepted as a cost in the entry above) strictly
+dominates a wrong one.
+
+**What NOT to do.** Do not make the XP leg refuse whenever the winning tier is weak WITHOUT
+the guid filter first - `most-recent-ended` is the tier the driven career actually lands on
+even in the single-launch case, so a bare tier-strength refusal would refuse the very
+recoveries the correlation fix was written to capture, and `L4`'s `KerbalXp` facet would go
+vacuous again. The filter is what turns "weak tier" into "weak tier AND genuinely
+ambiguous". And do not fold the two into one predicate: the filter is a correlator change
+that must be live-proven across all three legs, while the refusal is an XP-leg policy that
+can only be observed on the two-launches-same-name shape. Landing them as one change makes
+neither claim falsifiable, which is the same trap the correlation fix avoided by declining
+to touch the picker at all.
+
+**Live-proof shape, unchanged:** two launches of the same craft name, recovery of the
+second. That single flight exercises both halves - the filter must make the first launch
+drop out of the candidate set, and the refusal must NOT fire once it has (a spurious
+`ambiguous-recovery-recording` on that run would be the fix over-firing).
 
 ## ~~KERBAL-XP-FIXTURE-REHARVEST-BLOCKED-ON-FILE-DELETION: the career fixtures still predate the XP row, so L4's KerbalXp facet cannot be armed~~ [filed and CLOSED 2026-08-20, branch `kerbal-xp-row`, once the fixture replacement was approved]
 

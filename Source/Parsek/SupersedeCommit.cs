@@ -82,6 +82,15 @@ namespace Parsek
 
         private const string Tag = "Supersede";
         private const string SessionTag = "ReFlySession";
+
+        /// <summary>
+        /// Maximum per-row <c>PreRewindTombstoneGuard: keep ...</c> Verbose lines
+        /// <see cref="CommitTombstones"/> emits in one pass before falling back to the
+        /// summary alone. The kept-row count is unbounded in principle (it is a slice of
+        /// <c>Ledger.Actions</c>), so the batch-logging convention's "bounded under ~20"
+        /// escape is made explicit rather than assumed.
+        /// </summary>
+        internal const int PreRewindKeepLogCap = 20;
         private const string LedgerSwapTag = "LedgerSwap";
         private const char WorldActionCacheKeySeparator = '\u001f';
 
@@ -727,6 +736,47 @@ namespace Parsek
                 return marker.RewindPointUT - EffectiveState.PidPeerStartUtEpsilonSeconds;
             if (!double.IsNaN(marker.InvokedUT) && marker.InvokedUT > 0.0)
                 return marker.InvokedUT - EffectiveState.PidPeerStartUtEpsilonSeconds;
+            return double.NaN;
+        }
+
+        /// <summary>
+        /// TOMBSTONE-SCOPE-HAS-NO-UT-GUARD: the cutoff UT below which a ledger
+        /// action attributed to the supersede subtree is treated as pre-rewind and
+        /// kept by <see cref="CommitTombstones"/>. Same field preference as
+        /// <see cref="ComputePreRewindCutoff"/> (<see cref="ReFlySessionMarker.RewindPointUT"/>
+        /// first, <see cref="ReFlySessionMarker.InvokedUT"/> for legacy markers,
+        /// <c>NaN</c> when neither is usable) but deliberately WITHOUT the
+        /// <see cref="EffectiveState.PidPeerStartUtEpsilonSeconds"/> bias.
+        ///
+        /// <para>
+        /// The epsilon is omitted because this cutoff must agree bit-for-bit with
+        /// <c>RecordingTreeSplitter</c>'s step-2.9 retag (<c>a.UT &gt;= rewindUT</c>
+        /// moves to TIP, everything earlier stays on the kept HEAD), which is the
+        /// same seam viewed from the other side. <see cref="ComputePreRewindCutoff"/>
+        /// biases a recording's sampled StartUT, where sampler jitter is real; a
+        /// ledger action's UT is stamped from the same clock the rewind point
+        /// captured, so no jitter allowance is warranted and one would silently
+        /// tombstone rows the splitter kept.
+        /// </para>
+        ///
+        /// <para>
+        /// The mirror is EXACT only on the <c>RewindPointUT</c> branch. The splitter
+        /// reads that field alone and does not split at all when it is NaN, while this
+        /// cutoff falls back to <see cref="ReFlySessionMarker.InvokedUT"/> for a legacy
+        /// marker that never persisted one. On that branch the two differ by the time
+        /// elapsed between the RP capture and the Re-Fly click (seconds, and
+        /// <c>InvokedUT &gt;= RewindPointUT</c>), so the guard keeps slightly MORE than
+        /// the splitter would have retagged — the safe direction, on a marker
+        /// population the splitter does not act on anyway.
+        /// </para>
+        /// </summary>
+        internal static double ComputeTombstoneRewindCutoffUT(ReFlySessionMarker marker)
+        {
+            if (marker == null) return double.NaN;
+            if (!double.IsNaN(marker.RewindPointUT) && marker.RewindPointUT > 0.0)
+                return marker.RewindPointUT;
+            if (!double.IsNaN(marker.InvokedUT) && marker.InvokedUT > 0.0)
+                return marker.InvokedUT;
             return double.NaN;
         }
 
@@ -2299,6 +2349,18 @@ namespace Parsek
             // bundling rule can scan a bounded slice per candidate. Materialize
             // the subtree into a HashSet so InSupersedeScope gets O(1) lookup
             // and the ICollection<string> contract is met.
+            //
+            // TOMBSTONE-SCOPE-HAS-NO-UT-GUARD: subtree containment is an
+            // ATTRIBUTION key, not a timeline key. A payout earned before the
+            // rewind point belongs to the half of the flight this merge KEEPS,
+            // even when the recording it is tagged to lands in the superseded
+            // subtree (the origin child brackets its own pre-rewind UTs, and the
+            // splitter only carves HEAD out when the origin genuinely spans the
+            // rewind UT). Screening here rather than inside InSupersedeScope keeps
+            // the two concerns separately testable and the skip separately counted.
+            double rewindCutoffUT = ComputeTombstoneRewindCutoffUT(marker);
+            int preRewindKept = 0;
+
             var subtreeSet = new HashSet<string>(subtreeIds, StringComparer.Ordinal);
             var actions = Ledger.Actions;
             var sliceByRecording = new Dictionary<string, List<GameAction>>(StringComparer.Ordinal);
@@ -2308,6 +2370,32 @@ namespace Parsek
                 if (a == null) continue;
                 if (!TombstoneAttributionHelper.InSupersedeScope(a, subtreeSet))
                     continue;
+                if (TombstoneAttributionHelper.IsPreRewindAttributedAction(a, rewindCutoffUT))
+                {
+                    preRewindKept++;
+                    // Per-row identity is logged rather than only summarised because
+                    // WHICH payout the guard saved is the whole forensic question when
+                    // a career reconciles differently than expected — a bare count
+                    // cannot answer it. The batch convention's bound is honoured with
+                    // an explicit cap instead of an assumption about how many rows a
+                    // subtree can hold; the summary line below is always complete.
+                    if (preRewindKept <= PreRewindKeepLogCap)
+                    {
+                        ParsekLog.Verbose(LedgerSwapTag,
+                            $"PreRewindTombstoneGuard: keep action={a.ActionId ?? "<no-id>"} " +
+                            $"type={a.Type} rec={a.RecordingId} " +
+                            $"ut={a.UT.ToString("R", CultureInfo.InvariantCulture)} " +
+                            $"cutoffUT={rewindCutoffUT.ToString("R", CultureInfo.InvariantCulture)}");
+                    }
+                    else if (preRewindKept == PreRewindKeepLogCap + 1)
+                    {
+                        ParsekLog.Verbose(LedgerSwapTag,
+                            $"PreRewindTombstoneGuard: further per-row keeps suppressed " +
+                            $"(cap={PreRewindKeepLogCap.ToString(CultureInfo.InvariantCulture)}); " +
+                            $"see the summary line for the total");
+                    }
+                    continue;
+                }
                 List<GameAction> slice;
                 if (!sliceByRecording.TryGetValue(a.RecordingId, out slice))
                 {
@@ -2415,6 +2503,16 @@ namespace Parsek
                 $"Science={scienceCount}, Funds={fundsCount}, Reputation={reputationCount}, " +
                 $"Kerbal={kerbalCount}, Other={otherCount}); " +
                 $"{excluded} excluded (Seed={seedExcluded}, Rollout={rolloutExcluded}, Other={otherExcluded})");
+
+            // Deliberately a SEPARATE grep-stable line rather than a fourth term in
+            // the excluded parens above: the excluded counters report tombstone
+            // ELIGIBILITY by action type, while this reports a SCOPE decision taken
+            // one step earlier, and the summary line's rendered shape is pinned by
+            // harness log contracts.
+            ParsekLog.Info(LedgerSwapTag,
+                $"PreRewindTombstoneGuard: kept {preRewindKept.ToString(CultureInfo.InvariantCulture)} " +
+                $"pre-rewind action(s) attributed to the superseded subtree " +
+                $"(cutoffUT={(double.IsNaN(rewindCutoffUT) ? "<none>" : rewindCutoffUT.ToString("R", CultureInfo.InvariantCulture))})");
 
             ParsekLog.Info(Tag,
                 $"Supersede tombstone effects: tombstoned {tombstoned} recording-scoped career actions; " +
@@ -2580,8 +2678,8 @@ namespace Parsek
         ///   <item><description>
         ///     This test and <c>ParsekFlight.IsZeroPointLeaf</c> (Points +
         ///     OrbitSegments + playable sections + SurfacePos) now agree on
-        ///     sections: both read playable payload through
-        ///     <c>PlaybackTrajectoryBoundsResolver.HasPlayablePayload</c>, so a
+        ///     sections: both read payload through
+        ///     <c>PlaybackTrajectoryBoundsResolver.HasAuthoredRenderablePayload</c>, so a
         ///     section-authoritative recording can no longer be judged empty by the
         ///     prune while the merge accepts it. The divergence is NARROWED, not
         ///     gone, and remains one-directional: <c>SurfacePos</c> counts as
@@ -2594,13 +2692,16 @@ namespace Parsek
         ///     stays as belt-and-braces even now that the section term is shared.
         ///   </description></item>
         ///   <item><description>
-        ///     Both predicates share a blind spot: a section carrying ONLY
-        ///     <c>bodyFixedFrames</c> (no <c>frames</c>, no <c>checkpoints</c>) is
-        ///     payload to neither, while <c>DebrisRelativeRecorderPolicy</c> treats
-        ///     bodyFixedFrames as renderable coverage. Filed as a cross-cutting
-        ///     follow-up (it touches the sidecar codec); deliberately NOT patched by
-        ///     widening <c>HasPlayablePayload</c>, which would silently change what
-        ///     the merge accepts.
+        ///     A section carrying ONLY <c>bodyFixedFrames</c> (no <c>frames</c>, no
+        ///     <c>checkpoints</c>) IS payload, at two or more samples — the
+        ///     parent-anchored primary playback surface, which
+        ///     <c>DebrisRelativeRecorderPolicy</c> has always treated as renderable
+        ///     coverage (BODYFIXEDFRAMES-INVISIBLE-TO-BOTH-EMPTINESS-PREDICATES). One
+        ///     sample is NOT payload: the shadow renderer interpolates, so a single
+        ///     body-fixed point cannot cover a span. Read through the separate
+        ///     <c>HasAuthoredRenderablePayload</c> rather than a widened
+        ///     <c>HasPlayablePayload</c>, which also gates the bounds walk and would
+        ///     then index an empty <c>frames</c> list.
         ///   </description></item>
         /// </list>
         /// </summary>
@@ -2647,12 +2748,21 @@ namespace Parsek
             int orbitSegments = rec.OrbitSegments != null ? rec.OrbitSegments.Count : 0;
             int trackSections = rec.TrackSections != null ? rec.TrackSections.Count : 0;
             int playableSections = 0;
+            // Body-fixed-primary sections are counted SEPARATELY rather than folded into
+            // playableSections: that token's rendered meaning ("sections the frames /
+            // checkpoints walk can read") is measured in an archived run, and the merge
+            // verdict now also turns on the body-fixed surface. Two numbers explain the
+            // decision; one redefined number would silently restate it.
+            int bodyFixedSections = 0;
             if (rec.TrackSections != null)
             {
                 for (int i = 0; i < rec.TrackSections.Count; i++)
                 {
                     if (PlaybackTrajectoryBoundsResolver.HasPlayablePayload(rec.TrackSections[i]))
                         playableSections++;
+                    else if (PlaybackTrajectoryBoundsResolver.HasAuthoredRenderablePayload(
+                                 rec.TrackSections[i]))
+                        bodyFixedSections++;
                 }
             }
             int anchorPoints = rec.PreReFlyAnchorPoints != null
@@ -2663,6 +2773,7 @@ namespace Parsek
                    $"orbitSegments={orbitSegments.ToString(ic)} " +
                    $"trackSections={trackSections.ToString(ic)} " +
                    $"playableSections={playableSections.ToString(ic)} " +
+                   $"bodyFixedSections={bodyFixedSections.ToString(ic)} " +
                    $"preReFlyAnchorPoints={anchorPoints.ToString(ic)} " +
                    $"terminal={(rec.TerminalStateValue.HasValue ? rec.TerminalStateValue.Value.ToString() : "<null>")}";
         }
@@ -2789,7 +2900,9 @@ namespace Parsek
             // after this, so any ledger row still tagged to it is untagged HERE. NOT cosmetic
             // tidying: RecordingId is the tombstone scoping key
             // (TombstoneAttributionHelper.InSupersedeScope — bare subtree-id containment, no UT
-            // guard) and FundsEarning / ScienceEarning are tombstone-eligible, so a row left
+            // guard of its own; the write-set's separate pre-rewind screen protects only rows
+            // earned before the rewind point) and FundsEarning / ScienceEarning are
+            // tombstone-eligible, so a row left
             // pointing at a retired id can be swept into a later supersede subtree and a REAL
             // payout tombstoned away. Clearing the tag keeps the row and its career effect —
             // the same shape PreserveIrreversibleLiveGameplayOnDiscard produces. Accepted
@@ -2820,6 +2933,16 @@ namespace Parsek
             return true;
         }
 
+        /// <summary>
+        /// The merge's emptiness predicate. Section payload is read through
+        /// <see cref="PlaybackTrajectoryBoundsResolver.HasAuthoredRenderablePayload"/>,
+        /// which counts a parent-anchored section's <c>bodyFixedFrames</c> primary
+        /// surface (>= 2 samples) alongside <c>frames</c> / <c>checkpoints</c>
+        /// (BODYFIXEDFRAMES-INVISIBLE-TO-BOTH-EMPTINESS-PREDICATES). Kept identical to
+        /// the prune's <c>ParsekFlight.HasPlayableTrackSection</c> so the two predicates
+        /// keep agreeing on sections; the remaining one-directional divergence is
+        /// <c>SurfacePos</c>, which is payload to the prune only (keep, don't supersede).
+        /// </summary>
         private static bool HasPlayableSupersedePayload(Recording rec)
         {
             if (rec == null)
@@ -2832,7 +2955,7 @@ namespace Parsek
             {
                 for (int i = 0; i < rec.TrackSections.Count; i++)
                 {
-                    if (PlaybackTrajectoryBoundsResolver.HasPlayablePayload(rec.TrackSections[i]))
+                    if (PlaybackTrajectoryBoundsResolver.HasAuthoredRenderablePayload(rec.TrackSections[i]))
                         return true;
                 }
             }
