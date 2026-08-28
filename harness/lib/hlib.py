@@ -119,7 +119,15 @@ INSTANCE_PROFILES: Tuple[str, ...] = ("stock-minimal", "modded-compat")
 INJECTED_RECORDINGS: Tuple[str, ...] = ("none", "all-synthetic", "rewind-b9",
                                         "rewind-crew-loss",
                                         "refly-world-preservation",
-                                        "looped-interplanetary")
+                                        "looped-interplanetary",
+                                        # part-showcase: the auto-generated
+                                        # "Part Showcase - <part>" corpus ALONE (no
+                                        # flight recordings, chains, trees or game
+                                        # actions), so a per-recording ghost-mesh
+                                        # census over the produced log is exactly
+                                        # comparable with the corpus size.
+                                        # Consumer: S1.9-part-showcase-render.
+                                        "part-showcase")
 
 # Retry policies (design [retry].policy).
 RETRY_POLICIES: Tuple[str, ...] = ("once", "none")

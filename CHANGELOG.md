@@ -37,6 +37,44 @@ All notable changes to Parsek are documented here.
 
 ### Dev
 
+- Parsek builds a standing exhibition of every part it knows how to draw: 243
+  little one-part replays, one per part, lined up in three rows in front of the
+  launch pad, each running a short clip that works that part's own moving bits -
+  lights blinking, panels and antennas folding out, gear and legs going up and
+  down, bays and fairings opening, chutes deploying, drills and robotics running,
+  engines lighting. It is there so a person can stand on the pad and simply look
+  at all of it. Nobody had ever taught a test to look. The existing test that
+  loads the exhibition checks that the recordings are on disk and that a batch of
+  other checks passed - both of which a version that had quietly stopped drawing
+  the ghosts entirely would still sail through. There is now a test whose whole
+  job is the looking: it loads the exhibition on its own, turns on the drawing
+  log, re-enters the pad so the log is already running before the first ghost is
+  built, winds the clock forward into the stretch of time the replays actually
+  cover, and then demands to see a "this ghost was drawn" line for a member of
+  every part family, a matching "and then it went away", and no part anywhere
+  that the game could not find. Its first trial run did not get that far, and was
+  worth more than a pass: it turned up two things nobody knew. The exhibition
+  does not loop. The replays are all written asking to repeat forever, and the
+  game strips that request off every one of them as it loads, because a
+  standing-still display piece does not look like any of the kinds of flight the
+  game is willing to repeat - so they play once, for half a minute, and stop.
+  That was also why the first trial saw nothing: it had assumed a loop, so it
+  never wound the clock to where the replays live, and sat watching an empty
+  patch of grass. The second thing, found while writing the test rather than
+  running it: when a replay applies a recorded part action to a ghost - switching
+  a light on, folding a panel out - almost none of those write anything to the
+  log, so a test can prove the ghost was drawn but not that the light actually
+  came on. Both are written up as their own items rather than patched from a test
+  change. The clock arithmetic the test now depends on is itself checked by an
+  ordinary offline test, so if the save it starts from is ever replaced the
+  mismatch is caught in seconds instead of costing another trial run. After the
+  corrected trial flew clean twice, the check was switched from reporting to
+  enforcing and proven both ways in the same afternoon: re-flown with the gate
+  live (green), then once more with a deliberately impossible expectation
+  (which failed exactly as it should) - so from now on, a version of the game
+  that draws even one of the 243 parts wrong fails this test outright.
+  Test-tooling only; no gameplay change.
+
 - The map-render watchdog that reports a ghost's orbit line "blinking" no
   longer cries wolf at the one moment the line is *supposed* to go out for
   good. When a replayed flight reaches the end of its recorded orbit and hands

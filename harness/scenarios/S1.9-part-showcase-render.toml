@@ -1,0 +1,542 @@
+schema = 1
+id = "S1.9-part-showcase-render"
+# =====================================================================================
+# "CHECK IF THE PARTS GET RENDERED" - the operator's eyeball pass over the synthetic
+# PART SHOWCASE, mechanised.
+#
+# Parsek ships an auto-generated showcase corpus: 243 ghost-only recordings, one per
+# part family member, standing in three parallel rows 200-240 m in front of the KSC pad,
+# each a short static clip that toggles that part's own event pair eight times (lights
+# on/off, panels extend/retract, gear up/down, bays open/close, fairing jettison, chute
+# deploy/cut, robotics, animate-heat, colour changer, ...). It exists so a human can
+# stand on the pad and LOOK at every part's ghost. Design history:
+# docs/dev/done/2026-02-17-part-event-showcase-recordings-plan.md.
+#
+# Nothing automated had ever looked. S1.4 injects this corpus as part of `all-synthetic`
+# and then runs an in-game batch over it, but its gates are the batch tally and the
+# .prec count - both of which a build that silently stopped BUILDING GHOST MESHES would
+# satisfy in full. This lane closes that: it injects the showcase corpus ALONE, turns on
+# the flight-scene ghost render tracer, JUMPS THE CLOCK INTO THE CORPUS'S PLAYBACK
+# WINDOW, and demands a `MeshSpawned` line per part family plus a per-recording spawn
+# census over the whole corpus.
+#
+# =====================================================================================
+# READING RUN 1 (`2026-08-28_1945`, collected log `logs/2026-08-28_2246_...`) FLEW AND
+# RED: PARSEK-FAIL(expectation), 33 of 33 required tokens unmatched, ghostLifecycle
+# REPORT `spawned=0 spawnLines=0 destroyLines=0 parsed=True`. IT REFUTED THE SPEC, NOT
+# THE PRODUCT, IN TWO INDEPENDENT PLACES - and this header is rewritten around what it
+# measured rather than patched around the edges.
+#
+# REFUTATION 1 - THE WINDOW WAS NEVER OPEN (a TIMING defect in v1, not a render defect).
+#   The run's own engine rows say it exactly: `Scenario load summary - UT: 21` and, for
+#   every one of the 243, `engine-frame-iter [i=N rec=... skip=None aru=F hd=T hs=F
+#   endUT=75.2][out:none]`. Read that literally: `skip=None` (no producer-side refusal),
+#   `hd=T` (the trajectory HAS renderable data), `hs=F` (no ghost state), and an end UT
+#   ~54 s in the FUTURE of the clock. The engine looked at all 243 every frame, found
+#   nothing wrong with any of them, and correctly declined to spawn a ghost for a window
+#   that had not opened. v1 then quit after ~8 instant probes. ZERO GHOSTS WERE EVER DUE;
+#   the lane never asked the question it was written to ask.
+#
+# REFUTATION 2 - THE CORPUS DOES NOT LOOP, AND v1'S WHOLE LOOP ANALYSIS WAS WRONG.
+#   v1 argued from `WithLoopPlayback(loop: true, intervalSeconds: 0)` in the builders
+#   that the rows are in-window forever and self-overlap on a clamped 5 s cadence, and
+#   pinned two tokens plus a D6 claim on it. The run says otherwise, in one line:
+#       [Parsek][WARN][RecordingStore] SanitizeNonLoopableLoopPlayback: cleared
+#       LoopPlayback on 243 non-loopable recording(s)
+#   `RecordingStore.SanitizeNonLoopableLoopPlayback` clears the flag on every recording
+#   that fails `Recording.IsLoopableRecording`, and a showcase row fails all five of its
+#   arms (no `LaunchSiteName`, `StartSituation` is not "Prelaunch", no atmo/approach/
+#   surface `SegmentPhase`, `DockTargetVesselPid == 0`, no viewable RELATIVE track). So
+#   the authored loop flag is STRIPPED AT LOAD, on all 243, every run. Consequences,
+#   applied below rather than argued around: the corpus is a set of ORDINARY one-shot
+#   windows; `ResolveLoopInterval` is never reached (no clamp Warn - grepped, 0
+#   occurrences); no overlap demotion happens (grepped, 0); the D6 `self-overlap` claim
+#   and both loop tokens are CUT; and, because a one-shot window really does END, the
+#   ghosts get REAL `MeshDestroyed` lines - so `requireBalanced` flips ON (see the
+#   ghostLifecycle block).
+#   THE STRIPPING ITSELF IS A FINDING about the showcase tooling, not about this lane:
+#   the builders ask for a looping exhibition and do not get one. Recorded in
+#   docs/dev/todo-and-known-bugs.md -> SHOWCASE-LOOPFLAG-STRIPPED-AT-LOAD. This lane
+#   does NOT try to fix it; it measures the corpus as the game actually plays it.
+#
+# WHAT THE RUN CONFIRMED (so it is no longer [DERIVED]):
+#   * `recordings.count = 243`, read off the produced save by the harness itself -
+#     the local injector measurement transfers exactly.
+#   * The re-entry trick WORKS: `ghostLifecycle parsed=True` with the tracer sidecar
+#     live, so the tracer was armed and simply had nothing to report.
+#   * analyzer PASS red=0, logValidate PASS, anomalySweep PASS, driverValidity PASS.
+#   * NOTHING was refuted about the 26 mesh tokens, the apply tokens, or the
+#     `ResolveAvailablePart` forbid - none of them could fire without a ghost. They stay
+#     [DERIVED] and reading run 2 is their first real test.
+#
+# =====================================================================================
+# THE WINDOW ARITHMETIC, MEASURED END TO END. This is the whole fix, so it is written
+# out rather than left to a magic number.
+#
+#   baseUT  = the staged save's UT at injection time. `InjectPartShowcase` reads it with
+#             `ReadUTFromSave(targetSave)` and run.py drives the injector with
+#             PARSEK_INJECT_CLEAN_START=0, so `CleanSaveStart` never runs and the UT is
+#             the fixture's own, verbatim.
+#   FIXTURE: `harness/fixtures/saves/gloops-airshow/persistent.sfs` carries
+#             `UT = 21.159999999999638`. It is a COMMITTED FILE, so baseUT is
+#             deterministic run to run - which is what makes an absolute jump target
+#             legitimate here at all. It is also the one hidden coupling in this lane,
+#             so it is MECHANICALLY GUARDED: `PartShowcaseWindowSyncTests` in
+#             harness/lib/test_hlib.py re-derives the window from the fixture bytes and
+#             the C# clip constants and asserts this spec's jump target lands inside it.
+#             Re-harvest the fixture or change the clip shape and that cell reds LOCALLY,
+#             instead of costing a flight.
+#   CLIP:     every showcase builder opens at `baseUT + 30`; the standard rows lay 9
+#             points 3 s apart (24 s) and the surface-rover row runs
+#             `SurfaceRoverDriveDurationSeconds = 30`.
+#   => UNION PLAYBACK WINDOW = [51.16, 81.16].
+#   CONFIRMED BY THE RUN: the collected log carries exactly TWO distinct end UTs across
+#   all 243 engine rows - `endUT=75.160` (baseUT+54, the 24 s rows) and `endUT=81.160`
+#   (baseUT+60, the 30 s rover). Nothing else.
+#
+# THE JUMP. One ABSOLUTE `TimeJump ut=55` (3.84 s into the window, and inside the SHORT
+# rows' window too, so all 243 are due at once), issued IMMEDIATELY after the second
+# LoadGame so as little flight time as possible has elapsed. Forward-jump margin,
+# measured rather than hoped: reading run 1 took 6.0 s of wall clock from
+# `Scenario load summary` to its first seam probe, so the clock is at ~UT 27 when the
+# jump is issued and the target is ~28 s ahead - a 4.6x margin on the measured figure.
+# The four FOLLOW-UP jumps use `deltaSeconds`, which is forward BY CONSTRUCTION, so
+# `timejump refused reason=backward-jump` is structurally impossible on them however
+# slow the machine is.
+#
+# THE DWELL, SIZED FROM THE MEASURED CADENCE RATHER THAN GUESSED. v1 assumed probes cost
+# "0.3-0.6 s"; reading run 1 measured consecutive `recordingstate` terminals at
+# 0.253-0.258 s apart (22:45:57.019 / .277 / .530 / .784 / 58.037) - the run.py
+# `POLL_INTERVAL_SECONDS = 0.25` floor. So DWELLING through a 30 s game window on probes
+# alone would need ~120 steps, which is why the window is TRAVERSED by a jump staircase
+# instead and the probes only buy the frames each phase needs:
+#   * 12 probes after the entry jump  = 3.0 s of frames for the spawn census. Source
+#     bound: all 243 hit the UNTHROTTLED first-advance spawn (GhostPlaybackEngine does
+#     not call `TryReserveSpawnSlot` there) and only continuations are capped at
+#     `MaxSpawnsPerFrame = 2`, so 243 builds need at most ~122 frames ~= 2.0 s at 60 fps.
+#   * 4 probes (1.0 s) at each of three interior phases, so part events are consumed and
+#     applied with the mesh on screen at several points of the clip.
+#   * 4 x deltaSeconds=8 = 32 s of clock traverses [55, 81.16] (26.16 s) and LANDS PAST
+#     THE END on the jumps ALONE - 55 -> 63 -> 71 -> 79 -> 87, i.e. 5.84 s of margin past
+#     the union window end WITHOUT crediting any of the ~6 s the probe chains themselves
+#     advance the clock (live reach is ~93). That conservative form is what
+#     `PartShowcaseWindowSyncTests` asserts, so trimming the probes later cannot silently
+#     leave playback mid-window. Three interior samples (55 / 63 / 71) sit inside the
+#     24 s rows' window and the fourth (79) inside the 30 s rover's.
+#   * 10 probes (2.5 s) after the last jump so the completion pass runs and the
+#     MeshDestroyed lines land before FlushAndQuit.
+# If reading run 2 still measures `spawned` short of 243, the fix is MORE DWELL at the
+# entry phase - never a lowered census.
+#
+# =====================================================================================
+# THE REMAINING CODE FACTS - read from source, not assumed.
+#
+# (1) THE TRACER MUST BE LIVE BEFORE THE FLIGHT SCENE OPENS, WHICH IS WHY THIS LANE
+#     LOADS THE SAME SAVE TWICE. `GhostRenderTrace` is gated by `ghostRenderTracing`,
+#     which run.py pins OFF in the instance settings sidecar at stage
+#     (hlib.TRACER_SETTING_KEYS) and which the sidecar layer applies OVER whatever the
+#     save carries. `ghostRenderTracing` is one of the FIVE
+#     `PersistenceRoute.GameParametersPlusSidecar` settings (SettingWhitelist.Table), so
+#     the SetSetting WRITES THE SIDECAR and the second LoadGame boots with the tracer
+#     live from frame one. That is the whole reason STEP 4 exists; it is not a retry, and
+#     reading run 1 confirmed it works (`ghostLifecycle parsed=True`).
+#     `verboseLogging` is `PersistenceRoute.GameParameters` (NOT sidecar-backed), so it
+#     is re-pinned after the reload rather than trusted to survive it - and pinned at all
+#     rather than trusted to the fixture, which happens to carry `verboseLogging = True`
+#     today.
+#
+# (2) THE PART-EVENT APPLIER IS ALMOST ENTIRELY SILENT, AND THAT SHAPES WHAT THIS LANE
+#     CAN HONESTLY CLAIM. `GhostPlaybackLogic.ApplyPartEvents` is the sole apply path,
+#     and its per-family handlers - `ApplyLightPowerEvent`, `ApplyDeployableState`,
+#     `ApplyCargoBayState`, `ApplyJettisonPanelState`, the inline `FairingJettisoned`
+#     arm, `ApplyParachute*Event`, `ApplyInventoryPart*Event` - emit NO log line at all.
+#     The only per-family apply evidence that exists in the product today is:
+#       * `Part pid=<n>: applied heat level <Hot|Medium|Cold>` (ThermalAnimation*),
+#       * `Part pid=<n>: applied color changer cabin light state=<True|False>`
+#         - NOT PINNED, and reading run 2 (`2026-08-28_2010`) is why: the line is
+#         rate-limited Verbose AND conditional on Pattern-A cabin-light material
+#         discovery on the GHOST (`ApplyColorChangerLightState` returns silently
+#         when `colorChangerInfos` holds no `isCabinLight` entry for the pid,
+#         GhostPlaybackLogic.cs:6995-7003). Run 2 spawned all 25 colour-changer
+#         rows and emitted ZERO cabin-light lines - the discovery resolved no
+#         Pattern-A info on stock-minimal, so the token is unguaranteeable and
+#         whether the emissive actually toggles on these ghosts is UNOBSERVABLE
+#         today (recorded in SHOWCASE-COLORCHANGER-APPLY-UNOBSERVABLE in the
+#         todo, beside the wider unlogged-applier entry),
+#       * `FX magnitude (engine|rcs) pid=<n> midx=<n> power=...` (engine / RCS plumes),
+#     plus the aggregate `Applied N part events for ghost #N (evtIdx now N)`.
+#     CONSEQUENCE, stated rather than papered over: this lane CANNOT gate D7 `lights` /
+#     `gear` / `bays` / `fairing` / `chute-cut` / `panels-antennas-radiators`, because no
+#     token distinguishes "the event was applied" from "the event was skipped" for those
+#     families. It claims only D7 `rcs`, which the FX-magnitude line does gate. Adding
+#     per-family Verbose apply lines would make those cells claimable and is filed as a
+#     follow-up (docs/dev/todo-and-known-bugs.md, PART-EVENT-APPLIER-IS-UNLOGGED); it is
+#     a hot-path product change and deliberately not made from a test lane.
+#
+# (3) WHAT `MeshSpawned` ACTUALLY PROVES. `EmitMeshLifecycleTrace("MeshSpawned", ...,
+#     "ghost-created")` fires from `QueueOrEmitGhostCreated` <- `FinalizePendingSpawnLifecycle`
+#     <- `EnsureGhostVisualsLoaded` on `CompletedThisCall` - i.e. after the ghost's visual
+#     BUILD completed, from the `_ghost.craft` sidecar the injector wrote. It is emitted
+#     BEFORE the `OnGhostCreated == null` early-return, so it does not depend on a policy
+#     being attached. `vessel=` and `reason=` are the only two fields NOT passed through
+#     `GhostRenderTrace.Token`, so the showcase vessel names survive with their spaces
+#     intact - which is what makes the per-family tokens below writable at all.
+#
+# (4) THE PER-PART RESOLUTION FLOOR. `GhostVisualBuilder.Parsing.ResolveAvailablePart`
+#     Warns `ResolveAvailablePart failed for '<partName>' - all lookups exhausted` when a
+#     snapshot names a part `PartLoader` does not have. That Warn is the ONE signal that
+#     says a specific showcase PART did not resolve, so it is `forbidden` here. It is
+#     also the one token with a PROFILE dependency: the corpus names Making History parts
+#     (engine plates, the KV pods, Bobcat/Skiff/Mastodon...) and Breaking Ground parts
+#     (all robotics, deployed science, the robot arm scanners, the propellers). The
+#     stock-minimal profile JUNCTIONS `SquadExpansion` from the dev install, and both
+#     `MakingHistory` and `Serenity` are present in `automation/stock-minimal/GameData/`
+#     (checked on disk 2026-08-28), so the parts are there by construction. If a reading
+#     run reds on this token it NAMES the part, and the answer is either a real Parsek
+#     resolution regression or a profile gap - both worth the red, neither maskable.
+#     STILL UNPROVEN: reading run 1 built no ghost, so this path never ran and the
+#     forbid's silence there means nothing.
+#     ReStock+ is NOT installed on this profile, so `AddPartShowcaseRecordings`' RS+ tail
+#     is skipped and the corpus is the 243 stock rows exactly.
+#
+# TWO MORE PRE-REGISTERED WAYS THIS CAN RED, named so reading run 2 can be triaged in one
+# grep instead of re-derived:
+#   * THE FLAG-PLANT ROW HAS AN ERROR PATH OF ITS OWN. "Part Showcase - Flag Plant" is
+#     the one showcase row whose playback spawns a real ProtoVessel, and
+#     `GhostVisualBuilder`'s flag path logs `ParsekLog.Error("GhostVisual", "Failed to
+#     spawn flag vessel: ...")` on any exception - which the suite-wide
+#     `forbidden = [Parsek][ERROR]` would catch. That is the gate working (a flag ghost
+#     that cannot spawn IS a render failure), but it is a DIFFERENT failure from a
+#     missing mesh and should be read as such.
+#   * NO COMMITTED LANE HAS EVER PUT 243 GHOSTS IN ONE SCENE. Every per-frame ghost path
+#     - the FX builders, the zone ladder, the audio cap - runs here at a scale nothing has
+#     measured, under a gated `forbidden = [Parsek][ERROR]`. A first-flight ERROR from
+#     that surface is a finding about the product at scale, not a lane defect, and belongs
+#     in docs/dev/todo-and-known-bugs.md before anything here is widened.
+# =====================================================================================
+tier = "operator"
+description = "Injects the 243-row synthetic PART SHOWCASE corpus alone, re-enters flight with the ghost render tracer live from frame one, jumps the clock into the corpus's [51.16, 81.16] playback window and walks a jump staircase across it, then demands a MeshSpawned ghost mesh per part family, a matching derender, and a whole-corpus spawn census - the mechanised version of the operator's eyeball pass over the showcase rows in front of the KSC pad."
+instanceProfile = "stock-minimal"
+tags = ["S19", "playback", "ghost", "ghost-render", "part-events", "showcase",
+        "injected", "pending-flight", "reading-iteration"]
+
+[fixture]
+# gloops-airshow, reused verbatim: it is the SAME fixture S1.4 injects into, it carries a
+# PRELAUNCH vessel on the LaunchPad (so `TestCommandLoadGame.DecideLoadRoute` takes the
+# Focusable/FLIGHT route - MEASURED by S1.4, H5, and now by this lane's own reading run),
+# and the showcase rows stand 200-240 m due east of that pad, well inside every render
+# zone. It also carries the inert `SCENARIO{name=ParsekScenario}` node the CL-1 trap is
+# about, so OnSave/OnLoad really run. Sandbox (`Mode = SANDBOX`), so no ledger facts are
+# in play. ITS `UT = 21.159999999999638` IS LOAD-BEARING FOR THIS LANE - see the window
+# arithmetic above and the guard cell that pins it.
+#
+# `injectedRecordings = "part-showcase"` is a NEW preset added with this lane, wired
+# across all four surfaces the sync cell pins (hlib.INJECTED_RECORDINGS,
+# run.py RP_SIDECAR_BY_PRESET -> None, scripts/inject-recordings.ps1
+# $injectFilterByPreset -> InjectPartShowcase, and the xUnit fact itself). It shares ONE
+# body with `all-synthetic` - `SyntheticRecordingTests.AddPartShowcaseRecordings` - so
+# the two corpora cannot drift; adding a showcase row moves BOTH count pins.
+saveTemplate       = "fixtures/saves/gloops-airshow"
+injectedRecordings = "part-showcase"
+craft              = []
+
+[driver]
+kind = "seam"
+
+# `steps` MUST stay in the [driver] table.
+#
+# NO MISSION (nothing flies - the subject is a corpus of static ghosts) and deliberately
+# NO `RunTests`: no in-game batch, so this lane stays out of
+# CommittedBatchTallySourceSyncTests, exactly as GS-4 does.
+#
+# NO EnterWatchMode, and the omission is a decision. Watch entry would need an index
+# pinned to one committed recording, and with 243 injected rows that index is
+# order-dependent and unstable; a watch also changes the destroy reason of exactly one
+# ghost while adding nothing to a census that is already per-recording. The operator's
+# flight-view rule ("any successful watch happens with the map closed") is satisfied
+# vacuously - this lane never opens the map either, so every mesh it counts is counted
+# in flight view. The watch probe belongs in a follow-up lane over a SMALL corpus.
+steps = [
+  # STEP 0. First entry. Its job is to get a Parsek scene up so the settings can be pinned.
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" },      expect = "OK", budget = 300 },
+  # STEP 1. S1.4's pin, for S1.4's reason: the fixture carries autoRecordOnLaunch=True and
+  #     `spec_expects_live_recording` classifies this run non-live (REC rules
+  #     suppressed), so a save-triggered live recording would pass a dropped stop
+  #     marker silently. Nothing launches here, but the pin costs nothing.
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" },  expect = "OK" },
+  # STEPS 2-3. THE TRACER IS THE LOAD-BEARING ONE (code fact 1): `ghostRenderTracing` is
+  #     sidecar-backed, so it SURVIVES the reload at step 4; `verboseLogging` is not,
+  #     which is why steps 6-7 re-pin it.
+  { cmd = "SetSetting", args = { name = "ghostRenderTracing", value = "true" },   expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" },       expect = "OK" },
+  # STEP 4. THE RE-ENTRY. Same save, same scene: the point is a flight scene whose FIRST
+  #     frame already has the tracer on, so every mesh build is traced instead of
+  #     happening in the dark. Reading run 1 proved this half works.
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" },      expect = "OK", budget = 300 },
+  # STEP 5. THE ENTRY JUMP - the fix reading run 1 bought. ABSOLUTE and issued FIRST,
+  #     before the setting re-pins, so the least possible flight time has elapsed and the
+  #     forward-jump margin is at its widest (measured 6.0 s of flight before the first
+  #     seam probe on run 1 => clock ~27 vs a target of 55). 55 sits 3.84 s inside the
+  #     window and inside the SHORT rows' window too, so all 243 are due at once.
+  { cmd = "TimeJump",   args = { ut = "55" },                                     expect = "OK", budget = 120 },
+  # STEPS 6-7. Re-pin the two GameParameters-only settings the reload reverted.
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" },  expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" },       expect = "OK" },
+  # STEPS 8-19. THE SPAWN-CENSUS DWELL. `RecordingState` is the cheapest non-mutating
+  #     verb in the seam and these twelve are here for their WALL CLOCK, not their
+  #     answer: at the MEASURED 0.253 s per probe that is 3.0 s, against a source bound
+  #     of ~2.0 s for 243 mesh builds. Named honestly so nobody "cleans up the
+  #     duplication" later.
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  # STEPS 20-34. THE STAIRCASE. Every one is `deltaSeconds`, so it is forward BY
+  #     CONSTRUCTION and `timejump refused reason=backward-jump` cannot happen however
+  #     slow the machine is. Four steps of 8 s cover the 26.16 s from the entry jump to
+  #     the window end on the jumps alone (55 -> 63 -> 71 -> 79 -> 87); the four probes
+  #     after each buy frames at that phase so part events are consumed and applied with
+  #     the mesh on screen.
+  { cmd = "TimeJump",   args = { deltaSeconds = "8.0" },                          expect = "OK", budget = 120 },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "TimeJump",   args = { deltaSeconds = "8.0" },                          expect = "OK", budget = 120 },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "TimeJump",   args = { deltaSeconds = "8.0" },                          expect = "OK", budget = 120 },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  # STEP 35. THE LAST JUMP lands the clock PAST the union window end (87 on the jumps
+  #     alone, ~93 live, vs 81.16), so
+  #     every row is past-end and playback COMPLETES rather than being cut off by the
+  #     quit - which is what makes the MeshDestroyed token and `requireBalanced` honest.
+  { cmd = "TimeJump",   args = { deltaSeconds = "8.0" },                          expect = "OK", budget = 120 },
+  # STEPS 36-45. THE DERENDER DWELL: 2.5 s of frames for the completion pass to run and
+  #     the MeshDestroyed lines to land before anything tears the scene down.
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  # STEP 46. A real save with 243 committed recordings in memory: a genuine OnSave round
+  #     trip over the injected corpus (a row that failed to LOAD would be dropped here
+  #     and show up in `recordings.count`, which reading run 1 measured at 243).
+  { cmd = "SaveGame",   args = { name = "persistent" },                           expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "FlushAndQuit",                                                         expect = "OK" },
+]
+
+[dimensionsCovered]
+# CLAIM-IS-NOT-GATE. Every value below is backed by a REQUIRED token in this spec's own
+# logContracts, and the families whose apply path logs nothing are deliberately NOT
+# claimed (code fact 2).
+#
+# `basic-playback`          <- the 26 MeshSpawned tokens: committed recordings replayed
+#   as flight-scene ghosts (S1.4 claims the same value from the all-synthetic corpus).
+# `mesh-lifecycle-derender` <- the MeshDestroyed token plus the ghostLifecycle
+#   declaration, the same pairing GS-4 claims it on. It is claimable HERE only because
+#   reading run 1 established the corpus does NOT loop: a one-shot window ends, so the
+#   derender is a real event rather than a teardown artefact.
+# NOT claimed, and CUT from v1 by reading run 1: `self-overlap`. v1 claimed it off an
+#   overlap analysis the run refuted at the mechanism - `SanitizeNonLoopableLoopPlayback`
+#   strips LoopPlayback from all 243 at load, so no loop, no overlap, no demotion line,
+#   and nothing to claim.
+D6  = ["basic-playback", "mesh-lifecycle-derender"]
+# `rcs` <- "FX magnitude (rcs) pid=..." - the RCS showcase rows' RCSActivated events
+#   reaching `SetRcsEmission` with a non-zero power and a real emitter to scale.
+D7  = ["rcs"]
+# `kerbin` / `sandbox` <- the fixture (Mode = SANDBOX, pad at KSC).
+# `scene-flight` <- every MeshSpawned token: `GhostPlaybackEngine` runs only in the
+#   flight scene, so a matched mesh line IS a flight-scene read-back.
+D14 = ["kerbin", "sandbox", "scene-flight"]
+# `sidecar-prec`  <- `[expectations.recordings] count` (run.py counts `.prec` files);
+#   MEASURED at 243 by reading run 1.
+# `sidecar-craft` <- the MeshSpawned tokens: a ghost mesh is BUILT from the
+#   `<id>_ghost.craft` sidecar the injector wrote, so a mesh line is a round-trip proof
+#   of that sidecar and not just of its presence.
+D16 = ["sidecar-prec", "sidecar-craft"]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING: `allowedAnomalies` must precede every [expectations.<sub>]
+# header or TOML scopes it into the sub-table and run.py never reads it.
+# Empty: the map/TS render tracer is OFF on this lane (nothing opens the map), so the
+# Tier-C sweep has nothing to tolerate - and reading run 1 came back `anomalySweep PASS`
+# with the list empty.
+allowedAnomalies = []
+
+[expectations.recordings]
+# [MEASURED ON THE FLIGHT] reading run 1 reported
+# `expectations.observed.recordings.count = 243`, matching the local injector
+# measurement exactly (`dotnet test --filter InjectPartShowcase` against a scratch KSP
+# root with no ReStock+ wrote 243 `.prec` sidecars / 243 distinct vesselNames). The
+# population is structural - the corpus is a committed list of builders, not a flight
+# outcome - so the pin is exact. Adding a showcase row to `AddPartShowcaseRecordings`
+# moves this number AND the all-synthetic pin (274) in the same commit.
+count = { min = 243, max = 243 }
+
+[expectations.logContracts]
+# GROUPS, ordered as the run emits them. ERROR is UPPERCASE in ParsekLog.Write and the
+# patterns are case-sensitive. Every pattern below avoids non-ASCII: the product message
+# that contains an em dash (`ResolveAvailablePart failed for ... - all lookups
+# exhausted`) is pinned on its ASCII prefix only, deliberately, so the contract cannot
+# break on an encoding.
+#
+# GROUP 1 - THE CORPUS IS THE SHOWCASE CORPUS, AND IT IS NOT A LOOPING ONE.
+# [MEASURED - reading run 1, verbatim] `SanitizeNonLoopableLoopPlayback` clears
+# LoopPlayback on every row that fails `Recording.IsLoopableRecording`, and it reported
+# exactly 243. Pinning the COUNT ties the token to the corpus size, and pinning the line
+# at all keeps the premise the whole window arithmetic rests on under a gate: if the
+# sanitizer ever stops firing, these rows become loops, the window stops ending, and the
+# derender half of this spec silently changes meaning. THIS TOKEN REPLACES v1'S TWO LOOP
+# TOKENS, which were pinned on the opposite (and wrong) premise.
+#
+# GROUP 2 - THE JUMP LANDED. `timejump complete reachedUT=<R>` is the seam verb's own
+# terminal, emitted only after `DecideJumpCompletion` sees the clock at the target. Its
+# presence is what separates "no ghosts because nothing rendered" from "no ghosts because
+# the clock never moved" on the NEXT reading run - the exact ambiguity that cost run 1.
+# [DERIVED from ParsekTestCommandAddon.TimeJumpKscAction.cs]
+#
+# GROUP 3 - THE CENSUS, ONE REQUIRED TOKEN PER PART FAMILY. This is the lane. Each is
+# `phase=MeshSpawned ... vessel=<row> reason=ghost-created` from
+# `GhostPlaybackEngine.EmitMeshLifecycleTrace` + `GhostRenderTrace.BuildPrefix`; the
+# trailing ` reason=ghost-created` is not decoration, it is the ANCHOR that stops a name
+# prefix-matching a longer sibling ("Fairing Size 1" vs "Fairing Size 1.5",
+# "Service Bay" vs "Service Bay 2.5", "LV-T30" vs "LV-T30 v2", "Parachute Mk16" vs
+# "Parachute Mk16-XL", "Heat Shield 1" vs "Heat Shield 1.5",
+# "Control Surface Airliner" vs "... Airliner Tail"). Every name is MEASURED LOCALLY:
+# the injector's own asserts check all 26 of these strings byte for byte in the produced
+# save, so a renamed row reds in `dotnet test` before it can red here. "Surface Rover
+# Drive" is the one showcase-band row whose vesselName is not prefixed "Part Showcase - "
+# (and the one whose clip runs 30 s rather than 24 - it is why the union window ends at
+# 81.16). The families with no stock member (robotics, deployed science, robot arm
+# scanners) are Breaking Ground parts - see code fact (4) for why they are expected to
+# resolve. [DERIVED - run 1 built no ghost, so none of these has ever fired]
+#
+# GROUP 4 - THE DERENDER. A one-shot window ENDS, and the staircase deliberately lands
+# past 81.16 so it ends before the quit. The two accepted reasons are the two a healthy
+# past-end pass can produce: `ParsekPlaybackPolicy.HandlePlaybackCompleted` destroys with
+# "playback completed", and the engine's own past-end sweep uses "stale past-end ghost
+# (no longer held)" - GS-4 measured BOTH on its unwatched populations. Anything else
+# fails the match and reds. [DERIVED]
+#
+# GROUP 5 - THE PART-EVENT APPLIER RAN AT ALL. `GhostPlaybackLogic.ApplyPartEvents`
+# emits its aggregate only when `appliedCount > 0`, so this line existing IS the
+# statement that recorded part events were applied to a ghost. VerboseRateLimited, which
+# is why `verboseLogging` is pinned twice above. [DERIVED]
+#
+# GROUP 6 - THE FOUR FAMILIES THAT DO LOG THEIR APPLY (code fact 2). Heat levels render
+# through `HeatLevel.ToString()`; the colour-changer state renders through
+# `bool.ToString()` (capital True/False); the FX-magnitude `kind` is the literal
+# "engine" or "rcs" and the line is suppressed entirely when nothing was scaled, so a
+# match is proof a real emitter moved. [DERIVED]
+required = [
+  "SanitizeNonLoopableLoopPlayback: cleared LoopPlayback on 243 non-loopable recording\\(s\\)",
+
+  "timejump complete reachedUT=",
+
+  "phase=MeshSpawned [^\\r\\n]*vessel=Part Showcase - Lights v1 reason=ghost-created",
+  "phase=MeshSpawned [^\\r\\n]*vessel=Part Showcase - Solar Tracking reason=ghost-created",
+  "phase=MeshSpawned [^\\r\\n]*vessel=Part Showcase - Gear Bay reason=ghost-created",
+  "phase=MeshSpawned [^\\r\\n]*vessel=Part Showcase - Service Bay reason=ghost-created",
+  "phase=MeshSpawned [^\\r\\n]*vessel=Part Showcase - LV-T30 reason=ghost-created",
+  "phase=MeshSpawned [^\\r\\n]*vessel=Part Showcase - Ladder Bay reason=ghost-created",
+  "phase=MeshSpawned [^\\r\\n]*vessel=Part Showcase - RCS RV-105 reason=ghost-created",
+  "phase=MeshSpawned [^\\r\\n]*vessel=Part Showcase - Fairing Size 1 reason=ghost-created",
+  "phase=MeshSpawned [^\\r\\n]*vessel=Part Showcase - Radiator Large reason=ghost-created",
+  "phase=MeshSpawned [^\\r\\n]*vessel=Part Showcase - Drill-O-Matic reason=ghost-created",
+  "phase=MeshSpawned [^\\r\\n]*vessel=Part Showcase - Deployed Central Station reason=ghost-created",
+  "phase=MeshSpawned [^\\r\\n]*vessel=Part Showcase - ISRU reason=ghost-created",
+  "phase=MeshSpawned [^\\r\\n]*vessel=Part Showcase - Parachute Mk16 reason=ghost-created",
+  "phase=MeshSpawned [^\\r\\n]*vessel=Part Showcase - Docking Port Shielded reason=ghost-created",
+  "phase=MeshSpawned [^\\r\\n]*vessel=Part Showcase - Heat Shield 1 reason=ghost-created",
+  "phase=MeshSpawned [^\\r\\n]*vessel=Part Showcase - Robotics Hinge G-11 reason=ghost-created",
+  "phase=MeshSpawned [^\\r\\n]*vessel=Part Showcase - Airbrake reason=ghost-created",
+  "phase=MeshSpawned [^\\r\\n]*vessel=Part Showcase - Robot Arm Scanner S1 reason=ghost-created",
+  "phase=MeshSpawned [^\\r\\n]*vessel=Part Showcase - Control Surface Airliner reason=ghost-created",
+  "phase=MeshSpawned [^\\r\\n]*vessel=Part Showcase - Wheel Dynamics Rover M1 reason=ghost-created",
+  "phase=MeshSpawned [^\\r\\n]*vessel=Part Showcase - AnimateHeat Nacelle Body reason=ghost-created",
+  "phase=MeshSpawned [^\\r\\n]*vessel=Part Showcase - ColorChanger Cupola reason=ghost-created",
+  "phase=MeshSpawned [^\\r\\n]*vessel=Part Showcase - Parachute Repack Mk16 reason=ghost-created",
+  "phase=MeshSpawned [^\\r\\n]*vessel=Part Showcase - Inventory Placement reason=ghost-created",
+  "phase=MeshSpawned [^\\r\\n]*vessel=Part Showcase - Flag Plant reason=ghost-created",
+  "phase=MeshSpawned [^\\r\\n]*vessel=Surface Rover Drive reason=ghost-created",
+
+  "phase=MeshDestroyed [^\\r\\n]*vessel=Part Showcase - [^\\r\\n]*reason=(?:playback completed|stale past-end ghost \\(no longer held\\))",
+
+  "Applied [0-9]+ part events for ghost #[0-9]+ \\(evtIdx now [0-9]+\\)",
+
+  "Part pid=[0-9]+: applied heat level (?:Hot|Medium|Cold)",
+  "FX magnitude \\(engine\\) pid=[0-9]+ midx=[0-9]+ power=",
+  "FX magnitude \\(rcs\\) pid=[0-9]+ midx=[0-9]+ power=",
+]
+# The suite-wide ERROR pattern, PLUS the per-part resolution floor (code fact 4). The
+# second is the strongest single expression of "check if the parts get rendered": one
+# showcase part whose prefab `PartLoader` cannot find reds the run and NAMES the part.
+# [INTERIM on the second token only] - reading run 1 built no ghost, so this path never
+# ran and its silence there proves nothing. Its one way to red for a non-Parsek reason
+# (a profile missing an expansion) is written out in code fact (4) so a reader can tell
+# the two apart in one grep.
+forbidden = ["\\[Parsek\\]\\[ERROR\\]",
+             "ResolveAvailablePart failed for '"]
+
+# REPORT-ONLY (gating defaults false; arming is a separate operator decision through
+# GHOSTLIFE_ARMED_SPECS in harness/lib/test_hlib.py, after a reading run whose facets
+# match this window). THE CENSUS: `spawned` counts DISTINCT recordings that emitted a
+# MeshSpawned line, so a floor of 243 is the statement "every showcase row rendered a
+# ghost mesh" - the whole eyeball pass, in one number, which no regex can express
+# because the recIds are fresh GUIDs. Reading run 1 measured 0 for a TIMING reason; the
+# floor is unchanged, because the number it asserts was never the thing in doubt.
+#
+# `requireBalanced` FLIPS ON, and only because reading run 1 changed the mechanism
+# reading. v1 set it false on the argument that these rows self-overlap and demote
+# primaries without destroying them; the run refuted that at the source
+# (`SanitizeNonLoopableLoopPlayback` strips the loop flag from all 243), so what is
+# actually playing is 243 ORDINARY one-shot windows that END - and an ended window
+# destroys its ghost. The staircase above deliberately lands past 81.16 so the endings
+# happen inside the run rather than at teardown. If reading run 2 shows unbalanced rows,
+# read the reason census before touching this: a short dwell and a leaked mesh look
+# nothing alike in the report.
+[expectations.ghostLifecycle]
+# ARMED 2026-08-28 after reading runs 2 and 3 (`2026-08-28_2010` red only on
+# the since-cut colour-changer token, `2026-08-28_2014` green, PASS attempt 1) BOTH
+# measured spawned=243 spawnLines=243 destroyLines=243 unbalanced=0 - the
+# exact census, twice, with every window already met. Armed re-flight and
+# negative-control ids in GHOSTLIFE_ARMED_SPECS (harness/lib/test_hlib.py).
+gating = true
+spawned = { min = 243 }
+requireBalanced = true
+
+[runtime]
+# WALL clock for the whole drive phase including KSP boot. Reading run 1's shape,
+# measured: boot + two LoadGames + ~8 probes fitted comfortably inside 1500 s. The added
+# work is 5 TimeJumps (~2 s each at the seam) and 33 more probes (0.253 s each,
+# MEASURED) = ~20 s, so the budget is untouched and remains a kill backstop rather than
+# a target.
+budgetSeconds = 1500
+
+[retry]
+policy = "once"
+
+[expectedFail]
+# EMPTY, deliberately: a bugId here would demote the very census this lane exists for.
+bugId = ""

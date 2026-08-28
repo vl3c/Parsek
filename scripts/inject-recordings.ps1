@@ -19,6 +19,7 @@ $injectFilterByPreset = @{
     "rewind-crew-loss"      = "InjectRewindCrewLoss"
     "refly-world-preservation" = "InjectReFlyWorldPreservation"
     "looped-interplanetary" = "InjectLoopedInterplanetary"
+    "part-showcase"         = "InjectPartShowcase"
 }
 
 # Per-preset default save name, applied only when -SaveName is not given. Keeps a
@@ -30,6 +31,7 @@ $defaultSaveByPreset = @{
     "rewind-crew-loss"      = "rewind-crew-loss-fixture"
     "refly-world-preservation" = "refly-world-preservation-fixture"
     "looped-interplanetary" = "looped-interplanetary-fixture"
+    "part-showcase"         = "part-showcase-fixture"
 }
 
 $ErrorActionPreference = "Stop"

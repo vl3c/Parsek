@@ -6640,34 +6640,51 @@ namespace Parsek.Tests
             }
         }
 
+        /// <summary>
+        /// Injects ONLY the part-showcase corpus (the <c>part-showcase</c> preset behind
+        /// <c>S1.9-part-showcase-render</c>): every auto-generated
+        /// "Part Showcase - &lt;part&gt;" row and nothing else - no flight recordings, no
+        /// chains, no trees, no game actions, no RewindPoint sidecar.
+        ///
+        /// <para>
+        /// WHY A DEDICATED PRESET RATHER THAN REUSING <c>all-synthetic</c>. The showcase
+        /// lane's whole statement is a per-recording CENSUS ("every showcase row renders a
+        /// ghost mesh"), and on the all-synthetic corpus that census is diluted by 30-odd
+        /// non-showcase rows whose ghosts live on other bodies, in orbit, or in windows the
+        /// pad scene never opens - so a missing showcase mesh and a legitimately-absent
+        /// Mun-transfer mesh would be indistinguishable in one number. Injecting the
+        /// showcase set alone makes EVERY MeshSpawned line a showcase line and the
+        /// ghostLifecycle `spawned` facet exactly comparable with the corpus size.
+        /// </para>
+        ///
+        /// <para>
+        /// Same env contract and guarded purge as every sibling injector
+        /// (PARSEK_INJECT_SAVE_NAME / _TARGET_SAVE / _CLEAN_START), with its own default
+        /// save name so a bare full-suite run no-ops here. Like
+        /// <see cref="InjectLoopedInterplanetary"/> there is NO RP sidecar, so the harness
+        /// postcondition for this preset checks the recording sidecars alone
+        /// (run.py RP_SIDECAR_BY_PRESET maps it to None).
+        /// </para>
+        /// </summary>
         [Trait("Category", "Manual")]
         [Fact]
-        public void InjectAllRecordings()
+        public void InjectPartShowcase()
         {
             string saveName = System.Environment.GetEnvironmentVariable("PARSEK_INJECT_SAVE_NAME")
-                ?? "test career";
+                ?? "part-showcase-fixture";
             string targetSave = System.Environment.GetEnvironmentVariable("PARSEK_INJECT_TARGET_SAVE")
                 ?? "1.sfs";
             string kspRoot = ResolveKspRoot();
-            // Default to clean start (strip stale vessels from FLIGHTSTATE).
-            // Set PARSEK_INJECT_CLEAN_START=0 to keep existing vessels.
             string cleanEnv = System.Environment.GetEnvironmentVariable("PARSEK_INJECT_CLEAN_START");
             bool cleanStart = cleanEnv == null || IsTruthy(cleanEnv);
 
             string saveDir = Path.Combine(kspRoot, "saves", saveName);
-
-            // Inject into both persistent.sfs and the target save — KSP loads
-            // persistent first (sets initialLoadDone), so it must have the recordings too.
             string[] targets = { "persistent.sfs", targetSave };
 
             string targetPath = Path.Combine(saveDir, targetSave);
             if (!File.Exists(targetPath))
                 return;
 
-            // Refuse the entire inject up front when the target KSP install
-            // looks live. The purge helper probes KSP.log with an exclusive
-            // open; we reuse it even when cleanStart=false so save writes and
-            // sidecar rewrites never race a running session.
             var purgeWriter = new ScenarioWriter();
             if (!purgeWriter.TryPurgeRecordingSidecarsForInject(
                     cleanStart ? saveDir : null,
@@ -6675,8 +6692,6 @@ namespace Parsek.Tests
                     out string refusalMessage))
                 throw new Xunit.Sdk.SkipException(refusalMessage);
 
-            // Clean BOTH saves first so they share the same daytime UT,
-            // then read baseUT from the (now updated) target save.
             if (cleanStart)
             {
                 foreach (string file in targets)
@@ -6690,27 +6705,98 @@ namespace Parsek.Tests
             double baseUT = ReadUTFromSave(targetPath);
 
             var writer = new ScenarioWriter().WithV3Format();
-            writer.AddRecordingAsTree(PadWalk(baseUT).WithLoopPlayback()
-                .WithRecordingGroup("Synthetic"));
+            AddPartShowcaseRecordings(writer, baseUT, kspRoot, nameof(InjectPartShowcase));
 
-            // Pad-launch recordings — with rewind saves
-            writer.AddRecordingAsTree(KscHopper(baseUT).WithLoopPlayback()
-                .WithRewindSave("parsek_rw_hop001").WithRecordingGroup("Synthetic"));
-            writer.AddRecordingAsTree(FleaFlight(baseUT).WithLoopPlayback()
-                .WithRewindSave("parsek_rw_flea01").WithRecordingGroup("Synthetic"));
-            writer.AddRecordingAsTree(SuborbitalArc(baseUT).WithLoopPlayback()
-                .WithRewindSave("parsek_rw_subo01").WithRecordingGroup("Synthetic"));
-            writer.AddRecordingAsTree(KscPadDestroyed(baseUT).WithLoopPlayback()
-                .WithRewindSave("parsek_rw_dest01").WithRecordingGroup("Synthetic"));
-            writer.AddRecordingAsTree(Orbit1(baseUT).WithLoopPlayback()
-                .WithRewindSave("parsek_rw_orb001").WithRecordingGroup("Synthetic"));
-            writer.AddRecordingAsTree(CloseSpawnConflict(baseUT).WithLoopPlayback()
-                .WithRecordingGroup("Synthetic"));
-            writer.AddRecordingAsTree(IslandProbe(baseUT).WithLoopPlayback()
-                .WithRewindSave("parsek_rw_isle01").WithRecordingGroup("Synthetic"));
-            writer.AddRecordingAsTree(PipelineOutlierKraken(baseUT).WithLoopPlayback()
-                .WithRecordingGroup("Synthetic"));
+            foreach (string file in targets)
+            {
+                string savePath = Path.Combine(saveDir, file);
+                if (!File.Exists(savePath))
+                    continue;
 
+                string tempPath = savePath + ".tmp";
+                try
+                {
+                    writer.InjectIntoSaveFile(savePath, tempPath);
+
+                    string content = File.ReadAllText(tempPath);
+                    Assert.Contains("name = ParsekScenario", content);
+                    // One probe per showcase FAMILY, so a category silently dropped out of
+                    // AddPartShowcaseRecordings fails the injector instead of quietly
+                    // shrinking the lane's census pin. These are the same 26 names the
+                    // S1.9 spec's required MeshSpawned tokens pin, character for character
+                    // - a renamed row therefore reds in `dotnet test` rather than costing a
+                    // whole KSP boot to discover.
+                    Assert.Contains("vesselName = Part Showcase - Lights v1", content);
+                    Assert.Contains("vesselName = Part Showcase - Solar Tracking", content);
+                    Assert.Contains("vesselName = Part Showcase - Gear Bay", content);
+                    Assert.Contains("vesselName = Part Showcase - Service Bay", content);
+                    Assert.Contains("vesselName = Part Showcase - LV-T30", content);
+                    Assert.Contains("vesselName = Part Showcase - Ladder Bay", content);
+                    Assert.Contains("vesselName = Part Showcase - RCS RV-105", content);
+                    Assert.Contains("vesselName = Part Showcase - Fairing Size 1", content);
+                    Assert.Contains("vesselName = Part Showcase - Radiator Large", content);
+                    Assert.Contains("vesselName = Part Showcase - Drill-O-Matic", content);
+                    Assert.Contains("vesselName = Part Showcase - Deployed Central Station", content);
+                    Assert.Contains("vesselName = Part Showcase - ISRU", content);
+                    Assert.Contains("vesselName = Part Showcase - Parachute Mk16", content);
+                    Assert.Contains("vesselName = Part Showcase - Docking Port Shielded", content);
+                    Assert.Contains("vesselName = Part Showcase - Heat Shield 1", content);
+                    Assert.Contains("vesselName = Part Showcase - Robotics Hinge G-11", content);
+                    Assert.Contains("vesselName = Part Showcase - Airbrake", content);
+                    Assert.Contains("vesselName = Part Showcase - Robot Arm Scanner S1", content);
+                    Assert.Contains("vesselName = Part Showcase - Control Surface Airliner", content);
+                    Assert.Contains("vesselName = Part Showcase - Wheel Dynamics Rover M1", content);
+                    Assert.Contains("vesselName = Part Showcase - AnimateHeat Nacelle Body", content);
+                    Assert.Contains("vesselName = Part Showcase - ColorChanger Cupola", content);
+                    Assert.Contains("vesselName = Part Showcase - Parachute Repack Mk16", content);
+                    Assert.Contains("vesselName = Part Showcase - Inventory Placement", content);
+                    Assert.Contains("vesselName = Part Showcase - Flag Plant", content);
+                    // The one showcase-band row whose vesselName is NOT prefixed
+                    // "Part Showcase - " (the 2026-08-09 recorded-signal rover fixture).
+                    Assert.Contains("vesselName = Surface Rover Drive", content);
+                    // The NEGATIVE half of "showcase rows only": a row that belongs to the
+                    // all-synthetic corpus and NOT to the showcase set must be absent, or
+                    // the preset has quietly become a second all-synthetic.
+                    Assert.DoesNotContain("vesselName = Pad Walk", content);
+                    Assert.DoesNotContain("vesselName = Orbit-1", content);
+
+                    File.Copy(tempPath, savePath, overwrite: true);
+                }
+                finally
+                {
+                    if (File.Exists(tempPath))
+                        File.Delete(tempPath);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Adds EVERY part-showcase row to <paramref name="writer"/> - the auto-generated
+        /// "Part Showcase - &lt;part&gt;" corpus that stands in rows 200-260 m in front of the
+        /// KSC pad, plus the two 2026-08-09 recorded-signal fixtures that share the same
+        /// row band (chute repack, surface rover).
+        ///
+        /// <para>
+        /// SHARED BY TWO INJECTORS ON PURPOSE. <see cref="InjectAllRecordings"/> (the
+        /// <c>all-synthetic</c> preset) and <see cref="InjectPartShowcase"/> (the
+        /// <c>part-showcase</c> preset) both call it, so the showcase corpus has ONE
+        /// definition and the two presets cannot drift apart. Adding or removing a row here
+        /// moves BOTH presets' `[expectations.recordings] count` pins - the all-synthetic
+        /// consumers (S1.4 and friends, currently 274) and the part-showcase lane
+        /// (S1.9-part-showcase-render) - so re-derive both in the same commit.
+        /// </para>
+        ///
+        /// <para>
+        /// The ReStock+ tail stays install-conditional exactly as it was: snapshots naming
+        /// parts that are not installed would build broken showcase ghosts. On the harness
+        /// <c>stock-minimal</c> profile the gate is closed, so both presets count the STOCK
+        /// rows only. <paramref name="logContext"/> is the calling fact's name, so the two
+        /// ReStock+ decision lines keep naming which injector made the call.
+        /// </para>
+        /// </summary>
+        internal static void AddPartShowcaseRecordings(
+            ScenarioWriter writer, double baseUT, string kspRoot, string logContext)
+        {
             var lightShowcases = LightShowcaseRecordings(baseUT);
             for (int i = 0; i < lightShowcases.Length; i++)
                 writer.AddRecordingAsTree(lightShowcases[i]);
@@ -6806,13 +6892,87 @@ namespace Parsek.Tests
                 for (int i = 0; i < restockPlusShowcases.Length; i++)
                     writer.AddRecordingAsTree(restockPlusShowcases[i]);
                 ParsekLog.Info("ReStockCompat",
-                    $"InjectAllRecordings: ReStock+ detected; injected {restockPlusShowcases.Length} RS+ showcase rows");
+                    $"{logContext}: ReStock+ detected; injected {restockPlusShowcases.Length} RS+ showcase rows");
             }
             else
             {
                 ParsekLog.Info("ReStockCompat",
-                    "InjectAllRecordings: ReStock+ not installed; RS+ showcase rows skipped");
+                    $"{logContext}: ReStock+ not installed; RS+ showcase rows skipped");
             }
+        }
+
+        [Trait("Category", "Manual")]
+        [Fact]
+        public void InjectAllRecordings()
+        {
+            string saveName = System.Environment.GetEnvironmentVariable("PARSEK_INJECT_SAVE_NAME")
+                ?? "test career";
+            string targetSave = System.Environment.GetEnvironmentVariable("PARSEK_INJECT_TARGET_SAVE")
+                ?? "1.sfs";
+            string kspRoot = ResolveKspRoot();
+            // Default to clean start (strip stale vessels from FLIGHTSTATE).
+            // Set PARSEK_INJECT_CLEAN_START=0 to keep existing vessels.
+            string cleanEnv = System.Environment.GetEnvironmentVariable("PARSEK_INJECT_CLEAN_START");
+            bool cleanStart = cleanEnv == null || IsTruthy(cleanEnv);
+
+            string saveDir = Path.Combine(kspRoot, "saves", saveName);
+
+            // Inject into both persistent.sfs and the target save — KSP loads
+            // persistent first (sets initialLoadDone), so it must have the recordings too.
+            string[] targets = { "persistent.sfs", targetSave };
+
+            string targetPath = Path.Combine(saveDir, targetSave);
+            if (!File.Exists(targetPath))
+                return;
+
+            // Refuse the entire inject up front when the target KSP install
+            // looks live. The purge helper probes KSP.log with an exclusive
+            // open; we reuse it even when cleanStart=false so save writes and
+            // sidecar rewrites never race a running session.
+            var purgeWriter = new ScenarioWriter();
+            if (!purgeWriter.TryPurgeRecordingSidecarsForInject(
+                    cleanStart ? saveDir : null,
+                    Path.Combine(kspRoot, "KSP.log"),
+                    out string refusalMessage))
+                throw new Xunit.Sdk.SkipException(refusalMessage);
+
+            // Clean BOTH saves first so they share the same daytime UT,
+            // then read baseUT from the (now updated) target save.
+            if (cleanStart)
+            {
+                foreach (string file in targets)
+                {
+                    string sp = Path.Combine(saveDir, file);
+                    if (File.Exists(sp))
+                        CleanSaveStart(sp);
+                }
+            }
+
+            double baseUT = ReadUTFromSave(targetPath);
+
+            var writer = new ScenarioWriter().WithV3Format();
+            writer.AddRecordingAsTree(PadWalk(baseUT).WithLoopPlayback()
+                .WithRecordingGroup("Synthetic"));
+
+            // Pad-launch recordings — with rewind saves
+            writer.AddRecordingAsTree(KscHopper(baseUT).WithLoopPlayback()
+                .WithRewindSave("parsek_rw_hop001").WithRecordingGroup("Synthetic"));
+            writer.AddRecordingAsTree(FleaFlight(baseUT).WithLoopPlayback()
+                .WithRewindSave("parsek_rw_flea01").WithRecordingGroup("Synthetic"));
+            writer.AddRecordingAsTree(SuborbitalArc(baseUT).WithLoopPlayback()
+                .WithRewindSave("parsek_rw_subo01").WithRecordingGroup("Synthetic"));
+            writer.AddRecordingAsTree(KscPadDestroyed(baseUT).WithLoopPlayback()
+                .WithRewindSave("parsek_rw_dest01").WithRecordingGroup("Synthetic"));
+            writer.AddRecordingAsTree(Orbit1(baseUT).WithLoopPlayback()
+                .WithRewindSave("parsek_rw_orb001").WithRecordingGroup("Synthetic"));
+            writer.AddRecordingAsTree(CloseSpawnConflict(baseUT).WithLoopPlayback()
+                .WithRecordingGroup("Synthetic"));
+            writer.AddRecordingAsTree(IslandProbe(baseUT).WithLoopPlayback()
+                .WithRewindSave("parsek_rw_isle01").WithRecordingGroup("Synthetic"));
+            writer.AddRecordingAsTree(PipelineOutlierKraken(baseUT).WithLoopPlayback()
+                .WithRecordingGroup("Synthetic"));
+
+            AddPartShowcaseRecordings(writer, baseUT, kspRoot, nameof(InjectAllRecordings));
 
             var chainSegments = EvaBoardChain(baseUT);
             chainSegments[0].WithRewindSave("parsek_rw_evab01");
