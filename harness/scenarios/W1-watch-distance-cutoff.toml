@@ -207,16 +207,36 @@ id = "W1-watch-distance-cutoff"
 # tightened to `is 1[0-9]{3}km`: run 1's own dwell walked 1,069.7 -> 995.9 km, crossing
 # the four-digit boundary, and the probe's firing frame is not fixed to the second.
 #
-# (B) **WHETHER THE BODY CHECK ABOVE THE GUARD IS EVEN SATISFIED: YES, AT SPAWN.**
-# `TryResolveWatchEntryState` compares `gs.lastInterpolatedBodyName` before it reads any
-# distance, and that field is stamped by `SetInterpolated`. Round 1 feared only a
-# positioning pass could stamp it and that the Beyond zone skips positioning.
-# `GhostPlaybackEngine.CreatePendingSpawnState` calls `state.SetInterpolated(...)` ON THE
-# SPAWN FRAME and logs it, which run 1 shows at the probe-A epoch verbatim:
+# (B) **WHETHER THE BODY CHECK ABOVE THE GUARD IS EVEN SATISFIED: YES - AND SINCE
+# 2026-08-28 IT IS SATISFIED BY THE TRAJECTORY, WITH THE SPAWN SEED AS THE FALLBACK.**
+# `TryResolveWatchEntryState` still compares the ghost's body before it reads any
+# distance, and the ordering is unchanged - it is pinned by
+# `WatchEntryAcceptanceWiringGateTests
+# .TryResolveWatchEntryState_UsesTheForwarderRatherThanItsOwnInlineCacheRead`, precisely
+# because this lane's required refusal token depends on reaching the distance guard.
+# WHAT CHANGED under it: that comparison used to be an INLINE read of
+# `gs.lastInterpolatedBodyName`, and it now routes through
+# `WatchModeController.IsGhostOnSameBody`, which resolves the body from the RECORDING'S
+# OWN TRAJECTORY whenever the cached reading is not current (a Beyond-zone ghost's is
+# not). See docs/dev/todo-and-known-bugs.md ->
+# WATCH-ENTRY-REFUSED-INSIDE-QUOTED-RANGE.
+#
+# THIS LANE IS UNAFFECTED EITHER WAY, and that is worth stating rather than assuming:
+# the fixture is Kerbin-only - a Kerbin recording chain replayed against a Kerbin-landed
+# pod - so the trajectory and the spawn seed BOTH answer `Kerbin`, and probe A reaches
+# the distance guard on either path. The round-1 fear (that only a positioning pass
+# could stamp the body, and the Beyond zone skips positioning) is now answered twice
+# over: the trajectory does not need a positioning pass at all, and
+# `GhostPlaybackEngine.CreatePendingSpawnState` calls `state.SetInterpolated(...)` ON
+# THE SPAWN FRAME anyway, which run 1 shows at the probe-A epoch verbatim:
 # `Pending spawn interpolation seed: vessel='Kerbal X' lifecycle=StandardEnter UT=434.6
-# body='Kerbin' altitude=82048.5`. That line is REQUIRED below - it is the reachability
-# premise of the whole lane, and pinning it means a future regression that stops stamping
-# the body reds HERE, naming the cause, instead of leaving a silent refusal to diagnose.
+# body='Kerbin' altitude=82048.5`. That line is still REQUIRED below. Its meaning has
+# shifted from "the reachability premise of the whole lane" to "the reachability premise
+# of the FALLBACK path", which is a weaker claim - but it is kept because it is still a
+# real reachability signal and because dropping a required token obliges a re-flight.
+# A NEW diagnostic is available if this lane ever does refuse above the guard: the
+# forwarder emits `Watch same-body term: ... evidence=cache-current|trajectory-resolved|
+# cache-fallback`, naming which reading decided.
 #
 # WHAT A RED STILL MEANS. The guard line missing while the seed and camera-live tokens
 # match would say the refusal took a branch above the distance check for a NEW reason -
@@ -259,7 +279,7 @@ id = "W1-watch-distance-cutoff"
 # `watch-mode-retarget-explosion-hold` value stays unclaimed - different semantics.
 # =====================================================================================
 tier = "operator"
-description = "READING RUN 1 (`2026-08-28_1902`) FLEW INVALID AND REFUTED THE SPEC'S SUBJECT MAP, NOT THE PRODUCT; ROUND 2 IS RE-DERIVED OFF THAT RUN'S BYTES. The watch-entry 300 km cutoff as the SINGLE measured variable: one Kerbin recording chain replayed against the fixture's own Kerbin-landed pod, probed twice inside one loop cycle - REFUSED at 1,069.7 km and ENTERED at 0.46 km, both figures MEASURED - so body, vessel, tree and scene are held constant and only the separation moves. Closes the conflation every committed `EnterWatchMode expect=REJECTED` lane carries, where a foreign-orbit geometry makes the different-body guard and the distance guard indistinguishable. THE CRUX, read from the code: the verb's auto-select conjunction already filters on `IsGhostWithinVisualRange`, which IS the same 300 km predicate, so a far auto-select probe returns `no-watchable-ghost` before the guard ever runs - both probes therefore pass an explicit `index`, the only path into `TryResolveWatchEntryState`, and the far one expects `ERROR msg=watch-not-entered` (the silent-refusal timeout), never `REJECTED`. WHAT RUN 1 REFUTED: the load-time optimizer SPLITS the fixture's single 1,240 s parent recording twice on persisted phase changes (212.20 Atmospheric->ExoBallistic, 853.74 ExoBallistic->Atmospheric), so the runtime corpus is NINE recordings and index 0 is the ASCENT segment alone - inactive at both probe epochs, which refused above the distance guard and wrote no line. The probes now name the COAST member (index 1) and the DESCENT member (index 2), and the split ids are run-generated GUIDs that are deliberately NOT pinned; the layout is proven in-run from id-free lines instead (both split candidates, `members=3`, member #0's window, and each probe's own `camera-live member #x->#y at loopUT=` transition). WHAT RUN 1 VALIDATED: the derived loop clock to the millisecond (`phaseAnchor=21583.965183089826`), the body-fixed separation model to 0.1% (1,068.8 km derived vs 1,069,651 m measured), and the pod's position (463.5 m from the descent ghost). Both round-1 open questions are now ANSWERED and the tokens sharpened - the distance field renders DIGITS (65 consecutive finite `hidden-by-zone_distance=` prints, where `unresolved` is what a non-finite read would print), and the body check above the guard is satisfied at SPAWN by `CreatePendingSpawnState`'s `SetInterpolated`, whose seed line is now itself a required token. Map view is never opened and `ExitMapView` runs before both probes; `[Parsek][ERROR]` is deliberately NOT forbidden, because the refusal's own timeout line is a required token. Nothing armed, no evaluator block declared."
+description = "READING RUN 1 (`2026-08-28_1902`) FLEW INVALID AND REFUTED THE SPEC'S SUBJECT MAP, NOT THE PRODUCT; ROUND 2 IS RE-DERIVED OFF THAT RUN'S BYTES. The watch-entry 300 km cutoff as the SINGLE measured variable: one Kerbin recording chain replayed against the fixture's own Kerbin-landed pod, probed twice inside one loop cycle - REFUSED at 1,069.7 km and ENTERED at 0.46 km, both figures MEASURED - so body, vessel, tree and scene are held constant and only the separation moves. Closes the conflation every committed `EnterWatchMode expect=REJECTED` lane carries, where a foreign-orbit geometry makes the different-body guard and the distance guard indistinguishable. THE CRUX, read from the code: the verb's auto-select conjunction already filters on `IsGhostWithinVisualRange`, which IS the same 300 km predicate, so a far auto-select probe returns `no-watchable-ghost` before the guard ever runs - both probes therefore pass an explicit `index`, the only path into `TryResolveWatchEntryState`, and the far one expects `ERROR msg=watch-not-entered` (the silent-refusal timeout), never `REJECTED`. WHAT RUN 1 REFUTED: the load-time optimizer SPLITS the fixture's single 1,240 s parent recording twice on persisted phase changes (212.20 Atmospheric->ExoBallistic, 853.74 ExoBallistic->Atmospheric), so the runtime corpus is NINE recordings and index 0 is the ASCENT segment alone - inactive at both probe epochs, which refused above the distance guard and wrote no line. The probes now name the COAST member (index 1) and the DESCENT member (index 2), and the split ids are run-generated GUIDs that are deliberately NOT pinned; the layout is proven in-run from id-free lines instead (both split candidates, `members=3`, member #0's window, and each probe's own `camera-live member #x->#y at loopUT=` transition). WHAT RUN 1 VALIDATED: the derived loop clock to the millisecond (`phaseAnchor=21583.965183089826`), the body-fixed separation model to 0.1% (1,068.8 km derived vs 1,069,651 m measured), and the pod's position (463.5 m from the descent ghost). Both round-1 open questions are now ANSWERED and the tokens sharpened - the distance field renders DIGITS (65 consecutive finite `hidden-by-zone_distance=` prints, where `unresolved` is what a non-finite read would print), and the body check above the guard is satisfied (round 1 measured it via `CreatePendingSpawnState`'s `SetInterpolated` seed, whose line is now itself a required token; since 2026-08-28 that check routes through `IsGhostOnSameBody`, which resolves the body from the RECORDING'S TRAJECTORY with the seed as fallback - this Kerbin-only fixture answers `Kerbin` on both paths, so the lane is unaffected and the body-before-distance ORDER is pinned by a wiring cell). Map view is never opened and `ExitMapView` runs before both probes; `[Parsek][ERROR]` is deliberately NOT forbidden, because the refusal's own timeout line is a required token. Nothing armed, no evaluator block declared."
 instanceProfile = "stock-minimal"
 tags = ["W1", "watch-mode", "distance-cutoff", "loop-playback", "kerbin", "boundary-probe"]
 

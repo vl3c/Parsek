@@ -6391,6 +6391,28 @@ class RenderComposeVerifierWiringTests(unittest.TestCase):
         # PASS), so the red is on THIS lane's own armed clause and not on the
         # shared evaluator. Control reverted in the same change. V8 flew its OWN
         # control rather than sharing this one - see that entry.
+        #
+        # ** ONE ROUND TRIP, 2026-08-28, COMPLETED - ENTRY RESTORED UNCHANGED. **
+        # The watch-entry acceptance change (docs/dev/todo-and-known-bugs.md ->
+        # WATCH-ENTRY-REFUSED-INSIDE-QUOTED-RANGE) flipped this lane's two
+        # `EnterWatchMode` pins REJECTED -> OK, and a run that ENTERS watch mode
+        # force-builds the watched ghost at full fidelity - a composition NO
+        # archived run of this lane produced, while every window above was written
+        # from runs where both watch attempts were REFUSED. Armed across that, a
+        # red would have classified `PARSEK-FAIL(render-composition)` for a
+        # MIGRATION reason, so the entry was REMOVED and the spec de-armed.
+        # THE READING FLIGHT THEN REMOVED THE PREMISE: `2026-08-28_1932` /
+        # `_1933_a2` measured `candidates=[0 ghost=T body=T range=F]` at
+        # 449.6/449.9 km - the body term passes, the RANGE term refuses, and this
+        # lane still does not enter watch mode - so the pins went back to REJECTED
+        # and the flown shape is the one the windows above describe.
+        # RE-ARMED off CONFIRMING RUN `2026-08-28_1940` (PASS attempt 1, 57 s,
+        # corrected pins, mismatches=0): dwells 3, cycles 1, unevaluable 59,
+        # findings FAIL 0 / WARN 0 / INFO 1 - every retained window met, within
+        # noise of the arming run's 3 / 1 / 56. NO WINDOW VALUE CHANGED ACROSS THE
+        # CYCLE, which is what makes it a RESTORATION rather than a re-pin; the
+        # 2026-08-25 three-run discipline recorded above is neither re-run nor
+        # re-claimed by it.
         "V14M-ike-player-loop.toml",
         # V8: ARMED 2026-08-25 off its OWN report-only reading run
         # `2026-08-25_0956` (PASS attempt 1, same REPORT/zero-FAIL shape). Windows:
@@ -7205,7 +7227,17 @@ class RenderComposeVerifierWiringTests(unittest.TestCase):
     def test_v14m_declares_the_render_composition_block_armed(self):
         """V14M, ARMED 2026-08-25 off reading run `2026-08-25_0953`: dwells 3,
         cycles 1 closed, unevaluable 56, seamKinds {rigid 14, flexible-soi 2}. Every
-        window below is that measurement with a stated margin."""
+        window below is that measurement with a stated margin.
+
+        ONE ROUND TRIP, 2026-08-28, AND THE WINDOWS SURVIVED IT UNCHANGED. The
+        watch-entry acceptance change de-armed this block (its `EnterWatchMode` pins
+        were flipped REJECTED -> OK, and a run that enters watch mode composes
+        differently); the reading flight then measured that the lane still does NOT
+        enter watch mode, the pins went back, and confirming run `2026-08-28_1940`
+        re-measured dwells 3 / cycles 1 / unevaluable 59 - every window below met,
+        within noise of the arming run. So the pins here are the SAME NUMBERS they
+        have been since 2026-08-25, and this cell asserts them for the same reason it
+        always did. See RENDERCOMPOSE_ARMED_SPECS for the cycle's run ids."""
         block = self._armed_block("V14M-ike-player-loop.toml")
         self.assertEqual({"gating", "dwells", "cycles", "unevaluable",
                           "requireSeamKinds"}, set(block),

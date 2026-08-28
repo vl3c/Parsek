@@ -605,6 +605,14 @@ id = "V19M-laythe-jool-player-loop"
 # `WatchModeController.cs:71`. `GhostVisualRangeMeters = 120,000 m`
 # (ParsekConfig.cs:41) stays in this file as what it is - the RENDER-ZONE term - and it
 # is NOT the entry gate.
+# **AND AS OF 2026-08-28 IT IS NOT A DE-FACTO ONE EITHER.** V7M's "~120 km" bracket -
+# the measured boundary the 2.5x correction above was arguing against - is RETIRED: the
+# render zone did drive those refusals, but through `IsGhostOnSameBody` answering from a
+# STALE SPAWN SEED rather than through any distance test, and that term now resolves the
+# ghost's body from its own recorded trajectory (single authority
+# docs/dev/todo-and-known-bugs.md -> WATCH-ENTRY-REFUSED-INSIDE-QUOTED-RANGE). NOTHING IN
+# THIS SECTION MOVES: every margin here is already computed against 300 km, and this
+# lane's measured refusal is at the SELECTOR level anyway.
 #   `2a` = 51,457,295 m = **171.5x** the 300 km boundary.
 #   A chord under 300 km needs ANGULAR agreement of
 #     2*asin(150,000 / 25,728,647.73) = **0.6681 deg** = 0.1856% of a revolution
@@ -653,7 +661,9 @@ id = "V19M-laythe-jool-player-loop"
 # RADIAL gap alone is **>= 867,421 m = 2.89x the boundary**, independent of every angle.
 # **THIS IS THE ONE SUB-FAMILY THE 2.5x CORRECTION ACTUALLY BITES**: against the wrong
 # 120 km term it read as a comfortable 7.2x, and against the real gate it is under
-# three times the cutoff. Still an exclusion, but a thin one, and stated as thin.
+# three times the cutoff. Still an exclusion, but a thin one, and stated as thin - and
+# 2.89x is the number that survives, because the 120 km term is retired outright (see
+# the boundary paragraph above) rather than merely mis-applied here.
 #
 # **THE ESCAPE SUB-FAMILY IS THE ONE THE ARITHMETIC DOES NOT FULLY SETTLE, AND SAYING
 # SO IS THE POINT.** On the post-escape Laythe ellipse a ghost reaches the 3,723,646 m

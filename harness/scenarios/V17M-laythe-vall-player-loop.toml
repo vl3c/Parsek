@@ -396,11 +396,17 @@ id = "V17M-laythe-vall-player-loop"
 # objects are at most `2a` apart:
 #   SMALLEST admissible park  2a = 2 * (300,000 + 20,000)  =   640,000 m
 #   LARGEST                   2a = 2 * (300,000 + 600,000) = 1,800,000 m
-# Even the smallest is **5.3x** the 120,000 m `GhostVisualRangeMeters` boundary
-# that drives the measured refusals (docs/dev/todo-and-known-bugs.md ->
-# WATCH-ENTRY-REFUSED-INSIDE-QUOTED-RANGE, the open interval (51.5 km, 144.3 km)),
-# so REJECTED is pinned - park-independent across the whole admissible window, as
-# on V16M.
+# Even the smallest is **2.13x** the 300,000 m `WatchEnterCutoffMeters` range term
+# (`WatchModeController.cs:71`), so REJECTED is pinned - park-independent across the
+# whole admissible window, as on V16M.
+# RE-POINTED 2026-08-28. This line used to measure the margin as "5.3x the 120,000 m
+# `GhostVisualRangeMeters` boundary that drives the measured refusals ... the open
+# interval (51.5 km, 144.3 km)". THAT BRACKET IS RETIRED: the render-zone hide did
+# drive those refusals, but through `IsGhostOnSameBody` answering from a stale spawn
+# seed rather than through any distance test, and the term was fixed - see the single
+# authority, docs/dev/todo-and-known-bugs.md ->
+# WATCH-ENTRY-REFUSED-INSIDE-QUOTED-RANGE. The only distance gate on the entry path
+# is the 300 km cutoff, and the pin survives against it with room to spare.
 #
 # **AND READ V16M's RESULT BEFORE READING TOO MUCH INTO THAT.** Its two watch
 # steps were also pinned REJECTED and also came back REJECTED - but with
@@ -592,10 +598,18 @@ steps = [
   # self-correcting by the cycle-2 -180 epoch. Deterministic across both runs.
   # Same family as MAPRENDER-ICON-OFF-ORBIT-CREATION-FRAME-AFTER-JUMP.
   { cmd = "TimeJump", args = { ut = "28980417" }, expect = "OK", budget = 300 },
-  # STEP 3: "Watch", auto-select over all committed recordings. PINNED REJECTED on
-  # the chord arithmetic in header section 5 (2a >= 640,000 m against a ~120 km
-  # boundary) - but read V16M's result first: its identically-pinned steps came
-  # back REJECTED for an UNPREDICTED reason, so a REJECTED here confirms little.
+  # STEP 3: "Watch", auto-select over all committed recordings. PINNED REJECTED,
+  # re-pointed 2026-08-28. The margin is restated against the REAL gate rather than
+  # the retired ~120 km bracket: header section 5's chord arithmetic gives
+  # 2a >= 640,000 m, i.e. 2.13x `WatchEnterCutoffMeters` = 300,000 m
+  # (`WatchModeController.cs:71`). The ~120 km number was never a threshold the
+  # entry code compared against - it was a bracketed measurement of
+  # `IsGhostOnSameBody` answering from a stale spawn seed, and that term was fixed
+  # (docs/dev/todo-and-known-bugs.md -> WATCH-ENTRY-REFUSED-INSIDE-QUOTED-RANGE).
+  # BUT READ V16M'S RESULT FIRST, and this is still the load-bearing caveat: its
+  # identically-pinned steps came back REJECTED at the SELECTOR level
+  # (`reason=no-watchable-ghost`, no candidate resolved), never reaching the range
+  # term at all - so a REJECTED here confirms the step contract and little else.
   { cmd = "EnterWatchMode",                                                  expect = "REJECTED" },
   # ============================================================================
   # THE CENSUS-PACING DWELL BLOCK - 40 x RecordingState, V16M's verbatim and now
@@ -701,8 +715,9 @@ steps = [
   { cmd = "RecordingState",                                                  expect = "OK" },
   # CYCLE-2 PARK EPOCH: the same +95,578.4 offset off the cycle-2 anchor.
   { cmd = "TimeJump", args = { ut = "29060238" }, expect = "OK", budget = 300 },
-  # STEP 5: "Watch" again, same pinned verdict. A DIFFERENT verdict between the two
-  # would itself be the reading.
+  # STEP 5: "Watch" again, same pinned verdict, same caveat: on V16M's precedent the
+  # refusal is expected at the SELECTOR level (`no-watchable-ghost`), not on the
+  # chord. A DIFFERENT verdict between the two would itself be the reading.
   { cmd = "EnterWatchMode",                                                  expect = "REJECTED" },
   # M-A7 RENDER-COMPOSITION CAPTURE (Phase 3C, Wave A, 2026-08-26). PLACEMENT IS THE
   # ARGUMENT and it is pinned by `test_every_declarer_exports_immediately_before_teardown`:

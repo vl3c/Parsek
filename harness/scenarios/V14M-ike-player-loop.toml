@@ -215,20 +215,119 @@ id = "V14M-ike-player-loop"
 # decides:
 #     2 * 170.444 km * sin(theta/2) < R
 # The production range term is `lastDistance < WatchEnterCutoffMeters` = 300,000 m
-# (ParsekFlight.cs:19580 -> WatchModeController.cs:698), which here admits theta up to
-# 123.3 deg - but V7M MEASURED entry REFUSED well inside 300 km and SUCCEEDING at
-# 51.5 km, bracketing the real boundary in (51.5 km, 144.3 km), and WHICH conjunction
-# term refuses inside 300 km is UNESTABLISHED (single authority:
-# docs/dev/todo-and-known-bugs.md -> WATCH-ENTRY-REFUSED-INSIDE-QUOTED-RANGE). Against
-# that measured ~120 km boundary the working condition is theta < 41.2 deg.
-# **PREDICTION: REJECTED - MEASURED REJECTED on BOTH cycles.** 2a = 340.9 km here, only 1.14x the 300 km cutoff, so this
-# lane sits closer to the boundary than V6M's Mun park (2a = 679 km) did - but still
-# on the reject side of the MEASURED one for ~89% of possible phases. The grammar has
-# ONE `expect` per step, so the likelier verdict is what is pinned; an `OK` lands as
-# driver-INVALID and IS THE INTERESTING FINDING (a co-orbiting observer CAN watch a
-# looped same-parent arrival's park tail). `retry = once` absorbs one unlucky
-# geometry. If the step ping-pongs INVALID twice, re-shape the step per the finding -
-# NEVER re-roll for the pinned verdict.
+# (ParsekFlight.cs:19580 -> WatchModeController.cs:698).
+#
+# SUPERSEDED ARITHMETIC, KEPT VERBATIM because the flip below is only legible against
+# it: "which here admits theta up to 123.3 deg - but V7M MEASURED entry REFUSED well
+# inside 300 km and SUCCEEDING at 51.5 km, bracketing the real boundary in (51.5 km,
+# 144.3 km), and WHICH conjunction term refuses inside 300 km is UNESTABLISHED ...
+# Against that measured ~120 km boundary the working condition is theta < 41.2 deg.
+# **PREDICTION: REJECTED - MEASURED REJECTED on BOTH cycles.** 2a = 340.9 km here, only
+# 1.14x the 300 km cutoff, so this lane sits closer to the boundary than V6M's Mun park
+# (2a = 679 km) did - but still on the reject side of the MEASURED one for ~89% of
+# possible phases."
+#
+# =====================================================================================
+# REDONE 2026-08-28 FOR A TRUE 300 KM GATE - **PREDICTION: OK, PENDING A READING FLIGHT**
+# =====================================================================================
+# THE ~120 KM DE-FACTO BOUNDARY IS GONE, and it was never a threshold the entry code
+# compared against - it was a BRACKETED MEASUREMENT whose real cause was
+# `IsGhostOnSameBody` answering from a STALE SPAWN SEED for any ghost the 120 km render
+# zone kept un-positioned. That term was fixed on 2026-08-28 (coordinated decision
+# TAKEN; single authority docs/dev/todo-and-known-bugs.md ->
+# WATCH-ENTRY-REFUSED-INSIDE-QUOTED-RANGE): it now resolves the ghost's body
+# positioning-free from its own recorded trajectory at the loop-mapped playback UT, so a
+# same-body ghost is accepted at any separation the RANGE term admits.
+#
+# THE ARITHMETIC REDONE AGAINST THE REAL GATE, and it INVERTS:
+#     chord = 2a * sin(theta/2) < 300,000 m
+#           => sin(theta/2) < 300,000 / 340,888.782 = 0.880234
+#           => theta/2 < 61.66 deg   =>   theta < 123.3 deg
+#   2a = 340.9 km is only 1.137x the cutoff, so the chord CLEARS 300 km ONLY in the
+#   narrow band theta in (123.3, 180] deg - 31.5% of the phase circle by arc measure.
+#   The fixed per-cycle chord is therefore LIKELIER INSIDE than outside, roughly 2:1.
+#   (Against the old ~120 km bracket the same sum ran the other way: theta < 41.2 deg,
+#   i.e. inside for only ~23% of phases. Same geometry, different gate.)
+# THE BODY TERM now passes here by construction rather than by luck: the observer is
+# Ike-parked, the ghost's current phase at the park epoch is that same recorded Ike
+# orbit, and the TRAJECTORY - not the spawn seed - is what answers.
+# **FLOWN 2026-08-28 (runs `2026-08-28_1932` and `_1933_a2`, BOTH INVALID on the pinned
+# verdict) AND THE PREDICTION WAS WRONG - BUT NOT IN THE WAY IT COULD HAVE BEEN. READ
+# THIS WHOLE BLOCK BEFORE TOUCHING THE PINS: THE PRODUCT CHANGE LANDED, AND THE
+# ARITHMETIC'S PREMISE IS WHAT FAILED.**
+#
+# MEASURED, verbatim, at both park epochs and on both attempts:
+#     candidates=[0 ghost=T body=T range=F]
+#     Watch same-body term: rec=#0 ... sameBody=T evidence=trajectory-resolved
+#       ghostBody=Ike activeBody=Ike cached=Duna zone=Beyond
+#
+# **THE BODY TERM NOW PASSES. `body=T`, where every archived run of this lane read
+# `body=F`.** The stale spawn seed says `Duna`; the trajectory says `Ike`; the
+# trajectory decides. That is the migration's product change, MEASURED on this lane,
+# and it is the thing this flight actually proves.
+#
+# **THE REFUSAL MOVED TO THE RANGE TERM, WHICH IS THE HONEST GATE**, at a measured
+# separation of **449,601 m (cycle 1) and 449,903 m (cycle 2)** - the per-cycle chord
+# digits section 3 said were never extracted, now extracted. Both are 1.5x the 300 km
+# cutoff, so `range=F` and the conjunction refuses. Deterministic: attempt 2 reproduced
+# both to the metre, exactly as the "not a draw" paragraph below promised.
+#
+# **AND 449.7 km IS GREATER THAN 2a = 340.9 km, WHICH FALSIFIES THE MODEL, NOT JUST THE
+# OUTCOME.** Two points on the observer's own circle cannot be more than 2a apart, so
+# the ghost is NOT co-orbiting the observer's park at the chosen epoch. The map trace
+# says what it is on instead: `body=Ike sma=-1230685 ecc=1.1385` - a HYPERBOLA, whose
+# periapsis radius a(1-e) = 170,449.9 m matches the observer's SMA of 170,444.391 m to
+# 5.5 m. The ghost is out along the Ike APPROACH hyperbola that grazes the park radius,
+# not parked on it. So the +20,000 s park epoch lands in the approach, and section 3's
+# premise ("at its park epoch the ghost flies that same recorded orbit") is what needs
+# re-deriving - the same class of error V16M's header records for its own subject.
+# The 2:1 figure was a prior computed FROM that premise; it never described this epoch,
+# so this is not "the phase landed in the outside third" and must not be recorded as
+# though it were.
+#
+# **THEREFORE THE PINS GO BACK TO `REJECTED` - now MEASURED, with digits and with the
+# refusing term named**, which is strictly better than what this lane had before (a
+# REJECTED attributed to an unestablished term). The two clock readings also confirm the
+# uniform-cadence prediction to 0.14 s: both watch epochs resolve to the SAME replay
+# instant, `loopUT=9180398.38` and `9180398.52`, 65,518 s of raw UT apart - which is why
+# the two separations differ by only 302 m.
+#
+# WHAT WOULD MAKE THIS LANE MEASURE THE CHORD QUESTION FOR REAL: move the park epoch
+# later, into the CIRCULARIZED Ike segment, and re-derive the offset from the
+# recording's own ORBIT_SEGMENT chain rather than from "+20,000 into the phase". That is
+# a spec re-shape off a measurement - the thing this block's own last sentence demands -
+# and it is deliberately NOT done in the migration change, which has no business
+# re-aiming an unrelated lane's epochs.
+# `retry = once` does not absorb this: both craft advance deterministically, so a
+# REJECTED reproduces exactly on attempt 2, and it did.
+#
+# **CONFIRMING RUN `2026-08-28_1940`: PASS attempt 1, wall 57 s, with the pins back at
+# REJECTED.** All 22 steps met, `expectations mismatches=0`, `anomalySweep hits=[]`,
+# `analyzer red=0`, `saveParse` armed and PASS (0/0/0, points 200/200/200, trees 1/1/1).
+# `unityExceptions total=3`, report-only and NOT this change: all three are stock frames
+# with no Parsek in the trace - two `KbApp_PlanetResources.ActivateApp` off
+# `PlanetariumCamera:OnVesselDestroy`, one `CrewHatchController.OnDestroy` - the ordinary
+# background population V16M's header records for the same family. No ceiling is armed
+# here and none is proposed off a single reading.
+# THE RENDER-COMPOSITION BLOCK WENT OFF AND CAME BACK IN THE SAME CHANGE, AND THE FLIGHT
+# IS WHY: `[expectations.renderComposition]` was ARMED AND GATING here (dwells {1,32}
+# measured 3, cycles {1,16} measured 1), and was DE-ARMED when the pins were flipped,
+# because a run that ENTERS watch mode force-builds the watched ghost at full fidelity -
+# a composition no archived run of this lane produced, while every window was written
+# from runs where BOTH watch attempts were refused. **THE READING FLIGHT MEASURED THAT
+# THIS LANE STILL DOES NOT ENTER WATCH MODE** (`range=F` at 449.7 km), the pins went back
+# to REJECTED, and the de-arm's premise vanished with them. The confirming run
+# `2026-08-28_1940` then supplied the bytes the restoration needed (dwells 3, cycles 1,
+# unevaluable 59 - every retained window met), so the block is **ARMED AGAIN, with no
+# window value changed**. Full rationale at the block itself, near the end of this file;
+# section 6's ledger records the same.
+# AND NOTE: there is NO `ExitWatchMode` seam verb (`hlib.IMPLEMENTED_SEAM_VERBS` carries
+# 28 and no exit; `RESERVED_SEAM_VERBS` reserves none), so once the cycle-1 step enters,
+# the cycle-2 step auto-selects the same index and takes `ParsekTestCommandAddon`'s
+# idempotent already-watching short-circuit - still OK, logging `enterwatchmode
+# already-watching:` rather than `enterwatchmode complete:`. This lane requires neither
+# token, so nothing here depends on which route it takes; the desync comparison between
+# the two cycles does, and cycle 2 now runs from inside watch mode.
 # AND NOTE THE SEPARATION IS NOT A DRAW: both craft advance at the same rate on the
 # same orbit, so it is a fixed per-cycle geometric fact that moves only when the phase
 # anchor does (V6M's superseded-arithmetic banner, applied from the start here).
@@ -237,7 +336,9 @@ id = "V14M-ike-player-loop"
 # 5. POSTURE - ARMED 2026-08-18 OFF THIS LANE'S OWN READING RUN
 # ---------------------------------------------------------------------------------
 # READING RUN `2026-08-18_2336`: PASS attempt 1, wall 50 s, fully unattended. All 21
-# steps met, all 8 TimeJumps OK, both EnterWatchMode REJECTED as pinned,
+# steps met, all 8 TimeJumps OK, both EnterWatchMode REJECTED as pinned AT THE TIME
+# (that pin flipped to a PREDICTED `OK` on 2026-08-28 - see section 4's REDONE
+# arithmetic; this ledger records what the run measured, not what is pinned now),
 # `anomalySweep hits=[]`, zero Unity exceptions, recordings count 1, and zero
 # occurrences of every token now forbidden. NOTHING IN THE FLOWN SHAPE CHANGED AT
 # ARMING - no jump UT, no step, no budget moved; only the expectations grew. That is
@@ -260,14 +361,43 @@ id = "V14M-ike-player-loop"
 # (the V4/V5 precedent), and the V14 pair should do the same rather than two.
 #
 # ---------------------------------------------------------------------------------
-# 6. RENDER COMPOSITION (M-A7 Phase 3) - ARMED 2026-08-25, GATES
+# 6. RENDER COMPOSITION (M-A7 Phase 3) - ARMED 2026-08-25; DE-ARMED 2026-08-28
 # ---------------------------------------------------------------------------------
-# ARMING LEDGER, renderComposition:
+# **CURRENT POSTURE: ARMED AND GATING** - as it has been since 2026-08-25, apart from one
+# recorded round trip on 2026-08-28. The block armed and discharged its full three-run
+# discipline on 2026-08-25; the ledger below is that record and is NOT retracted.
+#
+# THE ROUND TRIP, because "it went off and came back" is the kind of thing a future
+# reader would otherwise re-litigate. The watch-entry migration DE-ARMED it when this
+# lane's two `EnterWatchMode` pins were flipped REJECTED -> OK: a run that ENTERS watch
+# mode force-builds the watched ghost at full fidelity, a composition no archived run of
+# this lane produced, while every window was written from runs where BOTH watch attempts
+# were refused. **THE READING FLIGHT REMOVED THAT PREMISE**: `2026-08-28_1932` /
+# `_1933_a2` measured `range=F` at 449.7 km, this lane still does not enter watch mode,
+# and the pins went back to REJECTED - so the flown shape is exactly what the 2026-08-25
+# windows were written from. **RE-ARMED off the confirming run `2026-08-28_1940`** (PASS
+# attempt 1, 57 s, corrected pins, `mismatches=0`): dwells 3 (window {1,32}), cycles 1
+# ({1,16}), unevaluable 59 ({max 200}), findings FAIL 0 / WARN 0 / INFO 1 - every
+# retained window met, within noise of the arming run's 3 / 1 / 56.
+#
+# **NO WINDOW VALUE CHANGED ACROSS THE WHOLE CYCLE.** That is what makes this a
+# RESTORATION rather than a re-pin, and it is the S4.1 rule holding through a de-arm as
+# well as through an arming. The 2026-08-25 three-run discipline is NOT re-run and NOT
+# re-claimed - it stands on its own runs below. What `_1940` establishes is the narrower
+# thing a restoration needs: the subject the windows describe did not move.
+# Rationale in full at the block itself, near the end of the file.
+#
+# ARMING LEDGER, renderComposition (2026-08-25, the pre-migration flown shape):
 #   READING  2026-08-25_0953 PASS attempt 1, wall 68 s, all 22 steps met (both
-#            EnterWatchMode REJECTED as pinned, `ExportRenderManifest` OK).
+#            EnterWatchMode REJECTED as pinned AT THE TIME - flipped to a PREDICTED
+#            `OK` on 2026-08-28, see section 4 - `ExportRenderManifest` OK).
 #            renderCompose status=REPORT gating=false armedBlocks=[] mismatches=[] -
 #            the row read the manifest and could move no verdict, which is the whole
 #            point of a reading run. Facets in "WHAT THE READING RUN MEASURED" below.
+#   ROUND TRIP 2026-08-28 (watch-entry migration): de-armed with the pin flip, RE-ARMED
+#            unchanged once the reading flight removed the premise. Measurement:
+#            `_1940` dwells 3 / cycles 1 / unevaluable 59. See the CURRENT POSTURE
+#            banner above; no window value moved.
 #   ARMED    2026-08-25 by operator decision, off the reading facets above and
 #            nothing else. FOUR assertions, each with its margin argued at the block
 #            itself (`[expectations.renderComposition]`, near the end of this file):
@@ -412,7 +542,7 @@ id = "V14M-ike-player-loop"
 # whose drive shape can carry them).
 # =====================================================================================
 tier = "operator"
-description = "LIVE-PROVEN AND ARMED on the full three-run discipline: reading 2026-08-18_2336 (PASS attempt 1, 50 s), armed re-flight 2026-08-19_0001 (PASS attempt 1, 51 s, every gated window green), negative control 2026-08-19_0003 (correctly PARSEK-FAIL(save-structure), reverted). The player workflow (arm -> Warp-to -> cross the arrival -> Watch), twice over, on B23's Duna->Ike recording - the suite's first loop subject whose LAUNCH BODY is not Kerbin. Ike is tidally locked to Duna, so Rotation(Duna) 65,517.859 s and Orbital(Ike) 65,517.862 s are equal to 3 ms, 22x inside MissionPeriodicity's 1e-6 relative equality band: the sharpest pre-flight prediction is that the product takes a THIRD road - `method=tidal-collapse` with `zeroDrift=no` and a UNIFORM one-P cadence - distinct from both V4's re-aim and V6M's non-uniform zero-drift schedule. MEASURED: the OUTCOMES held (`zeroDrift=no`, cadence exactly one P) but the MECHANISM did not - `method=single-orbital`, because `ExtractConstraints` emits `constraints=1` with NO Rotation(Duna) at all. An ORBIT-ROOTED recording has no surface phase, so the tidal-collapse branch never gets a second constraint to collapse and phase-lock is EXACT rather than within-tolerance. The predicted anchor held to 0.04 s and the load-time optimizer kept the same-parent crossing cohesive (`exoCoastBodyChangeKept=1`)."
+description = "LIVE-PROVEN AND ARMED on the full three-run discipline (BUT SEE SECTION 4: the 2026-08-28 watch-entry fix briefly flipped the two `EnterWatchMode` pins to `OK`; reading runs `2026-08-28_1932`/`_1933_a2` measured `candidates=[0 ghost=T body=T range=F]` at 449.6/449.9 km - the BODY term now PASSES via `evidence=trajectory-resolved ghostBody=Ike cached=Duna`, the RANGE term refuses, and 449.7 km > 2a = 340.9 km falsifies the co-orbital premise the chord arithmetic rested on, so the pins are back at `REJECTED`, now MEASURED with the refusing term named. The renderComposition block went off and back on in the same change - de-armed with the pin flip, RE-ARMED unchanged off confirming run `2026-08-28_1940` once the reading removed the premise, no window value moved): reading 2026-08-18_2336 (PASS attempt 1, 50 s), armed re-flight 2026-08-19_0001 (PASS attempt 1, 51 s, every gated window green), negative control 2026-08-19_0003 (correctly PARSEK-FAIL(save-structure), reverted). The player workflow (arm -> Warp-to -> cross the arrival -> Watch), twice over, on B23's Duna->Ike recording - the suite's first loop subject whose LAUNCH BODY is not Kerbin. Ike is tidally locked to Duna, so Rotation(Duna) 65,517.859 s and Orbital(Ike) 65,517.862 s are equal to 3 ms, 22x inside MissionPeriodicity's 1e-6 relative equality band: the sharpest pre-flight prediction is that the product takes a THIRD road - `method=tidal-collapse` with `zeroDrift=no` and a UNIFORM one-P cadence - distinct from both V4's re-aim and V6M's non-uniform zero-drift schedule. MEASURED: the OUTCOMES held (`zeroDrift=no`, cadence exactly one P) but the MECHANISM did not - `method=single-orbital`, because `ExtractConstraints` emits `constraints=1` with NO Rotation(Duna) at all. An ORBIT-ROOTED recording has no surface phase, so the tidal-collapse branch never gets a second constraint to collapse and phase-lock is EXACT rather than within-tolerance. The predicted anchor held to 0.04 s and the load-time optimizer kept the same-parent crossing cohesive (`exoCoastBodyChangeKept=1`)."
 instanceProfile = "stock-minimal"
 tags = ["V14", "player-loop", "watch-mode", "loop-playback", "phase-lock", "single-orbital", "ike", "duna", "same-parent", "moon", "flown"]
 
@@ -490,9 +620,15 @@ steps = [
   # asked at all. (V6M used +20,800 into a 21,708 s recording; +20,000 into this
   # 21,211 s one is the same "deep in the destination tail" position.)
   { cmd = "TimeJump", args = { ut = "9245916" }, expect = "OK", budget = 300 },
-  # STEP 3: "Watch", auto-select over all committed recordings. PREDICTED REJECTED on
-  # the chord arithmetic in header section 4 (2a = 340.9 km against a MEASURED entry
-  # boundary of ~120 km); an OK is the finding, not a spec bug.
+  # STEP 3: "Watch", auto-select over all committed recordings. **MEASURED REJECTED on
+  # `2026-08-28_1932` / `_1933_a2`, AND THE REASON IS NOW KNOWN AND RECORDED**:
+  #     candidates=[0 ghost=T body=T range=F]      separation 449,601 m
+  # The BODY term PASSES (`body=T`, `evidence=trajectory-resolved ghostBody=Ike
+  # cached=Duna` - the 2026-08-28 fix, measured on this lane); the RANGE term refuses at
+  # 1.5x the 300 km cutoff. It was briefly pinned `OK` on a chord prediction whose
+  # PREMISE the flight falsified - 449.7 km exceeds 2a = 340.9 km, so the ghost is not
+  # co-orbiting the park here at all but out on the Ike approach hyperbola. Header
+  # section 4 carries the full derivation and the re-shape this lane owes.
   { cmd = "EnterWatchMode",                                                  expect = "REJECTED" },
   # STEP 4: "Warp to..." AGAIN - the desync hunt's second half. The verb rebuilds the
   # unit and resolves NextLaunchAfter(now); with `now` past cycle 1's park it should
@@ -510,7 +646,12 @@ steps = [
   # EXACTLY one Ike orbital period, so - unlike V6M, where the anchor moved by a
   # non-uniform schedule step - the cycle-2 separation should be very close to
   # cycle 1's. Same pinned verdict, and a DIFFERENT verdict between the two watch
-  # steps would itself be the reading.
+  # steps would itself be the reading. **MEASURED REJECTED**, same triple as step 3
+  # (`[0 ghost=T body=T range=F]`) at a separation of 449,903 m - 302 m from cycle 1's,
+  # because both epochs resolve to the SAME replay instant (loopUT 9180398.38 vs
+  # 9180398.52) under the uniform one-P cadence. So the tidal-collapse prediction this
+  # step exists to test is CONFIRMED on the clock, and the two verdicts agree for the
+  # right reason. Header section 4 has the derivation.
   { cmd = "EnterWatchMode",                                                  expect = "REJECTED" },
   # M-A7 RENDER-COMPOSITION CAPTURE (Phase 3), and the position is the whole argument.
   # The recorder accumulates from Awake, so the manifest is a picture of everything the
@@ -827,6 +968,12 @@ terminalStates = { Orbiting = { min = 1 } }
 #     pair, so there is nothing here to arm (V8 owns the cut, and its own reading
 #     could not evaluate it either).
 #
+# RE-ARM MEASUREMENT (2026-08-28). The confirming run `2026-08-28_1940` (PASS, pins back
+# at REJECTED) read dwells 3, cycles 1, unevaluable 59, findings FAIL 0 / WARN 0 /
+# INFO 1, mismatches 0 - every retained window met, within noise of the 2026-08-25
+# arming run (3 / 1 / 56). That is the measurement the restoration rests on; see the
+# CURRENT POSTURE banner in header section 6.
+#
 # DISCIPLINE-COMPLETE 2026-08-25: the three-run workflow closed the same day. ARMED
 # RE-FLIGHT `2026-08-25_1050` PASS (gating=True, zero mismatches, sticky
 # `mapRenderTracingOn=true` confirmed); NEGATIVE CONTROL `2026-08-25_1052` red on
@@ -836,6 +983,46 @@ terminalStates = { Orbiting = { min = 1 } }
 # each inverted a window of its own, which proves each lane's own clause rather than
 # re-proving the shared `rendercompose` evaluator. Run ids also recorded in
 # `RENDERCOMPOSE_ARMED_SPECS` and in header §6's ledger.
+#
+# =====================================================================================
+# THE 2026-08-28 DE-ARM / RE-ARM CYCLE, COMPLETED. `gating` IS TRUE AGAIN AND NO WINDOW
+# MOVED.
+# =====================================================================================
+# A round trip that ended where it started, recorded because the REASONING is what makes
+# the current state readable - and because "it went off and came back" is exactly the
+# kind of thing a future reader would otherwise re-litigate.
+#
+# DE-ARMED, temporarily, by the watch-entry migration. The two `EnterWatchMode` pins were
+# flipped `REJECTED` -> `OK` in that change (header §4), and a run that ENTERS watch mode
+# force-builds the watched ghost's visuals at full fidelity
+# (`EnsureGhostVisualsLoadedForWatch`) and anchors the camera to it - a composition NO
+# archived run of this lane had produced, while every window below was written from runs
+# where BOTH watch attempts were refused. Left armed across that, a red would have
+# classified `PARSEK-FAIL(render-composition)` for a MIGRATION reason: a product
+# regression reported where the truth is "the windows describe the old flown shape". The
+# margins are wide (dwells measured 3 against {1,32}) and it might well have held - but
+# "it probably still fits" is a prediction, and arming rests on a measurement.
+#
+# THE READING FLIGHT THEN REMOVED THE PREMISE. `2026-08-28_1932` / `_1933_a2` measured
+# `candidates=[0 ghost=T body=T range=F]` at 449.6 / 449.9 km: the BODY term now passes,
+# the RANGE term refuses, and THIS LANE STILL DOES NOT ENTER WATCH MODE. The pins went
+# back to `REJECTED` (header §4 carries the falsified co-orbital premise in full), so the
+# flown shape is the same one the 2026-08-25 windows were written from.
+#
+# RE-ARMED off the CONFIRMING run `2026-08-28_1940` (PASS attempt 1, 57 s, corrected
+# pins, `expectations mismatches=0`), which is the measurement the re-arm rests on:
+#     dwells 3   cycles 1   unevaluable 59   findings FAIL 0 / WARN 0 / INFO 1
+# against the 2026-08-25 arming run's 3 / 1 / 56 - every retained window met, and the
+# only movement is 3 unevaluables of endpoint-count noise, well inside a ceiling written
+# as a runaway guard. So this is a RESTORATION, not a re-pin: **NO WINDOW VALUE CHANGED
+# ACROSS THE WHOLE CYCLE**, which is the S4.1 rule holding through a de-arm as well as
+# through an arming.
+#
+# WHAT IS NOT CLAIMED. The 2026-08-25 three-run discipline (reading -> armed re-flight ->
+# negative control) is NOT re-run here and is not re-claimed; it stands on its own runs,
+# recorded in the ledger below, and this cycle neither strengthens nor weakens it. What
+# `_1940` establishes is the narrower thing a restoration needs: the subject the windows
+# describe did not move.
 gating = true
 dwells = { min = 1, max = 32 }
 cycles = { min = 1, max = 16 }

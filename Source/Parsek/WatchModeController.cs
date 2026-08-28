@@ -915,11 +915,108 @@ namespace Parsek
 
         /// <summary>
         /// Returns true if the ghost at index is on the same celestial body as the active vessel.
+        ///
+        /// <para>THE SINGLE FORWARDER for the watch-entry SAME-BODY term. NINE consumers reach
+        /// the decision through here, so the evidence rule is fixed in exactly one place: seven
+        /// via <c>ParsekFlight.IsGhostOnSameBody</c> (the recordings table's row button and its
+        /// group-W rotation, the Missions window's watch target, the timeline W button, the map
+        /// ghost menu's two sites, and the M-A2 <c>enterwatchmode</c> candidate triple), the
+        /// in-controller <c>CycleToNextWatchable</c>, and - the one that actually ADMITS an
+        /// entry rather than selecting a target - <c>TryResolveWatchEntryState</c>, which
+        /// carried an INLINE duplicate of this comparison until it was routed here.</para>
+        ///
+        /// <para>WATCH-ENTRY-REFUSED-INSIDE-QUOTED-RANGE: a stale
+        /// <c>lastInterpolatedBodyName</c> (the spawn seed a render-zone-hidden ghost keeps
+        /// indefinitely) is NEVER the deciding evidence. When the cached reading is not current
+        /// the ghost's body is resolved positioning-free from its own recorded trajectory at the
+        /// loop-mapped playback UT; only if that fails does the cache decide, which pins the
+        /// pre-change answer for recordings nothing can resolve. Genuinely cross-body ghosts
+        /// still refuse (design E5).</para>
         /// </summary>
         internal bool IsGhostOnSameBody(int index)
         {
-            return host.Engine.IsGhostOnBody(index, FlightGlobals.ActiveVessel?.mainBody?.name);
+            string activeBodyName = FlightGlobals.ActiveVessel?.mainBody?.name;
+
+            var ghostStates = host.Engine.ghostStates;
+            GhostPlaybackState state;
+            bool hasState = ghostStates.TryGetValue(index, out state) && state != null;
+
+            // Per-frame memo. The term is re-evaluated by several affordances for every visible
+            // row every frame, and the stale branch below walks the recording's trajectory; one
+            // resolution per ghost per frame also keeps the decision and the diagnostics triple
+            // reporting the same answer within a frame.
+            //
+            // ONE CASE IT DELIBERATELY DOES NOT CHASE: a ghost whose zone flips Beyond->Visual
+            // MID-FRAME, after this memo was taken but before the engine refreshed the cached
+            // reading. The memo then holds a trajectory-resolved answer while a cache-current
+            // one has become available. Both describe the same ghost at the same UT, so the
+            // answers agree except in the window where the two disagree about the body at all -
+            // and it self-corrects on the next frame, because the memo is keyed on
+            // `Time.frameCount`. Invalidating on the cached name instead would defeat the point
+            // of the memo (the name is exactly what the expensive branch exists to distrust).
+            int frame = Time.frameCount;
+            SameBodyTermMemo memo;
+            if (sameBodyTermMemoByIndex.TryGetValue(index, out memo)
+                && memo.frame == frame
+                && memo.hasState == hasState
+                && string.Equals(memo.activeBodyName, activeBodyName, StringComparison.Ordinal))
+            {
+                return memo.onSameBody;
+            }
+
+            bool trajectoryResolved = false;
+            string trajectoryBodyName = null;
+            string cachedBodyName = hasState ? state.lastInterpolatedBodyName : null;
+            RenderingZone zone = hasState ? state.currentZone : RenderingZone.Beyond;
+            string recordingId = null;
+
+            var committed = RecordingStore.CommittedRecordings;
+            Recording rec = index >= 0 && index < committed.Count ? committed[index] : null;
+            if (rec != null)
+                recordingId = rec.RecordingId;
+
+            if (hasState && !IsWatchBodyReadingCurrent(cachedBodyName, zone))
+            {
+                var traj = rec as IPlaybackTrajectory;
+                if (traj != null)
+                {
+                    double currentUT = Planetarium.fetch != null
+                        ? Planetarium.GetUniversalTime()
+                        : rec.EndUT;
+                    double playbackUT = ResolveWatchPlaybackUT(rec, state, currentUT, index);
+                    if (GhostPlaybackEngine.TryResolvePendingPlaybackInterpolation(
+                            traj, playbackUT, out InterpolationResult interp))
+                    {
+                        trajectoryResolved = true;
+                        trajectoryBodyName = interp.bodyName;
+                    }
+                }
+            }
+
+            WatchBodyDecision decision = ResolveAndLogWatchSameBodyDecision(
+                index, recordingId, hasState, cachedBodyName, zone,
+                trajectoryResolved, trajectoryBodyName, activeBodyName);
+
+            sameBodyTermMemoByIndex[index] = new SameBodyTermMemo
+            {
+                frame = frame,
+                hasState = hasState,
+                activeBodyName = activeBodyName,
+                onSameBody = decision.OnSameBody,
+            };
+            return decision.OnSameBody;
         }
+
+        private struct SameBodyTermMemo
+        {
+            internal int frame;
+            internal bool hasState;
+            internal string activeBodyName;
+            internal bool onSameBody;
+        }
+
+        private readonly Dictionary<int, SameBodyTermMemo> sameBodyTermMemoByIndex =
+            new Dictionary<int, SameBodyTermMemo>();
 
         /// <summary>
         /// True when the ghost at index is actually being positioned, so its
@@ -928,14 +1025,18 @@ namespace Parsek
         /// <para>WATCH-ENTRY-REFUSED-INSIDE-QUOTED-RANGE: the field is seeded once at spawn
         /// (<c>CreatePendingSpawnState</c>) and refreshed only on the POSITIONING path, which
         /// the render-zone hide skips - so a ghost in <see cref="RenderingZone.Beyond"/>
-        /// answers <see cref="IsGhostOnSameBody"/> with a spawn-time value that can be
-        /// arbitrarily stale. V7M measured a ghost holding <c>Kerbin</c> across both refusals
-        /// while the observer AND the ghost's own replay were at Minmus. Reporting that
-        /// refusal as "different body" is a claim the product never observed; this predicate
-        /// is what lets the affordance say "not rendered" instead.</para>
+        /// holds a spawn-time value that can be arbitrarily stale. V7M measured a ghost
+        /// holding <c>Kerbin</c> across both refusals while the observer AND the ghost's own
+        /// replay were at Minmus. Reporting that refusal as "different body" is a claim the
+        /// product never observed; this predicate is what lets the affordance say
+        /// "not rendered" instead.</para>
         ///
-        /// <para>It does NOT change the conjunction: watch entry still requires a matching
-        /// body (the armed V-family lanes pin that refusal by name).</para>
+        /// <para>IT IS NO LONGER REPORTING-ONLY (2026-08-28). The same predicate is now the
+        /// DISPATCH inside <see cref="IsGhostOnSameBody"/>: a not-current reading sends the
+        /// term to the recording's own trajectory instead of the cache, so a stale seed can
+        /// neither refuse a same-body ghost nor rescue a cross-body one. The affordance still
+        /// uses it to word the DISABLED state, which now only arises when the trajectory could
+        /// not resolve either.</para>
         /// </summary>
         internal bool IsGhostBodyReadingCurrent(int index)
         {
@@ -1697,10 +1798,22 @@ namespace Parsek
             if (!ghostStates.TryGetValue(index, out gs) || gs == null)
                 return false;
 
-            // Ghost must be on the same body as the active vessel
-            string ghostBody = gs.lastInterpolatedBodyName;
-            string activeBody = FlightGlobals.ActiveVessel?.mainBody?.name;
-            if (string.IsNullOrEmpty(ghostBody) || string.IsNullOrEmpty(activeBody) || ghostBody != activeBody)
+            // Ghost must be on the same body as the active vessel.
+            //
+            // WATCH-ENTRY-REFUSED-INSIDE-QUOTED-RANGE: this used to be an INLINE duplicate of
+            // the term - `gs.lastInterpolatedBodyName != activeBody` - which made it a SECOND
+            // reader of the spawn seed, invisible to a grep for `IsGhostOnSameBody`. It is the
+            // gate that decides, too: the auto-select conjunction only picks the index, and
+            // this is what `EnterWatchMode(index)` itself consults, silently. Leaving it inline
+            // while fixing the selector would have made the selector accept a ghost this method
+            // then refused without a word - a timeout rather than a refusal. It routes through
+            // the one fixed forwarder now, which resolves a not-current reading from the
+            // recording's own trajectory.
+            //
+            // The refusal stays SILENT here by design (the forwarder's own change-keyed
+            // `Watch same-body term:` line names the evidence); the DISTANCE guard below is the
+            // one that logs, and W1-watch-distance-cutoff's required token depends on reaching it.
+            if (!IsGhostOnSameBody(index))
                 return false;
 
             rec = committed[index];
@@ -1769,6 +1882,14 @@ namespace Parsek
             // If the ghost is currently beyond visual range and the recording loops,
             // reset the loop phase so the ghost starts from the beginning of the recording
             // (at the pad) instead of wherever it is mid-flight (e.g. near the Mun).
+            //
+            // WATCH-ENTRY-REFUSED-INSIDE-QUOTED-RANGE: that reset is written for an observer
+            // near the loop START. Now that the body term resolves from the trajectory, entry
+            // also succeeds for an observer at an ARRIVAL PARK whose ghost's current phase is
+            // alongside them - and for that shape the loop start is another body tens of
+            // thousands of km away, so the reset would teleport the camera cross-body and the
+            // 305 km exit debounce would auto-exit within frames. ShouldResetLoopPhaseForWatch
+            // skips it when the current phase is itself watchable.
             double currentUT = Planetarium.fetch != null
                 ? Planetarium.GetUniversalTime()
                 : rec.EndUT;
@@ -1782,9 +1903,29 @@ namespace Parsek
             double watchRecDuration = GhostPlaybackEngine.EffectiveLoopDuration(rec);
             bool usesOverlapLooping = shouldLoopPlayback
                 && GhostPlaybackLogic.IsOverlapLoop(loopIntervalSeconds, watchRecDuration);
-            bool resetLoopPhaseForWatch = currentState.currentZone == RenderingZone.Beyond
-                && shouldLoopPlayback
-                && !usesOverlapLooping;
+            bool currentPhaseOnSameBody = IsGhostOnSameBody(index);
+            // Through the PACKAGED fallback, not `currentState.lastDistance` raw. The entry gate
+            // in TryResolveWatchEntryState deliberately falls back to a live transform measure
+            // when the cached distance is unset, and today all four combinations of the two
+            // reads agree - but a reset-skip that disagreed with the gate that just admitted the
+            // entry is exactly the divergence this seam exists to prevent, so they read the
+            // same number by construction rather than by coincidence.
+            double currentPhaseDistanceMeters = ResolveWatchDistanceMeters(currentState);
+            bool currentPhaseWithinEntryRange =
+                IsWithinWatchEntryRange(currentPhaseDistanceMeters);
+            bool resetLoopPhaseForWatch = ShouldResetLoopPhaseForWatch(
+                zoneBeyond: currentState.currentZone == RenderingZone.Beyond,
+                shouldLoopPlayback: shouldLoopPlayback,
+                usesOverlapLooping: usesOverlapLooping,
+                currentPhaseOnSameBody: currentPhaseOnSameBody,
+                currentPhaseWithinEntryRange: currentPhaseWithinEntryRange);
+            ParsekLog.Info("CameraFollow",
+                $"Watch loop-phase decision: rec=#{index} id={rec.RecordingId ?? "null"} "
+                + $"reset={(resetLoopPhaseForWatch ? "T" : "F")} "
+                + $"zone={currentState.currentZone} loops={(shouldLoopPlayback ? "T" : "F")} "
+                + $"overlap={(usesOverlapLooping ? "T" : "F")} "
+                + $"phaseSameBody={(currentPhaseOnSameBody ? "T" : "F")} "
+                + $"phaseDist={FormatWatchDistanceForLogs(currentPhaseDistanceMeters)}");
             if (resetLoopPhaseForWatch)
             {
                 ResetLoopPhaseForWatch(index, currentState, rec);
@@ -1846,6 +1987,11 @@ namespace Parsek
             watchedRecordingId = null;
             watchedOverlapCycleIndex = -1;
             overlapRetargetAfterUT = -1;
+            // Tidiness, not correctness: the memo is already keyed on Time.frameCount, so a
+            // stale entry can never be read on a later frame. Dropping it here keeps the
+            // dictionary from carrying indices of recordings a supersede or delete has since
+            // renumbered, for the rest of the scene.
+            sameBodyTermMemoByIndex.Clear();
             if (destroyOverlapAnchor)
                 DestroyOverlapCameraAnchor();
             else
@@ -3363,9 +3509,22 @@ namespace Parsek
             if (rec == null || !host.ShouldLoopPlaybackForWatch(rec))
                 return fallbackUT;
 
+            // `recordingIndex`, NOT the `watchedRecordingIndex` FIELD. `recIdx` is a DATA KEY
+            // in both helpers, not a "which ghost am I watching" flag: TryGetLoopSchedule
+            // indexes `cachedTrajectories` (the committed list) with it to resolve THIS
+            // recording's auto-loop launch schedule, and TryComputeLoopPlaybackUT below indexes
+            // `engine.loopPhaseOffsets` with it. Reading the field resolved row Y's playback UT
+            // from row X's schedule slot and phase offset whenever this ran for a row other
+            // than the watched one - which, now that the body term calls in here, is every
+            // Recordings-table row on every frame once anything is being watched. On a
+            // multi-body loop that puts the resolved body on the wrong side of an SOI change
+            // and hands the Watch affordance and CycleToNextWatchable a quietly WRONG answer
+            // (selector and entry gate agree on it, so it is wrong rather than a timeout).
+            // The field is also -1 or stale at the entry-time call from TryStartWatchSession,
+            // which runs before `watchedRecordingIndex` is assigned.
             if (!host.TryGetLoopScheduleForWatch(
                     rec,
-                    watchedRecordingIndex,
+                    recordingIndex,
                     out double playbackStartUT,
                     out double scheduleStartUT,
                     out double resolveDuration,
@@ -3401,7 +3560,7 @@ namespace Parsek
             }
 
             if (host.TryComputeLoopPlaybackUTForWatch(rec, Planetarium.GetUniversalTime(),
-                out double loopUT, out _, out _, watchedRecordingIndex))
+                out double loopUT, out _, out _, recordingIndex))
             {
                 return loopUT;
             }
