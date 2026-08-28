@@ -220,6 +220,9 @@ namespace Parsek.Tests
         }
 
         // Pure decision cell: the seam's reference frame follows the rails state.
+        // Only the onRails==true row is SHIPPED behaviour - the sole production caller
+        // (OnVesselSOIChanged) guards `if (!IsRecording || !isOnRails) return;`, so the
+        // false row pins the resolver's defensive default, not a live code path.
         [Theory]
         [InlineData(true, ReferenceFrame.OrbitalCheckpoint, TrackSectionSource.Checkpoint)]
         [InlineData(false, ReferenceFrame.Absolute, TrackSectionSource.Active)]

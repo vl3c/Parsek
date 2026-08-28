@@ -5643,8 +5643,14 @@ namespace Parsek
 
         /// <summary>
         /// Resolves the reference frame + source for the TrackSection opened on the far
-        /// side of an SOI boundary. The frame must follow the rails state, exactly as
+        /// side of an SOI boundary, following the rails state exactly as
         /// OnVesselGoOnRails / OnVesselGoOffRails / ResumeAfterFalseAlarm do.
+        ///
+        /// ONLY THE onRails==true BRANCH SHIPS TODAY. The sole production caller is
+        /// OnVesselSOIChanged, whose own `if (!IsRecording || !isOnRails) return;` guard
+        /// proves onRails at the call. The off-rails branch is a defensive default that
+        /// keeps this a total function and states what a future off-rails SOI producer
+        /// would get; it is pinned by a unit cell, not reachable in production.
         ///
         /// RECORDER-SUSPECTED-DOUBLE-EMIT-AT-SOI-SEAM: this used to open Absolute
         /// unconditionally, but OnVesselSOIChanged only runs while isOnRails is true and
@@ -5681,6 +5687,17 @@ namespace Parsek
             ReferenceFrame frame;
             TrackSectionSource source;
             ResolveSoiBoundarySectionFrame(onRails, out frame, out source);
+
+            // Grep-stable seam line, matching the three sibling transitions
+            // (OnVesselGoOnRails / OnVesselGoOffRails / InitializeOnRailsOrbitSegment).
+            // Emitted BEFORE the close so the previous frame is still readable.
+            string previousFrame = trackSectionActive
+                ? currentTrackSection.referenceFrame.ToString()
+                : "(none)";
+            ParsekLog.Info("Recorder",
+                $"Reference frame transition: {previousFrame} -> {frame} at SOI boundary " +
+                $"UT={soiUT.ToString("F2", CultureInfo.InvariantCulture)} " +
+                $"onRails={(onRails ? 1 : 0)} source={source}");
 
             CloseCurrentTrackSection(soiUT);
             StartNewTrackSection(env, frame, soiUT, source);

@@ -982,6 +982,40 @@ Optimizer rule 3(b) (`ShouldKeepCohesiveCrossBodyExoCoast`, checkpoint-framed on
 both sides) therefore fires exactly as it already did. What changes is only the
 pre-`Ensure` shape.
 
+**Four residuals an independent review pinned down, all recorded rather than
+changed:**
+
+1. **The post-`Ensure` shape is not LITERALLY unchanged.** The post-seam section's
+   `environment` now carries `environmentHysteresis.CurrentEnvironment` where the
+   bridge's `BuildClosedCheckpointSection` hardcoded `ExoBallistic`. The review
+   verified no optimizer verdict flips either way: for a latched Exo env both
+   shapes take step 3(b) (checkpoint-framed on both sides), and for any other env
+   both fall through to step 4 `BodyChange`.
+2. **The stop-on-rails path is where the pre-fix producer could reach DISK
+   wrong**, so "no on-disk effect" is too strong and the fix is strictly better
+   there. `FinalizeRecordingState(..., sampleBoundaryOnRails: true)` closes the
+   segment (a no-op against the Absolute shell), then drops ONE boundary frame
+   into that shell. That makes it payload-bearing, so the empty-shell reconcile
+   skips it AND `IsHigherPriorityPhysicalSection` now claims its span, so the flat
+   segment is `SkippedCovered` and no checkpoint section is ever built: the whole
+   final on-rails leg reaches disk as a 1-frame Absolute section with its conic
+   living only in the flat cache. Post-fix the boundary frame and the checkpoint
+   coexist in one `OrbitalCheckpoint` section and the conic is preserved.
+3. **One narrow degenerate case gains a section.** A same-frame SOI change ->
+   rails exit used to hit `CloseCurrentTrackSection`'s FIRST discard
+   (`frameCount == 0 && checkpointCount == 0 && sectionDuration < 1.0`, which is
+   frame-agnostic - and is also why only coasts longer than 1s ever carried a
+   shell at all); post-fix `checkpointCount == 1` defeats that discard and a
+   near-zero-duration `OrbitalCheckpoint` section persists. Harmless to playback
+   and to INV2 (it carries payload and does not double-cover), but it can shift a
+   `saveparse` structure section count by one.
+4. **Only the `onRails == true` branch of `ResolveSoiBoundarySectionFrame`
+   ships.** The sole production caller is `OnVesselSOIChanged`, whose own
+   `if (!IsRecording || !isOnRails) return;` guard proves `onRails` at the call
+   site. The off-rails branch is a defensive default kept so the resolver is a
+   total function and so a future off-rails SOI producer inherits a stated answer;
+   its `[InlineData(false, ...)]` cell pins that default, not shipped behaviour.
+
 **What this does NOT do.** Recordings already on disk keep their shells: the
 sidecar READ sites pass `reconcileEmptySections: false` by contract
 (normalize-on-rewrite, not byte-freeze-breaking), so a legacy recording loaded
@@ -999,6 +1033,19 @@ feeds the result through the READ-path `Ensure`, and evaluates the real
 `INV2 overlap ... a=[64044032.725027621,65004886.739419721] b=[<same>]` - the
 fixture's section 34/35 span, byte for byte. A `LegacyFramelessShellBeside...`
 cell keeps the on-disk shape reproducible and pins that the write path heals it.
+
+**The production WIRING is source-gated, because behaviour alone cannot pin it.**
+The fix is one line inside `OnVesselSOIChanged`, a handler no headless test can
+reach (live `Vessel` + `FlightGlobals`), and every behavioural cell drives the
+extracted helper directly - so reverting that one line left the entire xUnit
+suite green. `Source/Parsek.Tests/SoiSeamProducerWiringGateTests.cs` closes that
+silent-revert hole in the style of `PolylineDriverWalkDeleteGateTests`: it
+brace-matches the handler's body out of `FlightRecorder.cs` and asserts it routes
+through `TransitionTrackSectionAtSoiBoundary` and names neither
+`StartNewTrackSection(` nor `ReferenceFrame.Absolute`, plus the second half of the
+wiring (the helper takes its frame from `ResolveSoiBoundarySectionFrame`, never a
+literal) and the seam's `Reference frame transition:` log line. Verified by
+re-applying the exact pre-fix line: two gate cells red, naming the fix.
 
 **The re-clip half of this entry is UNTOUCHED and still open.** The
 `ref=0`-shell-at-a-seam shape is what is fixed here. The other observed shape -
