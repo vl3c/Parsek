@@ -9,24 +9,66 @@ namespace Parsek
         public string RawName;
         public string NormalizedName;
 
+        /// <summary>
+        /// KERBAL-XP-RECOVERY-PICK-IS-NAME-AND-UT-ONLY (stage 1): the recovering vessel's
+        /// LAUNCH-unique Guid (<c>Vessel.id</c> / <c>ProtoVessel.vesselID</c>), normalized to
+        /// "N" form, or null when the seam could not supply one.
+        ///
+        /// <para>
+        /// It is carried HERE rather than passed alongside because all three recovery legs
+        /// (funds, science, XP) already thread this struct into
+        /// <c>LedgerOrchestrator.PickRecoveryRecordingId</c> - including the funds leg's
+        /// DEFERRED pairing queue, which stores the struct verbatim, so the guid survives a
+        /// recovery whose <c>FundsChanged</c> event has not been recorded yet.
+        /// </para>
+        ///
+        /// <para>
+        /// Deliberately NOT part of <see cref="Matches"/> / <see cref="MatchesName"/> or
+        /// <see cref="FormatForLog"/>: those are the recovery-EVENT pairing predicates and
+        /// the pinned log surface, and both stay exactly as they were.
+        /// </para>
+        ///
+        /// <para>
+        /// Null / empty means UNKNOWN, never "no launch". Every downstream comparison runs
+        /// through <see cref="VesselLaunchIdentity.GuidsConclusivelyDiffer"/>, which is false
+        /// whenever either side is unknown - so a seam that cannot supply a guid degrades the
+        /// candidate filter to the historical name+UT behavior instead of dropping candidates.
+        /// </para>
+        /// </summary>
+        public string LaunchGuid;
+
         public bool HasName =>
             !string.IsNullOrEmpty(RawName) ||
             !string.IsNullOrEmpty(NormalizedName);
+
+        public bool HasLaunchGuid => !string.IsNullOrEmpty(LaunchGuid);
 
         public string DisplayName =>
             !string.IsNullOrEmpty(NormalizedName) ? NormalizedName : (RawName ?? "");
 
         public static RecoveredVesselIdentity FromRawName(string rawName)
         {
-            return FromNames(rawName, Recording.ResolveLocalizedName(rawName));
+            return FromRawName(rawName, null);
+        }
+
+        public static RecoveredVesselIdentity FromRawName(string rawName, string launchGuid)
+        {
+            return FromNames(rawName, Recording.ResolveLocalizedName(rawName), launchGuid);
         }
 
         public static RecoveredVesselIdentity FromNames(string rawName, string normalizedName)
         {
+            return FromNames(rawName, normalizedName, null);
+        }
+
+        public static RecoveredVesselIdentity FromNames(
+            string rawName, string normalizedName, string launchGuid)
+        {
             return new RecoveredVesselIdentity
             {
                 RawName = rawName ?? "",
-                NormalizedName = normalizedName ?? rawName ?? ""
+                NormalizedName = normalizedName ?? rawName ?? "",
+                LaunchGuid = VesselLaunchIdentity.NormalizeGuid(launchGuid)
             };
         }
 

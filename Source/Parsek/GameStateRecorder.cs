@@ -929,9 +929,14 @@ namespace Parsek
                     hasActiveUncommittedTree))
             {
                 string vesselName = vessel != null ? vessel.vesselName : null;
+                // KERBAL-XP-RECOVERY-PICK-IS-NAME-AND-UT-ONLY stage 1: pass the live launch
+                // guid alongside the name so a recovery-science subject cannot be scoped to a
+                // DIFFERENT launch of the same craft. Null (no ProtoVessel, or no vessel guid)
+                // leaves the filter inert.
                 directLedgerHandled = LedgerOrchestrator.TryRecordKscScienceSubject(
                     pendingSubject,
-                    vesselName);
+                    vesselName,
+                    VesselLaunchIdentity.ReadLaunchGuid(vessel));
             }
 
             if (!directLedgerHandled)

@@ -171,6 +171,27 @@ namespace Parsek
         }
 
         /// <summary>
+        /// The launch Guid a live <see cref="ProtoVessel"/> carries (<c>vesselID</c>, KSP's
+        /// per-launch <c>Vessel.id</c>), normalized to "N" form, or null when it is absent /
+        /// <see cref="Guid.Empty"/>.
+        ///
+        /// <para>
+        /// Named rather than inlined because the three recovery seams
+        /// (KERBAL-XP-RECOVERY-PICK-IS-NAME-AND-UT-ONLY stage 1) each need the same read, and
+        /// the null result is LOAD-BEARING: an unknown live guid is what makes the recovery
+        /// candidate filter degrade to the historical name+UT behavior rather than drop
+        /// candidates.
+        /// </para>
+        /// </summary>
+        internal static string ReadLaunchGuid(ProtoVessel pv)
+        {
+            if (pv == null) return null;
+            return pv.vesselID != Guid.Empty
+                ? pv.vesselID.ToString("N", CultureInfo.InvariantCulture)
+                : null;
+        }
+
+        /// <summary>
         /// Reads the launch Guid (<c>Vessel.id</c>) from a saved ProtoVessel snapshot ConfigNode.
         /// <c>ProtoVessel.Save</c> writes the vessel Guid as the top-level <c>pid</c> value (and the
         /// uint as <c>persistentId</c>), so both <c>_vessel.craft</c> and <c>_ghost.craft</c> snapshots

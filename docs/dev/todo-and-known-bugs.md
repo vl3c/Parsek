@@ -8261,7 +8261,7 @@ not - because the missing thing was this finding, not fixture thinness - and it 
 **One residual, filed rather than fixed here:** see
 KERBAL-XP-RECOVERY-PICK-IS-NAME-AND-UT-ONLY below.
 
-## KERBAL-XP-RECOVERY-PICK-IS-NAME-AND-UT-ONLY: the recovery correlator matches by vessel NAME plus a UT tier, and the XP row makes a wrong pick irreversible [OPEN, filed 2026-08-20 with the correlation fix above]
+## KERBAL-XP-RECOVERY-PICK-IS-NAME-AND-UT-ONLY: the recovery correlator matches by vessel NAME plus a UT tier, and the XP row makes a wrong pick irreversible [OPEN — STAGE 1 SHIPPED headless 2026-08-28 (branch `kerbal-xp-guid-filter`), STAGE 2 OUTSTANDING and gated on live proof; filed 2026-08-20 with the correlation fix above]
 
 `LedgerOrchestrator.PickRecoveryRecordingId` matches candidate recordings by vessel NAME
 (`RecoveredVesselIdentity.MatchesName`, raw or localized) and then ranks them by a UT
@@ -8344,6 +8344,123 @@ to touch the picker at all.
 second. That single flight exercises both halves - the filter must make the first launch
 drop out of the candidate set, and the refusal must NOT fire once it has (a spurious
 `ambiguous-recovery-recording` on that run would be the fix over-firing).
+
+### STAGE 1 SHIPPED, headless only (2026-08-28, branch `kerbal-xp-guid-filter`)
+
+The guid-corroboration FILTER is implemented exactly as recommendation half 1 describes,
+on all three legs, and is green headless. **Stage 2 (the XP-leg
+`ambiguous-recovery-recording` refusal) is NOT implemented** and must not be landed before
+the filter has flown - the recommendation's own argument for splitting them stands.
+
+**What was built.** `LedgerOrchestrator.PickRecoveryRecordingId` now runs in two passes: it
+gathers the name+eligibility candidate set (the zombie / session-provisional rules
+untouched), passes it through `FilterRecoveryCandidatesByLaunchGuid`, and only then walks
+the bracketing / most-recent-ended / global-latest tiers. The predicate is
+`IsConclusiveLaunchGuidMismatch` -> `VesselLaunchIdentity.GuidsConclusivelyDiffer`, so an
+unknown guid on EITHER side is not conclusive and the candidate survives. The filter is a
+subsequence operation (survivors in input order, nothing added or reordered), and emptying
+the set routes into the picker's PRE-EXISTING null result and hence the XP leg's existing
+`reason=no-recovery-recording` refusal - a new road to an old fail-safe, not a new one.
+
+**How the live guid reaches it.** `RecoveredVesselIdentity` gained a `LaunchGuid` field
+(normalized "N", null = unknown), stamped from `VesselLaunchIdentity.ReadLaunchGuid(pv)` at
+the three seams that hold a `ProtoVessel`: `ParsekScenario.OnVesselRecovered` (funds,
+including the DEFERRED pairing queue, which stores the struct verbatim),
+`GameStateRecorder.OnScienceReceived` (science, via a new optional `launchGuid` argument on
+`TryRecordKscScienceSubject`), and
+`GameStateRecorder.OnVesselRecoveryProcessingForExperience` (XP). The guid is deliberately
+NOT part of `Matches` / `MatchesName` / `FormatForLog` - the event-pairing predicates and
+the harness-pinned log string are unchanged.
+
+**Two claims in the recommendation that source-reading corrected.**
+
+1. *"the filter must live-prove across all three legs"* is right, but the legs do not need
+   three seams' worth of new plumbing: the funds leg's deferred queue and the XP leg both
+   already thread `RecoveredVesselIdentity`, so ONE field carries the guid to two of the
+   three. Only the science leg took a signature change, because it passes a bare
+   `vesselName` string.
+2. *The Re-Fly provisional needed no exemption*, and the reason is worth pinning: the
+   recommendation did not mention it, but a filter that dropped the active session's
+   provisional would have re-opened the tombstone hazard the session-aware `NotCommitted`
+   rule exists to close. It cannot.
+   `RewindInvoker.BuildProvisionalRecording` leaves `RecordedVesselGuid` null, and
+   `CopyInheritedIdentityForFork` later inherits the ORIGIN's guid (the fork restores from a
+   quicksave that preserves the origin's `Vessel.id`). Both states are non-conclusive.
+   Pinned by `Filter_ReFlyProvisionalShapeSurvives`.
+
+**A THIRD REACHABLE SHAPE CHANGED, and the change is intentional.** Real Spawn Control
+copies are affected, not only relaunches: `VesselSpawner.RegenerateVesselIdentity` writes a
+FRESH vessel guid into the spawn node (it must, to avoid pid/guid collisions with the
+original), so a spawned, never-recorded copy of a recorded craft carries a launch guid that
+conclusively differs from the source recording's. Recovering that copy now EMPTIES the
+candidate set: the funds row lands untagged where it previously carried the source
+recording's id, and a crewed copy's XP write refuses with `reason=no-recovery-recording`
+where it previously wrote a row. That is the more defensible behavior - recovering a COPY
+should not tie career rows to the original mission's recording, and an XP row scoped to a
+flight the copy never flew is precisely the irreversible mis-scope this entry is about - so
+it is kept, but it is a behavior change and is named here rather than discovered later. **It
+is NOT exercised by the planned L3-sibling live proof**, which flies two real launches;
+proving the spawned-copy shape would need its own driven run and is not owed before stage 2.
+
+**Headless cover:** `RecoveryPickLaunchGuidFilterTests` (16 cells) - the predicate's
+both-sides-known requirement and its format-insensitivity; the MONOTONE property
+(survivors are an order-preserving subset, dropped + survivors == input); the unknown-guid
+no-op in both directions; the session provisional resolving from the POST-filter set (a
+tie-break reading the pre-filter set could reinstate a dropped candidate and break
+monotonicity); the two-launches-same-name shape WITH its negative control (the same fixture
+makes the WRONG pick when no live guid is supplied, so the cell reproduces the defect before
+fixing it); filter-runs-before-tier-selection; the empty-set refusal; the legacy
+no-recorded-guid non-regression; the single-launch non-regression (the shape every committed
+career fixture flies); and the XP leg end to end.
+
+**Observability for the eventual flight.** One bounded line per PICK - not per recovery:
+`PickRecoveryRecordingId guid filter: vessel='X' ut=<t> dropped=N remaining=M reason=<r>`,
+Info at `reason=guid-conclusive-mismatch` and Verbose at `reason=no-conclusive-mismatch` /
+`reason=live-launch-guid-unknown`. The three reasons are distinct on purpose: a silent
+no-drop cannot be told from a filter that never ran, and a live proof has to read "active
+and agreed" off the log rather than infer it. The funds and XP legs pick once, but the
+SCIENCE leg picks once per science subject, so a science-heavy recovery emits one line per
+subject - bounded by the subject count, each line independently true, and deliberately not
+rate-limited because a dropped candidate is an attribution-changing decision on every leg
+that makes it. The existing `PickRecoveryRecordingId:` summary line gains `guidDropped=`
+and replaces the now-ambiguous `candidates=` token with explicit `nameMatches=` (pre-filter)
+and `survivors=` (post-filter); nothing pinned the old token.
+
+### THE LIVE-PROOF GATE (stage 2 is blocked on this)
+
+**Which lane.** `L3-career-science-recover` is the only committed spec that drives a real
+crewed recovery with the funds, science AND XP legs all firing on one flight - it is
+already the subject the XP correlation was proven on, and its produced save is what
+`L4-ledger-groundtruth-strict` consumes. The proof should be a SIBLING of it (a second
+launch appended), not a from-scratch lane; note that re-harvesting its produced save into
+`C2CareerPostFix` drags `career-earned-pad` and the `test_career_earned_pad.py` drift cell
+along, so prefer a sibling spec with its own fixture unless the harvest is wanted anyway.
+No committed lane flies two launches of one craft name today, which is exactly why the
+entry says the defect is "not currently observable in a driven run".
+
+**Two proofs, and they are not the same run.**
+
+- *Minimum viable (proves the filter fires and is correct).* Launch the pad craft, hop,
+  land, recover; launch the SAME craft again, hop, land, recover. At the second recovery
+  the first launch's recording name-matches with a conclusively different `Vessel.id`, so
+  each of the three legs must log `dropped=1 remaining=1
+  reason=guid-conclusive-mismatch`. **The PICK is unchanged on this run** - the second
+  recording brackets the second recovery, so tier 1 already resolved it correctly without
+  the filter. That is a feature of the shape, not a weak proof: it demonstrates the filter
+  active, dropping exactly the right candidate, and NOT disturbing a correct pick. It is
+  also the run that must show no leg losing its correlation.
+- *Full defect repro (produces a pre-filter WRONG pick).* The earlier launch must still
+  SPAN the second recovery's UT - launch #1 to orbit and leave it there, then launch #2,
+  hop, recover. Without the filter the orbiting sibling wins tier 1 (bracketing, largest
+  EndUT) and the XP row is scoped to a flight that is still flying. This is the shape the
+  headless `Picker_TwoLaunchesSameName_...` cell models, and it is the one stage 2's
+  ambiguity predicate will need to reason about.
+
+**What stage 2 may not do until then.** Land the refusal only after the minimum-viable run
+shows the filter turning "weak tier" into "weak tier AND genuinely ambiguous". A bare
+tier-strength refusal without a flown filter would refuse the very recoveries the
+correlation fix captured, and `L4`'s `KerbalXp` facet would go vacuous again - the failure
+mode the recommendation's "What NOT to do" paragraph names.
 
 ## ~~KERBAL-XP-FIXTURE-REHARVEST-BLOCKED-ON-FILE-DELETION: the career fixtures still predate the XP row, so L4's KerbalXp facet cannot be armed~~ [filed and CLOSED 2026-08-20, branch `kerbal-xp-row`, once the fixture replacement was approved]
 

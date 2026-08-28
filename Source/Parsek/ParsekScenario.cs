@@ -7273,7 +7273,15 @@ namespace Parsek
                 return;
             }
 
-            RecoveredVesselIdentity identity = RecoveredVesselIdentity.FromRawName(pv.vesselName);
+            // KERBAL-XP-RECOVERY-PICK-IS-NAME-AND-UT-ONLY stage 1: carry the live launch guid
+            // on the identity. It rides all the way into
+            // LedgerOrchestrator.PickRecoveryRecordingId, including through the DEFERRED
+            // recovery-funds queue (which stores this struct verbatim), so a recovery paired
+            // against a later FundsChanged(VesselRecovery) event still filters by launch. The
+            // guid is NOT part of any name-matching predicate, so context lookup and terminal
+            // state below are unchanged.
+            RecoveredVesselIdentity identity = RecoveredVesselIdentity.FromRawName(
+                pv.vesselName, VesselLaunchIdentity.ReadLaunchGuid(pv));
             if (!identity.HasName) return;
 
             double now = Planetarium.GetUniversalTime();
