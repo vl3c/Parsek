@@ -5832,7 +5832,15 @@ MID-SESSION (an exchange that fires with an empty tag while a live recorder owns
 the event, taking neither row path) holds back until the next load rather than
 immediately. Same cosmetic class, now bounded by a save/load instead of forever.
 
-Proof: `Source/Parsek.Tests/StrategyPrefixHoldbackTests.cs` (29 cells). It
+The resolver has a second, narrower version of the same limit: it reads ONE
+aggregate overhang and cannot attribute it, so on a save carrying the pre-fix
+orphan AND a live in-flight exchange the in-flight exchange's own legitimate
+overhang looks exactly like shape B's, nothing is withheld, and the shape-A WARN
+comes back until that exchange commits. It goes quiet only while no exchange is
+mid-flight. Never WORSE than main (the pending amount is never larger than main's),
+and it re-heals on its own at the commit.
+
+Proof: `Source/Parsek.Tests/StrategyPrefixHoldbackTests.cs` (33 cells). It
 reproduces the permanent hold-back against the REAL frozen pre-fix ledger
 (`Fixtures/C2Career/Parsek/GameState/ledger.pgld`, 68 rows, the exchange's funds
 credit and no science row) plus the measured event, and drives BOTH shapes all the
@@ -5846,7 +5854,15 @@ cases, the release, the surviving fresh-event hold-back, idempotence /
 no-accumulate, the discard re-home (modelled purge-accurately: the discarded
 recording's tagged event is gone, only the untagged re-homed row survives), the
 converter-row exclusion, the visibility gate, the required-predicate guard, and
-the end-to-end live wrapper on both shapes.
+the end-to-end live wrapper on both shapes. Two cells pin the WIRING the shape
+cells' test-side mirror of `PatchScience` would otherwise leave unproven - the
+discriminator fold equals basis-minus-the-same-pending-amount, with BOTH sibling
+adjusters staged non-zero so the basis composition is pinned too - plus one
+comment-stripped source gate on `PatchScience`'s own statement order, which is the
+one seam no headless cell can reach (it early-returns on a null
+`ResearchAndDevelopment.Instance`). All three were verified by sabotage: reverting
+the guard fold, dropping the siblings out of the basis, and bypassing the handed-in
+basis at the call site each red exactly one of them.
 
 The two L3 strategy lanes (`L3-strategy-currency-conversion`,
 `L3-strategy-exchanger-floor`) both fly FRESH careers, so they measure baseline 0

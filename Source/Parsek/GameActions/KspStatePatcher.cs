@@ -222,7 +222,9 @@ namespace Parsek
             // discriminator keeps the guard from a false clamp+toast on a transient
             // ledger-catch-up. The plan's invariant ("running below live ONLY when an
             // earning channel is missing") holds against this adjusted value.
-            double runningScience = ComputePendingAdjustedRunningScience(science, currentScience);
+            // The already-computed basis, NOT a second derivation - see the overload's note.
+            double runningScience = ComputePendingAdjustedRunningScience(
+                preStrategyRunning, currentScience);
             SciencePoolPatchDecision decision = ResolveSciencePoolPatch(
                 currentScience, targetScience, runningScience, authoritativeReduction);
             if (decision.Clamped)
@@ -908,7 +910,21 @@ namespace Parsek
         internal static double ComputePendingAdjustedRunningScience(
             ScienceModule science, double currentLiveScience)
         {
-            double preStrategyRunning = ComputePreStrategyPendingAdjustedRunningScience(science);
+            return ComputePendingAdjustedRunningScience(
+                ComputePreStrategyPendingAdjustedRunningScience(science), currentLiveScience);
+        }
+
+        /// <summary>
+        /// The same fold over an ALREADY-COMPUTED basis. <see cref="PatchScience"/> uses this
+        /// overload so the basis it hands the target adjuster and the basis behind its
+        /// drawdown-guard discriminator are literally the same local, rather than two
+        /// evaluations that merely agree today: the two sibling helpers folded into the basis
+        /// are recent-UT-WINDOW queries, exactly the class of thing that can start returning
+        /// a different number when re-derived a few statements later.
+        /// </summary>
+        internal static double ComputePendingAdjustedRunningScience(
+            double preStrategyRunning, double currentLiveScience)
+        {
             return preStrategyRunning
                 - LedgerOrchestrator.GetPendingUncommittedStrategyScienceDebit(
                     preStrategyRunning, currentLiveScience);

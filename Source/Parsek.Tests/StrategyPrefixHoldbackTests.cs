@@ -68,6 +68,10 @@ namespace Parsek.Tests
         private const double ShapeBLive = 641.790283203125;             // SaveScience
         private const double C2ReconDelta = 108.84171851920314;         // recon - save
 
+        // The clock the basis-wiring cells pin. Far from every UT this file stages, so the
+        // two sibling recent-UT windows contain only what a cell deliberately puts there.
+        private const double PinnedNowUT = 1.0e9;
+
         private readonly List<string> logLines = new List<string>();
 
         public StrategyPrefixHoldbackTests()
@@ -226,12 +230,18 @@ namespace Parsek.Tests
         public void ShapeA_TheMeasuredWarnIsAPureNoOpClamp_AndTheBoundRemovesIt(
             double live, double warnRunning)
         {
-            // Both measured pairs share the signature that identifies the filed defect:
-            // live - (pending-adjusted running) is the exchange take to four places, so the
-            // raw pre-strategy basis equals live and the reconstruction is NOT running high.
-            Assert.Equal(108.8416, live - warnRunning, 4);
-            double preStrategyRunning = warnRunning + (live - warnRunning);
-            Assert.Equal(live, preStrategyRunning, 9);
+            // Both measured pairs share the signature that identifies the filed defect. The
+            // WARN prints the PENDING-ADJUSTED balance, so ADDING THE TAKE BACK reconstructs
+            // the raw pre-strategy basis - and that basis lands on live, i.e. the
+            // reconstruction is NOT running high and the pending amount invented the
+            // discrepancy it then reported. (Deriving it as warnRunning + (live -
+            // warnRunning) would be live by construction and could never fail; the whole
+            // point is that ExchangeTake is what closes the gap.)
+            // 3 places, not more: the log's own take (live - warnRunning) is 108.84160831
+            // where the recorder's stored event gives 108.84171852 - a 1.1e-4 float32
+            // rounding gap, an order of magnitude inside the guard's 0.001 epsilon.
+            double preStrategyRunning = warnRunning + ExchangeTake;
+            Assert.Equal(live, preStrategyRunning, 3);
 
             var events = OnePreFixOrphan();
             var ledger = new List<GameAction>();
@@ -361,21 +371,44 @@ namespace Parsek.Tests
         {
             // Safety direction: the resolver can only ever SHRINK the pending amount. An
             // over-count bigger than the measured residual leaves the pending amount at its
-            // main value, so a genuine unmodelled spend still reaches the guard.
+            // main value, so a genuine unmodelled spend still reaches the guard - driven
+            // through the whole composition on BOTH sides, not just asserted on the
+            // resolver, so the "still clamps" half of the name is actually exercised.
+            const double Live = 500.0;
+            const double ExtraLeak = 400.0;
+            double preStrategyRunning = Live + ExchangeTake + ExtraLeak;
+
             Assert.Equal(0.0,
                 LedgerOrchestrator.ResolveEffectiveUnmatchableStrategyScienceBaseline(
-                    ExchangeTake,
-                    preStrategyRunning: 500.0 + ExchangeTake + 400.0,
-                    currentLiveScience: 500.0),
+                    ExchangeTake, preStrategyRunning, Live),
                 6);
+
+            var events = OnePreFixOrphan();
+            var ledger = new List<GameAction>();
+
+            var onMain = DriveSciencePatch(
+                Live, preStrategyRunning, rawTarget: preStrategyRunning,
+                events, ledger, loadBaseline: 0.0);
+            var onBranch = DriveSciencePatch(
+                Live, preStrategyRunning, rawTarget: preStrategyRunning,
+                events, ledger, loadBaseline: SweepBaseline(events, ledger));
+
+            Assert.True(onMain.Clamped);
+            Assert.Equal(KspStatePatcher.ClampDirection.Down, onMain.Direction);
+            Assert.Equal(onMain.Direction, onBranch.Direction);
+            Assert.Equal(onMain.Clamped, onBranch.Clamped);
+            Assert.Equal(onMain.EffectiveTarget, onBranch.EffectiveTarget, 6);
+            Assert.Equal((double)onMain.Delta, (double)onBranch.Delta, 6);
         }
 
         [Fact]
         public void Resolver_RunningBelowLive_WithholdsTheWholeResidual_AndTheDrawdownStillClamps()
         {
-            // A genuine missing-earning drawdown: withholding the phantom raises the
-            // discriminator, but it is still below live, so the guard still reports - with a
-            // number that no longer double-counts the phantom.
+            // A genuine missing-earning drawdown. The whole residual is withheld (nothing
+            // about a running balance BELOW live is explained by an un-ingested debit), so
+            // the discriminator is the raw basis - derived here rather than hardcoded, so
+            // the cell actually shows the pending amount went to zero - and it is still far
+            // enough below live that the guard reports, exactly as on main.
             const double Live = 500.0;
             const double PreStrategyRunning = 400.0;
 
@@ -383,10 +416,25 @@ namespace Parsek.Tests
                 ExchangeTake, PreStrategyRunning, Live);
             Assert.Equal(ExchangeTake, effective, 6);
 
-            var decision = KspStatePatcher.ResolveSciencePoolPatch(
-                (float)Live, Live, PreStrategyRunning, authoritativeReduction: false);
-            Assert.True(decision.Clamped);
-            Assert.Equal(KspStatePatcher.ClampDirection.Up, decision.Direction);
+            var events = OnePreFixOrphan();
+            var ledger = new List<GameAction>();
+
+            double pending = LedgerOrchestrator.ComputePendingUncommittedStrategyScienceDebit(
+                events, ledger, null, effective);
+            Assert.Equal(0.0, pending, 6);
+            Assert.Equal(PreStrategyRunning, PreStrategyRunning - pending, 6);
+
+            var onMain = DriveSciencePatch(
+                Live, PreStrategyRunning, rawTarget: Live, events, ledger, loadBaseline: 0.0);
+            var onBranch = DriveSciencePatch(
+                Live, PreStrategyRunning, rawTarget: Live, events, ledger,
+                loadBaseline: SweepBaseline(events, ledger));
+
+            Assert.True(onMain.Clamped);
+            Assert.Equal(KspStatePatcher.ClampDirection.Up, onMain.Direction);
+            Assert.True(onBranch.Clamped);
+            Assert.Equal(KspStatePatcher.ClampDirection.Up, onBranch.Direction);
+            Assert.Equal(onMain.EffectiveTarget, onBranch.EffectiveTarget, 6);
         }
 
         [Fact]
@@ -748,6 +796,223 @@ namespace Parsek.Tests
                 targetScience: preStrategyRunning, currentScience: (float)ShapeBLive,
                 preStrategyRunning: preStrategyRunning);
             Assert.Equal(ShapeBLive, target, 4);
+        }
+
+        // ================================================================
+        // The basis wiring - what DriveSciencePatch stands in for
+        // ================================================================
+
+        /// <summary>
+        /// Seeds a real <see cref="ScienceModule"/> to a chosen running balance, headlessly
+        /// (the C2Career replay cells drive the production module graph the same way). The
+        /// subject cap is set wide so the whole award lands in the running total.
+        /// </summary>
+        private static ScienceModule SeededScienceModule(double runningScience)
+        {
+            // The two SIBLING pending helpers are recent-UT-window queries and read the
+            // live clock; pin it far from every UT this file stages so both windows are
+            // empty and the basis is the raw running balance.
+            LedgerOrchestrator.NowUtProviderForTesting = () => PinnedNowUT;
+
+            var module = new ScienceModule();
+            module.ProcessAction(new GameAction
+            {
+                Type = GameActionType.ScienceEarning,
+                SubjectId = "prefix@holdback",
+                ScienceAwarded = (float)runningScience,
+                SubjectMaxValue = (float)(runningScience * 10.0)
+            });
+            Assert.Equal(runningScience, module.GetRunningScience(), 3);
+            return module;
+        }
+
+        [Theory]
+        [InlineData(0.0)]
+        [InlineData(ExchangeTake)]
+        public void TheGuardDiscriminatorIsTheBasisMinusTheSamePendingAmount(double loadBaseline)
+        {
+            // WHY THIS CELL EXISTS. Every shape cell above routes through the test's own
+            // DriveSciencePatch mirror of PatchScience's composition, and a mirror proves
+            // nothing about the wiring it mirrors: reverting the guard line to a raw
+            // GetRunningScience(), or dropping a sibling adjuster out of the basis, would
+            // leave all of them green while shape A regressed in game. This pins the real
+            // fold and the real basis instead - and it stages BOTH siblings non-zero on
+            // purpose, because with empty sibling windows the basis is indistinguishable
+            // from the raw running balance and half the wiring would go unpinned.
+            const double Live = 600.0;
+            const double Running = 585.0;
+            const double SiblingCredit = 40.0;      // a KSC science award not yet ingested
+            const double SiblingTechDebit = 25.0;   // a tech unlock not yet ingested
+            RecordingStore.AddRecordingWithTreeForTesting(
+                new Recording { RecordingId = "rec-prefix", VesselName = "Exchanger" });
+            var evt = StrategyInputScienceDebit(
+                ExchangeUT, ScienceBefore, ScienceAfter, "rec-prefix");
+            GameStateStore.AddEvent(ref evt);
+
+            // The two siblings are recent-UT-window helpers; both events sit AT the pinned
+            // "now" so both windows are non-empty.
+            var creditEvt = new GameStateEvent
+            {
+                ut = PinnedNowUT,
+                eventType = GameStateEventType.ScienceChanged,
+                key = "ScienceTransmission",
+                valueBefore = 0.0,
+                valueAfter = SiblingCredit
+            };
+            GameStateStore.AddEvent(ref creditEvt);
+            var techEvt = new GameStateEvent
+            {
+                ut = PinnedNowUT,
+                eventType = GameStateEventType.ScienceChanged,
+                key = LedgerOrchestrator.TechResearchScienceReasonKey,
+                valueBefore = SiblingTechDebit,
+                valueAfter = 0.0
+            };
+            GameStateStore.AddEvent(ref techEvt);
+
+            LedgerOrchestrator.SetUnmatchableStrategyScienceDebitBaselineForTesting(loadBaseline);
+
+            var science = SeededScienceModule(Running);
+
+            // The basis is the raw running balance folded with the two SIBLING adjusters and
+            // NOT the strategy one. All three terms are pinned: drop either sibling and this
+            // reads 560 or 625 instead of 600, and fold the strategy amount in early and it
+            // reads a take below.
+            Assert.Equal(SiblingCredit, LedgerOrchestrator.GetPendingRecentKscScienceCredit(), 6);
+            Assert.Equal(SiblingTechDebit,
+                LedgerOrchestrator.GetPendingRecentKscTechResearchScienceDebit(), 6);
+
+            double basis = KspStatePatcher.ComputePreStrategyPendingAdjustedRunningScience(science);
+            Assert.Equal(Running + SiblingCredit - SiblingTechDebit, basis, 6);
+            Assert.Equal(Live, basis, 6);
+
+            // ...and the discriminator is exactly that basis minus the pending amount the
+            // TARGET adjuster resolves off the same basis. Both overloads must agree.
+            double pending = LedgerOrchestrator.GetPendingUncommittedStrategyScienceDebit(basis, Live);
+            Assert.Equal(basis - pending,
+                KspStatePatcher.ComputePendingAdjustedRunningScience(science, Live), 6);
+            Assert.Equal(basis - pending,
+                KspStatePatcher.ComputePendingAdjustedRunningScience(basis, Live), 6);
+
+            // And the fold is load-bearing in both directions: with no baseline the phantom
+            // drags the discriminator a full take below live (the filed defect); with the
+            // measured baseline the overhang is 0, all of it is withheld, and the
+            // discriminator sits on live.
+            if (loadBaseline <= 0.0)
+            {
+                Assert.Equal(ExchangeTake, pending, 6);
+                Assert.Equal(Live - ExchangeTake,
+                    KspStatePatcher.ComputePendingAdjustedRunningScience(science, Live), 6);
+            }
+            else
+            {
+                Assert.Equal(0.0, pending, 6);
+                Assert.Equal(Live,
+                    KspStatePatcher.ComputePendingAdjustedRunningScience(science, Live), 6);
+            }
+        }
+
+        [Fact]
+        public void TheTargetAdjusterAndTheGuardDiscriminatorResolveTheSamePendingAmount()
+        {
+            // The invariant the "computed once, handed to both" wiring exists to protect,
+            // asserted across the seam rather than inside one helper: whatever the target
+            // adjuster held back is exactly what the discriminator was lowered by.
+            const double Live = 600.0;
+            const double Running = 600.0 + ExchangeTake;   // shape B: the hold-back is real
+            const double RawTarget = 600.0 + ExchangeTake;
+            RecordingStore.AddRecordingWithTreeForTesting(
+                new Recording { RecordingId = "rec-prefix", VesselName = "Exchanger" });
+            var evt = StrategyInputScienceDebit(
+                ExchangeUT, ScienceBefore, ScienceAfter, "rec-prefix");
+            GameStateStore.AddEvent(ref evt);
+            LedgerOrchestrator.SetUnmatchableStrategyScienceDebitBaselineForTesting(ExchangeTake);
+
+            var science = SeededScienceModule(Running);
+            double basis = KspStatePatcher.ComputePreStrategyPendingAdjustedRunningScience(science);
+
+            double adjustedTarget =
+                KspStatePatcher.AdjustSciencePatchTargetForPendingStrategyScienceDebit(
+                    RawTarget, (float)Live, basis);
+            double discriminator =
+                KspStatePatcher.ComputePendingAdjustedRunningScience(basis, Live);
+
+            Assert.Equal(RawTarget - adjustedTarget, basis - discriminator, 6);
+            Assert.Equal(ExchangeTake, RawTarget - adjustedTarget, 6);
+        }
+
+        /// <summary>
+        /// The PatchScience region between reading the live pool and resolving the clamp,
+        /// with line comments STRIPPED. The strip is the whole point: a source-derived gate
+        /// that matches raw text reads its own explanatory comments as code and passes
+        /// green, which this repo has been bitten by before.
+        /// </summary>
+        private static string ReadPatchScienceStrategyRegionWithoutComments()
+        {
+            string root = SyntheticRecordingTests.ResolveProjectRoot();
+            string path = Path.Combine(
+                root, "Source", "Parsek", "GameActions", "KspStatePatcher.cs");
+            Assert.True(File.Exists(path), $"KspStatePatcher.cs not found at '{path}'");
+            string src = File.ReadAllText(path);
+
+            const string startMarker = "float currentScience = ResearchAndDevelopment.Instance.Science;";
+            const string endMarker = "SciencePoolPatchDecision decision = ResolveSciencePoolPatch(";
+            int start = src.IndexOf(startMarker, StringComparison.Ordinal);
+            Assert.True(start >= 0, "PatchScience's live-pool read moved; re-anchor this gate.");
+            int end = src.IndexOf(endMarker, start, StringComparison.Ordinal);
+            Assert.True(end > start, "PatchScience's clamp resolve moved; re-anchor this gate.");
+
+            var stripped = new System.Text.StringBuilder();
+            foreach (string line in src.Substring(start, end - start).Split('\n'))
+            {
+                int slash = line.IndexOf("//", StringComparison.Ordinal);
+                stripped.Append(slash >= 0 ? line.Substring(0, slash) : line).Append('\n');
+            }
+            return stripped.ToString();
+        }
+
+        [Fact]
+        public void PatchScience_ComputesTheBasisOnce_AfterTheSiblings_AndHandsItToBothConsumers()
+        {
+            // The one seam no headless cell can reach: PatchScience early-returns on a null
+            // ResearchAndDevelopment.Instance, so the ORDER of its own statements is
+            // unobservable from xUnit - and replacing its guard line with a raw
+            // GetRunningScience() leaves every other cell in this file green. Comments are
+            // stripped before matching so the gate cannot pass on its own prose.
+            string region = ReadPatchScienceStrategyRegionWithoutComments();
+
+            int basisAt = region.IndexOf(
+                "double preStrategyRunning = ComputePreStrategyPendingAdjustedRunningScience(science);",
+                StringComparison.Ordinal);
+            int techAt = region.IndexOf(
+                "AdjustSciencePatchTargetForPendingRecentTechResearch(", StringComparison.Ordinal);
+            int earningAt = region.IndexOf(
+                "AdjustSciencePatchTargetForPendingRecentScienceEarning(", StringComparison.Ordinal);
+            int strategyAt = region.IndexOf(
+                "AdjustSciencePatchTargetForPendingStrategyScienceDebit(", StringComparison.Ordinal);
+            int discriminatorAt = region.IndexOf(
+                "ComputePendingAdjustedRunningScience(", StringComparison.Ordinal);
+
+            Assert.True(basisAt >= 0, "PatchScience no longer computes the pre-strategy basis.");
+            Assert.True(techAt >= 0 && earningAt >= 0, "a sibling pending adjuster went missing.");
+            Assert.True(strategyAt >= 0, "the strategy target adjuster went missing.");
+            Assert.True(discriminatorAt >= 0, "the guard discriminator fold went missing.");
+
+            // The basis must be taken AFTER both siblings have adjusted the target (it folds
+            // their pending amounts in) and BEFORE the strategy adjuster that consumes it.
+            Assert.True(basisAt > techAt && basisAt > earningAt,
+                "the basis must be computed after both sibling adjusters, not above them.");
+            Assert.True(basisAt < strategyAt,
+                "the basis must be computed before the strategy target adjuster consumes it.");
+            Assert.True(strategyAt < discriminatorAt,
+                "the guard discriminator must be folded after the target adjuster.");
+
+            // ...and BOTH consumers must be handed that same local, not re-derive it.
+            string strategyCall = region.Substring(strategyAt, discriminatorAt - strategyAt);
+            Assert.Contains("preStrategyRunning", strategyCall);
+            string discriminatorCall = region.Substring(discriminatorAt);
+            Assert.Contains("preStrategyRunning", discriminatorCall);
+            Assert.DoesNotContain("ComputePendingAdjustedRunningScience(science", discriminatorCall);
         }
 
         [Fact]
