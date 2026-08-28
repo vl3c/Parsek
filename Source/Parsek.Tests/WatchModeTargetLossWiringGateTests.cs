@@ -56,7 +56,7 @@ namespace Parsek.Tests
             string body = MethodBody(ControllerPath, "internal void NotifyWatchedGhostDestroying(");
 
             Assert.Contains("catch (Exception", body);
-            Assert.Contains("ParsekLog.Warn(\"CameraFollow\"", body);
+            Assert.Contains("ParsekLog.WarnRateLimited(\"CameraFollow\"", body);
 
             // The Unity touches must sit inside the guarded helper, never inline in the
             // entry point (which would put them outside the try on a careless edit).
@@ -104,7 +104,14 @@ namespace Parsek.Tests
 
             Assert.True(classify >= 0, "watch-target-loss gate: UpdateWatchCamera must consult ClassifyWatchTargetLoss.");
             Assert.True(increment >= 0, "watch-target-loss gate: UpdateWatchCamera must count lost frames.");
-            Assert.True(infraWarn >= 0, "watch-target-loss gate: the camera-infrastructure Warn must still be emitted.");
+            Assert.True(infraWarn >= 0,
+                "watch-target-loss gate: the camera-infrastructure Warn must still be emitted. "
+                + "IF YOU JUST EXTRACTED IT INTO A HELPER, the Warn is not missing - this gate "
+                + "pins its ORDER relative to ClassifyWatchTargetLoss and the frame counter by "
+                + "looking for BuildWatchCameraInfrastructureMessage inside UpdateWatchCamera's "
+                + "own body, so a behaviour-preserving extraction reds it. Re-point the three "
+                + "IndexOf probes at whatever now marks the infra branch rather than hunting a "
+                + "deleted Warn.");
 
             Assert.True(classify < infraWarn,
                 "watch-target-loss gate: the camera-infrastructure Warn must be reached THROUGH "

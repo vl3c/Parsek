@@ -280,6 +280,13 @@ namespace Parsek
                     return;
 
                 case WatchCycleBridgeDisposition.RebindThenRelease:
+                    // DEAD SAFETY NET, not a designed retry loop: this method is only called
+                    // from UpdateWatchCamera's Continue path, which by construction means the
+                    // camera infrastructure resolved AND state.cameraPivot is non-null - the
+                    // only two things TryRetargetWatchCameraPreservingState needs. Kept because
+                    // a future caller could break that, and holding a LIVE anchor is the right
+                    // degradation either way; read "retried next frame" as the consequence of
+                    // not clearing the anchor, not as an expected cycle.
                     if (!TryRetargetWatchCameraPreservingState(state))
                     {
                         ParsekLog.WarnRateLimited("CameraFollow",
@@ -349,11 +356,19 @@ namespace Parsek
             }
             catch (Exception ex)
             {
-                ParsekLog.Warn("CameraFollow",
+                // RATE-LIMITED, unlike a one-shot failure Warn: the thrower would most
+                // likely be deterministic (a Unity API refusing in a particular scene
+                // state), and the destroy this hangs off can repeat every frame while the
+                // Continue path keeps resetting the no-target net - so an unlimited Warn
+                // here is a per-frame flood in exactly the situation the flood is hardest
+                // to read. Same 5 s interval as the no-bridge-needed Verbose above.
+                ParsekLog.WarnRateLimited("CameraFollow",
+                    "watch-destroy-bridge-failed:" + destroyedIndex.ToString(CultureInfo.InvariantCulture),
                     $"Watch camera bridge FAILED for destroying ghost #{destroyedIndex} " +
                     $"id={watchedRecordingId ?? "null"} cycle={watchedOverlapCycleIndex} " +
                     $"- degrading to no bridge so the engine's destroy still completes " +
-                    $"({ex.GetType().Name}: {ex.Message})");
+                    $"({ex.GetType().Name}: {ex.Message})",
+                    minIntervalSeconds: 5.0);
                 // Never leave a half-built anchor behind; the next frame's safety net owns
                 // whatever camera state this leaves.
                 try { DestroyWatchCycleBridgeAnchor(); }
