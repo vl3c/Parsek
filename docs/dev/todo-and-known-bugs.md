@@ -5686,13 +5686,34 @@ cells beside it. A future wave wanting the in-game control back should drive
 (committed `StrategyScienceDebit` rows). On a save whose exchange predates the
 capture fix (PR #1483), the event exists but the row never will, so the
 adjustment holds the patch target back by the take on EVERY recalc and the
-drawdown guard clamps each time. Measured live: the test career's original
-`researchIPsellout` exchange holds back exactly 108.84 science permanently
-(collected snapshot `logs/2026-08-19_0002_strategy-multi-live`, the 00:01:23
-`PatchScience: GUARDED DRAWDOWN clamped` line; the rework build report predicted
-this residual verbatim). Cosmetic only - the guard preserves live values and
-post-fix careers are unaffected - but it is unbounded WARN noise on any pre-fix
-save that ever ran an exchanger strategy.
+drawdown guard clamps each time. Cosmetic only - the guard preserves live values
+and post-fix careers are unaffected - but it is unbounded WARN noise on any
+pre-fix save that ever ran an exchanger strategy.
+
+**MEASURED - the full clamp tally off `logs/2026-08-19_0002_strategy-multi-live`
+(18 science clamps). CORRECTED 2026-08-28 in review: the entry as filed cited the
+wrong line.**
+
+| n | direction | running | live | wouldBeTarget |
+|---:|---|---:|---:|---:|
+| 8 | DRAWDOWN | 94.487645842134953 | 203.32925415039063 | 203.32925415039063 |
+| 7 | DRAWDOWN | 128.97038815170527 | 237.81199645996094 | 237.81199645996094 |
+| 2 | UPLIFT | 392.94038820266724 | 392.22030639648438 | - |
+| 1 | DRAWDOWN | 392.94038820266724 | 641.790283203125 | 501.78200197219849 |
+
+**The 8x and 7x rows ARE this defect, and they are the only instances of it.**
+`live - running` is the exchange take to the digit and `wouldBeTarget ==
+clampedTo == live`, i.e. a pure NO-OP WARN. `running` in the WARN is the
+PENDING-ADJUSTED balance, so the raw pre-strategy basis equals live: the
+reconstruction is NOT running high, and the pending amount invents the very
+discrepancy it then reports.
+
+**The single 641.79 row is NOT, and must not be quoted for this entry.** There
+`live - running` is ~248.85 rather than the take, and `wouldBeTarget != live`:
+that moment carries an independent ~140-point shortfall that has nothing to do
+with the exchange, and zeroing the pending amount there still leaves running
+below live with the clamp firing. The two UPLIFT rows are a third, unrelated
+shape.
 
 **Fix shape (as filed):** bound the observed side so an event that can no longer
 gain a row stops counting - either an age gate (event older than the current
@@ -5704,18 +5725,70 @@ pending adjustment is what overstays. Test: a store carrying a pre-fix-shaped
 bound, while a fresh in-session event still produces the full hold-back
 (the L3 lane's cells cover the fresh case).
 
-**FIX AS SHIPPED (2026-08-28): the load-sweep half, as a NET residual rather than
-a per-event mark.** `LedgerOrchestrator.ComputeUnmatchableStrategyScienceDebitBaseline`
-runs once per `OnKspLoad` (after Reconcile / MigrateOldSaveEvents /
-TryRecoverBrokenLedgerOnLoad, before the load recalc, so the FIRST PatchScience of
-the load already sees the bound and the clamp never fires at all). It sums the
-visible observed events that can no longer gain a row, nets them against the SAME
-committed side the pending helper uses, and stores the residual in
-`unmatchableStrategyScienceDebitBaseline`;
-`ComputePendingUncommittedStrategyScienceDebit` takes it as a new optional
-4th argument (default 0, so every other caller and every pre-existing cell is
-byte-identical) and subtracts it from the observed side, flooring at 0. The guard
-is untouched.
+**THE TWO PRE-FIX SHAPES. Read this before touching the bound** - the first
+attempt at this fix was population-only and regressed the second shape into the
+mirror-image defect. Both shapes carry the SAME population (one observed event,
+no row); they differ in whether the reconstruction already runs high by the
+un-ingested take, and that decides whether the pending adjustment is a phantom or
+a genuine correction.
+
+- **Shape A - `preStrategyRunning == live`.** THE FILED DEFECT: the target
+  adjuster is inert (it early-returns when the target already sits at/below live)
+  and the pending amount drags only the guard's discriminator below live, so the
+  clamp is a pure no-op WARN. The 8x + 7x rows above, 15 of the 18 clamps.
+- **Shape B - `preStrategyRunning == live + take`,** because the ledger holds the
+  exchange's FUNDS credit and no science debit row. This is the DOCUMENTED
+  `C2Career` shape - `C2CareerLedgerReplayTests` pins `recon - save =
+  +108.84171851920314`, "the reconstruction runs high by exactly the diverted
+  science". On main this save is SILENT: the pending amount pulls both the target
+  and the discriminator onto live and nothing clamps. Cancel it and the target
+  overshoots live by the take, `IsGuardableUplift` fires, and the save gets a
+  permanent `GUARDED UPLIFT clamped` WARN plus the "Held your science at the spent
+  value" toast that main never emits - the same forbidden unbounded-WARN class,
+  mirrored, on the very save the fixture suite documents.
+
+**FIX AS SHIPPED (2026-08-28): a load sweep for the POPULATION plus a per-patch
+resolver for the SHAPE.**
+
+1. `LedgerOrchestrator.ComputeUnmatchableStrategyScienceDebitBaseline` runs once
+   per `OnKspLoad` (after Reconcile / MigrateOldSaveEvents /
+   TryRecoverBrokenLedgerOnLoad, before the load recalc, so the first
+   `PatchScience` of the load already sees the bound). It sums the visible
+   observed events that can no longer gain a row, nets them against the SAME
+   committed side the pending helper uses, and stores the residual in
+   `unmatchableStrategyScienceDebitBaseline` (also zeroed at the TOP of
+   `OnKspLoad`, so save A's residual can never bound save B before the sweep
+   re-measures - there is no save-unload hook to hang that on).
+2. `ResolveEffectiveUnmatchableStrategyScienceBaseline` withholds that residual
+   only as far as the reconstruction does not already carry it:
+   `effective = clamp(baseline - max(0, preStrategyRunning - live), 0, baseline)`.
+   Shape A has overhang 0, so the whole residual is withheld and the pending
+   amount goes to 0. Shape B has overhang == take, so nothing is withheld and the
+   behaviour is byte-identical to main. A partial overhang lands the discriminator
+   exactly ON live instead of on either side of it.
+3. `ComputePendingUncommittedStrategyScienceDebit` takes the effective baseline as
+   a new optional 4th argument (default 0, so every other caller and every
+   pre-existing cell is byte-identical) and subtracts it from the observed side,
+   flooring at 0. **The guard itself is untouched.**
+
+The resolver can only ever SHRINK the pending amount, never grow it, so it cannot
+mask a leak: an over-count larger than the residual withholds nothing and clamps
+exactly as main does, and a genuine missing-earning drawdown still reads below
+live after the withhold and still reports - with a discriminator that no longer
+double-counts the phantom.
+
+Wiring: `KspStatePatcher.PatchScience` computes the basis ONCE via the new
+`ComputePreStrategyPendingAdjustedRunningScience` (raw running plus the two
+SIBLING pending adjusters, strategy not yet applied) and hands the same value to
+both `AdjustSciencePatchTargetForPendingStrategyScienceDebit` and
+`ComputePendingAdjustedRunningScience`, so the target adjuster and the guard
+discriminator cannot disagree. The rewind read-back guard passes the live pool
+through a `[MethodImpl(NoInlining)]` core so its byte-identity contract holds
+without poisoning the headless suite (which drives it with a null science module)
+on mono.
+
+NOT fixed by this, and out of scope: the ~140-point shortfall behind the single
+641.79 clamp row, and the two UPLIFT rows.
 
 Reachability is `CanStrategyScienceDebitRowStillLand`: an event can still gain a
 row iff it is TAGGED to a recording that has not committed yet, because the only
@@ -5744,18 +5817,40 @@ no stale marker. Nothing is written to the ledger, so
 `LedgerLoadMigration.IsMigrationConvertibleEvent`'s "pre-fix history stays pre-fix"
 rule is not disturbed either.
 
-Proof: `Source/Parsek.Tests/StrategyPrefixHoldbackTests.cs` (19 cells) reproduces
-the permanent hold-back against the REAL frozen pre-fix ledger
+**One qualification on that symmetry, so it is not read as unconditional.** When
+the residual is nonzero the committed side appears in BOTH terms of the pending
+algebra and cancels out of it, so an exchanger ROW paired with a STILL-REACHABLE
+event would be subtracted twice. That pairing cannot occur on a well-formed save -
+a row exists only after its recording committed or the KSC door ran, and either
+makes the event unreachable - so it is reachable only through a torn write (a
+ledger that landed the row while the store kept an uncommitted recording id). The
+direction is under-holding-back, i.e. toward the guard clamping rather than toward
+a wrong pool value.
+
+**Heal window.** The bound is measured at LOAD, so a permanent orphan created
+MID-SESSION (an exchange that fires with an empty tag while a live recorder owns
+the event, taking neither row path) holds back until the next load rather than
+immediately. Same cosmetic class, now bounded by a save/load instead of forever.
+
+Proof: `Source/Parsek.Tests/StrategyPrefixHoldbackTests.cs` (29 cells). It
+reproduces the permanent hold-back against the REAL frozen pre-fix ledger
 (`Fixtures/C2Career/Parsek/GameState/ledger.pgld`, 68 rows, the exchange's funds
-credit and no science row) plus the measured 108.84171852 event, states the symptom
-through `ResolveSciencePoolPatch` (`ClampDirection.Up` = the `GUARDED DRAWDOWN
-clamped` line the entry quotes, and it disappears under the bound), and pins the
-release, the surviving fresh-event hold-back, idempotence / no-accumulate, the
-discard re-home symmetry, the converter-row exclusion, the visibility gate, and
-the end-to-end patch-target adjuster. The two L3 strategy lanes
-(`L3-strategy-currency-conversion`, `L3-strategy-exchanger-floor`) both fly FRESH
-careers, so they measure baseline 0 and are the standing regression floor for "the
-bound never eats a live exchange".
+credit and no science row) plus the measured event, and drives BOTH shapes all the
+way through `KspStatePatcher.ResolveSciencePoolPatch` - where the clamp actually
+fires - rather than stopping at the adjuster: shape A on both measured log pairs
+(`ClampDirection.Up` with `EffectiveTarget == live` on main, no clamp on the
+branch), shape B silent on both sides with identical target and delta, and a cell
+pinning the REJECTED population-only design by showing it trips
+`ClampDirection.Down` on shape B. Beside those: the resolver's five arithmetic
+cases, the release, the surviving fresh-event hold-back, idempotence /
+no-accumulate, the discard re-home (modelled purge-accurately: the discarded
+recording's tagged event is gone, only the untagged re-homed row survives), the
+converter-row exclusion, the visibility gate, the required-predicate guard, and
+the end-to-end live wrapper on both shapes.
+
+The two L3 strategy lanes (`L3-strategy-currency-conversion`,
+`L3-strategy-exchanger-floor`) both fly FRESH careers, so they measure baseline 0
+and are the standing regression floor for "the bound never eats a live exchange".
 
 ## REAIM-SOLVED-INCLINATION-IS-UNCORRELATED-WITH-TARGET-INCLINATION: the four-lane tilt table [MEASURED 2026-08-17, NOT A DEFECT]
 

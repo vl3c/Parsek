@@ -2641,6 +2641,11 @@ namespace Parsek
             // Previous loads' TryRecoverBrokenLedgerOnLoad synthetics (persisted in the
             // ledger file) must NOT falsely register as "MigrateOldSaveEvents output".
             ResetMigrateOldSaveEventsForLoad();
+            // Drop the previous save's unmatchable strategy-exchange residual before
+            // anything in THIS load can read it. There is no save-unload hook to hang this
+            // on, and loading save B in a process that had save A open would otherwise let
+            // A's residual bound B's pending amount until the sweep below re-measures it.
+            unmatchableStrategyScienceDebitBaseline = 0.0;
             LedgerRecoveryFundsPairing.ClearConsumedRecoveryEventKeys();
             RecoveryPayoutContextStore.Clear("KSP load");
             // Log-before-clear so any stale entries from the previous session show up
@@ -5100,6 +5105,16 @@ namespace Parsek
         /// save the residual is 0 and the pending helper is byte-identical to before -
         /// which is also what makes re-running the sweep on every load idempotent.</para>
         ///
+        /// <para>ONE QUALIFICATION on that symmetry, so it is not read as unconditional:
+        /// when the residual is nonzero the committed side appears in BOTH terms of the
+        /// pending algebra and cancels out of it, so an exchanger ROW paired with a
+        /// STILL-REACHABLE event would be subtracted twice. That pairing cannot occur on a
+        /// well-formed save - a row exists only after its recording committed or the KSC
+        /// door ran, and either makes the event unreachable - so it is reachable only via a
+        /// torn write (a ledger that landed the row while the store kept an uncommitted
+        /// recording id). The direction is under-holding-back, i.e. toward the guard
+        /// clamping rather than toward a wrong pool value.</para>
+        ///
         /// <para>The result is DETERMINISTIC from the on-disk state, so it is recomputed
         /// from scratch at every load rather than persisted - no schema change, and no
         /// stale marker to reconcile. It is deliberately NOT a retro-fill: nothing is
@@ -5107,19 +5122,22 @@ namespace Parsek
         /// <c>LedgerLoadMigration.IsMigrationConvertibleEvent</c>'s "pre-fix history stays
         /// pre-fix" rule is not disturbed.</para>
         /// </summary>
-        /// <param name="rowStillReachable">Per-event predicate: true when a future row can
-        /// still ingest this event. Production passes
-        /// <see cref="CanStrategyScienceDebitRowStillLand"/>; tests pass their own.</param>
+        /// <param name="rowStillReachable">REQUIRED per-event predicate: true when a future
+        /// row can still ingest this event. Production passes
+        /// <see cref="CanStrategyScienceDebitRowStillLand"/>; tests pass their own. Not
+        /// optional on purpose - a null would read as "nothing is reachable", which
+        /// fail-opens toward maximum cancellation.</param>
         internal static double ComputeUnmatchableStrategyScienceDebitBaseline(
             IReadOnlyList<GameStateEvent> events,
             IReadOnlyList<GameAction> ledgerActions,
-            Func<GameStateEvent, bool> visibilityFilter = null,
-            Func<GameStateEvent, bool> rowStillReachable = null)
+            Func<GameStateEvent, bool> visibilityFilter,
+            Func<GameStateEvent, bool> rowStillReachable)
         {
+            if (rowStillReachable == null)
+                throw new ArgumentNullException(nameof(rowStillReachable));
+
             double unmatchableObserved = SumObservedStrategyInputScienceDebits(
-                events,
-                visibilityFilter,
-                rowStillReachable == null ? (Func<GameStateEvent, bool>)null : e => !rowStillReachable(e));
+                events, visibilityFilter, e => !rowStillReachable(e));
 
             if (unmatchableObserved <= 0.1)
                 return 0.0;
@@ -5128,6 +5146,71 @@ namespace Parsek
 
             double residual = unmatchableObserved - committedDebit;
             return residual > 0.1 ? residual : 0.0;
+        }
+
+        /// <summary>
+        /// THE SECOND HALF OF THE FIX, and the one that keeps it symmetric (Finding 2 of the
+        /// `strategy-prefix-holdback` review). The load sweep above is POPULATION-based: it
+        /// answers "how much observed debit can never be ingested". It cannot answer "is the
+        /// reconstruction ALREADY running high by that amount", and the two pre-fix saves in
+        /// the wild differ on exactly that:
+        ///
+        /// <list type="bullet">
+        /// <item><b>Shape A</b> - the reconstruction agrees with the live pool
+        /// (<c>preStrategyRunning == live</c>). 15 of the 18 science clamps in
+        /// <c>logs/2026-08-19_0002_strategy-multi-live</c> are this shape (e.g.
+        /// <c>running=94.487645842134953 live=203.32925415039063
+        /// wouldBeTarget=203.32925415039063</c>: <c>live - running</c> is the exchange take
+        /// to the digit and <c>wouldBeTarget == clampedTo == live</c>, i.e. a pure NO-OP
+        /// WARN). Here the pending adjustment invents the discrepancy it then reports, and
+        /// the target subtraction is inert because
+        /// <c>AdjustSciencePatchTargetForPendingStrategyScienceDebit</c> early-returns when
+        /// the target is already at/below live. THE FILED DEFECT.</item>
+        /// <item><b>Shape B</b> - the reconstruction runs high by exactly the un-ingested
+        /// take (<c>preStrategyRunning == live + take</c>), because the ledger holds the
+        /// exchange's FUNDS credit and no science debit row. This is the DOCUMENTED
+        /// <c>C2Career</c> fixture shape (<c>C2CareerLedgerReplayTests</c> pins
+        /// <c>recon - save = +108.84171851920314</c>). Here the pending adjustment is doing
+        /// REAL work: it pulls both the target and the discriminator down onto live, and the
+        /// save is SILENT. Cancelling it outright would make the target overshoot live by
+        /// the take, trip <c>IsGuardableUplift</c>, and produce a permanent
+        /// <c>GUARDED UPLIFT clamped</c> WARN plus the "Held your science at the spent value"
+        /// toast - re-creating the forbidden class in the mirror direction, on the very save
+        /// the fixture suite documents.</item>
+        /// </list>
+        ///
+        /// <para>So the unmatchable residual is WITHHELD ONLY TO THE EXTENT THE
+        /// RECONSTRUCTION DOES NOT ALREADY CARRY IT: subtract the measured overhang
+        /// (<c>preStrategyRunning - live</c>, floored at 0) from the baseline and clamp to
+        /// [0, baseline]. Shape A has overhang 0 -> the whole residual is withheld -> pending
+        /// 0 -> no clamp. Shape B has overhang == take -> nothing is withheld -> pending ==
+        /// take -> byte-identical to main. Anything in between lands the discriminator
+        /// exactly ON live rather than on either side of it.</para>
+        ///
+        /// <para>SAFETY DIRECTION: this can only ever SHRINK the pending adjustment, never
+        /// grow it, so it cannot mask a leak. A genuine over-count larger than the residual
+        /// (<c>overhang &gt; baseline</c>) withholds nothing and clamps exactly as main does;
+        /// a genuine missing-earning DRAWDOWN (<c>overhang &lt; 0</c>) still reads below live
+        /// after the withhold and still clamps - with a discriminator that no longer
+        /// double-counts the phantom, so the reported number is the honest one.</para>
+        /// </summary>
+        /// <param name="preStrategyRunning">The running science balance with the two SIBLING
+        /// pending adjusters already folded in and the strategy one not yet applied - i.e.
+        /// the exact value the strategy debit is about to be subtracted from. Using the
+        /// same basis on both sides is what makes the target adjuster and the guard
+        /// discriminator resolve the identical pending amount.</param>
+        internal static double ResolveEffectiveUnmatchableStrategyScienceBaseline(
+            double unmatchableBaseline, double preStrategyRunning, double currentLiveScience)
+        {
+            if (unmatchableBaseline <= 0.0)
+                return 0.0;
+
+            double overhang = preStrategyRunning - currentLiveScience;
+            if (overhang <= 0.0)
+                return unmatchableBaseline;
+
+            double withheld = unmatchableBaseline - overhang;
+            return withheld > 0.0 ? withheld : 0.0;
         }
 
         /// <summary>
@@ -5205,15 +5288,30 @@ namespace Parsek
         /// <summary>
         /// Live wrapper over <see cref="ComputePendingUncommittedStrategyScienceDebit"/>.
         /// Passes the current GameStateStore / ledger state, the current-timeline
-        /// visibility gate, and the load-time unmatchable baseline.
+        /// visibility gate, and the load-time unmatchable baseline resolved against the
+        /// reconstruction's ACTUAL overhang
+        /// (<see cref="ResolveEffectiveUnmatchableStrategyScienceBaseline"/>).
+        ///
+        /// <para>Both live consumers - the patch-target adjuster and the drawdown-guard
+        /// discriminator - must call this with the SAME two numbers so they resolve the
+        /// identical pending amount; <c>KspStatePatcher.PatchScience</c> computes
+        /// <paramref name="preStrategyRunning"/> once via
+        /// <c>ComputePreStrategyPendingAdjustedRunningScience</c> and hands it to both.
+        /// There is deliberately NO parameterless overload: one would silently apply the
+        /// whole baseline and re-open the shape-B uplift this resolver exists to
+        /// prevent.</para>
         /// </summary>
-        internal static double GetPendingUncommittedStrategyScienceDebit()
+        internal static double GetPendingUncommittedStrategyScienceDebit(
+            double preStrategyRunning, double currentLiveScience)
         {
+            double effectiveBaseline = ResolveEffectiveUnmatchableStrategyScienceBaseline(
+                unmatchableStrategyScienceDebitBaseline, preStrategyRunning, currentLiveScience);
+
             return ComputePendingUncommittedStrategyScienceDebit(
                 GameStateStore.Events,
                 Ledger.Actions,
                 GameStateStore.IsEventVisibleToCurrentTimeline,
-                unmatchableStrategyScienceDebitBaseline);
+                effectiveBaseline);
         }
 
         /// <summary>
