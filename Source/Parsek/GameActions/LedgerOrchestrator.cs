@@ -247,6 +247,16 @@ namespace Parsek
         internal static Action OnKspLoadAfterOldSaveEventReconcileForTesting;
 
         /// <summary>
+        /// STRATEGY-PREFIX-HOLDBACK-PERMANENT: the load-time unmatchable strategy-exchange
+        /// science residual (see
+        /// <see cref="ComputeUnmatchableStrategyScienceDebitBaseline"/>). Re-measured from
+        /// the on-disk state at every <see cref="OnKspLoad"/> - never persisted, because it
+        /// is a deterministic function of the store + ledger that were just loaded. 0 on a
+        /// post-capture-fix save, which is what makes the bound a no-op there.
+        /// </summary>
+        private static double unmatchableStrategyScienceDebitBaseline;
+
+        /// <summary>
         /// Sentinel value passed by <see cref="NotifyLedgerTreeCommitted"/> to recordings
         /// in a multi-recording tree that should NOT absorb any pending science subjects.
         /// Distinct from <c>null</c>, which means "read from the static list as usual"
@@ -2730,6 +2740,15 @@ namespace Parsek
             // action. The deferred-seed coroutine re-applies the cutoff once the clock is
             // ready, so a genuine future-timeline (post-rewind) cold load is still honored.
             // currentUtReady was computed above (it also gates row preservation in Reconcile).
+            //
+            // STRATEGY-PREFIX-HOLDBACK-PERMANENT: measure the unmatchable strategy-exchange
+            // science residual BEFORE the load recalc, so the very first PatchScience of the
+            // load already sees the bound and a pre-capture-fix save never emits the
+            // GUARDED DRAWDOWN clamp + player toast at all. Placed after Reconcile /
+            // MigrateOldSaveEvents / TryRecoverBrokenLedgerOnLoad so the sweep nets against
+            // the same ledger rows the recalc is about to walk.
+            CaptureUnmatchableStrategyScienceDebitBaselineOnLoad();
+
             bool hasFutureActions = HasActionsAfterUT(maxUT);
             bool useCurrentUtCutoff =
                 useCurrentUtCutoffForFutureActions && currentUtReady && hasFutureActions;
@@ -4915,81 +4934,286 @@ namespace Parsek
         /// <param name="visibilityFilter">Optional per-event gate. Production passes
         /// <c>GameStateStore.IsEventVisibleToCurrentTimeline</c> so a retired timeline's
         /// events cannot hold a phantom adjustment open; tests pass null.</param>
+        /// <param name="unmatchableBaseline">The load-time unmatchable residual measured by
+        /// <see cref="ComputeUnmatchableStrategyScienceDebitBaseline"/>: the part of the
+        /// observed population that no future row can EVER ingest, because it was written
+        /// before the capture fix (PR #1483) existed. Subtracted from the observed side so
+        /// a pre-fix save's orphaned event stops holding the patch target back on every
+        /// recalc for the rest of the save's life (STRATEGY-PREFIX-HOLDBACK-PERMANENT).
+        /// Defaults to 0, so every pre-existing caller and every unit cell keeps the
+        /// original unbounded netting.</param>
         /// </summary>
         internal static double ComputePendingUncommittedStrategyScienceDebit(
             IReadOnlyList<GameStateEvent> events,
             IReadOnlyList<GameAction> ledgerActions,
-            Func<GameStateEvent, bool> visibilityFilter = null)
+            Func<GameStateEvent, bool> visibilityFilter = null,
+            double unmatchableBaseline = 0.0)
         {
-            double observedDebit = 0.0;
-            if (events != null)
-            {
-                for (int i = 0; i < events.Count; i++)
-                {
-                    var evt = events[i];
-                    if (evt.eventType != GameStateEventType.ScienceChanged)
-                        continue;
-                    if (!string.Equals(
-                            evt.key,
-                            GameStateEventConverter.StrategyInputReasonKey,
-                            StringComparison.Ordinal))
-                    {
-                        continue;
-                    }
-                    if (evt.valueAfter >= evt.valueBefore)
-                        continue;
-                    if (visibilityFilter != null && !visibilityFilter(evt))
-                        continue;
+            double observedDebit = SumObservedStrategyInputScienceDebits(
+                events, visibilityFilter, null);
 
-                    observedDebit += evt.valueBefore - evt.valueAfter;
-                }
+            // STRATEGY-PREFIX-HOLDBACK-PERMANENT. Bound the OBSERVED side by the residual
+            // that was already proven unmatchable when the save loaded. The drawdown guard
+            // is untouched (it is correct; the pending adjustment is what overstays) and
+            // the committed side keeps its exchanger-only filter, so the observed /
+            // committed symmetry the unbounded window depends on survives: the baseline is
+            // itself a NET of the SAME two populations, so an ownerless KSC exchange and a
+            // discard's re-homed untagged row still cancel exactly as before. See
+            // ComputeUnmatchableStrategyScienceDebitBaseline.
+            if (unmatchableBaseline > 0.0)
+            {
+                observedDebit -= unmatchableBaseline;
+                if (observedDebit < 0.0)
+                    observedDebit = 0.0;
             }
 
             if (observedDebit <= 0.1)
                 return 0.0;
 
-            double committedDebit = 0.0;
-            if (ledgerActions != null)
-            {
-                for (int i = 0; i < ledgerActions.Count; i++)
-                {
-                    var action = ledgerActions[i];
-                    if (action == null)
-                        continue;
-                    if (action.Type != GameActionType.StrategyScienceDebit)
-                        continue;
-                    // EXCHANGER rows only. The observed side above is built from stored
-                    // ScienceChanged(StrategyInput) events, which the QUERY family never
-                    // produces (it mutates a CurrencyModifierQuery in place and the
-                    // resulting ScienceChanged carries the ORIGINAL reason). A converter
-                    // row therefore has no observed counterpart, and counting it here
-                    // would subtract it from a genuine exchanger pending amount -
-                    // under-adjusting the patch target by exactly the converter's take
-                    // and re-opening the clamp+toast this helper exists to prevent.
-                    // Converter rows need no pending adjustment of their own: the door
-                    // writes them synchronously, so they are never "still catching up".
-                    if (action.ConversionSource != StrategyConversionSource.Exchanger)
-                        continue;
-
-                    committedDebit += action.Cost;
-                }
-            }
+            double committedDebit = SumCommittedExchangerStrategyScienceDebits(ledgerActions);
 
             double pendingDebit = observedDebit - committedDebit;
             return pendingDebit > 0.1 ? pendingDebit : 0.0;
         }
 
         /// <summary>
+        /// The OBSERVED side of the exchanger pending family, factored out so the pending
+        /// helper and the load-time baseline sweep below evaluate the SAME four predicates
+        /// (ScienceChanged / StrategyInput key / debit sign / visibility) over the same
+        /// store. A second hand-written copy would be a second thing to keep in step.
+        /// </summary>
+        /// <param name="extraGate">Optional additional per-event gate applied after the
+        /// four shared predicates. The baseline sweep passes "this event can no longer
+        /// gain a row"; the pending helper passes null.</param>
+        private static double SumObservedStrategyInputScienceDebits(
+            IReadOnlyList<GameStateEvent> events,
+            Func<GameStateEvent, bool> visibilityFilter,
+            Func<GameStateEvent, bool> extraGate)
+        {
+            double observedDebit = 0.0;
+            if (events == null)
+                return observedDebit;
+
+            for (int i = 0; i < events.Count; i++)
+            {
+                var evt = events[i];
+                if (evt.eventType != GameStateEventType.ScienceChanged)
+                    continue;
+                if (!string.Equals(
+                        evt.key,
+                        GameStateEventConverter.StrategyInputReasonKey,
+                        StringComparison.Ordinal))
+                {
+                    continue;
+                }
+                if (evt.valueAfter >= evt.valueBefore)
+                    continue;
+                if (visibilityFilter != null && !visibilityFilter(evt))
+                    continue;
+                if (extraGate != null && !extraGate(evt))
+                    continue;
+
+                observedDebit += evt.valueBefore - evt.valueAfter;
+            }
+
+            return observedDebit;
+        }
+
+        /// <summary>
+        /// The COMMITTED side of the exchanger pending family, factored out for the same
+        /// reason as <see cref="SumObservedStrategyInputScienceDebits"/>.
+        ///
+        /// <para>EXCHANGER rows only. The observed side is built from stored
+        /// ScienceChanged(StrategyInput) events, which the QUERY family never produces (it
+        /// mutates a CurrencyModifierQuery in place and the resulting ScienceChanged
+        /// carries the ORIGINAL reason). A converter row therefore has no observed
+        /// counterpart, and counting it here would subtract it from a genuine exchanger
+        /// pending amount - under-adjusting the patch target by exactly the converter's
+        /// take and re-opening the clamp+toast this helper exists to prevent. Converter
+        /// rows need no pending adjustment of their own: the door writes them
+        /// synchronously, so they are never "still catching up".</para>
+        ///
+        /// <para>Tagged and untagged rows alike, deliberately: the population must mirror
+        /// the observed side's, which is what makes the unbounded window safe across a
+        /// non-rewind discard (<c>PreserveIrreversibleLiveGameplayOnDiscard</c> re-homes
+        /// the debit as an UNTAGGED row, which stays here and cancels the orphaned
+        /// event).</para>
+        /// </summary>
+        private static double SumCommittedExchangerStrategyScienceDebits(
+            IReadOnlyList<GameAction> ledgerActions)
+        {
+            double committedDebit = 0.0;
+            if (ledgerActions == null)
+                return committedDebit;
+
+            for (int i = 0; i < ledgerActions.Count; i++)
+            {
+                var action = ledgerActions[i];
+                if (action == null)
+                    continue;
+                if (action.Type != GameActionType.StrategyScienceDebit)
+                    continue;
+                if (action.ConversionSource != StrategyConversionSource.Exchanger)
+                    continue;
+
+                committedDebit += action.Cost;
+            }
+
+            return committedDebit;
+        }
+
+        /// <summary>
+        /// STRATEGY-PREFIX-HOLDBACK-PERMANENT: the one-time load-sweep reconciliation that
+        /// bounds <see cref="ComputePendingUncommittedStrategyScienceDebit"/>'s observed
+        /// side.
+        ///
+        /// <para>THE DEFECT. The pending helper's window is deliberately unbounded in UT -
+        /// the race it covers (KSP debits the pool at the exchange, the matching
+        /// <see cref="GameActionType.StrategyScienceDebit"/> row lands at recording COMMIT)
+        /// stays open for as long as the flight lasts, so a recent-UT window like its two
+        /// siblings' would never see it. On a save whose exchange predates the capture fix
+        /// the stored <c>ScienceChanged(StrategyInput)</c> event exists but the row never
+        /// will, so the un-ingested gap is permanent: the adjustment holds the patch target
+        /// back by the exchange's full take on EVERY recalc and the drawdown guard clamps
+        /// (WARN + player toast) each time, forever. Measured live at exactly 108.84
+        /// science on the test career's original <c>researchIPsellout</c> exchange
+        /// (<c>logs/2026-08-19_0002_strategy-multi-live</c>).</para>
+        ///
+        /// <para>THE BOUND. Only two writers ever produce a
+        /// <see cref="GameActionType.StrategyScienceDebit"/> exchanger row: the live KSC
+        /// door (<c>OnKscSpending</c>, synchronous with the event) and the commit-time
+        /// converter (<c>ConvertStrategyExchangeScience</c>, scoped to the committing
+        /// recording's id). So an observed event can still gain a row if and only if it is
+        /// TAGGED to a recording that has not committed yet. Every other visible observed
+        /// event - untagged, or tagged to an already-committed recording - has had its one
+        /// chance. This sweep sums exactly those, nets them against the committed side, and
+        /// returns the unmatchable residual.</para>
+        ///
+        /// <para>WHY THIS SHAPE AND NOT A NARROWER PREDICATE. The observed and committed
+        /// populations must stay symmetric w.r.t. <c>RecordingId</c> - that symmetry is
+        /// what lets an ownerless KSC-door exchange cancel itself and lets a non-rewind
+        /// discard's re-homed UNTAGGED row cancel its orphaned event
+        /// (<c>PreserveIrreversibleLiveGameplayOnDiscard</c>). Filtering the observed side
+        /// on tag WITHOUT mirroring the committed side would break exactly that. Returning
+        /// a NET residual instead keeps both populations intact: a matched pair cancels
+        /// inside this sweep and contributes nothing, so on an already-correct (post-fix)
+        /// save the residual is 0 and the pending helper is byte-identical to before -
+        /// which is also what makes re-running the sweep on every load idempotent.</para>
+        ///
+        /// <para>The result is DETERMINISTIC from the on-disk state, so it is recomputed
+        /// from scratch at every load rather than persisted - no schema change, and no
+        /// stale marker to reconcile. It is deliberately NOT a retro-fill: nothing is
+        /// written to the ledger, so the reconstruction is untouched and
+        /// <c>LedgerLoadMigration.IsMigrationConvertibleEvent</c>'s "pre-fix history stays
+        /// pre-fix" rule is not disturbed.</para>
+        /// </summary>
+        /// <param name="rowStillReachable">Per-event predicate: true when a future row can
+        /// still ingest this event. Production passes
+        /// <see cref="CanStrategyScienceDebitRowStillLand"/>; tests pass their own.</param>
+        internal static double ComputeUnmatchableStrategyScienceDebitBaseline(
+            IReadOnlyList<GameStateEvent> events,
+            IReadOnlyList<GameAction> ledgerActions,
+            Func<GameStateEvent, bool> visibilityFilter = null,
+            Func<GameStateEvent, bool> rowStillReachable = null)
+        {
+            double unmatchableObserved = SumObservedStrategyInputScienceDebits(
+                events,
+                visibilityFilter,
+                rowStillReachable == null ? (Func<GameStateEvent, bool>)null : e => !rowStillReachable(e));
+
+            if (unmatchableObserved <= 0.1)
+                return 0.0;
+
+            double committedDebit = SumCommittedExchangerStrategyScienceDebits(ledgerActions);
+
+            double residual = unmatchableObserved - committedDebit;
+            return residual > 0.1 ? residual : 0.0;
+        }
+
+        /// <summary>
+        /// Production reachability predicate for
+        /// <see cref="ComputeUnmatchableStrategyScienceDebitBaseline"/>: an observed
+        /// <c>ScienceChanged(StrategyInput)</c> debit can still gain its
+        /// <see cref="GameActionType.StrategyScienceDebit"/> row only while it is tagged to
+        /// a recording whose COMMIT has not run yet (the commit-time converter is the only
+        /// writer left for it - the KSC door writes its row synchronously and is long
+        /// past). Untagged, or tagged to an already-committed recording, means the row is
+        /// unrecoverable.
+        ///
+        /// <para>Deliberately expressed as "not committed" rather than "is the live active
+        /// tree": at <see cref="OnKspLoad"/> time <c>ParsekFlight.Instance</c> may not be up
+        /// yet, and a mid-flight save's in-flight recording must not be mis-read as
+        /// unreachable and have its genuine hold-back cancelled. A by-id committed lookup
+        /// is available and correct at every load order.</para>
+        /// </summary>
+        internal static bool CanStrategyScienceDebitRowStillLand(GameStateEvent evt)
+        {
+            string recordingId = evt.recordingId;
+            if (string.IsNullOrEmpty(recordingId))
+                return false;
+            return !RecordingStore.IsCommittedRecordingId(recordingId);
+        }
+
+        /// <summary>
+        /// Re-measures <see cref="unmatchableStrategyScienceDebitBaseline"/> from the
+        /// just-loaded store + ledger. Called once per <see cref="OnKspLoad"/>, after the
+        /// ledger has been reconciled / repaired / migrated and before the load recalc, so
+        /// the sweep sees the same rows the recalc is about to walk.
+        /// </summary>
+        private static void CaptureUnmatchableStrategyScienceDebitBaselineOnLoad()
+        {
+            double previous = unmatchableStrategyScienceDebitBaseline;
+            unmatchableStrategyScienceDebitBaseline = ComputeUnmatchableStrategyScienceDebitBaseline(
+                GameStateStore.Events,
+                Ledger.Actions,
+                GameStateStore.IsEventVisibleToCurrentTimeline,
+                CanStrategyScienceDebitRowStillLand);
+
+            if (unmatchableStrategyScienceDebitBaseline > 0.0)
+            {
+                ParsekLog.Info(Tag,
+                    "Unmatchable strategy-exchange science baseline: " +
+                    unmatchableStrategyScienceDebitBaseline.ToString("R", CultureInfo.InvariantCulture) +
+                    " (was " + previous.ToString("R", CultureInfo.InvariantCulture) + "). " +
+                    "This save carries stored ScienceChanged(StrategyInput) debit(s) that no " +
+                    "future StrategyScienceDebit row can ingest (pre-capture-fix exchange); " +
+                    "the pending adjustment is bounded by this amount so the drawdown guard " +
+                    "stops clamping on every recalc. See STRATEGY-PREFIX-HOLDBACK-PERMANENT.");
+            }
+            else
+            {
+                ParsekLog.Verbose(Tag,
+                    "Unmatchable strategy-exchange science baseline: 0 (was " +
+                    previous.ToString("R", CultureInfo.InvariantCulture) +
+                    ") - every observed strategy-exchange science debit is either still " +
+                    "committable or already ingested.");
+            }
+        }
+
+        /// <summary>Test seam for the load-time baseline (production sets it in OnKspLoad).</summary>
+        internal static void SetUnmatchableStrategyScienceDebitBaselineForTesting(double value)
+        {
+            unmatchableStrategyScienceDebitBaseline = value;
+        }
+
+        /// <summary>Test-only reader paired with the setter above.</summary>
+        internal static double GetUnmatchableStrategyScienceDebitBaselineForTesting()
+        {
+            return unmatchableStrategyScienceDebitBaseline;
+        }
+
+        /// <summary>
         /// Live wrapper over <see cref="ComputePendingUncommittedStrategyScienceDebit"/>.
-        /// Passes the current GameStateStore / ledger state and the current-timeline
-        /// visibility gate.
+        /// Passes the current GameStateStore / ledger state, the current-timeline
+        /// visibility gate, and the load-time unmatchable baseline.
         /// </summary>
         internal static double GetPendingUncommittedStrategyScienceDebit()
         {
             return ComputePendingUncommittedStrategyScienceDebit(
                 GameStateStore.Events,
                 Ledger.Actions,
-                GameStateStore.IsEventVisibleToCurrentTimeline);
+                GameStateStore.IsEventVisibleToCurrentTimeline,
+                unmatchableStrategyScienceDebitBaseline);
         }
 
         /// <summary>
@@ -5305,6 +5529,7 @@ namespace Parsek
             scienceTrackedOverrideForTesting = null;
             repTrackedOverrideForTesting = null;
             ResetMigrateOldSaveEventsForTesting();
+            unmatchableStrategyScienceDebitBaseline = 0.0;
             kscSequenceCounter = 0;
             emittedReconcileWarnKeys.Clear();
             emittedScienceReconcileDumpKeys.Clear();

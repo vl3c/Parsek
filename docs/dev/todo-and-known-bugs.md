@@ -5679,7 +5679,7 @@ transaction. It is pinned headlessly instead by
 cells beside it. A future wave wanting the in-game control back should drive
 `AgressiveNegotiations` under `VesselRollout`.
 
-## STRATEGY-PREFIX-HOLDBACK-PERMANENT: on a pre-fix save, an exchanger event with no matching row holds back the pending science adjustment forever [FILED 2026-08-19 off the strategy-multi-live session. NOT FIXED - small follow-up]
+## ~~STRATEGY-PREFIX-HOLDBACK-PERMANENT: on a pre-fix save, an exchanger event with no matching row holds back the pending science adjustment forever~~ [FILED 2026-08-19 off the strategy-multi-live session. FIXED 2026-08-28 on `strategy-prefix-holdback` by the load-sweep route this entry's fix shape names]
 
 `ComputePendingUncommittedStrategyScienceDebit` nets the observed population
 (stored `ScienceChanged`/`StrategyInput` events) against the ingested one
@@ -5694,15 +5694,68 @@ this residual verbatim). Cosmetic only - the guard preserves live values and
 post-fix careers are unaffected - but it is unbounded WARN noise on any pre-fix
 save that ever ran an exchanger strategy.
 
-**Fix shape:** bound the observed side so an event that can no longer gain a row
-stops counting - either an age gate (event older than the current session and no
-matching row after a full recalc means the row is unrecoverable) or a one-time
-load-sweep reconciliation that marks such events adjusted. Do NOT widen the
-guard or suppress the WARN generically; the clamp is correct, the pending
-adjustment is what overstays. Test: a store carrying a pre-fix-shaped
+**Fix shape (as filed):** bound the observed side so an event that can no longer
+gain a row stops counting - either an age gate (event older than the current
+session and no matching row after a full recalc means the row is unrecoverable)
+or a one-time load-sweep reconciliation that marks such events adjusted. Do NOT
+widen the guard or suppress the WARN generically; the clamp is correct, the
+pending adjustment is what overstays. Test: a store carrying a pre-fix-shaped
 `StrategyInput` event with no row must produce zero pending adjustment after the
 bound, while a fresh in-session event still produces the full hold-back
 (the L3 lane's cells cover the fresh case).
+
+**FIX AS SHIPPED (2026-08-28): the load-sweep half, as a NET residual rather than
+a per-event mark.** `LedgerOrchestrator.ComputeUnmatchableStrategyScienceDebitBaseline`
+runs once per `OnKspLoad` (after Reconcile / MigrateOldSaveEvents /
+TryRecoverBrokenLedgerOnLoad, before the load recalc, so the FIRST PatchScience of
+the load already sees the bound and the clamp never fires at all). It sums the
+visible observed events that can no longer gain a row, nets them against the SAME
+committed side the pending helper uses, and stores the residual in
+`unmatchableStrategyScienceDebitBaseline`;
+`ComputePendingUncommittedStrategyScienceDebit` takes it as a new optional
+4th argument (default 0, so every other caller and every pre-existing cell is
+byte-identical) and subtracts it from the observed side, flooring at 0. The guard
+is untouched.
+
+Reachability is `CanStrategyScienceDebitRowStillLand`: an event can still gain a
+row iff it is TAGGED to a recording that has not committed yet, because the only
+two writers are the live KSC door (synchronous with the event) and the commit-time
+`ConvertStrategyExchangeScience` (scoped to the committing recording's id).
+Deliberately expressed as "not committed" rather than "is the live active tree" -
+`ParsekFlight.Instance` may not be up at `OnKspLoad`, and a mid-flight save's
+in-flight exchange must not be mis-read as unreachable and have its genuine
+hold-back cancelled. That is also why the plain AGE GATE the fix shape offers as
+the alternative was NOT taken: a legitimately-pending tagged event survives a
+save/reload and would be cancelled by age alone.
+
+**Why a NET residual and not a tag filter on the observed side.** The observed and
+committed populations must stay symmetric w.r.t. `RecordingId` -
+STRATEGY-SCIENCE-CONVERSION-LEAK's own note says so, and that symmetry is what lets
+an ownerless KSC-door exchange cancel itself and lets a non-rewind discard's
+re-homed UNTAGGED row (`PreserveIrreversibleLiveGameplayOnDiscard`) cancel its
+orphaned event. Filtering the observed side on tag WITHOUT mirroring the committed
+side breaks exactly that (measurable as: one in-flight exchange plus one discarded
+re-homed row would under-report by the re-homed amount). Netting inside the sweep
+keeps both populations whole - a matched pair contributes 0 to the residual - which
+is also what makes re-running the sweep on every load idempotent and makes an
+already-correct save measure 0. The residual is deterministic from the on-disk
+state, so it is recomputed at every load rather than persisted: no schema change,
+no stale marker. Nothing is written to the ledger, so
+`LedgerLoadMigration.IsMigrationConvertibleEvent`'s "pre-fix history stays pre-fix"
+rule is not disturbed either.
+
+Proof: `Source/Parsek.Tests/StrategyPrefixHoldbackTests.cs` (19 cells) reproduces
+the permanent hold-back against the REAL frozen pre-fix ledger
+(`Fixtures/C2Career/Parsek/GameState/ledger.pgld`, 68 rows, the exchange's funds
+credit and no science row) plus the measured 108.84171852 event, states the symptom
+through `ResolveSciencePoolPatch` (`ClampDirection.Up` = the `GUARDED DRAWDOWN
+clamped` line the entry quotes, and it disappears under the bound), and pins the
+release, the surviving fresh-event hold-back, idempotence / no-accumulate, the
+discard re-home symmetry, the converter-row exclusion, the visibility gate, and
+the end-to-end patch-target adjuster. The two L3 strategy lanes
+(`L3-strategy-currency-conversion`, `L3-strategy-exchanger-floor`) both fly FRESH
+careers, so they measure baseline 0 and are the standing regression floor for "the
+bound never eats a live exchange".
 
 ## REAIM-SOLVED-INCLINATION-IS-UNCORRELATED-WITH-TARGET-INCLINATION: the four-lane tilt table [MEASURED 2026-08-17, NOT A DEFECT]
 
