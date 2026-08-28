@@ -24,18 +24,115 @@ tier = "operator"
 # IsolatedBatchWiringGroupTests.PARTLY_BATCH_DISABLED_IDS: the arg earns its place by
 # admitting STRICTLY MORE, not by being the only way to run anything.
 #
-# THIS IS A READING RUN. It has never flown. Its tally split is deliberately left
-# OPEN (see the derivation block under [expectations.logContracts]) and the id is
-# declared in IsolatedBatchWiringGroupTests.INTERIM_PIN_IDS, which is the same
-# convention IngameBatchWiringGroupTests uses for a pre-measurement member. The
-# obligation that comes with that declaration: the FIRST flight measures the split,
-# the pin is replaced with the whole tally, a MEASURED_SKIPPED entry is added if the
-# run-time guards push `skipped` above the attribute floor of 1, and the id LEAVES
-# INTERIM_PIN_IDS in the same commit. An interim pin that outlives its first flight
-# is a weakening, not a convenience.
-description = "Run the in-game Logistics category through the ISOLATED batch entry point over the purpose-built logi-cargo-pad rig: the 38 restore-after-run declarations - unloaded-depot origin debit, pickup, loaded and multi-module delivery, harvest capture, multi-stop and multi-origin escrow, round-trip pairing - that no unattended path could execute before this spec."
+# =====================================================================================
+# READING-RUN HISTORY - THE LANE'S DERIVATION RECORD. Every number and every string
+# pinned below is quoted from run 2's `KSP.log`; nothing here is derived from an
+# attribute any more except `total=`, which the source sync still owns.
+#
+# RUN 1  `2026-08-28_1802`, PARSEK-FAIL(results), attempt 1, wall 170 s.
+#        CENSUS: `BATCH_COMPLETE v1 total=47 passed=36 failed=2 skipped=9
+#        category=Logistics scene=FLIGHT`. The isolated route ran (36 > the ordinary
+#        path's ceiling of 8), the rig cleared every precondition it was built for,
+#        and the run produced THREE findings - which is what a reading run is for:
+#
+#          1. A PRODUCT DEFECT, fixed at commit f98d5477a:
+#             D4-HARVEST-POLL-IS-NOT-RAILS-GATED-ON-SURFACE-VESSELS. The harvest poll
+#             was not rails-gated for LANDED / SPLASHED / PRELAUNCH vessels
+#             (`OnVesselGoOnRails` early-returns before `isOnRails` is set), and the
+#             rails-exit funnel flag was consumed by ANY no-transition poll and never
+#             re-armed at rails exit. `PollHarvestActivity` now gates on the vessel's
+#             own `packed` flag (`ShouldRunHarvestPoll`), consumes the funnel only
+#             when a transition is actually emitted (`ShouldConsumeRailsExitFunnel`),
+#             and `OnVesselGoOffRails` arms the funnel on BOTH exit branches. Pure
+#             predicates unit-tested in `RouteHarvestCaptureTests` (+3 cells). This is
+#             what red `HarvestCapture_WarpToggle_RebaselinesAtRailsTransitions`.
+#          2. A TEST DEFECT: `LogisticsHarvestRuntimeTests` read
+#             `RouteHarvestWindows` / `RouteRunManifest` off the tree recording
+#             WITHOUT flushing the stopped recorder into it first (all three sites).
+#             This is what red `HarvestCapture_ConverterToggle_OpensAndClosesWindow`.
+#          3. A TEST DEFECT: `LogisticsRouteProofRuntimeTests`' stored-part finder
+#             reflected on the internal `KeysList`, which resolves SILENTLY NULL under
+#             Public-only binding - so the cell self-skipped rather than failing. This
+#             is the SILENT-EMPTY class, and it is why token 5 below exists.
+#
+# RUN 2  `2026-08-28_1833`, PASS attempt 1, wall 250 s, over the f98d5477a DLL.
+#        MEASURED: `BATCH_COMPLETE v1 total=47 passed=39 failed=0 skipped=8
+#        category=Logistics scene=FLIGHT`. Every verifier green or REPORT
+#        (analyzer PASS red=0, batchComplete PASS, driverValidity PASS, expectations
+#        PASS with recordings count 0, logValidate PASS; ghostLifecycle / renderCompose
+#        / saveParse REPORT; ledgerOracle SKIPPED no-ledger-block-declared).
+#        DELTA FROM RUN 1: +3 passed (the two harvest cells now pass, and
+#        `InventoryPayloadIdentityHash_LiveStockMove_PreservesIdentity` moved from
+#        SKIPPED to PASSED - the only skip-set difference between the two runs).
+#        THE TALLY IS NOW PINNED WHOLE off these bytes and the id has LEFT
+#        IsolatedBatchWiringGroupTests.INTERIM_PIN_IDS, with `MEASURED_SKIPPED = 8`
+#        declared there (the attribute floor is 1; the other 7 are run-time
+#        `InGameAssert.Skip` guards, rostered below).
+#        CONFIRM RUNS PENDING - the pin is measured once, not yet re-proven.
+#
+# -------------------------------------------------------------------------------------
+# THE SKIP ROSTER - all 8, each with the reason it gave, quoted from run 2's log.
+# This is the debt ledger for the category: it is what a future fixture or a future
+# lane has to answer, and it is deliberately written out rather than summarised as a
+# count, because `skipped=8` on its own is indistinguishable from a rig that stopped
+# working.
+#
+#   1 SCENE-FILTERED (the attribute floor, no per-test line - the runner logs
+#     `Scene eligibility skip summary: skipped=1 currentScene=FLIGHT
+#     byRequiredScene=SPACECENTER:1`):
+#       InterBodyRoute_RealBuilder_ClassifiesReaimWindows_AndModuloFires
+#       -> SPACECENTER-scoped; OWNED BY H34's slice, not a gap here.
+#
+#   7 RUN-TIME `InGameAssert.Skip` guards, all seven a MISSING RECORDED SUBJECT
+#     rather than a rig defect - no craft property fixes any of them:
+#
+#       2 LogisticsRouteProducerRuntimeTests.RouteOriginProof_StartedDockedToNonKsc_
+#         ProducerLandsProof - "No recording with a captured RouteOriginProof. Set up:
+#         record a mission that started with the active vessel docked to a
+#         non-PRELAUNCH partner, commit the tree, then run this test."
+#       3 LogisticsRouteProducerRuntimeTests.RouteOriginProof_StartedOnRunway_
+#         ProducerSkipsProof - "No committed recording started in PRELAUNCH. Set up:
+#         launch a vessel from the pad / runway, record + commit a short flight, then
+#         run this test."
+#       4 LogisticsRouteProofRuntimeTests.RouteProof_ActiveAsInitiatorDockWindow_
+#         HasEndpointProof - "No active-as-initiator logistics dock route window found.
+#         Record a route where the active vessel docks into another vessel, then run
+#         this test."
+#       5 LogisticsRouteProofRuntimeTests.RouteProof_ActiveAsTargetDockWindow_
+#         HasEndpointProof - "No active-as-target logistics dock route window found.
+#         Record a route where the active vessel is the dock target, then run this
+#         test."
+#       6 LogisticsRouteProofRuntimeTests.RouteProof_CrossTreeCommittedPartner_
+#         HasEndpointProof - "No cross-tree-committed-partner dock route window found.
+#         Repro: commit one tree on vessel A, then launch vessel B in a fresh tree and
+#         dock B into A; the merged child on B's tree should carry a route window whose
+#         TransferTargetVesselPid matches A's committed recording."
+#         -> 4, 5 and 6 are ONE debt: a dock-window RECORDED fixture. That is the
+#            planned H39 `bdock-recorded` lane, not something `logi-cargo-pad` can
+#            answer - this host records nothing by design (see [expectations.recordings]).
+#       7 LogisticsHarvestRuntimeTests.HarvestCapture_CatchUpOnLoad_
+#         AttributesInsideWindowOrBridges - "Active vessel 'Logi Cargo Rig' carries no
+#         BaseDrill-derived module (stock surface drills / asteroid+comet drills); the
+#         catch-up investigation needs real harvest production - load a drill-equipped
+#         save to run this test."
+#         -> NOT fixable by adding a drill to the rig: the cell wants a drill rig
+#            LANDED ON ORE, i.e. a mined-surface fixture, and the FuelCell that
+#            satisfies the other two HarvestCapture cells deliberately does not.
+#       8 LogisticsHarvestRuntimeTests.HarvestRoute_AnalyzesEligible_
+#         FromSyntheticRecording - "Synthetic drill tree 'tree-drill-harvest-m2' is not
+#         in this save; run 'dotnet test --filter InjectAllRecordings' (KSP closed) and
+#         load the injected save to run this test."
+#         -> wants an INJECTED corpus. `injectedRecordings = "none"` is this spec's
+#            measured choice (see [fixture]); flipping it to buy one cell would add
+#            store noise to 38 others and break the zero-recordings assertion.
+# =====================================================================================
+description = "Run the in-game Logistics category through the ISOLATED batch entry point over the purpose-built logi-cargo-pad rig: the 38 restore-after-run declarations - unloaded-depot origin debit, pickup, loaded and multi-module delivery, harvest capture, multi-stop and multi-origin escrow, round-trip pairing - that no unattended path could execute before this spec. FLOWN TWICE 2026-08-28: reading run 1 found one product defect (the D4 harvest rails funnel, fixed at f98d5477a) plus two test defects, and run 2 over the fixed DLL measured 39 passed / 0 failed / 8 skipped, now pinned whole."
 instanceProfile = "stock-minimal"
-tags = ["ingame-batch", "isolated-batch", "logistics", "H38", "pending-flight"]
+# `flown` replaced `pending-flight` on 2026-08-28 (the BDOCK-1 / CL-3 / H35 precedent):
+# the lane has flown twice, the second green, and the tally is pinned off those bytes,
+# so `pending-flight` had stopped describing it. `reading-iteration` is the V5 tag for a
+# lane whose pins came out of a measured reading pass rather than a derivation.
+tags = ["ingame-batch", "isolated-batch", "logistics", "H38", "flown", "reading-iteration"]
 
 [fixture]
 # NOT gloops-airshow, NOT bdock-recorded, NOT depot-route-recorded, and this is the
@@ -148,22 +245,80 @@ steps = [
 ]
 
 [dimensionsCovered]
-# HONEST AND MINIMAL, because a reading run has measured nothing yet. Only the boot
-# facts are earned, and both ride the loadgame line: `scene-flight` is gated by the
-# fixture's Focusable route (a fixture that stopped being focusable would land at the
-# KSC and red the pinned scene token on the tally), and `sandbox` is the fixture's own
-# `Mode = SANDBOX`.
+# CLAIM-IS-NOT-GATE (the H35 rule): a value is declarable only when a REQUIRED token
+# would red if the behaviour stopped. What changed between the authored form of this
+# block and this one is not the spec's subject matter - it is that the tally is now
+# PINNED WHOLE, which turns it from a floor into a gate.
 #
-# NO D10 VALUE IS CLAIMED, deliberately, and this repeats H35's reasoning rather than
-# departing from it. The ten zero-declarer D10 rows (docked-depot-origin,
-# claw-producer, inventory-cargo, harvest-provenance, multi-stop, multi-origin-escrow,
-# round-trip-pair, hold-reasons, destination-full-gate, route-map-lines) name exactly
-# the behaviours the 38 cells exercise, and it is tempting to claim several here. They
-# are NOT claimable off an unflown spec: claim-is-not-gate means a value may only be
-# declared when a PINNED token would red if the behaviour stopped, and this spec pins
-# no cell token at all until the reading run says which cells actually execute. The
-# first post-reading commit is where those claims are earned, one per cell whose echo
-# gets pinned.
+# WHY THE TALLY GATES, spelled out because claiming five cells off one token deserves
+# the argument rather than an assertion. `passed=39 failed=0 skipped=8` is pinned with
+# LITERALS on all three, so there are exactly three ways a cell can stop asserting its
+# behaviour and every one of them reds:
+#   * it FAILS            -> `failed=0` reds (and `passed=39` reds too);
+#   * it self-SKIPS       -> `passed=38 skipped=9`, both literals red;
+#   * it is DELETED       -> `total=47` moves, and CommittedBatchTallySourceSyncTests
+#                            reds LOCALLY in `harness/lib` before any flight, forcing
+#                            the pin to move in the same commit.
+# There is no fourth. A compensating swap cannot hide either, because `failed=0` is
+# absolute rather than a budget. What the tally does NOT do is NAME the cell - the
+# reading is "these 39 all passed", not "this one passed" - so a red points at the
+# category rather than at a behaviour. That is a DIAGNOSTIC weakness, not a gating one,
+# and H34's standard is gating.
+#
+# WHY THESE FOUR AND NOT THE SUBJECT MATTER. H35 declined every D10 row on the ground
+# that "nothing in THIS run drives a production route emitter at all" - measured, zero
+# occurrences. That fact has INVERTED here, and the evidence is run 2's log, not the
+# cell names: the production `[Parsek][*][Route]` emitters fire throughout
+# (`ReserveCargo`, `ReserveCycleEscrow`, `ReleaseWindowEscrow`, `DropRouteEscrow`,
+# `PickupSourcesHaveCargo ... short-cause=escrow`, `PartnerGate: ... HOLD
+# WaitingForPartner` / `CLEAR` / `dispatched - consumed partner`, `Route ... hold
+# recorded kind=OriginLacksCargo`, `DispatchDebit`, `LoopRoute ... FIRED full cycle
+# (dispatch+debit+delivered)`, `Delivery write: ... path=loaded`). These are the real
+# units, driven live in FLIGHT, and the cells assert on their output - so a unit that
+# stopped doing the behaviour reds a cell, which reds the tally.
+#
+#  - D10 `multi-stop`: LogisticsMultiStopRuntimeTests `LoadedEndpoint_DeliversAtBothDocks`
+#    / `UnloadedEndpoint_DeliversAtBothDocks` / `PartialCycleResume_SurvivesSaveRoundTrip`,
+#    plus RouteOnMissions `MultiStop_KeptMembersLoop_PostLastDockNonMembers`. Four cells,
+#    all in the 39; two-dock delivery that stopped happening fails them.
+#  - D10 `multi-origin-escrow`: LogisticsMultiOriginRuntimeTests
+#    `TwoSources_BothDebitedAndConsolidated`, `OneSourceShort_HoldsNamingSource`,
+#    `Escrow_CompetingRouteSeesReservation_Holds`, `SaveRoundTrip_ResumesAndReEstablishesEscrow`.
+#    Four cells, all in the 39, and the reservation ledger is exercised in both
+#    directions - a route reserves (`ReserveCycleEscrow ... reservedSources=2`) and a
+#    COMPETING route is held BY that reservation (`short-cause=escrow ... raw=5
+#    netted=1 reservingRouteId=esc-A-23 reservedByRoute=4`), then re-established across
+#    a save round trip (`context=resume-reestablish`).
+#  - D10 `round-trip-pair`: LogisticsRoundTripRuntimeTests `DeadlockSeed_SeedDispatchesFirst`,
+#    `PausedPartner_BypassesAndDispatches`, `StaggeredDocks_AlternatesAcrossTicks`,
+#    `SaveReload_PreservesAlternation`. The PartnerGate alternation is asserted in all
+#    four of its branches (seed break, hold, clear, paused bypass).
+#  - D10 `hold-reasons`: `OriginGate_EmptyOrigin_HoldsWaitingForResources` (production
+#    emits `hold recorded kind=OriginLacksCargo`), `MultiOrigin_OneSourceShort_
+#    HoldsNamingSource` (the hold must NAME its source), `Escrow_CompetingRouteSees
+#    Reservation_Holds` (`short-cause=escrow`), `PausedPartner_BypassesAndDispatches`
+#    (`WaitingForPartner`). Three distinct hold kinds, each asserted.
+#
+# NOT CLAIMED, and this is the honest half of the decision:
+#  - D10 `destination-full-gate`. The gate IS reached - `DestinationHasCapacity: route
+#    ingame-m full manifest fits (stopsResolved=1 stopsUnresolved=0)` appears three
+#    times - but ONLY on the permissive branch. `RouteStatus.DestinationFull` /
+#    `WaitDestinationFull` never fire in run 2 (zero occurrences of either, and the
+#    only `hold recorded kind=` value in the whole log is `OriginLacksCargo`). A gate
+#    observed exclusively in the "yes" direction is not gated: the unit could stop
+#    refusing a full destination entirely and every one of the 39 would still pass.
+#    This value stays a zero-declarer row and stays honest.
+#  - The other five zero-declarer D10 rows (docked-depot-origin, claw-producer,
+#    inventory-cargo, harvest-provenance, route-map-lines) for the ordinary reason:
+#    nothing in the 39 asserts them, or the cell that would is in the skip roster.
+#  - D10 `delivery` / `pickup` / `resource-cargo` are NOT re-declared here even though
+#    the run drives them: they already carry declarers, and re-claiming a covered row
+#    inflates the count without gating anything new (the H34 rule).
+#
+# D14 - the boot facts, both riding the loadgame line: `scene-flight` is gated by the
+# fixture's Focusable route (a fixture that stopped being focusable would land at the
+# KSC and red the pinned scene token ON the tally), `sandbox` is its `Mode = SANDBOX`.
+D10 = ["multi-stop", "multi-origin-escrow", "round-trip-pair", "hold-reasons"]
 D14 = ["sandbox", "scene-flight"]
 
 [expectations]
@@ -186,8 +341,9 @@ allowedAnomalies = []
 count = { min = 0, max = 0 }
 
 [expectations.logContracts]
-# EVIDENCE STANDING: NOT FLOWN. Every number below is DERIVED from the `[InGameTest]`
-# attributes; nothing here is measured, and the split is deliberately left open.
+# EVIDENCE STANDING: FLOWN AND PINNED WHOLE. `total=` is still attribute-derived (and
+# source-synced); `passed=39 skipped=8` and both cell tokens are MEASURED, quoted from
+# `harness/results/2026-08-28_1833_H38-logistics-isolated_shots/KSP.log`.
 #
 # ---------------------------------------------------------------------------------
 # DERIVED, NOT GUESSED. The commands, so the next reader re-runs them rather than
@@ -220,36 +376,37 @@ count = { min = 0, max = 0 }
 #    admitted. (That is also why the baseline-slot literal below is 38 and not 47 -
 #    see its own note.)
 #
-#  - passed / skipped are LEFT OPEN, and the open form is chosen rather than
-#    defaulted to. Run-time `InGameAssert.Skip` guards decide the real split and no
-#    static analysis settles them: the 38 cells guard on what
-#    `UnloadedFuelVesselFixture` managed to snapshot and re-spawn, on live resource
-#    floors (`FixtureMinStoredLf` 10.0 / 14.0, `FixtureMinFreeCapacity` up to 18.0),
-#    on inventory PROBE ORDER as KSP actually walks it, on a converter that will
-#    ACTIVATE on the pad, and on warp/unpack races. The rig was built to satisfy all
-#    of them - that is its entire purpose - but assumptions A4 (inventory probe order)
-#    and A5 (resource floors) in `build_logi_craft.py` are explicitly the two that
-#    ONLY a Logistics batch can falsify. Pinning a guessed split would either red on a
-#    correct run or, worse, be widened afterwards until it accepted anything.
+#  - passed=39 and skipped=8 are MEASURED AND PINNED AS LITERALS, replacing the
+#    authored interim form `passed=(?:9|[1-9][0-9]+) ... skipped=[0-9]+`. The measuring
+#    line, verbatim from run 2 (`KSP.log:28117`):
+#      [LOG 21:36:47.028] [Parsek][INFO][TestRunner] BATCH_COMPLETE v1 total=47
+#      passed=39 failed=0 skipped=8 category=Logistics scene=FLIGHT
+#    39 + 8 = 47 exactly, and the 39 are named: the log carries 39 distinct
+#    `PASSED: <Class>.<Method>` lines and 7 `SKIPPED:` lines, the 8th skip being the
+#    scene filter (`Scene eligibility skip summary: skipped=1 currentScene=FLIGHT
+#    byRequiredScene=SPACECENTER:1`). The full skip roster with each guard's stated
+#    reason is in the header block at the top of this file - that roster IS the
+#    category's remaining debt, and `skipped=8` alone would not say what it is.
 #
-#  - THE OPEN FORM IS `passed=(?:9|[1-9][0-9]+)`, i.e. passed >= 9, and it is NOT the
-#    usual `passed=[1-9][0-9]*` interim spelling. That spelling would be WRONG here
-#    and the reason is the whole R5 thesis:
-#      * the vacuous family (`passed=0 failed=0`, which forces total == skipped) is
-#        rejected by either form - `[1-9]` cannot match 0 - so anti-vacuity alone does
-#        not decide between them;
-#      * but the ORDINARY path's ceiling at FLIGHT is 8 executable, so the line a run
-#        that silently LOST, ignored or misspelled the isolated arg would print is
-#        `total=47 passed=8 failed=0 skipped=39` (H35 measured 5/42 on its own host,
-#        i.e. at or below that ceiling). `passed=[1-9][0-9]*` MATCHES `passed=8` and
-#        would read that degraded run as GREEN. `passed >= 9` cannot: it is exactly
-#        the statement "more tests passed than the ordinary filter could even admit",
-#        which is the only thing this spec exists to prove and the only floor that
-#        cannot be met without the isolated route running.
-#    IsolatedBatchWiringGroupTests::test_each_pin_rejects_both_the_vacuous_and_the_
-#    non_isolated_line asserts both rejections mechanically against synthesized lines.
-#    `skipped=[0-9]+` stays fully open - with `total` and `passed` constrained it
-#    carries no discrimination of its own, and constraining it would be a guess.
+#    WHAT THE LITERAL PIN BUYS OVER THE INTERIM FORM. The interim `passed >= 9` was a
+#    FLOOR whose only job was to reject the ordinary path's ceiling of 8; it accepted
+#    every degradation above that, including a rig that stopped satisfying two of its
+#    five preconditions and self-skipped eight more cells. The literal rejects all of
+#    them, and it makes the tally the gate the [dimensionsCovered] D10 claims rest on:
+#    a cell that FAILS reds `failed=0`, a cell that SKIPS reds both `passed=39` and
+#    `skipped=8`, and a cell that is DELETED reds `total=47` locally in `harness/lib`
+#    via CommittedBatchTallySourceSyncTests before it can reach a flight.
+#
+#    `skipped=8` is ABOVE the attribute floor of 1, so it is declared in
+#    IsolatedBatchWiringGroupTests.MEASURED_SKIPPED - the attributes cannot see the 7
+#    run-time `InGameAssert.Skip` guards, and that table is where a measured number is
+#    allowed to exceed the derivation. The id has correspondingly LEFT
+#    INTERIM_PIN_IDS: an interim pin that outlives its first flight is a weakening.
+#
+#    RE-MEASURE, DO NOT RE-GUESS. Both numbers are properties of the RIG plus the
+#    guards. If `build_logi_craft.py`'s assumptions A4 (inventory probe order) or A5
+#    (resource floors) ever move, or a guard is added, this pin and the MEASURED_SKIPPED
+#    entry move TOGETHER and only off a fresh log.
 #
 #  - failed=0 is the ASSERTION, pinned hard as on every batch spec. A reading run may
 #    legitimately discover that a cell SKIPS; a cell that FAILS is a finding either
@@ -277,14 +434,57 @@ count = { min = 0, max = 0 }
 # is emitted by ParsekTestCommandAddon.RunTestsImpl on the exact step this driver
 # sends.
 #
-# NO CELL TOKENS ARE PINNED YET, deliberately. Which cell echoes exist and at which
-# level is exactly what the reading run reports; pinning any of them now would be
-# guessing at a string. The verboseLogging step is what makes them readable when it
-# flies.
+# TWO CELL TOKENS, AND ONLY TWO. The reading run produced 39 `PASSED:` lines and it
+# would be easy to pin all 39; that would be a MIRROR OF THE TALLY, not extra evidence
+# - `passed=39 failed=0` already reds if any one of them stops passing, so 39 more
+# tokens buy exactly one thing the tally lacks (naming WHICH cell) at the cost of 39
+# lines that must be re-verified on every source touch. The two below are pinned
+# because each names a MECHANISM that a green-looking tally could plausibly reach
+# without, and both are quoted from run 2's bytes:
+#
+#  - THE D4-FIX GUARD. Run 1's product defect was the harvest poll not being
+#    rails-gated for surface vessels, plus the rails-exit funnel flag being consumed
+#    by any no-transition poll and never re-armed. The fix (f98d5477a) is only
+#    OBSERVABLE as a funnel close whose trigger is the rails exit itself. Run 2 emits
+#    it (`KSP.log:14803`, and it is the ONLY `trigger=rails-exit` line in the log -
+#    the other three funnel consumptions all read `trigger=toggle`):
+#      [LOG 21:34:40.073] [Parsek][VERBOSE][Recorder] Harvest funnel consumed at
+#      transition: trigger=rails-exit transition=Close anyActive=0 vessel='Logi Cargo
+#      Rig' pid=2200110038 recVessel=2200110038 ut=27.78
+#    The pinned prefix stops before `vessel=` because pid and ut are per-run. STRICTLY
+#    REDUNDANT WITH THE TALLY - if the funnel regresses,
+#    `HarvestCapture_WarpToggle_RebaselinesAtRailsTransitions` fails and `failed=0`
+#    reds - and pinned anyway, because it is the one token that says WHY. A regression
+#    here reads as "the rails funnel is gone", not as "something in Logistics broke".
+#    This token requires `verboseLogging=true` (the driver sets it): the line is Verbose.
+#
+#  - THE SILENT-EMPTY GUARD. `InventoryPayloadIdentityHash_LiveStockMove_
+#    PreservesIdentity` is the ONE cell whose state differs between the two runs
+#    (SKIPPED in run 1, PASSED in run 2) and the reason is a failure MODE rather than a
+#    behaviour: its stored-part finder reflected on the internal `KeysList`, which
+#    resolves silently null under Public-only binding, so the cell self-skipped and the
+#    tally simply read one lower. That whole class - a reflection probe that degrades
+#    to empty instead of throwing - is invisible to `failed=0`. Pinning the PASS echo
+#    makes the skip direction red. Verbatim (`KSP.log:26409`):
+#      [LOG 21:36:33.383] [Parsek][VERBOSE][TestRunner] PASSED:
+#      LogisticsRouteProofRuntimeTests.InventoryPayloadIdentityHash_
+#      LiveStockMove_PreservesIdentity (36.4ms)
+#    The `(36.4ms)` duration is deliberately NOT pinned.
+#
+# NEGATIVE CONTROL, and it is free because run 1's log is committed alongside run 2's.
+# Re-run the five patterns against
+# `harness/results/2026-08-28_1802_H38-logistics-isolated_shots/KSP.log` (the PRE-fix
+# run): the two structural tokens still match once each - they are properties of the
+# entry point, not of the fix - and the tally plus BOTH cell tokens match ZERO times.
+# So each of the three tokens this commit tightened or added genuinely discriminates
+# the fixed state from the state run 1 measured, rather than matching whatever a
+# Logistics batch happens to print.
 required  = [
   "runtests start category=Logistics isolated=true",
   "Using batch baseline slot .* for 38 restore-after-run test\\(s\\)",
-  "BATCH_COMPLETE v1 total=47 passed=(?:9|[1-9][0-9]+) failed=0 skipped=[0-9]+ category=Logistics scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=47 passed=39 failed=0 skipped=8 category=Logistics scene=FLIGHT",
+  "Harvest funnel consumed at transition: trigger=rails-exit transition=Close anyActive=0",
+  "PASSED: LogisticsRouteProofRuntimeTests\\.InventoryPayloadIdentityHash_LiveStockMove_PreservesIdentity",
 ]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 
@@ -300,9 +500,14 @@ forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 # 38 restore-flagged cells, i.e. ~38 real FLIGHT scene reloads plus a baseline prime,
 # on a 6-part craft. A slow or wedged restore is the plausible failure mode, and a
 # KILLED run prints NO tally at all - which is strictly worse than waiting, because
-# the tally is the entire product of a reading run. If the first flight measures a wall
-# anywhere near 1400 this number needs raising, not the step budgets (which are already
-# at the deferred cap).
+# the tally is the entire product of a reading run.
+#
+# MEASURED AND KEPT: run 1 wall 170 s, run 2 wall 250 s (the run that executed the full
+# 39; run 1's two failures short-circuited earlier cells' restores). Both are far under
+# 1400, so the number is now known-generous rather than a guess - and it stays where it
+# is. The budget covers the DEFERRED WORST CASE (660 + 660), not the observed wall, and
+# trimming it to hug 250 s would convert a slow-restore run into a KILLED run with no
+# tally, which is exactly the outcome this arithmetic exists to avoid.
 budgetSeconds = 1400
 
 [retry]

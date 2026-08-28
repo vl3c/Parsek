@@ -19,7 +19,14 @@ All notable changes to Parsek are documented here.
   always empty, whatever the recorder had actually captured, and the tests
   reported a Parsek fault that was entirely their own. They now perform that
   same hand-over themselves after stopping, so what they check is the real
-  forwarded result. Test-tooling only; no gameplay change.
+  forwarded result. The warp one of the three was also skipping itself roughly
+  one run in four: it asked for time warp without saying WHICH kind, and the game
+  gives you whichever kind was last selected - so on a run that happened to be in
+  physics warp it got 3x physics warp rather than 10x on-rails, which never parks
+  the craft and so could never exercise the thing the test is about. It now asks
+  for on-rails warp explicitly, waits for the craft to come to rest first, retries
+  within a bounded window, and reports the warp mode and rate it actually measured
+  if it still has to give up. Test-tooling only; no gameplay change.
 - The cargo-move route-proof test can now see the cargo it needs. It read a
   container's occupied slots through a general-purpose lookup asked only for
   publicly-visible parts of the game's own code - and the list of occupied slots
@@ -40,11 +47,26 @@ All notable changes to Parsek are documented here.
   assembled from parts by a script - which doubles as the written record of why
   each part is there, and as the check that nobody quietly edits the rocket by
   hand - along with the automated run that will put it on the pad and save the
-  game there, and the test run itself that will finally put all of those
-  supply-route tests through their paces on it. That run is written to be
-  deliberately modest about what it claims: until it has actually been flown
-  once, it only insists that noticeably more tests pass than could ever have run
+  game there, and the test run itself that finally puts all of those
+  supply-route tests through their paces on it. That run was written to be
+  deliberately modest about what it claimed: until it had actually been flown
+  once, it only insisted that noticeably more tests pass than could ever have run
   the old way, rather than pretending to know the exact result in advance.
+  IT HAS NOW BEEN FLOWN, and the modesty paid for itself. The first run put 36 of
+  the 47 supply-route tests through, and the reading it produced was worth more
+  than a pass: two of them failed, and reading why turned up one genuine Parsek
+  fault - harvesting bookkeeping on a landed rig running during time warp, the
+  fix for which has its own entry above - plus two faults in the tests
+  themselves, one of them a test that had been giving up silently rather than
+  failing. With all three fixed, the second run passed cleanly with 39 of the 47
+  through and none failing, in about four minutes. That exact result is now what
+  the run demands: 39 pass, none fail, 8 give up - the eight being tests that
+  each want a past this launchpad rocket has no way to have (a flight that
+  started docked, a recorded docking, a drill rig sitting on ore), all of them
+  written down by name so the number cannot quietly drift into meaning something
+  else. Two individual tests are additionally named, chosen because each guards
+  a way the total alone could look healthy while something had gone quiet: the
+  harvesting fix, and the test that used to give up in silence.
   Test-tooling only; no gameplay change, and nothing ships with the mod.
 - The ghost appear/disappear checker from the "watch your old launch" test is
   now enforcing rather than just reporting: it was re-flown twice with the gate

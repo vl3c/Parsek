@@ -3623,23 +3623,31 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
     # test_each_pin_rejects_both_the_vacuous_and_the_non_isolated_line still runs
     # unchanged - which is the load-bearing one, because it is what forces the
     # interim spelling to be a floor ABOVE the ordinary path's executable ceiling
-    # rather than the usual `passed=[1-9][0-9]*`. For H38 that ceiling is 8, so the
-    # spec pins `passed=(?:9|[1-9][0-9]+)`; the plain interim spelling would accept
-    # `passed=8`, the exact line a run that silently lost the isolated arg prints.
+    # rather than the usual `passed=[1-9][0-9]*`. When H38 was a member that ceiling
+    # was 8, so it pinned `passed=(?:9|[1-9][0-9]+)` rather than the plain interim
+    # spelling, which would have accepted `passed=8` - the exact line a run that
+    # silently lost the isolated arg prints.
     #
-    #   H38-logistics-isolated - authored as a READING RUN. Its 46 admitted cells
-    #   guard at run time on what UnloadedFuelVesselFixture managed to snapshot and
-    #   re-spawn, on live LF stored/free floors, on inventory PROBE ORDER as KSP
-    #   actually walks it, on a converter that will activate on the pad, and on
-    #   warp/unpack races - none of which any attribute predicts. The purpose-built
-    #   `logi-cargo-pad` rig exists to satisfy every one of them, but assumptions A4
-    #   (inventory probe order) and A5 (resource floors) in
-    #   `harness/tools/build_logi_craft.py` are explicitly the two that ONLY a
-    #   Logistics batch can falsify.
+    # BACK TO EMPTY ON 2026-08-28, WHICH IS THE OBLIGATION BEING DISCHARGED RATHER
+    # THAN A LOOSENING. `H38-logistics-isolated` was the one member, authored as a
+    # reading run because its 46 admitted cells guard at run time on things no
+    # attribute predicts (what UnloadedFuelVesselFixture managed to snapshot and
+    # re-spawn, live LF stored/free floors, inventory PROBE ORDER as KSP actually
+    # walks it, a converter that will activate on the pad, warp/unpack races). It has
+    # now FLOWN TWICE - `2026-08-28_1802` (PARSEK-FAIL(results): one product defect,
+    # the D4 harvest rails funnel, fixed at f98d5477a, plus two test defects) and
+    # `2026-08-28_1833` (PASS attempt 1) - and run 2 measured
+    # `BATCH_COMPLETE v1 total=47 passed=39 failed=0 skipped=8 category=Logistics
+    # scene=FLIGHT`. The spec now pins that whole, its `skipped=8` is declared in
+    # MEASURED_SKIPPED below, and the id leaves here in the same commit.
+    # test_the_interim_pin_members_are_declared_and_deliberately_loose is what makes
+    # that simultaneous: it requires the declared set and the OBSERVED looseness to
+    # agree exactly, so a whole pin left declared here reds, and so does an interim
+    # pin left undeclared.
     #
     # It must stay a set LITERAL of ids (or a `set()` call when empty, never a `{}`
     # literal, which would be an empty DICT and make every membership read False).
-    INTERIM_PIN_IDS = {"H38-logistics-isolated"}
+    INTERIM_PIN_IDS: set = set()
 
     # id -> measured `skipped=` for members whose RUN-TIME InGameAssert.Skip guards
     # push the split above the attribute-derived floor. The attributes give a FLOOR
@@ -3658,6 +3666,20 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
         # + 16 run-time, the marker-dependent family plus the two-command-pod staging
         # trio plus InvokeRPStripAndActivate. Derivation in the spec's own comment.
         "R7a-rewind-session-absent": 22,
+        # H38: 1 attribute-forced (InterBodyRoute_RealBuilder_ClassifiesReaimWindows_
+        # AndModuloFires, the one SPACECENTER-scoped Logistics cell, which H34 owns)
+        # + 7 run-time, and every one of the seven is a MISSING RECORDED SUBJECT
+        # rather than a rig defect: the two RouteOriginProof producer cells (a
+        # docked-origin and a PRELAUNCH-committed recording), the three RouteProof
+        # dock-window cells (one debt - the planned H39 bdock-recorded lane), the
+        # HarvestCapture catch-up cell (a drill rig landed on ore, which the FuelCell
+        # deliberately is not), and the HarvestRoute cell (the injected synthetic tree
+        # `tree-drill-harvest-m2`, which `injectedRecordings = "none"` withholds by
+        # measured choice). MEASURED off run `2026-08-28_1833`, whose seven `SKIPPED:`
+        # lines plus `Scene eligibility skip summary: skipped=1 currentScene=FLIGHT
+        # byRequiredScene=SPACECENTER:1` are quoted in full in the spec's header
+        # roster. Re-measure, never re-guess: all seven are fixture properties.
+        "H38-logistics-isolated": 8,
     }
 
     @classmethod
@@ -5327,16 +5349,24 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # todo entry, not a debt this tag can carry. (Flown as
         # `H33-logistics-route-proof`; renamed H35 for the same collision.)
         "H35-logistics-route-proof.toml":   "FLOWN 3x 2026-08-11 (reading + two confirms, all PASS attempt 1) and PINNED WHOLE; operator tier is an open PROMOTION call, not debt",
-        # tier=operator because it has NOT FLOWN, the same disposition its own
-        # fixture forge carries: a first-flight lane is operator until a reading run
-        # measures it, and putting an unflown 46-cell isolated batch on a cadence
-        # would flake a tier rather than test anything. The outstanding work is a
-        # FLIGHT, not a human call, and the `pending-flight` tag carries that debt -
-        # so `pending-operator` would be the wrong tag, exactly as it is on
-        # FORGE-logi-pad. Re-classify to the H34/H35 shape (an open operator ->
-        # daily PROMOTION call) once the reading run has been flown, its split
-        # measured, and the interim pin replaced.
-        "H38-logistics-isolated.toml":      "tier=operator because it is a READING RUN that has not flown; debt carried by the pending-flight tag (a flight, not a human call), same disposition as FORGE-logi-pad which stamps its fixture",
+        # RE-CLASSIFIED 2026-08-28 to the H34/H35 shape, which is what the previous
+        # revision of this comment asked a future reader to do once the reading run
+        # had flown, its split had been measured, and the interim pin had been
+        # replaced. All three are now done: run `2026-08-28_1802` (PARSEK-FAIL(results),
+        # census 47/36/2/9) found one product defect - the D4 harvest rails funnel,
+        # fixed at f98d5477a - and two test defects; run `2026-08-28_1833` over the
+        # fixed DLL was PASS attempt 1 and measured 47/39/0/8, now pinned WHOLE with
+        # `MEASURED_SKIPPED = 8`, and the id has left INTERIM_PIN_IDS. The tag moved
+        # `pending-flight` -> `flown` in the same commit.
+        #
+        # WHAT IS STILL OPEN IS NOT DEBT: the CONFIRM runs (the pin is measured once,
+        # not yet re-proven - H34 and H35 each flew two confirms before their rows read
+        # this way) and, after them, the ordinary operator -> daily PROMOTION call,
+        # which only a human makes. The eight skips it pins are FIXTURE properties
+        # rostered in the spec header, not outstanding work on this lane; three of them
+        # name the planned H39 bdock-recorded dock-window lane, which is a separate
+        # spec's scope rather than a debt this tag can carry.
+        "H38-logistics-isolated.toml":      "FLOWN 2x 2026-08-28 (reading run found 1 product + 2 test defects, fixed at f98d5477a; run 2 PASS attempt 1) and PINNED WHOLE; confirm runs then the operator -> daily PROMOTION call are what remain, not debt",
         # tier=operator by the CALIBRATION DISCIPLINE, the whole B18-B26 family's
         # tier, and NOT a debt: a first-flight B lane is operator because its
         # windows are derived rather than measured and the first run is a

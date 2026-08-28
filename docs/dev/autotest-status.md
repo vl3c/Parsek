@@ -1560,8 +1560,10 @@ lines). Its predicted tally is retired and it was promoted `operator` -> `nightl
 the commit that pinned the measurement, per the L2 precedent. Its row now lives in
 Live-proven above.
 
-ONE UNFLOWN SPEC IS DELIBERATELY NOT IN THIS TABLE, so it is not read as an omission:
-`H38-logistics-isolated` (authored 2026-08-28, reading run pending) keeps its row in
+ONE LIVE-PROVEN SPEC IS DELIBERATELY NOT IN THIS TABLE, so it is not read as an
+omission: `H38-logistics-isolated` (authored 2026-08-28 and flown twice the same day,
+the second run PASS attempt 1 with its tally now pinned whole; confirm runs pending)
+keeps its row in
 its own section below - "In-game batch wiring: the Logistics isolated slice, H38 (1)" -
 alongside the H34 and H35 sections that own the other two slices of the same category,
 because the three only make sense read together. The fixture forge that stamps its
@@ -1859,7 +1861,8 @@ token pins are id-independent.
 
 ### In-game batch wiring: the Logistics isolated slice, H38 (1)
 
-AUTHORED 2026-08-28, **NOT FLOWN - a READING RUN**. The THIRD and largest slice of
+AUTHORED AND FLOWN 2026-08-28. **LIVE-PROVEN, PINNED OFF RUN 2; CONFIRM RUNS
+PENDING.** The THIRD and largest slice of
 `Logistics`, and the one that is actually the category. H34 owns its 2
 SPACECENTER-eligible declarations and H35 the 8 the ORDINARY FLIGHT filter admits;
 the other 38 are `AllowBatchExecution = false` + `RestoreBatchFlightBaselineAfter-
@@ -1889,32 +1892,94 @@ one free. `FORGE-logi-pad` stamped `fixtures/saves/logi-cargo-pad` to satisfy al
 at once; `harness/tools/build_logi_craft.py` is the craft's derivation record and
 `harness/lib/test_logi_cargo_rig.py` its byte-identity drift gate. The two assumptions
 that record only a Logistics batch can settle are A4 (inventory PROBE ORDER as KSP
-actually walks it) and A5 (the live resource floors) - which is exactly what this
-reading run is for.
+actually walks it) and A5 (the live resource floors) - which is exactly what the
+reading run was for. **BOTH HELD.** The rig cleared every one of its five
+preconditions on the first flight; not one of the eight remaining skips is a rig
+property.
 
-WHY THE SPLIT IS LEFT OPEN, and why the OPEN FORM IS NOT THE USUAL ONE. Run-time
-`InGameAssert.Skip` guards decide the real split and no attribute predicts them, so
-`passed=` / `skipped=` are unpinned and the id is declared in
-`IsolatedBatchWiringGroupTests.INTERIM_PIN_IDS` (the same convention the ordinary
-H-series group uses for a pre-measurement member). The usual interim spelling
-`passed=[1-9][0-9]*` would be WRONG here: the ordinary path's executable ceiling at
-FLIGHT is 8, so a run that silently lost, ignored or misspelled the isolated arg
-prints a line with `passed <= 8`, and that spelling would read it GREEN. The spec pins
-`passed=(?:9|[1-9][0-9]+)` instead - exactly "more tests passed than the ordinary
-filter could even admit" - and a new group cell
-(`test_an_interim_pin_still_rejects_the_ordinary_paths_executable_ceiling`) sweeps the
-whole 0..8 range and requires the pin to reject all of it, so the exemption cannot
-widen into a hole.
+THE READING DISCIPLINE, BOTH RUNS, and what each bought. The lane was authored with an
+OPEN split (`passed=(?:9|[1-9][0-9]+) ... skipped=[0-9]+`) and its id declared in
+`IsolatedBatchWiringGroupTests.INTERIM_PIN_IDS`, because run-time `InGameAssert.Skip`
+guards decide the real split and no attribute predicts them. That open form was
+deliberately NOT the usual `passed=[1-9][0-9]*`: the ordinary path's executable ceiling
+at FLIGHT is 8, so a run that silently lost the isolated arg prints `passed <= 8` and
+the usual spelling would read it GREEN.
 
-OBLIGATION ON THE FIRST FLIGHT, stated so the interim state cannot outlive it: measure
-the split off `BATCH_COMPLETE`, replace the pin with the whole tally, add a
-`MEASURED_SKIPPED` entry if the run-time guards push `skipped` above the attribute
-floor of 1, claim whatever D10 values a newly-pinned cell token now gates, and remove
-the id from `INTERIM_PIN_IDS` - in the same commit.
+- **Run 1** `2026-08-28_1802`, PARSEK-FAIL(results), attempt 1, wall 170 s. Census
+  `total=47 passed=36 failed=2 skipped=9`. The isolated route ran (36 is far above the
+  ordinary ceiling of 8) and produced THREE findings.
+  1. A **PRODUCT DEFECT**, fixed at `f98d5477a`:
+     *D4-HARVEST-POLL-IS-NOT-RAILS-GATED-ON-SURFACE-VESSELS*. The harvest poll was not
+     rails-gated for LANDED / SPLASHED / PRELAUNCH vessels (`OnVesselGoOnRails`
+     early-returns before `isOnRails` is set), and the rails-exit funnel flag was
+     consumed by any no-transition poll and never re-armed at rails exit.
+     `PollHarvestActivity` now gates on the vessel's own `packed` flag
+     (`ShouldRunHarvestPoll`), consumes the funnel only when a transition is emitted
+     (`ShouldConsumeRailsExitFunnel`), and `OnVesselGoOffRails` arms it on both exit
+     branches; +3 pure-predicate cells in `RouteHarvestCaptureTests`. This is what red
+     `HarvestCapture_WarpToggle_RebaselinesAtRailsTransitions`.
+  2. A **TEST DEFECT**: `LogisticsHarvestRuntimeTests` read `RouteHarvestWindows` /
+     `RouteRunManifest` off the tree recording without flushing the stopped recorder
+     into it first (all three sites) - what red
+     `HarvestCapture_ConverterToggle_OpensAndClosesWindow`.
+  3. A **TEST DEFECT**: `LogisticsRouteProofRuntimeTests`' stored-part finder reflected
+     on the internal `KeysList`, which resolves SILENTLY NULL under Public-only binding,
+     so the cell SELF-SKIPPED rather than failing. The finder moved onto the public
+     `storedParts` API.
+- **Run 2** `2026-08-28_1833`, PASS attempt 1, wall 250 s, over the fixed DLL.
+  MEASURED `BATCH_COMPLETE v1 total=47 passed=39 failed=0 skipped=8 category=Logistics
+  scene=FLIGHT`; every verifier PASS or REPORT (analyzer red=0, expectations PASS with
+  recordings 0, logValidate PASS; ghostLifecycle / renderCompose / saveParse REPORT;
+  ledgerOracle SKIPPED no-ledger-block-declared). **EXECUTED COUNT FOR `Logistics` GOES
+  5 -> 39 OF 47** across the three slices' union - 39 in one batch, from a category
+  where the ordinary FLIGHT filter tops out at 8.
+
+THE OBLIGATION IS DISCHARGED, in the commit that pinned the measurement: the tally is
+pinned WHOLE (`passed=39 failed=0 skipped=8`), `MEASURED_SKIPPED["H38-logistics-isolated"]
+= 8` is declared, the id has LEFT `INTERIM_PIN_IDS` (which is back to its healthy empty
+state), the D10 claims a gating token now earns are declared, and the tag moved
+`pending-flight` -> `flown`. Two targeted cell tokens were added, and only two - 39
+`PASSED:` tokens would MIRROR the tally rather than add evidence, since `passed=39
+failed=0` already reds if any one of them stops passing. The two pinned each name a
+MECHANISM a green-looking tally could reach without: the funnel close whose
+`trigger=rails-exit` is the only observable form of the D4 fix, and the PASS echo of
+`InventoryPayloadIdentityHash_LiveStockMove_PreservesIdentity`, which guards the
+silent-empty reflection class that made finding 3 a SKIP instead of a FAIL.
+
+THE SKIP ROSTER - all 8, and it is the category's remaining debt rather than a defect
+list. One is the attribute floor: `InterBodyRoute_RealBuilder_ClassifiesReaimWindows_
+AndModuloFires`, SPACECENTER-scoped, owned by H34's slice. The other seven are run-time
+guards and every one is a MISSING RECORDED SUBJECT, not a rig property - two
+`RouteOriginProof` producer cells (want a docked-origin recording and a
+PRELAUNCH-committed recording), three `RouteProof` dock-window cells (ONE debt: a
+dock-window recorded fixture, which is the planned H39 `bdock-recorded` lane),
+`HarvestCapture_CatchUpOnLoad` (wants a drill rig landed on ore - not answerable by
+adding a drill to the rig), and `HarvestRoute_AnalyzesEligible` (wants the injected
+synthetic tree `tree-drill-harvest-m2`, which `injectedRecordings = "none"` withholds
+by measured choice). Each guard's verbatim reason is quoted in the spec's own header
+roster; `skipped=8` on its own would be indistinguishable from a rig that stopped
+working.
+
+THE CONFIRM DISCIPLINE COMPLETED THE SAME DAY, six flights in all. Confirms 1 and 2
+(`2026-08-28_1858` wall 204 s, `_1902` wall 186 s) both PASS attempt 1 on the exact
+pins. The NEGATIVE CONTROL (`_1905`) then inverted the D4-fix token
+(`transition=Close` -> `transition=Open`, a combination the funnel cannot print) and
+red exactly as designed - and ALSO caught a real intermittency the three green runs
+had not: `HarvestCapture_WarpToggle` skipped that run with "Rails warp was refused"
+because the batch had left `TimeWarp` in LOW/physics mode (the log's 3.0x vs the
+green runs' 10.0x rate is the discriminator; a physics warp never packs the vessel),
+flipping the tally to 38/9 - so the control run carried TWO mismatches, the inverted
+key plus the tally, and the second one was a finding, not noise. The test now
+re-asserts `Mode = HIGH` before every `SetRate` inside a bounded settle/retry helper
+(`EnterRailsWarpWithRetry`; the earlier settle-race hypothesis is REFUTED in the D4
+todo entry - the warp was always ACCEPTED, in the wrong mode). CONFIRM 3
+(`2026-08-28` post-hardening, wall 170 s) PASS attempt 1 over the re-provisioned
+DLL. STILL OPEN, and not debt on this lane: the ordinary `operator` -> `daily`
+PROMOTION call, which only a human makes.
 
 | Test case | Tier | Parsek surface verified | Coverage cells |
 |---|---|---|---|
-| H38-logistics-isolated | operator | The 38 restore-after-run `Logistics` declarations no unattended path could execute before this spec: unloaded-depot origin debit, pickup, loaded and multi-module cargo delivery, harvest capture, multi-stop and multi-origin escrow, and round-trip pairing - driven through `RunCategoryIncludingFlightRestore` over the purpose-built `logi-cargo-pad` rig (6 parts: `probeCoreOcto2.v2` root, 3-slot `smallCargoContainer` holding an `evaRepairKit` + `evaScienceKit` with one slot free, empty 9-slot `cargoContainer`, FL-T400 at LF 100/180 + Ox 122/220 flowState=True, `liquidEngine2`, surface-mounted `FuelCell`). ATTRIBUTE-DERIVED, NOT MEASURED: `total=47` (47 `[InGameTest(Category = "Logistics")]` declarations across 18 files, the same 47 H34 and H35 pin), attribute skip floor 1 (the one SPACECENTER-scoped cell H34 owns; NOTHING is batch-skipped on the isolated path because all 38 batch-disabled declarations carry the restore flag), and the baseline-slot literal 38 = `ordered.Count(t => t.RestoreBatchFlightBaselineAfterExecution)` over the ADMITTED batch, which is neither 47 nor 46 and is emitted ONLY by `PrepareBatchFlightRestoreExecution` - proof of the isolated entry point independent of the tally. Three required tokens, no cell tokens yet: the seam echo `runtests start category=Logistics isolated=true` (also the canary for the provisioning trap - the harness flies `automation/stock-minimal`, not the `dotnet build` instance), the literal-38 baseline-slot line, and the open tally. `verboseLogging=true` is load-bearing rather than cosmetic: the per-test PASSED / SKIPPED lines are Verbose, and a reading run whose product is a census of which of the 46 admitted cells executed is blind without them. NO kill triple, unlike H35 - `logi-cargo-pad` is a fresh un-recorded pad fixture with zero trees, so there is nothing to stop and nothing to discard. `[expectations.recordings] count = {0, 0}` doubles as the campaign-isolation assertion: several cells build real trees mid-run, and the per-test baseline restore plus the teardown revert from the pre-batch `.bak` must leave the produced save clean. `budgetSeconds = 1400` clears the 660 + 660 deferred worst case, and the headroom matters more here than on any prior isolated spec - H21's batch was 2 quickloads at 29.6 s and R7a's 6 at ~68 s wall, where this one admits 38 restore-flagged cells, i.e. ~38 real FLIGHT scene reloads plus a baseline prime | D14 sandbox, scene-flight - the boot facts only, both riding the loadgame line. NO D10 value claimed, deliberately: the ten zero-declarer D10 rows (docked-depot-origin, claw-producer, inventory-cargo, harvest-provenance, multi-stop, multi-origin-escrow, round-trip-pair, hold-reasons, destination-full-gate, route-map-lines) name exactly what the 38 cells exercise, and it is tempting to claim several - but claim-is-not-gate means a value is declarable only when a PINNED token would red if the behaviour stopped, and this spec pins no cell token until the reading run says which cells execute. The first post-reading commit is where those claims are earned, one per pinned echo. TIER: `operator`, and NOT because a human call is outstanding - because it has not flown; the debt is a FLIGHT, carried by the `pending-flight` tag, the same disposition `FORGE-logi-pad` records |
+| H38-logistics-isolated | operator | The 38 restore-after-run `Logistics` declarations no unattended path could execute before this spec: unloaded-depot origin debit, pickup, loaded and multi-module cargo delivery, harvest capture, multi-stop and multi-origin escrow, and round-trip pairing - driven through `RunCategoryIncludingFlightRestore` over the purpose-built `logi-cargo-pad` rig (6 parts: `probeCoreOcto2.v2` root, 3-slot `smallCargoContainer` holding an `evaRepairKit` + `evaScienceKit` with one slot free, empty 9-slot `cargoContainer`, FL-T400 at LF 100/180 + Ox 122/220 flowState=True, `liquidEngine2`, surface-mounted `FuelCell`). MEASURED AND PINNED WHOLE off run `2026-08-28_1833`: `BATCH_COMPLETE v1 total=47 passed=39 failed=0 skipped=8 category=Logistics scene=FLIGHT` (the log carries 39 distinct `PASSED:` lines and 7 `SKIPPED:` lines; the 8th skip is the scene filter, `Scene eligibility skip summary: skipped=1 currentScene=FLIGHT byRequiredScene=SPACECENTER:1`). `total=47` remains attribute-exact and source-synced (47 `[InGameTest(Category = "Logistics")]` declarations across 18 files, the same 47 H34 and H35 pin); `skipped=8` sits above the attribute floor of 1 and is declared in `IsolatedBatchWiringGroupTests.MEASURED_SKIPPED`. The baseline-slot literal 38 = `ordered.Count(t => t.RestoreBatchFlightBaselineAfterExecution)` over the ADMITTED batch, which is neither 47 nor 46 and is emitted ONLY by `PrepareBatchFlightRestoreExecution` - proof of the isolated entry point independent of the tally. FIVE required tokens: the seam echo `runtests start category=Logistics isolated=true` (also the canary for the provisioning trap - the harness flies `automation/stock-minimal`, not the `dotnet build` instance), the literal-38 baseline-slot line, the whole tally, and TWO targeted cell tokens - `Harvest funnel consumed at transition: trigger=rails-exit transition=Close anyActive=0` (the only observable form of the D4 fix, and the only `trigger=rails-exit` line in the log) and `PASSED: LogisticsRouteProofRuntimeTests.InventoryPayloadIdentityHash_LiveStockMove_PreservesIdentity` (guards the silent-empty reflection class that made run 1's third finding a SKIP instead of a FAIL). Deliberately NOT 39 PASS tokens: those would mirror the tally rather than add evidence, since `passed=39 failed=0` already reds if any one cell stops passing. `verboseLogging=true` is load-bearing rather than cosmetic: the per-test PASSED / SKIPPED lines are Verbose, and both cell tokens plus the whole census depend on them. NO kill triple, unlike H35 - `logi-cargo-pad` is a fresh un-recorded pad fixture with zero trees, so there is nothing to stop and nothing to discard. `[expectations.recordings] count = {0, 0}` doubles as the campaign-isolation assertion: several cells build real trees mid-run, and the per-test baseline restore plus the teardown revert from the pre-batch `.bak` must leave the produced save clean. `budgetSeconds = 1400` clears the 660 + 660 deferred worst case and STAYS there now that the walls are known (170 s and 250 s): the budget covers the deferred worst case, not the observed wall, and trimming it would convert a slow-restore run into a KILLED run with no tally at all | D14 sandbox, scene-flight - the boot facts, both riding the loadgame line. FOUR D10 VALUES CLAIMED, each earned by the WHOLE-tally token rather than by subject matter: `multi-stop`, `multi-origin-escrow`, `round-trip-pair`, `hold-reasons`. The gating argument, spelled out because four claims off one token deserve it: `passed=39 failed=0 skipped=8` is pinned with literals on all three, so a cell that FAILS reds `failed=0`, a cell that self-SKIPS reds `passed=39` AND `skipped=8`, and a cell that is DELETED moves `total=47` and reds LOCALLY in `harness/lib` via `CommittedBatchTallySourceSyncTests` before it can reach a flight - there is no fourth way for a behaviour to stop asserting, and `failed=0` is absolute rather than a budget, so a compensating swap cannot hide either. What the tally does not do is NAME the cell, which is a diagnostic weakness rather than a gating one. H35 declined every D10 row because "nothing in THIS run drives a production route emitter at all" (measured, zero occurrences); that fact has INVERTED here - run 2's log carries the production `[Parsek][*][Route]` units firing live (`ReserveCargo`, `ReserveCycleEscrow`, `ReleaseWindowEscrow`, `DropRouteEscrow`, `PickupSourcesHaveCargo ... short-cause=escrow`, `PartnerGate ... HOLD WaitingForPartner` / `CLEAR` / `dispatched - consumed partner`, `hold recorded kind=OriginLacksCargo`, `DispatchDebit`, `LoopRoute ... FIRED full cycle (dispatch+debit+delivered)`, `Delivery write: ... path=loaded`), and the cells assert on their output. NOT claimed, deliberately: `destination-full-gate` - the gate IS reached (`DestinationHasCapacity: route ingame-m full manifest fits`, x3) but ONLY on the permissive branch; `RouteStatus.DestinationFull` / `WaitDestinationFull` never fire and the only `hold recorded kind=` value in the whole log is `OriginLacksCargo`, so the unit could stop refusing a full destination entirely and all 39 would still pass. Also not claimed: `docked-depot-origin`, `claw-producer`, `inventory-cargo`, `harvest-provenance`, `route-map-lines` (nothing in the 39 asserts them, or the cell that would is in the skip roster), and `delivery` / `pickup` / `resource-cargo` (already covered - re-claiming inflates the count without gating anything new). TIER: `operator`, and NOT because it is unflown - the tag is now `flown`; what remains is the confirm runs and then the ordinary `operator` -> `daily` PROMOTION call, the same open human decision H34 and H35 carry |
 
 ### In-game Rewind block, R7 (2)
 

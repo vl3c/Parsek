@@ -103,6 +103,26 @@ namespace Parsek.InGameTests
         private const float RailsTransitionTimeoutSeconds = 10f;
 
         /// <summary>
+        /// Total wall budget for driving the vessel onto rails (settle wait plus
+        /// every retry). Bounded so a genuinely rails-incapable situation still
+        /// skips promptly rather than stalling the batch.
+        /// </summary>
+        private const float RailsWarpRetryBudgetSeconds = 10f;
+
+        /// <summary>Per-attempt wait for <c>vessel.packed</c> inside that budget.</summary>
+        private const float RailsWarpAttemptSeconds = 2.5f;
+
+        /// <summary>
+        /// Surface speed under which the vessel counts as settled. KSP clamps an
+        /// on-rails request for a craft that is still moving, and a batch's
+        /// post-quickload restore leaves the craft briefly in suspension motion.
+        /// </summary>
+        private const double SettledSurfaceSpeedMetersPerSecond = 0.5;
+
+        /// <summary>Rails-warp rate index the warp test requests (10x stock).</summary>
+        private const int RailsWarpRateIndex = 2;
+
+        /// <summary>
         /// Tree id of the synthetic drill-run recording injected by
         /// <c>dotnet test --filter InjectAllRecordings</c>
         /// (SyntheticRecordingTests.DrillHarvestRouteTree). Keep in sync with
@@ -419,6 +439,10 @@ namespace Parsek.InGameTests
             var priorObserver = ParsekLog.TestObserverForTesting;
             var priorVerbose = ParsekLog.VerboseOverrideForTesting;
             int warpIndexBefore = TimeWarp.CurrentRateIndex;
+            // The rails drive ASSERTS TimeWarp.Mode = HIGH (see
+            // EnterRailsWarpWithRetry), so the session's prior mode is restored
+            // alongside its rate rather than left flipped by this test.
+            TimeWarp.Modes warpModeBefore = TimeWarp.WarpMode;
 
             try
             {
@@ -453,15 +477,20 @@ namespace Parsek.InGameTests
                 InGameAssert.IsTrue(captured.Exists(l => IsWindowOpenedLine(l) && l.Contains("trigger=toggle")),
                     "Expected the pre-warp toggle to open a harvest window (trigger=toggle)");
 
-                // RAILS ENTRY with the window open.
+                // RAILS ENTRY with the window open. Driven through the settle +
+                // assert-HIGH-mode + retry helper: a bare SetRate honours
+                // whatever warp MODE happens to be current, and in LOW (physics)
+                // warp the vessel never packs at all (see EnterRailsWarpWithRetry).
                 int packedFromIndex = captured.Count;
-                TimeWarp.SetRate(2, true);
-                yield return WaitUntil(() => vessel.packed,
-                    RailsTransitionTimeoutSeconds, "rails entry");
-                if (!vessel.packed)
+                var railsEntry = new RailsWarpAttempt();
+                IEnumerator railsEntryDrive = EnterRailsWarpWithRetry(vessel, railsEntry);
+                while (railsEntryDrive.MoveNext())
+                    yield return railsEntryDrive.Current;
+                if (!railsEntry.Packed)
                     InGameAssert.Skip(
                         $"Rails warp was refused in this situation ({vessel.situation}); " +
-                        "run from a landed or stable-orbit vessel to exercise the rails re-baseline");
+                        "run from a landed or stable-orbit vessel to exercise the rails re-baseline" +
+                        $" [{railsEntry.Diagnostics}]");
                 yield return WaitUntil(
                     () => captured.Exists(l => l.Contains("Harvest window stays open across rails entry")),
                     RecordingStartTimeoutSeconds, "rails-entry stays-open breadcrumb");
@@ -532,7 +561,7 @@ namespace Parsek.InGameTests
             {
                 ParsekLog.TestObserverForTesting = priorObserver;
                 ParsekLog.VerboseOverrideForTesting = priorVerbose;
-                TryRestoreWarpIndex(warpIndexBefore, "HarvestCapture_WarpToggle");
+                TryRestoreWarpIndex(warpIndexBefore, "HarvestCapture_WarpToggle", warpModeBefore);
                 CleanupRecordingAndTree("HarvestCapture_WarpToggle");
                 RestoreActivation(converters, originalActivation);
             }
@@ -850,10 +879,115 @@ namespace Parsek.InGameTests
             }
         }
 
-        private static void TryRestoreWarpIndex(int warpIndexBefore, string label)
+        /// <summary>
+        /// Carries the outcome of <see cref="EnterRailsWarpWithRetry"/> out of
+        /// the coroutine (an iterator cannot use <c>out</c> parameters).
+        /// </summary>
+        private sealed class RailsWarpAttempt
+        {
+            public bool Packed;
+            public string Diagnostics = "not attempted";
+        }
+
+        /// <summary>
+        /// Drives the active vessel onto RAILS warp, settling first and retrying
+        /// within a bounded budget, and reports what it measured when it could
+        /// not.
+        ///
+        /// <para><b>The measured failure mode</b> (H38 negative-control flight
+        /// <c>2026-08-28_1905</c>, which skipped where three sibling flights
+        /// passed): <c>TimeWarp.SetRate</c> honours whatever <c>TimeWarp.Mode</c>
+        /// is CURRENT, and picks the rate out of <c>warpRates</c> or
+        /// <c>physicsWarpRates</c> accordingly. The three passing flights logged
+        /// <c>rate changed to 10.0x</c> (rails) and packed; the skipping one
+        /// logged <c>3.0x</c> - <c>physicsWarpRates[2]</c>, i.e. the request was
+        /// ACCEPTED but as PHYSICS warp, which never packs the vessel however
+        /// long you wait. So the mode is asserted rather than assumed, and the
+        /// retry re-asserts it each attempt. Waiting alone would not have fixed
+        /// this.</para>
+        ///
+        /// <para>The settle wait is the second, cheaper guard: KSP clamps an
+        /// on-rails request for a craft that is still moving, and a batch's
+        /// post-quickload restore leaves the craft briefly in suspension motion.
+        /// A situation that genuinely cannot go on rails still skips, now with
+        /// the mode / rate / speed it measured attached to the reason.</para>
+        /// </summary>
+        private static IEnumerator EnterRailsWarpWithRetry(Vessel vessel, RailsWarpAttempt result)
+        {
+            result.Packed = false;
+            if (TimeWarp.fetch == null)
+            {
+                result.Diagnostics = "TimeWarp.fetch is null";
+                yield break;
+            }
+
+            float deadline = Time.realtimeSinceStartup + RailsWarpRetryBudgetSeconds;
+
+            // 1. Settle: give suspension motion a bounded chance to come to rest
+            //    before the first request, so a clamp-while-moving is not the
+            //    thing being measured.
+            int settleFrames = 0;
+            while (Time.realtimeSinceStartup < deadline
+                && vessel.srfSpeed > SettledSurfaceSpeedMetersPerSecond)
+            {
+                settleFrames++;
+                yield return null;
+            }
+            if (settleFrames > 0)
+                ParsekLog.Verbose("TestRunner",
+                    $"LogisticsHarvest rails entry: waited {settleFrames.ToString(IC)} frame(s) for the vessel " +
+                    $"to settle (srfSpeed={vessel.srfSpeed.ToString("F2", IC)} m/s)");
+
+            // 2. Request, assert-HIGH each time, retry until the budget expires.
+            int attempts = 0;
+            while (Time.realtimeSinceStartup < deadline)
+            {
+                attempts++;
+                TimeWarp.fetch.Mode = TimeWarp.Modes.HIGH;
+                TimeWarp.SetRate(RailsWarpRateIndex, true);
+
+                IEnumerator packWait = WaitUntil(() => vessel.packed,
+                    RailsWarpAttemptSeconds, "rails entry attempt");
+                while (packWait.MoveNext())
+                    yield return packWait.Current;
+
+                if (vessel.packed)
+                {
+                    result.Packed = true;
+                    result.Diagnostics =
+                        $"packed after {attempts.ToString(IC)} attempt(s), mode={TimeWarp.WarpMode} " +
+                        $"rate={TimeWarp.CurrentRate.ToString("F1", IC)}x";
+                    ParsekLog.Verbose("TestRunner",
+                        $"LogisticsHarvest rails entry: {result.Diagnostics}");
+                    yield break;
+                }
+
+                // Drop back to 1x so the next attempt is a clean rate edge
+                // rather than a no-op re-request of the rate already set.
+                TimeWarp.SetRate(0, true);
+                yield return null;
+            }
+
+            result.Diagnostics =
+                $"{attempts.ToString(IC)} attempt(s) over {RailsWarpRetryBudgetSeconds.ToString("R", IC)}s, " +
+                $"mode={TimeWarp.WarpMode} rate={TimeWarp.CurrentRate.ToString("F1", IC)}x " +
+                $"srfSpeed={vessel.srfSpeed.ToString("F2", IC)} m/s packed={vessel.packed}";
+            ParsekLog.Verbose("TestRunner",
+                $"LogisticsHarvest rails entry never packed: {result.Diagnostics}");
+        }
+
+        private static void TryRestoreWarpIndex(
+            int warpIndexBefore, string label, TimeWarp.Modes? warpModeBefore = null)
         {
             try
             {
+                if (TimeWarp.fetch != null && warpModeBefore.HasValue
+                    && TimeWarp.WarpMode != warpModeBefore.Value)
+                {
+                    TimeWarp.fetch.Mode = warpModeBefore.Value;
+                    ParsekLog.Verbose("TestRunner",
+                        $"{label} cleanup: restored time warp mode {warpModeBefore.Value}");
+                }
                 if (TimeWarp.fetch != null && TimeWarp.CurrentRateIndex != warpIndexBefore)
                 {
                     TimeWarp.SetRate(warpIndexBefore, true);

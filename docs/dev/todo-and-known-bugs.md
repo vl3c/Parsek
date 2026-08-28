@@ -64,9 +64,16 @@ Breadcrumbs: `Harvest funnel consumed at transition:` (Verbose, at the consume
 site) and `Harvest poll skipped on packed frame:` (VerboseRateLimited, at the
 new gate). Unit-guarded by `RouteHarvestCaptureTests`
 (`ShouldRunHarvestPoll_Matrix`, `ShouldConsumeRailsExitFunnel_OnlyOnEmittedTransition`,
-`RailsExitFunnel_SurvivesSteadyStatePollsUntilTheClose`); the live proof is
-`HarvestCapture_WarpToggle_RebaselinesAtRailsTransitions` on the next isolated
-Logistics batch.
+`RailsExitFunnel_SurvivesSteadyStatePollsUntilTheClose`). **LIVE-PROVEN
+2026-08-28** by `HarvestCapture_WarpToggle_RebaselinesAtRailsTransitions`:
+flight `2026-08-28_1802` (pre-fix) FAILED on exactly the funnel assertion
+(`must close its window on the first post-rails poll with trigger=rails-exit`);
+flights `_1833` and `_1858` (post-fix) both PASSED with
+`Harvest window closed: ... trigger=rails-exit` and the new
+`Harvest poll skipped on packed frame: ... sit=PRELAUNCH isOnRails=0
+railsExitPending=1 windowOpen=1` breadcrumb in the log - the packed-frame gate
+and the surviving funnel flag both observed doing their job on a PRELAUNCH
+vessel, which is the population bug 1 was about.
 
 **Found alongside two in-game TEST defects in the same batch** (fixed in the
 same change, no product involvement): the three `LogisticsHarvestRuntimeTests`
@@ -81,6 +88,24 @@ reading. And `LogisticsRouteProofRuntimeTests.CollectStoredParts` bound
 fully loaded container - it now uses the public compile-time API
 (`ModuleInventoryPart.storedParts` + `InventorySlots`), the walk
 `LogisticsDeliveryRuntimeTests` already used.
+
+**Settle-retry hardening of the warp test** (found by the H38 negative-control
+flight `2026-08-28_1905`, which SKIPPED where `_1833` / `_1858` passed).
+`HarvestCapture_WarpToggle_RebaselinesAtRailsTransitions` intermittently skipped
+`Rails warp was refused in this situation (PRELAUNCH)` - about one flight in
+four. The log refutes the obvious settle-race reading: the warp was ACCEPTED on
+every flight (`Warp start at UT=27.40`), but on the skipping one at `3.0x` -
+`TimeWarp.physicsWarpRates[2]` - where the three others logged `10.0x`
+(`warpRates[2]`). `TimeWarp.SetRate` picks its rate list from whatever
+`TimeWarp.Mode` is CURRENT (confirmed against the decompiled `setRate`), and a
+PHYSICS warp never packs the vessel, so no amount of waiting could have fixed it
+- the mode has to be asserted, not assumed. Rails entry now runs through
+`EnterRailsWarpWithRetry`: bounded `srfSpeed` settle wait, then
+`TimeWarp.fetch.Mode = HIGH` re-asserted before each `SetRate`, retried within a
+10 s budget, with the session's prior warp MODE restored alongside its rate in
+`finally`. The skip reason keeps its original sentence VERBATIM (H38's spec
+header quotes it) with the measured `mode=` / `rate=` / `srfSpeed=` diagnostics
+appended in brackets, so a future skip states which mechanism it hit.
 
 ## ~~GS4-FIRST-FLIGHT-RISKS~~: the ghost-derender tripwire lane's pre-flight interim pins [OPENED 2026-08-27 with the GS-4 lane. **DISCHARGED 2026-08-27 THE SAME DAY**: reading run `2026-08-27_2145` (MISSION-OK attempt 1; red on exactly the two watch tokens - the pre-spawn EnterWatchMode race, fixed as the machine's WATCH hold-then-retry loop) then green run `2026-08-27_2204` PASS attempt 1, every verifier clean, census spawned=8/destroyLines=8/unbalanced=0 measured on BOTH flights. Windows re-pinned to the measurement; ghostLifecycle stays report-only pending the standard arming discipline. Status authority: `docs/dev/autotest-status.md` -> Live-proven. The entry below is kept as the pre-flight record]
 
@@ -7964,11 +7989,29 @@ zero-declarer D10 rows is evidenced either: `docked-depot-origin`, `claw-produce
 2026-08-26: `V18T-depot-route-ts-arrival` declares it off an ARMED
 `routeLineBuilds { min = 1 }` whose red is demonstrated by its own negative
 control - a gate first, then the claim, which is the discipline rather than an
-exception to it. Nine zero-declarer D10 rows remain. Several of them - `multi-stop`,
-`multi-origin-escrow`, `round-trip-pair`, `hold-reasons`, `destination-full-gate` -
-have in-game cells that exist but carry `AllowBatchExecution = false`, so they are
-blocked by the B4 batch-wiring bucket rather than by this seal gap; the two
-route-CREATION-shaped ones are what the fix above would unblock.
+exception to it. FOUR MORE LEFT THAT LIST ON 2026-08-28, and the mechanism is the one
+this paragraph predicted: `multi-stop`, `multi-origin-escrow`, `round-trip-pair` and
+`hold-reasons` were blocked by the B4 batch-wiring bucket (their in-game cells exist
+but carry `AllowBatchExecution = false`), and `H38-logistics-isolated` unblocked them
+by driving the category through the R5 ISOLATED entry point. Its run 2
+(`2026-08-28_1833`, PASS attempt 1) pins the tally WHOLE - `total=47 passed=39
+failed=0 skipped=8` - and THAT is the gate the four claims rest on: with all three
+numbers literal, a cell that fails reds `failed=0`, a cell that self-skips reds
+`passed=39` and `skipped=8`, and a cell that is deleted reds `total=47` locally in
+`harness/lib` before it can reach a flight. The H35 objection quoted above has also
+inverted - run 2's log carries the production `[Parsek][*][Route]` units firing live
+(`ReserveCargo`, `ReserveCycleEscrow`, `DropRouteEscrow`, `short-cause=escrow`,
+`PartnerGate ... HOLD WaitingForPartner` / `CLEAR`, `hold recorded
+kind=OriginLacksCargo`, `DispatchDebit`, `LoopRoute ... FIRED full cycle`,
+`Delivery write: ... path=loaded`), so these are real units, not read-side walkers.
+FIVE zero-declarer D10 rows remain: `docked-depot-origin`, `claw-producer`,
+`inventory-cargo`, `harvest-provenance`, `destination-full-gate`. The last of those
+is the one H38 deliberately did NOT claim despite reaching it: the gate is exercised
+only on the permissive branch (`DestinationHasCapacity: route <id> full manifest
+fits`, x3) and `RouteStatus.DestinationFull` / `WaitDestinationFull` never fire, so
+the unit could stop refusing a full destination entirely and all 39 cells would still
+pass. It needs a cell that drives the REFUSAL, not another lane. The two
+route-CREATION-shaped rows are still what the fix above would unblock.
 
 ---
 

@@ -120,7 +120,7 @@ Two limits of this table, stated so nobody over-reads it:
 | `LedgerGroundTruth` | 2 | 2 | 0 | 0 | 0 | 1 | L2 | B |
 | `LocalizedName` | 3 | 3 | 3 | 3 | 0 | 0 | H29 | A |
 | `LogContracts` | 10 | 10 | 8 | 8 | 0 | 2 | H26 | A |
-| `Logistics` | 47 | 8 | 2 | 1 | 38 | 46 | H34 (SPACECENTER slice), H35 (FLIGHT ordinary slice), H38 (FLIGHT ISOLATED slice, reading-run pending) | B |
+| `Logistics` | 47 | 8 | 2 | 1 | 38 | 46 | H34 (SPACECENTER slice), H35 (FLIGHT ordinary slice), H38 (FLIGHT ISOLATED slice, flown 2026-08-28, executes 39) | B |
 | `LogisticsGrapple` | 4 | 3 | 0 | 0 | 1 | 2 | - | B |
 | `MapPresence` | 5 | 5 | 3 | 3 | 0 | 2 | H28 | A |
 | `MapRender` | 22 | 21 | 0 | 0 | 1 | 14 | S1.7 | B |
@@ -306,36 +306,61 @@ through the production seam (`GhostPlaybackEngine.ActivateGhostVisualsIfNeededFo
 as `H37` now does.
 
 READ THAT 381 CAREFULLY - the last 47 of it are the largest single-spec jump in
-this row's history and the least representative. `Logistics` contributes all 47 of its declarations to
-"inside a driven category" while its two specs between them EXECUTE **6 distinct
-declarations**: H34 runs 2 at SPACECENTER (the inter-body builder-shape gate and the
-AnyScene tooltip cell) and H35 runs 5 at FLIGHT (the probe-admission cell, the
-prelaunch origin-proof cell, the active-as-initiator route-proof cell, the mid-tree
-shuttle cell, and the same AnyScene tooltip cell, which is why the union is 6 and
-not 7). The other 41 never execute anywhere: 38 carry
-`AllowBatchExecution = false`, and 3 self-skip on fixture shape. The declaration
+this row's history and the least representative. `Logistics` contributes all 47 of its
+declarations to "inside a driven category", and the honest execution count has moved
+twice. WHEN TWO SPECS DROVE IT they EXECUTED **6 distinct declarations**: H34 runs 2 at
+SPACECENTER (the inter-body builder-shape gate and the AnyScene tooltip cell) and H35
+runs 5 at FLIGHT (the probe-admission cell, the prelaunch origin-proof cell, the
+active-as-initiator route-proof cell, the mid-tree shuttle cell, and the same AnyScene
+tooltip cell, which is why the union was 6 and not 7). The other 41 executed nowhere:
+38 carried `AllowBatchExecution = false`, and 3 self-skipped on fixture shape.
+**SINCE 2026-08-28 THAT NUMBER IS 42.** `H38-logistics-isolated` flew and executed
+**39 of the 47 in one batch** (`total=47 passed=39 failed=0 skipped=8`); three of
+H34's and H35's cells are outside those 39 (the SPACECENTER inter-body cell, which
+scene-skips at FLIGHT, plus the prelaunch origin-proof and active-as-initiator
+route-proof cells, which need `bdock-recorded` state H38's fresh pad fixture does not
+carry), so the union is 39 + 3 = 42. ONLY FIVE DECLARATIONS NOW EXECUTE NOWHERE:
+`RouteOriginProof_StartedDockedToNonKsc`, `RouteProof_ActiveAsTargetDockWindow`,
+`RouteProof_CrossTreeCommittedPartner`, `HarvestCapture_CatchUpOnLoad` and
+`HarvestRoute_AnalyzesEligible` - all five a missing recorded subject rather than a
+rig defect (the middle two plus `ActiveAsInitiator` are the planned H39
+`bdock-recorded` dock-window lane's scope). The declaration
 measure has always counted category membership rather than execution, so this is not
 a new distortion, but at 47 declarations it is the first time the gap is big enough
-to mislead on its own - and adding a SECOND spec to the category moved the honest
-number from 2 to 6 while moving the headline number by zero. The bucket letters are
+to mislead on its own - and the two additions moved the honest number 2 -> 6 -> 42
+while moving the headline number by zero. The bucket letters are
 unchanged: `Logistics` stays **B**, on the same footing as `GhostMap` (S1.6),
 `GhostPlayback` (S1.4) and `Missions` (M1) - driven, partially, without meeting
 bucket A1's whole-category admission shape.
 
-THE THIRD SPEC IS THE ONE THAT MOVES THAT HONEST NUMBER, and by a lot:
-`H38-logistics-isolated` (authored 2026-08-28, READING RUN, not yet flown) drives
+THE THIRD SPEC IS THE ONE THAT MOVED THAT HONEST NUMBER, and by a lot:
+`H38-logistics-isolated` (authored AND FLOWN 2026-08-28) drives
 the category through the ISOLATED entry point, where the admission filter is
 `AllowBatchExecution || RestoreBatchFlightBaselineAfterExecution` and all 38 of
-the batch-disabled declarations carry the restore flag. So the 41 that "never
-execute anywhere" becomes 3 - the run-time fixture-shape self-skips - and the
-admitted population goes from 8 to 46. NOTHING IS CLAIMED OFF THAT UNTIL IT FLIES:
-admitted is not executed, the spec's tally split is deliberately unpinned, and the
-38 cells guard at run time on things no attribute predicts (what
-`UnloadedFuelVesselFixture` managed to snapshot and re-spawn, live LF
-stored/free floors, inventory PROBE ORDER as KSP actually walks it, a converter
-that will activate on the pad, warp/unpack races). The bucket letter is unchanged
-for now and for the same reason - `Logistics` leaves **B** when a flown spec
-measures the split, not when one is authored.
+the batch-disabled declarations carry the restore flag, taking the admitted
+population from 8 to 46.
+
+ADMITTED IS NOT EXECUTED, so the number that matters is the MEASURED one, and the
+authored form of this paragraph deliberately claimed nothing until a flight
+produced it. It now has. Reading run 1 (`2026-08-28_1802`, PARSEK-FAIL) censused
+`passed=36 failed=2 skipped=9` and produced three findings - one PRODUCT defect (the
+D4 harvest poll not rails-gated for surface vessels, fixed at `f98d5477a`) and two
+test defects, one of which was a reflection probe that resolved silently null and so
+self-SKIPPED instead of failing. Run 2 (`2026-08-28_1833`, PASS attempt 1) over the
+fixed DLL measured `total=47 passed=39 failed=0 skipped=8`, now pinned whole. So the
+41 that executed nowhere is 5, not 3: the run-time self-skips are 7 rather than the
+3 the ordinary path saw, because the isolated batch reaches cells whose preconditions
+the ordinary one never even tried - and two of the seven are covered by H35's
+recorded fixture, leaving 5 uncovered across all three slices. Both of the
+assumptions only a Logistics batch could settle held on the first flight: A4
+(inventory PROBE ORDER as KSP actually walks it) and A5 (the live resource floors).
+Not one of the eight remaining skips is a rig property.
+
+THE BUCKET LETTER IS STILL **B**, and this is worth stating explicitly now that the
+number is 42 of 47. Bucket A1 is a WHOLE-CATEGORY admission shape, not a high
+execution count: five declarations still execute nowhere, and three specs across two
+scenes and two entry points is not one admitted category. `Logistics` leaves **B**
+when the remaining five have a fixture, not when the count gets large.
 
 The 2026-08-05 wave (`wire-wave-2`, H26-H31) wired exactly the list the previous
 revision of this doc named as "the honest next wave": all five B6 members that
@@ -548,7 +573,7 @@ about the other four, which is why the spec's own fixture block enumerates them.
 | Spec | Category | Tests | Why it is worth a boot |
 |---|---|---|---|
 | `H21-scene-exit-merge-isolated` | SceneExitMerge | 2 | The R5 shakedown, and the D1 `commit-scene-exit` / `discard-rollback` cells no other mechanism produces: a real recording, a real launch, a real stock save-and-exit out of FLIGHT, and both branches of the pre-transition merge dialog |
-| `H38-logistics-isolated` | Logistics | 47 declared, 46 admitted, 38 of them restore-flagged | The 38 restore-after-run `Logistics` declarations no unattended path could execute before it: unloaded-depot origin debit, pickup, loaded and multi-module cargo delivery, harvest capture, multi-stop and multi-origin escrow, round-trip pairing. READING RUN, not yet flown - tally split deliberately open, no cell tokens pinned |
+| `H38-logistics-isolated` | Logistics | 47 declared, 46 admitted, 38 of them restore-flagged | The 38 restore-after-run `Logistics` declarations no unattended path could execute before it: unloaded-depot origin debit, pickup, loaded and multi-module cargo delivery, harvest capture, multi-stop and multi-origin escrow, round-trip pairing. FLOWN 2026-08-28: reading run 1 found 1 product + 2 test defects (the D4 harvest rails funnel, fixed at `f98d5477a`), run 2 PASS attempt 1 measured `total=47 passed=39 failed=0 skipped=8`, now pinned WHOLE with two targeted cell tokens; confirm runs pending |
 
 ### Bucket B - wireable, but needs something first (81 categories, 451 declarations)
 
@@ -659,8 +684,9 @@ Second, "wired" is not "covered": going from a recording-free fixture to a recor
 one took this category's executed count from 2 to 6 of 47, and the residue is
 FIXTURE SHAPE, which is a harvest problem rather than a spec problem.
 
-AND THE 38 ARE NO LONGER UNWIRED. `H38-logistics-isolated` (2026-08-28, READING
-RUN, not yet flown) drives them through the R5 ISOLATED entry point, which admits
+AND THE 38 ARE NO LONGER UNWIRED - OR UNRUN. `H38-logistics-isolated` (authored and
+FLOWN 2026-08-28; run 2 executed 39 of the 47) drives them through the R5 ISOLATED
+entry point, which admits
 `AllowBatchExecution || RestoreBatchFlightBaselineAfterExecution` - and all 38
 batch-disabled Logistics declarations carry the restore flag. THE THIRD LESSON
 FOR THE REMAINING B4 WORK, and the most transferable one: where H35 answered a
@@ -680,7 +706,12 @@ drift gate) and forge a pad save from it (`FORGE-logi-pad` ->
 `fixtures/saves/logi-cargo-pad`). For the remaining B4 categories that is the
 cheaper road wherever the guards name capabilities rather than history: a guard
 that wants a PART is a craft-building problem, and a guard that wants a PAST is a
-harvest problem.
+harvest problem. THE FIRST FLIGHT SETTLED THAT SPLIT EMPIRICALLY: all five
+craft-building requirements held on run 1, and every one of the SEVEN run-time skips
+that remain after run 2 (the eighth is the SPACECENTER scene filter, H34's cell) is a
+guard that wants a PAST - a docked-origin recording, a
+PRELAUNCH-committed recording, three dock-window recordings, a drill rig landed on
+ore, an injected synthetic tree. Not one is a part the rig could have carried.
 
 An earlier revision of this paragraph opened the list with `Rewind` (37) and closed
 "the payoff is high for `Rewind` and `GhostLifecycle` in particular". Half of that
