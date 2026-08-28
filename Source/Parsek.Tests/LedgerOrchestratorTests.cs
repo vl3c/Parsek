@@ -1751,9 +1751,12 @@ namespace Parsek.Tests
             var evt = StrategyInputScienceDebit(8599.87, 750.0, 650.0, "rec-flight");
             GameStateStore.AddEvent(ref evt);
 
-            // Ledger target still carries the un-debited 750; live is 650.
+            // Ledger target still carries the un-debited 750; live is 650. The running
+            // basis is 750 too - the reconstruction has not ingested the debit either -
+            // which is the live-race shape this adjuster exists for (and, on a save whose
+            // exchange can still commit, the load-time unmatchable baseline is 0 anyway).
             double adjusted = KspStatePatcher.AdjustSciencePatchTargetForPendingStrategyScienceDebit(
-                targetScience: 750.0, currentScience: 650f);
+                targetScience: 750.0, currentScience: 650f, preStrategyRunning: 750.0);
 
             Assert.Equal(650.0, adjusted, 4);
             Assert.Contains(logLines, l =>
