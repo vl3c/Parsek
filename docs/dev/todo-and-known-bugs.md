@@ -10888,31 +10888,66 @@ THE CHAIN, in production order:
       -> GhostPlaybackEngine.IsGhostOnBody(i, FlightGlobals.ActiveVessel.mainBody.name)
       -> state.lastInterpolatedBodyName == bodyName
 
-`lastInterpolatedBodyName` is written on the POSITIONING path only -
-`GhostPlaybackState.SetInterpolated` from the positioner, plus the two endpoint paths in
-`GhostPlaybackEngine`. The ordinary per-frame route to all of them is BELOW the
-render-zone hide's early return (`if (zoneResult.hiddenByZone) { ...
-HandleHiddenGhostVisualState(...); return true; }`, the primary path; the loop / overlap
-paths have their own). **A ghost the zone has hidden on every frame since it spawned is
-therefore normally never positioned, carries a NULL body name, and `null == "Minmus"` is
-false.** The `zone=Beyond` hide the original write-up identified as "the plausible shared
-DRIVER" is the driver, and this is the term it starves.
+`lastInterpolatedBodyName` has exactly TWO kinds of writer, and the difference between
+them is the whole finding:
 
-**THE REFUSAL IS NOT DETERMINISTIC, and the reason is one branch inside the hide itself.**
+- **A ONE-TIME SEED AT SPAWN.** `GhostPlaybackEngine.CreatePendingSpawnState` calls
+  `TryResolvePendingPlaybackInterpolation` for the spawn-frame playback UT and, on success,
+  `state.SetInterpolated(...)`. It logs
+  `Pending spawn interpolation seed: vessel='...' lifecycle=... UT=... body='...'`. On
+  failure it logs `... seed unavailable` and the field stays null.
+- **THE PER-FRAME POSITIONING PATH** - `SetInterpolated` from the positioner, plus the two
+  endpoint paths in `GhostPlaybackEngine`. The ordinary route to all of them is BELOW the
+  render-zone hide's early return (`if (zoneResult.hiddenByZone) { ...
+  HandleHiddenGhostVisualState(...); return true; }`, the primary path; the loop / overlap
+  paths have their own).
+
+**So a ghost the zone keeps hidden is not usually holding a NULL body name - it is holding
+its SPAWN SEED, indefinitely, however wrong and however old.** `IsGhostOnSameBody` then
+compares that stale value against the active vessel's body. The `zone=Beyond` hide the
+original write-up identified as "the plausible shared DRIVER" is the driver; what it
+starves is not the existence of the reading but its FRESHNESS.
+
+CORRECTED 2026-08-28, and the correction is measured, not reasoned. The first version of
+this section said the hidden ghost "carries a NULL body name". The V7Mc logs it cites
+contain the line that refutes it, four lines above the ghost's own build:
+
+    _1607  11176 [19:08:30.397] Pending playback interpolation: vessel='Kerbal X' UT=267563.7
+                               resolved from active orbit segment body='Kerbin' altitude=0.0
+           11177 [19:08:30.397] Pending spawn interpolation seed: vessel='Kerbal X'
+                               lifecycle=StandardEnter UT=267563.7 body='Kerbin' altitude=0.0
+           11185 [19:08:30.419] Ghost #1 "Kerbal X" spawn-pending notify
+
+Ghost **#1** - the very ghost that refuses - was seeded `body='Kerbin'`. Both refusals
+(19:08:31.389, 19:08:32.895) happen while it still holds `Kerbin` and the active vessel is
+at **Minmus**, so `"Kerbin" == "Minmus"` is false. It is re-seeded to `body='Minmus'` at
+19:08:33.409, **0.25 s before the entry that succeeds** at 19:08:33.656. The sibling
+attempt `_1608` reproduces all of it to the timestamp (seed at 19:09:23.346, refusals at
+19:09:24.336 / 19:09:25.839, re-seed at 19:09:26.348, entry at 19:09:26.599). So the
+refused ghost's replay was AT MINMUS the whole time and the product refused it while
+reporting Kerbin - which makes the affordance's "different body" message not merely
+unhelpful but false, and makes the stale reading, not a missing one, the thing to fix the
+message against.
+
+**THE REFUSAL IS ALSO NOT DETERMINISTIC**, for a second reason inside the hide itself.
 `HandleHiddenGhostVisualState` is not purely a hide: `ShouldPrewarmHiddenGhost` can send a
 hidden ghost at ANY distance through `PositionLoadedGhostAtPlaybackUT` when a qualifying
-part event falls inside the lookahead window, and that path DOES write
-`lastInterpolatedBodyName`. So the accurate statement is **"a hidden ghost that has not
-been prewarm-positioned"**, not "a hidden ghost". A ghost whose replay happens to carry a
-prewarm-qualifying event near the sampled epoch would pass the body term at 144 km and
-enter watch; V7M's did not, on four flights, which is why the boundary reads as sharp
-there. Do not restate this finding as "the render zone always refuses" - that is the
-over-claim the first two write-ups of this entry were made of, in a third shape.
+part event falls inside the lookahead window, and that path DOES refresh
+`lastInterpolatedBodyName`. So the accurate statement is **"a hidden ghost whose reading
+has not been refreshed - by a prewarm pass or anything else - since its spawn seed"**. A
+ghost whose replay happens to carry a prewarm-qualifying event near the sampled epoch
+would refresh, and could pass the body term at 144 km. V7M's did not, on four flights,
+which is why the boundary reads as sharp there. Do not restate this finding as "the render
+zone always refuses" - that is the over-claim the earlier write-ups of this entry were made
+of, and the null-name claim above was a third instance of the same habit.
 
-THE SHIPPED CODE IS UNAFFECTED BY THE CORRECTION. The reject-branch triple and
-`IsGhostBodyResolved` both read the ACTUAL state (`lastInterpolatedBodyName` present or
-not), so a prewarmed ghost reports `body=T` and a normal affordance; neither assumes the
-distance rule.
+THE SHIPPED CODE FOLLOWS THE CORRECTION. The reject-branch triple reports the conjunct's
+actual answer and needs nothing. The affordance predicate was rewritten:
+`IsGhostBodyReadingCurrent` (pure core `IsWatchBodyReadingCurrent`) now requires a body
+name AND `currentZone != RenderingZone.Beyond`, because a present name is NOT evidence the
+reading is current - which is exactly the conflation that made the first draft describe
+V7M's refusal as a genuine different-body case. A prewarmed or in-zone ghost still reports
+a real body comparison.
 
 THE LOG CORROBORATION, from `logs/2026-08-08_1908_V7Mc-watch-calibration/KSP.log` (the
 `_1607` calibration attempt, one of the four archived flights the section below tabulates):
@@ -10956,15 +10991,16 @@ measurement). The wire response is untouched - `SetExecResult("REJECTED", null,
 The follow-up below said it could not be specified until the refusing term was known. It
 is now, and it splits cleanly in two:
 
-- **SHIPPED: the affordance stops making a false statement.** With the body name unset,
-  `sameBody=false`, and `RecordingsTableUI.GetWatchButtonReason` / `GetWatchButtonTooltip`
-  reported *"Ghost is on a different body"* - said to a player 144 km from their own replay
-  in orbit of the SAME moon. Both now take a `bodyResolved` flag (defaulted true, so an
-  unmeasured caller keeps the historic meaning) fed by
-  `WatchModeController.IsGhostBodyResolved`, and answer *"not rendered"* / "too far away to
-  be drawn right now, so Parsek cannot tell which body it is at - get closer and the Watch
-  button comes back" when the ghost has no body name to compare. The Timeline W button
-  reuses the same strings through `BuildWatchButtonDescriptor`. Pinned in
+- **SHIPPED: the affordance stops making a false statement.** With a stale (or absent)
+  body reading, `sameBody=false`, and `RecordingsTableUI.GetWatchButtonReason` /
+  `GetWatchButtonTooltip` reported *"Ghost is on a different body"* - said to a player
+  144 km from their own replay in orbit of the SAME moon, about a ghost the product was
+  privately describing as being at Kerbin. Both now take a `bodyReadingCurrent` flag
+  (defaulted true, so an unmeasured caller keeps the historic meaning) fed by
+  `WatchModeController.IsGhostBodyReadingCurrent`, and answer *"not rendered"* / "too far
+  away to be drawn right now, so Parsek cannot tell which body it is at - get closer and
+  the Watch button comes back" whenever the ghost's body reading is stale or missing. The
+  Timeline W button reuses the same strings through `BuildWatchButtonDescriptor`. Pinned in
   `Source/Parsek.Tests/WatchModeTargetLossTests.cs`.
 - **NOT TAKEN: making the entry succeed at 144 km.** Resolving the body from the recording
   when the ghost has not been positioned would flip the conjunction and let watch entry

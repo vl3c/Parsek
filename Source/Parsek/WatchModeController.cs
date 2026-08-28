@@ -922,22 +922,28 @@ namespace Parsek
         }
 
         /// <summary>
-        /// True when the ghost at index has a body name to compare at all.
+        /// True when the ghost at index is actually being positioned, so its
+        /// <c>lastInterpolatedBodyName</c> describes where it is NOW.
         ///
-        /// <para>WATCH-ENTRY-REFUSED-INSIDE-QUOTED-RANGE: <c>lastInterpolatedBodyName</c> is
-        /// written only on the POSITIONING path, which the render-zone hide
-        /// (<c>GhostPlaybackEngine</c>'s <c>hiddenByZone</c> early return) skips. A ghost
-        /// hidden by the LOD zone on every frame since it spawned therefore carries a NULL
-        /// body name, and <see cref="IsGhostOnSameBody"/> compares null against the active
-        /// body and answers false - so the refusal reads as "different body" when the ghost
-        /// is on the SAME body and merely un-rendered. This distinguishes the two so the
-        /// affordances can say which one it is. It does NOT change the conjunction: watch
-        /// entry still requires a resolved, matching body (the armed V-family lanes pin that
-        /// refusal by name).</para>
+        /// <para>WATCH-ENTRY-REFUSED-INSIDE-QUOTED-RANGE: the field is seeded once at spawn
+        /// (<c>CreatePendingSpawnState</c>) and refreshed only on the POSITIONING path, which
+        /// the render-zone hide skips - so a ghost in <see cref="RenderingZone.Beyond"/>
+        /// answers <see cref="IsGhostOnSameBody"/> with a spawn-time value that can be
+        /// arbitrarily stale. V7M measured a ghost holding <c>Kerbin</c> across both refusals
+        /// while the observer AND the ghost's own replay were at Minmus. Reporting that
+        /// refusal as "different body" is a claim the product never observed; this predicate
+        /// is what lets the affordance say "not rendered" instead.</para>
+        ///
+        /// <para>It does NOT change the conjunction: watch entry still requires a matching
+        /// body (the armed V-family lanes pin that refusal by name).</para>
         /// </summary>
-        internal bool IsGhostBodyResolved(int index)
+        internal bool IsGhostBodyReadingCurrent(int index)
         {
-            return !string.IsNullOrEmpty(host.Engine.GetGhostBodyName(index));
+            var ghostStates = host.Engine.ghostStates;
+            GhostPlaybackState state;
+            if (!ghostStates.TryGetValue(index, out state) || state == null)
+                return false;
+            return IsWatchBodyReadingCurrent(state.lastInterpolatedBodyName, state.currentZone);
         }
 
         /// <summary>

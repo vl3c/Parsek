@@ -284,38 +284,82 @@ namespace Parsek.Tests
         }
 
         /// <summary>
-        /// THE ESTABLISHED MECHANISM, at the seam that produces it.
-        /// <c>GhostPlaybackState.lastInterpolatedBodyName</c> is written only on the POSITIONING
-        /// path, which the render-zone hide (<c>hiddenByZone</c>) early-returns above. A ghost
-        /// hidden on every frame since it spawned therefore carries a NULL body name, and
-        /// <c>IsGhostOnBody</c> compares null against the active vessel's body and answers
-        /// false. That is the refusing conjunct - not <c>HasActiveGhost</c> (the state IS
-        /// present, as the same frame's `engine-frame-iter` line proves by printing its zone and
-        /// distance) and not the range term (previous cell).
+        /// THE ESTABLISHED MECHANISM, at the seam that produces it, with the values V7M
+        /// measured. <c>lastInterpolatedBodyName</c> is SEEDED at spawn
+        /// (<c>CreatePendingSpawnState</c> -&gt; <c>TryResolvePendingPlaybackInterpolation</c>)
+        /// and thereafter written only on the POSITIONING path, which the render-zone hide
+        /// early-returns above. A ghost the zone keeps hidden therefore answers with its
+        /// spawn-time seed forever.
+        ///
+        /// <para>Both archived V7Mc attempts logged that seed as <c>body='Kerbin'</c> at
+        /// UT=267563.7, held it across BOTH refusals while the observer sat at Minmus, and only
+        /// re-seeded to <c>Minmus</c> a quarter-second before the entry that succeeded. So the
+        /// refusing conjunct is <c>IsGhostOnSameBody</c> answering from a STALE reading - not a
+        /// null one (an earlier draft of this entry said null; the seed line in the same log
+        /// contradicts it), not <c>HasActiveGhost</c> (the state IS present, as the same
+        /// frame's `engine-frame-iter` line proves by printing its zone and distance), and not
+        /// the range term (previous cell).</para>
         /// </summary>
         [Fact]
-        public void IsGhostOnBody_RefusesAHiddenGhostThatWasNeverPositioned()
+        public void IsGhostOnBody_RefusesAHiddenGhostHoldingItsStaleSpawnSeed()
         {
             var engine = new GhostPlaybackEngine(positioner: null);
-            var neverPositioned = new GhostPlaybackState
+            var hiddenGhost = new GhostPlaybackState
             {
                 // 144,356 m: V7Mc run `_1607`'s cycle-1 park reading. lastDistance IS written
                 // (CachePlaybackDistances runs ABOVE the hide early return), which is why the
                 // range term could evaluate a real sub-300 km number and pass.
                 lastDistance = 144356.0,
-                lastInterpolatedBodyName = null,
+                currentZone = RenderingZone.Beyond,
             };
-            engine.ghostStates[1] = neverPositioned;
+            // The spawn seed, verbatim from both archived attempts.
+            hiddenGhost.SetInterpolated(new InterpolationResult { bodyName = "Kerbin", altitude = 0.0 });
+            engine.ghostStates[1] = hiddenGhost;
 
             Assert.False(engine.IsGhostOnBody(1, "Minmus"));
+            // ...and the affordance must NOT describe that as an observed different body.
+            Assert.False(WatchModeController.IsWatchBodyReadingCurrent(
+                hiddenGhost.lastInterpolatedBodyName, hiddenGhost.currentZone));
 
-            // One positioning pass is all it takes; the ghost was on Minmus the whole time.
-            neverPositioned.SetInterpolated(new InterpolationResult
+            // The never-seeded population is real too (TryResolvePendingPlaybackInterpolation
+            // can fail and logs "seed unavailable"), it just is not what V7M measured.
+            var neverSeeded = new GhostPlaybackState
+            {
+                lastDistance = 144356.0,
+                currentZone = RenderingZone.Beyond,
+                lastInterpolatedBodyName = null,
+            };
+            engine.ghostStates[2] = neverSeeded;
+            Assert.False(engine.IsGhostOnBody(2, "Minmus"));
+            Assert.False(WatchModeController.IsWatchBodyReadingCurrent(
+                neverSeeded.lastInterpolatedBodyName, neverSeeded.currentZone));
+
+            // One positioning pass inside the zone is all it takes; the ghost was on Minmus the
+            // whole time, and now both the comparison and the affordance agree.
+            hiddenGhost.SetInterpolated(new InterpolationResult
             {
                 bodyName = "Minmus",
                 altitude = 40585.23,
             });
+            hiddenGhost.currentZone = RenderingZone.Visual;
             Assert.True(engine.IsGhostOnBody(1, "Minmus"));
+            Assert.True(WatchModeController.IsWatchBodyReadingCurrent(
+                hiddenGhost.lastInterpolatedBodyName, hiddenGhost.currentZone));
+        }
+
+        /// <summary>
+        /// The staleness predicate on its own. A present body name is NOT evidence the reading
+        /// is current - that conflation is what made the first version of this fix describe the
+        /// measured V7M refusal as a genuine different-body case.
+        /// </summary>
+        [Fact]
+        public void IsWatchBodyReadingCurrent_RequiresBothANameAndALiveRenderZone()
+        {
+            Assert.True(WatchModeController.IsWatchBodyReadingCurrent("Minmus", RenderingZone.Physics));
+            Assert.True(WatchModeController.IsWatchBodyReadingCurrent("Minmus", RenderingZone.Visual));
+            Assert.False(WatchModeController.IsWatchBodyReadingCurrent("Minmus", RenderingZone.Beyond));
+            Assert.False(WatchModeController.IsWatchBodyReadingCurrent(null, RenderingZone.Physics));
+            Assert.False(WatchModeController.IsWatchBodyReadingCurrent("", RenderingZone.Visual));
         }
 
         /// <summary>
@@ -370,12 +414,12 @@ namespace Parsek.Tests
             Assert.Equal("disabled (not rendered)",
                 RecordingsTableUI.GetWatchButtonReason(
                     canWatch: false, hasGhost: true, sameBody: false, inRange: true,
-                    isDebris: false, bodyResolved: false));
+                    isDebris: false, bodyReadingCurrent: false));
 
             Assert.Equal("disabled (different body)",
                 RecordingsTableUI.GetWatchButtonReason(
                     canWatch: false, hasGhost: true, sameBody: false, inRange: true,
-                    isDebris: false, bodyResolved: true));
+                    isDebris: false, bodyReadingCurrent: true));
 
             // The default keeps the historic meaning for callers that do not measure it.
             Assert.Equal("disabled (different body)",
@@ -385,14 +429,14 @@ namespace Parsek.Tests
 
             string unresolvedTooltip = RecordingsTableUI.GetWatchButtonTooltip(
                 isWatching: false, hasGhost: true, sameBody: false, inRange: true,
-                isDebris: false, bodyResolved: false);
+                isDebris: false, bodyReadingCurrent: false);
             Assert.DoesNotContain("different body", unresolvedTooltip);
             Assert.Contains("too far away to be drawn", unresolvedTooltip);
 
             Assert.Equal("Ghost is on a different body",
                 RecordingsTableUI.GetWatchButtonTooltip(
                     isWatching: false, hasGhost: true, sameBody: false, inRange: true,
-                    isDebris: false, bodyResolved: true));
+                    isDebris: false, bodyReadingCurrent: true));
         }
 
         /// <summary>
@@ -403,7 +447,7 @@ namespace Parsek.Tests
         {
             var descriptor = TimelineWindowUI.BuildWatchButtonDescriptor(
                 isWatching: false, hasGhost: true, sameBody: false, inRange: true,
-                isDebris: false, bodyResolved: false);
+                isDebris: false, bodyReadingCurrent: false);
 
             Assert.False(descriptor.CanWatch);
             Assert.Contains("too far away to be drawn", descriptor.Tooltip);

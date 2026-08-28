@@ -312,6 +312,29 @@ namespace Parsek
                 cycleIndex);
         }
 
+        /// <summary>
+        /// Whether a ghost's <c>lastInterpolatedBodyName</c> is a reading the affordances may
+        /// describe as a body comparison, or a stale value that says nothing about where the
+        /// ghost is now.
+        ///
+        /// <para>WATCH-ENTRY-REFUSED-INSIDE-QUOTED-RANGE, corrected mechanism: the field is
+        /// seeded ONCE at spawn (<c>GhostPlaybackEngine.CreatePendingSpawnState</c> -&gt;
+        /// <c>TryResolvePendingPlaybackInterpolation</c> -&gt; <c>SetInterpolated</c>) and then
+        /// refreshed only on the POSITIONING path, which the render-zone hide skips. A ghost in
+        /// <see cref="RenderingZone.Beyond"/> therefore keeps answering with whatever its spawn
+        /// seed resolved, however wrong and however old - V7M measured <c>Kerbin</c> held across
+        /// both refusals while the observer sat at Minmus. So the honest test is not "is there a
+        /// body name" (there usually is) but "is this ghost being positioned at all".</para>
+        ///
+        /// <para>REPORTING ONLY. <c>IsGhostOnSameBody</c> and the watch-entry conjunction are
+        /// untouched; this exists so the disabled Watch button can say "not rendered" instead of
+        /// asserting a different body it has not actually observed.</para>
+        /// </summary>
+        internal static bool IsWatchBodyReadingCurrent(string bodyName, RenderingZone zone)
+        {
+            return !string.IsNullOrEmpty(bodyName) && zone != RenderingZone.Beyond;
+        }
+
         /// <summary>What the per-frame Continue path must do about a live cycle bridge anchor.</summary>
         internal enum WatchCycleBridgeDisposition
         {

@@ -1272,22 +1272,22 @@ namespace Parsek
                         bool hasGhost = recIndex >= 0 && flight.HasActiveGhost(recIndex);
                         bool sameBody = recIndex >= 0 && flight.IsGhostOnSameBody(recIndex);
                         bool inRange = recIndex >= 0 && flight.IsGhostWithinVisualRange(recIndex);
-                        bool bodyResolved = recIndex < 0 || flight.IsGhostBodyResolved(recIndex);
+                        bool bodyReadingCurrent = recIndex < 0 || flight.IsGhostBodyReadingCurrent(recIndex);
                         bool isWatching = recIndex >= 0 && flight.WatchedRecordingIndex == recIndex;
                         TimelineWatchButtonDescriptor watchButton = BuildWatchButtonDescriptor(
-                            isWatching, hasGhost, sameBody, inRange, rec.IsDebris, bodyResolved);
+                            isWatching, hasGhost, sameBody, inRange, rec.IsDebris, bodyReadingCurrent);
 
                         if (RecordingsTableUI.UpdateWatchButtonTransitionCache(
                             lastCanWatchByRecId, rec.RecordingId, watchButton.CanWatch))
                         {
                             string reason = RecordingsTableUI.GetWatchButtonReason(
-                                watchButton.CanWatch, hasGhost, sameBody, inRange, rec.IsDebris, bodyResolved);
+                                watchButton.CanWatch, hasGhost, sameBody, inRange, rec.IsDebris, bodyReadingCurrent);
                             string eligibility = recIndex >= 0
                                 ? flight.DescribeWatchEligibilityForLogs(recIndex)
                                 : "watchEval(rec=<missing-index>)";
                             ParsekLog.Info("UI",
                                 $"Timeline watch button \"{rec.VesselName}\" id={rec.RecordingId} {reason} " +
-                                $"(hasGhost={hasGhost} sameBody={sameBody} bodyResolved={bodyResolved} " +
+                                $"(hasGhost={hasGhost} sameBody={sameBody} bodyReadingCurrent={bodyReadingCurrent} " +
                                 $"inRange={inRange} debris={rec.IsDebris}) " +
                                 $"{eligibility} {flight.DescribeWatchFocusForLogs()}");
                         }
@@ -1568,14 +1568,14 @@ namespace Parsek
         /// <inheritdoc cref="RecordingsTableUI.GetWatchButtonReason"/>
         internal static TimelineWatchButtonDescriptor BuildWatchButtonDescriptor(
             bool isWatching, bool hasGhost, bool sameBody, bool inRange, bool isDebris,
-            bool bodyResolved = true)
+            bool bodyReadingCurrent = true)
         {
             bool canWatch = RecordingsTableUI.IsWatchButtonEnabled(
                 hasGhost, sameBody, inRange, isDebris);
             return new TimelineWatchButtonDescriptor(
                 isWatching ? "W*" : "W",
                 RecordingsTableUI.GetWatchButtonTooltip(
-                    isWatching, hasGhost, sameBody, inRange, isDebris, bodyResolved),
+                    isWatching, hasGhost, sameBody, inRange, isDebris, bodyReadingCurrent),
                 RecordingsTableUI.ShouldEnableWatchButton(canWatch, isWatching),
                 canWatch,
                 GetWatchButtonAction(isWatching));
