@@ -3590,7 +3590,9 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
         # property, and these two hosts carry recorded state `logi-cargo-pad`
         # cannot. H38 measured seven run-time skips and named five of them as
         # ONE debt - a dock-window / origin-proof RECORDED subject - which is
-        # exactly what these two answer. Both NOT FLOWN; see INTERIM_PIN_IDS.
+        # exactly what these two answer. BOTH FLOWN 3x on 2026-08-28 and pinned
+        # whole (34/0/13 and 35/0/12): each pays TWO of H38's five, and the
+        # remaining three are a HARVEST requirement now proven on both hosts.
         "H39-logistics-isolated-bdock": ("Logistics", 47),
         "H40-logistics-isolated-depot-route": ("Logistics", 47),
     }
@@ -3662,20 +3664,42 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
     # It must stay a set LITERAL of ids (or a `set()` call when empty, never a `{}`
     # literal, which would be an empty DICT and make every membership read False).
     #
-    # AND BACK TO TWO ON 2026-08-28, in the same wave, for the two RECORDED-host
+    # IT WENT BACK TO TWO ON 2026-08-28, in the same wave, for the two RECORDED-host
     # Logistics lanes `H39-logistics-isolated-bdock` and
-    # `H40-logistics-isolated-depot-route`. They are interim for a DIFFERENT reason
-    # than H38 was, and the difference decides what their first flights mean. H38's
+    # `H40-logistics-isolated-depot-route`. They were interim for a DIFFERENT reason
+    # than H38 was, and the difference decided what their first flights meant. H38's
     # unknown was whether a purpose-BUILT craft satisfied five preconditions - a
-    # property of a file this repo authors. Theirs is what a RECORDED CORPUS happens
+    # property of a file this repo authors. Theirs was what a RECORDED CORPUS happens
     # to CONTAIN: which dock windows exist and on which branch, which committed
     # recordings started in PRELAUNCH, whether a committed route survives the
     # load-time optimizer. No attribute, no craft property and no amount of reading
     # the .sfs settles a run-time `InGameAssert.Skip` that walks committed trees.
-    # Both carry an expected-skip HYPOTHESIS in their headers, written as predictions
-    # and deliberately NOT as pins, precisely so the first census can refute them.
-    INTERIM_PIN_IDS = {"H39-logistics-isolated-bdock",
-                       "H40-logistics-isolated-depot-route"}
+    # Both carried an expected-skip HYPOTHESIS in their headers, written as
+    # predictions and deliberately NOT as pins, precisely so the first census could
+    # refute them.
+    #
+    # AND BACK TO EMPTY ON 2026-08-29 - both obligations discharged, both after THREE
+    # censuses, and the reading discipline paid for itself twice over:
+    #   H39: `_1947` PARSEK-FAIL(results) 33/1/13 (one test defect - an unset
+    #        `CreatedUT` parking the synthetic route dormant), `_2053`
+    #        PARSEK-FAIL(expectation) - BATCH GREEN 34/0/13 but `recordings.count 9 <
+    #        min 19` - and `_2119` PASS 34/0/13 with count 21.
+    #   H40: `_1951` PARSEK-FAIL(results) 25/10/12 (a nine-cell destination-headroom
+    #        test-defect family against a 720/720 tank, plus the same `CreatedUT`
+    #        cell), `_2056` PARSEK-FAIL(expectation) - BATCH GREEN 35/0/12 but
+    #        `recordings.count 9 < min 20` - and `_2122` PASS 35/0/12 with count 22.
+    # THE SECOND CENSUS OF EACH IS THE ONE WORTH REMEMBERING: both batches went green
+    # and both runs red ANYWAY, on the recordings floor, which is how
+    # QUICKLOAD-OVER-COMMITTED-RESTORE-OVERLAP-DELETES-TREE-ON-SAVE was found
+    # (player-reachable data loss, fixed at 5218b13a8). Not one of the 46 in-game
+    # cells could see it; the count row was the only instrument pointed at the
+    # committed corpus. Both specs now pin their tally WHOLE, pin their count EXACTLY
+    # (21 / 22) rather than as a window, declare their `skipped=` in MEASURED_SKIPPED
+    # below, and leave here in the same commit. The expected-skip hypotheses in both
+    # headers were CONFIRMED and none refuted, with one unpredicted skip on H39
+    # (`Escrow_CompetingRouteSeesReservation_Holds` - the shared source is too LARGE,
+    # the mirror image of the risk that header worried about).
+    INTERIM_PIN_IDS: set = set()
 
     # id -> measured `skipped=` for members whose RUN-TIME InGameAssert.Skip guards
     # push the split above the attribute-derived floor. The attributes give a FLOOR
@@ -3708,6 +3732,26 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
         # byRequiredScene=SPACECENTER:1` are quoted in full in the spec's header
         # roster. Re-measure, never re-guess: all seven are fixture properties.
         "H38-logistics-isolated": 8,
+        # H39 (`bdock-recorded`): 1 attribute-forced + 12 run-time. MEASURED off census
+        # 3, `2026-08-28_2119`. The twelve decompose as 3 residual missing-recorded-
+        # subject cells (the docked-origin producer, and the active-as-TARGET and
+        # cross-tree dock-window pair - all three a HARVEST requirement: every committed
+        # ROUTE_CONNECTION_WINDOWS node in the suite is initiator-branch because the two
+        # docking craft are Kerbal X descendants sharing one BAKED persistentId), 6 host
+        # capability (no BaseConverter x2, one ModuleInventoryPart x2, empty container
+        # x2), 1 injected-corpus, 1 drill-rig-on-ore, and 1 the census did NOT predict -
+        # `Escrow_CompetingRouteSeesReservation_Holds`, which needs a source too SMALL to
+        # cover two routes and this host's holds 645.42 LF. Full verbatim roster in the
+        # spec header.
+        "H39-logistics-isolated-bdock": 13,
+        # H40 (`depot-route-recorded`): 1 attribute-forced + 11 run-time - H39's roster
+        # MINUS the escrow cell, which PASSES here because this host's shared source is
+        # small enough to demonstrate the competing-route net. MEASURED off census 3,
+        # `2026-08-28_2122`. That the two recorded hosts differ by exactly one skip, and
+        # that the one is a corpus-size property rather than a craft property, is itself
+        # the measurement: the remaining eleven are the same on both, so they are
+        # properties of the RECORDED-HOST SHAPE rather than of either fixture.
+        "H40-logistics-isolated-depot-route": 12,
     }
 
     @classmethod
@@ -5632,16 +5676,31 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # name the planned H39 bdock-recorded dock-window lane, which is a separate
         # spec's scope rather than a debt this tag can carry.
         "H38-logistics-isolated.toml":      "FLOWN 2x 2026-08-28 (reading run found 1 product + 2 test defects, fixed at f98d5477a; run 2 PASS attempt 1) and PINNED WHOLE; confirm runs then the operator -> daily PROMOTION call are what remain, not debt",
-        # H39 / H40, tier=operator because they have NOT FLOWN - the same
-        # disposition H38 carried before its reading run, and the debt is a
-        # FLIGHT rather than a human call, carried by the `pending-flight` tag.
-        # `pending-operator` would be the WRONG tag for both: nothing is waiting
-        # on a person. Re-classify to the H34/H35/H38 shape (an open operator ->
-        # daily PROMOTION call) once each has flown, its census measured, its
-        # tally pinned whole and its id removed from
-        # IsolatedBatchWiringGroupTests.INTERIM_PIN_IDS.
-        "H39-logistics-isolated-bdock.toml": "tier=operator because it is a READING RUN that has not flown; debt is a flight, carried by the pending-flight tag - the same disposition H38 carried pre-flight",
-        "H40-logistics-isolated-depot-route.toml": "tier=operator because it is a READING RUN that has not flown; debt is a flight, carried by the pending-flight tag - the same disposition H38 carried pre-flight",
+        # H39 / H40, RE-CLASSIFIED 2026-08-29 to the H34/H35/H38 shape, which is
+        # exactly what the previous revision of this comment asked a future reader
+        # to do "once each has flown, its census measured, its tally pinned whole
+        # and its id removed from INTERIM_PIN_IDS". All four are now done for both.
+        # Three censuses each, the third green:
+        #   H39  `_1947` 33/1/13 (one test defect), `_2053` BATCH GREEN 34/0/13 but
+        #        RED on `recordings.count 9 < min 19`, `_2119` PASS 34/0/13 count 21.
+        #   H40  `_1951` 25/10/12 (a nine-cell destination-headroom test-defect
+        #        family), `_2056` BATCH GREEN 35/0/12 but RED on `count 9 < min 20`,
+        #        `_2122` PASS 35/0/12 count 22.
+        # THESE TWO LANES FOUND THE TREE-DELETION DATA LOSS
+        # (QUICKLOAD-OVER-COMMITTED-RESTORE-OVERLAP-DELETES-TREE-ON-SAVE, fixed at
+        # 5218b13a8) on their second censuses, via the recordings floor and not via
+        # any in-game cell. Both now pin tally and count exactly and the tags moved
+        # `pending-flight` -> `flown` in the same commit.
+        #
+        # WHAT REMAINS IS NOT DEBT: the CONFIRM runs (each pin is measured once, not
+        # yet re-proven), then the ordinary operator -> daily PROMOTION call, which
+        # only a human makes. The 13 / 12 skips they pin are FIXTURE and CORPUS
+        # properties rostered verbatim in each spec header; three of them (the
+        # docked-origin producer cell and the target / cross-tree dock-window pair)
+        # are a HARVEST requirement now proven on TWO independent recorded hosts,
+        # which is a separate harvest's scope rather than a debt these tags carry.
+        "H39-logistics-isolated-bdock.toml": "FLOWN 3x 2026-08-28 (test defect, then the recordings floor caught player-reachable tree-deletion data loss, then PASS) and PINNED WHOLE incl. count=21; confirm runs then the operator -> daily PROMOTION call are what remain, not debt",
+        "H40-logistics-isolated-depot-route.toml": "FLOWN 3x 2026-08-28 (a nine-cell destination-headroom test-defect family, then the recordings floor caught the same tree-deletion data loss, then PASS) and PINNED WHOLE incl. count=22; confirm runs then the operator -> daily PROMOTION call are what remain, not debt",
         # tier=operator by the CALIBRATION DISCIPLINE, the whole B18-B26 family's
         # tier, and NOT a debt: a first-flight B lane is operator because its
         # windows are derived rather than measured and the first run is a

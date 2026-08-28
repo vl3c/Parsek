@@ -816,6 +816,26 @@
         "2026-08-28T19:19:52Z": 170.0
       }
     },
+    "H39-logistics-isolated-bdock": {
+      "last": 155.0,
+      "lastVsP50": 1.0,
+      "n": 1,
+      "p50": 155.0,
+      "p95": 155.0,
+      "samples": {
+        "2026-08-28T21:22:26Z": 155.0
+      }
+    },
+    "H40-logistics-isolated-depot-route": {
+      "last": 143.0,
+      "lastVsP50": 1.0,
+      "n": 1,
+      "p50": 143.0,
+      "p95": 143.0,
+      "samples": {
+        "2026-08-28T21:24:49Z": 143.0
+      }
+    },
     "H5-invariants-corpus": {
       "last": 71.0,
       "lastVsP50": 1.029,

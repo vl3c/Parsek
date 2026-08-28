@@ -120,7 +120,7 @@ Two limits of this table, stated so nobody over-reads it:
 | `LedgerGroundTruth` | 2 | 2 | 0 | 0 | 0 | 1 | L2 | B |
 | `LocalizedName` | 3 | 3 | 3 | 3 | 0 | 0 | H29 | A |
 | `LogContracts` | 10 | 10 | 8 | 8 | 0 | 2 | H26 | A |
-| `Logistics` | 47 | 8 | 2 | 1 | 38 | 46 | H34 (SPACECENTER slice), H35 (FLIGHT ordinary slice), H38 (FLIGHT ISOLATED on a built pad rig, flown 2026-08-28, executes 39), H39 + H40 (the same ISOLATED slice on RECORDED hosts, reading runs pending) | B |
+| `Logistics` | 47 | 8 | 2 | 1 | 38 | 46 | H34 (SPACECENTER slice), H35 (FLIGHT ordinary slice), H38 (FLIGHT ISOLATED on a built pad rig, flown 2026-08-28, executes 39), H39 + H40 (the same ISOLATED slice on RECORDED hosts, both flown 2026-08-28, executing 34 and 35). Union across all five: 42 of 47 | B |
 | `LogisticsGrapple` | 4 | 3 | 0 | 0 | 1 | 2 | - | B |
 | `MapPresence` | 5 | 5 | 3 | 3 | 0 | 2 | H28 | A |
 | `MapRender` | 22 | 21 | 0 | 0 | 1 | 14 | S1.7 | B |
@@ -314,20 +314,38 @@ runs 5 at FLIGHT (the probe-admission cell, the prelaunch origin-proof cell, the
 active-as-initiator route-proof cell, the mid-tree shuttle cell, and the same AnyScene
 tooltip cell, which is why the union was 6 and not 7). The other 41 executed nowhere:
 38 carried `AllowBatchExecution = false`, and 3 self-skipped on fixture shape.
-**SINCE 2026-08-28 THAT NUMBER IS 42.** `H38-logistics-isolated` flew and executed
-**39 of the 47 in one batch** (`total=47 passed=39 failed=0 skipped=8`); three of
-H34's and H35's cells are outside those 39 (the SPACECENTER inter-body cell, which
-scene-skips at FLIGHT, plus the prelaunch origin-proof and active-as-initiator
-route-proof cells, which need `bdock-recorded` state H38's fresh pad fixture does not
-carry), so the union is 39 + 3 = 42. ONLY FIVE DECLARATIONS NOW EXECUTE NOWHERE:
+**SINCE 2026-08-28 THAT NUMBER IS 42, AND IT IS NOW DERIVED MECHANICALLY** rather than
+argued: `re.findall` over the `PASSED:` / `FAILED:` lines of the three isolated lanes'
+green census logs (`2026-08-28_1833`, `_2119`, `_2122`), unioned with what H34 and H35
+execute. The steps, because each one carries a reading:
+`H38-logistics-isolated` executed **39 of the 47 in one batch**
+(`total=47 passed=39 failed=0 skipped=8`) on a purpose-built pad rig with an empty
+store. `H39-logistics-isolated-bdock` executed **34** and added **+2** -
+`RouteProof_ActiveAsInitiatorDockWindow` and `RouteOriginProof_StartedOnRunway`, the
+two that need recorded state a fresh pad fixture cannot carry.
+`H40-logistics-isolated-depot-route` executed **35** and added **+0**: the same 2 over
+H38, nothing over `H38 ∪ H39`. So the three isolated lanes union to **41**. H35's five
+are all inside it; H34 adds the **+1** SPACECENTER inter-body cell that scene-skips at
+FLIGHT. **41 + 1 = 42 of 47.**
+TWO READINGS FALL OUT OF THAT and neither flatters a headline number. H40 adds no
+declaration at all - its value is a new EXECUTION CONTEXT (the only committed Active
+route) and the nine-cell defect family it found, not coverage. And the recorded hosts
+COST as well as buy: H39 executes 5 fewer cells than H38 and H40 four fewer, because
+both trade craft capability (a `BaseConverter`, a second inventory container, a stocked
+container) for corpus.
+ONLY FIVE DECLARATIONS NOW EXECUTE NOWHERE:
 `RouteOriginProof_StartedDockedToNonKsc`, `RouteProof_ActiveAsTargetDockWindow`,
 `RouteProof_CrossTreeCommittedPartner`, `HarvestCapture_CatchUpOnLoad` and
 `HarvestRoute_AnalyzesEligible` - all five a missing recorded subject rather than a
-rig defect (the middle two plus `ActiveAsInitiator` are the planned H39
-`bdock-recorded` dock-window lane's scope). The declaration
+rig defect. The first three are now a HARVEST requirement PROVEN on two independent
+recorded hosts rather than predicted on one: every committed
+`ROUTE_CONNECTION_WINDOWS` node in the suite is initiator-branch, because the docking
+craft are `Kerbal X` descendants sharing one BAKED `persistentId`, so closing the
+target and cross-tree cells needs a recorded dock between craft with DIFFERENT baked
+pids and no existing bytes can supply it. The declaration
 measure has always counted category membership rather than execution, so this is not
 a new distortion, but at 47 declarations it is the first time the gap is big enough
-to mislead on its own - and the two additions moved the honest number 2 -> 6 -> 42
+to mislead on its own - and the additions moved the honest number 2 -> 6 -> 39 -> 42
 while moving the headline number by zero. The bucket letters are
 unchanged: `Logistics` stays **B**, on the same footing as `GhostMap` (S1.6),
 `GhostPlayback` (S1.4) and `Missions` (M1) - driven, partially, without meeting
@@ -575,11 +593,14 @@ one A2 exists to make legible: an isolated batch's split is a FIXTURE property, 
 same 46 admitted cells measure a different thing on a different host.
 `H39-logistics-isolated-bdock` boots `bdock-recorded` and
 `H40-logistics-isolated-depot-route` boots `depot-route-recorded` - both RECORDED hosts,
-where H38's is a purpose-built pad rig with an EMPTY store. All 39 of H38's passes are
-therefore currently claims about a store with zero trees; these two re-run the identical
+where H38's is a purpose-built pad rig with an EMPTY store. All 39 of H38's passes were
+therefore claims about a store with zero trees; these two re-run the identical
 population where committed trees, dock windows and (H40 only) a live Active route exist.
-Both are READING RUNS and both are declared in
-`IsolatedBatchWiringGroupTests.INTERIM_PIN_IDS`.
+BOTH FLEW THREE TIMES THE SAME DAY, the third census of each PASS attempt 1, and both
+are now pinned whole (`47/34/0/13` and `47/35/0/12`) with their recordings counts pinned
+EXACTLY (21 / 22); `INTERIM_PIN_IDS` is back to empty. The pair's SECOND censuses are
+what found the tree-deletion data loss - see the executed-count paragraph above and the
+status doc's H39+H40 section.
 
 THE PRE-FLIGHT DERIVATION IS THE INTERESTING PART, because it REFUTED half the reason
 they were commissioned and did so before either flew. H38's skip roster named five of its
@@ -619,8 +640,8 @@ make these lanes pass.
 |---|---|---|---|
 | `H21-scene-exit-merge-isolated` | SceneExitMerge | 2 | The R5 shakedown, and the D1 `commit-scene-exit` / `discard-rollback` cells no other mechanism produces: a real recording, a real launch, a real stock save-and-exit out of FLIGHT, and both branches of the pre-transition merge dialog |
 | `H38-logistics-isolated` | Logistics | 47 declared, 46 admitted, 38 of them restore-flagged | The 38 restore-after-run `Logistics` declarations no unattended path could execute before it: unloaded-depot origin debit, pickup, loaded and multi-module cargo delivery, harvest capture, multi-stop and multi-origin escrow, round-trip pairing. FLOWN 2026-08-28: reading run 1 found 1 product + 2 test defects (the D4 harvest rails funnel, fixed at `f98d5477a`), run 2 PASS attempt 1 measured `total=47 passed=39 failed=0 skipped=8`, now pinned WHOLE with two targeted cell tokens; confirm runs pending |
-| `H39-logistics-isolated-bdock` | Logistics | 47 declared, 46 admitted | The same 46 cells over `bdock-recorded` - the FIRST time the restore-flagged Logistics declarations run against a non-empty recording store (two committed trees, 19 recordings, one dock window). Pays two of H38's five missing-recorded-subject skips, and is the fixture-axis negative control on H38: the census delta says which of its 39 passes were RIG properties rather than universal ones. READING RUN, not yet flown |
-| `H40-logistics-isolated-depot-route` | Logistics | 47 declared, 46 admitted | The same 46 cells over `depot-route-recorded`, the suite's ONLY committed Active GhostDriving route (four `SOURCE_REF` rows carrying `routeProofHash`, a Dock and an Undock branch point, 22 recordings). The axis it adds is ROUTE-PRESENT vs ROUTE-ABSENT: every route-reading cell in the category has until now executed only against state a test forged in-body. Carries V18T's `RevalidateSources ... routes=1 transitioned=0` anti-vacuity token. READING RUN, not yet flown |
+| `H39-logistics-isolated-bdock` | Logistics | 47 declared, 46 admitted | The same 46 cells over `bdock-recorded` - the FIRST time the restore-flagged Logistics declarations run against a non-empty recording store (two committed trees, 19 recordings, one dock window). Pays two of H38's five missing-recorded-subject skips, and is the fixture-axis negative control on H38: the census delta says which of its 39 passes were RIG properties rather than universal ones - measured, 5 of them. FLOWN 3x 2026-08-28, pinned whole `47/34/0/13` with count 21; its census-2 recordings-floor red is half of how the tree-deletion data loss was found |
+| `H40-logistics-isolated-depot-route` | Logistics | 47 declared, 46 admitted | The same 46 cells over `depot-route-recorded`, the suite's ONLY committed Active GhostDriving route (four `SOURCE_REF` rows carrying `routeProofHash`, a Dock and an Undock branch point, 22 recordings). The axis it adds is ROUTE-PRESENT vs ROUTE-ABSENT: every route-reading cell in the category has until now executed only against state a test forged in-body. Carries the `RevalidateSources ... routes=1 transitioned=0` anti-vacuity token, tightened to `reason=OnLoad` by the census (the authored wildcard also matched on the route-less host). FLOWN 3x 2026-08-28, pinned whole `47/35/0/12` with count 22. It adds ZERO distinct declarations over `H38 ∪ H39` - its value is the execution context plus the nine-cell destination-headroom test-defect family its census 1 exposed against a 720/720 tank |
 
 ### Bucket B - wireable, but needs something first (81 categories, 451 declarations)
 

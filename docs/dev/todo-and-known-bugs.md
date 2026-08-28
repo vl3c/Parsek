@@ -9345,6 +9345,31 @@ PURPOSE (a full destination it does not drain, asserting
 all-or-nothing` Verbose line) - but the reading runs have now proven the branch is
 reachable from a committed fixture, which is what was in doubt.
 
+**SETTLED 2026-08-29 AT THE PINNING ROUND: THE ROW STAYS ZERO-DECLARER, and caveat (1)
+above is exactly what happened.** H40's green census 3 (`2026-08-28_2122`) was measured
+for it directly: **17** `DestinationHasCapacity: route <id> full manifest fits` lines and
+**ZERO** occurrences of `DestinationFull` or `WaitDestinationFull` anywhere in the log;
+the only `hold recorded kind=` value in the whole run is `OriginLacksCargo`, twice. So on
+the flight that is actually pinned, the gate is reached constantly and takes the
+PERMISSIVE branch every single time.
+
+That is now STRUCTURAL rather than incidental, and census 1 is the proof: the nine cells
+that DID drive the refusal all FAILED because of it, and the fix
+(`DestinationHeadroomFixture.TryEnsureDestinationHeadroom`, commit `7cfde0c20`) gave each
+of them headroom so they take the permissive branch deliberately. The suite therefore now
+contains **nine cells that route AROUND the refusal and none that asserts it** - the
+opposite of a declarer. A unit that stopped refusing a full destination entirely would
+leave all 35 of H40's cells passing and every one of its eight pinned tokens matching.
+
+WHAT WOULD CLOSE IT, unchanged and now with the evidence behind it: a cell that drives
+the refusal ON PURPOSE - a full destination it does NOT drain, asserting
+`RouteStatus.DestinationFull`, the `destination-full-<resource>` reason string from
+`RouteDispatchDecision.WaitDestinationFull`, and the retry UT. Not another lane and not
+another fixture: `depot-route-recorded`'s 720/720 `Depot` is already the most
+destination-full state in the entire suite and it was not enough. Recorded in
+`H40-logistics-isolated-depot-route.toml`'s `[dimensionsCovered]` block, which is where a
+future reader will look first.
+
 ---
 
 ## D10-INTERBODY-CELLS-NOW-DECLARED: the two inter-body coverage cells stop being zero-declarer, and what their gate does and does not prove [RECORDED 2026-08-11 by `H34-logistics-inter-body`. NOT A DEFECT - a coverage record, filed so the claim's exact scope survives the PR body]

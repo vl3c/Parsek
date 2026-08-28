@@ -148,7 +148,7 @@ All notable changes to Parsek are documented here.
   runs uses a save holding a real recorded docking; the other uses the only saved
   game that carries a live supply route, so the tests that read route data will
   finally read a real one instead of one they had to invent for themselves.
-  Neither has been flown yet, and both are written in the same deliberately
+  Both were written in the same deliberately
   modest form the first one was. Reading the tests before writing the runs also
   settled something worth writing down: three of the tests that were expected to
   come alive on these saves still cannot, and not for want of the right save.
@@ -158,6 +158,28 @@ All notable changes to Parsek are documented here.
   that stamp. No amount of choosing a different save fixes that. It needs a fresh
   recording of two genuinely different craft docking, which is now written down
   as a requirement rather than left as a surprise for a future run.
+  BOTH HAVE NOW BEEN FLOWN, three times each, and between them they paid for
+  themselves twice over. The first attempt at each turned up faults in the tests
+  rather than in the game - one run found a single mis-written test, the other
+  found ten failures that traced back to a single cause worth stating plainly:
+  the saved game carrying a live supply route has a completely full fuel tank,
+  and nine tests had been quietly assuming they could deliver into whatever
+  craft they happened to be flying without first checking there was room.
+  Refusing to deliver into a full tank is the game behaving correctly; the tests
+  were the ones at fault, and they now make room for themselves before they
+  start. The second attempt at each is the one that mattered: both sets of tests
+  passed clean, and BOTH RUNS FAILED ANYWAY - on the count of saved flights,
+  which had dropped from nineteen and twenty-two to nine. That is the
+  whole-mission-vanishing fault fixed above, and nothing else in the entire
+  checking chain could have seen it, because no test in that group ever looks at
+  flight history it did not itself create. The third attempt at each passed with
+  the histories intact. Both runs now demand their exact results - how many
+  tests pass, how many stand down and the reason each one gives, and above all
+  the exact number of saved flights that must come out the other side, with no
+  tolerance in either direction. Between the three runs this group of tests now
+  genuinely executes 42 of its 47 checks; the five that still cannot are every
+  one of them waiting on a recording nobody has made yet rather than on anything
+  in the code.
   Test-tooling only; no gameplay change, and nothing ships with the mod.
 - The map-render watchdog that reports a ghost's orbit line "blinking" no
   longer cries wolf at the one moment the line is *supposed* to go out for
