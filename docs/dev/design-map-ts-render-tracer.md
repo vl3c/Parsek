@@ -220,15 +220,16 @@ floating-origin / zero-velocity carve-outs):
 - `line-blink`: `line.active` toggled within N frames. Detectable from the truth read
   alone (no decision needed), so it is in the MVP.
 
-  THREE PRINCIPLED EXEMPTIONS, each a POSITIVE fact about a real transition rather
+  FOUR PRINCIPLED EXEMPTIONS, each a POSITIVE fact about a real transition rather
   than a widened threshold, and each added only after its own measured pass:
   `bodyChanged` (the toggle pair straddles a reference-body / segment seam),
   `offWindowCovered` (every frame of the dark window had an actual trajectory-polyline
-  line painted for the same recording — nothing went dark), and, since
-  LINE-BLINK-JUMP-STRADDLE-DETECTOR-GAP was closed, `windowTransitionExempt` — **the pair
+  line painted for the same recording — nothing went dark), since
+  LINE-BLINK-JUMP-STRADDLE-DETECTOR-GAP was closed `windowTransitionExempt` — **the pair
   left the recording's rendered body-frame window and came back onto a clock the
-  recording COVERS.** That third one is the only exemption that reads the DECISION side
-  rather than the truth side. `GhostOrbitLinePatch` stamps a three-state
+  recording COVERS** — and since V15M-LINEBLINK-IS-TRACEDPATH-HANDOFF-CADENCE was closed
+  `tracedPathHandoffExempt` (its own sub-section below). The last two read the DECISION
+  side rather than the truth side. `GhostOrbitLinePatch` stamps a three-state
   `RenderWindowCoverage` onto each frame's `LineRenderIntent`, and only where the branch
   condition IS the measurement: `Outside` at `past-body-frame-end` /
   `before-body-frame-start` and at `parking-conic-loiter-hold`, `Inside` at
@@ -255,24 +256,74 @@ floating-origin / zero-velocity carve-outs):
   anything unproven lands in `Other`, and `Other` never exempts on either edge — so the
   exemption fires only on a pair whose two halves were each MEASURED by the site whose
   branch condition is that measurement, never on absence of evidence. Every within-window
-  OFF reason (`polyline-owns-phase`, `director-traced-path-suppress`, `below-atmosphere` /
+  OFF reason (`polyline-owns-phase`, `below-atmosphere` /
   `terminal-below-atmosphere`, `stale-segment-awaiting-reseed`,
-  `post-polyline-release-grace`, `director-terminal-suppress`) still raises, as do a frame
-  where the Postfix never ran, a decision that disagrees with the truth read, and a
-  degenerate line read. Pinned by `LineBlinkWindowExitExemptionTests`, whose
+  `post-polyline-release-grace`, `director-terminal-suppress`) still raises through THIS
+  exemption, as do a frame where the Postfix never ran, a decision that disagrees with the
+  truth read, and a degenerate line read. (`director-traced-path-suppress` used to be
+  named in that list and still leaves coverage `Unknown`, so it still earns nothing here —
+  it is exempted, conditionally, by the separate handoff rule below.) Pinned by
+  `LineBlinkWindowExitExemptionTests`, whose
   `CoverageStamps_AreConfinedToTheFourMeasuringDecisions` cell is a SOURCE gate — the stamp
   is an ENUM VALUE, so any widening must spell `RenderWindowCoverage.Inside` / `.Outside`
   and is counted, catching the trailing POSITIONAL argument a string grep would miss — and
   `CoverageStamp_DefaultsToUnknown_AndHasOneWriter` pins `RecordLineIntent` to one
   production call site.
 
-  Both coverage suppressions log a `line-blink-suppressed` line carrying every guard flag
-  (`offWindowCovered=` / `windowTransitionExempt=` / `bodyChanged=`), the two toggle
+  THE TRACEDPATH-HANDOFF EXEMPTION (`tracedPathHandoffExempt`,
+  V15M-LINEBLINK-IS-TRACEDPATH-HANDOFF-CADENCE). The Director's StockConic → TracedPath
+  descent handoff kills the proto line PERMANENTLY — the line never comes back, the ghost
+  retires — so it is ONE correct transition, not a flicker; but under high warp
+  (~130 s/frame across a ~170 s terminal window) the OFF can land within the 8-frame
+  window of the ON that opened the same window, and the detector cannot tell the two
+  apart from the truth read. None of the three exemptions above reaches it: the bodies
+  match, the suppress site stamps NO `RenderWindowCoverage` (correctly — it hides the line
+  because the spine handed the leg away, not because a clock left a window), and the
+  measured lane is map-CLOSED flight, where the polyline's ownership/paint publish sits
+  past `MapView.MapIsEnabled` and never runs, so no coverage bit exists on either edge.
+  The positive fact is the OFF edge's own branch condition,
+  `ShadowRenderDriver.IsTracedPathOwnedThisFrame`, carried on the intent as a second
+  enum-valued stamp (`LineHandoffKind.TracedPathOwned`, exactly one write site, the same
+  single-writer `RecordLineIntent` channel as the coverage stamp).
+  `ResolveTracedPathHandoffExempt` is fail-closed on six conjuncts: a DEFINITIVELY dark
+  edge; a fresh decision AGREEING with the truth; the handoff stamp; a prior toggle that
+  is a proven `InsideWindowOn` (the same both-halves discipline); and TWO anti-masking
+  conjuncts. **(5)** Whenever the ownership/paint PUBLISH SURFACE ran this frame, the
+  polyline must ALSO actually have covered the ghost (`polylinePainted || polylineOwns`),
+  so a map-OPEN handoff that claims the leg and then draws nothing keeps raising.
+  **(6) The selector-alone lane is itself a POSITIVE fact**: when the publish surface did
+  NOT run, the exemption requires a positively measured CLOSED map (`mapWasOpen` false),
+  never the absence of the publish. `publishSurfaceRan == false` is a NEGATIVE fact and is
+  strictly broader than "map closed" — the Driver's walk also misses its epilogue on the
+  TRACKSTATION / FLIGHT controller-not-yet-awake defers (both sit AFTER the
+  `MapView.MapIsEnabled` gate), on any exception escaping the walk body, and when no Driver
+  exists — and in all three the map can be OPEN with nothing drawn. The alone-lane's whole
+  justification is `ownership-publish-surface-never-ran` meaning *no line on screen for
+  anyone to see blink*, which only the closed map actually establishes. "Did the publish
+  surface run" is the EXISTING `pendingDrawsFrame` walk-completed stamp read through
+  `GhostTrajectoryPolylineRenderer.DidOwnershipPublishRunOnFrame`, not a new per-frame
+  signal; that stamp is written BEFORE `NoteOwnershipPublish` (~50 lines above it, no early
+  return between), and what makes the reuse sound is that the probe's actual inputs — the
+  ownership and paint sets — are populated during the per-recording walk, ahead of the
+  stamp. Source-gated alongside the coverage stamps in
+  `LineBlinkWindowExitExemptionTests` (one-spelling count on the handoff stamp, plus a pin
+  that the publish-surface signal keeps reusing that walk-completed stamp and that the
+  stamp still precedes the publish), with a dedicated cell for the map-OPEN-but-walk-deferred
+  state asserting it still raises; the two
+  exemptions constrain each other, since the suppress site must never ALSO become a fifth
+  coverage stamp.
+
+  All three decision/coverage suppressions log a `line-blink-suppressed` line carrying
+  every guard flag (`offWindowCovered=` / `windowTransitionExempt=` /
+  `tracedPathHandoffExempt=` / `bodyChanged=`), the two toggle
   verdicts (`toggleVerdict=` / `priorToggleVerdict=`, so a reader sees WHICH proof was
-  missing) and the decision's `intentReason=`, because a silent guard on a gated token is undebuggable. Read the
-  attribution precisely: `bodyChanged` short-circuits AHEAD of both and never reaches
+  missing), the decision's `intentReason=`, and — since the handoff exemption landed —
+  `intentHandoff=` / `publishSurfaceRan=` / `mapWasOpen=` (the last two together separate
+  "coverage proof missing" from "walk never reached its epilogue while the map was open"),
+  because a silent guard on a gated token is undebuggable. Read the
+  attribution precisely: `bodyChanged` short-circuits AHEAD of all of them and never reaches
   that line, so a toggle pair a body change would also have exempted is attributed to
-  whichever coverage guard is true. That overstates the coverage guards' reach rather
+  whichever other guard is true. That overstates those guards' reach rather
   than hiding it, which is the safe direction for an over-firing audit.
 - `orbit-discontinuity`: sma / ecc / body changed between truth reads without a
   `SegmentApplied` (second cut) or SOI change explaining it. In the MVP this degrades

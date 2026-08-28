@@ -4,6 +4,7 @@ using System.Text.RegularExpressions;
 using Xunit;
 
 using Coverage = Parsek.MapRenderTrace.RenderWindowCoverage;
+using Handoff = Parsek.MapRenderTrace.LineHandoffKind;
 using Verdict = Parsek.MapRenderTrace.LineToggleVerdict;
 
 namespace Parsek.Tests
@@ -23,6 +24,13 @@ namespace Parsek.Tests
     ///
     /// <para>Fixture UTs / frames / bodies below are the ARCHIVED values from the four measured raises,
     /// not invented ones - see each cell's citation.</para>
+    ///
+    /// <para>The file also carries the SECOND, disjoint exemption on the same detector -
+    /// V15M-LINEBLINK-IS-TRACEDPATH-HANDOFF-CADENCE, the Director's designed StockConic -&gt; TracedPath
+    /// descent handoff - because both exemptions widen (or fail to widen) the same gated token and their
+    /// source gates constrain each other: the handoff site must NOT become a fifth coverage stamp, and
+    /// the coverage sites must NOT become handoff stamps. Its section starts below the archived-raise
+    /// replays.</para>
     /// </summary>
     public class LineBlinkWindowExitExemptionTests
     {
@@ -376,6 +384,294 @@ namespace Parsek.Tests
                 lastToggleFrame: 7611, currentFrame: 7618));
         }
 
+        // =================================================================================
+        // V15M-LINEBLINK-IS-TRACEDPATH-HANDOFF-CADENCE: the TracedPath-handoff exemption
+        // =================================================================================
+        //
+        // A SECOND, DISJOINT exemption on the same detector, for a shape the window-transition rule
+        // above structurally cannot reach. The OFF edge here is the Director's DESIGNED StockConic ->
+        // TracedPath descent handoff: `IsTracedPathOwnedThisFrame` flips true, the Postfix kills the
+        // line with `director-traced-path-suppress`, and the proto NEVER relights - it retires. That is
+        // ONE permanent transition, not a flicker out and back.
+        //
+        // Why none of the three existing exemptions matches (measured, both runs):
+        //   bodyChanged            false - Gilly -> Gilly.
+        //   windowTransitionExempt false - the suppress site stamps NO RenderWindowCoverage, BY DESIGN:
+        //                          it hides the line because the spine handed the leg away, NOT because
+        //                          the clock left the rendered window. Making it a fifth coverage stamp
+        //                          is the widening this file exists to prevent (and the coverage-count
+        //                          gate below would red on it).
+        //   offWindowCovered       false - it needs a FINISHED dark window on the re-activation edge,
+        //                          and this is caught on the DARK edge; in a map-CLOSED flight lane the
+        //                          polyline's ownership/paint publish never runs at all, so no coverage
+        //                          bit exists on either edge.
+        //
+        // Fixture values are the ARCHIVED fingerprint, raised IDENTICALLY nine days and two codebases
+        // apart: pid=4257410708 recId=77f724bb currentUT=16656457.000
+        // intentReason=director-traced-path-suppress, priorToggleVerdict=InsideWindowOn
+        // toggleVerdict=Other, offWindowCovered/polylinePainted/polylineOwns/windowTransitionExempt/
+        // bodyChanged all False, sinceFrames 5 (`2026-08-28_1703`) and 8 (`2026-08-19_1810`).
+
+        /// <summary>DETECTOR CHARACTERIZATION, not a fails-before proof. It hardcodes the three
+        /// pre-existing guards as literals, so it passes unchanged on a tree without this exemption and
+        /// cannot by itself show that the fix is what moved the outcome. The real pre-fix-behavior proof
+        /// is case (1) of <see cref="HandoffExemption_FailsClosedOnEveryConjunct"/>, which drives the
+        /// FULL replay with <c>intentHandoff: None</c> - the exact inputs of a tree where nothing stamps
+        /// a handoff - and still raises at the archived geometry. What this helper IS good for is
+        /// pinning the DETECTOR's own cadence arithmetic against fixed frame numbers.</summary>
+        private static bool RaisesUnderTheThreePreExistingGuardsOnly(
+            int lastToggleFrame, int currentFrame)
+        {
+            return MapRenderTrace.IsLineBlink(
+                toggled: true, hasLastToggleFrame: true,
+                lastToggleFrame: lastToggleFrame, currentFrame: currentFrame,
+                bodyChanged: false, offWindowCovered: false, windowTransitionExempt: false);
+        }
+
+        /// <summary>Replay the V15M shape end to end: classify this frame's half (the suppress site
+        /// stamps <c>Unknown</c> coverage, so it can only ever be <c>Other</c>), resolve BOTH exemptions,
+        /// then ask the detector.</summary>
+        private static bool RaisesAfterHandoffExemption(
+            Handoff intentHandoff,
+            Verdict priorToggle,
+            bool publishSurfaceRan,
+            bool polylineCovered,
+            int lastToggleFrame,
+            int currentFrame,
+            bool lineIsLit = false,
+            bool hasFreshIntent = true,
+            bool hasPriorToggle = true,
+            // The measured V15M lane is map-CLOSED flight; cells that model an OPEN map say so.
+            bool mapWasOpen = false)
+        {
+            Verdict current = MapRenderTrace.ClassifyLineToggle(
+                lineDefinitivelyOff: !lineIsLit,
+                lineDefinitivelyLit: lineIsLit,
+                hasFreshIntent: hasFreshIntent,
+                intentLineActive: lineIsLit,
+                // director-traced-path-suppress is NOT one of the four measuring sites.
+                intentWindowCoverage: Coverage.Unknown);
+            bool windowTransitionExempt = MapRenderTrace.ResolveWindowTransitionExempt(
+                lineIsLit: lineIsLit, currentToggle: current,
+                hasPriorToggle: hasPriorToggle, priorToggle: priorToggle);
+            bool tracedPathHandoffExempt = MapRenderTrace.ResolveTracedPathHandoffExempt(
+                lineDefinitivelyOff: !lineIsLit,
+                hasFreshIntent: hasFreshIntent,
+                intentLineActive: lineIsLit,
+                intentHandoff: intentHandoff,
+                hasPriorToggle: hasPriorToggle,
+                priorToggle: priorToggle,
+                publishSurfaceRan: publishSurfaceRan,
+                polylineCovered: polylineCovered,
+                mapWasOpen: mapWasOpen);
+            return MapRenderTrace.IsLineBlink(
+                toggled: true, hasLastToggleFrame: true,
+                lastToggleFrame: lastToggleFrame, currentFrame: currentFrame,
+                bodyChanged: false, offWindowCovered: false,
+                windowTransitionExempt: windowTransitionExempt,
+                tracedPathHandoffExempt: tracedPathHandoffExempt);
+        }
+
+        [Fact]
+        public void V15M_GillyHandoff_PreFixInputs_Raised()
+        {
+            // THE ARTIFACT, as the detector saw it before this exemption existed: sinceFrames 5 and 8,
+            // both <= LineBlinkFrameWindow (8), every pre-existing guard false. CHARACTERIZATION, not
+            // the fails-before proof - see the helper's summary; case (1) of
+            // HandoffExemption_FailsClosedOnEveryConjunct is what shows the archived geometry still
+            // raises when nothing stamps a handoff.
+            Assert.True(RaisesUnderTheThreePreExistingGuardsOnly(
+                lastToggleFrame: 100, currentFrame: 105));   // 2026-08-28_1703
+            Assert.True(RaisesUnderTheThreePreExistingGuardsOnly(
+                lastToggleFrame: 100, currentFrame: 108));   // 2026-08-19_1810
+        }
+
+        [Fact]
+        public void V15M_GillyHandoff_MapClosedLane_IsNowExempt()
+        {
+            // The measured lane: V15M is map-CLOSED flight, renderCompose
+            // `ownership-publish-surface-never-ran`, so publishSurfaceRan is false and the coverage bits
+            // are structurally absent. The selector alone carries the exemption THERE, and only there.
+            // Both incarnations' cadences.
+            Assert.False(RaisesAfterHandoffExemption(
+                intentHandoff: Handoff.TracedPathOwned, priorToggle: Verdict.InsideWindowOn,
+                publishSurfaceRan: false, polylineCovered: false,
+                lastToggleFrame: 100, currentFrame: 105));
+            Assert.False(RaisesAfterHandoffExemption(
+                intentHandoff: Handoff.TracedPathOwned, priorToggle: Verdict.InsideWindowOn,
+                publishSurfaceRan: false, polylineCovered: false,
+                lastToggleFrame: 100, currentFrame: 108));
+        }
+
+        [Fact]
+        public void V15M_FirstIncarnation_TenFrames_NeverRaised_BeforeOrAfter()
+        {
+            // CADENCE, NOT CODE, DECIDED THE RAISE - and the fix must not depend on that. In BOTH runs
+            // the FIRST incarnation crossed the IDENTICAL handoff one loop earlier at sinceFrames=10
+            // (frames 6834->6844 in `_1703`, 7108->7118 in `_1810`) and was never flagged, because 10 >
+            // LineBlinkFrameWindow. It must stay unflagged after the fix BY THE FRAME WINDOW, not by the
+            // exemption - so the post-fix half is driven with a NON-EXEMPTING configuration on purpose
+            // (map OPEN, publish surface ran, nothing covered - the shape that RAISES at sinceFrames=5
+            // in MapOpen_HandoffThatNeverDraws_StillRaises). If it were given the exempting inputs,
+            // IsLineBlink would return at the exemption before `sinceLast` was ever computed and the
+            // assert would pass with the frame window deleted, proving nothing about cadence.
+            Assert.False(RaisesUnderTheThreePreExistingGuardsOnly(
+                lastToggleFrame: 6834, currentFrame: 6844));
+            Assert.False(RaisesAfterHandoffExemption(
+                intentHandoff: Handoff.TracedPathOwned, priorToggle: Verdict.InsideWindowOn,
+                publishSurfaceRan: true, polylineCovered: false, mapWasOpen: true,
+                lastToggleFrame: 7108, currentFrame: 7118));
+        }
+
+        [Fact]
+        public void MapOpen_HandoffThatNeverDraws_StillRaises()
+        {
+            // THE CANNOT-MASK PIN for this exemption, and the reason the selector alone is not enough.
+            // Map OPEN (the ownership/paint publish surface RAN this frame) and TracedPath claims the
+            // leg - but nothing was painted and nothing was owned, so the map really did go dark under a
+            // claimed handoff. Byte-identical to the exempt cell above in every parameter but the two
+            // coverage facts.
+            Assert.True(RaisesAfterHandoffExemption(
+                intentHandoff: Handoff.TracedPathOwned, priorToggle: Verdict.InsideWindowOn,
+                publishSurfaceRan: true, polylineCovered: false, mapWasOpen: true,
+                lastToggleFrame: 100, currentFrame: 105));
+        }
+
+        [Fact]
+        public void MapOpen_HandoffThatActuallyDraws_IsExempt()
+        {
+            // The map-open counterpart that IS by design: the polyline painted / owned the ghost across
+            // the handoff, so the user sees one continuous trajectory and nothing blinked.
+            Assert.False(RaisesAfterHandoffExemption(
+                intentHandoff: Handoff.TracedPathOwned, priorToggle: Verdict.InsideWindowOn,
+                publishSurfaceRan: true, polylineCovered: true, mapWasOpen: true,
+                lastToggleFrame: 100, currentFrame: 105));
+        }
+
+        [Fact]
+        public void MapOpen_ButPublishSurfaceNeverRan_StillRaises()
+        {
+            // THE SECOND CANNOT-MASK PIN, and the reason the alone-lane is keyed on a POSITIVELY
+            // measured closed map instead of on `publishSurfaceRan == false`. That bit is a NEGATIVE
+            // fact - "the Driver walk did not reach its epilogue" - and is strictly broader than "the
+            // map is closed". At least three states satisfy it with the map WIDE OPEN, all of them a
+            // genuinely dark handoff:
+            //   * the controller-not-yet-awake defers (TRACKSTATION and FLIGHT), which sit AFTER the
+            //     MapView.MapIsEnabled gate in the Driver's LateUpdate;
+            //   * any exception escaping the walk body between the gates and the epilogue;
+            //   * Driver.Instance == null.
+            // Every other conjunct here is the exempting baseline, so this cell isolates exactly that
+            // one fact. Under the earlier `publishSurfaceRan && !polylineCovered` formulation this
+            // exempted; it must raise.
+            Assert.True(RaisesAfterHandoffExemption(
+                intentHandoff: Handoff.TracedPathOwned, priorToggle: Verdict.InsideWindowOn,
+                publishSurfaceRan: false, polylineCovered: false, mapWasOpen: true,
+                lastToggleFrame: 100, currentFrame: 105));
+            // ...and the mirror that keeps the cell honest: the SAME inputs on a proven-closed map are
+            // the measured V15M lane and stay exempt. One fact separates them.
+            Assert.False(RaisesAfterHandoffExemption(
+                intentHandoff: Handoff.TracedPathOwned, priorToggle: Verdict.InsideWindowOn,
+                publishSurfaceRan: false, polylineCovered: false, mapWasOpen: false,
+                lastToggleFrame: 100, currentFrame: 105));
+        }
+
+        [Fact]
+        public void HandoffExemption_FailsClosedOnEveryConjunct()
+        {
+            // One fact changed per case against the exempting baseline (TracedPathOwned / dark edge /
+            // fresh agreeing intent / prior InsideWindowOn / surface never ran on a proven-closed map);
+            // each must still raise.
+
+            // (1) NOT a designed handoff: any other OFF reason (polyline-owns-phase, below-atmosphere,
+            //     stale-segment-awaiting-reseed, director-terminal-suppress, ...) leaves it None.
+            //     THIS IS THE PRE-FIX-BEHAVIOR PROOF: `None` is what EVERY decision site stamped before
+            //     this exemption existed, driven here through the FULL replay at the archived geometry,
+            //     so a tree that stamps no handoff still reds exactly as it always did.
+            Assert.True(RaisesAfterHandoffExemption(
+                intentHandoff: Handoff.None, priorToggle: Verdict.InsideWindowOn,
+                publishSurfaceRan: false, polylineCovered: false,
+                lastToggleFrame: 100, currentFrame: 105));
+
+            // (2) The LIT edge. The exemption is dark-edge only: the measured shape never relights, and
+            //     an ON arriving out of a handoff has not been measured, so it stays fail-closed.
+            Assert.True(RaisesAfterHandoffExemption(
+                intentHandoff: Handoff.TracedPathOwned, priorToggle: Verdict.WindowExitOff,
+                publishSurfaceRan: false, polylineCovered: false,
+                lastToggleFrame: 100, currentFrame: 105, lineIsLit: true));
+
+            // (3) No fresh intent - our Postfix never decided this frame, so nothing measured anything
+            //     and the stamp on file is stale.
+            Assert.True(RaisesAfterHandoffExemption(
+                intentHandoff: Handoff.TracedPathOwned, priorToggle: Verdict.InsideWindowOn,
+                publishSurfaceRan: false, polylineCovered: false,
+                lastToggleFrame: 100, currentFrame: 105, hasFreshIntent: false));
+
+            // (4) The LIT half was not a proven InsideWindowOn - parking-conic-loiter-hold,
+            //     terminal-visible, a line lit behind our back. Same both-halves discipline as the
+            //     window-transition rule.
+            Assert.True(RaisesAfterHandoffExemption(
+                intentHandoff: Handoff.TracedPathOwned, priorToggle: Verdict.Other,
+                publishSurfaceRan: false, polylineCovered: false,
+                lastToggleFrame: 100, currentFrame: 105));
+
+            // (5) No prior toggle at all.
+            Assert.True(RaisesAfterHandoffExemption(
+                intentHandoff: Handoff.TracedPathOwned, priorToggle: Verdict.InsideWindowOn,
+                publishSurfaceRan: false, polylineCovered: false,
+                lastToggleFrame: 100, currentFrame: 105, hasPriorToggle: false));
+        }
+
+        [Fact]
+        public void HandoffExemption_DecisionDisagreesWithTruth_NotExempt()
+        {
+            // A decision of ON against a dark truth is the decision-vs-truth anomaly's business and must
+            // not be laundered into an exemption - the same rule ClassifyLineToggle applies. Asserted on
+            // the predicate directly, because the disagreement cannot be expressed through the replay
+            // helper (which ties both to one lineIsLit).
+            Assert.False(MapRenderTrace.ResolveTracedPathHandoffExempt(
+                lineDefinitivelyOff: true,
+                hasFreshIntent: true,
+                intentLineActive: true,
+                intentHandoff: Handoff.TracedPathOwned,
+                hasPriorToggle: true,
+                priorToggle: Verdict.InsideWindowOn,
+                publishSurfaceRan: false,
+                polylineCovered: false,
+                mapWasOpen: false));
+            // And the degenerate read ("(line-null)" / "(no-renderer)" / "(read-err:...)"): neither
+            // definitively off nor definitively lit. Not knowing is never evidence.
+            Assert.False(MapRenderTrace.ResolveTracedPathHandoffExempt(
+                lineDefinitivelyOff: false,
+                hasFreshIntent: true,
+                intentLineActive: false,
+                intentHandoff: Handoff.TracedPathOwned,
+                hasPriorToggle: true,
+                priorToggle: Verdict.InsideWindowOn,
+                publishSurfaceRan: false,
+                polylineCovered: false,
+                mapWasOpen: false));
+        }
+
+        [Fact]
+        public void IsLineBlink_DefaultTracedPathHandoffExempt_PreservesLegacyBehavior()
+        {
+            // Every pre-existing call site omits the new argument and must be byte-identical.
+            Assert.True(MapRenderTrace.IsLineBlink(
+                toggled: true, hasLastToggleFrame: true,
+                lastToggleFrame: 100, currentFrame: 103,
+                bodyChanged: false, offWindowCovered: false, windowTransitionExempt: false));
+        }
+
+        [Fact]
+        public void IsLineBlink_NoToggle_TracedPathHandoffExempt_StillNotBlink()
+        {
+            Assert.False(MapRenderTrace.IsLineBlink(
+                toggled: false, hasLastToggleFrame: true,
+                lastToggleFrame: 100, currentFrame: 103,
+                bodyChanged: false, offWindowCovered: false,
+                windowTransitionExempt: false, tracedPathHandoffExempt: true));
+        }
+
         // ---------------------------------------------------------------------------------
         // SOURCE GATE: only the four measuring decisions may stamp coverage
         // ---------------------------------------------------------------------------------
@@ -435,6 +731,125 @@ namespace Parsek.Tests
                 + "visible-body-frame); found " + inside + ".");
         }
 
+        /// <summary>
+        /// The same anti-over-reach pin for the SECOND exemption's stamp
+        /// (V15M-LINEBLINK-IS-TRACEDPATH-HANDOFF-CADENCE). <c>LineHandoffKind</c> is an enum for exactly
+        /// this reason: every stamp - named, positional, or via a local - must SPELL
+        /// <c>LineHandoffKind.TracedPathOwned</c>, so counting the spellings catches a widening that a
+        /// bare <c>true</c> would hide.
+        ///
+        /// <para>EXACTLY ONE stamp site, in <c>GhostOrbitLinePatch.cs</c>: the
+        /// <c>director-traced-path-suppress</c> branch, whose own condition IS
+        /// <c>ShadowRenderDriver.IsTracedPathOwnedThisFrame</c>. Every other OFF decision -
+        /// polyline-owns-phase, below-atmosphere, stale-segment-awaiting-reseed,
+        /// post-polyline-release-grace, director-terminal-suppress - must leave it <c>None</c>: they
+        /// hide the line for reasons that are NOT a designed spine handoff, and stamping any of them
+        /// would exempt a genuine flicker.</para>
+        ///
+        /// <para>The COVERAGE cell above is the other half of this pin, from the opposite side: the
+        /// suppress site must not ALSO become a fifth <c>RenderWindowCoverage</c> stamp (its 2/2 counts
+        /// go to 3 if it does). The two exemptions stay disjoint by construction.</para>
+        /// </summary>
+        [Fact]
+        public void HandoffStamp_IsConfinedToTheSingleTracedPathSuppressSite()
+        {
+            string repoRoot = ResolveRepoRoot();
+            string sourceDir = Path.Combine(repoRoot, "Source", "Parsek");
+            Assert.True(Directory.Exists(sourceDir), "Source/Parsek missing: " + sourceDir);
+
+            var stampRe = new Regex(
+                @"LineHandoffKind\s*\.\s*TracedPathOwned", RegexOptions.CultureInvariant);
+            int stamps = 0;
+            foreach (string file in Directory.GetFiles(sourceDir, "*.cs", SearchOption.AllDirectories))
+            {
+                // MapRenderTrace.cs DECLARES the enum and COMPARES against it inside
+                // ResolveTracedPathHandoffExempt. Those are reads, not stamps; the writer is
+                // LogOrbitLineDecision's caller. Its sole write path (RecordLineIntent) is pinned to one
+                // call site - and the intent store to one assignment - by the sibling cell below, which
+                // covers the Handoff field for the same reason it covers WindowCoverage: they ride the
+                // one channel.
+                if (string.Equals(Path.GetFileName(file), "MapRenderTrace.cs", StringComparison.Ordinal))
+                    continue;
+                MatchCollection hits = stampRe.Matches(File.ReadAllText(file));
+                if (hits.Count == 0)
+                    continue;
+                Assert.True(
+                    string.Equals(Path.GetFileName(file), "GhostOrbitLinePatch.cs", StringComparison.Ordinal),
+                    "Only GhostOrbitLinePatch's director-traced-path-suppress branch may stamp a line "
+                    + "handoff, but LineHandoffKind.TracedPathOwned appears in: " + file
+                    + ". Widening the stamp widens the line-blink exemption - see "
+                    + "MapRenderTrace.ResolveTracedPathHandoffExempt.");
+                stamps += hits.Count;
+            }
+
+            Assert.True(stamps == 1,
+                "Expected EXACTLY 1 LineHandoffKind.TracedPathOwned stamp (the "
+                + "director-traced-path-suppress branch, whose condition IS "
+                + "IsTracedPathOwnedThisFrame); found " + stamps + ".");
+        }
+
+        /// <summary>
+        /// The exemption's OTHER live input, pinned to the EXISTING signal it reuses. "Did the
+        /// ownership/paint publish surface run this frame?" is answered by the polyline Driver's
+        /// <c>pendingDrawsFrame</c> stamp - written LAST in the decide walk, after every early return,
+        /// a few lines below the ownership publish itself - and NOT by a new per-frame flag. Two facts
+        /// keep that honest: the accessor reads that field, and the field has exactly one write in the
+        /// walk's epilogue (plus the three resets that clear it to -1 before the early returns).
+        ///
+        /// <para>It matters because the map-CLOSED reading is what lets the selector exempt ALONE. If a
+        /// future refactor stamped the frame EARLIER - before the <c>MapView.MapIsEnabled</c> gate - a
+        /// map-closed lane would start reporting "the surface ran", the coverage conjunct would be
+        /// demanded where no coverage can exist, and the V15M artifact would return. If instead the
+        /// accessor were rewired to something that is true when the map is closed, the anti-masking
+        /// conjunct would go dead.</para>
+        /// </summary>
+        [Fact]
+        public void PublishSurfaceRanSignal_ReusesTheExistingWalkCompletedStamp()
+        {
+            string repoRoot = ResolveRepoRoot();
+            string renderer = File.ReadAllText(Path.Combine(
+                repoRoot, "Source", "Parsek", "Display", "GhostTrajectoryPolylineRenderer.cs"));
+
+            Assert.Contains("internal static bool DidOwnershipPublishRunOnFrame(int frame)", renderer);
+            Assert.Contains("d.PendingDrawsFrame == frame", renderer);
+            Assert.Contains("internal int PendingDrawsFrame => pendingDrawsFrame;", renderer);
+
+            // ONE write of the walk-completed stamp, in the epilogue: `pendingDrawsFrame = drawFrame;`.
+            // The resets to -1 (Clear / OnGameStateLoad / the top-of-LateUpdate clear) are deliberately
+            // NOT counted - they are the pre-early-return teardown that makes the stamp mean "ran to
+            // completion" in the first place.
+            // `(?!=)` keeps the `==` READS out (the onPreCull guard and the prose quoting it); the
+            // right-hand side is CAPTURED and filtered in code rather than excluded by a lookahead,
+            // because a lookahead after `\s*` backtracks the whitespace away and matches the very
+            // resets it was meant to skip.
+            var writeRe = new Regex(
+                @"pendingDrawsFrame\s*=(?!=)\s*([^;\r\n]*);", RegexOptions.CultureInvariant);
+            int writes = 0;
+            foreach (Match m in writeRe.Matches(renderer))
+                if (m.Groups[1].Value.Trim() != "-1")
+                    writes++;
+            Assert.True(writes == 1,
+                "Expected EXACTLY 1 non-reset write of pendingDrawsFrame (the decide walk's epilogue "
+                + "stamp, which is what DidOwnershipPublishRunOnFrame means); found " + writes + ".");
+
+            // ORDERING, asserted rather than asserted-in-prose: the walk-completed stamp is written
+            // BEFORE the recorder's ownership publish, not after it (an easy claim to get backwards, and
+            // this file got it backwards once). The reuse does not depend on that ordering - the probe's
+            // real inputs (drewNonOrbitalLegRecordings, the S0 paint set) are populated DURING the
+            // per-recording walk, ahead of the stamp, and the recorder publish below it is the M-A7
+            // manifest's own diff which the probe never reads - but pinning the order keeps the comments
+            // honest if either moves.
+            int stampAt = renderer.IndexOf("pendingDrawsFrame = drawFrame;", StringComparison.Ordinal);
+            int publishAt = renderer.IndexOf(
+                "RenderCompositionRecorder.NoteOwnershipPublish(", StringComparison.Ordinal);
+            Assert.True(stampAt >= 0, "the walk-completed stamp `pendingDrawsFrame = drawFrame;` is gone");
+            Assert.True(publishAt > stampAt,
+                "RenderCompositionRecorder.NoteOwnershipPublish must still follow the walk-completed "
+                + "stamp in the same epilogue; found stampAt=" + stampAt + " publishAt=" + publishAt
+                + ". If this moved, re-read DidOwnershipPublishRunOnFrame's ORDERING paragraph before "
+                + "changing either.");
+        }
+
         /// <summary>The stamp must stay OPT-IN and single-sourced: both seams default to
         /// <c>Unknown</c>, and <c>RecordLineIntent</c> has exactly ONE production call site, so
         /// <c>GhostOrbitLinePatch</c> is provably the only thing that can write coverage at all.</summary>
@@ -449,6 +864,10 @@ namespace Parsek.Tests
             string trace = File.ReadAllText(Path.Combine(sourceDir, "MapRenderTrace.cs"));
             Assert.Contains("RenderWindowCoverage.Unknown", patch);
             Assert.Contains("RenderWindowCoverage windowCoverage = RenderWindowCoverage.Unknown", trace);
+            // The handoff stamp rides the SAME channel and must be opt-in the same way: both seams
+            // default to None, so every branch that does not spell TracedPathOwned leaves it there.
+            Assert.Contains("LineHandoffKind.None", patch);
+            Assert.Contains("LineHandoffKind handoff = LineHandoffKind.None", trace);
 
             var callRe = new Regex(@"RecordLineIntent\s*\(", RegexOptions.CultureInvariant);
             int callSites = 0;

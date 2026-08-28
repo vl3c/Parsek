@@ -2547,6 +2547,148 @@ DEFERRALS TAKEN IN PHASES 1-2, each of which a lane author must know.
   CONSEQUENCE ALREADY TAKEN, tolerance not fix: V25M lists `line-blink` bare in
   `allowedAnomalies` citing `2026-08-26_1817`, ceiling 2 (2x measured) in
   prose, pending the budget-mechanism allowlist move.**
+- **V15M-LINEBLINK-IS-TRACEDPATH-HANDOFF-CADENCE: V15M's single `line-blink`
+  raise is the Director's DESIGNED StockConic->TracedPath descent handoff at
+  the Gilly loop tail, flagged only when frame cadence lands the toggle pair
+  inside the 8-frame blink window - pre-existing, deterministic in UT, and NOT
+  from PR #1556 or the map-render wave** [ATTRIBUTED 2026-08-28 by comparing
+  the #1556 confirmation flight `2026-08-28_1703` (branch `watch-mode-fixes`
+  fc49e71d5; collected log `logs/2026-08-28_2004_V15M-gilly-player-loop`)
+  against the lane's arming flight `2026-08-19_1810` (branch `gilly-loop-lane`
+  9301b945d; collected log `logs/2026-08-19_2111_V15M-gilly-player-loop`;
+  result JSON in `Parsek-gilly-loop-lane/harness/results`). Owner: whoever
+  owns the `MapRenderTrace` blink exemptions. **REMEDY (a) SHIPPED 2026-08-28**
+  - see FIX DIRECTIONS at the end of this entry for what landed].
+  THE TWO RUNS RAISE THE IDENTICAL EVENT, NINE DAYS AND TWO CODEBASES APART:
+  same recId `77f724bb`, same `currentUT=16656457.000`, same
+  `intentReason=director-traced-path-suppress`, same missing-exemption
+  fingerprint (`offWindowCovered=False polylinePainted=False
+  polylineOwns=False windowTransitionExempt=False bodyChanged=False
+  priorToggleVerdict=InsideWindowOn toggleVerdict=Other`), `sinceFrames` 5
+  (2026-08-28) vs 8 (2026-08-19), both <= `LineBlinkFrameWindow=8`. The
+  2026-08-19 run predates the ENTIRE map-render wave (#1526-#1551; the M-A7
+  manifest landed 2026-08-25) and ran the dead-watch-camera code (it is the
+  443-NRE-storm flight), yet raised the same blink at the same UT. That kills
+  BOTH candidates PR #1556's todo note deliberately left open: "main moved"
+  (the raise existed before main moved) and "watch working changes what the
+  map sees" (the raise fires with the watch camera dead and alive alike; the
+  same-millisecond `Watch focus dist=786m` coincidence in `_1703` is script
+  ordering, not causation). **PR #1556 is EXONERATED, and so is the
+  map-render wave.** When #1556 merges, fold its unattributed note into this
+  entry.
+  MECHANISM (read off both traces, and replicated by BOTH ghost incarnations
+  within EACH run): after the loop-cycle rollover the proto re-resolves onto
+  the recording's tiny terminal Gilly orbital window (bodyFrame
+  [16656187.2, 16656357.5], ~170 s): line ON `director-stockconic-visible`
+  (Inside stamp). A few ~130 s warp frames later the drive clock crosses the
+  last recorded orbit segment's end into the TracedPath descent leg;
+  `ShadowRenderDriver.IsTracedPathOwnedThisFrame` flips true and the
+  `GhostOrbitLinePatch` Postfix kills the line with
+  `director-traced-path-suppress` (which stamps NO `RenderWindowCoverage` and
+  `hasBounds=false` BY DESIGN - it is not one of the four stamping sites).
+  The proto never relights: it retires ~25 frames later (`left-orbit-segments`,
+  "Orbit proto retired AT terminal orbit bound"). A designed, permanent
+  handoff - not a flicker.
+  WHY NO EXEMPTION CAN MATCH: `bodyChanged` false (Gilly->Gilly);
+  `windowTransitionExempt` needs an Outside stamp the suppress site never
+  writes; `polylinePainted`/`polylineOwns` false because ownership publishes
+  ONLY on an ACTUAL polyline draw and the Driver never drew this run - V15M is
+  a map-closed flight-scene lane (renderCompose:
+  `ownership-publish-surface-never-ran`). So the exempting fact the closed
+  V1-REPLAY-LINE-BLINK diagnosis established for handoffs (the
+  paint/ownership bit) is structurally unavailable exactly when the map is
+  closed - i.e. exactly when NO line is visible to any viewer and a "blink"
+  has no observer.
+  CADENCE, NOT CODE, DECIDES THE RAISE: in BOTH runs the FIRST incarnation
+  crossed the identical handoff one loop earlier and was NOT flagged
+  (`sinceFrames=10 > 8`: frames 6834->6844 in `_1703`, 7108->7118 in
+  `_1810`); the second incarnation landed at 5 and 8. Whether ~130 s/frame
+  stepping crosses the ~170 s terminal window in <= 8 frames is frame-rate
+  jitter. Corollary: **V15M has never had a green armed run** - the arming
+  flight itself red'd on this exact raise (its NRE storm took the attention),
+  so the 2026-08-28 red reproduces the lane's standing state; it is not a
+  regression.
+  NOT the creation-frame render family: that family (V20 artifacts,
+  TIMEJUMP-CANNOT-OBSERVE-LIVE-FRAME-OVERLAP-PROTOS-ON-LONG-PITCH-SUBJECTS)
+  is overlap protos
+  SETTLING onto segment zero at creation because jump order sets creation
+  frames. Here incarnation 2 was created correctly onto the loop-shifted
+  visible segment (segIdx 2-3, `from visible-segment`) and behaved per
+  contract until the designed handoff; TimeJump's only role is cadence.
+  FIX DIRECTIONS: (a) the principled exemption
+  EXISTS as a positive fact stamped at a site whose branch condition IS the
+  measurement: the OFF edge's branch condition is
+  `IsTracedPathOwnedThisFrame(pid, frame)` - "the Director's spine says a
+  non-orbital leg owns this pid this frame" is a measured transition fact,
+  not a widened window. Exempt an OFF whose intent is
+  `director-traced-path-suppress` with that selector true and a prior Inside
+  ON. CAVEAT to design around: bare, it would also exempt a map-OPEN handoff
+  where the polyline then FAILS to draw (a real dark gap) - so conjoin the
+  ownership/paint bit whenever the publish surface ran, and accept the
+  selector alone only when it never ran (the case with no visible line at
+  all). (b) V25M-style tolerance: list `line-blink` bare in V15M
+  `allowedAnomalies` citing `2026-08-19_1810` + `2026-08-28_1703` - same
+  unbounded-tolerance cost as the V24W/V25M precedents while the budget
+  mechanism stays inert. Preference: (a) - unlike RESEED-LAG above (a real
+  transient) this raise is a measurement artifact of a designed handoff.
+  **SHIPPED 2026-08-28: (a), with the caveat designed around.** The stamp is a
+  new two-value enum `MapRenderTrace.LineHandoffKind` (`None` /
+  `TracedPathOwned` - an enum, not a bool, so every write must be SPELLED and is
+  therefore countable by a source gate) written at EXACTLY ONE site - the
+  `director-traced-path-suppress` branch, whose own condition IS
+  `IsTracedPathOwnedThisFrame` - riding the SAME single-writer intent channel as
+  `RenderWindowCoverage` (`RecordLineIntent`). It deliberately does NOT stamp
+  coverage: that site hides the line because the spine handed the leg away, not
+  because a clock left a window, and the two exemptions stay disjoint (the
+  coverage cell's 2/2 counts would red if the suppress site became a fifth
+  coverage stamp). The pure predicate is
+  `MapRenderTrace.ResolveTracedPathHandoffExempt`, fail-closed on SIX
+  conjuncts: definitively DARK edge; fresh intent AGREEING with the truth read;
+  handoff `TracedPathOwned`; prior toggle a proven `InsideWindowOn` (the same
+  both-halves discipline `ResolveWindowTransitionExempt` enforces); and TWO
+  anti-masking conjuncts. (5) When the ownership/paint publish surface RAN this
+  frame, the polyline must ALSO actually have covered the ghost
+  (`polylinePainted || polylineOwns`), so a map-OPEN handoff that claims the leg
+  and never draws still raises. (6) THE SELECTOR-ALONE LANE IS ITSELF A POSITIVE
+  FACT - it requires a positively measured CLOSED map (`mapWasOpen` false), never
+  the absence of a publish. `publishSurfaceRan == false` is a NEGATIVE fact and
+  strictly broader than map-closed: the Driver walk also misses its epilogue on
+  the TRACKSTATION / FLIGHT controller-not-yet-awake defers (both AFTER the
+  `MapView.MapIsEnabled` gate), on any exception escaping the walk body, and when
+  no Driver exists - all reachable with the map OPEN and nothing drawn, i.e.
+  exactly what the detector is for. The alone-lane's justification is
+  `ownership-publish-surface-never-ran` meaning no line on screen for anyone to
+  see blink, and only the closed map establishes that.
+  "Did the publish surface run" reuses an EXISTING signal rather than a new
+  per-frame flag: `GhostTrajectoryPolylineRenderer.DidOwnershipPublishRunOnFrame`
+  reads the Driver's `pendingDrawsFrame` walk-completed stamp - written in the
+  decide walk's epilogue, after every early return (scene gate,
+  `MapView.MapIsEnabled`, controller defers), and already asked the identical
+  question one slot later by `OnMapCameraPreCull`. Ordering, stated exactly
+  because it is easy to invert: that stamp is written ~50 lines BEFORE
+  `NoteOwnershipPublish`, not after it, and what makes the reuse sound is that
+  the probe's actual inputs (the ownership + S0 paint sets) are populated during
+  the per-recording walk, ahead of the stamp; the recorder publish below it is
+  the manifest's own diff, which the probe never reads. Both the raise and the
+  `line-blink-suppressed` lines now carry `tracedPathHandoffExempt=` /
+  `intentHandoff=` / `publishSurfaceRan=` / `mapWasOpen=`, so an exempted pair
+  stays visible rather than going silent - and the last two together separate
+  "coverage proof missing" from "walk never reached its epilogue while the map
+  was open". Gates in `LineBlinkWindowExitExemptionTests`: the archived V15M
+  fingerprint replayed at both cadences (exempt post-fix), the pre-fix-behavior
+  proof driven through the full replay with `intentHandoff: None` (still raises
+  at the archived geometry - the hardcoded three-guard helper beside it is
+  detector CHARACTERIZATION, not a fails-before proof), the first incarnation's
+  `sinceFrames=10` unraised before AND after with the post-fix half deliberately
+  given NON-exempting inputs so it pins the cadence arithmetic rather than
+  short-circuiting at the exemption, the map-OPEN never-draws masking pin, the
+  map-OPEN-but-walk-deferred pin (conjunct 6), the fail-closed conjuncts, a
+  one-spelling source gate on the handoff stamp, and a pin that the
+  publish-surface signal keeps reusing the walk-completed stamp AND that the
+  stamp still precedes the publish. **V15M's armed `anomalySweep` is expected GREEN on the
+  next nightly** - this raise was its only standing red (the lane has never had
+  a green armed run; its arming flight red'd on this same event), so that sweep
+  IS the regression catcher for this change.
 - **GHOST-MAP-TEARDOWN-NRE-WHEN-CAMERA-TARGETED: destroying a ghost map vessel
   that is the `PlanetariumCamera`'s current target NREs stock's KnowledgeBase
   during the forced retarget** [OPENED 2026-08-26 off V25M reading 3
@@ -17011,14 +17153,14 @@ Ground truth, DERIVED FROM SOURCE (not hand-listed): `hlib.ANOMALY_REASONS_RAISE
 
 | Raised reason | In ANOMALY_TOKENS? | Producer (decision site) |
 |---|---|---|
-| `parity-drift` | yes | `MapRenderProbe.cs:1464`, `:1720`, `:2349` (via `MapRenderTrace.AnomalyParityDrift`) |
-| `line-blink` | yes | `MapRenderProbe.cs:860` |
+| `parity-drift` | yes | `MapRenderProbe.cs:1531`, `:1787`, `:2422` (via `MapRenderTrace.AnomalyParityDrift`) |
+| `line-blink` | yes | `MapRenderProbe.cs:896` |
 | `decision-vs-truth` | yes | `MapRenderProbe.cs:689` |
 | `polyline-orbit-overlap` | yes | `MapRenderProbe.cs:709` |
 | `rigid-seam-tangent-discontinuity` | yes | `MapRender/CrossMemberSeamStitcher.cs:419` |
 | `ledger-vs-truth` | yes | `GameActions/KspStatePatcher.cs` x6, `FacilityStatePatcher.cs:158` |
-| `icon-teleport` | yes (promoted 2026-08-04) | `MapRenderProbe.cs:1021` |
-| `icon-off-orbit` | yes (promoted 2026-08-04) | `MapRenderProbe.cs:1093` |
+| `icon-teleport` | yes (promoted 2026-08-04) | `MapRenderProbe.cs:1079` |
+| `icon-off-orbit` | yes (promoted 2026-08-04) | `MapRenderProbe.cs:1160` |
 | `unaccounted-drawn-recording` | **NO** (report-only instrument) | `MapRenderProbe.cs:544` |
 | `gap-vs-retire` | yes (promoted 2026-08-04) | `MapRender/GhostRenderReconciler.cs:240` |
 | `decision-vs-old-truth` | yes (promoted 2026-08-04) | `MapRender/GhostRenderReconciler.cs:260` |
@@ -17026,7 +17168,7 @@ Ground truth, DERIVED FROM SOURCE (not hand-listed): `hlib.ANOMALY_REASONS_RAISE
 | `retire-not-held` | yes (promoted 2026-08-04) | `MapRender/ShadowRenderDriver.cs:394` -> `MapRenderTrace.EmitRetireNotHeld` (`:1440`) |
 | `anchor-resolve-fail` | yes (promoted 2026-08-04) | `MapRender/AnchorFrameResolver.cs:87` -> `MapRenderTrace.EmitAnchorResolveFail` (`:1465`) |
 | `factory-parity` | **NO** (report-only instrument) | `MapRender/ShadowRenderDriver.cs:726` -> `MapRenderTrace.EmitFactoryParity` (`:1644`). POINTER CONVENTION, because this is the only live row the source-derived gate exempts by name (`wrapper_routed_pointer` in `test_hlib.py`): the raise is WRAPPER-ROUTED, so the C# `EmitAnomaly` scan attributes no call site to this reason and the pinned line is the **decision site** - the `if (!result.IsMatch)` guard inside `ShadowRenderDriver.AssertFactoryParity`. It is NOT the wrapper call's own line, and it is NOT obtained by shifting the previous pin: re-read the guard out of the source when re-pinning it |
-| `seam-endpoint-outside-soi` | **NO** (report-only instrument, added with the ENCOUNTER-GEOMETRY lens) | `MapRenderProbe.cs:2303` (`TrySampleAndEmitSeamEndpoint`; decision core `MapRender/SeamEndpointOracle.cs`). READ THE PASS SUMMARY BEFORE READING THE SILENCE: `seam-endpoint summary evaluated=<n> outsideSoi=<n> skip.<reason>=<n>` (Verbose, `[Parsek][VERBOSE][MapRenderTrace]`, one per probe pass, 5 s rate-limited) says how many destination-approach checks actually ran; a zero-raise run with `evaluated=0` measured nothing at all. WHY REPORT-ONLY, because this one differs from the two instruments above: a raise WOULD be a real finding, and it took the same report-only first lap the seven promoted tokens each took. (This clause used to read "but the lens has never flown"; the 2026-08-09 census below retired that, and left the clause standing inside the very row that records the retirement. Corrected: flight is no longer a blocker - `hlib.ANOMALY_REASONS_RAISED_UNGATED`'s comment block names the three that are.) It measures the RENDERED conic at a recorded cross-body SOI handoff against the destination body's sphere - both terms propagated to the seam UT via `getTruePositionAtUT`, never a current-anchored position - and raises on `dist/soi > 1.005`. That tolerance is calibrated between two MEASURED populations: healthy = the S1.8 seam continuity, 10,146.3 m (Kerbin->Sun) and 7,284.0 m (Sun->Duna), i.e. 1.2e-4 / 1.5e-4 of the crossed sphere against a 25 km pin; defect = the 2026-06-15 looped re-aim, 1.027 (Duna) / 1.043 (Kerbin - a CALIBRATION reference only; that quantity is unproducible by the field capture, see limit (1) in the M-06 entry). KNOWN BENIGN POPULATION still to be measured: a FAITHFUL loop replay of an interplanetary transfer reads far above 1.0 by design (the destination has moved on in inertial space by the loop shift), so a raise needs the line's `seed=` / `loopShift=` fields read before it is called a defect. Deliberately NOT re-aim-gated - the whole point is that the parity oracle skips exactly those members. **FIRST REAL-GEOMETRY CENSUS 2026-08-09, and it FALSIFIED the offline derivation on two of five lanes** (full write-up + the UT arithmetic under the M-06 re-aim entry). The five V-lanes re-flown with the census on read: V4 `evaluated=1 outsideSoi=0` (Sun->Duna arrival seam - the geometry class the 1.027 defect lived in, measured INSIDE the sphere, on a frame where the faithful-parity sibling stood down `skip.reaimed-or-foreign-seed=1`), V7M `evaluated=1 outsideSoi=0` (Kerbin->Minmus arrival seam, faithful / phase-locked / same-parent, also inside), and V6M / V6T / V7T all `evaluated=0 outsideSoi=0 skip.no-cross-body-successor=1`. ZERO raises anywhere and no verdict moved (V7T's red is its own `icon-off-orbit` finding), so the report-only registration behaves. The lens is therefore NO LONGER UNPROVEN on real geometry - two healthy readings, each reproduced bit-identically on three consecutive flights, and `evaluated=[1-9]` is now REQUIRED on V4 + V7M. STILL NOT MEASURED, and both are why this stays report-only: the RATIO (printed only on a raise, so `outsideSoi=0` proves reach but not margin) and the RAISE itself |
+| `seam-endpoint-outside-soi` | **NO** (report-only instrument, added with the ENCOUNTER-GEOMETRY lens) | `MapRenderProbe.cs:2361` (`TrySampleAndEmitSeamEndpoint`; decision core `MapRender/SeamEndpointOracle.cs`). READ THE PASS SUMMARY BEFORE READING THE SILENCE: `seam-endpoint summary evaluated=<n> outsideSoi=<n> skip.<reason>=<n>` (Verbose, `[Parsek][VERBOSE][MapRenderTrace]`, one per probe pass, 5 s rate-limited) says how many destination-approach checks actually ran; a zero-raise run with `evaluated=0` measured nothing at all. WHY REPORT-ONLY, because this one differs from the two instruments above: a raise WOULD be a real finding, and it took the same report-only first lap the seven promoted tokens each took. (This clause used to read "but the lens has never flown"; the 2026-08-09 census below retired that, and left the clause standing inside the very row that records the retirement. Corrected: flight is no longer a blocker - `hlib.ANOMALY_REASONS_RAISED_UNGATED`'s comment block names the three that are.) It measures the RENDERED conic at a recorded cross-body SOI handoff against the destination body's sphere - both terms propagated to the seam UT via `getTruePositionAtUT`, never a current-anchored position - and raises on `dist/soi > 1.005`. That tolerance is calibrated between two MEASURED populations: healthy = the S1.8 seam continuity, 10,146.3 m (Kerbin->Sun) and 7,284.0 m (Sun->Duna), i.e. 1.2e-4 / 1.5e-4 of the crossed sphere against a 25 km pin; defect = the 2026-06-15 looped re-aim, 1.027 (Duna) / 1.043 (Kerbin - a CALIBRATION reference only; that quantity is unproducible by the field capture, see limit (1) in the M-06 entry). KNOWN BENIGN POPULATION still to be measured: a FAITHFUL loop replay of an interplanetary transfer reads far above 1.0 by design (the destination has moved on in inertial space by the loop shift), so a raise needs the line's `seed=` / `loopShift=` fields read before it is called a defect. Deliberately NOT re-aim-gated - the whole point is that the parity oracle skips exactly those members. **FIRST REAL-GEOMETRY CENSUS 2026-08-09, and it FALSIFIED the offline derivation on two of five lanes** (full write-up + the UT arithmetic under the M-06 re-aim entry). The five V-lanes re-flown with the census on read: V4 `evaluated=1 outsideSoi=0` (Sun->Duna arrival seam - the geometry class the 1.027 defect lived in, measured INSIDE the sphere, on a frame where the faithful-parity sibling stood down `skip.reaimed-or-foreign-seed=1`), V7M `evaluated=1 outsideSoi=0` (Kerbin->Minmus arrival seam, faithful / phase-locked / same-parent, also inside), and V6M / V6T / V7T all `evaluated=0 outsideSoi=0 skip.no-cross-body-successor=1`. ZERO raises anywhere and no verdict moved (V7T's red is its own `icon-off-orbit` finding), so the report-only registration behaves. The lens is therefore NO LONGER UNPROVEN on real geometry - two healthy readings, each reproduced bit-identically on three consecutive flights, and `evaluated=[1-9]` is now REQUIRED on V4 + V7M. STILL NOT MEASURED, and both are why this stays report-only: the RATIO (printed only on a raise, so `outsideSoi=0` proves reach but not margin) and the RAISE itself |
 | `loop-seam-teleport` | yes (gated at birth 2026-08-07, flight-arrival lane) | `ParsekFlight.cs` `TrackLoopSeamTeleport` -> `GhostRenderTrace.EmitAnomaly` (the third tracer signature; walker taught in the same change). SENSITIVITY, because silence gets cited as evidence: it raises on a SINGLE-FRAME world delta above `max(GhostRenderTrace.LoopSeamTeleportFloorMeters = 1,000,000 m, expected motion * dt * multiplier)`, so a clean sweep excludes discontinuities over 1,000 km between consecutive frames and nothing finer |
 
 That WAS nine ungated reasons, not five (seven now gated per the RESOLUTION below; the table's per-row flags carry the current truth). **The first version of this table listed five**, and the four it missed are the wrapper-routed rows: the cutover-hardening raises, which reach `EmitAnomaly` through thin once-per-event `MapRenderTrace` wrappers instead of calling it at the guard site, so a grep for `EmitAnomaly` call sites does not land on them. They emit the same `phase=Anomaly ... reason=<token>` line as any direct raise (all four route through `MapRenderTrace`'s shared `EmitRaw(true, "Anomaly", ...)`), so all four were genuinely ungated then (three are promoted now; `factory-parity` stays the declared instrument). Understating the ungated count understates the size of the fail-open, which is the one thing this entry existed to size, hence the source-derived gate above. `clock-not-ready` in particular is the cold-load UT<=0 defer - a defect class this project already tracks separately.
