@@ -445,12 +445,18 @@ id = "V16M-laythe-player-loop"
 # The observer is the fixture's OWN parked craft - the player who watches a replay
 # is standing where the flight ended - and at its park epoch the ghost flies that
 # same recorded orbit, so the body test passes and only the separation decides.
-# The measured boundary (docs/dev/todo-and-known-bugs.md ->
-# WATCH-ENTRY-REFUSED-INSIDE-QUOTED-RANGE, the SINGLE authority) is the open
-# interval **(51.5 km, 144.3 km)**: V7M ENTERED at 51,503 m with `zone=Visual`
-# and was REFUSED at 144,349 / 191,497 / 198,711 m, every refusal carrying
-# `zone=Beyond`. The render-zone hide is the plausible shared DRIVER of the
-# refusals and the zone boundary is `GhostVisualRangeMeters = 120,000 m`.
+# THE BOUNDARY THIS SECTION WAS WRITTEN AGAINST IS RETIRED (2026-08-28). It read:
+# "the measured boundary is the open interval **(51.5 km, 144.3 km)**: V7M ENTERED
+# at 51,503 m with `zone=Visual` and was REFUSED at 144,349 / 191,497 / 198,711 m,
+# every refusal carrying `zone=Beyond`. The render-zone hide is the plausible shared
+# DRIVER of the refusals and the zone boundary is
+# `GhostVisualRangeMeters = 120,000 m`." Every one of those READINGS still stands;
+# what is retired is treating them as a BOUNDARY. The render-zone hide was indeed the
+# driver, but through `IsGhostOnSameBody` answering from a stale spawn seed rather
+# than through any distance test - and that term was fixed (single authority
+# docs/dev/todo-and-known-bugs.md -> WATCH-ENTRY-REFUSED-INSIDE-QUOTED-RANGE). THE
+# ONLY DISTANCE GATE ON THE ENTRY PATH IS `WatchEnterCutoffMeters` = 300,000 m
+# (`WatchModeController.cs:71`); every margin below should be read against that.
 #
 # NOW THE GEOMETRY. Two co-orbiting objects on the same orbit are at most `2a`
 # apart at any phase. B25's park window admits a periapsis anywhere in
@@ -459,8 +465,9 @@ id = "V16M-laythe-player-loop"
 #   SMALLEST admissible park   2a = 2 * (500,000 + 60,000)  = 1,120,000 m
 #   LARGEST  admissible park   2a = 2 * (500,000 + 900,000) = 2,800,000 m
 #
-# and even the SMALLEST is **9.3x the 120,000 m render-zone boundary** and 3.7x
-# the 300,000 m `WatchEnterCutoffMeters` range term. THAT IS THE INVERSION OF
+# and even the SMALLEST is **3.7x the 300,000 m `WatchEnterCutoffMeters` range
+# term** - the operative margin, and the only one that survives the 2026-08-28
+# retirement of the ~120 km bracket (it also read 9.3x that retired number). THAT IS THE INVERSION OF
 # V15M: its Gilly park had `2a = 79,345 m`, the first loop subject whose ENTIRE
 # orbit fit inside the measured bracket, so its OK depended on the park B24
 # actually delivered. HERE THE VERDICT IS PARK-INDEPENDENT ACROSS THE WHOLE
@@ -473,7 +480,8 @@ id = "V16M-laythe-player-loop"
 #       lucky) phase could put them close and produce an OK. That would be the
 #       FINDING - a second watch entry, at a third parent - not a spec bug. What
 #       the arithmetic says is that the great majority of phases are beyond
-#       120 km, not that every phase is.
+#       300 km, not that every phase is. (Was "beyond 120 km" - re-pointed
+#       2026-08-28 at the gate the entry path actually applies.)
 #   (ii) `retry = once` does NOT absorb an unlucky phase. Both craft advance on
 #       the same orbit, so the separation is a fixed per-cycle geometric fact
 #       that moves only when the phase anchor does (V6M's superseded-arithmetic
@@ -716,10 +724,21 @@ steps = [
   # block below runs inside.
   { cmd = "TimeJump", args = { ut = "29876536" }, expect = "OK", budget = 300 },
   # STEP 3: "Watch", auto-select over all committed recordings. PINNED
-  # **REJECTED** on the chord arithmetic in header section 5 - B25's park window
-  # admits 2a from 1,120,000 to 2,800,000 m and even the smallest is 9.3x the
-  # measured ~120 km entry boundary, so unlike V15M this verdict does not depend
-  # on the delivered park. An OK is the finding, not a spec bug.
+  # **REJECTED**, and re-pointed 2026-08-28.
+  # WHAT ACTUALLY REFUSED, measured: `reason=no-watchable-ghost committed=1
+  # tree=(any)` with the adjacent engine line reading
+  # `retired=F zone=Beyond rdist=616131735m` - the SELECTOR resolved no candidate
+  # at all, so the chord arithmetic was never the operative gate on this lane (the
+  # description says so at length: "THE CHORD ARITHMETIC IS THEREFORE UNTESTED,
+  # NOT VINDICATED"). That reading is unaffected by the 2026-08-28 watch-entry
+  # change, which moved only WHERE the same-body term reads the ghost's body from.
+  # AND FOR COMPLETENESS, the chord margin restated against the REAL gate rather
+  # than the retired ~120 km bracket: B25's park window admits 2a from 1,120,000 to
+  # 2,800,000 m, so even the smallest is 3.7x `WatchEnterCutoffMeters` = 300,000 m
+  # (it was quoted as 9.3x the ~120 km number, which was never a threshold the
+  # entry code compared against - see docs/dev/todo-and-known-bugs.md ->
+  # WATCH-ENTRY-REFUSED-INSIDE-QUOTED-RANGE). Unlike V15M this verdict does not
+  # depend on the delivered park either way. An OK is the finding, not a spec bug.
   { cmd = "EnterWatchMode",                                                  expect = "REJECTED" },
   # ============================================================================
   # THE CENSUS-PACING DWELL BLOCK - 40 x RecordingState. HEADER SECTION 2b IS THE
@@ -809,10 +828,13 @@ steps = [
   { cmd = "TimeJump", args = { ut = "30933832" }, expect = "OK", budget = 300 },
   # CYCLE-2 PARK EPOCH: the same +1,029,597.761 offset off the cycle-2 anchor.
   { cmd = "TimeJump", args = { ut = "30936154" }, expect = "OK", budget = 300 },
-  # STEP 5: "Watch" again, same pinned verdict. A DIFFERENT verdict between the
-  # two watch steps would itself be the reading - it would mean the separation
-  # crossed the boundary between the two cycles, which is the co-orbital phase
-  # walk of header section 4(c) showing up in a decision rather than in a number.
+  # STEP 5: "Watch" again, same pinned verdict, and measured on the same
+  # selector-level `no-watchable-ghost` rather than on a chord. A DIFFERENT verdict
+  # between the two watch steps would itself be the reading - it would mean the
+  # separation crossed the cutoff between the two cycles, which is the co-orbital
+  # phase walk of header section 4(c) showing up in a decision rather than in a
+  # number - but only once a candidate resolves at all, which neither cycle
+  # managed on the reading run.
   { cmd = "EnterWatchMode",                                                  expect = "REJECTED" },
   # M-A7 RENDER-COMPOSITION CAPTURE (Phase 3C, Wave A, 2026-08-26). PLACEMENT IS THE
   # ARGUMENT and it is pinned by `test_every_declarer_exports_immediately_before_teardown`:

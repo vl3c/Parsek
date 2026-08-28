@@ -1051,5 +1051,66 @@ namespace Parsek.Tests
             Assert.DoesNotContain(death.ActionId, tombstoned);
             Assert.DoesNotContain(bundledRep.ActionId, tombstoned);
         }
+
+        // ---------- TOMBSTONE-BRACKET-TIE-MID-SESSION-PAYOUT ------------------
+
+        [Fact]
+        public void MidSessionRecoveryPayout_TaggedByThePicker_SurvivesTheMergeIntoTheEls()
+        {
+            // The end-to-end statement of the fix, driven through the REAL correlator
+            // rather than a hand-written tag: rewind at 500, the origin child runs
+            // [100, 900] and the session provisional [500, 700], and a recovery lands at
+            // 600 - inside both. Pre-fix, largest-EndUT handed the tie to the origin
+            // child, whose post-rewind rows the splitter retags to the superseded TIP,
+            // so CommitTombstones retired a payout earned on the SURVIVING fork. The
+            // pre-rewind screen cannot save it: 600 >= 500.
+            var origin = Rec("rec_origin", "tree_1", childBranchPointId: "bp_c");
+            origin.VesselName = "Reusable";
+            origin.Points.Add(new TrajectoryPoint { ut = 100.0 });
+            origin.Points.Add(new TrajectoryPoint { ut = 900.0 });
+            var inside = Rec("rec_inside", "tree_1", parentBranchPointId: "bp_c");
+            var bp_c = Bp("bp_c", BranchPointType.Undock,
+                parents: new List<string> { "rec_origin" },
+                children: new List<string> { "rec_inside" });
+            InstallTree("tree_1",
+                new List<Recording> { origin, inside },
+                new List<BranchPoint> { bp_c });
+
+            var provisional = Rec("rec_provisional", "tree_1",
+                state: MergeState.NotCommitted,
+                terminal: TerminalState.Landed,
+                supersedeTargetId: "rec_origin");
+            provisional.VesselName = "Reusable";
+            provisional.Points.Add(new TrajectoryPoint { ut = 500.0 });
+            provisional.Points.Add(new TrajectoryPoint { ut = 700.0 });
+            RecordingStore.AddRecordingWithTreeForTesting(provisional, "tree_1");
+
+            var marker = Marker("rec_origin", "rec_provisional");
+            marker.RewindPointUT = 500.0;
+            var scenario = InstallScenario(marker);
+
+            // The correlator picks the owner - this is the step the fix changes.
+            string owner = LedgerOrchestrator.PickRecoveryRecordingId("Reusable", 600.0);
+            Assert.Equal("rec_provisional", owner);
+
+            var midSessionPayout = FundsEarning(owner, 600.0);
+            // The row the ORIGIN CHILD would have carried pre-fix, kept as the contrast:
+            // same UT, same window, and it IS legitimately retired.
+            var replacedTimelinePayout = FundsEarning("rec_origin", 600.0);
+            Ledger.AddAction(midSessionPayout);
+            Ledger.AddAction(replacedTimelinePayout);
+
+            SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
+
+            var tombstoned = new HashSet<string>(
+                scenario.LedgerTombstones.Select(t => t.ActionId));
+            Assert.DoesNotContain(midSessionPayout.ActionId, tombstoned);
+            Assert.Contains(replacedTimelinePayout.ActionId, tombstoned);
+
+            // The property that actually matters: the real payout is still in the ELS.
+            var els = EffectiveState.ComputeELS();
+            Assert.Contains(els, a => a.ActionId == midSessionPayout.ActionId);
+            Assert.DoesNotContain(els, a => a.ActionId == replacedTimelinePayout.ActionId);
+        }
     }
 }

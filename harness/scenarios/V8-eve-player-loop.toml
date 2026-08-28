@@ -359,7 +359,12 @@ steps = [
   { cmd = "StartLoopPlayback", args = { tree = "16af6b5e546a4bef86fcd8cde1ddc924" }, expect = "OK", budget = 300 },
   # Cross-body watch attempt at the cycle-0 relaunch: REJECTED is
   # deterministic (measured on iteration 1) - observer parked at Eve, ghost
-  # at Kerbin ascent.
+  # at Kerbin ascent. STILL THE REFUSING TERM AFTER THE 2026-08-28 watch-entry
+  # change, and deliberately so: a GENUINELY cross-body ghost has no usable
+  # camera frame (design `docs/dev/done/design-camera-follow-ghost.md` E5).
+  # What changed is only WHERE the same-body term reads the ghost's body
+  # from - the recording's own trajectory rather than a possibly-stale
+  # positioning cache - and here the trajectory says Kerbin.
   { cmd = "EnterWatchMode",                                                  expect = "REJECTED" },
   # PACING SPACERS between boundary-straddling jump pairs, and they are
   # LOAD-BEARING: MapRenderTrace.IsLineBlink raises when a proto line's
@@ -406,14 +411,21 @@ steps = [
   # the header's RENDERED WINDOW END note and the _0810 line-blink finding
   # for why this deliberately does NOT jump past it).
   { cmd = "TimeJump", args = { ut = "30450100" }, expect = "OK", budget = 300 },
-  # Same-body watch attempt at the parked tail. PREDICTED REJECTED: the
-  # observer's park phase after ~10.7M s of free drift is effectively random
-  # against the ghost's, on an ~11,400 km-diameter orbit, vs the measured
-  # (51.5 km, 144.3 km) watch-entry boundary (todo ->
-  # WATCH-ENTRY-REFUSED-INSIDE-QUOTED-RANGE is the authority; V4's Duna
-  # analogue measured REJECTED at 644 km). An OK here would read
-  # INVALID(driver-verdict-mismatch) and would itself be a measurement worth
-  # having - record the separation either way.
+  # Same-body watch attempt at the parked tail. PREDICTED REJECTED ON THE
+  # RANGE TERM, re-pointed 2026-08-28. This comment used to measure the
+  # margin against V7M's "(51.5 km, 144.3 km)" bracket; THAT BRACKET IS
+  # RETIRED - it was never a threshold the entry code compared against, it
+  # was a measurement of `IsGhostOnSameBody` answering from a stale spawn
+  # seed, and the term was fixed (todo ->
+  # WATCH-ENTRY-REFUSED-INSIDE-QUOTED-RANGE remains the authority). The
+  # prediction does not depend on it. The refusing term here is
+  # `IsWithinWatchEntryRange` against `WatchEnterCutoffMeters` = 300,000 m:
+  # after ~10.7M s of free drift the observer's park phase is effectively
+  # arbitrary against the ghost's on an ~11,400 km-DIAMETER orbit, so the
+  # chord clears 300 km for all but a ~3 deg sliver of phase (V4's Duna
+  # analogue measured REJECTED at 644 km on the same shape). An OK here
+  # would read INVALID(driver-verdict-mismatch) and would itself be a
+  # measurement worth having - record the separation either way.
   { cmd = "EnterWatchMode",                                                  expect = "REJECTED" },
   # M-A7 RENDER-COMPOSITION CAPTURE (Phase 3). The recorder accumulates from
   # Awake, so placement decides only how much of this lane's observation is

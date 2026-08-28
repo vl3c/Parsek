@@ -797,9 +797,15 @@ steps = [
   { cmd = "TimeJump", args = { ut = "300977" }, expect = "OK", budget = 300 },
   # STEP 3: "Watch", auto-select over all committed recordings. PREDICTED REJECTED (the
   # header's "71:29" odds framing is superseded - the separation is a fixed per-cycle
-  # geometric fact, not a draw; MEASURED 560,404 m, outside both the 300 km production
-  # range term and V7M's measured (51.5 km, 144.3 km) entry boundary); an OK is the
-  # finding.
+  # geometric fact, not a draw); MEASURED 560,404 m; an OK is the finding.
+  # THE REFUSING TERM IS THE RANGE TERM, RE-POINTED 2026-08-28. This line used to cite
+  # V7M's measured (51.5 km, 144.3 km) entry boundary alongside the 300 km cutoff. THAT
+  # BRACKET IS RETIRED: it was never a threshold the entry code compared against - it
+  # was a measurement of `IsGhostOnSameBody` answering from a stale spawn seed, and the
+  # term was fixed (docs/dev/todo-and-known-bugs.md ->
+  # WATCH-ENTRY-REFUSED-INSIDE-QUOTED-RANGE). The refusal here does not depend on it:
+  # 560,404 m is 1.87x outside `WatchEnterCutoffMeters` = 300,000 m
+  # (`WatchModeController.cs:71`), a hard range refusal at any body.
   { cmd = "EnterWatchMode",                                                  expect = "REJECTED" },
   # STEP 4: "Warp to..." AGAIN. This is the desync hunt's second half: the verb
   # rebuilds the unit and resolves NextLaunchAfter(now), so with `now` past cycle 1's
@@ -815,7 +821,10 @@ steps = [
   { cmd = "TimeJump", args = { ut = "581119" }, expect = "OK", budget = 300 },
   # STEP 5: "Watch" again, an INDEPENDENT separation from step 3's (the anchor moved;
   # ~110 park revs of accumulated offset). Not a second draw of the same coin - see the
-  # superseded-arithmetic banner. MEASURED 561,219 m, again REJECTED.
+  # superseded-arithmetic banner. MEASURED 561,219 m, again REJECTED, and again on the
+  # RANGE term: 1.87x outside `WatchEnterCutoffMeters` = 300,000 m. Unaffected by the
+  # 2026-08-28 watch-entry change, which only moved where the SAME-BODY term reads the
+  # ghost's body from.
   { cmd = "EnterWatchMode",                                                  expect = "REJECTED" },
   # =====================================================================================
   # CYCLE 3 - ADDED 2026-08-25, PURELY ADDITIVE (header section 6). NOTHING ABOVE MOVED.

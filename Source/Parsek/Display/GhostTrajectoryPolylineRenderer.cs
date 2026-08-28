@@ -448,6 +448,45 @@ namespace Parsek.Display
         }
 
         /// <summary>
+        /// Did the Driver's ownership/paint PUBLISH SURFACE actually run on <paramref name="frame"/>?
+        /// I.e. did the decide walk reach its epilogue - past the TRACKSTATION/FLIGHT scene gate, past
+        /// <c>MapView.MapIsEnabled</c>, and past the controller-not-yet-awake defers - so that
+        /// <see cref="drewNonOrbitalLegRecordings"/>, the S0 paint set and
+        /// <c>RenderCompositionRecorder.NoteOwnershipPublish</c> all reflect THIS frame?
+        ///
+        /// <para>NOT a new per-frame signal: it reads the EXISTING <c>pendingDrawsFrame</c> stamp, which
+        /// the walk writes in its epilogue, after every early return, precisely so
+        /// <c>OnMapCameraPreCull</c> can ask "did this LateUpdate run to completion?" - the identical
+        /// question, one slot later in the same frame.</para>
+        ///
+        /// <para>ORDERING, stated exactly because it is easy to get backwards: the stamp is written
+        /// BEFORE <c>RenderCompositionRecorder.NoteOwnershipPublish</c> (~50 lines above it), with no
+        /// early return in between. That does not weaken the reuse, because THE PROBE'S ACTUAL INPUTS -
+        /// <see cref="drewNonOrbitalLegRecordings"/> and the S0 paint set - are populated DURING the
+        /// per-recording walk, i.e. before the stamp. The recorder publish below it is the M-A7
+        /// manifest's own diff, which the probe never reads. A true stamp therefore means the walk got
+        /// past the gates and populated the sets this frame, which is exactly the question asked.</para>
+        ///
+        /// <para>Its consumer is the map-render probe's <c>line-blink</c> TracedPath-handoff exemption
+        /// (<c>MapRenderTrace.ResolveTracedPathHandoffExempt</c>), which needs to distinguish "the
+        /// polyline covered nothing" from "nobody asked it to": in a map-CLOSED flight lane the coverage
+        /// bits are false because this surface never ran, not because the map went dark. FALSE when no
+        /// Driver exists - truthfully, since a Driver that does not exist published nothing; that case
+        /// is unreachable from the probe in practice, the Driver being an <c>Instantly</c>/<c>once</c>
+        /// DDOL singleton created long before any ghost map vessel does.</para>
+        ///
+        /// <para>A FALSE here is an ABSENCE, never a proof that nothing was on screen: the walk also
+        /// misses its epilogue on the controller-not-yet-awake defers and on any exception escaping the
+        /// walk body, both reachable with the map OPEN. The consumer therefore measures map-closedness
+        /// separately and positively rather than inferring it from this bit.</para>
+        /// </summary>
+        internal static bool DidOwnershipPublishRunOnFrame(int frame)
+        {
+            Driver d = Driver.Instance;
+            return d != null && d.PendingDrawsFrame == frame;
+        }
+
+        /// <summary>
         /// M-A7 co-draw probe: is ANY cached ghost leg for <paramref name="recordingId"/> STILL SHOWING
         /// a mesh right now - i.e. does it have a <c>VectorLine</c> whose <c>active</c> is true?
         ///
@@ -3719,6 +3758,13 @@ namespace Parsek.Display
             }
             private readonly List<PendingLegDraw> pendingDraws = new List<PendingLegDraw>();
             private int pendingDrawsFrame = -1;
+
+            /// <summary>READ-ONLY view of the walk-completed stamp for
+            /// <see cref="DidOwnershipPublishRunOnFrame"/> (the enclosing type cannot reach a nested
+            /// type's private field). Same question <c>OnMapCameraPreCull</c> asks one slot later:
+            /// did THIS frame's LateUpdate reach its epilogue, where the ownership publish lives?
+            /// No setter - the stamp stays single-writer inside the walk.</summary>
+            internal int PendingDrawsFrame => pendingDrawsFrame;
 
             // Step 3 C (forward additive pass): forward-ARC draws decided this frame, drawn in the same
             // post-pan onPreCull slot as the legs. Each entry is a (recordingId, arcIndex) into
