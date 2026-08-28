@@ -8388,22 +8388,43 @@ the harness-pinned log string are unchanged.
    quicksave that preserves the origin's `Vessel.id`). Both states are non-conclusive.
    Pinned by `Filter_ReFlyProvisionalShapeSurvives`.
 
-**Headless cover:** `RecoveryPickLaunchGuidFilterTests` (15 cells) - the predicate's
+**A THIRD REACHABLE SHAPE CHANGED, and the change is intentional.** Real Spawn Control
+copies are affected, not only relaunches: `VesselSpawner.RegenerateVesselIdentity` writes a
+FRESH vessel guid into the spawn node (it must, to avoid pid/guid collisions with the
+original), so a spawned, never-recorded copy of a recorded craft carries a launch guid that
+conclusively differs from the source recording's. Recovering that copy now EMPTIES the
+candidate set: the funds row lands untagged where it previously carried the source
+recording's id, and a crewed copy's XP write refuses with `reason=no-recovery-recording`
+where it previously wrote a row. That is the more defensible behavior - recovering a COPY
+should not tie career rows to the original mission's recording, and an XP row scoped to a
+flight the copy never flew is precisely the irreversible mis-scope this entry is about - so
+it is kept, but it is a behavior change and is named here rather than discovered later. **It
+is NOT exercised by the planned L3-sibling live proof**, which flies two real launches;
+proving the spawned-copy shape would need its own driven run and is not owed before stage 2.
+
+**Headless cover:** `RecoveryPickLaunchGuidFilterTests` (16 cells) - the predicate's
 both-sides-known requirement and its format-insensitivity; the MONOTONE property
 (survivors are an order-preserving subset, dropped + survivors == input); the unknown-guid
-no-op in both directions; the two-launches-same-name shape WITH its negative control (the
-same fixture makes the WRONG pick when no live guid is supplied, so the cell reproduces the
-defect before fixing it); filter-runs-before-tier-selection; the empty-set refusal; the
-legacy no-recorded-guid non-regression; the single-launch non-regression (the shape every
-committed career fixture flies); and the XP leg end to end.
+no-op in both directions; the session provisional resolving from the POST-filter set (a
+tie-break reading the pre-filter set could reinstate a dropped candidate and break
+monotonicity); the two-launches-same-name shape WITH its negative control (the same fixture
+makes the WRONG pick when no live guid is supplied, so the cell reproduces the defect before
+fixing it); filter-runs-before-tier-selection; the empty-set refusal; the legacy
+no-recorded-guid non-regression; the single-launch non-regression (the shape every committed
+career fixture flies); and the XP leg end to end.
 
-**Observability for the eventual flight.** One bounded line per recovery pick:
+**Observability for the eventual flight.** One bounded line per PICK - not per recovery:
 `PickRecoveryRecordingId guid filter: vessel='X' ut=<t> dropped=N remaining=M reason=<r>`,
 Info at `reason=guid-conclusive-mismatch` and Verbose at `reason=no-conclusive-mismatch` /
 `reason=live-launch-guid-unknown`. The three reasons are distinct on purpose: a silent
 no-drop cannot be told from a filter that never ran, and a live proof has to read "active
-and agreed" off the log rather than infer it. `guidDropped=` is also appended to the
-existing `PickRecoveryRecordingId:` summary line.
+and agreed" off the log rather than infer it. The funds and XP legs pick once, but the
+SCIENCE leg picks once per science subject, so a science-heavy recovery emits one line per
+subject - bounded by the subject count, each line independently true, and deliberately not
+rate-limited because a dropped candidate is an attribution-changing decision on every leg
+that makes it. The existing `PickRecoveryRecordingId:` summary line gains `guidDropped=`
+and replaces the now-ambiguous `candidates=` token with explicit `nameMatches=` (pre-filter)
+and `survivors=` (post-filter); nothing pinned the old token.
 
 ### THE LIVE-PROOF GATE (stage 2 is blocked on this)
 

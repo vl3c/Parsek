@@ -3841,16 +3841,16 @@ namespace Parsek
         /// and flows through <see cref="OnRecordingCommitted"/>; this path is for KSC /
         /// pre-recording callbacks where no future recording commit can own the subject.
         /// </summary>
-        /// <returns>
-        /// True when the subject was handled by the direct path, including duplicate
-        /// suppression. False means the caller should keep the subject pending.
-        /// </returns>
         /// <param name="launchGuid">
         /// KERBAL-XP-RECOVERY-PICK-IS-NAME-AND-UT-ONLY stage 1: the recovering vessel's live
         /// launch guid, when the caller's <c>ProtoVessel</c> supplies one. Null (the default,
         /// and what every non-recovery caller passes) makes the recovery candidate filter
         /// inert, preserving the historical name+UT pick.
         /// </param>
+        /// <returns>
+        /// True when the subject was handled by the direct path, including duplicate
+        /// suppression. False means the caller should keep the subject pending.
+        /// </returns>
         internal static bool TryRecordKscScienceSubject(
             PendingScienceSubject subject,
             string vesselName,
@@ -4558,13 +4558,42 @@ namespace Parsek
             return survivors;
         }
 
+        /// <summary>
+        /// The active Re-Fly session's provisional recording, IF it is present in
+        /// <paramref name="candidates"/>, else null.
+        ///
+        /// <para>
+        /// <b>Callers must pass the POST-FILTER candidate set.</b> This exists so that
+        /// "the session provisional is admitted" means admitted to the set the tier walk
+        /// actually walks, not merely to the name-match set. A tier tie-break that preferred
+        /// a provisional resolved from the pre-filter set could reinstate a candidate
+        /// <see cref="FilterRecoveryCandidatesByLaunchGuid"/> removed, which would break the
+        /// filter's monotone property - the property the whole stage-1 safety argument rests
+        /// on (KERBAL-XP-RECOVERY-PICK-IS-NAME-AND-UT-ONLY).
+        /// </para>
+        /// </summary>
+        internal static Recording FindSessionProvisionalAmong(
+            IReadOnlyList<Recording> candidates, string sessionProvisionalId)
+        {
+            if (candidates == null || string.IsNullOrEmpty(sessionProvisionalId))
+                return null;
+
+            for (int i = 0; i < candidates.Count; i++)
+            {
+                var rec = candidates[i];
+                if (rec == null) continue;
+                if (string.Equals(rec.RecordingId, sessionProvisionalId, StringComparison.Ordinal))
+                    return rec;
+            }
+            return null;
+        }
+
         internal static string PickRecoveryRecordingId(RecoveredVesselIdentity identity, double ut)
         {
             var recordings = RecordingStore.CommittedRecordings;
             if (recordings == null) return null;
 
             int skippedZombieNotCommitted = 0;
-            bool admittedSessionProvisional = false;
 
             // The ACTIVE session's provisional is a legitimate target (it survives the
             // merge as the fork); every other NotCommitted recording is a zombie whose
@@ -4590,8 +4619,6 @@ namespace Parsek
                         if (identity.MatchesName(rec.VesselName)) skippedZombieNotCommitted++;
                         continue;
                     }
-                    if (identity.MatchesName(rec.VesselName))
-                        admittedSessionProvisional = true;
                 }
                 if (!identity.MatchesName(rec.VesselName)) continue;
                 nameMatches.Add(rec);
@@ -4604,6 +4631,24 @@ namespace Parsek
                 nameMatches, identity.LaunchGuid, out int guidDropped);
             int candidateCount = candidates.Count;
 
+            // THE SESSION PROVISIONAL IS RESOLVED FROM THE POST-FILTER SET, NOT PASS 1.
+            // Anything reading this - the summary line today, and any future tier tie-break
+            // that prefers the active Re-Fly provisional - must see the set the tier walk
+            // actually walks. Deriving it from the name-match set instead would let a
+            // tie-break resurrect a candidate this filter removed, silently breaking the
+            // monotone property that is the whole safety argument for the filter.
+            // REBASE REQUIREMENT: if a tier tie-break lands here (or is merged in from a
+            // sibling branch that resolves the provisional in its own pass-1 loop), its
+            // candidate MUST come from `candidates`, never from `nameMatches` or a raw
+            // store walk.
+            Recording admittedSessionProvisional =
+                FindSessionProvisionalAmong(candidates, sessionProvisionalId);
+
+            // ONE LINE PER PICK, NOT PER RECOVERY. The funds and XP legs pick once, but the
+            // science leg picks once per science subject, so a science-heavy recovery emits
+            // one of these per subject. That is bounded by the subject count and each line is
+            // independently true, so it is left un-rate-limited rather than collapsed - a
+            // dropped candidate is an attribution-changing decision on every leg that makes it.
             if (guidDropped > 0)
             {
                 ParsekLog.Info(Tag,
@@ -4618,7 +4663,7 @@ namespace Parsek
                 // Nothing dropped - but WHY is the load-bearing half, and a silent no-drop
                 // cannot be told apart from a filter that never ran. Naming the two states
                 // is what lets a live proof read "the filter was active and agreed" off the
-                // log instead of inferring it. One bounded line per recovery pick.
+                // log instead of inferring it. Same one-line-per-PICK bound as above.
                 ParsekLog.Verbose(Tag,
                     $"PickRecoveryRecordingId guid filter: {identity.FormatForLog()} " +
                     $"ut={ut.ToString("F1", CultureInfo.InvariantCulture)} " +
@@ -4665,7 +4710,8 @@ namespace Parsek
                 {
                     ParsekLog.Verbose(Tag,
                         $"PickRecoveryRecordingId: {identity.FormatForLog()} " +
-                        $"ut={ut.ToString("F1", CultureInfo.InvariantCulture)} candidates=0 " +
+                        $"ut={ut.ToString("F1", CultureInfo.InvariantCulture)} " +
+                        $"nameMatches={nameMatches.Count.ToString(CultureInfo.InvariantCulture)} survivors=0 " +
                         $"skippedZombieNotCommitted={skippedZombieNotCommitted} tier=none " +
                         $"pick=<null> (only zombie provisionals matched; payout left untagged)");
                 }
@@ -4675,11 +4721,16 @@ namespace Parsek
             string tier = bracketing != null ? "bracketing"
                         : mostRecentEnded != null ? "most-recent-ended"
                         : "global-latest";
+            // `candidates=` is deliberately NOT reused here: it used to mean the name-match
+            // count and would now silently mean the survivor count. Both are logged under
+            // unambiguous names instead, and nothing pinned the old token.
             ParsekLog.Verbose(Tag,
                 $"PickRecoveryRecordingId: {identity.FormatForLog()} ut={ut.ToString("F1", CultureInfo.InvariantCulture)} " +
-                $"candidates={candidateCount} skippedZombieNotCommitted={skippedZombieNotCommitted} " +
+                $"nameMatches={nameMatches.Count.ToString(CultureInfo.InvariantCulture)} " +
+                $"survivors={candidateCount.ToString(CultureInfo.InvariantCulture)} " +
                 $"guidDropped={guidDropped.ToString(CultureInfo.InvariantCulture)} " +
-                $"sessionProvisionalAdmitted={admittedSessionProvisional} " +
+                $"skippedZombieNotCommitted={skippedZombieNotCommitted} " +
+                $"sessionProvisionalAdmitted={admittedSessionProvisional != null} " +
                 $"tier={tier} pick={pick.RecordingId}");
 
             return pick.RecordingId;

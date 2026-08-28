@@ -252,6 +252,45 @@ namespace Parsek.Tests
         }
 
         // ----------------------------------------------------------------
+        // The session provisional is resolved from the POST-FILTER set
+        // ----------------------------------------------------------------
+
+        [Fact]
+        public void SessionProvisional_IsResolvedFromWhicheverSetTheCallerPasses()
+        {
+            // "Admitted" must mean admitted to the set the tier walk WALKS. A future tier
+            // tie-break preferring a provisional resolved from the PRE-filter set could
+            // reinstate a candidate the filter removed, breaking the monotone property that
+            // is the whole stage-1 safety argument. Pin both directions on one fixture.
+            var provisional = Rec("rec-prov", "Reusable", 1000.0, 5000.0, GuidA);
+            provisional.MergeState = MergeState.NotCommitted;
+            var other = Rec("rec-other", "Reusable", 100.0, 900.0, GuidB);
+
+            var nameMatches = new List<Recording> { other, provisional };
+            var survivors = LedgerOrchestrator.FilterRecoveryCandidatesByLaunchGuid(
+                nameMatches, GuidB, out int dropped);
+
+            // The filter removed the provisional here. This is a deliberately HOSTILE
+            // fixture: a production provisional inherits the origin's guid (or carries
+            // none) and cannot reach this state - see Filter_ReFlyProvisionalShapeSurvives.
+            // The point is that the helper's contract must hold even if it ever could.
+            Assert.Equal(1, dropped);
+            Assert.Same(other, Assert.Single(survivors));
+
+            // Pre-filter set: found. Post-filter set: NOT found. Passing the pre-filter set
+            // is exactly the mistake the helper's contract forbids.
+            Assert.Same(provisional,
+                LedgerOrchestrator.FindSessionProvisionalAmong(nameMatches, "rec-prov"));
+            Assert.Null(
+                LedgerOrchestrator.FindSessionProvisionalAmong(survivors, "rec-prov"));
+
+            // Degenerate inputs.
+            Assert.Null(LedgerOrchestrator.FindSessionProvisionalAmong(null, "rec-prov"));
+            Assert.Null(LedgerOrchestrator.FindSessionProvisionalAmong(nameMatches, null));
+            Assert.Null(LedgerOrchestrator.FindSessionProvisionalAmong(nameMatches, ""));
+        }
+
+        // ----------------------------------------------------------------
         // The picker: the two-launches-same-name shape
         // ----------------------------------------------------------------
 
