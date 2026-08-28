@@ -216,6 +216,186 @@ namespace Parsek
             return "ready";
         }
 
+        /// <summary>
+        /// What the per-frame watch driver must do about the current frame's target state.
+        /// </summary>
+        internal enum WatchTargetLossAction
+        {
+            /// <summary>Camera infrastructure and ghost target both resolved - drive normally.</summary>
+            Continue,
+            /// <summary>Target unusable this frame, but the consecutive-frame budget is not spent.</summary>
+            Wait,
+            /// <summary>Target unusable for the whole budget - exit watch mode cleanly.</summary>
+            ExitWatch,
+        }
+
+        /// <summary>
+        /// One classifier for BOTH ways a watch frame can lose its camera target: the ghost
+        /// side (no state / no camera pivot) and the KSP side (no <c>FlightCamera</c>, no
+        /// camera transform, no camera parent).
+        ///
+        /// <para>WATCH-LOOPED-PARK-TARGET-LOSS-NRE-STORM: the camera-infrastructure case used
+        /// to take an UNCOUNTED early return that sat ABOVE the ghost-side safety net, so a
+        /// watch session whose <c>FlightCamera</c> never came back stayed armed for the rest
+        /// of the scene with nothing bound to it. `V15M-gilly-player-loop` measured exactly
+        /// that: one `reason=flight-camera-missing` Warn (rate-limited, so the return was
+        /// re-entered every frame) and no camera restore at teardown, across ~86 frames of
+        /// stock per-frame NREs. Both causes now share this classifier and one
+        /// consecutive-frame budget, so watch mode can never outlive a camera it cannot
+        /// resolve.</para>
+        /// </summary>
+        /// <param name="consecutiveLostFrames">
+        /// Frames counted INCLUDING this one (the caller increments first, as the legacy
+        /// no-target net did).
+        /// </param>
+        internal static WatchTargetLossAction ClassifyWatchTargetLoss(
+            bool cameraInfrastructureReady,
+            bool hasGhostState,
+            bool hasCameraPivot,
+            int consecutiveLostFrames,
+            int exitAfterFrames)
+        {
+            if (cameraInfrastructureReady && hasGhostState && hasCameraPivot)
+                return WatchTargetLossAction.Continue;
+            return consecutiveLostFrames >= exitAfterFrames
+                ? WatchTargetLossAction.ExitWatch
+                : WatchTargetLossAction.Wait;
+        }
+
+        /// <summary>
+        /// True when the watch camera is currently bound to a transform belonging to the ghost
+        /// the engine is about to destroy, so the caller must move the camera onto a standalone
+        /// bridge anchor BEFORE the GameObject dies.
+        ///
+        /// <para>A destroyed <c>FlightCamera.Target</c> is the documented trigger for the stock
+        /// per-frame NRE storm (<c>FlightGlobals.UpdateInformation</c>, <c>Sun</c>,
+        /// <c>CrewHatchController</c>, <c>UIPartActionController</c>, <c>Vessel.Update</c>) that
+        /// #895 already guards on the failed-switch path. The loop-unit cycle change
+        /// (<c>GhostPlaybackEngine</c>'s "chain-loop unit cycle change" destroy) tears down the
+        /// watched primary with no such guard, which is the re-arm boundary
+        /// WATCH-LOOPED-PARK-TARGET-LOSS-NRE-STORM measured.</para>
+        /// </summary>
+        internal static bool ShouldBridgeWatchCameraOffDestroyedGhost(
+            int watchedRecordingIndex,
+            int destroyedRecordingIndex,
+            bool hasFlightCamera,
+            bool hasCameraTarget,
+            bool targetBelongsToDestroyedGhost)
+        {
+            if (watchedRecordingIndex < 0 || destroyedRecordingIndex != watchedRecordingIndex)
+                return false;
+            return hasFlightCamera && hasCameraTarget && targetBelongsToDestroyedGhost;
+        }
+
+        /// <summary>
+        /// The Warn a watch session emits when it gives up on an unresolvable camera target.
+        /// Pure so the token a future log grep depends on (<c>cause=</c>) is pinned by a test
+        /// rather than only by the per-frame driver that emits it, which no headless cell can run.
+        /// </summary>
+        internal static string BuildWatchTargetLossExitMessage(
+            int lostFrames,
+            bool cameraInfrastructureReady,
+            string cameraInfrastructureReason,
+            int recordingIndex,
+            string recordingId,
+            long cycleIndex)
+        {
+            string cause = cameraInfrastructureReady
+                ? "ghost-target-missing"
+                : (string.IsNullOrEmpty(cameraInfrastructureReason) ? "(none)" : cameraInfrastructureReason);
+            return string.Format(CultureInfo.InvariantCulture,
+                "No valid camera target for {0} frames (cause={1} rec=#{2} id={3} cycle={4}) — exiting watch mode",
+                lostFrames,
+                cause,
+                recordingIndex,
+                string.IsNullOrEmpty(recordingId) ? "null" : recordingId,
+                cycleIndex);
+        }
+
+        /// <summary>
+        /// Whether a ghost's <c>lastInterpolatedBodyName</c> is a reading the affordances may
+        /// describe as a body comparison, or a stale value that says nothing about where the
+        /// ghost is now.
+        ///
+        /// <para>WATCH-ENTRY-REFUSED-INSIDE-QUOTED-RANGE, corrected mechanism: the field is
+        /// seeded ONCE at spawn (<c>GhostPlaybackEngine.CreatePendingSpawnState</c> -&gt;
+        /// <c>TryResolvePendingPlaybackInterpolation</c> -&gt; <c>SetInterpolated</c>) and then
+        /// refreshed only on the POSITIONING path, which the render-zone hide skips. A ghost in
+        /// <see cref="RenderingZone.Beyond"/> therefore keeps answering with whatever its spawn
+        /// seed resolved, however wrong and however old - V7M measured <c>Kerbin</c> held across
+        /// both refusals while the observer sat at Minmus. So the honest test is not "is there a
+        /// body name" (there usually is) but "is this ghost being positioned at all".</para>
+        ///
+        /// <para>REPORTING ONLY. <c>IsGhostOnSameBody</c> and the watch-entry conjunction are
+        /// untouched; this exists so the disabled Watch button can say "not rendered" instead of
+        /// asserting a different body it has not actually observed.</para>
+        /// </summary>
+        internal static bool IsWatchBodyReadingCurrent(string bodyName, RenderingZone zone)
+        {
+            return !string.IsNullOrEmpty(bodyName) && zone != RenderingZone.Beyond;
+        }
+
+        /// <summary>What the per-frame Continue path must do about a live cycle bridge anchor.</summary>
+        internal enum WatchCycleBridgeDisposition
+        {
+            /// <summary>No anchor to resolve.</summary>
+            None,
+            /// <summary>Something already rebound the camera off the anchor - destroy it.</summary>
+            Release,
+            /// <summary>Camera is still on the anchor and a real target exists - rebind, then destroy.</summary>
+            RebindThenRelease,
+            /// <summary>Camera is on the anchor and there is nothing to rebind to yet - keep it alive.</summary>
+            Hold,
+        }
+
+        /// <summary>
+        /// The bridge anchor's release rule. "Retired as soon as something rebinds" is only
+        /// self-enforcing if the frame that notices ALSO rebinds: a destroy + respawn that does
+        /// not change the watched cycle index never enters <c>FindWatchedGhostState</c>'s cycle
+        /// fallback, so nothing else would take the camera off the anchor and the watch would
+        /// freeze on a static GameObject for the rest of the session.
+        /// </summary>
+        internal static WatchCycleBridgeDisposition ClassifyWatchCycleBridgeDisposition(
+            bool hasBridgeAnchor, bool cameraBoundToBridge, bool replacementTargetUsable)
+        {
+            if (!hasBridgeAnchor)
+                return WatchCycleBridgeDisposition.None;
+            if (!cameraBoundToBridge)
+                return WatchCycleBridgeDisposition.Release;
+            return replacementTargetUsable
+                ? WatchCycleBridgeDisposition.RebindThenRelease
+                : WatchCycleBridgeDisposition.Hold;
+        }
+
+        /// <summary>What <see cref="FindWatchedGhostState"/> may do when the tracked loop cycle is gone.</summary>
+        internal enum WatchCycleFallbackDecision
+        {
+            /// <summary>No usable primary - release the target and let the safety net converge.</summary>
+            NoPrimary,
+            /// <summary>Primary usable but the camera refused the rebind - release rather than claim a bound fallback.</summary>
+            ReleaseTarget,
+            /// <summary>Camera is bound to the primary - commit the fallback (adopt its cycle, log it).</summary>
+            Commit,
+        }
+
+        /// <summary>
+        /// The fallback used to log "Watched cycle lost - falling back to primary" and adopt the
+        /// primary's cycle whether or not the camera rebind actually took: when
+        /// <c>FlightCamera</c> was gone the retarget was skipped outright and the very next line
+        /// read <c>actualTarget=null targetMatches=False</c>. Announcing a fallback that bound
+        /// nothing is what left the session armed with no target, so the commit now requires the
+        /// rebind to have succeeded.
+        /// </summary>
+        internal static WatchCycleFallbackDecision ClassifyWatchCycleFallback(
+            bool primaryUsable, bool retargetSucceeded)
+        {
+            if (!primaryUsable)
+                return WatchCycleFallbackDecision.NoPrimary;
+            return retargetSucceeded
+                ? WatchCycleFallbackDecision.Commit
+                : WatchCycleFallbackDecision.ReleaseTarget;
+        }
+
         internal static string BuildWatchCameraInfrastructureMessage(
             int recordingIndex,
             string recordingId,

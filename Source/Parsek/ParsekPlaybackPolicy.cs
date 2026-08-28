@@ -1376,6 +1376,14 @@ namespace Parsek
             ParsekLog.Verbose("Policy",
                 $"GhostDestroyed index={evt.Index} vessel={name}");
 
+            // WATCH-LOOPED-PARK-TARGET-LOSS-NRE-STORM: the engine fires OnGhostDestroyed
+            // BEFORE it tears the GameObject hierarchy down, so this is the last frame-safe
+            // moment to get the watch camera off a transform that is about to become a
+            // destroyed Unity object (the documented #895 trigger for the stock per-frame
+            // NRE storm). No-ops unless this index is the watched one AND the camera is
+            // actually bound inside the doomed ghost.
+            host.WatchMode?.NotifyWatchedGhostDestroying(evt.Index, evt.State);
+
             // If a held ghost was destroyed externally (e.g. soft cap, DestroyAllGhosts),
             // remove it from the held set so we don't try to destroy it again
             heldGhosts.Remove(evt.Index);
