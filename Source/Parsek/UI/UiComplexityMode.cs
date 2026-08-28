@@ -61,7 +61,11 @@ namespace Parsek
         /// <summary>Career State launcher.</summary>
         MainButtonCareer,
 
-        /// <summary>Gloops Flight Recorder launcher.</summary>
+        /// <summary>
+        /// Gloops Flight Recorder launcher. RETIRED in every mode (see
+        /// <see cref="UiSurfaceVisibility.IsRetired"/>): Gloops is winding down toward a
+        /// standalone mod, so the launcher no longer draws even in Advanced.
+        /// </summary>
         MainButtonGloops,
 
         /// <summary>Settings launcher.</summary>
@@ -124,8 +128,24 @@ namespace Parsek
     internal static class UiSurfaceVisibility
     {
         /// <summary>
+        /// A surface retired from the player-facing UI in EVERY mode, Advanced included.
+        /// Retirement outranks the Basic / Advanced decision: <see cref="IsVisible"/>
+        /// answers false for a retired surface before the mode is even consulted.
+        /// <para>Currently only the Gloops Flight Recorder launcher: Gloops is being wound
+        /// down toward a future standalone mod, so its player-facing entry point is hidden
+        /// while the recording machinery (ghost-only recordings, the Gloops group, existing
+        /// saved takes) stays intact and loadable. Like the mode gate itself this is
+        /// visibility-only - no behavior, no data, and no serialization changes.</para>
+        /// </summary>
+        internal static bool IsRetired(UiSurface surface)
+        {
+            return surface == UiSurface.MainButtonGloops;
+        }
+
+        /// <summary>
         /// True when <paramref name="surface"/> is drawn in <paramref name="mode"/>.
-        /// Advanced returns true for EVERY surface, so Advanced rendering stays
+        /// Retired surfaces (see <see cref="IsRetired"/>) are hidden in BOTH modes.
+        /// For everything else Advanced returns true, so Advanced rendering stays
         /// identical to today. Basic decides per surface through an exhaustive switch.
         /// <para>Contract: an unhandled <see cref="UiSurface"/> value THROWS
         /// <see cref="ArgumentOutOfRangeException"/> rather than defaulting silently, so
@@ -135,6 +155,13 @@ namespace Parsek
         /// </summary>
         internal static bool IsVisible(UiSurface surface, UiComplexityMode mode)
         {
+            // Retirement first: a retired surface is hidden regardless of mode, so it
+            // deliberately never reaches the Basic decision below. Un-retiring a surface
+            // therefore requires re-adding its case to the switch, or the no-silent-default
+            // contract throws - exactly the fail-loud re-decision we want.
+            if (IsRetired(surface))
+                return false;
+
             // One exhaustive switch, no reflection: this runs on per-frame IMGUI draw
             // paths, so the unknown-value check must not cost an Enum.IsDefined call.
             bool visibleInBasic;
@@ -153,7 +180,6 @@ namespace Parsek
                 case UiSurface.MainButtonSpawnControl:       // advanced staging tool
                 case UiSurface.MainButtonKerbals:            // read-only roster reference
                 case UiSurface.MainButtonCareer:             // read-only career reference
-                case UiSurface.MainButtonGloops:             // manual ghost-only recorder
                 case UiSurface.TabRecordings:                // raw per-recording table
                 case UiSurface.MissionsLoopControls:         // manual-loop authoring on the Missions tab
                 case UiSurface.SettingsSectionLooping:       // the global half of the same authoring set
@@ -170,16 +196,17 @@ namespace Parsek
                         "UiSurfaceVisibility.IsVisible; the gate never defaults silently.");
             }
 
-            // Advanced is today's UI: every known surface draws. The switch above still
-            // runs in Advanced so an undecided addition throws in BOTH modes rather
+            // Advanced is today's UI: every non-retired surface draws. The switch above
+            // still runs in Advanced so an undecided addition throws in BOTH modes rather
             // than hiding behind an Advanced fast path.
             return mode == UiComplexityMode.Advanced || visibleInBasic;
         }
 
         /// <summary>
-        /// Every surface hidden in <paramref name="mode"/>, empty for
-        /// <see cref="UiComplexityMode.Advanced"/>. Consumed by the mode-change close
-        /// handler (design 7.2) and by tests.
+        /// Every surface hidden in <paramref name="mode"/>. For
+        /// <see cref="UiComplexityMode.Advanced"/> this is exactly the retired set
+        /// (see <see cref="IsRetired"/>); before the Gloops retirement it was empty.
+        /// Consumed by the mode-change close handler (design 7.2) and by tests.
         /// <para>Derived by walking the <see cref="UiSurface"/> values through
         /// <see cref="IsVisible"/> so there is exactly ONE decision point and no second
         /// list that can drift out of step with it.</para>

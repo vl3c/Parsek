@@ -18,17 +18,49 @@ namespace Parsek.Tests
 
         // --- IsVisible (design 6.1) ---
 
-        // Advanced must stay byte-identical to today's UI (philosophy 6). Walked by
-        // reflection over the enum so a new surface that defaults to hidden in
-        // Advanced fails here rather than silently disappearing for every player.
+        // Advanced must stay byte-identical to today's UI (philosophy 6) for every
+        // surface that has not been deliberately RETIRED. Walked by reflection over the
+        // enum so a new surface that defaults to hidden in Advanced fails here rather
+        // than silently disappearing for every player; a surface can only leave this
+        // walk by joining the explicit retired set pinned below.
         [Fact]
-        public void AdvancedShowsEverySurface()
+        public void AdvancedShowsEveryNonRetiredSurface()
         {
             foreach (UiSurface surface in AllSurfaces())
             {
+                if (UiSurfaceVisibility.IsRetired(surface))
+                    continue;
                 Assert.True(
                     UiSurfaceVisibility.IsVisible(surface, UiComplexityMode.Advanced),
                     $"{surface} must be visible in Advanced mode");
+            }
+        }
+
+        // Pins the retired set EXACTLY (the Gloops wind-down toward a standalone mod):
+        // a retired surface is hidden in BOTH modes, and nothing joins or leaves the
+        // set silently. Retirement outranking the mode is the contract that lets the
+        // Gloops launcher disappear from Advanced without touching philosophy 6 for
+        // every other surface.
+        [Fact]
+        public void RetiredSurfacesAreHiddenInEveryMode()
+        {
+            var expectedRetired = new HashSet<UiSurface> { UiSurface.MainButtonGloops };
+
+            var actualRetired = new HashSet<UiSurface>(
+                AllSurfaces().Where(UiSurfaceVisibility.IsRetired));
+            Assert.True(expectedRetired.SetEquals(actualRetired),
+                "Retired set drifted. Expected: " +
+                string.Join(", ", expectedRetired.OrderBy(s => s.ToString())) + "; actual: " +
+                string.Join(", ", actualRetired.OrderBy(s => s.ToString())));
+
+            foreach (UiSurface surface in actualRetired)
+            {
+                Assert.False(
+                    UiSurfaceVisibility.IsVisible(surface, UiComplexityMode.Basic),
+                    $"{surface} is retired and must be hidden in Basic");
+                Assert.False(
+                    UiSurfaceVisibility.IsVisible(surface, UiComplexityMode.Advanced),
+                    $"{surface} is retired and must be hidden in Advanced");
             }
         }
 
@@ -60,12 +92,21 @@ namespace Parsek.Tests
                 string.Join(", ", actual.OrderBy(s => s.ToString())));
         }
 
-        // Advanced hides nothing, so the close handler of design 7.2 has nothing to do
-        // on a Basic -> Advanced switch.
+        // Advanced hides exactly the retired set and nothing else, so the close handler
+        // of design 7.2 still has nothing MODE-DRIVEN to do on a Basic -> Advanced
+        // switch (a retired window is unreachable in both modes, not newly hidden by
+        // the transition).
         [Fact]
-        public void AdvancedHidesNothing()
+        public void AdvancedHidesOnlyRetiredSurfaces()
         {
-            Assert.Empty(UiSurfaceVisibility.HiddenSurfaces(UiComplexityMode.Advanced));
+            var hidden = new HashSet<UiSurface>(
+                UiSurfaceVisibility.HiddenSurfaces(UiComplexityMode.Advanced));
+            var retired = new HashSet<UiSurface>(
+                AllSurfaces().Where(UiSurfaceVisibility.IsRetired));
+            Assert.True(retired.SetEquals(hidden),
+                "Advanced must hide exactly the retired surfaces. Retired: " +
+                string.Join(", ", retired.OrderBy(s => s.ToString())) + "; hidden: " +
+                string.Join(", ", hidden.OrderBy(s => s.ToString())));
         }
 
         // The philosophy-3 guard: Basic must be sufficient, not merely smaller. If any

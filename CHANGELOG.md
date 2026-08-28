@@ -6,6 +6,15 @@ All notable changes to Parsek are documented here.
 
 ## 0.10.4
 
+### Changed
+
+- The Gloops Flight Recorder button and window are gone from the Parsek UI. The
+  manual ghost-only recorder is headed for a standalone mod, and Parsek is
+  gradually winding down its player-facing ghost-looping controls to focus on
+  gameplay. Nothing you already recorded is affected: existing ghost-only
+  recordings still load, still sit in the "Gloops - Ghosts Only" group, still
+  play back as ghosts, and still stay invisible to your career.
+
 ### Fixed
 
 - Every time a recorded flight crossed from one planet's or moon's area of
