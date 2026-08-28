@@ -38,13 +38,21 @@ All notable changes to Parsek are documented here.
   to read one permanent, designed handover as a flicker. It now recognises that
   handover, but only on the exact evidence that proves it: the render pipeline
   saying it owns the path this frame, plus the line's previous switch-on being
-  a verified in-window one. Crucially, whenever the map is actually open and
-  the drawing pass really ran, the exemption also demands that something was in
-  fact drawn - so a handover that claims the path and then leaves the map blank
-  still gets reported, which is the failure this watchdog exists to catch. The
-  artifact was traced to two runs nine days and two codebases apart raising the
-  identical event at the identical moment, which is what ruled out any recent
-  change as the cause. Diagnostics only; nothing you see in game changes.
+  a verified in-window one. Two things keep that from becoming a blanket excuse.
+  Whenever the map is actually open and the drawing pass really ran, the
+  exemption also demands that something was in fact drawn - so a handover that
+  claims the path and then leaves the map blank still gets reported, which is
+  the failure this watchdog exists to catch. And the quiet case - handing over
+  with the map closed, where there is no line on screen for anyone to see blink
+  - has to prove the map was closed, rather than merely observing that the
+  drawing pass produced nothing, since the pass can also be skipped for reasons
+  that have nothing to do with the map being shut. The artifact was traced to
+  two runs nine days and two codebases apart raising the identical event at the
+  identical moment, which is what ruled out any recent change as the cause. It
+  was also the only thing standing between this test lane and its first green
+  run: the flight that armed the lane red'd on this same event, so the lane has
+  never once passed, and clearing the false alarm is what lets it. Diagnostics
+  only; nothing you see in game changes.
 - The ghost appear/disappear checker from the "watch your old launch" test is
   now enforcing rather than just reporting: it was re-flown twice with the gate
   live (both green) and once with a deliberately impossible expectation (which

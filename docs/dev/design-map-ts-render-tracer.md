@@ -285,19 +285,31 @@ floating-origin / zero-velocity carve-outs):
   `ShadowRenderDriver.IsTracedPathOwnedThisFrame`, carried on the intent as a second
   enum-valued stamp (`LineHandoffKind.TracedPathOwned`, exactly one write site, the same
   single-writer `RecordLineIntent` channel as the coverage stamp).
-  `ResolveTracedPathHandoffExempt` is fail-closed on five conjuncts: a DEFINITIVELY dark
+  `ResolveTracedPathHandoffExempt` is fail-closed on six conjuncts: a DEFINITIVELY dark
   edge; a fresh decision AGREEING with the truth; the handoff stamp; a prior toggle that
-  is a proven `InsideWindowOn` (the same both-halves discipline); and — the anti-masking
-  conjunct — whenever the ownership/paint PUBLISH SURFACE ran this frame, the polyline
-  must ALSO actually have covered the ghost (`polylinePainted || polylineOwns`), so a
-  map-OPEN handoff that claims the leg and then draws nothing keeps raising. Only when the
-  publish surface never ran (`ownership-publish-surface-never-ran` — no line on screen for
-  anyone to see blink) does the selector carry the exemption alone. "Did the publish
+  is a proven `InsideWindowOn` (the same both-halves discipline); and TWO anti-masking
+  conjuncts. **(5)** Whenever the ownership/paint PUBLISH SURFACE ran this frame, the
+  polyline must ALSO actually have covered the ghost (`polylinePainted || polylineOwns`),
+  so a map-OPEN handoff that claims the leg and then draws nothing keeps raising.
+  **(6) The selector-alone lane is itself a POSITIVE fact**: when the publish surface did
+  NOT run, the exemption requires a positively measured CLOSED map (`mapWasOpen` false),
+  never the absence of the publish. `publishSurfaceRan == false` is a NEGATIVE fact and is
+  strictly broader than "map closed" — the Driver's walk also misses its epilogue on the
+  TRACKSTATION / FLIGHT controller-not-yet-awake defers (both sit AFTER the
+  `MapView.MapIsEnabled` gate), on any exception escaping the walk body, and when no Driver
+  exists — and in all three the map can be OPEN with nothing drawn. The alone-lane's whole
+  justification is `ownership-publish-surface-never-ran` meaning *no line on screen for
+  anyone to see blink*, which only the closed map actually establishes. "Did the publish
   surface run" is the EXISTING `pendingDrawsFrame` walk-completed stamp read through
   `GhostTrajectoryPolylineRenderer.DidOwnershipPublishRunOnFrame`, not a new per-frame
-  signal. Source-gated alongside the coverage stamps in
+  signal; that stamp is written BEFORE `NoteOwnershipPublish` (~50 lines above it, no early
+  return between), and what makes the reuse sound is that the probe's actual inputs — the
+  ownership and paint sets — are populated during the per-recording walk, ahead of the
+  stamp. Source-gated alongside the coverage stamps in
   `LineBlinkWindowExitExemptionTests` (one-spelling count on the handoff stamp, plus a pin
-  that the publish-surface signal keeps reusing that walk-completed stamp); the two
+  that the publish-surface signal keeps reusing that walk-completed stamp and that the
+  stamp still precedes the publish), with a dedicated cell for the map-OPEN-but-walk-deferred
+  state asserting it still raises; the two
   exemptions constrain each other, since the suppress site must never ALSO become a fifth
   coverage stamp.
 
@@ -306,7 +318,9 @@ floating-origin / zero-velocity carve-outs):
   `tracedPathHandoffExempt=` / `bodyChanged=`), the two toggle
   verdicts (`toggleVerdict=` / `priorToggleVerdict=`, so a reader sees WHICH proof was
   missing), the decision's `intentReason=`, and — since the handoff exemption landed —
-  `intentHandoff=` / `publishSurfaceRan=`, because a silent guard on a gated token is undebuggable. Read the
+  `intentHandoff=` / `publishSurfaceRan=` / `mapWasOpen=` (the last two together separate
+  "coverage proof missing" from "walk never reached its epilogue while the map was open"),
+  because a silent guard on a gated token is undebuggable. Read the
   attribution precisely: `bodyChanged` short-circuits AHEAD of all of them and never reaches
   that line, so a toggle pair a body change would also have exempted is attributed to
   whichever other guard is true. That overstates those guards' reach rather

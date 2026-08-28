@@ -412,8 +412,13 @@ namespace Parsek.Tests
         // toggleVerdict=Other, offWindowCovered/polylinePainted/polylineOwns/windowTransitionExempt/
         // bodyChanged all False, sinceFrames 5 (`2026-08-28_1703`) and 8 (`2026-08-19_1810`).
 
-        /// <summary>The V15M raise's frame geometry with only the THREE PRE-EXISTING guards available -
-        /// i.e. what the detector did before this exemption. Both runs' sinceFrames raise.</summary>
+        /// <summary>DETECTOR CHARACTERIZATION, not a fails-before proof. It hardcodes the three
+        /// pre-existing guards as literals, so it passes unchanged on a tree without this exemption and
+        /// cannot by itself show that the fix is what moved the outcome. The real pre-fix-behavior proof
+        /// is case (1) of <see cref="HandoffExemption_FailsClosedOnEveryConjunct"/>, which drives the
+        /// FULL replay with <c>intentHandoff: None</c> - the exact inputs of a tree where nothing stamps
+        /// a handoff - and still raises at the archived geometry. What this helper IS good for is
+        /// pinning the DETECTOR's own cadence arithmetic against fixed frame numbers.</summary>
         private static bool RaisesUnderTheThreePreExistingGuardsOnly(
             int lastToggleFrame, int currentFrame)
         {
@@ -435,7 +440,9 @@ namespace Parsek.Tests
             int currentFrame,
             bool lineIsLit = false,
             bool hasFreshIntent = true,
-            bool hasPriorToggle = true)
+            bool hasPriorToggle = true,
+            // The measured V15M lane is map-CLOSED flight; cells that model an OPEN map say so.
+            bool mapWasOpen = false)
         {
             Verdict current = MapRenderTrace.ClassifyLineToggle(
                 lineDefinitivelyOff: !lineIsLit,
@@ -455,7 +462,8 @@ namespace Parsek.Tests
                 hasPriorToggle: hasPriorToggle,
                 priorToggle: priorToggle,
                 publishSurfaceRan: publishSurfaceRan,
-                polylineCovered: polylineCovered);
+                polylineCovered: polylineCovered,
+                mapWasOpen: mapWasOpen);
             return MapRenderTrace.IsLineBlink(
                 toggled: true, hasLastToggleFrame: true,
                 lastToggleFrame: lastToggleFrame, currentFrame: currentFrame,
@@ -468,8 +476,10 @@ namespace Parsek.Tests
         public void V15M_GillyHandoff_PreFixInputs_Raised()
         {
             // THE ARTIFACT, as the detector saw it before this exemption existed: sinceFrames 5 and 8,
-            // both <= LineBlinkFrameWindow (8), every pre-existing guard false. This cell is what makes
-            // the pair of cells below a FIX rather than a fixture.
+            // both <= LineBlinkFrameWindow (8), every pre-existing guard false. CHARACTERIZATION, not
+            // the fails-before proof - see the helper's summary; case (1) of
+            // HandoffExemption_FailsClosedOnEveryConjunct is what shows the archived geometry still
+            // raises when nothing stamps a handoff.
             Assert.True(RaisesUnderTheThreePreExistingGuardsOnly(
                 lastToggleFrame: 100, currentFrame: 105));   // 2026-08-28_1703
             Assert.True(RaisesUnderTheThreePreExistingGuardsOnly(
@@ -499,13 +509,17 @@ namespace Parsek.Tests
             // CADENCE, NOT CODE, DECIDED THE RAISE - and the fix must not depend on that. In BOTH runs
             // the FIRST incarnation crossed the IDENTICAL handoff one loop earlier at sinceFrames=10
             // (frames 6834->6844 in `_1703`, 7108->7118 in `_1810`) and was never flagged, because 10 >
-            // LineBlinkFrameWindow. It stays unflagged after the fix, by the frame window rather than by
-            // the exemption: the detector's cadence arithmetic is untouched.
+            // LineBlinkFrameWindow. It must stay unflagged after the fix BY THE FRAME WINDOW, not by the
+            // exemption - so the post-fix half is driven with a NON-EXEMPTING configuration on purpose
+            // (map OPEN, publish surface ran, nothing covered - the shape that RAISES at sinceFrames=5
+            // in MapOpen_HandoffThatNeverDraws_StillRaises). If it were given the exempting inputs,
+            // IsLineBlink would return at the exemption before `sinceLast` was ever computed and the
+            // assert would pass with the frame window deleted, proving nothing about cadence.
             Assert.False(RaisesUnderTheThreePreExistingGuardsOnly(
                 lastToggleFrame: 6834, currentFrame: 6844));
             Assert.False(RaisesAfterHandoffExemption(
                 intentHandoff: Handoff.TracedPathOwned, priorToggle: Verdict.InsideWindowOn,
-                publishSurfaceRan: false, polylineCovered: false,
+                publishSurfaceRan: true, polylineCovered: false, mapWasOpen: true,
                 lastToggleFrame: 7108, currentFrame: 7118));
         }
 
@@ -519,7 +533,7 @@ namespace Parsek.Tests
             // coverage facts.
             Assert.True(RaisesAfterHandoffExemption(
                 intentHandoff: Handoff.TracedPathOwned, priorToggle: Verdict.InsideWindowOn,
-                publishSurfaceRan: true, polylineCovered: false,
+                publishSurfaceRan: true, polylineCovered: false, mapWasOpen: true,
                 lastToggleFrame: 100, currentFrame: 105));
         }
 
@@ -530,7 +544,34 @@ namespace Parsek.Tests
             // the handoff, so the user sees one continuous trajectory and nothing blinked.
             Assert.False(RaisesAfterHandoffExemption(
                 intentHandoff: Handoff.TracedPathOwned, priorToggle: Verdict.InsideWindowOn,
-                publishSurfaceRan: true, polylineCovered: true,
+                publishSurfaceRan: true, polylineCovered: true, mapWasOpen: true,
+                lastToggleFrame: 100, currentFrame: 105));
+        }
+
+        [Fact]
+        public void MapOpen_ButPublishSurfaceNeverRan_StillRaises()
+        {
+            // THE SECOND CANNOT-MASK PIN, and the reason the alone-lane is keyed on a POSITIVELY
+            // measured closed map instead of on `publishSurfaceRan == false`. That bit is a NEGATIVE
+            // fact - "the Driver walk did not reach its epilogue" - and is strictly broader than "the
+            // map is closed". At least three states satisfy it with the map WIDE OPEN, all of them a
+            // genuinely dark handoff:
+            //   * the controller-not-yet-awake defers (TRACKSTATION and FLIGHT), which sit AFTER the
+            //     MapView.MapIsEnabled gate in the Driver's LateUpdate;
+            //   * any exception escaping the walk body between the gates and the epilogue;
+            //   * Driver.Instance == null.
+            // Every other conjunct here is the exempting baseline, so this cell isolates exactly that
+            // one fact. Under the earlier `publishSurfaceRan && !polylineCovered` formulation this
+            // exempted; it must raise.
+            Assert.True(RaisesAfterHandoffExemption(
+                intentHandoff: Handoff.TracedPathOwned, priorToggle: Verdict.InsideWindowOn,
+                publishSurfaceRan: false, polylineCovered: false, mapWasOpen: true,
+                lastToggleFrame: 100, currentFrame: 105));
+            // ...and the mirror that keeps the cell honest: the SAME inputs on a proven-closed map are
+            // the measured V15M lane and stay exempt. One fact separates them.
+            Assert.False(RaisesAfterHandoffExemption(
+                intentHandoff: Handoff.TracedPathOwned, priorToggle: Verdict.InsideWindowOn,
+                publishSurfaceRan: false, polylineCovered: false, mapWasOpen: false,
                 lastToggleFrame: 100, currentFrame: 105));
         }
 
@@ -538,10 +579,14 @@ namespace Parsek.Tests
         public void HandoffExemption_FailsClosedOnEveryConjunct()
         {
             // One fact changed per case against the exempting baseline (TracedPathOwned / dark edge /
-            // fresh agreeing intent / prior InsideWindowOn / surface never ran); each must still raise.
+            // fresh agreeing intent / prior InsideWindowOn / surface never ran on a proven-closed map);
+            // each must still raise.
 
             // (1) NOT a designed handoff: any other OFF reason (polyline-owns-phase, below-atmosphere,
             //     stale-segment-awaiting-reseed, director-terminal-suppress, ...) leaves it None.
+            //     THIS IS THE PRE-FIX-BEHAVIOR PROOF: `None` is what EVERY decision site stamped before
+            //     this exemption existed, driven here through the FULL replay at the archived geometry,
+            //     so a tree that stamps no handoff still reds exactly as it always did.
             Assert.True(RaisesAfterHandoffExemption(
                 intentHandoff: Handoff.None, priorToggle: Verdict.InsideWindowOn,
                 publishSurfaceRan: false, polylineCovered: false,
@@ -591,7 +636,8 @@ namespace Parsek.Tests
                 hasPriorToggle: true,
                 priorToggle: Verdict.InsideWindowOn,
                 publishSurfaceRan: false,
-                polylineCovered: false));
+                polylineCovered: false,
+                mapWasOpen: false));
             // And the degenerate read ("(line-null)" / "(no-renderer)" / "(read-err:...)"): neither
             // definitively off nor definitively lit. Not knowing is never evidence.
             Assert.False(MapRenderTrace.ResolveTracedPathHandoffExempt(
@@ -602,7 +648,8 @@ namespace Parsek.Tests
                 hasPriorToggle: true,
                 priorToggle: Verdict.InsideWindowOn,
                 publishSurfaceRan: false,
-                polylineCovered: false));
+                polylineCovered: false,
+                mapWasOpen: false));
         }
 
         [Fact]
@@ -785,9 +832,22 @@ namespace Parsek.Tests
                 "Expected EXACTLY 1 non-reset write of pendingDrawsFrame (the decide walk's epilogue "
                 + "stamp, which is what DidOwnershipPublishRunOnFrame means); found " + writes + ".");
 
-            // And the ownership publish must stay in that same epilogue, so the stamp and the publish
-            // remain the same fact.
-            Assert.Contains("RenderCompositionRecorder.NoteOwnershipPublish(", renderer);
+            // ORDERING, asserted rather than asserted-in-prose: the walk-completed stamp is written
+            // BEFORE the recorder's ownership publish, not after it (an easy claim to get backwards, and
+            // this file got it backwards once). The reuse does not depend on that ordering - the probe's
+            // real inputs (drewNonOrbitalLegRecordings, the S0 paint set) are populated DURING the
+            // per-recording walk, ahead of the stamp, and the recorder publish below it is the M-A7
+            // manifest's own diff which the probe never reads - but pinning the order keeps the comments
+            // honest if either moves.
+            int stampAt = renderer.IndexOf("pendingDrawsFrame = drawFrame;", StringComparison.Ordinal);
+            int publishAt = renderer.IndexOf(
+                "RenderCompositionRecorder.NoteOwnershipPublish(", StringComparison.Ordinal);
+            Assert.True(stampAt >= 0, "the walk-completed stamp `pendingDrawsFrame = drawFrame;` is gone");
+            Assert.True(publishAt > stampAt,
+                "RenderCompositionRecorder.NoteOwnershipPublish must still follow the walk-completed "
+                + "stamp in the same epilogue; found stampAt=" + stampAt + " publishAt=" + publishAt
+                + ". If this moved, re-read DidOwnershipPublishRunOnFrame's ORDERING paragraph before "
+                + "changing either.");
         }
 
         /// <summary>The stamp must stay OPT-IN and single-sourced: both seams default to

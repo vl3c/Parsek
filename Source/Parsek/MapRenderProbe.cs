@@ -828,14 +828,22 @@ namespace Parsek
                 // (IsTracedPathOwnedThisFrame) IS the measurement the intent carries here. The lit half
                 // must still be a proven InsideWindowOn, and - the anti-masking conjunct - whenever the
                 // ownership/paint PUBLISH SURFACE actually ran this frame, the polyline must also have
-                // covered this ghost. Reading it: the surface sits past MapView.MapIsEnabled inside the
-                // Driver's -50 LateUpdate, so a map-CLOSED flight lane leaves polylinePainted /
-                // polylineOwns false for a reason that has nothing to do with darkness - and in that
-                // lane no line is on screen for anyone to see blink. With the map OPEN the bits are
-                // real, and a TracedPath that claims the leg and then never draws it is a genuinely
-                // dark handoff that must keep raising.
+                // covered this ghost: a TracedPath that claims the leg and then never draws it is a
+                // genuinely dark handoff that must keep raising.
+                //
+                // TWO SEPARATE READS, deliberately. `publishSurfaceRan` is the Driver walk reaching its
+                // epilogue; `mapWasOpen` is the map state itself. They are NOT interchangeable, and the
+                // selector-alone lane keys on the SECOND. A map-CLOSED flight lane leaves
+                // polylinePainted / polylineOwns false for a reason that has nothing to do with
+                // darkness - the publish sits past MapView.MapIsEnabled inside the Driver's -50
+                // LateUpdate - and there no line is on screen for anyone to see blink. But a walk can
+                // ALSO miss its epilogue with the map wide OPEN: the TS / FLIGHT controller-not-yet-awake
+                // defers, an exception escaping the walk body, no Driver yet. Resting the alone-lane on
+                // the ABSENCE of a publish would exempt those, i.e. exactly the dark map this detector
+                // exists for, so the closed map is measured POSITIVELY here instead of inferred.
                 bool publishSurfaceRan =
                     Parsek.Display.GhostTrajectoryPolylineRenderer.DidOwnershipPublishRunOnFrame(frame);
+                bool mapWasOpen = MapView.MapIsEnabled;
                 bool tracedPathHandoffExempt = MapRenderTrace.ResolveTracedPathHandoffExempt(
                     lineDefinitivelyOff: lineActive == "False",
                     hasFreshIntent: hasFreshLineIntent,
@@ -848,7 +856,8 @@ namespace Parsek
                     // leg" and is a subset of paint on the tracing-on path, so the disjunction is the
                     // honest "did the map have ANY line for this ghost" - the same question the
                     // offWindowCovered accounting asks, asked here on the dark edge.
-                    polylineCovered: polylinePainted || polylineOwns);
+                    polylineCovered: polylinePainted || polylineOwns,
+                    mapWasOpen: mapWasOpen);
                 if (MapRenderTrace.IsLineBlink(
                         toggled: true,
                         hasLastToggleFrame: hasLastToggle,
@@ -892,21 +901,24 @@ namespace Parsek
                             + "offWindowCovered={5} polylinePainted={6} polylineOwns={7} "
                             + "windowTransitionExempt={8} bodyChanged={9} toggleVerdict={10} "
                             + "priorToggleVerdict={11} intentReason={12} "
-                            + "tracedPathHandoffExempt={13} intentHandoff={14} publishSurfaceRan={15}",
+                            + "tracedPathHandoffExempt={13} intentHandoff={14} publishSurfaceRan={15} "
+                            + "mapWasOpen={16}",
                             lineActive, prevLineActive, lastToggle, frame - lastToggle, bodyName,
                             offWindowCovered, polylinePainted, polylineOwns,
                             windowTransitionExempt, toggleCrossedBody,
                             currentToggleVerdict, priorToggleVerdict,
                             hasFreshLineIntent ? lineIntent.Reason : "(no-fresh-intent)",
-                            // Like windowTransitionExempt these are FALSE on every raise by
-                            // construction; intentHandoff + publishSurfaceRan are what say WHY, so a
-                            // reader can tell "not a designed handoff at all" from "a handoff whose
-                            // map-open coverage proof was missing" without joining to another line.
+                            // Like windowTransitionExempt, tracedPathHandoffExempt is FALSE on every
+                            // raise by construction; intentHandoff + publishSurfaceRan + mapWasOpen are
+                            // what say WHY, so a reader can separate "not a designed handoff at all"
+                            // from "a handoff whose map-open coverage proof was missing" from "a
+                            // handoff whose walk never reached its epilogue while the map was OPEN" -
+                            // three different findings - without joining to another line.
                             tracedPathHandoffExempt,
                             hasFreshLineIntent
                                 ? lineIntent.Handoff.ToString()
                                 : "(no-fresh-intent)",
-                            publishSurfaceRan),
+                            publishSurfaceRan, mapWasOpen),
                         recId);
                 }
                 else if ((offWindowCovered || windowTransitionExempt || tracedPathHandoffExempt)
@@ -938,7 +950,8 @@ namespace Parsek
                             + "offWindowCovered={5} polylinePainted={6} polylineOwns={7} "
                             + "windowTransitionExempt={8} bodyChanged={9} toggleVerdict={10} "
                             + "priorToggleVerdict={11} intentReason={12} "
-                            + "tracedPathHandoffExempt={13} intentHandoff={14} publishSurfaceRan={15}",
+                            + "tracedPathHandoffExempt={13} intentHandoff={14} publishSurfaceRan={15} "
+                            + "mapWasOpen={16}",
                             lineActive, prevLineActive, lastToggle, frame - lastToggle, bodyName,
                             offWindowCovered, polylinePainted, polylineOwns,
                             windowTransitionExempt, toggleCrossedBody,
@@ -948,7 +961,7 @@ namespace Parsek
                             hasFreshLineIntent
                                 ? lineIntent.Handoff.ToString()
                                 : "(no-fresh-intent)",
-                            publishSurfaceRan),
+                            publishSurfaceRan, mapWasOpen),
                         recId);
                 }
                 lastLineToggleFrame[pid] = frame;

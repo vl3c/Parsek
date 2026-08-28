@@ -1033,9 +1033,10 @@ namespace Parsek
         /// at all, so no coverage bit exists on either edge. See
         /// <see cref="ResolveTracedPathHandoffExempt"/> for the conjuncts, and note that the exemption
         /// is NOT a widened window: the OFF edge's own branch condition
-        /// (<c>IsTracedPathOwnedThisFrame</c>) IS the measurement, and the lit half must still be a
-        /// proven <see cref="LineToggleVerdict.InsideWindowOn"/>. Defaults false so every existing call
-        /// site is byte-identical.</para>
+        /// (<c>IsTracedPathOwnedThisFrame</c>) IS the measurement, the lit half must still be a proven
+        /// <see cref="LineToggleVerdict.InsideWindowOn"/>, and the lane where the selector carries it
+        /// alone rests on a POSITIVELY measured closed map, never on the mere absence of a publish.
+        /// Defaults false so every existing call site is byte-identical.</para>
         /// </summary>
         internal static bool IsLineBlink(
             bool toggled,
@@ -1265,14 +1266,23 @@ namespace Parsek
         /// that follows an unproven lit edge (<c>parking-conic-loiter-hold</c>, <c>terminal-visible</c>,
         /// a line lit behind our back) still raises.</para>
         /// <para>(5) <b>THE CONJUNCTION.</b> When the ownership/paint PUBLISH SURFACE RAN this frame
-        /// (<paramref name="publishSurfaceRan"/> - the polyline Driver's decide walk completed, i.e. the
-        /// map is open and the scene / controller gates passed), the polyline must ALSO actually have
-        /// covered this ghost (<paramref name="polylineCovered"/> = painted or owned). Without that
-        /// conjunct the selector alone would exempt a map-OPEN handoff in which TracedPath claims
-        /// ownership and then never draws - a genuinely dark map, and exactly the defect this detector
-        /// exists to catch. The selector carries the exemption ALONE only when the publish surface never
-        /// ran (<c>ownership-publish-surface-never-ran</c>), where the bit is structurally unavailable
-        /// and no line is visible to any viewer, so a "blink" has no observer.</para>
+        /// (<paramref name="publishSurfaceRan"/> - the polyline Driver's decide walk reached its
+        /// epilogue), the polyline must ALSO actually have covered this ghost
+        /// (<paramref name="polylineCovered"/> = painted or owned). Without that conjunct the selector
+        /// alone would exempt a map-OPEN handoff in which TracedPath claims ownership and then never
+        /// draws - a genuinely dark map, and exactly the defect this detector exists to catch.</para>
+        /// <para>(6) <b>THE ALONE-LANE IS A POSITIVE FACT, NOT AN ABSENCE.</b> When the publish surface
+        /// did NOT run, the selector may carry the exemption alone ONLY on a PROVEN-CLOSED map
+        /// (<paramref name="mapWasOpen"/> false). <c>publishSurfaceRan == false</c> is a NEGATIVE fact
+        /// and is strictly BROADER than "the map is closed": the Driver's walk also fails to reach its
+        /// epilogue on the controller-not-yet-awake defers (TRACKSTATION / FLIGHT, both reachable with
+        /// <c>MapView.MapIsEnabled</c> TRUE), on any exception escaping the walk body between the gates
+        /// and the epilogue, and when no Driver exists at all. In every one of those the map can be OPEN
+        /// with nothing drawn - a genuinely dark handoff - so resting the alone-lane on the absence
+        /// would exempt exactly what this detector is for. The map-closed reading is what makes the
+        /// alone-lane sound in the first place (<c>ownership-publish-surface-never-ran</c>: no line on
+        /// screen for anyone to see blink), so it is measured POSITIVELY by the caller rather than
+        /// inferred from the publish bit.</para>
         /// </summary>
         internal static bool ResolveTracedPathHandoffExempt(
             bool lineDefinitivelyOff,
@@ -1282,7 +1292,8 @@ namespace Parsek
             bool hasPriorToggle,
             LineToggleVerdict priorToggle,
             bool publishSurfaceRan,
-            bool polylineCovered)
+            bool polylineCovered,
+            bool mapWasOpen)
         {
             // (1) DARK edge only, and definitively so.
             if (!lineDefinitivelyOff)
@@ -1296,11 +1307,14 @@ namespace Parsek
             // (4) The lit half must be proven inside the rendered window.
             if (!hasPriorToggle || priorToggle != LineToggleVerdict.InsideWindowOn)
                 return false;
-            // (5) Map OPEN (the publish surface ran): the polyline must actually have covered the ghost,
-            // or this is a real dark handoff and must raise.
-            if (publishSurfaceRan && !polylineCovered)
-                return false;
-            return true;
+            // (5) The publish surface RAN: the polyline must actually have covered the ghost, or this is
+            // a real dark handoff and must raise.
+            if (publishSurfaceRan)
+                return polylineCovered;
+            // (6) The surface did NOT run. That is an ABSENCE, not a proof of "nothing on screen" - the
+            // controller defers, an escaping exception and a missing Driver all land here with the map
+            // possibly OPEN. Only a POSITIVELY measured closed map earns the selector-alone lane.
+            return !mapWasOpen;
         }
 
         /// <summary>

@@ -455,10 +455,17 @@ namespace Parsek.Display
         /// <c>RenderCompositionRecorder.NoteOwnershipPublish</c> all reflect THIS frame?
         ///
         /// <para>NOT a new per-frame signal: it reads the EXISTING <c>pendingDrawsFrame</c> stamp, which
-        /// the walk writes LAST, after every early return, precisely so <c>OnMapCameraPreCull</c> can ask
-        /// "did this LateUpdate run to completion?" - the identical question, one slot later in the same
-        /// frame. The ownership publish sits a few lines above that stamp in the same epilogue, so the
-        /// two are the same fact.</para>
+        /// the walk writes in its epilogue, after every early return, precisely so
+        /// <c>OnMapCameraPreCull</c> can ask "did this LateUpdate run to completion?" - the identical
+        /// question, one slot later in the same frame.</para>
+        ///
+        /// <para>ORDERING, stated exactly because it is easy to get backwards: the stamp is written
+        /// BEFORE <c>RenderCompositionRecorder.NoteOwnershipPublish</c> (~50 lines above it), with no
+        /// early return in between. That does not weaken the reuse, because THE PROBE'S ACTUAL INPUTS -
+        /// <see cref="drewNonOrbitalLegRecordings"/> and the S0 paint set - are populated DURING the
+        /// per-recording walk, i.e. before the stamp. The recorder publish below it is the M-A7
+        /// manifest's own diff, which the probe never reads. A true stamp therefore means the walk got
+        /// past the gates and populated the sets this frame, which is exactly the question asked.</para>
         ///
         /// <para>Its consumer is the map-render probe's <c>line-blink</c> TracedPath-handoff exemption
         /// (<c>MapRenderTrace.ResolveTracedPathHandoffExempt</c>), which needs to distinguish "the
@@ -467,6 +474,11 @@ namespace Parsek.Display
         /// Driver exists - truthfully, since a Driver that does not exist published nothing; that case
         /// is unreachable from the probe in practice, the Driver being an <c>Instantly</c>/<c>once</c>
         /// DDOL singleton created long before any ghost map vessel does.</para>
+        ///
+        /// <para>A FALSE here is an ABSENCE, never a proof that nothing was on screen: the walk also
+        /// misses its epilogue on the controller-not-yet-awake defers and on any exception escaping the
+        /// walk body, both reachable with the map OPEN. The consumer therefore measures map-closedness
+        /// separately and positively rather than inferring it from this bit.</para>
         /// </summary>
         internal static bool DidOwnershipPublishRunOnFrame(int frame)
         {
