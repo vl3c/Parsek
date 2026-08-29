@@ -74,22 +74,15 @@ namespace Parsek.TestCommands
         /// known after the discard, so the original's files are never touched. A null
         /// known set fails CLOSED (nothing reaped): this is a deletion guard, and the
         /// caller always passes a real set.
+        ///
+        /// <para>Thin alias over <see cref="DiscardSidecarReap.SelectReapRecordings"/>,
+        /// which is the shared implementation the gameplay discard paths use too.</para>
         /// </summary>
         internal static List<Recording> SelectDiscardReapRecordings(
             List<Recording> discardedTreeRecordings, HashSet<string> knownIdsAfterDiscard)
         {
-            var reap = new List<Recording>();
-            if (discardedTreeRecordings == null || knownIdsAfterDiscard == null)
-                return reap;
-            foreach (var rec in discardedTreeRecordings)
-            {
-                if (rec == null || string.IsNullOrEmpty(rec.RecordingId))
-                    continue;
-                if (knownIdsAfterDiscard.Contains(rec.RecordingId))
-                    continue;
-                reap.Add(rec);
-            }
-            return reap;
+            return DiscardSidecarReap.SelectReapRecordings(
+                discardedTreeRecordings, knownIdsAfterDiscard);
         }
 
         /// <summary>
@@ -101,14 +94,15 @@ namespace Parsek.TestCommands
         /// still the durable committed data - reaping would permanently destroy them
         /// out from under the merge journal's rollback. Same for the transient
         /// restore-in-progress window. Returns the skip reason, or null to reap.
+        ///
+        /// <para>Thin alias over <see cref="DiscardSidecarReap.SkipReason"/>, which is
+        /// the shared implementation the gameplay discard paths use too.</para>
         /// </summary>
         internal static string DiscardReapSkipReason(
             bool reFlyMarkerActive, bool mergeJournalActive, bool restoringActiveTree)
         {
-            if (reFlyMarkerActive) return "refly-marker-active";
-            if (mergeJournalActive) return "merge-journal-active";
-            if (restoringActiveTree) return "restoring-active-tree";
-            return null;
+            return DiscardSidecarReap.SkipReason(
+                reFlyMarkerActive, mergeJournalActive, restoringActiveTree);
         }
     }
 }
