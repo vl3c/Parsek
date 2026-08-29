@@ -149,11 +149,20 @@ CONTRACT_B_ACTION_ID = "act_9d24c8be71f04a6cb35e802917dcae64"
 CONTRACT_A_SEQ = "1"
 CONTRACT_B_SEQ = "2"
 
-# A's DEADLINE MUST NOT ELAPSE, and B's MUST. Both are the DURATION form the
-# recorder writes: `GameStateRecorder`'s accept handler records
-# `Contract.TimeDeadline`, i.e. float(values[1]) of the stock contract, not its
-# absolute `dateDeadline`. Mirroring the recorder rather than correcting it is
-# the whole point of a fixture-carried row.
+# A's DEADLINE MUST NOT ELAPSE, and B's MUST. Both are ABSOLUTE UTs written
+# under the `deadlineAbsUT` key - the form `GameStateRecorder`'s accept handler
+# has recorded since CONTRACT-DEADLINE-CAPTURED-AS-DURATION was fixed
+# (2026-08-29). It captures `Contract.DateDeadline`, i.e. float(values[10]) of
+# the stock contract, and NOT the `TimeDeadline` DURATION at values[1] it used
+# to store. Mirroring the recorder is the whole point of a fixture-carried row.
+#
+# THE NUMBERS DID NOT MOVE, only the key: both were already reasoned about as
+# absolute UTs against the walk clock (see below), which is why the pre-fix
+# fixture happened to behave correctly. A pre-fix save spells the key
+# `deadlineUT` and carries a duration; `GameAction.ResolveContractDeadlineUT`
+# migrates that shape on load by adding the row's own `ut`. Leaving this fixture
+# on the legacy key would have migrated B from 100 to 106 and broken the
+# `at deadlineUT=100` token this spec pins.
 #
 # THE TWO NUMBERS ARE SIZED AGAINST THE SAME CLOCK, the walk's `nowUT`, which
 # `ContractsModule.PrePass` takes from the LAST SURVIVING ACTION's UT when no
@@ -233,7 +242,7 @@ def _accept_row(ut, action_id, seq, guid, title, deadline, rep_penalty):
         "\tcontractType = %s" % CONTRACT_TYPE,
         "\tcontractTitle = %s" % title,
         "\tadvanceFunds = %s" % CONTRACT_ADVANCE_FUNDS,
-        "\tdeadlineUT = %s" % deadline,
+        "\tdeadlineAbsUT = %s" % deadline,
         "\tfundsPenalty = %s" % CONTRACT_FUNDS_PENALTY,
         "\trepPenalty = %s" % rep_penalty,
         "}",
@@ -432,7 +441,7 @@ def verify_ledger(ledger_lines: List[str]) -> List[str]:
                           ("contractId", guid),
                           ("contractType", CONTRACT_TYPE),
                           ("advanceFunds", CONTRACT_ADVANCE_FUNDS),
-                          ("deadlineUT", deadline),
+                          ("deadlineAbsUT", deadline),
                           ("fundsPenalty", CONTRACT_FUNDS_PENALTY),
                           ("repPenalty", rep)):
             got = get_value(ledger_lines, row, key)

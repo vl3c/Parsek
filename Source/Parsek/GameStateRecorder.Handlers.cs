@@ -39,7 +39,20 @@ namespace Parsek
             string guid = contract.ContractGuid.ToString();
 
             var title = contract.Title ?? "";
-            double deadline = contract.TimeDeadline;
+            // CONTRACT-DEADLINE-CAPTURED-AS-DURATION: this MUST be DateDeadline (the
+            // ABSOLUTE UT), not TimeDeadline (a DURATION in seconds). Every consumer of
+            // GameAction.DeadlineUT compares it against action UTs; capturing the
+            // duration made every accepted contract read as elapsed once game UT passed
+            // one deadline's worth of seconds, and ContractsModule.CheckDeadlines then
+            // retired it out of Mission Control with no in-game message.
+            //
+            // Timing is safe on both stock deadline types: DeadlineType.Fixed assigns
+            // dateDeadline in Offer(), DeadlineType.Floating assigns it in Accept()
+            // BEFORE SetState(State.Active) fires this event. DeadlineType.None never
+            // assigns it, leaving 0 - which is exactly stock's own has-a-deadline idiom
+            // (Contract's description code tests `DateDeadline != 0.0`). The protected
+            // `deadlineType` field has no public accessor, so 0 is the reachable test.
+            double deadlineAbsUT = contract.DateDeadline;
             float advanceFunds = (float)contract.FundsAdvance;
             float failFunds = (float)contract.FundsFailure;
             float failRep = (float)contract.ReputationFailure;
@@ -68,11 +81,18 @@ namespace Parsek
             // the advance (codex review [P1] on PR #307). type= must also be captured
             // here because ContractAccept ledger actions are consumed by UI/policy paths
             // that do not re-open the stored snapshot.
-            // deadline=0 means no deadline (KSP convention) — store as NaN.
-            string deadlineStr = deadline > 0
-                ? deadline.ToString("R", System.Globalization.CultureInfo.InvariantCulture)
+            // DateDeadline == 0 means no deadline (DeadlineType.None) — store as NaN.
+            //
+            // The KEY NAME is the migration stamp on this surface too, and it is not
+            // optional: stored GameStateEvents are re-converted into ledger rows at
+            // arbitrary later loads (LedgerLoadMigration.TryRecoverBrokenLedgerOnLoad /
+            // MigrateOldSaveEvents), long after any load-time ledger migration has run.
+            // A pre-fix event's `deadline=` value is a DURATION forever; `deadlineAbsUT=`
+            // always means an absolute UT.
+            string deadlineStr = deadlineAbsUT > 0
+                ? deadlineAbsUT.ToString("R", System.Globalization.CultureInfo.InvariantCulture)
                 : "NaN";
-            var detail = $"title={title};deadline={deadlineStr}" +
+            var detail = $"title={title};deadlineAbsUT={deadlineStr}" +
                 (string.IsNullOrEmpty(contractType) ? "" : $";type={contractType}") +
                 $";funds={advanceFunds.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}" +
                 $";failFunds={failFunds.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}" +
@@ -94,7 +114,7 @@ namespace Parsek
                 // row against later rewind-point snapshots of the same contract.
                 GameStateStore.AddContractSnapshot(guid, contractNode, evt.ut);
                 ParsekLog.Info("GameStateRecorder",
-                    $"Game state: ContractAccepted '{title}' type='{contractType}' deadline={deadlineStr} " +
+                    $"Game state: ContractAccepted '{title}' type='{contractType}' deadlineAbsUT={deadlineStr} " +
                     $"advance={advanceFunds} failFunds={failFunds} failRep={failRep} (snapshot saved)");
             }
             else

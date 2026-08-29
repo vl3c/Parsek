@@ -69,6 +69,70 @@ namespace Parsek
             legacyActionIdMigrationLogEmitted = false;
         }
 
+        // CONTRACT-DEADLINE-CAPTURED-AS-DURATION: per-load batch counters for the
+        // ContractAccept deadline migration. Bumped from GameAction.DeserializeFrom (via
+        // DeserializeContractAccept) for every ContractAccept row read, and reported as
+        // ONE summary line per LoadFromFile - the batch-counting convention, and the same
+        // shape as the legacy-ActionId migration above. Reset at the top of each load
+        // rather than latched once per process, because a session can load several
+        // careers and each one's migration decision is worth its own line.
+        internal static int ContractDeadlineAbsoluteCount;
+        internal static int ContractDeadlineMigratedCount;
+        internal static int ContractDeadlineAbsentCount;
+        internal static int ContractDeadlineUnparseableCount;
+
+        /// <summary>
+        /// Records one ContractAccept deadline resolution into the per-load tally.
+        /// </summary>
+        internal static void NoteContractDeadlineResolution(
+            GameAction.ContractDeadlineResolution resolution)
+        {
+            switch (resolution)
+            {
+                case GameAction.ContractDeadlineResolution.Absolute:
+                    ContractDeadlineAbsoluteCount++;
+                    break;
+                case GameAction.ContractDeadlineResolution.MigratedFromDuration:
+                    ContractDeadlineMigratedCount++;
+                    break;
+                case GameAction.ContractDeadlineResolution.Unparseable:
+                    ContractDeadlineUnparseableCount++;
+                    break;
+                default:
+                    ContractDeadlineAbsentCount++;
+                    break;
+            }
+        }
+
+        /// <summary>Clears the per-load ContractAccept deadline migration tally.</summary>
+        internal static void ResetContractDeadlineMigrationTally()
+        {
+            ContractDeadlineAbsoluteCount = 0;
+            ContractDeadlineMigratedCount = 0;
+            ContractDeadlineAbsentCount = 0;
+            ContractDeadlineUnparseableCount = 0;
+        }
+
+        /// <summary>
+        /// Emits the single batch summary for the ContractAccept deadline migration.
+        /// Info when anything was migrated or rejected (a state change on disk the next
+        /// save makes permanent), Verbose otherwise.
+        /// </summary>
+        internal static void EmitContractDeadlineMigrationSummary(string path)
+        {
+            string line =
+                $"ContractAccept deadline resolution for '{path}': " +
+                $"absolute={ContractDeadlineAbsoluteCount.ToString(CultureInfo.InvariantCulture)}, " +
+                $"migratedFromDuration={ContractDeadlineMigratedCount.ToString(CultureInfo.InvariantCulture)}, " +
+                $"noDeadline={ContractDeadlineAbsentCount.ToString(CultureInfo.InvariantCulture)}, " +
+                $"unparseable={ContractDeadlineUnparseableCount.ToString(CultureInfo.InvariantCulture)}";
+
+            if (ContractDeadlineMigratedCount > 0 || ContractDeadlineUnparseableCount > 0)
+                ParsekLog.Info("Ledger", line);
+            else
+                ParsekLog.Verbose("Ledger", line);
+        }
+
         /// <summary>Appends a single action to the in-memory ledger.</summary>
         internal static void AddAction(GameAction action)
         {
@@ -637,6 +701,7 @@ namespace Parsek
                 var newActions = new List<GameAction>();
                 ConfigNode[] actionNodes = loaded.GetNodes(ActionNodeName);
                 int parseErrors = 0;
+                ResetContractDeadlineMigrationTally();
 
                 for (int i = 0; i < actionNodes.Length; i++)
                 {
@@ -661,6 +726,11 @@ namespace Parsek
                 // Rewind-to-Staging Phase 1 (design section 9): emit the one-shot
                 // legacy ActionId migration log if any actions were rehydrated on load.
                 EmitLegacyActionIdMigrationLogOnce();
+                // CONTRACT-DEADLINE-CAPTURED-AS-DURATION: one batch summary per load
+                // naming how many ContractAccept rows carried an absolute deadline, how
+                // many were migrated from the legacy duration key, and how many carried
+                // none.
+                EmitContractDeadlineMigrationSummary(path);
                 return true;
             }
             catch (Exception ex)
@@ -1059,6 +1129,7 @@ namespace Parsek
             actions = new List<GameAction>();
             BumpStateVersion();
             ResetLegacyActionIdMigrationForTesting();
+            ResetContractDeadlineMigrationTally();
         }
 
         /// <summary>

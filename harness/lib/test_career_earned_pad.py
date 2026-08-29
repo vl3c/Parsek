@@ -149,7 +149,7 @@ class CareerEarnedPadFixtureDriftTests(unittest.TestCase):
         # synthetic ContractFail, emptying the active set and applying two
         # penalties to hard-gated pools.
         self.assertGreater(
-            float(builder.get_value(lines, accept, "deadlineUT")),
+            float(builder.get_value(lines, accept, "deadlineAbsUT")),
             float(builder.CONTRACT_ACCEPT_UT))
 
         # TRAP 3: a completion frees the slot, so reconActive returns to 0 and

@@ -237,8 +237,8 @@ exactly TWO `type = 5` rows and no terminal row of any kind.
 
 | Facet | Pinned value | Why it matters |
 |---|---|---|
-| Row A | `5f2c1b84-93ae-4d07-b6c1-0e8a4d51f3b9`, `ut = 5`, `seq = 1`, `deadlineUT = 9201600` | THE CONTROL. Four orders of magnitude past this flight's ~350 s span, so A stays ACTIVE from load to commit. Its `Accept:` line is what says the sidecar loaded at all |
-| Row B | `c47d0a91-6b25-4e83-9f1a-2d60be3c7845`, `ut = 6`, `seq = 2`, `deadlineUT = 100` | THE EXPERIMENT, and the number is sized against TWO clocks. `PrePass` takes `nowUT` from the last surviving action's UT: on the COLD-LOAD walk that is B's own 6, so B loads ACTIVE alongside A (`activeSlots=2/2`); by the COMMIT-time walk the flight has written rows out to ~348, so `nowUT` passes 100 and the injection fires. Below 6 and B is retired before it is ever active; above ~348 and it never fires - and the second failure mode looks green |
+| Row A | `5f2c1b84-93ae-4d07-b6c1-0e8a4d51f3b9`, `ut = 5`, `seq = 1`, `deadlineAbsUT = 9201600` | THE CONTROL. Four orders of magnitude past this flight's ~350 s span, so A stays ACTIVE from load to commit. Its `Accept:` line is what says the sidecar loaded at all |
+| Row B | `c47d0a91-6b25-4e83-9f1a-2d60be3c7845`, `ut = 6`, `seq = 2`, `deadlineAbsUT = 100` | THE EXPERIMENT, and the number is sized against TWO clocks. `PrePass` takes `nowUT` from the last surviving action's UT: on the COLD-LOAD walk that is B's own 6, so B loads ACTIVE alongside A (`activeSlots=2/2`); by the COMMIT-time walk the flight has written rows out to ~348, so `nowUT` passes 100 and the injection fires. Below 6 and B is retired before it is ever active; above ~348 and it never fires - and the second failure mode looks green |
 | Terminal rows | NONE (`type = 6` and `type = 7` both absent, asserted) | THE INVERTED TRAP 3. A fixture-carried fail would make every token pass without `ContractsModule.PrePass` ever running |
 | `advanceFunds` | 0 on BOTH rows | TRAP 1: `FundsModule.ProcessContractAccept` credits an advance unconditionally, so a nonzero one moves the funds pool off 500000 before the flight starts |
 | Penalty pack | `fundsPenalty = 9000` on both; `repPenalty = 4` on A, `1` on B | The funds figure is a real generated PartTest's `values[4]` off `375b4446-...` in `Source/Parsek.Tests/Fixtures/C2CareerPostFix/`. B's reputation figure is deliberately NOT that contract's 4: this career ends the flight at reputation 2, and a 4-point debit would drive the pool NEGATIVE - a state stock supports but no committed run has exercised, which would put an unrelated first on the same flight |
@@ -335,7 +335,7 @@ a subject nobody meant to ship.
    is that one's shape field for field. **Three arithmetic traps** are honored and
    asserted by `verify_ledger`: `advanceFunds = 0` (a positive advance is credited
    unconditionally by `FundsModule` and would move the HARD-gated funds pool), an
-   unelapsed `deadlineUT` (`ContractsModule.PrePass` injects a synthetic `ContractFail`
+   unelapsed `deadlineAbsUT` (`ContractsModule.PrePass` injects a synthetic `ContractFail`
    at an elapsed deadline, emptying the active set AND applying two penalties), and NO
    `type = 6` completion row (it would free the slot and re-vacuify the compare). WHICH
    contract is load-bearing too: `19e7ba6c...` tests `liquidEngine2.v2` at

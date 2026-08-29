@@ -402,7 +402,10 @@ namespace Parsek
                             ContractId = cid,
                             Title = ResolveContractTitle(a, cid),
                             AcceptUT = a.UT,
-                            DeadlineUT = float.IsNaN(a.DeadlineUT) ? double.NaN : (double)a.DeadlineUT
+                            // Already an absolute UT and already a double
+                            // (CONTRACT-DEADLINE-CAPTURED-AS-DURATION) — no narrowing
+                            // round-trip left to undo.
+                            DeadlineUT = a.DeadlineUT
                         };
                         activeContractsTerm[cid] = acc;
                         break;
