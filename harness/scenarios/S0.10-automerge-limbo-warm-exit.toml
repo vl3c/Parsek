@@ -180,10 +180,14 @@ allowedAnomalies = []
 # never been flown. Tighten from flight 1's reading, not by argument.
 #
 # MEASURED exactly 2 on BOTH flights (`2026-08-29_1027`, the token-3 red, and
-# `2026-08-29_1043`, the green confirm), so the range is now the exact pin it was
-# always meant to become. The open half is answered: `RunOptimizationPass` does NOT
-# collapse the parent/child pair across the BranchPoint on the ghost-only branch.
-count = { min = 2, max = 2 }
+# `2026-08-29_1043`, the green confirm) - on the OLD two-recording fixture. RE-OPENED
+# TO A RANGE 2026-08-29 because that fixture GREW to four recordings with the fidelity
+# fix (see S0.9's count block and the fixture note): the measurement answered a real
+# question for the shape it was taken on, and the two new leaves are two more pairs
+# `CanAutoMerge` has never been flown against. Re-pinning to an exact 4 by argument is
+# the "tighten by argument" this spec's own rule forbids. Predicted 4; tighten from the
+# confirm re-fly.
+count = { min = 2, max = 4 }
 
 # [expectations.recordings.structure] and [expectations.rewind] are ABSENT. NEVER FLOWN:
 # every saveParse facet would be a predicted number, and a report-only block of invented
@@ -211,14 +215,17 @@ count = { min = 2, max = 2 }
 #
 # PREDICTED post-fix reading (DERIVED FROM SOURCE, NOT MEASURED - re-fly owed):
 #
-#   Limbo-preserving full-fidelity auto-commit (scene-exit, state=Limbo): tree='Limbo Stack' recordings=2 spawnable=1 snapshotsPreserved=2 snapshotsReleased=0
+#   Limbo-preserving full-fidelity auto-commit (scene-exit, state=Limbo): tree='Limbo Stack' recordings=4 spawnable=3 snapshotsPreserved=3 snapshotsReleased=1
 #
-# with `Ghost-only auto-commit` ABSENT. Same fixture as S0.9, so the same derivation:
-# the Orbiting child is the only leaf and `CanPersistVessel` keeps it (spawnable=1); the
-# root is a non-leaf that never enters the decision map, so `ApplyVesselDecisions` leaves
-# it alone; both snapshots therefore survive (snapshotsPreserved=2), the exact inverse of
-# the pre-fix `snapshotsNulled=2`. `count = 2` is unaffected - both branches commit both
-# rows and `CanAutoMerge` reads no snapshot.
+# with `Ghost-only auto-commit` ABSENT. SAME FIXTURE AS S0.9, including the two leaves
+# it grew with the fix, so the derivation is the same and is written out THERE rather
+# than duplicated here (a second copy of a moving derivation is a second thing to leave
+# stale). The short form: all four recordings are leaves - the tree carries no
+# BranchPoints, so `ParentRecordingId` alone does not make the root a non-leaf - and
+# root/child/coast persist while the ESCAPING leaf is ghost-only'd. Pre-fix the same
+# fixture reads `snapshotsNulled=4`. Both numbers are MACHINE-CHECKED headlessly by
+# `AutoMergeGhostOnlyReachabilityTests.PendingLimboTreeFixture_PredictedCommitNumbers_-
+# MatchTheSpecs`, so a drifted fixture reds locally rather than on this flight.
 #
 # THE RE-FLY IS WHAT CONFIRMS THIS, and it confirms the WARM half specifically: S0.9
 # re-flown proves only the cold route. If either comes back with the ghost-only line, or
@@ -227,6 +234,11 @@ count = { min = 2, max = 2 }
 # =====================================================================================
 #
 # THE PRE-FIX RUN, kept in full because it is the evidence the fix was taken against.
+# NOTE ON THE NUMBERS BELOW: they are the OLD TWO-recording fixture's. The fixture
+# grew to four leaves with the fix, so every count in this transcript reads 2 where a
+# post-fix run reads 4. Kept verbatim because a quoted run is evidence, not an
+# expectation - do not "correct" it.
+#
 # LIVE-PROVEN 2026-08-29, run
 # `2026-08-29_1043_S0.10-automerge-limbo-warm-exit`, PASS attempt 1, 54 s, every verifier
 # PASS/SKIPPED, expectations mismatches=0, zero `[Parsek][ERROR]`, clobber guard silent.
@@ -362,14 +374,14 @@ count = { min = 2, max = 2 }
 # WHAT TO READ, and what each reading MEANS. Exactly one of these THREE follows token 7
 # (the first is new with the 2026-08-29 fix):
 #
-#   Limbo-preserving full-fidelity auto-commit (scene-exit, state=Limbo): tree='Limbo Stack' recordings=2 spawnable=1 snapshotsPreserved=2 snapshotsReleased=0
+#   Limbo-preserving full-fidelity auto-commit (scene-exit, state=Limbo): tree='Limbo Stack' recordings=4 spawnable=3 snapshotsPreserved=3 snapshotsReleased=1
 #     -> THE FIX HOLDS on the warm route. The same chain runs - entrance B, the parked
 #        Limbo tree, the same site - and the snapshots SURVIVE the commit.
-#        `snapshotsPreserved=2` against the pre-fix `snapshotsNulled=2` is the whole
+#        `snapshotsPreserved=3` against a pre-fix `snapshotsNulled=4` is the whole
 #        confirmation; `snapshotsPreserved=0` would mean they were already gone upstream
 #        and the run measured nothing.
 #
-#   Ghost-only auto-commit (scene-exit, reason=...): tree='Limbo Stack' recordings=2 snapshotsNulled=2
+#   Ghost-only auto-commit (scene-exit, reason=...): tree='Limbo Stack' recordings=4 snapshotsNulled=4
 #     -> THE PRE-FIX READING. This is what run `2026-08-29_1043` measured and it is the
 #        repro the entry's escalation trigger names: steps 2-4 all ran and both
 #        full-fidelity snapshots were destroyed silently, on the exit the product's own
@@ -379,7 +391,7 @@ count = { min = 2, max = 2 }
 #        vocabulary), so `not-automerge` would mean the spec's own SetSetting failed,
 #        `re-fly-active` a stray marker, `mainmenu` the wrong destination scene.
 #
-#   Silent full-fidelity auto-commit (scene-exit): tree='Limbo Stack' recordings=2 spawnable=N
+#   Silent full-fidelity auto-commit (scene-exit): tree='Limbo Stack' recordings=4 spawnable=N
 #     -> something re-finalized the tree between the give-up and the site. Name it, pin it
 #        headless. Unchanged in meaning by the fix - this is still the FINALIZED route,
 #        which this fixture should never reach.
@@ -388,7 +400,7 @@ count = { min = 2, max = 2 }
 # limbo dispatch and the auto-commit block - report it; the idle-on-pad discard is the
 # candidate, though it is gated on `Finalized` and should not fire on a Limbo tree.
 required = [
-  "TryRestoreActiveTreeNode: stashed active tree '.+' \\(2 recording\\(s\\), activeRecId=\\S+\\) into pending-Limbo slot",
+  "TryRestoreActiveTreeNode: stashed active tree '.+' \\(4 recording\\(s\\), activeRecId=\\S+\\) into pending-Limbo slot",
   "OnLoad: cold-start active tree detected \\(state=Limbo\\) . deferred to OnFlightReady as Quickload",
   "RestoreActiveTreeFromPending: active vessel '.+' pid=\\d+ liveGuid=\\S+ conclusively differs from recording 'limbo_child_9b3e05d1' recordedGuid=\\S+",
   "RestoreActiveTreeFromPending: parent-walk guid gate rejected rec=\\S+ \\(recordedGuid differs conclusively from live vessel\\)",

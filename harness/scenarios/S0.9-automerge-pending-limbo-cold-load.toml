@@ -72,14 +72,21 @@ tags = ["auto-merge", "cold-load", "pending-tree", "limbo", "S0.9", "R4"]
 # fidelity, not about pools, and a career fixture would add a ledger recalc surface
 # that has nothing to do with the subject.
 saveTemplate = "fixtures/saves/fresh-sandbox"
-# pending-limbo-tree: ONE tree, two recordings (a Landed root + an Orbiting child),
-# BOTH carrying a VesselSnapshot, written under the production `isActive` marker with
-# a non-null ActiveRecordingId so it restores as `Limbo` rather than
-# `LimboVesselSwitch`. Both snapshots exist so `snapshotsNulled=` in the ghost-only
-# line is a real number: a snapshot-less fixture would report 0 and prove nothing in
-# either direction. The Orbiting child is stable-terminal, i.e. exactly the leaf the
-# full-fidelity branch WOULD have kept spawn-at-end eligible had the tree arrived
-# Finalized - that contrast is the measurement.
+# pending-limbo-tree: ONE tree, FOUR recordings, ALL carrying a VesselSnapshot, written
+# under the production `isActive` marker with a non-null ActiveRecordingId so it restores
+# as `Limbo` rather than `LimboVesselSwitch`. Every snapshot exists so the commit line's
+# preserved/released/nulled numbers are real: a snapshot-less fixture would report 0 and
+# prove nothing in either direction. The four leaves are a decision table, not filler -
+# each one's SHAPE proves something distinct:
+#   root   Landed snapshot, NO terminal state  -> null-terminal, maps Landed, spawnable
+#   child  TERMINAL Orbiting                   -> the finalized-shaped contrast leaf
+#   coast  ORBITING snapshot, NO terminal      -> the GENUINE Limbo shape, spawnable
+#   escape ESCAPING snapshot, NO terminal      -> genuine shape, NOT spawnable
+# The child is deliberately the ONLY one carrying a terminal state: a real
+# `StashActiveTreeAsPendingLimbo` stamps none, so a fixture whose spawnable leaves all
+# had one would confirm the fidelity fix on a shape a quickload cannot produce. The
+# escape leaf is the one whose outcome DIFFERS between a build with the 2026-08-29
+# un-finalized situation gate and one without - see [expectations.logContracts].
 # See Source/Parsek.Tests/Generators/PendingLimboTreeFixture.cs.
 injectedRecordings = "pending-limbo-tree"
 craft = []
@@ -128,20 +135,21 @@ D14 = ["sandbox", "scene-ksc"]
 allowedAnomalies = []
 
 [expectations.recordings]
-# The two injected recordings, and the range rather than an exact pin is honest
-# arithmetic, not slack. BOTH branches commit both recordings into the timeline - the
+# The four injected recordings. BOTH branches commit every row into the timeline - the
 # ghost-only branch nulls snapshots, it does not delete rows - so the count is
-# BRANCH-INDEPENDENT, which is what makes it safe to pin at all in a spec whose
-# subject is which branch runs. The `min = 1` floor is there because both branches
-# then call `RecordingStore.RunOptimizationPass`, and whether `CanAutoMerge` collapses
-# a parent/child pair across a BranchPoint is a MEASURED question this fixture has
-# never been flown to answer. Tighten to an exact pin from flight 1's reading; do not
-# tighten it by argument.
-# MEASURED 2026-08-29, run `2026-08-29_1025`: exactly 2, so the authoring range
-# {1,2} is now the exact pin it was always meant to become. The open half of that
-# range is answered: `RunOptimizationPass` did NOT collapse the parent/child pair
-# across the BranchPoint on either branch.
-count = { min = 2, max = 2 }
+# BRANCH-INDEPENDENT, which is what makes it safe to pin at all in a spec whose subject
+# is which branch runs.
+#
+# RE-OPENED TO A RANGE 2026-08-29, deliberately, having been an exact pin. Run
+# `2026-08-29_1025` MEASURED exactly 2 on the old two-recording fixture, and that
+# measurement answered a real question: `RunOptimizationPass` did NOT collapse the
+# parent/child pair. But the fixture GREW to four recordings with the fidelity fix, so
+# that measurement no longer describes this subject - the two new leaves are two more
+# pairs `CanAutoMerge` has never been flown against. Re-pinning to an exact 4 by
+# argument would be exactly the "tighten by argument" this spec's own rule forbids, and
+# the cost of being wrong is a PARSEK-FAIL plus a burned retry rather than a reading.
+# Predicted 4; tighten from the confirm re-fly's reading.
+count = { min = 2, max = 4 }
 
 # [expectations.recordings.structure] and [expectations.rewind] are ABSENT, and
 # deliberately so. This spec has NEVER BEEN FLOWN: every saveParse facet it could
@@ -170,30 +178,58 @@ count = { min = 2, max = 2 }
 # right: the fix changes what the site DOES with that state, not the state. What moves is
 # the READING, and it is a PREDICTION until this spec is re-flown.
 #
-# PREDICTED post-fix reading (DERIVED FROM SOURCE, NOT MEASURED - re-fly owed):
+# THE FIXTURE GREW TWO LEAVES WITH THE FIX, and that is not padding. The two it had
+# were authored before it, and between them they never exercised the branch the fix
+# newly depends on: a REAL `StashActiveTreeAsPendingLimbo` runs no finalize pass and
+# stamps NO terminal state, so the child's `WithTerminalState(Orbiting)` is a
+# finalized-SHAPED recording sitting inside a Limbo tree. A flight over the old fixture
+# would have confirmed the fix on a shape a quickload cannot produce. The two new leaves
+# are the genuine null-terminal shape, one per outcome:
+#   coast  (no terminal, ORBITING situation)  -> preserved AND spawnable
+#   escape (no terminal, ESCAPING situation)  -> ghost-only'd: snapshot RELEASED
+# The escape leaf is the one that MEASURES the fix's un-finalized situation gate: the
+# finalize path maps ESCAPING -> SubOrbital, which is not spawnable, but the
+# `IsSpawnableTerminal` rejection sits inside `TerminalStateValue.HasValue` and the older
+# situation check knows only FLYING/SUB_ORBITAL - so WITHOUT the gate this leaf reads
+# spawnable and the line would say `snapshotsPreserved=4 snapshotsReleased=0`. With it,
+# 3 and 1. That one-leaf difference is what makes this flight discriminating rather than
+# merely agreeable.
 #
-#   Limbo-preserving full-fidelity auto-commit (cold-load outside-flight, state=Limbo): tree='Limbo Stack' recordings=2 spawnable=1 snapshotsPreserved=2 snapshotsReleased=0
+# PREDICTED post-fix reading (DERIVED, and MACHINE-CHECKED headlessly - see below):
 #
-# with `Ghost-only auto-commit` ABSENT. Each number is derived and traceable:
-#   spawnable=1          - `BuildDefaultVesselDecisions` walks `GetAllLeaves()`, and this
-#                          fixture's only leaf is the Orbiting child; `CanPersistVessel`
-#                          returns true for it (a stable terminal overrides the
-#                          snapshot-situation check). The root is a non-leaf and is not
-#                          `ActiveRecordingId`, so it never enters the decision map.
-#   snapshotsPreserved=2 - `ApplyVesselDecisions` nulls only entries the map marks false.
-#                          The child is true and the root is absent, so BOTH survive -
-#                          against `snapshotsNulled=2` pre-fix. The exact inverse.
-#   snapshotsReleased=0  - no decision is false.
-# `[expectations.recordings] count = 2` is unaffected: both branches commit both rows, and
-# `CanAutoMerge` is chain-based with no snapshot input, so the 2026-08-29 measurement of
-# "no collapse across the BranchPoint" carries over.
+#   Limbo-preserving full-fidelity auto-commit (cold-load outside-flight, state=Limbo): tree='Limbo Stack' recordings=4 spawnable=3 snapshotsPreserved=3 snapshotsReleased=1
 #
-# THE RE-FLY IS WHAT CONFIRMS THIS. If it comes back with the ghost-only line, or with
-# different numbers, the prediction is wrong and these numbers are what to correct - do
-# NOT widen them into a range to make a run green.
+# with `Ghost-only auto-commit` ABSENT. Each number, and which leaf produces it:
+#   spawnable=3          - `BuildDefaultVesselDecisions` walks `GetAllLeaves()`, and ALL
+#                          FOUR recordings are leaves. This is the trap the first draft
+#                          of this note fell into and it is worth stating: the fixture
+#                          tree carries NO BranchPoints and no `ChildBranchPointId`
+#                          (`ScenarioWriter.AddRecordingsAsTree` sets neither), so
+#                          `ParentRecordingId` alone does NOT make the root a non-leaf.
+#                          Root (LANDED -> Landed), child (TERMINAL Orbiting) and coast
+#                          (ORBITING -> Orbiting) persist; escape does not.
+#   snapshotsPreserved=3 - `ApplyVesselDecisions` nulls only entries the map marks false.
+#   snapshotsReleased=1  - the escape leaf, whose GhostVisualSnapshot is copied and whose
+#                          crew reservation is released on the way.
+# Pre-fix, the same four-leaf fixture would read `snapshotsNulled=4`.
+#
+# THESE NUMBERS ARE NOT A SOURCE READING. `AutoMergeGhostOnlyReachabilityTests.Pending-
+# LimboTreeFixture_PredictedCommitNumbers_MatchTheSpecs` materializes the SAME tree the
+# injector writes and asserts all four, plus which leaf lands where - so a drifted
+# fixture or a changed predicate reds in a second locally instead of after an hour of
+# flight. Keep the literals here and there in step.
+#
+# THE RE-FLY IS WHAT CONFIRMS THIS in the shipped DLL. If it comes back with the
+# ghost-only line, or with different numbers, correct these - do NOT widen them into a
+# range to make a run green.
 # =====================================================================================
 #
 # THE PRE-FIX RUN, kept in full because it is the evidence the fix was taken against.
+# NOTE ON THE NUMBERS BELOW: they are the OLD TWO-recording fixture's. The fixture
+# grew to four leaves with the fix, so every count in this transcript reads 2 where a
+# post-fix run reads 4. Kept verbatim because a quoted run is evidence, not an
+# expectation - do not "correct" it.
+#
 # Run `2026-08-29_1025_S0.9-automerge-pending-limbo-cold-load`,
 # PASS attempt 1, 58 s, every verifier PASS/SKIPPED, expectations mismatches=0, zero
 # `[Parsek][ERROR]`. Both required patterns matched token for token.
@@ -245,7 +281,7 @@ count = { min = 2, max = 2 }
 #    process (KSP boots to MAINMENU with no game loaded, so the seam's LoadGame is a
 #    cold load), which is the precise site the entry names.
 #
-#    `recordings=\d+` here, DELIBERATELY, against token 1's exact `2`. The two
+#    `recordings=\d+` here, DELIBERATELY, against token 1's exact `4`. The two
 #    numbers are measured at DIFFERENT points and are allowed to disagree: token 1
 #    reads the count as `TryRestoreActiveTreeNode` leaves it (already past its own
 #    `DropFailedSidecarHydrationRecordings`), while this one reads it later in the
@@ -259,22 +295,22 @@ count = { min = 2, max = 2 }
 # WHAT TO READ IN THE COLLECTED LOG, and what each reading MEANS. Exactly one of these
 # THREE lines must follow the entry line (the third is new with the 2026-08-29 fix):
 #
-#   Limbo-preserving full-fidelity auto-commit (cold-load outside-flight, state=Limbo): tree='Limbo Stack' recordings=2 spawnable=1 snapshotsPreserved=2 snapshotsReleased=0
+#   Limbo-preserving full-fidelity auto-commit (cold-load outside-flight, state=Limbo): tree='Limbo Stack' recordings=4 spawnable=3 snapshotsPreserved=3 snapshotsReleased=1
 #     -> THE FIX HOLDS on the cold route. The same non-Finalized tree reaches the same
 #        site, and the snapshots the stash captured SURVIVE the commit.
-#        `snapshotsPreserved=2` against the pre-fix `snapshotsNulled=2` is the whole
+#        `snapshotsPreserved=3` against a pre-fix `snapshotsNulled=4` is the whole
 #        confirmation; a `snapshotsPreserved=0` would mean the snapshots were already
 #        gone upstream and the run measured nothing (the same vacuity trap the pre-fix
 #        reading had, inverted).
 #
-#   Ghost-only auto-commit (cold-load outside-flight, reason=...): tree='Limbo Stack' recordings=2 snapshotsNulled=2
+#   Ghost-only auto-commit (cold-load outside-flight, reason=...): tree='Limbo Stack' recordings=4 snapshotsNulled=4
 #     -> THE PRE-FIX READING, and after the fix it means the fix did not take on this
 #        route. Read `reason=`: it can no longer be `state=Limbo` (the tree state was
 #        retired from the reason vocabulary), so any of the three surviving reasons here
 #        is itself the finding - `not-automerge` would mean the shipping default moved,
 #        `re-fly-active` a stray marker, `mainmenu` the wrong destination scene.
 #
-#   Silent full-fidelity auto-commit (cold-load outside-flight): tree='Limbo Stack' recordings=2 spawnable=N
+#   Silent full-fidelity auto-commit (cold-load outside-flight): tree='Limbo Stack' recordings=4 spawnable=N
 #     -> something between the marker and the site re-finalized the tree, and THAT is
 #        the finding: name the site and pin it headless. Unchanged in meaning by the fix -
 #        this line is still the FINALIZED route, which this fixture should never reach.
@@ -286,7 +322,7 @@ count = { min = 2, max = 2 }
 # the candidate, though it is gated on `Finalized` and so should not fire here; that
 # reading would itself close the entry and is why token 1 is pinned separately.
 required = [
-  "TryRestoreActiveTreeNode: stashed active tree '.+' \\(2 recording\\(s\\), activeRecId=\\S+\\) into pending-Limbo slot",
+  "TryRestoreActiveTreeNode: stashed active tree '.+' \\(4 recording\\(s\\), activeRecId=\\S+\\) into pending-Limbo slot",
   "autocommit-outside-flight \\(cold-load outside-flight\\): entry tree='.+' recordings=\\d+ scene=SPACECENTER autoMerge=True pendingState=Limbo reFlyActive=False",
 ]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]

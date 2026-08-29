@@ -250,20 +250,27 @@ namespace Parsek.Tests
                 Assert.NotNull(rec.VesselSnapshot);
         }
 
-        [Fact]
-        public void LimboCommitStillGhostOnlysAnUnspawnableShape_AndKeepsItsGhostVisual()
+        [Theory]
+        [InlineData("FLYING")]
+        [InlineData("ESCAPING")]
+        public void LimboCommitStillGhostOnlysAnUnspawnableShape_AndKeepsItsGhostVisual(string sit)
         {
-            // The chosen shape is NOT "preserve every snapshot unconditionally". A
-            // mid-flight capture (`sit = FLYING`) can never spawn — KSP's on-rails
-            // aero check destroys it — so the dialog's decisions still ghost-only it,
-            // and ApplyVesselDecisions copies GhostVisualSnapshot and releases the
-            // crew reservation on the way. That is the whole reason this fix reuses
-            // MergeCommit rather than skipping the null pass: a blanket preserve
-            // would retain a snapshot nothing can use AND leak its crew reservation.
+            // The chosen shape is NOT "preserve every snapshot unconditionally". Neither
+            // of these can spawn: a mid-flight `FLYING` capture is destroyed by KSP's
+            // on-rails aero check, and an `ESCAPING` one would have been stamped
+            // SubOrbital by the finalize path. So the dialog's decisions still
+            // ghost-only them, and ApplyVesselDecisions copies GhostVisualSnapshot and
+            // releases the crew reservation on the way. That is the whole reason this
+            // fix reuses MergeCommit rather than skipping the null pass: a blanket
+            // preserve would retain a snapshot nothing can use AND leak its crew.
+            //
+            // ESCAPING is the row the un-finalized situation gate added: before it, a
+            // null-terminal ESCAPING leaf read SPAWNABLE here (the IsSpawnableTerminal
+            // rejection sits inside `HasValue`, and the older situation check knows only
+            // FLYING/SUB_ORBITAL), so this cell would have measured preserved=1.
             var tree = MakeTree("tree_limbo_unsafe", "Limbo Unsafe", "rec_limbo_unsafe");
-            var flying = MakeSnapshotNode("Flying");
-            flying.AddValue("sit", "FLYING");
-            tree.Recordings["rec_limbo_unsafe"].VesselSnapshot = flying;
+            tree.Recordings["rec_limbo_unsafe"].VesselSnapshot =
+                MakeSnapshotNode("Unspawnable", sit);
             RecordingStore.StashPendingTree(tree, PendingTreeState.Limbo);
 
             AssertRoute(
@@ -320,6 +327,57 @@ namespace Parsek.Tests
         }
 
         // ---------------------------------------------------------------------
+        // 7. THE HARNESS FIXTURE'S PREDICTED NUMBERS, machine-checked. S0.9 and
+        //    S0.10 carry a PREDICTED post-fix reading pending their confirm
+        //    re-fly; this cell derives those same numbers from the SAME tree the
+        //    injector writes, so a wrong prediction reds here in a second rather
+        //    than after an hour of flight. Keep the literals in step with both
+        //    spec headers.
+        // ---------------------------------------------------------------------
+
+        [Fact]
+        public void PendingLimboTreeFixture_PredictedCommitNumbers_MatchTheSpecs()
+        {
+            var tree = Generators.ScenarioWriter.MaterializeTree(
+                Generators.PendingLimboTreeFixture.BuildBuilders(baseUT: 1000.0),
+                activeRecordingId: Generators.PendingLimboTreeFixture.ChildRecordingId);
+            RecordingStore.StashPendingTree(tree, PendingTreeState.Limbo);
+
+            AssertRoute(
+                ParsekScenario.AutoCommitFidelity.LimboPreservingFullFidelity,
+                RecordingStore.PendingTreeStateValue);
+
+            var decisions = MergeDialog.BuildDefaultVesselDecisions(tree);
+            int spawnable = 0;
+            foreach (var v in decisions.Values)
+                if (v) spawnable++;
+            int released;
+            int preserved = ParsekScenario.CountSnapshotsPreservedByDecisions(
+                tree, decisions, out released);
+
+            // The exact tokens the two spec headers predict.
+            Assert.Equal(4, tree.Recordings.Count);
+            Assert.Equal(3, spawnable);
+            Assert.Equal(3, preserved);
+            Assert.Equal(1, released);
+
+            // And WHICH leaf lands where, because the totals alone would survive a
+            // fixture whose leaves swapped roles. Note all four are LEAVES: the tree
+            // carries no BranchPoints and no ChildBranchPointId, so `ParentRecordingId`
+            // alone does not make the root a non-leaf — the trap this cell exists to
+            // keep out of the specs.
+            Assert.True(decisions[Generators.PendingLimboTreeFixture.RootRecordingId],
+                "root: null terminal, LANDED snapshot -> Landed -> spawnable");
+            Assert.True(decisions[Generators.PendingLimboTreeFixture.ChildRecordingId],
+                "child: TERMINAL Orbiting -> spawnable");
+            Assert.True(decisions[Generators.PendingLimboTreeFixture.CoastRecordingId],
+                "coast: null terminal, ORBITING snapshot -> Orbiting -> spawnable");
+            Assert.False(decisions[Generators.PendingLimboTreeFixture.EscapeRecordingId],
+                "escape: null terminal, ESCAPING snapshot -> SubOrbital -> NOT spawnable "
+                + "(this is the leaf the un-finalized situation gate moves)");
+        }
+
+        // ---------------------------------------------------------------------
         // Helpers
         // ---------------------------------------------------------------------
 
@@ -335,10 +393,19 @@ namespace Parsek.Tests
                 ghostOnlyReason: out reason));
         }
 
-        private static ConfigNode MakeSnapshotNode(string tag)
+        /// <summary>
+        /// A snapshot node carrying a `sit`, because a real one always does — they are
+        /// written by <c>VesselSpawner.TryBackupSnapshot</c> -> <c>ProtoVessel.Save</c>.
+        /// The default is ORBITING (stable and spawnable) so a cell that does not care
+        /// about the situation still exercises a shape the product actually produces.
+        /// The un-finalized spawn gate reads this field, so a sit-less node would
+        /// quietly test a fixture that cannot occur.
+        /// </summary>
+        private static ConfigNode MakeSnapshotNode(string tag, string sit = "ORBITING")
         {
             var snap = new ConfigNode("VESSEL");
             snap.AddValue("name", "Snapshot " + tag);
+            snap.AddValue("sit", sit);
             return snap;
         }
 

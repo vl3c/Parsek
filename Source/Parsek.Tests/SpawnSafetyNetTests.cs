@@ -322,6 +322,123 @@ namespace Parsek.Tests
             Assert.True(needsSpawn);
         }
 
+        // -------------------------------------------------------------------
+        // The UN-FINALIZED situation gate (2026-08-29). The IsSpawnableTerminal
+        // rejection lives inside `TerminalStateValue.HasValue`, so a recording with
+        // no terminal state never reached it, and the only other situation check
+        // knows FLYING/SUB_ORBITAL. ESCAPING and DOCKED therefore read as spawnable
+        // on the un-finalized path while the Finalized route ghost-onlys them by
+        // design. That population went live when the outside-FLIGHT auto-commit
+        // started committing Limbo resume-stashes at fidelity.
+        // -------------------------------------------------------------------
+
+        [Theory]
+        [InlineData("ESCAPING", "SubOrbital")]
+        [InlineData("DOCKED", "Docked")]
+        public void ShouldSpawn_UnfinalizedRecording_NonSpawnableSituation_ReturnsFalse(
+            string sit, string expectedMirroredTerminal)
+        {
+            // The concrete case: an interplanetary probe on an escape trajectory,
+            // quickloaded and then left in FLIGHT. Its snapshot is PRESERVED by the
+            // auto-commit (the promise is never to destroy one), but it must not be
+            // spawn-eligible - the Finalized route would have stamped SubOrbital.
+            var snapshot = new ConfigNode("VESSEL");
+            snapshot.AddValue("sit", sit);
+
+            var rec = new Recording
+            {
+                VesselSnapshot = snapshot,
+                TerminalStateValue = null,
+            };
+
+            var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
+                rec, isActiveChainMember: false, isChainLooping: false);
+
+            Assert.False(needsSpawn);
+            Assert.Contains("unfinalized recording, snapshot situation maps to", reason);
+            Assert.Contains(expectedMirroredTerminal, reason);
+        }
+
+        [Theory]
+        [InlineData("ORBITING")]
+        [InlineData("LANDED")]
+        [InlineData("SPLASHED")]
+        [InlineData("PRELAUNCH")]
+        public void ShouldSpawn_UnfinalizedRecording_SpawnableSituation_StillAllowed(string sit)
+        {
+            // The other half of the same table: the gate must not over-reach. These
+            // four are exactly the situations whose mirrored terminal is spawnable.
+            var snapshot = new ConfigNode("VESSEL");
+            snapshot.AddValue("sit", sit);
+
+            var rec = new Recording
+            {
+                VesselSnapshot = snapshot,
+                TerminalStateValue = null,
+            };
+
+            var (needsSpawn, _) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
+                rec, isActiveChainMember: false, isChainLooping: false);
+
+            Assert.True(needsSpawn);
+        }
+
+        [Theory]
+        [InlineData(null)]
+        [InlineData("")]
+        [InlineData("NOT_A_SITUATION")]
+        public void UnfinalizedRecording_AbsentSit_IsUnchangedByDesign(string sit)
+        {
+            // DELIBERATE SCOPE BOUNDARY, pinned so it cannot drift silently either
+            // way. An absent or unrecognised `sit` is NO EVIDENCE, and the gate leaves
+            // it on the pre-2026-08-29 answer rather than tightening to "reject on no
+            // evidence". Every real snapshot carries the field (ProtoVessel.Save writes
+            // it), so the population without one is synthetic fixtures - 16 cells
+            // across 5 files pin the current answer, `MergeDialogVesselTests.
+            // CanPersistVessel_NullTerminalState_ReturnsTrue` by name. Tightening it is
+            // a separable change with its own blast radius and no demonstrated
+            // reachable case.
+            var snapshot = new ConfigNode("VESSEL");
+            if (sit != null)
+                snapshot.AddValue("sit", sit);
+
+            var rec = new Recording
+            {
+                VesselSnapshot = snapshot,
+                TerminalStateValue = null,
+            };
+
+            var (needsSpawn, _) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
+                rec, isActiveChainMember: false, isChainLooping: false);
+
+            Assert.True(needsSpawn);
+        }
+
+        [Fact]
+        public void SituationNameMapping_MirrorsDetermineTerminalState()
+        {
+            // THE DRIFT GUARD, and the reason the mapping is safe to duplicate at all.
+            // GhostPlaybackLogic.TryMapSituationNameToTerminalState is keyed by the
+            // situation NAME (all an un-finalized recording's snapshot carries) and
+            // RecordingTree.DetermineTerminalState by its INT value (what the finalize
+            // path reads off a live vessel). Walking KSP's own enum means a situation
+            // added to one and not the other reds here rather than silently diverging
+            // the two routes' spawn decisions.
+            foreach (Vessel.Situations situation in
+                     Enum.GetValues(typeof(Vessel.Situations)))
+            {
+                TerminalState mapped;
+                bool ok = GhostPlaybackLogic.TryMapSituationNameToTerminalState(
+                    situation.ToString(), out mapped);
+
+                Assert.True(ok,
+                    $"situation {situation} is not in the name-keyed mapping table");
+                Assert.Equal(
+                    RecordingTree.DetermineTerminalState((int)situation),
+                    mapped);
+            }
+        }
+
         [Fact]
         public void ShouldSpawn_FlyingSnapshot_TerminalOrbiting_Allowed()
         {

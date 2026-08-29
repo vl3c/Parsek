@@ -4324,6 +4324,69 @@ reds if the fix ever widens into the §10 carve-out. Its cells 2 and 3 FLIPPED: 
 to assert the ghost-only route for the two non-Finalized states and now assert
 `LimboPreservingFullFidelity`; their reachability claim is unchanged.
 
+**A SECOND GAP THE FIX EXPOSED, and closed with it: null-terminal leaves bypassed the
+spawnable-terminal rejection.** Found in independent review of this branch, and it is a
+consequence of the fix rather than a pre-existing defect anyone could reach — un-finalized
+recordings only became a *committed* population once Limbo stashes started committing at
+fidelity. `GhostPlaybackLogic.ShouldSpawnAtRecordingEnd`'s `IsSpawnableTerminal` rejection
+sits INSIDE `if (rec.TerminalStateValue.HasValue …)`, so a recording with no terminal state
+never reaches it, and the only other situation gate (`IsSnapshotSituationUnsafe`) knows
+FLYING and SUB_ORBITAL. That left **`sit=ESCAPING` and `sit=DOCKED` reading as spawnable**
+where the Finalized route ghost-onlys them by design (`DetermineTerminalState` maps them to
+`SubOrbital` and `Docked`). Concretely: an interplanetary probe on an escape trajectory,
+quickloaded, exited via entrance B — snapshot preserved AND spawn-eligible.
+
+The remedy mirrors the Finalized route instead of inventing a second policy:
+`TryMapSituationNameToTerminalState` sits beside `IsSpawnableTerminal` and maps the
+snapshot's `sit` NAME to the terminal the finalize path would have stamped; a null-terminal
+recording whose mirrored terminal is not spawnable is rejected. The two tables cannot drift
+— `SpawnSafetyNetTests.SituationNameMapping_MirrorsDetermineTerminalState` walks KSP's own
+`Vessel.Situations` enum and asserts they agree, so adding a situation to one and not the
+other reds. **This rejects SPAWNING, not the snapshot**: the fix's promise is that a silent
+commit never DESTROYS a snapshot, not that every snapshot spawns.
+
+Two things worth stating plainly. First, **mitigation, which is why this is a refinement
+rather than a crisis**: the common case was already covered downstream by pid+guid
+adoption, so this narrows a window rather than stopping a live catastrophe. Second, a
+**deliberate scope boundary**: an ABSENT or unrecognised `sit` is left on its pre-fix
+answer (allowed) rather than tightened to "reject on no evidence". Every real snapshot
+carries the field (`VesselSpawner.TryBackupSnapshot` -> `ProtoVessel.Save` writes it), so
+the population without one is synthetic test fixtures — 16 cells across 5 files pin the
+current answer, `MergeDialogVesselTests.CanPersistVessel_NullTerminalState_ReturnsTrue` by
+name. Tightening it is separable, has its own blast radius, and has no demonstrated
+reachable case; folding it in here would flip a named contract as a side effect of a
+targeted fix. Pinned as unchanged-by-design by
+`SpawnSafetyNetTests.UnfinalizedRecording_AbsentSit_IsUnchangedByDesign` so it cannot drift
+either way in silence.
+
+**The harness fixture grew two leaves to match** (`PendingLimboTreeFixture`, four leaves
+now). The original two never exercised the null-terminal branch the fidelity fix depends
+on: the spawnable one carried `WithTerminalState(Orbiting)`, a finalized-SHAPED recording
+inside a Limbo tree, where a real `StashActiveTreeAsPendingLimbo` stamps none. A confirm
+flight over that fixture would have proven the fix on a shape a quickload cannot produce.
+The added `coast` (no terminal, ORBITING) and `escape` (no terminal, ESCAPING) leaves are
+the genuine shape, one per outcome — and the escape leaf is the one whose result DIFFERS
+between a build with the situation gate and one without (`snapshotsPreserved=3
+snapshotsReleased=1` with it, `4` / `0` without), which is what makes the confirm flight
+discriminating rather than merely agreeable. Both specs' predicted numbers are
+machine-checked headlessly by
+`AutoMergeGhostOnlyReachabilityTests.PendingLimboTreeFixture_PredictedCommitNumbers_MatchTheSpecs`,
+which materializes the same tree the injector writes. That cell also caught the first
+draft's derivation being WRONG in a way review would not have: the fixture tree carries no
+BranchPoints, so `ParentRecordingId` alone does not make the root a non-leaf and ALL FOUR
+recordings are leaves. Both specs' `recordings.count` went back to a RANGE for the same
+reason — the 2026-08-29 measurement of 2 described the old shape, and re-pinning to 4 by
+argument is the tighten-by-argument their own headers forbid.
+
+**THE ONE REMAINING LOSSY PATH, out of scope by design: the OnSave safety net.**
+`SafetyNetAutoCommitPending` still blanket-nulls, and it is reachable in one narrow way —
+when the commit above throws, the catch leaves the tree stashed, and that retry window runs
+only to the next OnSAVE, not the next load; any OnSave outside FLIGHT hits the safety net
+first. That site stays ghost-only for the reason plan §4.1 gives (routing it through
+`MergeCommit` would run a quicksave inside OnSave — the reentrancy hazard), and it is
+defense-in-depth that is unreachable under normal operation. Both the catch comment and its
+Error message now say this rather than promising a retry the safety net can pre-empt.
+
 **What is still open, unchanged by the fix.** (a) FREQUENCY — how often the resume match
 misses on ordinary flights — is untouched; the fix makes the outcome harmless rather than
 making the miss rarer. (b) Step 1 (a REAL quickload producing the Limbo stash) is still

@@ -7650,11 +7650,12 @@ namespace Parsek
         // NOTE: the two-way `ShouldSilentFullFidelityCommit` predicate this classifier
         // replaced was DELETED rather than kept as a derived helper (2026-08-29). It had
         // no caller left, and its `false` had become a trap: pre-fix it meant "the
-        // ghost-only branch runs", post-fix it means only "not the FINALIZED route",
-        // which is also true of the new fidelity-preserving Limbo route. Any reader
-        // reaching for it — including the harness spec headers and the
-        // AUTOMERGE-ON-BY-DEFAULT entry, which name it as pre-fix history — wants
-        // ClassifyAutoCommitFidelity and its three-way answer.
+        // ghost-only branch runs", post-fix it would mean only "not the FINALIZED
+        // route", which is equally true of the new fidelity-preserving Limbo route.
+        // The name still appears in five harness spec headers (S0.9, S0.10, CL-2, GS-1,
+        // GS-2) and in the AUTOMERGE-ON-BY-DEFAULT entry, each of which now carries a
+        // STATUS note marking it as pre-fix history. A reader arriving from one of
+        // those wants ClassifyAutoCommitFidelity and its three-way answer.
 
         /// <summary>
         /// Counts how a decision map will dispose of the tree's live
@@ -7663,6 +7664,17 @@ namespace Parsek
         /// snapshot unless the map names it with <c>false</c>. Pure, so the
         /// full-fidelity log line can carry the same fidelity fact
         /// <c>snapshotsNulled</c> carries on the ghost-only branch.
+        ///
+        /// <para><b>Reading `snapshotsPreserved` correctly.</b> It counts snapshots the
+        /// commit KEPT, which is not the same as "leaves that will spawn". A decision
+        /// map only names leaves (plus the active recording), so a NON-LEAF parent that
+        /// still holds a snapshot is absent from it, is therefore never nulled, and
+        /// counts as preserved — even though <c>ShouldSpawnAtRecordingEnd</c> rejects it
+        /// as a non-leaf and it can never materialise. That is deliberate and matches
+        /// the dialog exactly (<see cref="MergeDialog.ApplyVesselDecisions"/> touches
+        /// only what the map names), and it is why this number and the <c>spawnable</c>
+        /// count on the same log line can legitimately differ in BOTH directions. Do
+        /// not read a high preserved count as a spawn-eligibility claim.</para>
         /// </summary>
         internal static int CountSnapshotsPreservedByDecisions(
             RecordingTree tree,
@@ -7736,7 +7748,18 @@ namespace Parsek
             // Hardening: this runs inside ParsekScenario.OnLoad, whose top-level catch
             // rethrows (an OnLoad abort has historically wiped the persistent index). A
             // commit failure must not take down the rest of OnLoad — Error-log and leave
-            // the tree stashed so the next load retries, instead of propagating.
+            // the tree stashed instead of propagating.
+            //
+            // HOW LONG THAT RETRY WINDOW ACTUALLY IS, stated precisely because the
+            // obvious reading over-promises: the tree survives until the next OnSAVE,
+            // not the next load. Any OnSave taken outside FLIGHT runs
+            // SafetyNetAutoCommitPending, which commits it GHOST-ONLY — blanket-nulling
+            // every snapshot, the pre-2026-08-29 behaviour. That site is deliberately
+            // out of scope (plan §4.1: routing it through MergeCommit would run a
+            // quicksave inside OnSave, the reentrancy hazard) and is defense-in-depth
+            // that is unreachable under normal operation, so it is the ONE remaining
+            // lossy commit path and it is reached only after this catch has already
+            // Error-logged. Noted on the AUTOMERGE-ON-BY-DEFAULT entry.
             try
             {
                 PendingTreeState pendingStateAtCommit = RecordingStore.PendingTreeStateValue;
@@ -7818,7 +7841,9 @@ namespace Parsek
             {
                 ParsekLog.Error("Scenario",
                     $"AutoCommitPendingTreeOutsideFlight ({context}) threw {ex.GetType().Name}: " +
-                    $"{ex.Message} — leaving tree '{pt?.TreeName}' stashed for retry on next load");
+                    $"{ex.Message} — leaving tree '{pt?.TreeName}' stashed; the next OnLoad " +
+                    "retries, but an OnSave outside FLIGHT reaches it first and commits it " +
+                    "ghost-only via the safety net");
             }
         }
 

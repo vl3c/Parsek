@@ -128,18 +128,25 @@ INJECTED_RECORDINGS: Tuple[str, ...] = ("none", "all-synthetic", "rewind-b9",
                                         # comparable with the corpus size.
                                         # Consumer: S1.9-part-showcase-render.
                                         "part-showcase",
-                                        # pending-limbo-tree: ONE recording tree
-                                        # written under the production `isActive`
-                                        # RECORDING_TREE marker - the only on-disk
-                                        # shape that restores as a NON-Finalized
-                                        # pending tree (TryRestoreActiveTreeNode ->
+                                        # pending-limbo-tree: ONE recording tree,
+                                        # FOUR leaves, written under the production
+                                        # `isActive` RECORDING_TREE marker - the only
+                                        # on-disk shape that restores as a
+                                        # NON-Finalized pending tree
+                                        # (TryRestoreActiveTreeNode ->
                                         # PendingTreeState.Limbo), which is the exact
                                         # precondition
-                                        # ParsekScenario.AutoCommitPendingTreeOutsideFlight's
-                                        # ghost-only branch gates on. `--filter
-                                        # InjectPendingLimboTree`. No RewindPoint, so
-                                        # no RP sidecar. Consumer:
-                                        # S0.9-automerge-pending-limbo-cold-load.
+                                        # ParsekScenario.AutoCommitPendingTreeOutsideFlight
+                                        # branches on. Three leaves carry NO terminal
+                                        # state (the shape a real
+                                        # StashActiveTreeAsPendingLimbo produces) and
+                                        # one of those is ESCAPING, the leaf whose
+                                        # spawn decision differs with and without the
+                                        # 2026-08-29 un-finalized situation gate.
+                                        # `--filter InjectPendingLimboTree`. No
+                                        # RewindPoint, so no RP sidecar. Consumers:
+                                        # S0.9-automerge-pending-limbo-cold-load,
+                                        # S0.10-automerge-limbo-warm-exit.
                                         "pending-limbo-tree")
 
 # Retry policies (design [retry].policy).
