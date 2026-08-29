@@ -4,11 +4,17 @@ WHAT THIS FILE GUARDS. The lane rests on two claims that are invisible in the
 bytes and expensive to discover on a flight:
 
   1. `preparsek-untouched-career` is DERIVED from `career-earned-pad` - itself a
-     derived fixture - by deleting Parsek's own state. If the base is re-harvested
-     and the derivation is not re-run, the lane flies a subject nobody meant, and
-     the most likely failure is the SILENT one: a ParsekScenario node creeps back
-     in, `HasParsekGameplayFootprint` reads the save as already-touched, the
-     backup never fires, and PPB-1 reds on tokens that look like a product defect.
+     derived fixture - by reducing its ParsekScenario node to the inert `name` +
+     `scene` form and dropping the rest of Parsek's state. If the base is
+     re-harvested and the derivation is not re-run, the lane flies a subject
+     nobody meant, and BOTH failure modes are silent on a flight:
+       - the node comes back POPULATED -> `HasParsekGameplayFootprint` reads the
+         save as already-touched, the backup never fires;
+       - the node goes MISSING -> the seam's FLIGHT route never instantiates the
+         ParsekScenario module at all (it calls `StartAndFocusVessel` with no
+         `UpdateScenarioModules`), so `OnLoad` never runs and the backup STILL
+         never fires - CL-1 flight 1's zero-recording run.
+     Either way PPB-1 reds on tokens that read exactly like a product defect.
   2. The two specs pin LITERAL log lines that live in C# format strings. A rename
      in `PreParsekBackup.cs` or `ParsekScenario.cs` would leave the pins pointing
      at text nothing emits - again red on a flight rather than here.
@@ -85,16 +91,34 @@ class PreParsekFixtureDriftTests(unittest.TestCase):
         self.assertEqual([UNTOUCHED, BRANDNEW],
                          [t[0] for t in self.builder.TARGETS])
 
-    def test_the_untouched_fixture_has_no_parsek_state_at_all(self):
-        # The DIRECT statement of what the fixture is for, independent of the
-        # builder: a Parsek/ subdir alone is a footprint (`parsekSubdirExists`),
-        # and a populated ParsekScenario node is the other half.
+    def test_the_untouched_fixture_keeps_an_INERT_parsek_scenario_node(self):
+        # THE TWO-SIDED STATEMENT, made directly rather than through the builder,
+        # because getting either side wrong is a silent flight-long failure:
+        #  - node ABSENT boots the FLIGHT route with no ParsekScenario MODULE
+        #    (LoadGameImpl's focusable branch does no UpdateScenarioModules), so
+        #    OnLoad never runs and the backup can never fire - CL-1 flight 1's
+        #    zero-recording run, and what the first cut of this fixture would have
+        #    reproduced;
+        #  - node POPULATED makes HasParsekGameplayFootprint true and the backup is
+        #    skipped with reason=already-parsek-footprint.
+        # Only `name` + `scene` satisfies both, which is also exactly what KSP's own
+        # AddToAllGames injection writes for a freshly created proto.
         d = os.path.join(SAVES, UNTOUCHED)
         self.assertFalse(os.path.isdir(os.path.join(d, "Parsek")),
                          "%s carries a Parsek/ subdir, which suppresses the backup" % UNTOUCHED)
-        text = _read(os.path.join(d, "persistent.sfs"))
-        self.assertNotIn("name = ParsekScenario", text)
-        self.assertNotIn("ParsekSettings", text)
+        lines = [l.rstrip("\r\n") for l in
+                 _read(os.path.join(d, "persistent.sfs")).splitlines()]
+        self.assertIn("\t\tname = ParsekScenario", lines,
+                      "%s has no ParsekScenario node; the FLIGHT route would never "
+                      "instantiate the module and the backup could not fire" % UNTOUCHED)
+        i = lines.index("\t\tname = ParsekScenario")
+        # The whole node is five lines: header, brace, name, scene, close.
+        self.assertEqual(["\tSCENARIO", "\t{"], lines[i - 2:i])
+        self.assertTrue(lines[i + 1].startswith("\t\tscene = "), lines[i + 1])
+        self.assertEqual("\t}", lines[i + 2],
+                         "the ParsekScenario node carries more than name+scene, so "
+                         "HasParsekGameplayFootprint reads it as a footprint")
+        self.assertNotIn("ParsekSettings", "\n".join(lines))
 
     def test_the_untouched_fixture_is_not_brand_new_empty(self):
         # The OTHER half of the gate, and the half that makes this fixture
@@ -197,8 +221,11 @@ class PreParsekLogTokenSourceSyncTests(unittest.TestCase):
     EXPECTED = (
         ("PreParsekBackup.cs", "Captured pre-Parsek backup: save='",
          "PPB-1's capture pin"),
-        ("PreParsekBackup.cs", "capturedPristine=",
+        ("PreParsekBackup.cs", "pristineVerdict=",
          "PPB-1's pristine-outcome token"),
+        ("PreParsekBackup.cs", "outcome=captured-pristine-unverified",
+         "the Warn-severity half of the pristine check - a reason nothing pins but "
+         "whose EXISTENCE is what keeps a read failure off the Error channel"),
         ("PreParsekBackup.cs", "First-contact backup: save='",
          "PPB-1's decision-side pin"),
         ("PreParsekBackup.cs", "Skip: reason=",

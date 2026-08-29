@@ -174,10 +174,15 @@ namespace Parsek.InGameTests
             }
 
             string backupDir = Path.Combine(savesDir, backups[0]);
-            bool pristine = PreParsekBackup.EvaluateCapturedPristine(backupDir, out string reason);
-            InGameAssert.IsTrue(pristine,
-                $"published backup '{backups[0]}' is NOT gameplay-pristine (reason={reason}); " +
-                "a Parsek write reached the save before or after the copy");
+            PreParsekBackup.CapturedPristineVerdict verdict =
+                PreParsekBackup.EvaluateCapturedPristine(backupDir, out string reason);
+            // Asserted as EQUAL TO Pristine rather than NOT EQUAL TO NotPristine: an
+            // Unverified reading means the check could not run at all, and a cell that
+            // reads "could not look" as "looked and it was fine" is exactly the vacuous
+            // pass this category exists to avoid.
+            InGameAssert.AreEqual(PreParsekBackup.CapturedPristineVerdict.Pristine, verdict,
+                $"published backup '{backups[0]}' did not verify as gameplay-pristine " +
+                $"(verdict={verdict} reason={reason})");
             InGameAssert.AreEqual("pristine", reason);
             ParsekLog.Info("Backup",
                 $"[InGameTest] captured pristine OK: dir='{backups[0]}' reason={reason}");

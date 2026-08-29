@@ -220,16 +220,34 @@ namespace Parsek
         /// in the folder the player will resume. The two are separate facts, and only the second
         /// survives into a log a reader can check after the fact.</para>
         ///
-        /// <para>Observation only: a false answer is logged loudly and never deletes the
-        /// published folder - a non-pristine backup is still the player's data, and retrying
-        /// would only produce another copy of the same file.</para>
+        /// <para>Observation only: it never deletes the published folder - a non-pristine
+        /// backup is still the player's data, and retrying would only produce another copy of
+        /// the same file.</para>
+        ///
+        /// <para><b>Three outcomes, not two, and the distinction decides the SEVERITY the
+        /// caller logs.</b> "I read it and it is dirty" is a finding about the product; "I
+        /// could not read it" is a finding about the disk, and must not be reported as the
+        /// first. The done-marker is written on both paths (there is no retry past this
+        /// point), so an Error raised on a transient read failure would brand a perfectly
+        /// good backup permanently, on a run nothing will ever revisit.</para>
         /// </summary>
-        internal static bool EvaluateCapturedPristine(string backupFolderAbsPath, out string reason)
+        internal enum CapturedPristineVerdict
+        {
+            /// <summary>Read, and carries no Parsek gameplay state.</summary>
+            Pristine,
+            /// <summary>Read, and carries Parsek gameplay state. A real finding.</summary>
+            NotPristine,
+            /// <summary>Could not be read or parsed. States nothing about the payload.</summary>
+            Unverified,
+        }
+
+        internal static CapturedPristineVerdict EvaluateCapturedPristine(
+            string backupFolderAbsPath, out string reason)
         {
             if (string.IsNullOrEmpty(backupFolderAbsPath))
             {
                 reason = "no-backup-path";
-                return false;
+                return CapturedPristineVerdict.Unverified;
             }
             string persistentPath = Path.Combine(backupFolderAbsPath, PersistentSfsName);
             ConfigNode captured;
@@ -238,19 +256,19 @@ namespace Parsek
                 if (!File.Exists(persistentPath))
                 {
                     reason = "captured-persistent-missing";
-                    return false;
+                    return CapturedPristineVerdict.Unverified;
                 }
                 captured = ConfigNode.Load(persistentPath);
             }
             catch (Exception ex)
             {
                 reason = $"captured-persistent-unreadable:{ex.GetType().Name}";
-                return false;
+                return CapturedPristineVerdict.Unverified;
             }
             if (captured == null)
             {
                 reason = "captured-persistent-unparseable";
-                return false;
+                return CapturedPristineVerdict.Unverified;
             }
 
             bool parsekSubdir;
@@ -260,10 +278,10 @@ namespace Parsek
             if (HasParsekGameplayFootprint(captured, parsekSubdir))
             {
                 reason = parsekSubdir ? "captured-parsek-subdir" : "captured-parsek-scenario-node";
-                return false;
+                return CapturedPristineVerdict.NotPristine;
             }
             reason = "pristine";
-            return true;
+            return CapturedPristineVerdict.Pristine;
         }
 
         /// <summary>
@@ -485,16 +503,27 @@ namespace Parsek
                 // OUTCOME-side pristine check, measured off the bytes that actually landed in the
                 // folder the player will resume (see EvaluateCapturedPristine). Reported ON the
                 // capture line so one grep answers both "did a backup publish" and "was what
-                // published gameplay-pristine"; never a control-flow change - a false reading
-                // keeps the folder and still writes the marker, and is escalated to Error below.
-                bool capturedPristine = EvaluateCapturedPristine(finalPath, out string pristineReason);
+                // published gameplay-pristine"; never a control-flow change - the folder is kept
+                // and the marker written on every verdict.
+                CapturedPristineVerdict pristine =
+                    EvaluateCapturedPristine(finalPath, out string pristineReason);
 
                 ParsekLog.Info(Tag,
-                    $"Captured pre-Parsek backup: save='{saveName}' -> '{finalName}' files={files} bytes={bytes} dir='{finalPath}' capturedPristine={capturedPristine}");
-                if (!capturedPristine)
+                    $"Captured pre-Parsek backup: save='{saveName}' -> '{finalName}' files={files} bytes={bytes} dir='{finalPath}' pristineVerdict={pristine}");
+                if (pristine == CapturedPristineVerdict.NotPristine)
                 {
+                    // A MEASURED finding about the payload: Error.
                     ParsekLog.Error(Tag,
                         $"outcome=captured-not-pristine save='{saveName}' backup='{finalName}' reason={pristineReason}; the published folder is KEPT (it is still the player's data) but it is NOT a clean pre-Parsek restore point");
+                }
+                else if (pristine == CapturedPristineVerdict.Unverified)
+                {
+                    // NOT an Error: this says nothing about the backup, only that the check
+                    // could not run. The marker is written below either way, so nothing will
+                    // revisit this - and branding a good backup permanently on a transient
+                    // read failure is worse than saying plainly that it went unchecked.
+                    ParsekLog.Warn(Tag,
+                        $"outcome=captured-pristine-unverified save='{saveName}' backup='{finalName}' reason={pristineReason}; the backup was published and is KEPT, but its payload could not be re-read to confirm it is Parsek-free");
                 }
                 WriteDoneMarker(finalName);
                 ParsekLog.ScreenMessage(

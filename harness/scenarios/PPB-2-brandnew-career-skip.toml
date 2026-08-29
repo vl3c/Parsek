@@ -96,6 +96,24 @@ forbidden = [
   "Skip: reason=no-persistent-sfs save='preparsek-brandnew-career'",
 ]
 
+# FIRST-FLIGHT READING NOTE, pre-registered so a red is diagnosed rather than argued
+# about. This fixture reaches the backup gate carrying NO ParsekScenario node of its
+# own; the node on disk at cold-OnLoad time is the one KSP writes for itself, because
+# the SPACECENTER route runs `UpdateScenarioModules` + `SaveGame(persistent, OVERWRITE)`
+# before `game.Start()`. That written node is expected to be INERT (`name` + `scene`):
+# a freshly created `ProtoScenarioModule` has a null `moduleRef` and saves only its own
+# two values, the module's own OnSave not having run yet.
+#
+# THE THRESHOLD RESTING ON THAT IS DERIVED, NOT MEASURED. `HasParsekGameplayFootprint`
+# calls a node populated at `values.Count > 2`, so a THIRD value appearing in that
+# pre-boot write - a KSP version stamping something extra, or a Parsek change that gets
+# a value in before the first cold OnLoad - would flip the gate to
+# `reason=already-parsek-footprint` and red this spec's required
+# `Skip: reason=brand-new-empty` token. IF THAT HAPPENS THE LANE IS REPORTING
+# CORRECTLY, and the finding is a real one: the brand-new-empty branch would have become
+# unreachable in production too, for every player starting a new career. Diagnose by
+# reading the produced save's ParsekScenario node before assuming a fixture fault.
+
 [runtime]
 budgetSeconds = 1200
 

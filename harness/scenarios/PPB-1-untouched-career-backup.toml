@@ -48,15 +48,30 @@ kind = "seam"
 # cold-OnLoad path of ParsekScenario.OnLoad (gated `!initialLoadDone`, before
 # LoadExternalFiles), so it fires exactly once here, in the FLIGHT-route boot.
 #
-# WHY THE FLIGHT ROUTE MATTERS TO THE ORDERING CONTRACT BELOW. The fixture carries one
+# WHY THE FLIGHT ROUTE MATTERS TWICE OVER, and it is the most load-bearing fact about
+# this spec.
+#
+# (1) IT IS WHY THE FIXTURE KEEPS AN INERT ParsekScenario NODE. The fixture carries one
 # focusable PRELAUNCH craft, so TestCommandLoadGame.DecideLoadRoute returns the
 # focusable route and LoadGameImpl ends at FlightDriver.StartAndFocusVessel - it does
-# NOT call GamePersistence.SaveGame first. The SPACECENTER and TRACKSTATION routes DO
-# (they must re-persist the AddToAllGames-augmented game because the KSC/TS bootstrap
-# re-reads persistent.sfs from disk), and that write happens before our OnLoad. So the
-# "no Parsek save-write precedes the capture" contract is stated HERE and not on PPB-2,
-# and a future fixture drift that empties the FLIGHTSTATE would move the route, change
-# `scene=FLIGHT` in the tally pin, and red rather than silently weaken the claim.
+# NOT call GamePersistence.UpdateScenarioModules or SaveGame first. A save with no
+# ParsekScenario NODE therefore boots with no ParsekScenario MODULE: OnLoad never runs
+# and MaybeBackupOnFirstColdContact can never fire. That is CL-1 flight 1 (2026-07-28),
+# which flew a whole profile correctly and produced ZERO recordings. So the fixture
+# keeps the node, reduced to `name` + `scene` - inert under
+# HasParsekGameplayFootprint's `values.Count <= 2` floor, and exactly what KSP's own
+# AddToAllGames injection writes for a fresh proto. The rule is now GATED by
+# `test_saveparse.py::test_every_node_less_fixture_is_vessel_less` rather than left to
+# prose in three places.
+#
+# (2) IT IS WHY THE ORDERING CONTRACT IS STATED HERE AND NOT ON PPB-2. The SPACECENTER
+# and TRACKSTATION routes DO call SaveGame before the scene boots (they must re-persist
+# the AddToAllGames-augmented game, because the KSC/TS bootstrap re-reads persistent.sfs
+# from disk), and that write lands before our OnLoad. On the focusable route there is no
+# such write, so every save-write in this run's log is Parsek's own.
+#
+# A fixture drift that emptied the FLIGHTSTATE would move the route, change
+# `scene=FLIGHT` in the tally pin, and red rather than silently weaken either claim.
 steps = [
   { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" },  expect = "OK", budget = 300 },
   { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
@@ -107,7 +122,7 @@ count = { min = 0, max = 0 }
 #    scene=FLIGHT is the focusable route (driver note above).
 #
 # 2. THE CAPTURE LINE. Derived from the PreParsekBackup.PerformBackup format string.
-#    `capturedPristine=True` is the OUTCOME half of the pristine guarantee, measured by
+#    `pristineVerdict=Pristine` is the OUTCOME half of the pristine guarantee, measured by
 #    the product itself off the bytes that landed in the published folder
 #    (EvaluateCapturedPristine re-reads them after the atomic Directory.Move). The
 #    folder name and the byte counts are left free; the save name is pinned because a
@@ -128,13 +143,22 @@ count = { min = 0, max = 0 }
 #    "if instead you see Skip: reason=already-parsek-footprint on a save you know never
 #    had Parsek, the OnLoad-before-OnSave assumption is wrong".
 #
+#    READ ITS SCOPE PRECISELY, because it is NARROWER than "no save-write precedes the
+#    capture": what it catches is Parsek's OWN `OnSave: saving` LINE, which only exists
+#    once the ParsekScenario module is live. It is not a general file-write detector,
+#    and it could not see a stock `GamePersistence.SaveGame` that ran before the module
+#    existed - the SPACECENTER route's pre-boot write would emit no such line either
+#    way. That is not a hole HERE, because (2) in the driver note above establishes the
+#    focusable route makes no such write at all; it is a limit to remember before
+#    copying this pin onto a KSC-routed lane, where it would read green vacuously.
+#
 # 4. THE SKIP LITERALS, forbidden. Each names one way the gate could decline this
 #    fixture, and each would mean the fixture stopped being the subject it was built
 #    as: a footprint crept back in, the career emptied out, or the folder started
 #    looking like a backup of itself.
 required = [
   "BATCH_COMPLETE v1 total=4 passed=4 failed=0 skipped=0 category=PreParsekBackup scene=FLIGHT",
-  "Captured pre-Parsek backup: save='preparsek-untouched-career' -> '.+' files=[0-9]+ bytes=[0-9]+ dir='.+' capturedPristine=True",
+  "Captured pre-Parsek backup: save='preparsek-untouched-career' -> '.+' files=[0-9]+ bytes=[0-9]+ dir='.+' pristineVerdict=Pristine",
   "First-contact backup: save='preparsek-untouched-career' footprint=False brandNew=False",
   "OnSave: saving [0-9]+ committed recordings",
   # THE CRAFT-MIRROR MEASUREMENT, and it is pinned at the VALUE 1 rather than

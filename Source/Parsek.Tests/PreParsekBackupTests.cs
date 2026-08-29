@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using Xunit;
@@ -256,7 +256,8 @@ namespace Parsek.Tests
         {
             string dir = WriteBackupFolder(Path.Combine(tempDir, "clean"),
                                            addParsekScenario: false, populated: false);
-            Assert.True(PreParsekBackup.EvaluateCapturedPristine(dir, out string reason));
+            Assert.Equal(PreParsekBackup.CapturedPristineVerdict.Pristine,
+                         PreParsekBackup.EvaluateCapturedPristine(dir, out string reason));
             Assert.Equal("pristine", reason);
         }
 
@@ -270,7 +271,8 @@ namespace Parsek.Tests
             // captured-not-pristine Error.
             string dir = WriteBackupFolder(Path.Combine(tempDir, "emptynode"),
                                            addParsekScenario: true, populated: false);
-            Assert.True(PreParsekBackup.EvaluateCapturedPristine(dir, out string reason));
+            Assert.Equal(PreParsekBackup.CapturedPristineVerdict.Pristine,
+                         PreParsekBackup.EvaluateCapturedPristine(dir, out string reason));
             Assert.Equal("pristine", reason);
         }
 
@@ -279,7 +281,8 @@ namespace Parsek.Tests
         {
             string dir = WriteBackupFolder(Path.Combine(tempDir, "populated"),
                                            addParsekScenario: true, populated: true);
-            Assert.False(PreParsekBackup.EvaluateCapturedPristine(dir, out string reason));
+            Assert.Equal(PreParsekBackup.CapturedPristineVerdict.NotPristine,
+                         PreParsekBackup.EvaluateCapturedPristine(dir, out string reason));
             Assert.Equal("captured-parsek-scenario-node", reason);
         }
 
@@ -289,19 +292,28 @@ namespace Parsek.Tests
             string dir = WriteBackupFolder(Path.Combine(tempDir, "subdir"),
                                            addParsekScenario: false, populated: false);
             Directory.CreateDirectory(Path.Combine(dir, "Parsek"));
-            Assert.False(PreParsekBackup.EvaluateCapturedPristine(dir, out string reason));
+            Assert.Equal(PreParsekBackup.CapturedPristineVerdict.NotPristine,
+                         PreParsekBackup.EvaluateCapturedPristine(dir, out string reason));
             Assert.Equal("captured-parsek-subdir", reason);
         }
 
         [Fact]
-        public void EvaluateCapturedPristine_FalseWithNamedReasonWhenThereIsNothingToRead()
+        public void EvaluateCapturedPristine_UNVERIFIED_NotNotPristine_WhenThereIsNothingToRead()
         {
-            Assert.False(PreParsekBackup.EvaluateCapturedPristine(null, out string nullReason));
+            // THE DISTINCTION THAT DECIDES A LOG SEVERITY. These are NOT findings about the
+            // backup - they say only that the check could not run - and the caller must Warn
+            // rather than Error on them, because the done-marker is written either way and
+            // nothing revisits the decision. Pinning `Unverified` here (not merely "not
+            // Pristine") is what stops a future simplification back to a bool from silently
+            // re-branding a good backup on a transient read failure.
+            Assert.Equal(PreParsekBackup.CapturedPristineVerdict.Unverified,
+                         PreParsekBackup.EvaluateCapturedPristine(null, out string nullReason));
             Assert.Equal("no-backup-path", nullReason);
 
             string empty = Path.Combine(tempDir, "empty");
             Directory.CreateDirectory(empty);
-            Assert.False(PreParsekBackup.EvaluateCapturedPristine(empty, out string missingReason));
+            Assert.Equal(PreParsekBackup.CapturedPristineVerdict.Unverified,
+                         PreParsekBackup.EvaluateCapturedPristine(empty, out string missingReason));
             Assert.Equal("captured-persistent-missing", missingReason);
         }
 

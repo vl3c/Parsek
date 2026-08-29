@@ -973,10 +973,14 @@ All notable changes to Parsek are documented here.
   default. The copy also verifies itself now. Having moved the folder into place,
   Parsek re-opens the copy it just made and confirms the save inside it really is
   free of Parsek's own data - the whole promise of the thing - and says so on the
-  same line. If it ever is not, that is now a loud error naming what it found,
-  instead of a silent assumption. The copy is kept either way: a copy that is not
-  perfectly clean is still your save, and making it again would only produce the
-  same file. No change to when the copy happens or what goes into it.
+  same line. That check has three answers, not two, and the difference decides how
+  loudly it speaks: clean, dirty, or could-not-tell. Dirty is a loud error naming
+  what it found. Could-not-tell - the file would not open or would not parse - is
+  only a warning saying the copy went unchecked, because that says nothing about
+  the copy itself, and nothing ever comes back to look again. The folder is kept in
+  every case: a copy that is not perfectly clean is still your save, and making it
+  again would only produce the same file. No change to when the copy happens or
+  what goes into it.
 
   Behind that, the four things about this feature that had only ever been checked
   by hand - the copy really does happen before Parsek writes anything, the folder
