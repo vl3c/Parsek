@@ -486,6 +486,12 @@ namespace Parsek.Rendering
                         // mislead a consumer or throw.
                         int sectionCount = rec.TrackSections != null ? rec.TrackSections.Count : 0;
                         int outOfRangeDropped = 0;
+                        // All three counts on the read-OK line report what was
+                        // INSTALLED, never what was parsed - a reader must not have to
+                        // subtract outOfRangeDropped from one surface and not another
+                        // to learn what the store actually holds.
+                        int splinesInstalled = 0;
+                        int candidateSectionsInstalled = 0;
 
                         for (int i = 0; i < splines.Count; i++)
                         {
@@ -496,6 +502,7 @@ namespace Parsek.Rendering
                             }
                             SectionAnnotationStore.PutSmoothingSpline(
                                 recordingId, splines[i].Key, splines[i].Value);
+                            splinesInstalled++;
                         }
                         for (int i = 0; i < anchorCandidates.Count; i++)
                         {
@@ -506,6 +513,7 @@ namespace Parsek.Rendering
                             }
                             SectionAnnotationStore.PutAnchorCandidates(
                                 recordingId, anchorCandidates[i].Key, anchorCandidates[i].Value);
+                            candidateSectionsInstalled++;
                         }
 
                         // Phase 8: install OutlierFlags from the read list.
@@ -545,7 +553,7 @@ namespace Parsek.Rendering
                         ParsekLog.Verbose("Pipeline-Sidecar",
                             $"Pannotations read OK: recordingId={recordingId} block=SmoothingSplineList " +
                             $"version={probe.BinaryVersion} algStamp={probe.AlgorithmStampVersion} bytes={bytes} " +
-                            $"splineCount={splines.Count} candidateSectionCount={anchorCandidates.Count} " +
+                            $"splineCount={splinesInstalled} candidateSectionCount={candidateSectionsInstalled} " +
                             $"outlierFlagsCount={outlierFlagsInstalled} " +
                             $"outOfRangeDropped={outOfRangeDropped}");
                         return;

@@ -713,6 +713,11 @@ namespace Parsek
             return result;
         }
 
+        // Cached delegate so the per-call Sort does not allocate a fresh one (same
+        // convention as the BuildSegmentsOutside* predicates below).
+        private static readonly Comparison<TrackSection> compareTrackSections =
+            CompareTrackSections;
+
         // Cached delegates so per-call BuildSegmentsOutside* invocations do not allocate.
         private static readonly Func<TrackSection, bool> isHigherPriorityPhysicalSection =
             IsHigherPriorityPhysicalSection;
@@ -1078,7 +1083,7 @@ namespace Parsek
             // every Ensure would see the list as unsorted, re-sort it, report
             // Resorted=1, dirty the recording and invalidate its annotations - on
             // every pass, forever. One comparator, no drift.
-            sections.Sort(CompareTrackSections);
+            sections.Sort(compareTrackSections);
         }
 
         private static bool EnsureTrackSectionsSorted(List<TrackSection> sections)

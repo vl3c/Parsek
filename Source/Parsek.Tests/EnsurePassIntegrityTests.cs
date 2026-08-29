@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Text;
 using Parsek;
 using Parsek.Rendering;
 using UnityEngine;
@@ -640,6 +641,112 @@ namespace Parsek.Tests
                     "a converged recording must not re-sort on every pass — that would "
                     + "dirty, flush and invalidate everything on every load");
             }
+        }
+    }
+
+    /// <summary>
+    /// Source gate fencing the <c>invalidateSectionAnnotations: false</c> opt-out on
+    /// <c>EnsureCheckpointSectionsForTopLevelOrbitSegments</c>.
+    ///
+    /// <para>
+    /// The opt-out disarms the ordinal-shift annotation containment, so it is sound
+    /// for exactly ONE caller shape: a pass that runs Ensure purely to inspect the
+    /// normalized list, restores the pre-Ensure sections byte-identically on every
+    /// guarded return, and takes the drop itself on its committed path
+    /// (<c>RecordingOptimizer.SplitAtUT</c>). A second production caller almost
+    /// certainly does NOT restore, and would silently re-open the
+    /// (recordingId, sectionIndex) desync this package closed — a reviewer can catch
+    /// that only by knowing to look, so the gate looks instead. Mirrors
+    /// <c>PolylineDriverWalkDeleteGateTests</c>' fence style.
+    /// </para>
+    /// </summary>
+    public class EnsureInvalidationOptOutGateTests
+    {
+        private const string OptOutToken = "invalidateSectionAnnotations: false";
+
+        [Fact]
+        public void TheInvalidationOptOut_HasExactlyOneProductionCaller()
+        {
+            var callers = new List<string>();
+            int total = 0;
+            foreach (string file in Directory.EnumerateFiles(
+                         ParsekSourceRoot(), "*.cs", SearchOption.AllDirectories))
+            {
+                string src = StripLineComments(File.ReadAllText(file));
+                int occurrences = CountOccurrences(src, OptOutToken);
+                if (occurrences == 0) continue;
+                total += occurrences;
+                callers.Add(Path.GetFileName(file) + " x" + occurrences.ToString(
+                    System.Globalization.CultureInfo.InvariantCulture));
+            }
+
+            Assert.True(total == 1 && callers.Count == 1
+                    && callers[0] == "RecordingOptimizer.cs x1",
+                "The ordinal-shift annotation-invalidation opt-out must have exactly one "
+                + "production caller (RecordingOptimizer.SplitAtUT, which restores its "
+                + "pre-Ensure sections byte-identically on every guarded return and takes "
+                + "the drop itself once the split commits). Found: "
+                + (callers.Count == 0 ? "<none>" : string.Join(", ", callers))
+                + ". A new caller that does NOT restore re-opens the (recordingId, "
+                + "sectionIndex) desync this gate exists to keep closed.");
+        }
+
+        [Fact]
+        public void TheOptOutCaller_TakesTheDropOnItsCommittedPath()
+        {
+            // The opt-out DEFERS the drop; it must not delete it. SplitAtUT's committed
+            // arm invalidates explicitly after SplitAtSection lands, because the cut
+            // itself renumbers the head's sections.
+            string src = StripLineComments(ReadParsekSource("RecordingOptimizer.cs"));
+            Assert.Contains(OptOutToken, src);
+            Assert.Contains(
+                "OrbitSegmentCheckpointBridge.InvalidateSectionAnnotationsForOrdinalShift(", src);
+        }
+
+        private static string ParsekSourceRoot()
+        {
+            string root = Path.GetFullPath(Path.Combine(
+                AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", ".."));
+            string path = Path.Combine(root, "Source", "Parsek");
+            if (!Directory.Exists(path))
+                path = Path.Combine(root, "Parsek");
+            Assert.True(Directory.Exists(path), "Parsek source root not found at " + path);
+            return path;
+        }
+
+        private static string ReadParsekSource(string relPath)
+        {
+            string path = Path.Combine(
+                ParsekSourceRoot(), relPath.Replace('/', Path.DirectorySeparatorChar));
+            Assert.True(File.Exists(path), "Source file not found at " + path);
+            return File.ReadAllText(path);
+        }
+
+        // Strip line comments so the doc-comments that NAME the opt-out on purpose
+        // (the bridge's contract note, this gate's own rationale) are not counted as
+        // callers.
+        private static string StripLineComments(string source)
+        {
+            var sb = new StringBuilder(source.Length);
+            foreach (string line in source.Split('\n'))
+            {
+                int idx = line.IndexOf("//", StringComparison.Ordinal);
+                sb.Append(idx >= 0 ? line.Substring(0, idx) : line);
+                sb.Append('\n');
+            }
+            return sb.ToString();
+        }
+
+        private static int CountOccurrences(string haystack, string needle)
+        {
+            int count = 0;
+            int idx = haystack.IndexOf(needle, StringComparison.Ordinal);
+            while (idx >= 0)
+            {
+                count++;
+                idx = haystack.IndexOf(needle, idx + needle.Length, StringComparison.Ordinal);
+            }
+            return count;
         }
     }
 
