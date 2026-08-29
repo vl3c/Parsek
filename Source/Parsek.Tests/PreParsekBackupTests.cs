@@ -237,6 +237,117 @@ namespace Parsek.Tests
             return root;
         }
 
+        // ------------------------------------------------- EvaluateCapturedPristine (outcome half)
+
+        /// <summary>
+        /// Writes a save-shaped persistent.sfs into <paramref name="dir"/>, optionally with a
+        /// populated ParsekScenario node.
+        /// </summary>
+        private static string WriteBackupFolder(string dir, bool addParsekScenario, bool populated)
+        {
+            Directory.CreateDirectory(dir);
+            BuildPersistent(addParsekScenario, populated)
+                .Save(Path.Combine(dir, "persistent.sfs"));
+            return dir;
+        }
+
+        [Fact]
+        public void EvaluateCapturedPristine_TrueForACleanCapture()
+        {
+            string dir = WriteBackupFolder(Path.Combine(tempDir, "clean"),
+                                           addParsekScenario: false, populated: false);
+            Assert.True(PreParsekBackup.EvaluateCapturedPristine(dir, out string reason));
+            Assert.Equal("pristine", reason);
+        }
+
+        [Fact]
+        public void EvaluateCapturedPristine_TrueWhenTheOnlyNodeIsTheEmptyOneKspInjects()
+        {
+            // The DOCUMENTED non-byte-identical case: KSP injects an empty
+            // SCENARIO{name=ParsekScenario} into every save via AddToAllGames. It carries no
+            // gameplay data, so a capture holding one is still pristine - and this cell is what
+            // keeps a future tightening of the predicate from turning every real backup into a
+            // captured-not-pristine Error.
+            string dir = WriteBackupFolder(Path.Combine(tempDir, "emptynode"),
+                                           addParsekScenario: true, populated: false);
+            Assert.True(PreParsekBackup.EvaluateCapturedPristine(dir, out string reason));
+            Assert.Equal("pristine", reason);
+        }
+
+        [Fact]
+        public void EvaluateCapturedPristine_FalseWhenTheCaptureCarriesAPopulatedNode()
+        {
+            string dir = WriteBackupFolder(Path.Combine(tempDir, "populated"),
+                                           addParsekScenario: true, populated: true);
+            Assert.False(PreParsekBackup.EvaluateCapturedPristine(dir, out string reason));
+            Assert.Equal("captured-parsek-scenario-node", reason);
+        }
+
+        [Fact]
+        public void EvaluateCapturedPristine_FalseWhenTheCaptureCarriesAParsekSubdir()
+        {
+            string dir = WriteBackupFolder(Path.Combine(tempDir, "subdir"),
+                                           addParsekScenario: false, populated: false);
+            Directory.CreateDirectory(Path.Combine(dir, "Parsek"));
+            Assert.False(PreParsekBackup.EvaluateCapturedPristine(dir, out string reason));
+            Assert.Equal("captured-parsek-subdir", reason);
+        }
+
+        [Fact]
+        public void EvaluateCapturedPristine_FalseWithNamedReasonWhenThereIsNothingToRead()
+        {
+            Assert.False(PreParsekBackup.EvaluateCapturedPristine(null, out string nullReason));
+            Assert.Equal("no-backup-path", nullReason);
+
+            string empty = Path.Combine(tempDir, "empty");
+            Directory.CreateDirectory(empty);
+            Assert.False(PreParsekBackup.EvaluateCapturedPristine(empty, out string missingReason));
+            Assert.Equal("captured-persistent-missing", missingReason);
+        }
+
+        // ------------------------------------------- BackupFolderPrefixFor / FindBackupFoldersFor
+
+        [Fact]
+        public void BackupFolderPrefixFor_IsThePrefixBuildBackupFolderNameActuallyWrites()
+        {
+            // The ONE assertion that keeps the writer and the reader from drifting: whatever
+            // BuildBackupFolderName produces must start with what FindBackupFoldersFor searches
+            // for, or the census silently reads zero backups on a save that has one.
+            string built = PreParsekBackup.BuildBackupFolderName(
+                "My Career", new DateTime(2026, 7, 9, 21, 30, 0), _ => false);
+            Assert.StartsWith(PreParsekBackup.BackupFolderPrefixFor("My Career"), built);
+        }
+
+        [Fact]
+        public void FindBackupFoldersFor_ReturnsOnlyThisSavesBackups_Sorted()
+        {
+            string saves = Path.Combine(tempDir, "saves");
+            Directory.CreateDirectory(Path.Combine(saves, "MyCareer"));
+            Directory.CreateDirectory(Path.Combine(saves, "MyCareer (pre-Parsek 2026-07-09_2130)"));
+            Directory.CreateDirectory(Path.Combine(saves, "MyCareer (pre-Parsek 2026-07-09_2130)_2"));
+            // A DIFFERENT save's backup, and a save whose name merely starts the same way -
+            // neither may be counted against MyCareer.
+            Directory.CreateDirectory(Path.Combine(saves, "Other (pre-Parsek 2026-07-09_2130)"));
+            Directory.CreateDirectory(Path.Combine(saves, "MyCareer2 (pre-Parsek 2026-07-09_2130)"));
+
+            var found = PreParsekBackup.FindBackupFoldersFor(saves, "MyCareer");
+
+            Assert.Equal(new[]
+            {
+                "MyCareer (pre-Parsek 2026-07-09_2130)",
+                "MyCareer (pre-Parsek 2026-07-09_2130)_2",
+            }, found);
+        }
+
+        [Fact]
+        public void FindBackupFoldersFor_EmptyOnMissingOrUnnamedInputs()
+        {
+            Assert.Empty(PreParsekBackup.FindBackupFoldersFor(
+                Path.Combine(tempDir, "does-not-exist"), "MyCareer"));
+            Assert.Empty(PreParsekBackup.FindBackupFoldersFor(tempDir, null));
+            Assert.Empty(PreParsekBackup.FindBackupFoldersFor(null, "MyCareer"));
+        }
+
         // ------------------------------------------------------------------ IsParsekBackupFolder
 
         [Fact]

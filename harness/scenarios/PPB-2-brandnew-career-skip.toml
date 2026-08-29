@@ -1,0 +1,106 @@
+schema = 1
+id = "PPB-2-brandnew-career-skip"
+# TIER = operator, UNFLOWN - same reasoning as PPB-1 (every number derived, none
+# measured). PROMOTE TO `daily` beside PPB-1 after the first green flight, re-measuring
+# passed=/skipped= off that run's BATCH_COMPLETE line.
+tier = "operator"
+#
+# THE CONTROL HALF OF THE PRE-PARSEK BACKUP LANE. PPB-1 proves the backup FIRES and what
+# it produces; this proves it does NOT fire on a brand-new empty career - runbook step 4
+# in docs/dev/todo-and-known-bugs.md ("A brand-new empty career logs
+# Skip: reason=brand-new-empty and gets no twin").
+#
+# WITHOUT THIS SPEC PPB-1 IS HALF A STATEMENT. A backup that fired unconditionally would
+# pass every PPB-1 contract while spamming a Load-menu twin for every new save a player
+# starts - which is precisely why IsBrandNewEmptySave exists. The two specs share one
+# in-game category on purpose: the same four cells read the same filesystem, and the
+# fixture is the only thing that changes.
+description = "Cold-load a brand-new empty career: Parsek must skip the pre-Parsek backup with reason=brand-new-empty and leave no sibling folder."
+instanceProfile = "stock-minimal"
+tags = ["ingame-batch", "backup", "career", "PPB", "PPB-2", "pending-operator"]
+
+[fixture]
+# A DEDICATED LEAF rather than the existing `fresh-career`, which is byte-for-byte the
+# same career. This is the produced-save clobber-race rule, not ceremony: B10, R7c, L1
+# and M2 all stage `fresh-career`, so sharing it would put this spec's produced save in
+# a directory four other specs overwrite. Built (Title restamp only) by
+# tools/build_preparsek_fixtures.py, whose strip steps run over it and must find
+# NOTHING - the negative control that proves the strip applied to PPB-1's fixture
+# removed something real.
+saveTemplate = "fixtures/saves/preparsek-brandnew-career"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+# Zero VESSEL nodes, so DecideLoadRoute takes the NoVesselSpaceCenter branch and the
+# batch runs at the Space Center - the same measured route B10 / R7c / L1 take from the
+# identical career shape. `scene=SPACECENTER` in the tally pin is what makes a silently
+# changed route red.
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" },  expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "RunTests",   args = { category = "PreParsekBackup" },              expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit",                                                     expect = "OK" },
+]
+
+[dimensionsCovered]
+# NOTHING NEW IS CLAIMED, deliberately, and the reason is the R7c precedent: this spec's
+# value is its assertions and its tally, not a registry row. D16 `pre-parsek-backup` is
+# claimed by PPB-1 off the cells that observe a real capture; re-labelling it here would
+# make the coverage map read as growth where a control was added.
+D14 = ["career", "cold-load-ut0", "scene-ksc"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 0, max = 0 }
+
+[expectations.logContracts]
+# THE TALLY. total=4 is the same attribute-exact count PPB-1 pins (one category, four
+# declarations, all AnyScene / AllowBatchExecution default-true, so ZERO
+# attribute-forced skips). The SPLIT is what differs and it is the honest reading of
+# this fixture: with no backup on disk, BackupSiblingCarriesLoadMenuShape and
+# CapturedPersistentIsGameplayPristine InGameAssert.Skip naming the missing context
+# (they have nothing to inspect), while RepeatColdContactCreatesNoSecondBackup and
+# BackupPresenceMatchesTheEligibilityDecision execute and carry the claim:
+#   - the repeat cell re-invokes the real MaybeBackupOnFirstColdContact entry point and
+#     requires the backup census to stay EMPTY, i.e. the skip is a property of the
+#     production path and not of a single lucky call;
+#   - the presence cell takes its no-marker/no-backup branch and re-runs the real
+#     decision inputs over the on-disk save, requiring ShouldBackup to say NO. On this
+#     fixture the only reason it can say NO is brand-new-empty (there is no Parsek
+#     footprint and it is not a backup folder), which the required Skip literal below
+#     pins independently from the product's own log.
+# passed=2 with skipped=2 clears the anti-vacuity gate (passed > 0) and the
+# attribute-forced floor (0).
+#
+# Note both cells' skip is RUN-TIME, so `skipped=2` is not derivable from the
+# attributes; hlib treats run-time skips as pushing skipped only HIGHER, which is why
+# this pin is accepted while PPB-1's skipped=0 is the derivable floor.
+required = [
+  "BATCH_COMPLETE v1 total=4 passed=2 failed=0 skipped=2 category=PreParsekBackup scene=SPACECENTER",
+  "Skip: reason=brand-new-empty save='preparsek-brandnew-career'",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  # THE CONTROL ITSELF: no capture line may exist for this save, under any of the three
+  # tokens PerformBackup can emit. A backup that fired here is the bug.
+  "Captured pre-Parsek backup: save='preparsek-brandnew-career'",
+  "First-contact backup: save='preparsek-brandnew-career'",
+  "outcome=captured-not-pristine",
+  # The other skip reasons would each mean the fixture stopped being brand-new-empty:
+  # a footprint crept in, or the on-disk persistent.sfs went missing.
+  "Skip: reason=already-parsek-footprint save='preparsek-brandnew-career'",
+  "Skip: reason=no-persistent-sfs save='preparsek-brandnew-career'",
+]
+
+[runtime]
+budgetSeconds = 1200
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

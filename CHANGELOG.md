@@ -962,6 +962,33 @@ All notable changes to Parsek are documented here.
   that were already split stay split (the halves are not re-merged); re-recording
   or a fresh mission gets the fixed behaviour.
 
+- **The safety copy Parsek makes of your save the first time it opens it now says
+  so properly in the log, and checks its own work.** The first time Parsek loads a
+  save it has never seen, it copies that save - untouched - into a second folder
+  you can go back to if you ever decide Parsek is not for you. That has always
+  worked, but the log line it wrote said only which folder it made, and the line
+  it wrote when it decided NOT to copy again was written at the quietest level and
+  did not even name the save. Both now read the same way as every other decision
+  in that code: one line, naming the save and the reason, at a level that is on by
+  default. The copy also verifies itself now. Having moved the folder into place,
+  Parsek re-opens the copy it just made and confirms the save inside it really is
+  free of Parsek's own data - the whole promise of the thing - and says so on the
+  same line. If it ever is not, that is now a loud error naming what it found,
+  instead of a silent assumption. The copy is kept either way: a copy that is not
+  perfectly clean is still your save, and making it again would only produce the
+  same file. No change to when the copy happens or what goes into it.
+
+  Behind that, the four things about this feature that had only ever been checked
+  by hand - the copy really does happen before Parsek writes anything, the folder
+  really does turn up beside your other saves with everything the game needs to
+  list it, loading again never makes a second copy, and a brand-new empty career
+  is left alone - are now checked by the automated test rig instead of by a
+  person reading a checklist. That needed a save that has never met Parsek but is
+  not empty either, which nothing in the test library had; two are now built from
+  existing ones and kept in step automatically. The one thing still left to a
+  human eye is whether the folder READS well in the load menu, which no test can
+  judge.
+
 ### Features
 
 - The hover-help strips of the widest windows are now ONE line tall, and help text that does not fit its strip scrolls into view instead of being cut off. Every Parsek window ends in a permanently visible strip showing what the control under your cursor does. It was always two text lines tall - sized for the narrowest window's needs - even in windows so wide that every sentence fits on one. Career State, Timeline, Logistics, Real Spawn Control and Recordings (along with the Missions tab it hosts) now reserve exactly one line, reclaiming the dead space at the bottom of the busiest windows in the mod; Settings, Kerbals and the rest keep two lines because their help texts genuinely wrap. The flip side of a shorter strip is that a rare over-long text - a very long vessel name in Real Spawn Control's Warp tooltip, a detailed hold reason in Logistics - used to clip at the box edge mid-word with no way to read the rest. Such a text now pauses at its start for a moment, scrolls left until its tail is readable, pauses there, and starts over. And to make the two busiest windows honest at one line, their longest explanations were tightened to fit: in Logistics, the Supply-Run cost tooltip no longer repeats the exact figures shown right beside it, the interval cadence tooltip says the same thing in fewer words, and a held route's status tooltip reads "Status - reason" on one continuous line instead of spending a whole line on the status word alone; in Recordings, the loop-period, STASH and mission-include explanations lost their padding without losing what they say.

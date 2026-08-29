@@ -6059,6 +6059,26 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
                                        "self-authored RewindPoint needs a multi-controllable "
                                        "split plus a seam channel. No unattended run discharges them.",
         # S4.2-refly-world-preservation DROPPED 2026-08-12 - see DROPPED_2026_08_12.
+        "PPB-1-untouched-career-backup.toml":
+                                       "tier=operator AND UNFLOWN. Two debts, both "
+                                       "only a human discharges: (i) the FIRST FLIGHT "
+                                       "itself - every token in the spec is DERIVED "
+                                       "(the tally from the [InGameTest] attributes, "
+                                       "the route from the fixture's vessel count, the "
+                                       "log lines from the C# format strings) and none "
+                                       "is measured, so an operator must read one run "
+                                       "and re-pin passed=/skipped= before the "
+                                       "PROMOTE-to-daily note is acted on; (ii) the one "
+                                       "property no automation can settle - that the "
+                                       "published backup RENDERS as a resumable entry "
+                                       "in KSP's Resume Saved Game list. The cells "
+                                       "assert the file shape the Load menu "
+                                       "enumerates, not the menu.",
+        "PPB-2-brandnew-career-skip.toml":
+                                       "tier=operator AND UNFLOWN, same first-flight "
+                                       "debt as PPB-1 (derived tally, unmeasured "
+                                       "split). It owes no Load-menu eyeball - its "
+                                       "whole claim is that NOTHING is published.",
     }
 
     # Untagged specs that are CANDIDATES - they MENTION the token, or they are
@@ -8876,7 +8896,8 @@ class IngameCategoryInventoryDocTests(unittest.TestCase):
         # live IMGUI cell; deliberately its OWN category rather than `Settings`,
         # whose BATCH_COMPLETE tally H46 pins from a flown run), 106 -> 107 with
         # `AutoMergeCommit` (R4, the plan-§7 autoMerge=ON scene-exit cell).
-        self.assertIn("**107 categories / %d declarations**" % stated_decls, body,
+        # 107 -> 108 with `PreParsekBackup` (PPB-1 / PPB-2, both live-proven 2026-08-29).
+        self.assertIn("**108 categories / %d declarations**" % stated_decls, body,
                       "the triage totals line disagrees with the table it summarises "
                       "(table sums to %d declarations across %d categories)"
                       % (stated_decls, len(self.rows)))

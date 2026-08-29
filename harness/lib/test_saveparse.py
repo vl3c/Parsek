@@ -820,6 +820,33 @@ class CommittedFixtureSweepTests(unittest.TestCase):
         # `harness/tools/build_strategy_career.py`, drift-guarded by
         # `StrategyCareerFixtureDriftTests`.
         "strategy-career": False,
+        # THE TWO PRE-PARSEK-BACKUP FIXTURES, and their False is the WHOLE POINT
+        # rather than an inherited property. `PreParsekBackup.HasParsekGameplayFootprint`
+        # reads a POPULATED `SCENARIO{name=ParsekScenario}` node as "this save has
+        # already met Parsek" and declines to back it up, so a lane that wants to
+        # observe the backup FIRE must stage a save the probe reads as untouched.
+        #
+        # `preparsek-untouched-career` is `career-earned-pad` with that node deleted
+        # WHOLE (not emptied - a save that never met Parsek has no such node; KSP
+        # re-injects an empty one via AddToAllGames at load), the `PARAMETERS >
+        # ParsekSettings` node deleted, the `Parsek/` sidecar tree not copied, and the
+        # Title restamped. It keeps the career (a PRELAUNCH pad craft, nine contracts,
+        # four science subjects, a crewed CAREER_LOG) so it is NOT brand-new-empty -
+        # the other half of the gate. Note the DIFFERENCE from `duna-park-probe` /
+        # `eve-park-kerbalx` / the `*-park-*` family above: those keep the node and
+        # excise its CHILDREN, because a flyable recording template must carry it.
+        # This one must not carry it at all.
+        #
+        # `preparsek-brandnew-career` is `fresh-career` with the Title restamped and
+        # nothing else - the brand-new-empty CONTROL, on its own leaf rather than
+        # sharing `fresh-career` with B10 / R7c / L1 / M2 (the produced-save clobber
+        # race: specs that share a saveTemplate leaf share one staged directory).
+        #
+        # Both are built and drift-guarded by `tools/build_preparsek_fixtures.py` +
+        # `lib/test_preparsek_fixtures.py`, which re-runs the derivation over the
+        # committed bases and asserts byte-identity.
+        "preparsek-untouched-career": False,
+        "preparsek-brandnew-career": False,
         "gloops-airshow": True,
         "gs1-two-stage-pad": True,
         "gs2-orbital-stack": True,

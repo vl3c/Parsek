@@ -1,0 +1,175 @@
+schema = 1
+id = "PPB-1-untouched-career-backup"
+# TIER = operator, UNFLOWN. Every number below is DERIVED, not measured: the tally
+# from `hlib.parse_ingame_test_declarations` over Source/Parsek (which the suite
+# cross-checks), the route from the fixture's vessel count, the log tokens from the
+# format strings in PreParsekBackup.cs / ParsekScenario.cs. A cadence tier would put
+# an unmeasured pin in front of a nightly before anyone has read a single run of it.
+# PROMOTE TO `daily` AFTER THE FIRST GREEN FLIGHT (it is cheap - one cold load plus a
+# four-cell read-only batch, in the H-series' 50-70 s class - so `daily` is the right
+# home, not `nightly`), re-measuring passed=/skipped= off that run's BATCH_COMPLETE.
+tier = "operator"
+#
+# WHAT THIS SPEC IS FOR. The pre-Parsek safety backup (PreParsekBackup.cs) shipped
+# 2026-08-xx with a FOUR-STEP MANUAL RUNBOOK pinned in docs/dev/todo-and-known-bugs.md
+# under "PENDING OPERATOR (in-game pin, cannot run KSP headlessly)". Nobody ever ran
+# it. This spec and PPB-2 replace steps 1, 3 and 4 of that runbook with a driven run;
+# step 2's literal Load-menu RENDERING stays a human eyeball (see the residual note in
+# the todo entry).
+#
+# THE FIXTURE IS THE WHOLE REASON THIS COULD NOT BE AUTOMATED BEFORE. The backup fires
+# only on a save with NO Parsek footprint that is ALSO not brand-new-empty, and until
+# `preparsek-untouched-career` was built no committed fixture satisfied both: every
+# career with real progress was harvested from a Parsek run (populated
+# SCENARIO{name=ParsekScenario} -> reason=already-parsek-footprint) and every
+# footprint-free save was empty (-> reason=brand-new-empty). See
+# tools/build_preparsek_fixtures.py.
+description = "Cold-load a footprint-free career with real progress: Parsek must publish a pristine pre-Parsek backup sibling before its first save-write, once and only once."
+instanceProfile = "stock-minimal"
+tags = ["ingame-batch", "backup", "career", "PPB", "PPB-1", "pending-operator"]
+
+[fixture]
+# saveTemplate leaf IS runSaveName; the `${runSave}` substitution below keeps the
+# LoadGame arg from drifting off it. The leaf is UNIQUE to this spec (no other
+# committed spec stages it), which is the produced-save clobber-race rule: two specs
+# sharing a leaf share one staged directory in the instance, so a sibling run can
+# overwrite a finished run's produced save.
+saveTemplate = "fixtures/saves/preparsek-untouched-career"
+# The fixture must reach the cold load with NO Parsek footprint, so nothing may be
+# injected into it - an injection preset writes Parsek/Recordings sidecars, and the
+# `Parsek/` directory ALONE is a footprint (`parsekSubdirExists`) that would suppress
+# the very backup this spec exists to observe.
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+# The ONE cold load is the whole subject: PreParsekBackup runs from the top of the
+# cold-OnLoad path of ParsekScenario.OnLoad (gated `!initialLoadDone`, before
+# LoadExternalFiles), so it fires exactly once here, in the FLIGHT-route boot.
+#
+# WHY THE FLIGHT ROUTE MATTERS TO THE ORDERING CONTRACT BELOW. The fixture carries one
+# focusable PRELAUNCH craft, so TestCommandLoadGame.DecideLoadRoute returns the
+# focusable route and LoadGameImpl ends at FlightDriver.StartAndFocusVessel - it does
+# NOT call GamePersistence.SaveGame first. The SPACECENTER and TRACKSTATION routes DO
+# (they must re-persist the AddToAllGames-augmented game because the KSC/TS bootstrap
+# re-reads persistent.sfs from disk), and that write happens before our OnLoad. So the
+# "no Parsek save-write precedes the capture" contract is stated HERE and not on PPB-2,
+# and a future fixture drift that empties the FLIGHTSTATE would move the route, change
+# `scene=FLIGHT` in the tally pin, and red rather than silently weaken the claim.
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" },  expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "RunTests",   args = { category = "PreParsekBackup" },              expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit",                                                     expect = "OK" },
+]
+
+[dimensionsCovered]
+# D16 `pre-parsek-backup` has sat in coverage/registry.toml UNCLAIMED since the value
+# was added: no committed spec could reach the code path (see the fixture note above).
+# This is the first claim, and it is backed by four in-game cells that read the real
+# filesystem of the running instance, not by the existence of the fixture.
+D16 = ["pre-parsek-backup"]
+# `scene-flight` is the measured route (see the driver note); `career` is the mode.
+# `cold-load-ut0` is deliberately NOT claimed - this fixture's FLIGHTSTATE carries
+# UT = 409.56, which is the point of it (a career with real elapsed progress).
+D14 = ["career", "scene-flight"]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING: `allowedAnomalies` must precede every
+# `[expectations.<sub>]` header or TOML scopes it into that sub-table and run.py never
+# reads it (hlib.validate_spec rejects the misplaced form).
+allowedAnomalies = []
+
+[expectations.recordings]
+# EXACT ZERO, and it is an assertion rather than bookkeeping: the fixture injects
+# nothing, `autoRecordOnLaunch` is set false before the batch, and all four cells are
+# read-only but for one deliberate re-invocation of MaybeBackupOnFirstColdContact.
+# A nonzero count here means something recorded a flight nobody flew. count.max == 0
+# also selects the recording-rule suppression in log validation (B1).
+count = { min = 0, max = 0 }
+
+[expectations.logContracts]
+# ---------------------------------------------------------------------------
+# 1. THE BATCH TALLY, pinned WHOLE (hlib.batch_contract_vacuity_gap).
+#
+#    total=4 is ATTRIBUTE-EXACT: Source/Parsek/InGameTests/PreParsekBackupInGameTests.cs
+#    declares exactly four [InGameTest(Category = "PreParsekBackup")] methods, and
+#    CommittedBatchTallySourceSyncTests cross-checks this number against the source on
+#    every `python -m unittest discover -s lib` run - so adding a fifth cell reds
+#    locally rather than on a flight.
+#    skipped=0 / passed=4: all four are AnyScene (no Scene argument) and
+#    AllowBatchExecution default-true, so the attributes force ZERO skips. The run-time
+#    InGameAssert.Skip guards in the first two cells fire only when the save has no
+#    backup - which on THIS fixture is the failure case, so a skip here would itself be
+#    the finding. (PPB-2 stages the brand-new control and legitimately reads
+#    passed=2 skipped=2.)
+#    scene=FLIGHT is the focusable route (driver note above).
+#
+# 2. THE CAPTURE LINE. Derived from the PreParsekBackup.PerformBackup format string.
+#    `capturedPristine=True` is the OUTCOME half of the pristine guarantee, measured by
+#    the product itself off the bytes that landed in the published folder
+#    (EvaluateCapturedPristine re-reads them after the atomic Directory.Move). The
+#    folder name and the byte counts are left free; the save name is pinned because a
+#    backup of the WRONG save would otherwise satisfy the pattern.
+#
+# 3. THE ORDERING PAIR (runbook step 1 / properties V2+V3). The required
+#    `OnSave: saving N committed recordings` line proves Parsek save-writes HAPPEN in
+#    this run, so the forbidden pattern below is a live discriminator and not a
+#    vacuous negative. The forbidden pattern is the ordering assertion itself: an
+#    `OnSave: saving` line appearing ANYWHERE BEFORE the capture line. It is written
+#    with a lazy [\s\S]*? rather than a lookaround because the lazy form runs in SRE's
+#    MIN_REPEAT_ONE literal-skip loop (a tight C scan, ~1 GB/s measured) instead of a
+#    Python-level backtrack. Cost is one forward scan PER `OnSave: saving` occurrence,
+#    and a seam run emits a handful of them, so the clean case measured 0.6 s over a
+#    synthetic 4.8 MB log with 300 of them - far past anything this lane produces. The
+#    VIOLATION case short-circuits immediately.
+#    WHAT IT WOULD CATCH: exactly the failure the runbook told a human to look for -
+#    "if instead you see Skip: reason=already-parsek-footprint on a save you know never
+#    had Parsek, the OnLoad-before-OnSave assumption is wrong".
+#
+# 4. THE SKIP LITERALS, forbidden. Each names one way the gate could decline this
+#    fixture, and each would mean the fixture stopped being the subject it was built
+#    as: a footprint crept back in, the career emptied out, or the folder started
+#    looking like a backup of itself.
+required = [
+  "BATCH_COMPLETE v1 total=4 passed=4 failed=0 skipped=0 category=PreParsekBackup scene=FLIGHT",
+  "Captured pre-Parsek backup: save='preparsek-untouched-career' -> '.+' files=[0-9]+ bytes=[0-9]+ dir='.+' capturedPristine=True",
+  "First-contact backup: save='preparsek-untouched-career' footprint=False brandNew=False",
+  "OnSave: saving [0-9]+ committed recordings",
+  # THE CRAFT-MIRROR MEASUREMENT, and it is pinned at the VALUE 1 rather than
+  # `craftDirsMirrored=[0-9]+` on purpose. The cell asserts the backup mirrors
+  # whichever craft dirs the SOURCE had, so on a craftless save it would pass having
+  # compared nothing. The fixture declares `Kerbal X` in fixtures/shared-ships.toml -
+  # a row that exists ONLY for this (the spec never launches it) - so the staged save
+  # has `Ships/VAB/` at cold-load time and the count is 1. A 0 here means the overlay
+  # stopped running and the assertion went vacuous, which is exactly what must red.
+  "\\[InGameTest\\] backup shape OK: dir='.+' craftDirsMirrored=1",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "OnSave: saving [0-9]+ committed recordings[\\s\\S]*?Captured pre-Parsek backup",
+  "Skip: reason=already-parsek-footprint save='preparsek-untouched-career'",
+  "Skip: reason=brand-new-empty save='preparsek-untouched-career'",
+  "Skip: reason=is-backup-folder save='preparsek-untouched-career'",
+  "Skip: reason=no-persistent-sfs save='preparsek-untouched-career'",
+  "outcome=captured-not-pristine",
+]
+
+# NO [expectations.ledger] BLOCK, deliberately. A zero-delta oracle over this fixture
+# would be a genuinely interesting second claim ("installing Parsek on an existing
+# career moves no money"), but it is a HARD-gating verifier and this spec has never
+# flown; arming an unmeasured economy diff alongside an unmeasured tally would make a
+# first-flight red ambiguous between the two. B10 already owns the zero-delta claim on
+# a career it has flown. Add it here only after PPB-1 has a green reading.
+
+[runtime]
+# 300 (LoadGame) + 540 (RunTests) = 840 worst case; 1200 clears it with room for the
+# FLIGHT boot, which is heavier than the vessel-less KSC resumes in the L-series.
+budgetSeconds = 1200
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
