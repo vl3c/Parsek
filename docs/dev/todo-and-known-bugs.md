@@ -12645,7 +12645,9 @@ UT. Owner: whoever owns `GhostOrbitIcon` / `MapRenderProbe`. The anomaly is
 deliberately NOT added to that spec's `allowedAnomalies` - the lane stands red by
 finding (V1-map-dwell-mun-orbit's precedent).
 
-**(2) Teardown NRE when a run ends inside watch mode.** `V7M-minmus-player-loop`
+**(2) ~~Teardown NRE when a run ends inside watch mode.~~ THE PARSEK HALF IS FIXED
+2026-08-29 (release-hygiene, R5 item 2); the stock/MechJeb cascade below is not
+ours and stays unarmed.** `V7M-minmus-player-loop`
 is the first run in the suite that quits while watch mode is active. Its reading
 run (`2026-08-08_1613`) read `unityExceptions total=1` - the Parsek line below:
 
@@ -12660,6 +12662,78 @@ already gone by the time `OnDestroy` runs the watch-exit camera restore. Harmles
 at shutdown (one line, after the last gameplay frame), report-only, not armed.
 NOT worked around in the spec by exiting watch before `FlushAndQuit`: that would
 hide the only run shape that reaches it.
+
+**THE FIX (2026-08-29).** `GetActiveVesselSafe` caught the headless-host triple
+(`SecurityException` / `MethodAccessException` / `MissingMethodException`) but not
+`NullReferenceException`, which is what `FlightGlobals.ActiveVessel` throws once
+`FlightGlobals.fetch` is destroyed. The read now sits behind
+`WatchModeController.ReadActiveVesselGuarded(Func<Vessel>)` - a fourth arm for the
+NRE that returns null and logs ONE Verbose `[CameraFollow] GetActiveVesselSafe:
+FlightGlobals unavailable (scene teardown)` line. Verbose, not Warn: quitting
+while watching a ghost is normal, and both callers
+(`RestoreCameraAfterWatchExit`, `RestoreCameraToAnchorVessel`) already treat a
+null active vessel as "no camera target to restore". The delegate seam exists so
+all four arms are drivable headlessly - no test host can make the real
+`FlightGlobals` throw on demand - and the actual read stays in a
+`[MethodImpl(NoInlining)]` core per the mono JIT convention. Four cells in
+`WatchModeControllerTests` (NRE arm logs + returns null and raises no
+WARN/ERROR; the triple stays silent; null reader; an unexpected exception still
+propagates).
+
+SIBLING SWEEP, deliberately narrow. `WatchModeController.Runtime.cs` uses the
+same catch triple in six more helpers, but only two of them are ON this teardown
+path: `GetFlightCameraSafe` (reads the `FlightCamera.fetch` static FIELD, which
+yields Unity's fake-null rather than throwing) and
+`RemoveWatchModeControlLockSafe` (`InputLockManager`'s lock stack is an
+inline-initialised static). The genuine shape-alikes -
+`GetCurrentUTSafe` (`Planetarium.fetch`) and `GetCurrentWarpRateSafe`
+(`TimeWarp.fetch`) - dereference a singleton the same way and would throw the
+same NRE, but they are reached only from per-frame Update paths that no longer
+run once `OnDestroy` has fired, so nothing has ever observed them there and
+widening them now would be a speculative sweep. File them here rather than fix
+them blind: if a future reading run ever prints an NRE from either, the fix is
+one more arm on the same pattern.
+
+**THE FIX UN-SHADOWS ~20 LINES OF TEARDOWN CLEANUP, and that is the part to hold
+in mind when reading the next census.** The NRE did not stop at
+`GetActiveVesselSafe` - it escaped `watchMode.ExitWatchMode()` at
+`ParsekFlight.cs:2183` and Unity abandoned the rest of `OnDestroy`. So in the
+end-inside-watch shape ONLY, everything below that line has never once executed:
+the `InputLockManager.RemoveControlLock` safety net, `vesselGhoster.CleanupAll`,
+`GhostMapPresence.RemoveAllGhostVessels("scene-cleanup")`, the engine camera-event
+unsubscribe, `policy.Dispose` / `engine.Dispose`, the ParsekFlight-local cache
+clears, and `ui.Cleanup`. All of it now runs for the first time, at a moment when
+`FlightGlobals.fetch` is already gone.
+
+CONSEQUENCE FOR THE CENSUS BELOW: a re-measured `unityExceptions` reading may show
+NEW Parsek lines that were never reachable before, and they are NOT a regression
+of this fix - they are newly-reached code meeting an absent `FlightGlobals`. Read
+any new teardown line as a NEW finding on its own call site, not as evidence that
+the NRE catch failed (the catch's own line is Verbose and carries the words
+`FlightGlobals unavailable (scene teardown)`, so the two are trivially told apart).
+`RemoveAllGhostVessels` is the likeliest new speaker and is already the
+best-defended: it wraps each ghost's `Die()` in its own try/catch with a `Warn`,
+inside a `BeginGhostTeardown`/`finally EndGhostTeardown` scope that exists exactly
+because the stock `SpaceTracking` rebuild it triggers can throw during teardown
+(`GhostMapPresence.cs:482`) - so its failure mode is a Warn line, not an escape.
+
+DELIBERATELY NOT GUARDED, observed-first: none of the newly-reached calls got a
+prophylactic try/catch in this pass. `CleanupAll` only `Destroy`s GameObjects and
+touches no KSP singleton; `RemoveAllGhostVessels` is already guarded as above; the
+rest are dictionary clears and event unsubscribes. Wrapping them blind would be
+precisely the speculative sweep declined for the sibling helpers one paragraph up,
+and would pre-empt the very reading that would tell us which of them actually
+speaks. If a census does surface one, fix THAT call site.
+
+FUTURE WORK, NOT DONE HERE: this removes the one Parsek line from the
+end-inside-watch teardown, which is the precondition for arming an
+`[expectations.unityExceptions] maxTotal` ceiling on the V-family lanes. It is
+NOT sufficient on its own - the 1-vs-5 spread below is four STOCK/MechJeb NREs in
+the same 40 ms window, and the un-shadowed cleanup above can add lines of its own,
+so any ceiling still has to be pinned against a re-measured census (the OLD Parsek
+line should be absent from it; anything new needs classifying before it is
+counted), not against the readings above. Arming is an operator decision after
+that reading run; nothing is armed by this fix.
 
 The ARMED re-flight of the identical shape (`2026-08-08_1642`) read `total=5`,
 which is worth recording because it bounds what a ceiling here would mean: the
@@ -20422,7 +20496,7 @@ Every Tier 1 merge-queue item below LANDED on `main` (verified 2026-07-11 via `g
 ### Tier 3 - LATER: verification + hygiene
 - **Validation debt (the real bottleneck)** - code-complete-but-in-game-unconfirmed fixes, clustering onto ~4-5 playtest sessions: (1) career-economy (Rec-1 #1242 gate PASSED in-game 2026-07-08; still open: career-freeze milestone-storm, contract-discard-desync, OnMainMenuTransition); (2) looped re-aim descent-render (reaim-descent cluster, arc truncation, M-MIS-2 P4, cross-SOI encounter observation); (3) eccentric-target Eeloo/Moho constant pinning (M-MIS-3) - BEHAVIOURAL HALF CLOSED 2026-08-15: the band is now WALKED in flight (three departures accept outside the base band, deepest 0.1550 vs a 0.0600 base), so what remains is only the constant-pinning judgement on `EccGain` / `MaxHalfWidthFraction`, not a validation debt - see M-MIS-3-BAND-COMPUTED-NOT-EXERCISED; (4) cross-parent station resupply (M4c); (5) in-game test-runner camera-survival batch. KSP cannot run headless, so this is playtest-bound.
 - **M-MIS-10 archetype verification sweep** - constellation deploy / booster flyback / off-Kerbin launch / claw couples / Elcano; cheap verify-and-file, no known break.
-- **Remove `MapRenderWarpControl`** temporary debug aid once re-aim descent-render is signed off.
+- ~~**Remove `MapRenderWarpControl`** temporary debug aid once re-aim descent-render is signed off.~~ DONE 2026-08-29 (release-hygiene, R5 item 1), per the aid's own removal-recipe banner: `Source/Parsek/MapRenderWarpControl.cs` + `Source/Parsek.Tests/MapRenderWarpControlTests.cs` deleted; the sole `RegisterWatchWindow` caller removed from `GhostPlaybackLogic.ResolveTrackingStationSampleUT`; its now-callerless helper `Reaim.DescentTrigger.DescentWindowEndLiveUT` + the two `DescentTriggerTests` cells deleted; the `DebugFlags` class in `ParsekConfig.cs` deleted (`MapRenderWarpEnabled` was its only member); the aid's how-to section removed from `.claude/CLAUDE.md` and `AGENTS.md`. NO CHANGELOG entry, per the banner (never a shipping feature). Nothing in `harness/` or `scripts/` gated on it - the four surviving mentions in LIVE docs are prose only (`autotest-status.md` V3C row, `design-autotest-render-composition.md`, `harness/scenarios/V3C-flight-arrival-companion.toml`, `harness/missions/lib/test_v1_map_dwell.py`), each naming it as the MOLD for a hypothetical future zone-relax aid, so they are kept as historical record rather than rewritten. Four more sit in the ARCHIVED `docs/dev/done/todo-and-known-bugs-v7.md` and are correctly untouched - an archive records what was true when it was written.
 - ~~**Doc hygiene** - flip the stale "In progress - Forward trajectory rendering" header (shipped 0.10.2) + add SHIPPED markers to roadmap §19.4 M3/M4.~~ DONE (verified 2026-07-11): roadmap §19.4 already marks M1-M5 SHIPPED and no "In progress / Forward trajectory rendering" header remains in the roadmap or this file.
 - **Deferred re-aim solver follow-ups** - ~~M-MIS-2 S4 re-stitch (product-decision-gated)~~ SHIPPED (PR #1263 `reaim-s4-restitch` + sign fix #1279); leg-less-chain forward-run gap remains (low-severity polish). (`SolveArrivalWindow` wiring SHIPPED on branch `mmis4-solve-arrival-window` - see the M-MIS-4 entry.)
 
@@ -21716,12 +21790,68 @@ Action blocking catches paradoxes at the moment the player tries to violate them
 ## 160. Log spam: remaining sources after ComputeTotal removal
 
 After removing ResourceBudget.ComputeTotal logging (52% of output), remaining spam sources:
-- GhostVisual HIERARCHY/DIAG dumps (~344 lines per session, rate-limited per-key but burst on build)
-- GhostVisual per-part cloning details (~370 lines)
-- Flight "applied heat level Cold" (46 lines, logs no-change steady state)
-- RecordingStore SerializeTrackSections per-recording verbose (184 lines)
-- KSCSpawn "Spawn not needed" at INFO level (54 lines)
-- BgRecorder CheckpointAllVessels checkpointed=0 at INFO (15 lines)
+- ~~GhostVisual HIERARCHY/DIAG dumps (~344 lines per session, rate-limited per-key but burst on build)~~
+- ~~GhostVisual per-part cloning details (~370 lines)~~
+- Flight "applied heat level Cold" (46 lines, logs no-change steady state) - **BLOCKED BY PIN**
+- ~~RecordingStore SerializeTrackSections per-recording verbose (184 lines)~~
+- ~~KSCSpawn "Spawn not needed" at INFO level (54 lines)~~
+- ~~BgRecorder CheckpointAllVessels checkpointed=0 at INFO (15 lines)~~ - was already fixed
+
+**2026-08-29 update (release-hygiene, R5 item 3): four of the six named sources
+cut, one blocked by a harness pin, one already fixed years-stale.** Taken one at
+a time, because the reason differs per source and only the first two were the
+same defect:
+
+1. **GhostVisual HIERARCHY dump - FIXED.** `DumpTransformHierarchy` emitted one
+   rate-limited line PER TRANSFORM inside an unbounded recursive walk, which is
+   exactly what the batch-counting convention forbids. It is now
+   `AppendTransformHierarchy`, building the tree into a `StringBuilder` that
+   `LogEnginePartHierarchyDump` emits as ONE line
+   (`... N transforms [depth:name[components](INACTIVE)] 0:part | 1:model | ...`).
+   Nothing is lost: same nodes, same components, same INACTIVE marking, one line
+   per engine part per 60 s window instead of one per node.
+2. **GhostVisual per-part cloning details - FIXED, one line's worth.** Read
+   against the code, the per-part lines are ALREADY convention-shaped: `part_summary_`,
+   `clone_summary_`, the variant lines and the skip counters are each one
+   rate-limited line per part carrying loop-accumulated counters. The one
+   genuine duplicate was the second `[DIAG] part '<name>' modelRoot ...` line,
+   whose localRot / localPos / localScale the `part_summary_` line was already
+   half-carrying (modelRoot name + modelScale); it is folded into that line, so a
+   part costs one line here instead of two. NOT touched: the counter summaries -
+   collapsing those would delete measurements, not spam.
+3. **Flight "applied heat level" - BLOCKED BY PIN, deliberately unchanged.** It is
+   a REQUIRED `logContracts` token in the committed
+   `harness/scenarios/S1.9-part-showcase-render.toml`
+   (`"Part pid=[0-9]+: applied heat level (?:Hot|Medium|Cold)"`), and that spec's
+   own header explains why it is load-bearing: the part-event applier is almost
+   entirely silent, so this line is one of only two per-family apply proofs the
+   product emits at all. The obvious fix (change-key it so a no-change steady
+   state stops repeating) also risks the pin in a second way - `VerboseOnChange`'s
+   identity dict is not cleared on scene switch, so the first post-re-entry
+   application can be dropped, which is precisely the emit S1.9 waits for. Cutting
+   it therefore needs the S1.9 lane re-read first; it is not a two-line change and
+   was not attempted here.
+4. **RecordingStore SerializeTrackSections - FIXED.** The per-section
+   `writing source=... (non-default)` Verbose is collected into a list and emitted
+   as one summary after the loop (`wrote N sections, M with a non-default source:
+   [1] source=Background, ...`), so a save costs one line instead of M. The
+   existing `SerializeTrajectoryInto_BackgroundFixture_LogsSingleSectionSummary`
+   cell passes unchanged (it asserts a single line carrying `source=Background`,
+   which is now literally what the method's name says), plus two new cells in
+   `TrackSectionSerializationTests` for the many-source collapse and the
+   all-default silence.
+5. **KSCSpawn "Spawn not needed" - FIXED.** Info -> Verbose. It is the ORDINARY
+   outcome for every past-end recording the KSC scene walks, i.e. diagnostic
+   detail rather than an event; the spawn-needed paths beside it stay Info. Not
+   pinned anywhere in `harness/` or `scripts/`; the KSCSpawn xUnit assertions
+   target a different helper (`LogPlaybackDisabledPastEndSpawnAttemptOnce`).
+6. **BgRecorder CheckpointAllVessels checkpointed=0 - ALREADY FIXED, entry was
+   stale.** Bug #592 (see the 2026-04-25 update below) already moved it off Info
+   onto `VerboseRateLimited` keyed by the SHAPE of the result
+   (`checkpoint-all-{checkpointed}-{skippedNotOrbital}-{skippedNoVessel}-{skippedDuplicateBoundary}`),
+   so identical no-op summaries during a warp burst collapse while a change in
+   counts still surfaces. Nothing to do; the bullet above is struck for accuracy,
+   not for work done in this pass.
 
 2026-04-25 update: deferred spawn queue outside-physics-bubble waits are no longer
 a spam source; the per-recording kept line and repeated warp-ended summary were
@@ -21776,7 +21906,10 @@ section above.
 
 **Priority:** Deferred to Phase 11.5 (Recording Optimization & Observability)
 
-**Status:** Open
+**Status:** Open on ONE named source only - the heat-level line (item 3 in the
+2026-08-29 update), which is blocked behind an S1.9 harness pin and needs that
+lane re-read before it can move. The other five named sources are closed. The
+broader audit work stays with the Observability Audit section above.
 
 ---
 

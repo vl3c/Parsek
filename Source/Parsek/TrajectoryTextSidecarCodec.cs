@@ -1634,6 +1634,11 @@ namespace Parsek
 
             var ic = CultureInfo.InvariantCulture;
 
+            // Batch-counting convention (todo entry 160: this loop was ~184 Verbose lines per session, one per
+            // non-default-source section across every recording saved). The sources are collected here and emitted
+            // as ONE summary line after the loop, which still names each index and its source.
+            var nonDefaultSources = new List<string>();
+
             for (int t = 0; t < tracks.Count; t++)
             {
                 var track = tracks[t];
@@ -1649,8 +1654,7 @@ namespace Parsek
                 if (track.source != TrackSectionSource.Active)
                 {
                     tsNode.AddValue("src", ((int)track.source).ToString(ic));
-                    ParsekLog.Verbose("RecordingStore",
-                        $"SerializeTrackSections: [{t}] writing source={track.source} (non-default)");
+                    nonDefaultSources.Add($"[{t.ToString(ic)}] source={track.source}");
                 }
 
                 // Boundary discontinuity: sparse — only write when > 0
@@ -1727,6 +1731,12 @@ namespace Parsek
                 }
 
             }
+
+            if (nonDefaultSources.Count > 0)
+                ParsekLog.Verbose("RecordingStore",
+                    $"SerializeTrackSections: wrote {tracks.Count.ToString(ic)} sections, " +
+                    $"{nonDefaultSources.Count.ToString(ic)} with a non-default source: " +
+                    string.Join(", ", nonDefaultSources.ToArray()));
         }
 
         /// <summary>

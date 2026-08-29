@@ -264,6 +264,43 @@ All notable changes to Parsek are documented here.
   design, because they deliberately start from a save with no recorded flights
   in it at all and that check needs one.
   Test-tooling only; no gameplay change, and nothing ships with the mod.
+
+- Four long-standing sources of log noise are gone, which matters because the
+  log file is how every problem in Parsek gets diagnosed and a log that is mostly
+  chatter hides the one line that explains a bug. The biggest was the engine-part
+  inspection dump, which wrote a separate line for every single piece of an
+  engine's model - hundreds of lines for a handful of parts; it now writes the
+  whole tree as one line, with nothing left out. Each part being copied into a
+  ghost also described itself twice, in two lines that between them said the same
+  thing; they are one line now. Saving a recording wrote a line for every slice
+  of timeline that came from somewhere other than the ship you were flying; that
+  is now a single line at the end naming all of them. And the space centre wrote
+  a full announcement for each finished flight it decided it did not need to put
+  a ship down for - the ordinary outcome, and the thing detailed logging exists
+  for, so it moved down to detailed. One noisy line on the list was left exactly
+  as it is on purpose: it is the only evidence an automated test has that a
+  recorded part action was actually applied to a ghost, and quieting it would
+  blind that test. Nothing about what Parsek does changed - only how much it
+  says while doing it.
+
+- Quitting the game while watching a ghost no longer leaves an error in the log
+  file. Watch mode puts the camera back where it found it on the way out, and
+  when the way out is the game shutting down, it was asking which ship the
+  player is flying at a moment when the game has already thrown that answer
+  away - so every session that ended inside watch mode wrote one red-looking
+  Parsek line into the log. Nothing was ever broken by it: it happened after the
+  last frame of play, and the code was already prepared for there being no ship
+  to point the camera at. But an expected error line is the worst kind to leave
+  in a log, because it teaches everyone reading the log to skip that shape of
+  line. The camera restore now treats "the game is already gone" as one more
+  ordinary way to have no ship, and says so quietly in the detailed log instead.
+  One more effect worth naming: that error used to escape and cut short
+  everything Parsek does on the way out - putting ghost models and map markers
+  away, releasing the keyboard, disconnecting the replay machinery - so in this
+  one situation, ending a session while watching a ghost, all of that now
+  finishes instead of stopping half-done. Nothing a player does changes, and the
+  game was closing either way.
+
 - Parsek builds a standing exhibition of every part it knows how to draw: 243
   little one-part replays, one per part, lined up in three rows in front of the
   launch pad, each running a short clip that works that part's own moving bits -
