@@ -14,7 +14,126 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## CONTRACT-DEADLINE-CAPTURED-AS-DURATION: the ledger stores a contract's deadline OFFSET in a field every consumer reads as an absolute UT, so once a career runs long enough its accepted contracts are silently deleted out of Mission Control [FOUND 2026-08-29 while analysing #427 to close. **PLAYER-REACHABLE STATE LOSS WITH NO IN-GAME SIGNAL OF ANY KIND** - and nothing in the test estate can page anyone, because no committed fixture is old enough to trip it (see "Why no fixture catches this"). NOT FIXED HERE - filed with the proof so the fix is deliberate work rather than a drive-by inside a docs pass]
+## ~~CONTRACT-DEADLINE-CAPTURED-AS-DURATION: the ledger stores a contract's deadline OFFSET in a field every consumer reads as an absolute UT, so once a career runs long enough its accepted contracts are silently deleted out of Mission Control~~ [FOUND 2026-08-29 while analysing #427 to close. **PLAYER-REACHABLE STATE LOSS WITH NO IN-GAME SIGNAL OF ANY KIND** - and nothing in the test estate can page anyone, because no committed fixture is old enough to trip it (see "Why no fixture catches this"). FIXED 2026-08-29 on `deadline-absolute`; the forensic body below is KEPT VERBATIM as the derivation, and the fix is recorded under "THE FIX AS SHIPPED"]
+
+**THE FIX AS SHIPPED (2026-08-29).** Four parts, each with the decision that was
+open when this was filed:
+
+1. **Capture.** `GameStateRecorder.OnContractAccepted` now reads
+   `contract.DateDeadline` (the absolute UT). The three `DeadlineType` cases are all
+   covered without touching the protected `deadlineType` field, which has no public
+   accessor: decompiled `Contract.Accept()` assigns `dateDeadline = GameTime +
+   TimeDeadline` for `Floating` BEFORE `SetState(State.Active)` fires this event, and
+   `Offer()` assigns it for `Fixed`, while `None` never assigns it and leaves 0. The
+   has-a-deadline test is therefore `DateDeadline > 0`, which is stock's own idiom
+   (`Contract`'s description code tests `if (DateDeadline != 0.0)`); 0 stores the NaN
+   sentinel exactly as before.
+2. **Type.** `GameAction.DeadlineUT` is a `double`. The measured truncation in this
+   entry is the reason: the field could not hold a mid-career absolute UT.
+3. **On-disk migration, and the key NAME is the version stamp.** Bumping
+   `Ledger.CurrentLedgerVersion` was NOT an option - that constant is a hard rejection
+   gate (`LoadFromFile` empties the ledger on a mismatch), so a bump would delete every
+   existing career's ledger. Instead the absolute form is written under a NEW key,
+   `deadlineAbsUT`; the legacy `deadlineUT` key means a duration, forever, and
+   `GameAction.ResolveContractDeadlineUT` re-bases it as `row.UT + duration` on load.
+   That is exact because this entry proved `dateDeadline = dateAccepted + TimeDeadline`
+   and `dateAccepted == row.UT`. Idempotent BY CONSTRUCTION rather than by a flag: the
+   migrated row re-serializes under the absolute key only, so a second load takes the
+   absolute branch, and a hand-edited or half-written file cannot be re-based twice
+   (absolute wins outright when both keys are present). A zero / negative / NaN legacy
+   duration is NOT migrated - under the old capture's own `deadline > 0` convention it
+   meant "no deadline", and adding it would manufacture a deadline expiring at the
+   accept. The `Ledger.LoadFromFile` tally logs ONE batch summary per load
+   (`ContractAccept deadline resolution ... absolute=N, migratedFromDuration=N,
+   noDeadline=N, unparseable=N`), mirroring the existing legacy-ActionId migration log.
+4. **The same discriminator on the EVENT surface, and it is not optional.** The
+   `GameStateEvent` detail's `deadline=` key is a duration on disk too, and stored
+   events are re-converted into ledger rows at arbitrary later loads by
+   `LedgerLoadMigration.TryRecoverBrokenLedgerOnLoad` / `MigrateOldSaveEvents` - long
+   after any load-time ledger pass. A file-level ledger stamp would therefore let a
+   pre-fix event synthesize a duration-valued row into an already-migrated ledger. The
+   recorder now writes `deadlineAbsUT=`; `ConvertContractAccepted` prefers it and falls
+   back to the legacy key as `evt.ut + duration`, logging `deadlineSource=`.
+5. **The cheap guard this entry prescribed, taken.**
+   `ContractsModule.IsImplausibleContractDeadline(deadline, acceptUT)` is true when the
+   deadline does not sit strictly after the accept, and both
+   `HasContractDeadlineElapsed` and `IsBeforeContractDeadline` now take `acceptUT` and
+   refuse to act on an implausible value in EITHER direction (it neither expires the
+   contract nor denies a completion its reward), with a WARN deduped **one per contract
+   per recalculation walk** - the dedupe set is cleared by `ContractsModule.Reset()`,
+   which runs at the top of every walk. That granularity is deliberate rather than
+   incidental: `CheckDeadlines` runs on every dispatched action, so an undeduped WARN
+   would be per-action noise, while a process-lifetime latch would hide the condition
+   from the very next recalc's log - the one a player would actually collect.
+   `ComputeProjectionHorizon` applies the same guard, so a value that was never a UT
+   cannot blow the horizon out. NOTE the honest limit, pinned by a test: the guard does
+   NOT save the case this entry documents - a duration parked in `DeadlineUT` for an
+   EARLY accept is indistinguishable from a real deadline. The capture and the
+   migration are the fix; the guard catches the class at the point of use.
+
+**CAREERS THAT ALREADY LOST CONTRACTS GET THEM BACK, and this was traced in source
+rather than hoped for.** The eviction was never persisted. `ContractsModule.PrePass`
+appends its synthetic `ContractFail` to the list `RecalculationEngine` is walking, and
+that list is `SortActions(actions)`, which returns a fresh `ToList()` - so the synthetic
+row lives and dies inside one walk and never reaches `Ledger.Actions` or the `.pgld`
+file. The eviction itself is equally per-walk: `CheckDeadlines` moves the id out of the
+module's in-memory `activeContracts`, which is rebuilt from scratch by the next
+`Reset()`. So a pre-fix save still carries an intact `ContractAccept` row; the migration
+re-bases it to the correct absolute deadline; the contract lands back in `activeIds`;
+and `KspStatePatcher.PatchContracts` step 2 re-creates it through
+`GameStateStore.GetContractSnapshotForPatch` + `Contract.Load` from the ACCEPT-TIME
+CONTRACT snapshot - stock's own node, carrying stock's own correct `values` line
+including `dateDeadline`. TWO CONDITIONS, both ordinary, stated so the claim is not
+oversold: the accept-time snapshot must still be in `GameStateStore` (written by
+`OnContractAccepted` at accept), and the contract's type must still be registered
+(`ContractSystem.GetContractType` - a removed mod's contract cannot come back, and
+already logs a Warn saying so). What does NOT come back is progress made after the
+eviction, because stock stopped ticking a contract it no longer held; the contract
+returns at its snapshotted state.
+
+**ONE UNREACHABLE-ON-STOCK EDGE, recorded so it is not re-derived later.** The guard
+keys on `deadline > acceptUT`, and there is a shape where that is wrong: a
+`DeadlineType.Fixed` contract has its `dateDeadline` assigned at OFFER, so a contract
+offered with `TimeExpiry > TimeDeadline` could still be sitting on the offer board after
+its own deadline and be accepted past it. The guard would then hold open a contract
+stock itself expires. It is NOT reachable on stock - every stock contract generator
+sizes expiry below deadline - and it needs a Contract-Configurator-style pack to author
+the inverted pair. No change was made, deliberately: the failure direction is
+NOT-DELETING a contract, which is the safe side of the very defect this entry is about,
+and stock's own `Contract.Update()` still expires it on its own authority. Revisit only
+if a modded pack is ever reported.
+
+**Tests.** `Source/Parsek.Tests/ContractDeadlineAbsoluteUTTests.cs` (23 cells): the
+regression pin reading the same guid out of the C2Career fixture's stock CONTRACT
+node and its ledger row (raw value IS `values[1]`, row `ut` IS `values[9]`, migrated
+value IS `values[10]` within the fixture's own pre-existing float truncation); the
+migration cells (duration -> absolute, absolute verbatim, absolute-wins-over-legacy,
+no-deadline untouched, non-positive duration untouched, unparseable, and a
+save/load/save idempotence cycle); the sanity-guard cells including the
+one-WARN-per-contract-per-walk case; both `ComputeProjectionHorizon` directions; and the
+AGED-CAREER shape neither committed fixture can reach - a legacy ledger whose later
+action sits at UT 8,230,000, ABOVE the deadline duration 8,228,571.5 and BELOW the
+absolute deadline 8,236,952.5. That cell was re-run on a detached `origin/main`
+worktree and FAILS there (`activeContracts` empty), passes here. Converter cells live
+in `GameStateEventConverterTests.cs`.
+
+**Harness.** `career-contract-pad` and `career-earned-pad` now author `deadlineAbsUT`.
+The contract-pad numbers did not move (they were always reasoned about as absolute
+UTs against the walk clock, which is why leaving them on the legacy key would have
+migrated B from 100 to 106 and broken L5's `at deadlineUT=100` pin). The earned-pad
+row moved from `values[1]` 9201600 to `values[10]` 9201960, which is the same
+contract's real `dateDeadline`. Both builders' verify paths reject the legacy key.
+The `PrePass` log token itself is unchanged - `deadlineUT=` there is now genuinely a
+UT - so no armed harness token moved.
+
+**NOT DONE, deliberately.** The Career State window's "Deadline UT" column still
+renders a raw UT rather than a date string. It now shows a REAL UT, which was the
+defect; converting it to a date is a UI change that would have to take the adjacent
+"Accept UT" column with it and would push a Unity-guarded `KSPUtil.PrintDateCompact`
+into `FormatContractRow_Deadline`, today a pure headless-tested formatter. Left as a
+separate decision.
+
+---
 
 **The mismatch, proved from both sides.** `GameStateRecorder.OnContractAccepted` captures
 `double deadline = contract.TimeDeadline;` (`GameStateRecorder.Handlers.cs:42`). In
@@ -144,6 +263,9 @@ of use.
 
 It IS also the reason #427's ContractDeadlineMissed rule was closed rather than built - a
 player-facing warning printed off this quantity would be a confidently-worded lie.
+(Post-fix note: the quantity is now trustworthy, so that objection no longer stands.
+Whether the rule is worth building is a separate call nobody has taken - it stays closed
+until someone takes it deliberately, not by inheritance from this paragraph.)
 
 ---
 

@@ -259,7 +259,7 @@ CONTRACT_ACCEPT_SEQ = "2"
 #   [9] dateAccepted      [10] dateDeadline      [11] dateFinished
 # THREE SLOTS ARE RE-STAMPED on this harvest's contract, where the previous one
 # needed six - the difference is not a change of recipe but of luck: this
-# contract's [1] / [4] / [7] are ALREADY float-exact integers (9201600 / 27225.000590086
+# contract's [10] / [4] / [7] are ALREADY float-exact integers (9201960 / 27225.000590086
 # rounds to 27225 / 12), so only one of the three coherence edits has any work to
 # do. The traps are identical.
 #   [2] 24750 -> 0                TRAP 1
@@ -269,7 +269,7 @@ CONTRACT_ACCEPT_SEQ = "2"
 #                                 is not already exact, moved onto a float-exact
 #                                 value so both sides carry the same literal text
 #                                 rather than two roundings of one number.
-#                                 ([1] = 9201600 and [7] = 12 need no such move.)
+#                                 ([10] = 9201960 and [7] = 12 need no such move.)
 # The other slots are the harvest's own and are inert here.
 BASE_CONTRACT_VALUES = ("21600,9201600,24750,"
                         "68062.501475215,27225.000590086,9,14.54545,12,"
@@ -278,12 +278,20 @@ ACTIVE_CONTRACT_VALUES = ("21600,9201600,0,"
                           "68062.501475215,27225,9,14.54545,12,"
                           "21615.14,360,9201960,0")
 
-# The ledger row's mirrors of [1] / [4] / [7]. `deadlineUT` is a DURATION and not
-# an absolute date, which looks wrong and is not: the c2 accept row's
-# `deadlineUT = 8228571.5` is float(values[1]) of the contract it accepted, not
-# that contract's `dateDeadline`. Mirroring the recorder rather than correcting it
-# is the whole point of a fixture-carried row.
-CONTRACT_DEADLINE_UT = "9201600"
+# The ledger row's mirrors of [10] / [4] / [7]. `deadlineAbsUT` is float(values[10]),
+# the contract's ABSOLUTE `dateDeadline`, because that is what
+# `GameStateRecorder`'s accept handler captures since
+# CONTRACT-DEADLINE-CAPTURED-AS-DURATION was fixed (2026-08-29). Mirroring the
+# recorder is the whole point of a fixture-carried row.
+#
+# IT USED TO MIRROR values[1] INSTEAD, and that was faithful to a defect rather
+# than to KSP: the pre-fix handler captured `Contract.TimeDeadline` (a DURATION)
+# into a field every consumer reads as a UT, which is exactly what the c2 accept
+# row's `deadlineUT = 8228571.5` records. A pre-fix save still spells the key
+# `deadlineUT`; `GameAction.ResolveContractDeadlineUT` migrates that shape on
+# load by adding the row's own `ut`, which for this fixture would reproduce
+# 360 + 9201600 = 9201960 - the number now authored directly.
+CONTRACT_DEADLINE_UT = "9201960"
 CONTRACT_FUNDS_PENALTY = "27225"
 CONTRACT_REP_PENALTY = "12"
 
@@ -531,16 +539,16 @@ def build_loadmeta(base_meta: List[str], lines: List[str]) -> List[str]:
 #
 #   TRAP 2 - the deadline MUST NOT have elapsed. `ContractsModule.PrePass` scans
 #   every accept with a non-NaN deadline and INJECTS a synthetic `ContractFail`
-#   at the deadline UT once `HasContractDeadlineElapsed(nowUT, deadline)`, where
-#   `nowUT` falls back to the last surviving action's UT; `ProcessAction` then
-#   re-checks via `CheckDeadlines(action.UT)` on every single action. Either path
-#   empties the active set and re-vacuifies the compare - and the injected fail
-#   would ALSO apply `fundsPenalty` + `repPenalty`, moving two hard-gated pools.
-#   8680754 against a walk whose largest UT is this row's own 360 is roughly four
-#   orders of magnitude of margin. (Omitting the key entirely is the other legal
-#   answer - `DeserializeContractAccept` defaults a missing `deadlineUT` to NaN
-#   and NaN deadlines never expire - but c2's real row carries one, so this one
-#   does too.)
+#   at the deadline UT once `HasContractDeadlineElapsed(nowUT, deadline, acceptUT)`,
+#   where `nowUT` falls back to the last surviving action's UT; `ProcessAction`
+#   then re-checks via `CheckDeadlines(action.UT)` on every single action. Either
+#   path empties the active set and re-vacuifies the compare - and the injected
+#   fail would ALSO apply `fundsPenalty` + `repPenalty`, moving two hard-gated
+#   pools. 9201960 against a walk whose largest UT is this row's own 360 is
+#   roughly four orders of magnitude of margin. (Omitting the key entirely is the
+#   other legal answer - `DeserializeContractAccept` defaults a missing deadline
+#   key to NaN and NaN deadlines never expire - but c2's real row carries one, so
+#   this one does too.)
 #
 #   TRAP 3 - NO `type = 6` (`ContractComplete`) ROW. A completion would remove the
 #   id from `activeContracts` (the slot is freed regardless of effectiveness),
@@ -559,7 +567,7 @@ CONTRACT_ACCEPT_ROW = [
     "\tcontractType = %s" % ACTIVE_CONTRACT_TYPE,
     "\tcontractTitle = %s" % ACTIVE_CONTRACT_TITLE,
     "\tadvanceFunds = 0",
-    "\tdeadlineUT = %s" % CONTRACT_DEADLINE_UT,
+    "\tdeadlineAbsUT = %s" % CONTRACT_DEADLINE_UT,
     "\tfundsPenalty = %s" % CONTRACT_FUNDS_PENALTY,
     "\trepPenalty = %s" % CONTRACT_REP_PENALTY,
     "}",
@@ -666,14 +674,23 @@ def verify_ledger(lines: List[str]) -> List[str]:
     # TRAP 2. The margin is stated against the walk's own largest UT, which after
     # the append is this row's, rather than against the FLIGHTSTATE clock: PrePass
     # and CheckDeadlines both compare against action UTs, not against "now".
-    deadline = get_value(lines, accept, "deadlineUT")
+    deadline = get_value(lines, accept, "deadlineAbsUT")
     if deadline is None:
-        problems.append("accept row has no deadlineUT (a missing key is legal - it "
-                        "reads back NaN - but this recipe writes one, so its "
-                        "absence means the row was rewritten)")
+        legacy = get_value(lines, accept, "deadlineUT")
+        if legacy is not None:
+            problems.append(
+                "accept row spells its deadline `deadlineUT`, the LEGACY key whose "
+                "value is a DURATION (CONTRACT-DEADLINE-CAPTURED-AS-DURATION). "
+                "GameAction.ResolveContractDeadlineUT would MIGRATE it on load by "
+                "adding the row's own ut, so the fixture would not carry the value "
+                "it states. Write `deadlineAbsUT` with the contract's values[10]")
+        else:
+            problems.append("accept row has no deadlineAbsUT (a missing key is legal "
+                            "- it reads back NaN - but this recipe writes one, so "
+                            "its absence means the row was rewritten)")
     elif float(deadline) <= float(CONTRACT_ACCEPT_UT):
         problems.append(
-            "accept row deadlineUT %r has already elapsed at the accept UT %s: "
+            "accept row deadlineAbsUT %r has already elapsed at the accept UT %s: "
             "ContractsModule.PrePass would inject a synthetic ContractFail, "
             "emptying the active set AND applying fundsPenalty/repPenalty to two "
             "hard-gated pools" % (deadline, CONTRACT_ACCEPT_UT))

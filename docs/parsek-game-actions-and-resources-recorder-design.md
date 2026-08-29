@@ -1360,7 +1360,11 @@ ContractAccept (KSC action — consumes a slot)
   contractType:   string — e.g. "ExploreBody", "PartTest", "TourismContract"
   title:          string — human-readable (e.g. "Explore the Mun")
   advanceFunds:   float — advance payment received (IMMUTABLE)
-  deadlineUT:     float or NULL — expiration UT, NULL if no deadline
+  deadlineAbsUT:  double or NULL — ABSOLUTE expiration UT (stock
+                  `Contract.DateDeadline`), NULL if no deadline. The legacy key
+                  `deadlineUT` carries a DURATION and is migrated on load — see
+                  CONTRACT-DEADLINE-CAPTURED-AS-DURATION in
+                  `docs/dev/todo-and-known-bugs.md`
 
 ContractComplete (recording-associated earning)
   ut:             double — when completion conditions were met during flight

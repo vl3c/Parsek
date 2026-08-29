@@ -185,7 +185,7 @@ GAME_ACTION
 	contractType = PartTest
 	contractTitle = Test TD-12 Decoupler on an escape trajectory out of Kerbin.
 	advanceFunds = 0
-	deadlineUT = 9201600
+	deadlineAbsUT = 9201960
 	fundsPenalty = 27225
 	repPenalty = 12
 }

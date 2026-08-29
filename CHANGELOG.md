@@ -39,6 +39,32 @@ All notable changes to Parsek are documented here.
 
 - A tech node you have researched can no longer be quietly re-locked because Parsek's own bookkeeping came up short. Parsek keeps a running reconstruction of your career's science, and when it replays your history it re-derives which nodes the R&D tree should show as unlocked. If that reconstruction ever arrived at a node's purchase with less science in hand than the node cost, it refused to charge you - correctly - but then treated the node as never bought and stripped it out of the tree. That took the parts you had already paid entry costs for with it, with no way to get them back short of paying again, and the tree repainted itself into a state that looked perfectly normal, so the only sign was parts missing in the VAB. Nothing about it was limited to rewinding: any ordinary replay could reach it, including the ones that run when you load a save, recover a craft, roll out a vessel or spend at the KSC. Parsek now refuses to take a researched node away on that evidence. When the history it is replaying still says you researched a node and the only obstacle is a shortfall in its own arithmetic, it keeps the node, keeps the parts, and writes a loud, specific line to the log naming the node, its cost and the shortfall. Re-locking a node for a real reason - rewinding to before you researched it, for instance - works exactly as before.
 
+- Long careers no longer silently lose accepted contracts. Parsek stored the wrong
+  number when you accepted a contract: it wrote down how LONG you had to finish it
+  instead of the date it was due, and then read that number back as a date. Early in
+  a career the two look similar enough that nothing went wrong. Once your career had
+  been running longer than a typical deadline is long - roughly one Kerbin year for a
+  one-year contract - every accepted contract suddenly read as already overdue, and
+  the next thing you did in the game, anything at all, made it vanish from Mission
+  Control. No failure message, no red notification, no entry in the contract history:
+  it was simply gone. Contracts now record the real due date, and the funds projection
+  that quietly leans on the same number is correct too. Careers saved before this fix
+  are repaired automatically the first time they load, using the date the contract was
+  accepted, and the repair is stamped so it happens exactly once and says in the log
+  what it did. A contract with no deadline is left alone. Parsek also now refuses
+  outright to expire a contract on a due date that falls before the moment it was
+  accepted, and says so in the log, so a number that was never a date can no longer
+  delete anything.
+
+  If this already happened to your career, the contracts come back. Parsek was never
+  writing the failure down - it was re-deciding, wrongly, every time it recalculated -
+  and it keeps a copy of each contract exactly as the game handed it over when you
+  accepted it. So the contracts you lost are restored the first time the fixed version
+  recalculates your career, with their real deadlines, rewards and penalties intact.
+  Two honest caveats: a contract belonging to a mod you have since uninstalled cannot
+  be rebuilt, and progress you would have made while it was missing is not invented -
+  it comes back in the state it was in when it disappeared.
+
 - Harvesting on a landed mining rig is now recorded correctly across time warp. Parsek brackets resource harvesting into windows - one opens when a converter or drill starts and closes when it stops - so a later delivery can tell mined cargo apart from carried cargo. Those windows must never open or close while the craft is packed away under warp, because the resource figures readable there are whatever the game last caught up to rather than anything Parsek watched. For a craft in orbit that rule held. For a LANDED, splashed or on-the-pad craft it did not: the game leaves a surface craft where it is under warp, so Parsek's own on-rails bookkeeping is deliberately never switched on for it, and the check meant to keep the harvest poll off warp frames read "not warping" for the entire warp. Two things went wrong as a result, and both are fixed. The poll ran on packed frames and could open or close a window off resource figures nobody witnessed - it now sits out every packed frame, judged by whether the craft is actually packed rather than by that bookkeeping. And the note that says "the next harvesting decision belongs to the moment warp ended" was being used up by the first idle frame after the warp instead of by the decision it was meant for, so a drill switched off during a warp had its window closed and labelled an ordinary mid-flight toggle. That note now survives an idle frame, is set when warp ends (including for the surface craft whose warp exit had never set it at all), and expires a few seconds later - long enough for the close a real warp exit produces, short enough that a toggle you make minutes afterwards is no longer blamed on the warp.
 
   One deliberate limit is worth stating, because it is a refusal to guess rather than an oversight: a drill you switch ON while the craft is already warping does not start its window until the warp ends, so whatever it produced in between is recorded as not-harvested. Parsek could only invent that figure - the readings available mid-warp are not ones it watched - and an unclaimed gap is a smaller error than a made-up number. A drill already running before the warp keeps its window open across the whole thing, which is the usual case for a mining rig.

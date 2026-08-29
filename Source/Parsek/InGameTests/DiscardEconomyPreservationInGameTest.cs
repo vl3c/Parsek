@@ -170,7 +170,7 @@ namespace Parsek.InGameTests
                     Type = GameActionType.ContractAccept,
                     ContractId = contractId,
                     UT = 100.0,
-                    DeadlineUT = float.NaN,
+                    DeadlineUT = double.NaN,
                 });
 
                 // Completed during the recorded flight: tagged to the pending recording id.

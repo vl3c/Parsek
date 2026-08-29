@@ -331,7 +331,7 @@ class L5SpecFixtureSyncTests(unittest.TestCase):
     def test_the_pinned_deadline_is_the_fixtures_own(self):
         builder = self.builder
         row = builder._ledger_rows(self.ledger)[1]
-        deadline = builder.get_value(self.ledger, row, "deadlineUT")
+        deadline = builder.get_value(self.ledger, row, "deadlineAbsUT")
         self.assertTrue(
             any("at deadlineUT=%s " % deadline in t for t in self._required()),
             "no required token pins the injection at deadlineUT=%s" % deadline)
