@@ -1,0 +1,170 @@
+schema = 1
+id = "PPB-2-brandnew-career-skip"
+# TIER = operator. LIVE-PROVEN 2026-08-29 ON THE SECOND RUN, and the FIRST one earned its
+# keep. Reading `2026-08-29_1102`: PARSEK-FAIL(expectation) on exactly ONE token, with
+# every other verifier PASS - and the red was THIS SPEC'S BUG, not the product's. It
+# forbade `Skip: reason=already-parsek-footprint` ABSOLUTELY, a token this category's own
+# repeat-invocation cell legitimately emits once the in-game batch's campaign-isolation
+# marker save has populated the on-disk node. The product decided correctly at the only
+# moment that matters (cold gate, log line 9992, `brand-new-empty`, ahead of any
+# save-write). Forbid re-cut to the ORDERING form; see the forbidden block for the full
+# measurement and the general lesson. CONFIRM `2026-08-29_1107`: PASS attempt 1, 46 s,
+# every verifier PASS/SKIPPED, `mismatches=0`, and the same brand-new-then-footprint
+# sequence reproduced - so the corrected pin is proven against the behaviour, not merely
+# against one log. PROMOTE TO `daily` beside PPB-1; the tally needed no re-pin.
+tier = "operator"
+#
+# THE CONTROL HALF OF THE PRE-PARSEK BACKUP LANE. PPB-1 proves the backup FIRES and what
+# it produces; this proves it does NOT fire on a brand-new empty career - runbook step 4
+# in docs/dev/todo-and-known-bugs.md ("A brand-new empty career logs
+# Skip: reason=brand-new-empty and gets no twin").
+#
+# WITHOUT THIS SPEC PPB-1 IS HALF A STATEMENT. A backup that fired unconditionally would
+# pass every PPB-1 contract while spamming a Load-menu twin for every new save a player
+# starts - which is precisely why IsBrandNewEmptySave exists. The two specs share one
+# in-game category on purpose: the same four cells read the same filesystem, and the
+# fixture is the only thing that changes.
+description = "Cold-load a brand-new empty career: Parsek must skip the pre-Parsek backup with reason=brand-new-empty and leave no sibling folder."
+instanceProfile = "stock-minimal"
+tags = ["ingame-batch", "backup", "career", "PPB", "PPB-2", "pending-operator"]
+
+[fixture]
+# A DEDICATED LEAF rather than the existing `fresh-career`, which is byte-for-byte the
+# same career. This is the produced-save clobber-race rule, not ceremony: B10, R7c, L1
+# and M2 all stage `fresh-career`, so sharing it would put this spec's produced save in
+# a directory four other specs overwrite. Built (Title restamp only) by
+# tools/build_preparsek_fixtures.py, whose strip steps run over it and must find
+# NOTHING - the negative control that proves the strip applied to PPB-1's fixture
+# removed something real.
+saveTemplate = "fixtures/saves/preparsek-brandnew-career"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+# Zero VESSEL nodes, so DecideLoadRoute takes the NoVesselSpaceCenter branch and the
+# batch runs at the Space Center - the same measured route B10 / R7c / L1 take from the
+# identical career shape. `scene=SPACECENTER` in the tally pin is what makes a silently
+# changed route red.
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" },  expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "RunTests",   args = { category = "PreParsekBackup" },              expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit",                                                     expect = "OK" },
+]
+
+[dimensionsCovered]
+# NOTHING NEW IS CLAIMED, deliberately, and the reason is the R7c precedent: this spec's
+# value is its assertions and its tally, not a registry row. D16 `pre-parsek-backup` is
+# claimed by PPB-1 off the cells that observe a real capture; re-labelling it here would
+# make the coverage map read as growth where a control was added.
+D14 = ["career", "cold-load-ut0", "scene-ksc"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 0, max = 0 }
+
+[expectations.logContracts]
+# THE TALLY. total=4 is the same attribute-exact count PPB-1 pins (one category, four
+# declarations, all AnyScene / AllowBatchExecution default-true, so ZERO
+# attribute-forced skips). The SPLIT is what differs and it is the honest reading of
+# this fixture: with no backup on disk, BackupSiblingCarriesLoadMenuShape and
+# CapturedPersistentIsGameplayPristine InGameAssert.Skip naming the missing context
+# (they have nothing to inspect), while RepeatColdContactCreatesNoSecondBackup and
+# BackupPresenceMatchesTheEligibilityDecision execute and carry the claim:
+#   - the repeat cell re-invokes the real MaybeBackupOnFirstColdContact entry point and
+#     requires the backup census to stay EMPTY, i.e. the skip is a property of the
+#     production path and not of a single lucky call;
+#   - the presence cell takes its no-marker/no-backup branch and re-runs the real
+#     decision inputs over the on-disk save, requiring ShouldBackup to say NO. On this
+#     fixture the only reason it can say NO is brand-new-empty (there is no Parsek
+#     footprint and it is not a backup folder), which the required Skip literal below
+#     pins independently from the product's own log.
+# MEASURED, run 2026-08-29_1102: the line came back `total=4 passed=2 failed=0
+# skipped=2 category=PreParsekBackup scene=SPACECENTER` - the derivation exactly, so
+# this pin is now backed by a flight rather than by arithmetic.
+# passed=2 with skipped=2 clears the anti-vacuity gate (passed > 0) and the
+# attribute-forced floor (0).
+#
+# Note both cells' skip is RUN-TIME, so `skipped=2` is not derivable from the
+# attributes; hlib treats run-time skips as pushing skipped only HIGHER, which is why
+# this pin is accepted while PPB-1's skipped=0 is the derivable floor.
+required = [
+  "BATCH_COMPLETE v1 total=4 passed=2 failed=0 skipped=2 category=PreParsekBackup scene=SPACECENTER",
+  "Skip: reason=brand-new-empty save='preparsek-brandnew-career'",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  # THE CONTROL ITSELF: no capture line may exist for this save, under any of the three
+  # tokens PerformBackup can emit. A backup that fired here is the bug.
+  "Captured pre-Parsek backup: save='preparsek-brandnew-career'",
+  "First-contact backup: save='preparsek-brandnew-career'",
+  "outcome=captured-not-pristine",
+  # THE FOOTPRINT SKIP IS FORBIDDEN ONLY *BEFORE* THE BRAND-NEW ONE, and the ordering
+  # form is a CORRECTION off flight 1 (run 2026-08-29_1102, PARSEK-FAIL on exactly this
+  # token as an ABSOLUTE forbid). The absolute form was unsatisfiable by construction and
+  # the red was the lane reporting a SPEC BUG, not a product defect - the product decided
+  # correctly at the only moment that matters.
+  #
+  # WHAT FLIGHT 1 MEASURED, by log line, which is why this is an ordering pin now:
+  #   9992   cold-load gate -> `Skip: reason=brand-new-empty`. The REAL decision, taken
+  #          before any save-write. Correct, and it is what the `required` token pins.
+  #   10152  the in-game batch's own campaign-isolation marker save runs
+  #          ParsekScenario.OnSave, which writes a POPULATED node (4 values) to disk.
+  #   10282  this category's cells re-read the on-disk save and now see footprint=True.
+  #   10307  RepeatColdContactCreatesNoSecondBackup invokes the real
+  #          MaybeBackupOnFirstColdContact() again and legitimately emits
+  #          `already-parsek-footprint`.
+  # The produced save's node is INERT again afterwards (teardown reverts from the .bak),
+  # and zero backup folders were created. Nothing about that sequence is wrong.
+  #
+  # THE GENERAL LESSON, recorded here because the next lane author will hit it: ANY
+  # in-game cell that RE-READS the on-disk save observes a POPULATED ParsekScenario node
+  # mid-batch, because campaign isolation SAVES before teardown REVERTS. A contract
+  # written against the on-disk footprint must therefore be scoped to a moment, not
+  # stated absolutely over the whole log.
+  #
+  # AND THE READING THAT IS REFUTED, so nobody re-derives it: this is NOT evidence that
+  # `IsBrandNewEmptySave` is dead code sitting behind the footprint check. Line 9992 is
+  # the brand-new branch DECIDING, ahead of any footprint. The ordering pin below is
+  # exactly that fact, expressed so a regression would red.
+  "Skip: reason=already-parsek-footprint save='preparsek-brandnew-career'[\\s\\S]*?Skip: reason=brand-new-empty save='preparsek-brandnew-career'",
+  # Unchanged and still absolute: a missing on-disk persistent.sfs at any point would
+  # mean the fixture stopped being the subject it was staged as.
+  "Skip: reason=no-persistent-sfs save='preparsek-brandnew-career'",
+]
+
+# FIRST-FLIGHT READING NOTE - now MEASURED, and the pre-registered hypothesis it carried
+# was CONFIRMED on the half that mattered and IRRELEVANT on the half that red the run.
+# Kept in full because the prediction and its outcome are the useful record.
+#
+# THE PREDICTION: this fixture reaches the backup gate carrying NO ParsekScenario node of
+# its own; the node on disk at cold-OnLoad time is the one KSP writes for itself, because
+# the SPACECENTER route runs `UpdateScenarioModules` + `SaveGame(persistent, OVERWRITE)`
+# before `game.Start()`, and that written node should be INERT (`name` + `scene`) since a
+# freshly created `ProtoScenarioModule` has a null `moduleRef` and saves only its own two
+# values. CONFIRMED: run 2026-08-29_1102 took the brand-new branch at the cold gate (log
+# line 9992), which it could only do over an inert node, and the produced save's node is
+# `name` + `scene`.
+#
+# THE THRESHOLD CAVEAT REMAINS OPEN AND UNMEASURED, deliberately restated rather than
+# struck: `HasParsekGameplayFootprint` calls a node populated at `values.Count > 2`, so a
+# THIRD value appearing in that PRE-BOOT write - a KSP version stamping something extra,
+# or a Parsek change landing a value before the first cold OnLoad - would flip the cold
+# gate to `already-parsek-footprint` and red the required token. That has NOT been
+# observed; if it ever is, the lane is reporting correctly and the finding is real (the
+# brand-new-empty branch would have become unreachable for every player starting a new
+# career). It is NOT what red flight 1 - see the forbidden block above, where the actual
+# cause (this category's own cells re-reading a mid-batch populated node) is recorded.
+# Diagnose by reading the COLD-GATE line first, then the produced save's node.
+
+[runtime]
+budgetSeconds = 1200
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

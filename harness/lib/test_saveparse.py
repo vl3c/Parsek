@@ -630,13 +630,15 @@ class AdversarialMutationTests(unittest.TestCase):
 
 class CommittedFixtureSweepTests(unittest.TestCase):
     """Corpus 1: every committed fixture save parses, and its structural counts
-    are pinned EXACTLY. Eleven fixtures carry the spliced inert ParsekScenario
-    node (a flyable template must, or the FLIGHT route records nothing); the
-    three fresh-* templates carry none, and neither does `strategy-career`,
-    which is `fresh-career` plus a reputation seed. ALL committed fixtures carry zero
-    trees / staging rows - the rich payloads are injected at stage time and
-    deliberately NOT committed. A fixture edit that changes any of this reds
-    here instead of on the next nightly."""
+    are pinned EXACTLY. Twenty-one fixtures carry a ParsekScenario node (a flyable
+    template MUST, or the FLIGHT route records nothing - see
+    `test_every_node_less_fixture_is_vessel_less`); five carry none - the three
+    fresh-* templates, `strategy-career` (which is `fresh-career` plus a reputation
+    seed), and `preparsek-brandnew-career` (`fresh-career` retitled) - and every one
+    of the five is VESSEL-LESS, which is what makes the absence safe. ALL committed
+    fixtures carry zero trees / staging rows - the rich payloads are injected at
+    stage time and deliberately NOT committed. A fixture edit that changes any of
+    this reds here instead of on the next nightly."""
 
     # fixture dir -> ParsekScenario node present in persistent.sfs
     EXPECTED_SCENARIO_PRESENCE = {
@@ -820,6 +822,45 @@ class CommittedFixtureSweepTests(unittest.TestCase):
         # `harness/tools/build_strategy_career.py`, drift-guarded by
         # `StrategyCareerFixtureDriftTests`.
         "strategy-career": False,
+        # THE TWO PRE-PARSEK-BACKUP FIXTURES. `PreParsekBackup.HasParsekGameplayFootprint`
+        # reads a POPULATED `SCENARIO{name=ParsekScenario}` node as "this save has
+        # already met Parsek" and declines to back it up, so a lane that wants to
+        # observe the backup FIRE must stage a save the probe reads as untouched -
+        # WITHOUT losing the node itself, which is a different requirement entirely.
+        #
+        # `preparsek-untouched-career` is `career-earned-pad` with that node REDUCED
+        # TO ITS INERT FORM (`name` + `scene` only), the `PARAMETERS > ParsekSettings`
+        # node deleted, the `Parsek/` sidecar tree not copied, and the Title restamped.
+        # It keeps the career (a PRELAUNCH pad craft, nine contracts, four science
+        # subjects, a crewed CAREER_LOG) so it is NOT brand-new-empty - the other half
+        # of the gate.
+        #
+        # TRUE, AND IT IS THE SAME RULE AS THE `*-park-*` FAMILY ABOVE, reached from
+        # the opposite direction. Those keep the node and excise its CHILDREN because
+        # a flyable template must carry it; this one is flyable too - it is the ONLY
+        # fixture in the corpus that is both FOCUSABLE and wanted footprint-free - so
+        # it keeps the node for the identical reason: the seam's FLIGHT route calls
+        # StartAndFocusVessel with no UpdateScenarioModules, and a save with no NODE
+        # boots with no MODULE (CL-1 flight 1). The difference is only how far the
+        # emptying goes. The `*-park-*` saves keep 4 values, which IS a footprint by
+        # HasParsekGameplayFootprint's `values.Count > 2`; this one keeps 2, the inert
+        # form KSP itself writes via AddToAllGames, which is not.
+        #
+        # `preparsek-brandnew-career` is `fresh-career` with the Title restamped and
+        # nothing else - the brand-new-empty CONTROL, on its own leaf rather than
+        # sharing `fresh-career` with B10 / R7c / L1 / M2 (the produced-save clobber
+        # race: specs that share a saveTemplate leaf share one staged directory). It
+        # carries NO node and needs none, for the reason the new
+        # `test_every_node_less_fixture_is_vessel_less` cell now GATES: it is
+        # vessel-less, so it routes to SPACECENTER, where LoadGameImpl DOES call
+        # UpdateScenarioModules + SaveGame and KSP writes the inert node to disk
+        # itself before the scene boots.
+        #
+        # Both are built and drift-guarded by `tools/build_preparsek_fixtures.py` +
+        # `lib/test_preparsek_fixtures.py`, which re-runs the derivation over the
+        # committed bases and asserts byte-identity.
+        "preparsek-untouched-career": True,
+        "preparsek-brandnew-career": False,
         "gloops-airshow": True,
         "gs1-two-stage-pad": True,
         "gs2-orbital-stack": True,
@@ -2373,6 +2414,52 @@ class CommittedFixtureSweepTests(unittest.TestCase):
                           | set(self.RECORDED_FIXTURES))
         self.assertEqual(expected, found,
                          "committed fixture set changed - re-pin this sweep")
+
+    def test_every_node_less_fixture_is_vessel_less(self):
+        """KNOWN-GATE 6, AS A CELL RATHER THAN AS PROSE.
+
+        A fixture with no `SCENARIO{name=ParsekScenario}` node is only safe if it is
+        VESSEL-LESS. `TestCommandLoadGame.DecideLoadRoute` sends a save with a
+        focusable vessel down `LoadGameImpl`'s FLIGHT branch, which calls
+        `FlightDriver.StartAndFocusVessel` with NO `GamePersistence.
+        UpdateScenarioModules` and no `SaveGame` - so the ParsekScenario MODULE is
+        never instantiated, `ParsekScenario.OnLoad` never runs, and nothing Parsek
+        does is reachable for the whole flight. The vessel-less saves are safe
+        because they take the NoVesselSpaceCenter branch instead, where
+        `UpdateScenarioModules` + `SaveGame(persistent, OVERWRITE)` run before
+        `game.Start()` and KSP writes the node to disk itself.
+
+        THIS COST A FLIGHT ONCE (CL-1 flight 1, 2026-07-28: the whole profile flew
+        correctly and produced ZERO recordings), and the lesson has lived only as
+        prose in three places since - `build_career_pad_craft.py`'s splice comment,
+        the presence map above, and autotest-status known-gate 6. Prose does not
+        red. This cell does, locally, before a fixture author spends a flight
+        rediscovering it - which is exactly what the pre-Parsek backup lane's first
+        cut of `preparsek-untouched-career` would have done, having deleted the node
+        from the corpus's only focusable footprint-free save.
+        """
+        checked = 0
+        for name, has_node in sorted(self.EXPECTED_SCENARIO_PRESENCE.items()):
+            if has_node:
+                continue
+            checked += 1
+            text = _read(os.path.join(FIXTURE_SAVES_DIR, name, "persistent.sfs"))
+            lines = [l.strip() for l in text.splitlines()]
+            with self.subTest(fixture=name):
+                self.assertEqual(
+                    0, lines.count("VESSEL"),
+                    "%s carries no ParsekScenario node AND has VESSEL node(s), so it "
+                    "routes to FLIGHT, where the module is never instantiated: "
+                    "OnLoad never runs and Parsek is inert for the whole run. Either "
+                    "splice an inert node (name + scene) or keep the save "
+                    "vessel-less." % name)
+                active = [l for l in lines if l.startswith("activeVessel = ")]
+                for l in active:
+                    self.assertEqual(
+                        "activeVessel = -1", l,
+                        "%s is node-less and names a focusable activeVessel" % name)
+        self.assertGreater(checked, 0,
+                           "no node-less fixture found - this gate is inert")
 
     def test_recorded_fixtures_carry_their_pinned_payload(self):
         for name, want in sorted(self.RECORDED_FIXTURES.items()):

@@ -83,6 +83,46 @@ namespace Parsek
         }
 
         /// <summary>
+        /// The leaf-name PREFIX every backup folder of <paramref name="baseSaveName"/> carries -
+        /// <c>"&lt;sanitized name&gt; (pre-Parsek"</c>. Single source of truth shared by
+        /// <see cref="BuildBackupFolderName"/> (which writes it) and
+        /// <see cref="FindBackupFoldersFor"/> (which reads it back), so a rename of the
+        /// player-visible fragment cannot leave the two halves disagreeing.
+        /// </summary>
+        internal static string BackupFolderPrefixFor(string baseSaveName)
+            => $"{SanitizeSaveName(baseSaveName)} {BackupNameFragment}";
+
+        /// <summary>
+        /// Every existing backup folder of <paramref name="saveName"/> directly under
+        /// <paramref name="savesDirAbsPath"/>, leaf names only, ordinal-sorted. Empty on an
+        /// unreadable or absent saves dir (never throws) - the caller decides what zero means.
+        /// </summary>
+        internal static List<string> FindBackupFoldersFor(string savesDirAbsPath, string saveName)
+        {
+            var found = new List<string>();
+            if (string.IsNullOrEmpty(savesDirAbsPath) || string.IsNullOrEmpty(saveName))
+                return found;
+            string prefix = BackupFolderPrefixFor(saveName);
+            try
+            {
+                if (!Directory.Exists(savesDirAbsPath)) return found;
+                foreach (string dir in Directory.GetDirectories(savesDirAbsPath))
+                {
+                    string leaf = Path.GetFileName(dir);
+                    if (leaf != null && leaf.StartsWith(prefix, StringComparison.Ordinal))
+                        found.Add(leaf);
+                }
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn(Tag, $"FindBackupFoldersFor('{savesDirAbsPath}') failed: {ex.Message}");
+                return found;
+            }
+            found.Sort(StringComparer.Ordinal);
+            return found;
+        }
+
+        /// <summary>
         /// Builds a collision-free backup folder name of the form
         /// <c>"&lt;name&gt; (pre-Parsek yyyy-MM-dd_HHmm)"</c>, appending <c>_2</c>/<c>_3</c>/... via
         /// the injected <paramref name="folderExists"/> predicate. <paramref name="nowLocal"/>
@@ -91,9 +131,8 @@ namespace Parsek
         internal static string BuildBackupFolderName(
             string baseSaveName, DateTime nowLocal, Func<string, bool> folderExists)
         {
-            string san = SanitizeSaveName(baseSaveName);
             string ts = nowLocal.ToString("yyyy-MM-dd_HHmm", CultureInfo.InvariantCulture);
-            string baseCandidate = $"{san} {BackupNameFragment} {ts})";
+            string baseCandidate = $"{BackupFolderPrefixFor(baseSaveName)} {ts})";
             string candidate = baseCandidate;
             int n = 2;
             while (folderExists != null && folderExists(candidate))
@@ -168,6 +207,81 @@ namespace Parsek
                 && parsed.SubjectScience.Count == 0
                 && parsed.CompletedMilestoneIds.Count == 0
                 && parsed.ActiveContractGuids.Count == 0;
+        }
+
+        /// <summary>
+        /// Re-reads the PUBLISHED backup folder and answers whether the payload that actually
+        /// landed is gameplay-state-pristine: a readable <c>persistent.sfs</c> carrying no
+        /// populated <c>SCENARIO{name=ParsekScenario}</c> node and no <c>Parsek/</c> subdir.
+        ///
+        /// <para>This is the OUTCOME half of the pristine guarantee. The decision half
+        /// (<see cref="HasParsekGameplayFootprint"/> over the SOURCE at cold-OnLoad time) states
+        /// what the copy was ALLOWED to be; this states what the copy IS, measured off the bytes
+        /// in the folder the player will resume. The two are separate facts, and only the second
+        /// survives into a log a reader can check after the fact.</para>
+        ///
+        /// <para>Observation only: it never deletes the published folder - a non-pristine
+        /// backup is still the player's data, and retrying would only produce another copy of
+        /// the same file.</para>
+        ///
+        /// <para><b>Three outcomes, not two, and the distinction decides the SEVERITY the
+        /// caller logs.</b> "I read it and it is dirty" is a finding about the product; "I
+        /// could not read it" is a finding about the disk, and must not be reported as the
+        /// first. The done-marker is written on both paths (there is no retry past this
+        /// point), so an Error raised on a transient read failure would brand a perfectly
+        /// good backup permanently, on a run nothing will ever revisit.</para>
+        /// </summary>
+        internal enum CapturedPristineVerdict
+        {
+            /// <summary>Read, and carries no Parsek gameplay state.</summary>
+            Pristine,
+            /// <summary>Read, and carries Parsek gameplay state. A real finding.</summary>
+            NotPristine,
+            /// <summary>Could not be read or parsed. States nothing about the payload.</summary>
+            Unverified,
+        }
+
+        internal static CapturedPristineVerdict EvaluateCapturedPristine(
+            string backupFolderAbsPath, out string reason)
+        {
+            if (string.IsNullOrEmpty(backupFolderAbsPath))
+            {
+                reason = "no-backup-path";
+                return CapturedPristineVerdict.Unverified;
+            }
+            string persistentPath = Path.Combine(backupFolderAbsPath, PersistentSfsName);
+            ConfigNode captured;
+            try
+            {
+                if (!File.Exists(persistentPath))
+                {
+                    reason = "captured-persistent-missing";
+                    return CapturedPristineVerdict.Unverified;
+                }
+                captured = ConfigNode.Load(persistentPath);
+            }
+            catch (Exception ex)
+            {
+                reason = $"captured-persistent-unreadable:{ex.GetType().Name}";
+                return CapturedPristineVerdict.Unverified;
+            }
+            if (captured == null)
+            {
+                reason = "captured-persistent-unparseable";
+                return CapturedPristineVerdict.Unverified;
+            }
+
+            bool parsekSubdir;
+            try { parsekSubdir = Directory.Exists(Path.Combine(backupFolderAbsPath, ParsekSubdirName)); }
+            catch { parsekSubdir = false; }
+
+            if (HasParsekGameplayFootprint(captured, parsekSubdir))
+            {
+                reason = parsekSubdir ? "captured-parsek-subdir" : "captured-parsek-scenario-node";
+                return CapturedPristineVerdict.NotPristine;
+            }
+            reason = "pristine";
+            return CapturedPristineVerdict.Pristine;
         }
 
         /// <summary>
@@ -251,19 +365,25 @@ namespace Parsek
                 // retired the autoBackupExistingSaves setting: it runs once per save, and a
                 // player who does not want the extra Load-menu entry can delete it.
 
-                // Fast path: a prior successful backup wrote the marker.
-                if (DoneMarkerExists())
-                {
-                    ParsekLog.Verbose(Tag, "Skip: pre-Parsek backup marker already present");
-                    return;
-                }
-
                 string root = SafeApplicationRootPath();
                 string saveName = SafeSaveFolder();
                 if (string.IsNullOrEmpty(root) || string.IsNullOrEmpty(saveName))
                 {
                     ParsekLog.Verbose(Tag,
-                        $"Skip: missing save context (root='{root}', save='{saveName}')");
+                        $"Skip: reason=no-save-context root='{root}' save='{saveName}'");
+                    return;
+                }
+
+                // Fast path: a prior successful backup wrote the marker. Logged at INFO with the
+                // SAME `reason=` literal ShouldBackup would have produced (`marker-present`), and
+                // with the save name, because this line IS the idempotency evidence: it is what a
+                // second cold contact on an already-backed-up save must emit, and a Verbose,
+                // save-less, reason-less line could neither be required by an automated contract
+                // nor told apart from the same skip on a different save.
+                if (DoneMarkerExists())
+                {
+                    ParsekLog.Info(Tag,
+                        $"Skip: reason=marker-present save='{saveName}' marker='{ResolveDoneMarkerPath()}'");
                     return;
                 }
 
@@ -277,7 +397,7 @@ namespace Parsek
                 if (!File.Exists(persistentPath))
                 {
                     ParsekLog.Info(Tag,
-                        $"Skip: no on-disk persistent.sfs at '{persistentPath}' (nothing pristine to back up) save='{saveName}'");
+                        $"Skip: reason=no-persistent-sfs save='{saveName}' path='{persistentPath}' (nothing pristine to back up)");
                     return;
                 }
 
@@ -380,8 +500,31 @@ namespace Parsek
                     throw new IOException($"backup folder '{finalName}' already exists");
                 Directory.Move(staging, finalPath);
 
+                // OUTCOME-side pristine check, measured off the bytes that actually landed in the
+                // folder the player will resume (see EvaluateCapturedPristine). Reported ON the
+                // capture line so one grep answers both "did a backup publish" and "was what
+                // published gameplay-pristine"; never a control-flow change - the folder is kept
+                // and the marker written on every verdict.
+                CapturedPristineVerdict pristine =
+                    EvaluateCapturedPristine(finalPath, out string pristineReason);
+
                 ParsekLog.Info(Tag,
-                    $"Captured pre-Parsek backup: save='{saveName}' -> '{finalName}' files={files} bytes={bytes}");
+                    $"Captured pre-Parsek backup: save='{saveName}' -> '{finalName}' files={files} bytes={bytes} dir='{finalPath}' pristineVerdict={pristine}");
+                if (pristine == CapturedPristineVerdict.NotPristine)
+                {
+                    // A MEASURED finding about the payload: Error.
+                    ParsekLog.Error(Tag,
+                        $"outcome=captured-not-pristine save='{saveName}' backup='{finalName}' reason={pristineReason}; the published folder is KEPT (it is still the player's data) but it is NOT a clean pre-Parsek restore point");
+                }
+                else if (pristine == CapturedPristineVerdict.Unverified)
+                {
+                    // NOT an Error: this says nothing about the backup, only that the check
+                    // could not run. The marker is written below either way, so nothing will
+                    // revisit this - and branding a good backup permanently on a transient
+                    // read failure is worse than saying plainly that it went unchecked.
+                    ParsekLog.Warn(Tag,
+                        $"outcome=captured-pristine-unverified save='{saveName}' backup='{finalName}' reason={pristineReason}; the backup was published and is KEPT, but its payload could not be re-read to confirm it is Parsek-free");
+                }
                 WriteDoneMarker(finalName);
                 ParsekLog.ScreenMessage(
                     $"Parsek backed up your save as '{finalName}' (resume it from the main menu if needed)", 8f);
@@ -463,11 +606,21 @@ namespace Parsek
 
         private static string ResolveSaveDir()
         {
-            string root = SafeApplicationRootPath();
+            string savesDir = ResolveSavesDir();
             string saveName = SafeSaveFolder();
-            if (string.IsNullOrEmpty(root) || string.IsNullOrEmpty(saveName)) return null;
-            return Path.Combine(root, "saves", saveName);
+            if (string.IsNullOrEmpty(savesDir) || string.IsNullOrEmpty(saveName)) return null;
+            return Path.Combine(savesDir, saveName);
         }
+
+        /// <summary>Absolute path to the instance's <c>saves/</c> directory, or null.</summary>
+        internal static string ResolveSavesDir()
+        {
+            string root = SafeApplicationRootPath();
+            return string.IsNullOrEmpty(root) ? null : Path.Combine(root, "saves");
+        }
+
+        /// <summary>The current save folder name, or an empty string when unavailable.</summary>
+        internal static string CurrentSaveFolderName() => SafeSaveFolder();
 
         private static string SafeApplicationRootPath()
         {

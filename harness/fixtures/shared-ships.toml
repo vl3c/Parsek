@@ -59,3 +59,12 @@
 # deleted, the single library copy went into `fixtures/ships/`, and both consumers are
 # declared here. The same route `GS1 Auto-Chute Booster` and `Duna Rocket` took.
 "logi-cargo-pad" = ["DD1 Duna Direct Probe", "Duna Rocket", "GS1 Auto-Chute Booster", "Kerbal X", "Logi Cargo Rig"]
+# THE ONE ROW HERE THAT IS NOT ABOUT LAUNCHING. `PPB-1-untouched-career-backup`
+# never calls `launch_vessel` - its craft is PAYLOAD FOR THE BACKUP. The pre-Parsek
+# backup copies `Ships/` and `Subassemblies/` alongside persistent.sfs, and with no
+# craft in the staged save that copy loop would run over nothing: the in-game
+# assertion that the backup mirrors the player's saved craft file-for-file would
+# pass VACUOUSLY, and `FileIOUtils.CopyDirectory` inside the real backup path would
+# never execute in game at all. The row makes `craftDirsMirrored=1` a real
+# measurement, which PPB-1 pins as a required log token.
+"preparsek-untouched-career" = ["Kerbal X"]

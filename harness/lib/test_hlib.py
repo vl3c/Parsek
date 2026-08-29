@@ -6059,6 +6059,27 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
                                        "self-authored RewindPoint needs a multi-controllable "
                                        "split plus a seam channel. No unattended run discharges them.",
         # S4.2-refly-world-preservation DROPPED 2026-08-12 - see DROPPED_2026_08_12.
+        "PPB-1-untouched-career-backup.toml":
+                                       "tier=operator, now FLOWN GREEN (2026-08-29_1101, "
+                                       "PASS attempt 1). Debt (i), the first flight, is "
+                                       "DISCHARGED and every derived pin came back exact, "
+                                       "so nothing was re-pinned. TWO debts remain, both "
+                                       "human-only: the operator -> daily PROMOTION call "
+                                       "(the S1.5 precedent - a cadence decision needs a "
+                                       "human), and the one property no run can settle - "
+                                       "that the published backup RENDERS as a resumable "
+                                       "entry in KSP's Resume Saved Game list. The cells "
+                                       "assert the file shape the Load menu enumerates, "
+                                       "never the menu itself.",
+        "PPB-2-brandnew-career-skip.toml":
+                                       "tier=operator, now FLOWN GREEN (2026-08-29_1107, "
+                                       "PASS attempt 1) after a reading run (_1102) that "
+                                       "red on this spec's OWN over-broad forbid and was "
+                                       "corrected to an ordering pin. First-flight debt "
+                                       "DISCHARGED; what remains is the operator -> daily "
+                                       "PROMOTION call alone. It owes no Load-menu eyeball "
+                                       "- its whole claim is that NOTHING is published, "
+                                       "and the run measured zero backup folders.",
     }
 
     # Untagged specs that are CANDIDATES - they MENTION the token, or they are
@@ -8876,7 +8897,8 @@ class IngameCategoryInventoryDocTests(unittest.TestCase):
         # live IMGUI cell; deliberately its OWN category rather than `Settings`,
         # whose BATCH_COMPLETE tally H46 pins from a flown run), 106 -> 107 with
         # `AutoMergeCommit` (R4, the plan-§7 autoMerge=ON scene-exit cell).
-        self.assertIn("**107 categories / %d declarations**" % stated_decls, body,
+        # 107 -> 108 with `PreParsekBackup` (PPB-1 / PPB-2, both live-proven 2026-08-29).
+        self.assertIn("**108 categories / %d declarations**" % stated_decls, body,
                       "the triage totals line disagrees with the table it summarises "
                       "(table sums to %d declarations across %d categories)"
                       % (stated_decls, len(self.rows)))
