@@ -3771,7 +3771,7 @@ reclaim-refusal AND IO-refusal contracts are verified only on Windows runs; a
 POSIX-equivalent mechanism (injected failing rename / injected failing open)
 remains the upgrade path if anyone wants those dark spots lit.
 
-## AUTOMERGE-ON-BY-DEFAULT: is any player flow reachable that now auto-commits GHOST-ONLY where the dialog used to ask? [RAISED 2026-08-24 by the review panel on the default-flip PR (#1523) as PLAUSIBLE-not-confirmed. OPEN QUESTION, no defect demonstrated. The behaviour itself is by design and predates the flip; what changed is that it is now the DEFAULT answer. **RESTATED 2026-08-28 (branch `ledger-followups`) for the settings-simplification clamp: "on by default" is now "on UNCONDITIONALLY". ADOPTED RESOLUTION: leave the question PINNED, unclosed, awaiting the decisive evidence named below**]
+## AUTOMERGE-ON-BY-DEFAULT: is any player flow reachable that now auto-commits GHOST-ONLY where the dialog used to ask? [RAISED 2026-08-24 by the review panel on the default-flip PR (#1523) as PLAUSIBLE-not-confirmed. OPEN QUESTION, no defect demonstrated. The behaviour itself is by design and predates the flip; what changed is that it is now the DEFAULT answer. **RESTATED 2026-08-28 (branch `ledger-followups`) for the settings-simplification clamp: "on by default" is now "on UNCONDITIONALLY". ADOPTED RESOLUTION: leave the question PINNED, unclosed, awaiting the decisive evidence named below**. **FLOWN 2026-08-29 (branch `automerge-coverage`): the ghost-only commit is DEMONSTRATED LIVE and GREEN-GATED on BOTH the cold and the warm route (`2026-08-29_1025_S0.9` and `2026-08-29_1043_S0.10`, both PASS), with every `VesselSnapshot` destroyed and no dialog, on the warm side through an entrance that requires NO fault at all. The question this entry asks is ANSWERED for reachability; what remains is FREQUENCY. STILL OPEN, because the remedy is a maintainer decision and is deliberately NOT in that branch]
 
 **The 2026-08-27 settings simplification (#1549) widened this question and invalidated
 half of #1523's scoping argument.** `autoMerge` is now a HIDDEN field with no player-facing
@@ -3799,13 +3799,235 @@ the widening does not by itself produce one — it changes the population on the
 whether the path exists. Closing it on reasoning would be closing it on the same reasoning
 that has failed to settle it twice.
 
-**Decisive evidence (what would actually close it), and neither exists today:**
-1. The plan-§7 autoMerge-ON FLIGHT in-game cell — the live exercise of the ON path that
-   #1523 recorded as a coverage gap and that still does not exist.
-2. A driven harness scenario that COLD-LOADS a fixture save carrying a pending tree and
-   lands OUTSIDE FLIGHT, which is the precise precondition the auto-commit block gates on
-   (`LoadedScene != FLIGHT`). That measures whether a non-`Finalized` tree can reach the
-   site at all, rather than arguing from `TryRestorePendingTreeNode`.
+**Decisive evidence (what would actually close it).** ~~Neither exists today.~~ **BOTH
+NOW EXIST, BUILT 2026-08-29 (branch `automerge-coverage`, R4). NEITHER HAS FLOWN —
+flights are separately authorized. Status: INSTRUMENTED, AWAITING THE DRIVEN RUN.**
+1. ~~The plan-§7 autoMerge-ON FLIGHT in-game cell — the live exercise of the ON path that
+   #1523 recorded as a coverage gap and that still does not exist.~~ **BUILT:**
+   `RuntimeTests.ExitToSpaceCenter_AutoMergeOn_CommitsSilentlyAtFullFidelity`, the new
+   `AutoMergeCommit` category (batch-disabled + restore-backed, mirroring the two
+   `SceneExitMerge` cells that force autoMerge OFF — those two were the whole of the ON
+   path's coverage, i.e. none). It records an ORBITING host, drives the same stock
+   save-and-exit-to-SpaceCenter path, and asserts no `ParsekMerge` popup, a committed leaf
+   whose `VesselSnapshot` SURVIVED and still passes `MergeDialog.CanPersistVessel`, the
+   `Silent full-fidelity auto-commit` line present AND `Ghost-only auto-commit` absent.
+   It skips naming ORBITING when it cannot self-set-up: a pad host is not a weaker
+   fixture but the wrong subject (staging leaves it Ascending, which
+   `CommitTreeSceneExit` nulls the snapshot for BY DESIGN, and a never-moved tree is
+   idle-on-pad-discarded before the commit branch).
+2. ~~A driven harness scenario that COLD-LOADS a fixture save carrying a pending tree and
+   lands OUTSIDE FLIGHT...~~ **BUILT:** `harness/scenarios/S0.9-automerge-pending-limbo-cold-load.toml`
+   (operator tier, reading run, never flown) over the new `pending-limbo-tree` injection
+   preset (`Source/Parsek.Tests/Generators/PendingLimboTreeFixture.cs` +
+   `InjectPendingLimboTree`, four-surface-synced). Vessel-less `fresh-sandbox` routes the
+   load through `DecideLoadRoute`'s NoVesselSpaceCenter branch, so `LoadedScene != FLIGHT`
+   holds by construction. It pins ONLY the structural preconditions and leaves the two
+   branch-discriminating tokens as documented readings — pinning an answer to the question
+   the spec asks would make a green run mean nothing. Nothing armed; `ARMED_ALLOWLIST`
+   untouched. **Its WARM sibling `S0.10-automerge-limbo-warm-exit.toml` was authored
+   alongside it once the warm chain below was assembled — see "THE TWO DRIVEN SCENARIOS".**
+
+**FLIGHT VERDICTS (2026-08-29) — THE GHOST-ONLY BRANCH IS NOT A THEORY. It ran, on both
+routes, and destroyed the snapshots.** Both scenarios flew against a provisioned instance
+carrying this branch's DLL (hash-identical to the building worktree's `bin/Debug`).
+
+- **S0.9 (cold) — `2026-08-29_1025_S0.9-automerge-pending-limbo-cold-load`, PASS attempt 1,
+  58 s, every verifier PASS/SKIPPED, expectations mismatches=0, zero `[Parsek][ERROR]`.**
+  Open item (b) is CLOSED: the load-time guards ALL passed the tree. The one guard that
+  could plausibly have dropped it stood down for exactly the source-predicted reason —
+  `Idle-on-pad auto-discard skipped: pending tree state is Limbo (not Finalized)` — and the
+  site then reported
+  `autocommit-outside-flight (cold-load outside-flight): entry ... autoMerge=True
+  pendingState=Limbo reFlyActive=False`
+  followed by
+  `Ghost-only auto-commit (cold-load outside-flight, reason=state=Limbo): tree='Limbo Stack'
+  recordings=2 snapshotsNulled=2`.
+  **`autoMerge=True` was NOT pinned by that spec** — `fresh-sandbox` carries no `autoMerge`
+  key, so it is the shipping default reached through the field initializer. The ghost-only
+  commit is what a default install does.
+
+- **S0.10 (warm) — LIVE-PROVEN by `2026-08-29_1043_S0.10-automerge-limbo-warm-exit`, PASS
+  attempt 1, 54 s, every verifier PASS/SKIPPED, expectations mismatches=0, zero
+  `[Parsek][ERROR]`, clobber guard silent.** All ten required tokens matched and the warm
+  chain is REPRODUCIBLE, ending in
+  `Ghost-only auto-commit (scene-exit, reason=state=Limbo): tree='Limbo Stack' recordings=2
+  snapshotsNulled=2`.
+  Flight 1 (`2026-08-29_1027`) was PARSEK-FAIL attempt 1, 55 s, mismatches=1 — **the spec's
+  own token, not the product** — and it earned its keep by discovering which entrance the
+  spec actually drives (below). Six of seven matched even then, and the warm chain walked. The
+  `exittospacecenter start scene=FLIGHT autoMerge=true hasActiveTree=false
+  hasPendingTree=true ... activeTreeVariant=None pendingTreeVariant=None` line carries three
+  of the chain's assertions at once: the restore did not install, the Limbo tree survived,
+  and the wedge guard found no dialog required. The dangling dispatch was observed too
+  (`OnLoad: pending-Limbo tree 'Limbo Stack' deferred to OnFlightReady for quickload-resume`,
+  at SPACECENTER, where that restore can never fire).
+
+**THE TWO ENTRANCES, and why flight 1's red made the finding STRONGER.** Step 2 of the chain
+has two of them, and they are not equally demanding:
+
+- **ENTRANCE A — the give-up.** The 3 s match loop runs out and
+  `RestoreActiveTreeFromPending` warns + `yield break`s (`ParsekFlight.cs:14104-14141`).
+- **ENTRANCE B — no fault required.** The player leaves FLIGHT *while the 3 s wait is still
+  running*. `FinalizeTreeOnSceneChangeCore`'s `restoringActiveTree` early return
+  (`ParsekFlight.cs:3029-3035`) correctly declines to finalize — the coroutine owns
+  `activeTree` — and the coroutine is then destroyed with the scene.
+
+S0.10 originally pinned entrance A. The guid gate rejected the active vessel AND the parent walk on the
+coroutine's FIRST iteration (`liveGuid=88a8a8a6… conclusively differs from …
+recordedGuid=ecc6bdc0…`, 13:27:51.448), so the match was already impossible — but the Warn
+only fires once the full 3 s ELAPSES, and `ExitToSpaceCenter` arrived 0.38 s in
+(13:27:51.830). The coroutine was then killed by the scene change
+(`OnDestroy: clearing stale restoringActiveTree guard (coroutine aborted by destroy)`,
+13:27:52.030). **So the run drove ENTRANCE B rather than the entrance its token named** —
+and entrance B is the more alarming of the two, because it needs no match failure at all:
+only a player who leaves FLIGHT within three seconds of a quickload.
+
+**Resolution (2026-08-29, maintainer adopted option (a)):** token 3 was re-pointed at what
+the spec deterministically drives — the iteration-1 guid-rejection pair, the `#293`
+coroutine-in-progress skip, and `coroutine aborted by destroy` — the spec's subject was
+relabelled to entrance B, and the re-fly `2026-08-29_1043` confirmed it green with
+`not active within 3s` verifiably ABSENT. Reachability therefore rests on two independent
+entrances, and **the one now under a standing gated instrument is the one that requires no
+fault**.
+
+**SEAM VERB GAP (recorded here rather than as its own entry, because it blocks one pin and
+not a product question): ENTRANCE A REMAINS UNDRIVEN.** Driving the give-up needs the exit
+to arrive more than 3 s after FLIGHT entry, i.e. a dwell/wait verb — and the M-C1 seam
+roster has none (`TimeJump` is an epoch shift with frozen relative positions, not a sleep;
+`EvaExit`'s `settleSeconds` is the only spec-authorable dwell and is EVA-only). Both
+entrances end at the same ghost-only commit, so nothing about the finding depends on
+closing this; a future S0.10 run that flips to the give-up Warn is entrance A finally being
+driven and should be REPORTED, never widened into an alternation — the alternation would
+stop distinguishing the two, and which one the spec drives is its subject.
+
+**WHAT IS NOW PROVEN, and what is not.** Proven: a non-`Finalized` pending tree reaches
+`AutoCommitPendingTreeOutsideFlight` outside FLIGHT on both the cold and warm routes, under
+the shipping `autoMerge` default, and every `VesselSnapshot` is nulled with no dialog —
+steps 2/3/4 of the player chain, in the shipped DLL. NOT proven: step 1 (a real quickload
+producing the Limbo stash — both runs inject it) and **how often the resume match misses on
+ordinary flights**, which is the last open question and the only thing between this and a
+routine player experience.
+
+**THE PRODUCT FIX IS NOT IN THAT BRANCH, ON PURPOSE.** The remedy is scoped, not blanket —
+the dialog returns for the NON-re-fly, NON-`Finalized` case specifically, or Limbo trees
+preserve fidelity instead — and choosing between those against
+`silent-full-fidelity-autocommit.md` §4.4 / §10 is a design decision that now has live
+evidence to be taken against, rather than a change to smuggle in beside the instrument that
+found it.
+
+**HEADLESS VERDICT (2026-08-29) — the "saved trees restore as Finalized" argument is
+CORRECT FOR ONE MARKER AND WRONG FOR THE OTHER, so the ghost-only branch is NOT dead
+code.** Pinned by five cells in `Source/Parsek.Tests/AutoMergeGhostOnlyReachabilityTests.cs`:
+
+- **`isPending` — re-finalized, as the entry guessed.** `TryRestorePendingTreeNode` →
+  `RecordingStore.RestorePendingTreeFromSave`, which HARD-SETS
+  `pendingTreeState = Finalized` (`RecordingStore.cs:2297`; the sibling
+  `PromoteSavedPendingTreeAfterActiveRestore` does the same at `:2357`). A tree that
+  round-trips through this marker can only ever take the full-fidelity branch.
+- **`isActive` — NOT re-finalized, and this is the half the argument missed.**
+  `TryRestoreActiveTreeNode` stashes `PendingTreeState.Limbo` when the node carries an
+  `ActiveRecordingId` and `LimboVesselSwitch` when it does not (`ParsekScenario.cs:5737-5740`,
+  the `stashState` ternary).
+  The marker is not exotic: `SavePendingTreeIfAny`'s Limbo branch WRITES it
+  (`ParsekScenario.cs:1843`, the `markerKey` ternary), and — unlike `SaveActiveTreeIfAny`,
+  which opens with `if (HighLogic.LoadedScene != GameScenes.FLIGHT) return;`
+  (`ParsekScenario.cs:2155`) —
+  that branch carries **no scene guard at all**. So a non-`Finalized` pending tree exists
+  on disk, restores non-`Finalized`, and does so at a non-FLIGHT scene.
+- **With that state the predicate routes to ghost-only**, and the cost is measured:
+  `AutoCommitTreeGhostOnly` now returns and logs how many `VesselSnapshot`s it destroyed.
+
+**WHAT HEADLESS COULD NOT SETTLE.** The chain COMPOSES; that is not the same as the
+shipped product WALKING it, and it says nothing about whether a PLAYER produces the state.
+Both gaps are now answered below — the second by the assembled warm chain, the first by
+the two driven scenarios — and the open residue is stated there.
+
+**THE WARM PLAYER CHAIN — ASSEMBLED FROM SOURCE 2026-08-29 (independent review of branch
+`automerge-coverage`), verdict REACHABLE BY PLAYER ACTION. Every step is a cited line, not
+an inference; what is still open is stated at the end, and it is a FREQUENCY question, not
+a reachability one.** Line numbers are as of that review's tree (post-`origin/main`
+7a2f27c01); each step also names its symbol so a drifted line is recoverable.
+
+1. **The player quickloads mid-recording (F5 → F9).** FLIGHT → FLIGHT, so
+   `ParsekFlight.FinalizeTreeOnSceneChangeCore`'s `scene == GameScenes.FLIGHT` arm runs
+   and — when the vessel-switch pre-transition does not apply —
+   `StashActiveTreeAsPendingLimbo(commitUT)` (`ParsekFlight.cs:3094`) →
+   `RecordingStore.StashPendingTree(activeTree, PendingTreeState.Limbo)`
+   (`ParsekFlight.cs:14491`). The tree is now parked NON-`Finalized`, by design, awaiting
+   the resume.
+2. **The resume's 3-second vessel-match loop misses.** `RestoreActiveTreeFromPending`
+   gives up and `yield break`s (`ParsekFlight.cs:14141`) after a Warn whose own
+   parenthetical is the product telling the user what to do next
+   (`ParsekFlight.cs:14104-14106`): *"not active within 3s — leaving tree in Limbo (user
+   can trigger merge dialog via scene exit)"*.
+3. **The player follows that advice and exits to the Space Center.** But the restore never
+   installed anything, so `activeTree` is null and `OnSceneChangeRequested`'s
+   `if (activeTree != null) FinalizeTreeOnSceneChange(scene)` (`ParsekFlight.cs:2311`) is
+   skipped entirely. Nothing re-finalizes the parked tree; it crosses the scene boundary
+   still `Limbo`.
+4. **SPACECENTER `OnLoad`.** The hidden-settings clamp has already forced `IsAutoMerge`
+   true (`ParsekSettings.ClampHiddenSettingsToShippingValues`), so
+   `ShouldSilentFullFidelityCommit` returns false on `Limbo` and
+   `AutoCommitPendingTreeOutsideFlight("scene-exit")` (`ParsekScenario.cs:3889`) takes the
+   ghost-only branch: every `VesselSnapshot` nulled, no dialog.
+
+**The product's documented recovery path IS the silent-destruction path.** Step 2 promises
+the dialog and step 4 is where the flip took it away.
+
+**A second, non-fault entrance to the same state:** leaving FLIGHT while the 3-second wait
+is still running. `FinalizeTreeOnSceneChangeCore`'s `restoringActiveTree` guard
+(`ParsekFlight.cs:3029-3035`) returns early — correctly, the coroutine owns
+`activeTree`/`recorder` — which lands on the same parked-`Limbo`-crosses-the-boundary
+state without any match failure at all.
+
+**Supporting observation, and a defect-adjacent smell in its own right: the limbo dispatch
+schedules a restore that can never fire.** `OnLoad`'s `limbo-dispatch` block
+(`ParsekScenario.cs:3803`, through the two `ScheduleActiveTreeRestoreOnFlightReady`
+assignments at `:3818` / `:3849`) has **no scene gate**: outside FLIGHT it arms a
+`onFlightReady` restore that will never run, and then the `pending-outside-flight` block
+sixty lines later (`ParsekScenario.cs:3863` → `:3889`) consumes the very tree it just
+scheduled. Worth a look independently of this entry.
+
+**WHAT IS STILL OPEN — two things, and neither is "is it reachable".**
+(a) **How often step 2 fires on ordinary flights.** The 3-second match is by vessel name
+    and pid; the give-up Warn is the discriminator, and no run has been read for it. If it
+    is common, this is a routine player experience; if it is rare, it is an edge.
+(b) **Whether the load-time guards pass the tree** — schema gate, sidecar hydration +
+    `DropFailedSidecarHydrationRecordings`, the mission-prune carve-out, the idle-on-pad
+    discard.
+
+**THE TWO DRIVEN SCENARIOS, AND WHY IT TAKES TWO.** S0.9 cold-loads, so it confirms only
+the LOAD-PATH half — open item (b) — and reaches the site with
+`context=cold-load outside-flight`. The warm chain above never cold-loads at all, so it
+needs its own lane: **`harness/scenarios/S0.10-automerge-limbo-warm-exit.toml`** (operator
+tier, reading run, never flown), which drives steps 2 → 3 → 4 in the shipped DLL and
+reaches the site with `context=scene-exit`. That one word is the whole difference between
+the two specs.
+
+How S0.10 forces step 2 — **by fixture, not by timing race**, because a race is exactly
+what a driven run cannot schedule. The `pending-limbo-tree` preset is injected into the
+FOCUSABLE `eva2-lko-crewed` (so `DecideLoadRoute` takes the FLIGHT branch — the only route
+there, since `scene=flight` is not an accepted `LoadGame` argument), and the tree's
+`ActiveRecordingId` names a vessel, "Limbo Upper", that does not exist in that save. The
+3-second match compares name, pid and `recordedVesselGuid`
+(`ParsekFlight.cs:13975` / `:14047`); all three miss, on every run, on any hardware. Then
+`ExitToSpaceCenter` proceeds — `ShouldShowPendingTreeDialogBeforeSceneChangeLive` computes
+`hasFinalizedPendingTree` false for a Limbo tree (`SceneExitInterceptor.cs:238-244`), so
+the wedge guard returns `None` — and the SPACECENTER `OnLoad` does the rest.
+
+**Neither spec proves step 1**, and S0.10 does not measure open item (a) either: it
+manufactures the miss rather than producing one. Frequency stays open.
+
+**COLD (the same end state, reached from disk).** A save whose GAME `scene` is not FLIGHT
+and whose ParsekScenario node carries the `isActive` marker — which
+`SavePendingTreeIfAny`'s own comment already anticipates ("any OnSave that ran in the
+resume window (autosave / scene-exit / exiting KSP before OnFlightReady fired)").
+
+**Escalation trigger, restated now that the chain is named: a repro needs only a
+quickload whose resume match misses.** Not a crash, not a mod interaction, not a
+hand-edited save — F5, F9, a missed match, and the exit the product itself recommends. Any
+run that shows the step-2 Warn followed by a `Ghost-only auto-commit ... reason=state=Limbo`
+with `snapshotsNulled` > 0 IS that repro.
 
 **Escalation trigger:** any repro of a player-recoverable tree silently committing
 ghost-only. At that point the remedy is scoped, not blanket — the dialog returns for the
@@ -3822,19 +4044,75 @@ shipped default showed a dialog offering full-fidelity Merge or Discard; now the
 silent ghost-only commit is what a default install does.
 
 The review could not construct a reachable player flow and neither can this entry, so
-nothing is claimed: a saved pending tree restores as `Finalized`
-(`TryRestorePendingTreeNode`), the cold-start Limbo restore is written on the
-assumption that a cold start lands in FLIGHT, and the auto-commit block is gated
-`LoadedScene != FLIGHT`. The path is also deliberate - `silent-full-fidelity-autocommit.md`
-§4.4 keeps resume-flow stashes from being heavier-committed, and §10 keeps re-fly
-ghost-only on purpose.
+nothing is claimed. ~~a saved pending tree restores as `Finalized`
+(`TryRestorePendingTreeNode`)~~ — **that clause is now CORRECTED, not merely annotated:
+it is true of the `isPending` marker and FALSE of the `isActive` one, see the headless
+verdict above; do not reuse it as a whole-question answer.** What survives unchanged: the
+cold-start Limbo restore is written on the assumption that a cold start lands in FLIGHT,
+and the auto-commit block is gated `LoadedScene != FLIGHT`. The path is also deliberate -
+`silent-full-fidelity-autocommit.md` §4.4 keeps resume-flow stashes from being
+heavier-committed, and §10 keeps re-fly ghost-only on purpose.
 
-**What would close it:** either a demonstration that no non-`Finalized` tree can reach
+**What would close it:** ~~either a demonstration that no non-`Finalized` tree can reach
 that site outside FLIGHT (in which case the branch is dead code worth saying so about),
-or one that can, in which case the flip made it the default and it wants the dialog
-back. Related: the in-game coverage gap recorded on the default-flip entry below - the
-cell that would exercise the ON path live does not exist, so neither question has a
-driven answer today.
+or one that can~~ **— the first half of that disjunction is now REFUTED at the level of
+save state (a non-`Finalized` tree does come off disk, at a non-FLIGHT scene, via the
+`isActive` marker), so what remains is narrower: (a) S0.9's reading, i.e. whether the
+shipped product actually walks that chain past the load-time guards, and (b) a
+constructed player flow that parks a `Limbo` tree when an OnLoad lands outside FLIGHT.
+(a) closes the "is the branch live" half; only (b) turns it into a defect,** in which
+case the flip made it the default and it wants the dialog back. ~~Related: the in-game
+coverage gap recorded on the default-flip entry below - the cell that would exercise the
+ON path live does not exist~~ **— that cell now exists (`AutoMergeCommit`), so the ON
+path's coverage gap is closed as an ASSET even though neither question yet has a driven
+answer.**
+
+## TEST-HYGIENE — SUPPRESSLOGGING-LEFT-ON-IN-DISPOSE: 406 xUnit classes end `Dispose()` by re-suppressing the global log, deterministically blanking the NEXT Sequential class's log capture [FOUND 2026-08-29 while building the AUTOMERGE-ON-BY-DEFAULT coverage (branch `automerge-coverage`), by hitting it: a newly added class made a previously-latent ordering hazard FIRE. TEST-INFRASTRUCTURE ONLY — no product code is involved and no shipped behaviour is at risk. OPEN, unscoped: recorded because it is a real trap with a real cost, not because a sweep is proposed]
+
+**The shape.** `ParsekLog.SuppressLogging` is a static bool. The house pattern for a
+Sequential test class that captures log output is: set `ParsekLog.TestSinkForTesting` in
+the constructor, and in `Dispose()` call `ParsekLog.ResetTestOverrides()` — which already
+restores `SuppressLogging = false` — and then **set it back to `true` anyway**. That last
+line is the bug. It does not restore a prior value (nothing saved one); it asserts a
+global default that is wrong for every class that captures logs. The next Sequential class
+to run constructs its sink, runs its test, and asserts on a list that is EMPTY — because
+the writes were suppressed by a class that finished before it started.
+
+**Why it has stayed invisible.** The victim has to (a) capture logs, (b) not re-clear the
+flag itself, and (c) run immediately after a suppressor within the `Sequential` collection.
+xUnit's ordering makes that stable in practice but not by contract, so the population sits
+green until an addition reshuffles it. That is exactly what happened here: adding
+`AutoMergeGhostOnlyReachabilityTests` (which sorts directly before `AutorunExitTests`) took
+`AutorunExitTests.PerformAutorunExit_ThrowingQuit_IsContainedAsError` from passing to
+failing with `Assert.Contains() Failure ... In value: List<String> []` — an empty capture,
+not a wrong one. It passed in isolation and failed in the full run, which is the signature.
+
+**Population, counted mechanically (2026-08-29):** 463 files under `Source/Parsek.Tests`
+contain `ParsekLog.SuppressLogging = true`; **406 of them have it inside `Dispose()`**,
+which is the hazardous position. Three verified examples, all identical in shape:
+`Source/Parsek.Tests/Analyzer/BaselineFilterLoggingTests.cs:29`,
+`Source/Parsek.Tests/Analyzer/SaveDirectoryLoaderTests.cs:34`,
+`Source/Parsek.Tests/Analyzer/Rules/Inv9RewindPointTests.cs:38`. (`SaveDirectoryLoaderTests`
+and `Inv9RewindPointTests` both save and restore `RecordingStore.SuppressLogging` correctly
+on the line above — so the fix pattern is already in the file, applied to the other flag.)
+
+**Fix template — already applied in one place, deliberately not swept.**
+`Source/Parsek.Tests/AutoMergeGhostOnlyReachabilityTests.cs`'s `Dispose()` calls
+`ParsekLog.ResetTestOverrides()` and stops there, with a comment saying why. That is the
+whole fix: drop the trailing re-suppress, or save the incoming value in the constructor and
+restore THAT. Either is a one-line change per class.
+
+**Why no sweep is proposed here.** 406 mechanical edits across the test tree is a change
+whose review cost is entirely in confirming that no class was actually RELYING on the
+suppression (a class that asserts on log SILENCE would legitimately want it), and that
+audit is the work, not the edit. It also has a real chance of churning a file another
+branch is mid-edit on. Recorded so the next person who hits an empty log capture reaches
+this entry in one grep instead of re-deriving it — which is most of the value — and so a
+sweep, if taken, is taken deliberately.
+
+**Symptom to grep for:** an xUnit failure reading `Assert.Contains() Failure` with
+`In value: List<String> []` (or any empty captured-log list) that PASSES when the class is
+run with `--filter` and FAILS in the full suite.
 
 ## BEHAVIOR PIN — SYNTHETIC-CONTRACT-FAIL-PENALTY-CLAMPED-BY-DRAWDOWN-GUARD: the guarded-drawdown protection correctly refuses a synthetic `ContractFail` penalty that stock never debited [MEASURED 2026-08-20 by `L5-career-contract-complete`'s green flight (run `2026-08-20_2240`), the FIRST run ever to drive `ContractsModule.PrePass`'s injection under a gate. **RECLASSIFIED 2026-08-28 (branch `ledger-followups`) from open defect to a DOCUMENTED, MEASURED BEHAVIOR PIN.** REPORT-ONLY and GATED AS MEASURED: no product change is proposed, and the clamp is pinned so a change of behaviour has to be taken deliberately]
 
@@ -19860,7 +20138,7 @@ Implements `docs/dev/plans/silent-full-fidelity-autocommit.md`. The `autoMerge` 
 
 ~~**PENDING-OPERATOR** (for the default-flip follow-up, per the design runbook): with autoMerge ON, verify (1) an LKO survivor exiting to Space Center persists as a real vessel, not a ghost; (2) a landed vessel exits to KSC silently (no dialog) and persists; (3) quit mid-mission then Resume commits full-fidelity on the cold-load path; (4) a crash then Revert rolls back cleanly (#434 intact); (5) a Re-Fly exit still shows its confirmation dialog. Then flip `ParsekSettings.autoMerge` + `UI/SettingsWindowPresentation` defaults in a follow-up PR.~~ **DONE** (branch `claude/auto-merge-recording-default-ry0v5g`): operator-verified in play, and the default flipped ON in both places (`ParsekSettings.autoMerge` field initializer + `SettingsWindowPresentation.BuildDefaults`). The two sites are now pinned together by `SettingsWindowPresentationTests.BuildDefaults_AutoMerge_MatchesSettingsFieldDefault`, and the shipping value by `ParsekSettingsTests.AutoMerge_DefaultOn`. Not flipped: `ParsekScenario.cachedAutoMerge`'s seed stays `false` on purpose - it governs only the window before any real settings instance has been read (`ParsekSettings.Current == null`), and there falling back to OFF shows a dialog the player can still answer, while falling back to ON would silently commit against a player who has explicitly turned auto-merge off. ~~**The flip reaches NEW saves only.**~~ **INVALIDATED 2026-08-28 by the settings-simplification clamp (#1549) — the mechanism below is still correct, its CONCLUSION is not. `autoMerge` is now a hidden field, and `ParsekSettings.ClampHiddenSettingsToShippingValues` (`Source/Parsek/ParsekSettings.cs:282`) forces it `true` on every `ParsekScenario.OnLoad` (~:2913) unless an automation env hook is armed. That clamp runs AFTER the `Load` overlay described below, so a stored `autoMerge = False` in an existing career is OVERRIDDEN rather than kept: every save reaches the ON path from its next load onward, and no player can be on the OFF path at all. Two halves of the paragraph SURVIVE unchanged — the persistence mechanism itself (every setting is written to every save, so an existing career really does carry the key), and the whole harness analysis that follows it (the clamp stands down under an armed automation env, so fixture pins and `SetSetting` keep authority exactly as described). What does NOT survive is "and keeps it", and anything downstream that scoped a risk to new saves only. See the AUTOMERGE-ON-BY-DEFAULT entry above, restated for this.** Original text, kept for its mechanism: `GameParameters.CustomParameterUI`'s string ctor sets `autoPersistance = true` (verified in Assembly-CSharp IL: `ldc.i4.1; stfld autoPersistance`), so `ParameterNode::Save` writes EVERY Parsek setting into the save's `ParsekSettings` node on every save - not just ones the player touched. Any career already played with Parsek installed therefore carries `autoMerge = False` and keeps it; `Load` only overlays keys that are present, so the ON initializer is reached solely by a save with no stored key. Corroborated on disk: 31 of the 38 committed harness fixture saves carry an explicit `autoMerge` line, and the 7 that do not have no `ParsekSettings` node at all. Do NOT describe this as "only saves that never touched the toggle" - that reading is wrong and was corrected in review. Harness: no committed spec changes meaning, but the reason is per-scenario rather than blanket. The 7 keyless fixtures back 23 scenarios; 18 set `autoRecordOnLaunch=false` and never build a tree, 3 already pin `SetSetting autoMerge=true` (`CL-2`, `L3-career-science-recover`, `L5`), and 2 fly for real on `career-pad-craft` and are safe by MECHANISM, not declaration: `CL-1` ends in `FlushAndQuit` from inside FLIGHT and both OnLoad auto-commit sites are gated `LoadedScene != FLIGHT` (and `ParsekFlight.ShowPostDestructionTreeMergeDialog` never reads `IsAutoMerge`), while `CL-3`'s only merge is the re-fly dialog, which `SceneExitInterceptor.ShouldShowDialogBeforeSceneChange` returns on `reFlyActive` BEFORE reaching the `!isAutoMerge` gate. Note also that no `Rewind`-category in-game cell touches `autoMerge` - the two cells that do are `SceneExitMerge`, driven by `H21` on the `autoMerge=False`-pinned `b2-lko-craft`.
 
-**Follow-up (open): the now-default ON path has no in-game cell.** The plan's own test contract (`silent-full-fidelity-autocommit.md` §7, "In-game") specifies a FLIGHT cell that, with `autoMerge=ON`, flies to a stable orbit, triggers the scene-exit commit and asserts the committed leaf is spawn-at-end eligible. That cell does not exist: the only two in-game cells touching the setting force it OFF. So the setting that just became the default is the one with the thinnest live coverage - its verification is the operator checklist above plus the new `Exit To Space Center (silent auto-commit, the default)` block in `docs/dev/manual-testing/test-general.md`. Deliberately NOT written blind on the default-flip PR (an in-game cell cannot be executed from a headless session, and an unexecuted FLIGHT assertion is worse than a documented gap). Raised by the PR review panel.
+**Follow-up: ~~(open)~~ WRITTEN 2026-08-29, NOT YET FLOWN (branch `automerge-coverage`, R4) — the now-default ON path ~~has no in-game cell~~ now has one, in the new `AutoMergeCommit` category: `RuntimeTests.ExitToSpaceCenter_AutoMergeOn_CommitsSilentlyAtFullFidelity`.** It is the plan-§7 cell described below, written to that contract: an ORBITING host (skipping with the reason when the batch vessel is not one — a pad host is the WRONG subject, not a weaker one, since staging leaves it Ascending, whose snapshot `CommitTreeSceneExit` nulls by design), the stock save-and-exit-to-SpaceCenter path, and assertions on no `ParsekMerge` popup + a committed leaf whose `VesselSnapshot` survived and still passes `MergeDialog.CanPersistVessel` + the `Silent full-fidelity auto-commit` line present with `Ghost-only auto-commit` absent. It is batch-disabled and restore-backed exactly like the two `SceneExitMerge` cells it mirrors, so it runs from Run All + Isolated or the row play button. **It has not been executed** — the caveat below about unexecuted FLIGHT assertions still applies until an operator or a spec flies it, which is why this line says WRITTEN rather than closed. See the AUTOMERGE-ON-BY-DEFAULT entry for what a run of it decides. Original text: The plan's own test contract (`silent-full-fidelity-autocommit.md` §7, "In-game") specifies a FLIGHT cell that, with `autoMerge=ON`, flies to a stable orbit, triggers the scene-exit commit and asserts the committed leaf is spawn-at-end eligible. That cell does not exist: the only two in-game cells touching the setting force it OFF. So the setting that just became the default is the one with the thinnest live coverage - its verification is the operator checklist above plus the new `Exit To Space Center (silent auto-commit, the default)` block in `docs/dev/manual-testing/test-general.md`. Deliberately NOT written blind on the default-flip PR (an in-game cell cannot be executed from a headless session, and an unexecuted FLIGHT assertion is worse than a documented gap). Raised by the PR review panel.
 
 ## M-C1 - Seam verbs batch 1: InvokeRewind / AnswerMergeDialog / TimeJump / KscAction [BUILT, branch `autotest-c1-impl`]
 

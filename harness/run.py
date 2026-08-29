@@ -131,6 +131,9 @@ RP_SIDECAR_BY_PRESET = {
     # S1.9's part-showcase corpus: every "Part Showcase - <part>" row and nothing
     # else, committed trees only, no RP.
     "part-showcase": None,
+    # S0.9's AUTOMERGE-ON-BY-DEFAULT fixture: one tree under the `isActive` marker
+    # (a NON-Finalized pending tree on disk), no RP.
+    "pending-limbo-tree": None,
 }
 INJECTION_PRESETS = tuple(RP_SIDECAR_BY_PRESET)
 
@@ -858,7 +861,9 @@ def _inject_postcondition_missing(save_dir: str, preset: str) -> List[str]:
       ``ReFlyWorldPreservation`` cells read back to name what the pre-rewind world
       held, so a missing one turns the whole batch into skips rather than failures.
     - ``looped-interplanetary`` -> a non-empty ``Parsek/Recordings/`` only (a
-      committed looped tree, no RP; the S1.8 SoiCrossingPlayback corpus)."""
+      committed looped tree, no RP; the S1.8 SoiCrossingPlayback corpus).
+    - ``pending-limbo-tree`` -> a non-empty ``Parsek/Recordings/`` only (one tree
+      under the ``isActive`` marker, no RP; the S0.9 auto-merge fixture)."""
     missing: List[str] = []
     rec_dir = os.path.join(save_dir, "Parsek", "Recordings")
     try:

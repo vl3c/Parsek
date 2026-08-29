@@ -149,6 +149,25 @@ All notable changes to Parsek are documented here.
 
 ### Dev
 
+- When Parsek finishes with a mission and files it away outside the flight scene,
+  it now writes down what it was looking at before it decides how. There are two
+  ways it can file a mission: the careful one, which keeps each surviving ship
+  whole so it can be put back in the world later, and the light one, which keeps
+  only the replay and throws the ship away. Which one it picks depends on four
+  things about that moment - the scene, the setting, the state the mission was
+  parked in, and whether a re-flight is in progress - and none of them were ever
+  written down. The log only ever showed the answer, which meant a log where the
+  decision never happened at all looked exactly like a log where it happened and
+  chose the careful path. Now the four go down on one line before the choice is
+  made, and when the light path is taken it also reports how many ships it
+  actually gave up, so a run that gave up nothing reads differently from one that
+  gave up three. The fourth case - reaching that moment with nothing to file at
+  all - now says so in the same words as the other three, so one search of the log
+  turns up every occasion instead of three out of four. Nothing about the
+  behaviour changed; this is so a question that has been open since that setting
+  became the default can be answered by reading a log instead of by arguing about
+  the code.
+
 - The six supply-route test runs now go every night along with the rest. They
   were being held back for a decision rather than for a problem: each one had
   already been run unattended and had its expected result written down, and all

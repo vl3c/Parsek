@@ -89,7 +89,27 @@ namespace Parsek.Tests.Generators
         /// This is used for linked chain fixtures so ParentRecordingId references stay
         /// within the same tree when injected into synthetic saves.
         /// </summary>
-        public ScenarioWriter AddRecordingsAsTree(IEnumerable<RecordingBuilder> builders)
+        /// <param name="markerKey">
+        /// Optional RECORDING_TREE round-trip marker, matching the production
+        /// contract in <c>ParsekScenario.SavePendingTreeIfAny</c>: <c>null</c> for a
+        /// plain COMMITTED node (every fixture before the AUTOMERGE-ON-BY-DEFAULT
+        /// wave), <c>"isPending"</c> for a Finalized pending tree
+        /// (<c>TryRestorePendingTreeNode</c>), or <c>"isActive"</c> for a Limbo
+        /// resume tree (<c>TryRestoreActiveTreeNode</c>, which re-stashes it
+        /// NON-Finalized). The marker is what decides which OnLoad restore path a
+        /// fixture exercises, so a fixture that wants a non-Finalized pending tree
+        /// on disk has no other way to author one.
+        /// </param>
+        /// <param name="activeRecordingId">
+        /// Optional <c>ActiveRecordingId</c> for the emitted tree. Load-bearing ONLY
+        /// with <c>markerKey = "isActive"</c>, where <c>TryRestoreActiveTreeNode</c>
+        /// derives the stash state from it: non-null =&gt; <c>Limbo</c>, null =&gt;
+        /// <c>LimboVesselSwitch</c> (bug #266's outsider shape).
+        /// </param>
+        public ScenarioWriter AddRecordingsAsTree(
+            IEnumerable<RecordingBuilder> builders,
+            string markerKey = null,
+            string activeRecordingId = null)
         {
             if (builders == null)
                 throw new ArgumentNullException(nameof(builders));
@@ -124,7 +144,7 @@ namespace Parsek.Tests.Generators
                 Id = "tree-" + root.RecordingId,
                 TreeName = root.VesselName,
                 RootRecordingId = root.RecordingId,
-                ActiveRecordingId = null
+                ActiveRecordingId = activeRecordingId
             };
 
             for (int i = 0; i < recordings.Count; i++)
@@ -133,7 +153,7 @@ namespace Parsek.Tests.Generators
                 tree.Recordings[recordings[i].RecordingId] = recordings[i];
             }
 
-            AddSerializedTree(tree);
+            AddSerializedTree(tree, markerKey);
             RegisterV3Builders(builderList);
             return this;
         }
@@ -1019,10 +1039,15 @@ namespace Parsek.Tests.Generators
             return hash == 0 ? 1u : hash;
         }
 
-        private void AddSerializedTree(RecordingTree tree)
+        private void AddSerializedTree(RecordingTree tree, string markerKey = null)
         {
             var treeNode = new ConfigNode("RECORDING_TREE");
             tree.Save(treeNode);
+            // Written exactly as production does it (ParsekScenario.SavePendingTreeIfAny
+            // / SaveActiveTreeIfAny both AddValue the marker AFTER RecordingTree.Save),
+            // so an injected fixture round-trips through the same reader.
+            if (!string.IsNullOrEmpty(markerKey))
+                treeNode.AddValue(markerKey, "True");
             trees.Add(treeNode);
         }
 

@@ -6177,6 +6177,31 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         "H6-route-rewind-timeline.toml":    "discharged - 'The former PENDING-OPERATOR ...'",
         "M1-mission-loop-unit.toml":        "discharged - 'CLOSED by the 2026-07-26 flights'",
         "M2-periodicity-solver.toml":       "discharged - 'CLOSED by the 2026-07-26 flight'",
+        # tier=operator because it is a READING RUN, which is the same reason the
+        # calibration lanes are operator-tier and not a debt. AUTHORED 2026-08-29
+        # (R4, the AUTOMERGE-ON-BY-DEFAULT wave), NEVER FLOWN. Its subject is a
+        # QUESTION - which branch `AutoCommitPendingTreeOutsideFlight` takes when a
+        # NON-Finalized (isActive-marker) pending tree reaches it outside FLIGHT -
+        # so it deliberately pins only the structural preconditions and leaves the
+        # two branch-discriminating tokens as documented readings. It owes no
+        # outstanding HUMAN call: it owes a flight, after which the branch token is
+        # pinned, `[expectations.recordings]` tightens from its honest {1,2} range,
+        # and the saveParse blocks it correctly ships WITHOUT get authored from
+        # measured facets. Nothing here is armed and ARMED_ALLOWLIST is untouched.
+        # Its WARM sibling, same wave, same discipline, and operator-tier for the same
+        # reason: it is a READING RUN. S0.9 confirms only the COLD / load-path half of
+        # the AUTOMERGE-ON-BY-DEFAULT question; this one drives steps 2-4 of the warm
+        # player chain the 2026-08-29 review assembled (resume give-up -> the exit the
+        # product's own Warn recommends -> the auto-commit site with `context=scene-exit`).
+        # It owes a flight, not a human call: after one, the branch token gets pinned,
+        # the {1,2} recordings range tightens, and the saveParse blocks it correctly
+        # ships WITHOUT get authored from measured facets. Nothing armed.
+        "S0.10-automerge-limbo-warm-exit.toml":
+            "operator by the reading-run discipline (V1/V2/V24W precedent); AUTHORED "
+            "2026-08-29, NEVER FLOWN, reading pending. Owes a flight, not a human call",
+        "S0.9-automerge-pending-limbo-cold-load.toml":
+            "operator by the reading-run discipline (V1/V2/V24W precedent); AUTHORED "
+            "2026-08-29, NEVER FLOWN, reading pending. Owes a flight, not a human call",
         "S1.4-injected-playback.toml":      "discharged - 'THAT PENDING-OPERATOR IS NOW CLOSED'",
         # tier=operator by CALIBRATION DISCIPLINE, not debt - the B18/B19/B20 shape,
         # and the GS-1/GS-4 shape before promotion. S1.9 has never flown: its
@@ -8849,8 +8874,9 @@ class IngameCategoryInventoryDocTests(unittest.TestCase):
         # `PartEventFidelity` (H37), 104 -> 105 with `RenderComposition` (M-A7),
         # 105 -> 106 with `DisabledHoverEcho` (the greyed-button hover explainer's
         # live IMGUI cell; deliberately its OWN category rather than `Settings`,
-        # whose BATCH_COMPLETE tally H46 pins from a flown run).
-        self.assertIn("**106 categories / %d declarations**" % stated_decls, body,
+        # whose BATCH_COMPLETE tally H46 pins from a flown run), 106 -> 107 with
+        # `AutoMergeCommit` (R4, the plan-§7 autoMerge=ON scene-exit cell).
+        self.assertIn("**107 categories / %d declarations**" % stated_decls, body,
                       "the triage totals line disagrees with the table it summarises "
                       "(table sums to %d declarations across %d categories)"
                       % (stated_decls, len(self.rows)))

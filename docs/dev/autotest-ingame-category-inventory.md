@@ -1,4 +1,4 @@
-# In-game test category inventory (all 106 categories)
+# In-game test category inventory (all 107 categories)
 
 Machine-derived from `Source/Parsek` by `hlib.parse_ingame_test_declarations` +
 `hlib.derive_batch_tally`. Do NOT hand-edit the table: re-derive it. The generator
@@ -91,6 +91,7 @@ Two limits of this table, stated so nobody over-reads it:
 
 | Category | Decls | Exec FLIGHT | Exec SPACECENTER | Exec TRACKSTATION | Batch-disabled | Members with self-skip | Driven by | Bucket |
 |---|---|---|---|---|---|---|---|---|
+| `AutoMergeCommit` | 1 | 0 | 0 | 0 | 1 | 1 | - | B |
 | `AutoRecord` | 10 | 0 | 0 | 0 | 10 | 10 | - | B |
 | `BackgroundSeeder` | 2 | 2 | 0 | 0 | 0 | 2 | - | B |
 | `Bug289` | 2 | 2 | 0 | 0 | 0 | 0 | - | B |
@@ -200,14 +201,20 @@ Two limits of this table, stated so nobody over-reads it:
 
 ## Triage
 
-Totals, re-derived: **106 categories / 594 declarations**. Buckets **A 33 categories
-(231 declarations)**, **B 73 categories (363 declarations)**, **C 0 categories (0
-declarations)**. Driven by a committed spec: **43 of 106 categories**, up from 35
+Totals, re-derived: **107 categories / 595 declarations**. Buckets **A 33 categories
+(231 declarations)**, **B 74 categories (364 declarations)**, **C 0 categories (0
+declarations)**. The 107th is `AutoMergeCommit` (R4, the AUTOMERGE-ON-BY-DEFAULT
+wave; the 106th is `DisabledHoverEcho`, landed the same week): the plan-§7
+autoMerge=ON scene-exit cell, batch-disabled and restore-backed exactly like the two
+`SceneExitMerge` cells it mirrors, and in bucket **B** because no committed spec
+drives it yet - the cell exists and is the coverage that was missing; pointing a spec
+at it is the next step, not this one.
+Driven by a committed spec: **43 of 107 categories**, up from 35
 across six waves - `ReFlyWorldPreservation` via S4.2, `RecordedSignals` via H33,
 `SnapshotBaseline` via H32, and `Logistics` via H34 all landed together in one merge
 (the S1.8 SoiCrossingPlayback wave had taken it to 35 from 34, and 28 and 8 the waves
 before), then `PlaybackFidelity` via H36 and `PartEventFidelity` via H37. Measured
-against declarations rather than categories, that is 408 of 594 inside a driven
+against declarations rather than categories, that is 408 of 595 inside a driven
 category (was 318 before these waves: 324 after S4.2, 327 after H33, 334 after H32,
 381 once `Logistics` counted, 388 with `PlaybackFidelity`, 393 with
 `PartEventFidelity`, and 401 once L3's capture matrix took `StrategyLifecycle` from 3

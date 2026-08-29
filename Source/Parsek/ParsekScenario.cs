@@ -7578,8 +7578,14 @@ namespace Parsek
         {
             if (!RecordingStore.HasPendingTree)
             {
+                // Carries the SAME `autocommit-outside-flight` prefix as the entry line
+                // and the two outcome lines below, so ONE grep answers all four states
+                // this site can be in: never reached (no line at all), reached with
+                // nothing to do (this line), reached and full-fidelity, reached and
+                // ghost-only. Without the shared prefix the empty case is the one a
+                // reader has to know a different string to find.
                 ParsekLog.Verbose("Scenario",
-                    $"AutoCommitPendingTreeOutsideFlight ({context}): no pending tree — nothing to commit");
+                    $"autocommit-outside-flight ({context}): no-pending-tree — nothing to commit");
                 return;
             }
 
@@ -7588,6 +7594,19 @@ namespace Parsek
             bool reFlyActive =
                 !object.ReferenceEquals(null, scenario)
                 && scenario.ActiveReFlySessionMarker != null;
+
+            // ENTRY line, emitted BEFORE the branch is chosen and carrying the WHOLE
+            // decision input set. Without it the two outcome lines below are this
+            // site's only evidence, and "the site never ran" reads identically to
+            // "the site ran and chose full fidelity" in a collected log — which is
+            // exactly the reading a driven auto-merge scenario has to make. Grep-stable
+            // prefix: `autocommit-outside-flight`. See the AUTOMERGE-ON-BY-DEFAULT entry
+            // in docs/dev/todo-and-known-bugs.md.
+            ParsekLog.Info("Scenario",
+                $"autocommit-outside-flight ({context}): entry tree='{pt?.TreeName}' " +
+                $"recordings={pt?.Recordings?.Count ?? 0} scene={HighLogic.LoadedScene} " +
+                $"autoMerge={IsAutoMerge} pendingState={RecordingStore.PendingTreeStateValue} " +
+                $"reFlyActive={reFlyActive}");
 
             // Hardening: this runs inside ParsekScenario.OnLoad, whose top-level catch
             // rethrows (an OnLoad abort has historically wiped the persistent index). A
@@ -7629,13 +7648,19 @@ namespace Parsek
                         : RecordingStore.PendingTreeStateValue != PendingTreeState.Finalized
                             ? $"state={RecordingStore.PendingTreeStateValue}"
                         : "mainmenu";
-                    AutoCommitTreeGhostOnly(pt);
+                    int snapshotsNulled = AutoCommitTreeGhostOnly(pt);
                     CommitPendingTreeAsApplied(pt);
                     LedgerOrchestrator.NotifyLedgerTreeCommitted(pt);
                     ScreenMessages.PostScreenMessage("[Parsek] Tree recording committed to timeline", 5f);
                     RecordingStore.RunOptimizationPass();
+                    // snapshotsNulled is the fidelity fact this line exists to carry: it
+                    // is the number of full-fidelity VesselSnapshots this branch DESTROYED
+                    // (spawn-at-end eligibility lost). Zero means the tree was already
+                    // ghost-only and nothing was given up; nonzero is the measurement the
+                    // AUTOMERGE-ON-BY-DEFAULT question turns on.
                     ParsekLog.Info("Scenario",
-                        $"Ghost-only auto-commit ({context}, reason={reason}): tree='{pt.TreeName}'");
+                        $"Ghost-only auto-commit ({context}, reason={reason}): tree='{pt.TreeName}' " +
+                        $"recordings={pt.Recordings.Count} snapshotsNulled={snapshotsNulled}");
                 }
             }
             catch (System.Exception ex)
@@ -7649,16 +7674,22 @@ namespace Parsek
         /// <summary>
         /// Prepares all recordings in a pending tree for ghost-only commit (no vessel spawn).
         /// Nulls vessel snapshot and unreserves crew. Call RecordingStore.CommitPendingTree() after this.
+        /// <para>Returns the number of recordings that actually HAD a
+        /// <see cref="Recording.VesselSnapshot"/> to null — i.e. how much full-fidelity
+        /// spawn-at-end eligibility this commit gave up. The caller logs it.</para>
         /// </summary>
-        private static void AutoCommitTreeGhostOnly(RecordingTree tree)
+        internal static int AutoCommitTreeGhostOnly(RecordingTree tree)
         {
+            int snapshotsNulled = 0;
             foreach (var rec in tree.Recordings.Values)
             {
+                if (rec.VesselSnapshot != null) snapshotsNulled++;
                 CrewReservationManager.UnreserveCrewInSnapshot(rec.VesselSnapshot);
                 rec.VesselSnapshot = null;
             }
             ParsekLog.Info("Scenario", $"Auto-commit tree ghost-only: tree '{tree.Id}' " +
-                $"({tree.Recordings.Count} recordings)");
+                $"({tree.Recordings.Count} recordings, {snapshotsNulled} snapshot(s) nulled)");
+            return snapshotsNulled;
         }
 
         private void OnVesselRecoveryProcessing(

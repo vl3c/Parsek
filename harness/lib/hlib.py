@@ -127,7 +127,20 @@ INJECTED_RECORDINGS: Tuple[str, ...] = ("none", "all-synthetic", "rewind-b9",
                                         # census over the produced log is exactly
                                         # comparable with the corpus size.
                                         # Consumer: S1.9-part-showcase-render.
-                                        "part-showcase")
+                                        "part-showcase",
+                                        # pending-limbo-tree: ONE recording tree
+                                        # written under the production `isActive`
+                                        # RECORDING_TREE marker - the only on-disk
+                                        # shape that restores as a NON-Finalized
+                                        # pending tree (TryRestoreActiveTreeNode ->
+                                        # PendingTreeState.Limbo), which is the exact
+                                        # precondition
+                                        # ParsekScenario.AutoCommitPendingTreeOutsideFlight's
+                                        # ghost-only branch gates on. `--filter
+                                        # InjectPendingLimboTree`. No RewindPoint, so
+                                        # no RP sidecar. Consumer:
+                                        # S0.9-automerge-pending-limbo-cold-load.
+                                        "pending-limbo-tree")
 
 # Retry policies (design [retry].policy).
 RETRY_POLICIES: Tuple[str, ...] = ("once", "none")
