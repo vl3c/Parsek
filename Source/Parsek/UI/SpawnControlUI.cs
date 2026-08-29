@@ -313,7 +313,12 @@ namespace Parsek
 
                 // Warp button: "Warp to Depart" for departing, "Warp to Spawn" for normal
                 GUI.enabled = row.WarpButtonEnabled;
-                if (GUILayout.Button(row.WarpButtonLabel, GUILayout.Width(SpawnColW_Warp)))
+                bool warpClicked = GUILayout.Button(row.WarpButtonLabel, GUILayout.Width(SpawnColW_Warp));
+                // Row warp buttons carry no GUIContent tooltip at all, so out-of-range /
+                // too-fast / already-passed rows used to grey out with no explanation.
+                DisabledHoverEcho.CarryLastControl(
+                    row.WarpButtonEnabled, row.WarpButtonDisabledReason);
+                if (warpClicked)
                 {
                     if (row.UsesDepartureWarp)
                     {

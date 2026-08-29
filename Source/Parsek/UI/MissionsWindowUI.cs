@@ -2507,8 +2507,11 @@ namespace Parsek
                 && GUILayout.Button(new GUIContent("Clone", MissionPresentation.CloneButtonTooltip),
                     GUILayout.Width(ColW_HeaderButton)))
                 MissionStore.Clone(mission);
-            GUI.enabled = MissionStore.CanDelete(mission);
-            if (GUILayout.Button("Delete", GUILayout.Width(ColW_HeaderButton)))
+            bool canDeleteMission = MissionStore.CanDelete(mission);
+            GUI.enabled = canDeleteMission;
+            bool deleteClicked = GUILayout.Button("Delete", GUILayout.Width(ColW_HeaderButton));
+            DisabledHoverEcho.CarryLastControl(canDeleteMission, MissionDeleteDisabledReason());
+            if (deleteClicked)
                 MissionStore.Delete(mission);
             GUI.enabled = true;
 
@@ -2546,8 +2549,15 @@ namespace Parsek
                     GUI.enabled = false;
                 GUILayout.Label(new GUIContent("Loop", MissionPresentation.LoopToggleTooltip),
                     missionHeaderInlineLabel);
+                bool missionLoopDrawnEnabled = GUI.enabled;
                 bool loopNow = GUILayout.Toggle(mission.LoopPlayback,
                     new GUIContent("", MissionPresentation.LoopToggleTooltip));
+                // LoopToggleTooltip is the generic what-it-does sentence; when a supply
+                // route owns the schedule the carrier names the route instead.
+                DisabledHoverEcho.CarryLastControl(
+                    missionLoopDrawnEnabled,
+                    RecordingsTableUI.LoopToggleDisabledReason(
+                        bindingRoute != null ? bindingRoute.Name : null));
                 GUI.enabled = prevGuiEnabled;
                 CommitMissionLoopToggle(mission, loopNow, missionRouteBound, bindingRoute);
             }
@@ -2854,6 +2864,7 @@ namespace Parsek
                 // Keep the column width stable when not in flight (greyed placeholder).
                 GUI.enabled = false;
                 GUILayout.Button("Watch", GUILayout.Width(ColW_HeaderButton));
+                DisabledHoverEcho.CarryLastControl(false, MissionWatchDisabledReason(false, false));
                 GUI.enabled = true;
                 return;
             }
@@ -2870,7 +2881,9 @@ namespace Parsek
             bool canWatch = watchTarget >= 0 || isWatchingThisMission;
             GUI.enabled = canWatch;
             string label = isWatchingThisMission ? "W*" : "Watch";
-            if (GUILayout.Button(label, GUILayout.Width(ColW_HeaderButton)))
+            bool missionWatchClicked = GUILayout.Button(label, GUILayout.Width(ColW_HeaderButton));
+            DisabledHoverEcho.CarryLastControl(canWatch, MissionWatchDisabledReason(true, canWatch));
+            if (missionWatchClicked)
             {
                 if (isWatchingThisMission)
                 {
@@ -2885,6 +2898,47 @@ namespace Parsek
                 }
             }
             GUI.enabled = true;
+        }
+
+        /// <summary>
+        /// Why a mission's "Delete" is greyed out. Every tree keeps its ORIGINAL mission -
+        /// it is what the recordings hang off - so only the extra missions cloned onto the
+        /// same tree can be removed. Pure for unit testing.
+        /// </summary>
+        internal static string MissionDeleteDisabledReason()
+        {
+            return "A flight always keeps its first mission";
+        }
+
+        /// <summary>
+        /// Why a mission's "Watch" is greyed out. Watching parents the camera to a live
+        /// ghost, so it needs a flight scene AND a ghost of this mission actually flying
+        /// at the current moment. Pure for unit testing.
+        /// </summary>
+        internal static string MissionWatchDisabledReason(bool inFlightScene, bool canWatch)
+        {
+            if (!inFlightScene)
+                return "Watching only works while you are flying";
+            return canWatch ? string.Empty : "Nothing from this mission is flying right now";
+        }
+
+        /// <summary>
+        /// Why a mission's "Warp to..." is greyed out. Four gates share the one button and
+        /// the button's own tooltip describes none of them; they are reported in the order
+        /// the player would have to fix them. Pure for unit testing.
+        /// </summary>
+        internal static string MissionWarpToDisabledReason(
+            bool warpScene, bool looping, bool unitBuilt, bool relaunchAhead)
+        {
+            if (!warpScene)
+                return "Warping works in flight or at the Space Center";
+            if (!looping)
+                return "Turn Loop on to warp to the next launch";
+            if (!unitBuilt)
+                return "This mission does not repeat on a schedule yet";
+            if (!relaunchAhead)
+                return "The next launch is not ahead of you";
+            return string.Empty;
         }
 
         // "Warp to..." button: fast-forwards the game clock to this mission's next faithful relaunch
@@ -2909,8 +2963,25 @@ namespace Parsek
                 now);
 
             GUI.enabled = actionable;
-            if (GUILayout.Button(new GUIContent("Warp to...", MissionPresentation.WarpToButtonTooltip),
-                    GUILayout.Width(ColW_HeaderButton)))
+            bool warpToClicked = GUILayout.Button(
+                new GUIContent("Warp to...", MissionPresentation.WarpToButtonTooltip),
+                GUILayout.Width(ColW_HeaderButton));
+            // WarpToButtonTooltip is the generic what-it-does sentence and stays attached
+            // while the button is greyed, so the carrier resolves which of the four gates
+            // actually closed.
+            DisabledHoverEcho.CarryLastControl(
+                actionable,
+                MissionWarpToDisabledReason(
+                    warpScene,
+                    mission != null && mission.LoopPlayback,
+                    periodicity.UnitBuilt,
+                    // Reuse the ENABLE gate itself for the clock leg, with the two
+                    // upstream legs pinned true so only its clock + finiteness checks
+                    // answer here. Re-deriving it as `NextRelaunchUT > now` left the
+                    // button greyed but SILENT through the last second before every
+                    // relaunch (the gate needs now + 1.0) and for a NaN/Inf relaunch UT.
+                    ShouldEnableWarpToWindow(true, true, periodicity.NextRelaunchUT, now)));
+            if (warpToClicked)
                 ShowMissionWarpToWindowConfirmation(mission, periodicity.NextRelaunchUT, inFlight);
             GUI.enabled = true;
         }
@@ -4083,9 +4154,12 @@ namespace Parsek
             // is where a hover can explain the field beside it.
             string periodStateTooltip = MissionPresentation.BuildPeriodStateTooltip(
                 enabled, false, auto, showEffective) ?? string.Empty;
-            if (GUILayout.Button(
+            bool unitButtonEnabled = GUI.enabled;
+            bool unitButtonClicked = GUILayout.Button(
                     new GUIContent(ParsekUI.UnitLabel(mission.LoopTimeUnit), periodStateTooltip),
-                    bodyCellButtonFlush, GUILayout.Width(unitBtnW)))
+                    bodyCellButtonFlush, GUILayout.Width(unitBtnW));
+            DisabledHoverEcho.CarryLastControl(unitButtonEnabled, periodStateTooltip);
+            if (unitButtonClicked)
             {
                 mission.LoopTimeUnit = RecordingsTableUI.CycleRecordingUnit(mission.LoopTimeUnit);
                 if (loopPeriodFocusedMissionId == mission.Id)

@@ -8846,8 +8846,11 @@ class IngameCategoryInventoryDocTests(unittest.TestCase):
         # with the `ReFlyWorldPreservation` category (S4.2), 100 -> 101 with
         # `RecordedSignals` (H33), 101 -> 102 with `SnapshotBaseline` (H32),
         # 102 -> 103 with `PlaybackFidelity` (H36), 103 -> 104 with
-        # `PartEventFidelity` (H37), 104 -> 105 with `RenderComposition` (M-A7).
-        self.assertIn("**105 categories / %d declarations**" % stated_decls, body,
+        # `PartEventFidelity` (H37), 104 -> 105 with `RenderComposition` (M-A7),
+        # 105 -> 106 with `DisabledHoverEcho` (the greyed-button hover explainer's
+        # live IMGUI cell; deliberately its OWN category rather than `Settings`,
+        # whose BATCH_COMPLETE tally H46 pins from a flown run).
+        self.assertIn("**106 categories / %d declarations**" % stated_decls, body,
                       "the triage totals line disagrees with the table it summarises "
                       "(table sums to %d declarations across %d categories)"
                       % (stated_decls, len(self.rows)))

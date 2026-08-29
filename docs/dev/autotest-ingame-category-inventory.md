@@ -1,4 +1,4 @@
-# In-game test category inventory (all 105 categories)
+# In-game test category inventory (all 106 categories)
 
 Machine-derived from `Source/Parsek` by `hlib.parse_ingame_test_declarations` +
 `hlib.derive_batch_tally`. Do NOT hand-edit the table: re-derive it. The generator
@@ -101,6 +101,7 @@ Two limits of this table, stated so nobody over-reads it:
 | `CrewReservation` | 15 | 14 | 6 | 5 | 0 | 12 | H31 | A |
 | `CrewReservationLive` | 2 | 2 | 2 | 2 | 0 | 2 | - | B |
 | `DataHealth` | 4 | 4 | 4 | 4 | 0 | 0 | H14 | A |
+| `DisabledHoverEcho` | 1 | 1 | 1 | 1 | 0 | 1 | - | B |
 | `Diagnostics` | 6 | 6 | 3 | 3 | 0 | 1 | H27 | A |
 | `EvaSpawnPosition` | 2 | 2 | 0 | 0 | 0 | 2 | H20 | A |
 | `FinalizeBackfill` | 7 | 7 | 0 | 0 | 0 | 0 | H10 | A |
@@ -199,14 +200,14 @@ Two limits of this table, stated so nobody over-reads it:
 
 ## Triage
 
-Totals, re-derived: **105 categories / 593 declarations**. Buckets **A 33 categories
-(231 declarations)**, **B 72 categories (362 declarations)**, **C 0 categories (0
-declarations)**. Driven by a committed spec: **43 of 105 categories**, up from 35
+Totals, re-derived: **106 categories / 594 declarations**. Buckets **A 33 categories
+(231 declarations)**, **B 73 categories (363 declarations)**, **C 0 categories (0
+declarations)**. Driven by a committed spec: **43 of 106 categories**, up from 35
 across six waves - `ReFlyWorldPreservation` via S4.2, `RecordedSignals` via H33,
 `SnapshotBaseline` via H32, and `Logistics` via H34 all landed together in one merge
 (the S1.8 SoiCrossingPlayback wave had taken it to 35 from 34, and 28 and 8 the waves
 before), then `PlaybackFidelity` via H36 and `PartEventFidelity` via H37. Measured
-against declarations rather than categories, that is 408 of 593 inside a driven
+against declarations rather than categories, that is 408 of 594 inside a driven
 category (was 318 before these waves: 324 after S4.2, 327 after H33, 334 after H32,
 381 once `Logistics` counted, 388 with `PlaybackFidelity`, 393 with
 `PartEventFidelity`, and 401 once L3's capture matrix took `StrategyLifecycle` from 3

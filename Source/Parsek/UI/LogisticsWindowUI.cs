@@ -1090,6 +1090,7 @@ namespace Parsek
                         LabelForArmedState(armedKind),
                         TooltipForArmedState(armedKind)),
                     GUILayout.Width(160f));
+                DisabledHoverEcho.CarryLastControl(false, TooltipForArmedState(armedKind));
                 GUI.enabled = prevEnabled;
             }
             else if (section == RouteSection.Active)
@@ -1156,10 +1157,14 @@ namespace Parsek
             // "-" decrements the multiplier (no-op + greyed at the 1x floor). Routes
             // through the synchronous deferred fields like the detail-panel stepper.
             bool atFloor = n <= 1;
+            const string cadenceAtFloorReason =
+                "Already at the minimum (1x = the fastest the run allows)";
             GUI.enabled = !atFloor;
-            if (GUILayout.Button(new GUIContent("-",
-                    atFloor ? "Already at the minimum (1x = the fastest the run allows)" : "Dispatch more often"),
-                    GUILayout.Width(20f)))
+            bool cadenceDownClicked = GUILayout.Button(new GUIContent("-",
+                    atFloor ? cadenceAtFloorReason : "Dispatch more often"),
+                    GUILayout.Width(20f));
+            DisabledHoverEcho.CarryLastControl(!atFloor, cadenceAtFloorReason);
+            if (cadenceDownClicked)
             {
                 pendingCadenceRoute = route;
                 pendingCadenceMultiplier = RouteCadence.StepMultiplier(n, -1);
@@ -1339,6 +1344,29 @@ namespace Parsek
                     // so show the normal action buttons.
                     return false;
             }
+        }
+
+        /// <summary>
+        /// Why the round-trip "Link" button is greyed out. The picker commits a PAIR, so
+        /// it stays inert until a partner row is actually selected. Pure for unit testing.
+        /// </summary>
+        internal static string LinkButtonDisabledReason(string selectedPartnerRouteId)
+        {
+            return string.IsNullOrEmpty(selectedPartnerRouteId)
+                ? "Pick a route above to pair this one with"
+                : string.Empty;
+        }
+
+        /// <summary>
+        /// Why "Log (Mission)" is greyed out. The button opens the mission a route was
+        /// built from, so a route created by hand rather than from a flown mission has
+        /// nothing to open. Pure for unit testing.
+        /// </summary>
+        internal static string MissionLogButtonDisabledReason(string sourceTreeId)
+        {
+            return string.IsNullOrEmpty(sourceTreeId)
+                ? "This route was not built from a recorded mission"
+                : string.Empty;
         }
 
         /// <summary>
@@ -1774,10 +1802,13 @@ namespace Parsek
             GUILayout.FlexibleSpace();
 
             bool prevEnabled = GUI.enabled;
-            GUI.enabled = !string.IsNullOrEmpty(linkPickerSelectedId);
-            if (GUILayout.Button(new GUIContent("Link",
+            bool linkEnabled = !string.IsNullOrEmpty(linkPickerSelectedId);
+            GUI.enabled = linkEnabled;
+            bool linkClicked = GUILayout.Button(new GUIContent("Link",
                     "Pair these two routes as a round-trip: they alternate, each dispatching only after its partner completes a run."),
-                    GUILayout.Width(70)))
+                    GUILayout.Width(70));
+            DisabledHoverEcho.CarryLastControl(linkEnabled, LinkButtonDisabledReason(linkPickerSelectedId));
+            if (linkClicked)
             {
                 string src = linkPickerSourceRouteId;
                 string sel = linkPickerSelectedId;
@@ -1865,6 +1896,8 @@ namespace Parsek
                 GUILayout.Button(new GUIContent("Re-scan for endpoint",
                     LogisticsDeliveryPresentation.RescanIneligibleReason(endpoint)),
                     GUILayout.Width(180f));
+                DisabledHoverEcho.CarryLastControl(
+                    false, LogisticsDeliveryPresentation.RescanIneligibleReason(endpoint));
                 GUI.enabled = prevEnabled;
                 GUILayout.Label(LogisticsDeliveryPresentation.RescanIneligibleReason(endpoint),
                     detailStyle, GUILayout.ExpandWidth(true));
@@ -1971,10 +2004,14 @@ namespace Parsek
                 }
 
                 string sourceTreeId = ResolveRouteSourceTreeId(route);
-                GUI.enabled = !string.IsNullOrEmpty(sourceTreeId);
-                if (GUILayout.Button(new GUIContent("Log (Mission)",
+                bool hasSourceMission = !string.IsNullOrEmpty(sourceTreeId);
+                GUI.enabled = hasSourceMission;
+                bool missionLogClicked = GUILayout.Button(new GUIContent("Log (Mission)",
                         "Step-by-step log of the source mission this route was built from"),
-                        GUILayout.Width(RouteDetailButtonWidth)))
+                        GUILayout.Width(RouteDetailButtonWidth));
+                DisabledHoverEcho.CarryLastControl(
+                    hasSourceMission, MissionLogButtonDisabledReason(sourceTreeId));
+                if (missionLogClicked)
                 {
                     ParsekLog.Info("UI",
                         $"Route Log (Mission) button: route={(string.IsNullOrEmpty(route.Id) ? "<null>" : route.Id)} tree={sourceTreeId ?? "<null>"}");
@@ -2172,10 +2209,14 @@ namespace Parsek
 
             // "-" decrements (no-op + greyed at the 1x floor).
             bool atFloor = n <= 1;
+            const string cadenceAtFloorReason =
+                "Already at the minimum (1x = the fastest the run allows)";
             GUI.enabled = !atFloor;
-            if (GUILayout.Button(new GUIContent("-",
-                    atFloor ? "Already at the minimum (1x = the fastest the run allows)" : "Dispatch more often"),
-                    GUILayout.Width(24f)))
+            bool cadenceDownClicked = GUILayout.Button(new GUIContent("-",
+                    atFloor ? cadenceAtFloorReason : "Dispatch more often"),
+                    GUILayout.Width(24f));
+            DisabledHoverEcho.CarryLastControl(!atFloor, cadenceAtFloorReason);
+            if (cadenceDownClicked)
             {
                 pendingCadenceRoute = route;
                 pendingCadenceMultiplier = RouteCadence.StepMultiplier(n, -1);
@@ -2216,10 +2257,13 @@ namespace Parsek
 
             // "-" decrements (no-op + greyed at the 0 floor).
             bool atFloor = p <= 0;
+            const string priorityAtFloorReason = "Already at the highest priority (0)";
             GUI.enabled = !atFloor;
-            if (GUILayout.Button(new GUIContent("-",
-                    atFloor ? "Already at the highest priority (0)" : "Dispatch earlier on contention"),
-                    GUILayout.Width(24f)))
+            bool priorityDownClicked = GUILayout.Button(new GUIContent("-",
+                    atFloor ? priorityAtFloorReason : "Dispatch earlier on contention"),
+                    GUILayout.Width(24f));
+            DisabledHoverEcho.CarryLastControl(!atFloor, priorityAtFloorReason);
+            if (priorityDownClicked)
             {
                 pendingPriorityRoute = route;
                 pendingPriorityValue = RoutePriority.Step(p, -1);

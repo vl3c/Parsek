@@ -24,6 +24,13 @@ namespace Parsek
         internal SpawnCandidateStateTone StateTone;
         internal string WarpButtonLabel;
         internal bool WarpButtonEnabled;
+
+        /// <summary>
+        /// Few-words explanation shown while <see cref="WarpButtonEnabled"/> is false;
+        /// empty when the button is live. Built by
+        /// <see cref="SpawnControlPresentation.WarpButtonDisabledReason"/>.
+        /// </summary>
+        internal string WarpButtonDisabledReason;
         internal bool UsesDepartureWarp;
         // True when distance and relative-speed are both within the FF gates. Drives the
         // green text on the distance and relative-speed columns. Distinct from
@@ -54,6 +61,26 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Why a row's warp button is greyed out. The two proximity gates are reported
+        /// ahead of the clock because they are the ones the player can still act on -
+        /// a craft that is merely too far away right now may come closer, while a pass
+        /// that has already happened is final. Distance is reported before speed when
+        /// both fail, because closing the distance is what makes the speed gate
+        /// reachable at all. Pure for unit testing.
+        /// </summary>
+        internal static string WarpButtonDisabledReason(
+            bool tooFar, bool tooFast, bool passStillAhead)
+        {
+            if (tooFar)
+                return "Too far away to spawn";
+            if (tooFast)
+                return "Passing too fast to spawn";
+            if (!passStillAhead)
+                return "This pass has already happened";
+            return string.Empty;
+        }
+
+        /// <summary>
         /// Pure: build per-row presentation. The proximity-radius and relative-speed gates
         /// are enforced here (rather than during admission) so the window can show too-fast
         /// craft with a disabled FF button and red speed/distance text.
@@ -64,9 +91,9 @@ namespace Parsek
             double proximityRadius,
             double maxRelativeSpeed)
         {
-            bool conditionsMet =
-                candidate.distance <= proximityRadius &&
-                candidate.relativeSpeed <= maxRelativeSpeed;
+            bool tooFar = candidate.distance > proximityRadius;
+            bool tooFast = candidate.relativeSpeed > maxRelativeSpeed;
+            bool conditionsMet = !tooFar && !tooFast;
 
             if (!candidate.willDepart)
             {
@@ -76,6 +103,8 @@ namespace Parsek
                     StateTone = SpawnCandidateStateTone.None,
                     WarpButtonLabel = "Warp to Spawn",
                     WarpButtonEnabled = conditionsMet && candidate.endUT > currentUT,
+                    WarpButtonDisabledReason = WarpButtonDisabledReason(
+                        tooFar, tooFast, candidate.endUT > currentUT),
                     UsesDepartureWarp = false,
                     ConditionsMet = conditionsMet
                 };
@@ -96,6 +125,8 @@ namespace Parsek
                     : SpawnCandidateStateTone.UpcomingDeparture,
                 WarpButtonLabel = "Warp to Depart",
                 WarpButtonEnabled = conditionsMet && candidate.departureUT > currentUT,
+                WarpButtonDisabledReason = WarpButtonDisabledReason(
+                    tooFar, tooFast, candidate.departureUT > currentUT),
                 UsesDepartureWarp = true,
                 ConditionsMet = conditionsMet
             };

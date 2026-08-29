@@ -125,6 +125,17 @@ namespace Parsek
         internal SpawnControlUI GetSpawnControlUI() { return spawnControlUI; }
         internal TestRunnerUI GetTestRunnerUI() { return testRunnerUI; }
 
+        /// <summary>
+        /// Why the Real Spawn Control launcher is greyed out. The window turns a recorded
+        /// craft that is passing close by into a real vessel, so with nothing in range
+        /// there is nothing for it to act on. Written to the main window's 62-character
+        /// help strip, the narrowest in the mod. Pure for unit testing.
+        /// </summary>
+        internal static string SpawnControlLauncherDisabledReason(int nearbyCount)
+        {
+            return nearbyCount > 0 ? string.Empty : "No recorded craft is passing nearby";
+        }
+
         // Runtime-only empty groups — delegated to RecordingsTableUI
         internal List<string> KnownEmptyGroups => recordingsTableUI.KnownEmptyGroups;
 
@@ -676,11 +687,14 @@ namespace Parsek
             {
                 int spawnCount = flight.NearbySpawnCandidates.Count;
                 GUI.enabled = spawnCount > 0;
-                if (GUILayout.Button(new GUIContent(
+                bool spawnControlClicked = GUILayout.Button(new GUIContent(
                     string.Format(
                         System.Globalization.CultureInfo.InvariantCulture,
                         "Real Spawn Control ({0})", spawnCount),
-                    "Turn a recorded craft passing nearby into a real vessel.")))
+                    "Turn a recorded craft passing nearby into a real vessel."));
+                DisabledHoverEcho.CarryLastControl(
+                    spawnCount > 0, SpawnControlLauncherDisabledReason(spawnCount));
+                if (spawnControlClicked)
                 {
                     spawnControlUI.IsOpen = !spawnControlUI.IsOpen;
                     ParsekLog.Verbose("UI",
