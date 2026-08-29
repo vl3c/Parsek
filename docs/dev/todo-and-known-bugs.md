@@ -147,7 +147,7 @@ player-facing warning printed off this quantity would be a confidently-worded li
 
 ---
 
-## UNAFFORDABLE-SCIENCE-SPENDING-SILENTLY-RE-LOCKS-A-TECH-NODE: on a rewind or a re-fly merge, a researched node the reconstructed science pool cannot pay for is dropped and re-locked with a log-only trace [FOUND 2026-08-29 while analysing #427 to close. REACHABILITY IN A REAL CAREER NOT PROVEN - see below. Filed rather than signalled, deliberately: see "Why this did not become a toast"]
+## UNAFFORDABLE-SCIENCE-SPENDING-SILENTLY-RE-LOCKS-A-TECH-NODE: a researched node the reconstructed science pool cannot pay for is dropped and re-locked with a log-only trace, on ANY recalc that supplies a UT cutoff - which includes ordinary play, not only time travel [FOUND 2026-08-29 while analysing #427 to close. Separate the two halves: the PATH is reachable in ordinary play (proven - see "Scope"); the PRECONDITION `runningScience < cost` is NOT proven to occur. In a default career the loss is PERMANENT and the screen repaints to look correct - see "Severity". Filed rather than signalled, deliberately: see "Why this still did not become a toast"]
 
 **The chain, every link verified in source.**
 
