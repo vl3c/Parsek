@@ -125,7 +125,11 @@ allowedAnomalies = []
 # a parent/child pair across a BranchPoint is a MEASURED question this fixture has
 # never been flown to answer. Tighten to an exact pin from flight 1's reading; do not
 # tighten it by argument.
-count = { min = 1, max = 2 }
+# MEASURED 2026-08-29, run `2026-08-29_1025`: exactly 2, so the authoring range
+# {1,2} is now the exact pin it was always meant to become. The open half of that
+# range is answered: `RunOptimizationPass` did NOT collapse the parent/child pair
+# across the BranchPoint on either branch.
+count = { min = 2, max = 2 }
 
 # [expectations.recordings.structure] and [expectations.rewind] are ABSENT, and
 # deliberately so. This spec has NEVER BEEN FLOWN: every saveParse facet it could
@@ -136,8 +140,31 @@ count = { min = 1, max = 2 }
 # report-only reading run.
 
 [expectations.logContracts]
-# EVIDENCE STANDING: PREDICTED, NOT MEASURED. Nothing below has been observed on a
-# run. Only tokens whose emission is STRUCTURAL - true of any load of this fixture,
+# EVIDENCE STANDING: MEASURED. Run `2026-08-29_1025_S0.9-automerge-pending-limbo-cold-load`,
+# PASS attempt 1, 58 s, every verifier PASS/SKIPPED, expectations mismatches=0, zero
+# `[Parsek][ERROR]`. Both required patterns matched token for token.
+#
+# AND THE READING, which is the point of the run: the load-time guards ALL passed the
+# tree and the site took the GHOST-ONLY branch.
+#
+#   TryRestoreActiveTreeNode: stashed active tree 'Limbo Stack' (2 recording(s), activeRecId=limbo_child_9b3e05d1) into pending-Limbo slot
+#   Idle-on-pad auto-discard skipped: pending tree state is Limbo (not Finalized), resume/restore flow will run instead
+#   autocommit-outside-flight (cold-load outside-flight): entry tree='Limbo Stack' recordings=2 scene=SPACECENTER autoMerge=True pendingState=Limbo reFlyActive=False
+#   Auto-commit tree ghost-only: tree 'tree-limbo_root_2f7a41c8' (2 recordings, 2 snapshot(s) nulled)
+#   Ghost-only auto-commit (cold-load outside-flight, reason=state=Limbo): tree='Limbo Stack' recordings=2 snapshotsNulled=2
+#
+# The idle-on-pad line is worth reading twice: it is the ONE load-time guard that could
+# plausibly have dropped a pending tree before the commit branch, and it stood down for
+# exactly the reason the source predicted (it is gated on Finalized). Nothing else
+# touched the tree between the restore and the site.
+#
+# `autoMerge=True` in the entry line was NOT pinned by this spec's steps - `fresh-sandbox`
+# carries no `autoMerge` key at all, so that value is the SHIPPING DEFAULT reached through
+# the `ParsekSettings.autoMerge` field initializer. That is the whole claim this spec was
+# built to make, and it is now measured rather than argued.
+#
+# The original PREDICTED note is kept below because its REASONING still governs what may
+# be pinned here, and a green run does not license pinning the outcome: Only tokens whose emission is STRUCTURAL - true of any load of this fixture,
 # whichever branch the decision takes - are pinned; the branch-discriminating tokens
 # are named in the comments as WHAT TO READ, and are NOT pinned, because pinning an
 # answer to the question the spec asks would make a green run mean nothing.

@@ -140,7 +140,53 @@ count = { min = 1, max = 2 }
 # Nothing armed; ARMED_ALLOWLIST untouched.
 
 [expectations.logContracts]
-# EVIDENCE STANDING: PREDICTED, NOT MEASURED. Nothing below has been observed on a run.
+# EVIDENCE STANDING: FLOWN 2026-08-29, run `2026-08-29_1027_S0.10-automerge-limbo-warm-exit`,
+# PARSEK-FAIL attempt 1, 55 s, expectations mismatches=1. THE MISMATCH IS TOKEN 3, THIS
+# SPEC'S OWN WORDING - NOT THE PRODUCT. Six of the seven matched and THE WARM CHAIN WALKED
+# END TO END, ending in the ghost-only commit this spec exists to look for:
+#
+#   TryRestoreActiveTreeNode: stashed active tree 'Limbo Stack' (2 recording(s), ...) into pending-Limbo slot
+#   exittospacecenter start scene=FLIGHT autoMerge=true hasActiveTree=false hasPendingTree=true switchSegmentSession=false activeTreeVariant=None pendingTreeVariant=None
+#   exittospacecenter complete scene=SPACECENTER game-loaded=true
+#   OnLoad: pending-Limbo tree 'Limbo Stack' deferred to OnFlightReady for quickload-resume     <- the dangling dispatch, observed
+#   autocommit-outside-flight (scene-exit): entry tree='Limbo Stack' recordings=2 scene=SPACECENTER autoMerge=True pendingState=Limbo reFlyActive=False
+#   Ghost-only auto-commit (scene-exit, reason=state=Limbo): tree='Limbo Stack' recordings=2 snapshotsNulled=2
+#
+# Every other verifier PASS/SKIPPED, zero `[Parsek][ERROR]`, and the clobber guard did not
+# fire (no StashPendingTree overwrite), so the subject measured IS the parked fixture tree.
+#
+# WHY TOKEN 3 DID NOT FIRE, from the timeline - and it makes the reachability result
+# STRONGER, not weaker:
+#
+#   13:27:51.448  RestoreActiveTreeFromPending: waiting for vessel 'Limbo Upper' ...
+#   13:27:51.448  ... liveGuid=88a8a8a6... conclusively differs from ... recordedGuid=ecc6bdc0...
+#                 - skipping pid/name match (EVA-parent fallback still evaluated)
+#   13:27:51.448  ... parent-walk guid gate rejected rec=limbo_ro
+#   13:27:51.449  Pending tree 'Limbo Stack' skipped - restore coroutine in progress (#293)
+#   13:27:51.578  setting name=autoMerge old=false new=true      <- the fixture DID carry False
+#   13:27:51.830  recv ExitToSpaceCenter                          <- 0.38 s into a 3 s wait
+#   13:27:52.030  OnDestroy: clearing stale restoringActiveTree guard (coroutine aborted by destroy)
+#
+# The match was already impossible on the coroutine's FIRST iteration (all three identity
+# routes guid-rejected, exactly as the fixture note predicts), but the give-up Warn only
+# fires after the full 3 s ELAPSES, and the exit arrived first. So this run drove the
+# SECOND, non-fault entrance the entry documents - leaving FLIGHT during the 3 s wait, the
+# `restoringActiveTree` early return at ParsekFlight.cs:3029-3035 - rather than the give-up
+# entrance token 3 names. That entrance needs no match failure at all, only a player who
+# leaves within three seconds of a quickload.
+#
+# PINS DELIBERATELY NOT RETROFITTED. Rewriting a token to match the run that just failed it
+# is how a spec stops measuring anything, so the call is the maintainer's. The two options:
+#   (a) re-point token 3 at what this spec ACTUALLY drives - the guid-rejection pair, the
+#       `#293` skip, and `coroutine aborted by destroy`. Deterministic (the rejection is on
+#       iteration 1, no race), and it re-labels the spec's subject as the second entrance.
+#   (b) keep the give-up as the subject, which needs the exit to arrive >3 s after FLIGHT
+#       entry - i.e. a dwell/wait seam verb, which does not exist (TimeJump is an epoch
+#       shift with frozen relative positions, not a sleep).
+# `[expectations.recordings]` observed exactly 2 on this run but is left at {1,2} until
+# this spec has a green run of its own.
+#
+# The original PREDICTED note is kept below because its REASONING still governs the pins:
 #
 # The pinning rule is the same as S0.9's and is what keeps a green run meaningful: pin
 # the CHAIN (each step's own token, all of which are structural for this fixture) and

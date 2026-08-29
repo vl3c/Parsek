@@ -3771,7 +3771,7 @@ reclaim-refusal AND IO-refusal contracts are verified only on Windows runs; a
 POSIX-equivalent mechanism (injected failing rename / injected failing open)
 remains the upgrade path if anyone wants those dark spots lit.
 
-## AUTOMERGE-ON-BY-DEFAULT: is any player flow reachable that now auto-commits GHOST-ONLY where the dialog used to ask? [RAISED 2026-08-24 by the review panel on the default-flip PR (#1523) as PLAUSIBLE-not-confirmed. OPEN QUESTION, no defect demonstrated. The behaviour itself is by design and predates the flip; what changed is that it is now the DEFAULT answer. **RESTATED 2026-08-28 (branch `ledger-followups`) for the settings-simplification clamp: "on by default" is now "on UNCONDITIONALLY". ADOPTED RESOLUTION: leave the question PINNED, unclosed, awaiting the decisive evidence named below**]
+## AUTOMERGE-ON-BY-DEFAULT: is any player flow reachable that now auto-commits GHOST-ONLY where the dialog used to ask? [RAISED 2026-08-24 by the review panel on the default-flip PR (#1523) as PLAUSIBLE-not-confirmed. OPEN QUESTION, no defect demonstrated. The behaviour itself is by design and predates the flip; what changed is that it is now the DEFAULT answer. **RESTATED 2026-08-28 (branch `ledger-followups`) for the settings-simplification clamp: "on by default" is now "on UNCONDITIONALLY". ADOPTED RESOLUTION: leave the question PINNED, unclosed, awaiting the decisive evidence named below**. **FLOWN 2026-08-29 (branch `automerge-coverage`): the ghost-only commit is DEMONSTRATED LIVE on BOTH the cold and the warm route, with every `VesselSnapshot` destroyed and no dialog. The question this entry asks is ANSWERED for reachability; what remains is FREQUENCY. STILL OPEN, because the remedy is a maintainer decision and is deliberately NOT in that branch]
 
 **The 2026-08-27 settings simplification (#1549) widened this question and invalidated
 half of #1523's scoping argument.** `autoMerge` is now a HIDDEN field with no player-facing
@@ -3826,6 +3826,71 @@ flights are separately authorized. Status: INSTRUMENTED, AWAITING THE DRIVEN RUN
    the spec asks would make a green run mean nothing. Nothing armed; `ARMED_ALLOWLIST`
    untouched. **Its WARM sibling `S0.10-automerge-limbo-warm-exit.toml` was authored
    alongside it once the warm chain below was assembled — see "THE TWO DRIVEN SCENARIOS".**
+
+**FLIGHT VERDICTS (2026-08-29) — THE GHOST-ONLY BRANCH IS NOT A THEORY. It ran, on both
+routes, and destroyed the snapshots.** Both scenarios flew against a provisioned instance
+carrying this branch's DLL (hash-identical to the building worktree's `bin/Debug`).
+
+- **S0.9 (cold) — `2026-08-29_1025_S0.9-automerge-pending-limbo-cold-load`, PASS attempt 1,
+  58 s, every verifier PASS/SKIPPED, expectations mismatches=0, zero `[Parsek][ERROR]`.**
+  Open item (b) is CLOSED: the load-time guards ALL passed the tree. The one guard that
+  could plausibly have dropped it stood down for exactly the source-predicted reason —
+  `Idle-on-pad auto-discard skipped: pending tree state is Limbo (not Finalized)` — and the
+  site then reported
+  `autocommit-outside-flight (cold-load outside-flight): entry ... autoMerge=True
+  pendingState=Limbo reFlyActive=False`
+  followed by
+  `Ghost-only auto-commit (cold-load outside-flight, reason=state=Limbo): tree='Limbo Stack'
+  recordings=2 snapshotsNulled=2`.
+  **`autoMerge=True` was NOT pinned by that spec** — `fresh-sandbox` carries no `autoMerge`
+  key, so it is the shipping default reached through the field initializer. The ghost-only
+  commit is what a default install does.
+
+- **S0.10 (warm) — `2026-08-29_1027_S0.10-automerge-limbo-warm-exit`, PARSEK-FAIL attempt 1,
+  55 s, expectations mismatches=1 — and the mismatch is the SPEC'S OWN TOKEN, not the
+  product.** Six of seven matched and the warm chain WALKED, ending in
+  `Ghost-only auto-commit (scene-exit, reason=state=Limbo): ... snapshotsNulled=2`. The
+  `exittospacecenter start scene=FLIGHT autoMerge=true hasActiveTree=false
+  hasPendingTree=true ... activeTreeVariant=None pendingTreeVariant=None` line carries three
+  of the chain's assertions at once: the restore did not install, the Limbo tree survived,
+  and the wedge guard found no dialog required. The dangling dispatch was observed too
+  (`OnLoad: pending-Limbo tree 'Limbo Stack' deferred to OnFlightReady for quickload-resume`,
+  at SPACECENTER, where that restore can never fire).
+
+**The one token that did not fire, and why it makes the finding STRONGER.** S0.10 pinned the
+give-up Warn. The guid gate rejected the active vessel AND the parent walk on the
+coroutine's FIRST iteration (`liveGuid=88a8a8a6… conclusively differs from …
+recordedGuid=ecc6bdc0…`, 13:27:51.448), so the match was already impossible — but the Warn
+only fires once the full 3 s ELAPSES, and `ExitToSpaceCenter` arrived 0.38 s in
+(13:27:51.830). The coroutine was then killed by the scene change
+(`OnDestroy: clearing stale restoringActiveTree guard (coroutine aborted by destroy)`,
+13:27:52.030). **So the run drove the SECOND, non-fault entrance this entry documents —
+leaving FLIGHT during the 3-second wait (`ParsekFlight.cs:3029-3035`) — rather than the
+give-up entrance.** That entrance needs no match failure at all: only a player who leaves
+FLIGHT within three seconds of a quickload. Reachability is therefore established by TWO
+independent entrances, one of which was demonstrated by accident.
+
+**WHAT IS NOW PROVEN, and what is not.** Proven: a non-`Finalized` pending tree reaches
+`AutoCommitPendingTreeOutsideFlight` outside FLIGHT on both the cold and warm routes, under
+the shipping `autoMerge` default, and every `VesselSnapshot` is nulled with no dialog —
+steps 2/3/4 of the player chain, in the shipped DLL. NOT proven: step 1 (a real quickload
+producing the Limbo stash — both runs inject it) and **how often the resume match misses on
+ordinary flights**, which is the last open question and the only thing between this and a
+routine player experience.
+
+**Pins deliberately NOT retrofitted on S0.10.** Rewriting a token to match the run that just
+failed it is how a spec stops measuring anything. Options recorded on the spec and its
+status row: (a) re-point token 3 at what the spec actually drives (the guid-rejection pair,
+the `#293` skip, `coroutine aborted by destroy`) — deterministic, and re-labels the subject
+as the second entrance; or (b) keep the give-up as the subject, which needs a dwell/wait
+seam verb that does not exist. Maintainer's call.
+
+**THE PRODUCT FIX IS NOT IN THAT BRANCH, ON PURPOSE.** The remedy is scoped, not blanket —
+the dialog returns for the NON-re-fly, NON-`Finalized` case specifically, or Limbo trees
+preserve fidelity instead — and choosing between those against
+`silent-full-fidelity-autocommit.md` §4.4 / §10 is a design decision that now has live
+evidence to be taken against, rather than a change to smuggle in beside the instrument that
+found it.
 
 **HEADLESS VERDICT (2026-08-29) — the "saved trees restore as Finalized" argument is
 CORRECT FOR ONE MARKER AND WRONG FOR THE OTHER, so the ghost-only branch is NOT dead

@@ -1336,6 +1336,16 @@
         "2026-08-05T07:04:28Z": 46.0
       }
     },
+    "S0.9-automerge-pending-limbo-cold-load": {
+      "last": 58.0,
+      "lastVsP50": 1.0,
+      "n": 1,
+      "p50": 58.0,
+      "p95": 58.0,
+      "samples": {
+        "2026-08-29T10:26:47Z": 58.0
+      }
+    },
     "S1.4-injected-playback": {
       "last": 70.0,
       "lastVsP50": 1.0,
