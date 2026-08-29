@@ -1,6 +1,6 @@
 schema = 1
 id = "H34-logistics-inter-body"
-tier = "operator"
+tier = "nightly"
 # ID PROVENANCE: this spec was authored and FLOWN as `H32-logistics-inter-body`
 # and was renamed to H34 post-merge, when a sibling lane landed a DIFFERENT
 # `H32-snapshot-baseline` on main first. Every run id cited below embeds the OLD
@@ -36,10 +36,19 @@ tier = "operator"
 # fixture WOULD fly - see the [fixture] note - so the `scene = "spacecenter"`
 # argument is doing real work here, exactly as H23's `scene = "trackstation"` does.
 #
-# TIER. `operator`, and the promotion to `daily` is an OPEN HUMAN CALL, not a debt
-# this lane can discharge: the run is fully automated and unattended, so nothing
-# technical blocks a cadence, but adding a category this large to the daily tier is
-# a cadence decision for a human. See REVIEWED_UNTAGGED in harness/lib/test_hlib.py.
+# TIER. `nightly`. PROMOTED 2026-08-29 BY OPERATOR DECISION - all in-game test
+# lanes go on cadence. This was the open human call the lane could not discharge
+# for itself, and it is now closed rather than outstanding; the H21 / L2 / L3
+# precedent is exactly this shape (promote once the lane is measured, on the
+# operator's call rather than on a rule). Nothing technical changed - the run was
+# already fully automated and unattended, which is why the call was available to
+# make. The spec's id also leaves `PendingOperatorTagHonestyTests.REVIEWED_UNTAGGED`
+# in the same change, because that roster's population is (names the operator-debt
+# tag) OR (operator tier), and a nightly lane that does neither is not a member.
+# NOTE FOR ANYONE EDITING THIS BLOCK: do not write that tag's literal name here.
+# The roster detects membership with a substring scan over the whole spec FILE, so
+# a comment merely DESCRIBING the roster re-enrols the lane in it - which is exactly
+# what the first draft of this block did, and the suite caught it.
 #
 # STATUS: LIVE-PROVEN 2026-08-11, three runs, all PASS attempt 1.
 #   1549 (73 s) - the deliberately under-gated READING run (tally split unpinned,

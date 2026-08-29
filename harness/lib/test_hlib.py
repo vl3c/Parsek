@@ -6066,84 +6066,6 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
     # each classified by hand. A NEW one reds
     # `test_every_untagged_candidate_is_classified` until someone decides.
     REVIEWED_UNTAGGED = {
-        # tier=operator by PROMOTION POLICY, not debt. Flown three times on
-        # 2026-08-11 (one under-gated reading run, two confirms on the pinned
-        # shape), all PASS attempt 1, fully unattended - so nothing technical is
-        # outstanding and no human work is owed. What is open is the ordinary
-        # operator -> daily CADENCE call, which is a human decision on whether the
-        # largest in-game category belongs on the daily tier, exactly the shape
-        # recorded for GS-1 / GS-2 / GS-3 above. (Those runs flew under the
-        # pre-rename id `H32-logistics-inter-body`; the file is H34 since the
-        # post-merge id collision with the sibling lane's H32.)
-        "H34-logistics-inter-body.toml":    "FLOWN 3x 2026-08-11 (reading + two confirms, all PASS attempt 1) and PINNED WHOLE; operator tier is an open PROMOTION call, not debt",
-        # Same shape as H34 above, and for the same reason: the OTHER half of the
-        # Logistics split, flown three times on 2026-08-11 (one under-gated
-        # reading run, two confirms), all PASS attempt 1, fully unattended. The
-        # three run-time skips it pins are FIXTURE properties recorded in
-        # RUNTIME_SKIPS and in the spec's STATUS block, not outstanding work; the
-        # route-CANDIDACY gap they sit next to is a product finding with its own
-        # todo entry, not a debt this tag can carry. (Flown as
-        # `H33-logistics-route-proof`; renamed H35 for the same collision.)
-        "H35-logistics-route-proof.toml":   "FLOWN 3x 2026-08-11 (reading + two confirms, all PASS attempt 1) and PINNED WHOLE; operator tier is an open PROMOTION call, not debt",
-        # RE-CLASSIFIED 2026-08-28 to the H34/H35 shape, which is what the previous
-        # revision of this comment asked a future reader to do once the reading run
-        # had flown, its split had been measured, and the interim pin had been
-        # replaced. All three are now done: run `2026-08-28_1802` (PARSEK-FAIL(results),
-        # census 47/36/2/9) found one product defect - the D4 harvest rails funnel,
-        # fixed at f98d5477a - and two test defects; run `2026-08-28_1833` over the
-        # fixed DLL was PASS attempt 1 and measured 47/39/0/8, now pinned WHOLE with
-        # `MEASURED_SKIPPED = 8`, and the id has left INTERIM_PIN_IDS. The tag moved
-        # `pending-flight` -> `flown` in the same commit.
-        #
-        # WHAT IS STILL OPEN IS NOT DEBT: the CONFIRM runs (the pin is measured once,
-        # not yet re-proven - H34 and H35 each flew two confirms before their rows read
-        # this way) and, after them, the ordinary operator -> daily PROMOTION call,
-        # which only a human makes. The eight skips it pins are FIXTURE properties
-        # rostered in the spec header, not outstanding work on this lane; three of them
-        # name the planned H39 bdock-recorded dock-window lane, which is a separate
-        # spec's scope rather than a debt this tag can carry.
-        "H38-logistics-isolated.toml":      "FLOWN 2x 2026-08-28 (reading run found 1 product + 2 test defects, fixed at f98d5477a; run 2 PASS attempt 1) and PINNED WHOLE; confirm runs then the operator -> daily PROMOTION call are what remain, not debt",
-        # H39 / H40, RE-CLASSIFIED 2026-08-29 to the H34/H35/H38 shape, which is
-        # exactly what the previous revision of this comment asked a future reader
-        # to do "once each has flown, its census measured, its tally pinned whole
-        # and its id removed from INTERIM_PIN_IDS". All four are now done for both.
-        # Three censuses each, the third green:
-        #   H39  `_1947` 33/1/13 (one test defect), `_2053` BATCH GREEN 34/0/13 but
-        #        RED on `recordings.count 9 < min 19`, `_2119` PASS 34/0/13 count 21.
-        #   H40  `_1951` 25/10/12 (a nine-cell destination-headroom test-defect
-        #        family), `_2056` BATCH GREEN 35/0/12 but RED on `count 9 < min 20`,
-        #        `_2122` PASS 35/0/12 count 22.
-        # THESE TWO LANES FOUND THE TREE-DELETION DATA LOSS
-        # (QUICKLOAD-OVER-COMMITTED-RESTORE-OVERLAP-DELETES-TREE-ON-SAVE, fixed at
-        # 5218b13a8) on their second censuses, via the recordings floor and not via
-        # any in-game cell. Both now pin tally and count exactly and the tags moved
-        # `pending-flight` -> `flown` in the same commit.
-        #
-        # WHAT REMAINS IS NOT DEBT: the CONFIRM runs (each pin is measured once, not
-        # yet re-proven), then the ordinary operator -> daily PROMOTION call, which
-        # only a human makes. The 13 / 12 skips they pin are FIXTURE and CORPUS
-        # properties rostered verbatim in each spec header; three of them (the
-        # docked-origin producer cell and the target / cross-tree dock-window pair)
-        # are a HARVEST requirement now proven on TWO independent recorded hosts,
-        # which is a separate harvest's scope rather than a debt these tags carry.
-        "H39-logistics-isolated-bdock.toml": "FLOWN 3x 2026-08-28 (test defect, then the recordings floor caught player-reachable tree-deletion data loss, then PASS) and PINNED WHOLE incl. count=21; confirm runs then the operator -> daily PROMOTION call are what remain, not debt",
-        "H40-logistics-isolated-depot-route.toml": "FLOWN 3x 2026-08-28 (a nine-cell destination-headroom test-defect family, then the recordings floor caught the same tree-deletion data loss, then PASS) and PINNED WHOLE incl. count=22; confirm runs then the operator -> daily PROMOTION call are what remain, not debt",
-        # H41, RE-CLASSIFIED 2026-08-29 to the H34/H35/H38 shape - exactly what the
-        # previous revision of this comment asked for "once it has flown, its census
-        # measured, its tally pinned and its id removed from INTERIM_PIN_IDS". All four
-        # are done: run `2026-08-28_2216`, PASS attempt 1, `total=4 passed=3 failed=0
-        # skipped=1`, and the self-provisioning `GrappleCapture` cell EXECUTED AND
-        # PASSED - the first time anywhere - with all twelve of its guards satisfied and
-        # both programmatic vessel spawns settling in 76 frames each. The tag moved
-        # `pending-flight` -> `flown` in the same commit, and the lane now carries the
-        # suite's first D10 zero-declarer claim (`claw-producer`) earned off production
-        # emitters rather than a tally.
-        #
-        # WHAT REMAINS IS NOT DEBT: the confirm runs, then the ordinary operator ->
-        # daily PROMOTION call. Its one skip is a HARVEST requirement that is
-        # structurally unreachable from any single isolated batch (the capture cell's own
-        # baseline restore wipes the window it stamps), not outstanding work on the lane.
-        "H41-logistics-grapple-isolated.toml": "FLOWN 2026-08-28 PASS attempt 1 and PINNED WHOLE; the self-provisioning GrappleCapture cell executed and passed (first time anywhere) and now gates D10 claw-producer off three production tokens; confirm runs then the operator -> daily PROMOTION call are what remain, not debt",
         # tier=operator by the CALIBRATION DISCIPLINE, the whole B18-B26 family's
         # tier, and NOT a debt: a first-flight B lane is operator because its
         # windows are derived rather than measured and the first run is a
@@ -6748,6 +6670,55 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
     DROPPED_2026_08_12 = (
         "S4.2-refly-world-preservation.toml",  # own rule: "DROP THIS ENTRY on that green run"
     )
+
+    # THE 2026-08-29 TIER PROMOTION, and it is a DIFFERENT KIND OF DEPARTURE from the
+    # two tuples above - which is the whole reason it is recorded separately rather
+    # than appended to them. Those two hold specs that SHED THE TAG because a debt was
+    # discharged by a green run. These six never carried the tag at all: they sat in
+    # REVIEWED_UNTAGGED, classified as "operator tier is an open PROMOTION call, not
+    # debt". The operator has now MADE that call - all in-game test lanes go on cadence
+    # - so their tier is `nightly` and they leave the population this class can see at
+    # all, because membership is `(mentions the token OR tier == "operator") AND NOT
+    # tagged` and a nightly lane that never writes the string is neither.
+    #
+    # NOTHING WAS DISCHARGED AND NOTHING WAS HIDDEN. The classification these entries
+    # carried was always "no work is owed, a human has to choose a cadence"; the human
+    # chose. The per-lane evidence those entries summarised (flight counts, pinned
+    # tallies, the fixture/corpus skip rosters, the two standing HARVEST requirements)
+    # lives in each spec header and in docs/dev/autotest-status.md, which is where it
+    # belongs - it was never this roster's to hold.
+    TIER_PROMOTED_2026_08_29 = (
+        "H34-logistics-inter-body.toml",
+        "H35-logistics-route-proof.toml",
+        "H38-logistics-isolated.toml",
+        "H39-logistics-isolated-bdock.toml",
+        "H40-logistics-isolated-depot-route.toml",
+        "H41-logistics-grapple-isolated.toml",
+    )
+
+    def test_the_tier_promoted_specs_left_both_inventories(self):
+        """The promotion is an OPERATOR DECISION, so it is pinned rather than
+        trusted. Three ways it could rot, and each reds here:
+          * a spec quietly flipped back to `tier = "operator"` without regaining a
+            classification (the completeness cell would also red, but this one names
+            the promotion as the thing that was undone);
+          * a stale REVIEWED_UNTAGGED entry re-added for a lane that is no longer an
+            operator-tier candidate, which would make the roster claim a decision
+            nobody is waiting on;
+          * the `pending-operator` tag appearing on one of them, which would assert
+            outstanding human work against a call that has been made."""
+        for name in self.TIER_PROMOTED_2026_08_29:
+            with self.subTest(spec=name):
+                spec = load_spec(name)
+                self.assertEqual(
+                    "nightly", spec.get("tier"),
+                    "%s was promoted to the nightly cadence by operator decision on "
+                    "2026-08-29; a change back is a new operator decision and needs "
+                    "its own record here and in docs/dev/autotest-status.md" % name)
+                self.assertNotIn(name, self.REVIEWED_UNTAGGED,
+                                 "%s is nightly and mentions no PENDING-OPERATOR, so it is not a member of either population this class tracks" % name)
+                self.assertNotIn("pending-operator", spec.get("tags") or [],
+                                 "%s owes no operator work - the cadence call was made" % name)
 
     def test_the_specs_promoted_out_stay_out(self):
         for name in self.DROPPED_2026_07_31 + self.DROPPED_2026_08_12:
