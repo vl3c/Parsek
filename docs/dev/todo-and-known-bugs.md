@@ -341,6 +341,7 @@ PHYSICS warp never packs the vessel, so no amount of waiting could have fixed it
 `finally`. The skip reason keeps its original sentence VERBATIM (H38's spec
 header quotes it) with the measured `mode=` / `rate=` / `srfSpeed=` diagnostics
 appended in brackets, so a future skip states which mechanism it hit.
+
 ## GLOOPS-STANDALONE-WINDDOWN: Gloops UI retired from every mode; extraction to a standalone mod pending [OPENED 2026-08-28]
 
 Product decision (2026-08-28): Gloops becomes a standalone mod later, and Parsek

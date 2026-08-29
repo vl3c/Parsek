@@ -52,6 +52,52 @@ class CraftDriftTests(unittest.TestCase):
     def test_the_committed_craft_satisfies_every_post_condition(self):
         self.assertEqual([], self.builder.verify(self.lines))
 
+    def test_verify_rejects_a_craft_that_violates_each_post_condition(self):
+        # NEGATIVE CONTROL. The cell above proves the committed craft PASSES verify();
+        # it does not prove verify() would notice a craft that should fail - a predicate
+        # returning [] unconditionally passes it just as well. Each case here breaks
+        # exactly one post-condition and asserts verify() names THAT one, so the cell
+        # above is measuring something.
+        #
+        # 1. Part census: remove one PART block and the census must stop matching.
+        cut_at = None
+        for i, line in enumerate(self.lines):
+            if line.strip() == "PART":
+                cut_at = i
+                break
+        self.assertIsNotNone(cut_at, "expected at least one PART block to cut")
+        end = cut_at + 1
+        while end < len(self.lines) and self.lines[end].strip() != "PART":
+            end += 1
+        problems = self.builder.verify(self.lines[:cut_at] + self.lines[end:])
+        self.assertTrue(
+            any("part census" in p for p in problems),
+            "verify() must reject a craft whose part census moved; got %s" % problems)
+
+        # 2. MAX_PARTS: lower the cap under the real count and the committed craft
+        #    itself must be rejected, proving the cap is consulted rather than decorative.
+        original_cap = self.builder.MAX_PARTS
+        try:
+            self.builder.MAX_PARTS = 1
+            problems = self.builder.verify(self.lines)
+            self.assertTrue(any("exceeds the 1-part cap" in p for p in problems),
+                            "verify() must enforce MAX_PARTS; got %s" % problems)
+        finally:
+            self.builder.MAX_PARTS = original_cap
+
+        # 3. UID_CEILING: the UInt32 ceiling that cost the B17 forge an attempt-set.
+        original_ceiling = self.builder.UID_CEILING
+        try:
+            self.builder.UID_CEILING = 1
+            problems = self.builder.verify(self.lines)
+            self.assertTrue(any("UInt32 ceiling" in p for p in problems),
+                            "verify() must enforce UID_CEILING; got %s" % problems)
+        finally:
+            self.builder.UID_CEILING = original_ceiling
+
+        # The control must not leave the module mutated for the cells that follow.
+        self.assertEqual([], self.builder.verify(self.lines))
+
     def test_the_committed_craft_is_byte_identical_to_a_fresh_rebuild(self):
         self.assertEqual(self.lines, self.builder.build(),
                          "the committed craft has drifted from what "

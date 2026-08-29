@@ -150,10 +150,19 @@ namespace Parsek.TestCommands
         ///
         /// <para><c>FlushAndQuit</c> itself is listed because it is the reader - treating
         /// it as mutating would clear the latch on the very dispatch that consults it.</para>
+        ///
+        /// <para><b>Kept in step with the harness.</b> <c>hlib.SEAM_VERB_TAIL_ROLE</c>
+        /// classifies the same verbs for a DIFFERENT question (may an unmet-mission tail
+        /// still drive this?), but its <c>TAIL_ROLE_INERT</c> members are picked on the same
+        /// underlying fact - "reads state or stamps the log, never changes the game". The two
+        /// must not drift, and a harness cell reads THIS list out of the source to enforce
+        /// it. The single deliberate difference is <c>FlushAndQuit</c>, which hlib calls
+        /// <c>TAIL_ROLE_CLEANUP</c>; that cell excludes it by name, for the reason above.</para>
         /// </summary>
         private static readonly HashSet<string> NonMutatingVerbs = new HashSet<string>
         {
             "RecordingState",        // read-only report
+            "MissionMark",           // stamps one log line, nothing else (hlib: TAIL_ROLE_INERT)
             "ExportRenderManifest",  // read-only w.r.t. the game world; writes only the manifest file
             "FlushAndQuit",          // the reader of the latch, not a mutator of the world
         };

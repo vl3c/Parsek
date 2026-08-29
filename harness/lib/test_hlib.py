@@ -4219,6 +4219,14 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
         # it. The usual `passed=[1-9][0-9]*` interim spelling FAILS this for any member
         # whose ordinary path executes 2 or more, which is why H38 pins passed >= 9.
         prefix = "[LOG 00:00:00.000] [Parsek][INFO][TestRunner] "
+        # WHAT DEFENDS THE SUBTRACTED SPECS. A member in INTERIM_PIN_IDS *and*
+        # TALLY_CANNOT_DISCRIMINATE_IDS is exempt from this sweep, so its tally pin
+        # cannot tell a lost-isolated-arg run from a correct one - and that is exactly
+        # why such a spec must carry STRUCTURAL tokens (the recorded-corpus count floor
+        # above, and its required per-cell log literals) as the deliberate substitute:
+        # those measure what the batch DID to the save and to the log, which a tally
+        # cannot, and they are the reason the exemption is an accepted narrowing rather
+        # than an unguarded hole.
         for sid in sorted(self.INTERIM_PIN_IDS - self.TALLY_CANNOT_DISCRIMINATE_IDS):
             with self.subTest(spec=sid):
                 spec = self.specs[sid]
@@ -4618,16 +4626,31 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
                     "%s stages %d .prec sidecar(s) and its whole premise is that the "
                     "batch walks recorded state - a floor of 0 would accept a run "
                     "that destroyed the corpus" % (sid, len(staged)))
+                # THE FLOOR IS THE STAGED SET, not merely non-zero - and it is asserted
+                # HERE, ahead of the interim allowance below, exactly as the in-game
+                # group's cell does it (`IngameBatchWiringGroupTests`' assertGreaterEqual
+                # of count.min against len(precs)). MEASURED REASON: H40's census-2 red
+                # was a produced save that collapsed 22 staged recordings to 9. A floor
+                # of 1 accepts that silently; a floor of >= 22 is what makes it the red
+                # it was. An interim pin may still be wide at the TOP - the load-time
+                # optimizer's split count is a genuine measurement - but its floor may
+                # never sit below the corpus the template put on disk.
+                self.assertGreaterEqual(
+                    count.get("min", 0), len(staged),
+                    "%s pins count=%s but its template stages %d .prec files; the floor "
+                    "must be at least the staged set or a run that DESTROYED part of the "
+                    "corpus still passes (H40 census-2 measured exactly that: 22 -> 9)"
+                    % (sid, count, len(staged)))
                 self.assertGreaterEqual(
                     count.get("max", 0), len(staged),
                     "%s pins count=%s but its template stages %d .prec files, so the "
                     "window cannot even contain the staged set and the spec reds on "
                     "a correct run" % (sid, count, len(staged)))
                 if sid in self.INTERIM_PIN_IDS:
-                    # A reading run may declare a WINDOW: the load-time optimizer's
-                    # behaviour on a corpus nobody has batched over is a measurement,
-                    # and V18T pins {20, 30} over 22 staged on exactly that argument.
-                    # The floor above still forbids the vacuous {0, N}.
+                    # A reading run may declare a WINDOW at the TOP: the load-time
+                    # optimizer's behaviour on a corpus nobody has batched over is a
+                    # measurement, and V18T pins {20, 30} over 22 staged on exactly that
+                    # argument. The staged-set FLOOR above still applies to it.
                     continue
                 self.assertEqual(
                     count.get("min"), count.get("max"),
@@ -4768,6 +4791,52 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
         self.assertNotEqual([], problems)
         self.assertTrue(any("unknown fixture requirement" in p for p in problems),
                         problems)
+
+    def test_the_requirement_table_agrees_with_what_the_cells_actually_do(self):
+        # FIXTURE_REQUIREMENTS is DECLARED, and a declaration about someone else's code
+        # rots. This derives the same fact from SOURCE: a `staging` category's cells must
+        # actually reach the stage manager, and a `logistics` / `loaded-vessel` one must
+        # not - because "needs a PRELAUNCH host with engines" is a claim about staging and
+        # nothing else.
+        #
+        # COMMENT-STRIPPED, per the house rule (`feedback-source-derived-guards-use-ast`):
+        # the raw text of the Logistics category contains the word PRELAUNCH and a
+        # staging-shaped sentence, both inside prose comments. A regex over raw source
+        # would read those as code and this gate would pass for the wrong reason - which
+        # is the exact failure mode that rule was written for. hlib._mask_csharp_noise is
+        # the same masker parse_ingame_test_declarations uses.
+        staging_call = "ActivateNextStage"
+        by_category = {}
+        source_by_rel = {}
+        for rel, text in walk_parsek_sources():
+            source_by_rel[rel] = hlib._mask_csharp_noise(text)
+            for decl in hlib.parse_ingame_test_declarations(text, rel):
+                by_category.setdefault(decl.category, set()).add(rel)
+
+        for category, requirement in sorted(self.FIXTURE_REQUIREMENTS.items()):
+            with self.subTest(category=category):
+                files = by_category.get(category)
+                self.assertTrue(
+                    files,
+                    "FIXTURE_REQUIREMENTS names category %r but no [InGameTest] "
+                    "declaration in Source/Parsek carries it - the row is stale or "
+                    "misspelled" % category)
+                stages = any(staging_call in source_by_rel[rel] for rel in sorted(files))
+                if requirement == "staging":
+                    self.assertTrue(
+                        stages,
+                        "%r is routed to the `staging` requirement - which asserts the "
+                        "host is PRELAUNCH with engines - but none of its files (%s) "
+                        "calls %s outside a comment. Either the row is wrong or the "
+                        "cells stopped staging."
+                        % (category, sorted(files), staging_call))
+                else:
+                    self.assertFalse(
+                        stages,
+                        "%r is routed to the %r requirement, which does NOT demand a "
+                        "stageable host - but one of its files (%s) calls %s outside a "
+                        "comment, so a real cell may need staging the fixture is not "
+                        "held to." % (category, requirement, sorted(files), staging_call))
 
     def test_every_member_category_declares_a_fixture_requirement(self):
         # The table is fail-closed only if something checks it is TOTAL over the
@@ -6311,7 +6380,7 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # rides the `pending-flight` tag and its own status row, exactly as
         # FORGE-gs1-two-stage's and FORGE-b17-duna-pad's did before they flew, and
         # it is a flight to run rather than an operator REVIEW debt.
-        "FORGE-logi-pad.toml":              "forge-mechanism - manual by design; NOT FLOWN yet (debt carried by the pending-flight tag), stamps logi-cargo-pad for the H38 isolated Logistics lane",
+        "FORGE-logi-pad.toml":              "forge-mechanism - manual by design (a forge is operator-invoked to MINT a fixture, never a tier member); FLOWN 2026-08-28, run `2026-08-28_1734` PASS attempt 1, which stamped the committed logi-cargo-pad save the H38/H41 isolated Logistics lanes consume",
         # B18 is operator BY THE CALIBRATION DISCIPLINE (the V1/V2 precedent), and
         # for a reason particular to it: it is the FIRST flight of a DOWNLOADED
         # human-built craft, so its recordings-count window and its debris

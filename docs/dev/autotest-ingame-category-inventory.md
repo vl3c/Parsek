@@ -17,6 +17,10 @@ Status authority for the automated-testing system as a whole is
 `docs/dev/autotest-status.md`; this file is the DETAIL it links to for the in-game
 category axis. Counts stated in both must agree.
 
+THE TABLE IS THE AUTHORITATIVE COUNT, not the headings. A heading like the title
+above is prose that a wave can leave stale; the rows are what the sync cells
+re-derive and gate. When the two disagree, read the table and fix the heading.
+
 ## What the numbers mean
 
 - **Decls** - `[InGameTest(...)]` methods declaring this category anywhere in the mod

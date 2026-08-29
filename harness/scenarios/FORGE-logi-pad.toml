@@ -91,7 +91,7 @@ id = "FORGE-logi-pad"
 tier = "operator"
 description = "FIXTURE-FORGE: boot the committed forge base, launch the Logi Cargo Rig onto the pad UNCREWED, settle PRELAUNCH, SaveGame -- headlessly stamps the logi-cargo-pad fixture for the isolated Logistics lane (harvest_bdock_station.py --target-name logi-cargo-pad)."
 instanceProfile = "stock-minimal"
-tags = ["FORGE", "fixture", "H38", "logistics", "pending-flight"]
+tags = ["FORGE", "fixture", "H38", "logistics", "flown"]
 
 [fixture]
 # The SAME committed bootable base every other forge uses: gloops-airshow's FLIGHT

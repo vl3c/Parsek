@@ -56,7 +56,6 @@ namespace Parsek.Tests
             HighLogic.LoadedScene = originalScene;
             ParsekScenario.PersistentSavePathOverrideForTesting = null;
             ParsekScenario.CarriedRecordingSidecarExistsOverrideForTesting = null;
-            ParsekScenario.SaveTargetFileNameHintForCurrentSave = null;
             RecordingStore.SkipSidecarCurrencyCheckForTesting = false;
             RecordingStore.ClearDurableCommittedRecordingIdHint();
             for (int i = 0; i < cleanupFiles.Count; i++)
@@ -262,6 +261,148 @@ namespace Parsek.Tests
             Assert.Empty(target.GetNodes("RECORDING_TREE"));
             Assert.Contains(logLines, l =>
                 l.Contains("[Scenario]") && l.Contains("would resurrect deleted data"));
+        }
+
+        // C2: the topology has to follow the recordings. A carried tree whose
+        // rootRecordingId names a DROPPED recording loads as a broken tree, and the
+        // load-side prunes cannot rescue it (they fire for schema-REJECTED ids, not for
+        // ids that were never written). Refuse the carry instead.
+        [Fact]
+        public void CarryForward_RefusesWhenTheCarriedRootDidNotSurvive()
+        {
+            var live = new RecordingTree { Id = "tree-dr", TreeName = "DanglingRoot", RootRecordingId = "rec-child" };
+            live.AddOrReplaceRecording(new Recording { RecordingId = "rec-child", TreeId = "tree-dr" });
+            ParsekScenario.CarriedRecordingSidecarExistsOverrideForTesting = _ => true;
+
+            // On disk the tree is rooted at a recording the live tree no longer has.
+            ConfigNode source = BuildParsekNode("tree-dr", "DanglingRoot", "rec-root-gone", "rec-child");
+            source.GetNodes("RECORDING_TREE")[0].AddValue("rootRecordingId", "rec-root-gone");
+            var target = new ConfigNode("ParsekScenario");
+            logLines.Clear();
+
+            Assert.False(ParsekScenario.TryCarryForwardCommittedTreeNodeFromLoadedSave(
+                target, source, live, out _, out _));
+
+            Assert.Empty(target.GetNodes("RECORDING_TREE"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[Scenario]") && l.Contains("did not survive reconciliation")
+                && l.Contains("dangling root"));
+        }
+
+        // A dangling activeRecordingId is recoverable (the tree simply has no active
+        // recording), so it is nulled rather than refusing the whole carry.
+        [Fact]
+        public void CarryForward_NullsADanglingActiveRecordingId()
+        {
+            var live = new RecordingTree { Id = "tree-da", TreeName = "DanglingActive", RootRecordingId = "rec-root" };
+            live.AddOrReplaceRecording(new Recording { RecordingId = "rec-root", TreeId = "tree-da" });
+            ParsekScenario.CarriedRecordingSidecarExistsOverrideForTesting = _ => true;
+
+            ConfigNode source = BuildParsekNode("tree-da", "DanglingActive", "rec-root", "rec-active-gone");
+            ConfigNode diskTree = source.GetNodes("RECORDING_TREE")[0];
+            diskTree.AddValue("rootRecordingId", "rec-root");
+            diskTree.AddValue("activeRecordingId", "rec-active-gone");
+            var target = new ConfigNode("ParsekScenario");
+
+            Assert.True(ParsekScenario.TryCarryForwardCommittedTreeNodeFromLoadedSave(
+                target, source, live, out int carried, out int dropped));
+
+            Assert.Equal(1, carried);
+            Assert.Equal(1, dropped);
+            ConfigNode carriedTree = target.GetNodes("RECORDING_TREE")[0];
+            Assert.Equal("rec-root", carriedTree.GetValue("rootRecordingId"));
+            Assert.Null(carriedTree.GetValue("activeRecordingId"));
+        }
+
+        // A branch point is a RELATION between recordings; with one end missing it is not
+        // a weaker relation, it is a dangling one. Prune it.
+        [Fact]
+        public void CarryForward_DropsBranchPointsReferencingDroppedRecordings()
+        {
+            var live = new RecordingTree { Id = "tree-bp", TreeName = "BranchPoints", RootRecordingId = "rec-root" };
+            live.AddOrReplaceRecording(new Recording { RecordingId = "rec-root", TreeId = "tree-bp" });
+            live.AddOrReplaceRecording(new Recording { RecordingId = "rec-kept", TreeId = "tree-bp" });
+            ParsekScenario.CarriedRecordingSidecarExistsOverrideForTesting = _ => true;
+
+            ConfigNode source = BuildParsekNode("tree-bp", "BranchPoints", "rec-root", "rec-kept", "rec-gone");
+            ConfigNode diskTree = source.GetNodes("RECORDING_TREE")[0];
+            diskTree.AddValue("rootRecordingId", "rec-root");
+            ConfigNode goodBp = diskTree.AddNode("BRANCH_POINT");
+            goodBp.AddValue("id", "bp-good");
+            goodBp.AddValue("parentId", "rec-root");
+            goodBp.AddValue("childId", "rec-kept");
+            ConfigNode danglingBp = diskTree.AddNode("BRANCH_POINT");
+            danglingBp.AddValue("id", "bp-dangling");
+            danglingBp.AddValue("parentId", "rec-root");
+            danglingBp.AddValue("childId", "rec-gone");
+
+            var target = new ConfigNode("ParsekScenario");
+            logLines.Clear();
+
+            Assert.True(ParsekScenario.TryCarryForwardCommittedTreeNodeFromLoadedSave(
+                target, source, live, out int carried, out int dropped));
+
+            Assert.Equal(2, carried);
+            Assert.Equal(1, dropped);
+            ConfigNode[] bps = target.GetNodes("RECORDING_TREE")[0].GetNodes("BRANCH_POINT");
+            Assert.Single(bps);
+            Assert.Equal("bp-good", bps[0].GetValue("id"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[Scenario]") && l.Contains("BRANCH_POINT node(s) referencing recordings"));
+        }
+
+        [Fact]
+        public void PruneCarriedBranchPoints_KeepsFullyReferencedPointsAndCountsDrops()
+        {
+            var tree = new ConfigNode("RECORDING_TREE");
+            ConfigNode keep = tree.AddNode("BRANCH_POINT");
+            keep.AddValue("id", "keep");
+            keep.AddValue("parentId", "a");
+            keep.AddValue("childId", "b");
+            keep.AddValue("childId", "c");
+            ConfigNode dropParent = tree.AddNode("BRANCH_POINT");
+            dropParent.AddValue("id", "drop-parent");
+            dropParent.AddValue("parentId", "missing");
+            dropParent.AddValue("childId", "b");
+            ConfigNode dropChild = tree.AddNode("BRANCH_POINT");
+            dropChild.AddValue("id", "drop-child");
+            dropChild.AddValue("parentId", "a");
+            dropChild.AddValue("childId", "missing");
+
+            var kept = new HashSet<string>(StringComparer.Ordinal) { "a", "b", "c" };
+            Assert.Equal(2, ParsekScenario.PruneCarriedBranchPoints(tree, kept));
+
+            ConfigNode[] survivors = tree.GetNodes("BRANCH_POINT");
+            Assert.Single(survivors);
+            Assert.Equal("keep", survivors[0].GetValue("id"));
+
+            // No branch points / null node -> nothing to do, no throw.
+            Assert.Equal(0, ParsekScenario.PruneCarriedBranchPoints(new ConfigNode("RECORDING_TREE"), kept));
+            Assert.Equal(0, ParsekScenario.PruneCarriedBranchPoints(null, kept));
+        }
+
+        // C1: the carry-forward source is ALWAYS the campaign persistent.sfs. The earlier
+        // "target file name hint" was never set by any production call site, so this pins
+        // the branch that actually ships.
+        [Fact]
+        public void CarryForwardSource_IsTheCampaignSave()
+        {
+            ParsekScenario.PersistentSavePathOverrideForTesting =
+                WriteTempPersistentSfs(("tree-src", "Source", "rec-src"));
+
+            ConfigNode parsek = ParsekScenario.TryLoadCarryForwardSourceParsekNode(out string sourcePath);
+
+            Assert.NotNull(parsek);
+            Assert.Equal(ParsekScenario.PersistentSavePathOverrideForTesting, sourcePath);
+            Assert.Equal("tree-src", parsek.GetNodes("RECORDING_TREE")[0].GetValue("id"));
+        }
+
+        [Fact]
+        public void CarryForwardSource_MissingFile_ReturnsNullAndNeverThrows()
+        {
+            ParsekScenario.PersistentSavePathOverrideForTesting = Path.Combine(
+                Path.GetTempPath(), "parsek-absent-" + Guid.NewGuid().ToString("N") + ".sfs");
+            Assert.Null(ParsekScenario.TryLoadCarryForwardSourceParsekNode(out _));
         }
 
         [Fact]

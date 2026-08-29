@@ -1415,59 +1415,35 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Save file name (no extension) the CURRENT save is targeting, when a Parsek-driven
-        /// call site knows it. Null (the default) means "assume the campaign persistent.sfs".
+        /// Loads the ParsekScenario node of the save the carry-forward reads its
+        /// last-known-good tree nodes from. That is ALWAYS the campaign persistent.sfs
+        /// (which KSP has not overwritten yet at OnSave time), whatever file this
+        /// particular save is targeting.
         ///
-        /// <para>Stock does NOT expose the target name inside <c>ScenarioModule.OnSave</c>:
-        /// <c>GamePersistence.SaveGame</c> keeps <c>saveFileName</c> as a local and calls
-        /// <c>game.Save(node)</c> before writing the file. So the carry-forward's source can
-        /// only be narrowed by call sites that set this. Parsek's own save-invoking paths do;
-        /// a stock F5 quicksave does not, which is the documented residual risk on
-        /// <see cref="TryLoadCarryForwardSourceParsekNode"/>.</para>
-        /// </summary>
-        internal static string SaveTargetFileNameHintForCurrentSave;
-
-        /// <summary>
-        /// Loads the ParsekScenario node of the save whose bytes the carry-forward should
-        /// read, preferring the TARGET file this save is overwriting and falling back to the
-        /// campaign persistent.sfs when that file does not exist yet.
+        /// <para><b>Why it cannot be the target file.</b> Stock does not expose the target
+        /// name inside <c>ScenarioModule.OnSave</c>: <c>GamePersistence.SaveGame</c> keeps
+        /// <c>saveFileName</c> as a local and calls <c>game.Save(node)</c> before writing
+        /// the file. There is no ambient signal to read, and an earlier draft's
+        /// "hint a call site sets" was never set by anything - dead code with a doc that
+        /// described an intention rather than the shipped behaviour.</para>
         ///
-        /// <para><b>Why the target file first.</b> A quicksave's previous bytes describe the
-        /// quicksave's own timeline; reading the campaign save for a quicksave target would
-        /// splice a foreign timeline's tree metadata into it.</para>
-        ///
-        /// <para><b>Residual risk of the fallback.</b> When the target is unknown (a stock
-        /// F5/F9 quicksave, which sets no hint) or is being created for the first time, the
-        /// campaign save is used. The node that comes out is then RECONCILED against the LIVE
-        /// tree by <see cref="TryCarryForwardCommittedTreeNodeFromLoadedSave"/> - only
-        /// recordings the live tree still has AND whose sidecars exist on disk survive - so a
-        /// cross-timeline read cannot introduce recordings this game does not have. What it
-        /// can still do is carry a stale FIELD value (a name, a flag) from the campaign's
-        /// copy of the same tree. That is strictly better than dropping the tree, which is
-        /// the only alternative on this path.</para>
+        /// <para><b>Why reading the campaign save is nonetheless safe.</b> The node that
+        /// comes out is RECONCILED against the LIVE tree by
+        /// <see cref="TryCarryForwardCommittedTreeNodeFromLoadedSave"/>: only recordings
+        /// the live tree still has AND whose sidecars exist on disk survive, the tree is
+        /// refused outright if its root recording did not survive, and the branch-point
+        /// topology is pruned to what remains. So a save targeting a quicksave slot cannot
+        /// acquire recordings this game does not have. What it can still inherit is a stale
+        /// SCALAR field (a tree name, a flag) from the campaign's copy of the same tree -
+        /// strictly better than dropping the tree, which is the only alternative here.</para>
         /// </summary>
         internal static ConfigNode TryLoadCarryForwardSourceParsekNode(out string sourcePath)
         {
             sourcePath = null;
             try
             {
-                if (!string.IsNullOrEmpty(PersistentSavePathOverrideForTesting))
-                {
-                    sourcePath = PersistentSavePathOverrideForTesting;
-                }
-                else
-                {
-                    string hint = SaveTargetFileNameHintForCurrentSave;
-                    if (!string.IsNullOrEmpty(hint))
-                    {
-                        string targetPath = RecordingPaths.ResolveSaveScopedPath(hint + ".sfs");
-                        if (!string.IsNullOrEmpty(targetPath) && System.IO.File.Exists(targetPath))
-                            sourcePath = targetPath;
-                    }
-                    if (sourcePath == null)
-                        sourcePath = RecordingPaths.ResolveSaveScopedPath(PersistentSaveFileName);
-                }
-
+                sourcePath = PersistentSavePathOverrideForTesting
+                    ?? RecordingPaths.ResolveSaveScopedPath(PersistentSaveFileName);
                 if (string.IsNullOrEmpty(sourcePath) || !System.IO.File.Exists(sourcePath))
                     return null;
                 ConfigNode root = ConfigNode.Load(sourcePath);
@@ -1495,9 +1471,20 @@ namespace Parsek
         /// kept only when the LIVE tree still has that id AND its trajectory sidecar is on
         /// disk. Everything else is dropped, counted, and logged.</para>
         ///
-        /// <para>Returns false (nothing added) when there is no such committed node, or when
+        /// <para><b>The topology has to follow the recordings.</b> Dropping RECORDING
+        /// children alone leaves <c>rootRecordingId</c> / <c>activeRecordingId</c> /
+        /// BRANCH_POINT parent+child ids pointing at recordings that are no longer in the
+        /// node - and the dropped id is very often the trigger recording itself. The
+        /// load side cannot rescue that: its prunes fire for schema-REJECTED ids, not for
+        /// ids that were simply never written. So this prunes the way a load would want:
+        /// a dropped ROOT refuses the carry outright (a tree with a dangling root loads
+        /// as a broken tree), a dropped ACTIVE id is nulled, and any BRANCH_POINT
+        /// referencing a dropped id is removed.</para>
+        ///
+        /// <para>Returns false (nothing added) when there is no such committed node, when
         /// reconciliation leaves no recordings at all - an empty shell is not worth writing
-        /// and would itself read as a corrupt tree. Never throws.</para>
+        /// and would itself read as a corrupt tree - or when the root recording did not
+        /// survive. Never throws.</para>
         /// </summary>
         internal static bool TryCarryForwardCommittedTreeNodeFromLoadedSave(
             ConfigNode targetNode,
@@ -1519,13 +1506,19 @@ namespace Parsek
 
                 ConfigNode carried = diskTree.CreateCopy();
                 var keep = new List<ConfigNode>();
+                var keptIds = new HashSet<string>(StringComparer.Ordinal);
                 foreach (ConfigNode recNode in carried.GetNodes("RECORDING"))
                 {
                     string recordingId = recNode?.GetValue("recordingId");
                     if (IsCarriedRecordingStillReal(liveTree, recordingId))
+                    {
                         keep.Add(recNode.CreateCopy());
+                        keptIds.Add(recordingId);
+                    }
                     else
+                    {
                         droppedRecordings++;
+                    }
                 }
                 if (keep.Count == 0)
                 {
@@ -1536,9 +1529,42 @@ namespace Parsek
                     return false;
                 }
 
+                // The root is structural: a carried tree whose rootRecordingId names a
+                // dropped recording loads as a broken tree, and the load-side prunes never
+                // fire for it (they handle schema-REJECTED ids, not absent ones).
+                string carriedRoot = carried.GetValue("rootRecordingId");
+                if (!string.IsNullOrEmpty(carriedRoot) && !keptIds.Contains(carriedRoot))
+                {
+                    ParsekLog.Warn("Scenario",
+                        $"OnSave: refusing to carry forward tree id={liveTree.Id} - its root "
+                        + $"recording '{carriedRoot}' did not survive reconciliation "
+                        + $"(kept={keep.Count} dropped={droppedRecordings}), and a carried tree "
+                        + "with a dangling root would load as a broken tree");
+                    return false;
+                }
+
                 carried.RemoveNodes("RECORDING");
                 for (int i = 0; i < keep.Count; i++)
                     carried.AddNode(keep[i]);
+
+                // A dangling activeRecordingId is recoverable (the tree simply has no active
+                // recording), so null it rather than refusing the whole carry.
+                string carriedActive = carried.GetValue("activeRecordingId");
+                if (!string.IsNullOrEmpty(carriedActive) && !keptIds.Contains(carriedActive))
+                {
+                    carried.RemoveValues("activeRecordingId");
+                    ParsekLog.Warn("Scenario",
+                        $"OnSave: carried tree id={liveTree.Id} dropped its activeRecordingId "
+                        + $"'{carriedActive}' - that recording did not survive reconciliation");
+                }
+
+                int droppedBranchPoints = PruneCarriedBranchPoints(carried, keptIds);
+                if (droppedBranchPoints > 0)
+                    ParsekLog.Warn("Scenario",
+                        $"OnSave: carried tree id={liveTree.Id} dropped {droppedBranchPoints} "
+                        + "BRANCH_POINT node(s) referencing recordings that did not survive "
+                        + "reconciliation");
+
                 carriedRecordings = keep.Count;
                 targetNode.AddNode(carried);
                 return true;
@@ -1557,6 +1583,57 @@ namespace Parsek
         /// the live tree AND its trajectory sidecar must exist on disk. Either half missing
         /// means the carried entry would describe data this save no longer has.
         /// </summary>
+        /// <summary>
+        /// Removes every BRANCH_POINT of a carried tree node that names a recording id
+        /// outside <paramref name="keptIds"/>, in either its <c>parentId</c> or
+        /// <c>childId</c> values. A branch point is a relation between recordings; with one
+        /// end missing it is not a weaker relation, it is a dangling one. Returns how many
+        /// were removed. Pure over the ConfigNode.
+        /// </summary>
+        internal static int PruneCarriedBranchPoints(ConfigNode carriedTree, HashSet<string> keptIds)
+        {
+            if (carriedTree == null)
+                return 0;
+            ConfigNode[] branchPoints = carriedTree.GetNodes("BRANCH_POINT");
+            if (branchPoints == null || branchPoints.Length == 0)
+                return 0;
+
+            var survivors = new List<ConfigNode>();
+            int dropped = 0;
+            for (int i = 0; i < branchPoints.Length; i++)
+            {
+                ConfigNode bp = branchPoints[i];
+                if (bp == null) { dropped++; continue; }
+                if (AllReferencedIdsKept(bp, "parentId", keptIds)
+                    && AllReferencedIdsKept(bp, "childId", keptIds))
+                    survivors.Add(bp.CreateCopy());
+                else
+                    dropped++;
+            }
+            if (dropped == 0)
+                return 0;
+
+            carriedTree.RemoveNodes("BRANCH_POINT");
+            for (int i = 0; i < survivors.Count; i++)
+                carriedTree.AddNode(survivors[i]);
+            return dropped;
+        }
+
+        private static bool AllReferencedIdsKept(ConfigNode bp, string key, HashSet<string> keptIds)
+        {
+            string[] values = bp.GetValues(key);
+            if (values == null)
+                return true;
+            for (int i = 0; i < values.Length; i++)
+            {
+                if (string.IsNullOrEmpty(values[i]))
+                    continue;
+                if (keptIds == null || !keptIds.Contains(values[i]))
+                    return false;
+            }
+            return true;
+        }
+
         /// <summary>
         /// Testing seam for the sidecar-existence half of
         /// <see cref="IsCarriedRecordingStillReal"/>. Production leaves it null and resolves

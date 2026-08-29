@@ -17,6 +17,10 @@ All notable changes to Parsek are documented here.
 
 ### Fixed
 
+- Harvesting on a landed mining rig is now recorded correctly across time warp. Parsek brackets resource harvesting into windows - one opens when a converter or drill starts and closes when it stops - so a later delivery can tell mined cargo apart from carried cargo. Those windows must never open or close while the craft is packed away under warp, because the resource figures readable there are whatever the game last caught up to rather than anything Parsek watched. For a craft in orbit that rule held. For a LANDED, splashed or on-the-pad craft it did not: the game leaves a surface craft where it is under warp, so Parsek's own on-rails bookkeeping is deliberately never switched on for it, and the check meant to keep the harvest poll off warp frames read "not warping" for the entire warp. Two things went wrong as a result, and both are fixed. The poll ran on packed frames and could open or close a window off resource figures nobody witnessed - it now sits out every packed frame, judged by whether the craft is actually packed rather than by that bookkeeping. And the note that says "the next harvesting decision belongs to the moment warp ended" was being used up by the first idle frame after the warp instead of by the decision it was meant for, so a drill switched off during a warp had its window closed and labelled an ordinary mid-flight toggle. That note now survives an idle frame, is set when warp ends (including for the surface craft whose warp exit had never set it at all), and expires a few seconds later - long enough for the close a real warp exit produces, short enough that a toggle you make minutes afterwards is no longer blamed on the warp.
+
+  One deliberate limit is worth stating, because it is a refusal to guess rather than an oversight: a drill you switch ON while the craft is already warping does not start its window until the warp ends, so whatever it produced in between is recorded as not-harvested. Parsek could only invent that figure - the readings available mid-warp are not ones it watched - and an unclaimed gap is a smaller error than a made-up number. A drill already running before the warp keeps its window open across the whole thing, which is the usual case for a mining rig.
+
 - A whole mission could vanish from your save after a quickload, and once it
   went it never came back. It needed two things to line up. When you fly a craft
   that one of your recorded missions is about, Parsek takes a working copy of
@@ -37,7 +41,12 @@ All notable changes to Parsek are documented here.
   while the list is still loading. And a mission Parsek cannot write is now
   carried through from the previous save rather than dropped, with a loud
   complaint in the log, so a data problem can never quietly delete a mission
-  again. Missions already lost this way cannot be recovered by the update; they
+  again. What is carried through is checked against the mission as it stands
+  now rather than copied wholesale: a flight the older copy still lists but you
+  have since deleted is left out, and if the mission's own first flight is one
+  of those, the carry is abandoned rather than writing a mission whose starting
+  point no longer exists. So the safety net will not bring back recordings you
+  deleted. Missions already lost this way cannot be recovered by the update; they
   are recoverable from a quicksave or one of the automatic backups.
 
 - Every time a recorded flight crossed from one planet's or moon's area of
@@ -248,10 +257,12 @@ All notable changes to Parsek are documented here.
   the histories intact. Both runs now demand their exact results - how many
   tests pass, how many stand down and the reason each one gives, and above all
   the exact number of saved flights that must come out the other side, with no
-  tolerance in either direction. Between the three runs this group of tests now
-  genuinely executes 42 of its 47 checks; the five that still cannot are every
-  one of them waiting on a recording nobody has made yet rather than on anything
-  in the code.
+  tolerance in either direction. Between them these three runs execute 41 of the
+  group's 47 checks; a fourth, older run reaches one more, so the whole set of
+  five runs covers 42. Of the five checks still not reached, four are waiting on
+  a recording nobody has made yet; the fifth cannot run in these three by
+  design, because they deliberately start from a save with no recorded flights
+  in it at all and that check needs one.
   Test-tooling only; no gameplay change, and nothing ships with the mod.
 - Parsek builds a standing exhibition of every part it knows how to draw: 243
   little one-part replays, one per part, lined up in three rows in front of the
@@ -995,7 +1006,6 @@ All notable changes to Parsek are documented here.
 
 ### Fixes
 
-- Harvesting on a landed mining rig is now recorded correctly across time warp. Parsek brackets resource harvesting into windows - one opens when a converter or drill starts and closes when it stops - so a later delivery can tell mined cargo apart from carried cargo. Those windows must never open or close while the craft is packed away under warp, because the resource figures readable there are whatever the game last caught up to rather than anything Parsek watched. For a craft in orbit that rule held. For a LANDED, splashed or on-the-pad craft it did not: the game leaves a surface craft where it is under warp, so Parsek's own on-rails bookkeeping is deliberately never switched on for it, and the check meant to keep the harvest poll off warp frames read "not warping" for the entire warp. Two things went wrong as a result, and both are fixed. The poll ran on packed frames and could open or close a window off resource figures nobody witnessed - it now sits out every packed frame, judged by whether the craft is actually packed rather than by that bookkeeping. And the marker that says "the next harvesting decision belongs to the moment warp ended" was being used up by the first idle frame after the warp instead of by the decision it was meant for, so a drill switched off during a warp had its window closed and labelled an ordinary mid-flight toggle - the marker now survives until a real decision consumes it, and it is set when warp ends as well as when it begins, including for the surface craft whose warp exit had never set it at all.
 - Money, science and crew experience you earn DURING a re-flight are no longer taken away when you merge it. This is the other half of the rewind-payout fix below, and it needed a different remedy. Recovering a craft partway through a re-flight should credit the new attempt, which is the flight you keep - but Parsek works out which flight a recovery belongs to by asking which recorded flights were running at that moment, and both were: the new attempt, which starts at the rewind point, and the original flight, which ran past it to its own end. With two flights covering the same instant the tie went to whichever ran longer - and until the re-flight overtakes where the original ended, that is the original. So the payout was filed against the flight being replaced, and merging retired it. Keeping payouts stamped before the rewind cannot help here, because this one genuinely happened after it. The tie is now broken in favour of the re-flight in progress, which is the flight that survives the merge, so the refund, the Space-Centre science and the crew experience from that recovery all stay - and they stay together, because all three are filed the same way and are retired as one bundle. Nothing changes when no re-flight is in progress, and a re-flight that has not yet flown anywhere cannot claim a payout.
 
 - Money and science you earned BEFORE a rewind are no longer taken away when you merge the re-flight. Re-flying a mission is supposed to retire only the part of the timeline it replaces - everything from the rewind point onward - but the step that retired it went by which flight a payout was filed against rather than by when the payout happened. The launch you rewound to is one flight from start to finish, so a contract completed or a craft recovered in the first half of it was filed against exactly the same flight as everything after the rewind, and the merge retired the lot. That could quietly undo payment for something that still happened in your career. Parsek now keeps any career entry stamped before the rewind point, using the same cut-off the re-flight already uses when it splits the original flight into a kept half and a replaced half, so the two halves agree on where the seam is. A crew member lost before the rewind stays lost too, along with the reputation it cost - those had been at risk of being undone in the same sweep. Nothing changes for what happened during the re-flight itself, which is still retired as before.

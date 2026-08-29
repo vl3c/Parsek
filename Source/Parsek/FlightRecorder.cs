@@ -7234,11 +7234,13 @@ namespace Parsek
                 return;
             if (!RouteHarvestCapture.ShouldRunHarvestPoll(IsGloopsMode, v.packed))
             {
-                // Func<string> overload: this runs on EVERY packed physics frame of a
-                // surface warp (tens per second) and the eager interpolation would build a
-                // string per frame only for the rate limiter to drop it - exactly what this
-                // method's own zero-allocation contract forbids.
-                if (!IsGloopsMode)
+                // Zero-allocation on the packed path, for real: the IsVerboseEnabled test
+                // comes FIRST, so with verbose off (the shipping default) this frame builds
+                // nothing at all - no string, and no closure/display-class for the
+                // Func<string> either, which the lambda alone would still have allocated
+                // every frame. With verbose ON the factory defers the interpolation to the
+                // frames the rate limiter actually emits.
+                if (!IsGloopsMode && ParsekLog.IsVerboseEnabled)
                     ParsekLog.VerboseRateLimited("Recorder", "harvest-poll-packed-skip",
                         () => $"Harvest poll skipped on packed frame: vessel='{v.vesselName}' " +
                             $"pid={v.persistentId.ToString(CultureInfo.InvariantCulture)} " +
@@ -7314,24 +7316,25 @@ namespace Parsek
         /// and no window open (activation raced the poll), open one AT the
         /// rails boundary.
         ///
-        /// <para><b>Why this also arms the exit funnel.</b> The authoritative
-        /// arm is at the rails EXIT (<see cref="OnVesselGoOffRails"/>), which is
-        /// what guarantees the first off-rails poll after a pack carries
-        /// <c>trigger=rails-exit</c>. This entry-side arm covers the case where
-        /// the exit event never reaches THIS recorder while its polls resume
-        /// anyway: <see cref="OnVesselGoOffRails"/> early-returns unless the
-        /// unpacking vessel is both the active vessel AND the recorded pid, so a
-        /// vessel switch taken across the warp unpacks a vessel the poll then
-        /// adopts (<c>HandleVesselSwitchDuringRecording</c>) with no exit event
-        /// of its own. Arming the same bool at both boundaries is idempotent.</para>
+        /// <para><b>It does NOT arm the exit funnel, and that is a correction.</b>
+        /// An earlier version armed the funnel here too, arguing that the exit
+        /// event can miss this recorder (<see cref="OnVesselGoOffRails"/>
+        /// early-returns unless the unpacking vessel is both the active vessel
+        /// AND the recorded pid) while its polls resume anyway. That argument
+        /// stopped working the moment the label gained a validity window
+        /// (<see cref="RouteHarvestCapture.RailsExitLabelMaxAgeSeconds"/>): an arm
+        /// stamped at rails ENTRY is, by construction, older than the entire warp
+        /// by the time any post-exit poll runs, so it expires and labels nothing.
+        /// Keeping it would have been a comment describing a path the code could
+        /// no longer take. The arm therefore lives ONLY at the exit
+        /// (<see cref="OnVesselGoOffRails"/>, above its surface early-return), which
+        /// is the path the live H38 flights actually exercise - and measure at a
+        /// 0.02 s age, comfortably inside the window.</para>
         /// </summary>
         private void HandleHarvestRailsEntry(Vessel v)
         {
             if (IsGloopsMode || v == null)
                 return;
-
-            harvestRailsExitPollPending = true;
-            harvestRailsExitPollArmedUT = Planetarium.GetUniversalTime();
 
             bool anyActive = IsAnyCachedConverterActive();
             if (openHarvestWindow != null)
@@ -10514,11 +10517,14 @@ namespace Parsek
             double packedUT = Planetarium.GetUniversalTime();
             currentOrbitSegment = CreateOrbitSegmentWithRotation(v, packedUT);
             isOnRails = true;
-            // M2 harvest: a recording that STARTS on rails is also a rails
-            // entry - arm the exit-poll funnel (open-at-start already handled
-            // any active converter in StartRecording).
-            harvestRailsExitPollPending = true;
-            harvestRailsExitPollArmedUT = Planetarium.GetUniversalTime();
+            // M2 harvest: deliberately NO exit-funnel arm here, for the same reason
+            // HandleHarvestRailsEntry no longer carries one - an arm stamped at rails
+            // ENTRY (or at a rails START) is older than the whole warp by the time a
+            // post-exit poll runs, so it expires against
+            // RouteHarvestCapture.RailsExitLabelMaxAgeSeconds and labels nothing. The
+            // funnel is armed at the EXIT (OnVesselGoOffRails), which is where the
+            // boundary the label names actually is. Open-at-start already handled any
+            // converter active at StartRecording.
 
             // Recording started on rails — switch initial ABSOLUTE section to ORBITAL_CHECKPOINT
             CloseCurrentTrackSection(packedUT);
@@ -10746,8 +10752,10 @@ namespace Parsek
             // surface-situation vessel - which packs without isOnRails ever being
             // set, and so returns below without touching the orbital bookkeeping -
             // is exactly the one whose warp-period toggle the funnel has to
-            // attribute. Setting the flag is idempotent with the entry-side arm in
-            // HandleHarvestRailsEntry.
+            // attribute. This is the ONLY arm site: an entry-side or start-side arm
+            // would be stamped a whole warp before any post-exit poll and would expire
+            // against RouteHarvestCapture.RailsExitLabelMaxAgeSeconds without ever
+            // labelling anything.
             harvestRailsExitPollPending = true;
             harvestRailsExitPollArmedUT = Planetarium.GetUniversalTime();
 

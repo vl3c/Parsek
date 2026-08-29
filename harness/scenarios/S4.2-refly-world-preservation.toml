@@ -211,8 +211,11 @@ allowedAnomalies = []
 # FlushAndQuit writes it, exactly as the sentence above describes. If a future
 # change lets that latch survive a mutating verb, this spec's produced save
 # silently becomes the PRE-batch bytes and `count = { min = 1 }` stops measuring
-# the merge at all. Guarded by TestCommandFlushAndQuitTests
-# (IsStateMutatingVerb_ClassifiesTheSeamVerbs pins AnswerMergeDialog as mutating).
+# the merge at all. The RUN-VISIBLE guard is the suppression literal in `forbidden`
+# below - that is what reds a flight. `TestCommandFlushAndQuitTests`
+# (IsStateMutatingVerb_ClassifiesTheSeamVerbs) pins AnswerMergeDialog as mutating,
+# but it covers the classification only, NOT the dispatch hook that consumes it, so
+# it is a supporting guard rather than the one that would catch this end to end.
 count = { min = 1 }
 
 [expectations.logContracts]
@@ -407,6 +410,17 @@ forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",
   "not found in committed list after tree commit",
   "Marker invalid field=ActiveReFlyRecordingId",
+  # The FlushAndQuit save-suppression latch must never fire on THIS spec: its merge
+  # tail is the produced save (see [expectations.recordings] above), and a suppressed
+  # flush would silently leave the PRE-batch bytes on disk while every other pin still
+  # passed - `count = { min = 1 }` cannot tell the two apart. MEASURED, not guessed:
+  # the last green run `2026-08-28_2338` (PASS attempt 1) logs `flushandquit: saved`
+  # and ZERO occurrences of this literal, so the pin is added against a known-clean
+  # baseline. This forbidden token is the RUN-VISIBLE gate; the xUnit cell
+  # `IsStateMutatingVerb_ClassifiesTheSeamVerbs` pins the classification of
+  # AnswerMergeDialog but NOT the dispatch hook that consumes it, so only this pin
+  # actually catches the end-to-end regression on a flight.
+  "flushandquit: save suppressed \\(batch baseline already restored\\)",
 ]
 
 [runtime]

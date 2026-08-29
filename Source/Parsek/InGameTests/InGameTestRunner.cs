@@ -2198,6 +2198,12 @@ namespace Parsek.InGameTests
         // game. NEVER retried: a failed dispatch falls back to the relaunch alert.
         private void AttemptSpaceCenterBounceRecovery(int settleDelta)
         {
+            // The bounce runs AFTER the teardown's persistent.sfs revert, and a scene change
+            // triggers KSP's own autosave - which rewrites persistent.sfs and makes the
+            // latch's premise ("that restore is the intended final content of the file")
+            // false. Clear it before dispatching so a later FlushAndQuit saves rather than
+            // suppressing on a premise the bounce is about to invalidate.
+            NotifyStateMutatedAfterBatchBaselineRestore("space-center bounce recovery");
             ParsekLog.Error(Tag,
                 $"Batch ended with the flight state still NRE-flooding (+{settleDelta} exc/"
                 + $"{BaselineReloadHealthSettleFrames}f - stock Bug #4803 camera corruption). Attempting the "
