@@ -6477,7 +6477,7 @@ namespace Parsek
         /// </summary>
         internal static bool RestoreClearedPostSpawnTerminalState(
             Recording rec, ConfigNode savedTreeRecNode,
-            HashSet<string> clearedIds, string context = "recording")
+            HashSet<string> clearedIds, string context)
         {
             if (rec == null || savedTreeRecNode == null || clearedIds == null)
                 return false;

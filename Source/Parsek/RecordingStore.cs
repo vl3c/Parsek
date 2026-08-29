@@ -4832,19 +4832,17 @@ namespace Parsek
             // If the vessel had spawned, any terminal state change (Recovered/Destroyed)
             // was on the spawned real vessel, not the recording. Clear it so the recording
             // can spawn again after revert/rewind.
-            if (rec.VesselSpawned && rec.TerminalStateValue.HasValue)
-            {
-                var ts = rec.TerminalStateValue.Value;
-                if (ts == TerminalState.Recovered || ts == TerminalState.Destroyed)
-                {
-                    if (!SuppressLogging)
-                        ParsekLog.Verbose("Rewind",
-                            $"Clearing post-spawn terminal state {ts} for '{rec.VesselName}' (id={rec.RecordingId})");
-                    // Retraction: crew end states from the original flight are kept
-                    // (see KerbalsModule.InvalidateCrewEndStatesForTerminalStamp).
-                    rec.StampTerminalState(null, "ResetRecordingPlaybackFields");
-                }
-            }
+            //
+            // This used to inline a byte-identical copy of the predicate that
+            // ParsekScenario.ClearPostSpawnTerminalState applies. Two copies of one
+            // retraction rule is one copy too many — the TS-FLUSHED-SAVE-DROPS-DEBRIS-
+            // TERMINALSTATE work added a restore leg beside the OTHER copy, and a
+            // divergence here would be invisible. Route through the shared seam so this
+            // path inherits any future change to what counts as a post-spawn verdict.
+            // (Unlike the OnLoad copy, this rewind/revert path has NO restore leg — see
+            // REVERT-BLANKET-CLEARS-PRE-FLIGHT-TERMINAL.)
+            ParsekScenario.ClearPostSpawnTerminalState(
+                rec, $"rewind reset '{rec.VesselName}' (id={rec.RecordingId})");
 
             rec.VesselSpawned = false;
             rec.VesselDestroyed = false;

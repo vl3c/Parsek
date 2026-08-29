@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
 using Xunit;
 
 namespace Parsek.Tests
@@ -25,11 +24,24 @@ namespace Parsek.Tests
     /// The null was therefore permanent, and the next OnSave wrote the recording with no
     /// <c>terminalState</c> key at all.</para>
     ///
-    /// <para>These cells drive the REAL codec on both ends and replay the reset → restore
-    /// sequence exactly as OnLoad runs it. Residual not modelled here: the OnLoad wiring
-    /// itself (which branch runs, and that the id set is threaded from the reset loop into
-    /// the restore loop) is Unity-runtime-only — <see cref="SceneChangeResetRestorePairIsWiredInOnLoad"/>
-    /// pins it at source level instead.</para>
+    /// <para><b>What these cells actually prove, stated precisely.</b> Two things, both
+    /// against real production code: (1) the CODEC's <c>HasValue</c> gate — a retracted
+    /// verdict is written as an ABSENT key, and that absence round-trips, which is the
+    /// shape measured on the produced-save bytes; and (2) the COMPOSITION of the two
+    /// helpers — <see cref="ParsekScenario.ClearPostSpawnTerminalState"/> reports what it
+    /// retracted, and <see cref="ParsekScenario.RestoreClearedPostSpawnTerminalState"/>
+    /// puts back exactly that, from a node the real codec authored, under each of the
+    /// dispositions below.</para>
+    ///
+    /// <para><b>What they do NOT prove.</b> They are not a replay of OnLoad. The
+    /// <see cref="ApplyResetLeg"/> helper reproduces the reset loop's terminal-verdict
+    /// statements only — it does not reproduce the other five field resets, and the
+    /// restore LOOP (saved-node lookup, id match, revert gate) is not replayed at all: the
+    /// cells call the helper directly on a node they built. OnLoad is Unity-only, so the
+    /// wiring — that the two legs exist, in that order, reachable, with nothing emptying
+    /// the set between them — is pinned at source level by
+    /// <see cref="SceneChangeTerminalStateWiringGateTests"/> instead. Read the two files as
+    /// one proof: behaviour here, wiring there.</para>
     /// </summary>
     [Collection("Sequential")]
     public class SceneChangeTerminalStatePreservationTests : IDisposable
@@ -76,10 +88,14 @@ namespace Parsek.Tests
         }
 
         /// <summary>
-        /// The OnLoad `tree-mutable-state` reset leg, replayed field-for-field.
-        /// Returns the cleared-id set the restore leg consumes.
+        /// The OnLoad `tree-mutable-state` reset loop's TERMINAL-VERDICT statements only —
+        /// the retraction plus the id capture, which is all these cells are about. The
+        /// loop's other field resets (SpawnAttempts, SpawnDeathCount,
+        /// TerminalOrbitSpawnSafety, RollbackContinuationData) are deliberately NOT
+        /// reproduced; this is not a replay of OnLoad. Returns the cleared-id set the
+        /// restore leg consumes.
         /// </summary>
-        private static HashSet<string> ReplayResetLeg(params Recording[] recordings)
+        private static HashSet<string> ApplyResetLeg(params Recording[] recordings)
         {
             var cleared = new HashSet<string>();
             foreach (var rec in recordings)
@@ -108,7 +124,7 @@ namespace Parsek.Tests
                 ((int)TerminalState.Destroyed).ToString(),
                 savedNode.GetValue("terminalState"));
 
-            HashSet<string> cleared = ReplayResetLeg(rec);
+            HashSet<string> cleared = ApplyResetLeg(rec);
 
             // The reset really does retract the verdict — that half is not in dispute.
             Assert.Null(rec.TerminalStateValue);
@@ -131,17 +147,21 @@ namespace Parsek.Tests
         }
 
         /// <summary>
-        /// The defect, stated as the exact shape the lane measured on the produced-save
-        /// bytes: without the restore leg the retraction is permanent and the NEXT save
-        /// carries no <c>terminalState</c> key at all — not a wrong value, an absent key.
-        /// This is what origin/main does.
+        /// CHARACTERIZATION of the codec's <c>HasValue</c> gate, which is what turned a
+        /// retracted verdict into the measured shape: with the verdict cleared, the next
+        /// save carries no <c>terminalState</c> key at all — not a wrong value, an absent
+        /// key — and the absence round-trips back to an unclassified recording. This cell
+        /// asserts a property of the codec that is TRUE ON MAIN AND HERE; it documents the
+        /// loss shape, it does not detect the defect. What makes the loss permanent (no
+        /// restore leg) is a property of OnLoad, pinned by
+        /// <see cref="SceneChangeTerminalStateWiringGateTests"/>.
         /// </summary>
         [Fact]
         public void WithoutTheRestoreLeg_TheNextSaveOmitsTheTerminalStateKeyEntirely()
         {
             var rec = SpawnedDebris("0b4193a0540e4fa7af9890fe4ba5c10d", TerminalState.Destroyed);
 
-            ReplayResetLeg(rec);
+            ApplyResetLeg(rec);
 
             ConfigNode reSaved = SavedNodeFor(rec);
             Assert.Null(reSaved.GetValue("terminalState"));
@@ -158,7 +178,7 @@ namespace Parsek.Tests
         {
             var rec = SpawnedDebris("2f3bf43348534202b226afbb6ae00ce9", TerminalState.Recovered);
             ConfigNode savedNode = SavedNodeFor(rec);
-            HashSet<string> cleared = ReplayResetLeg(rec);
+            HashSet<string> cleared = ApplyResetLeg(rec);
 
             ParsekScenario.RestoreClearedPostSpawnTerminalState(rec, savedNode, cleared, "tree recording");
 
@@ -198,7 +218,7 @@ namespace Parsek.Tests
             var orbiting = SpawnedDebris("081b06e81737471fb5d85f3e0e92d49b", TerminalState.Orbiting);
             ConfigNode savedNode = SavedNodeFor(orbiting);
 
-            HashSet<string> cleared = ReplayResetLeg(orbiting);
+            HashSet<string> cleared = ApplyResetLeg(orbiting);
 
             Assert.Empty(cleared);
             Assert.Equal(TerminalState.Orbiting, orbiting.TerminalStateValue);
@@ -220,7 +240,7 @@ namespace Parsek.Tests
             var preStampNode = new ConfigNode("RECORDING");
             preStampNode.AddValue("recordingId", rec.RecordingId);
 
-            HashSet<string> cleared = ReplayResetLeg(rec);
+            HashSet<string> cleared = ApplyResetLeg(rec);
             bool restored = ParsekScenario.RestoreClearedPostSpawnTerminalState(
                 rec, preStampNode, cleared, "tree recording");
 
@@ -232,18 +252,72 @@ namespace Parsek.Tests
                 && l.Contains("no terminalState key"));
         }
 
-        [Fact]
-        public void RevertShapedLoad_SkipsTheRestore_AndLeavesTheVerdictInTheResidue()
+        /// <summary>
+        /// The revert gate, driven rather than described. OnLoad wraps the restore call in
+        /// <c>if (!isRevert)</c>; this drives that same decision over a node that DOES carry
+        /// a restorable verdict, so a gate inverted to <c>if (isRevert)</c> would show up
+        /// here as a verdict that came back on revert. (That the gate exists at the call
+        /// site is the source gate's job; this cell owns the consequence.)
+        /// </summary>
+        [Theory]
+        [InlineData(true)]    // revert: restore skipped, verdict stays retracted
+        [InlineData(false)]   // scene change / quickload: restore runs
+        public void TheRevertGateDecidesWhetherTheVerdictComesBack(bool isRevert)
         {
-            // Revert: OnLoad gates the restore off that branch entirely (the spawn is undone,
-            // so a verdict the spawned vessel earned is stale). Nothing calls the restore, the
-            // clear stands, and the id stays in the residue the caller reports.
+            var rec = SpawnedDebris("fbc705e91fcd4b5a8176cf5493807a0b", TerminalState.Destroyed);
+            ConfigNode savedNode = SavedNodeFor(rec);
+
+            HashSet<string> cleared = ApplyResetLeg(rec);
+            Assert.Null(rec.TerminalStateValue);
+
+            // The OnLoad call site, verbatim in shape.
+            if (!isRevert)
+                ParsekScenario.RestoreClearedPostSpawnTerminalState(
+                    rec, savedNode, cleared, "tree recording");
+
+            if (isRevert)
+            {
+                Assert.Null(rec.TerminalStateValue);
+                Assert.Contains(rec.RecordingId, cleared);
+            }
+            else
+            {
+                Assert.Equal(TerminalState.Destroyed, rec.TerminalStateValue);
+                Assert.Empty(cleared);
+            }
+        }
+
+        /// <summary>
+        /// The one reachable loss shape left, and its DESIGNED disposition.
+        ///
+        /// <para>A cleared id can reach the end of the restore loop having met no saved
+        /// node at all: `savedTreeNodes` empty, the recording absent from the loaded save,
+        /// or its tree node skipped as the active / pending marker. The archived logs show
+        /// memory and node counts are independent, so the reachable player shape is an F9
+        /// quickload onto an OLDER quicksave — one taken before the recording existed, or
+        /// before its verdict was stamped.</para>
+        ///
+        /// <para>Staying cleared is the RIGHT answer there: the save point genuinely
+        /// predates the verdict, and re-stamping from nothing would invent one. So the
+        /// verdict is permanently retracted by design, the id stays in the residue, and the
+        /// once-per-load residue line is the evidence. This cell exists so that disposition
+        /// is a decision on record rather than an accident.</para>
+        /// </summary>
+        [Fact]
+        public void ClearedIdThatMeetsNoSavedNode_StaysClearedByDesign_AndRemainsInTheResidue()
+        {
             var rec = SpawnedDebris("fbc705e91fcd4b5a8176cf5493807a0b", TerminalState.Destroyed);
 
-            HashSet<string> cleared = ReplayResetLeg(rec);
+            HashSet<string> cleared = ApplyResetLeg(rec);
 
+            // The restore loop iterates saved RECORDING nodes; with none, it never runs for
+            // this recording — no call, no restore, no consumption of the id.
             Assert.Null(rec.TerminalStateValue);
             Assert.Contains(rec.RecordingId, cleared);
+
+            // And the recording persists unclassified — the measured loss shape, reached
+            // through a path where it is the intended outcome rather than a bug.
+            Assert.Null(SavedNodeFor(rec).GetValue("terminalState"));
         }
 
         [Fact]
@@ -254,7 +328,7 @@ namespace Parsek.Tests
             corrupt.AddValue("recordingId", rec.RecordingId);
             corrupt.AddValue("terminalState", "not-a-number");
 
-            HashSet<string> cleared = ReplayResetLeg(rec);
+            HashSet<string> cleared = ApplyResetLeg(rec);
             bool restored = ParsekScenario.RestoreClearedPostSpawnTerminalState(
                 rec, corrupt, cleared, "tree recording");
 
@@ -273,13 +347,18 @@ namespace Parsek.Tests
             bogus.AddValue("recordingId", rec.RecordingId);
             bogus.AddValue("terminalState", "9999");
 
-            HashSet<string> cleared = ReplayResetLeg(rec);
+            HashSet<string> cleared = ApplyResetLeg(rec);
             bool restored = ParsekScenario.RestoreClearedPostSpawnTerminalState(
                 rec, bogus, cleared, "tree recording");
 
             Assert.False(restored);
             Assert.Null(rec.TerminalStateValue);
             Assert.Contains(rec.RecordingId, cleared);
+            // Same Warn as the unparseable sibling: an out-of-range int must be REJECTED
+            // loudly, never silently cast to whatever enum member happens to sit there.
+            Assert.Contains(logLines, l => l.Contains("[Scenario]")
+                && l.Contains("Cannot restore post-spawn terminal state")
+                && l.Contains("9999"));
         }
 
         // ────────────────────────────────────────────────────────────
@@ -292,48 +371,9 @@ namespace Parsek.Tests
             var rec = SpawnedDebris("null-args", TerminalState.Destroyed);
             var cleared = new HashSet<string> { rec.RecordingId };
 
-            Assert.False(ParsekScenario.RestoreClearedPostSpawnTerminalState(null, new ConfigNode(), cleared));
-            Assert.False(ParsekScenario.RestoreClearedPostSpawnTerminalState(rec, null, cleared));
-            Assert.False(ParsekScenario.RestoreClearedPostSpawnTerminalState(rec, new ConfigNode(), null));
-        }
-
-        // ────────────────────────────────────────────────────────────
-        //  The one thing the headless cells cannot execute: the wiring
-        // ────────────────────────────────────────────────────────────
-
-        /// <summary>
-        /// The reset and restore legs are two loops inside <c>ParsekScenario.OnLoad</c>, an
-        /// instance method that only runs under Unity. What the headless cells above cannot
-        /// prove is that the two legs are still WIRED to each other — that the reset feeds
-        /// its cleared ids into a set and the restore loop consumes that same set. A silent
-        /// unwiring would restore this bug with every cell above still green, so pin it at
-        /// source level.
-        /// </summary>
-        [Fact]
-        public void SceneChangeResetRestorePairIsWiredInOnLoad()
-        {
-            string path = Path.GetFullPath(Path.Combine(
-                AppDomain.CurrentDomain.BaseDirectory,
-                "..", "..", "..", "..", "..", "Source", "Parsek", "ParsekScenario.cs"));
-            Assert.True(File.Exists(path), $"ParsekScenario.cs not found at {path}");
-            // Indentation- and line-ending-independent: collapse every whitespace run.
-            string src = System.Text.RegularExpressions.Regex.Replace(
-                File.ReadAllText(path), @"\s+", " ");
-
-            // The reset leg captures what it retracted.
-            Assert.Contains(
-                "if (ClearPostSpawnTerminalState(recordings[i], \"tree recording\") "
-                + "&& !string.IsNullOrEmpty(recordings[i].RecordingId)) "
-                + "clearedPostSpawnTerminalIds.Add(recordings[i].RecordingId);", src);
-
-            // The restore leg consumes the same set, and stays gated off the revert branch.
-            Assert.Contains(
-                "if (!isRevert) RestoreClearedPostSpawnTerminalState( "
-                + "recordings[i], savedTreeRecNode, "
-                + "clearedPostSpawnTerminalIds, \"tree recording\");", src);
-
-            // And the residue is reported rather than swallowed.
-            Assert.Contains("post-spawn terminal verdict(s) ", src);
+            Assert.False(ParsekScenario.RestoreClearedPostSpawnTerminalState(null, new ConfigNode(), cleared, "ctx"));
+            Assert.False(ParsekScenario.RestoreClearedPostSpawnTerminalState(rec, null, cleared, "ctx"));
+            Assert.False(ParsekScenario.RestoreClearedPostSpawnTerminalState(rec, new ConfigNode(), null, "ctx"));
         }
     }
 }

@@ -74,6 +74,12 @@ All notable changes to Parsek are documented here.
   Revert those vessels never existed - and the step that puts every other detail
   back from the save had nothing to put the outcome back with. It does now.
   Revert is unchanged: there the outcome is meant to be forgotten, and still is.
+  One knock-on worth knowing about: because the outcome survives the scene change
+  now, the career bookkeeping that keys off it - recovery payouts, crew end
+  states, mission timelines - is applied after a scene change too, where before
+  it was quietly skipped. That is the same answer you already got by quitting and
+  loading the save fresh, and the bookkeeping is recomputed from scratch every
+  time rather than added up, so nothing is credited twice.
 
 - Every time a recorded flight crossed from one planet's or moon's area of
   influence into another while on rails, the recorder built a second, completely
