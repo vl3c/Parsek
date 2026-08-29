@@ -119,7 +119,7 @@ namespace Parsek.InGameTests
             string routeAId = "ingame-rt-A-" + Guid.NewGuid().ToString("N").Substring(0, 8);
             string routeBId = "ingame-rt-B-" + Guid.NewGuid().ToString("N").Substring(0, 8);
 
-            var endpointSnap = SnapshotLoadedLiquidFuel(endpoint);
+            var endpointSnap = SnapshotAndClearEndpointForDelivery(endpoint);
             List<Route> preExistingRoutes = SnapshotRoutes();
 
             RunLinkedPairScenario(
@@ -227,7 +227,7 @@ namespace Parsek.InGameTests
             string routeAId = "ingame-rt-paused-A-" + Guid.NewGuid().ToString("N").Substring(0, 8);
             string routeBId = "ingame-rt-paused-B-" + Guid.NewGuid().ToString("N").Substring(0, 8);
 
-            var endpointSnap = SnapshotLoadedLiquidFuel(endpoint);
+            var endpointSnap = SnapshotAndClearEndpointForDelivery(endpoint);
             List<Route> preExistingRoutes = SnapshotRoutes();
 
             RunLinkedPairScenario(
@@ -296,7 +296,7 @@ namespace Parsek.InGameTests
             string routeAId = "ingame-rt-seed-A-" + Guid.NewGuid().ToString("N").Substring(0, 8);
             string routeBId = "ingame-rt-seed-B-" + Guid.NewGuid().ToString("N").Substring(0, 8);
 
-            var endpointSnap = SnapshotLoadedLiquidFuel(endpoint);
+            var endpointSnap = SnapshotAndClearEndpointForDelivery(endpoint);
             List<Route> preExistingRoutes = SnapshotRoutes();
 
             RunLinkedPairScenario(
@@ -397,7 +397,7 @@ namespace Parsek.InGameTests
 
             bool warpPaused = false;
             int warpIndexBefore = TimeWarp.CurrentRateIndex;
-            var endpointSnap = SnapshotLoadedLiquidFuel(endpoint);
+            var endpointSnap = SnapshotAndClearEndpointForDelivery(endpoint);
             List<Route> preExistingRoutes = SnapshotRoutes();
 
             RecordingTree treeA = BuildBackingTree(treeIdA);
@@ -821,6 +821,32 @@ namespace Parsek.InGameTests
             RecordingStore.ClearCommittedTreesInternal();
             for (int i = 0; i < survivors.Count; i++)
                 RecordingStore.AddCommittedTreeForTesting(survivors[i]);
+        }
+
+        /// <summary>
+        /// The delivery-endpoint precondition every cell in this suite shares:
+        /// snapshot the endpoint's LiquidFuel FIRST, then ensure it has room for the
+        /// linked pair's FULL delivery manifest (A + B - both routes deliver onto the
+        /// same endpoint and either can fire first).
+        ///
+        /// <para>Without the headroom, <c>DestinationHasCapacity</c> - which is
+        /// ALL-OR-NOTHING - correctly holds every cycle in <c>DestinationFull</c> on a
+        /// craft whose tank is full, and the alternation assertions red for a reason
+        /// that has nothing to do with alternation. The snapshot is taken BEFORE the
+        /// drain, so the caller's existing <c>RestoreLoadedLiquidFuel(endpointSnap)</c>
+        /// in its restore/finally already undoes it - which is why the helper's own
+        /// restore snapshot is discarded here rather than threaded through four
+        /// cells. Skips (never fails) when the craft cannot hold the manifest.</para>
+        /// </summary>
+        private static List<KeyValuePair<PartResource, double>> SnapshotAndClearEndpointForDelivery(
+            Vessel endpoint)
+        {
+            var snapshot = SnapshotLoadedLiquidFuel(endpoint);
+            if (!DestinationHeadroomFixture.TryEnsureDestinationHeadroom(
+                    endpoint, LiquidFuelName, DeliveryAmountA + DeliveryAmountB,
+                    out _, out string headroomSkipReason))
+                InGameAssert.Skip(headroomSkipReason);
+            return snapshot;
         }
 
         private static List<KeyValuePair<PartResource, double>> SnapshotLoadedLiquidFuel(Vessel vessel)

@@ -1,0 +1,143 @@
+schema = 1
+id = "H53-scene-and-patch"
+tier = "nightly"
+# PHASE-4 WAVE 1, the H7-H20 shape. Harmony patch hygiene and the Bug266 vessel-switch routing.
+#
+# WHAT IT COVERS: that ghost map PIDs are never loaded as physics vessels (the
+# GhostVesselLoad patch doing its job), that the PhysicsFrame patch is clean when idle,
+# and the two Bug266 cells covering how an OUTSIDER active tree parses and routes to a
+# limbo vessel switch. Harmony patch behaviour has no headless surface at all.
+#
+# WHY A READING RUN: three of the four admitted cells guard, and two of the guards are
+# live-state rather than scene facts. `GhostPidsNotLoadedAsPhysicsVessels` skips on "No
+# ghost map PIDs - patch not exercised", which needs ghosts to have been created from
+# the corpus in this scene; `OutsiderActiveTreeParsesAndRoutesToLimboVesselSwitch_Bug266`
+# skips on "No live active tree to use as a synth source", which needs a live tree the
+# batch does not create. The corpus makes the first plausible and does nothing for the
+# second. PREDICTED: `PreTransitionForVesselSwitch_LiveTreeShape_Bug266` (unguarded) and
+# `PhysicsFramePatchCleanWhenIdle` pass; the other two are the open questions, and
+# the second one may be a standing fixture requirement rather than a one-off.
+#
+# -------------------------------------------------------------------------------------
+# READING HISTORY - ONE CENSUS. **THIS LANE UNDER-RAN ITS DERIVED EXECUTABLE, AND THE
+# PREDICTION ABOVE IS WHY THAT IS A RESULT RATHER THAN A SURPRISE.**
+# `2026-08-28_2227`, **PASS attempt 1**, wall 70 s. MEASURED:
+#     BATCH_COMPLETE v1 total=7 passed=2 failed=0 skipped=5
+#     category=SceneAndPatch scene=FLIGHT
+# `recordings.count = 274` (the staged corpus, intact); every verifier PASS or REPORT.
+#
+# THE ARITHMETIC, so the under-run is legible rather than alarming: 7 declared, 3
+# SCENE-INELIGIBLE at FLIGHT - the runner's own summary, quoted:
+#     Scene eligibility skip summary: skipped=3 currentScene=FLIGHT
+#     byRequiredScene=SPACECENTER:2,TRACKSTATION:1
+# (i.e. `ParsekKscExistsInSpaceCenter`, `ParsekKscRelativePlaybackUsesRecordedAnchor`
+# and `ParsekTrackingStationExists`) - so **4 executable**, and 2 of those 4 ran. The
+# header predicted exactly this pair: "`PreTransitionForVesselSwitch_LiveTreeShape_Bug266`
+# (unguarded) and `PhysicsFramePatchCleanWhenIdle` pass; the other two are the open
+# questions". Both predicted passes passed; both predicted open questions skipped.
+# NOTHING WAS REFUTED.
+#
+# THE SKIP ROSTER - 3 scene-filtered (above) plus 2 run-time, verbatim, each classified
+# SATISFIABLE or STRUCTURAL because that is the decision a future reader actually faces:
+#   1 SceneAndPatchTests.GhostPidsNotLoadedAsPhysicsVessels -
+#     "No ghost map PIDs - patch not exercised"
+#     -> **SATISFIABLE, and by a DRIVER change rather than a fixture one.** The corpus
+#        is present (274 recordings) but nothing in this driver makes the engine SPAWN
+#        ghosts, so `ghostMapVesselPids` is empty and the `GhostVesselLoad` patch is
+#        never handed a pid to refuse. Closing it means arming playback (a loop, or a
+#        watch) before `RunTests` so map presence exists when the cell runs. NOT done
+#        here on purpose: this lane's subject is patch HYGIENE, and adding ghost
+#        spawning to reach one cell changes what the other three measure. It is a
+#        candidate for its own lane, not a widening of this one.
+#   2 SceneAndPatchTests.OutsiderActiveTreeParsesAndRoutesToLimboVesselSwitch_Bug266 -
+#     "No live active tree to use as a synth source"
+#     -> **SATISFIABLE, also from the driver: a `StartRecording` step before `RunTests`
+#        creates the live active tree the cell wants as its synth source.** The header
+#        wondered whether this was "a standing fixture requirement rather than a
+#        one-off"; the census says it is NEITHER - it is a DRIVER-STATE requirement, and
+#        the distinction matters because no amount of harvesting a better save produces
+#        a LIVE tree. Why it is not simply added here: `[expectations.recordings]` pins
+#        274 exactly as this lane's corpus-integrity assertion, and a recording started
+#        mid-run would land in the produced save and red it. Closing this cell means a
+#        lane that trades that assertion away deliberately.
+# SO BOTH RESIDUAL SKIPS ARE DRIVER-SATISFIABLE AND NEITHER IS STRUCTURAL - a better
+# answer than the header expected. Declared as 2 in
+# `IngameBatchWiringGroupTests.RUNTIME_SKIPS` so the tally pins WHOLE meanwhile.
+# CONFIRM RUNS PENDING.
+description = "FLOWN: the FLIGHT slice of the in-game SceneAndPatch category over the 274-row synthetic corpus - ghost PIDs never loaded as physics vessels, PhysicsFrame patch hygiene, and the two Bug266 vessel-switch routing cells."
+instanceProfile = "stock-minimal"
+tags = ["ingame-batch", "phase4-wave1", "harmony", "scene", "corpus", "H53", "flown"]
+
+[fixture]
+# gloops-airshow, the wave host, plus the corpus - which here is an anti-vacuity
+# guard for ONE cell rather than for the batch: without ghosts there are no ghost
+# map PIDs and the patch cell has nothing to check.
+#
+# injectedRecordings = "all-synthetic"` IS THE ANTI-VACUITY GUARD, not a
+# decoration: this category walks `RecordingStore`, and over an empty store its
+# cells bail through their own guards while the tally still reads green. The 274-row
+# corpus is the same one H5 / H14 / H15 / H16 / H17 / H27 / H28 / H30 / H33 inject and
+# pin, so the count below is a MEASURED number carried by nine committed specs, and a
+# corpus that silently stopped landing reds on it rather than on a tally.
+saveTemplate = "fixtures/saves/gloops-airshow"
+injectedRecordings = "all-synthetic"
+craft = []
+
+[driver]
+kind = "seam"
+# verboseLogging=true: the CENSUS is the product, and the header names two open
+# questions whose answers arrive only as skip reasons.
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" }, expect = "OK" },
+  { cmd = "RunTests",   args = { category = "SceneAndPatch" }, expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit", expect = "OK" },
+]
+
+[dimensionsCovered]
+# HONEST and minimal. NOT claimed: any D1 switch-segment value - H12 owns the live
+# switch gate; the Bug266 cells here assert PARSING and ROUTING of an outsider tree.
+D14 = ["sandbox", "scene-flight"]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING (see H7): run.py reads `expectations.allowedAnomalies`,
+# and a bare key written AFTER an `[expectations.<sub>]` header is TOML-scoped to that
+# sub-table and never read.
+allowedAnomalies = []
+
+[expectations.recordings]
+# The 274-row corpus, pinned exactly as its nine sibling specs pin it - the
+# anti-vacuity guard for the ghost-PID cell.
+count = { min = 274, max = 274 }
+
+[expectations.logContracts]
+# ANTI-VACUITY plus a DELIBERATELY OPEN SPLIT.
+#  - total=7 is ATTRIBUTE-EXACT: 7 `[InGameTest(Category = "SceneAndPatch")]`
+#    declarations in `ExtendedRuntimeTests.cs`. The ATTRIBUTE FLOOR for `skipped` is 3 -
+#    two SPACECENTER-scoped and one TRACKSTATION-scoped declaration scene-skip at FLIGHT.
+#    Those three are a real residue: no FLIGHT boot reaches them, and closing them needs
+#    a sibling lane at the other scenes rather than a change here.
+#  - passed / skipped are OPEN for the reason in the header.
+#  - failed=0 is the ASSERTION.
+#  - scene=FLIGHT is the gloops-airshow Focusable route and is load-bearing, since the
+#    skip floor is scene-derived.
+required  = ["BATCH_COMPLETE v1 total=7 passed=2 failed=0 skipped=5 category=SceneAndPatch scene=FLIGHT"]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+[runtime]
+# 720, the H7-H20 wave convention. NOTE THE INHERITED FLAW rather than repeating it
+# silently: both LoadGame and RunTests are deferred seam verbs, so run.py waits
+# `required_step_wait(max(budget, 600))` = 660 s on each and the true worst case is
+# 1320 - a seam TIMEOUT here can surface as a harness KILL instead of a retryable
+# driver-INVALID, and run.py warns about exactly that. H21 documents it for the whole
+# family and deliberately did not change 14 committed budgets; this wave joins the
+# family rather than forking its own convention. Raising the whole wave is a separate
+# change with its own evidence.
+budgetSeconds = 720
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

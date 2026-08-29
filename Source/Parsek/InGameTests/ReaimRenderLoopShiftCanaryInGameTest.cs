@@ -143,11 +143,10 @@ namespace Parsek.InGameTests
                 Recording rec = committed[idx];
 
                 // A DESCENT-set member's resolver branch is not pure observability: it feeds the
-                // bounded per-cycle DescentRenderTrace state machine and (debug-gated) registers
-                // MapRenderWarpControl watch windows from the UT it is called with. At the LIVE UT
-                // that is exactly what the production Driver already did this frame (the calls are
-                // idempotent per frame); at SYNTHETIC future UTs it would pollute that per-cycle
-                // state. So descent members are probed at the live UT only - their head resolves
+                // bounded per-cycle DescentRenderTrace state machine from the UT it is called with.
+                // At the LIVE UT that is exactly what the production Driver already did this frame
+                // (the call is idempotent per frame); at SYNTHETIC future UTs it would pollute that
+                // per-cycle state. So descent members are probed at the live UT only - their head resolves
                 // through the same shared clock either way, and the future-cycle coverage comes from
                 // the non-descent members.
                 bool liveOnly = unit.HasDescentTrigger && unit.IsDescentMember(idx);

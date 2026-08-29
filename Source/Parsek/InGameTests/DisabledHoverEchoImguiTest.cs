@@ -30,10 +30,14 @@ namespace Parsek.InGameTests
     /// </summary>
     public sealed class DisabledHoverEchoImguiTest
     {
-        // Category is `Settings`, matching the sibling strip guards: the hover strip is
-        // shared window chrome rather than any one feature's, and no committed scenario
-        // spec pins `Settings`, so this declaration moves no batch tally.
-        [InGameTest(Category = "Settings",
+        // Its OWN category, deliberately not the sibling strip guards' `Settings`.
+        // H46-settings.toml pins `BATCH_COMPLETE v1 total=5 passed=4 ... skipped=1` for
+        // `Settings` from a real 2026-08-28 flight, and this cell SKIPS whenever the
+        // pointer is not over the probe rect - which an unattended batch cannot
+        // guarantee. Declaring it there would move `total` and force a guess at the
+        // passed/skipped split, and only a live flight can measure that. A category no
+        // spec drives keeps the tally honest until someone flies this one.
+        [InGameTest(Category = "DisabledHoverEcho",
             Description = "A greyed-out button still publishes its why-disabled reason to GUI.tooltip through the zero-size Label carrier, so the window help strip can echo it")]
         public IEnumerator DisabledControl_PublishesItsReasonToTheTooltipChannel()
         {

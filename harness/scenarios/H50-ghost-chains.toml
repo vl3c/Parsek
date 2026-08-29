@@ -1,0 +1,116 @@
+schema = 1
+id = "H50-ghost-chains"
+tier = "nightly"
+# PHASE-4 WAVE 1, the H7-H20 shape. Ghost-chain construction over the injected corpus.
+#
+# WHAT IT COVERS: the ghost chains Parsek computes from committed trees - chain links
+# referencing recordings that exist, chain time ranges valid, no double-ghosting across
+# a chain, and spawn chains carrying a tip snapshot. All four read the LIVE computed
+# chain set, which only exists inside a running scene.
+#
+# WHY A READING RUN, and it is a stronger case than its sibling H49. All FOUR cells
+# guard, and two of the guards are not about the corpus at all but about a LIVE
+# COMPUTATION: "No ghost chains computed" and "No spawn chains to check". Injecting 274
+# recordings makes "No committed trees" unreachable, but whether the engine actually
+# COMPUTES chains - and spawn chains specifically - from that corpus in an unattended
+# FLIGHT boot is exactly the thing nobody has measured. PREDICTED: the two
+# committed-trees-only cells pass; the chain-computation pair is the open question, and
+# a skip there would be a genuinely useful finding about the corpus rather than about
+# the product.
+#
+# -------------------------------------------------------------------------------------
+# READING HISTORY - ONE CENSUS, THE CORPUS-SHAPE WORRY DID NOT BITE.
+# `2026-08-28_2224`, **PASS attempt 1**, wall 71 s. MEASURED:
+#     BATCH_COMPLETE v1 total=4 passed=4 failed=0 skipped=0
+#     category=GhostChains scene=FLIGHT
+# `recordings.count = 274` - the staged corpus exactly, intact through the batch.
+# Every verifier PASS or REPORT.
+#
+# ALL FOUR EXECUTED AND PASSED against the live 274-row store:
+# `ChainLinksReferenceExistingRecordings`, `ChainTimeRangesValid`,
+# `SpawnChainsHaveTipSnapshot` and `NoDoubleGhosting`. As with H49 the open question was
+# whether a synthetic corpus gives these consistency walkers anything to walk - whether
+# they find chains at all, or stand down and read green over an empty scan. They found
+# them: `skipped=0` is MEASURED, no run-time guard fired, and no `RUNTIME_SKIPS` entry
+# is owed.
+#
+# WHAT THE EXACT PIN NOW BUYS is H49's argument and worth repeating because it is the
+# whole case for narrowing a corpus lane: `passed=4` with `count = 274` says four
+# walkers ran over the whole committed corpus, where `passed=[1-9][0-9]*` accepted one
+# walker running and three standing down. CONFIRM RUNS PENDING.
+description = "FLOWN: the in-game GhostChains category over the 274-row synthetic corpus - chain link resolution, chain time ranges, double-ghosting and spawn-chain tip snapshots, read off the live computed chain set."
+instanceProfile = "stock-minimal"
+tags = ["ingame-batch", "phase4-wave1", "ghost-chains", "corpus", "H50", "flown"]
+
+[fixture]
+# gloops-airshow, the wave host, plus the corpus which is what makes the batch mean
+# anything.
+#
+# injectedRecordings = "all-synthetic"` IS THE ANTI-VACUITY GUARD, not a
+# decoration: this category walks `RecordingStore`, and over an empty store its
+# cells bail through their own guards while the tally still reads green. The 274-row
+# corpus is the same one H5 / H14 / H15 / H16 / H17 / H27 / H28 / H30 / H33 inject and
+# pin, so the count below is a MEASURED number carried by nine committed specs, and a
+# corpus that silently stopped landing reds on it rather than on a tally.
+saveTemplate = "fixtures/saves/gloops-airshow"
+injectedRecordings = "all-synthetic"
+craft = []
+
+[driver]
+kind = "seam"
+# verboseLogging=true: the CENSUS is the product, and the header's open question -
+# whether the engine computes chains from an injected corpus at all - is answered
+# by which of the four guard strings appears.
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" }, expect = "OK" },
+  { cmd = "RunTests",   args = { category = "GhostChains" }, expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit", expect = "OK" },
+]
+
+[dimensionsCovered]
+# HONEST and minimal. NOT claimed: any D2 playback value - these cells assert the
+# CHAIN MODEL, and nothing here plays a ghost back; S1.4 owns live playback.
+D14 = ["sandbox", "scene-flight"]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING (see H7): run.py reads `expectations.allowedAnomalies`,
+# and a bare key written AFTER an `[expectations.<sub>]` header is TOML-scoped to that
+# sub-table and never read.
+allowedAnomalies = []
+
+[expectations.recordings]
+# The 274-row corpus, pinned exactly as its nine sibling specs pin it. It is the
+# ANTI-VACUITY guard: every one of the four cells skips outright on an empty
+# store, so without it this batch reads green over zero executed assertions.
+count = { min = 274, max = 274 }
+
+[expectations.logContracts]
+# ANTI-VACUITY plus a DELIBERATELY OPEN SPLIT.
+#  - total=4 is ATTRIBUTE-EXACT: 4 `[InGameTest(Category = "GhostChains")]` declarations
+#    in `ExtendedRuntimeTests.cs`, all AnyScene, so the ATTRIBUTE FLOOR is 0.
+#  - passed / skipped are OPEN for the reason in the header: two of the four guard on a
+#    LIVE chain computation that no attribute predicts and no committed run has measured.
+#  - failed=0 is the ASSERTION.
+#  - scene=FLIGHT is the gloops-airshow Focusable route, and unlike H49 it is arguably
+#    load-bearing: chain computation is a flight-scene activity.
+required  = ["BATCH_COMPLETE v1 total=4 passed=4 failed=0 skipped=0 category=GhostChains scene=FLIGHT"]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+[runtime]
+# 720, the H7-H20 wave convention. NOTE THE INHERITED FLAW rather than repeating it
+# silently: both LoadGame and RunTests are deferred seam verbs, so run.py waits
+# `required_step_wait(max(budget, 600))` = 660 s on each and the true worst case is
+# 1320 - a seam TIMEOUT here can surface as a harness KILL instead of a retryable
+# driver-INVALID, and run.py warns about exactly that. H21 documents it for the whole
+# family and deliberately did not change 14 committed budgets; this wave joins the
+# family rather than forking its own convention. Raising the whole wave is a separate
+# change with its own evidence.
+budgetSeconds = 720
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

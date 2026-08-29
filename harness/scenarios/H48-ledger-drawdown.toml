@@ -1,0 +1,106 @@
+schema = 1
+id = "H48-ledger-drawdown"
+tier = "nightly"
+# PHASE-4 WAVE 1, the H7-H20 shape. The drawdown guard against LIVE career singletons.
+#
+# WHAT IT COVERS: the ledger drawdown guard evaluated against the real `Funding`,
+# `ResearchAndDevelopment` and `Reputation` singletons - leak clamping with an
+# authorized signal, refund leak clamped down to live, the science tech-unlock window
+# proving no spurious down-clamp, and the spending gate respecting live balances while
+# blocking non-destructively. Headless xUnit has no singletons, so every one of these
+# four is currently proved only against injected doubles.
+#
+# THE REACHABILITY ARGUMENT, which is what earns the exact pin. All four cells carry
+# guards and every single one is the SAME family: "requires a career game with the
+# Funding singleton", "... with the R&D singleton", "... a career/science game with the
+# ResearchAndDevelopment singleton", "requires a career game with Funding/R&D/Reputation
+# singletons". A CAREER host instantiates all three, so none of the guards can fire.
+# There is no second family - no live-geometry condition, no corpus shape, no UI layout -
+# which is precisely what separates this lane from H43 / H44 / H45 in the same wave.
+#
+# THE FORM IS AN EXACT PIN ON FIRST AUTHORING, the H7-H20 precedent, and it is earned
+# by a REACHABILITY argument rather than by an absence of guards. What the ordinary
+# group's own comment calls "a reachable-Skip scan" is the test: a guard that CANNOT
+# fire at this lane's boot is not a source of uncertainty, and pinning around it would
+# be superstition. Every guard in this category is enumerated above with the reason it
+# cannot fire here. If a first flight reds on the split, do NOT widen the pattern -
+# read the skip reason out of the log and correct the reachability argument, because
+# one of the statements above is then wrong.
+description = "Run the in-game Ledger category unattended on a career host: the drawdown guard, refund-leak clamp, science tech-unlock window and spending gate evaluated against the live Funding, R&D and Reputation singletons."
+instanceProfile = "stock-minimal"
+tags = ["ingame-batch", "phase4-wave1", "ledger", "career", "H48"]
+
+[fixture]
+# fresh-career, and CAREER is the whole requirement - all four cells skip on any
+# other mode, so the wave's SANDBOX gloops-airshow would print a fully vacuous
+# tally. FRESH rather than one of the richer career saves is deliberate: the
+# cells assert CLAMP BEHAVIOUR against whatever the live balances are and seed
+# their own deltas, so a pre-populated ledger would add state without adding
+# coverage - and a fresh save keeps the produced-save leak assertion below sharp.
+#
+# It carries NO active vessel, so `LoadGame` takes the Space Center route by
+# construction and needs no `scene=` argument - unlike H45, whose career host has
+# an active vessel and would otherwise land in FLIGHT.
+saveTemplate = "fixtures/saves/fresh-career"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+# No verboseLogging: the only pinned token is BATCH_COMPLETE (Info), and an
+# EXACT-pinned lane has no census to read.
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "RunTests",   args = { category = "Ledger" }, expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit", expect = "OK" },
+]
+
+[dimensionsCovered]
+# `career` is the fixture's own `Mode = CAREER`; `scene-ksc` is the pinned
+# `scene=SPACECENTER` token. NOT claimed: D8 `funds` / `science` - those belong to
+# lanes that post real game actions and assert the recalculated balance; these four
+# cells assert the GUARD around a drawdown, not the drawdown itself.
+D14 = ["career", "scene-ksc"]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING (see H7): run.py reads `expectations.allowedAnomalies`,
+# and a bare key written AFTER an `[expectations.<sub>]` header is TOML-scoped to that
+# sub-table and never read.
+allowedAnomalies = []
+
+[expectations.recordings]
+# Zero: nothing here records, and a leak into a career save must red.
+count = { min = 0, max = 0 }
+
+[expectations.logContracts]
+# ANTI-VACUITY: tally pinned WHOLE, and derivable exactly.
+#  - total=4 is ATTRIBUTE-EXACT: 4 `[InGameTest(Category = "Ledger")]` declarations, all
+#    `Scene = GameScenes.SPACECENTER`, in `IncompleteBallisticRuntimeTests.cs`. Nothing
+#    is batch-disabled, so the ATTRIBUTE FLOOR at SPACECENTER is 0.
+#  - skipped=0 rests on the reachability argument in the header: every guard in all four
+#    bodies is a career-singleton presence check, and a CAREER host supplies all three.
+#  - failed=0 is the ASSERTION.
+#  - passed=4 follows.
+#  - scene=SPACECENTER is where a vessel-less career save boots, and it is LOAD-BEARING:
+#    at FLIGHT all four scene-skip and the line reads `passed=0 skipped=4`, which this
+#    pin rejects.
+required  = ["BATCH_COMPLETE v1 total=4 passed=4 failed=0 skipped=0 category=Ledger scene=SPACECENTER"]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+[runtime]
+# 720, the H7-H20 wave convention. NOTE THE INHERITED FLAW rather than repeating it
+# silently: both LoadGame and RunTests are deferred seam verbs, so run.py waits
+# `required_step_wait(max(budget, 600))` = 660 s on each and the true worst case is
+# 1320 - a seam TIMEOUT here can surface as a harness KILL instead of a retryable
+# driver-INVALID, and run.py warns about exactly that. H21 documents it for the whole
+# family and deliberately did not change 14 committed budgets; this wave joins the
+# family rather than forking its own convention. Raising the whole wave is a separate
+# change with its own evidence.
+budgetSeconds = 720
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

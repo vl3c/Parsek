@@ -1,0 +1,131 @@
+schema = 1
+id = "H45-stock-ui-overlay"
+tier = "nightly"
+# PHASE-4 WAVE 1, the H7-H20 shape. Parsek's decorations on the STOCK KSC facility screens.
+#
+# WHAT IT COVERS: the overlays Parsek paints onto stock facility UIs and, in the second
+# trio, their removal on despawn - the R&D tech tree decorated for a committed future
+# node, the Astronaut Complex for reserved and future-hired crew, and Mission Control
+# for a committed contract. Every one needs a LIVE stock facility screen instantiated
+# in the Space Center scene; headless xUnit has no screen to decorate, so none of these
+# six has ever executed anywhere.
+#
+# WHY A READING RUN - THE AUDIT'S "guards only HighLogic.CurrentGame" IS WRONG. Every
+# one of the six carries three to five guards, and while the mode guards are answered by
+# a CAREER host, two families are NOT:
+#   * `contractPick.SkipReason` (both Mission Control cells) - the cell has to FIND a
+#     decoratable contract in the live game, and whether `career-contract-pad`'s
+#     contracts are in a state the picker accepts is a runtime fact.
+#   * "{buildingName} building instance not found in Space Center scene" and
+#     "KerbalsModule.reservations field missing" (`MissionControlOverlaysClearedOnDespawn`)
+#     - live scene and reflection conditions.
+# So the honest form is open. PREDICTED: the four R&D / Astronaut cells pass on a career
+# host and the two Mission Control cells are the open question.
+#
+# -------------------------------------------------------------------------------------
+# READING HISTORY - ONE CENSUS, PREDICTION CONFIRMED EXACTLY.
+# `2026-08-28_2220`, **PASS attempt 1**, wall 66 s. MEASURED:
+#     BATCH_COMPLETE v1 total=6 passed=4 failed=0 skipped=2
+#     category=StockUiOverlay scene=SPACECENTER
+# `recordings.count = 0`; every verifier PASS or REPORT.
+#
+# THE PREDICTION WAS "the four R&D / Astronaut cells pass on a career host and the two
+# Mission Control cells are the open question", and that is precisely what happened. The
+# four passes are the first execution ANYWHERE of Parsek's decorations on live stock
+# facility screens: `RnDOverlayDecoratesCommittedFutureNode`,
+# `RnDOverlaysClearedOnDespawn`, `AstronautOverlayDecoratesReservedAndFutureHired`,
+# `AstronautOverlaysClearedOnDespawn`.
+#
+# THE SKIP ROSTER - both runtime, both the SAME cause, quoted verbatim:
+#   1 FlightIntegrationTests.MissionControlOverlayDecoratesCommittedContract - "No
+#     Mission Control offered contract row with a non-empty title/Guid is available
+#     (rows=0, contractRows=0, offeredRows=0, activeRows=0)"
+#   2 FlightIntegrationTests.MissionControlOverlaysClearedOnDespawn - identical reason.
+# THE COUNTERS ARE THE FINDING, and they resolve the open question ONE LEVEL EARLIER
+# than the header expected. `rows=0 contractRows=0 offeredRows=0 activeRows=0` says the
+# live Mission Control screen instantiated and was walked and found NOTHING - not that
+# the picker inspected a contract and rejected its state, which is the guard family the
+# header worried about. So `career-contract-pad` does not put an OFFERED contract in
+# front of the screen at all. That makes it a FIXTURE requirement rather than a defect:
+# closing it needs a career save carrying at least one offered contract with a non-empty
+# title and Guid at the moment the batch runs. Declared as 2 in
+# `IngameBatchWiringGroupTests.RUNTIME_SKIPS` so the tally can be pinned WHOLE without
+# the group asserting a split this fixture cannot deliver. CONFIRM RUNS PENDING.
+description = "FLOWN: the in-game StockUiOverlay category unattended on a career host - Parsek's decorations on the live stock R&D, Astronaut Complex and Mission Control screens, and their removal on despawn."
+instanceProfile = "stock-minimal"
+tags = ["ingame-batch", "phase4-wave1", "stock-ui", "career", "H45", "flown"]
+
+[fixture]
+# career-contract-pad, and BOTH properties are load-bearing. CAREER: four of the six
+# cells skip outright on a non-career mode ("Astronaut Complex overlay verification
+# is career-only", "R&D overlay verification needs a tech-research-capable mode"),
+# so the whole batch would be vacuous on any SANDBOX host including the wave's
+# gloops-airshow. CONTRACTS: the two Mission Control cells need a contract to
+# decorate, which is what this fixture is named for and carries.
+#
+# It boots via `LoadGame scene=spacecenter` (the R12 argument H34 also uses).
+# Its activeVessel would otherwise take the Focusable route into FLIGHT, where
+# all six SPACECENTER-scoped declarations scene-skip and the batch is empty.
+saveTemplate = "fixtures/saves/career-contract-pad"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+# verboseLogging=true: the CENSUS is the product, and the header's open question -
+# whether the contract picker accepts this fixture's contracts - is answered by a
+# skip reason, not by a count.
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent", scene = "spacecenter" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" }, expect = "OK" },
+  { cmd = "RunTests",   args = { category = "StockUiOverlay" }, expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit", expect = "OK" },
+]
+
+[dimensionsCovered]
+# `career` is the fixture's own `Mode = CAREER`, riding the loadgame line; `scene-ksc`
+# is the pinned `scene=SPACECENTER` token. NOT claimed: any D8 ledger value - these
+# cells read committed state to decorate a screen and post no game action.
+D14 = ["career", "scene-ksc"]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING (see H7): run.py reads `expectations.allowedAnomalies`,
+# and a bare key written AFTER an `[expectations.<sub>]` header is TOML-scoped to that
+# sub-table and never read.
+allowedAnomalies = []
+
+[expectations.recordings]
+# Zero: nothing here records, and the overlays are read-side decoration.
+count = { min = 0, max = 0 }
+
+[expectations.logContracts]
+# ANTI-VACUITY plus a DELIBERATELY OPEN SPLIT.
+#  - total=6 is ATTRIBUTE-EXACT: 6 `[InGameTest(Category = "StockUiOverlay")]`
+#    declarations, all `Scene = GameScenes.SPACECENTER`, all in `RuntimeTests.cs`. The
+#    ATTRIBUTE FLOOR for `skipped` is 0 at SPACECENTER.
+#  - passed / skipped are OPEN for the reason in the header: the contract-picker and
+#    building-instance guards are runtime facts on this host.
+#  - failed=0 is the ASSERTION.
+#  - scene=SPACECENTER is LOAD-BEARING and is the B10 fail-open guard: a boot that lost
+#    the `scene=` argument lands in FLIGHT, where all six scene-skip and the tally reads
+#    `total=6 passed=0 failed=0 skipped=6` - a vacuous line this pin rejects.
+required  = ["BATCH_COMPLETE v1 total=6 passed=4 failed=0 skipped=2 category=StockUiOverlay scene=SPACECENTER"]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+[runtime]
+# 720, the H7-H20 wave convention. NOTE THE INHERITED FLAW rather than repeating it
+# silently: both LoadGame and RunTests are deferred seam verbs, so run.py waits
+# `required_step_wait(max(budget, 600))` = 660 s on each and the true worst case is
+# 1320 - a seam TIMEOUT here can surface as a harness KILL instead of a retryable
+# driver-INVALID, and run.py warns about exactly that. H21 documents it for the whole
+# family and deliberately did not change 14 committed budgets; this wave joins the
+# family rather than forking its own convention. Raising the whole wave is a separate
+# change with its own evidence.
+budgetSeconds = 720
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

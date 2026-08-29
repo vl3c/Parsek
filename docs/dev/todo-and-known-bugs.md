@@ -14,6 +14,334 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~QUICKLOAD-OVER-COMMITTED-RESTORE-OVERLAP-DELETES-TREE-ON-SAVE~~: a cold load's stale-pending discard deleted the COMMITTED tree's sidecars through a copy-on-write clone, and every save thereafter dropped the whole tree from persistent.sfs [FOUND 2026-08-28 by the H39/H40 isolated censuses (both recorded fixtures collapsed 21/22 recordings -> 9 in the produced save; H40's ROUTE survived with a dangling backingMissionTreeId). PLAYER-REACHABLE DATA LOSS, not a harness artefact. **FIXED 2026-08-29** on branch `logistics-isolated-lanes` in three parts]
+
+### The mechanism, measured
+
+Evidence: `logs/2026-08-28_2358_H40-logistics-isolated-depot-route/KSP.log`.
+
+1. `23:56:42.196` - recording `44129e52...` LOADS fine (`LoadRecordingFiles: id=44129e52...
+   hasVesselSnapshot=True hasGhostSnapshot=True`). Its `.prec` exists.
+2. `ParsekFlight.TryTakeCommittedTreeForSpawnedVesselRestore` DeepClones the matched
+   COMMITTED tree into the ACTIVE slot with **ids preserved** (copy-on-write overlap), so
+   clone and original resolve to the SAME sidecar paths.
+3. The clone is parked as the PENDING tree; a quickload follows.
+4. `23:56:46.365` - cold `OnLoad`: `OnLoad initial: discarding pending tree from previous
+   save` -> `DiscardPendingTree`.
+5. `23:56:46.367` onward - `DeleteRecordingFiles` for **all 13** of that tree's recordings,
+   `Deleted file: ...44129e52....prec` and friends. The collected save carries only the
+   OTHER tree's 9 `.prec` files.
+6. `23:56:47.389` onward - every later OnSave: `reason=trajectory-missing` ->
+   `SaveRecordingFiles: skipping write ... preserving on-disk .prec to avoid data loss
+   (bug #585 follow-up)` -> `remains unsafe to serialize` -> `OnSave: skipped tree ...`
+   and the RECORDING_TREE node is OMITTED. The condition is STICKY, so every save after
+   it omits the tree too.
+
+**The mark was NOT spurious** (the diagnosis's leading hypothesis): the `.prec` really had
+been deleted four seconds earlier.
+
+**Why the existing guard did not fire.** `DiscardPendingTree` has carried a
+committed-overlap guard since #431 - it refuses to purge events or delete sidecars for a
+recording id still present in committed history, which is exactly what makes the
+copy-on-write restore safe to throw away. It reads the IN-MEMORY committed store. In
+`ParsekScenario.OnLoad`'s cold-start branch `DiscardStalePendingState()` runs at
+`loadPhase = "stale-pending-discard"` **before** `LoadRecordingTrees(node, ...)` at
+`loadPhase = "recording-trees"`, so the store is empty, every id answers "not committed",
+and the guard is defeated by ordering alone.
+
+### The fix, three parts
+
+**(C) the trigger.** `RecordingStore.SetDurableCommittedRecordingIdHint` /
+`IsDurableCommittedRecordingIdHint` / `ClearDurableCommittedRecordingIdHint`, with the pure
+decision `ShouldPreserveCommittedOverlapOnPendingDiscard(committedInMemory, durableHint)`.
+`ParsekScenario.CollectCommittedRecordingIdsFromScenarioNode` (pure over the ConfigNode)
+publishes the SAVE NODE's recording ids around `DiscardStalePendingState()` in a
+try/finally. Both discard guards - the event/milestone purge AND the sidecar delete - now
+consult it. Deliberately NOT fixed by reordering OnLoad: the discard precedes
+`ClearCommittedInternal` / `ValidateChains` for reasons of its own, and the save file is
+the correct authority for that window regardless.
+
+The collector takes ids from EVERY `RECORDING_TREE` node, parked ones included. The first
+version excluded `isActive` / `isPending` nodes on the reasoning that a parked node is
+what a discard is entitled to destroy; the branch review corrected it, and the correction
+is the point: `TryRestoreActiveTreeNode` / `TryRestorePendingTreeNode` restore exactly
+those nodes LATER IN THE SAME OnLoad, so their recordings are in the population "this save
+is about to have" and their sidecars are what the restore hydrates from. The tree the
+discard is actually destroying is the IN-MEMORY stale pending tree left over from a
+previous save - it is not in this node at all, so including the parked nodes cannot
+protect it by accident.
+
+**(B) the invariant - A SAVE MUST NEVER DELETE A TREE IT CANNOT SERIALIZE.**
+`ParsekScenario.SaveTreeRecordings`'s both-or-neither skip no longer `continue`s past the
+`AddNode`: it carries the tree's last-known-good RECORDING_TREE node forward from the
+on-disk save (`TryCarryForwardCommittedTreeNodeFromLoadedSave` + `FindCommittedTreeNodeById`,
+siblings of the load-fault guard's `TryRehydrateCommittedTreesAndMissionsFromDiskSave`),
+Warn on success and **Error** when there is nothing to carry. Implemented independently of
+(C): (C) removes this trigger, (B) is the invariant that stops ANY future sidecar fault
+from deleting a mission.
+
+Three properties the branch review added, each closing a way the carry could do harm:
+
+- **Reconciled against the live tree.** The on-disk node is OLDER than memory, so carried
+  verbatim it RESURRECTS recordings the player has since deleted - and those ids then
+  reference sidecars that are gone, leaving the save disagreeing with the corpus the next
+  load's orphan reap works against (which deletes files nothing references, i.e. NEWER
+  data). A carried `RECORDING` is kept only when the LIVE tree still has that id AND its
+  trajectory sidecar is on disk (`IsCarriedRecordingStillReal`); everything else is
+  dropped, counted and logged. Reconciled down to zero, the carry is REFUSED rather than
+  writing a husk that would itself read as a corrupt tree.
+- **Target-file first.** The first version hard-read the campaign `persistent.sfs` for
+  every save target, so a quicksave would have received the CAMPAIGN's node - a foreign
+  timeline. `TryLoadCarryForwardSourceParsekNode` now prefers the file this save is
+  overwriting when it exists. RESIDUAL RISK, documented on that method: stock does NOT
+  expose the target save name inside `ScenarioModule.OnSave` (`GamePersistence.SaveGame`
+  keeps `saveFileName` local and calls `game.Save(node)` before writing), so the target is
+  known only via `SaveTargetFileNameHintForCurrentSave`, which Parsek-driven call sites can
+  set and a stock F5 quicksave cannot. When the target is unknown the campaign save is used
+  - and the reconciliation above is what makes that safe: a cross-timeline read cannot
+  introduce recordings this game does not have. What it can still do is carry a stale FIELD
+  value from the campaign's copy of the same tree, which is strictly better than dropping
+  the tree, the only alternative on this path.
+- **One parse per save.** The `ConfigNode.Load` is lazy and hoisted to at most once per
+  `SaveTreeRecordings` invocation, shared across every failing tree, and is not performed
+  at all on the healthy path.
+
+**(A) the harness ordering defect.** `InGameTestRunner.BatchBaselinePersistentSaveRestored`
+latches inside `RestoreCampaignPersistentSave` the moment the revert commits (covering the
+teardown, cancel and force-revert call sites); `FlushAndQuitImpl` logs `flushandquit: save
+suppressed (batch baseline already restored)` and skips its `GamePersistence.SaveGame`. A
+non-batch FlushAndQuit never sets the latch and saves exactly as before.
+
+**THE SUPPRESSION IS SCOPED, and the scoping is the load-bearing part.** The first version
+latched process-wide, forever, unkeyed by save folder - which silently broke
+`S4.2-refly-world-preservation`, whose steps are `RunTests -> AnswerMergeDialog{merge} ->
+FlushAndQuit` and whose produced save MUST be the merge tail written AFTER the batch. Two
+conditions now gate it, both in the pure
+`TestCommandFlushAndQuit.ShouldSuppressSaveAfterBatchRestore(latched, restoredSaveFolder,
+currentSaveFolder)`:
+
+1. **Same save folder.** `BatchBaselineRestoredSaveFolder` records what the restore actually
+   wrote; a restore of campaign A never suppresses a flush into campaign B (nothing restored
+   B, so suppressing there would simply lose its save). Ordinal comparison - a case-fold
+   would be the wrong equality on a case-sensitive filesystem. An unresolvable folder on
+   either side fails the comparison, i.e. saves.
+2. **Nothing mutated since.** `NotifyStateMutatedAfterBatchBaselineRestore` clears the latch
+   from three places: the cold `OnLoad` (a game load), the main-menu transition, and the
+   seam's `InvokeExecutor` dispatch for any verb `TestCommandVerbs.IsStateMutatingVerb`
+   accepts. That verb table is an ALLOW-LIST of the harmless verbs (`RecordingState`,
+   `ExportRenderManifest`, and `FlushAndQuit` itself, which is the reader) with everything
+   else - including an unknown or later-added verb - counted as mutating, so the fail-safe
+   direction is "assume it mutated -> clear -> save normally".
+
+The hook sits at DISPATCH rather than completion on purpose: `RunTests` is itself mutating
+and clears the latch on the way in, then its own teardown re-arms it as the batch ends - so
+H38-H41's `RunTests -> FlushAndQuit` still suppresses, while S4.2's merge in between clears
+it and writes the tail. S4.2's spec comment now states this dependency explicitly.
+
+### Guards
+
+`Source/Parsek.Tests/UnserializableTreeCarryForwardTests.cs`: the invariant end to end
+through the real `SaveTreeRecordings` (unserializable tree keeps its node WITH its RECORDING
+payload), the loud drop when there is nothing to carry, the healthy tree unaffected, the
+node finders, the reconciliation trio (drops a recording the live tree no longer has; drops
+one whose sidecar is gone; refuses the carry when reconciliation empties the node), the pure
+overlap-decision matrix, the hint round-trip, the hint INCLUDING parked nodes about to be
+restored, and the cold-load overlap discard routing overlap ids to preserve plus its
+negative control. `TestCommandFlushAndQuitTests` carries the suppression matrix, the
+save-folder scoping matrix, and the mutating-verb classification (which pins
+`AnswerMergeDialog` as mutating - the cell that would catch S4.2 losing its merge tail
+again). `RouteHarvestCaptureTests` carries the rails-exit label window, its `[InlineData]`
+rows anchored on the MEASURED H38 ages so the pinned `trigger=rails-exit` token is provably
+unaffected.
+
+NOTE for the next discard-path test author: the sidecar DELETE cannot be asserted by file
+existence headlessly - `DeleteRecordingFiles` resolves through
+`KSPUtil.ApplicationRootPath`, which throws outside KSP, so a file-existence assertion
+passes without the delete branch ever being reachable. These cells assert the decision
+counters the discard logs instead. (The first draft of them was vacuous for exactly this
+reason and was rewritten.)
+
+## ~~LOGISTICS-CELLS-ASSUME-AN-EMPTY-DESTINATION-TANK-AND-A-YOUNG-SAVE~~: ten in-game cells encoded a save property instead of stating a precondition, so two correct product refusals read as ten reds [FOUND 2026-08-28 by the H39/H40 recorded-host reading runs. TEST DEFECTS ONLY - both product gates behaved exactly as designed, and neither is changed. **FIXED THE SAME DAY** on branch `logistics-isolated-lanes`]
+
+**Family A - the full destination tank (9 cells).**
+`LiveRouteRuntimeEnvironment.DestinationHasCapacity` is an ALL-OR-NOTHING
+eligibility gate: a cycle fires only when the FULL delivery manifest fits the
+destination, because dispatch debits the origin for the full manifest. The H40
+fixture's active vessel carries a full 720/720 LiquidFuel tank, so the gate
+CORRECTLY held every synthetic cycle in `DestinationFull` and the cells reded on
+route-state / ledger assertions that were about something else entirely. The nine:
+`LogisticsOriginDebitRuntimeTests` x2 (loaded + unloaded origin), all four
+`LogisticsRoundTripRuntimeTests` cells, and `LogisticsMultiOriginRuntimeTests`
+x3 (`MultiOrigin_TwoSources`, `Shuttle_Refinery`, `MultiOrigin_SaveRoundTrip`).
+Every one resolves `FlightGlobals.ActiveVessel` as its delivery destination and
+never checked or created headroom; five OTHER cells passed only because each had
+independently grown its own inline drain.
+
+FIX: `Source/Parsek/InGameTests/Helpers/DestinationHeadroomFixture.cs` -
+`TryEnsureDestinationHeadroom` drains the MINIMUM needed across deliverable tanks,
+measuring deliverability through the PRODUCTION predicate
+(`RouteOrchestrator.ShouldDeliverToResource`, the same one
+`LiveDeliveryCapacityProbe.ProbeLoadedResourceFree` applies) so the headroom it
+creates cannot drift from the headroom the gate measures. Each cell hangs the
+restore on its existing finally / restore lambda. Two traps recorded: (1) in
+`OriginDebit_Loaded` the origin IS the destination, so the drain must run BEFORE
+`storedBefore` is measured or the pool assertion reads a stale baseline - which is
+why this is wired per-cell and NOT inside the shared `RunOriginDebitCrossing`;
+(2) `OriginGate_EmptyOrigin` and `MultiOrigin_OneSourceShort` are HOLD cells that
+must keep their empty/short vessels, and are deliberately untouched.
+
+The five inline pre-drains were deliberately NOT swapped onto the helper. They are
+a different contract: each drains ONE specific `PartResource` and then asserts on
+THAT reference (`fuelResource.amount == postDrain + expectedDelta`). A helper free
+to satisfy the deficit from any deliverable tank would leave the asserted tank full
+whenever another tank supplied the room, silently degrading those assertions to
+`tankCanReceive == false` / skipped rather than failing. Both docstrings say so.
+
+**Family B - the young save (1 cell).**
+`RouteRewindRedeliveryInGameTest` pinned `RewindCutoffUT = 1500` but left its
+synthetic route's `CreatedUT` at the `-1.0` default. `RouteStore.AddRoute` stamps
+the LIVE save UT whenever `CreatedUT < 0`, and `RouteRewindClassifier.Classify`
+parks any captured route with `CreatedUT > cutoff` on the DORMANT list - correctly:
+a route created after the rewind target does not exist yet on the re-flown
+timeline, and a dormant route is invisible to `TryGetRoute`. So the cell passed
+only on a save younger than ~25 minutes of game time and reded on every older one.
+FIX: `CreatedUT = SpanStartUT` (1000 < 1500), which models what the cell is
+actually about - a route that already existed before the rewind point. The inline
+comment claiming "RouteStore is NOT part of the reconciliation bundle" was
+factually wrong (the bundle captures BOTH route lists and re-splits them through
+`Classify`) and is replaced with the real contract; the assertion is strengthened
+to require the route is committed AND absent from `RouteStore.DormantRoutes`, so a
+future classifier change that parks it cannot read as a plain lookup miss.
+
+Cross-ref: these runs also PROVED the destination-full refusal branch fires live -
+see the **UPDATE 2026-08-28** paragraph on the D10 `destination-full-gate` row,
+inside `ROUTE-CANDIDACY-GATED-ON-SEAL-NO-SEAM-PATH` further down.
+
+## ~~D4-HARVEST-POLL-IS-NOT-RAILS-GATED-ON-SURFACE-VESSELS~~: the M2 harvest poll ran on PACKED frames for every LANDED / SPLASHED / PRELAUNCH vessel, and the rails-exit funnel flag was burned by the first no-transition poll instead of by the transition it labelled [FOUND 2026-08-28 by the first isolated Logistics batch (H38 reading run, `logs/2026-08-28_2105_H38-logistics-isolated`) and diagnosed against the source. TWO PRODUCT BUGS IN ONE FUNNEL, both on the D4 warp rule. **FIXED THE SAME DAY** on branch `logistics-isolated-lanes` - see THE FIX below]
+
+**Bug 1 - the invariant the code states is not the invariant it enforces.**
+`FlightRecorder.PollHarvestActivity` is documented (and asserted in-game) as
+rails-gated: no harvest window may open or close while the vessel is packed,
+because the only resource figures readable there are whatever the last stock
+catch-up left, so a window bracketed off them witnesses nothing. The gate was
+`OnPhysicsFrame`'s `if (isOnRails) return;` - and `OnVesselGoOnRails`
+early-returns for LANDED / SPLASHED / PRELAUNCH (and for below-atmosphere)
+BEFORE setting `isOnRails`, deliberately, because that flag gates orbit-segment
+creation and SOI handling and a surface vessel has no valid Keplerian arc. So
+the whole surface population - every mining rig, which is the ONLY population
+this feature exists for - polled straight through a warp with the gate reading
+"not on rails". The recorder's own `onphysicsframe-packed` breadcrumb had been
+observing packed frames reaching that method for a long time.
+
+**Bug 2 - the funnel flag never survived to its own transition.**
+`harvestRailsExitPollPending` labels the first post-warp transition
+`trigger=rails-exit`, so a converter switched off during warp is attributed to
+the boundary rather than to an ordinary mid-flight toggle. It was read and
+cleared at the TOP of the poll, above the `transition == None` early return, so
+any no-transition poll consumed it. Bug 1 made that certain (packed steady-state
+frames burned it during the warp itself), but it was independently reachable:
+one idle off-rails frame between the exit and the converter's state settling is
+enough. Compounding it, the flag was armed only at rails ENTRY - the exit path
+(`OnVesselGoOffRails`) never armed it in either branch.
+
+### THE FIX
+
+Three coordinated changes, all in the D4 funnel:
+
+1. `RouteHarvestCapture.ShouldRunHarvestPoll(gloopsMode, vesselPacked)` - new
+   pure predicate; `PollHarvestActivity` now gates on the vessel's own `packed`
+   flag, which is the authoritative rails state for this decision.
+   `isOnRails` is deliberately NOT set in the surface branch - that would
+   regress landed recordings.
+2. `RouteHarvestCapture.ShouldConsumeRailsExitFunnel(transition)` - the flag is
+   consumed only when a transition is actually emitted; a `None` poll leaves it
+   armed.
+3. `OnVesselGoOffRails` arms the funnel ABOVE the surface early-return, so both
+   exit branches arm it. The entry-side arm in `HandleHarvestRailsEntry` is
+   KEPT: `OnVesselGoOffRails` early-returns unless the unpacking vessel is both
+   the active vessel and the recorded pid, so a vessel switch taken across a
+   warp unpacks a vessel the poll then adopts with no exit event of its own, and
+   arming the same bool at both boundaries is idempotent.
+
+### THE ACCEPTED TRADE-OFF (recorded 2026-08-29 by the branch review)
+
+The packed gate is a REFUSAL TO GUESS, and it costs something. A converter
+ENABLED while the vessel is packed does not open its window at the moment it was
+enabled - the poll is not running - so its window opens only at UNPACK, and any
+production between the enable and the unpack is unattributed. That is deliberate:
+a packed frame's manifest is whatever the last stock catch-up left, so a window
+opened there would bracket an interval nothing witnessed and report a number
+Parsek did not measure. An unattributed gap is a smaller lie than an invented
+figure, and the delivery analysis treats unwitnessed gain as un-harvested rather
+than as harvested. The reverse case is already covered: a converter enabled
+BEFORE the warp has its window open across the whole warp (the rails-entry
+re-baseline), which is the common shape for a mining rig.
+
+### THE LABEL VALIDITY WINDOW (added 2026-08-29 by the branch review)
+
+Consume-on-transition-only fixed the flag being burned early, but left it valid
+FOREVER: with no transition after a rails exit, a player toggle minutes later
+would still be labelled `trigger=rails-exit`, asserting a causal link to a
+boundary it has nothing to do with. Each arm now stamps
+`harvestRailsExitPollArmedUT`, and
+`RouteHarvestCapture.IsRailsExitLabelStillValid` honours the label only within
+`RailsExitLabelMaxAgeSeconds = 5.0` GAME seconds (also rejecting an unstamped arm
+and a backwards clock, i.e. a quickload / rewind). MEASURED against the live H38
+flights, the real ages are 0.02 s (exit arm -> close, run `2026-08-28_1858`: exit
+UT 27.64, close UT 27.66) and 0.42 s (entry arm -> close), so the WarpToggle
+cell's pinned `trigger=rails-exit` token is unaffected; those two ages are the
+`[InlineData]` rows of `IsRailsExitLabelStillValid_BoundedToTheBoundary`.
+
+Breadcrumbs: `Harvest funnel consumed at transition:` (Verbose, at the consume
+site), `Harvest funnel label expired:` (Verbose, when the window lapses) and
+`Harvest poll skipped on packed frame:` (VerboseRateLimited, at the new gate -
+via the `Func<string>` overload, since it runs on every packed frame of a surface
+warp and the eager interpolation contradicted the method's own zero-allocation
+contract). Unit-guarded by `RouteHarvestCaptureTests`
+(`ShouldRunHarvestPoll_Matrix`, `ShouldConsumeRailsExitFunnel_OnlyOnEmittedTransition`,
+`RailsExitFunnel_SurvivesSteadyStatePollsUntilTheClose`). **LIVE-PROVEN
+2026-08-28** by `HarvestCapture_WarpToggle_RebaselinesAtRailsTransitions`:
+flight `2026-08-28_1802` (pre-fix) FAILED on exactly the funnel assertion
+(`must close its window on the first post-rails poll with trigger=rails-exit`);
+flights `_1833` and `_1858` (post-fix) both PASSED with
+`Harvest window closed: ... trigger=rails-exit` and the new
+`Harvest poll skipped on packed frame: ... sit=PRELAUNCH isOnRails=0
+railsExitPending=1 windowOpen=1` breadcrumb in the log - the packed-frame gate
+and the surviving funnel flag both observed doing their job on a PRELAUNCH
+vessel, which is the population bug 1 was about.
+
+**Found alongside two in-game TEST defects in the same batch** (fixed in the
+same change, no product involvement): the three `LogisticsHarvestRuntimeTests`
+capture tests read `RouteHarvestWindows` / `RouteRunManifest` off the TREE
+recording right after `StopRecording`, but the recorder -> tree flush
+(`ParsekFlight.FlushRecorderToTreeRecording` ->
+`ApplyCapturedLogisticsMetadataToRecording`) runs only at commit / scene exit,
+which those tests never reach - they now drive the real flush themselves before
+reading. And `LogisticsRouteProofRuntimeTests.CollectStoredParts` bound
+`GetProperty("KeysList")` Public-only against an internal property on
+`DictionaryValueList`, so the inventory-move finder saw zero stored parts on a
+fully loaded container - it now uses the public compile-time API
+(`ModuleInventoryPart.storedParts` + `InventorySlots`), the walk
+`LogisticsDeliveryRuntimeTests` already used.
+
+**Settle-retry hardening of the warp test** (found by the H38 negative-control
+flight `2026-08-28_1905`, which SKIPPED where `_1833` / `_1858` passed).
+`HarvestCapture_WarpToggle_RebaselinesAtRailsTransitions` intermittently skipped
+`Rails warp was refused in this situation (PRELAUNCH)` - about one flight in
+four. The log refutes the obvious settle-race reading: the warp was ACCEPTED on
+every flight (`Warp start at UT=27.40`), but on the skipping one at `3.0x` -
+`TimeWarp.physicsWarpRates[2]` - where the three others logged `10.0x`
+(`warpRates[2]`). `TimeWarp.SetRate` picks its rate list from whatever
+`TimeWarp.Mode` is CURRENT (confirmed against the decompiled `setRate`), and a
+PHYSICS warp never packs the vessel, so no amount of waiting could have fixed it
+- the mode has to be asserted, not assumed. Rails entry now runs through
+`EnterRailsWarpWithRetry`: bounded `srfSpeed` settle wait, then
+`TimeWarp.fetch.Mode = HIGH` re-asserted before each `SetRate`, retried within a
+10 s budget, with the session's prior warp MODE restored alongside its rate in
+`finally`. The skip reason keeps its original sentence VERBATIM (H38's spec
+header quotes it) with the measured `mode=` / `rate=` / `srfSpeed=` diagnostics
+appended in brackets, so a future skip states which mechanism it hit.
+
 ## GLOOPS-STANDALONE-WINDDOWN: Gloops UI retired from every mode; extraction to a standalone mod pending [OPENED 2026-08-28]
 
 Product decision (2026-08-28): Gloops becomes a standalone mod later, and Parsek
@@ -9260,11 +9588,88 @@ zero-declarer D10 rows is evidenced either: `docked-depot-origin`, `claw-produce
 2026-08-26: `V18T-depot-route-ts-arrival` declares it off an ARMED
 `routeLineBuilds { min = 1 }` whose red is demonstrated by its own negative
 control - a gate first, then the claim, which is the discipline rather than an
-exception to it. Nine zero-declarer D10 rows remain. Several of them - `multi-stop`,
-`multi-origin-escrow`, `round-trip-pair`, `hold-reasons`, `destination-full-gate` -
-have in-game cells that exist but carry `AllowBatchExecution = false`, so they are
-blocked by the B4 batch-wiring bucket rather than by this seal gap; the two
-route-CREATION-shaped ones are what the fix above would unblock.
+exception to it. FOUR MORE LEFT THAT LIST ON 2026-08-28, and the mechanism is the one
+this paragraph predicted: `multi-stop`, `multi-origin-escrow`, `round-trip-pair` and
+`hold-reasons` were blocked by the B4 batch-wiring bucket (their in-game cells exist
+but carry `AllowBatchExecution = false`), and `H38-logistics-isolated` unblocked them
+by driving the category through the R5 ISOLATED entry point. Its run 2
+(`2026-08-28_1833`, PASS attempt 1) pins the tally WHOLE - `total=47 passed=39
+failed=0 skipped=8` - and THAT is the gate the four claims rest on: with all three
+numbers literal, a cell that fails reds `failed=0`, a cell that self-skips reds
+`passed=39` and `skipped=8`, and a cell that is deleted reds `total=47` locally in
+`harness/lib` before it can reach a flight. The H35 objection quoted above has also
+inverted - run 2's log carries the production `[Parsek][*][Route]` units firing live
+(`ReserveCargo`, `ReserveCycleEscrow`, `DropRouteEscrow`, `short-cause=escrow`,
+`PartnerGate ... HOLD WaitingForPartner` / `CLEAR`, `hold recorded
+kind=OriginLacksCargo`, `DispatchDebit`, `LoopRoute ... FIRED full cycle`,
+`Delivery write: ... path=loaded`), so these are real units, not read-side walkers.
+FIVE zero-declarer D10 rows remained at that point: `docked-depot-origin`,
+~~`claw-producer`~~, `inventory-cargo`, `harvest-provenance`, `destination-full-gate`.
+**`claw-producer` LEFT THAT LIST ON 2026-08-29**, claimed by
+`H41-logistics-grapple-isolated` off its `2026-08-28_2216` flight - and it is the first
+zero-declarer D10 row in the suite earned by PRODUCTION EMITTERS rather than by a
+tally, which makes it the shape to copy. Three REQUIRED tokens name one causal chain:
+`OnPartCouple producer classified: kind=Grapple fromPart=PotatoRoid
+toPart=GrapplingDevice` (the production path recognising a live claw-to-asteroid
+couple), `Route proof dock window captured: ... kind=Grapple` (the window actually
+written - the exact analogue of what `dock-producer` is claimed on), and
+`GrappleCapture PASS: ... complete=True roidGhostRenderers=1` (the window CLOSED on
+release, plus the anti-vacuity half that the asteroid ghost built). A unit that stopped
+producing claw route windows cannot leave all three matching. Note that lane's tally
+CANNOT carry the claim - its `4/3/0/1` is byte-identical to what the ordinary batch
+path prints - so the tokens ARE the gate rather than decoration layered on one.
+FOUR REMAIN: `docked-depot-origin`, `inventory-cargo`, `harvest-provenance`,
+`destination-full-gate`. The last of those
+is the one H38 deliberately did NOT claim despite reaching it: the gate is exercised
+only on the permissive branch (`DestinationHasCapacity: route <id> full manifest
+fits`, x3) and `RouteStatus.DestinationFull` / `WaitDestinationFull` never fire, so
+the unit could stop refusing a full destination entirely and all 39 cells would still
+pass. It needs a cell that drives the REFUSAL, not another lane. The two
+route-CREATION-shaped rows are still what the fix above would unblock.
+
+**UPDATE 2026-08-28 - the refusal branch IS now measured, on H40.** The
+recorded-host reading runs flew against a fixture whose active vessel carries a
+FULL 720/720 LiquidFuel tank, and the all-or-nothing gate did exactly what this
+note said was undriven: it held nine cells' synthetic cycles in `DestinationFull`
+across three suites (origin-debit x2, round-trip x4, multi-origin x3). That is the
+REFUSAL branch firing on a live flight, against a real craft, for the right
+reason - the evidence `destination-full-gate` was missing. Two caveats for the
+pinning round. (1) Those nine cells are being FIXED to create their own headroom
+(`DestinationHeadroomFixture`), so after the fix they take the permissive branch
+again and the refusal is no longer in their path - a claim must rest on a token a
+POST-FIX flight still emits, not on the reading run's incidental reds.
+(2) `LogisticsMultiOriginRuntimeTests.MultiOrigin_OneSourceShort_HoldsNamingSource`
+holds on `OriginLacksCargo`, not on the destination gate, so it is not the cell
+either. Claiming the row therefore still wants a cell that drives the refusal ON
+PURPOSE (a full destination it does not drain, asserting
+`RouteStatus.DestinationFull` + the `destination FULL ... holding cycle
+all-or-nothing` Verbose line) - but the reading runs have now proven the branch is
+reachable from a committed fixture, which is what was in doubt.
+
+**SETTLED 2026-08-29 AT THE PINNING ROUND: THE ROW STAYS ZERO-DECLARER, and caveat (1)
+above is exactly what happened.** H40's green census 3 (`2026-08-28_2122`) was measured
+for it directly: **17** `DestinationHasCapacity: route <id> full manifest fits` lines and
+**ZERO** occurrences of `DestinationFull` or `WaitDestinationFull` anywhere in the log;
+the only `hold recorded kind=` value in the whole run is `OriginLacksCargo`, twice. So on
+the flight that is actually pinned, the gate is reached constantly and takes the
+PERMISSIVE branch every single time.
+
+That is now STRUCTURAL rather than incidental, and census 1 is the proof: the nine cells
+that DID drive the refusal all FAILED because of it, and the fix
+(`DestinationHeadroomFixture.TryEnsureDestinationHeadroom`, commit `7cfde0c20`) gave each
+of them headroom so they take the permissive branch deliberately. The suite therefore now
+contains **nine cells that route AROUND the refusal and none that asserts it** - the
+opposite of a declarer. A unit that stopped refusing a full destination entirely would
+leave all 35 of H40's cells passing and every one of its eight pinned tokens matching.
+
+WHAT WOULD CLOSE IT, unchanged and now with the evidence behind it: a cell that drives
+the refusal ON PURPOSE - a full destination it does NOT drain, asserting
+`RouteStatus.DestinationFull`, the `destination-full-<resource>` reason string from
+`RouteDispatchDecision.WaitDestinationFull`, and the retry UT. Not another lane and not
+another fixture: `depot-route-recorded`'s 720/720 `Depot` is already the most
+destination-full state in the entire suite and it was not enough. Recorded in
+`H40-logistics-isolated-depot-route.toml`'s `[dimensionsCovered]` block, which is where a
+future reader will look first.
 
 ---
 
@@ -12240,7 +12645,9 @@ UT. Owner: whoever owns `GhostOrbitIcon` / `MapRenderProbe`. The anomaly is
 deliberately NOT added to that spec's `allowedAnomalies` - the lane stands red by
 finding (V1-map-dwell-mun-orbit's precedent).
 
-**(2) Teardown NRE when a run ends inside watch mode.** `V7M-minmus-player-loop`
+**(2) ~~Teardown NRE when a run ends inside watch mode.~~ THE PARSEK HALF IS FIXED
+2026-08-29 (release-hygiene, R5 item 2); the stock/MechJeb cascade below is not
+ours and stays unarmed.** `V7M-minmus-player-loop`
 is the first run in the suite that quits while watch mode is active. Its reading
 run (`2026-08-08_1613`) read `unityExceptions total=1` - the Parsek line below:
 
@@ -12255,6 +12662,78 @@ already gone by the time `OnDestroy` runs the watch-exit camera restore. Harmles
 at shutdown (one line, after the last gameplay frame), report-only, not armed.
 NOT worked around in the spec by exiting watch before `FlushAndQuit`: that would
 hide the only run shape that reaches it.
+
+**THE FIX (2026-08-29).** `GetActiveVesselSafe` caught the headless-host triple
+(`SecurityException` / `MethodAccessException` / `MissingMethodException`) but not
+`NullReferenceException`, which is what `FlightGlobals.ActiveVessel` throws once
+`FlightGlobals.fetch` is destroyed. The read now sits behind
+`WatchModeController.ReadActiveVesselGuarded(Func<Vessel>)` - a fourth arm for the
+NRE that returns null and logs ONE Verbose `[CameraFollow] GetActiveVesselSafe:
+FlightGlobals unavailable (scene teardown)` line. Verbose, not Warn: quitting
+while watching a ghost is normal, and both callers
+(`RestoreCameraAfterWatchExit`, `RestoreCameraToAnchorVessel`) already treat a
+null active vessel as "no camera target to restore". The delegate seam exists so
+all four arms are drivable headlessly - no test host can make the real
+`FlightGlobals` throw on demand - and the actual read stays in a
+`[MethodImpl(NoInlining)]` core per the mono JIT convention. Four cells in
+`WatchModeControllerTests` (NRE arm logs + returns null and raises no
+WARN/ERROR; the triple stays silent; null reader; an unexpected exception still
+propagates).
+
+SIBLING SWEEP, deliberately narrow. `WatchModeController.Runtime.cs` uses the
+same catch triple in six more helpers, but only two of them are ON this teardown
+path: `GetFlightCameraSafe` (reads the `FlightCamera.fetch` static FIELD, which
+yields Unity's fake-null rather than throwing) and
+`RemoveWatchModeControlLockSafe` (`InputLockManager`'s lock stack is an
+inline-initialised static). The genuine shape-alikes -
+`GetCurrentUTSafe` (`Planetarium.fetch`) and `GetCurrentWarpRateSafe`
+(`TimeWarp.fetch`) - dereference a singleton the same way and would throw the
+same NRE, but they are reached only from per-frame Update paths that no longer
+run once `OnDestroy` has fired, so nothing has ever observed them there and
+widening them now would be a speculative sweep. File them here rather than fix
+them blind: if a future reading run ever prints an NRE from either, the fix is
+one more arm on the same pattern.
+
+**THE FIX UN-SHADOWS ~20 LINES OF TEARDOWN CLEANUP, and that is the part to hold
+in mind when reading the next census.** The NRE did not stop at
+`GetActiveVesselSafe` - it escaped `watchMode.ExitWatchMode()` at
+`ParsekFlight.cs:2183` and Unity abandoned the rest of `OnDestroy`. So in the
+end-inside-watch shape ONLY, everything below that line has never once executed:
+the `InputLockManager.RemoveControlLock` safety net, `vesselGhoster.CleanupAll`,
+`GhostMapPresence.RemoveAllGhostVessels("scene-cleanup")`, the engine camera-event
+unsubscribe, `policy.Dispose` / `engine.Dispose`, the ParsekFlight-local cache
+clears, and `ui.Cleanup`. All of it now runs for the first time, at a moment when
+`FlightGlobals.fetch` is already gone.
+
+CONSEQUENCE FOR THE CENSUS BELOW: a re-measured `unityExceptions` reading may show
+NEW Parsek lines that were never reachable before, and they are NOT a regression
+of this fix - they are newly-reached code meeting an absent `FlightGlobals`. Read
+any new teardown line as a NEW finding on its own call site, not as evidence that
+the NRE catch failed (the catch's own line is Verbose and carries the words
+`FlightGlobals unavailable (scene teardown)`, so the two are trivially told apart).
+`RemoveAllGhostVessels` is the likeliest new speaker and is already the
+best-defended: it wraps each ghost's `Die()` in its own try/catch with a `Warn`,
+inside a `BeginGhostTeardown`/`finally EndGhostTeardown` scope that exists exactly
+because the stock `SpaceTracking` rebuild it triggers can throw during teardown
+(`GhostMapPresence.cs:482`) - so its failure mode is a Warn line, not an escape.
+
+DELIBERATELY NOT GUARDED, observed-first: none of the newly-reached calls got a
+prophylactic try/catch in this pass. `CleanupAll` only `Destroy`s GameObjects and
+touches no KSP singleton; `RemoveAllGhostVessels` is already guarded as above; the
+rest are dictionary clears and event unsubscribes. Wrapping them blind would be
+precisely the speculative sweep declined for the sibling helpers one paragraph up,
+and would pre-empt the very reading that would tell us which of them actually
+speaks. If a census does surface one, fix THAT call site.
+
+FUTURE WORK, NOT DONE HERE: this removes the one Parsek line from the
+end-inside-watch teardown, which is the precondition for arming an
+`[expectations.unityExceptions] maxTotal` ceiling on the V-family lanes. It is
+NOT sufficient on its own - the 1-vs-5 spread below is four STOCK/MechJeb NREs in
+the same 40 ms window, and the un-shadowed cleanup above can add lines of its own,
+so any ceiling still has to be pinned against a re-measured census (the OLD Parsek
+line should be absent from it; anything new needs classifying before it is
+counted), not against the readings above. Arming is an operator decision after
+that reading run; nothing is armed by this fix.
 
 The ARMED re-flight of the identical shape (`2026-08-08_1642`) read `total=5`,
 which is worth recording because it bounds what a ceiling here would mean: the
@@ -19036,7 +19515,34 @@ The first daily-cadence composition run against merged main (2026-07-19; S1.4 PA
 - ~~**S0.5-live-record-discard residue (genuine seam-adjacent defect).**~~ StartRecording's quickload-resume OnSave writes ACTIVE-tree sidecars (`.prec`/`.pann`/`_ghost.craft`) to disk; the shared discard core (`AutoDiscardActiveTreeCore`) is in-memory-only by design, so DiscardTree left an orphaned `9007aaaa.prec` behind, and with the store at zero `CleanOrphanFiles`' zero-known safety guard preserves it FOREVER. Fix: `DiscardTreeImpl` captures the tree's recordings pre-teardown and reaps sidecars for ids absent from the post-discard `BuildKnownRecordingIds()` set (pure `SelectDiscardReapRecordings` decider; the known-id guard keeps a committed-restore clone, which shares its committed original's id, from ever deleting the original's files). Per the Fable review, the reap additionally skips entirely (pure `DiscardReapSkipReason`, logged) while a Re-Fly session marker or merge journal is active or an active-tree restore is in progress: in those load shapes the restored active tree holds the ONLY copy of the original mission's recordings (RewindInvoker removes the committed tree before the restore pops it to active), so their ids are legitimately unknown while their files are still the durable committed data. Initial forensics theory (auto-record firing before the SetSetting pin) was DISPROVED by the timeline: SetSetting landed before OnFlightReady, no auto-record fired.
 - Watch item (not reproduced): H5's first invocation red `recordings.count 0 < min 272` - the injected corpus did not hydrate on the first staged launch but did on the solo re-run. Flake ledger will catch recurrence.
 
-**OPEN (gameplay-path sibling of the S0.5 leak):** normal-gameplay discard paths (merge-dialog Discard, scene-exit no-op auto-discard, pre-switch Discard) share the same in-memory-only core, so a player discard with an otherwise-empty store strands the quickload-resume sidecars permanently (zero-known guard refuses cleanup; with any committed recording present the next-load orphan sweep QUARANTINES them - `CleanOrphanFiles` moves sidecars aside, it never hard-deletes - so impact is the empty-store case only). Fix belongs at `AutoDiscardActiveTreeWithMessage` with the same known-ids guard AND, mandatorily, the same Re-Fly/merge-journal/restore-in-progress skip gate the seam reap carries (`DiscardReapSkipReason`): in the restored-committed-tree load shapes the active tree holds the only copy of committed recordings whose ids are absent from the known set, and a gameplay-path reap without that gate would permanently destroy committed mission data (Fable review of PR #1328, finding 1). Needs its own reviewed PR since it adds file deletion to a shared gameplay path.
+~~**OPEN (gameplay-path sibling of the S0.5 leak):**~~ **FIXED, branch `discard-sidecar-reap`.** Normal-gameplay discard paths shared the same in-memory-only core, so a player discard with an otherwise-empty store stranded the quickload-resume sidecars permanently (zero-known guard refuses cleanup; with any committed recording present the next-load orphan sweep QUARANTINES them - `CleanOrphanFiles` moves sidecars aside, it never hard-deletes - so impact is the empty-store case only).
+
+**Discard-path inventory (the reason the fix landed at exactly one site).** Only the ACTIVE-TREE teardown was leaking; every other discard family already deleted its own sidecars:
+
+| Path | Route | Verdict before the fix |
+| --- | --- | --- |
+| Idle-on-pad scene-exit fast path | `AutoDiscardIdleActiveTree` -> `AutoDiscardActiveTreeCore` | LEAKED |
+| Scene-exit no-op switch segment (Standalone) | `SceneExitInterceptor.TryAutoDiscardNoOpSwitchSegment` -> `AutoDiscardNoOpStandaloneSwitchSegment` -> core | LEAKED |
+| Scene-exit no-op switch segment (CommittedRestoreClone) | -> `DiscardActiveSwitchSegmentAttemptRevertingLiveClone` -> scoped discard (deletes owned ids) + core teardown of the clone | scoped half OK; clone teardown LEAKED |
+| No-session committed-resume revert | `AutoDiscardNoOpNoSessionCommittedResume` -> `AutoDiscardActiveTreeWithMessage` -> core | LEAKED |
+| Pre-switch Discard, Case A | `MapFocusObjectOnSelectPatch.DiscardPriorAndSwitchTo` -> `DiscardActiveSwitchSegmentAttemptRevertingLiveClone` | scoped half OK; clone teardown LEAKED |
+| Pre-switch Discard, Case B/C (no session) | `DiscardActiveRecordingAndSwitchTo` -> `AutoDiscardActiveTreeWithMessage` -> core | LEAKED |
+| Merge-dialog Discard, scoped switch-segment branch | `MergeDiscardRanToCompletion` -> `RecordingStore.TryDiscardActiveSwitchSegmentAttempt` | already deletes (`DeleteRecordingFiles` per owned id) |
+| Merge-dialog Discard, whole-pending-tree fallback | `ParsekScenario.DiscardPendingTreeAndRecalculate` -> `RecordingStore.DiscardPendingTree` | already deletes (skips committed-overlap ids) |
+| Merge-dialog Discard, Re-Fly branch | `TryDiscardActiveReFlyAttempt` -> `DeleteAttemptRecordingFiles` | already deletes |
+| M-A2 `DiscardTree` test-command verb | `DiscardTreeImpl` | already reaps (the S0.5 fix) |
+| Load-time zombie-provisional sweep | `LoadTimeSweep.RemoveDiscardRecordings` | memory-only, but `CleanOrphanFiles` quarantines the residue in the SAME load pass - covered; listed for completeness |
+| Suppressed scene-exit commit | `DiscardActiveTreeForSuppressedSceneExit` | out of scope by design, and the review verified this stronger than originally claimed: there is NO plain-gameplay caller. Every consumer arms the scene-exit commit suppression for a Re-Fly / restore load shape - exactly the shapes the skip gate would refuse anyway |
+
+**Fix.** New shared `DiscardSidecarReap` (`Source/Parsek/DiscardSidecarReap.cs`) owns the pure known-ids guard (`SelectReapRecordings`), the pure load-shape gate (`SkipReason`), the pre-teardown snapshot (`CaptureTreeRecordings`) and the production reap (`ReapDiscardedTreeSidecars`, one Info batch summary per discard). `AutoDiscardActiveTreeCore` samples both inputs BEFORE the teardown and reaps AFTER it, so `BuildKnownRecordingIds()` is the authority on what survives; the reap is explicit-id only, never a directory sweep, and the sweeper's zero-known guard is untouched. The mandatory Re-Fly / merge-journal / restore-in-progress skip gate is carried unchanged (Fable review of PR #1328, finding 1): in the restored-committed-tree load shapes the active tree holds the only copy of committed recordings whose ids are absent from the known set. Both halves are try/catch-wrapped and fail CLOSED (two of the callers run inside Harmony prefixes, where a throw aborts the scene transition / the menu click). `TestCommandRecordingVerbs.SelectDiscardReapRecordings` / `DiscardReapSkipReason` are now thin aliases over the shared deciders so the harness path and the gameplay paths cannot drift; `DiscardTreeImpl` opts out of the shared reap (`reapSidecars: false`) because it owns its own and the S0.5 spec pins its summary line verbatim.
+
+**What the reap actually unlinks.** `RecordingStore.DeleteRecordingFiles` covers SEVEN files under `Parsek/Recordings/` (`.prec`, `.pann`, `_vessel.craft`, `_ghost.craft` and the three readable `.txt` mirrors) PLUS, when the recording carries one, its per-recording quickload-resume save at `Parsek/Saves/<RewindSaveFileName>.sfs`. That last limb is NOT a Rewind-to-Separation quicksave: those live under `Parsek/RewindPoints/`, are built by a different path builder (`BuildRewindPointRelativePath`) and are reaped by `RewindPointReaper`; this reap never touches them.
+
+**Truthful `failed=` (review SHOULD-FIX 2).** `DeleteRecordingFiles` swallows each per-file exception (logging its own Warn) rather than throwing, so a `try`/`catch` around the call could never observe a locked file and the summary would have printed `reaped=N failed=0` for a delete that left files behind. It now RETURNS whether every limb it attempted completed (per-file failures still swallowed, so no caller's teardown can be aborted; existing callers ignore the value), and the reap counts a `false` as `Failed` with its own Warn. A failed recording keeps its orphan until a future discard-with-known-ids - the pre-fix status quo - and the batch continues.
+
+**Recorded conscious decision - the `TryRestoreActiveTreeNode` window (review INFO).** Between an active-tree restore completing and the tree being re-committed, the restored tree's recording ids are in NO known surface (not committed flat, not committed trees, not pending). A DELIBERATE player discard inside that window therefore hard-deletes the only copy of those files, where `CleanOrphanFiles` would merely have quarantined them. Accepted: the automatic paths into that window are proven unreachable (`restoringActiveTree` is the third skip-gate disjunct, and the Re-Fly / merge-journal disjuncts cover the surrounding load shapes), and a player who chooses Discard there is asking for the flight to be thrown away. Noted because the quarantine-vs-delete policy difference against the sweeper is a real asymmetry, not because a defect is suspected.
+
+**Pinned by** `DiscardSidecarReapTests` (33 cells). Coverage is honestly split: the 5x `Theory` drives the production reap directly, once per leaking path, using that path's exact `reason` literal - it proves the reap behaves correctly under each path's inputs, NOT that the path reaches it. That each path reaches it rests on the source gates (capture-precedes-teardown, reap-follows-teardown, both halves wrapped, skip gate sampled, and a repo-wide scan proving no caller under `Source/Parsek` opts out). Plus: both known-ids-guard shapes (flat `CommittedRecordings` AND `committedTrees`-only, so dropping either union arm reds), the three skip reasons + precedence, the locked-file degrade and its `DeleteRecordingFiles` return-value pin, the defence-in-depth throw containment, the quickload-resume-save limb with a RewindPoints quicksave left untouched, invalid-id refusal (two traversal-shaped ids - an invalid-filename-char id would validate under Mono and red on the ubuntu CI run), and the never-a-directory-sweep contract.
 
 ## Re-Fly leaked post-rewind pending science into the merge [FIXED, branch `fix-refly-pending-science`]
 
@@ -20017,7 +20523,7 @@ Every Tier 1 merge-queue item below LANDED on `main` (verified 2026-07-11 via `g
 ### Tier 3 - LATER: verification + hygiene
 - **Validation debt (the real bottleneck)** - code-complete-but-in-game-unconfirmed fixes, clustering onto ~4-5 playtest sessions: (1) career-economy (Rec-1 #1242 gate PASSED in-game 2026-07-08; still open: career-freeze milestone-storm, contract-discard-desync, OnMainMenuTransition); (2) looped re-aim descent-render (reaim-descent cluster, arc truncation, M-MIS-2 P4, cross-SOI encounter observation); (3) eccentric-target Eeloo/Moho constant pinning (M-MIS-3) - BEHAVIOURAL HALF CLOSED 2026-08-15: the band is now WALKED in flight (three departures accept outside the base band, deepest 0.1550 vs a 0.0600 base), so what remains is only the constant-pinning judgement on `EccGain` / `MaxHalfWidthFraction`, not a validation debt - see M-MIS-3-BAND-COMPUTED-NOT-EXERCISED; (4) cross-parent station resupply (M4c); (5) in-game test-runner camera-survival batch. KSP cannot run headless, so this is playtest-bound.
 - **M-MIS-10 archetype verification sweep** - constellation deploy / booster flyback / off-Kerbin launch / claw couples / Elcano; cheap verify-and-file, no known break.
-- **Remove `MapRenderWarpControl`** temporary debug aid once re-aim descent-render is signed off.
+- ~~**Remove `MapRenderWarpControl`** temporary debug aid once re-aim descent-render is signed off.~~ DONE 2026-08-29 (release-hygiene, R5 item 1), per the aid's own removal-recipe banner: `Source/Parsek/MapRenderWarpControl.cs` + `Source/Parsek.Tests/MapRenderWarpControlTests.cs` deleted; the sole `RegisterWatchWindow` caller removed from `GhostPlaybackLogic.ResolveTrackingStationSampleUT`; its now-callerless helper `Reaim.DescentTrigger.DescentWindowEndLiveUT` + the two `DescentTriggerTests` cells deleted; the `DebugFlags` class in `ParsekConfig.cs` deleted (`MapRenderWarpEnabled` was its only member); the aid's how-to section removed from `.claude/CLAUDE.md` and `AGENTS.md`. NO CHANGELOG entry, per the banner (never a shipping feature). Nothing in `harness/` or `scripts/` gated on it - the four surviving mentions in LIVE docs are prose only (`autotest-status.md` V3C row, `design-autotest-render-composition.md`, `harness/scenarios/V3C-flight-arrival-companion.toml`, `harness/missions/lib/test_v1_map_dwell.py`), each naming it as the MOLD for a hypothetical future zone-relax aid, so they are kept as historical record rather than rewritten. Four more sit in the ARCHIVED `docs/dev/done/todo-and-known-bugs-v7.md` and are correctly untouched - an archive records what was true when it was written.
 - ~~**Doc hygiene** - flip the stale "In progress - Forward trajectory rendering" header (shipped 0.10.2) + add SHIPPED markers to roadmap §19.4 M3/M4.~~ DONE (verified 2026-07-11): roadmap §19.4 already marks M1-M5 SHIPPED and no "In progress / Forward trajectory rendering" header remains in the roadmap or this file.
 - **Deferred re-aim solver follow-ups** - ~~M-MIS-2 S4 re-stitch (product-decision-gated)~~ SHIPPED (PR #1263 `reaim-s4-restitch` + sign fix #1279); leg-less-chain forward-run gap remains (low-severity polish). (`SolveArrivalWindow` wiring SHIPPED on branch `mmis4-solve-arrival-window` - see the M-MIS-4 entry.)
 
@@ -20355,11 +20861,82 @@ ZERO raises on any lane; V7T's `icon-off-orbit` red is its own documented findin
 
 **Sighting 3 (2026-08-11, V8T-eve-ts-arrival reading run `2026-08-11_0835` attempt 1, branch `eve-loop-lanes`) - a THIRD lane, same shape, mitigation present.** The Eve TS lane's first outing died identically: every step met through the re-kill pair, then the TS `LoadGame` (step 13) `verdict=REJECTED`, run `INVALID(driver-verdict-mismatch)`, retry-once absorbed it (`_0836` attempt 2 PASS, every step met, clean sweep). Artifacts: `harness/results/2026-08-11_0835_V8T-eve-ts-arrival.json` + the collected `logs/2026-08-11_1136_V8T-eve-ts-arrival/` folder. This corroborates the ~1-in-4 nondeterminism estimate on a THIRD fixture (eve-orbit-recorded) and a third spec carrying the documented mitigation; recorded per V6T's contract (a corroboration, not a re-diagnosis).
 
-## TS-FLUSHED-SAVE-DROPS-DEBRIS-TERMINALSTATE - a save written from the TRACKING STATION scene loses the `terminalState` keys on Destroyed (debris) recordings (measured 2026-08-11, branch `eve-loop-lanes`; REPORT-ONLY observation, filed not fixed)
+## ~~TS-FLUSHED-SAVE-DROPS-DEBRIS-TERMINALSTATE~~ CLOSED 2026-08-29 - the loss is neither TS-specific nor a codec fault: it is the OnLoad in-session `tree-mutable-state` reset retracting the post-spawn terminal verdict with nothing below it to restore the verdict (branch `ts-save-terminalstate`)
+
+### CLOSED (2026-08-29). The established mechanism, off the archived logs
+
+**Not the TS write, not the TS load, not the codec - the FLIGHT-exit reset/restore PAIR in `ParsekScenario.OnLoad`.** Three archived V8T runs (`logs/2026-08-11_1548`, `_1549`, `_1550`, all `.../saves/eve-orbit-recorded/persistent.sfs`) reproduce the measurement byte-for-byte on disk: 9 `recordingId` rows, 2 `terminalState` keys, both `= 0` (Orbiting), the six `= 4` (Destroyed) rows absent.
+
+**The paired control is same-commit, same-day, and it compares per-recording-id rather than per-histogram** (found during review; this is the strongest form of the evidence). `logs/2026-08-11_1543_V8-eve-player-loop` and `_1547_V8-eve-player-loop` are FLIGHT-only runs of the SAME fixture that never change scene, and both produced saves carry 9 recordings with 8 `terminalState` keys. Diffing the two populations by id, the rows the TS run drops are exactly these six, all at `terminalState = 4`, all named `Kerbal X Debris`:
+
+```
+7d373f22d0a04ff2a58d43bbcca47757   0b4193a0540e4fa7af9890fe4ba5c10d   2f3bf43348534202b226afbb6ae00ce9
+c5403bf4a1144815bfa0d8691e38a587   fbc705e91fcd4b5a8176cf5493807a0b   8eda6186afcd46db81551ada10dcef9a
+```
+
+They match the six clear lines below one-for-one, and they are reused verbatim as the fixture ids in the xUnit cells, so the tests and the archived bytes name the same objects. The same folders carry the smoking gun, six lines, one per debris recording, inside the TRACKSTATION OnLoad:
+
+```
+15:48:25.467 [Parsek][VERBOSE][Scenario] Clearing post-spawn terminal state Destroyed for tree recording 'Kerbal X Debris'   (x6)
+```
+
+That literal comes from exactly one call site - `ParsekScenario.cs` `loadPhase = "tree-mutable-state"`, `ClearPostSpawnTerminalState(recordings[i], "tree recording")` - and it fires with `isRevert=False` (`[#14][OnLoad:revert-decided=N]`, one line earlier). Reading the surrounding evidence in order:
+
+- The committed store is NOT reloaded on this branch: `Scene change - preserving 9 session recordings`, and the only `LoadRecordingFrom: id=... terminal=Destroyed` lines in the whole log are the FLIGHT cold boot four seconds earlier. So the codec never re-runs and cannot re-supply the field.
+- The TS route's own `GamePersistence.SaveGame` (`Game State Saved to saves/eve-orbit-recorded/persistent`) runs with **no** `OnSave: saving 9 committed recordings` line before it - it serialises the disk game's scenario protos, so it is a faithful copy of the FLIGHT save and drops nothing.
+- The loss is therefore already in memory when the TS `FlushAndQuit` OnSave runs, and `RecordingTreeRecordCodec.SaveRecordingInto` gates the key on `rec.TerminalStateValue.HasValue` - hence an ABSENT key rather than a wrong value, exactly as measured.
+
+**Why the reset was lossy and the restore was not.** The reset exists for Revert: the launch quicksave has no `RECORDING_TREE` nodes, so the reset is the only thing that runs and the retraction is correct (the spawn was undone). On every other in-session load - scene change, quickload - the `tree-state-restore` loop below it re-reads the saved `RECORDING` node and puts back `spawnedPid`, `VesselSpawned`, `lastResIdx` and (since BUG-C) the terminal-abandon fields. It never put back `terminalState`, because that key lives in the STRUCTURAL half of the codec, which this branch never re-runs. Same shape as BUG-C, one field later.
+
+**Not TS-specific.** Any non-revert scene change out of FLIGHT with spawned committed recordings loses it - TRACKSTATION, SPACECENTER, and FLIGHT->FLIGHT quickload alike. The FLIGHT-flushed sibling lane looked clean only because it never changes scene before flushing. V5/V6T/V7T would show the same drop.
+
+### Fix
+
+`ClearPostSpawnTerminalState` now returns whether it actually retracted a verdict; the reset loop collects those recording ids into `clearedPostSpawnTerminalIds`, and the restore loop calls the new `RestoreClearedPostSpawnTerminalState(rec, savedTreeRecNode, clearedPostSpawnTerminalIds, ...)` beside `RestorePersistedTerminalAbandon`, re-stamping the verdict from the same authoritative saved node. Three deliberate narrowings:
+
+1. **Scoped to the ids THIS pass retracted**, never to "the node has a verdict" - so a verdict retracted on purpose elsewhere (the `RecordingOptimizer.SplitAtUT` HEAD carve-out, whose terminal is nulled while its crew end states stay) can never be re-stamped from a node that predates the retraction.
+2. **Gated off the revert branch** (`if (!isRevert)`), so the fix is provably zero-delta for revert, where the retraction is the intended outcome. See the follow-on entry below for the unmeasured question that gate parks.
+3. **A saved node with no `terminalState` key leaves the recording cleared** and consumes the id - the quickload-to-before-the-stamp case, where null IS the save-point truth. An unparseable / out-of-range value warns and stays in the residue rather than reading as a legitimate null.
+
+The residue is reported once per load, naming `isRevert` and `savedTreeNodes.Length` so the expected revert case reads differently from a data-loss case.
+
+**The one loss shape that remains, and why it is the designed answer.** A cleared id can reach the end of the restore loop having met no saved node at all - `savedTreeNodes` empty, the recording absent from the loaded save, or its tree node skipped as the active / pending marker. The archived logs prove the memory and node populations are independent (`memoryRecordings=9, savedRecNodes=0, savedTreeRecs=9` on the cold-load leg), so the reachable player shape is an **F9 quickload onto an OLDER quicksave** - one taken before the recording existed or before its verdict was stamped. There, staying cleared is CORRECT: the save point genuinely predates the verdict, and re-stamping from nothing would invent one. The verdict is therefore permanently retracted by design, and the once-per-load residue line is the evidence. Recorded as a decision, not an oversight, and covered by `ClearedIdThatMeetsNoSavedNode_StaysClearedByDesign_AndRemainsInTheResidue`.
+
+**A THIRD copy of the retraction existed and is now shared.** `RecordingStore.ResetRecordingPlaybackFields` (the rewind / revert `ResetAllPlaybackState` path) inlined a byte-identical `VesselSpawned && (Destroyed || Recovered)` predicate with its own `[Rewind]` log line and no restore leg. This PR is provably zero-delta there - that path nulls the verdict before anything could enter the OnLoad id set - but two copies of one retraction rule is one too many when only one of them grew a restore. It now calls the shared `ParsekScenario.ClearPostSpawnTerminalState` (context `rewind reset '<name>' (id=<id>)`), so the predicate can no longer drift. Two deliberate consequences, both accepted: the line moves from `[Rewind]` to `[Scenario]`, and it no longer honours `RecordingStore.SuppressLogging` - a retraction is a state transition and CLAUDE.md says those get logged; the volume is bounded by the number of spawned-and-terminal recordings, which is small. The missing restore leg on THAT path is the follow-on entry below.
+
+**No schema-generation bump**: nothing about what is serialized changed. `terminalState` is written and read by the same unchanged codec branches (`RecordingTreeRecordCodec.SaveRecordingInto` / `LoadRecordingFrom`); the fix only stops an in-memory field from being nulled without repair, so a save written before or after this change parses identically.
+
+### What is pinned, and the residual
+
+Two files, and it matters which proves what - the first version of this entry over-claimed that the behavioural cells "replay OnLoad", and they do not.
+
+**Behaviour** - `Source/Parsek.Tests/SceneChangeTerminalStatePreservationTests.cs`, 12 cells. They prove exactly two things, both against real production code: the CODEC's `HasValue` gate (a retracted verdict is written as an ABSENT key, and the absence round-trips - the shape measured on the produced-save bytes), and the COMPOSITION of the two helpers (the clear reports what it retracted; the restore puts back exactly that, from a node the real codec authored) under every disposition - headline preservation, codec round-trip, the two scoping cells (split-HEAD carve-out, survived-the-reset Orbiting), the revert gate driven both ways as a `[Theory]`, the three stays-cleared cells (no key / no saved node at all / corrupt), out-of-range with its own Warn assertion, and null-argument hygiene. They are NOT a replay of OnLoad: the reset helper reproduces the reset loop's verdict statements only, and the restore LOOP is not reproduced at all. Negative control: stubbing the restore's stamp reds the headline cell and the codec round-trip cell.
+
+**Wiring** - `Source/Parsek.Tests/SceneChangeTerminalStateWiringGateTests.cs`, 6 cells, in the `SoiSeamProducerWiringGateTests` style: read the source, strip BOTH comment forms (a block comment around the call is one of the unwirings), brace-match the OnLoad body, then assert over that scope only - substring pins plus a walk of each site's enclosing BLOCK HEADERS, so an extra wrapper or a moved loop shows as a changed chain or a changed depth. Headers are whitespace-collapsed, so re-indenting or joining lines cannot false-red it. **Gate-bite measured against all five unwirings that previously left the whole suite green:** `.Clear()` between the loops -> `NothingWipesOrRebindsTheSetBetweenTheTwoLegs`; block-commenting the restore call -> `RestoreRunsInsideTheSavedNodeMatchLoop_GatedOffRevert` + `TheSetIsFilledBeforeItIsConsumed...`; renaming the `GetNodes("RECORDING")` lookup -> `RestoreReadsTheSavedRecordingNodesByTheirRealNames`; a dead outer gate on the restore block -> `RestoreRunsInside...` (chain gains an entry); hoisting the capture past the consumption -> `TheSetIsFilledBeforeItIsConsumed...` + `ResetLoopCapturesTheIdsItRetracted`. (The naive hoist of the DECLARATION does not even compile - CS0841 - so the compiler covers that form.)
+
+**Residual, stated plainly:** OnLoad cannot be executed headlessly, so "which branch runs" is still unproven by any cell. What IS now proven mechanically is that the two legs exist, in that order, at the right depths, reachable, reading the right node names, with nothing emptying the set between them.
+
+**Regression-catching lane:** any armed TS lane whose structure block pins the terminal map - V8T-eve-ts-arrival is the one that measured it, with V5 / V6T / V7T (Duna/moon TS arrivals) on the same path. Their `[expectations.recordings.structure]` blocks pin `committedTrees`/`trees` today, which this bug does not move; arming `terminalStates` on a TS lane is now safe and would red on a recurrence.
+
+### Original report (2026-08-11, `eve-loop-lanes`) - kept verbatim
 
 **The measurement, off two sibling lanes on the same fixture and same day.** V8-eve-player-loop's produced save (FlushAndQuit from FLIGHT) carries the fixture's full terminal map: 9 recordings, `terminalStates {Orbiting 2, Destroyed 6}` (saveParse observed on every V8 run, e.g. `2026-08-11_0802`). V8T-eve-ts-arrival's produced save (mid-run SaveGame in FLIGHT, then a TRACKSTATION re-boot, then FlushAndQuit FROM the TS) carries `terminalStates {Orbiting 2}` with the six Destroyed keys ABSENT - verified on the produced-save bytes directly (9 `RECORDING` nodes, terminal histogram `{0: 2}`, six debris rows with NO `terminalState` key at all), not just through the parser. RE-VERIFIABILITY NOTE (post-review): the byte-level check was performed on the live produced save at harvest time and that save has since been overwritten (PASS runs collect nothing), so it is not re-runnable; the DURABLE evidence is the archived parser record - `terminalStates {"Orbiting": 2}` with 9 recordings in the _0836/_0843 result JSONs vs `{Orbiting 2, Destroyed 6}` in every FLIGHT-flushed sibling run - plus the TS OnSave line `saving 9 committed recordings` at `_0836` a2 KSP.log:12114.
 
 **Why it matters.** `terminalState` is how a committed recording's outcome is classified everywhere downstream (the Recordings table, `TerminalKindClassifier`, the RECORDED_FIXTURES pins). A PLAYER who visits the tracking station and quits gets the same TS-path save, so debris classifications in a real save can silently degrade to unclassified. Unknown (deliberately not chased here): whether the drop round-trips destructively (does a later FLIGHT load + save restore the keys from sidecars, or are they gone for good?), and whether the mechanism is the TS route's augmented-game persist (`loadgame trackstation route: persisted augmented game`), the TS scenario rehydration skipping debris terminal fields, or the OnSave path itself. V5/V6T/V7T (the Duna/moon TS lanes, flying since 2026-08-08) would show the same drop if it is general - their observed structure facets were never compared against their fixtures' maps, so this was present-but-unnoticed. NOT gated anywhere: V8T's armed structure block pins committedTrees/trees, which are unaffected; gating the terminal map on a TS lane would gate on this bug.
+
+*(Answered above: none of the three candidate mechanisms was it - the TS route's persist is a faithful proto copy that never runs ParsekScenario.OnSave, and there is no TS rehydration at all because the store is preserved in memory. And "TS" was a red herring: the drop is on every non-revert scene change out of FLIGHT.)*
+
+## REVERT-BLANKET-CLEARS-PRE-FLIGHT-TERMINAL - Revert AND Rewind may retract a genuine PRE-flight terminal verdict, not just the stale post-spawn one, with no restore leg on either path (noticed 2026-08-29 while fixing TS-FLUSHED-SAVE-DROPS-DEBRIS-TERMINALSTATE; NOT measured, filed rather than chased)
+
+**The observation, from reading the code the TS fix touches.** `ParsekScenario.OnLoad`'s `tree-mutable-state` reset calls `ClearPostSpawnTerminalState` on every committed tree recording on EVERY in-session load, revert included. Its rationale is revert-shaped and correct as far as it goes: "the spawn is undone, so a verdict the SPAWNED vessel earned is stale". But the predicate it actually applies is `VesselSpawned && (Destroyed || Recovered)` - it cannot tell a verdict earned DURING the reverted flight from one the recording already carried BEFORE it. A recording that was spawned in an earlier session and destroyed then, still carrying `VesselSpawned=true` and `Destroyed` at the moment the reverted flight launched, is retracted by the same blanket clear, and on the revert branch nothing restores it.
+
+**TWO paths, one shape.** The same unrestorable retraction runs on the REWIND / revert `ResetAllPlaybackState` path via `RecordingStore.ResetRecordingPlaybackFields`, which sweeps ALL committed recordings and (as of the TS fix) shares the very same `ClearPostSpawnTerminalState` seam - deliberately, so the predicate cannot drift, but that path has no restore leg of any kind and no saved node in hand to build one from. Whatever is decided for Revert has to be decided for Rewind too; do not fix one and leave the other.
+
+**Why the TS fix does not cover either, on purpose.** The restore added there is gated `if (!isRevert)` and lives in the OnLoad restore loop, so revert behaviour is unchanged by that PR and the rewind path is untouched - deliberately, because both are delicate and neither case was ever measured. The comment at the OnLoad call site names this entry.
+
+**Why the obvious fix is not obviously right.** The reset's block comment asserts "on revert, the launch quicksave has no tree nodes so this reset is the only thing that runs". That may be stale: `SaveTreeRecordings` writes a `RECORDING_TREE` node for every committed tree on every OnSave, so a launch quicksave taken with committed trees present SHOULD carry those nodes - and the sibling `tree-state-restore` loop already treats them as authoritative on revert (it restores `spawnedPid` / `VesselSpawned` / `lastResIdx` / the BUG-C abandon fields from them, on the revert branch too). If that is right, simply dropping the `!isRevert` gate would restore each verdict to what the revert TARGET save says, which is the correct post-revert answer in both directions - the genuine pre-flight verdict comes back, and a verdict earned during the reverted flight stays cleared because the target save predates it.
+
+**What to establish before touching it** (do not re-derive from scratch): (1) does a launch / revert-target quicksave actually carry `RECORDING_TREE` nodes with `terminalState` keys - read one off disk rather than trusting the comment; (2) does anything gate re-spawn eligibility on `TerminalStateValue` such that restoring `Destroyed` after a revert would suppress a spawn that should happen; (3) what the REWIND path could restore from, given it holds no saved node - the rewind quicksave is the obvious candidate and is already read for the pid whitelist; (4) whether the block comment needs correcting either way. The headless seam is already in place - `ParsekScenario.RestoreClearedPostSpawnTerminalState` plus the `ApplyResetLeg` helper in `SceneChangeTerminalStatePreservationTests` - so the Revert half is one gate removal plus cells once (1), (2) and (4) are answered; the Rewind half needs a source for the truth first.
 
 ## REAIM-TILT-NOOP-AT-EELOO-6.15-DEG - the tilt-RETENTION branch is still unexercised at the highest stock inclination below Moho, because the synthesized conic came in BELOW the bound (measured 2026-08-13, branch `eeloo-loop-lanes`, four green V12A-eeloo-loop-arrival runs; NOT a defect, and NOT a widening of the tilt plan's claim scope)
 
@@ -21361,12 +21938,68 @@ Action blocking catches paradoxes at the moment the player tries to violate them
 ## 160. Log spam: remaining sources after ComputeTotal removal
 
 After removing ResourceBudget.ComputeTotal logging (52% of output), remaining spam sources:
-- GhostVisual HIERARCHY/DIAG dumps (~344 lines per session, rate-limited per-key but burst on build)
-- GhostVisual per-part cloning details (~370 lines)
-- Flight "applied heat level Cold" (46 lines, logs no-change steady state)
-- RecordingStore SerializeTrackSections per-recording verbose (184 lines)
-- KSCSpawn "Spawn not needed" at INFO level (54 lines)
-- BgRecorder CheckpointAllVessels checkpointed=0 at INFO (15 lines)
+- ~~GhostVisual HIERARCHY/DIAG dumps (~344 lines per session, rate-limited per-key but burst on build)~~
+- ~~GhostVisual per-part cloning details (~370 lines)~~
+- Flight "applied heat level Cold" (46 lines, logs no-change steady state) - **BLOCKED BY PIN**
+- ~~RecordingStore SerializeTrackSections per-recording verbose (184 lines)~~
+- ~~KSCSpawn "Spawn not needed" at INFO level (54 lines)~~
+- ~~BgRecorder CheckpointAllVessels checkpointed=0 at INFO (15 lines)~~ - was already fixed
+
+**2026-08-29 update (release-hygiene, R5 item 3): four of the six named sources
+cut, one blocked by a harness pin, one already fixed years-stale.** Taken one at
+a time, because the reason differs per source and only the first two were the
+same defect:
+
+1. **GhostVisual HIERARCHY dump - FIXED.** `DumpTransformHierarchy` emitted one
+   rate-limited line PER TRANSFORM inside an unbounded recursive walk, which is
+   exactly what the batch-counting convention forbids. It is now
+   `AppendTransformHierarchy`, building the tree into a `StringBuilder` that
+   `LogEnginePartHierarchyDump` emits as ONE line
+   (`... N transforms [depth:name[components](INACTIVE)] 0:part | 1:model | ...`).
+   Nothing is lost: same nodes, same components, same INACTIVE marking, one line
+   per engine part per 60 s window instead of one per node.
+2. **GhostVisual per-part cloning details - FIXED, one line's worth.** Read
+   against the code, the per-part lines are ALREADY convention-shaped: `part_summary_`,
+   `clone_summary_`, the variant lines and the skip counters are each one
+   rate-limited line per part carrying loop-accumulated counters. The one
+   genuine duplicate was the second `[DIAG] part '<name>' modelRoot ...` line,
+   whose localRot / localPos / localScale the `part_summary_` line was already
+   half-carrying (modelRoot name + modelScale); it is folded into that line, so a
+   part costs one line here instead of two. NOT touched: the counter summaries -
+   collapsing those would delete measurements, not spam.
+3. **Flight "applied heat level" - BLOCKED BY PIN, deliberately unchanged.** It is
+   a REQUIRED `logContracts` token in the committed
+   `harness/scenarios/S1.9-part-showcase-render.toml`
+   (`"Part pid=[0-9]+: applied heat level (?:Hot|Medium|Cold)"`), and that spec's
+   own header explains why it is load-bearing: the part-event applier is almost
+   entirely silent, so this line is one of only two per-family apply proofs the
+   product emits at all. The obvious fix (change-key it so a no-change steady
+   state stops repeating) also risks the pin in a second way - `VerboseOnChange`'s
+   identity dict is not cleared on scene switch, so the first post-re-entry
+   application can be dropped, which is precisely the emit S1.9 waits for. Cutting
+   it therefore needs the S1.9 lane re-read first; it is not a two-line change and
+   was not attempted here.
+4. **RecordingStore SerializeTrackSections - FIXED.** The per-section
+   `writing source=... (non-default)` Verbose is collected into a list and emitted
+   as one summary after the loop (`wrote N sections, M with a non-default source:
+   [1] source=Background, ...`), so a save costs one line instead of M. The
+   existing `SerializeTrajectoryInto_BackgroundFixture_LogsSingleSectionSummary`
+   cell passes unchanged (it asserts a single line carrying `source=Background`,
+   which is now literally what the method's name says), plus two new cells in
+   `TrackSectionSerializationTests` for the many-source collapse and the
+   all-default silence.
+5. **KSCSpawn "Spawn not needed" - FIXED.** Info -> Verbose. It is the ORDINARY
+   outcome for every past-end recording the KSC scene walks, i.e. diagnostic
+   detail rather than an event; the spawn-needed paths beside it stay Info. Not
+   pinned anywhere in `harness/` or `scripts/`; the KSCSpawn xUnit assertions
+   target a different helper (`LogPlaybackDisabledPastEndSpawnAttemptOnce`).
+6. **BgRecorder CheckpointAllVessels checkpointed=0 - ALREADY FIXED, entry was
+   stale.** Bug #592 (see the 2026-04-25 update below) already moved it off Info
+   onto `VerboseRateLimited` keyed by the SHAPE of the result
+   (`checkpoint-all-{checkpointed}-{skippedNotOrbital}-{skippedNoVessel}-{skippedDuplicateBoundary}`),
+   so identical no-op summaries during a warp burst collapse while a change in
+   counts still surfaces. Nothing to do; the bullet above is struck for accuracy,
+   not for work done in this pass.
 
 2026-04-25 update: deferred spawn queue outside-physics-bubble waits are no longer
 a spam source; the per-recording kept line and repeated warp-ended summary were
@@ -21421,7 +22054,10 @@ section above.
 
 **Priority:** Deferred to Phase 11.5 (Recording Optimization & Observability)
 
-**Status:** Open
+**Status:** Open on ONE named source only - the heat-level line (item 3 in the
+2026-08-29 update), which is blocked behind an S1.9 harness pin and needs that
+lane re-read before it can move. The other five named sources are closed. The
+broader audit work stays with the Observability Audit section above.
 
 ---
 
