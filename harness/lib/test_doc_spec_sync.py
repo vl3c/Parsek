@@ -95,13 +95,16 @@ class B1DocSpecSyncTests(unittest.TestCase):
                     r"chuteFullDeployAltMeters was raised 1000 -> (\d+)", "fullDeployAlt")
 
     # -- the forensics entry -----------------------------------------------------
+    # The B1-chute forensic entry moved to the v8 archive in the 2026-08-29 todo
+    # rotation; the guard follows the text it pins, so a future knob change still
+    # reds here and names the file that must be brought back into agreement.
     def test_forensics_budgets(self):
-        self._check("todo-and-known-bugs.md", r"descent 240 -> (\d+) s", "descent")
-        self._check("todo-and-known-bugs.md", r"mission 600 -> (\d+) s", "mission")
-        self._check("todo-and-known-bugs.md", r"wall 900 -> (\d+) s", "wall")
+        self._check("done/todo-and-known-bugs-v8.md", r"descent 240 -> (\d+) s", "descent")
+        self._check("done/todo-and-known-bugs-v8.md", r"mission 600 -> (\d+) s", "mission")
+        self._check("done/todo-and-known-bugs-v8.md", r"wall 900 -> (\d+) s", "wall")
 
     def test_forensics_full_deploy_altitude(self):
-        self._check("todo-and-known-bugs.md",
+        self._check("done/todo-and-known-bugs-v8.md",
                     r"`chuteFullDeployAltMeters` \((\d+),", "fullDeployAlt")
 
     # -- the design doc: BOTH the example block and the invariant prose ----------
@@ -206,9 +209,11 @@ class B13B14DocSpecSyncTests(unittest.TestCase):
         def flat(path):
             return re.sub(r"\s+", " ", _read(os.path.join(DOCS, path)))
 
-        todo = flat("todo-and-known-bugs.md")
+        # The B13/B14 closure sentences moved to the v8 archive in the 2026-08-29
+        # todo rotation; the guard follows the text it pins.
+        todo = flat("done/todo-and-known-bugs-v8.md")
         status = flat("autotest-status.md")
-        for doc, name, text in (("todo-and-known-bugs.md", "todo", todo),
+        for doc, name, text in (("done/todo-and-known-bugs-v8.md", "todo", todo),
                                 ("autotest-status.md", "status", status)):
             m = re.search(r"`?descentTimeoutSeconds`? trimmed 3000 -> (\d+)", text)
             self.assertIsNotNone(
