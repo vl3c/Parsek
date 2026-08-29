@@ -14,7 +14,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## CONTRACT-DEADLINE-CAPTURED-AS-DURATION: the ledger stores a contract's deadline OFFSET in a field every consumer reads as an absolute UT [FOUND 2026-08-29 while analysing #427 to close. NOT FIXED HERE - filed with the proof so the fix is deliberate work rather than a drive-by inside a docs pass]
+## CONTRACT-DEADLINE-CAPTURED-AS-DURATION: the ledger stores a contract's deadline OFFSET in a field every consumer reads as an absolute UT, so once a career runs long enough its accepted contracts are silently deleted out of Mission Control [FOUND 2026-08-29 while analysing #427 to close. **PLAYER-REACHABLE STATE LOSS WITH NO IN-GAME SIGNAL OF ANY KIND** - and nothing in the test estate can page anyone, because no committed fixture is old enough to trip it (see "Why no fixture catches this"). NOT FIXED HERE - filed with the proof so the fix is deliberate work rather than a drive-by inside a docs pass]
 
 **The mismatch, proved from both sides.** `GameStateRecorder.OnContractAccepted` captures
 `double deadline = contract.TimeDeadline;` (`GameStateRecorder.Handlers.cs:42`). In
@@ -105,6 +105,29 @@ ledger row's `ut` exactly; and (3) `dateDeadline = dateAccepted + TimeDeadline`.
 in this fixture only because that career's max UT is ~8599.88 - far below one deadline's worth
 of game time, so `HasContractDeadlineElapsed` has not tripped yet. The defect needs a career
 that simply runs longer.
+
+**Repro (derived from the code, NOT flown).** Accept any contract carrying a deadline; play
+until game UT exceeds THAT contract's deadline DURATION; then trigger any ledger action at all -
+a KSC purchase, a science recovery, a vessel recovery, even a plain load. `CheckDeadlines` runs
+on every dispatched action, so the contract is marked `DeadlineExpired` on that walk and
+`PatchContracts` removes it from `ContractSystem.Instance.Contracts` on the same recalc.
+Expected observable: the contract disappears from Mission Control with no message, and `KSP.log`
+carries a `[ContractsModule] DeadlineExpired: contractId='...' deadline passed at currentUT=...`
+line with NO matching stock contract-failed entry beside it. That asymmetry - our expiry line
+without stock's - is the cheapest live discriminator.
+
+**Why no fixture catches this, with the actual margins** (the reason this can ship undetected
+indefinitely). Neither committed career is old enough, but they are not equally far away:
+
+| Fixture | Max ledger UT | Smallest `deadlineUT` it carries | Margin |
+|---|---|---|---|
+| `C2Career` | 8,599.88 | 8,228,571.5 | ~957x too young |
+| `C1Career` | 2,054,571.1 | 8,680,754 | **only ~4.2x short** |
+
+So the popular framing "the fixtures are orders of magnitude too young" is true of C2 and
+misleading about C1: a career roughly four times longer than C1 - entirely ordinary for a
+played-through save - trips it. Any regression test for the fix should assert on a career past
+its own smallest deadline duration rather than on either fixture as-is.
 
 **A second consumer degrades quietly, in both directions.** `ComputeProjectionHorizon`
 (`RecalculationEngine.cs:540-564`) takes the max of every action UT and every ContractAccept's
