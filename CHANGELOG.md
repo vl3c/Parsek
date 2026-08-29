@@ -49,6 +49,20 @@ All notable changes to Parsek are documented here.
   deleted. Missions already lost this way cannot be recovered by the update; they
   are recoverable from a quicksave or one of the automatic backups.
 
+- Discarding a flight no longer leaves orphan files behind in your save folder.
+  If you had quicksaved and reloaded during the flight, Parsek had already
+  written that flight's recording files to disk, and throwing the flight away
+  only cleared it out of memory - the files stayed. In the common case where
+  that was your only Parsek recording, nothing could ever clean them up either,
+  because the cleanup pass deliberately refuses to touch a recordings folder it
+  cannot account for. Every discard route now clears out the files for exactly
+  the recordings it just threw away, and only those: anything still belonging to
+  a saved mission is left strictly alone, and a discard made in the middle of a
+  Re-Fly or a merge deletes nothing at all, because those are the moments when
+  the flight you are discarding is holding the only copy of a real mission's
+  files. If a file happens to be locked when the discard runs, the discard still
+  completes as before and the file is simply left where it was.
+
 - Every time a recorded flight crossed from one planet's or moon's area of
   influence into another while on rails, the recorder built a second, completely
   empty slice of timeline sitting exactly on top of the real one. That slice
