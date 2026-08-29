@@ -282,7 +282,12 @@ namespace Parsek
 
         /// <summary>
         /// Processes a ScienceSpending action: checks affordability, deducts from running balance.
-        /// Sets <see cref="GameAction.Affordable"/>.
+        /// Sets <see cref="GameAction.Affordable"/> and, on the refused branch,
+        /// <see cref="GameAction.UnaffordableRunningScience"/> — the positive "this walk
+        /// processed and refused this row" marker the tech-tree re-lock guard keys on
+        /// (<c>KspStatePatcher.ShouldRefuseUnaffordableRelock</c>). Refusing to deduct while
+        /// the surviving ledger still carries the unlock row is exactly the state that used to
+        /// let a researched node be silently re-locked downstream.
         /// </summary>
         internal void ProcessSpending(GameAction action)
         {
@@ -294,6 +299,7 @@ namespace Parsek
             if (affordable)
             {
                 runningScience -= (double)cost;
+                action.UnaffordableRunningScience = null;
 
                 ParsekLog.Verbose("ScienceModule",
                     $"Spending: nodeId={action.NodeId ?? "(none)"}, cost={cost.ToString("R", IC)}, " +
@@ -301,6 +307,8 @@ namespace Parsek
             }
             else
             {
+                action.UnaffordableRunningScience = runningScience;
+
                 ParsekLog.Warn("ScienceModule",
                     $"Spending NOT affordable: nodeId={action.NodeId ?? "(none)"}, cost={cost.ToString("R", IC)}, " +
                     $"runningScience={runningScience.ToString("R", IC)} — possible bug or data corruption");

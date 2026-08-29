@@ -833,6 +833,23 @@ namespace Parsek
         public bool Affordable;
 
         /// <summary>
+        /// Running science pool at the moment <c>ScienceModule.ProcessSpending</c> REFUSED this
+        /// spend as unaffordable. Non-null ONLY on a <see cref="GameActionType.ScienceSpending"/>
+        /// row the walk actually processed and refused; null on an affordable spend and on every
+        /// row the science walk never dispatched. Always derived, never stored.
+        ///
+        /// <para>This is a POSITIVE marker, and that is the point: <see cref="Affordable"/> alone
+        /// cannot separate "the walk refused this purchase" from "the module never ran for this
+        /// row", because <c>RecalculationEngine.ResetDerivedFields</c> seeds
+        /// <see cref="Affordable"/> to <c>false</c> for every action. The unaffordable-re-lock
+        /// guard (<c>KspStatePatcher.ShouldRefuseUnaffordableRelock</c>) must never fire on the
+        /// second case — that would suppress a LEGITIMATE re-lock — so it keys on this field's
+        /// presence rather than on <c>!Affordable</c>. It also carries the shortfall number the
+        /// refusal WARN reports.</para>
+        /// </summary>
+        public double? UnaffordableRunningScience;
+
+        /// <summary>
         /// Actual reputation change after applying the gain/loss curve against running rep.
         /// Set by ReputationModule during recalculation walk. Positive for gains, negative for losses.
         /// Always derived, never stored.

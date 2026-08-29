@@ -66,7 +66,8 @@ namespace Parsek
             double? techUtCutoff = null,
             double? techBaselineUt = null,
             bool suppressSuspiciousDrawdownWarnings = false,
-            bool authoritativeReduction = false)
+            bool authoritativeReduction = false,
+            IDictionary<string, UnaffordableUnlockDrop> unaffordableTechDrops = null)
         {
             using (SuppressionGuard.ResourcesAndReplay())
             {
@@ -86,7 +87,7 @@ namespace Parsek
                 }
 
                 PatchScience(science, suppressSuspiciousDrawdownWarnings, authoritativeReduction);
-                PatchTechTree(targetTechIds, techUtCutoff, techBaselineUt);
+                PatchTechTree(targetTechIds, techUtCutoff, techBaselineUt, unaffordableTechDrops);
                 PatchFunds(funds, suppressSuspiciousDrawdownWarnings, authoritativeReduction);
                 PatchReputation(reputation, authoritativeReduction);
                 PatchFacilities(facilities);
@@ -300,6 +301,131 @@ namespace Parsek
         }
 
         /// <summary>
+        /// One tech node the ledger walk claims was researched but could not pay for: a
+        /// <see cref="GameActionType.ScienceSpending"/> row inside the cutoff that
+        /// <c>ScienceModule.ProcessSpending</c> REFUSED (no deduct, WARN only), leaving the
+        /// node out of the patch target set. Carries the numbers the re-lock refusal WARN
+        /// reports so <see cref="PatchTechTree"/> never has to re-walk the action list.
+        /// </summary>
+        internal readonly struct UnaffordableUnlockDrop
+        {
+            /// <summary>The tech node id the refused row would have unlocked.</summary>
+            internal readonly string NodeId;
+            /// <summary>The node's science cost the walk could not cover.</summary>
+            internal readonly float Cost;
+            /// <summary>The running science pool at the moment the walk refused the spend.</summary>
+            internal readonly double RunningScience;
+            /// <summary>The refused row's UT.</summary>
+            internal readonly double Ut;
+
+            internal UnaffordableUnlockDrop(string nodeId, float cost, double runningScience, double ut)
+            {
+                NodeId = nodeId;
+                Cost = cost;
+                RunningScience = runningScience;
+                Ut = ut;
+            }
+        }
+
+        /// <summary>
+        /// Pure row predicate: is this action a ScienceSpending unlock that the walk
+        /// PROCESSED AND REFUSED inside <paramref name="utCutoff"/>? True only for the
+        /// bookkeeping-shortfall shape the re-lock guard exists for.
+        ///
+        /// <para>The <see cref="GameAction.UnaffordableRunningScience"/> conjunct is the
+        /// load-bearing one and must not be relaxed to a bare <c>!Affordable</c>:
+        /// <c>RecalculationEngine.ResetDerivedFields</c> seeds <see cref="GameAction.Affordable"/>
+        /// to <c>false</c> on every action, so <c>!Affordable</c> also matches a row the
+        /// science walk never dispatched — and treating that as a shortfall would suppress a
+        /// LEGITIMATE re-lock. Pinned by
+        /// <c>IsRefusedUnaffordableUnlockRow_UnprocessedRow_IsFalse</c> and, at the
+        /// consumed-decision layer, by <c>Legitimate_RewoundPastResearch_StillRelocks</c>.</para>
+        ///
+        /// <para>The cutoff check is a DEFENSIVE DUPLICATE of the outer loop's identical
+        /// filter in <see cref="BuildTargetTechIdsForPatch"/>, not the thing that protects a
+        /// rewind: the loop already skips a past-cutoff row before ever calling this. Keep it
+        /// so the predicate is sound when called directly, but do not credit it with the
+        /// rewind protection. The duplicate itself is pinned by
+        /// <c>IsRefusedUnaffordableUnlockRow_RowPastCutoff_IsFalse</c>; the outer layer that
+        /// actually does the work is pinned by
+        /// <c>BuildTarget_RowRewoundPastTheCutoff_IsNotADrop</c>.</para>
+        /// </summary>
+        internal static bool IsRefusedUnaffordableUnlockRow(GameAction action, double? utCutoff)
+        {
+            if (action == null || action.Type != GameActionType.ScienceSpending)
+                return false;
+            if (string.IsNullOrEmpty(action.NodeId))
+                return false;
+            if (utCutoff.HasValue && action.UT > utCutoff.Value)
+                return false;
+            if (action.Affordable)
+                return false;
+            return action.UnaffordableRunningScience.HasValue;
+        }
+
+        /// <summary>
+        /// Pure node predicate consumed by <see cref="PatchTechTree"/>'s not-in-target branch:
+        /// refuse a re-lock when (and only when) the classification is the dangerous direction
+        /// AND the node's absence from the target set is explained by a refused-unaffordable
+        /// unlock row. Every other re-lock — a genuine rewind past the research, a tombstoned
+        /// row, a node that was never researched — is left completely untouched.
+        /// Pure: no KSP singletons touched.
+        /// </summary>
+        internal static bool ShouldRefuseUnaffordableRelock(
+            TechNodePatchAction classification,
+            string techId,
+            IDictionary<string, UnaffordableUnlockDrop> unaffordableDrops)
+        {
+            if (classification != TechNodePatchAction.MakeUnavailable)
+                return false;
+            if (string.IsNullOrEmpty(techId))
+                return false;
+            if (unaffordableDrops == null || unaffordableDrops.Count == 0)
+                return false;
+            return unaffordableDrops.ContainsKey(techId);
+        }
+
+        /// <summary>
+        /// The three ways <see cref="PatchTechTree"/>'s not-in-target branch can end.
+        /// <see cref="TechRelockOutcome.Relock"/> is the mutating one (proto node removed —
+        /// purchased parts go with it — and the static state flipped to Unavailable);
+        /// <see cref="TechRelockOutcome.RefusedUnaffordable"/> mutates NOTHING.
+        /// </summary>
+        internal enum TechRelockOutcome { Relock, AlreadyUnavailable, RefusedUnaffordable }
+
+        /// <summary>
+        /// Pure decision for <see cref="PatchTechTree"/>'s not-in-target branch, composing
+        /// <see cref="ClassifyTechNodeForPatch"/> with the unaffordable-re-lock guard. This
+        /// is the single production expression that decides whether a researched node loses
+        /// its proto node; the live loop only dispatches the returned outcome, so a test that
+        /// drives this function drives the real branch selector. Pure: no KSP singletons.
+        ///
+        /// <para><paramref name="currentlyAvailable"/> is the classification input (EITHER
+        /// half of KSP's split state: the proto dictionary, or the static tree node).
+        /// <paramref name="protoBackedAvailable"/> is the proto half ALONE, and the guard
+        /// requires it. The two differ in exactly one shape — "static node says Available but
+        /// no proto node exists" — where there is no researched state to preserve (no proto
+        /// means no purchased parts) and the pre-existing normalization (drop the stale static
+        /// Available) is the right outcome. Refusing there would preserve nothing and leave
+        /// the tree inconsistent, so the guard stands down and normalization proceeds. Pinned
+        /// by <c>Guard_StandsDownOnSplitStateWithNoProtoNode</c>.</para>
+        /// </summary>
+        internal static TechRelockOutcome ResolveTechRelockOutcome(
+            bool currentlyAvailable,
+            bool protoBackedAvailable,
+            string techId,
+            IDictionary<string, UnaffordableUnlockDrop> unaffordableDrops)
+        {
+            var classification = ClassifyTechNodeForPatch(false, currentlyAvailable);
+            if (protoBackedAvailable &&
+                ShouldRefuseUnaffordableRelock(classification, techId, unaffordableDrops))
+                return TechRelockOutcome.RefusedUnaffordable;
+            return classification == TechNodePatchAction.MakeUnavailable
+                ? TechRelockOutcome.Relock
+                : TechRelockOutcome.AlreadyUnavailable;
+        }
+
+        /// <summary>
         /// Builds the authoritative researched-tech set for a recalculation patch,
         /// optionally excluding tech ids from the selected baseline before replaying
         /// surviving ledger-backed unlocks. The exclusion hook is used after merge
@@ -313,6 +439,46 @@ namespace Parsek
             double? utCutoff,
             IReadOnlyCollection<string> baselineTechExclusions)
         {
+            return BuildTargetTechIdsForPatch(
+                baselines,
+                actions,
+                utCutoff,
+                baselineTechExclusions,
+                out _);
+        }
+
+        /// <summary>
+        /// As the four-argument overload, and additionally reports the nodes that were
+        /// dropped from the target set SOLELY because their ScienceSpending row was refused
+        /// as unaffordable (<paramref name="unaffordableDrops"/>, keyed by node id; null when
+        /// there is no target set at all, empty when nothing was refused).
+        ///
+        /// <para>"Solely" is enforced two ways: a candidate is only collected when
+        /// <see cref="IsRefusedUnaffordableUnlockRow"/> holds (so a row rewound past the
+        /// cutoff, or one the walk never processed, is not a candidate), and any candidate
+        /// that ends up in the target set anyway — via the baseline, or via a second,
+        /// affordable row for the same node — is dropped from the map after the walk. What
+        /// survives is exactly "the surviving ledger still claims this node was researched,
+        /// and the only thing standing between it and the target set is a reconstructed pool
+        /// that could not pay". <see cref="PatchTechTree"/> refuses to re-lock those.</para>
+        ///
+        /// <para><b>Caller invariant.</b> Soundness of the drop map rests on every caller
+        /// satisfying <c>techPatchCutoff &lt;= (walk utCutoff ?? +infinity)</c>, which every
+        /// caller in <c>LedgerOrchestrator</c> does today (the two are the same value, or the
+        /// walk is uncut). A future wrapper violating it would evaluate rows in the gap
+        /// against markers left by the PROJECTION walk rather than the live walk. The failure
+        /// direction is over-protection — a spurious drop entry only ever refuses a re-lock,
+        /// never causes one — but it would be a wrong reading, so keep the invariant.</para>
+        /// </summary>
+        internal static HashSet<string> BuildTargetTechIdsForPatch(
+            IReadOnlyList<GameStateBaseline> baselines,
+            IReadOnlyList<GameAction> actions,
+            double? utCutoff,
+            IReadOnlyCollection<string> baselineTechExclusions,
+            out Dictionary<string, UnaffordableUnlockDrop> unaffordableDrops)
+        {
+            unaffordableDrops = null;
+
             var selectedBaseline = SelectTechBaselineForPatch(baselines, utCutoff);
             if (selectedBaseline == null ||
                 selectedBaseline.researchedTechIds == null ||
@@ -321,6 +487,7 @@ namespace Parsek
                 return null;
             }
 
+            unaffordableDrops = new Dictionary<string, UnaffordableUnlockDrop>(StringComparer.Ordinal);
             var target = new HashSet<string>(StringComparer.Ordinal);
             HashSet<string> excludedBaselineTech = null;
             if (baselineTechExclusions != null && baselineTechExclusions.Count > 0)
@@ -349,9 +516,50 @@ namespace Parsek
                 if (utCutoff.HasValue && action.UT > utCutoff.Value)
                     continue;
                 if (!action.Affordable)
+                {
+                    // Refused-and-processed rows become re-lock-guard candidates; anything
+                    // else (never dispatched, rewound past) is not a claim and is ignored.
+                    if (IsRefusedUnaffordableUnlockRow(action, utCutoff))
+                    {
+                        UnaffordableUnlockDrop existing;
+                        if (!unaffordableDrops.TryGetValue(action.NodeId, out existing) ||
+                            action.UT >= existing.Ut)
+                        {
+                            // Latest refusal wins: it is the one whose numbers describe the
+                            // state the patch is about to act on.
+                            unaffordableDrops[action.NodeId] = new UnaffordableUnlockDrop(
+                                action.NodeId,
+                                action.Cost,
+                                action.UnaffordableRunningScience.Value,
+                                action.UT);
+                        }
+                    }
+
                     continue;
+                }
 
                 target.Add(action.NodeId);
+            }
+
+            // A node that reached the target set anyway (baseline seed, or a second
+            // affordable row) was never dropped, so it is not a guard candidate.
+            if (unaffordableDrops.Count > 0)
+            {
+                List<string> covered = null;
+                foreach (var nodeId in unaffordableDrops.Keys)
+                {
+                    if (!target.Contains(nodeId))
+                        continue;
+                    if (covered == null)
+                        covered = new List<string>();
+                    covered.Add(nodeId);
+                }
+
+                if (covered != null)
+                {
+                    for (int i = 0; i < covered.Count; i++)
+                        unaffordableDrops.Remove(covered[i]);
+                }
             }
 
             return target;
@@ -436,11 +644,20 @@ namespace Parsek
         /// Patches KSP's R&amp;D tech state to the recalculated timeline state.
         /// This updates both the authoritative proto-tech dictionary and the static
         /// tech-tree proto nodes, then asks KSP to refresh the tech-tree UI.
+        ///
+        /// <para><paramref name="unaffordableDrops"/> (from
+        /// <see cref="BuildTargetTechIdsForPatch"/>) arms the unaffordable-re-lock guard:
+        /// a node in that map is one the surviving ledger still claims was researched, so
+        /// this method REFUSES to re-lock it and leaves the live researched state — proto
+        /// node, purchased parts and all — exactly as it found it. Same philosophy as the
+        /// drawdown guard: a non-authoritative recalc does not get to take away live career
+        /// state on evidence the walk itself logs as suspect.</para>
         /// </summary>
         internal static void PatchTechTree(
             IReadOnlyCollection<string> targetTechIds,
             double? utCutoff = null,
-            double? baselineUt = null)
+            double? baselineUt = null,
+            IDictionary<string, UnaffordableUnlockDrop> unaffordableDrops = null)
         {
             if (targetTechIds == null)
             {
@@ -478,6 +695,8 @@ namespace Parsek
             int alreadyAvailable = 0;
             int alreadyUnavailable = 0;
             int missingTargets = 0;
+            int relockRefused = 0;
+            List<string> relockRefusedIds = null;
             // Bypass-rehydrate stats accumulated across the tech-tree loop and emitted
             // as ONE summary after it (the tree has ~80+ nodes; a per-node line here was
             // a per-item-in-loop log over a large collection on every recalc).
@@ -522,9 +741,44 @@ namespace Parsek
                 }
                 else
                 {
+                    // currentState is read from the proto dictionary, so it IS the proto half
+                    // of KSP's split availability state; tech.state is the static tree half.
+                    bool protoBackedAvailable = currentState == RDTech.State.Available;
                     bool currentlyAvailable =
-                        currentState == RDTech.State.Available || tech.state == RDTech.State.Available;
-                    if (ClassifyTechNodeForPatch(false, currentlyAvailable) == TechNodePatchAction.MakeUnavailable)
+                        protoBackedAvailable || tech.state == RDTech.State.Available;
+                    var outcome = ResolveTechRelockOutcome(
+                        currentlyAvailable, protoBackedAvailable, techId, unaffordableDrops);
+
+                    // Unaffordable-re-lock guard: the ledger still claims this node was
+                    // researched and only a reconstructed-pool shortfall kept it out of the
+                    // target set. Refuse the re-lock outright — no proto removal (which would
+                    // take the node's purchased parts with it, unrecoverable in a default
+                    // career), no state flip. WARN loudly; the condition is a bug signature.
+                    if (outcome == TechRelockOutcome.RefusedUnaffordable)
+                    {
+                        relockRefused++;
+                        if (relockRefusedIds == null)
+                            relockRefusedIds = new List<string>();
+                        relockRefusedIds.Add(techId);
+
+                        if (relockRefusedIds.Count <= IdentitySampleCap)
+                        {
+                            var drop = unaffordableDrops[techId];
+                            ParsekLog.Warn(Tag,
+                                "PatchTechTree: refusing-unaffordable-relock: " +
+                                $"nodeId={techId}, cost={drop.Cost.ToString("R", IC)}, " +
+                                $"runningScience={drop.RunningScience.ToString("R", IC)}, " +
+                                $"spendUT={drop.Ut.ToString("R", IC)}, " +
+                                "reason=unaffordable-science-spending-row — live researched state " +
+                                "preserved (ledger still claims this node was researched; the " +
+                                "reconstructed science pool could not pay for it, which is a " +
+                                "bookkeeping shortfall, not a retraction)");
+                        }
+
+                        continue;
+                    }
+
+                    if (outcome == TechRelockOutcome.Relock)
                     {
                         madeUnavailable++;
                         madeUnavailableIds.Add(techId);
@@ -570,6 +824,7 @@ namespace Parsek
                 $"alreadyAvailable={alreadyAvailable.ToString(IC)}, " +
                 $"alreadyUnavailable={alreadyUnavailable.ToString(IC)}, " +
                 $"missingTargets={missingTargets.ToString(IC)}, " +
+                $"relockRefused={relockRefused.ToString(IC)}, " +
                 $"utCutoff={cutoffLabel}, baselineUt={baselineLabel}" +
                 (madeUnavailableSample.Length > 0
                     ? $", madeUnavailableIds=[{madeUnavailableSample}]"
@@ -577,6 +832,18 @@ namespace Parsek
                 (madeAvailableSample.Length > 0
                     ? $", madeAvailableIds=[{madeAvailableSample}]"
                     : string.Empty));
+
+            if (relockRefused > 0)
+            {
+                // Loud summary in addition to the per-node WARNs: the per-node lines are
+                // capped at IdentitySampleCap, this one always carries the true count.
+                ParsekLog.Warn(Tag,
+                    $"PatchTechTree: relock-refusal-summary: relockRefused={relockRefused.ToString(IC)}, " +
+                    $"relockRefusedIds=[{ComposeBoundedIdentitySample(relockRefusedIds, IdentitySampleCap)}], " +
+                    $"utCutoff={cutoffLabel} — a reconstructed science pool could not pay for " +
+                    "unlock rows the surviving ledger still carries; the affected nodes were " +
+                    "LEFT RESEARCHED. Investigate the ledger's science earnings, not the tech tree");
+            }
 
             if (madeUnavailableIds.Count > 0)
                 ParsekLog.Verbose(Tag,
