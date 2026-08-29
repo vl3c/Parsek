@@ -6,6 +6,26 @@ All notable changes to Parsek are documented here.
 
 ## 0.10.4
 
+### Added
+
+- Greyed-out buttons now say why. Hover one and the help strip along the bottom of
+  that window (the same strip that already explains what a live control does) tells
+  you what is standing in the way, in a few words: "Stop recording before rewinding",
+  "Looped by route: Minmus Ore Run", "Nothing from this mission is flying right now",
+  "Too far away to spawn". Most of those sentences already
+  existed in the mod and simply never reached you: the Rewind, Forward, Watch and
+  Re-Fly buttons have been working out a precise reason for a long time and
+  attaching it to a control that had no way to speak while it was greyed out. That
+  text is now delivered. Buttons that had never had a reason at all got one
+  written for them, including both Wipe buttons in Settings, the Real Spawn
+  Control launcher and its per-craft warp buttons, a mission's Delete, Watch and
+  "Warp to...", the Logistics Link and mission-log buttons, and the loop-period
+  box, which is a plain text field and so had never been able to carry a hint of
+  any kind. A few of these were quietly misleading before rather than merely
+  silent - the Timeline's "Warp to time" and a mission's "Warp to..." both went
+  grey while still showing the sentence that describes them working normally, so
+  the reason you were shown was for a state you were not in.
+
 ### Changed
 
 - The Gloops Flight Recorder button and window are gone from the Parsek UI. The

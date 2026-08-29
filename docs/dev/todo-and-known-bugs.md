@@ -21161,13 +21161,59 @@ helper, with any UI-only suppression kept outside the click-block predicate.
 
 ---
 
-## 430. "Why is this blocked?" explainer for the committed-action dialog
+## 430. "Why is this blocked?" explainer for the committed-action dialog (hover half SHIPPED)
 
 **Source:** follow-up on the "paradox communication" thread — currently when the player tries to re-research a tech or re-upgrade a facility that's already committed to a future timeline event, `CommittedActionDialog` pops up with a short "Blocked action: X — reason" message. The reason is generic and the player has no way to see *which* committed action is causing the block, or *when* it will play out.
 
 **Partial mitigation:** PR #721 adds stock R&D / Astronaut Complex / Mission Control row badges with tooltips for committed-future actions, including the event UT and source recording when available. This helps before the click, but does not replace the structured blocked-action dialog below: the dialog still needs conflict context, Timeline navigation, and the rewind shortcut.
 
-**Desired behavior:**
+**~~Hover explainer for greyed-out Parsek buttons~~ - SHIPPED (2026-08-29, branch
+`disabled-button-hover`).** The lightweight half of this entry: hovering a DISABLED
+button now puts a few-words reason in its window's `TooltipEchoBox` help strip. Shared
+mechanism in `Source/Parsek/UI/DisabledHoverEcho.cs`; ~35 sites across ParsekUI,
+Recordings, Missions, Timeline, Logistics, Settings and Real Spawn Control. Most already
+computed the right reason (`CanFastForward` / `CanRewind` `out reason`,
+`GetWatchButtonTooltip`, the Re-Fly slot reason) and merely had no way to deliver it
+while greyed; the sites that had no reason got pure `internal static` derivations, all
+unit-tested with a per-window strip budget gate in `DisabledHoverEchoTests.cs` and a live
+IMGUI cell (`DisabledHoverEchoImguiTest.cs`, category `Settings`).
+
+Two things that fell out of it and are worth knowing:
+
+- **The blocked-committed-action class is NOT reachable by this mechanism, by
+  construction.** Every block `CommittedActionDialog.ShowBlocked` serves fires on a STOCK
+  KSP screen (`RDController` tech node, `MissionControl` Accept, `AstronautComplex`
+  Recruit, `SpaceCenterBuilding` Upgrade). `GUI.tooltip` and the echo strip only exist
+  inside Parsek's own IMGUI windows, so there is no strip on those screens to echo into.
+  That surface is served by PR #721's stock row badges, and by the structured dialog
+  below. Do not re-scope the residual as "add hover text to the blocked actions".
+- **A reason predicate that disagrees with its enable predicate is the failure mode to
+  watch for.** Review caught one before merge: the mission "Warp to..." carrier re-derived
+  the clock leg as `NextRelaunchUT > now`, but `ShouldEnableWarpToWindow` requires
+  `now + 1.0` and finiteness - so through the last second before every scheduled relaunch
+  (recurring forever on a looping mission), and for a NaN/Inf relaunch UT, the button
+  greyed with an EMPTY reason and the strip stayed silent. The call site now feeds the
+  enable gate itself rather than re-deriving it, and
+  `MissionWarpReasonIsNonEmptyExactlyWhenTheButtonIsGreyed` holds the two together over
+  the boundary and the non-finite values (verified non-vacuous: the pre-fix derivation
+  reds 3 of its 11 cases). Any NEW carrier site should reuse its enable predicate, never
+  restate it.
+- **Two buttons were actively misleading, not merely silent** - fixed in the same
+  change. The Timeline's "Warp to time" and a mission's "Warp to..." are each greyed by
+  several gates while keeping the ENABLED wording in their `GUIContent`, so a hover
+  reported a state the player was not in. Both now resolve which gate closed
+  (`TimelineWindowUI.WarpToTimeDisabledReason`,
+  `MissionsWindowUI.MissionWarpToDisabledReason`).
+
+**Owed:** an in-game eyeball on the next play session. The mechanism is proven from
+decompiled Unity 2019.4 source (`GUI.DoLabel` publishes the tooltip gated only on
+rect-contains-mouse plus the visible clip, and never reads `GUI.enabled`; `GUI.Label`'s
+explicit-rect overload takes no control ID, so the carrier cannot perturb layout), and the
+live cell exists to measure it on the machine the mod runs on - but that cell has never
+been executed (it needs a KSP session), and no human has watched the strip fill in yet.
+So: reasoning and unit coverage are complete; runtime confirmation is entirely owed.
+
+**Still open (the residual) - the structured blocked-action dialog:**
 
 - Replace the one-line reason with a structured block:
   - The action the player tried (e.g. "Research node: Heavier Rocketry").
@@ -21191,7 +21237,11 @@ The mental model of "you can't do this because the timeline already did" is coun
 - Auto-resolving the block by rewinding silently; this stays an informational dialog, not a one-click rewind.
 - Collapsing multiple overlapping blocks into a summary (each block fires its own dialog as today).
 
-**Status:** TODO. Size: S-M. Best quality-per-effort of the paradox-comms work.
+**Status:** PARTIALLY SHIPPED. The hover explainer for greyed-out Parsek buttons landed
+2026-08-29 (see above). The residual is the structured dialog: which committed action
+blocks this, at what UT, plus `Go to Timeline` and the rewind shortcut - all of it on the
+STOCK screens where the block actually fires, which is why it needs a dialog rather than
+hover text. Size of the residual: S-M.
 
 ---
 

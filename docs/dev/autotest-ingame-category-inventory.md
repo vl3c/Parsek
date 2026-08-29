@@ -165,7 +165,7 @@ Two limits of this table, stated so nobody over-reads it:
 | `SceneAndPatch` | 7 | 4 | 3 | 2 | 0 | 4 | - | B |
 | `SceneExitMerge` | 2 | 0 | 0 | 0 | 2 | 2 | H21 | A |
 | `Serialization` | 4 | 4 | 4 | 4 | 0 | 1 | H25 | A |
-| `Settings` | 5 | 4 | 3 | 4 | 0 | 2 | - | B |
+| `Settings` | 6 | 5 | 4 | 5 | 0 | 2 | - | B |
 | `SnapshotBaseline` | 7 | 7 | 0 | 0 | 0 | 7 | H32 | A |
 | `SoiCrossingPlayback` | 3 | 3 | 0 | 0 | 0 | 3 | S1.8 | A |
 | `SpawnCollision` | 2 | 2 | 0 | 0 | 0 | 2 | - | B |
@@ -195,14 +195,14 @@ Two limits of this table, stated so nobody over-reads it:
 
 ## Triage
 
-Totals, re-derived: **105 categories / 593 declarations**. Buckets **A 33 categories
-(231 declarations)**, **B 72 categories (362 declarations)**, **C 0 categories (0
+Totals, re-derived: **105 categories / 594 declarations**. Buckets **A 33 categories
+(231 declarations)**, **B 72 categories (363 declarations)**, **C 0 categories (0
 declarations)**. Driven by a committed spec: **43 of 105 categories**, up from 35
 across six waves - `ReFlyWorldPreservation` via S4.2, `RecordedSignals` via H33,
 `SnapshotBaseline` via H32, and `Logistics` via H34 all landed together in one merge
 (the S1.8 SoiCrossingPlayback wave had taken it to 35 from 34, and 28 and 8 the waves
 before), then `PlaybackFidelity` via H36 and `PartEventFidelity` via H37. Measured
-against declarations rather than categories, that is 408 of 593 inside a driven
+against declarations rather than categories, that is 408 of 594 inside a driven
 category (was 318 before these waves: 324 after S4.2, 327 after H33, 334 after H32,
 381 once `Logistics` counted, 388 with `PlaybackFidelity`, 393 with
 `PartEventFidelity`, and 401 once L3's capture matrix took `StrategyLifecycle` from 3
