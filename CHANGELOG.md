@@ -49,6 +49,38 @@ All notable changes to Parsek are documented here.
   deleted. Missions already lost this way cannot be recovered by the update; they
   are recoverable from a quicksave or one of the automatic backups.
 
+- Discarding a flight no longer leaves orphan files behind in your save folder.
+  If you had quicksaved and reloaded during the flight, Parsek had already
+  written that flight's recording files to disk, and throwing the flight away
+  only cleared it out of memory - the files stayed. In the common case where
+  that was your only Parsek recording, nothing could ever clean them up either,
+  because the cleanup pass deliberately refuses to touch a recordings folder it
+  cannot account for. Discarding a flight now clears out the files for exactly
+  the recordings it just threw away, and only those: anything still belonging to
+  a saved mission is left strictly alone, and a discard made in the middle of a
+  Re-Fly or a merge deletes nothing at all, because those are the moments when
+  the flight you are discarding is holding the only copy of a real mission's
+  files. If a file happens to be locked when the discard runs, the discard still
+  completes as before and the file is simply left where it was.
+
+- Leaving a flight for the tracking station, the space centre, or another flight
+  and then saving used to wipe the recorded outcome - crashed, or recovered - of
+  every piece of debris Parsek had put back into the world during that flight.
+  The debris kept its trajectory and its place in the mission tree, but the save
+  no longer said how it ended, so the recordings table, the mission summaries and
+  the career bookkeeping all saw it as unclassified. Visit the tracking station
+  and quit, and a real save lost the same thing. What went wrong: leaving a
+  flight runs a reset that deliberately forgets that outcome, because after a
+  Revert those vessels never existed - and the step that puts every other detail
+  back from the save had nothing to put the outcome back with. It does now.
+  Revert is unchanged: there the outcome is meant to be forgotten, and still is.
+  One knock-on worth knowing about: because the outcome survives the scene change
+  now, the career bookkeeping that keys off it - recovery payouts, crew end
+  states, mission timelines - is applied after a scene change too, where before
+  it was quietly skipped. That is the same answer you already got by quitting and
+  loading the save fresh, and the bookkeeping is recomputed from scratch every
+  time rather than added up, so nothing is credited twice.
+
 - Every time a recorded flight crossed from one planet's or moon's area of
   influence into another while on rails, the recorder built a second, completely
   empty slice of timeline sitting exactly on top of the real one. That slice
@@ -67,7 +99,42 @@ All notable changes to Parsek are documented here.
   on disk are not rewritten by this change; they are still repaired the next
   time something saves them.
 
+- A housekeeping pass that runs whenever a save loads or a flight is committed
+  was quietly rearranging recordings in memory and then not saving them. The
+  pass looks for recordings worth splitting at a phase boundary, and before it
+  can look it has to tidy the recording's internal list of timeline slices - a
+  tidy-up that can add, trim, drop and re-order slices. It was doing all of that
+  while flagged as "just looking", so the tidied version lived only in memory
+  and whatever the next unrelated save happened to write was a state nobody
+  chose. The tidy-up is now honest: when it actually changes something it says
+  so, the recording is queued for saving, and the same housekeeping pass writes
+  it out before it finishes. Recordings it does not change are still left
+  untouched, byte for byte.
+
+- Re-ordering those timeline slices could also leave a recording's derived
+  drawing data pointing at the wrong slice. The smoothed paths Parsek fits
+  through recorded flights - and the small position corrections that ride along
+  with them - are filed by slice POSITION, so inserting or dropping a slice
+  renumbered everything after it while the fitted paths stayed put. The path
+  fitted for one stretch of a flight could silently start being applied to a
+  different stretch, and nothing in the freshness checks could notice. Both are
+  now dropped together whenever the tidy-up moves a slice, and rebuilt from
+  scratch the next time the recording is loaded or saved - which, thanks to the
+  fix above, is immediately on the housekeeping route. In the gap between the
+  drop and the rebuild, replayed ghosts are placed by the older, slightly
+  coarser method instead of the smoothed one; that is the trade, because the
+  alternative was a smooth path drawn confidently through the wrong part of the
+  flight. A cached file whose slice numbers have run off the end of the
+  recording is also refused outright on load now, instead of being trusted.
+
 ### Dev
+
+- The six supply-route test runs now go every night along with the rest. They
+  were being held back for a decision rather than for a problem: each one had
+  already been run unattended and had its expected result written down, and all
+  that was left was someone choosing whether tests this large belong on a nightly
+  schedule. That choice has now been made, so they run on the same cadence as
+  every other in-game test run instead of only when someone asks for them.
 
 - Fourteen more of Parsek's in-game self-tests can now be run automatically. The
   mod ships a large set of tests that only mean anything inside a running game -
@@ -264,6 +331,43 @@ All notable changes to Parsek are documented here.
   design, because they deliberately start from a save with no recorded flights
   in it at all and that check needs one.
   Test-tooling only; no gameplay change, and nothing ships with the mod.
+
+- Four long-standing sources of log noise are gone, which matters because the
+  log file is how every problem in Parsek gets diagnosed and a log that is mostly
+  chatter hides the one line that explains a bug. The biggest was the engine-part
+  inspection dump, which wrote a separate line for every single piece of an
+  engine's model - hundreds of lines for a handful of parts; it now writes the
+  whole tree as one line, with nothing left out. Each part being copied into a
+  ghost also described itself twice, in two lines that between them said the same
+  thing; they are one line now. Saving a recording wrote a line for every slice
+  of timeline that came from somewhere other than the ship you were flying; that
+  is now a single line at the end naming all of them. And the space centre wrote
+  a full announcement for each finished flight it decided it did not need to put
+  a ship down for - the ordinary outcome, and the thing detailed logging exists
+  for, so it moved down to detailed. One noisy line on the list was left exactly
+  as it is on purpose: it is the only evidence an automated test has that a
+  recorded part action was actually applied to a ghost, and quieting it would
+  blind that test. Nothing about what Parsek does changed - only how much it
+  says while doing it.
+
+- Quitting the game while watching a ghost no longer leaves an error in the log
+  file. Watch mode puts the camera back where it found it on the way out, and
+  when the way out is the game shutting down, it was asking which ship the
+  player is flying at a moment when the game has already thrown that answer
+  away - so every session that ended inside watch mode wrote one red-looking
+  Parsek line into the log. Nothing was ever broken by it: it happened after the
+  last frame of play, and the code was already prepared for there being no ship
+  to point the camera at. But an expected error line is the worst kind to leave
+  in a log, because it teaches everyone reading the log to skip that shape of
+  line. The camera restore now treats "the game is already gone" as one more
+  ordinary way to have no ship, and says so quietly in the detailed log instead.
+  One more effect worth naming: that error used to escape and cut short
+  everything Parsek does on the way out - putting ghost models and map markers
+  away, releasing the keyboard, disconnecting the replay machinery - so in this
+  one situation, ending a session while watching a ghost, all of that now
+  finishes instead of stopping half-done. Nothing a player does changes, and the
+  game was closing either way.
+
 - Parsek builds a standing exhibition of every part it knows how to draw: 243
   little one-part replays, one per part, lined up in three rows in front of the
   launch pad, each running a short clip that works that part's own moving bits -

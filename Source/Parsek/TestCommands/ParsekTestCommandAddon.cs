@@ -1798,10 +1798,15 @@ namespace Parsek.TestCommands
 
             if (ParsekFlight.HasLiveRecorderForTagging())
                 flight.StopRecording();
+            // No shared-core reap here — this verb owns its own reap below, and its
+            // `discardtree sidecar-reap: ...` summary line is pinned verbatim by the
+            // S0.5 harness spec. Letting the shared core reap first would leave that
+            // line reporting reaped=0.
             flight.AutoDiscardActiveTreeWithMessage(
                 reason: "test-command-discard",
                 screenMessage: "Recording discarded (test command)",
-                ledgerRecalcReason: "test-command-discard");
+                ledgerRecalcReason: "test-command-discard",
+                reapSidecars: false);
 
             if (reapSkipReason != null)
             {

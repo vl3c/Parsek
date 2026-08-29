@@ -244,6 +244,78 @@ namespace Parsek.Rendering
                 $"Clear: reason={reason ?? "<unspecified>"} previousSessionId={sessionId ?? "<none>"} clearedCount={count}");
         }
 
+        /// <summary>
+        /// Drops every anchor (and its per-session dedup marks) belonging to one
+        /// recording, leaving other recordings' session state intact.
+        ///
+        /// <para>
+        /// The anchor map is keyed by (recordingId, sectionIndex, side) — the SAME
+        /// ordinal <see cref="SectionAnnotationStore"/> uses — and it is POPULATED
+        /// from the anchor candidates that store holds (see
+        /// <see cref="AnchorPropagator"/>). The two must therefore be invalidated
+        /// together: dropping only the candidates would leave a stale ε bound to a
+        /// section index that now names a DIFFERENT section, and the flight-scene
+        /// positioning path keeps applying that ε every frame. Called from
+        /// <c>OrbitSegmentCheckpointBridge.InvalidateSectionAnnotationsForOrdinalShift</c>
+        /// whenever a bridge pass renumbers a recording's TrackSections.
+        /// </para>
+        ///
+        /// <para>
+        /// Returns the number of anchors removed. Unlike <see cref="Clear"/> this is
+        /// scoped and silent: the bridge emits one combined <c>Pipeline-Smoothing</c>
+        /// invalidation line that already names this count, so a second Info line
+        /// here would double-report the same event.
+        /// </para>
+        /// </summary>
+        internal static int RemoveRecording(string recordingId)
+        {
+            if (string.IsNullOrEmpty(recordingId))
+                return 0;
+
+            lock (Lock)
+            {
+                int removed = RemoveAnchorKeysForRecordingLocked(recordingId);
+                RemoveDedupKeysForRecordingLocked(DegenerateLerpSpans, recordingId);
+                RemoveDedupKeysForRecordingLocked(DivergentLerpKeys, recordingId);
+                RemoveDedupKeysForRecordingLocked(SingleAnchorLerpKeys, recordingId);
+                RemoveDedupKeysForRecordingLocked(ClampOutLerpKeys, recordingId);
+                RemoveDedupKeysForRecordingLocked(PriorityResolutionLogged, recordingId);
+                return removed;
+            }
+        }
+
+        private static int RemoveAnchorKeysForRecordingLocked(string recordingId)
+        {
+            List<AnchorKey> doomed = null;
+            foreach (AnchorKey key in Anchors.Keys)
+            {
+                if (!string.Equals(key.RecordingId, recordingId, StringComparison.Ordinal))
+                    continue;
+                if (doomed == null) doomed = new List<AnchorKey>();
+                doomed.Add(key);
+            }
+            if (doomed == null) return 0;
+            for (int i = 0; i < doomed.Count; i++)
+                Anchors.Remove(doomed[i]);
+            return doomed.Count;
+        }
+
+        private static void RemoveDedupKeysForRecordingLocked(
+            HashSet<AnchorKey> set, string recordingId)
+        {
+            List<AnchorKey> doomed = null;
+            foreach (AnchorKey key in set)
+            {
+                if (!string.Equals(key.RecordingId, recordingId, StringComparison.Ordinal))
+                    continue;
+                if (doomed == null) doomed = new List<AnchorKey>();
+                doomed.Add(key);
+            }
+            if (doomed == null) return;
+            for (int i = 0; i < doomed.Count; i++)
+                set.Remove(doomed[i]);
+        }
+
         /// <summary>Test-only: clears state silently (no log) for harness setup/teardown.</summary>
         internal static void ResetForTesting()
         {

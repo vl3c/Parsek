@@ -1879,7 +1879,10 @@ namespace Parsek
             var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtKscEnd(rec);
             if (!needsSpawn)
             {
-                ParsekLog.Info("KSCSpawn",
+                // Verbose, not Info (todo entry 160: ~54 lines per session). This is the ORDINARY outcome - one
+                // line for every past-end recording the KSC scene walks - so it is diagnostic detail, not an
+                // event. The spawn-needed paths below stay Info; those are the ones that change the world.
+                ParsekLog.Verbose("KSCSpawn",
                     $"Spawn not needed for #{recIdx} \"{rec.VesselName}\": {reason}");
                 return;
             }

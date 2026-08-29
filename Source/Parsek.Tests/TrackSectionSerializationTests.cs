@@ -108,6 +108,72 @@ namespace Parsek.Tests
 
         #endregion
 
+        #region Non-default-source logging (todo entry 160: one summary, not one line per section)
+
+        [Fact]
+        public void SerializeTrackSections_ManyNonDefaultSources_EmitsOneSummaryLineNamingEach()
+        {
+            ParsekLog.VerboseOverrideForTesting = true;
+            logLines.Clear();
+
+            var tracks = new List<TrackSection>
+            {
+                MakeSourceSection(TrackSectionSource.Active, 100.0),      // default: contributes nothing
+                MakeSourceSection(TrackSectionSource.Background, 200.0),
+                MakeSourceSection(TrackSectionSource.Checkpoint, 300.0),
+                MakeSourceSection(TrackSectionSource.Background, 400.0),
+            };
+
+            RecordingStore.SerializeTrackSections(new ConfigNode("TEST"), tracks);
+
+            var summaries = logLines
+                .Where(l => l.Contains("[RecordingStore]") && l.Contains("SerializeTrackSections:"))
+                .ToList();
+
+            // ONE line for three non-default sections - the pre-batching code emitted three.
+            Assert.Single(summaries);
+            Assert.Contains("wrote 4 sections, 3 with a non-default source", summaries[0]);
+            // The per-section detail survives inside the summary: index + source, every one of them.
+            Assert.Contains("[1] source=Background", summaries[0]);
+            Assert.Contains("[2] source=Checkpoint", summaries[0]);
+            Assert.Contains("[3] source=Background", summaries[0]);
+            Assert.DoesNotContain("[0] source=", summaries[0]);
+        }
+
+        [Fact]
+        public void SerializeTrackSections_AllDefaultSources_LogsNothing()
+        {
+            ParsekLog.VerboseOverrideForTesting = true;
+            logLines.Clear();
+
+            var tracks = new List<TrackSection>
+            {
+                MakeSourceSection(TrackSectionSource.Active, 100.0),
+                MakeSourceSection(TrackSectionSource.Active, 200.0),
+            };
+
+            RecordingStore.SerializeTrackSections(new ConfigNode("TEST"), tracks);
+
+            Assert.Empty(logLines.Where(l => l.Contains("SerializeTrackSections:")));
+        }
+
+        private static TrackSection MakeSourceSection(TrackSectionSource source, double startUT)
+        {
+            return new TrackSection
+            {
+                environment = SegmentEnvironment.ExoBallistic,
+                referenceFrame = ReferenceFrame.Absolute,
+                source = source,
+                startUT = startUT,
+                endUT = startUT + 10.0,
+                sampleRateHz = 1.0f,
+                frames = new List<TrajectoryPoint>(),
+                checkpoints = new List<OrbitSegment>()
+            };
+        }
+
+        #endregion
+
         #region Test 1: ATMOSPHERIC + ABSOLUTE round-trip with 5 frames
 
         [Fact]

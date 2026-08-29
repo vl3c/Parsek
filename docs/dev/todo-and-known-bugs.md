@@ -12920,7 +12920,9 @@ UT. Owner: whoever owns `GhostOrbitIcon` / `MapRenderProbe`. The anomaly is
 deliberately NOT added to that spec's `allowedAnomalies` - the lane stands red by
 finding (V1-map-dwell-mun-orbit's precedent).
 
-**(2) Teardown NRE when a run ends inside watch mode.** `V7M-minmus-player-loop`
+**(2) ~~Teardown NRE when a run ends inside watch mode.~~ THE PARSEK HALF IS FIXED
+2026-08-29 (release-hygiene, R5 item 2); the stock/MechJeb cascade below is not
+ours and stays unarmed.** `V7M-minmus-player-loop`
 is the first run in the suite that quits while watch mode is active. Its reading
 run (`2026-08-08_1613`) read `unityExceptions total=1` - the Parsek line below:
 
@@ -12935,6 +12937,78 @@ already gone by the time `OnDestroy` runs the watch-exit camera restore. Harmles
 at shutdown (one line, after the last gameplay frame), report-only, not armed.
 NOT worked around in the spec by exiting watch before `FlushAndQuit`: that would
 hide the only run shape that reaches it.
+
+**THE FIX (2026-08-29).** `GetActiveVesselSafe` caught the headless-host triple
+(`SecurityException` / `MethodAccessException` / `MissingMethodException`) but not
+`NullReferenceException`, which is what `FlightGlobals.ActiveVessel` throws once
+`FlightGlobals.fetch` is destroyed. The read now sits behind
+`WatchModeController.ReadActiveVesselGuarded(Func<Vessel>)` - a fourth arm for the
+NRE that returns null and logs ONE Verbose `[CameraFollow] GetActiveVesselSafe:
+FlightGlobals unavailable (scene teardown)` line. Verbose, not Warn: quitting
+while watching a ghost is normal, and both callers
+(`RestoreCameraAfterWatchExit`, `RestoreCameraToAnchorVessel`) already treat a
+null active vessel as "no camera target to restore". The delegate seam exists so
+all four arms are drivable headlessly - no test host can make the real
+`FlightGlobals` throw on demand - and the actual read stays in a
+`[MethodImpl(NoInlining)]` core per the mono JIT convention. Four cells in
+`WatchModeControllerTests` (NRE arm logs + returns null and raises no
+WARN/ERROR; the triple stays silent; null reader; an unexpected exception still
+propagates).
+
+SIBLING SWEEP, deliberately narrow. `WatchModeController.Runtime.cs` uses the
+same catch triple in six more helpers, but only two of them are ON this teardown
+path: `GetFlightCameraSafe` (reads the `FlightCamera.fetch` static FIELD, which
+yields Unity's fake-null rather than throwing) and
+`RemoveWatchModeControlLockSafe` (`InputLockManager`'s lock stack is an
+inline-initialised static). The genuine shape-alikes -
+`GetCurrentUTSafe` (`Planetarium.fetch`) and `GetCurrentWarpRateSafe`
+(`TimeWarp.fetch`) - dereference a singleton the same way and would throw the
+same NRE, but they are reached only from per-frame Update paths that no longer
+run once `OnDestroy` has fired, so nothing has ever observed them there and
+widening them now would be a speculative sweep. File them here rather than fix
+them blind: if a future reading run ever prints an NRE from either, the fix is
+one more arm on the same pattern.
+
+**THE FIX UN-SHADOWS ~20 LINES OF TEARDOWN CLEANUP, and that is the part to hold
+in mind when reading the next census.** The NRE did not stop at
+`GetActiveVesselSafe` - it escaped `watchMode.ExitWatchMode()` at
+`ParsekFlight.cs:2183` and Unity abandoned the rest of `OnDestroy`. So in the
+end-inside-watch shape ONLY, everything below that line has never once executed:
+the `InputLockManager.RemoveControlLock` safety net, `vesselGhoster.CleanupAll`,
+`GhostMapPresence.RemoveAllGhostVessels("scene-cleanup")`, the engine camera-event
+unsubscribe, `policy.Dispose` / `engine.Dispose`, the ParsekFlight-local cache
+clears, and `ui.Cleanup`. All of it now runs for the first time, at a moment when
+`FlightGlobals.fetch` is already gone.
+
+CONSEQUENCE FOR THE CENSUS BELOW: a re-measured `unityExceptions` reading may show
+NEW Parsek lines that were never reachable before, and they are NOT a regression
+of this fix - they are newly-reached code meeting an absent `FlightGlobals`. Read
+any new teardown line as a NEW finding on its own call site, not as evidence that
+the NRE catch failed (the catch's own line is Verbose and carries the words
+`FlightGlobals unavailable (scene teardown)`, so the two are trivially told apart).
+`RemoveAllGhostVessels` is the likeliest new speaker and is already the
+best-defended: it wraps each ghost's `Die()` in its own try/catch with a `Warn`,
+inside a `BeginGhostTeardown`/`finally EndGhostTeardown` scope that exists exactly
+because the stock `SpaceTracking` rebuild it triggers can throw during teardown
+(`GhostMapPresence.cs:482`) - so its failure mode is a Warn line, not an escape.
+
+DELIBERATELY NOT GUARDED, observed-first: none of the newly-reached calls got a
+prophylactic try/catch in this pass. `CleanupAll` only `Destroy`s GameObjects and
+touches no KSP singleton; `RemoveAllGhostVessels` is already guarded as above; the
+rest are dictionary clears and event unsubscribes. Wrapping them blind would be
+precisely the speculative sweep declined for the sibling helpers one paragraph up,
+and would pre-empt the very reading that would tell us which of them actually
+speaks. If a census does surface one, fix THAT call site.
+
+FUTURE WORK, NOT DONE HERE: this removes the one Parsek line from the
+end-inside-watch teardown, which is the precondition for arming an
+`[expectations.unityExceptions] maxTotal` ceiling on the V-family lanes. It is
+NOT sufficient on its own - the 1-vs-5 spread below is four STOCK/MechJeb NREs in
+the same 40 ms window, and the un-shadowed cleanup above can add lines of its own,
+so any ceiling still has to be pinned against a re-measured census (the OLD Parsek
+line should be absent from it; anything new needs classifying before it is
+counted), not against the readings above. Arming is an operator decision after
+that reading run; nothing is armed by this fix.
 
 The ARMED re-flight of the identical shape (`2026-08-08_1642`) read `total=5`,
 which is worth recording because it bounds what a ceiling here would mean: the
@@ -19716,7 +19790,34 @@ The first daily-cadence composition run against merged main (2026-07-19; S1.4 PA
 - ~~**S0.5-live-record-discard residue (genuine seam-adjacent defect).**~~ StartRecording's quickload-resume OnSave writes ACTIVE-tree sidecars (`.prec`/`.pann`/`_ghost.craft`) to disk; the shared discard core (`AutoDiscardActiveTreeCore`) is in-memory-only by design, so DiscardTree left an orphaned `9007aaaa.prec` behind, and with the store at zero `CleanOrphanFiles`' zero-known safety guard preserves it FOREVER. Fix: `DiscardTreeImpl` captures the tree's recordings pre-teardown and reaps sidecars for ids absent from the post-discard `BuildKnownRecordingIds()` set (pure `SelectDiscardReapRecordings` decider; the known-id guard keeps a committed-restore clone, which shares its committed original's id, from ever deleting the original's files). Per the Fable review, the reap additionally skips entirely (pure `DiscardReapSkipReason`, logged) while a Re-Fly session marker or merge journal is active or an active-tree restore is in progress: in those load shapes the restored active tree holds the ONLY copy of the original mission's recordings (RewindInvoker removes the committed tree before the restore pops it to active), so their ids are legitimately unknown while their files are still the durable committed data. Initial forensics theory (auto-record firing before the SetSetting pin) was DISPROVED by the timeline: SetSetting landed before OnFlightReady, no auto-record fired.
 - Watch item (not reproduced): H5's first invocation red `recordings.count 0 < min 272` - the injected corpus did not hydrate on the first staged launch but did on the solo re-run. Flake ledger will catch recurrence.
 
-**OPEN (gameplay-path sibling of the S0.5 leak):** normal-gameplay discard paths (merge-dialog Discard, scene-exit no-op auto-discard, pre-switch Discard) share the same in-memory-only core, so a player discard with an otherwise-empty store strands the quickload-resume sidecars permanently (zero-known guard refuses cleanup; with any committed recording present the next-load orphan sweep QUARANTINES them - `CleanOrphanFiles` moves sidecars aside, it never hard-deletes - so impact is the empty-store case only). Fix belongs at `AutoDiscardActiveTreeWithMessage` with the same known-ids guard AND, mandatorily, the same Re-Fly/merge-journal/restore-in-progress skip gate the seam reap carries (`DiscardReapSkipReason`): in the restored-committed-tree load shapes the active tree holds the only copy of committed recordings whose ids are absent from the known set, and a gameplay-path reap without that gate would permanently destroy committed mission data (Fable review of PR #1328, finding 1). Needs its own reviewed PR since it adds file deletion to a shared gameplay path.
+~~**OPEN (gameplay-path sibling of the S0.5 leak):**~~ **FIXED, branch `discard-sidecar-reap`.** Normal-gameplay discard paths shared the same in-memory-only core, so a player discard with an otherwise-empty store stranded the quickload-resume sidecars permanently (zero-known guard refuses cleanup; with any committed recording present the next-load orphan sweep QUARANTINES them - `CleanOrphanFiles` moves sidecars aside, it never hard-deletes - so impact is the empty-store case only).
+
+**Discard-path inventory (the reason the fix landed at exactly one site).** Only the ACTIVE-TREE teardown was leaking; every other discard family already deleted its own sidecars:
+
+| Path | Route | Verdict before the fix |
+| --- | --- | --- |
+| Idle-on-pad scene-exit fast path | `AutoDiscardIdleActiveTree` -> `AutoDiscardActiveTreeCore` | LEAKED |
+| Scene-exit no-op switch segment (Standalone) | `SceneExitInterceptor.TryAutoDiscardNoOpSwitchSegment` -> `AutoDiscardNoOpStandaloneSwitchSegment` -> core | LEAKED |
+| Scene-exit no-op switch segment (CommittedRestoreClone) | -> `DiscardActiveSwitchSegmentAttemptRevertingLiveClone` -> scoped discard (deletes owned ids) + core teardown of the clone | scoped half OK; clone teardown LEAKED |
+| No-session committed-resume revert | `AutoDiscardNoOpNoSessionCommittedResume` -> `AutoDiscardActiveTreeWithMessage` -> core | LEAKED |
+| Pre-switch Discard, Case A | `MapFocusObjectOnSelectPatch.DiscardPriorAndSwitchTo` -> `DiscardActiveSwitchSegmentAttemptRevertingLiveClone` | scoped half OK; clone teardown LEAKED |
+| Pre-switch Discard, Case B/C (no session) | `DiscardActiveRecordingAndSwitchTo` -> `AutoDiscardActiveTreeWithMessage` -> core | LEAKED |
+| Merge-dialog Discard, scoped switch-segment branch | `MergeDiscardRanToCompletion` -> `RecordingStore.TryDiscardActiveSwitchSegmentAttempt` | already deletes (`DeleteRecordingFiles` per owned id) |
+| Merge-dialog Discard, whole-pending-tree fallback | `ParsekScenario.DiscardPendingTreeAndRecalculate` -> `RecordingStore.DiscardPendingTree` | already deletes (skips committed-overlap ids) |
+| Merge-dialog Discard, Re-Fly branch | `TryDiscardActiveReFlyAttempt` -> `DeleteAttemptRecordingFiles` | already deletes |
+| M-A2 `DiscardTree` test-command verb | `DiscardTreeImpl` | already reaps (the S0.5 fix) |
+| Load-time zombie-provisional sweep | `LoadTimeSweep.RemoveDiscardRecordings` | memory-only, but `CleanOrphanFiles` quarantines the residue in the SAME load pass - covered; listed for completeness |
+| Suppressed scene-exit commit | `DiscardActiveTreeForSuppressedSceneExit` | out of scope by design, and the review verified this stronger than originally claimed: there is NO plain-gameplay caller. Every consumer arms the scene-exit commit suppression for a Re-Fly / restore load shape - exactly the shapes the skip gate would refuse anyway |
+
+**Fix.** New shared `DiscardSidecarReap` (`Source/Parsek/DiscardSidecarReap.cs`) owns the pure known-ids guard (`SelectReapRecordings`), the pure load-shape gate (`SkipReason`), the pre-teardown snapshot (`CaptureTreeRecordings`) and the production reap (`ReapDiscardedTreeSidecars`, one Info batch summary per discard). `AutoDiscardActiveTreeCore` samples both inputs BEFORE the teardown and reaps AFTER it, so `BuildKnownRecordingIds()` is the authority on what survives; the reap is explicit-id only, never a directory sweep, and the sweeper's zero-known guard is untouched. The mandatory Re-Fly / merge-journal / restore-in-progress skip gate is carried unchanged (Fable review of PR #1328, finding 1): in the restored-committed-tree load shapes the active tree holds the only copy of committed recordings whose ids are absent from the known set. Both halves are try/catch-wrapped and fail CLOSED (two of the callers run inside Harmony prefixes, where a throw aborts the scene transition / the menu click). `TestCommandRecordingVerbs.SelectDiscardReapRecordings` / `DiscardReapSkipReason` are now thin aliases over the shared deciders so the harness path and the gameplay paths cannot drift; `DiscardTreeImpl` opts out of the shared reap (`reapSidecars: false`) because it owns its own and the S0.5 spec pins its summary line verbatim.
+
+**What the reap actually unlinks.** `RecordingStore.DeleteRecordingFiles` covers SEVEN files under `Parsek/Recordings/` (`.prec`, `.pann`, `_vessel.craft`, `_ghost.craft` and the three readable `.txt` mirrors) PLUS, when the recording carries one, its per-recording quickload-resume save at `Parsek/Saves/<RewindSaveFileName>.sfs`. That last limb is NOT a Rewind-to-Separation quicksave: those live under `Parsek/RewindPoints/`, are built by a different path builder (`BuildRewindPointRelativePath`) and are reaped by `RewindPointReaper`; this reap never touches them.
+
+**Truthful `failed=` (review SHOULD-FIX 2).** `DeleteRecordingFiles` swallows each per-file exception (logging its own Warn) rather than throwing, so a `try`/`catch` around the call could never observe a locked file and the summary would have printed `reaped=N failed=0` for a delete that left files behind. It now RETURNS whether every limb it attempted completed (per-file failures still swallowed, so no caller's teardown can be aborted; existing callers ignore the value), and the reap counts a `false` as `Failed` with its own Warn. A failed recording keeps its orphan until a future discard-with-known-ids - the pre-fix status quo - and the batch continues.
+
+**Recorded conscious decision - the `TryRestoreActiveTreeNode` window (review INFO).** Between an active-tree restore completing and the tree being re-committed, the restored tree's recording ids are in NO known surface (not committed flat, not committed trees, not pending). A DELIBERATE player discard inside that window therefore hard-deletes the only copy of those files, where `CleanOrphanFiles` would merely have quarantined them. Accepted: the automatic paths into that window are proven unreachable (`restoringActiveTree` is the third skip-gate disjunct, and the Re-Fly / merge-journal disjuncts cover the surrounding load shapes), and a player who chooses Discard there is asking for the flight to be thrown away. Noted because the quarantine-vs-delete policy difference against the sweeper is a real asymmetry, not because a defect is suspected.
+
+**Pinned by** `DiscardSidecarReapTests` (33 cells). Coverage is honestly split: the 5x `Theory` drives the production reap directly, once per leaking path, using that path's exact `reason` literal - it proves the reap behaves correctly under each path's inputs, NOT that the path reaches it. That each path reaches it rests on the source gates (capture-precedes-teardown, reap-follows-teardown, both halves wrapped, skip gate sampled, and a repo-wide scan proving no caller under `Source/Parsek` opts out). Plus: both known-ids-guard shapes (flat `CommittedRecordings` AND `committedTrees`-only, so dropping either union arm reds), the three skip reasons + precedence, the locked-file degrade and its `DeleteRecordingFiles` return-value pin, the defence-in-depth throw containment, the quickload-resume-save limb with a RewindPoints quicksave left untouched, invalid-id refusal (two traversal-shaped ids - an invalid-filename-char id would validate under Mono and red on the ubuntu CI run), and the never-a-directory-sweep contract.
 
 ## Re-Fly leaked post-rewind pending science into the merge [FIXED, branch `fix-refly-pending-science`]
 
@@ -20697,7 +20798,7 @@ Every Tier 1 merge-queue item below LANDED on `main` (verified 2026-07-11 via `g
 ### Tier 3 - LATER: verification + hygiene
 - **Validation debt (the real bottleneck)** - code-complete-but-in-game-unconfirmed fixes, clustering onto ~4-5 playtest sessions: (1) career-economy (Rec-1 #1242 gate PASSED in-game 2026-07-08; still open: career-freeze milestone-storm, contract-discard-desync, OnMainMenuTransition); (2) looped re-aim descent-render (reaim-descent cluster, arc truncation, M-MIS-2 P4, cross-SOI encounter observation); (3) eccentric-target Eeloo/Moho constant pinning (M-MIS-3) - BEHAVIOURAL HALF CLOSED 2026-08-15: the band is now WALKED in flight (three departures accept outside the base band, deepest 0.1550 vs a 0.0600 base), so what remains is only the constant-pinning judgement on `EccGain` / `MaxHalfWidthFraction`, not a validation debt - see M-MIS-3-BAND-COMPUTED-NOT-EXERCISED; (4) cross-parent station resupply (M4c); (5) in-game test-runner camera-survival batch. KSP cannot run headless, so this is playtest-bound.
 - **M-MIS-10 archetype verification sweep** - constellation deploy / booster flyback / off-Kerbin launch / claw couples / Elcano; cheap verify-and-file, no known break.
-- **Remove `MapRenderWarpControl`** temporary debug aid once re-aim descent-render is signed off.
+- ~~**Remove `MapRenderWarpControl`** temporary debug aid once re-aim descent-render is signed off.~~ DONE 2026-08-29 (release-hygiene, R5 item 1), per the aid's own removal-recipe banner: `Source/Parsek/MapRenderWarpControl.cs` + `Source/Parsek.Tests/MapRenderWarpControlTests.cs` deleted; the sole `RegisterWatchWindow` caller removed from `GhostPlaybackLogic.ResolveTrackingStationSampleUT`; its now-callerless helper `Reaim.DescentTrigger.DescentWindowEndLiveUT` + the two `DescentTriggerTests` cells deleted; the `DebugFlags` class in `ParsekConfig.cs` deleted (`MapRenderWarpEnabled` was its only member); the aid's how-to section removed from `.claude/CLAUDE.md` and `AGENTS.md`. NO CHANGELOG entry, per the banner (never a shipping feature). Nothing in `harness/` or `scripts/` gated on it - the four surviving mentions in LIVE docs are prose only (`autotest-status.md` V3C row, `design-autotest-render-composition.md`, `harness/scenarios/V3C-flight-arrival-companion.toml`, `harness/missions/lib/test_v1_map_dwell.py`), each naming it as the MOLD for a hypothetical future zone-relax aid, so they are kept as historical record rather than rewritten. Four more sit in the ARCHIVED `docs/dev/done/todo-and-known-bugs-v7.md` and are correctly untouched - an archive records what was true when it was written.
 - ~~**Doc hygiene** - flip the stale "In progress - Forward trajectory rendering" header (shipped 0.10.2) + add SHIPPED markers to roadmap §19.4 M3/M4.~~ DONE (verified 2026-07-11): roadmap §19.4 already marks M1-M5 SHIPPED and no "In progress / Forward trajectory rendering" header remains in the roadmap or this file.
 - **Deferred re-aim solver follow-ups** - ~~M-MIS-2 S4 re-stitch (product-decision-gated)~~ SHIPPED (PR #1263 `reaim-s4-restitch` + sign fix #1279); leg-less-chain forward-run gap remains (low-severity polish). (`SolveArrivalWindow` wiring SHIPPED on branch `mmis4-solve-arrival-window` - see the M-MIS-4 entry.)
 
@@ -20895,13 +20996,53 @@ Three optional follow-ups from the retroactive Fable review of PR #1302 (the INV
 - ~~**F2 - INV9 unparsable-rewind-save FAIL path unit test.**~~ DONE (2026-07-12). The only file-state FAIL in the rule (rewind save present on disk but not parseable as a ConfigNode) was untested; added `Inv9RewindPointTests.UnparsableRewindSave_Fails`, which writes a whitespace-only `.sfs` at the referenced `Parsek/Saves/<id>.sfs` (KSP's `ConfigNode.Load` returns null on it, which the rule reads as unparsable -> FAIL).
 - ~~**F3 - RecordingSectionDump output out of the triaged save.**~~ DONE (2026-07-12). `RecordingSectionDump` wrote `<save>/analysis/<id>.sectiondump.txt` INSIDE the save under triage. The default now routes to the analyzer results-dir convention via `ResolveResultsDir()` (precedence: `PARSEK_DUMP_RESULTS`, else `PARSEK_ANALYZER_RESULTS`, else `AppContext.BaseDirectory/section-dumps` = the test output dir), so the tool never writes into a save and is literally read-only over saves. Header docs updated.
 
-## TODO - Ensure with markDirty:false mutates committed recordings in memory on optimizer analysis passes (filed 2026-07-13, pre-existing class)
+## ~~TODO - Ensure with markDirty:false mutates committed recordings in memory on optimizer analysis passes (filed 2026-07-13, pre-existing class)~~
 
-`RecordingOptimizer.FindSplitCandidatesForOptimizer` (RecordingOptimizer.cs ~594) walks committed recordings and calls `EnsureCheckpointSectionsForTopLevelOrbitSegments` with `markDirty: false`; the bridge can add/clip/reconcile sections in memory there, so the in-memory model silently diverges from disk until the next write. Pre-existing hazard class (the pre-#1304 Ensure already added/clipped at this site); the #1304 reconcile pass widened the mutation set. Benign today (mutations are payload-preserving and converge at the next write), but a strictly read-only analysis pass should not mutate. Candidate fix: an analysis-only Ensure mode, or compute candidates on a copy. Not fixed in #1304 (scope).
+~~`RecordingOptimizer.FindSplitCandidatesForOptimizer` (RecordingOptimizer.cs ~594) walks committed recordings and calls `EnsureCheckpointSectionsForTopLevelOrbitSegments` with `markDirty: false`; the bridge can add/clip/reconcile sections in memory there, so the in-memory model silently diverges from disk until the next write.~~ **DONE (2026-08-29, branch `ensure-pass-integrity`).**
 
-## TODO - Section-index-keyed .pann annotations can desync when Ensure shifts section indices (filed 2026-07-13, pre-existing class)
+**Mechanism confirmed.** Reproduced headlessly: two physical sections with a gap between them plus one flat `OrbitSegment` covering the gap. `FindSplitCandidatesForOptimizer` promotes the segment into an `OrbitalCheckpoint` section, appends it at the tail, re-sorts the list - and left `FilesDirty == false`. The mutated model then lived only in RAM until some unrelated later write persisted a state nobody chose. `EnsurePassIntegrityTests.AnalysisPass_WhenEnsureMutatesSections_MarksRecordingDirty` fails on `origin/main` at exactly that assertion.
 
-`SectionAnnotationStore` keys splines/outlier-flags/anchor-candidates by (recordingId, sectionIndex); freshness gates on (SidecarEpoch, formatVersion, configHash) and out-of-band sidecar writes deliberately do not bump the epoch (bug #290 note in RecordingSidecarStore.cs ~1159). Any Ensure pass that removes/inserts/re-sorts sections (pre-existing: `ClipExistingCheckpointSectionsAgainstPhysicalSections`, `EnsureTrackSectionsSorted`; new in #1304: the empty-shell reconcile and newest-wins clip) shifts later sections' indices while in-memory annotations survive (only `SmoothingPipeline.RemoveRecording` invalidates), so a spline computed for old index k can apply to a different section. Candidate fix: key annotations by section identity (startUT) or invalidate the recording's annotations whenever Ensure reports Changed. Not fixed in #1304 (scope).
+**Fix: make Ensure honest at the site (shape (b)).** The analysis-pass call now runs `markDirty: true`. The bridge already dirties only when it actually mutated, and `RecordingStore.RunOptimizationPass` already ends in `FlushDirtyFiles`, so the normalization the pass performed is the state written, in the same pass, with a log line naming it (`Optimizer: FindSplitCandidatesForOptimizer: normalization Ensure mutated N of M committed recordings (ordinalShifts=K)`). Ensure is idempotent, so the split pass's while-loop reports no mutation on its second and later iterations and dirties nothing; a recording Ensure does not touch stays byte-clean.
+
+Supporting change: `OrbitSegmentCheckpointBridgeStats` gained `Resorted` (previously a bridge-local `sorted` bool that never reached the caller, which is why `Changed` under-reported a pure re-sort - the trap already documented at `RecordingOptimizer.SplitAtUT`) plus two derived predicates, `AnyMutation` (`Changed || Resorted > 0` - the honest "memory no longer matches disk" signal) and `SectionOrdinalsShifted` (consumed by the `.pann` containment below). `Changed`'s definition is unmoved, so the cells pinned to it are unmoved. The `RecordingStore` wrapper's Verbose line now fires on `AnyMutation` and carries `resorted=` / `markDirty=`.
+
+**Rejected alternative: compute candidates on a COPY.** The returned `(recordingIndex, sectionIndex)` pairs are consumed by `RecordingOptimizer.SplitAtSection`, which reads `original.TrackSections[sectionIndex].startUT` off the LIVE list *before* running its own Ensure and re-anchoring. An index computed against a post-Ensure copy while the live recording stayed pre-Ensure would name a different section there and seed the re-anchor from the wrong UT, so the copy shape also requires changing `SplitAtSection`'s contract to take a UT - a materially larger change through the split pipeline for no correctness gain. (Cost was not the blocker: the bridge never mutates an existing `frames`/`checkpoints` list in place, so a shallow `new List<TrackSection>(...)` would have sufficed, as `SplitAtUT`'s own snapshot already relies on.) The other rejected shape, an "analysis-only Ensure mode" that skips the mutating passes, would make the analysis pass evaluate boundaries on a section list that is NOT the one the split then operates on - the same divergence, moved.
+
+Audit of the other `markDirty: false` sites: the two sidecar READ seams (`TrajectorySidecarBinary.Read`, `TrajectoryTextSidecarCodec.DeserializeTrajectoryFrom`) already pass `true`; the two WRITE seams pass `false` correctly (the file being written carries the mutation); `SplitAtSection`'s caller sets `FilesDirty = true` unconditionally; `SplitAtUT` deliberately snapshots and restores on its guarded returns. `FindSplitCandidatesForOptimizer` was the only dishonest one.
+
+## ~~TODO - Section-index-keyed .pann annotations can desync when Ensure shifts section indices (filed 2026-07-13, pre-existing class)~~
+
+~~`SectionAnnotationStore` keys splines/outlier-flags/anchor-candidates by (recordingId, sectionIndex); freshness gates on (SidecarEpoch, formatVersion, configHash) and out-of-band sidecar writes deliberately do not bump the epoch (bug #290 note in RecordingSidecarStore.cs ~1159). Any Ensure pass that removes/inserts/re-sorts sections shifts later sections' indices while in-memory annotations survive, so a spline computed for old index k can apply to a different section.~~ **DONE (2026-08-29, branch `ensure-pass-integrity`).**
+
+**Mechanism confirmed.** Same fixture: a spline (plus outlier flags and anchor candidates) filed at section index 1, which named the physical section `[200,300]`. After the promotion + re-sort, index 1 names the freshly promoted checkpoint section `[100,200]` and the physical section is at index 2 - while the annotations sat unmoved at index 1. `EnsurePassIntegrityTests.Ensure_ShiftingSectionOrdinals_InvalidatesSectionAnnotations` fails on `origin/main` with the ordinal-move assertions passing and the annotation-count assertion failing (1, expected 0), i.e. the desync is demonstrated, not assumed. Consumers that would eat it: `ParsekFlight` ghost positioning, `AnchorPropagator`, `RenderSessionState` - all keyed `(recordingId, sectionIndex)`.
+
+**Schema reasoning for `.pann` (the question the fix hinged on).** `.pann` does NOT ride `RecordingStore.IsRecordingSchemaCompatible`. That gate is the `.prec`/recording contract (format version + schema generation). `.pann` is a regenerable derived cache with its OWN five-field key - `PannotationsBinaryVersion`, `AlgorithmStampVersion`, `SourceSidecarEpoch`, `SourceRecordingFormatVersion`, configuration hash, plus a recording-id check - and its own invalidation lever: `SmoothingPipeline.ClassifyDrift` discards and recomputes on any drift. So a key-format change would NOT need a recording-generation bump (the big hammer); it would need an `AlgorithmStampVersion` bump, which is exactly what that constant is for. The generation bump therefore was NOT the reason to reject re-keying.
+
+**Rejected alternative: re-key annotations by section identity (startUT).** Two reasons, neither of them the schema. (1) `startUT` is not a section identity in this model - the bridge's own clip passes REPLACE checkpoint sections with clones carrying different `startUT`s, and the optimizer splitter cuts sections at arbitrary UTs, so a startUT key is stable only for the physical `Absolute` sections that happen to be the ones annotated today; the moment the annotated set widens, the "stable" key moves again. There is no stable section id to use instead. (2) It is disproportionate for a regenerable cache: it changes the on-disk `SmoothingSplineList` / `OutlierFlagsList` / `AnchorCandidatesList` entry layout (int ordinal -> double UT), the reader, the writer, the caps/validation, every consumer, and the `Inv7bAnnotationStale` analyzer rule - and it buys nothing invalidation does not, because the annotations are refit from the recording in one pass.
+
+**Fix: invalidate on ordinal shift, keyed off bug 1's changed-flag.** `OrbitSegmentCheckpointBridge.InvalidateSectionAnnotationsForOrdinalShift` drops the recording's splines, outlier flags and anchor candidates (`SectionAnnotationStore.RemoveRecording`) whenever a pass reports `SectionOrdinalsShifted`, at both `Ensure` exits and on the live `TryAppendClosedCheckpointSection` path (which runs the same clip / reconcile / re-sort machinery). It is per-recording scoped, is a no-op when the recording has no annotations (so the common case costs a handful of dictionary probes and logs nothing), and emits a grep-stable `Pipeline-Smoothing: Section annotations invalidated (section-index-shift)` Verbose line otherwise.
+
+**Both ordinal-keyed stores are dropped together.** `RenderSessionState.Anchors` is keyed by the SAME `(recordingId, sectionIndex, side)` ordinal and is POPULATED FROM the anchor candidates in `SectionAnnotationStore` (`AnchorPropagator.Run`), and it had no per-recording removal - only wholesale scene / marker clears. Dropping only the candidates would have been worse than the bug: a live Re-Fly session publishes ε for section k, an optimizer pass re-sorts, the spline falls back to raw lerp while the stale ε for a DIFFERENT section keeps being applied every frame at the flight positioning site - before the fix, spline and ε were at least consistently stale together. New `RenderSessionState.RemoveRecording(id)` (returns the anchor count and also clears that recording's per-session Pipeline-Lerp / priority-resolution dedup marks) is called from the same invalidation and its count rides the same log line as `sessionAnchors=`. Cells: `Ensure_ShiftingSectionOrdinals_AlsoClearsResolvedSessionAnchors` (with a sibling recording proving the scoping), `Ensure_ShiftingSectionOrdinals_ClearsAnchorsEvenWithNoPannAnnotations`, `Ensure_NoSectionChange_KeepsResolvedSessionAnchors`.
+
+**Two false-invalidation vectors the containment had to avoid - both clustered in the Re-Fly window.** (1) `RecordingTreeRecordCodec` serializes the pre-Re-Fly anchor snapshot through `TrajectoryTextSidecarCodec.SerializeTrajectoryInto`, whose Ensure runs over a SYNTHETIC recording that shares the real recording's id (`Recording.BuildPreReFlyAnchorTrajectoryRecording`) while carrying a different section list - a shift there would have dropped the REAL recording's annotations, and that path writes a ConfigNode rather than a sidecar so no `PersistAfterCommit` refit follows it. Fixed with a `[NonSerialized] Recording.IsDetachedSyntheticSnapshot` flag set by the builder and honoured by the invalidation; `PreReFlyAnchorSnapshotRecording_IsFlaggedDetachedSynthetic` pins the production builder so the guard cannot decay into a fixture-only bool. Any future synthetic id-sharing Recording pushed through the codecs must set the same flag. (2) `RecordingOptimizer.SplitAtUT` runs Ensure only to inspect the normalized list and restores the pre-Ensure sections byte-identically on its guarded returns; a drop there is unrecoverable (`RemoveRecording` is destructive) and unrefittable (no rewrite behind it). That call now passes `invalidateSectionAnnotations: false` - an opt-out that exists for exactly this caller shape - and the COMMITTED path takes the drop explicitly after `SplitAtSection` lands, since the cut itself renumbers the head and both halves are dirtied by the callers. Cell: `Ensure_WithInvalidationSuppressed_StillNormalizesButKeepsAnnotations`. The opt-out is FENCED by a source gate (`EnsureInvalidationOptOutGateTests`): it walks `Source/Parsek` and reds unless `invalidateSectionAnnotations: false` has exactly one production caller, in `RecordingOptimizer.cs`, and that file still names the explicit committed-path invalidation. A second caller almost certainly does not restore, and would silently re-open the desync - the gate looks so a reviewer does not have to know to.
+
+**Two notes for whoever reads this next.** (1) `Recording.IsDetachedSyntheticSnapshot` is `[NonSerialized]`, but that attribute is DOCUMENTATION here, not the guarantee: `Recording` is persisted by explicit named-field codecs (`RecordingTreeRecordCodec` and friends), not by a reflective serializer, so a field is out of the save format because no codec writes it - the attribute only says so out loud. Adding the field to a codec would leak a transient into the schema; do not. (2) The H5 / `Inv10` write-seam walk and any other diagnostic that runs Ensure over a real recording can now drop that recording's derived annotations as a side effect. That is the safe direction (a regenerable cache is rebuilt at the next fit) and it is expected to show up in harness logs as `Section annotations invalidated (section-index-shift)` lines - not a defect signal on its own.
+
+**Also walked, benign, deliberately not wired:** `RecordingOptimizer.MergeInto` (concatenates the absorbed recording's sections onto the target, so nothing preceding them is renumbered - and the target is dirtied and flushed by the merge pass) and `SplitAtUT`'s synthetic-boundary insert (reached only inside the committed path above, which now invalidates once at the end). This entry is about the BRIDGE's passes; it is not a claim that no other code can renumber sections.
+
+`SectionOrdinalsShifted` is deliberately NARROWER than `AnyMutation` in both directions: `SkippedCovered` only rebuilds the flat orbit cache and never touches the section list, and `Added` alone cannot shift an ordinal because promotion APPENDS - a chronologically-trailing promotion leaves every existing index in place, and an out-of-order one is caught by `Resorted`. To make that measurable rather than assumed, the append path now calls `EnsureTrackSectionsSorted` (same comparator, same outcome, but it REPORTS whether it had to sort) instead of `SortTrackSections`. `Clipped` still over-approximates (it also counts candidate-side clipping, which replaces nothing in the list); erring toward invalidation is the safe direction for a regenerable cache. Anti-over-invalidation is pinned by four cells (`Ensure_NoSectionChange_KeepsSectionAnnotations`, `Ensure_TrailingPromotionWithoutResort_KeepsSectionAnnotations`, `Append_InOrderTailAppend_KeepsSectionAnnotations`, `Ensure_Invalidation_IsScopedToTheMutatedRecording`).
+
+**Scope of the containment, stated rather than implied.** The invalidation is the IN-MEMORY half. It cannot cover the LOAD seam, and that route is still open in a bounded form: at load, `TrajectorySidecarBinary.Read`'s Ensure can shift ordinals while the annotation store is still EMPTY (so the invalidation early-returns with nothing to drop), and `SmoothingPipeline.LoadOrCompute` then accepts the pre-shift `.pann` because `ClassifyDrift` compares six fields and none of them is section-derived. Pre-existing, and bounded by the flush-and-refit that bug 1's fix now guarantees later in the same `OnLoad`. Hardened, not closed: `LoadOrCompute` now refuses any entry whose ordinal is out of range for the recording's CURRENT section list (`IsInstallableSectionIndex`, half-open `[0, Count)`, applied to splines, candidates and outlier flags alike) and emits a `Pipeline-Sidecar` Warn `reason=section-index-out-of-range` naming the drop count - HR-9, never swallow a staleness signal the cache key cannot express. **Residual, accepted:** an IN-RANGE renumber at the load seam still installs stale annotations for the window between the load-path install and the flush-and-refit later in the same `OnLoad`. Detecting that needs a section-derived cache-key field (e.g. a section-list digest in the `.pann` header), which is a `.pann` schema change with its own `AlgorithmStampVersion` bump - out of scope here, and worth doing only if the window is ever shown to matter. Cells: `PannotationsOrdinalBoundsTests.LoadOrCompute_OrdinalPastEndOfSectionList_IsNotInstalled`, `..._AllOrdinalsInRange_InstallsEverythingAndDoesNotWarn`, `IsInstallableSectionIndex_BoundsAreHalfOpen`.
+
+**One comparator for the section sort.** `SortTrackSections` duplicated `CompareTrackSections` as an inline lambda while `EnsureTrackSectionsSorted` CHECKED with the named one. Now that a re-sort dirties, flushes and invalidates, a drift between those two would mean every pass reads an already-sorted list as unsorted: `Resorted=1` forever, so every load would rewrite and re-invalidate every recording. `SortTrackSections` now calls `CompareTrackSections` directly. `Ensure_SortIsStableAcrossPasses_SoResortDoesNotPingPong` drives a deliberately disordered fixture and asserts three repeat passes report `Resorted=0` and no mutation.
+
+**The two fixes compose.** Dropped annotations are refit by the next `SmoothingPipeline.FitAndStorePerSection`, and bug 1's `markDirty: true` guarantees the optimizer pass that shifted the ordinals flushes the recording in the same pass -> `SaveRecordingFiles` -> `PersistAfterCommit` -> refit. So the optimizer route is self-healing within one pass; any other route degrades to the legacy lerp path (correct-but-coarser) until the next load or commit, which is strictly better than applying a mis-indexed spline plus a mis-indexed ε. No migration path was added and no schema generation was bumped: the on-disk `.pann` key format is unchanged, and every `.pann` write is preceded by a refit, so files stay consistent.
+
+## TODO - RunOptimizationPass's FlushDirtyFiles bumps SidecarEpoch outside OnSave (observed 2026-08-29 while fixing the Ensure-pass integrity pair, NOT fixed - pre-existing, out of scope)
+
+`RecordingStore.RunOptimizationPass` ends in `FlushDirtyFiles`, which calls `SaveRecordingFiles(rec)` with the default `incrementEpoch: true`. That is an OUT-OF-BAND write (the pass runs inside `ParsekScenario.OnLoad`'s `loadPhase = "optimization"`, and from the commit paths - never from `OnSave`), so it advances the `.prec`'s epoch while the on-disk `.sfs` still carries the previous one. `RecordingSidecarStore.SaveRecordingFiles`'s own bug-#270/#290 comment states the opposite rule for exactly this case: *"On out-of-band writes (incrementEpoch=false): preserve the current epoch so the .prec matches the last OnSave's .sfs. Without this, BgRecorder and scene-exit force-writes would advance the epoch independently, causing false-positive staleness on quickload (bug #290)."* If no save follows the load (load -> quit to desktop), the next cold load hydrates `rec.SidecarEpoch` from the stale `.sfs`, `ShouldSkipStaleSidecar` sees `.prec` one ahead, and the trajectory sidecar is rejected - permanently, since the `.sfs` never catches up.
+
+Reached routinely today, not by anything new: `TrajectorySidecarBinary.Read` already runs the checkpoint bridge's Ensure with `markDirty: true` during load, so any recording needing normalization is already dirty and already flushed-with-a-bump before anything else runs. The `markDirty: true` flip in `FindSplitCandidatesForOptimizer` adds exactly ONE narrow delta on top of that: the empty-shell reconcile the read seam deliberately gates off, i.e. the c1/s15-era double-cover population. A pure re-sort is NOT a second delta - on main the bridge's dirty gate was already `markDirty && (stats.Changed || sorted)`, so a re-sort-only pass always dirtied; the `Changed`-only gate was the `RecordingStore` wrapper's LOG gate, which the `Resorted` / `AnyMutation` work fixed. That was an observability gap, not a persistence one, and it changes the flushed population by nothing. Deliberately left alone here: flipping `FlushDirtyFiles` to `incrementEpoch: false` is the obvious fix and matches the documented rule, but it changes the freshness contract for the quicksave-then-optimize-then-quickload path for every recording, which wants its own change with its own repro rather than riding a bridge-integrity PR. Fix when picked up: pass `incrementEpoch: false` from `FlushDirtyFiles`, with a cell proving a load-then-quit cycle leaves `.sfs` and `.prec` epochs equal.
 
 ## TODO - Looped re-aim interplanetary transfer: no continuous encounter into the destination SOI; line dead-ends in open space (investigated 2026-06-15, NOT fixed - regression-sensitive, deferred)
 
@@ -21035,11 +21176,82 @@ ZERO raises on any lane; V7T's `icon-off-orbit` red is its own documented findin
 
 **Sighting 3 (2026-08-11, V8T-eve-ts-arrival reading run `2026-08-11_0835` attempt 1, branch `eve-loop-lanes`) - a THIRD lane, same shape, mitigation present.** The Eve TS lane's first outing died identically: every step met through the re-kill pair, then the TS `LoadGame` (step 13) `verdict=REJECTED`, run `INVALID(driver-verdict-mismatch)`, retry-once absorbed it (`_0836` attempt 2 PASS, every step met, clean sweep). Artifacts: `harness/results/2026-08-11_0835_V8T-eve-ts-arrival.json` + the collected `logs/2026-08-11_1136_V8T-eve-ts-arrival/` folder. This corroborates the ~1-in-4 nondeterminism estimate on a THIRD fixture (eve-orbit-recorded) and a third spec carrying the documented mitigation; recorded per V6T's contract (a corroboration, not a re-diagnosis).
 
-## TS-FLUSHED-SAVE-DROPS-DEBRIS-TERMINALSTATE - a save written from the TRACKING STATION scene loses the `terminalState` keys on Destroyed (debris) recordings (measured 2026-08-11, branch `eve-loop-lanes`; REPORT-ONLY observation, filed not fixed)
+## ~~TS-FLUSHED-SAVE-DROPS-DEBRIS-TERMINALSTATE~~ CLOSED 2026-08-29 - the loss is neither TS-specific nor a codec fault: it is the OnLoad in-session `tree-mutable-state` reset retracting the post-spawn terminal verdict with nothing below it to restore the verdict (branch `ts-save-terminalstate`)
+
+### CLOSED (2026-08-29). The established mechanism, off the archived logs
+
+**Not the TS write, not the TS load, not the codec - the FLIGHT-exit reset/restore PAIR in `ParsekScenario.OnLoad`.** Three archived V8T runs (`logs/2026-08-11_1548`, `_1549`, `_1550`, all `.../saves/eve-orbit-recorded/persistent.sfs`) reproduce the measurement byte-for-byte on disk: 9 `recordingId` rows, 2 `terminalState` keys, both `= 0` (Orbiting), the six `= 4` (Destroyed) rows absent.
+
+**The paired control is same-commit, same-day, and it compares per-recording-id rather than per-histogram** (found during review; this is the strongest form of the evidence). `logs/2026-08-11_1543_V8-eve-player-loop` and `_1547_V8-eve-player-loop` are FLIGHT-only runs of the SAME fixture that never change scene, and both produced saves carry 9 recordings with 8 `terminalState` keys. Diffing the two populations by id, the rows the TS run drops are exactly these six, all at `terminalState = 4`, all named `Kerbal X Debris`:
+
+```
+7d373f22d0a04ff2a58d43bbcca47757   0b4193a0540e4fa7af9890fe4ba5c10d   2f3bf43348534202b226afbb6ae00ce9
+c5403bf4a1144815bfa0d8691e38a587   fbc705e91fcd4b5a8176cf5493807a0b   8eda6186afcd46db81551ada10dcef9a
+```
+
+They match the six clear lines below one-for-one, and they are reused verbatim as the fixture ids in the xUnit cells, so the tests and the archived bytes name the same objects. The same folders carry the smoking gun, six lines, one per debris recording, inside the TRACKSTATION OnLoad:
+
+```
+15:48:25.467 [Parsek][VERBOSE][Scenario] Clearing post-spawn terminal state Destroyed for tree recording 'Kerbal X Debris'   (x6)
+```
+
+That literal comes from exactly one call site - `ParsekScenario.cs` `loadPhase = "tree-mutable-state"`, `ClearPostSpawnTerminalState(recordings[i], "tree recording")` - and it fires with `isRevert=False` (`[#14][OnLoad:revert-decided=N]`, one line earlier). Reading the surrounding evidence in order:
+
+- The committed store is NOT reloaded on this branch: `Scene change - preserving 9 session recordings`, and the only `LoadRecordingFrom: id=... terminal=Destroyed` lines in the whole log are the FLIGHT cold boot four seconds earlier. So the codec never re-runs and cannot re-supply the field.
+- The TS route's own `GamePersistence.SaveGame` (`Game State Saved to saves/eve-orbit-recorded/persistent`) runs with **no** `OnSave: saving 9 committed recordings` line before it - it serialises the disk game's scenario protos, so it is a faithful copy of the FLIGHT save and drops nothing.
+- The loss is therefore already in memory when the TS `FlushAndQuit` OnSave runs, and `RecordingTreeRecordCodec.SaveRecordingInto` gates the key on `rec.TerminalStateValue.HasValue` - hence an ABSENT key rather than a wrong value, exactly as measured.
+
+**Why the reset was lossy and the restore was not.** The reset exists for Revert: the launch quicksave has no `RECORDING_TREE` nodes, so the reset is the only thing that runs and the retraction is correct (the spawn was undone). On every other in-session load - scene change, quickload - the `tree-state-restore` loop below it re-reads the saved `RECORDING` node and puts back `spawnedPid`, `VesselSpawned`, `lastResIdx` and (since BUG-C) the terminal-abandon fields. It never put back `terminalState`, because that key lives in the STRUCTURAL half of the codec, which this branch never re-runs. Same shape as BUG-C, one field later.
+
+**Not TS-specific.** Any non-revert scene change out of FLIGHT with spawned committed recordings loses it - TRACKSTATION, SPACECENTER, and FLIGHT->FLIGHT quickload alike. The FLIGHT-flushed sibling lane looked clean only because it never changes scene before flushing. V5/V6T/V7T would show the same drop.
+
+### Fix
+
+`ClearPostSpawnTerminalState` now returns whether it actually retracted a verdict; the reset loop collects those recording ids into `clearedPostSpawnTerminalIds`, and the restore loop calls the new `RestoreClearedPostSpawnTerminalState(rec, savedTreeRecNode, clearedPostSpawnTerminalIds, ...)` beside `RestorePersistedTerminalAbandon`, re-stamping the verdict from the same authoritative saved node. Three deliberate narrowings:
+
+1. **Scoped to the ids THIS pass retracted**, never to "the node has a verdict" - so a verdict retracted on purpose elsewhere (the `RecordingOptimizer.SplitAtUT` HEAD carve-out, whose terminal is nulled while its crew end states stay) can never be re-stamped from a node that predates the retraction.
+2. **Gated off the revert branch** (`if (!isRevert)`), so the fix is provably zero-delta for revert, where the retraction is the intended outcome. See the follow-on entry below for the unmeasured question that gate parks.
+3. **A saved node with no `terminalState` key leaves the recording cleared** and consumes the id - the quickload-to-before-the-stamp case, where null IS the save-point truth. An unparseable / out-of-range value warns and stays in the residue rather than reading as a legitimate null.
+
+The residue is reported once per load, naming `isRevert` and `savedTreeNodes.Length` so the expected revert case reads differently from a data-loss case.
+
+**The one loss shape that remains, and why it is the designed answer.** A cleared id can reach the end of the restore loop having met no saved node at all - `savedTreeNodes` empty, the recording absent from the loaded save, or its tree node skipped as the active / pending marker. The archived logs prove the memory and node populations are independent (`memoryRecordings=9, savedRecNodes=0, savedTreeRecs=9` on the cold-load leg), so the reachable player shape is an **F9 quickload onto an OLDER quicksave** - one taken before the recording existed or before its verdict was stamped. There, staying cleared is CORRECT: the save point genuinely predates the verdict, and re-stamping from nothing would invent one. The verdict is therefore permanently retracted by design, and the once-per-load residue line is the evidence. Recorded as a decision, not an oversight, and covered by `ClearedIdThatMeetsNoSavedNode_StaysClearedByDesign_AndRemainsInTheResidue`.
+
+**A THIRD copy of the retraction existed and is now shared.** `RecordingStore.ResetRecordingPlaybackFields` (the rewind / revert `ResetAllPlaybackState` path) inlined a byte-identical `VesselSpawned && (Destroyed || Recovered)` predicate with its own `[Rewind]` log line and no restore leg. This PR is provably zero-delta there - that path nulls the verdict before anything could enter the OnLoad id set - but two copies of one retraction rule is one too many when only one of them grew a restore. It now calls the shared `ParsekScenario.ClearPostSpawnTerminalState` (context `rewind reset '<name>' (id=<id>)`), so the predicate can no longer drift. Two deliberate consequences, both accepted: the line moves from `[Rewind]` to `[Scenario]`, and it no longer honours `RecordingStore.SuppressLogging` - a retraction is a state transition and CLAUDE.md says those get logged; the volume is bounded by the number of spawned-and-terminal recordings, which is small. The missing restore leg on THAT path is the follow-on entry below.
+
+**No schema-generation bump**: nothing about what is serialized changed. `terminalState` is written and read by the same unchanged codec branches (`RecordingTreeRecordCodec.SaveRecordingInto` / `LoadRecordingFrom`); the fix only stops an in-memory field from being nulled without repair, so a save written before or after this change parses identically.
+
+### What is pinned, and the residual
+
+Two files, and it matters which proves what - the first version of this entry over-claimed that the behavioural cells "replay OnLoad", and they do not.
+
+**Behaviour** - `Source/Parsek.Tests/SceneChangeTerminalStatePreservationTests.cs`, 12 cells. They prove exactly two things, both against real production code: the CODEC's `HasValue` gate (a retracted verdict is written as an ABSENT key, and the absence round-trips - the shape measured on the produced-save bytes), and the COMPOSITION of the two helpers (the clear reports what it retracted; the restore puts back exactly that, from a node the real codec authored) under every disposition - headline preservation, codec round-trip, the two scoping cells (split-HEAD carve-out, survived-the-reset Orbiting), the revert gate driven both ways as a `[Theory]`, the three stays-cleared cells (no key / no saved node at all / corrupt), out-of-range with its own Warn assertion, and null-argument hygiene. They are NOT a replay of OnLoad: the reset helper reproduces the reset loop's verdict statements only, and the restore LOOP is not reproduced at all. Negative control: stubbing the restore's stamp reds the headline cell and the codec round-trip cell.
+
+**Wiring** - `Source/Parsek.Tests/SceneChangeTerminalStateWiringGateTests.cs`, 6 cells, in the `SoiSeamProducerWiringGateTests` style: read the source, strip BOTH comment forms (a block comment around the call is one of the unwirings), brace-match the OnLoad body, then assert over that scope only - substring pins plus a walk of each site's enclosing BLOCK HEADERS, so an extra wrapper or a moved loop shows as a changed chain or a changed depth. Headers are whitespace-collapsed, so re-indenting or joining lines cannot false-red it. **Gate-bite measured against all five unwirings that previously left the whole suite green:** `.Clear()` between the loops -> `NothingWipesOrRebindsTheSetBetweenTheTwoLegs`; block-commenting the restore call -> `RestoreRunsInsideTheSavedNodeMatchLoop_GatedOffRevert` + `TheSetIsFilledBeforeItIsConsumed...`; renaming the `GetNodes("RECORDING")` lookup -> `RestoreReadsTheSavedRecordingNodesByTheirRealNames`; a dead outer gate on the restore block -> `RestoreRunsInside...` (chain gains an entry); hoisting the capture past the consumption -> `TheSetIsFilledBeforeItIsConsumed...` + `ResetLoopCapturesTheIdsItRetracted`. (The naive hoist of the DECLARATION does not even compile - CS0841 - so the compiler covers that form.)
+
+**Residual, stated plainly:** OnLoad cannot be executed headlessly, so "which branch runs" is still unproven by any cell. What IS now proven mechanically is that the two legs exist, in that order, at the right depths, reachable, reading the right node names, with nothing emptying the set between them.
+
+**Regression-catching lane:** any armed TS lane whose structure block pins the terminal map - V8T-eve-ts-arrival is the one that measured it, with V5 / V6T / V7T (Duna/moon TS arrivals) on the same path. Their `[expectations.recordings.structure]` blocks pin `committedTrees`/`trees` today, which this bug does not move; arming `terminalStates` on a TS lane is now safe and would red on a recurrence.
+
+### Original report (2026-08-11, `eve-loop-lanes`) - kept verbatim
 
 **The measurement, off two sibling lanes on the same fixture and same day.** V8-eve-player-loop's produced save (FlushAndQuit from FLIGHT) carries the fixture's full terminal map: 9 recordings, `terminalStates {Orbiting 2, Destroyed 6}` (saveParse observed on every V8 run, e.g. `2026-08-11_0802`). V8T-eve-ts-arrival's produced save (mid-run SaveGame in FLIGHT, then a TRACKSTATION re-boot, then FlushAndQuit FROM the TS) carries `terminalStates {Orbiting 2}` with the six Destroyed keys ABSENT - verified on the produced-save bytes directly (9 `RECORDING` nodes, terminal histogram `{0: 2}`, six debris rows with NO `terminalState` key at all), not just through the parser. RE-VERIFIABILITY NOTE (post-review): the byte-level check was performed on the live produced save at harvest time and that save has since been overwritten (PASS runs collect nothing), so it is not re-runnable; the DURABLE evidence is the archived parser record - `terminalStates {"Orbiting": 2}` with 9 recordings in the _0836/_0843 result JSONs vs `{Orbiting 2, Destroyed 6}` in every FLIGHT-flushed sibling run - plus the TS OnSave line `saving 9 committed recordings` at `_0836` a2 KSP.log:12114.
 
 **Why it matters.** `terminalState` is how a committed recording's outcome is classified everywhere downstream (the Recordings table, `TerminalKindClassifier`, the RECORDED_FIXTURES pins). A PLAYER who visits the tracking station and quits gets the same TS-path save, so debris classifications in a real save can silently degrade to unclassified. Unknown (deliberately not chased here): whether the drop round-trips destructively (does a later FLIGHT load + save restore the keys from sidecars, or are they gone for good?), and whether the mechanism is the TS route's augmented-game persist (`loadgame trackstation route: persisted augmented game`), the TS scenario rehydration skipping debris terminal fields, or the OnSave path itself. V5/V6T/V7T (the Duna/moon TS lanes, flying since 2026-08-08) would show the same drop if it is general - their observed structure facets were never compared against their fixtures' maps, so this was present-but-unnoticed. NOT gated anywhere: V8T's armed structure block pins committedTrees/trees, which are unaffected; gating the terminal map on a TS lane would gate on this bug.
+
+*(Answered above: none of the three candidate mechanisms was it - the TS route's persist is a faithful proto copy that never runs ParsekScenario.OnSave, and there is no TS rehydration at all because the store is preserved in memory. And "TS" was a red herring: the drop is on every non-revert scene change out of FLIGHT.)*
+
+## REVERT-BLANKET-CLEARS-PRE-FLIGHT-TERMINAL - Revert AND Rewind may retract a genuine PRE-flight terminal verdict, not just the stale post-spawn one, with no restore leg on either path (noticed 2026-08-29 while fixing TS-FLUSHED-SAVE-DROPS-DEBRIS-TERMINALSTATE; NOT measured, filed rather than chased)
+
+**The observation, from reading the code the TS fix touches.** `ParsekScenario.OnLoad`'s `tree-mutable-state` reset calls `ClearPostSpawnTerminalState` on every committed tree recording on EVERY in-session load, revert included. Its rationale is revert-shaped and correct as far as it goes: "the spawn is undone, so a verdict the SPAWNED vessel earned is stale". But the predicate it actually applies is `VesselSpawned && (Destroyed || Recovered)` - it cannot tell a verdict earned DURING the reverted flight from one the recording already carried BEFORE it. A recording that was spawned in an earlier session and destroyed then, still carrying `VesselSpawned=true` and `Destroyed` at the moment the reverted flight launched, is retracted by the same blanket clear, and on the revert branch nothing restores it.
+
+**TWO paths, one shape.** The same unrestorable retraction runs on the REWIND / revert `ResetAllPlaybackState` path via `RecordingStore.ResetRecordingPlaybackFields`, which sweeps ALL committed recordings and (as of the TS fix) shares the very same `ClearPostSpawnTerminalState` seam - deliberately, so the predicate cannot drift, but that path has no restore leg of any kind and no saved node in hand to build one from. Whatever is decided for Revert has to be decided for Rewind too; do not fix one and leave the other.
+
+**Why the TS fix does not cover either, on purpose.** The restore added there is gated `if (!isRevert)` and lives in the OnLoad restore loop, so revert behaviour is unchanged by that PR and the rewind path is untouched - deliberately, because both are delicate and neither case was ever measured. The comment at the OnLoad call site names this entry.
+
+**Why the obvious fix is not obviously right.** The reset's block comment asserts "on revert, the launch quicksave has no tree nodes so this reset is the only thing that runs". That may be stale: `SaveTreeRecordings` writes a `RECORDING_TREE` node for every committed tree on every OnSave, so a launch quicksave taken with committed trees present SHOULD carry those nodes - and the sibling `tree-state-restore` loop already treats them as authoritative on revert (it restores `spawnedPid` / `VesselSpawned` / `lastResIdx` / the BUG-C abandon fields from them, on the revert branch too). If that is right, simply dropping the `!isRevert` gate would restore each verdict to what the revert TARGET save says, which is the correct post-revert answer in both directions - the genuine pre-flight verdict comes back, and a verdict earned during the reverted flight stays cleared because the target save predates it.
+
+**What to establish before touching it** (do not re-derive from scratch): (1) does a launch / revert-target quicksave actually carry `RECORDING_TREE` nodes with `terminalState` keys - read one off disk rather than trusting the comment; (2) does anything gate re-spawn eligibility on `TerminalStateValue` such that restoring `Destroyed` after a revert would suppress a spawn that should happen; (3) what the REWIND path could restore from, given it holds no saved node - the rewind quicksave is the obvious candidate and is already read for the pid whitelist; (4) whether the block comment needs correcting either way. The headless seam is already in place - `ParsekScenario.RestoreClearedPostSpawnTerminalState` plus the `ApplyResetLeg` helper in `SceneChangeTerminalStatePreservationTests` - so the Revert half is one gate removal plus cells once (1), (2) and (4) are answered; the Rewind half needs a source for the truth first.
 
 ## REAIM-TILT-NOOP-AT-EELOO-6.15-DEG - the tilt-RETENTION branch is still unexercised at the highest stock inclination below Moho, because the synthesized conic came in BELOW the bound (measured 2026-08-13, branch `eeloo-loop-lanes`, four green V12A-eeloo-loop-arrival runs; NOT a defect, and NOT a widening of the tilt plan's claim scope)
 
@@ -22147,12 +22359,68 @@ Action blocking catches paradoxes at the moment the player tries to violate them
 ## 160. Log spam: remaining sources after ComputeTotal removal
 
 After removing ResourceBudget.ComputeTotal logging (52% of output), remaining spam sources:
-- GhostVisual HIERARCHY/DIAG dumps (~344 lines per session, rate-limited per-key but burst on build)
-- GhostVisual per-part cloning details (~370 lines)
-- Flight "applied heat level Cold" (46 lines, logs no-change steady state)
-- RecordingStore SerializeTrackSections per-recording verbose (184 lines)
-- KSCSpawn "Spawn not needed" at INFO level (54 lines)
-- BgRecorder CheckpointAllVessels checkpointed=0 at INFO (15 lines)
+- ~~GhostVisual HIERARCHY/DIAG dumps (~344 lines per session, rate-limited per-key but burst on build)~~
+- ~~GhostVisual per-part cloning details (~370 lines)~~
+- Flight "applied heat level Cold" (46 lines, logs no-change steady state) - **BLOCKED BY PIN**
+- ~~RecordingStore SerializeTrackSections per-recording verbose (184 lines)~~
+- ~~KSCSpawn "Spawn not needed" at INFO level (54 lines)~~
+- ~~BgRecorder CheckpointAllVessels checkpointed=0 at INFO (15 lines)~~ - was already fixed
+
+**2026-08-29 update (release-hygiene, R5 item 3): four of the six named sources
+cut, one blocked by a harness pin, one already fixed years-stale.** Taken one at
+a time, because the reason differs per source and only the first two were the
+same defect:
+
+1. **GhostVisual HIERARCHY dump - FIXED.** `DumpTransformHierarchy` emitted one
+   rate-limited line PER TRANSFORM inside an unbounded recursive walk, which is
+   exactly what the batch-counting convention forbids. It is now
+   `AppendTransformHierarchy`, building the tree into a `StringBuilder` that
+   `LogEnginePartHierarchyDump` emits as ONE line
+   (`... N transforms [depth:name[components](INACTIVE)] 0:part | 1:model | ...`).
+   Nothing is lost: same nodes, same components, same INACTIVE marking, one line
+   per engine part per 60 s window instead of one per node.
+2. **GhostVisual per-part cloning details - FIXED, one line's worth.** Read
+   against the code, the per-part lines are ALREADY convention-shaped: `part_summary_`,
+   `clone_summary_`, the variant lines and the skip counters are each one
+   rate-limited line per part carrying loop-accumulated counters. The one
+   genuine duplicate was the second `[DIAG] part '<name>' modelRoot ...` line,
+   whose localRot / localPos / localScale the `part_summary_` line was already
+   half-carrying (modelRoot name + modelScale); it is folded into that line, so a
+   part costs one line here instead of two. NOT touched: the counter summaries -
+   collapsing those would delete measurements, not spam.
+3. **Flight "applied heat level" - BLOCKED BY PIN, deliberately unchanged.** It is
+   a REQUIRED `logContracts` token in the committed
+   `harness/scenarios/S1.9-part-showcase-render.toml`
+   (`"Part pid=[0-9]+: applied heat level (?:Hot|Medium|Cold)"`), and that spec's
+   own header explains why it is load-bearing: the part-event applier is almost
+   entirely silent, so this line is one of only two per-family apply proofs the
+   product emits at all. The obvious fix (change-key it so a no-change steady
+   state stops repeating) also risks the pin in a second way - `VerboseOnChange`'s
+   identity dict is not cleared on scene switch, so the first post-re-entry
+   application can be dropped, which is precisely the emit S1.9 waits for. Cutting
+   it therefore needs the S1.9 lane re-read first; it is not a two-line change and
+   was not attempted here.
+4. **RecordingStore SerializeTrackSections - FIXED.** The per-section
+   `writing source=... (non-default)` Verbose is collected into a list and emitted
+   as one summary after the loop (`wrote N sections, M with a non-default source:
+   [1] source=Background, ...`), so a save costs one line instead of M. The
+   existing `SerializeTrajectoryInto_BackgroundFixture_LogsSingleSectionSummary`
+   cell passes unchanged (it asserts a single line carrying `source=Background`,
+   which is now literally what the method's name says), plus two new cells in
+   `TrackSectionSerializationTests` for the many-source collapse and the
+   all-default silence.
+5. **KSCSpawn "Spawn not needed" - FIXED.** Info -> Verbose. It is the ORDINARY
+   outcome for every past-end recording the KSC scene walks, i.e. diagnostic
+   detail rather than an event; the spawn-needed paths beside it stay Info. Not
+   pinned anywhere in `harness/` or `scripts/`; the KSCSpawn xUnit assertions
+   target a different helper (`LogPlaybackDisabledPastEndSpawnAttemptOnce`).
+6. **BgRecorder CheckpointAllVessels checkpointed=0 - ALREADY FIXED, entry was
+   stale.** Bug #592 (see the 2026-04-25 update below) already moved it off Info
+   onto `VerboseRateLimited` keyed by the SHAPE of the result
+   (`checkpoint-all-{checkpointed}-{skippedNotOrbital}-{skippedNoVessel}-{skippedDuplicateBoundary}`),
+   so identical no-op summaries during a warp burst collapse while a change in
+   counts still surfaces. Nothing to do; the bullet above is struck for accuracy,
+   not for work done in this pass.
 
 2026-04-25 update: deferred spawn queue outside-physics-bubble waits are no longer
 a spam source; the per-recording kept line and repeated warp-ended summary were
@@ -22207,7 +22475,10 @@ section above.
 
 **Priority:** Deferred to Phase 11.5 (Recording Optimization & Observability)
 
-**Status:** Open
+**Status:** Open on ONE named source only - the heat-level line (item 3 in the
+2026-08-29 update), which is blocked behind an S1.9 harness pin and needs that
+lane re-read before it can move. The other five named sources are closed. The
+broader audit work stays with the Observability Audit section above.
 
 ---
 

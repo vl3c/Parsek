@@ -4832,19 +4832,17 @@ namespace Parsek
             // If the vessel had spawned, any terminal state change (Recovered/Destroyed)
             // was on the spawned real vessel, not the recording. Clear it so the recording
             // can spawn again after revert/rewind.
-            if (rec.VesselSpawned && rec.TerminalStateValue.HasValue)
-            {
-                var ts = rec.TerminalStateValue.Value;
-                if (ts == TerminalState.Recovered || ts == TerminalState.Destroyed)
-                {
-                    if (!SuppressLogging)
-                        ParsekLog.Verbose("Rewind",
-                            $"Clearing post-spawn terminal state {ts} for '{rec.VesselName}' (id={rec.RecordingId})");
-                    // Retraction: crew end states from the original flight are kept
-                    // (see KerbalsModule.InvalidateCrewEndStatesForTerminalStamp).
-                    rec.StampTerminalState(null, "ResetRecordingPlaybackFields");
-                }
-            }
+            //
+            // This used to inline a byte-identical copy of the predicate that
+            // ParsekScenario.ClearPostSpawnTerminalState applies. Two copies of one
+            // retraction rule is one copy too many — the TS-FLUSHED-SAVE-DROPS-DEBRIS-
+            // TERMINALSTATE work added a restore leg beside the OTHER copy, and a
+            // divergence here would be invisible. Route through the shared seam so this
+            // path inherits any future change to what counts as a post-spawn verdict.
+            // (Unlike the OnLoad copy, this rewind/revert path has NO restore leg — see
+            // REVERT-BLANKET-CLEARS-PRE-FLIGHT-TERMINAL.)
+            ParsekScenario.ClearPostSpawnTerminalState(
+                rec, $"rewind reset '{rec.VesselName}' (id={rec.RecordingId})");
 
             rec.VesselSpawned = false;
             rec.VesselDestroyed = false;
@@ -6520,13 +6518,17 @@ namespace Parsek
             Recording rec,
             bool markDirty,
             string context,
-            bool reconcileEmptySections = true)
+            bool reconcileEmptySections = true,
+            bool invalidateSectionAnnotations = true)
         {
             OrbitSegmentCheckpointBridgeStats stats =
                 OrbitSegmentCheckpointBridge.EnsureCheckpointSectionsForTopLevelOrbitSegments(
-                    rec, markDirty, reconcileEmptySections);
+                    rec, markDirty, reconcileEmptySections, invalidateSectionAnnotations);
 
-            if (stats.Changed && !SuppressLogging)
+            // AnyMutation, not Changed: a pure-re-sort pass leaves Changed false while
+            // still renumbering sections and wiping CachedStats, and that is exactly
+            // the mutation a markDirty:false caller has to know about.
+            if (stats.AnyMutation && !SuppressLogging)
             {
                 // reconcile=on/off distinguishes "empty-shell pass gated off (read
                 // seam)" from "ran and found nothing" - both print
@@ -6538,6 +6540,7 @@ namespace Parsek
                     $"skippedAfterPredicted={stats.SkippedAfterPredicted} " +
                     $"skippedCovered={stats.SkippedCovered} clipped={stats.Clipped} " +
                     $"reconciledEmptySections={stats.ReconciledEmptySections} " +
+                    $"resorted={stats.Resorted} markDirty={(markDirty ? "on" : "off")} " +
                     $"reconcile={(reconcileEmptySections ? "on" : "off")}");
             }
 

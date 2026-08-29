@@ -6,39 +6,66 @@ namespace Parsek
 {
     public static partial class RecordingStore
     {
-        internal static void DeleteRecordingFiles(Recording rec)
+        /// <summary>
+        /// Unlinks a recording's whole on-disk footprint: the seven sidecar files
+        /// (<c>.prec</c>, <c>.pann</c>, <c>_vessel.craft</c>, <c>_ghost.craft</c> and the
+        /// three readable mirrors) PLUS, when the recording carries one, its
+        /// per-recording quickload-resume save at <c>Parsek/Saves/&lt;name&gt;.sfs</c>
+        /// (distinct from the Rewind-to-Separation quicksaves under
+        /// <c>Parsek/RewindPoints/</c>, which have their own builder and reaper).
+        ///
+        /// <para>Returns <c>true</c> when every limb it attempted completed - i.e.
+        /// nothing was left behind. Returns <c>false</c> when the recording was
+        /// unusable (null / invalid id) or when at least one file could not be
+        /// unlinked (locked by KSP or an antivirus); each such failure also logs its
+        /// own Warn from <see cref="DeleteFileIfExists"/>. Per-file failures are still
+        /// swallowed rather than thrown, so a partial delete never aborts a caller's
+        /// teardown - the return value exists so callers that report a batch summary
+        /// (<see cref="DiscardSidecarReap"/>) can count truthfully instead of assuming
+        /// success. Callers that do not report may ignore it.</para>
+        /// </summary>
+        internal static bool DeleteRecordingFiles(Recording rec)
         {
             if (rec == null)
             {
                 ParsekLog.Verbose("RecordingStore", "DeleteRecordingFiles called with null recording");
-                return;
+                return false;
             }
             if (!RecordingPaths.ValidateRecordingId(rec.RecordingId))
             {
                 ParsekLog.Warn("RecordingStore", $"DeleteRecordingFiles skipped: invalid recording id '{rec.RecordingId}'");
-                return;
+                return false;
             }
 
             ParsekLog.Verbose("RecordingStore",
                 $"DeleteRecordingFiles: id={rec.RecordingId} vessel='{rec.VesselName}' rewindSave={rec.RewindSaveFileName ?? "(none)"}");
 
-            DeleteFileIfExists(RecordingPaths.BuildTrajectoryRelativePath(rec.RecordingId));
-            DeleteFileIfExists(RecordingPaths.BuildVesselSnapshotRelativePath(rec.RecordingId));
-            DeleteFileIfExists(RecordingPaths.BuildGhostSnapshotRelativePath(rec.RecordingId));
+            bool allDeleted = true;
+            allDeleted &= DeleteFileIfExists(RecordingPaths.BuildTrajectoryRelativePath(rec.RecordingId));
+            allDeleted &= DeleteFileIfExists(RecordingPaths.BuildVesselSnapshotRelativePath(rec.RecordingId));
+            allDeleted &= DeleteFileIfExists(RecordingPaths.BuildGhostSnapshotRelativePath(rec.RecordingId));
             // .pann annotation sidecar (design doc §17.3.1): regenerable cache,
             // but a stale file left behind after a recording is deleted could
             // be mis-cached against a future same-id recovery. Belongs in the
             // delete-path AND in RecordingFileSuffixes for orphan cleanup.
-            DeleteFileIfExists(RecordingPaths.BuildAnnotationsRelativePath(rec.RecordingId));
-            DeleteFileIfExists(RecordingPaths.BuildReadableTrajectoryMirrorRelativePath(rec.RecordingId));
-            DeleteFileIfExists(RecordingPaths.BuildReadableVesselSnapshotMirrorRelativePath(rec.RecordingId));
-            DeleteFileIfExists(RecordingPaths.BuildReadableGhostSnapshotMirrorRelativePath(rec.RecordingId));
+            allDeleted &= DeleteFileIfExists(RecordingPaths.BuildAnnotationsRelativePath(rec.RecordingId));
+            allDeleted &= DeleteFileIfExists(RecordingPaths.BuildReadableTrajectoryMirrorRelativePath(rec.RecordingId));
+            allDeleted &= DeleteFileIfExists(RecordingPaths.BuildReadableVesselSnapshotMirrorRelativePath(rec.RecordingId));
+            allDeleted &= DeleteFileIfExists(RecordingPaths.BuildReadableGhostSnapshotMirrorRelativePath(rec.RecordingId));
 
             if (!string.IsNullOrEmpty(rec.RewindSaveFileName))
-                DeleteFileIfExists(RecordingPaths.BuildRewindSaveRelativePath(rec.RewindSaveFileName));
+                allDeleted &= DeleteFileIfExists(RecordingPaths.BuildRewindSaveRelativePath(rec.RewindSaveFileName));
+
+            return allDeleted;
         }
 
-        private static void DeleteFileIfExists(string relativePath)
+        /// <summary>
+        /// Unlinks one save-scoped file. Returns false ONLY when the delete threw (the
+        /// file is still there); a file that does not exist, or a path that cannot be
+        /// resolved because there is no save context, counts as nothing-left-behind and
+        /// returns true.
+        /// </summary>
+        private static bool DeleteFileIfExists(string relativePath)
         {
             try
             {
@@ -48,10 +75,12 @@ namespace Parsek
                     File.Delete(absolutePath);
                     ParsekLog.Verbose("RecordingStore", $"Deleted file: {relativePath}");
                 }
+                return true;
             }
             catch (Exception ex)
             {
                 ParsekLog.Warn("RecordingStore", $"Failed to delete file '{relativePath}': {ex.Message}");
+                return false;
             }
         }
 
