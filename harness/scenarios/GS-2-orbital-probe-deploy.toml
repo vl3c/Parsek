@@ -324,6 +324,14 @@ siblingVesselName = "Kerbal X Probe"
 # `auto-merge`        <- the same token, whose branch predicate
 #                        `ShouldSilentFullFidelityCommit` requires isAutoMerge, plus
 #                        the pinned `autoMerge=true` on the exit start line.
+#                        STATUS 2026-08-29: that predicate was REPLACED by
+#                        `ParsekScenario.ClassifyAutoCommitFidelity` (branch
+#                        `limbo-fidelity`) and deleted. Nothing here moves - this
+#                        lane commits a FINALIZED tree, whose route and
+#                        `Silent full-fidelity auto-commit` token are unchanged,
+#                        and isAutoMerge is still the first conjunct. The name
+#                        above is pre-fix history; the live question is the
+#                        classifier's three-way answer.
 # NOT claimed: `auto-record-launch` (nothing launches; the trigger is the explicit
 # StartRecording seam verb, for which the registry has no value).
 D1 = ["commit-scene-exit", "auto-merge"]

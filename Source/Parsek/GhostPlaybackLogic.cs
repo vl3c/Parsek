@@ -7154,6 +7154,63 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Maps a snapshot's <c>sit</c> value (a KSP <c>Vessel.Situations</c> NAME, which
+        /// is what <c>ProtoVessel.Save</c> writes) to the <see cref="TerminalState"/> the
+        /// finalize path would have stamped for that situation. Returns false when the
+        /// value is missing or is not a situation this build knows.
+        ///
+        /// <para><b>This table is a MIRROR of
+        /// <c>RecordingTree.DetermineTerminalState(int)</c> and must not drift from it.</b>
+        /// That method is the one the Finalized route runs, keyed by the situation's
+        /// integer value; this one is keyed by the NAME because an un-finalized recording
+        /// has no live vessel left to ask — only its snapshot. The tie is enforced
+        /// MECHANICALLY rather than by this comment:
+        /// <c>SpawnSafetyNetTests.SituationNameMapping_MirrorsDetermineTerminalState</c>
+        /// walks every <c>Vessel.Situations</c> value and asserts the two agree, so adding
+        /// a situation to one and not the other reds. The int-keyed method additionally
+        /// Warn-logs its unknown default; this one stays silent and returns false, because
+        /// it is called from a per-frame spawn predicate.</para>
+        ///
+        /// <para>The caller decides what an unmappable value means.
+        /// <see cref="ShouldSpawnAtRecordingEnd"/> treats it as NO EVIDENCE and leaves
+        /// its answer unchanged — see the scope-boundary comment there. Note this
+        /// differs from the int-keyed method, which Warn-logs and defaults unknown to
+        /// <c>SubOrbital</c>; it has a live vessel and so a real reading to fall back
+        /// on, where an absent snapshot field is the absence of a reading.</para>
+        /// </summary>
+        internal static bool TryMapSituationNameToTerminalState(
+            string situationName, out TerminalState terminal)
+        {
+            terminal = TerminalState.SubOrbital;
+            if (string.IsNullOrEmpty(situationName))
+                return false;
+
+            switch (situationName.Trim().ToUpperInvariant())
+            {
+                case "ORBITING":
+                    terminal = TerminalState.Orbiting;
+                    return true;
+                case "LANDED":
+                case "PRELAUNCH":
+                    terminal = TerminalState.Landed;
+                    return true;
+                case "SPLASHED":
+                    terminal = TerminalState.Splashed;
+                    return true;
+                case "FLYING":
+                case "SUB_ORBITAL":
+                case "ESCAPING":
+                    terminal = TerminalState.SubOrbital;
+                    return true;
+                case "DOCKED":
+                    terminal = TerminalState.Docked;
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        /// <summary>
         /// Pure decision logic for whether a recording's vessel should be spawned
         /// at the end of its ghost playback (the "spawn-at-recording-end" feature).
         /// Extracted from ParsekFlight.UpdateTimelinePlayback for testability.
@@ -7330,6 +7387,56 @@ namespace Parsek
             if (!terminalOverridesUnsafe && IsSnapshotSituationUnsafe(rec.VesselSnapshot))
             {
                 return (false, "snapshot situation unsafe (FLYING/SUB_ORBITAL)");
+            }
+
+            // COMPLETING the check above for un-finalized recordings. The
+            // IsSpawnableTerminal rejection ~30 lines up sits inside
+            // `rec.TerminalStateValue.HasValue`, so a recording with NO terminal state
+            // never reaches it — and the only other situation gate is the one above,
+            // which knows FLYING/SUB_ORBITAL and nothing else. That left ESCAPING and
+            // DOCKED (and an unreadable `sit`) reading as spawnable on the un-finalized
+            // path while the Finalized route ghost-onlys them by design: ESCAPING maps
+            // to SubOrbital, DOCKED to Docked, neither of which IsSpawnableTerminal
+            // admits. Un-finalized recordings became a live population when the
+            // outside-FLIGHT auto-commit started committing Limbo resume-stashes at
+            // fidelity (ParsekScenario.ClassifyAutoCommitFidelity), so the gap is
+            // reachable: an interplanetary probe on an escape trajectory, quickloaded
+            // and then left in FLIGHT, would otherwise be spawn-eligible.
+            //
+            // The snapshot's own situation is the only evidence left of what the
+            // finalize path would have decided, so mirror that decision exactly rather
+            // than inventing a second policy. NOT REACHED for FLYING/SUB_ORBITAL (the
+            // check above already returned, keeping its pinned reason string) — those
+            // stay in the mapping table only so the table is complete and can be
+            // drift-guarded against RecordingTree.DetermineTerminalState.
+            //
+            // This rejects SPAWNING, not the snapshot: the auto-commit's promise is
+            // that a silent commit never DESTROYS a snapshot that exists, not that
+            // every snapshot spawns. A ghost-only'd leaf keeps its GhostVisualSnapshot
+            // and can still be spawned deliberately later.
+            //
+            // DELIBERATE SCOPE BOUNDARY: an ABSENT or unrecognised `sit` is left on
+            // today's behaviour (allowed) rather than tightened to "reject on no
+            // evidence". Every real snapshot carries the field — they are written by
+            // VesselSpawner.TryBackupSnapshot -> ProtoVessel.Save — so the population
+            // without one is synthetic test fixtures, of which 16 cells across 5 files
+            // pin the current answer, `MergeDialogVesselTests.CanPersistVessel_-
+            // NullTerminalState_ReturnsTrue` by name. Tightening it is a separable
+            // change with its own blast radius and no demonstrated reachable case;
+            // folding it in here would flip a named contract as a side effect of a
+            // targeted fix. Pinned as unchanged-by-design by
+            // SpawnSafetyNetTests.UnfinalizedRecording_AbsentSit_IsUnchangedByDesign.
+            if (!rec.TerminalStateValue.HasValue)
+            {
+                TerminalState mirroredTerminal;
+                if (TryMapSituationNameToTerminalState(
+                        rec.VesselSnapshot.GetValue("sit"), out mirroredTerminal)
+                    && !IsSpawnableTerminal(mirroredTerminal))
+                {
+                    return (false,
+                        "unfinalized recording, snapshot situation maps to " +
+                        $"terminal {mirroredTerminal}");
+                }
             }
 
             // PID dedup: if vessel was already spawned (PID recorded), never re-spawn.

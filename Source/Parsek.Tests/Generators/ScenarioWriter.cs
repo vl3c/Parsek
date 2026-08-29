@@ -111,19 +111,30 @@ namespace Parsek.Tests.Generators
             string markerKey = null,
             string activeRecordingId = null)
         {
-            if (builders == null)
-                throw new ArgumentNullException(nameof(builders));
+            var builderList = ValidateTreeBuilders(builders);
+            var tree = MaterializeTree(builderList, activeRecordingId);
+            AddSerializedTree(tree, markerKey);
+            RegisterV3Builders(builderList);
+            return this;
+        }
 
-            var builderList = new List<RecordingBuilder>();
-            foreach (var builder in builders)
-            {
-                if (builder == null)
-                    throw new ArgumentException("Recording tree builders cannot contain null entries.", nameof(builders));
-                builderList.Add(builder);
-            }
-
-            if (builderList.Count == 0)
-                throw new ArgumentException("Recording tree requires at least one builder.", nameof(builders));
+        /// <summary>
+        /// Assembles the in-memory <see cref="RecordingTree"/> that
+        /// <see cref="AddRecordingsAsTree"/> serializes, without serializing it.
+        ///
+        /// <para>Public so a test can assert on the EXACT tree a fixture emits rather
+        /// than on a hand-built lookalike. That distinction has teeth: the tree carries
+        /// no BranchPoints and no <c>ChildBranchPointId</c>, so every recording in it is
+        /// a LEAF by <c>RecordingTree.GetAllLeaves</c> — including a "parent" whose
+        /// children merely name it in <c>ParentRecordingId</c>. A prediction about which
+        /// leaves a fixture makes spawnable is wrong if it assumes otherwise, and
+        /// re-deriving it against a lookalike would reproduce the assumption instead of
+        /// catching it.</para>
+        /// </summary>
+        public static RecordingTree MaterializeTree(
+            IEnumerable<RecordingBuilder> builders, string activeRecordingId = null)
+        {
+            var builderList = ValidateTreeBuilders(builders);
 
             var recordings = new List<Recording>(builderList.Count);
             Recording root = null;
@@ -153,9 +164,27 @@ namespace Parsek.Tests.Generators
                 tree.Recordings[recordings[i].RecordingId] = recordings[i];
             }
 
-            AddSerializedTree(tree, markerKey);
-            RegisterV3Builders(builderList);
-            return this;
+            return tree;
+        }
+
+        private static List<RecordingBuilder> ValidateTreeBuilders(
+            IEnumerable<RecordingBuilder> builders)
+        {
+            if (builders == null)
+                throw new ArgumentNullException(nameof(builders));
+
+            var builderList = new List<RecordingBuilder>();
+            foreach (var builder in builders)
+            {
+                if (builder == null)
+                    throw new ArgumentException("Recording tree builders cannot contain null entries.", nameof(builders));
+                builderList.Add(builder);
+            }
+
+            if (builderList.Count == 0)
+                throw new ArgumentException("Recording tree requires at least one builder.", nameof(builders));
+
+            return builderList;
         }
 
         /// <summary>

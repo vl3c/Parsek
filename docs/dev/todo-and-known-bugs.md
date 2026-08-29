@@ -4074,7 +4074,7 @@ reclaim-refusal AND IO-refusal contracts are verified only on Windows runs; a
 POSIX-equivalent mechanism (injected failing rename / injected failing open)
 remains the upgrade path if anyone wants those dark spots lit.
 
-## AUTOMERGE-ON-BY-DEFAULT: is any player flow reachable that now auto-commits GHOST-ONLY where the dialog used to ask? [RAISED 2026-08-24 by the review panel on the default-flip PR (#1523) as PLAUSIBLE-not-confirmed. OPEN QUESTION, no defect demonstrated. The behaviour itself is by design and predates the flip; what changed is that it is now the DEFAULT answer. **RESTATED 2026-08-28 (branch `ledger-followups`) for the settings-simplification clamp: "on by default" is now "on UNCONDITIONALLY". ADOPTED RESOLUTION: leave the question PINNED, unclosed, awaiting the decisive evidence named below**. **FLOWN 2026-08-29 (branch `automerge-coverage`): the ghost-only commit is DEMONSTRATED LIVE and GREEN-GATED on BOTH the cold and the warm route (`2026-08-29_1025_S0.9` and `2026-08-29_1043_S0.10`, both PASS), with every `VesselSnapshot` destroyed and no dialog, on the warm side through an entrance that requires NO fault at all. The question this entry asks is ANSWERED for reachability; what remains is FREQUENCY. STILL OPEN, because the remedy is a maintainer decision and is deliberately NOT in that branch]
+## AUTOMERGE-ON-BY-DEFAULT: is any player flow reachable that now auto-commits GHOST-ONLY where the dialog used to ask? [RAISED 2026-08-24 by the review panel on the default-flip PR (#1523) as PLAUSIBLE-not-confirmed. OPEN QUESTION, no defect demonstrated. The behaviour itself is by design and predates the flip; what changed is that it is now the DEFAULT answer. **RESTATED 2026-08-28 (branch `ledger-followups`) for the settings-simplification clamp: "on by default" is now "on UNCONDITIONALLY". ADOPTED RESOLUTION: leave the question PINNED, unclosed, awaiting the decisive evidence named below**. **FLOWN 2026-08-29 (branch `automerge-coverage`): the ghost-only commit is DEMONSTRATED LIVE and GREEN-GATED on BOTH the cold and the warm route (`2026-08-29_1025_S0.9` and `2026-08-29_1043_S0.10`, both PASS), with every `VesselSnapshot` destroyed and no dialog, on the warm side through an entrance that requires NO fault at all. The question this entry asks is ANSWERED for reachability; what remains is FREQUENCY. STILL OPEN, because the remedy is a maintainer decision and is deliberately NOT in that branch. **FIXED AND CONFIRMED 2026-08-29 (branch `limbo-fidelity`). A non-re-fly Limbo / LimboVesselSwitch tree now commits at FULL FIDELITY through the dialog's own `MergeDialog.MergeCommit` instead of the snapshot-destroying ghost-only branch. BOTH ROUTES RE-FLOWN GREEN against a hash-verified deploy of the fix's own build — `2026-08-29_1200_S0.9` (cold) and `2026-08-29_1202_S0.10` (warm), both PASS attempt 1, every predicted number exact and the ghost-only token absent from both logs. Everything above and below this bracket is the escalation history the fix was taken against and is left INTACT — see "THE FIX (2026-08-29)" at the end of the entry**]
 
 **The 2026-08-27 settings simplification (#1549) widened this question and invalidated
 half of #1523's scoping argument.** `autoMerge` is now a HIDDEN field with no player-facing
@@ -4369,6 +4369,202 @@ coverage gap recorded on the default-flip entry below - the cell that would exer
 ON path live does not exist~~ **— that cell now exists (`AutoMergeCommit`), so the ON
 path's coverage gap is closed as an ASSET even though neither question yet has a driven
 answer.**
+
+---
+
+**THE FIX (2026-08-29, branch `limbo-fidelity`) — FIDELITY IS PRESERVED, THE DIALOG DOES
+NOT COME BACK.** The remedy the entry left as a maintainer decision was taken against the
+two flight verdicts above, and it is the SECOND of the two options the escalation trigger
+named ("the dialog returns for the NON-re-fly, NON-`Finalized` case specifically, **or
+Limbo trees preserve fidelity instead**").
+
+**The rule, stated once:** a commit that runs with no dialog must never silently DESTROY
+vessel snapshots that exist. `ParsekScenario.ClassifyAutoCommitFidelity` replaces the
+two-way `ShouldSilentFullFidelityCommit` gate with a three-way route, checked in an order
+where each ghost-only justification is a stronger statement than the tree's own state:
+
+| condition (in order) | route | ghost-only reason |
+| --- | --- | --- |
+| `!isAutoMerge` | `GhostOnly` | `not-automerge` |
+| `reFlyActive` | `GhostOnly` | `re-fly-active` |
+| `scene == MAINMENU` | `GhostOnly` | `mainmenu` |
+| `pendingState == Finalized` | `SilentFullFidelity` | — |
+| otherwise (Limbo / LimboVesselSwitch) | `LimboPreservingFullFidelity` | — |
+
+The last row is the change; the three above it are the plan's own carve-outs, untouched.
+**`ShouldSilentFullFidelityCommit` is DELETED**, not kept as a derived helper: it had no
+caller left, and its `false` had become a trap — pre-fix it meant "the ghost-only branch
+runs", post-fix it would mean only "not the FINALIZED route", which is equally true of the
+new fidelity-preserving Limbo route. Every reference to it in this entry and in the two
+spec headers is pre-fix HISTORY; the live question is the classifier's three-way answer.
+Note also that `state=` was RETIRED from the ghost-only reason vocabulary: a tree state can
+no longer send a commit to that branch, so a `reason=state=Limbo` line cannot be emitted
+again.
+
+**Why the same `MergeCommit` rather than a preserve-what-exists variant (the rejected
+alternative).** The conservative shape — run the ghost-only pipeline minus the snapshot
+nulling — was considered and rejected on four counts read out of the code, not preference:
+(1) it forks a THIRD commit implementation against plan P2 ("reuse the dialog's machinery;
+do not fork a second commit"); (2) it would retain snapshots nothing can ever use —
+`ShouldSpawnAtRecordingEnd` rejects a mid-flight `sit=FLYING` capture at spawn time
+regardless — so it buys no fidelity for them, only disk and memory; (3) dropping the null
+pass drops `UnreserveCrewInSnapshot` with it, LEAKING a crew reservation on every
+non-spawnable leaf, and keeping the unreserve while keeping the snapshot is worse still
+(a snapshot whose crew has been released); (4) it does not preserve `GhostVisualSnapshot`
+and does not fire `OnTreeCommitted`, both of which `MergeCommit` does. What made the
+reuse SAFE for un-finalized shapes is that the decision machinery was built for them:
+`ShouldSpawnAtRecordingEnd`'s snapshot-situation check exists for "cases where
+TerminalState is null/Landed but the snapshot was captured mid-flight" (#114) — which is
+exactly a Limbo stash, whose `StashActiveTreeAsPendingLimbo` sets no terminal state and
+captures snapshots deliberately ("belt-and-braces … so the merge dialog can still offer
+respawn"). The two commit cores are already the same call pair
+(`CommitPendingTree` + `MarkTreeAsApplied`), so nothing about the tree's state is newly
+exercised; only its snapshots' disposition changes.
+
+**Why not the dialog.** Dialog-in-`OnLoad` is a known hazard class, and the whole point of
+the `autoMerge` clamp is that commits are silent. Bringing a popup back on this path would
+re-litigate the flip rather than fix the loss.
+
+**New log token, deliberately not a reuse:**
+`Limbo-preserving full-fidelity auto-commit ({context}, state={state}): tree='…'
+recordings=N spawnable=M snapshotsPreserved=P snapshotsReleased=R`. `snapshotsPreserved`
+is the mirror of the ghost-only branch's `snapshotsNulled` — what the commit KEPT where
+the old branch reported what it destroyed. The `Silent full-fidelity auto-commit` line is
+byte-identical to before (the in-game `AutoMergeCommit` cell greps it), and the
+`autocommit-outside-flight … entry` line is untouched.
+
+**Headless proof** (`Source/Parsek.Tests/`): `SilentFullFidelityCommitDecisionTests` now
+enumerates the WHOLE 36-row matrix (autoMerge × 3 states × reFly × 3 scenes) with each
+row's expected route and reason written out rather than checked against an oracle — an
+oracle would be a second copy of the predicate and would agree with it when both are
+wrong. `AutoMergeGhostOnlyReachabilityTests` keeps its ghost-only cost cell as the REPRO
+half (that branch is still reached by the three carve-outs) and adds the fixed behaviour:
+the same disk-restored Limbo tree keeps both snapshots through
+`BuildDefaultVesselDecisions` + `ApplyVesselDecisions`, an unspawnable `sit=FLYING` shape
+is still ghost-only'd WITH its `GhostVisualSnapshot` copied, and a re-fly leak detector
+reds if the fix ever widens into the §10 carve-out. Its cells 2 and 3 FLIPPED: they used
+to assert the ghost-only route for the two non-Finalized states and now assert
+`LimboPreservingFullFidelity`; their reachability claim is unchanged.
+
+**A SECOND GAP THE FIX EXPOSED, and closed with it: null-terminal leaves bypassed the
+spawnable-terminal rejection.** Found in independent review of this branch, and it is a
+consequence of the fix rather than a pre-existing defect anyone could reach — un-finalized
+recordings only became a *committed* population once Limbo stashes started committing at
+fidelity. `GhostPlaybackLogic.ShouldSpawnAtRecordingEnd`'s `IsSpawnableTerminal` rejection
+sits INSIDE `if (rec.TerminalStateValue.HasValue …)`, so a recording with no terminal state
+never reaches it, and the only other situation gate (`IsSnapshotSituationUnsafe`) knows
+FLYING and SUB_ORBITAL. That left **`sit=ESCAPING` and `sit=DOCKED` reading as spawnable**
+where the Finalized route ghost-onlys them by design (`DetermineTerminalState` maps them to
+`SubOrbital` and `Docked`). Concretely: an interplanetary probe on an escape trajectory,
+quickloaded, exited via entrance B — snapshot preserved AND spawn-eligible.
+
+The remedy mirrors the Finalized route instead of inventing a second policy:
+`TryMapSituationNameToTerminalState` sits beside `IsSpawnableTerminal` and maps the
+snapshot's `sit` NAME to the terminal the finalize path would have stamped; a null-terminal
+recording whose mirrored terminal is not spawnable is rejected. The two tables cannot drift
+— `SpawnSafetyNetTests.SituationNameMapping_MirrorsDetermineTerminalState` walks KSP's own
+`Vessel.Situations` enum and asserts they agree, so adding a situation to one and not the
+other reds. **This rejects SPAWNING, not the snapshot**: the fix's promise is that a silent
+commit never DESTROYS a snapshot, not that every snapshot spawns.
+
+Two things worth stating plainly. First, **mitigation, which is why this is a refinement
+rather than a crisis**: the common case was already covered downstream by pid+guid
+adoption, so this narrows a window rather than stopping a live catastrophe. Second, a
+**deliberate scope boundary**: an ABSENT or unrecognised `sit` is left on its pre-fix
+answer (allowed) rather than tightened to "reject on no evidence". Every real snapshot
+carries the field (`VesselSpawner.TryBackupSnapshot` -> `ProtoVessel.Save` writes it), so
+the population without one is synthetic test fixtures — 16 cells across 5 files pin the
+current answer, `MergeDialogVesselTests.CanPersistVessel_NullTerminalState_ReturnsTrue` by
+name. Tightening it is separable, has its own blast radius, and has no demonstrated
+reachable case; folding it in here would flip a named contract as a side effect of a
+targeted fix. Pinned as unchanged-by-design by
+`SpawnSafetyNetTests.UnfinalizedRecording_AbsentSit_IsUnchangedByDesign` so it cannot drift
+either way in silence.
+
+**The harness fixture grew two leaves to match** (`PendingLimboTreeFixture`, four leaves
+now). The original two never exercised the null-terminal branch the fidelity fix depends
+on: the spawnable one carried `WithTerminalState(Orbiting)`, a finalized-SHAPED recording
+inside a Limbo tree, where a real `StashActiveTreeAsPendingLimbo` stamps none. A confirm
+flight over that fixture would have proven the fix on a shape a quickload cannot produce.
+The added `coast` (no terminal, ORBITING) and `escape` (no terminal, ESCAPING) leaves are
+the genuine shape, one per outcome — and the escape leaf is the one whose result DIFFERS
+between a build with the situation gate and one without (`snapshotsPreserved=3
+snapshotsReleased=1` with it, `4` / `0` without), which is what makes the confirm flight
+discriminating rather than merely agreeable. Both specs' predicted numbers are
+machine-checked headlessly by
+`AutoMergeGhostOnlyReachabilityTests.PendingLimboTreeFixture_PredictedCommitNumbers_MatchTheSpecs`,
+which materializes the same tree the injector writes. That cell also caught the first
+draft's derivation being WRONG in a way review would not have: the fixture tree carries no
+BranchPoints, so `ParentRecordingId` alone does not make the root a non-leaf and ALL FOUR
+recordings are leaves. Both specs' `recordings.count` went back to a RANGE for the same
+reason — the 2026-08-29 measurement of 2 described the old shape, and re-pinning to 4 by
+argument is the tighten-by-argument their own headers forbid.
+
+**THE ONE REMAINING LOSSY PATH, out of scope by design: the OnSave safety net.**
+`SafetyNetAutoCommitPending` still blanket-nulls, and it is reachable in one narrow way —
+when the commit above throws, the catch leaves the tree stashed, and that retry window runs
+only to the next OnSAVE, not the next load; any OnSave outside FLIGHT hits the safety net
+first. That site stays ghost-only for the reason plan §4.1 gives (routing it through
+`MergeCommit` would run a quicksave inside OnSave — the reentrancy hazard), and it is
+defense-in-depth that is unreachable under normal operation. Both the catch comment and its
+Error message now say this rather than promising a retry the safety net can pre-empt.
+
+**THE CONFIRM FLIGHTS (2026-08-29) — THE FIX IS NOT A HEADLESS CLAIM. Both routes ran
+against a provisioned instance carrying this branch's own build (deployed DLL sha256
+`52faf03dd6158b45…`, hash-IDENTICAL to the building worktree's `bin/Debug`, with both new
+literals grepped present), and every predicted number came back EXACTLY.**
+
+| run | route | verdict | wall | reading |
+| --- | --- | --- | --- | --- |
+| `2026-08-29_1200_S0.9-automerge-pending-limbo-cold-load` | cold-load outside-flight | PASS attempt 1 | 54 s | `recordings=4 spawnable=3 snapshotsPreserved=3 snapshotsReleased=1` |
+| `2026-08-29_1202_S0.10-automerge-limbo-warm-exit` | scene-exit (warm, ENTRANCE B) | PASS attempt 1 | 55 s | identical |
+
+Every verifier PASS/SKIPPED on both, expectations mismatches=0, analyzer RED=0, zero
+`[Parsek][ERROR]`, and S0.10's clobber guard silent. `Ghost-only auto-commit`,
+`Auto-commit tree ghost-only` and `Silent full-fidelity auto-commit` are ALL ABSENT from
+both logs (0 occurrences each) — the first two are the pre-fix outcome these specs were
+built to measure, the third would have meant the tree was re-finalized somewhere. S0.10
+also re-confirmed its ENTRANCE-B subject unchanged: `coroutine aborted by destroy` present,
+`not active within 3s` verifiably absent.
+
+**The per-leaf reading is the un-finalized situation gate measured live**, and it is
+identical on both routes:
+
+```
+leaf='limbo_root_2f7a41c8'   vessel='Limbo Stack'    terminal=null      canPersist=True
+leaf='limbo_child_9b3e05d1'  vessel='Limbo Upper'    terminal=Orbiting  canPersist=True
+leaf='limbo_coast_5d1c73a2'  vessel='Limbo Coaster'  terminal=null      canPersist=True
+leaf='limbo_escape_e40b6cf7' vessel='Limbo Escaper'  terminal=null      canPersist=False
+ApplyVesselDecisions: ghost-only for 'Limbo Escaper' … spawn snapshot nulled, ghostVisual=True
+```
+
+The ESCAPING leaf is the only denial, and its ghost geometry is preserved on the way —
+precisely what a build WITHOUT the gate would not have done (it would have read
+`canPersist=True`, and the commit line would have said `snapshotsPreserved=4
+snapshotsReleased=0`). That one leaf is what makes these runs a MEASUREMENT of the gate
+rather than an agreement with it.
+
+**Durability, from S0.9's produced save** (snapshotted alongside the run artifacts): all
+four recordings committed into one `RECORDING_TREE`, and the escape leaf alone carries a
+`_ghost.craft` sidecar. Its `_vessel.craft` remains on disk but is unreachable —
+re-hydration in `ShouldSpawnAtRecordingEnd` requires a spawnable TERMINAL state and it has
+none — so the denial survives a reload rather than being an in-memory-only effect.
+
+**One wording correction worth making explicit, because the shorthand invites a wrong
+reading.** "The escape leaf keeps its snapshot" is NOT what happens and never was the
+promise. Its `VesselSnapshot` is RELEASED (nulled, `snapshotsReleased=1`) with
+`GhostVisualSnapshot` copied and its crew reservation freed — exactly what the Merge dialog
+does for a non-spawnable leaf. The fix's promise is that a silent commit never destroys a
+snapshot **the dialog would have kept**, not that every snapshot survives.
+
+**What is still open, unchanged by the fix.** (a) FREQUENCY — how often the resume match
+misses on ordinary flights — is untouched; the fix makes the outcome harmless rather than
+making the miss rarer. (b) Step 1 (a REAL quickload producing the Limbo stash) is still
+injected rather than produced by both specs. (c) ENTRANCE A is still undriven (the seam
+verb gap above). (d) The dangling limbo dispatch (`ParsekScenario.cs` limbo-dispatch block
+arming an `onFlightReady` restore outside FLIGHT) is untouched and still worth a look
+independently — the fix consumes the tree at fidelity, it does not stop the dispatch being
+armed where it can never fire.
 
 ## TEST-HYGIENE — SUPPRESSLOGGING-LEFT-ON-IN-DISPOSE: 406 xUnit classes end `Dispose()` by re-suppressing the global log, deterministically blanking the NEXT Sequential class's log capture [FOUND 2026-08-29 while building the AUTOMERGE-ON-BY-DEFAULT coverage (branch `automerge-coverage`), by hitting it: a newly added class made a previously-latent ordering hazard FIRE. TEST-INFRASTRUCTURE ONLY — no product code is involved and no shipped behaviour is at risk. OPEN, unscoped: recorded because it is a real trap with a real cost, not because a sweep is proposed]
 

@@ -51,10 +51,15 @@ namespace Parsek
         /// why the default was OFF; the silent full-fidelity auto-commit work
         /// (`docs/dev/plans/silent-full-fidelity-autocommit.md`) closed that gap for
         /// the path that matters, routing a <c>Finalized</c> pending tree through the
-        /// dialog's own commit + per-leaf vessel decisions. Note the qualifier: a
-        /// non-<c>Finalized</c> (Limbo) tree or a live re-fly marker still falls to
-        /// <c>AutoCommitTreeGhostOnly</c> by design (plan §4.4 / §10), so "ON is no
-        /// longer lossy" is a statement about the Finalized path, not a universal one.
+        /// dialog's own commit + per-leaf vessel decisions — and the 2026-08-29 fix
+        /// extended that same commit to a non-re-fly <c>Limbo</c> resume-stash, which
+        /// used to be ghost-only'd (see <c>ParsekScenario.ClassifyAutoCommitFidelity</c>
+        /// and the AUTOMERGE-ON-BY-DEFAULT entry in
+        /// <c>docs/dev/todo-and-known-bugs.md</c>). Note the qualifier that remains: a
+        /// live re-fly marker or a MAINMENU destination still falls to
+        /// <c>AutoCommitTreeGhostOnly</c> by design (plan §4.2 / §10), as does the
+        /// OnSave safety net, so "ON is no longer lossy" is a statement about the two
+        /// OnLoad commit routes, not a universal one.
         /// Re-Fly exits and MAINMENU still show their dialog regardless.</para>
         ///
         /// <para>HIDDEN by design (2026-08-27 settings simplification): players always

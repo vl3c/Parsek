@@ -4,6 +4,23 @@ tier = "operator"
 # THE WARM HALF of the AUTOMERGE-ON-BY-DEFAULT evidence, and the sibling S0.9 is not.
 # Read the entry in docs/dev/todo-and-known-bugs.md first, then this header.
 #
+# ##### STATUS 2026-08-29: SUBJECT FIXED, CONFIRM RE-FLY FLOWN GREEN (`2026-08-29_1202`).
+# The warm chain below was assembled, flown (`2026-08-29_1043`, PASS) and CONFIRMED: a
+# player who leaves FLIGHT within three seconds of a quickload - ENTRANCE B, no fault
+# required - reaches the auto-commit site with a parked Limbo tree, and the product
+# destroyed both snapshots with no dialog. The product fix landed on branch
+# `limbo-fidelity`: a non-re-fly Limbo tree now commits at FIDELITY through the dialog's
+# own MergeCommit. NOTHING ABOUT THE CHAIN OR THE ENTRANCE CHANGED - steps 2 and 3 are
+# untouched product behaviour, the entrance-B subject is untouched, and all ten
+# `required` tokens still describe them exactly - so this spec keeps its subject and its
+# pins and turns over from a reading run into the STANDING REGRESSION INSTRUMENT for the
+# warm half of the fix - LIVE-PROVEN in that role. What moved is step 4's OUTCOME, and
+# the present-tense sentence about it in step 4 below now describes the PRE-FIX product.
+# The post-fix reading is MEASURED in [expectations.logContracts]. The `required` tokens
+# did not move as a RESULT of the fix - only their recording COUNT did, 2 -> 4, because
+# the shared fixture grew two null-terminal leaves.
+# #####
+#
 # WHY A SECOND SPEC EXISTS. S0.9 cold-loads a save carrying a pending-Limbo tree
 # straight into the Space Center: it confirms the LOAD-PATH half only (does the tree
 # survive the schema gate / sidecar hydration / mission-prune and reach
@@ -165,10 +182,15 @@ allowedAnomalies = []
 # never been flown. Tighten from flight 1's reading, not by argument.
 #
 # MEASURED exactly 2 on BOTH flights (`2026-08-29_1027`, the token-3 red, and
-# `2026-08-29_1043`, the green confirm), so the range is now the exact pin it was
-# always meant to become. The open half is answered: `RunOptimizationPass` does NOT
-# collapse the parent/child pair across the BranchPoint on the ghost-only branch.
-count = { min = 2, max = 2 }
+# `2026-08-29_1043`, the green confirm) - on the OLD two-recording fixture. RE-OPENED
+# TO A RANGE 2026-08-29 because that fixture GREW to four recordings with the fidelity
+# fix (see S0.9's count block and the fixture note): the measurement answered a real
+# question for the shape it was taken on, and the two new leaves are two more pairs
+# `CanAutoMerge` has never been flown against. Re-pinning to an exact 4 by argument is
+# the "tighten by argument" this spec's own rule forbids. MEASURED 4 by the confirm
+# re-fly `2026-08-29_1202`, so the range is now the exact pin it was meant to become - no
+# pair collapsed across the four leaves.
+count = { min = 4, max = 4 }
 
 # [expectations.recordings.structure] and [expectations.rewind] are ABSENT. NEVER FLOWN:
 # every saveParse facet would be a predicted number, and a report-only block of invented
@@ -176,7 +198,72 @@ count = { min = 2, max = 2 }
 # Nothing armed; ARMED_ALLOWLIST untouched.
 
 [expectations.logContracts]
-# EVIDENCE STANDING: LIVE-PROVEN 2026-08-29, run
+# EVIDENCE STANDING: LIVE-PROVEN PRE-FIX AND POST-FIX. Confirm re-fly
+# `2026-08-29_1202_S0.10-automerge-limbo-warm-exit`, PASS attempt 1, 55 s, every verifier
+# PASS/SKIPPED, expectations mismatches=0, zero `[Parsek][ERROR]`, clobber guard silent.
+# All ten required tokens matched at the new count, the ENTRANCE-B subject held
+# (`coroutine aborted by destroy` present, `not active within 3s` verifiably ABSENT), and
+# the fidelity fix HOLDS on the warm route with every predicted number exact:
+#
+#   TryRestoreActiveTreeNode: stashed active tree 'Limbo Stack' (4 recording(s), activeRecId=limbo_child_9b3e05d1) into pending-Limbo slot
+#   exittospacecenter start scene=FLIGHT autoMerge=true hasActiveTree=false hasPendingTree=true ... activeTreeVariant=None pendingTreeVariant=None
+#   OnDestroy: clearing stale restoringActiveTree guard (coroutine aborted by destroy)
+#   autocommit-outside-flight (scene-exit): entry tree='Limbo Stack' recordings=4 scene=SPACECENTER autoMerge=True pendingState=Limbo reFlyActive=False
+#   Limbo-preserving full-fidelity auto-commit (scene-exit, state=Limbo): tree='Limbo Stack' recordings=4 spawnable=3 snapshotsPreserved=3 snapshotsReleased=1
+#   ApplyVesselDecisions: ghost-only for 'Limbo Escaper' ..., spawn snapshot nulled, ghostVisual=True
+#   exittospacecenter complete scene=SPACECENTER game-loaded=true elapsed=1.8s
+#
+# with `Ghost-only auto-commit`, `Auto-commit tree ghost-only` and `Silent full-fidelity
+# auto-commit` ALL ABSENT (0 occurrences each). The per-leaf decisions were identical to
+# S0.9's - same fixture, and the ESCAPING leaf is the only denial - so the two routes now
+# agree leaf for leaf as well as in total, which is the strongest form of the claim.
+#
+# PRIOR STANDING (kept for the reasoning): LIVE-PROVEN PRE-FIX, PREDICTED POST-FIX.
+#
+# ================== THE PRODUCT CHANGED UNDER THIS SPEC (2026-08-29) ==================
+# The green run below proved the warm chain end to end and measured the ghost-only
+# commit destroying both snapshots. That WAS the repro the entry's escalation trigger
+# names, and the fix landed on branch `limbo-fidelity`: a non-re-fly Limbo /
+# LimboVesselSwitch tree now commits through the dialog's own `MergeDialog.MergeCommit`
+# with its snapshots PRESERVED. Only three carve-outs still reach the blanket-nulling
+# branch (autoMerge off, an active re-fly, MAINMENU). See
+# `ParsekScenario.ClassifyAutoCommitFidelity`.
+#
+# ALL TEN `required` TOKENS SURVIVE UNCHANGED, and that is the pinning rule paying off:
+# every one of them pins a step of the CHAIN (restore, dispatch, the two guid
+# rejections, the #293 skip, the destroy-abort, the two exit lines, the dangling
+# dispatch, the entry line) and not the outcome. The fix touches only what the site does
+# AFTER the entry line. `pendingState=Limbo` in token 10 is still exactly right - the
+# state is unchanged, its disposition is not - and the entrance-B subject is untouched.
+#
+# PREDICTED post-fix reading (DERIVED FROM SOURCE, NOT MEASURED - re-fly owed):
+#
+#   Limbo-preserving full-fidelity auto-commit (scene-exit, state=Limbo): tree='Limbo Stack' recordings=4 spawnable=3 snapshotsPreserved=3 snapshotsReleased=1
+#
+# ~~PREDICTED~~ MEASURED by run `2026-08-29_1202`, exactly as written, with
+# `Ghost-only auto-commit` ABSENT. SAME FIXTURE AS S0.9, including the two leaves
+# it grew with the fix, so the derivation is the same and is written out THERE rather
+# than duplicated here (a second copy of a moving derivation is a second thing to leave
+# stale). The short form: all four recordings are leaves - the tree carries no
+# BranchPoints, so `ParentRecordingId` alone does not make the root a non-leaf - and
+# root/child/coast persist while the ESCAPING leaf is ghost-only'd. Pre-fix the same
+# fixture reads `snapshotsNulled=4`. Both numbers are MACHINE-CHECKED headlessly by
+# `AutoMergeGhostOnlyReachabilityTests.PendingLimboTreeFixture_PredictedCommitNumbers_-
+# MatchTheSpecs`, so a drifted fixture reds locally rather than on this flight.
+#
+# THE RE-FLY IS WHAT CONFIRMS THIS, and it confirms the WARM half specifically: S0.9
+# re-flown proves only the cold route. If either comes back with the ghost-only line, or
+# with different numbers, the prediction is wrong and these numbers are what to correct -
+# do NOT widen them into a range to make a run green.
+# =====================================================================================
+#
+# THE PRE-FIX RUN, kept in full because it is the evidence the fix was taken against.
+# NOTE ON THE NUMBERS BELOW: they are the OLD TWO-recording fixture's. The fixture
+# grew to four leaves with the fix, so every count in this transcript reads 2 where a
+# post-fix run reads 4. Kept verbatim because a quoted run is evidence, not an
+# expectation - do not "correct" it.
+#
+# LIVE-PROVEN 2026-08-29, run
 # `2026-08-29_1043_S0.10-automerge-limbo-warm-exit`, PASS attempt 1, 54 s, every verifier
 # PASS/SKIPPED, expectations mismatches=0, zero `[Parsek][ERROR]`, clobber guard silent.
 # All TEN required tokens matched, including the four re-pointed ones - and
@@ -308,26 +395,36 @@ count = { min = 2, max = 2 }
 #    restore and the site is a FINDING this reading run should deliver as a reading
 #    rather than as a PARSEK-FAIL plus a burned retry.
 #
-# WHAT TO READ, and what each reading MEANS. Exactly one of these follows token 7:
+# WHAT TO READ, and what each reading MEANS. Exactly one of these THREE follows token 7
+# (the first is new with the 2026-08-29 fix):
 #
-#   Ghost-only auto-commit (scene-exit, reason=state=Limbo): tree='Limbo Stack' recordings=2 snapshotsNulled=2
-#     -> THE WARM CHAIN IS CONFIRMED END TO END in the shipped DLL. Steps 2-4 all ran and
-#        both full-fidelity snapshots were destroyed silently, on the exit the product's
-#        own give-up Warn recommended. Combined with the source-read step 1, that is the
-#        repro the entry's escalation trigger names. It is still NOT proof a player hits
-#        it - step 2's frequency on real flights remains unmeasured - and the fix
-#        decision (dialog back for the non-re-fly non-Finalized case, vs preserving
-#        fidelity for Limbo) is a separate, reviewed change.
+#   Limbo-preserving full-fidelity auto-commit (scene-exit, state=Limbo): tree='Limbo Stack' recordings=4 spawnable=3 snapshotsPreserved=3 snapshotsReleased=1
+#     -> THE FIX HOLDS on the warm route. The same chain runs - entrance B, the parked
+#        Limbo tree, the same site - and the snapshots SURVIVE the commit.
+#        `snapshotsPreserved=3` against a pre-fix `snapshotsNulled=4` is the whole
+#        confirmation; `snapshotsPreserved=0` would mean they were already gone upstream
+#        and the run measured nothing.
 #
-#   Silent full-fidelity auto-commit (scene-exit): tree='Limbo Stack' recordings=2 spawnable=N
+#   Ghost-only auto-commit (scene-exit, reason=...): tree='Limbo Stack' recordings=4 snapshotsNulled=4
+#     -> THE PRE-FIX READING. This is what run `2026-08-29_1043` measured and it is the
+#        repro the entry's escalation trigger names: steps 2-4 all ran and both
+#        full-fidelity snapshots were destroyed silently, on the exit the product's own
+#        give-up Warn recommended. AFTER THE FIX the same line means the fix did not take
+#        on the warm route, and `reason=` says which carve-out claimed it - it can no
+#        longer read `state=Limbo` (the tree state was retired from the reason
+#        vocabulary), so `not-automerge` would mean the spec's own SetSetting failed,
+#        `re-fly-active` a stray marker, `mainmenu` the wrong destination scene.
+#
+#   Silent full-fidelity auto-commit (scene-exit): tree='Limbo Stack' recordings=4 spawnable=N
 #     -> something re-finalized the tree between the give-up and the site. Name it, pin it
-#        headless, and the warm half of the entry closes.
+#        headless. Unchanged in meaning by the fix - this is still the FINALIZED route,
+#        which this fixture should never reach.
 #
 # A run reaching token 6 but not token 7 means the pending tree was consumed between the
 # limbo dispatch and the auto-commit block - report it; the idle-on-pad discard is the
 # candidate, though it is gated on `Finalized` and should not fire on a Limbo tree.
 required = [
-  "TryRestoreActiveTreeNode: stashed active tree '.+' \\(2 recording\\(s\\), activeRecId=\\S+\\) into pending-Limbo slot",
+  "TryRestoreActiveTreeNode: stashed active tree '.+' \\(4 recording\\(s\\), activeRecId=\\S+\\) into pending-Limbo slot",
   "OnLoad: cold-start active tree detected \\(state=Limbo\\) . deferred to OnFlightReady as Quickload",
   "RestoreActiveTreeFromPending: active vessel '.+' pid=\\d+ liveGuid=\\S+ conclusively differs from recording 'limbo_child_9b3e05d1' recordedGuid=\\S+",
   "RestoreActiveTreeFromPending: parent-walk guid gate rejected rec=\\S+ \\(recordedGuid differs conclusively from live vessel\\)",

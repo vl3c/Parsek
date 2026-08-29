@@ -214,6 +214,14 @@ landedSituations     = ["LANDED", "SPLASHED"]
 # `auto-merge`        <- the same token, whose branch predicate
 #                        `ShouldSilentFullFidelityCommit` requires isAutoMerge, plus
 #                        the pinned `autoMerge=true` on the exit start line.
+#                        STATUS 2026-08-29: that predicate was REPLACED by
+#                        `ParsekScenario.ClassifyAutoCommitFidelity` (branch
+#                        `limbo-fidelity`) and deleted. Nothing here moves - this
+#                        lane commits a FINALIZED tree, whose route and
+#                        `Silent full-fidelity auto-commit` token are unchanged,
+#                        and isAutoMerge is still the first conjunct. The name
+#                        above is pre-fix history; the live question is the
+#                        classifier's three-way answer.
 D1  = ["auto-record-launch", "commit-scene-exit", "auto-merge"]
 # D8, claimed for the first time by any crew-loss spec. CL-1 claims NO D8 cell at all
 # ("every ledger cell is commit-time and this scenario does not commit"); this spec
