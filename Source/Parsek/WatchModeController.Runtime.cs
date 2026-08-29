@@ -1,4 +1,5 @@
 using System;
+using System.Runtime.CompilerServices;
 using UnityEngine;
 
 namespace Parsek
@@ -31,9 +32,48 @@ namespace Parsek
 
         private static Vessel GetActiveVesselSafe()
         {
+            return ReadActiveVesselGuarded(ReadActiveVesselCore);
+        }
+
+        /// <summary>
+        /// Reads <c>FlightGlobals.ActiveVessel</c>. Kept in its own
+        /// <see cref="MethodImplOptions.NoInlining"/> core because mono runs <c>FlightGlobals</c>' failing static
+        /// initializer at JIT time of the CALLING method, so the guard must not share a frame with the read.
+        /// </summary>
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static Vessel ReadActiveVesselCore()
+        {
+            return FlightGlobals.ActiveVessel;
+        }
+
+        /// <summary>
+        /// The exception guard behind <see cref="GetActiveVesselSafe"/>, taking the read as a delegate so every arm
+        /// is drivable headlessly (no test host can make the real <c>FlightGlobals</c> throw on demand).
+        ///
+        /// <para>FOUR arms, two populations. The Security / MethodAccess / MissingMethod triple is this file's
+        /// standard non-Unity unit-test-host fallback and stays silent. The fourth,
+        /// <see cref="NullReferenceException"/>, is a LIVE-GAME fact measured 2026-08-08 on
+        /// `V7M-minmus-player-loop` (MOON-LOOP-FINDINGS finding 2): <c>FlightGlobals.ActiveVessel</c> dereferences
+        /// <c>FlightGlobals.fetch</c>, which is already gone by the time <c>ParsekFlight.OnDestroy</c> drives
+        /// ExitWatchMode -> RestoreCameraAfterWatchExit, so every run that ENDED inside watch mode threw one Parsek
+        /// NRE into KSP.log. Verbose rather than Warn: quitting while watching a ghost is normal, and both callers
+        /// already treat a null active vessel as "no camera target to restore".</para>
+        /// </summary>
+        internal static Vessel ReadActiveVesselGuarded(Func<Vessel> reader)
+        {
+            if (reader == null)
+                return null;
+
             try
             {
-                return FlightGlobals.ActiveVessel;
+                return reader();
+            }
+            catch (NullReferenceException)
+            {
+                // Scene teardown: FlightGlobals (or its fetch singleton) is already destroyed.
+                ParsekLog.Verbose("CameraFollow",
+                    "GetActiveVesselSafe: FlightGlobals unavailable (scene teardown) - active vessel treated as null");
+                return null;
             }
             catch (System.Security.SecurityException)
             {

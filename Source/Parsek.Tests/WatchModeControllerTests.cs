@@ -1297,6 +1297,77 @@ namespace Parsek.Tests
             }
         }
 
+        // --- ReadActiveVesselGuarded: the guard behind GetActiveVesselSafe. The NullReferenceException arm is the
+        //     measured 2026-08-08 teardown line (MOON-LOOP-FINDINGS finding 2): ParsekFlight.OnDestroy ->
+        //     ExitWatchMode -> RestoreCameraAfterWatchExit reads FlightGlobals.ActiveVessel after FlightGlobals is
+        //     already destroyed, so every run that ended inside watch mode threw one Parsek NRE into KSP.log. ---
+
+        [Fact]
+        public void ReadActiveVesselGuarded_TeardownNullReference_ReturnsNullAndLogsVerbose()
+        {
+            var logLines = new List<string>();
+            ParsekLog.ResetTestOverrides();
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+            ParsekLog.VerboseOverrideForTesting = true;
+            try
+            {
+                Vessel result = WatchModeController.ReadActiveVesselGuarded(
+                    () => throw new System.NullReferenceException(
+                        "FlightGlobals.get_ActiveVessel ()"));
+
+                Assert.Null(result);
+                Assert.Single(logLines.FindAll(l =>
+                    l.Contains("[CameraFollow]")
+                    && l.Contains("GetActiveVesselSafe: FlightGlobals unavailable (scene teardown)")));
+                // Teardown is normal, so the line must not be a Warn/Error the harness would count.
+                Assert.Empty(logLines.FindAll(l => l.Contains("[WARN]") || l.Contains("[ERROR]")));
+            }
+            finally
+            {
+                ParsekLog.ResetTestOverrides();
+            }
+        }
+
+        [Fact]
+        public void ReadActiveVesselGuarded_HeadlessHostTriple_ReturnsNullSilently()
+        {
+            var logLines = new List<string>();
+            ParsekLog.ResetTestOverrides();
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+            ParsekLog.VerboseOverrideForTesting = true;
+            try
+            {
+                // The three non-Unity unit-test-host arms keep their pre-existing silent contract.
+                Assert.Null(WatchModeController.ReadActiveVesselGuarded(
+                    () => throw new System.Security.SecurityException("no unity")));
+                Assert.Null(WatchModeController.ReadActiveVesselGuarded(
+                    () => throw new System.MethodAccessException("no unity")));
+                Assert.Null(WatchModeController.ReadActiveVesselGuarded(
+                    () => throw new System.MissingMethodException("no unity")));
+
+                Assert.Empty(logLines);
+            }
+            finally
+            {
+                ParsekLog.ResetTestOverrides();
+            }
+        }
+
+        [Fact]
+        public void ReadActiveVesselGuarded_NullReader_ReturnsNull()
+        {
+            Assert.Null(WatchModeController.ReadActiveVesselGuarded(null));
+        }
+
+        [Fact]
+        public void ReadActiveVesselGuarded_UnexpectedException_StillPropagates()
+        {
+            // The guard is scoped to the teardown / headless-host shapes; anything else stays loud.
+            Assert.Throws<System.InvalidOperationException>(() =>
+                WatchModeController.ReadActiveVesselGuarded(
+                    () => throw new System.InvalidOperationException("boom")));
+        }
+
         private static WatchModeController MakeUninitializedWatchModeController()
         {
             var host = (ParsekFlight)FormatterServices.GetUninitializedObject(typeof(ParsekFlight));

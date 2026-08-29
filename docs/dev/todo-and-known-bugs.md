@@ -12645,7 +12645,9 @@ UT. Owner: whoever owns `GhostOrbitIcon` / `MapRenderProbe`. The anomaly is
 deliberately NOT added to that spec's `allowedAnomalies` - the lane stands red by
 finding (V1-map-dwell-mun-orbit's precedent).
 
-**(2) Teardown NRE when a run ends inside watch mode.** `V7M-minmus-player-loop`
+**(2) ~~Teardown NRE when a run ends inside watch mode.~~ THE PARSEK HALF IS FIXED
+2026-08-29 (release-hygiene, R5 item 2); the stock/MechJeb cascade below is not
+ours and stays unarmed.** `V7M-minmus-player-loop`
 is the first run in the suite that quits while watch mode is active. Its reading
 run (`2026-08-08_1613`) read `unityExceptions total=1` - the Parsek line below:
 
@@ -12660,6 +12662,46 @@ already gone by the time `OnDestroy` runs the watch-exit camera restore. Harmles
 at shutdown (one line, after the last gameplay frame), report-only, not armed.
 NOT worked around in the spec by exiting watch before `FlushAndQuit`: that would
 hide the only run shape that reaches it.
+
+**THE FIX (2026-08-29).** `GetActiveVesselSafe` caught the headless-host triple
+(`SecurityException` / `MethodAccessException` / `MissingMethodException`) but not
+`NullReferenceException`, which is what `FlightGlobals.ActiveVessel` throws once
+`FlightGlobals.fetch` is destroyed. The read now sits behind
+`WatchModeController.ReadActiveVesselGuarded(Func<Vessel>)` - a fourth arm for the
+NRE that returns null and logs ONE Verbose `[CameraFollow] GetActiveVesselSafe:
+FlightGlobals unavailable (scene teardown)` line. Verbose, not Warn: quitting
+while watching a ghost is normal, and both callers
+(`RestoreCameraAfterWatchExit`, `RestoreCameraToAnchorVessel`) already treat a
+null active vessel as "no camera target to restore". The delegate seam exists so
+all four arms are drivable headlessly - no test host can make the real
+`FlightGlobals` throw on demand - and the actual read stays in a
+`[MethodImpl(NoInlining)]` core per the mono JIT convention. Four cells in
+`WatchModeControllerTests` (NRE arm logs + returns null and raises no
+WARN/ERROR; the triple stays silent; null reader; an unexpected exception still
+propagates).
+
+SIBLING SWEEP, deliberately narrow. `WatchModeController.Runtime.cs` uses the
+same catch triple in six more helpers, but only two of them are ON this teardown
+path: `GetFlightCameraSafe` (reads the `FlightCamera.fetch` static FIELD, which
+yields Unity's fake-null rather than throwing) and
+`RemoveWatchModeControlLockSafe` (`InputLockManager`'s lock stack is an
+inline-initialised static). The genuine shape-alikes -
+`GetCurrentUTSafe` (`Planetarium.fetch`) and `GetCurrentWarpRateSafe`
+(`TimeWarp.fetch`) - dereference a singleton the same way and would throw the
+same NRE, but they are reached only from per-frame Update paths that no longer
+run once `OnDestroy` has fired, so nothing has ever observed them there and
+widening them now would be a speculative sweep. File them here rather than fix
+them blind: if a future reading run ever prints an NRE from either, the fix is
+one more arm on the same pattern.
+
+FUTURE WORK, NOT DONE HERE: this removes the one Parsek line from the
+end-inside-watch teardown, which is the precondition for arming an
+`[expectations.unityExceptions] maxTotal` ceiling on the V-family lanes. It is
+NOT sufficient on its own - the 1-vs-5 spread below is four STOCK/MechJeb NREs in
+the same 40 ms window, so any ceiling still has to be pinned against a re-measured
+census (the Parsek line should now be absent from it), not against the readings
+above. Arming is an operator decision after that reading run; nothing is armed by
+this fix.
 
 The ARMED re-flight of the identical shape (`2026-08-08_1642`) read `total=5`,
 which is worth recording because it bounds what a ceiling here would mean: the

@@ -264,6 +264,20 @@ All notable changes to Parsek are documented here.
   design, because they deliberately start from a save with no recorded flights
   in it at all and that check needs one.
   Test-tooling only; no gameplay change, and nothing ships with the mod.
+
+- Quitting the game while watching a ghost no longer leaves an error in the log
+  file. Watch mode puts the camera back where it found it on the way out, and
+  when the way out is the game shutting down, it was asking which ship the
+  player is flying at a moment when the game has already thrown that answer
+  away - so every session that ended inside watch mode wrote one red-looking
+  Parsek line into the log. Nothing was ever broken by it: it happened after the
+  last frame of play, and the code was already prepared for there being no ship
+  to point the camera at. But an expected error line is the worst kind to leave
+  in a log, because it teaches everyone reading the log to skip that shape of
+  line. The camera restore now treats "the game is already gone" as one more
+  ordinary way to have no ship, and says so quietly in the detailed log instead.
+  Log hygiene only; no gameplay change.
+
 - Parsek builds a standing exhibition of every part it knows how to draw: 243
   little one-part replays, one per part, lined up in three rows in front of the
   launch pad, each running a short clip that works that part's own moving bits -
