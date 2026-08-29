@@ -11,8 +11,13 @@ namespace Parsek.Tests
     /// Background. <see cref="RewindInvoker.RunStripActivateMarker"/> calls
     /// <c>LedgerOrchestrator.RecalculateAndPatch(double.MaxValue)</c> after Strip specifically
     /// because passing a non-null cutoff flips <c>bypassPatchDeferral = true</c> inside
-    /// <see cref="LedgerOrchestrator"/> and routes the walk through the rewind-only tech-tree
-    /// patch path. Without that bypass the post-RP tech unlocks would silently disappear after
+    /// <see cref="LedgerOrchestrator"/> and routes the walk through the cutoff-gated tech-tree
+    /// patch path. That path is NOT rewind-only — the gate is `techPatchCutoff.HasValue`, and
+    /// ordinary career play supplies one through RecalculateAndPatchForCurrentTimelineUT; the
+    /// rewind call below is one caller of it, not the only one. (Wording matters here: an
+    /// earlier reader trusted a "rewind-only" comment and mis-scoped a live defect,
+    /// UNAFFORDABLE-SCIENCE-SPENDING-SILENTLY-RE-LOCKS-A-TECH-NODE, to time travel.)
+    /// Without that bypass the post-RP tech unlocks would silently disappear after
     /// a rewind: KSP's R&amp;D state was just overwritten by the old quicksave, the live ledger
     /// still carries the post-RP <c>RnDTechResearch</c> action, but the orchestrator's "skip
     /// tech patch when no cutoff is supplied" guard would prevent that action from being
@@ -246,7 +251,8 @@ namespace Parsek.Tests
         // ================================================================
         // RecalculateAndPatch end-to-end — the cutoff being non-null is what
         // flips bypassPatchDeferral=true and routes the walk through the
-        // rewind-only tech-tree patch branch.
+        // cutoff-gated tech-tree patch branch (reached from ordinary play too,
+        // not only from rewind — see the class doc).
         // ================================================================
 
         [Fact]
@@ -260,7 +266,7 @@ namespace Parsek.Tests
 
             LedgerOrchestrator.RecalculateAndPatch(double.MaxValue);
 
-            // The rewind-only branch ran (utCutoff.HasValue, no patch deferral, target
+            // The cutoff-gated branch ran (utCutoff.HasValue, no patch deferral, target
             // tech set built including both the baseline tech and the post-RP unlock).
             Assert.Contains(logLines, l =>
                 l.Contains(OrchestratorTag)

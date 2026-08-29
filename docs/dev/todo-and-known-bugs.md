@@ -147,7 +147,7 @@ player-facing warning printed off this quantity would be a confidently-worded li
 
 ---
 
-## UNAFFORDABLE-SCIENCE-SPENDING-SILENTLY-RE-LOCKS-A-TECH-NODE: a researched node the reconstructed science pool cannot pay for is dropped and re-locked with a log-only trace, on ANY recalc that supplies a UT cutoff - which includes ordinary play, not only time travel [FOUND 2026-08-29 while analysing #427 to close. Separate the two halves: the PATH is reachable in ordinary play (proven - see "Scope"); the PRECONDITION `runningScience < cost` is NOT proven to occur. In a default career the loss is PERMANENT and the screen repaints to look correct - see "Severity". Filed rather than signalled, deliberately: see "Why this still did not become a toast"]
+## ~~UNAFFORDABLE-SCIENCE-SPENDING-SILENTLY-RE-LOCKS-A-TECH-NODE~~: a researched node the reconstructed science pool cannot pay for is dropped and re-locked with a log-only trace, on ANY recalc that supplies a UT cutoff - which includes ordinary play, not only time travel [FOUND 2026-08-29 while analysing #427 to close. Separate the two halves: the PATH is reachable in ordinary play (proven - see "Scope"); the PRECONDITION `runningScience < cost` is NOT proven to occur. In a default career the loss is PERMANENT and the screen repaints to look correct - see "Severity". Filed rather than signalled, deliberately: see "Why this still did not become a toast". **FIXED 2026-08-29, branch `relock-guard`** - the point-2 GUARD shape, not an announcement; see "The fix as shipped" at the end. The forensics below are preserved verbatim as the record of how the defect and its wrong scope were derived]
 
 **The chain, every link verified in source.**
 
@@ -258,6 +258,99 @@ set, never on `madeUnavailable > 0`, which fires on every legitimate rewind.
 sets `Affordable` but deducts UNCONDITIONALLY, so an over-commit drives the running balance
 negative there instead of refusing. That asymmetry is not itself known to be wrong; it is noted
 so a fix considers both.
+
+---
+
+**THE FIX AS SHIPPED (2026-08-29, branch `relock-guard`).** Point 2's guard shape, adopted
+whole: refuse the re-lock, preserve live, WARN loudly. No toast (see below).
+
+**The discriminator - "the row was PROCESSED AND REFUSED", not "the row is not affordable".**
+`GameAction` gains one derived, non-serialized field, `UnaffordableRunningScience`, set by
+`ScienceModule.ProcessSpending` ONLY on its refuse branch (and cleared on the affordable
+branch, and by `RecalculationEngine.ResetDerivedFields` alongside `Affordable`). The guard
+keys on that field's PRESENCE, never on a bare `!Affordable`, because `ResetDerivedFields`
+seeds `Affordable = false` on every action in the walk - so `!Affordable` also matches a row
+the science walk never dispatched, and firing the guard on THAT would suppress a legitimate
+re-lock. The field doubles as the carrier for the shortfall number the WARN reports.
+
+Flow: `KspStatePatcher.BuildTargetTechIdsForPatch` gains a 5-arg overload returning
+`out Dictionary<string, UnaffordableUnlockDrop>` alongside the target set (node id, cost,
+running science, spend UT). A node enters that map only when
+`IsRefusedUnaffordableUnlockRow` holds - which puts the UT-cutoff check AHEAD of the
+affordability question, so a row rewound past is never a candidate - and any node that
+reaches the target set anyway (baseline seed, or a second affordable row for the same node)
+is pruned from the map after the walk, which is what makes "SOLELY by `Affordable=false`"
+true rather than approximately true, order-independently. `LedgerOrchestrator` plumbs the map
+through `PatchAll` to `PatchTechTree`, whose not-in-target branch now runs one pure decision,
+`ResolveTechRelockOutcome` (`Relock` / `AlreadyUnavailable` / `RefusedUnaffordable`,
+composing `ClassifyTechNodeForPatch` with `ShouldRefuseUnaffordableRelock`). On
+`RefusedUnaffordable` it mutates NOTHING - no `protoNodes.Remove`, no `tech.state` flip - and
+emits a per-node `refusing-unaffordable-relock` WARN (capped at `IdentitySampleCap`) plus an
+always-accurate `relock-refusal-summary` WARN; the existing Info line gains `relockRefused=N`.
+
+The guard is scoped twice. It requires the `MakeUnavailable` classification (a node that is
+not live available has nothing to preserve), and it requires the PROTO half of KSP's split
+availability state, not merely either half. The two differ in exactly one shape - the static
+tree node says Available while no `ProtoTechNode` exists - and there the refusal would preserve
+nothing (no proto means no purchased parts) while blocking the pre-existing normalization that
+drops the stale static Available. So the guard stands down there and normalization proceeds.
+
+**No toast, and why option (c) is still only conditional.** The reasoning above stands
+unchanged - the code's own text calls this condition a bug, and the guard-not-announcement
+shape is what this repo already does for the drawdown guard. Option (c) (a one-shot
+`ScreenMessage`) remains conditional on a LEGITIMATE re-lock shape ever being established;
+until then there is nothing to narrate, because the guard now prevents the loss instead of
+reporting it. If (c) is ever revisited, its keying rule is unchanged and now trivially
+available: the refusal set is exactly `relockRefusedIds`, never `madeUnavailable > 0`.
+
+**Step (a), reachability - and WHICH count to arm.** `LedgerGroundTruthHarness.ScanResearchedTechIds`
+now emits a grep-stable Info line, `ScanResearchedTechIds: unaffordable-science-spending-rows-present`,
+whenever unaffordable rows exist (with node ids); the zero case stays Verbose. **The line carries
+TWO counts and they are not interchangeable.** `unaffordableSkipped=` is the RAW `!Affordable`
+population and is a strict SUPERSET of what the guard acts on - it also counts rows the science
+walk never dispatched (`ResetDerivedFields` seeds `Affordable=false` on every action), rows whose
+node reached the target set anyway via the baseline or a second affordable row, rows past whatever
+cutoff a given patch used, and values left by a projection walk when read outside a walk.
+`refusedByWalk=` counts only rows carrying `UnaffordableRunningScience` - the positive
+"this walk processed and REFUSED this row" marker, i.e. the guard-relevant population. **Nonzero
+`unaffordableSkipped` does NOT mean the guard fired**; `refusedByWalk` is the count an arming
+operator almost certainly wants (the guard narrows it further per-node by target-set membership
+and live proto-backed availability inside `KspStatePatcher`). NOTHING IS ARMED on either; the
+natural home is the L4 ground-truth lane (`harness/scenarios/L4-ledger-groundtruth-strict.toml`),
+whose `[expectations.logContracts]` block already reads this harness's output, and arming stays an
+operator decision taken after a report-only reading run. The regression surface today is xUnit, not
+a flight: L4 has no tech facet that would catch this. Note the deliberate disagreement the guard
+introduces there: `ScanResearchedTechIds` still reports what the ledger can PAY FOR, so a guarded
+node reads as a live-but-unclaimed tech in the report-only tech facet. That is the observable, not
+a defect - do not make the two agree by admitting unaffordable rows to the claim set, which
+would hide the shortfall behind an agreeing diff.
+
+**The funds asymmetry, re-checked.** Untouched and NOT diverged further: the new field and
+the guard are science-only, `FundsModule` still deducts unconditionally, and nothing in the
+tech-patch path reads funds affordability - so the two modules stand exactly where this entry
+found them, and a future decision to harmonise them is unconstrained by this fix.
+
+**The stale comment.** `LedgerOrchestrator.cs`'s `// #559: tech-tree patching is rewind-only`
+is replaced with the true caller-set statement (gate is `techPatchCutoff.HasValue`; three
+families supply one, the third being ordinary career play) plus an explicit note that an
+earlier reader trusted the old wording and mis-scoped this defect to time travel.
+
+**Cells** (`Source/Parsek.Tests/UnaffordableRelockGuardTests.cs`, 35): producer marker +
+idempotency + engine reset; the `IsRefusedUnaffordableUnlockRow` matrix including the
+never-dispatched over-reach trap; the drop-map "solely" cases (baseline-covered,
+second-affordable-row, past-cutoff, two-refusals-latest-wins); the repro/fixed pair; and the
+legitimate-re-lock cells (rewound past, tombstoned, never researched, split-state-no-proto)
+that red if the guard over-reaches. Fails-on-main evidence: neutering
+`ShouldRefuseUnaffordableRelock` inside `ResolveTechRelockOutcome` reds exactly the two
+fixed-behaviour cells (`Fixed_UnaffordableSpend_...` and `RealWalk_UnderfundedLedger_...`) and
+leaves every legitimate-re-lock cell green. The `Repro_...` cell is a characterization pin, not
+a fails-on-main cell: it passes on main and here alike.
+
+One doc-level caveat recorded so it is not re-litigated: the cutoff conjunct inside
+`IsRefusedUnaffordableUnlockRow` is a DEFENSIVE DUPLICATE of the identical filter in the outer
+`BuildTargetTechIdsForPatch` loop, which is what actually protects a rewind. Removing the inner
+one reds only the direct-predicate cell; the outer layer is pinned separately by
+`BuildTarget_RowRewoundPastTheCutoff_IsNotADrop`. Keep both.
 
 ---
 

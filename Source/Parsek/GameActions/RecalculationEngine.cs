@@ -519,6 +519,10 @@ namespace Parsek
                 sorted[i].Effective = true;
                 sorted[i].EffectiveScience = 0f;
                 sorted[i].Affordable = false;
+                // Cleared alongside Affordable: the pair is what the unaffordable-re-lock
+                // guard reads, and a stale non-null marker from a previous walk would make a
+                // legitimate re-lock look like a bookkeeping shortfall.
+                sorted[i].UnaffordableRunningScience = null;
                 sorted[i].EffectiveRep = 0f;
                 sorted[i].TransformedFundsReward = sorted[i].FundsReward;
                 sorted[i].TransformedScienceReward = sorted[i].ScienceReward;
