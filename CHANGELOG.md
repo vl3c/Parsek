@@ -101,6 +101,13 @@ All notable changes to Parsek are documented here.
 
 ### Dev
 
+- The six supply-route test runs now go every night along with the rest. They
+  were being held back for a decision rather than for a problem: each one had
+  already been run unattended and had its expected result written down, and all
+  that was left was someone choosing whether tests this large belong on a nightly
+  schedule. That choice has now been made, so they run on the same cadence as
+  every other in-game test run instead of only when someone asks for them.
+
 - Fourteen more of Parsek's in-game self-tests can now be run automatically. The
   mod ships a large set of tests that only mean anything inside a running game -
   they check things like the claw and asteroid parts loading, ghosts being held
