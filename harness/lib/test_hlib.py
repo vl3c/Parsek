@@ -6188,6 +6188,17 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # pinned, `[expectations.recordings]` tightens from its honest {1,2} range,
         # and the saveParse blocks it correctly ships WITHOUT get authored from
         # measured facets. Nothing here is armed and ARMED_ALLOWLIST is untouched.
+        # Its WARM sibling, same wave, same discipline, and operator-tier for the same
+        # reason: it is a READING RUN. S0.9 confirms only the COLD / load-path half of
+        # the AUTOMERGE-ON-BY-DEFAULT question; this one drives steps 2-4 of the warm
+        # player chain the 2026-08-29 review assembled (resume give-up -> the exit the
+        # product's own Warn recommends -> the auto-commit site with `context=scene-exit`).
+        # It owes a flight, not a human call: after one, the branch token gets pinned,
+        # the {1,2} recordings range tightens, and the saveParse blocks it correctly
+        # ships WITHOUT get authored from measured facets. Nothing armed.
+        "S0.10-automerge-limbo-warm-exit.toml":
+            "operator by the reading-run discipline (V1/V2/V24W precedent); AUTHORED "
+            "2026-08-29, NEVER FLOWN, reading pending. Owes a flight, not a human call",
         "S0.9-automerge-pending-limbo-cold-load.toml":
             "operator by the reading-run discipline (V1/V2/V24W precedent); AUTHORED "
             "2026-08-29, NEVER FLOWN, reading pending. Owes a flight, not a human call",

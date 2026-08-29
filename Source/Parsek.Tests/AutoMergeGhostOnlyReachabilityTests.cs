@@ -67,10 +67,15 @@ namespace Parsek.Tests
             RecordingStore.ResetForTesting();
             RewindContext.ResetForTesting();
             // ResetTestOverrides already restores SuppressLogging to false, and this
-            // class deliberately does NOT re-suppress afterwards the way some older
+            // class deliberately does NOT re-suppress afterwards the way 406 other
             // Sequential classes do: leaving the global suppressed makes the NEXT
-            // Sequential class's log-capture assertions read an empty list, which is a
-            // silent cross-class dependency on alphabetical ordering.
+            // Sequential class's log-capture assertions read an EMPTY list, which is a
+            // silent cross-class dependency on ordering. Not hypothetical — adding this
+            // class turned AutorunExitTests.PerformAutorunExit_ThrowingQuit_Is-
+            // ContainedAsError red in the full suite while it still passed under
+            // --filter. This Dispose is the fix template; the population and the reason
+            // no sweep is proposed are in docs/dev/todo-and-known-bugs.md ->
+            // TEST-HYGIENE — SUPPRESSLOGGING-LEFT-ON-IN-DISPOSE.
             ParsekLog.ResetTestOverrides();
             RecordingStore.SuppressLogging = false;
         }

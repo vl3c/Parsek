@@ -3824,7 +3824,8 @@ flights are separately authorized. Status: INSTRUMENTED, AWAITING THE DRIVEN RUN
    holds by construction. It pins ONLY the structural preconditions and leaves the two
    branch-discriminating tokens as documented readings — pinning an answer to the question
    the spec asks would make a green run mean nothing. Nothing armed; `ARMED_ALLOWLIST`
-   untouched.
+   untouched. **Its WARM sibling `S0.10-automerge-limbo-warm-exit.toml` was authored
+   alongside it once the warm chain below was assembled — see "THE TWO DRIVEN SCENARIOS".**
 
 **HEADLESS VERDICT (2026-08-29) — the "saved trees restore as Finalized" argument is
 CORRECT FOR ONE MARKER AND WRONG FOR THE OTHER, so the ghost-only branch is NOT dead
@@ -3837,37 +3838,108 @@ code.** Pinned by five cells in `Source/Parsek.Tests/AutoMergeGhostOnlyReachabil
   round-trips through this marker can only ever take the full-fidelity branch.
 - **`isActive` — NOT re-finalized, and this is the half the argument missed.**
   `TryRestoreActiveTreeNode` stashes `PendingTreeState.Limbo` when the node carries an
-  `ActiveRecordingId` and `LimboVesselSwitch` when it does not (`ParsekScenario.cs:5357`).
-  The marker is not exotic: `SavePendingTreeIfAny`'s Limbo branch WRITES it (`:1530`),
-  and — unlike `SaveActiveTreeIfAny`, which is guarded `LoadedScene == FLIGHT` (`:1842`) —
+  `ActiveRecordingId` and `LimboVesselSwitch` when it does not (`ParsekScenario.cs:5737-5740`,
+  the `stashState` ternary).
+  The marker is not exotic: `SavePendingTreeIfAny`'s Limbo branch WRITES it
+  (`ParsekScenario.cs:1843`, the `markerKey` ternary), and — unlike `SaveActiveTreeIfAny`,
+  which opens with `if (HighLogic.LoadedScene != GameScenes.FLIGHT) return;`
+  (`ParsekScenario.cs:2155`) —
   that branch carries **no scene guard at all**. So a non-`Finalized` pending tree exists
   on disk, restores non-`Finalized`, and does so at a non-FLIGHT scene.
 - **With that state the predicate routes to ghost-only**, and the cost is measured:
   `AutoCommitTreeGhostOnly` now returns and logs how many `VesselSnapshot`s it destroyed.
 
-**WHAT HEADLESS COULD NOT SETTLE, and what the flight decides.** The chain COMPOSES; that
-is not the same as the shipped product WALKING it. Between the marker on disk and the
-auto-commit site sit the schema gate, sidecar hydration + `DropFailedSidecarHydration-
-Recordings`, the mission-prune carve-out, and the idle-on-pad discard. S0.9 is what
-measures whether any of them drops the tree first (in which case the branch is
-unreachable in practice and this entry closes) or none of them does.
+**WHAT HEADLESS COULD NOT SETTLE.** The chain COMPOSES; that is not the same as the
+shipped product WALKING it, and it says nothing about whether a PLAYER produces the state.
+Both gaps are now answered below — the second by the assembled warm chain, the first by
+the two driven scenarios — and the open residue is stated there.
 
-**And the narrower question the flight does NOT answer, stated so it is not over-read:
-whether a PLAYER produces that state.** Two candidate routes, both READ FROM SOURCE, both
-UNDEMONSTRATED — do not treat either as a repro:
-- **WARM (no save/load needed).** `OnLoad`'s limbo-dispatch block (`ParsekScenario.cs:3486`)
-  has NO scene gate: it sets `ScheduleActiveTreeRestoreOnFlightReady`, which cannot fire
-  outside FLIGHT, and the very next block (`pending-outside-flight`, `:3551`) then
-  ghost-only commits. Reachable IF a `Limbo` tree survives the resume window across a
-  FLIGHT → non-FLIGHT exit — i.e. if `ParsekFlight.RestoreActiveTreeFromPending` bails
-  (it has several timeout/guard bails) or `onFlightReady` never fires.
-- **COLD.** The same shape from a save whose GAME `scene` is not FLIGHT and whose
-  ParsekScenario node carries the `isActive` marker — which `SavePendingTreeIfAny`'s own
-  comment already anticipates ("any OnSave that ran in the resume window (autosave /
-  scene-exit / exiting KSP before OnFlightReady fired)").
+**THE WARM PLAYER CHAIN — ASSEMBLED FROM SOURCE 2026-08-29 (independent review of branch
+`automerge-coverage`), verdict REACHABLE BY PLAYER ACTION. Every step is a cited line, not
+an inference; what is still open is stated at the end, and it is a FREQUENCY question, not
+a reachability one.** Line numbers are as of that review's tree (post-`origin/main`
+7a2f27c01); each step also names its symbol so a drifted line is recoverable.
 
-Constructing either is the remaining work, and it is what would turn this from a live
-branch into a defect.
+1. **The player quickloads mid-recording (F5 → F9).** FLIGHT → FLIGHT, so
+   `ParsekFlight.FinalizeTreeOnSceneChangeCore`'s `scene == GameScenes.FLIGHT` arm runs
+   and — when the vessel-switch pre-transition does not apply —
+   `StashActiveTreeAsPendingLimbo(commitUT)` (`ParsekFlight.cs:3094`) →
+   `RecordingStore.StashPendingTree(activeTree, PendingTreeState.Limbo)`
+   (`ParsekFlight.cs:14491`). The tree is now parked NON-`Finalized`, by design, awaiting
+   the resume.
+2. **The resume's 3-second vessel-match loop misses.** `RestoreActiveTreeFromPending`
+   gives up and `yield break`s (`ParsekFlight.cs:14141`) after a Warn whose own
+   parenthetical is the product telling the user what to do next
+   (`ParsekFlight.cs:14104-14106`): *"not active within 3s — leaving tree in Limbo (user
+   can trigger merge dialog via scene exit)"*.
+3. **The player follows that advice and exits to the Space Center.** But the restore never
+   installed anything, so `activeTree` is null and `OnSceneChangeRequested`'s
+   `if (activeTree != null) FinalizeTreeOnSceneChange(scene)` (`ParsekFlight.cs:2311`) is
+   skipped entirely. Nothing re-finalizes the parked tree; it crosses the scene boundary
+   still `Limbo`.
+4. **SPACECENTER `OnLoad`.** The hidden-settings clamp has already forced `IsAutoMerge`
+   true (`ParsekSettings.ClampHiddenSettingsToShippingValues`), so
+   `ShouldSilentFullFidelityCommit` returns false on `Limbo` and
+   `AutoCommitPendingTreeOutsideFlight("scene-exit")` (`ParsekScenario.cs:3889`) takes the
+   ghost-only branch: every `VesselSnapshot` nulled, no dialog.
+
+**The product's documented recovery path IS the silent-destruction path.** Step 2 promises
+the dialog and step 4 is where the flip took it away.
+
+**A second, non-fault entrance to the same state:** leaving FLIGHT while the 3-second wait
+is still running. `FinalizeTreeOnSceneChangeCore`'s `restoringActiveTree` guard
+(`ParsekFlight.cs:3029-3035`) returns early — correctly, the coroutine owns
+`activeTree`/`recorder` — which lands on the same parked-`Limbo`-crosses-the-boundary
+state without any match failure at all.
+
+**Supporting observation, and a defect-adjacent smell in its own right: the limbo dispatch
+schedules a restore that can never fire.** `OnLoad`'s `limbo-dispatch` block
+(`ParsekScenario.cs:3803`, through the two `ScheduleActiveTreeRestoreOnFlightReady`
+assignments at `:3818` / `:3849`) has **no scene gate**: outside FLIGHT it arms a
+`onFlightReady` restore that will never run, and then the `pending-outside-flight` block
+sixty lines later (`ParsekScenario.cs:3863` → `:3889`) consumes the very tree it just
+scheduled. Worth a look independently of this entry.
+
+**WHAT IS STILL OPEN — two things, and neither is "is it reachable".**
+(a) **How often step 2 fires on ordinary flights.** The 3-second match is by vessel name
+    and pid; the give-up Warn is the discriminator, and no run has been read for it. If it
+    is common, this is a routine player experience; if it is rare, it is an edge.
+(b) **Whether the load-time guards pass the tree** — schema gate, sidecar hydration +
+    `DropFailedSidecarHydrationRecordings`, the mission-prune carve-out, the idle-on-pad
+    discard.
+
+**THE TWO DRIVEN SCENARIOS, AND WHY IT TAKES TWO.** S0.9 cold-loads, so it confirms only
+the LOAD-PATH half — open item (b) — and reaches the site with
+`context=cold-load outside-flight`. The warm chain above never cold-loads at all, so it
+needs its own lane: **`harness/scenarios/S0.10-automerge-limbo-warm-exit.toml`** (operator
+tier, reading run, never flown), which drives steps 2 → 3 → 4 in the shipped DLL and
+reaches the site with `context=scene-exit`. That one word is the whole difference between
+the two specs.
+
+How S0.10 forces step 2 — **by fixture, not by timing race**, because a race is exactly
+what a driven run cannot schedule. The `pending-limbo-tree` preset is injected into the
+FOCUSABLE `eva2-lko-crewed` (so `DecideLoadRoute` takes the FLIGHT branch — the only route
+there, since `scene=flight` is not an accepted `LoadGame` argument), and the tree's
+`ActiveRecordingId` names a vessel, "Limbo Upper", that does not exist in that save. The
+3-second match compares name, pid and `recordedVesselGuid`
+(`ParsekFlight.cs:13975` / `:14047`); all three miss, on every run, on any hardware. Then
+`ExitToSpaceCenter` proceeds — `ShouldShowPendingTreeDialogBeforeSceneChangeLive` computes
+`hasFinalizedPendingTree` false for a Limbo tree (`SceneExitInterceptor.cs:238-244`), so
+the wedge guard returns `None` — and the SPACECENTER `OnLoad` does the rest.
+
+**Neither spec proves step 1**, and S0.10 does not measure open item (a) either: it
+manufactures the miss rather than producing one. Frequency stays open.
+
+**COLD (the same end state, reached from disk).** A save whose GAME `scene` is not FLIGHT
+and whose ParsekScenario node carries the `isActive` marker — which
+`SavePendingTreeIfAny`'s own comment already anticipates ("any OnSave that ran in the
+resume window (autosave / scene-exit / exiting KSP before OnFlightReady fired)").
+
+**Escalation trigger, restated now that the chain is named: a repro needs only a
+quickload whose resume match misses.** Not a crash, not a mod interaction, not a
+hand-edited save — F5, F9, a missed match, and the exit the product itself recommends. Any
+run that shows the step-2 Warn followed by a `Ghost-only auto-commit ... reason=state=Limbo`
+with `snapshotsNulled` > 0 IS that repro.
 
 **Escalation trigger:** any repro of a player-recoverable tree silently committing
 ghost-only. At that point the remedy is scoped, not blanket — the dialog returns for the
@@ -3906,6 +3978,53 @@ coverage gap recorded on the default-flip entry below - the cell that would exer
 ON path live does not exist~~ **— that cell now exists (`AutoMergeCommit`), so the ON
 path's coverage gap is closed as an ASSET even though neither question yet has a driven
 answer.**
+
+## TEST-HYGIENE — SUPPRESSLOGGING-LEFT-ON-IN-DISPOSE: 406 xUnit classes end `Dispose()` by re-suppressing the global log, deterministically blanking the NEXT Sequential class's log capture [FOUND 2026-08-29 while building the AUTOMERGE-ON-BY-DEFAULT coverage (branch `automerge-coverage`), by hitting it: a newly added class made a previously-latent ordering hazard FIRE. TEST-INFRASTRUCTURE ONLY — no product code is involved and no shipped behaviour is at risk. OPEN, unscoped: recorded because it is a real trap with a real cost, not because a sweep is proposed]
+
+**The shape.** `ParsekLog.SuppressLogging` is a static bool. The house pattern for a
+Sequential test class that captures log output is: set `ParsekLog.TestSinkForTesting` in
+the constructor, and in `Dispose()` call `ParsekLog.ResetTestOverrides()` — which already
+restores `SuppressLogging = false` — and then **set it back to `true` anyway**. That last
+line is the bug. It does not restore a prior value (nothing saved one); it asserts a
+global default that is wrong for every class that captures logs. The next Sequential class
+to run constructs its sink, runs its test, and asserts on a list that is EMPTY — because
+the writes were suppressed by a class that finished before it started.
+
+**Why it has stayed invisible.** The victim has to (a) capture logs, (b) not re-clear the
+flag itself, and (c) run immediately after a suppressor within the `Sequential` collection.
+xUnit's ordering makes that stable in practice but not by contract, so the population sits
+green until an addition reshuffles it. That is exactly what happened here: adding
+`AutoMergeGhostOnlyReachabilityTests` (which sorts directly before `AutorunExitTests`) took
+`AutorunExitTests.PerformAutorunExit_ThrowingQuit_IsContainedAsError` from passing to
+failing with `Assert.Contains() Failure ... In value: List<String> []` — an empty capture,
+not a wrong one. It passed in isolation and failed in the full run, which is the signature.
+
+**Population, counted mechanically (2026-08-29):** 463 files under `Source/Parsek.Tests`
+contain `ParsekLog.SuppressLogging = true`; **406 of them have it inside `Dispose()`**,
+which is the hazardous position. Three verified examples, all identical in shape:
+`Source/Parsek.Tests/Analyzer/BaselineFilterLoggingTests.cs:29`,
+`Source/Parsek.Tests/Analyzer/SaveDirectoryLoaderTests.cs:34`,
+`Source/Parsek.Tests/Analyzer/Rules/Inv9RewindPointTests.cs:38`. (`SaveDirectoryLoaderTests`
+and `Inv9RewindPointTests` both save and restore `RecordingStore.SuppressLogging` correctly
+on the line above — so the fix pattern is already in the file, applied to the other flag.)
+
+**Fix template — already applied in one place, deliberately not swept.**
+`Source/Parsek.Tests/AutoMergeGhostOnlyReachabilityTests.cs`'s `Dispose()` calls
+`ParsekLog.ResetTestOverrides()` and stops there, with a comment saying why. That is the
+whole fix: drop the trailing re-suppress, or save the incoming value in the constructor and
+restore THAT. Either is a one-line change per class.
+
+**Why no sweep is proposed here.** 406 mechanical edits across the test tree is a change
+whose review cost is entirely in confirming that no class was actually RELYING on the
+suppression (a class that asserts on log SILENCE would legitimately want it), and that
+audit is the work, not the edit. It also has a real chance of churning a file another
+branch is mid-edit on. Recorded so the next person who hits an empty log capture reaches
+this entry in one grep instead of re-deriving it — which is most of the value — and so a
+sweep, if taken, is taken deliberately.
+
+**Symptom to grep for:** an xUnit failure reading `Assert.Contains() Failure` with
+`In value: List<String> []` (or any empty captured-log list) that PASSES when the class is
+run with `--filter` and FAILS in the full suite.
 
 ## BEHAVIOR PIN — SYNTHETIC-CONTRACT-FAIL-PENALTY-CLAMPED-BY-DRAWDOWN-GUARD: the guarded-drawdown protection correctly refuses a synthetic `ContractFail` penalty that stock never debited [MEASURED 2026-08-20 by `L5-career-contract-complete`'s green flight (run `2026-08-20_2240`), the FIRST run ever to drive `ContractsModule.PrePass`'s injection under a gate. **RECLASSIFIED 2026-08-28 (branch `ledger-followups`) from open defect to a DOCUMENTED, MEASURED BEHAVIOR PIN.** REPORT-ONLY and GATED AS MEASURED: no product change is proposed, and the clamp is pinned so a change of behaviour has to be taken deliberately]
 

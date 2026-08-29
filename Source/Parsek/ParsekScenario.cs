@@ -7578,8 +7578,14 @@ namespace Parsek
         {
             if (!RecordingStore.HasPendingTree)
             {
+                // Carries the SAME `autocommit-outside-flight` prefix as the entry line
+                // and the two outcome lines below, so ONE grep answers all four states
+                // this site can be in: never reached (no line at all), reached with
+                // nothing to do (this line), reached and full-fidelity, reached and
+                // ghost-only. Without the shared prefix the empty case is the one a
+                // reader has to know a different string to find.
                 ParsekLog.Verbose("Scenario",
-                    $"AutoCommitPendingTreeOutsideFlight ({context}): no pending tree — nothing to commit");
+                    $"autocommit-outside-flight ({context}): no-pending-tree — nothing to commit");
                 return;
             }
 

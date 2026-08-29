@@ -164,6 +164,17 @@ count = { min = 1, max = 2 }
 #    process (KSP boots to MAINMENU with no game loaded, so the seam's LoadGame is a
 #    cold load), which is the precise site the entry names.
 #
+#    `recordings=\d+` here, DELIBERATELY, against token 1's exact `2`. The two
+#    numbers are measured at DIFFERENT points and are allowed to disagree: token 1
+#    reads the count as `TryRestoreActiveTreeNode` leaves it (already past its own
+#    `DropFailedSidecarHydrationRecordings`), while this one reads it later in the
+#    same OnLoad, after orphan-sidecar cleanup, the milestone restore, the ledger
+#    reconcile and the route pass have each had a turn at the tree. A guard trimming
+#    a recording in THAT window is exactly the kind of thing this reading run exists
+#    to discover, and pinning `2` here would deliver the discovery as a
+#    PARSEK-FAIL plus a burned retry instead of as a reading. The count is already
+#    pinned once, at the site where pinning it is anti-vacuity rather than prediction.
+#
 # WHAT TO READ IN THE COLLECTED LOG, and what each reading MEANS. Exactly one of
 # these two lines must follow the entry line:
 #
@@ -188,7 +199,7 @@ count = { min = 1, max = 2 }
 # reading would itself close the entry and is why token 1 is pinned separately.
 required = [
   "TryRestoreActiveTreeNode: stashed active tree '.+' \\(2 recording\\(s\\), activeRecId=\\S+\\) into pending-Limbo slot",
-  "autocommit-outside-flight \\(cold-load outside-flight\\): entry tree='.+' recordings=2 scene=SPACECENTER autoMerge=True pendingState=Limbo reFlyActive=False",
+  "autocommit-outside-flight \\(cold-load outside-flight\\): entry tree='.+' recordings=\\d+ scene=SPACECENTER autoMerge=True pendingState=Limbo reFlyActive=False",
 ]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 

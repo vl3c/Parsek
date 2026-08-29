@@ -161,9 +161,12 @@ All notable changes to Parsek are documented here.
   chose the careful path. Now the four go down on one line before the choice is
   made, and when the light path is taken it also reports how many ships it
   actually gave up, so a run that gave up nothing reads differently from one that
-  gave up three. Nothing about the behaviour changed; this is so a question that
-  has been open since that setting became the default can be answered by reading
-  a log instead of by arguing about the code.
+  gave up three. The fourth case - reaching that moment with nothing to file at
+  all - now says so in the same words as the other three, so one search of the log
+  turns up every occasion instead of three out of four. Nothing about the
+  behaviour changed; this is so a question that has been open since that setting
+  became the default can be answered by reading a log instead of by arguing about
+  the code.
 
 - The six supply-route test runs now go every night along with the rest. They
   were being held back for a decision rather than for a problem: each one had
