@@ -265,6 +265,24 @@ All notable changes to Parsek are documented here.
   in it at all and that check needs one.
   Test-tooling only; no gameplay change, and nothing ships with the mod.
 
+- Four long-standing sources of log noise are gone, which matters because the
+  log file is how every problem in Parsek gets diagnosed and a log that is mostly
+  chatter hides the one line that explains a bug. The biggest was the engine-part
+  inspection dump, which wrote a separate line for every single piece of an
+  engine's model - hundreds of lines for a handful of parts; it now writes the
+  whole tree as one line, with nothing left out. Each part being copied into a
+  ghost also described itself twice, in two lines that between them said the same
+  thing; they are one line now. Saving a recording wrote a line for every slice
+  of timeline that came from somewhere other than the ship you were flying; that
+  is now a single line at the end naming all of them. And the space centre wrote
+  a full announcement for each finished flight it decided it did not need to put
+  a ship down for - the ordinary outcome, and the thing detailed logging exists
+  for, so it moved down to detailed. One noisy line on the list was left exactly
+  as it is on purpose: it is the only evidence an automated test has that a
+  recorded part action was actually applied to a ghost, and quieting it would
+  blind that test. Nothing about what Parsek does changed - only how much it
+  says while doing it.
+
 - Quitting the game while watching a ghost no longer leaves an error in the log
   file. Watch mode puts the camera back where it found it on the way out, and
   when the way out is the game shutting down, it was asking which ship the

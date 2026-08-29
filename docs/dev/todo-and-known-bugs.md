@@ -21758,12 +21758,68 @@ Action blocking catches paradoxes at the moment the player tries to violate them
 ## 160. Log spam: remaining sources after ComputeTotal removal
 
 After removing ResourceBudget.ComputeTotal logging (52% of output), remaining spam sources:
-- GhostVisual HIERARCHY/DIAG dumps (~344 lines per session, rate-limited per-key but burst on build)
-- GhostVisual per-part cloning details (~370 lines)
-- Flight "applied heat level Cold" (46 lines, logs no-change steady state)
-- RecordingStore SerializeTrackSections per-recording verbose (184 lines)
-- KSCSpawn "Spawn not needed" at INFO level (54 lines)
-- BgRecorder CheckpointAllVessels checkpointed=0 at INFO (15 lines)
+- ~~GhostVisual HIERARCHY/DIAG dumps (~344 lines per session, rate-limited per-key but burst on build)~~
+- ~~GhostVisual per-part cloning details (~370 lines)~~
+- Flight "applied heat level Cold" (46 lines, logs no-change steady state) - **BLOCKED BY PIN**
+- ~~RecordingStore SerializeTrackSections per-recording verbose (184 lines)~~
+- ~~KSCSpawn "Spawn not needed" at INFO level (54 lines)~~
+- ~~BgRecorder CheckpointAllVessels checkpointed=0 at INFO (15 lines)~~ - was already fixed
+
+**2026-08-29 update (release-hygiene, R5 item 3): four of the six named sources
+cut, one blocked by a harness pin, one already fixed years-stale.** Taken one at
+a time, because the reason differs per source and only the first two were the
+same defect:
+
+1. **GhostVisual HIERARCHY dump - FIXED.** `DumpTransformHierarchy` emitted one
+   rate-limited line PER TRANSFORM inside an unbounded recursive walk, which is
+   exactly what the batch-counting convention forbids. It is now
+   `AppendTransformHierarchy`, building the tree into a `StringBuilder` that
+   `LogEnginePartHierarchyDump` emits as ONE line
+   (`... N transforms [depth:name[components](INACTIVE)] 0:part | 1:model | ...`).
+   Nothing is lost: same nodes, same components, same INACTIVE marking, one line
+   per engine part per 60 s window instead of one per node.
+2. **GhostVisual per-part cloning details - FIXED, one line's worth.** Read
+   against the code, the per-part lines are ALREADY convention-shaped: `part_summary_`,
+   `clone_summary_`, the variant lines and the skip counters are each one
+   rate-limited line per part carrying loop-accumulated counters. The one
+   genuine duplicate was the second `[DIAG] part '<name>' modelRoot ...` line,
+   whose localRot / localPos / localScale the `part_summary_` line was already
+   half-carrying (modelRoot name + modelScale); it is folded into that line, so a
+   part costs one line here instead of two. NOT touched: the counter summaries -
+   collapsing those would delete measurements, not spam.
+3. **Flight "applied heat level" - BLOCKED BY PIN, deliberately unchanged.** It is
+   a REQUIRED `logContracts` token in the committed
+   `harness/scenarios/S1.9-part-showcase-render.toml`
+   (`"Part pid=[0-9]+: applied heat level (?:Hot|Medium|Cold)"`), and that spec's
+   own header explains why it is load-bearing: the part-event applier is almost
+   entirely silent, so this line is one of only two per-family apply proofs the
+   product emits at all. The obvious fix (change-key it so a no-change steady
+   state stops repeating) also risks the pin in a second way - `VerboseOnChange`'s
+   identity dict is not cleared on scene switch, so the first post-re-entry
+   application can be dropped, which is precisely the emit S1.9 waits for. Cutting
+   it therefore needs the S1.9 lane re-read first; it is not a two-line change and
+   was not attempted here.
+4. **RecordingStore SerializeTrackSections - FIXED.** The per-section
+   `writing source=... (non-default)` Verbose is collected into a list and emitted
+   as one summary after the loop (`wrote N sections, M with a non-default source:
+   [1] source=Background, ...`), so a save costs one line instead of M. The
+   existing `SerializeTrajectoryInto_BackgroundFixture_LogsSingleSectionSummary`
+   cell passes unchanged (it asserts a single line carrying `source=Background`,
+   which is now literally what the method's name says), plus two new cells in
+   `TrackSectionSerializationTests` for the many-source collapse and the
+   all-default silence.
+5. **KSCSpawn "Spawn not needed" - FIXED.** Info -> Verbose. It is the ORDINARY
+   outcome for every past-end recording the KSC scene walks, i.e. diagnostic
+   detail rather than an event; the spawn-needed paths beside it stay Info. Not
+   pinned anywhere in `harness/` or `scripts/`; the KSCSpawn xUnit assertions
+   target a different helper (`LogPlaybackDisabledPastEndSpawnAttemptOnce`).
+6. **BgRecorder CheckpointAllVessels checkpointed=0 - ALREADY FIXED, entry was
+   stale.** Bug #592 (see the 2026-04-25 update below) already moved it off Info
+   onto `VerboseRateLimited` keyed by the SHAPE of the result
+   (`checkpoint-all-{checkpointed}-{skippedNotOrbital}-{skippedNoVessel}-{skippedDuplicateBoundary}`),
+   so identical no-op summaries during a warp burst collapse while a change in
+   counts still surfaces. Nothing to do; the bullet above is struck for accuracy,
+   not for work done in this pass.
 
 2026-04-25 update: deferred spawn queue outside-physics-bubble waits are no longer
 a spam source; the per-recording kept line and repeated warp-ended summary were
@@ -21818,7 +21874,10 @@ section above.
 
 **Priority:** Deferred to Phase 11.5 (Recording Optimization & Observability)
 
-**Status:** Open
+**Status:** Open on ONE named source only - the heat-level line (item 3 in the
+2026-08-29 update), which is blocked behind an S1.9 harness pin and needs that
+lane re-read before it can move. The other five named sources are closed. The
+broader audit work stays with the Observability Audit section above.
 
 ---
 

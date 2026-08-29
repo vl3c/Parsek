@@ -2623,12 +2623,17 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Recursively dump the full transform hierarchy of a part prefab for diagnostics.
-        /// Logs each transform with its depth, components, and active state.
+        /// Appends the full transform hierarchy of a part prefab into <paramref name="sb"/> for diagnostics: one
+        /// <c>depth:name[components](INACTIVE)</c> entry per transform, separated by " | ".
+        ///
+        /// <para>ONE STRING, NOT ONE LINE PER NODE. This walk used to emit a rate-limited log line per transform,
+        /// which is a per-item emit inside an unbounded recursive loop - the batch-counting convention forbids it,
+        /// and it measured ~344 lines of a single session's log (todo entry 160). The caller now emits the whole
+        /// tree as ONE line, so the same information survives at a fraction of the volume.</para>
         /// </summary>
-        private static void DumpTransformHierarchy(Transform t, int depth, string partName)
+        private static void AppendTransformHierarchy(
+            Transform t, int depth, System.Text.StringBuilder sb, ref int nodeCount)
         {
-            string indent = new string(' ', depth * 2);
             var components = t.gameObject.GetComponents<Component>();
             var compNames = new List<string>();
             foreach (var c in components)
@@ -2638,12 +2643,14 @@ namespace Parsek
                 if (cName == "Transform") continue; // skip ubiquitous Transform
                 compNames.Add(cName);
             }
-            string compStr = compNames.Count > 0 ? " [" + string.Join(", ", compNames) + "]" : "";
-            string activeStr = t.gameObject.activeSelf ? "" : " (INACTIVE)";
-            ParsekLog.VerboseRateLimited("GhostVisual", $"hierarchy_{partName}_{depth}_{t.name}",
-                $"    HIERARCHY {partName}: {indent}{t.name}{compStr}{activeStr}", 60.0);
+            string compStr = compNames.Count > 0 ? "[" + string.Join(", ", compNames) + "]" : "";
+            string activeStr = t.gameObject.activeSelf ? "" : "(INACTIVE)";
+            if (nodeCount > 0) sb.Append(" | ");
+            sb.Append(depth.ToString(CultureInfo.InvariantCulture)).Append(':')
+              .Append(t.name).Append(compStr).Append(activeStr);
+            nodeCount++;
             for (int i = 0; i < t.childCount; i++)
-                DumpTransformHierarchy(t.GetChild(i), depth + 1, partName);
+                AppendTransformHierarchy(t.GetChild(i), depth + 1, sb, ref nodeCount);
         }
 
 
@@ -5329,9 +5336,13 @@ namespace Parsek
         private static void LogEnginePartHierarchyDump(
             Part prefab, Transform modelRoot, string partName, uint persistentId)
         {
+            var hierarchy = new System.Text.StringBuilder();
+            int nodeCount = 0;
+            AppendTransformHierarchy(prefab.transform, 0, hierarchy, ref nodeCount);
             ParsekLog.VerboseRateLimited("GhostVisual", $"part_dump_{partName}",
-                $"  ENGINE PART HIERARCHY DUMP for '{partName}' pid={persistentId}:", 60.0);
-            DumpTransformHierarchy(prefab.transform, 0, partName);
+                $"  ENGINE PART HIERARCHY DUMP for '{partName}' pid={persistentId}: " +
+                $"{nodeCount.ToString(CultureInfo.InvariantCulture)} transforms " +
+                $"[depth:name[components](INACTIVE)] {hierarchy}", 60.0);
 
             // Also log MeshRenderers found from Part root vs modelRoot
             var allMR = prefab.GetComponentsInChildren<MeshRenderer>(true);
@@ -5775,9 +5786,13 @@ namespace Parsek
                 }
             }
             bool filterInactiveVariantRenderers = hasPartVariants && (activeMR > 0 || activeSMR > 0);
+            // One line per part per window. The modelRoot local pos/rot used to be a SECOND per-part
+            // "[DIAG] part ..." line emitted further down (todo entry 160's "per-part cloning details");
+            // it says nothing this line cannot carry, so it is folded in here instead of doubling the volume.
             ParsekLog.VerboseRateLimited("GhostVisual", $"part_summary_{partName}",
                 $"  Part '{partName}' pid={persistentId}: modelRoot='{modelRoot.name}' " +
-                $"modelScale={modelRoot.localScale}, " +
+                $"modelScale={modelRoot.localScale} modelPos={modelRoot.localPosition} " +
+                $"modelRot={modelRoot.localRotation}, " +
                 $"{totalMR} MeshRenderers, {totalSMR} SkinnedMeshRenderers" +
                 (hasPartVariants ? " (has ModulePartVariants)" : ""), 60.0);
             if (hasPartVariants && hasVariantGameObjectRules)
@@ -5828,8 +5843,8 @@ namespace Parsek
             modelNode.transform.localPosition = modelRoot.localPosition;
             modelNode.transform.localRotation = modelRoot.localRotation;
             modelNode.transform.localScale = modelRoot.localScale;
-            ParsekLog.VerboseRateLimited("GhostVisual", $"part_diag_{partName}",
-                $"  [DIAG] part '{partName}' modelRoot '{modelRoot.name}' localRot={modelRoot.localRotation} localPos={modelRoot.localPosition} localScale={modelRoot.localScale}", 60.0);
+            // (The per-part "[DIAG] part ... localRot/localPos/localScale" line that used to sit here is folded
+            //  into the single part_summary_ line above - same facts, one line per part instead of two.)
             cloneMap[modelRoot] = modelNode.transform;
 
             // For light showcase recordings, lift only light-part visuals so probes stay
