@@ -657,7 +657,7 @@ namespace Parsek
             //   1. Real Spawn Control  (InFlight-only; its trailing separator is inside the block)
             //   2. Timeline / Recordings
             //   3. Kerbals / Career
-            //   4. Gloops Flight Recorder  (InFlight-only; trailing separator inside the block)
+            //   4. Gloops Flight Recorder  (InFlight-only; RETIRED in every mode - never draws)
             //   5. Settings
             //
             // Basic / Advanced gating (design 7.1): each hidden launcher is wrapped in an
@@ -835,6 +835,10 @@ namespace Parsek
             GUILayout.Space(SpacingLarge);
 
             // --- Gloops Flight Recorder (InFlight-only; trailing separator before Settings) ---
+            // RETIRED: MainButtonGloops is hidden in EVERY mode (UiSurfaceVisibility.IsRetired)
+            // while Gloops winds down toward a standalone mod, so this block currently never
+            // draws. Kept behind the gate rather than deleted so the eventual extraction (or
+            // a rollback) is a one-line visibility decision, not a layout re-derivation.
             if (InFlight && UiSurfaceVisibility.IsVisible(UiSurface.MainButtonGloops, complexity))
             {
                 if (GUILayout.Button(new GUIContent(

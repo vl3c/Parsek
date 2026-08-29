@@ -966,9 +966,14 @@ namespace Parsek
         /// spawn-time value that may be arbitrarily stale, and the same-body comparison
         /// answers false. V7M measured exactly that: a ghost reporting <c>Kerbin</c> while
         /// both it and the observer were at Minmus, 144 km apart, and the affordance told the
-        /// player it was on a different body. The refusal itself is unchanged; only the
-        /// explanation is. Defaulted to <c>true</c> so the historic meaning is what a caller
-        /// that does not measure it gets.
+        /// player it was on a different body. Defaulted to <c>true</c> so the historic meaning
+        /// is what a caller that does not measure it gets.
+        ///
+        /// <para>THAT REFUSAL IS NOW FIXED TOO (2026-08-28): <c>IsGhostOnSameBody</c> resolves
+        /// a not-current ghost's body from the recording's own trajectory, so the V7M shape
+        /// ENTERS rather than being explained. This wording therefore now covers the RESIDUAL
+        /// case - the trajectory could not resolve either - while a genuinely cross-body ghost
+        /// still gets the "different body" text off a current reading.</para>
         /// </summary>
         internal static string GetWatchButtonReason(
             bool canWatch, bool hasGhost, bool sameBody, bool inRange, bool isDebris,

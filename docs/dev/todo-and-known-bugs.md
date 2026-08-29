@@ -341,6 +341,22 @@ PHYSICS warp never packs the vessel, so no amount of waiting could have fixed it
 `finally`. The skip reason keeps its original sentence VERBATIM (H38's spec
 header quotes it) with the measured `mode=` / `rate=` / `srfSpeed=` diagnostics
 appended in brackets, so a future skip states which mechanism it hit.
+## GLOOPS-STANDALONE-WINDDOWN: Gloops UI retired from every mode; extraction to a standalone mod pending [OPENED 2026-08-28]
+
+Product decision (2026-08-28): Gloops becomes a standalone mod later, and Parsek
+gradually winds down player-facing ghost/recording-looping surfaces to focus on
+gameplay. **Step 1 shipped:** `UiSurface.MainButtonGloops` is retired in EVERY UI
+mode (Advanced included) via `UiSurfaceVisibility.IsRetired` — a retirement gate
+that outranks the Basic/Advanced decision in `IsVisible` — so the Gloops Flight
+Recorder launcher (the window's only opener) no longer draws. Visibility-only:
+the recording machinery (`ParsekFlight` gloops paths, `GloopsRecorderUI.cs`, the
+Gloops group, saved ghost-only recordings), the design-7.2 close-set entry, and
+the edge-case-11 in-progress guard all remain. Pinned by
+`RetiredSurfacesAreHiddenInEveryMode` / `AdvancedHidesOnlyRetiredSurfaces`
+(`UiComplexityModeTests.cs`); design amendment noted in
+`design-ui-basic-advanced.md` (2026-08-28). **Remaining:** the actual extraction
+(move `GloopsRecorderUI` + the gloops recorder paths out of Parsek) and deciding
+which further looping surfaces wind down next — both unscheduled.
 
 ## ~~GS4-FIRST-FLIGHT-RISKS~~: the ghost-derender tripwire lane's pre-flight interim pins [OPENED 2026-08-27 with the GS-4 lane. **DISCHARGED 2026-08-27 THE SAME DAY**: reading run `2026-08-27_2145` (MISSION-OK attempt 1; red on exactly the two watch tokens - the pre-spawn EnterWatchMode race, fixed as the machine's WATCH hold-then-retry loop) then green run `2026-08-27_2204` PASS attempt 1, every verifier clean, census spawned=8/destroyLines=8/unbalanced=0 measured on BOTH flights. Windows re-pinned to the measurement; ghostLifecycle stays report-only pending the standard arming discipline. Status authority: `docs/dev/autotest-status.md` -> Live-proven. The entry below is kept as the pre-flight record]
 
@@ -507,6 +523,172 @@ made the lane vacuous:
 The retarget / explosion-hold probes are still NOT written and
 `watch-mode-retarget-explosion-hold` stays unclaimed; W1 claims the NEW D6 value
 `watch-entry-distance-cutoff` instead.
+
+## S19-PART-SHOWCASE-RENDER-READING-ITERATION: the synthetic PART SHOWCASE corpus had never been checked for actually RENDERING; the lane that checks it flew once, red on TIMING, and refuted two of its own premises [OPENED 2026-08-28 on branch `part-showcase-lane`. READING RUN 1 FLOWN 2026-08-28 (`2026-08-28_1945`, PARSEK-FAIL(expectation), spawned=0) - a SPEC refutation, not a product one; v2 committed the same day. TODO, not a defect. Status authority: `docs/dev/autotest-status.md` -> Committed, not yet green]
+
+Parsek auto-generates 243 looping, ghost-only, one-part recordings - one per part
+family member - standing in three rows 200-240 m in front of the KSC pad, each a 24 s
+static clip that toggles that part's own event pair eight times (lights, panels,
+antennas, gear, legs, bays, ladders, RCS, fairings, radiators, drills, deployed
+science, animation groups, chutes, docking ports, engine plates and heat shields,
+robotics, aero and control surfaces, wheels, animate-heat, colour changers, plus the
+inventory / flag / chute-repack / surface-rover singles). They exist so a human can
+stand on the pad and LOOK at every part's ghost - the design record is
+`docs/dev/done/2026-02-17-part-event-showcase-recordings-plan.md` - and until now
+nothing automated had ever looked.
+
+The gap is specific and it is NOT "no lane injects them": `S1.4-injected-playback`
+injects the very same rows inside `all-synthetic`. What S1.4 gates on is the in-game
+batch tally and the `.prec` sidecar count, and **a build that silently stopped BUILDING
+GHOST MESHES would satisfy both in full** - the recordings still exist, still carry
+points, still parse. Nothing in the suite read the flight-scene mesh trace over this
+corpus.
+
+`S1.9-part-showcase-render` closes that. It adds a `part-showcase` injection preset
+(the showcase corpus ALONE - no flight recordings, chains, trees or game actions),
+wired across all four surfaces `test_injection_preset_sync.py` pins and sharing ONE
+body (`SyntheticRecordingTests.AddPartShowcaseRecordings`) with `all-synthetic` so the
+two corpora cannot drift. It then loads the fixture, flips `ghostRenderTracing` (a
+sidecar-backed setting), and loads the SAME save again so the tracer is live from
+flight frame one - the ghost engine builds meshes from the first flight Update, so a
+post-load SetSetting arrives after the first census has already happened in the dark.
+26 REQUIRED `phase=MeshSpawned ... vessel=<row> reason=ghost-created` tokens, one per
+part family, plus a report-only whole-corpus census `spawned = { min = 243 }` and the
+per-part floor `ResolveAvailablePart failed for '` in `forbidden`.
+
+**READING RUN 1 FLEW AND RED, AND IT REFUTED THE SPEC IN TWO PLACES.** Run
+`2026-08-28_1945`, collected log `logs/2026-08-28_2246_S1.9-part-showcase-render`:
+PARSEK-FAIL(expectation), 33 of 33 required tokens unmatched, `ghostLifecycle` REPORT
+`spawned=0 spawnLines=0 destroyLines=0 parsed=True`. Neither refutation was about
+rendering.
+
+FIRST, THE WINDOW WAS NEVER OPEN - a timing defect in the lane, not a render defect in
+the product. The run's own rows say it: `Scenario load summary - UT: 21` against, for
+every one of the 243, `engine-frame-iter [i=N rec=... skip=None aru=F hd=T hs=F
+endUT=75.2][out:none]`. `skip=None` and `hd=T` mean the engine looked at each row,
+found the trajectory renderable, and correctly declined to spawn a ghost for a window
+that opens 30 s in the FUTURE of the clock. The lane then quit after ~8 instant probes.
+ZERO GHOSTS WERE EVER DUE. The v1 spec had assumed the corpus loops and is therefore
+always in window (see below); with that assumption gone it needed a clock jump, and had
+none. **v2 adds one absolute `TimeJump ut=55` into the measured window plus a four-step
+`deltaSeconds` staircase across it**, and the whole arithmetic is now mechanically
+guarded by `PartShowcaseWindowSyncTests` (harness/lib/test_hlib.py), which re-derives
+the window from the fixture bytes plus the C# clip constants and reds locally if a
+re-harvest or a clip change ever moves it. Negative control run while authoring it:
+flipping the entry target to 40 reds two of its four cells naming the exact numbers.
+
+SECOND, AND THE REAL FINDING: **the corpus does not loop at all** - see
+SHOWCASE-LOOPFLAG-STRIPPED-AT-LOAD immediately below. v1 pinned two tokens and a D6
+`self-overlap` claim on an overlap analysis that the run killed at the mechanism; all
+three are CUT in v2, replaced by a required token on the sanitizer line itself (which is
+now the premise the window arithmetic rests on) and by a `MeshDestroyed` token plus
+`requireBalanced = true`, both of which only become honest BECAUSE the windows end.
+
+WHAT THE RUN DID CONFIRM: `recordings.count = 243` measured on the flight (the local
+injector measurement transfers exactly); the double-LoadGame tracer trick works
+(`parsed=True`, so the tracer was armed and simply had nothing to report); analyzer
+red=0, logValidate / anomalySweep / driverValidity all PASS. Nothing was refuted about
+the 26 mesh tokens, the apply tokens or the `ResolveAvailablePart` forbid - none of them
+could fire without a ghost, so all stay [DERIVED] and reading run 2 is their first real
+test.
+
+OWED: reading run 2. If it still measures `spawned` short of 243, the fix is MORE DWELL
+at the entry phase - never a lowered census. The other pre-registered risks are
+unchanged: the `ResolveAvailablePart` forbid (the corpus names Making History and
+Breaking Ground parts; both expansions are present in
+`automation/stock-minimal/GameData/SquadExpansion`, checked on disk 2026-08-28, so a red
+there NAMES the part and is either a real resolution regression or a profile gap), the
+flag-plant row's own `Failed to spawn flag vessel` ERROR path, and the fact that no
+committed lane has ever put 243 ghosts in one scene under a gated
+`forbidden=[Parsek][ERROR]`.
+
+## SHOWCASE-COLORCHANGER-APPLY-UNOBSERVABLE: the colour-changer cabin-light apply line never fires on the showcase ghosts, so whether the emissive actually toggles is unmeasurable [MEASURED 2026-08-28 on S1.9 reading run 2 (`2026-08-28_2010`): all 25 colour-changer rows spawned meshes, zero `applied color changer cabin light` lines. OBSERVATION, report-only - possibly a real ghost-render gap, possibly Pattern-A discovery correctly finding nothing on these parts]
+
+`ApplyColorChangerLightState` (GhostPlaybackLogic.cs:6993) returns silently when
+the ghost's `colorChangerInfos` carries no `isCabinLight` entry for the pid - no
+line, no skip reason. On stock-minimal, S1.9's 25 "Part Showcase - Colour
+Changer" rows rendered meshes but produced zero apply lines, so either (a) the
+ghost visual builder's Pattern-A material discovery resolves nothing for these
+parts (a render gap: the cabin-light emissive never toggles on the ghost), or
+(b) the parts genuinely carry no Pattern-A cabin light and the showcase
+builder's event targeting is aspirational. Distinguishing (a) from (b) needs
+either a logged skip reason in the applier (the PART-EVENT-APPLIER-IS-UNLOGGED
+fix shape) or a manual eyeball of a colour-changer row mid-window. S1.9
+deliberately does NOT pin the token (its header records the measurement).
+
+## SHOWCASE-LOOPFLAG-STRIPPED-AT-LOAD: every part-showcase recording is authored `WithLoopPlayback(true)` and every one has that flag CLEARED on load, so the standing part exhibition does not actually loop in game [MEASURED 2026-08-28 by `S1.9-part-showcase-render` reading run 1 (`2026-08-28_1945`), which red for an unrelated timing reason and turned this up in the same log. REPORT-ONLY, NO product change proposed, NO mechanism blamed - the sanitizer is doing exactly what it was written to do]
+
+The line, verbatim from the collected log:
+
+```
+[Parsek][WARN][RecordingStore] SanitizeNonLoopableLoopPlayback: cleared LoopPlayback
+on 243 non-loopable recording(s) (debris or pure orbital coast; no Recordings-tab loop
+toggle, so the stale flag had no way to be cleared)
+```
+
+243 is the whole injected showcase corpus.
+`RecordingStore.SanitizeNonLoopableLoopPlayback` clears `LoopPlayback` on any recording
+that fails `Recording.IsLoopableRecording`, and a showcase row fails all five of that
+predicate's arms: it has no `LaunchSiteName`, its `StartSituation` is not `"Prelaunch"`,
+its `SegmentPhase` is none of atmo / approach / surface, its `DockTargetVesselPid` is 0,
+and it carries no viewable RELATIVE track. So
+`BuildPartShowcaseRecording`'s `WithLoopPlayback(loop: true, intervalSeconds: 0.0)` -
+and the same call in every sibling showcase builder - is a NO-OP at playback time. The
+rows play their 24 s clip once (30 s for the surface rover) and stop.
+
+WHY IT MATTERS, and why it is filed rather than fixed here:
+ - The showcase's whole purpose is to be a STANDING exhibition a human can walk up to
+   and look at. A one-shot window that opens 30 s after injection and closes 24 s later
+   is a different thing, and the discrepancy is invisible from the builder source, which
+   plainly asks for a loop.
+ - It also means anyone reading those builders (this lane's author included, at length)
+   will derive a self-overlap model of showcase playback that the game does not run.
+   That cost one flight here, and is exactly the kind of thing worth writing down.
+ - The sanitizer is NOT the defect. Its Warn text even explains its own reasoning ("no
+   Recordings-tab loop toggle, so the stale flag had no way to be cleared") - it exists
+   to clear flags on populations the UI cannot un-set. Whether showcase rows SHOULD
+   satisfy `IsLoopableRecording` (they are neither debris nor an orbital coast), or
+   whether the builders should stop asking for a loop they cannot have, is a product
+   decision with a real UI surface behind it, and not one a test lane should take.
+ - No harness lane depended on the loop before this one, and S1.9 v2 no longer does: it
+   pins the sanitizer line as a REQUIRED token, so if this ever changes the lane reds
+   and names it instead of silently changing meaning.
+
+## PART-EVENT-APPLIER-IS-UNLOGGED: the ghost part-event applier writes no per-family log line, so no automated test can distinguish "the recorded event was applied to the ghost" from "the event was silently skipped" for most part families [FOUND BY READING 2026-08-28 while authoring `S1.9-part-showcase-render`, from the source alone - NOT measured on a flight. OBSERVABILITY GAP, REPORT-ONLY. No product change made: this is the hot path under 243 simultaneous ghosts and the fix is a product decision, not a test-lane one]
+
+`GhostPlaybackLogic.ApplyPartEvents` is the sole apply path for flight, KSC and
+flight-preview ghosts, and it emits exactly ONE aggregate line per call -
+`Applied N part events for ghost #N (evtIdx now N)`, VerboseRateLimited. Its per-family
+handlers emit nothing at all: `ApplyLightPowerEvent`, `ApplyLightBlinkModeEvent` /
+`RateEvent`, `ApplyDeployableState` (which is also the ladder / drill / deployed-science
+/ animation-group / inflatable / radiator path), `ApplyDeployableBrokenState`,
+`ApplyCargoBayState`, `ApplyJettisonPanelState`, the inline `FairingJettisoned` arm,
+`SetEngineEmission` / `SetRcsEmission` themselves, `ApplyParachute*Event`,
+`ApplyRoboticEvent` on its normal path, and `ApplyInventoryPart*Event`.
+
+The only per-family apply evidence that exists today is `Part pid=N: applied heat
+level <Hot|Medium|Cold>` (the ThermalAnimation family), `Part pid=N: applied color
+changer cabin light state=<True|False>`, and `FX magnitude (engine|rcs) pid=N midx=N
+power=...` (which is suppressed entirely when nothing was scaled, so a match really is
+proof an emitter moved).
+
+WHAT IT COSTS, concretely: `S1.9-part-showcase-render` renders a showcase row for
+lights, gear, bays, fairings, panels and chutes and can prove the GHOST MESH was built
+for each - but it cannot claim D7 `lights`, `gear`, `bays`, `fairing`, `chute-cut` or
+`panels-antennas-radiators`, because CLAIM-IS-NOT-GATE requires a required token per
+cell and no token exists. Six registry cells stay unclaimable by any log-reading lane
+until this changes. The house rule is explicit that this should not be so
+(`.claude/CLAUDE.md`: "Every action, state transition, guard condition skip, and FX
+lifecycle event MUST be logged ... if it didn't get logged, it didn't happen").
+
+The shape a fix would have to respect, so nobody reaches for the obvious one: this runs
+per ghost per frame, and the showcase alone puts 243 ghosts in the scene at once with a
+new overlap primary every 5 s. A bare per-event `Verbose` would be a log flood. The
+convention the codebase already has for exactly this is `VerboseRateLimited` with a
+per-part-per-family key - the shape `Part pid=N: applied heat level ...` already uses -
+or a per-family counter folded into the existing aggregate line
+(`Applied N part events ... [lights=2 deployables=1 bays=1]`), which costs one line per
+ghost per interval rather than one per event.
 
 ## FIXTURE-DUNA-PARK-PROBE-CANNOT-RETURN-TO-KERBIN: the DD1 probe every committed Duna-parked fixture carries is ~550 m/s short of a Kerbin return, so the reserved `B29-duna-kerbin-return` lane could not be flown as specified [MEASURED 2026-08-26 off `fixtures/saves/duna-park-probe/persistent.sfs` while opening B29's Phase-0 door. FIXTURE PROPERTY, REPORT-ONLY - never a Parsek defect and never a spec defect; it blocked one lane's PRODUCTION, not any product question. ROUTED AROUND the same day by re-scoping B29 to depart Jool; see the second entry below]
 
@@ -5582,11 +5764,15 @@ gate), which is exactly why this needs writing down rather than leaving in a log
 
 **IT IS THE FIRST RUN THAT ACTUALLY WATCHES A LOOPED ARRIVAL PARK.** Every prior
 loop-lane watch attempt was REJECTED on separation - V6M, V6T, V7T, V14M and V14T all
-pin `expect = "REJECTED"` and measured it - and V7M, the one lane that DID enter,
-entered on a Minmus park and quit shortly after. `V15M` is the first to enter (a 27,024
-x 26,321 m Gilly park puts the co-orbiting observer and ghost 775 m apart, 1.51x inside
-the 120 km render-zone boundary; see WATCH-ENTRY-REFUSED-INSIDE-QUOTED-RANGE for what
-that boundary is and is not) **and then keep flying**: a second `StartLoopPlayback` and
+pinned `expect = "REJECTED"` and measured it (V14M's two pins were later flipped to a
+PREDICTED `OK` when the refusing term was fixed on 2026-08-28 - see
+WATCH-ENTRY-REFUSED-INSIDE-QUOTED-RANGE; the readings above are unaffected) - and V7M,
+the one lane that DID enter, entered on a Minmus park and quit shortly after. `V15M` is
+the first to enter (a 27,024 x 26,321 m Gilly park puts the co-orbiting observer and
+ghost 775 m apart, well inside the only distance gate on the entry path,
+`WatchEnterCutoffMeters` = 300 km; the "120 km render-zone boundary" this line used to
+cite is retired - see WATCH-ENTRY-REFUSED-INSIDE-QUOTED-RANGE for what that number is
+and is not) **and then keep flying**: a second `StartLoopPlayback` and
 four more `TimeJump`s run with watch mode still active.
 
 THE CONTROL IS IN THE SAME PROGRAM: `V15T-gilly-ts-arrival` (run `2026-08-19_1739`)
@@ -11787,7 +11973,7 @@ which is why it shipped as its own entry rather than as a residual on that one.
 
 ---
 
-## WATCH-ENTRY-REFUSED-INSIDE-QUOTED-RANGE: watch-mode auto-select refuses far inside the 300 km range term it actually evaluates, because the render-zone hide starves the SAME-BODY term [BOUNDARY FOUND 2026-08-08 by V7M-minmus-player-loop, measured four times; MECHANISM CORRECTED 2026-08-09; **REFUSING TERM ESTABLISHED 2026-08-28**, branch `watch-mode-fixes` - see THE REFUSING TERM below. The REFUSAL ITSELF IS DELIBERATELY UNCHANGED (armed V-family lanes pin it); what shipped is the reporting: the reject branch now names the term, and the affordance no longer claims a different body]
+## WATCH-ENTRY-REFUSED-INSIDE-QUOTED-RANGE: watch-mode auto-select refuses far inside the 300 km range term it actually evaluates, because the render-zone hide starves the SAME-BODY term [BOUNDARY FOUND 2026-08-08 by V7M-minmus-player-loop, measured four times; MECHANISM CORRECTED 2026-08-09; **REFUSING TERM ESTABLISHED 2026-08-28**, branch `watch-mode-fixes` - see THE REFUSING TERM below; **REFUSAL FIXED 2026-08-28**, branch `watch-entry-accept` - see THE PLAYER-FACING FOLLOW-UP -> TAKEN. Two shipments, in order: first the REPORTING (the reject branch names the term, the affordance no longer claims a different body), then the BEHAVIOUR (the same-body term resolves from the recording's trajectory instead of a stale spawn seed, so a same-body ghost inside the 300 km cutoff is accepted; genuinely cross-body still refuses, per design E5). The V7M / V14M pins that measured the refusal are now PREDICTED `OK` pending reading flights]
 
 ### THE REFUSING TERM, ESTABLISHED (2026-08-28) - it is `IsGhostOnSameBody`
 
@@ -11862,6 +12048,13 @@ reading is current - which is exactly the conflation that made the first draft d
 V7M's refusal as a genuine different-body case. A prewarmed or in-zone ghost still reports
 a real body comparison.
 
+THAT PREDICATE IS NO LONGER REPORTING-ONLY (2026-08-28, second shipment). It is now the
+DISPATCH for the body term itself: `IsGhostOnSameBody` consults it, and on a
+not-current reading resolves the ghost's body from its own trajectory instead. See THE
+PLAYER-FACING FOLLOW-UP -> TAKEN below. Its doc-comment in
+`WatchModeController.Diagnostics.cs` was updated to match; any text elsewhere still
+calling it reporting-only is stale.
+
 THE LOG CORROBORATION, from `logs/2026-08-08_1908_V7Mc-watch-calibration/KSP.log` (the
 `_1607` calibration attempt, one of the four archived flights the section below tabulates):
 
@@ -11886,6 +12079,9 @@ excluded on a code reading and which is now confirmed against the number.
 So the corrected reading of the four-flight table below: at every one of 144,349 /
 144,356 / 144,365 / 191,49x / 198,711 m the conjunction refused on `IsGhostOnSameBody`,
 and it refused for a ghost that WAS on the same body (Minmus) and merely un-rendered.
+THAT IS ALSO WHY THE FIX IS THE ONE IT IS: the readings did not need re-measuring, they
+needed believing. Every distance in the table below still stands; what is retired is the
+"~120 km boundary" reading of them (see TAKEN, below).
 
 ### THE EXPERIMENT, SHIPPED (2026-08-28) - reporting only, no behaviour change
 
@@ -11899,7 +12095,7 @@ the three live probes for them and printing their default falses would invent a
 measurement). The wire response is untouched - `SetExecResult("REJECTED", null,
 "no-watchable-ghost")` is unchanged, so `hlib`'s reason mapping is unaffected.
 
-### THE PLAYER-FACING FOLLOW-UP - the FALSE half fixed, the refusal left alone
+### THE PLAYER-FACING FOLLOW-UP - the FALSE half fixed first, then the refusal itself
 
 The follow-up below said it could not be specified until the refusing term was known. It
 is now, and it splits cleanly in two:
@@ -11915,16 +12111,231 @@ is now, and it splits cleanly in two:
   the Watch button comes back" whenever the ghost's body reading is stale or missing. The
   Timeline W button reuses the same strings through `BuildWatchButtonDescriptor`. Pinned in
   `Source/Parsek.Tests/WatchModeTargetLossTests.cs`.
-- **NOT TAKEN: making the entry succeed at 144 km.** Resolving the body from the recording
-  when the ghost has not been positioned would flip the conjunction and let watch entry
-  succeed anywhere inside 300 km. There is a real argument for it - `HasActiveGhost`'s own
-  doc-comment says "hidden-tier ghosts may have unloaded visuals but are still watchable",
-  and `EnsureGhostVisualsLoadedForWatch` exists precisely to load them at entry - but it is
-  a PRODUCT BEHAVIOUR CHANGE with a measured blast radius: NINE committed specs pin
-  `EnterWatchMode expect = "REJECTED"` - `V4`, `V6M`, `V7M`, `V8`, `V14M`, `V16M`, `V17M`,
-  `V19M`, `V20M` (grepped, not remembered) - and every one of them would red. That is a coordinated decision for
-  whoever owns those lanes, not a side effect of diagnosing the term. **Do NOT take it as
-  part of a bug-fix pass.** Owner: whoever owns `WatchModeController` / the V-family specs.
+- **TAKEN 2026-08-28: making the entry succeed at 144 km.** The paragraph this replaces
+  said NOT TAKEN and named the blast radius; the coordinated decision was then taken by
+  the owner of the V-family lanes, and this is what shipped. It is kept as a **TAKEN**
+  note rather than deleted because the reason it was deferred is the reason the shipped
+  shape looks the way it does.
+
+  **THE DESIGN INTENT IS WHAT SETTLED IT**, not the convenience. `docs/dev/done/
+  design-camera-follow-ghost.md` E5 ("Ghost on different celestial body", deferred to v2)
+  gives the same-body term exactly one job: refuse a GENUINELY cross-body watch, because
+  `FloatingOrigin` is centred on the active vessel and "a ghost millions of meters away
+  would have float precision jitter". DISTANCE IS A SEPARATE TERM
+  (`WatchEnterCutoffMeters = 300 km`), and at <= 300 km the float-grid step is
+  centimetres - `magnitude * 2^-23` is 3.6 cm at 300 km - so a same-body ghost inside the
+  cutoff is precisely the case E5 meant to ACCEPT. Refusing it was never the design; it
+  was the stale-seed defect wearing the design's clothes.
+
+  **SEAM 1 - the body term answers from the trajectory, not the cache.**
+  `WatchModeController.IsGhostOnSameBody` is the single forwarder every consumer reaches.
+  EIGHT call sites, not the six the decision package counted: seven through
+  `ParsekFlight.IsGhostOnSameBody` (the recordings table x2 - the row button and the group
+  W rotation - the Missions window watch target, the timeline W button, the map ghost menu
+  x2, and the M-A2 `enterwatchmode` candidate triple) plus the in-controller
+  `CycleToNextWatchable`.
+
+  **AND A NINTH THAT NO GREP FOR THE NAME FINDS, which is the one that mattered.**
+  `TryResolveWatchEntryState` - the gate inside `EnterWatchMode(index)` itself - carried an
+  INLINE DUPLICATE of the term (`gs.lastInterpolatedBodyName != activeBody`), so it was a
+  second reader of the same spawn seed. The eight sites above only pick an INDEX; this is
+  what actually admits or refuses the entry, and it refuses SILENTLY. Fixing only the
+  selector would have made the selector accept a ghost this method then refused without a
+  word - the M-A2 verb would time out with `enterwatchmode timeout ... watch-not-entered`
+  and an `[Parsek][ERROR]` line, which V7M forbids by name, so the flipped pin would have
+  red on a worse failure than the one it was fixing. It routes through the forwarder now,
+  above the distance guard as before (W1-watch-distance-cutoff's required refusal token
+  depends on that order). Pinned by
+  `WatchEntryAcceptanceWiringGateTests.TryResolveWatchEntryState_UsesTheForwarderRatherThanItsOwnInlineCacheRead`.
+
+  The forwarder now dispatches on the same `IsWatchBodyReadingCurrent` predicate the reporting fix
+  introduced: when the cached reading is NOT current it resolves the ghost's body
+  POSITIONING-FREE from its own recorded trajectory, via
+  `GhostPlaybackEngine.TryResolvePendingPlaybackInterpolation` at the loop-mapped UT
+  `ResolveWatchPlaybackUT` returns, and THAT decides. The stale cache is never the
+  deciding evidence in either direction - it cannot refuse a same-body ghost, and it
+  cannot rescue a cross-body one. It is consulted only when the trajectory cannot resolve
+  at all, which pins the pre-change answer for recordings nothing can resolve. Pure core
+  `ResolveWatchSameBodyDecision` + `ResolveAndLogWatchSameBodyDecision`
+  (`WatchModeController.Diagnostics.cs`), which emits one change-keyed
+  `Watch same-body term: ... evidence=cache-current|trajectory-resolved|cache-fallback`
+  line naming which reading decided.
+
+  **SEAM 2 - THE RESET TRAP, and it is the half that would have made seam 1 worse than
+  the refusal.** `TryStartWatchSession` resets a non-overlap looping ghost's loop phase to
+  `EffectiveLoopStartUT` whenever the ghost is at `zone=Beyond`. That is written for an
+  observer standing near the loop START. Seam 1 opens a second shape it is actively wrong
+  for: an observer at an ARRIVAL PARK whose ghost's current phase is alongside them, where
+  the loop start is another body ~46,000 km away - so entry would teleport the camera
+  cross-body and the 305 km exit debounce would auto-exit within frames, worse than
+  refusing and with a loop-phase reset left behind as a side effect. Pure predicate
+  `ShouldResetLoopPhaseForWatch` now skips the reset when the current phase is itself
+  watchable (same body AND inside the entry cutoff). Overlap loops already skipped the
+  reset; that path is untouched.
+
+  **ONE REAL BUG THE REVIEW FOUND INSIDE THE FIX'S OWN BLAST RADIUS**, and it gets its
+  own paragraph because seam 1 is what promoted it from latent to live.
+  `ResolveWatchPlaybackUT` honoured its `recordingIndex` PARAMETER only in the
+  unit-member branch; both loop branches read the `watchedRecordingIndex` FIELD. `recIdx`
+  is a DATA KEY in both helpers - `TryGetLoopSchedule` indexes the committed list with it
+  to find the recording's OWN slot in the sorted global auto-loop launch queue (the slot
+  sets `LaunchStartUT`), and `TryComputeLoopPlaybackUT` indexes `engine.loopPhaseOffsets`
+  with it. So while watching looping recording X, evaluating the term for looping row Y
+  resolved Y's playback UT from X's schedule slot and phase offset, off by
+  `(slotX - slotY) * launchGap`; a `-1` field drops the auto-schedule entirely. On a
+  multi-body loop that puts the resolved body on the wrong side of an SOI change and
+  hands the Watch affordance and `CycleToNextWatchable` a quietly WRONG answer - and
+  because the selector and the entry gate now share the term they AGREE on it, so it is
+  wrong rather than a timeout. Before seam 1 this ran only for the watched row (where
+  field == parameter) plus one entry-time call where the field was still -1 or stale;
+  seam 1 made it run for every committed row every frame. Both branches now take the
+  parameter. Sized by
+  `WatchEntryAcceptanceTests.LoopScheduleIsKeyedByTheRowsOwnIndex_NotTheWatchedOne` and
+  wired-pinned by the matching gate cell.
+
+  **TESTS.** `Source/Parsek.Tests/WatchEntryAcceptanceTests.cs` (the V7M shape accepted,
+  genuine cross-body still refused, trajectory-failure falls back to the cache, the
+  current-reading precedence, the reset matrix, the evidence log line) plus
+  `WatchEntryAcceptanceWiringGateTests.cs`, a source gate in the
+  `WatchModeTargetLossWiringGateTests` style - both production consumers are per-frame /
+  Unity-event code no headless cell can run, so unwiring either would restore the defect
+  with the suite green. Gate-bite verified by reverting each seam in turn.
+
+  **MIGRATION STATUS - FLOWN 2026-08-28, both reading flights done, and they split.**
+
+  **V7M-minmus-player-loop: `2026-08-28_1930`, PASS attempt 1, wall 53 s, mismatches=0.
+  THE FIX CAUGHT AT THE EXACT SHAPE THE LANE BRACKETED.** Cycle 1 logged
+  `Watch same-body term: rec=#1 sameBody=T evidence=trajectory-resolved ghostBody=Minmus
+  activeBody=Minmus cached=Kerbin zone=Beyond` - the 2026-08-08 spawn seed still present,
+  still saying Kerbin, no longer deciding - and `enterwatchmode complete: index=1`
+  followed. Cycle 2 read the same key (proved by `| suppressed=1` on the next line);
+  cycle 3 read `evidence=cache-current` at 51.6 km in-zone, the correct precedence. Both
+  flipped pins are now MEASURED OK. The three separations (144.4 / 191.5 / 51.6 km)
+  reproduce the archived 2026-08-08 readings to the tenth of a kilometre.
+  TWO THINGS THE RUN CORRECTED IN THIS WRITE-UP'S OWN PREDICTIONS:
+  (i) **the missing `ExitWatchMode` verb does not matter** - the product exits watch mode
+  by itself between cycles, because each `StartLoopPlayback` throws the ghost 2,000+ km
+  away and the 305 km debounce fires (`exceeded ghost camera cutoff (2292545m ... >=
+  305000m) after 3-frame debounce`). All three calls are FRESH entries, all three log
+  `complete:`, zero `already-watching:` lines exist, and the desync instruments are
+  therefore NOT read from inside watch mode as feared (`seam-endpoint summary
+  evaluated=1 outsideSoi=0`, `faithful-parity summary sampled=1 overTolerance=0`, 24
+  Minmus-framed proto surfaces, `unityExceptions total=0`).
+  (ii) **SEAM 2 IS UNTESTED BY V7M and must not be claimed off it.** All three entries
+  logged `reset=F ... loops=F`, and `loops=F` is the PRE-EXISTING
+  `ShouldLoopPlaybackForWatch` term: mission loop-unit members carry no per-recording
+  LoopPlayback flag (their clock comes from the unit span). The reset was already
+  short-circuited before the new terms were reached. Seam 2's headless matrix stands on
+  its own; no flight has exercised it yet.
+
+  **V14M-ike-player-loop: `2026-08-28_1932` / `_1933_a2`, BOTH INVALID on the flipped
+  pins - and the reading is the valuable half.** Measured, both epochs, both attempts:
+  `candidates=[0 ghost=T body=T range=F]` with
+  `Watch same-body term: ... sameBody=T evidence=trajectory-resolved ghostBody=Ike
+  cached=Duna zone=Beyond`. **THE BODY TERM PASSES** where every archived run read
+  `body=F` - the product change, measured on a second lane and a second body pair. The
+  RANGE term is what refuses, at a measured **449,601 m / 449,903 m**, 1.5x the 300 km
+  cutoff. **AND 449.7 km EXCEEDS 2a = 340.9 km, which falsifies the co-orbital PREMISE,
+  not merely the prediction**: two points on the observer's circle cannot be that far
+  apart, and the map trace says why - `body=Ike sma=-1230685 ecc=1.1385`, a hyperbola
+  whose periapsis radius a(1-e) = 170,449.9 m matches the observer's SMA 170,444.391 m to
+  5.5 m. The ghost is out along the Ike APPROACH hyperbola that grazes the park radius,
+  not parked on it, so the lane's `+20,000 s` park epoch lands in the approach. The ~2:1
+  figure was a prior computed FROM that premise and never described this epoch; this is
+  NOT "the phase landed in the outside third" and is not recorded as such. The pins are
+  therefore back at `REJECTED`, now MEASURED with digits and with the refusing term
+  named - strictly better than the unattributed REJECTED the lane carried before. Both
+  epochs resolve to the SAME replay instant (loopUT 9180398.38 / 9180398.52, 65,518 s of
+  raw UT apart), confirming the uniform one-P cadence to 0.14 s, which is why the two
+  separations differ by 302 m. Re-aiming that epoch into the circularized Ike segment is
+  a spec re-shape off a measurement and is deliberately NOT done in this change.
+  CONFIRMING RUN `2026-08-28_1940`: PASS attempt 1, 57 s, corrected pins, mismatches=0
+  (its 3 `unityExceptions` are stock-only frames - `KbApp_PlanetResources`,
+  `CrewHatchController.OnDestroy` - report-only and not this change).
+
+  **WHAT NOW REGRESSION-CATCHES THE TERM.** V7M is the direct guard: its two flipped
+  pins fail if the trajectory resolution stops firing. V14M guards the other half - its
+  `body=T` triple would revert to `body=F` - but only in the reject-branch report, since
+  its pins are REJECTED either way; the reading is in the log, not the verdict.
+  `W1-watch-distance-cutoff` independently guards the distance guard and the
+  body-before-distance ordering this change preserved.
+
+  **THE SPEC MIGRATION, FINAL.** ONE lane flips (`V7M`, two steps, now MEASURED OK);
+  `V14M` flipped and flipped BACK after its reading (two steps, now MEASURED REJECTED on
+  the RANGE term, with `body=T` recorded); its render-composition block went off and back
+  ON, unchanged, in the same change. **NET AGAINST MAIN: one lane's two pins flip, and
+  nothing else about the corpus's arming state moves.** The other seven of the nine specs keep `REJECTED` and got COMMENT-ONLY refreshes
+  re-pointing each rationale at the term that actually refuses: V4 / V8 step 1 genuine
+  cross-body, V4 / V6M / V8 step 2 measured or derived >300 km range, V16M / V17M / V19M /
+  V20M the selector-level `no-watchable-ghost` their runs measured. **THE "~120 km"
+  DE-FACTO BOUNDARY IS RETIRED EVERYWHERE**: it was never a threshold the entry code
+  compared against, and now that the stale-seed term is fixed it is not a de-facto one
+  either. The four-flight reading table above is NOT retracted - every distance in it
+  stands and every verdict was true of the code that produced it.
+
+  **THREE THINGS THIS WORK GOT WRONG AND THE EVIDENCE CORRECTED**, recorded because each
+  cost a wrong prediction that a reading then overturned. The third is the flights':
+  `V7M`'s already-watching prediction (the product exits watch mode by itself) and
+  `V14M`'s chord premise (the ghost is on the approach hyperbola, not the park) - both
+  written up at their lanes. The first two were found by source reading. The first
+  is the call-site count and the missed inline duplicate above - "six call sites, all
+  through the one fixed forwarder" was two short and missed the only site that decides.
+  The second: **there is no `ExitWatchMode` seam verb.** `hlib.IMPLEMENTED_SEAM_VERBS` carries 28 and no exit,
+  `RESERVED_SEAM_VERBS` reserves none, and the C# `TestCommandVerbs.ImplementedVerbs`
+  mirrors that set exactly. So V7M cannot drop out of watch mode between cycles: once its
+  cycle-1 step enters, cycles 2 and 3 auto-select the same index and take
+  `ParsekTestCommandAddon`'s idempotent already-watching short-circuit (still `OK`,
+  logging `enterwatchmode already-watching:` rather than `enterwatchmode complete:`). Two
+  consequences the reading flight must check, both written into the spec: the required
+  `enterwatchmode complete: index=` token moves from the cycle-3 step to the cycle-1 one
+  (it is emitted only by the real completion branch, so it still requires one genuine
+  entry), and V7M's downstream desync instruments now run from INSIDE watch mode for the
+  first time. If they move, the follow-up is to promote an `ExitWatchMode` verb - NOT to
+  re-roll the pin.
+
+  **V14M CARRIED A SECOND HAZARD OF ITS OWN: A DE-ARM / RE-ARM ROUND TRIP, COMPLETED.**
+  Its `[expectations.renderComposition]` block was ARMED AND GATING, and a run that
+  ENTERS watch mode force-builds the watched ghost's visuals at full fidelity and anchors
+  the camera to it - a composition no archived run of that lane produced, while every
+  window in the block was written from runs where BOTH watch attempts were refused. Left
+  armed across the pin flip, a red would have classified
+  `PARSEK-FAIL(render-composition)` for a MIGRATION reason: a product regression reported
+  where the truth is "the windows describe the old flown shape". The margins were wide
+  (dwells measured 3 against `{1,32}`) and it might well have held - but that is a
+  prediction, and arming rests on a measurement. So it was **DE-ARMED** with the flip:
+  `gating = false`, windows RETAINED verbatim, entry removed from
+  `RENDERCOMPOSE_ARMED_SPECS`, key-set cell rewritten into a de-armed form (the spec flag
+  and the roster are pinned to agree by
+  `test_every_declarers_arming_state_matches_the_recorded_rosters`), block kept DECLARED
+  so the C# recorder still armed and the reading flight still produced a manifest.
+
+  **THEN THE READING FLIGHT REMOVED THE PREMISE AND THE BLOCK WENT BACK ON, UNCHANGED.**
+  `2026-08-28_1932` / `_1933_a2` measured that this lane still does NOT enter watch mode
+  (`range=F` at 449.7 km); the pins returned to `REJECTED`; and the confirming run
+  `2026-08-28_1940` (PASS, corrected pins, `mismatches=0`) supplied the measurement a
+  restoration needs - **dwells 3, cycles 1, unevaluable 59, findings FAIL 0 / WARN 0 /
+  INFO 1, every retained window met**, within noise of the 2026-08-25 arming run's
+  3 / 1 / 56. **RE-ARMED**, with the roster entry restored, the key-set cell back in its
+  armed form, and the one committed smoke cell that had been re-pointed to V8 pointed
+  back at V14M. **NO WINDOW VALUE CHANGED ACROSS THE WHOLE CYCLE** - which is what makes
+  it a restoration rather than a re-pin, and is the S4.1 rule holding through a de-arm as
+  well as through an arming. The 2026-08-25 three-run discipline is neither re-run nor
+  re-claimed; `_1940` establishes only the narrower thing a restoration needs, that the
+  subject the windows describe did not move.
+
+  ONE PRE-EXISTING STALENESS SURFACED AND WAS FIXED IN PASSING (not caused by this
+  change): `test_run_smoke`'s declared-but-unarmed cell carried the note "every committed
+  declarer is now ARMED", true of the four-declarer corpus it was written against and
+  false since 2026-08-26, when the roster reached 24 declarers against 6 armed lanes. It
+  now states the reason that does not move with the corpus.
+
+  **ONE DEFERRED-BY-DESIGN NOTE, per the visual/recording efficiency principle.** The
+  term's decision line is change-keyed AND lazily formatted (`VerboseOnChange`'s
+  `Func<string>` overload behind an `IsVerboseEnabled` short-circuit), because a ghost's
+  body changes at SOI scale while the term is evaluated per UI row per frame - eager
+  formatting would be N discarded interpolated strings per frame with the Recordings
+  window open. What remains per call is the cheap change key, deliberately: it is what
+  keeps the memo's answer and the emitted line describing the same decision.
 
 The rest of this entry is the original write-up, kept in place because the corrections are
 only legible against what they replace.

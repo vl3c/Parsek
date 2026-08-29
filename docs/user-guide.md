@@ -10,7 +10,7 @@ Parsek lets you record missions, revert to launch, and merge them into the timel
 | **V** | Toggle watch camera between Free Orbit and Horizon-Locked (watch mode only) |
 | **Ctrl+Shift+T** | Open the in-game Test Runner (any scene) |
 
-The Parsek window is available from the toolbar button in Flight, Map, and KSC views. Recording is triggered automatically on launch/EVA; there is no start/stop hotkey. Manual ghost-only recordings are made from the Gloops Flight Recorder window (see below).
+The Parsek window is available from the toolbar button in Flight, Map, and KSC views. Recording is triggered automatically on launch/EVA; there is no start/stop hotkey.
 
 ## How It Works
 
@@ -33,19 +33,14 @@ If a kerbal goes EVA while recording a vessel, Parsek automatically:
 3. On revert, both ghosts play back - the vessel ghost and the EVA kerbal ghost
 4. When the parent vessel spawns, the EVA'd kerbal is excluded from its crew
 
-### Gloops Flight Recorder
+### Gloops Flight Recorder (retired)
 
-The Gloops window (opened from the "Gloops Flight Recorder" button in the main Parsek window, flight only) records a manual ghost-only recording alongside the normal auto-recorder. Typical uses are airshow replays, scenery decor, and captured maneuvers that don't need to spawn a real vessel at the end.
-
-- **Start Recording** - begins capture on the active vessel.
-- **Stop Recording** - commits the recording immediately with looping off by default. The recording is placed in the **Gloops - Ghosts Only** group in the Recordings Manager, is flagged ghost-only (no rewind save, no vessel spawn at loop end), and keeps its loop period on the global **auto** setting if you later enable looping.
-- **Preview** / **Stop Preview** - plays the last saved Gloops recording back as a ghost from current UT without affecting the timeline.
-- **Discard** / **Discard Recording** - drops the in-progress or last saved recording.
-- **Start New Recording** - begins a fresh capture after a previous one is saved.
-
-Gloops recording auto-stops if the active vessel changes. Ghost-only recordings get an **X** button in the Recordings Manager's Group column for quick deletion.
-
-Gloops recordings are purely visual. They never charge funds for the vessel you captured, never reserve the kerbals aboard for the loop duration, never complete contracts, and never credit science or milestones — those stay with your normal mission recording (if any) or your between-mission career state.
+The Gloops Flight Recorder — a manual ghost-only recorder — is being spun off into a
+standalone mod, and its button and window have been removed from the Parsek UI.
+Ghost-only recordings you already made keep working: they still appear in the
+**Gloops - Ghosts Only** group in the Recordings Manager, still play back as ghosts,
+keep their **X** quick-delete button in the Group column, and remain purely visual
+(no funds, crew reservations, contracts, science, or milestones).
 
 ### Merge Dialog
 

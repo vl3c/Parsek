@@ -190,7 +190,7 @@ namespace Parsek.InGameTests
 
         [InGameTest(Category = "UiComplexityMode", Scene = GameScenes.FLIGHT,
             Description = "After a Basic round trip, Advanced is fully restored: every "
-                + "UiSurface is visible again (design philosophy 2, 6)")]
+                + "non-retired UiSurface is visible again (design philosophy 2, 6)")]
         public IEnumerator AdvancedRenderParityAfterRoundTrip()
         {
             if (ParsekUI.ActiveInstance == null)
@@ -225,11 +225,21 @@ namespace Parsek.InGameTests
 
                 // A literal IMGUI control-count diff is not reachable from a test (the counts
                 // only exist inside a live OnGUI pass). The honest proxy is the gate itself:
-                // every surface the main window can draw must report visible again, walked by
-                // reflection so a surface added later is covered without editing this test.
+                // every non-retired surface the main window can draw must report visible
+                // again, walked by reflection so a surface added later is covered without
+                // editing this test. RETIRED surfaces (the Gloops launcher, hidden in every
+                // mode while Gloops winds down toward a standalone mod) are asserted the
+                // other way round: still hidden even in Advanced.
                 int surfaces = 0;
                 foreach (UiSurface surface in Enum.GetValues(typeof(UiSurface)))
                 {
+                    if (UiSurfaceVisibility.IsRetired(surface))
+                    {
+                        InGameAssert.IsFalse(
+                            UiSurfaceVisibility.IsVisible(surface, ParsekUI.AppliedUiComplexityMode),
+                            $"retired UiSurface {surface} must stay hidden in Advanced");
+                        continue;
+                    }
                     InGameAssert.IsTrue(
                         UiSurfaceVisibility.IsVisible(surface, ParsekUI.AppliedUiComplexityMode),
                         $"UiSurface {surface} is hidden in Advanced after a Basic round trip");

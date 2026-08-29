@@ -3839,7 +3839,18 @@ class DryRunPlanVerifierEnumerationTests(unittest.TestCase):
         self.assertIn("PARSEK-FAIL(render-composition)", line)
 
     def test_a_declared_but_unarmed_render_composition_block_renders_report_only(self):
-        """SYNTHETIC, and must stay so: every committed declarer is now ARMED."""
+        """SYNTHETIC, and must stay so.
+
+        Its original note read "every committed declarer is now ARMED", which was true
+        of the four-declarer corpus it was written against and stopped being true on
+        2026-08-26, when Phase 3C/Wave B took the declarer roster to 24 against 6 armed
+        lanes. Committed declared-but-unarmed subjects are therefore the NORM now, not
+        the exception - but which lane is bare moves with every arming decision, and a
+        cell that named one would be re-pointed by unrelated work. The synthetic input
+        states the property unconditionally and does not participate in that churn.
+
+        (Corrected 2026-08-28 while the watch-entry change briefly de-armed V14M. The
+        de-arm was reverted in the same change; this note is not about it.)"""
         line = self._render({"id": "SYNTH-rc-declared", "driver": {"steps": []},
                              "expectations": {"renderComposition": {"dwells": {"min": 1}}}})
         self.assertIn("renderCompose(report-only: renderComposition", line)

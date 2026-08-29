@@ -65,8 +65,9 @@ Historical note: the original 0.4.3-era architecture spec (class-level pseudo-co
     -------------------------- UI layer --------------------------
       ParsekUI (main window + button row)
          -> Recordings Manager, Timeline, Missions, Logistics,
-            Kerbals, Career State, Gloops Flight Recorder,
-            Real Spawn Control, Settings
+            Kerbals, Career State, Real Spawn Control, Settings
+            (Gloops Flight Recorder: retired 2026-08-28, window
+            code kept but launcher hidden in every mode)
 ```
 
 All UI windows are read-only views of the three stores above (`RecordingStore`, `Ledger`, `KerbalsModule`). Cache invalidation fans out through a single event (`LedgerOrchestrator.OnTimelineDataChanged`) after every recalculation walk.

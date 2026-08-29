@@ -6,6 +6,15 @@ All notable changes to Parsek are documented here.
 
 ## 0.10.4
 
+### Changed
+
+- The Gloops Flight Recorder button and window are gone from the Parsek UI. The
+  manual ghost-only recorder is headed for a standalone mod, and Parsek is
+  gradually winding down its player-facing ghost-looping controls to focus on
+  gameplay. Nothing you already recorded is affected: existing ghost-only
+  recordings still load, still sit in the "Gloops - Ghosts Only" group, still
+  play back as ghosts, and still stay invisible to your career.
+
 ### Fixed
 
 - A whole mission could vanish from your save after a quickload, and once it
@@ -244,6 +253,44 @@ All notable changes to Parsek are documented here.
   one of them waiting on a recording nobody has made yet rather than on anything
   in the code.
   Test-tooling only; no gameplay change, and nothing ships with the mod.
+- Parsek builds a standing exhibition of every part it knows how to draw: 243
+  little one-part replays, one per part, lined up in three rows in front of the
+  launch pad, each running a short clip that works that part's own moving bits -
+  lights blinking, panels and antennas folding out, gear and legs going up and
+  down, bays and fairings opening, chutes deploying, drills and robotics running,
+  engines lighting. It is there so a person can stand on the pad and simply look
+  at all of it. Nobody had ever taught a test to look. The existing test that
+  loads the exhibition checks that the recordings are on disk and that a batch of
+  other checks passed - both of which a version that had quietly stopped drawing
+  the ghosts entirely would still sail through. There is now a test whose whole
+  job is the looking: it loads the exhibition on its own, turns on the drawing
+  log, re-enters the pad so the log is already running before the first ghost is
+  built, winds the clock forward into the stretch of time the replays actually
+  cover, and then demands to see a "this ghost was drawn" line for a member of
+  every part family, a matching "and then it went away", and no part anywhere
+  that the game could not find. Its first trial run did not get that far, and was
+  worth more than a pass: it turned up two things nobody knew. The exhibition
+  does not loop. The replays are all written asking to repeat forever, and the
+  game strips that request off every one of them as it loads, because a
+  standing-still display piece does not look like any of the kinds of flight the
+  game is willing to repeat - so they play once, for half a minute, and stop.
+  That was also why the first trial saw nothing: it had assumed a loop, so it
+  never wound the clock to where the replays live, and sat watching an empty
+  patch of grass. The second thing, found while writing the test rather than
+  running it: when a replay applies a recorded part action to a ghost - switching
+  a light on, folding a panel out - almost none of those write anything to the
+  log, so a test can prove the ghost was drawn but not that the light actually
+  came on. Both are written up as their own items rather than patched from a test
+  change. The clock arithmetic the test now depends on is itself checked by an
+  ordinary offline test, so if the save it starts from is ever replaced the
+  mismatch is caught in seconds instead of costing another trial run. After the
+  corrected trial flew clean twice, the check was switched from reporting to
+  enforcing and proven both ways in the same afternoon: re-flown with the gate
+  live (green), then once more with a deliberately impossible expectation
+  (which failed exactly as it should) - so from now on, a version of the game
+  that draws even one of the 243 parts wrong fails this test outright.
+  Test-tooling only; no gameplay change.
+
 - The map-render watchdog that reports a ghost's orbit line "blinking" no
   longer cries wolf at the one moment the line is *supposed* to go out for
   good. When a replayed flight reaches the end of its recorded orbit and hands
@@ -959,7 +1006,9 @@ All notable changes to Parsek are documented here.
 
 - Watch mode can no longer keep running with nothing to point the camera at. When a repeating mission starts its next lap, Parsek throws the old ghost away and rebuilds it - and for that instant the camera was still aimed at the discarded one. Aiming a camera at something the game has already deleted is a state KSP does not survive: it throws an error on every single frame from then to the end of the flight, which is exactly what an automated test flight measured, over three hundred of them in a second and a quarter, starting on the very frame the lap turned over. Two things now prevent it. The camera is moved onto a neutral marker parked exactly where the ghost was, a moment before the ghost is deleted, so it is never left holding a deleted object and the view does not jump; and if the camera cannot be re-aimed at the rebuilt ghost after all, watch mode now gives up after a few frames and hands the view back to your own craft instead of staying switched on forever with nothing bound to it. That second guard existed already for one of the two ways this can happen and skipped the other - the missing half is what let a broken watch session outlive the flight rather than end after three frames. One trade worth naming: that path previously waited forever, and now stops after three frames, a figure inherited from the guard that already existed rather than measured for this case - so a genuine camera hiccup lasting longer than three frames would now drop you out of watch mode where before it would have been ridden out. The whole thing was then flown for real on the same test flight that had measured the problem: where that flight used to throw over three hundred errors during play, it now throws none, the camera stays attached to the replay across the lap change, and watching continues normally to the end of the flight.
 
-- The Watch button no longer tells you a ghost is "on a different body" when it is on the same one. Parsek decides which body a ghost is at by remembering where it last drew it, and it only updates that memory while the ghost is close enough to draw - so a ghost too far away keeps answering with wherever it happened to be when it first appeared, however long ago. Standing 144 km from your own replay, in orbit of the same moon, you were told it was on a different body: the replay was at Minmus, you were at Minmus, and the stale note behind the message said Kerbin. It now says the ghost is too far away to be drawn right now, and that getting closer brings the button back, which is what is actually happening. Whether watch mode should be offered at all at that distance is unchanged and deliberately left alone.
+- The Watch button no longer tells you a ghost is "on a different body" when it is on the same one. Parsek decides which body a ghost is at by remembering where it last drew it, and it only updates that memory while the ghost is close enough to draw - so a ghost too far away keeps answering with wherever it happened to be when it first appeared, however long ago. Standing 144 km from your own replay, in orbit of the same moon, you were told it was on a different body: the replay was at Minmus, you were at Minmus, and the stale note behind the message said Kerbin. It now says the ghost is too far away to be drawn right now, and that getting closer brings the button back, which is what is actually happening. Whether watch mode should be offered at all at that distance was deliberately left alone at the time and has since been fixed too - see the next entry.
+
+- The Watch button now works within the 300 km its own tooltip promises. Standing in orbit of a moon, 144 km from your own replay of the flight that got you there, pressing Watch did nothing: Parsek turned it down because it thought the replay was at a different planet. It was not - it was right there beside you. Parsek works out which body a ghost is at by remembering where it last drew it, and it stops updating that memory once the ghost is too far away to draw, so a distant ghost keeps answering with wherever it happened to be when it first appeared. On a flight from Kerbin to Minmus that first appearance is at Kerbin, and the note stayed at Kerbin for the whole replay. Parsek now works out where the ghost is from the flight it recorded, rather than from that stale note, so a replay that really is beside you is accepted. A replay genuinely at another planet is still turned down, which is what that check is for: the camera has no sensible frame of reference for somewhere millions of kilometres away. Distance is still limited separately, at 300 km, unchanged. One related surprise is gone with it: pressing Watch on a repeating mission used to restart the replay from its beginning - useful when you are standing at the launch pad where it began, but if you are waiting at the destination that beginning is a whole planet away, so the camera jumped there and immediately gave up for being out of range. When the replay is already beside you, it is now simply watched where it is. A related mix-up went with it: while you were watching one repeating flight, Parsek worked out where every OTHER repeating flight in the list currently was using the watched one's schedule instead of their own, so the Watch buttons beside them - and the key that cycles between them - could answer for the wrong moment of those flights, and on a flight that crosses between planets that means the wrong planet. Each row is now read against its own schedule.
 
 - The experience your crew earns from a recovered flight is now recorded in your career history, so re-flying that mission takes it back. Parsek watched the game hand out that experience and wrote down what happened, but it filed the note without saying which flight it belonged to - and a note that belongs to no flight can never be undone by re-flying one. So it deliberately kept the note and recorded nothing in the career history, on the grounds that a permanent entry nothing could reverse would be worse than a missing one. It now works out which recorded flight the recovery belongs to, exactly the way the recovery's refund and its science already do, and files the experience against that flight - which means re-flying the mission retires the experience along with the refund and the science, all together, rather than leaving your crew credited for a flight that no longer happened. A recovery Parsek cannot match to a recorded flight is still left uncredited rather than filed loose. Recovering a craft with several crew aboard now records every one of them, where an earlier version of this would have kept only the first.
 

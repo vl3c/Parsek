@@ -6187,6 +6187,19 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         "M1-mission-loop-unit.toml":        "discharged - 'CLOSED by the 2026-07-26 flights'",
         "M2-periodicity-solver.toml":       "discharged - 'CLOSED by the 2026-07-26 flight'",
         "S1.4-injected-playback.toml":      "discharged - 'THAT PENDING-OPERATOR IS NOW CLOSED'",
+        # tier=operator by CALIBRATION DISCIPLINE, not debt - the B18/B19/B20 shape,
+        # and the GS-1/GS-4 shape before promotion. S1.9 has never flown: its
+        # `recordings.count` and `ghostLifecycle.spawned` numbers are MEASURED
+        # LOCALLY off the injector (243 `.prec` sidecars, no ReStock+) but every
+        # log token is DERIVED from the emitters rather than read off a flight,
+        # and the one thing source cannot settle - whether the seam's probe chain
+        # buys enough real frames for 243 ghost meshes to build - is exactly what
+        # a reading run is for. Nothing operator-shaped is owed beyond flying it:
+        # seam driver, no RequiresFlight verb, no human judgement in the loop.
+        # Promotion off `operator` is the post-reading re-pin, taken in the same
+        # commit that replaces the [DERIVED]/[INTERIM] labels with measurements -
+        # the rule the L2/L3 notes below state.
+        "S1.9-part-showcase-render.toml":   "calibration-discipline - READING RUN 1 FLOWN 2026-08-28 (`2026-08-28_1945`) and RED on a SPEC defect, not a product one: the lane never entered the corpus playback window, so spawned=0 and all 33 required tokens went unmatched. v2 re-cut the same day (window derived and pinned, TimeJump staircase added, the loop tokens and the D6 self-overlap claim CUT after the run refuted the loop analysis). The 26 mesh tokens and the apply tokens are still DERIVED - none of them could fire without a ghost - so run 2 is a READING run by construction; promotion waits on that re-pin, not on outstanding work",
         "S4.1-rewind-merge.toml":           "discharged - historical mention; tag dropped 2026-07-31",
         "L1-hire-kerbal-career.toml":       "discharged - drop-rationale prose; tag dropped 2026-07-31",
         "L1-dismiss-kerbal-career.toml":    "discharged - OPERATOR-VERIFIED; tag dropped 2026-07-31",
@@ -7273,6 +7286,28 @@ class RenderComposeVerifierWiringTests(unittest.TestCase):
         # PASS), so the red is on THIS lane's own armed clause and not on the
         # shared evaluator. Control reverted in the same change. V8 flew its OWN
         # control rather than sharing this one - see that entry.
+        #
+        # ** ONE ROUND TRIP, 2026-08-28, COMPLETED - ENTRY RESTORED UNCHANGED. **
+        # The watch-entry acceptance change (docs/dev/todo-and-known-bugs.md ->
+        # WATCH-ENTRY-REFUSED-INSIDE-QUOTED-RANGE) flipped this lane's two
+        # `EnterWatchMode` pins REJECTED -> OK, and a run that ENTERS watch mode
+        # force-builds the watched ghost at full fidelity - a composition NO
+        # archived run of this lane produced, while every window above was written
+        # from runs where both watch attempts were REFUSED. Armed across that, a
+        # red would have classified `PARSEK-FAIL(render-composition)` for a
+        # MIGRATION reason, so the entry was REMOVED and the spec de-armed.
+        # THE READING FLIGHT THEN REMOVED THE PREMISE: `2026-08-28_1932` /
+        # `_1933_a2` measured `candidates=[0 ghost=T body=T range=F]` at
+        # 449.6/449.9 km - the body term passes, the RANGE term refuses, and this
+        # lane still does not enter watch mode - so the pins went back to REJECTED
+        # and the flown shape is the one the windows above describe.
+        # RE-ARMED off CONFIRMING RUN `2026-08-28_1940` (PASS attempt 1, 57 s,
+        # corrected pins, mismatches=0): dwells 3, cycles 1, unevaluable 59,
+        # findings FAIL 0 / WARN 0 / INFO 1 - every retained window met, within
+        # noise of the arming run's 3 / 1 / 56. NO WINDOW VALUE CHANGED ACROSS THE
+        # CYCLE, which is what makes it a RESTORATION rather than a re-pin; the
+        # 2026-08-25 three-run discipline recorded above is neither re-run nor
+        # re-claimed by it.
         "V14M-ike-player-loop.toml",
         # V8: ARMED 2026-08-25 off its OWN report-only reading run
         # `2026-08-25_0956` (PASS attempt 1, same REPORT/zero-FAIL shape). Windows:
@@ -8087,7 +8122,17 @@ class RenderComposeVerifierWiringTests(unittest.TestCase):
     def test_v14m_declares_the_render_composition_block_armed(self):
         """V14M, ARMED 2026-08-25 off reading run `2026-08-25_0953`: dwells 3,
         cycles 1 closed, unevaluable 56, seamKinds {rigid 14, flexible-soi 2}. Every
-        window below is that measurement with a stated margin."""
+        window below is that measurement with a stated margin.
+
+        ONE ROUND TRIP, 2026-08-28, AND THE WINDOWS SURVIVED IT UNCHANGED. The
+        watch-entry acceptance change de-armed this block (its `EnterWatchMode` pins
+        were flipped REJECTED -> OK, and a run that enters watch mode composes
+        differently); the reading flight then measured that the lane still does NOT
+        enter watch mode, the pins went back, and confirming run `2026-08-28_1940`
+        re-measured dwells 3 / cycles 1 / unevaluable 59 - every window below met,
+        within noise of the arming run. So the pins here are the SAME NUMBERS they
+        have been since 2026-08-25, and this cell asserts them for the same reason it
+        always did. See RENDERCOMPOSE_ARMED_SPECS for the cycle's run ids."""
         block = self._armed_block("V14M-ike-player-loop.toml")
         self.assertEqual({"gating", "dwells", "cycles", "unevaluable",
                           "requireSeamKinds"}, set(block),
@@ -8277,6 +8322,15 @@ class GhostLifecycleVerifierWiringTests(unittest.TestCase):
         # NEGATIVE CONTROL: `2026-08-28_1550` - temporary spawned={min 9} red
         # PARSEK-FAIL(ghost-lifecycle) on exactly that window, then reverted.
         "GS-4-kerbalx-rewind-watch.toml",
+        # ARMED 2026-08-28, same-day discipline on the injected part-showcase
+        # census: reading runs `2026-08-28_2010` (red only on the since-cut
+        # colour-changer token; census 243/243/0) and `2026-08-28_2014` (green,
+        # PASS attempt 1, census 243/243/0 again - the EXACT spawn census with
+        # requireBalanced=true holding through the one-shot window endings).
+        # ARMED RE-FLIGHT: `2026-08-28_2016` - PASS attempt 1, gate live.
+        # NEGATIVE CONTROL: `2026-08-28_2017` - temporary spawned={min 244} red
+        # PARSEK-FAIL(ghost-lifecycle) on exactly that window, then reverted.
+        "S1.9-part-showcase-render.toml",
     }
 
     def test_no_committed_spec_arms_ghost_lifecycle_gating(self):
@@ -8412,6 +8466,37 @@ class GhostLifecycleVerifierWiringTests(unittest.TestCase):
         #     GHOSTLIFE_ARMED_SPECS above) follows the standard three-run
         #     discipline as its own pass.
         "GS-4-kerbalx-rewind-watch.toml",
+        # [D] THE SECOND DECLARER, and the first whose census IS the point rather
+        #     than a balance check: the synthetic PART SHOWCASE corpus (243
+        #     ghost-only, one-part recordings standing in front of the KSC pad,
+        #     injected through the new `part-showcase` preset). Its
+        #     `spawned = { min = 243 }` floor says "every showcase row rendered a
+        #     ghost mesh" - the operator's eyeball pass in one number, which no
+        #     regex can state because the recIds are fresh GUIDs. The floor is
+        #     MEASURED, not guessed, from BOTH ends: `dotnet test --filter
+        #     InjectPartShowcase` against a scratch KSP root wrote exactly 243
+        #     `.prec` sidecars / 243 distinct vesselNames with ReStock+ absent
+        #     (the stock-minimal shape), and reading run 1 read the same 243 back
+        #     off the produced save as `recordings.count`.
+        #     REPORT-ONLY and deliberately absent from GHOSTLIFE_ARMED_SPECS:
+        #     reading run 1 (`2026-08-28_1945`) measured `spawned=0` for a pure
+        #     TIMING reason - the lane never entered the corpus's playback window
+        #     - so the floor has still never been measured against a run that
+        #     could satisfy it. Arming waits on reading run 2.
+        #     `requireBalanced = true` HERE, and the flip is itself a measurement.
+        #     The first cut set it FALSE on the argument that these rows loop and
+        #     self-overlap, demoting primaries without destroying them. Reading
+        #     run 1 killed that at the mechanism, in one line:
+        #     `SanitizeNonLoopableLoopPlayback: cleared LoopPlayback on 243
+        #     non-loopable recording(s)` - a showcase row fails every arm of
+        #     `Recording.IsLoopableRecording`, so the authored loop flag is
+        #     STRIPPED AT LOAD and what actually plays is 243 ORDINARY one-shot
+        #     windows. A window that ends destroys its ghost, so the balance is a
+        #     real statement here; the spec's jump staircase deliberately lands
+        #     past the window end so the endings happen inside the run rather
+        #     than at teardown. See SHOWCASE-LOOPFLAG-STRIPPED-AT-LOAD in
+        #     docs/dev/todo-and-known-bugs.md.
+        "S1.9-part-showcase-render.toml",
     }
 
     def test_ghost_lifecycle_declarers_are_the_recorded_roster(self):
@@ -14650,3 +14735,161 @@ class CommittedFixtureRewindSaveTests(unittest.TestCase):
         self.assertTrue(os.path.isdir(rp_dir), "bdock-recorded lost its RewindPoints")
         rps = sorted(f for f in os.listdir(rp_dir) if f.endswith(".sfs"))
         self.assertEqual(3, len(rps), "expected 3 committed rewind points, got %s" % (rps,))
+
+
+class PartShowcaseWindowSyncTests(unittest.TestCase):
+    """`S1.9-part-showcase-render` steers the clock into the part-showcase corpus's
+    playback window with an ABSOLUTE `TimeJump ut=<N>`, and that number is only
+    meaningful because THREE things outside the spec hold still: the staged
+    fixture's UT, the showcase clip's start offset, and the clip's length. This
+    cell re-derives the window from those three and asserts the spec's jump plan
+    lands inside it.
+
+    WHY IT EXISTS, in one sentence: reading run 1 (`2026-08-28_1945`) red with
+    `spawned=0` because the lane never entered the window at all, and an absolute
+    jump target is exactly the kind of number that goes quietly stale - a
+    re-harvested `gloops-airshow`, or a change to the showcase clip shape, would
+    move the window and leave the spec jumping into empty time. That failure costs
+    a whole KSP boot to discover and looks identical to a render regression. Here
+    it costs a local `discover -s lib`.
+
+    Reads OUTSIDE `harness/` (the `CommittedBatchTallySourceSyncTests` /
+    `test_the_c_sharp_writer_still_emits_pointcount` precedent): the committed
+    fixture save and `Source/Parsek.Tests/SyntheticRecordingTests.cs`.
+
+    COMMENT-STRIPPED BEFORE MATCHING. The C# is scanned with `//` line comments
+    removed, because a rationale comment quoting `baseUT + 30` would otherwise be
+    read as code - the same class of error that has bitten this repo before.
+    Every extraction asserts it found EXACTLY ONE match, so an ambiguous parse
+    reds rather than silently picking the first hit.
+    """
+
+    SPEC = "S1.9-part-showcase-render.toml"
+    FIXTURE = "gloops-airshow"
+    SHOWCASE_BUILDER = "BuildPartShowcaseRecording"
+
+    @classmethod
+    def setUpClass(cls):
+        cls.spec_path = os.path.join(SCENARIOS_DIR, cls.SPEC)
+        with open(cls.spec_path, "rb") as fh:
+            cls.spec = tomllib.load(fh)
+        cls.cs_path = os.path.join(REPO_ROOT, "Source", "Parsek.Tests",
+                                   "SyntheticRecordingTests.cs")
+        with open(cls.cs_path, encoding="utf-8-sig", errors="replace") as fh:
+            cls.cs = fh.read()
+        cls.fixture_sfs = os.path.join(HARNESS_ROOT, "fixtures", "saves",
+                                       cls.FIXTURE, "persistent.sfs")
+
+    # -- extraction helpers ---------------------------------------------------
+
+    @staticmethod
+    def _strip_line_comments(text):
+        return re.sub(r"//[^\n]*", "", text)
+
+    def _builder_body(self, name):
+        """The brace-matched body of a C# method, comments stripped."""
+        m = re.search(r"RecordingBuilder %s\s*\(" % re.escape(name), self.cs)
+        self.assertIsNotNone(m, "%s not found in SyntheticRecordingTests.cs" % name)
+        brace = self.cs.index("{", m.end())
+        depth, i = 0, brace
+        while True:
+            c = self.cs[i]
+            if c == "{":
+                depth += 1
+            elif c == "}":
+                depth -= 1
+                if depth == 0:
+                    break
+            i += 1
+        return self._strip_line_comments(self.cs[brace:i])
+
+    def _fixture_ut(self):
+        with open(self.fixture_sfs, encoding="utf-8", errors="replace") as fh:
+            body = fh.read()
+        uts = re.findall(r"^\s*UT = ([0-9.]+)\s*$", body, re.M)
+        self.assertEqual(1, len(uts),
+                         "expected exactly one `UT = ` line in the %s fixture save, "
+                         "found %d - the window derivation would be ambiguous"
+                         % (self.FIXTURE, len(uts)))
+        return float(uts[0])
+
+    def _showcase_window(self):
+        """(startUT, shortEndUT, unionEndUT) for the injected corpus."""
+        body = self._builder_body(self.SHOWCASE_BUILDER)
+        offs = re.findall(r"double t = baseUT \+ ([0-9]+);", body)
+        self.assertEqual(1, len(offs), "clip start offset not uniquely parseable")
+        offset = float(offs[0])
+        # for (int i = 0; i <= 8; i++) b.AddPoint(t + (i * 3), ...)
+        loops = re.findall(r"for \(int i = 0; i <= ([0-9]+); i\+\+\)", body)
+        steps = re.findall(r"AddPoint\(t \+ \(i \* ([0-9]+)\)", body)
+        self.assertEqual(1, len(loops), "clip point count not uniquely parseable")
+        self.assertEqual(1, len(steps), "clip point spacing not uniquely parseable")
+        short_len = float(loops[0]) * float(steps[0])
+        rover = re.findall(
+            r"SurfaceRoverDriveDurationSeconds = ([0-9.]+);", self.cs)
+        self.assertEqual(1, len(rover), "rover clip duration not uniquely parseable")
+        base = self._fixture_ut()
+        start = base + offset
+        return start, start + short_len, start + max(short_len, float(rover[0]))
+
+    def _jumps(self):
+        """(absolute entry targets, [deltaSeconds, ...]) from the spec's steps."""
+        absolute, deltas = [], []
+        for step in self.spec["driver"]["steps"]:
+            if step.get("cmd") != "TimeJump":
+                continue
+            args = step.get("args") or {}
+            if "ut" in args:
+                absolute.append(float(args["ut"]))
+            if "deltaSeconds" in args:
+                deltas.append(float(args["deltaSeconds"]))
+        return absolute, deltas
+
+    # -- the assertions -------------------------------------------------------
+
+    def test_the_derivation_actually_parsed(self):
+        """Anti-vacuity floor: a cell that silently parsed nothing verifies
+        nothing (the CommittedBatchTallySourceSyncTests rule)."""
+        start, short_end, union_end = self._showcase_window()
+        self.assertGreater(short_end, start)
+        self.assertGreaterEqual(union_end, short_end)
+        absolute, deltas = self._jumps()
+        self.assertEqual(1, len(absolute),
+                         "expected exactly one ABSOLUTE TimeJump (the entry jump); "
+                         "every follow-up must use deltaSeconds so it is forward by "
+                         "construction")
+        self.assertTrue(deltas, "the staircase lost its deltaSeconds jumps")
+
+    def test_the_entry_jump_lands_inside_every_row_window(self):
+        start, short_end, _ = self._showcase_window()
+        (entry,), _ = self._jumps()
+        self.assertGreater(
+            entry, start,
+            "the entry TimeJump target %.2f is at or before the showcase window "
+            "opens (%.2f) - this is the reading-run-1 failure exactly: the engine "
+            "iterates every row, finds it renderable, and correctly spawns nothing"
+            % (entry, start))
+        self.assertLess(
+            entry, short_end,
+            "the entry TimeJump target %.2f is past the SHORT rows' end (%.2f), so "
+            "the census could never reach the full corpus even if everything else "
+            "worked" % (entry, short_end))
+
+    def test_the_staircase_lands_past_the_union_window_end(self):
+        _, _, union_end = self._showcase_window()
+        (entry,), deltas = self._jumps()
+        reach = entry + sum(deltas)
+        self.assertGreater(
+            reach, union_end,
+            "the jump staircase reaches only UT %.2f but the corpus's union window "
+            "ends at %.2f - playback would still be mid-window at FlushAndQuit, and "
+            "the spec's MeshDestroyed token plus `requireBalanced = true` both rest "
+            "on the windows ENDING inside the run" % (reach, union_end))
+
+    def test_no_backward_jump_is_structurally_possible_on_the_staircase(self):
+        """`deltaSeconds` must be strictly positive: `TestCommandTimeJump
+        .IsForwardJump` refuses a backward or zero jump, and a refused step is an
+        INVALID that reaches no verdict about the product."""
+        _, deltas = self._jumps()
+        for d in deltas:
+            self.assertGreater(d, 0.0, "a non-positive deltaSeconds would be refused")
