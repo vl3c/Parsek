@@ -6520,11 +6520,12 @@ namespace Parsek
             Recording rec,
             bool markDirty,
             string context,
-            bool reconcileEmptySections = true)
+            bool reconcileEmptySections = true,
+            bool invalidateSectionAnnotations = true)
         {
             OrbitSegmentCheckpointBridgeStats stats =
                 OrbitSegmentCheckpointBridge.EnsureCheckpointSectionsForTopLevelOrbitSegments(
-                    rec, markDirty, reconcileEmptySections);
+                    rec, markDirty, reconcileEmptySections, invalidateSectionAnnotations);
 
             // AnyMutation, not Changed: a pure-re-sort pass leaves Changed false while
             // still renumbering sections and wiping CachedStats, and that is exactly

@@ -210,17 +210,29 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Drops every in-memory <c>.pann</c> annotation (spline / outlier flags /
-        /// anchor candidates) for a recording whose TrackSection ordinals just moved.
+        /// Drops every in-memory derived annotation for a recording whose
+        /// TrackSection ordinals just moved: the <c>.pann</c> splines / outlier
+        /// flags / anchor candidates in
+        /// <see cref="Parsek.Rendering.SectionAnnotationStore"/>, AND the resolved
+        /// anchor corrections in <see cref="Parsek.Rendering.RenderSessionState"/>.
         ///
         /// <para>
-        /// <see cref="Parsek.Rendering.SectionAnnotationStore"/> keys annotations by
-        /// (recordingId, sectionIndex). Any bridge pass that adds, removes, replaces
-        /// or re-orders sections renumbers every later section, so an annotation
-        /// computed for old index k would silently start applying to a DIFFERENT
-        /// section. The <c>.pann</c> freshness gate cannot catch it: out-of-band
-        /// sidecar writes deliberately do not bump <c>SidecarEpoch</c> (bug #290),
-        /// and the section list is not part of the configuration hash.
+        /// Both stores key by (recordingId, sectionIndex[, side]). Any bridge pass
+        /// that adds, removes, replaces or re-orders sections renumbers every later
+        /// section, so an annotation computed for old index k would silently start
+        /// applying to a DIFFERENT section. The <c>.pann</c> freshness gate cannot
+        /// catch it: out-of-band sidecar writes deliberately do not bump
+        /// <c>SidecarEpoch</c> (bug #290), and the section list is not part of the
+        /// configuration hash.
+        /// </para>
+        ///
+        /// <para>
+        /// The two stores are dropped TOGETHER on purpose. <c>RenderSessionState</c>'s
+        /// anchor map is populated FROM the candidates held here
+        /// (<c>AnchorPropagator.Run</c>), so clearing only the candidates would leave
+        /// a stale ε bound to an index that now names a different section — and the
+        /// flight-scene positioning path re-applies that ε every frame, which is
+        /// worse than the consistently-stale pair it replaced.
         /// </para>
         ///
         /// <para>
@@ -228,15 +240,28 @@ namespace Parsek
         /// the exact containment: the next
         /// <c>SmoothingPipeline.FitAndStorePerSection</c> (load, commit, or the
         /// <c>PersistAfterCommit</c> that follows every sidecar write) refits against
-        /// the post-Ensure sections. Until then consumers fall back to the legacy
-        /// lerp path, which is correct-but-coarser rather than wrong.
+        /// the post-Ensure sections, and the next session rebuild re-propagates ε.
+        /// Until then consumers fall back to the legacy lerp path, which is
+        /// correct-but-coarser rather than wrong.
         /// </para>
         /// </summary>
-        private static void InvalidateSectionAnnotationsForOrdinalShift(
+        internal static void InvalidateSectionAnnotationsForOrdinalShift(
             Recording rec, string context)
         {
             string recordingId = rec != null ? rec.RecordingId : null;
             if (string.IsNullOrEmpty(recordingId))
+                return;
+
+            // A detached synthetic snapshot SHARES the real recording's id while
+            // carrying a DIFFERENT section list (today:
+            // Recording.BuildPreReFlyAnchorTrajectoryRecording, serialized through the
+            // same TrajectoryTextSidecarCodec.SerializeTrajectoryInto seam real
+            // recordings use). Normalizing THAT list says nothing about the ordinals
+            // the real recording's annotations are keyed to, and the path writes a
+            // ConfigNode rather than a sidecar so no PersistAfterCommit refit follows
+            // — a drop here would strand flight positioning on the lerp fallback until
+            // the next sidecar write.
+            if (rec.IsDetachedSyntheticSnapshot)
                 return;
 
             int splineCount =
@@ -245,7 +270,8 @@ namespace Parsek
                 Rendering.SectionAnnotationStore.GetAnchorCandidateSectionCountForRecording(recordingId);
             int outlierCount =
                 Rendering.SectionAnnotationStore.GetOutlierFlagsCountForRecording(recordingId);
-            if (splineCount == 0 && candidateCount == 0 && outlierCount == 0)
+            int anchorCount = Rendering.RenderSessionState.RemoveRecording(recordingId);
+            if (splineCount == 0 && candidateCount == 0 && outlierCount == 0 && anchorCount == 0)
                 return;
 
             Rendering.SectionAnnotationStore.RemoveRecording(recordingId);
@@ -256,7 +282,8 @@ namespace Parsek
                 $"Section annotations invalidated (section-index-shift): recordingId={recordingId} " +
                 $"context={context} splines={splineCount.ToString(CultureInfo.InvariantCulture)} " +
                 $"candidateSections={candidateCount.ToString(CultureInfo.InvariantCulture)} " +
-                $"outlierFlags={outlierCount.ToString(CultureInfo.InvariantCulture)}");
+                $"outlierFlags={outlierCount.ToString(CultureInfo.InvariantCulture)} " +
+                $"sessionAnchors={anchorCount.ToString(CultureInfo.InvariantCulture)}");
         }
 
         // reconcileEmptySections gates the empty-shell reconcile pass, which trims or
@@ -272,10 +299,20 @@ namespace Parsek
         // normalize-on-rewrite, not byte-freeze: a recording dirtied by any
         // sanctioned flow is rewritten through the write-path Ensure and comes out
         // reconciled; files no flow dirties stay byte-identical.
+        // invalidateSectionAnnotations gates the ordinal-shift annotation drop. It
+        // exists for ONE caller shape: a pass that runs Ensure only to inspect the
+        // normalized list and then RESTORES the pre-Ensure sections byte-identically
+        // on its guarded returns (RecordingOptimizer.SplitAtUT). There the drop would
+        // be a pure false invalidation - the ordinals are put back, the annotations
+        // were still valid, and that path has no rewrite behind it to refit them. Such
+        // a caller owns the invalidation for its own committed path instead (SplitAtUT
+        // calls InvalidateSectionAnnotationsForOrdinalShift once the split lands).
+        // Every other caller leaves this true.
         internal static OrbitSegmentCheckpointBridgeStats EnsureCheckpointSectionsForTopLevelOrbitSegments(
             Recording rec,
             bool markDirty,
-            bool reconcileEmptySections = true)
+            bool reconcileEmptySections = true,
+            bool invalidateSectionAnnotations = true)
         {
             var stats = new OrbitSegmentCheckpointBridgeStats();
             if (rec == null)
@@ -305,7 +342,7 @@ namespace Parsek
                     if (markDirty)
                         rec.MarkFilesDirty();
                 }
-                if (stats.SectionOrdinalsShifted)
+                if (invalidateSectionAnnotations && stats.SectionOrdinalsShifted)
                 {
                     InvalidateSectionAnnotationsForOrdinalShift(
                         rec, "EnsureCheckpointSectionsForTopLevelOrbitSegments");
@@ -430,7 +467,7 @@ namespace Parsek
                 if (markDirty)
                     rec.MarkFilesDirty();
             }
-            if (stats.SectionOrdinalsShifted)
+            if (invalidateSectionAnnotations && stats.SectionOrdinalsShifted)
             {
                 InvalidateSectionAnnotationsForOrdinalShift(
                     rec, "EnsureCheckpointSectionsForTopLevelOrbitSegments");
@@ -1036,14 +1073,12 @@ namespace Parsek
             if (sections == null || sections.Count < 2)
                 return;
 
-            sections.Sort((a, b) =>
-            {
-                int cmp = a.startUT.CompareTo(b.startUT);
-                if (cmp != 0) return cmp;
-                cmp = ((int)a.source).CompareTo((int)b.source);
-                if (cmp != 0) return cmp;
-                return a.endUT.CompareTo(b.endUT);
-            });
+            // MUST stay CompareTrackSections: EnsureTrackSectionsSorted CHECKS with
+            // that comparator and sorts with this one. If the two ever disagreed,
+            // every Ensure would see the list as unsorted, re-sort it, report
+            // Resorted=1, dirty the recording and invalidate its annotations - on
+            // every pass, forever. One comparator, no drift.
+            sections.Sort(CompareTrackSections);
         }
 
         private static bool EnsureTrackSectionsSorted(List<TrackSection> sections)

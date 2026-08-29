@@ -1474,10 +1474,18 @@ namespace Parsek
             var cachedStatsPreEnsure = original.CachedStats;
             int cachedStatsPointCountPreEnsure = original.CachedStatsPointCount;
 
+            // invalidateSectionAnnotations: false — the derived-annotation drop is
+            // part of the state RestorePreEnsureSnapshot below is supposed to undo,
+            // and it cannot be undone (RemoveRecording is destructive). Every guarded
+            // return here puts the sections back byte-identically, so the ordinals the
+            // annotations are keyed to are unchanged and a drop would be a pure false
+            // invalidation with no rewrite behind it to refit from. The committed path
+            // owns the drop explicitly, after SplitAtSection lands.
             var ensureStats = RecordingStore.EnsureCheckpointSectionsForTopLevelOrbitSegments(
                 original,
                 markDirty: false,
-                context: "RecordingOptimizer.SplitAtUT");
+                context: "RecordingOptimizer.SplitAtUT",
+                invalidateSectionAnnotations: false);
 
             // Pass 3 review subtle gap: the prior gate keyed on
             // `ensureStats.Changed`, which is true only when sections were
@@ -1621,6 +1629,17 @@ namespace Parsek
             // 5. Delegate to SplitAtSection. The interpolated-boundary-point branch
             //    (lines 797-848) handles flat point-list partitioning across the cut.
             Recording tip = SplitAtSection(original, sectionIndex);
+
+            // 5b. Committed path: the cut itself renumbers (and truncates) the head's
+            //     sections, so the head's ordinal-keyed derived annotations are stale
+            //     regardless of what the step-3 Ensure did. This is the drop the
+            //     `invalidateSectionAnnotations: false` above deferred; taking it here
+            //     means the guarded returns keep their annotations and the committed
+            //     split loses them exactly once. The tip is a new recording id with no
+            //     annotations of its own, and both halves are marked dirty by the
+            //     callers, so the next sidecar write refits.
+            OrbitSegmentCheckpointBridge.InvalidateSectionAnnotationsForOrdinalShift(
+                original, "RecordingOptimizer.SplitAtUT");
 
             // 6. Success log.
             ParsekLog.Info("Optimizer",

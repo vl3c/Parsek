@@ -241,6 +241,17 @@ namespace Parsek.Rendering
             LogFrameDecisionOnce(recordingId, i, section.environment, frameTag, bodyName);
         }
 
+        /// <summary>
+        /// A cached-<c>.pann</c> section ordinal is installable only when it actually
+        /// names a section in the recording as it stands now. Used by
+        /// <see cref="LoadOrCompute"/>'s bounds gate — see the comment there for why
+        /// the five-field cache key cannot make this judgement.
+        /// </summary>
+        internal static bool IsInstallableSectionIndex(int sectionIndex, int sectionCount)
+        {
+            return sectionIndex >= 0 && sectionIndex < sectionCount;
+        }
+
         private static RecordingTree ResolveTree(string recordingId)
         {
             if (string.IsNullOrEmpty(recordingId)) return null;
@@ -460,13 +471,39 @@ namespace Parsek.Rendering
                         if (!string.IsNullOrEmpty(recordingId))
                             SectionAnnotationStore.RemoveRecording(recordingId);
 
+                        // Ordinal bounds gate. ClassifyDrift compares six fields, none
+                        // of them section-derived, so a .pann written before something
+                        // renumbered the recording's TrackSections still reads as
+                        // fresh. The load seam is exactly that shape: the checkpoint
+                        // bridge's Ensure runs inside TrajectorySidecarBinary.Read and
+                        // can shift ordinals while this store is still EMPTY, so the
+                        // bridge's own ordinal-shift invalidation has nothing to drop
+                        // and cannot pre-empt the install. This gate cannot detect an
+                        // in-range renumber (the flush-and-refit later in the same
+                        // OnLoad covers that), but it refuses the entries that are
+                        // provably wrong: an index at or past the end of the section
+                        // list names no section at all, so installing it can only
+                        // mislead a consumer or throw.
+                        int sectionCount = rec.TrackSections != null ? rec.TrackSections.Count : 0;
+                        int outOfRangeDropped = 0;
+
                         for (int i = 0; i < splines.Count; i++)
                         {
+                            if (!IsInstallableSectionIndex(splines[i].Key, sectionCount))
+                            {
+                                outOfRangeDropped++;
+                                continue;
+                            }
                             SectionAnnotationStore.PutSmoothingSpline(
                                 recordingId, splines[i].Key, splines[i].Value);
                         }
                         for (int i = 0; i < anchorCandidates.Count; i++)
                         {
+                            if (!IsInstallableSectionIndex(anchorCandidates[i].Key, sectionCount))
+                            {
+                                outOfRangeDropped++;
+                                continue;
+                            }
                             SectionAnnotationStore.PutAnchorCandidates(
                                 recordingId, anchorCandidates[i].Key, anchorCandidates[i].Value);
                         }
@@ -481,14 +518,27 @@ namespace Parsek.Rendering
                             int sIdx = outlierFlags[i].Key;
                             OutlierFlags f = outlierFlags[i].Value;
                             if (f == null) continue;
-                            if (rec.TrackSections != null
-                                && sIdx >= 0 && sIdx < rec.TrackSections.Count
-                                && rec.TrackSections[sIdx].frames != null)
+                            if (!IsInstallableSectionIndex(sIdx, sectionCount))
                             {
-                                f.SampleCount = rec.TrackSections[sIdx].frames.Count;
+                                outOfRangeDropped++;
+                                continue;
                             }
+                            if (rec.TrackSections[sIdx].frames != null)
+                                f.SampleCount = rec.TrackSections[sIdx].frames.Count;
                             SectionAnnotationStore.PutOutlierFlags(recordingId, sIdx, f);
                             outlierFlagsInstalled++;
+                        }
+
+                        if (outOfRangeDropped > 0)
+                        {
+                            // HR-9 visibility: a cached .pann that outran its
+                            // recording's section list is a real staleness signal the
+                            // five-field cache key cannot express — never swallow it.
+                            ParsekLog.Warn("Pipeline-Sidecar",
+                                $"Pannotations ordinal out of range: recordingId={recordingId} " +
+                                $"reason=section-index-out-of-range dropped={outOfRangeDropped} " +
+                                $"sectionCount={sectionCount} — those annotations are not installed; " +
+                                "the next fit refits them from the current sections");
                         }
 
                         long bytes = SafeFileLength(pannPath);
@@ -496,7 +546,8 @@ namespace Parsek.Rendering
                             $"Pannotations read OK: recordingId={recordingId} block=SmoothingSplineList " +
                             $"version={probe.BinaryVersion} algStamp={probe.AlgorithmStampVersion} bytes={bytes} " +
                             $"splineCount={splines.Count} candidateSectionCount={anchorCandidates.Count} " +
-                            $"outlierFlagsCount={outlierFlagsInstalled}");
+                            $"outlierFlagsCount={outlierFlagsInstalled} " +
+                            $"outOfRangeDropped={outOfRangeDropped}");
                         return;
                     }
 

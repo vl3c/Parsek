@@ -167,6 +167,23 @@ namespace Parsek
         [NonSerialized] private string cachedPreReFlyAnchorRecordingSessionId;
         [NonSerialized] private Recording cachedPreReFlyAnchorRecording;
 
+        /// <summary>
+        /// True on a transient, non-store-registered Recording built only to carry a
+        /// trajectory through a serializer, which SHARES a real recording's
+        /// <see cref="RecordingId"/> while holding a DIFFERENT section list (today the
+        /// pre-Re-Fly anchor snapshot from
+        /// <see cref="BuildPreReFlyAnchorTrajectoryRecording"/>).
+        ///
+        /// <para>
+        /// Consumed by <c>OrbitSegmentCheckpointBridge.InvalidateSectionAnnotationsForOrdinalShift</c>:
+        /// normalizing a detached snapshot's sections says nothing about the ordinals
+        /// the REAL recording's derived annotations are keyed to, so the invalidation
+        /// must not fire for it. Any future synthetic id-sharing Recording that gets
+        /// run through the sidecar codecs must set this too.
+        /// </para>
+        /// </summary>
+        [NonSerialized] internal bool IsDetachedSyntheticSnapshot;
+
         // Atmosphere segment metadata
         public string SegmentPhase;      // "atmo", "exo", "approach", or "surface" (null = untagged/legacy)
         public string SegmentBodyName;   // body name at split point (e.g., "Kerbin", "Duna")
@@ -1174,6 +1191,11 @@ namespace Parsek
             cachedPreReFlyAnchorRecordingSessionId = sessionId;
             cachedPreReFlyAnchorRecording = new Recording
             {
+                // Shares this recording's id but carries the PRE-Re-Fly section list,
+                // and is serialized through the same codec seam real recordings use.
+                // Flag it so the checkpoint bridge's ordinal-shift annotation
+                // invalidation does not fire against the REAL recording's annotations.
+                IsDetachedSyntheticSnapshot = true,
                 RecordingId = RecordingId,
                 RecordingFormatVersion = RecordingFormatVersion,
                 RecordingSchemaGeneration = RecordingSchemaGeneration,

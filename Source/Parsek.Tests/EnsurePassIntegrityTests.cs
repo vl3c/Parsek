@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using Parsek;
 using Parsek.Rendering;
+using UnityEngine;
 using Xunit;
 
 namespace Parsek.Tests
@@ -40,11 +42,13 @@ namespace Parsek.Tests
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
             ParsekLog.VerboseOverrideForTesting = true;
             SectionAnnotationStore.ResetForTesting();
+            RenderSessionState.ResetForTesting();
         }
 
         public void Dispose()
         {
             SectionAnnotationStore.ResetForTesting();
+            RenderSessionState.ResetForTesting();
             ParsekLog.ResetTestOverrides();
             RecordingStore.SuppressLogging = prevSuppress;
         }
@@ -442,6 +446,364 @@ namespace Parsek.Tests
 
             Assert.Equal(0, SectionAnnotationStore.GetSplineCountForRecording(mutated));
             Assert.Equal(1, SectionAnnotationStore.GetSplineCountForRecording(sibling));
+        }
+
+        // --- F1: the resolved anchor map rides the same ordinal ----------------
+
+        private static AnchorCorrection Anchor(string recordingId, int sectionIndex, AnchorSide side)
+        {
+            return new AnchorCorrection(
+                recordingId, sectionIndex, side, 250, new Vector3d(1, 2, 3),
+                AnchorSource.OrbitalCheckpoint);
+        }
+
+        // RenderSessionState.Anchors is keyed by the SAME (recordingId, sectionIndex)
+        // ordinal and is POPULATED FROM the candidates the store holds. Dropping only
+        // the candidates would leave a stale ε bound to an index that now names a
+        // different section — and the flight positioning path re-applies that ε every
+        // frame, which is worse than the consistently-stale pair it replaced.
+        [Fact]
+        public void Ensure_ShiftingSectionOrdinals_AlsoClearsResolvedSessionAnchors()
+        {
+            const string id = "anchor-desync";
+            const string sibling = "anchor-desync-sibling";
+            Recording rec = GapPromotionRecording(id);
+
+            RenderSessionState.PutAnchorWithPriority(Anchor(id, 1, AnchorSide.Start));
+            RenderSessionState.PutAnchorWithPriority(Anchor(id, 1, AnchorSide.End));
+            RenderSessionState.PutAnchorWithPriority(Anchor(sibling, 1, AnchorSide.Start));
+            SectionAnnotationStore.PutAnchorCandidates(id, 1, new[]
+            {
+                new AnchorCandidate(250, AnchorSource.OrbitalCheckpoint, AnchorSide.Start)
+            });
+            Assert.Equal(3, RenderSessionState.Count);
+
+            OrbitSegmentCheckpointBridge
+                .EnsureCheckpointSectionsForTopLevelOrbitSegments(rec, markDirty: false);
+
+            Assert.False(RenderSessionState.TryLookup(id, 1, AnchorSide.Start, out _));
+            Assert.False(RenderSessionState.TryLookup(id, 1, AnchorSide.End, out _));
+            Assert.True(RenderSessionState.TryLookup(sibling, 1, AnchorSide.Start, out _),
+                "the containment must be scoped to the recording whose ordinals moved");
+            Assert.Equal(1, RenderSessionState.Count);
+            Assert.Contains(logLines,
+                l => l.Contains("Section annotations invalidated (section-index-shift)")
+                    && l.Contains("sessionAnchors=2"));
+        }
+
+        // The anchor map alone is enough to make the pass "have something to drop":
+        // a recording with no .pann annotations but a live ε must still be cleared.
+        [Fact]
+        public void Ensure_ShiftingSectionOrdinals_ClearsAnchorsEvenWithNoPannAnnotations()
+        {
+            const string id = "anchor-only-desync";
+            Recording rec = GapPromotionRecording(id);
+            RenderSessionState.PutAnchorWithPriority(Anchor(id, 1, AnchorSide.Start));
+
+            OrbitSegmentCheckpointBridge
+                .EnsureCheckpointSectionsForTopLevelOrbitSegments(rec, markDirty: false);
+
+            Assert.Equal(0, RenderSessionState.Count);
+        }
+
+        // Anti-over-invalidation for the anchor half.
+        [Fact]
+        public void Ensure_NoSectionChange_KeepsResolvedSessionAnchors()
+        {
+            const string id = "anchor-kept";
+            Recording rec = GapPromotionRecording(id);
+            OrbitSegmentCheckpointBridge
+                .EnsureCheckpointSectionsForTopLevelOrbitSegments(rec, markDirty: false);
+
+            RenderSessionState.PutAnchorWithPriority(Anchor(id, 2, AnchorSide.Start));
+
+            OrbitSegmentCheckpointBridge
+                .EnsureCheckpointSectionsForTopLevelOrbitSegments(rec, markDirty: false);
+
+            Assert.True(RenderSessionState.TryLookup(id, 2, AnchorSide.Start, out _));
+        }
+
+        // --- F3: a detached synthetic snapshot must not invalidate the real one ---
+
+        // Recording.BuildPreReFlyAnchorTrajectoryRecording hands a synthetic Recording
+        // that SHARES the real recording's id but carries the PRE-Re-Fly section list
+        // to the same TrajectoryTextSidecarCodec.SerializeTrajectoryInto seam real
+        // recordings use. A shift there says nothing about the real recording's
+        // ordinals, and the path writes a ConfigNode (no PersistAfterCommit refit),
+        // so a drop would strand flight positioning on the lerp fallback.
+        [Fact]
+        public void Ensure_DetachedSyntheticSnapshot_DoesNotInvalidateTheRealRecording()
+        {
+            const string id = "detached-synthetic";
+            Recording snapshot = GapPromotionRecording(id);
+            snapshot.IsDetachedSyntheticSnapshot = true;
+
+            SectionAnnotationStore.PutSmoothingSpline(id, 1, Spline(200));
+            RenderSessionState.PutAnchorWithPriority(Anchor(id, 1, AnchorSide.Start));
+
+            var stats = OrbitSegmentCheckpointBridge
+                .EnsureCheckpointSectionsForTopLevelOrbitSegments(snapshot, markDirty: false);
+
+            // The snapshot's OWN sections are still normalized...
+            Assert.True(stats.SectionOrdinalsShifted);
+            Assert.Equal(3, snapshot.TrackSections.Count);
+            // ...but the real recording's annotations are untouched.
+            Assert.Equal(1, SectionAnnotationStore.GetSplineCountForRecording(id));
+            Assert.True(RenderSessionState.TryLookup(id, 1, AnchorSide.Start, out _));
+        }
+
+        // The production builder must actually set the flag — a fixture-only bool
+        // would leave the real path exposed.
+        [Fact]
+        public void PreReFlyAnchorSnapshotRecording_IsFlaggedDetachedSynthetic()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "pre-refly-owner",
+                PreReFlyAnchorSessionId = "sess-1",
+                PreReFlyAnchorPoints = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 0, bodyName = "Kerbin" },
+                    new TrajectoryPoint { ut = 10, bodyName = "Kerbin" }
+                },
+                PreReFlyAnchorOrbitSegments = new List<OrbitSegment>(),
+                PreReFlyAnchorTrackSections = new List<TrackSection>
+                {
+                    PhysicalSection(0, 10)
+                }
+            };
+
+            Recording snapshot = rec.BuildPreReFlyAnchorTrajectoryRecording("sess-1");
+
+            Assert.NotNull(snapshot);
+            Assert.Equal(rec.RecordingId, snapshot.RecordingId);
+            Assert.True(snapshot.IsDetachedSyntheticSnapshot,
+                "the pre-Re-Fly anchor snapshot shares the real recording's id and must "
+                + "not be able to invalidate its annotations");
+            Assert.False(rec.IsDetachedSyntheticSnapshot);
+        }
+
+        // --- F4: SplitAtUT's guarded returns restore, so they must not drop -----
+
+        // The opt-out exists so a caller that restores the pre-Ensure sections
+        // byte-identically does not take an unrecoverable, unrefittable drop.
+        [Fact]
+        public void Ensure_WithInvalidationSuppressed_StillNormalizesButKeepsAnnotations()
+        {
+            const string id = "suppressed-invalidation";
+            Recording rec = GapPromotionRecording(id);
+            SectionAnnotationStore.PutSmoothingSpline(id, 1, Spline(200));
+            RenderSessionState.PutAnchorWithPriority(Anchor(id, 1, AnchorSide.Start));
+
+            var stats = OrbitSegmentCheckpointBridge.EnsureCheckpointSectionsForTopLevelOrbitSegments(
+                rec, markDirty: false, reconcileEmptySections: true,
+                invalidateSectionAnnotations: false);
+
+            Assert.True(stats.SectionOrdinalsShifted);
+            Assert.Equal(3, rec.TrackSections.Count);
+            Assert.Equal(1, SectionAnnotationStore.GetSplineCountForRecording(id));
+            Assert.True(RenderSessionState.TryLookup(id, 1, AnchorSide.Start, out _));
+        }
+
+        // --- F5: one comparator, or every pass re-sorts forever -----------------
+
+        // EnsureTrackSectionsSorted CHECKS with CompareTrackSections and sorts via
+        // SortTrackSections. If those ever disagreed, an already-sorted list would
+        // read as unsorted on every pass: Resorted=1 forever, so every load would
+        // dirty, flush and invalidate every recording. Second pass must be a no-op.
+        [Fact]
+        public void Ensure_SortIsStableAcrossPasses_SoResortDoesNotPingPong()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "sort-stability",
+                TrackSections = new List<TrackSection>
+                {
+                    PhysicalSection(200, 300),
+                    PhysicalSection(0, 100),
+                    EmptyAbsoluteSection(100, 150),
+                    PhysicalSection(100, 200)
+                },
+                OrbitSegments = new List<OrbitSegment> { Segment(300, 400) }
+            };
+
+            var first = OrbitSegmentCheckpointBridge
+                .EnsureCheckpointSectionsForTopLevelOrbitSegments(rec, markDirty: false);
+            Assert.Equal(1, first.Resorted);
+
+            for (int pass = 0; pass < 3; pass++)
+            {
+                var repeat = OrbitSegmentCheckpointBridge
+                    .EnsureCheckpointSectionsForTopLevelOrbitSegments(rec, markDirty: false);
+                Assert.Equal(0, repeat.Resorted);
+                Assert.False(repeat.AnyMutation,
+                    "a converged recording must not re-sort on every pass — that would "
+                    + "dirty, flush and invalidate everything on every load");
+            }
+        }
+    }
+
+    /// <summary>
+    /// The load-seam half of the .pann containment. The bridge's ordinal-shift
+    /// invalidation cannot help here: at load, <c>TrajectorySidecarBinary.Read</c>'s
+    /// Ensure can shift ordinals while the annotation store is still EMPTY, so there
+    /// is nothing to drop — and <c>ClassifyDrift</c> then accepts the pre-shift
+    /// <c>.pann</c> because none of its six cache-key fields is section-derived.
+    /// <c>LoadOrCompute</c> therefore refuses the entries that are provably wrong:
+    /// an ordinal at or past the end of the recording's section list.
+    /// </summary>
+    [Collection("Sequential")]
+    public class PannotationsOrdinalBoundsTests : IDisposable
+    {
+        private readonly string tempDir;
+        private readonly List<string> logLines = new List<string>();
+        private const double KerbinRotationPeriod = 21549.425;
+
+        public PannotationsOrdinalBoundsTests()
+        {
+            tempDir = Path.Combine(Path.GetTempPath(),
+                "parsek_pann_bounds_" + Guid.NewGuid().ToString("N").Substring(0, 8));
+            Directory.CreateDirectory(tempDir);
+            SmoothingPipeline.ResetForTesting();
+            TrajectoryMath.FrameTransform.ResetForTesting();
+            ParsekLog.ResetTestOverrides();
+            ParsekLog.SuppressLogging = false;
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+            ParsekLog.VerboseOverrideForTesting = true;
+
+            CelestialBody fakeKerbin = TestBodyRegistry.CreateBody(
+                "Kerbin", radius: 600000.0, gravParameter: 3.5316e12);
+            SmoothingPipeline.BodyResolverForTesting =
+                name => name == "Kerbin" ? fakeKerbin : null;
+            TrajectoryMath.FrameTransform.RotationPeriodForTesting = b =>
+                object.ReferenceEquals(b, fakeKerbin) ? KerbinRotationPeriod : double.NaN;
+        }
+
+        public void Dispose()
+        {
+            ParsekLog.ResetTestOverrides();
+            ParsekLog.SuppressLogging = true;
+            SmoothingPipeline.ResetForTesting();
+            TrajectoryMath.FrameTransform.ResetForTesting();
+            if (Directory.Exists(tempDir))
+            {
+                try { Directory.Delete(tempDir, true); } catch { }
+            }
+        }
+
+        private static TrackSection FittableSection(double startUT, int frameCount)
+        {
+            var frames = new List<TrajectoryPoint>(frameCount);
+            for (int i = 0; i < frameCount; i++)
+            {
+                frames.Add(new TrajectoryPoint
+                {
+                    ut = startUT + i,
+                    latitude = 0.1 + i * 0.01,
+                    longitude = 1.0 + i * 0.05,
+                    altitude = 80000 + i * 100,
+                    rotation = Quaternion.identity,
+                    bodyName = "Kerbin",
+                });
+            }
+            return new TrackSection
+            {
+                environment = SegmentEnvironment.ExoBallistic,
+                referenceFrame = ReferenceFrame.Absolute,
+                source = TrackSectionSource.Active,
+                startUT = startUT,
+                endUT = startUT + frameCount - 1,
+                frames = frames,
+                checkpoints = new List<OrbitSegment>(),
+                sampleRateHz = 1f,
+            };
+        }
+
+        private static Recording TwoSectionRecording(string id)
+        {
+            var rec = new Recording
+            {
+                RecordingId = id,
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
+                RecordingSchemaGeneration = RecordingStore.CurrentRecordingSchemaGeneration,
+                SidecarEpoch = 1,
+            };
+            rec.TrackSections.Add(FittableSection(100.0, 10));
+            rec.TrackSections.Add(FittableSection(200.0, 10));
+            return rec;
+        }
+
+        // Repro of the load-seam resurrection route: a .pann carrying an entry for
+        // section index 1 is read back against a recording that now has ONE section.
+        // Every cache-key field still matches, so the file is accepted — but index 1
+        // names no section, and installing it would hand a consumer a spline for a
+        // section that does not exist.
+        [Fact]
+        public void LoadOrCompute_OrdinalPastEndOfSectionList_IsNotInstalled()
+        {
+            const string id = "pann-ordinal-bounds";
+            string pannPath = Path.Combine(tempDir, id + ".pann");
+
+            Recording writer = TwoSectionRecording(id);
+            SmoothingPipeline.PersistAfterCommit(writer, pannPath);
+            Assert.Equal(2, SectionAnnotationStore.GetSplineCountForRecording(id));
+            Assert.True(File.Exists(pannPath));
+
+            // Same recording id / epoch / format / config — no drift — but the section
+            // list shrank underneath the cached file.
+            Recording reader = TwoSectionRecording(id);
+            reader.TrackSections.RemoveAt(1);
+            SectionAnnotationStore.ResetForTesting();
+            logLines.Clear();
+
+            SmoothingPipeline.LoadOrCompute(reader, pannPath);
+
+            // The read path ran (not a recompute) ...
+            Assert.Contains(logLines, l => l.Contains("Pannotations read OK"));
+            // ... and installed only the in-range ordinal.
+            Assert.True(SectionAnnotationStore.TryGetSmoothingSpline(id, 0, out _));
+            Assert.False(SectionAnnotationStore.TryGetSmoothingSpline(id, 1, out _),
+                "an ordinal at or past the end of the section list names no section and "
+                + "must never be installed");
+            Assert.Equal(1, SectionAnnotationStore.GetSplineCountForRecording(id));
+            Assert.Contains(logLines, l => l.Contains("[WARN][Pipeline-Sidecar]")
+                && l.Contains("Pannotations ordinal out of range")
+                && l.Contains("reason=section-index-out-of-range"));
+        }
+
+        // Anti-over-gating: an unchanged section list installs everything and warns
+        // about nothing.
+        [Fact]
+        public void LoadOrCompute_AllOrdinalsInRange_InstallsEverythingAndDoesNotWarn()
+        {
+            const string id = "pann-ordinal-in-range";
+            string pannPath = Path.Combine(tempDir, id + ".pann");
+
+            Recording writer = TwoSectionRecording(id);
+            SmoothingPipeline.PersistAfterCommit(writer, pannPath);
+
+            Recording reader = TwoSectionRecording(id);
+            SectionAnnotationStore.ResetForTesting();
+            logLines.Clear();
+
+            SmoothingPipeline.LoadOrCompute(reader, pannPath);
+
+            Assert.Equal(2, SectionAnnotationStore.GetSplineCountForRecording(id));
+            Assert.DoesNotContain(logLines,
+                l => l.Contains("Pannotations ordinal out of range"));
+        }
+
+        [Theory]
+        [InlineData(-1, 3, false)]
+        [InlineData(0, 3, true)]
+        [InlineData(2, 3, true)]
+        [InlineData(3, 3, false)]
+        [InlineData(0, 0, false)]
+        public void IsInstallableSectionIndex_BoundsAreHalfOpen(
+            int sectionIndex, int sectionCount, bool expected)
+        {
+            Assert.Equal(expected,
+                SmoothingPipeline.IsInstallableSectionIndex(sectionIndex, sectionCount));
         }
     }
 }

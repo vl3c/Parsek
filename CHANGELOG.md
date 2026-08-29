@@ -95,14 +95,19 @@ All notable changes to Parsek are documented here.
 
 - Re-ordering those timeline slices could also leave a recording's derived
   drawing data pointing at the wrong slice. The smoothed paths Parsek fits
-  through recorded flights are filed by slice POSITION, so inserting or dropping
-  a slice renumbered everything after it while the fitted paths stayed put - the
-  path fitted for one stretch of a flight could silently start being applied to
-  a different stretch, and nothing in the freshness checks could notice. Those
-  fitted paths are now dropped whenever the tidy-up moves a slice; they are
-  rebuilt from scratch the next time the recording is loaded or saved, which -
-  thanks to the fix above - is immediately. Ghost map lines and replays are
-  unaffected either way; this closes a route to a wrong one.
+  through recorded flights - and the small position corrections that ride along
+  with them - are filed by slice POSITION, so inserting or dropping a slice
+  renumbered everything after it while the fitted paths stayed put. The path
+  fitted for one stretch of a flight could silently start being applied to a
+  different stretch, and nothing in the freshness checks could notice. Both are
+  now dropped together whenever the tidy-up moves a slice, and rebuilt from
+  scratch the next time the recording is loaded or saved - which, thanks to the
+  fix above, is immediately on the housekeeping route. In the gap between the
+  drop and the rebuild, replayed ghosts are placed by the older, slightly
+  coarser method instead of the smoothed one; that is the trade, because the
+  alternative was a smooth path drawn confidently through the wrong part of the
+  flight. A cached file whose slice numbers have run off the end of the
+  recording is also refused outright on load now, instead of being trusted.
 
 ### Dev
 
