@@ -149,6 +149,21 @@ All notable changes to Parsek are documented here.
 
 ### Dev
 
+- Removed the two resource-budget readouts that had not drawn since 2026-03-31: the
+  Timeline window's "Resources" section and the main window's "Reserved:" bullet list.
+  Both read `ParsekUI.GetCachedBudget()`, which forwarded to a `RecordingsTableUI` field
+  that was never assigned after `e3723b78c` handed funds/science/reputation to the
+  LedgerOrchestrator, so both guarded out on an all-zero struct on every frame. No player
+  ever saw either one render, and the information itself did not go anywhere - the stock
+  currency widgets have carried it reservation-net since that same change, with the
+  Total/Reserved breakdown on hover. Deleted with them: `ResourceBudget.ComputeTotal` and
+  `ComputeTotalFullCost` (no production callers), the dirty-flag cache that existed only
+  to serve them, the three milestone full-cost helpers only `ComputeTotalFullCost` called,
+  and 31 xUnit cells that asserted through the pair. `BudgetSummary` and
+  `ResourceBudget.ParseCostFromDetail` stay - both have live consumers elsewhere. The user
+  guide's "Resource Budget" section now describes the stock-widget hover that actually
+  ships instead of a UI that stopped existing.
+
 - When Parsek finishes with a mission and files it away outside the flight scene,
   it now writes down what it was looking at before it decides how. There are two
   ways it can file a mission: the careful one, which keeps each surviving ship

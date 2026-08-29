@@ -1,5 +1,3 @@
-using System.Collections.Generic;
-using UnityEngine;
 using Xunit;
 
 namespace Parsek.Tests
@@ -14,41 +12,7 @@ namespace Parsek.Tests
             MilestoneStore.ResetForTesting();
             GameStateStore.SuppressLogging = true;
             GameStateStore.ResetForTesting();
-            ResourceBudget.Invalidate();
             ParsekLog.SuppressLogging = true;
-        }
-
-        /// <summary>
-        /// Helper: creates a recording with trajectory points and PreLaunchFunds set.
-        /// TreeId is left null (standalone/legacy recording).
-        /// </summary>
-        private Recording MakeStandaloneRecording(
-            double preLaunchFunds, double endFunds)
-        {
-            var rec = new Recording
-            {
-                PreLaunchFunds = preLaunchFunds
-            };
-
-            rec.Points.Add(new TrajectoryPoint
-            {
-                ut = 100,
-                funds = preLaunchFunds - 5000,
-                bodyName = "Kerbin",
-                rotation = Quaternion.identity,
-                velocity = Vector3.zero
-            });
-
-            rec.Points.Add(new TrajectoryPoint
-            {
-                ut = 200,
-                funds = endFunds,
-                bodyName = "Kerbin",
-                rotation = Quaternion.identity,
-                velocity = Vector3.zero
-            });
-
-            return rec;
         }
 
         #region Test 1: Legacy recording fields default to null/zero/NaN
@@ -70,69 +34,10 @@ namespace Parsek.Tests
 
         #endregion
 
-        #region Test 2: Standalone recording (TreeId null) included in budget
-
-        [Fact]
-        public void ComputeTotal_StandaloneRecording_TreeIdNull_IncludedInBudget()
-        {
-            // Standalone recording: preLaunch=50000, end=35000 -> cost=15000
-            var rec = MakeStandaloneRecording(50000, 35000);
-            Assert.Null(rec.TreeId); // verify it is standalone
-
-            var recordings = new List<Recording> { rec };
-            var budget = ResourceBudget.ComputeTotal(recordings, new List<Milestone>(), null);
-
-            Assert.Equal(15000, budget.reservedFunds);
-        }
-
-        #endregion
-
-        #region Test 3: Chain + tree recordings do not interfere
-
-        [Fact]
-        public void ComputeTotal_ChainAndTree_NoInterference()
-        {
-            // Chain recording 1: standalone chain segment (TreeId null, ChainId set)
-            // preLaunch=50000, end=45000 -> cost=5000
-            var chain1 = MakeStandaloneRecording(50000, 45000);
-            chain1.ChainId = "chain-abc";
-            chain1.ChainIndex = 0;
-            Assert.Null(chain1.TreeId);
-
-            // Chain recording 2: another chain segment
-            // preLaunch=45000, end=42000 -> cost=3000
-            var chain2 = MakeStandaloneRecording(45000, 42000);
-            chain2.ChainId = "chain-abc";
-            chain2.ChainIndex = 1;
-            Assert.Null(chain2.TreeId);
-
-            // Phase F round 2: the tree-level lump-sum delta is gone; the tree's
-            // cost is the sum of its children's CommittedFundsCost, counted via
-            // the per-tree loop. The flat-list loop skips any recording with
-            // TreeId != null to prevent double-counting when the caller passes
-            // the same tree child in BOTH `recordings` and `trees` (the
-            // production shape — see RecordingStore.FinalizeTreeCommit which
-            // adds every tree child to both collections).
-            //
-            // Tree recording: preLaunch=60000, end=50000 -> per-recording cost=10000.
-            var treeRec = MakeStandaloneRecording(60000, 50000);
-            treeRec.TreeId = "tree-xyz";
-            treeRec.RecordingId = "tree-xyz-rec";
-
-            var tree = new RecordingTree { Id = "tree-xyz" };
-            tree.Recordings[treeRec.RecordingId] = treeRec;
-
-            // Match production store shape (tree child in BOTH lists).
-            var recordings = new List<Recording> { chain1, chain2, treeRec };
-            var trees = new List<RecordingTree> { tree };
-            var budget = ResourceBudget.ComputeTotal(recordings, new List<Milestone>(), trees);
-
-            // Flat loop: chain1 (5000) + chain2 (3000); treeRec skipped (TreeId set).
-            // Per-tree loop: treeRec (10000). Total = 18000, treeRec counted once.
-            Assert.Equal(18000, budget.reservedFunds);
-        }
-
-        #endregion
+        // Cleanup 2026-08-29 (RESOURCE-BUDGET-READOUTS-ARE-DEAD): the regions
+        // "Test 2: Standalone recording (TreeId null) included in budget" and
+        // "Test 3: Chain + tree recordings do not interfere" are gone with
+        // ResourceBudget.ComputeTotal - both cells asserted through it.
 
         #region Test 4: RecordingTree.Load with missing legacy fields defaults safely
 

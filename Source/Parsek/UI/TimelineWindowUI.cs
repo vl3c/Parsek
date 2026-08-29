@@ -400,9 +400,6 @@ namespace Parsek
                 CommitWarpField();
             }
 
-            // Zone 1: Resource Budget
-            DrawResourceBudget();
-
             // Zone 2: Filter Bar
             DrawFilterBar();
 
@@ -1768,75 +1765,6 @@ namespace Parsek
                 return -1;
             int index;
             return lookup.TryGetValue(recordingId, out index) ? index : -1;
-        }
-
-        private void DrawResourceBudget()
-        {
-            Game.Modes? currentMode = GetCurrentGameMode();
-            if (currentMode == Game.Modes.SANDBOX)
-                return;
-
-            var budget = parentUI.GetCachedBudget();
-
-            if (budget.reservedFunds <= 0 && budget.reservedScience <= 0 && budget.reservedReputation <= 0)
-                return;
-
-            var ic = System.Globalization.CultureInfo.InvariantCulture;
-            GUILayout.Space(5);
-            GUILayout.Label(
-                new GUIContent("Resources",
-                    "What is left to spend once the flights ahead of you take their share."),
-                parentUI.GetSectionHeaderStyle());
-
-            bool anyOverCommitted = false;
-            bool isScienceMode = currentMode == Game.Modes.SCIENCE_SANDBOX;
-
-            if (!isScienceMode && budget.reservedFunds > 0)
-            {
-                double currentFunds = 0;
-                try { if (Funding.Instance != null) currentFunds = Funding.Instance.Funds; } catch { }
-                anyOverCommitted |= DrawResourceLine("Funds", currentFunds, budget.reservedFunds, "N0", ic);
-            }
-
-            if (budget.reservedScience > 0)
-            {
-                double currentScience = 0;
-                try { if (ResearchAndDevelopment.Instance != null) currentScience = ResearchAndDevelopment.Instance.Science; } catch { }
-                anyOverCommitted |= DrawResourceLine("Science", currentScience, budget.reservedScience, "F1", ic);
-            }
-
-            if (!isScienceMode && budget.reservedReputation > 0)
-            {
-                float currentRep = 0;
-                try { if (Reputation.Instance != null) currentRep = Reputation.Instance.reputation; } catch { }
-                anyOverCommitted |= DrawResourceLine("Reputation", (double)currentRep, budget.reservedReputation, "F0", ic);
-            }
-
-            if (anyOverCommitted)
-            {
-                Color prev = GUI.contentColor;
-                GUI.contentColor = Color.yellow;
-                GUILayout.Label("Over-committed! Some timeline actions may fail.");
-                GUI.contentColor = prev;
-            }
-        }
-
-        /// <summary>
-        /// Draws a single resource budget line. Returns true if over-committed.
-        /// </summary>
-        private static bool DrawResourceLine(string label, double currentAmount, double reserved,
-            string format, System.Globalization.CultureInfo ic)
-        {
-            double available = currentAmount - reserved;
-            double total = currentAmount;
-            bool over = available < 0;
-            Color prev = GUI.contentColor;
-            if (over) GUI.contentColor = Color.red;
-            GUILayout.Label(new GUIContent(
-                $"{label}: {available.ToString(format, ic)} available to use ({reserved.ToString(format, ic)} committed out of {total.ToString(format, ic)} total)",
-                "Committed means already promised to recorded flights that have not run yet."));
-            GUI.contentColor = prev;
-            return over;
         }
     }
 }

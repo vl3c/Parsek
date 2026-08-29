@@ -78,7 +78,11 @@ namespace Parsek.Tests
         public static IEnumerable<object[]> StripWindows()
         {
             // Main window: both hosts (ParsekFlight, ParsekKSC) pin GUILayout.Width(250).
-            yield return new object[] { "ParsekUI.cs", 250f, 8, TooltipEchoBox.DoubleLine };
+            // Margin 1 as of 2026-08-29: the file carries 9 literal tooltips against this
+            // floor of 8, after RESOURCE-BUDGET-READOUTS-ARE-DEAD removed the "Reserved:"
+            // line and its tooltip. The next removal here reds this row on the floor rather
+            // than on a copy edit - lower the floor in the SAME commit that removes the
+            // control, the way the Settings row below was lowered 15 -> 10.
             // Settings: DrawIfOpen seeds new Rect(..., 280, 600) on first open. The floor
             // dropped 15 -> 10 with the 2026-08-27 settings simplification (the Recording,
             // Stock UI, auto-backup, landing-body-alignment and force-faithful controls
@@ -94,7 +98,10 @@ namespace Parsek.Tests
             // Timeline: DefaultWindowWidth = CareerStateWindowUI.DefaultWindowWidth (820).
             // Single-line strip: longest literal is 93 chars; watch-button tooltips cap
             // at 77 ("No active ghost - recording is in the past/future ...").
-            yield return new object[] { "UI/TimelineWindowUI.cs", 820f, 14, TooltipEchoBox.SingleLine };
+            // Margin 0 as of 2026-08-29: the file carries exactly 14 literal tooltips
+            // against this floor, after RESOURCE-BUDGET-READOUTS-ARE-DEAD removed the
+            // "Resources" section header and its per-line tooltip. ANY removal here reds
+            // this row immediately - lower the floor in the same commit.
             // Recordings: DefaultCollapsedWindowWidth = 1205 + ColW_Rewind(60) + ColW_ReFly(90).
             // Single-line strip: the window's whole help corpus was trimmed to fit one
             // wrapped line at 1355px = 189 chars (the loop-period header tooltip, formerly

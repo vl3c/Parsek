@@ -100,7 +100,6 @@ Click the "Timeline" button in the main Parsek window to open a read-only chrono
 
 Top of the window:
 
-- **Resources** block - same as the Resource Budget section below, shown when any resource has a committed cost.
 - **Tier toggles** - **Overview** shows the headline entries; **Details** adds lower-significance events (resource changes, individual career-event rows, etc.).
 - **Source toggles** - **Recordings**, **Actions**, **Events** each toggle that kind of row in and out.
 - **Time-Range Filter** - preset buttons (Last Day / Last 7d / Last 30d / This Year / All) and a **Custom range** disclosure with From/To sliders. The filter is shared with the Recordings Manager.
@@ -292,19 +291,12 @@ Data Management:
 
 The "Defaults" button resets all settings to their original values.
 
-### Resource Budget
+### Reserved Resources
 
-When recordings or milestones have unreplayed resource costs, the Parsek UI shows a Resources section:
-
-- **Funds: X available (Y committed)** - current funds minus reserved amounts
-- **Science: X available (Y committed)** - current science minus reserved amounts
-- **Reputation: X available (Y committed)** - current reputation minus reserved amounts
-
-If any resource goes negative (over-committed), the value turns red and a yellow "Over-committed! Some timeline actions may fail." warning appears. This means you've committed more resources to future timeline events than you currently have available.
-
-The resource budget is computed on-the-fly from two sources:
-1. **Recording costs** - net flight impact (launch cost minus in-flight earnings), proportional to replay progress
-2. **Milestone costs** - game state event costs (tech research, part purchases) not yet replayed
+Funds and science already promised to recorded flights that have not run yet are held
+back for you: the stock currency widgets show what is actually **available** to spend,
+not the raw pool. Hover a widget at the Space Center or in flight to see the breakdown
+as **Total** and **Reserved**.
 
 ### Action Blocking
 

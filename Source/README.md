@@ -34,7 +34,7 @@ Parsek/
 ├── GameStateBaseline.cs       # Full game state snapshot at commit points
 ├── Milestone.cs               # Groups game state events into committed timeline units
 ├── MilestoneStore.cs          # Milestone collection management
-├── ResourceBudget.cs          # On-the-fly resource budget computation from recordings + milestones
+├── ResourceBudget.cs          # Per-recording / per-milestone cost helpers + ParseCostFromDetail
 ├── RecordingTree.cs           # Rooted DAG of recordings for multi-vessel missions
 ├── BranchPoint.cs             # Links parent/child recordings at split/merge events
 ├── BackgroundRecorder.cs      # Dual-mode recording for non-active tree vessels
@@ -77,7 +77,7 @@ Parsek.Tests/
 ├── ParsekLogContractCheckerTests.cs # Log contract checker tests
 ├── RecordingTreeTests.cs           # Recording tree serialization/query tests
 ├── ReentryIntensityTests.cs        # Re-entry FX intensity formula tests
-├── ResourceBudgetTests.cs          # Resource budget computation tests
+├── ResourceBudgetTests.cs          # Per-item cost helper + cost-detail parsing tests
 ├── RewindTests.cs                  # Rewind logic tests
 ├── RewindLoggingTests.cs           # Rewind diagnostic logging tests
 ├── SplitEventDetectionTests.cs     # Tree split event detection tests
