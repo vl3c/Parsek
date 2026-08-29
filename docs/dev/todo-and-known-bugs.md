@@ -261,7 +261,7 @@ so a fix considers both.
 
 ---
 
-## RESOURCE-BUDGET-READOUTS-ARE-DEAD: the Timeline "Resources" section and the main window's "Reserved:" line have not rendered since 2026-03-31 [FOUND 2026-08-29 while analysing #427 to close. Vestigial UI, NOT a regression - the disablement was deliberate and the information moved elsewhere. Filed as cleanup]
+## ~~RESOURCE-BUDGET-READOUTS-ARE-DEAD~~: the Timeline "Resources" section and the main window's "Reserved:" line have not rendered since 2026-03-31 [FOUND 2026-08-29 while analysing #427 to close. Vestigial UI, NOT a regression - the disablement was deliberate and the information moved elsewhere. **CLEANED UP 2026-08-29** on branch `budget-cleanup` - Option 1, delete rather than re-point]
 
 **The mechanism.** `RecordingsTableUI.cachedBudget` is declared
 `private BudgetSummary cachedBudget = default(BudgetSummary);` (`UI/RecordingsTableUI.cs:406`)
@@ -290,25 +290,113 @@ The information itself did not disappear: it moved to the stock currency widgets
 `KspStatePatcher.PatchFunds` writes reservation-net (`Available = Total - Reserved`), with
 `CurrencyReservationOverlay` decomposing `Total:` / `Reserved:` on hover.
 
-**Two gaps in the replacement surface**, noted so a cleanup decision is informed rather than
-assumed: the overlay idles outside `SPACECENTER` and `FLIGHT`
-(`CurrencyReservationOverlay.cs:40-46`), so there is no explanation in the EDITOR, which is
-where funds are actually spent; and `GetFundsTooltip` (`:190-198`) computes
-`reserved = GetProjectionCurrentBalance() - GetAvailableFunds()` and floors it at zero, so in a
-genuine deficit (running balance negative, available floored to zero) it renders
-`Total: 0 / Reserved: 0` - reporting nothing reserved at exactly the moment a deficit is eating
-the pool. The over-commit magnitude (`minProjected`) reaches no surface but a Verbose line
-(`FundsModule.cs:697-702`).
+**Two gaps in the replacement surface** were found alongside this one. They are NOT closed by
+this cleanup, and they must not die inside a struck record - they are refiled verbatim as their
+own entry immediately below, RESERVATION-OVERLAY-GAPS.
 
-**Cleanup options, not decided here:** delete the two dead draw paths plus `cachedBudget` /
-`GetCachedBudget` and (if nothing else wants them) the unreferenced `ResourceBudget.ComputeTotal*`
-pair and their tests; or re-point `GetCachedBudget` at the ledger's projected availability so the
-Timeline footer means something again. The second is a feature decision and should not be taken
-as a cleanup.
+**What was deleted (Option 1 - delete, not re-point).** `TimelineWindowUI.DrawResourceBudget`
+plus its Zone-1 call site plus the `DrawResourceLine` helper only it used;
+`ParsekUI.DrawCompactBudgetLine` plus its call site; `ParsekUI.GetCachedBudget`;
+`RecordingsTableUI.GetCachedBudget` and the never-assigned `cachedBudget` field;
+`ResourceBudget.ComputeTotal` / `ComputeTotalFullCost` together with the `cachedBudget` /
+`budgetDirty` / `Invalidate()` cache that existed only to serve them - including `Invalidate()`'s
+three `MilestoneStore` call sites, which once the pair was gone set a field nothing read;
+`FullMilestoneCommittedFunds` / `Science` / `Reputation`, whose only caller anywhere, production
+or test, was `ComputeTotalFullCost`; and 31 xUnit cells that asserted through the pair (29 in
+`ResourceBudgetTests`, 2 in `BackwardCompatTests`). Doc surfaces followed: the user guide's
+"Resource Budget" section is rewritten to describe the stock-widget hover that actually ships,
+and `docs/parsek-timeline-design.md` section 5.1 Zone 1 is marked REMOVED with the reason.
+
+**What was deliberately KEPT.** The `BudgetSummary` struct stays - `RewindContext.RewindReserved`
+and `RecordingStore.RewindReserved` are live consumers with nothing to do with these readouts.
+The `ResourceBudget` type stays, because `ParseCostFromDetail` has a live production caller
+(`Patches/TechResearchPatch.cs:53`). The per-recording and per-milestone cost helpers
+(`CommittedFundsCost` / `CommittedScienceCost` / `CommittedReputationCost`,
+`MilestoneCommittedFunds` / `MilestoneCommittedScience`, the `FullCommitted*Cost` trio, and
+`ComputeFacilityUpgradeCost`) are kept and still covered, though not uniformly: the `Full*Cost`
+trio is called from `RewindLoggingTests`, the `Committed*Cost` and `MilestoneCommitted*` helpers
+keep their own direct cells, and `ComputeFacilityUpgradeCost` is reached only INDIRECTLY, through
+`MilestoneCommittedFunds_FacilityUpgradedReturnsZero` - it has no cell of its own. **They are,
+however, now production-dead**: their only production caller was the deleted pair. That is a
+deliberately scoped stopping point, not an oversight; whether a tested pure-math surface with no
+production caller earns its keep is a second judgement, filed below as
+RESOURCE-BUDGET-COST-HELPERS-ARE-PRODUCTION-DEAD.
 
 **Doc consequence, already applied:** entry #427 cited "a single red over-committed warning in
 the Timeline's resource footer" as a premise. #427 was written on 2026-04-17 (`15ba6fbe1`), so
 that premise was already **seventeen days** stale; the closing record for #427 says so.
+
+---
+
+## RESERVATION-OVERLAY-GAPS: the reservation readout that replaced the dead budget UI is absent in the EDITOR and reports `Reserved: 0` in a genuine deficit [SPLIT OUT 2026-08-29 from RESOURCE-BUDGET-READOUTS-ARE-DEAD when that entry was struck as cleanup-done. Neither gap was part of that cleanup; refiled here so they survive it]
+
+`CurrencyReservationOverlay` is the surface that carries the reserved-vs-available story now
+that the Timeline "Resources" section and the main window's "Reserved:" line are deleted. Two
+holes in it, both measured while establishing the facts for that cleanup:
+
+**(a) No explanation in the EDITOR.** The overlay idles outside `SPACECENTER` and `FLIGHT`
+(`CurrencyReservationOverlay.cs:40-46`). The EDITOR is where funds are actually spent, and it is
+exactly where the stock widget's reservation-net number goes unexplained - the player sees fewer
+funds than the raw pool holds and nothing says why. Fix: extend the scene gate to `EDITOR`, and
+confirm the stock editor's own cost readouts do not then double-subtract.
+
+**(b) `Total: 0 / Reserved: 0` at exactly the wrong moment.** `GetFundsTooltip`
+(`CurrencyReservationOverlay.cs:190-198`) computes
+`reserved = GetProjectionCurrentBalance() - GetAvailableFunds()` and floors it at zero, and the
+`displayed` value it adds to is the bar, which `KspStatePatcher` has already floored at zero. In
+a genuine deficit (running balance negative, available floored to zero) both terms are zero, so
+the tooltip renders `Total: 0 / Reserved: 0` - reporting nothing reserved at exactly the moment
+a deficit is eating the pool. `GetScienceTooltip` has the same shape.
+
+This is NOT a one-liner, which is why the cleanup left it filed rather than taking it - but be
+precise about WHY, because the obvious one-liner fails for a reason that is easy to misread.
+Dropping the floor does **not** break the algebra: `Total` is computed as `displayed + reserved`,
+so with a signed `reserved` the identity `bar == Total - Reserved` still holds exactly, and an
+implementer who tests only the arithmetic will conclude the fix works. What breaks is the
+**meaning**. `Reserved: -5,000` is not a reservation - nothing is being held back; it is the
+projection running below zero, which is a different quantity that happens to be reachable by the
+same subtraction. Rendering it in the Reserved slot tells the player the pool is owed a negative
+amount, which is worse than the current silence, and `BuildReservationTooltip`'s own doc comment
+frames both numbers as a reservation breakdown. The honest number is the over-commit magnitude,
+`minProjected`, which today reaches no surface but a Verbose line (`FundsModule.cs:697-702`).
+Fix: give the deficit its own tooltip phrasing driven by `minProjected` instead of forcing it
+through the Total/Reserved pair.
+
+---
+
+## RESOURCE-BUDGET-COST-HELPERS-ARE-PRODUCTION-DEAD: `ResourceBudget`'s per-recording and per-milestone cost helpers now have test callers only [FOUND 2026-08-29 as the residue of the RESOURCE-BUDGET-READOUTS-ARE-DEAD cleanup. Dead weight, not a defect - low priority]
+
+With `ComputeTotal` / `ComputeTotalFullCost` deleted, their per-item helpers lost their last
+production caller: `CommittedFundsCost` / `CommittedScienceCost` / `CommittedReputationCost`,
+`MilestoneCommittedFunds` / `MilestoneCommittedScience`, `FullCommittedFundsCost` /
+`FullCommittedScienceCost` / `FullCommittedReputationCost`, and `ComputeFacilityUpgradeCost`
+(which is itself a documented placeholder returning 0 on every branch). They were kept in that
+cleanup because they are pure, cheap and still exercised - and because the cleanup's scope was
+the aggregator pair, not a transitive sweep. Coverage is uneven, which matters if the next pass
+weighs them by how well they are pinned: the `Full*Cost` trio is exercised from
+`RewindLoggingTests`; `Committed*Cost` and `MilestoneCommitted*` have their own direct cells in
+`ResourceBudgetTests`; `ComputeFacilityUpgradeCost` has NO cell of its own and is reached only
+indirectly, through `MilestoneCommittedFunds_FacilityUpgradedReturnsZero`.
+
+The open question is whether a tested pure-math surface with no production caller earns its
+keep. `ResourceBudget` itself must stay regardless: `ParseCostFromDetail` is live
+(`Patches/TechResearchPatch.cs:53`). Decide in one pass rather than one helper at a time, and
+read `RewindLoggingTests` first - if its two cells re-derive expected values *through* the
+production helpers rather than asserting production behavior, that is a second reason to move
+them out.
+
+**One pin was lost along the way, deliberately, and is recorded here so it can be rebuilt if it
+ever matters.** Among the 31 deleted cells,
+`MixedStoreShape_Invariant_TreeChildAppearsInBothCollections` was doing two jobs. Its stated job
+was to justify `ComputeTotal`'s TreeId-based flat-list skip, which is why it went with the pair.
+Its unstated job was to pin a `FinalizeTreeCommit` SHAPE fact that outlives the pair entirely:
+that a tree child appears in BOTH `CommittedRecordings` and `CommittedTrees[i].Recordings`, and
+carries a non-null `TreeId`. Nothing asserts that directly any more, and a great many cells lean
+on it implicitly - 87 test files call `AddRecordingWithTreeForTesting` or `FinalizeTreeCommit`
+(`grep -rl "AddRecordingWithTreeForTesting|FinalizeTreeCommit" Source/Parsek.Tests`), so a
+regression in that shape would surface as a scatter of unrelated failures rather than as one
+clear red. Not worth a speculative cell today; worth a direct pin in `RecordingStoreTests` the
+first time that shape is touched or suspected.
 
 ---
 

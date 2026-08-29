@@ -403,8 +403,6 @@ namespace Parsek
         // Window drag tracking for position logging
         private Rect lastRecordingsWindowRect;
 
-        private BudgetSummary cachedBudget = default(BudgetSummary);
-
         public bool IsOpen
         {
             get { return showRecordingsWindow; }
@@ -590,14 +588,6 @@ namespace Parsek
             pendingScrollToRecordingId = recordingId;
             ParsekLog.Verbose("UI",
                 $"Cross-link: scroll requested for \"{target.VesselName}\" id={recordingId}");
-        }
-
-        /// <summary>
-        /// Returns the resource budget.
-        /// </summary>
-        internal BudgetSummary GetCachedBudget()
-        {
-            return cachedBudget;
         }
 
         public void DrawIfOpen(Rect mainWindowRect)

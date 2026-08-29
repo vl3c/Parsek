@@ -145,7 +145,6 @@ namespace Parsek
             };
 
             milestones.Add(milestone);
-            ResourceBudget.Invalidate();
             ParsekLog.Info("MilestoneStore",
                 $"Milestone created: id={ShortId(milestone.MilestoneId)}, {filtered.Count} events, " +
                 $"UT {startUT:F0}-{currentUT:F0}");
@@ -227,7 +226,6 @@ namespace Parsek
                     $"{emptiedMilestones} milestones dropped, " +
                     $"{replayIdxAdjustments} LastReplayedEventIndex adjustments, " +
                     $"ids={recordingIds.Count}");
-                ResourceBudget.Invalidate();
             }
             else
             {
@@ -290,7 +288,6 @@ namespace Parsek
                     $"{emptiedMilestones} milestones dropped, " +
                     $"{replayIdxAdjustments} LastReplayedEventIndex adjustments, " +
                     $"rec={recordingId} cutoffUT={cutoffUT.ToString("R", CultureInfo.InvariantCulture)}");
-                ResourceBudget.Invalidate();
             }
             else
             {

@@ -645,22 +645,12 @@ namespace Parsek
             return next == UiComplexityMode.Basic && gloopsRecording;
         }
 
-        /// <summary>
-        /// Returns the resource budget.
-        /// </summary>
-        internal BudgetSummary GetCachedBudget()
-        {
-            return recordingsTableUI.GetCachedBudget();
-        }
-
         public void DrawWindow(int windowID)
         {
             GUILayout.BeginVertical();
 
             if (InFlight)
                 DrawFlightStatus();
-
-            DrawCompactBudgetLine();
 
             GUILayout.Space(SpacingLarge);
 
@@ -941,32 +931,6 @@ namespace Parsek
         public void LogMainWindowPosition(Rect currentRect)
         {
             LogWindowPosition("Main", ref lastMainWindowRect, currentRect);
-        }
-
-        private void DrawCompactBudgetLine()
-        {
-            var budget = GetCachedBudget();
-
-            if (budget.reservedFunds <= 0 && budget.reservedScience <= 0 && budget.reservedReputation <= 0)
-                return;
-
-            var ic = System.Globalization.CultureInfo.InvariantCulture;
-            var parts = new List<string>();
-            if (budget.reservedFunds > 0)
-                parts.Add(budget.reservedFunds.ToString("N0", ic) + " funds");
-            if (budget.reservedScience > 0)
-                parts.Add(budget.reservedScience.ToString("F1", ic) + " science");
-            if (budget.reservedReputation > 0)
-                parts.Add(budget.reservedReputation.ToString("F0", ic) + " reputation");
-
-            if (parts.Count > 0)
-            {
-                GUILayout.Label(new GUIContent(
-                    "Reserved:",
-                    "Held back for recorded flights that have not happened yet."));
-                for (int i = 0; i < parts.Count; i++)
-                    GUILayout.Label("  \u2022 " + parts[i]);
-            }
         }
 
         public void DrawTimelineWindowIfOpen(Rect mainWindowRect)
