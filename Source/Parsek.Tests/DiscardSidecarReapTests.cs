@@ -70,12 +70,24 @@ namespace Parsek.Tests
 
         // ----- fixture: a real recordings directory with real staged sidecars -----
 
-        /// <summary>Every suffix <c>RecordingStore.DeleteRecordingFiles</c> unlinks.</summary>
+        /// <summary>
+        /// The seven sidecar suffixes <c>RecordingStore.DeleteRecordingFiles</c> unlinks
+        /// under <c>Parsek/Recordings/</c>. Its EIGHTH limb - the per-recording
+        /// quickload-resume save at <c>Parsek/Saves/&lt;RewindSaveFileName&gt;.sfs</c> -
+        /// lives in a different directory and is staged separately (see
+        /// <see cref="StageRewindSave"/>). NOT the Rewind-to-Separation quicksaves under
+        /// <c>Parsek/RewindPoints/</c>: those use a separate path builder
+        /// (<c>BuildRewindPointRelativePath</c>) and their own reaper, and this reap
+        /// never touches them.
+        /// </summary>
         private static readonly string[] StagedSuffixes =
         {
             ".prec", ".pann", "_vessel.craft", "_ghost.craft",
             ".prec.txt", "_vessel.craft.txt", "_ghost.craft.txt",
         };
+
+        /// <summary>Save root of the most recent <see cref="CreateRecordingsDir"/>.</summary>
+        private string lastSaveRoot;
 
         private string CreateRecordingsDir(string label)
         {
@@ -83,7 +95,10 @@ namespace Parsek.Tests
                 Path.GetTempPath(), "parsek-discard-reap-" + label + "-" + Guid.NewGuid().ToString("N"));
             string dir = Path.Combine(root, "Parsek", "Recordings");
             Directory.CreateDirectory(dir);
+            Directory.CreateDirectory(Path.Combine(root, "Parsek", "Saves"));
+            Directory.CreateDirectory(Path.Combine(root, "Parsek", "RewindPoints"));
             cleanupRoots.Add(root);
+            lastSaveRoot = root;
             return dir;
         }
 
@@ -91,6 +106,21 @@ namespace Parsek.Tests
         {
             for (int i = 0; i < StagedSuffixes.Length; i++)
                 File.WriteAllText(Path.Combine(dir, recordingId + StagedSuffixes[i]), "x");
+        }
+
+        /// <summary>Stages the per-recording quickload-resume save limb.</summary>
+        private void StageRewindSave(string rewindSaveFileName)
+            => File.WriteAllText(RewindSavePath(rewindSaveFileName), "sfs");
+
+        private string RewindSavePath(string rewindSaveFileName)
+            => Path.Combine(lastSaveRoot, "Parsek", "Saves", rewindSaveFileName + ".sfs");
+
+        /// <summary>A Rewind-to-Separation quicksave, which the reap must NEVER touch.</summary>
+        private string StageRewindPointQuicksave(string rewindPointId)
+        {
+            string p = Path.Combine(lastSaveRoot, "Parsek", "RewindPoints", rewindPointId + ".sfs");
+            File.WriteAllText(p, "rp");
+            return p;
         }
 
         private static int CountSidecars(string dir, string recordingId)
@@ -107,19 +137,33 @@ namespace Parsek.Tests
         /// <summary>
         /// Stands in for <c>RecordingStore.DeleteRecordingFiles</c>, which resolves
         /// paths through <c>KSPUtil.ApplicationRootPath</c> and throws outside KSP.
-        /// Deletes exactly the id's sidecar set from the staged directory - so these
-        /// cells observe real filesystem effects, not a mock's call log.
+        /// Deletes exactly the recording's footprint from the staged save - the seven
+        /// sidecars AND the quickload-resume save when the recording carries one - so
+        /// these cells observe real filesystem effects, not a mock's call log. Returns
+        /// the production contract: true when nothing was left behind.
         /// </summary>
-        private static Action<Recording> StagedDirDeleter(string dir)
+        private Func<Recording, bool> StagedDirDeleter(string dir)
         {
+            string saveRoot = lastSaveRoot;
             return rec =>
             {
+                bool allDeleted = true;
                 for (int i = 0; i < StagedSuffixes.Length; i++)
                 {
                     string p = Path.Combine(dir, rec.RecordingId + StagedSuffixes[i]);
                     if (File.Exists(p))
                         File.Delete(p);
+                    allDeleted &= !File.Exists(p);
                 }
+                if (!string.IsNullOrEmpty(rec.RewindSaveFileName))
+                {
+                    string sfs = Path.Combine(
+                        saveRoot, "Parsek", "Saves", rec.RewindSaveFileName + ".sfs");
+                    if (File.Exists(sfs))
+                        File.Delete(sfs);
+                    allDeleted &= !File.Exists(sfs);
+                }
+                return allDeleted;
             };
         }
 
@@ -129,9 +173,16 @@ namespace Parsek.Tests
         // ================= per-discard-path repro cells =================
         //
         // Each cell stages the quickload-resume sidecars for a live active tree, drives
-        // the production reap with the reason string that gameplay path passes, and
-        // asserts the files are gone. On origin/main none of this code exists and the
-        // files survive the discard forever.
+        // the production reap DIRECTLY with the exact `reason` literal that gameplay
+        // path passes into AutoDiscardActiveTreeCore, and asserts the files are gone.
+        //
+        // SCOPE, honestly stated: the reason string is the only thing these cells share
+        // with the real call site - they do not drive ParsekFlight (see the class
+        // remarks for why it cannot be constructed headless), so they prove the reap
+        // does the right thing under each path's inputs, NOT that each path reaches it.
+        // The latter rests on the source gates at the bottom of this file, which pin
+        // that the single shared core every one of these paths funnels through captures
+        // before the teardown, reaps after it, and that no caller opts out.
 
         [Theory]
         // Scene-exit no-op switch-segment auto-discard
@@ -144,8 +195,9 @@ namespace Parsek.Tests
         // Pre-switch Discard, Case B / C
         // (MapFocusObjectOnSelectPatch.DiscardActiveRecordingAndSwitchTo).
         [InlineData("pre-switch-dialog discard (no-session)")]
-        // Idle-on-pad scene-exit fast path (ParsekFlight.AutoDiscardIdleActiveTree).
-        [InlineData("idle-on-pad auto-discard")]
+        // Idle-on-pad scene-exit fast path (SceneExitInterceptor.TryAutoDiscardIdleActiveTree
+        //  -> ParsekFlight.AutoDiscardIdleActiveTree).
+        [InlineData("scene-exit idle-on-pad auto-discard dest=SPACECENTER")]
         // No-session committed-resume revert
         // (ParsekFlight.AutoDiscardNoOpNoSessionCommittedResume).
         [InlineData("scene-exit no-op no-session committed-resume revert dest=TRACKSTATION")]
@@ -220,6 +272,37 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void Reap_PreservesIdsOwnedOnlyByACommittedTree()
+        {
+            // The cell above seeds the flat CommittedRecordings list; the REAL
+            // committed-restore-clone shape keeps the original inside a committed TREE.
+            // BuildKnownRecordingIds unions three surfaces, and if its committedTrees
+            // loop were ever dropped, the flat-list cell above would stay green while
+            // the very path it is named for started hard-deleting the original's files.
+            // This variant seeds ONLY the tree surface, so that change reds here.
+            string dir = CreateRecordingsDir("preserve-tree");
+            StageSidecars(dir, "rec-in-committed-tree");
+            StageSidecars(dir, "rec-clone-only");
+
+            var committedTree = TreeWith("tree-committed", Rec("rec-in-committed-tree"));
+            RecordingStore.AddCommittedTreeInternal(committedTree);
+            Assert.Empty(RecordingStore.CommittedRecordings);   // tree surface only
+            Assert.Contains("rec-in-committed-tree", RecordingStore.BuildKnownRecordingIds());
+
+            DiscardSidecarReap.DeleteRecordingFilesForTesting = StagedDirDeleter(dir);
+
+            var outcome = DiscardSidecarReap.ReapDiscardedTreeSidecars(
+                new List<Recording> { Rec("rec-in-committed-tree"), Rec("rec-clone-only") },
+                skipReason: null,
+                context: "scene-exit no-op switch-segment auto-discard dest=SPACECENTER");
+
+            Assert.Equal(1, outcome.Reaped);
+            Assert.Equal(1, outcome.PreservedKnown);
+            Assert.Equal(StagedSuffixes.Length, CountSidecars(dir, "rec-in-committed-tree"));
+            Assert.Equal(0, CountSidecars(dir, "rec-clone-only"));
+        }
+
+        [Fact]
         public void SelectReapRecordings_FailsClosed_OnNullKnownSet()
         {
             // Null known set = "we could not establish what the store owns". A deletion
@@ -244,14 +327,22 @@ namespace Parsek.Tests
         {
             // RecordingPaths.ValidateRecordingId semantics: a traversal-shaped id never
             // reaches the filesystem, even though it is absent from the known set.
+            //
+            // BOTH ids are traversal-shaped ON PURPOSE. An invalid-FILENAME-CHAR id
+            // ("bad|id") is NOT portable: Path.GetInvalidFileNameChars() is only
+            // {'\0','/'} under Mono/Linux, so such an id VALIDATES on the required
+            // ubuntu CI run and this cell would red there. Same precedent as
+            // InGameTestSidecarReaperTests, which also uses two traversal ids; see
+            // PreParsekBackupTests / RecordingPathsLoggingTests for the runtime-probe
+            // variants of the same trap.
             string dir = CreateRecordingsDir("invalid");
             int deleteCalls = 0;
-            DiscardSidecarReap.DeleteRecordingFilesForTesting = _ => deleteCalls++;
+            DiscardSidecarReap.DeleteRecordingFilesForTesting = _ => { deleteCalls++; return true; };
 
             var outcome = DiscardSidecarReap.ReapDiscardedTreeSidecars(
-                new List<Recording> { Rec("../escape"), Rec("bad|id") },
+                new List<Recording> { Rec("../escape"), Rec("..\\escape2") },
                 skipReason: null,
-                context: "idle-on-pad auto-discard");
+                context: "scene-exit idle-on-pad auto-discard dest=SPACECENTER");
 
             Assert.Equal(0, deleteCalls);
             Assert.Equal(0, outcome.Reaped);
@@ -307,21 +398,22 @@ namespace Parsek.Tests
         // ================= failure safety (degrade to status quo) ===================
 
         [Fact]
-        public void Reap_LockedFile_LogsWarnAndContinues_WithoutAbortingTheDiscard()
+        public void Reap_LockedFile_CountsAsFailed_AndTheBatchContinues()
         {
-            // A locked sidecar must not throw out of the discard. The orphan simply
-            // persists until a future discard-with-known-ids - the pre-fix behavior.
+            // This is the PRODUCTION degrade path. RecordingStore.DeleteRecordingFiles
+            // swallows each per-file exception (logging its own Warn) and reports the
+            // outcome through its RETURN VALUE: false means at least one file is still
+            // on disk. The reap must count that as failed rather than assume success,
+            // or `failed=` in the batch summary would be a lie.
             string dir = CreateRecordingsDir("locked");
             StageSidecars(dir, "rec-locked");
             StageSidecars(dir, "rec-free");
 
             var realDelete = StagedDirDeleter(dir);
             DiscardSidecarReap.DeleteRecordingFilesForTesting = rec =>
-            {
-                if (rec.RecordingId == "rec-locked")
-                    throw new IOException("The process cannot access the file");
-                realDelete(rec);
-            };
+                rec.RecordingId == "rec-locked"
+                    ? false            // swallowed-lock: files left behind
+                    : realDelete(rec);
 
             var outcome = DiscardSidecarReap.ReapDiscardedTreeSidecars(
                 new List<Recording> { Rec("rec-locked"), Rec("rec-free") },
@@ -337,11 +429,75 @@ namespace Parsek.Tests
                 l => l.Contains("[DiscardReap]")
                      && l.Contains("discard sidecar-reap failed")
                      && l.Contains("id=rec-locked")
+                     && l.Contains("reason=file-not-unlinked")
                      && l.Contains("orphan retained, discard continues"));
             Assert.Contains(logLines,
                 l => l.Contains("discard sidecar-reap:")
                      && l.Contains("reaped=1")
                      && l.Contains("failed=1"));
+        }
+
+        [Fact]
+        public void DeleteRecordingFiles_ReportsFailure_SoTheReapCanCountTruthfully()
+        {
+            // Pins the signal the cell above consumes. Without a save context the
+            // production delete resolves no paths and unlinks nothing - that is
+            // "nothing left behind", so it must report success; a null / invalid-id
+            // recording is unusable and must report failure.
+            Assert.False(RecordingStore.DeleteRecordingFiles(null));
+            Assert.False(RecordingStore.DeleteRecordingFiles(new Recording { RecordingId = "../nope" }));
+            Assert.True(RecordingStore.DeleteRecordingFiles(Rec("rec-no-save-context")));
+        }
+
+        [Fact]
+        public void Reap_DeleteThrows_IsStillContainedAndCounted()
+        {
+            // Defence in depth. The production delete does not throw today (it swallows
+            // per-file), but the reap must contain one if that ever changes - two of the
+            // callers run inside Harmony prefixes where an escape aborts a scene
+            // transition or a menu click.
+            string dir = CreateRecordingsDir("throw");
+            StageSidecars(dir, "rec-throws");
+            DiscardSidecarReap.DeleteRecordingFilesForTesting =
+                _ => throw new IOException("The process cannot access the file");
+
+            var outcome = DiscardSidecarReap.ReapDiscardedTreeSidecars(
+                new List<Recording> { Rec("rec-throws") },
+                skipReason: null,
+                context: "pre-switch-dialog discard");
+
+            Assert.Equal(0, outcome.Reaped);
+            Assert.Equal(1, outcome.Failed);
+            Assert.Equal(StagedSuffixes.Length, CountSidecars(dir, "rec-throws"));
+            Assert.Contains(logLines,
+                l => l.Contains("discard sidecar-reap failed") && l.Contains("IOException"));
+        }
+
+        [Fact]
+        public void Reap_AlsoUnlinksTheQuickloadResumeSave_ButNeverARewindPointQuicksave()
+        {
+            // DeleteRecordingFiles' eighth limb: the per-recording quickload-resume save
+            // at Parsek/Saves/<RewindSaveFileName>.sfs. The Rewind-to-Separation
+            // quicksaves under Parsek/RewindPoints/ use a different path builder and
+            // belong to RewindPointReaper - this reap must leave them strictly alone.
+            string dir = CreateRecordingsDir("rewindsave");
+            StageSidecars(dir, "rec-with-save");
+            StageRewindSave("resume-rec-with-save");
+            string rpQuicksave = StageRewindPointQuicksave("rp-untouched");
+
+            DiscardSidecarReap.DeleteRecordingFilesForTesting = StagedDirDeleter(dir);
+
+            var rec = Rec("rec-with-save");
+            rec.RewindSaveFileName = "resume-rec-with-save";
+            var outcome = DiscardSidecarReap.ReapDiscardedTreeSidecars(
+                new List<Recording> { rec },
+                skipReason: null,
+                context: "pre-switch-dialog discard (no-session)");
+
+            Assert.Equal(1, outcome.Reaped);
+            Assert.Equal(0, CountSidecars(dir, "rec-with-save"));
+            Assert.False(File.Exists(RewindSavePath("resume-rec-with-save")));
+            Assert.True(File.Exists(rpQuicksave));
         }
 
         [Fact]
@@ -499,25 +655,65 @@ namespace Parsek.Tests
                 body);
         }
 
-        // Fails if: any gameplay entry point into the shared core opts out of the reap.
-        // Only the M-A2 DiscardTree test-command verb may (it owns its own reap and the
-        // S0.5 harness spec pins its summary line verbatim).
+        // Fails if: the PRE-teardown half stops being wrapped. Same Harmony-prefix
+        // exposure as the reap itself (ParsekFlight's own precedent for this is
+        // TryEvaluateActiveSwitchSegmentNoOp), and this half must additionally fail
+        // CLOSED - a capture that threw must reap nothing rather than reap blind.
+        [Fact]
+        public void AutoDiscardActiveTreeCore_WrapsTheCaptureAndFailsClosed()
+        {
+            string body = ReadAutoDiscardCoreBody();
+            Assert.Matches(new Regex(
+                @"try\s*\{[\s\S]{0,900}?DiscardSidecarReap\.CaptureTreeRecordings\(activeTree\)" +
+                @"[\s\S]{0,900}?\}\s*catch[\s\S]{0,400}?reapCapturedRecordings\s*=\s*null;",
+                RegexOptions.Multiline),
+                body);
+        }
+
+        // Fails if: any caller ANYWHERE in the mod opts out of the reap other than the
+        // M-A2 DiscardTree test-command verb (which owns its own reap, and whose summary
+        // line the S0.5 harness spec pins verbatim).
+        //
+        // The scan is repo-wide ON PURPOSE. AutoDiscardActiveTreeWithMessage is
+        // `internal` and Patches/MapFocusObjectOnSelectPatch.cs already calls it, so a
+        // future caller there - or anywhere else under Source/Parsek - passing false
+        // would reintroduce the leak with every other gate in this file still green.
         [Fact]
         public void OnlyTheTestCommandVerbOptsOutOfTheReap()
         {
-            string flight = ReadProjectSource("ParsekFlight.cs");
-            Assert.Empty(Regex.Matches(flight, @"reapSidecars:\s*false"));
+            var optOutFiles = new List<string>();
+            foreach (string path in EnumerateModSources())
+            {
+                if (Regex.IsMatch(File.ReadAllText(path), @"reapSidecars:\s*false"))
+                    optOutFiles.Add(Path.GetFileName(path));
+            }
+            Assert.Equal(new[] { "ParsekTestCommandAddon.cs" }, optOutFiles.ToArray());
 
-            // Two ParsekFlight entry points arm it explicitly
-            // (AutoDiscardIdleActiveTree, AutoDiscardNoOpStandaloneSwitchSegment);
-            // the third (AutoDiscardActiveTreeWithMessage) forwards its own parameter,
-            // which defaults to true so every existing caller stays covered.
+            string flight = ReadProjectSource("ParsekFlight.cs");
+            // Exactly two ParsekFlight entry points arm it explicitly
+            // (AutoDiscardIdleActiveTree, AutoDiscardNoOpStandaloneSwitchSegment); the
+            // third (AutoDiscardActiveTreeWithMessage) forwards its own parameter, which
+            // DEFAULTS to true so every existing and future caller stays covered.
+            //
+            // INTENT of the exact count: a third correct `reapSidecars: true` call site
+            // reds this cell BY DESIGN. That is the point - a new entry point into the
+            // shared discard core is exactly the change that needs a human to confirm it
+            // belongs in the reaping set and to add it to the inventory table in
+            // docs/dev/todo-and-known-bugs.md. Bump the number deliberately, never
+            // reflexively.
             Assert.Equal(2, Regex.Matches(flight, @"reapSidecars:\s*true").Count);
             Assert.Contains("bool reapSidecars = true", flight);
             Assert.Contains("reapSidecars: reapSidecars", flight);
+        }
 
-            string addon = ReadProjectSource("TestCommands", "ParsekTestCommandAddon.cs");
-            Assert.Single(Regex.Matches(addon, @"reapSidecars:\s*false"));
+        private static IEnumerable<string> EnumerateModSources()
+        {
+            string projectRoot = Path.GetFullPath(
+                Path.Combine(AppDomain.CurrentDomain.BaseDirectory,
+                    "..", "..", "..", "..", ".."));
+            string modRoot = Path.Combine(projectRoot, "Source", "Parsek");
+            Assert.True(Directory.Exists(modRoot), $"mod source root not found at {modRoot}");
+            return Directory.GetFiles(modRoot, "*.cs", SearchOption.AllDirectories);
         }
 
         // Fails if: the shared pure deciders diverge again. TestCommandRecordingVerbs'

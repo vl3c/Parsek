@@ -55,7 +55,7 @@ All notable changes to Parsek are documented here.
   only cleared it out of memory - the files stayed. In the common case where
   that was your only Parsek recording, nothing could ever clean them up either,
   because the cleanup pass deliberately refuses to touch a recordings folder it
-  cannot account for. Every discard route now clears out the files for exactly
+  cannot account for. Discarding a flight now clears out the files for exactly
   the recordings it just threw away, and only those: anything still belonging to
   a saved mission is left strictly alone, and a discard made in the middle of a
   Re-Fly or a merge deletes nothing at all, because those are the moments when

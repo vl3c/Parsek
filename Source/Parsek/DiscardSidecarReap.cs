@@ -7,8 +7,13 @@ namespace Parsek
     /// Shared explicit-id sidecar reap for ACTIVE-TREE discards.
     ///
     /// <para><b>Why this exists.</b> <c>StartRecording</c>'s quickload-resume OnSave
-    /// writes ACTIVE-tree sidecars (<c>.prec</c> / <c>.pann</c> / <c>_ghost.craft</c>
-    /// and the readable mirrors) to <c>saves/&lt;save&gt;/Parsek/Recordings/</c>, but
+    /// writes ACTIVE-tree sidecars to <c>saves/&lt;save&gt;/Parsek/Recordings/</c> - the
+    /// seven files <c>RecordingStore.DeleteRecordingFiles</c> unlinks (<c>.prec</c>,
+    /// <c>.pann</c>, <c>_vessel.craft</c>, <c>_ghost.craft</c> and the three readable
+    /// mirrors), plus, for a recording that carries one, its per-recording
+    /// quickload-resume save at <c>Parsek/Saves/&lt;name&gt;.sfs</c> (NOT the
+    /// Rewind-to-Separation quicksaves under <c>Parsek/RewindPoints/</c>, which have a
+    /// separate builder and their own reaper) - but
     /// the shared discard core <c>ParsekFlight.AutoDiscardActiveTreeCore</c> is
     /// in-memory-only BY DESIGN. A discard that empties the store therefore strands
     /// those files PERMANENTLY: once their ids are absent from
@@ -40,10 +45,13 @@ namespace Parsek
     ///   destroy committed mission data (Fable review of PR #1328, finding 1).</description></item>
     /// </list></para>
     ///
-    /// <para><b>Failure safety.</b> A reap failure (file locked by KSP or an antivirus)
-    /// must never abort the discard: each recording's delete is wrapped, failures are
-    /// counted and logged Warn, and the orphan simply persists until a future
-    /// discard-with-known-ids - i.e. it degrades to the pre-fix status quo.</para>
+    /// <para><b>Failure safety.</b> A reap failure (a file locked by KSP or an
+    /// antivirus) must never abort the discard. <c>DeleteRecordingFiles</c> swallows
+    /// its own per-file failures and reports them through its return value, which this
+    /// class counts into <see cref="ReapOutcome.Failed"/>; the call is additionally
+    /// wrapped so a future throw could not escape either. A failed recording leaves its
+    /// orphan on disk until a future discard-with-known-ids - i.e. it degrades to the
+    /// pre-fix status quo - and the batch continues with the next recording.</para>
     /// </summary>
     internal static class DiscardSidecarReap
     {
@@ -51,8 +59,10 @@ namespace Parsek
         /// Test seam for the per-recording sidecar delete. Null in production, where the
         /// reap calls <c>RecordingStore.DeleteRecordingFiles</c> (which resolves paths
         /// through <c>KSPUtil.ApplicationRootPath</c> and therefore cannot run headless).
+        /// Carries the same contract as the production delete: true when nothing was
+        /// left behind, false when at least one file could not be unlinked.
         /// </summary>
-        internal static Action<Recording> DeleteRecordingFilesForTesting;
+        internal static Func<Recording, bool> DeleteRecordingFilesForTesting;
 
         /// <summary>
         /// Test seam for the post-discard known-id set. Null in production, where the
@@ -74,9 +84,13 @@ namespace Parsek
             internal int TreeRecordings;
             /// <summary>Ids in the post-discard known set (0 = discard-to-empty).</summary>
             internal int KnownAfterDiscard;
-            /// <summary>Recordings whose sidecar set was deleted without throwing.</summary>
+            /// <summary>Recordings whose whole on-disk footprint was unlinked.</summary>
             internal int Reaped;
-            /// <summary>Recordings whose delete threw (orphan persists; status quo).</summary>
+            /// <summary>
+            /// Recordings that left at least one file behind - a locked file reported by
+            /// <c>DeleteRecordingFiles</c>, or a throw out of the delete. The orphan
+            /// persists until a future discard-with-known-ids (the pre-fix status quo).
+            /// </summary>
             internal int Failed;
             /// <summary>Recordings preserved because the store still owns the id.</summary>
             internal int PreservedKnown;
@@ -218,17 +232,29 @@ namespace Parsek
                 }
                 try
                 {
-                    if (delete != null)
-                        delete(rec);
+                    // DeleteRecordingFiles swallows its own per-file failures (and logs
+                    // its own Warn for each) but REPORTS them: false means at least one
+                    // file is still on disk. Count that as a failure rather than
+                    // assuming success, so `failed=` in the summary is truthful.
+                    bool allDeleted = delete != null
+                        ? delete(rec)
+                        : RecordingStore.DeleteRecordingFiles(rec);
+                    if (allDeleted)
+                    {
+                        outcome.Reaped++;
+                    }
                     else
-                        RecordingStore.DeleteRecordingFiles(rec);
-                    outcome.Reaped++;
+                    {
+                        outcome.Failed++;
+                        ParsekLog.Warn("DiscardReap",
+                            $"discard sidecar-reap failed context='{tag}' id={rec.RecordingId} " +
+                            "reason=file-not-unlinked - orphan retained, discard continues");
+                    }
                 }
                 catch (Exception ex)
                 {
-                    // Failure safety: a locked file must not abort the discard. The
-                    // orphan persists until a future discard-with-known-ids, which is
-                    // exactly the pre-fix behavior.
+                    // Defence in depth: the production delete does not throw today, but
+                    // a locked file must never abort the discard if that ever changes.
                     outcome.Failed++;
                     ParsekLog.Warn("DiscardReap",
                         $"discard sidecar-reap failed context='{tag}' id={rec.RecordingId} " +

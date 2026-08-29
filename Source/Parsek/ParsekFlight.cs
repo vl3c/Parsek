@@ -2884,18 +2884,37 @@ namespace Parsek
             // nulls activeTree (the recordings) and while the load shape is still
             // observable (the skip gate). The reap itself runs after the teardown,
             // when the store's known-id set no longer owns the discarded ids.
+            //
+            // Wrapped for the same reason TryEvaluateActiveSwitchSegmentNoOp is: two of
+            // this method's callers run inside a Harmony prefix (the HighLogic.LoadScene
+            // scene-exit prefix and the map OnSelect prefix), so a throw here would
+            // propagate out and abort the scene transition / the menu click. Fails
+            // CLOSED - a capture we could not take reaps nothing, which is the pre-fix
+            // status quo, never an unguarded delete.
             List<Recording> reapCapturedRecordings = null;
             string reapSkipReason = null;
             if (reapSidecars)
             {
-                reapCapturedRecordings = DiscardSidecarReap.CaptureTreeRecordings(activeTree);
-                var reapScenario = ParsekScenario.Instance;
-                reapSkipReason = DiscardSidecarReap.SkipReason(
-                    reFlyMarkerActive: !object.ReferenceEquals(null, reapScenario)
-                        && reapScenario.ActiveReFlySessionMarker != null,
-                    mergeJournalActive: !object.ReferenceEquals(null, reapScenario)
-                        && reapScenario.ActiveMergeJournal != null,
-                    restoringActiveTree: restoringActiveTree);
+                try
+                {
+                    reapCapturedRecordings = DiscardSidecarReap.CaptureTreeRecordings(activeTree);
+                    var reapScenario = ParsekScenario.Instance;
+                    reapSkipReason = DiscardSidecarReap.SkipReason(
+                        reFlyMarkerActive: !object.ReferenceEquals(null, reapScenario)
+                            && reapScenario.ActiveReFlySessionMarker != null,
+                        mergeJournalActive: !object.ReferenceEquals(null, reapScenario)
+                            && reapScenario.ActiveMergeJournal != null,
+                        restoringActiveTree: restoringActiveTree);
+                }
+                catch (System.Exception ex)
+                {
+                    reapCapturedRecordings = null;
+                    reapSkipReason = "capture-threw:" + ex.GetType().Name;
+                    ParsekLog.Warn("Flight",
+                        $"AutoDiscardActiveTreeCore: sidecar-reap capture threw " +
+                        $"{ex.GetType().Name}: {ex.Message} - reap skipped, discard " +
+                        $"continues (orphans retained) reason='{reason}'");
+                }
             }
 
             // Preserve irreversible live-gameplay economy before tearing the tree down.
