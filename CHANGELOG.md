@@ -119,7 +119,42 @@ All notable changes to Parsek are documented here.
   on disk are not rewritten by this change; they are still repaired the next
   time something saves them.
 
+- A housekeeping pass that runs whenever a save loads or a flight is committed
+  was quietly rearranging recordings in memory and then not saving them. The
+  pass looks for recordings worth splitting at a phase boundary, and before it
+  can look it has to tidy the recording's internal list of timeline slices - a
+  tidy-up that can add, trim, drop and re-order slices. It was doing all of that
+  while flagged as "just looking", so the tidied version lived only in memory
+  and whatever the next unrelated save happened to write was a state nobody
+  chose. The tidy-up is now honest: when it actually changes something it says
+  so, the recording is queued for saving, and the same housekeeping pass writes
+  it out before it finishes. Recordings it does not change are still left
+  untouched, byte for byte.
+
+- Re-ordering those timeline slices could also leave a recording's derived
+  drawing data pointing at the wrong slice. The smoothed paths Parsek fits
+  through recorded flights - and the small position corrections that ride along
+  with them - are filed by slice POSITION, so inserting or dropping a slice
+  renumbered everything after it while the fitted paths stayed put. The path
+  fitted for one stretch of a flight could silently start being applied to a
+  different stretch, and nothing in the freshness checks could notice. Both are
+  now dropped together whenever the tidy-up moves a slice, and rebuilt from
+  scratch the next time the recording is loaded or saved - which, thanks to the
+  fix above, is immediately on the housekeeping route. In the gap between the
+  drop and the rebuild, replayed ghosts are placed by the older, slightly
+  coarser method instead of the smoothed one; that is the trade, because the
+  alternative was a smooth path drawn confidently through the wrong part of the
+  flight. A cached file whose slice numbers have run off the end of the
+  recording is also refused outright on load now, instead of being trusted.
+
 ### Dev
+
+- The six supply-route test runs now go every night along with the rest. They
+  were being held back for a decision rather than for a problem: each one had
+  already been run unattended and had its expected result written down, and all
+  that was left was someone choosing whether tests this large belong on a nightly
+  schedule. That choice has now been made, so they run on the same cadence as
+  every other in-game test run instead of only when someone asks for them.
 
 - Fourteen more of Parsek's in-game self-tests can now be run automatically. The
   mod ships a large set of tests that only mean anything inside a running game -

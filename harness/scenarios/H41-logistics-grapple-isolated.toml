@@ -1,6 +1,6 @@
 schema = 1
 id = "H41-logistics-grapple-isolated"
-tier = "operator"
+tier = "nightly"
 # =====================================================================================
 # THE ISOLATED `LogisticsGrapple` LANE - the claw/asteroid sibling of the `Logistics`
 # family, and the first lane anywhere to execute
@@ -135,6 +135,19 @@ description = "FLOWN: the in-game LogisticsGrapple category through the ISOLATED
 instanceProfile = "stock-minimal"
 # `flown` replaced `pending-flight` on 2026-08-29 (the BDOCK-1 / CL-3 / H35 / H38 / H39
 # precedent): the lane has flown and every pin below is quoted from those bytes.
+# TIER. `nightly`. PROMOTED 2026-08-29 BY OPERATOR DECISION - all in-game test
+# lanes go on cadence. This was the open human call the lane could not discharge
+# for itself, and it is now closed rather than outstanding; the H21 / L2 / L3
+# precedent is exactly this shape (promote once the lane is measured, on the
+# operator's call rather than on a rule). Nothing technical changed - the run was
+# already fully automated and unattended, which is why the call was available to
+# make. The spec's id also leaves `PendingOperatorTagHonestyTests.REVIEWED_UNTAGGED`
+# in the same change, because that roster's population is (names the operator-debt
+# tag) OR (operator tier), and a nightly lane that does neither is not a member.
+# NOTE FOR ANYONE EDITING THIS BLOCK: do not write that tag's literal name here.
+# The roster detects membership with a substring scan over the whole spec FILE, so
+# a comment merely DESCRIBING the roster re-enrols the lane in it - which is exactly
+# what the first draft of this block did, and the suite caught it.
 tags = ["ingame-batch", "isolated-batch", "logistics", "grapple", "claw", "asteroid",
         "H41", "flown"]
 

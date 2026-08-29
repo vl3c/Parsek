@@ -14,6 +14,281 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## CONTRACT-DEADLINE-CAPTURED-AS-DURATION: the ledger stores a contract's deadline OFFSET in a field every consumer reads as an absolute UT [FOUND 2026-08-29 while analysing #427 to close. NOT FIXED HERE - filed with the proof so the fix is deliberate work rather than a drive-by inside a docs pass]
+
+**The mismatch, proved from both sides.** `GameStateRecorder.OnContractAccepted` captures
+`double deadline = contract.TimeDeadline;` (`GameStateRecorder.Handlers.cs:42`). In
+decompiled stock KSP 1.12.5 those are two different quantities on `Contracts.Contract`:
+
+- `public double TimeDeadline` is a DURATION in seconds. It is assigned from
+  `days * KSPUtil.dateTimeFormatter.Day * num` and `years * ...Year * num`, and the
+  contract description renders it through `KSPRichTextUtil.TextDurationCompact`.
+- `protected double dateDeadline` (exposed as `DateDeadline`) is the ABSOLUTE UT. It is
+  assigned at accept as `dateDeadline = GameTime + TimeDeadline` for a
+  `DeadlineType.Floating` contract (stock assigns it in `Offer()` for `DeadlineType.Fixed`;
+  the fixture below is Floating), and renders through `TextDateCompact`.
+- Stock's own expiry authority uses the absolute one: `Contract.Update()` on an Active
+  contract runs
+  `if (deadlineType != DeadlineType.None) { if (GameTime >= dateDeadline) SetState(State.DeadlineExpired); }`.
+
+Parsek captures the duration and stores it in `GameAction.DeadlineUT` (`GameAction.cs:575`,
+whose own doc comment reads "Expiration UT"), which every consumer reads as an absolute UT:
+compared against action UTs in `ContractsModule.IsBeforeContractDeadline` (`:93-95`) and
+`HasContractDeadlineElapsed` (`:102-104`), used as the UT of the injected synthetic
+`ContractFail` (`:236`), used as a walk horizon in `RecalculationEngine.cs:557-561`, and
+shown to the player as a "Deadline UT" column in the Career State window
+(`CareerStateWindowUI.cs:70`, `:213`, `:405`). There is no compensating conversion anywhere:
+the value flows capture -> event `detail` string -> `GameStateEventConverter.cs:720-722` ->
+`GameAction.DeadlineUT` unmodified.
+
+**Why it has not been loud.** Early in a career the two quantities are the same order of
+magnitude, so the comparison is accidentally plausible. Once game UT passes a typical
+deadline duration (a one-Kerbin-year deadline is ~9.2e6 s), EVERY accepted contract with a
+deadline reads as already elapsed, so `PrePass` injects a synthetic `ContractFail` per
+contract and the walk applies failure penalties. On an ORDINARY recalc that stays invisible
+by luck: the reconstruction lands below live and `ApplyDrawdownGuard` floors funds and
+reputation back up to live with `authoritativeReduction: false`, emitting a WARN and the
+once-per-session "Kept your earned funds" toast. The earned-value guard has been absorbing
+it. A REWIND recalc runs with `authoritativeReduction: true`, where that clamp does not
+apply - that is the path to check first.
+
+**Secondary smell, same field, and it is MEASURED not merely reasoned.**
+`GameAction.DeadlineUT` is a `float` while UTs are `double` everywhere else, and the committed
+fixture shows the truncation happening: stock's `TimeDeadline` for that contract is
+`8228571.72775267`, and Parsek's ledger row stores `8228571.5`. A float carries ~7 significant
+digits, so the field could not hold a mid-career absolute UT without losing whole seconds -
+consistent with a field designed around a modest duration. Whatever the fix, the type is part
+of it.
+
+**What a fix has to decide** (deliberately not decided here): capture `DateDeadline` instead,
+and then what to do about `deadlineUT` values already on disk, which are durations. Contract
+rows live in the ledger inside `.sfs`, not in recordings, so the recording-schema "one current
+contract, no migration paths" rule does not automatically apply. Add regression cells pinning
+the captured value against a same-guid stock save node.
+
+**Blast radius: the ECONOMY is protected, the CONTRACT is not.** The earned-value clamp
+covers the funds/rep half on ordinary recalcs, so this is not believed to be corrupting
+career balances. The contract itself is a different story.
+
+**What actually evicts it is `CheckDeadlines`, NOT the synthetic fail** - get this wrong and the
+fix gets mis-scoped. The synthetic `ContractFail` is stamped `UT = accept.DeadlineUT`
+(`ContractsModule.cs:234-241`) and `PrePass` returns true to force a re-sort, so mid-career -
+where `DeadlineUT` is a small duration - the synthetic fail sorts BEFORE the accept, and
+`ProcessAccept` then unconditionally revives the contract (`:307-312`, including
+`deadlineExpiredContracts.Remove(id)`). The real evictor is `ProcessAction` calling
+`CheckDeadlines(action.UT)` on EVERY action (`:273`); `CheckDeadlines` (`:394-427`) sweeps
+`activeContracts` for `HasContractDeadlineElapsed` and moves each to `terminalContracts` /
+`deadlineExpiredContracts` with outcome `DeadlineExpired`. So the very next action after the
+accept evicts it.
+
+`PatchContracts` (`KspStatePatcher.cs:2255`) then removes it: `BuildCurrentContractRemovalKeys`
+(`:2783`, keying at `:2794-2802`) marks an entry the ledger no longer considers active, and
+`RemoveContractsByKey` (`:2982`) calls `c.Unregister()` then `contracts.RemoveAt(i)`
+(`:3004-3017`) - and decompiled stock
+`Contract.Unregister()` only unregisters the contract's parameters and calls `OnUnregister()`.
+It never calls `SetState`, so it fires neither `SendStateMessage` (the RED `MessageSystem`
+entry) nor `GameEvents.Contract.onFailed`. **A live accepted contract can therefore be deleted
+out of Mission Control with no message of any kind** - stock's failure notification fires only
+when STOCK expires a contract, never for Parsek's own removal. Step 2 of the patch re-adds only
+ids that are in `activeIds`, so it does not come back.
+
+**Proof from the committed fixture, three ways.** `Source/Parsek.Tests/Fixtures/C2Career/` has a
+`ContractAccept` at `ut = 8381.0195501716571` carrying `deadlineUT = 8228571.5`
+(`Parsek/GameState/ledger.pgld:571-582`). The same contract guid in that career's own
+`persistent.sfs` (`:1465`) stores stock's comma-joined `values` line, whose field order is
+`TimeExpiry, TimeDeadline, FundsAdvance, FundsCompletion, FundsFailure, ScienceCompletion,
+ReputationCompletion, ReputationFailure, dateExpire, dateAccepted, dateDeadline, dateFinished`:
+`values = 19315.8960745368,8228571.72775267,1871.8268485569,4913.54525432272,1946.69985752106,1,1.024133,1,19476.4160745368,8381.01955017166,8236952.74730284,0`.
+So (1) Parsek's
+stored number is stock's `TimeDeadline`, not its `dateDeadline`; (2) `dateAccepted` matches the
+ledger row's `ut` exactly; and (3) `dateDeadline = dateAccepted + TimeDeadline`. It stays latent
+in this fixture only because that career's max UT is ~8599.88 - far below one deadline's worth
+of game time, so `HasContractDeadlineElapsed` has not tripped yet. The defect needs a career
+that simply runs longer.
+
+**A second consumer degrades quietly, in both directions.** `ComputeProjectionHorizon`
+(`RecalculationEngine.cs:540-564`) takes the max of every action UT and every ContractAccept's
+`DeadlineUT`. Mid-career the duration is BELOW the real action UTs, so the deadline never
+extends the horizon and pending deadlines fall outside the projection; early-career it is far
+ABOVE them, blowing the horizon out to ~8.2e6 for a career at UT ~8000. The horizon feeds
+`minProjected` -> `GetAvailableFunds()` -> the reservation-net number written to the stock funds
+bar, so this defect quietly degrades the very quantity #427's ResourceOverCommit rule is about.
+The two were treated as unrelated until this pass.
+
+**A cheap guard worth adding with the fix:** `HasContractDeadlineElapsed` currently guards only
+NaN. A `deadline > acceptUT` sanity check would have caught this class of mistake at the point
+of use.
+
+It IS also the reason #427's ContractDeadlineMissed rule was closed rather than built - a
+player-facing warning printed off this quantity would be a confidently-worded lie.
+
+---
+
+## UNAFFORDABLE-SCIENCE-SPENDING-SILENTLY-RE-LOCKS-A-TECH-NODE: on a rewind or a re-fly merge, a researched node the reconstructed science pool cannot pay for is dropped and re-locked with a log-only trace [FOUND 2026-08-29 while analysing #427 to close. REACHABILITY IN A REAL CAREER NOT PROVEN - see below. Filed rather than signalled, deliberately: see "Why this did not become a toast"]
+
+**The chain, every link verified in source.**
+
+1. `ScienceModule.ProcessSpending` (`:287-308`) computes
+   `bool affordable = runningScience >= (double)cost; action.Affordable = affordable;`. On
+   the false branch it does NOT deduct and emits only
+   `ParsekLog.Warn("Spending NOT affordable: nodeId=... - possible bug or data corruption")`.
+2. `KspStatePatcher.BuildTargetTechIdsForPatch` drops that row from the authoritative
+   researched-tech set: `if (!action.Affordable) continue;` (`:351-352`). The method's own doc
+   comment confirms the exclusion is by design (`:287`, "affordable ScienceSpending actions add
+   tech nodes").
+3. `PatchTechTree`'s not-in-target branch classifies the node `MakeUnavailable` and re-locks it:
+   `if (protoNodes != null) protoNodes.Remove(techId); tech.state = RDTech.State.Unavailable;`
+   (`:523-538`), then repaints via `RefreshTechTreeUi()`. Removing the `ProtoTechNode` takes the
+   node's purchased parts with it.
+4. The only trace is
+   `ParsekLog.Info("PatchTechTree: ... madeUnavailable=N, madeUnavailableIds=[...]")` (`:566-579`)
+   plus a Verbose id dump. There is no `ScreenMessage`, no dialog, and no stock notification on
+   that path - `grep "ParsekLog.ScreenMessage" Source/Parsek/GameActions/*.cs` returns exactly
+   one call site, the drawdown guard at `KspStatePatcher.cs:3247`, which is orthogonal.
+
+`ClassifyTechNodeForPatch`'s own doc comment already names this the dangerous direction
+("`MakeUnavailable` ... a researched node being re-locked").
+
+**Scope: ANY recalc that supplies a UT cutoff - which includes ordinary play.** An earlier
+draft of this entry said the re-lock was confined to rewind and re-fly merge. **That was wrong,
+and the error is worth recording because of how it was made.** The gate is only
+`techPatchCutoff.HasValue` (`LedgerOrchestrator.cs:2079`), and `RecalculateAndPatchCore` is
+handed a non-null cutoff from three families:
+
+- `RecalculateAndPatch(utCutoff)` (`:1488`) - the rewind paths.
+- `RecalculateAndPatchAfterTombstones` (`:1605`) - the post-supersede refresh after a re-fly
+  merge, and only when the pass retired a `ScienceSpending` row.
+- **`RecalculateAndPatchForCurrentTimelineUT` (`:1509-1516`), which passes
+  `techPatchCutoff: utCutoff` UNCONDITIONALLY** - and whose own doc comment says it runs
+  "without opting into rewind-only patch side effects". It is reached from ordinary career
+  play: `ksp-load` (`:2768`), `ksc-spending` (`:3235`), `strategy-conversion` (`:3363`,
+  `:3367`), `ksc-science` (`:3918`), `recovery-kerbal-xp` (`:4034`), `vessel-rollout`
+  (`:4090`, `:4117`), `vessel-recovery` (`:4357`), the KSC ledger cursor
+  (`ParsekKSC.cs:484`), and `RecalculateAndPatchForLiveTimelineEvent` (`:1550`, `:1578`)
+  whenever `HasActionsAfterUT(now)` - i.e. whenever the committed timeline extends into the
+  future, which is Parsek's normal state.
+
+**How the wrong scope was derived, so the next reader does not repeat it:** by trusting the
+in-source comment `// #559: tech-tree patching is rewind-only` (`LedgerOrchestrator.cs:2071`).
+That comment is STALE - it predates `RecalculateAndPatchForCurrentTimelineUT` being added
+above it. Re-derive the caller set; do not cite that comment.
+
+Re-locking a node IS the intended outcome of rewinding past its research. The defect is the
+sub-case where a node the surviving ledger still claims was researched is dropped because the
+reconstructed pool could not afford it - and that sub-case is now known to be reachable from
+ordinary recalcs, not only from time travel.
+
+**Severity: in a default career the loss is PERMANENT, and the screen looks correct.** Two
+things compound:
+
+1. **No rehydrate path.** `EnsureAvailableProtoTechNode` (`:636-667`) - the make-available
+   branch a later corrected recalc would run - builds `proto = existing ?? new ProtoTechNode()`
+   with an empty `partsPurchased`, and re-adds parts ONLY inside
+   `if (GameStateRecorder.IsBypassEntryPurchaseAfterResearch())`. That reads stock's
+   "part entry purchase" difficulty option, which is **off in a default career**. So once the
+   `ProtoTechNode` is stripped, the node's individually-purchased parts stay un-purchased, with
+   no refund of the entry costs already paid and no route back except paying again.
+2. **The UI repaints to a self-consistent state.** `PatchTechTree` calls `RefreshTechTreeUi()`
+   (`:552`), so R&D shows a coherent tree. The player sees no anomaly to investigate - only
+   parts missing in the VAB, which reads as misremembering rather than as a bug.
+
+**And the one toast that IS likely to fire says the opposite of what happened.** A refused
+`ScienceSpending` does not deduct, so the reconstruction's running science sits ABOVE live -
+the `IsGuardableUplift` branch of `ApplyDrawdownGuard` (`:3186-3195`), which clamps down and
+toasts `"Held your science at the spent value"` (`:239`). In the same recalc that silently
+re-locked the node, the player is reassured their science was protected. That is worse than
+silence, and it is why the earlier draft's dismissal of the drawdown guard as "orthogonal" to
+this defect was wrong. (Conditional: only if the clamp actually moves and the session latch is
+unset.)
+
+**Why this still did not become a toast** - the (b) option under the #427 directive. Three of
+the four reasons an earlier draft gave were bad and have been struck above; what remains is the
+one that actually carries the decision, plus a better idea about the fix:
+
+1. **The code's own text calls this condition a bug** ("possible bug or data corruption",
+   `ScienceModule.cs:306`). A toast would dress a defect up as designed behaviour and teach the
+   player to expect losing parts.
+2. **The right shape is a GUARD, not an announcement, and this repo already has the pattern.**
+   The drawdown guard's philosophy is "keep what you earned": a non-authoritative recalc is not
+   allowed to take away live state, so it clamps and logs loudly. A researched node being
+   dropped because the reconstruction could not afford it is the same shape - a
+   non-authoritative walk destroying live career state on evidence it admits is suspect. The
+   fix is very likely to refuse the re-lock when the drop reason is unaffordability (preserve
+   live, WARN always), not to narrate the loss.
+3. **The PRECONDITION is still unproven.** This is now the only honest hedge, and it must be
+   stated separately from scope: the code PATH is reachable in ordinary play (proven above);
+   whether `runningScience < cost` ever actually occurs is not. Note the reachability argument
+   is broader than "a rewind removed an earning" - any UNDER-COUNT of earnings against live
+   produces it with no reordering at all, and this repo ships a guard whose WARN text presumes
+   exactly that is ongoing ("earned value preserved; ledger may be missing an earning channel",
+   `KspStatePatcher.cs:3231`).
+
+**What to do, in order.** (a) Establish reachability: `LedgerGroundTruthHarness`'s
+`ScanResearchedTechIds` already counts the population as a Verbose `unaffordableSkipped=`
+(`:367-397`) - promote it to something a driven lane asserts on. (b) Fix the cause, and prefer
+the guard shape in point 2 over any player-facing message. (c) Only if a re-lock turns out to
+be a legitimate, non-buggy outcome does a one-shot `ScreenMessage` become right - and then emit
+it at the re-lock site keyed on the intersection of `madeUnavailableIds` with the unaffordable
+set, never on `madeUnavailable > 0`, which fires on every legitimate rewind.
+
+**Related:** the funds side is asymmetric - `FundsModule.ProcessFundsSpending` (`:319-325`)
+sets `Affordable` but deducts UNCONDITIONALLY, so an over-commit drives the running balance
+negative there instead of refusing. That asymmetry is not itself known to be wrong; it is noted
+so a fix considers both.
+
+---
+
+## RESOURCE-BUDGET-READOUTS-ARE-DEAD: the Timeline "Resources" section and the main window's "Reserved:" line have not rendered since 2026-03-31 [FOUND 2026-08-29 while analysing #427 to close. Vestigial UI, NOT a regression - the disablement was deliberate and the information moved elsewhere. Filed as cleanup]
+
+**The mechanism.** `RecordingsTableUI.cachedBudget` is declared
+`private BudgetSummary cachedBudget = default(BudgetSummary);` (`UI/RecordingsTableUI.cs:406`)
+and is **never assigned anywhere** - the only other mention is the `GetCachedBudget()` return at
+`:600`. `ParsekUI.GetCachedBudget()` forwards to it (`ParsekUI.cs:640-643`). Both consumers open
+with the same guard against an all-zero struct:
+
+- `TimelineWindowUI.DrawResourceBudget()` (`:1723`, guard at `:1731-1732`) - so neither the
+  per-resource red lines (`:1782`) nor the yellow
+  `"Over-committed! Some timeline actions may fail."` banner (`:1769`) can draw.
+- `ParsekUI.DrawCompactBudgetLine()` (`:932`, guard at `:936`) - so the main window's
+  `Reserved:` bullet list cannot draw.
+
+`ResourceBudget.ComputeTotal` and `ComputeTotalFullCost` (`ResourceBudget.cs:175`, `:311`) have
+**zero production callers**; both are reached only from xUnit.
+
+**Why - and why it is not cause for alarm.** Deliberate. `git log -S` lands on `e3723b78c`
+(2026-03-31, "Fix 5 bugs: funds seed, contract rewards, repair cost, old budget calls, kerbals
+module"), whose own body says "Disable old ResourceBudget.Invalidate/ComputeTotal/
+ComputeTotalFullCost". That commit commented the assignment out and left
+`// DISABLED: replaced by LedgerOrchestrator - budget fields retained for future UI integration`
+plus `/// ... DISABLED: replaced by LedgerOrchestrator - returns empty budget.` behind.
+`554bd64fd` (2026-04-02) then deleted the commented-out corpse and, with it, the only sign that
+the field was inert - which is why `/// Returns the resource budget.` reads as live code today.
+The information itself did not disappear: it moved to the stock currency widgets, which
+`KspStatePatcher.PatchFunds` writes reservation-net (`Available = Total - Reserved`), with
+`CurrencyReservationOverlay` decomposing `Total:` / `Reserved:` on hover.
+
+**Two gaps in the replacement surface**, noted so a cleanup decision is informed rather than
+assumed: the overlay idles outside `SPACECENTER` and `FLIGHT`
+(`CurrencyReservationOverlay.cs:40-46`), so there is no explanation in the EDITOR, which is
+where funds are actually spent; and `GetFundsTooltip` (`:190-198`) computes
+`reserved = GetProjectionCurrentBalance() - GetAvailableFunds()` and floors it at zero, so in a
+genuine deficit (running balance negative, available floored to zero) it renders
+`Total: 0 / Reserved: 0` - reporting nothing reserved at exactly the moment a deficit is eating
+the pool. The over-commit magnitude (`minProjected`) reaches no surface but a Verbose line
+(`FundsModule.cs:697-702`).
+
+**Cleanup options, not decided here:** delete the two dead draw paths plus `cachedBudget` /
+`GetCachedBudget` and (if nothing else wants them) the unreferenced `ResourceBudget.ComputeTotal*`
+pair and their tests; or re-point `GetCachedBudget` at the ledger's projected availability so the
+Timeline footer means something again. The second is a feature decision and should not be taken
+as a cleanup.
+
+**Doc consequence, already applied:** entry #427 cited "a single red over-committed warning in
+the Timeline's resource footer" as a premise. #427 was written on 2026-04-17 (`15ba6fbe1`), so
+that premise was already **seventeen days** stale; the closing record for #427 says so.
+
+---
+
 ## ~~QUICKLOAD-OVER-COMMITTED-RESTORE-OVERLAP-DELETES-TREE-ON-SAVE~~: a cold load's stale-pending discard deleted the COMMITTED tree's sidecars through a copy-on-write clone, and every save thereafter dropped the whole tree from persistent.sfs [FOUND 2026-08-28 by the H39/H40 isolated censuses (both recorded fixtures collapsed 21/22 recordings -> 9 in the produced save; H40's ROUTE survived with a dangling backingMissionTreeId). PLAYER-REACHABLE DATA LOSS, not a harness artefact. **FIXED 2026-08-29** on branch `logistics-isolated-lanes` in three parts]
 
 ### The mechanism, measured
@@ -20721,13 +20996,53 @@ Three optional follow-ups from the retroactive Fable review of PR #1302 (the INV
 - ~~**F2 - INV9 unparsable-rewind-save FAIL path unit test.**~~ DONE (2026-07-12). The only file-state FAIL in the rule (rewind save present on disk but not parseable as a ConfigNode) was untested; added `Inv9RewindPointTests.UnparsableRewindSave_Fails`, which writes a whitespace-only `.sfs` at the referenced `Parsek/Saves/<id>.sfs` (KSP's `ConfigNode.Load` returns null on it, which the rule reads as unparsable -> FAIL).
 - ~~**F3 - RecordingSectionDump output out of the triaged save.**~~ DONE (2026-07-12). `RecordingSectionDump` wrote `<save>/analysis/<id>.sectiondump.txt` INSIDE the save under triage. The default now routes to the analyzer results-dir convention via `ResolveResultsDir()` (precedence: `PARSEK_DUMP_RESULTS`, else `PARSEK_ANALYZER_RESULTS`, else `AppContext.BaseDirectory/section-dumps` = the test output dir), so the tool never writes into a save and is literally read-only over saves. Header docs updated.
 
-## TODO - Ensure with markDirty:false mutates committed recordings in memory on optimizer analysis passes (filed 2026-07-13, pre-existing class)
+## ~~TODO - Ensure with markDirty:false mutates committed recordings in memory on optimizer analysis passes (filed 2026-07-13, pre-existing class)~~
 
-`RecordingOptimizer.FindSplitCandidatesForOptimizer` (RecordingOptimizer.cs ~594) walks committed recordings and calls `EnsureCheckpointSectionsForTopLevelOrbitSegments` with `markDirty: false`; the bridge can add/clip/reconcile sections in memory there, so the in-memory model silently diverges from disk until the next write. Pre-existing hazard class (the pre-#1304 Ensure already added/clipped at this site); the #1304 reconcile pass widened the mutation set. Benign today (mutations are payload-preserving and converge at the next write), but a strictly read-only analysis pass should not mutate. Candidate fix: an analysis-only Ensure mode, or compute candidates on a copy. Not fixed in #1304 (scope).
+~~`RecordingOptimizer.FindSplitCandidatesForOptimizer` (RecordingOptimizer.cs ~594) walks committed recordings and calls `EnsureCheckpointSectionsForTopLevelOrbitSegments` with `markDirty: false`; the bridge can add/clip/reconcile sections in memory there, so the in-memory model silently diverges from disk until the next write.~~ **DONE (2026-08-29, branch `ensure-pass-integrity`).**
 
-## TODO - Section-index-keyed .pann annotations can desync when Ensure shifts section indices (filed 2026-07-13, pre-existing class)
+**Mechanism confirmed.** Reproduced headlessly: two physical sections with a gap between them plus one flat `OrbitSegment` covering the gap. `FindSplitCandidatesForOptimizer` promotes the segment into an `OrbitalCheckpoint` section, appends it at the tail, re-sorts the list - and left `FilesDirty == false`. The mutated model then lived only in RAM until some unrelated later write persisted a state nobody chose. `EnsurePassIntegrityTests.AnalysisPass_WhenEnsureMutatesSections_MarksRecordingDirty` fails on `origin/main` at exactly that assertion.
 
-`SectionAnnotationStore` keys splines/outlier-flags/anchor-candidates by (recordingId, sectionIndex); freshness gates on (SidecarEpoch, formatVersion, configHash) and out-of-band sidecar writes deliberately do not bump the epoch (bug #290 note in RecordingSidecarStore.cs ~1159). Any Ensure pass that removes/inserts/re-sorts sections (pre-existing: `ClipExistingCheckpointSectionsAgainstPhysicalSections`, `EnsureTrackSectionsSorted`; new in #1304: the empty-shell reconcile and newest-wins clip) shifts later sections' indices while in-memory annotations survive (only `SmoothingPipeline.RemoveRecording` invalidates), so a spline computed for old index k can apply to a different section. Candidate fix: key annotations by section identity (startUT) or invalidate the recording's annotations whenever Ensure reports Changed. Not fixed in #1304 (scope).
+**Fix: make Ensure honest at the site (shape (b)).** The analysis-pass call now runs `markDirty: true`. The bridge already dirties only when it actually mutated, and `RecordingStore.RunOptimizationPass` already ends in `FlushDirtyFiles`, so the normalization the pass performed is the state written, in the same pass, with a log line naming it (`Optimizer: FindSplitCandidatesForOptimizer: normalization Ensure mutated N of M committed recordings (ordinalShifts=K)`). Ensure is idempotent, so the split pass's while-loop reports no mutation on its second and later iterations and dirties nothing; a recording Ensure does not touch stays byte-clean.
+
+Supporting change: `OrbitSegmentCheckpointBridgeStats` gained `Resorted` (previously a bridge-local `sorted` bool that never reached the caller, which is why `Changed` under-reported a pure re-sort - the trap already documented at `RecordingOptimizer.SplitAtUT`) plus two derived predicates, `AnyMutation` (`Changed || Resorted > 0` - the honest "memory no longer matches disk" signal) and `SectionOrdinalsShifted` (consumed by the `.pann` containment below). `Changed`'s definition is unmoved, so the cells pinned to it are unmoved. The `RecordingStore` wrapper's Verbose line now fires on `AnyMutation` and carries `resorted=` / `markDirty=`.
+
+**Rejected alternative: compute candidates on a COPY.** The returned `(recordingIndex, sectionIndex)` pairs are consumed by `RecordingOptimizer.SplitAtSection`, which reads `original.TrackSections[sectionIndex].startUT` off the LIVE list *before* running its own Ensure and re-anchoring. An index computed against a post-Ensure copy while the live recording stayed pre-Ensure would name a different section there and seed the re-anchor from the wrong UT, so the copy shape also requires changing `SplitAtSection`'s contract to take a UT - a materially larger change through the split pipeline for no correctness gain. (Cost was not the blocker: the bridge never mutates an existing `frames`/`checkpoints` list in place, so a shallow `new List<TrackSection>(...)` would have sufficed, as `SplitAtUT`'s own snapshot already relies on.) The other rejected shape, an "analysis-only Ensure mode" that skips the mutating passes, would make the analysis pass evaluate boundaries on a section list that is NOT the one the split then operates on - the same divergence, moved.
+
+Audit of the other `markDirty: false` sites: the two sidecar READ seams (`TrajectorySidecarBinary.Read`, `TrajectoryTextSidecarCodec.DeserializeTrajectoryFrom`) already pass `true`; the two WRITE seams pass `false` correctly (the file being written carries the mutation); `SplitAtSection`'s caller sets `FilesDirty = true` unconditionally; `SplitAtUT` deliberately snapshots and restores on its guarded returns. `FindSplitCandidatesForOptimizer` was the only dishonest one.
+
+## ~~TODO - Section-index-keyed .pann annotations can desync when Ensure shifts section indices (filed 2026-07-13, pre-existing class)~~
+
+~~`SectionAnnotationStore` keys splines/outlier-flags/anchor-candidates by (recordingId, sectionIndex); freshness gates on (SidecarEpoch, formatVersion, configHash) and out-of-band sidecar writes deliberately do not bump the epoch (bug #290 note in RecordingSidecarStore.cs ~1159). Any Ensure pass that removes/inserts/re-sorts sections shifts later sections' indices while in-memory annotations survive, so a spline computed for old index k can apply to a different section.~~ **DONE (2026-08-29, branch `ensure-pass-integrity`).**
+
+**Mechanism confirmed.** Same fixture: a spline (plus outlier flags and anchor candidates) filed at section index 1, which named the physical section `[200,300]`. After the promotion + re-sort, index 1 names the freshly promoted checkpoint section `[100,200]` and the physical section is at index 2 - while the annotations sat unmoved at index 1. `EnsurePassIntegrityTests.Ensure_ShiftingSectionOrdinals_InvalidatesSectionAnnotations` fails on `origin/main` with the ordinal-move assertions passing and the annotation-count assertion failing (1, expected 0), i.e. the desync is demonstrated, not assumed. Consumers that would eat it: `ParsekFlight` ghost positioning, `AnchorPropagator`, `RenderSessionState` - all keyed `(recordingId, sectionIndex)`.
+
+**Schema reasoning for `.pann` (the question the fix hinged on).** `.pann` does NOT ride `RecordingStore.IsRecordingSchemaCompatible`. That gate is the `.prec`/recording contract (format version + schema generation). `.pann` is a regenerable derived cache with its OWN five-field key - `PannotationsBinaryVersion`, `AlgorithmStampVersion`, `SourceSidecarEpoch`, `SourceRecordingFormatVersion`, configuration hash, plus a recording-id check - and its own invalidation lever: `SmoothingPipeline.ClassifyDrift` discards and recomputes on any drift. So a key-format change would NOT need a recording-generation bump (the big hammer); it would need an `AlgorithmStampVersion` bump, which is exactly what that constant is for. The generation bump therefore was NOT the reason to reject re-keying.
+
+**Rejected alternative: re-key annotations by section identity (startUT).** Two reasons, neither of them the schema. (1) `startUT` is not a section identity in this model - the bridge's own clip passes REPLACE checkpoint sections with clones carrying different `startUT`s, and the optimizer splitter cuts sections at arbitrary UTs, so a startUT key is stable only for the physical `Absolute` sections that happen to be the ones annotated today; the moment the annotated set widens, the "stable" key moves again. There is no stable section id to use instead. (2) It is disproportionate for a regenerable cache: it changes the on-disk `SmoothingSplineList` / `OutlierFlagsList` / `AnchorCandidatesList` entry layout (int ordinal -> double UT), the reader, the writer, the caps/validation, every consumer, and the `Inv7bAnnotationStale` analyzer rule - and it buys nothing invalidation does not, because the annotations are refit from the recording in one pass.
+
+**Fix: invalidate on ordinal shift, keyed off bug 1's changed-flag.** `OrbitSegmentCheckpointBridge.InvalidateSectionAnnotationsForOrdinalShift` drops the recording's splines, outlier flags and anchor candidates (`SectionAnnotationStore.RemoveRecording`) whenever a pass reports `SectionOrdinalsShifted`, at both `Ensure` exits and on the live `TryAppendClosedCheckpointSection` path (which runs the same clip / reconcile / re-sort machinery). It is per-recording scoped, is a no-op when the recording has no annotations (so the common case costs a handful of dictionary probes and logs nothing), and emits a grep-stable `Pipeline-Smoothing: Section annotations invalidated (section-index-shift)` Verbose line otherwise.
+
+**Both ordinal-keyed stores are dropped together.** `RenderSessionState.Anchors` is keyed by the SAME `(recordingId, sectionIndex, side)` ordinal and is POPULATED FROM the anchor candidates in `SectionAnnotationStore` (`AnchorPropagator.Run`), and it had no per-recording removal - only wholesale scene / marker clears. Dropping only the candidates would have been worse than the bug: a live Re-Fly session publishes ε for section k, an optimizer pass re-sorts, the spline falls back to raw lerp while the stale ε for a DIFFERENT section keeps being applied every frame at the flight positioning site - before the fix, spline and ε were at least consistently stale together. New `RenderSessionState.RemoveRecording(id)` (returns the anchor count and also clears that recording's per-session Pipeline-Lerp / priority-resolution dedup marks) is called from the same invalidation and its count rides the same log line as `sessionAnchors=`. Cells: `Ensure_ShiftingSectionOrdinals_AlsoClearsResolvedSessionAnchors` (with a sibling recording proving the scoping), `Ensure_ShiftingSectionOrdinals_ClearsAnchorsEvenWithNoPannAnnotations`, `Ensure_NoSectionChange_KeepsResolvedSessionAnchors`.
+
+**Two false-invalidation vectors the containment had to avoid - both clustered in the Re-Fly window.** (1) `RecordingTreeRecordCodec` serializes the pre-Re-Fly anchor snapshot through `TrajectoryTextSidecarCodec.SerializeTrajectoryInto`, whose Ensure runs over a SYNTHETIC recording that shares the real recording's id (`Recording.BuildPreReFlyAnchorTrajectoryRecording`) while carrying a different section list - a shift there would have dropped the REAL recording's annotations, and that path writes a ConfigNode rather than a sidecar so no `PersistAfterCommit` refit follows it. Fixed with a `[NonSerialized] Recording.IsDetachedSyntheticSnapshot` flag set by the builder and honoured by the invalidation; `PreReFlyAnchorSnapshotRecording_IsFlaggedDetachedSynthetic` pins the production builder so the guard cannot decay into a fixture-only bool. Any future synthetic id-sharing Recording pushed through the codecs must set the same flag. (2) `RecordingOptimizer.SplitAtUT` runs Ensure only to inspect the normalized list and restores the pre-Ensure sections byte-identically on its guarded returns; a drop there is unrecoverable (`RemoveRecording` is destructive) and unrefittable (no rewrite behind it). That call now passes `invalidateSectionAnnotations: false` - an opt-out that exists for exactly this caller shape - and the COMMITTED path takes the drop explicitly after `SplitAtSection` lands, since the cut itself renumbers the head and both halves are dirtied by the callers. Cell: `Ensure_WithInvalidationSuppressed_StillNormalizesButKeepsAnnotations`. The opt-out is FENCED by a source gate (`EnsureInvalidationOptOutGateTests`): it walks `Source/Parsek` and reds unless `invalidateSectionAnnotations: false` has exactly one production caller, in `RecordingOptimizer.cs`, and that file still names the explicit committed-path invalidation. A second caller almost certainly does not restore, and would silently re-open the desync - the gate looks so a reviewer does not have to know to.
+
+**Two notes for whoever reads this next.** (1) `Recording.IsDetachedSyntheticSnapshot` is `[NonSerialized]`, but that attribute is DOCUMENTATION here, not the guarantee: `Recording` is persisted by explicit named-field codecs (`RecordingTreeRecordCodec` and friends), not by a reflective serializer, so a field is out of the save format because no codec writes it - the attribute only says so out loud. Adding the field to a codec would leak a transient into the schema; do not. (2) The H5 / `Inv10` write-seam walk and any other diagnostic that runs Ensure over a real recording can now drop that recording's derived annotations as a side effect. That is the safe direction (a regenerable cache is rebuilt at the next fit) and it is expected to show up in harness logs as `Section annotations invalidated (section-index-shift)` lines - not a defect signal on its own.
+
+**Also walked, benign, deliberately not wired:** `RecordingOptimizer.MergeInto` (concatenates the absorbed recording's sections onto the target, so nothing preceding them is renumbered - and the target is dirtied and flushed by the merge pass) and `SplitAtUT`'s synthetic-boundary insert (reached only inside the committed path above, which now invalidates once at the end). This entry is about the BRIDGE's passes; it is not a claim that no other code can renumber sections.
+
+`SectionOrdinalsShifted` is deliberately NARROWER than `AnyMutation` in both directions: `SkippedCovered` only rebuilds the flat orbit cache and never touches the section list, and `Added` alone cannot shift an ordinal because promotion APPENDS - a chronologically-trailing promotion leaves every existing index in place, and an out-of-order one is caught by `Resorted`. To make that measurable rather than assumed, the append path now calls `EnsureTrackSectionsSorted` (same comparator, same outcome, but it REPORTS whether it had to sort) instead of `SortTrackSections`. `Clipped` still over-approximates (it also counts candidate-side clipping, which replaces nothing in the list); erring toward invalidation is the safe direction for a regenerable cache. Anti-over-invalidation is pinned by four cells (`Ensure_NoSectionChange_KeepsSectionAnnotations`, `Ensure_TrailingPromotionWithoutResort_KeepsSectionAnnotations`, `Append_InOrderTailAppend_KeepsSectionAnnotations`, `Ensure_Invalidation_IsScopedToTheMutatedRecording`).
+
+**Scope of the containment, stated rather than implied.** The invalidation is the IN-MEMORY half. It cannot cover the LOAD seam, and that route is still open in a bounded form: at load, `TrajectorySidecarBinary.Read`'s Ensure can shift ordinals while the annotation store is still EMPTY (so the invalidation early-returns with nothing to drop), and `SmoothingPipeline.LoadOrCompute` then accepts the pre-shift `.pann` because `ClassifyDrift` compares six fields and none of them is section-derived. Pre-existing, and bounded by the flush-and-refit that bug 1's fix now guarantees later in the same `OnLoad`. Hardened, not closed: `LoadOrCompute` now refuses any entry whose ordinal is out of range for the recording's CURRENT section list (`IsInstallableSectionIndex`, half-open `[0, Count)`, applied to splines, candidates and outlier flags alike) and emits a `Pipeline-Sidecar` Warn `reason=section-index-out-of-range` naming the drop count - HR-9, never swallow a staleness signal the cache key cannot express. **Residual, accepted:** an IN-RANGE renumber at the load seam still installs stale annotations for the window between the load-path install and the flush-and-refit later in the same `OnLoad`. Detecting that needs a section-derived cache-key field (e.g. a section-list digest in the `.pann` header), which is a `.pann` schema change with its own `AlgorithmStampVersion` bump - out of scope here, and worth doing only if the window is ever shown to matter. Cells: `PannotationsOrdinalBoundsTests.LoadOrCompute_OrdinalPastEndOfSectionList_IsNotInstalled`, `..._AllOrdinalsInRange_InstallsEverythingAndDoesNotWarn`, `IsInstallableSectionIndex_BoundsAreHalfOpen`.
+
+**One comparator for the section sort.** `SortTrackSections` duplicated `CompareTrackSections` as an inline lambda while `EnsureTrackSectionsSorted` CHECKED with the named one. Now that a re-sort dirties, flushes and invalidates, a drift between those two would mean every pass reads an already-sorted list as unsorted: `Resorted=1` forever, so every load would rewrite and re-invalidate every recording. `SortTrackSections` now calls `CompareTrackSections` directly. `Ensure_SortIsStableAcrossPasses_SoResortDoesNotPingPong` drives a deliberately disordered fixture and asserts three repeat passes report `Resorted=0` and no mutation.
+
+**The two fixes compose.** Dropped annotations are refit by the next `SmoothingPipeline.FitAndStorePerSection`, and bug 1's `markDirty: true` guarantees the optimizer pass that shifted the ordinals flushes the recording in the same pass -> `SaveRecordingFiles` -> `PersistAfterCommit` -> refit. So the optimizer route is self-healing within one pass; any other route degrades to the legacy lerp path (correct-but-coarser) until the next load or commit, which is strictly better than applying a mis-indexed spline plus a mis-indexed ε. No migration path was added and no schema generation was bumped: the on-disk `.pann` key format is unchanged, and every `.pann` write is preceded by a refit, so files stay consistent.
+
+## TODO - RunOptimizationPass's FlushDirtyFiles bumps SidecarEpoch outside OnSave (observed 2026-08-29 while fixing the Ensure-pass integrity pair, NOT fixed - pre-existing, out of scope)
+
+`RecordingStore.RunOptimizationPass` ends in `FlushDirtyFiles`, which calls `SaveRecordingFiles(rec)` with the default `incrementEpoch: true`. That is an OUT-OF-BAND write (the pass runs inside `ParsekScenario.OnLoad`'s `loadPhase = "optimization"`, and from the commit paths - never from `OnSave`), so it advances the `.prec`'s epoch while the on-disk `.sfs` still carries the previous one. `RecordingSidecarStore.SaveRecordingFiles`'s own bug-#270/#290 comment states the opposite rule for exactly this case: *"On out-of-band writes (incrementEpoch=false): preserve the current epoch so the .prec matches the last OnSave's .sfs. Without this, BgRecorder and scene-exit force-writes would advance the epoch independently, causing false-positive staleness on quickload (bug #290)."* If no save follows the load (load -> quit to desktop), the next cold load hydrates `rec.SidecarEpoch` from the stale `.sfs`, `ShouldSkipStaleSidecar` sees `.prec` one ahead, and the trajectory sidecar is rejected - permanently, since the `.sfs` never catches up.
+
+Reached routinely today, not by anything new: `TrajectorySidecarBinary.Read` already runs the checkpoint bridge's Ensure with `markDirty: true` during load, so any recording needing normalization is already dirty and already flushed-with-a-bump before anything else runs. The `markDirty: true` flip in `FindSplitCandidatesForOptimizer` adds exactly ONE narrow delta on top of that: the empty-shell reconcile the read seam deliberately gates off, i.e. the c1/s15-era double-cover population. A pure re-sort is NOT a second delta - on main the bridge's dirty gate was already `markDirty && (stats.Changed || sorted)`, so a re-sort-only pass always dirtied; the `Changed`-only gate was the `RecordingStore` wrapper's LOG gate, which the `Resorted` / `AnyMutation` work fixed. That was an observability gap, not a persistence one, and it changes the flushed population by nothing. Deliberately left alone here: flipping `FlushDirtyFiles` to `incrementEpoch: false` is the obvious fix and matches the documented rule, but it changes the freshness contract for the quicksave-then-optimize-then-quickload path for every recording, which wants its own change with its own repro rather than riding a bridge-integrity PR. Fix when picked up: pass `incrementEpoch: false` from `FlushDirtyFiles`, with a cell proving a load-then-quit cycle leaves `.sfs` and `.prec` epochs equal.
 
 ## TODO - Looped re-aim interplanetary transfer: no continuous encounter into the destination SOI; line dead-ends in open space (investigated 2026-06-15, NOT fixed - regression-sensitive, deferred)
 
@@ -21853,7 +22168,163 @@ Rewind currently feels like a commitment to the unknown — the player isn't sur
 
 ---
 
-## 427. Proactive paradox warnings surface
+## ~~427. Proactive paradox warnings surface~~ [ANALYSED TO CLOSE 2026-08-29, branch `paradox-warnings-close`. **NOTHING SHIPPED** - all six starter rules close, and the analysis IS the deliverable. Three defects found while establishing the facts are filed separately at the top of this file: CONTRACT-DEADLINE-CAPTURED-AS-DURATION, UNAFFORDABLE-SCIENCE-SPENDING-SILENTLY-RE-LOCKS-A-TECH-NODE, and RESOURCE-BUDGET-READOUTS-ARE-DEAD. The original entry is kept verbatim at the end as the record]
+
+**The directive that framed this (maintainer, 2026-08-29).** No new windows and no new
+popups. The hover tooltip-echo strip is the info surface. The only additions on the table
+were (a) extra wording in an EXISTING hover text box, (b) a brief transient `ScreenMessage`
+of the kind `KspStatePatcher`'s drawdown guard already fires, or (c) nothing at all - with
+(c) preferred. The centralized `Warnings (N)` badge and window described below is off the
+table permanently. What remained to decide was narrower and worth deciding: does any
+individual RULE carry information that fails to reach the player another way?
+
+**Verdict: (c) for all six. Nothing was added.**
+
+| Rule | Can the condition arise? | What happens today | Verdict |
+|---|---|---|---|
+| ContractDeadlineMissed | Only from a units defect, not from real play | On a REAL miss stock KSP owns it end to end (its own RED failure message + penalties). The ledger separately injects a synthetic `ContractFail` at the deadline UT, and the zeroed reward is clamped back by the earned-value guard, which toasts once per session | CLOSE - stock owns the real case, and the rule would print a wrong number. **Carve-out:** under the units defect stock's own `dateDeadline` has NOT elapsed, so stock stays silent and Parsek deletes the contract instead - that case is owned by nobody, which is why it is filed as its own bug rather than surfaced here |
+| FacilityLevelRequirement | No - no action in this codebase carries a facility-level requirement | Nothing. Facility level feeds exactly two numbers (contract slots, strategy slots) and neither is ever compared against anything | CLOSE - NOT-MODELED; the residue is already on screen |
+| StrategySlotOverflow | Yes, via a supersede that tombstones the Administration upgrade | Never reaches KSP at all - Parsek has no `PatchStrategies`. The Career State window already prints both operands | CLOSE - ALREADY-COVERED |
+| ContractSlotOverflow | Yes - `PatchContracts` adds contracts with no cap check | The over-full state is displayed by TWO independent surfaces, one of them stock's own | CLOSE - ALREADY-COVERED |
+| CrewDoubleBooking | No - not expressible in the data model | Hard-blocked at the crew-assignment seams, so the condition never forms | CLOSE - NOT-MODELED |
+| ResourceOverCommit | Yes | Clamped to zero (never negative) and shown continuously in the stock currency bar, which Parsek writes as `Available = Total - Reserved` | CLOSE - ALREADY-COVERED **in SPACECENTER / FLIGHT for a non-deficit reservation**. Two carve-outs this PR itself proves: the explaining tooltip does not exist in the EDITOR, where funds are actually spent, and in a genuine deficit it reports `Reserved: 0`. Neither is the surface this entry names, which is dead |
+
+**Per-rule findings, with the code that settles each.**
+
+*ContractDeadlineMissed.* Not latent, and not silent. `ContractsModule.PrePass` scans for
+accepted contracts whose deadline elapses with no on-time completion and injects a synthetic
+`ContractFail` **at the deadline UT** carrying the accept's real `FundsPenalty` /
+`RepPenalty`, logged at Info (`ContractsModule.cs:228-258`); a `ContractComplete` past the
+deadline deliberately fails to clear the tracked contract (`IsBeforeContractDeadline`,
+`:93-95`, non-inclusive by contract). That is a deterministic, documented resolution, not a
+hidden one. On the live side stock KSP is the expiry authority, not Parsek: decompiled
+`Contract.Update()` tests `GameTime >= dateDeadline` and calls
+`SetState(State.DeadlineExpired)`, which posts a RED `MessageSystem` failure entry and fires
+`GameEvents.Contract.onFailed`. (That covers a REAL deadline miss. It does NOT cover Parsek's
+own ledger-driven removal, which goes through `Unregister()` + `RemoveAt` and messages nothing -
+see the units defect entry, where that silence is the actual finding.) And the reconstruction's
+low funds/rep are floored back up to
+live by the earned-value guard on every non-rewind recalc, which already fires a
+once-per-session "Kept your earned funds" toast (`KspStatePatcher.cs:1057`, `:1206`,
+`:3245-3248`). Three signals, none of them ours to add. **Decisive against building it:** the
+number the rule would print is wrong - see CONTRACT-DEADLINE-CAPTURED-AS-DURATION.
+
+*FacilityLevelRequirement.* The rule has no referent. A "requirement" needs a consumer that
+refuses, clamps, or diverges when unmet, and there is none. Facility level feeds exactly two
+derived quantities - `GetContractSlots(MissionControl)` and `GetStrategySlots(Administration)`
+(`LedgerOrchestrator.cs:5958`, `:5972`) - and neither `ContractsModule.ProcessAccept` nor
+`StrategiesModule.ProcessActivate` ever reads `maxSlots`; it appears only inside interpolated
+log strings. Every other candidate requirement is absent outright: kerbal hire is an identity
+check, tech research has no R&D-level gate, part purchase converts to a plain `FundsSpending`,
+and there is no launchpad mass limit, roster cap, or EVA-permission model in the ledger at
+all. `maxSlots` is not even a per-UT value - `UpdateSlotLimitsFromFacilities()` runs AFTER the
+walk (`LedgerOrchestrator.cs:1897` then `:1903`), stamping a terminal-state number onto the
+module once every accept has already been recorded.
+
+The direction the rule does NOT name was considered and also closes: Parsek can LOWER a
+facility, via `ForceDefaultFacilitiesForNextPatch(BuildTombstonedFacilityIdsForPatch())` on the
+tombstone path (`LedgerOrchestrator.cs:1599`), which forces a tombstoned upgrade back toward
+default. That is closer to "a level that won't be reached in time" than the rule as filed. It
+still closes, because every downstream refusal is stock-enforced at the point of use (launchpad
+mass limit, VAB part cap, contract and crew caps) and therefore visible where the player hits
+it - but the CAUSE is not surfaced, and a future reader should know the direction was weighed
+rather than missed.
+
+*StrategySlotOverflow and ContractSlotOverflow.* The entry's premise that overflow is
+"currently only warned in log, not UI" is wrong in both directions. There is no log warning:
+both modules print the ratio at Info on every transition (`ContractsModule.cs:320`,
+`StrategiesModule.cs:124`) but never compare the operands, and `GetAvailableSlots()` - the one
+function whose return value could encode a violation - has **zero production callers** in
+either module. And there IS a UI: the Career State window's own tab headers render exactly the
+comparison the rules propose, current and projected side by side -
+`Mission Control L{n} - slots {cur}/{max} now, {projected}/{projectedMax} at timeline end`
+(`CareerStateWindowUI.cs:1425`) and the identical Administration line (`:1531`). An overflow
+reads as `3/1 at timeline end`. For CONTRACTS stock corroborates independently: Mission Control
+renders the over-limit count in orange (`#autoLOC_468183`) and disables the Accept button. For
+STRATEGIES stock does NOT - decompiled `Administration.UpdateStrategyCount` formats
+`#autoLOC_439627` with no colour argument and no over-limit branch, and worse,
+`CreateActiveStratList` only adds entries while `activeStrategyCount < maxActiveStrategies`, so
+a surplus strategy is not listed at all and the count reads exactly full. That makes Parsek's
+own Career State header the ONLY surface carrying the strategy overflow - which is precisely why
+the rule still closes there rather than nowhere.
+Strategies additionally cannot be corrupted by Parsek at all - `PatchAll` has no
+`PatchStrategies`, and `StrategyLifecyclePatch` is Postfix-only gated on `__result == true`,
+so it only ever observes activations stock already permitted under its own cap.
+
+*CrewDoubleBooking.* Not expressible. A reservation is
+`KerbalReservation { KerbalName, ReservedUntilUT, IsPermanent }` (`KerbalsModule.cs:79-84`) -
+an open-ended ray with no start UT, so two reservations can never be tested for overlap; every
+gate reads `reservations.ContainsKey(name)` and ignores the UT. `ReservedUntilUT` has exactly
+one non-display read - the extend comparison at `KerbalsModule.cs:322`
+(`if (endUT > existing.ReservedUntilUT) ...`), which merges two reservations rather than
+comparing them - and is otherwise only rendered in the Kerbals window. The physical condition the rule proxies for - one kerbal in two places - is
+hard-blocked upstream instead: `CrewDialogFilterPatch` prefixes
+`BaseCrewAssignmentDialog.AddAvailItem` and skips reserved or retired kerbals, so a reserved
+kerbal is never offered to a second craft, and `CrewAutoAssignPatch` swaps or clears any that
+stock auto-seats. Prevention at creation beats a warning after the fact.
+
+*ResourceOverCommit.* Covered, but not by the surface this entry names. Availability is
+floored at zero in both paths (`FundsModule.cs:612-619`, `:694`;
+`RecalculationEngine.cs:685`), so a pool can never go negative. The live signal is the stock
+currency widget itself: `KspStatePatcher.PatchFunds` writes the reservation-net number
+straight into the stock singleton, so the bar the player reads all game already means
+`Available = Total - Reserved`, and `CurrencyReservationOverlay` (unconditional since the
+2026-08-27 settings simplification) decomposes it into `Total:` / `Reserved:` on hover.
+Reputation is deliberately never reserved, so a rep over-commit cannot arise. **The Timeline
+resource footer this entry cites as the existing surface has not drawn since 2026-03-31** -
+see RESOURCE-BUDGET-READOUTS-ARE-DEAD.
+
+**Is anything here GENUINELY-INVISIBLE? One thing - and it is not one of the six rules.**
+Hunting the ResourceOverCommit rule turned up a second, narrower model of "the timeline cannot
+pay for what is committed" that the rule as written does not describe: walk-order
+affordability. An unaffordable `ScienceSpending` is refused by `ScienceModule`, dropped from
+the authoritative tech set by `BuildTargetTechIdsForPatch`, and the node is then genuinely
+re-locked by `PatchTechTree` - taking its purchased parts with it - with no signal anywhere but
+a Warn and an Info line. That is exactly the "the ledger silently picks a resolution the player
+didn't intend" case this entry's own rationale names. It is filed as
+UNAFFORDABLE-SCIENCE-SPENDING-SILENTLY-RE-LOCKS-A-TECH-NODE, and it deliberately did **not**
+become a toast - though NOT for the reason a first draft of this record gave. That draft called
+the path "confined to rewind and re-fly merge"; review refuted it. `RecalculateAndPatchForCurrentTimelineUT`
+passes a non-null tech cutoff unconditionally and is reached from ordinary play (KSC spending,
+science, vessel recovery, rollout, plain loads), so the path is NOT time-travel-only, and the
+damage is permanent in a default career. What survives is narrower and still sufficient: the
+code's own text calls the condition "possible bug or data corruption", and this repo's own
+"keep what you earned" guard philosophy says the fix shape is to REFUSE the re-lock on an
+unaffordable row, not to announce the loss. The precondition also remains unproven. The filed
+entry carries the corrected scope, the severity, and exactly where a `ScreenMessage` would go if
+one ever became right.
+
+**Why nothing was added - the decision, not just the conclusion.** Not one of the six rules is
+genuinely invisible. Four are covered by a surface the player already reads, two of those being
+stock's own, which Parsek should not duplicate; the other two describe conditions the data model
+cannot express. The one rule with a real latent failure mode (ContractDeadlineMissed)
+self-corrects through the earned-value clamp AND already toasts once per session, and its
+underlying quantity is captured in the wrong units, so a warning built on it would convert a
+latent internal bug into a confidently-worded lie on screen. A `ScreenMessage` was considered
+for each rule and rejected for all six: a toast fits "I just silently changed your career to
+protect it" - which is exactly what the drawdown guard says - and does not fit "your timeline
+may be inconsistent later", which is a standing condition rather than an event. It would fire
+on every recalc walk, at scene changes the player did not initiate, about a state already
+legible in the window built to show it. Appending words to a hover box was rejected too: the
+Career State strip is single-line at 112 characters (`TooltipEchoBudgetTests`), and the headers
+there already carry the numbers, so the addition would restate what sits two lines above it.
+
+**Rejected alternatives, recorded so they are not re-proposed.** A red tint on an existing
+main-window launcher (the precedent is the Logistics button, which reddens when a route is
+hard-broken and deliberately carries no count) was not pursued: it is neither (a) nor (b) under
+the directive, and no condition survives that would warrant it. A badge counter, a warnings
+list, and per-rule disable toggles are all out.
+
+**What would reopen this.** A rule that is genuinely invisible - a wrong career state with no
+signal anywhere. None of the six qualified. If CONTRACT-DEADLINE-CAPTURED-AS-DURATION is ever
+fixed, re-check ContractDeadlineMissed against real data before assuming it needs a surface:
+the clamp and the stock message will very likely still cover it.
+
+---
+
+**The original entry, kept verbatim as the record:**
+
+### 427. Proactive paradox warnings surface
 
 **Source:** follow-up on the conversation after shipping the Career State window. Today the mod prevents paradoxes mostly via blocks (action-blocked dialog) and a single red over-committed warning in the Timeline's resource footer. There's no centralized surface that says "your committed timeline has these N potential issues" — so a player can build up a career with, e.g., a contract that expires before its committed completion, or a facility upgrade requiring a level that won't be reached in time, and only discover the contradiction when it fires (or silently zeroes out).
 

@@ -1,6 +1,6 @@
 schema = 1
 id = "H35-logistics-route-proof"
-tier = "operator"
+tier = "nightly"
 # ID PROVENANCE: this spec was authored and FLOWN as `H33-logistics-route-proof`
 # and was renamed to H35 post-merge, when a sibling lane landed a DIFFERENT
 # `H33-recorded-signals` on main first. Every run id cited below embeds the OLD
@@ -92,6 +92,19 @@ instanceProfile = "stock-minimal"
 # `flown`, not `pending-flight`: three green flights on 2026-08-11. `--tag` is a
 # REAL selector, so the tag has to track the record in both directions (the CL-3
 # precedent).
+# TIER. `nightly`. PROMOTED 2026-08-29 BY OPERATOR DECISION - all in-game test
+# lanes go on cadence. This was the open human call the lane could not discharge
+# for itself, and it is now closed rather than outstanding; the H21 / L2 / L3
+# precedent is exactly this shape (promote once the lane is measured, on the
+# operator's call rather than on a rule). Nothing technical changed - the run was
+# already fully automated and unattended, which is why the call was available to
+# make. The spec's id also leaves `PendingOperatorTagHonestyTests.REVIEWED_UNTAGGED`
+# in the same change, because that roster's population is (names the operator-debt
+# tag) OR (operator tier), and a nightly lane that does neither is not a member.
+# NOTE FOR ANYONE EDITING THIS BLOCK: do not write that tag's literal name here.
+# The roster detects membership with a substring scan over the whole spec FILE, so
+# a comment merely DESCRIBING the roster re-enrols the lane in it - which is exactly
+# what the first draft of this block did, and the suite caught it.
 tags = ["logistics", "route", "route-proof", "dock", "recorded-fixture", "H35", "flown"]
 
 [fixture]
