@@ -88,11 +88,11 @@ tags = ["ledger", "L5", "contracts", "career-forge", "science", "recovery"]
 # `harness/tools/build_career_contract_pad.py`, whose module docstring carries
 # the full argument.
 #
-#   A  `5f2c1b84-...`, `deadlineUT = 9201600`. Four orders of magnitude past this
+#   A  `5f2c1b84-...`, `deadlineAbsUT = 9201600`. Four orders of magnitude past this
 #      flight's ~350 s span, so A stays ACTIVE from load to commit. A is the
 #      CONTROL: its `Accept:` token is what says the sidecar loaded at all, and
 #      it was already measured reading on run `2026-08-20_2217`.
-#   B  `c47d0a91-...`, `deadlineUT = 100`. Sized to sit BETWEEN the two clocks
+#   B  `c47d0a91-...`, `deadlineAbsUT = 100`. Sized to sit BETWEEN the two clocks
 #      this fixture is walked against. `ContractsModule.PrePass` takes `nowUT`
 #      from the LAST SURVIVING ACTION's UT: on the COLD-LOAD walk that is B's own
 #      6, so 100 has not elapsed and B loads ACTIVE alongside A

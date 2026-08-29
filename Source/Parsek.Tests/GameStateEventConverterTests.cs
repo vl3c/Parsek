@@ -1089,8 +1089,13 @@ namespace Parsek.Tests
         // ContractAccepted — structured format (new)
         // ================================================================
 
+        /// <summary>
+        /// CONTRACT-DEADLINE-CAPTURED-AS-DURATION: the LEGACY <c>deadline=</c> key is a
+        /// DURATION, so the converter must add the accept UT (which is the event's own
+        /// <c>ut</c>) to reach the absolute deadline stock stores as <c>dateDeadline</c>.
+        /// </summary>
         [Fact]
-        public void ConvertContractAccepted_NewFormat_ExtractsDeadlineAndPenalties()
+        public void ConvertContractAccepted_LegacyDeadlineKey_MigratesDurationToAbsoluteUT()
         {
             var evt = MakeEvent(GameStateEventType.ContractAccepted, 8000.0,
                 key: "guid-1234",
@@ -1102,9 +1107,95 @@ namespace Parsek.Tests
             Assert.Equal("guid-1234", action.ContractId);
             Assert.Equal("Orbit the Mun", action.ContractTitle);
             Assert.Equal("ExploreBody", action.ContractType);
-            Assert.Equal(50000f, action.DeadlineUT);
+            Assert.Equal(58000.0, action.DeadlineUT, 6);
             Assert.Equal(12000f, action.FundsPenalty);
             Assert.Equal(5f, action.RepPenalty);
+        }
+
+        /// <summary>
+        /// The current capture writes <c>deadlineAbsUT=</c>, already absolute — it must
+        /// be used verbatim, never re-based onto the accept UT.
+        /// </summary>
+        [Fact]
+        public void ConvertContractAccepted_AbsoluteDeadlineKey_UsedVerbatim()
+        {
+            var evt = MakeEvent(GameStateEventType.ContractAccepted, 8000.0,
+                key: "guid-1234",
+                detail: "title=Orbit the Mun;deadlineAbsUT=58000;type=ExploreBody;failFunds=12000;failRep=5");
+            var action = GameStateEventConverter.ConvertEvent(evt, "rec9");
+
+            Assert.NotNull(action);
+            Assert.Equal(58000.0, action.DeadlineUT, 6);
+        }
+
+        /// <summary>
+        /// Absolute-key precedence: when both keys are present the absolute one wins and
+        /// the legacy duration is ignored outright (no double-add).
+        /// </summary>
+        [Fact]
+        public void ConvertContractAccepted_AbsoluteKeyWinsOverLegacyDurationKey()
+        {
+            var evt = MakeEvent(GameStateEventType.ContractAccepted, 8000.0,
+                key: "guid-1234",
+                detail: "title=Orbit the Mun;deadline=50000;deadlineAbsUT=58000;failFunds=0;failRep=0");
+            var action = GameStateEventConverter.ConvertEvent(evt, "rec9");
+
+            Assert.NotNull(action);
+            Assert.Equal(58000.0, action.DeadlineUT, 6);
+        }
+
+        /// <summary>
+        /// A legacy duration that is zero/negative meant "no deadline" under the old
+        /// capture's own convention — migrating it would manufacture a deadline that
+        /// expires at (or before) the accept.
+        /// </summary>
+        [Theory]
+        [InlineData("0")]
+        [InlineData("-1")]
+        public void ConvertContractAccepted_LegacyNonPositiveDuration_StaysNoDeadline(string raw)
+        {
+            var evt = MakeEvent(GameStateEventType.ContractAccepted, 8000.0,
+                key: "guid-1234",
+                detail: "title=Orbit the Mun;deadline=" + raw + ";failFunds=0;failRep=0");
+            var action = GameStateEventConverter.ConvertEvent(evt, "rec9");
+
+            Assert.NotNull(action);
+            Assert.True(double.IsNaN(action.DeadlineUT));
+        }
+
+        /// <summary>
+        /// An unparseable absolute value must leave the deadline at NaN, NOT at
+        /// TryParse's zeroed out-parameter. A DeadlineUT of 0 would persist forever and
+        /// trip the implausibility guard on every walk while the log claimed it parsed.
+        /// </summary>
+        [Fact]
+        public void ConvertContractAccepted_UnparseableAbsoluteKey_StaysNoDeadline()
+        {
+            var evt = MakeEvent(GameStateEventType.ContractAccepted, 8000.0,
+                key: "guid-1234",
+                detail: "title=Orbit the Mun;deadlineAbsUT=not-a-number;failFunds=0;failRep=0");
+            var action = GameStateEventConverter.ConvertEvent(evt, "rec9");
+
+            Assert.NotNull(action);
+            Assert.True(double.IsNaN(action.DeadlineUT));
+            Assert.NotEqual(0.0, action.DeadlineUT);
+        }
+
+        /// <summary>
+        /// The unparseable case must NOT silently fall through to the legacy key either:
+        /// the record said "my deadline is absolute", and a broken absolute value is a
+        /// broken absolute value rather than a licence to re-base something else.
+        /// </summary>
+        [Fact]
+        public void ConvertContractAccepted_UnparseableAbsoluteKey_DoesNotFallBackToLegacyKey()
+        {
+            var evt = MakeEvent(GameStateEventType.ContractAccepted, 8000.0,
+                key: "guid-1234",
+                detail: "title=Orbit the Mun;deadline=50000;deadlineAbsUT=oops;failFunds=0;failRep=0");
+            var action = GameStateEventConverter.ConvertEvent(evt, "rec9");
+
+            Assert.NotNull(action);
+            Assert.True(double.IsNaN(action.DeadlineUT));
         }
 
         [Fact]
@@ -1112,12 +1203,12 @@ namespace Parsek.Tests
         {
             var evt = MakeEvent(GameStateEventType.ContractAccepted, 8000.0,
                 key: "guid-5678",
-                detail: "title=Test Part;deadline=NaN;failFunds=3000;failRep=1");
+                detail: "title=Test Part;deadlineAbsUT=NaN;failFunds=3000;failRep=1");
             var action = GameStateEventConverter.ConvertEvent(evt, "rec10");
 
             Assert.NotNull(action);
             Assert.Equal("Test Part", action.ContractTitle);
-            Assert.True(float.IsNaN(action.DeadlineUT));
+            Assert.True(double.IsNaN(action.DeadlineUT));
             Assert.Equal(3000f, action.FundsPenalty);
             Assert.Equal(1f, action.RepPenalty);
         }
@@ -1134,7 +1225,7 @@ namespace Parsek.Tests
             Assert.Equal(GameActionType.ContractAccept, action.Type);
             Assert.Equal("guid-9999", action.ContractId);
             Assert.Equal("Explore the Mun", action.ContractTitle);
-            Assert.True(float.IsNaN(action.DeadlineUT));
+            Assert.True(double.IsNaN(action.DeadlineUT));
             Assert.Equal(0f, action.FundsPenalty);
             Assert.Equal(0f, action.RepPenalty);
         }

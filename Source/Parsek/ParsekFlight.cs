@@ -2495,7 +2495,8 @@ namespace Parsek
                 reason: reason,
                 screenMessage: "Recording discarded - idle on pad",
                 ledgerRecalcReason: "suppressed-scene-exit-discard",
-                chainStopReason: "idle-on-pad auto-discard");
+                chainStopReason: "idle-on-pad auto-discard",
+                reapSidecars: true);
         }
 
         /// <summary>
@@ -2513,16 +2514,26 @@ namespace Parsek
         /// <param name="ledgerRecalcReason">Reason string passed to
         /// <see cref="LedgerOrchestrator.RecalculateAndPatchForCurrentTimelineIfFutureActions"/>;
         /// grep-able from ledger-recalc log lines.</param>
+        /// <param name="reapSidecars">
+        /// Whether this teardown also reaps the discarded tree's on-disk sidecars
+        /// (see <see cref="DiscardSidecarReap"/>). True for every gameplay path;
+        /// false only for the M-A2 <c>DiscardTree</c> test-command verb, which owns
+        /// its own reap and its own summary line (pinned verbatim by the S0.5
+        /// harness spec) and would otherwise report <c>reaped=0</c> on a
+        /// double pass.
+        /// </param>
         internal void AutoDiscardActiveTreeWithMessage(
             string reason,
             string screenMessage,
-            string ledgerRecalcReason)
+            string ledgerRecalcReason,
+            bool reapSidecars = true)
         {
             AutoDiscardActiveTreeCore(
                 reason: reason,
                 screenMessage: screenMessage,
                 ledgerRecalcReason: ledgerRecalcReason,
-                chainStopReason: reason);
+                chainStopReason: reason,
+                reapSidecars: reapSidecars);
         }
 
         /// <summary>
@@ -2614,7 +2625,8 @@ namespace Parsek
                 reason: reason,
                 screenMessage: "Recording discarded - vessel unchanged after switch",
                 ledgerRecalcReason: "noop-switch-segment-discard",
-                chainStopReason: reason);
+                chainStopReason: reason,
+                reapSidecars: true);
         }
 
         /// <summary>
@@ -2841,18 +2853,69 @@ namespace Parsek
         /// existing idle-on-pad entry point keeps its toast/reason and the
         /// new reason-aware entry point can supply context-appropriate
         /// strings (e.g. the Case B Switch-To Discard handler).
+        ///
+        /// <para><b>Sidecar reap.</b> This teardown is in-memory-only by
+        /// design, but <c>StartRecording</c>'s quickload-resume OnSave may
+        /// already have written the tree's <c>.prec</c> / <c>.pann</c> /
+        /// <c>_ghost.craft</c> sidecars to disk. A discard that empties the
+        /// store used to strand them permanently (the sweeper's zero-known
+        /// guard correctly refuses to touch the directory), so the tree's
+        /// recordings and the load-shape gate are sampled BEFORE the teardown
+        /// and <see cref="DiscardSidecarReap"/> reaps them AFTER, by explicit
+        /// id, never as a directory sweep. <paramref name="reapSidecars"/>
+        /// is false only for callers that own their own reap + summary line
+        /// (the M-A2 <c>DiscardTree</c> test-command verb, whose line the S0.5
+        /// harness spec pins verbatim).</para>
         /// </summary>
         private void AutoDiscardActiveTreeCore(
             string reason,
             string screenMessage,
             string ledgerRecalcReason,
-            string chainStopReason)
+            string chainStopReason,
+            bool reapSidecars)
         {
             ParsekLog.Info("Flight",
                 $"AutoDiscardActiveTreeCore: discarding live tree reason='{reason}' " +
                 $"ledgerRecalcReason='{ledgerRecalcReason}'");
             if (!string.IsNullOrEmpty(screenMessage))
                 ScreenMessage(screenMessage, 3f);
+
+            // Sidecar-reap capture: BOTH inputs must be read before the teardown
+            // nulls activeTree (the recordings) and while the load shape is still
+            // observable (the skip gate). The reap itself runs after the teardown,
+            // when the store's known-id set no longer owns the discarded ids.
+            //
+            // Wrapped for the same reason TryEvaluateActiveSwitchSegmentNoOp is: two of
+            // this method's callers run inside a Harmony prefix (the HighLogic.LoadScene
+            // scene-exit prefix and the map OnSelect prefix), so a throw here would
+            // propagate out and abort the scene transition / the menu click. Fails
+            // CLOSED - a capture we could not take reaps nothing, which is the pre-fix
+            // status quo, never an unguarded delete.
+            List<Recording> reapCapturedRecordings = null;
+            string reapSkipReason = null;
+            if (reapSidecars)
+            {
+                try
+                {
+                    reapCapturedRecordings = DiscardSidecarReap.CaptureTreeRecordings(activeTree);
+                    var reapScenario = ParsekScenario.Instance;
+                    reapSkipReason = DiscardSidecarReap.SkipReason(
+                        reFlyMarkerActive: !object.ReferenceEquals(null, reapScenario)
+                            && reapScenario.ActiveReFlySessionMarker != null,
+                        mergeJournalActive: !object.ReferenceEquals(null, reapScenario)
+                            && reapScenario.ActiveMergeJournal != null,
+                        restoringActiveTree: restoringActiveTree);
+                }
+                catch (System.Exception ex)
+                {
+                    reapCapturedRecordings = null;
+                    reapSkipReason = "capture-threw:" + ex.GetType().Name;
+                    ParsekLog.Warn("Flight",
+                        $"AutoDiscardActiveTreeCore: sidecar-reap capture threw " +
+                        $"{ex.GetType().Name}: {ex.Message} - reap skipped, discard " +
+                        $"continues (orphans retained) reason='{reason}'");
+                }
+            }
 
             // Preserve irreversible live-gameplay economy before tearing the tree down.
             // This (uncommitted) tree's contract completions / milestones / science are
@@ -2929,6 +2992,26 @@ namespace Parsek
             // (e.g. the Case B no-session Switch-To discard).
             ParsekScenario.Instance?.ClearSwitchSegmentSession(
                 $"active-tree-auto-discard: {reason}");
+
+            // Explicit-id sidecar reap for the ids this teardown just dropped.
+            // Runs AFTER the in-memory removal so RecordingStore's known-id set is
+            // the authority on what survives; failures inside are counted and
+            // logged, never thrown, so a locked file cannot abort the discard.
+            if (reapSidecars)
+            {
+                try
+                {
+                    DiscardSidecarReap.ReapDiscardedTreeSidecars(
+                        reapCapturedRecordings, reapSkipReason, reason);
+                }
+                catch (System.Exception ex)
+                {
+                    ParsekLog.Warn("Flight",
+                        $"AutoDiscardActiveTreeCore: sidecar reap threw " +
+                        $"{ex.GetType().Name}: {ex.Message} - discard continues " +
+                        $"(orphans retained) reason='{reason}'");
+                }
+            }
 
             // No pending tree was stashed (we discard pre-finalize).
             // Roll back any in-flight ledger entries from the aborted

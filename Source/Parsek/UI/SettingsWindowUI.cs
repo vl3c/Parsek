@@ -705,6 +705,26 @@ namespace Parsek
                 GUI.skin.label);
         }
 
+        /// <summary>
+        /// Why "Wipe All Recordings" is greyed out. Counting is the whole gate: with an
+        /// empty store there is nothing to wipe. Fits the Settings window's 71-character
+        /// help strip. Pure for unit testing.
+        /// </summary>
+        internal static string WipeRecordingsDisabledReason(int committedCount)
+        {
+            return committedCount > 0 ? string.Empty : "There are no recordings to wipe";
+        }
+
+        /// <summary>
+        /// Why "Wipe All Game Actions" is greyed out. Same shape as
+        /// <see cref="WipeRecordingsDisabledReason"/>, over the milestone store.
+        /// Pure for unit testing.
+        /// </summary>
+        internal static string WipeGameActionsDisabledReason(int milestoneCount)
+        {
+            return milestoneCount > 0 ? string.Empty : "There are no game actions to wipe";
+        }
+
         private void DrawDataManagementSettings(ParsekSettings s)
         {
             GUILayout.Label("Data Management", parentUI.GetSectionHeaderStyle());
@@ -717,12 +737,22 @@ namespace Parsek
             int milestoneCount = MilestoneStore.Milestones.Count;
 
             GUI.enabled = committedCount > 0;
-            if (GUILayout.Button($"Wipe All Recordings ({committedCount})"))
+            bool wipeRecordingsClicked =
+                GUILayout.Button($"Wipe All Recordings ({committedCount})");
+            // Both wipe buttons are plain string overloads with no GUIContent, so a
+            // fresh save greyed them out with nothing to say.
+            DisabledHoverEcho.CarryLastControl(
+                committedCount > 0, WipeRecordingsDisabledReason(committedCount));
+            if (wipeRecordingsClicked)
                 parentUI.ShowWipeRecordingsConfirmation(committedCount);
             GUI.enabled = true;
 
             GUI.enabled = milestoneCount > 0;
-            if (GUILayout.Button($"Wipe All Game Actions ({milestoneCount})"))
+            bool wipeActionsClicked =
+                GUILayout.Button($"Wipe All Game Actions ({milestoneCount})");
+            DisabledHoverEcho.CarryLastControl(
+                milestoneCount > 0, WipeGameActionsDisabledReason(milestoneCount));
+            if (wipeActionsClicked)
                 parentUI.ShowWipeActionsConfirmation(milestoneCount);
             GUI.enabled = true;
         }

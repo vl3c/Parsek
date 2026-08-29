@@ -85,23 +85,89 @@ namespace Parsek
         private int maxSlots = 2;
 
         /// <summary>
+        /// Contract IDs already warned about for an implausible deadline during the
+        /// current walk. Keeps the guard's WARN one-per-contract instead of one per
+        /// dispatched action (<see cref="CheckDeadlines"/> runs on EVERY action).
+        /// Cleared by <see cref="Reset"/>.
+        /// </summary>
+        private readonly HashSet<string> implausibleDeadlineWarned = new HashSet<string>();
+
+        /// <summary>
+        /// Pure: true when a deadline cannot possibly be a real absolute UT for a
+        /// contract accepted at <paramref name="acceptUT"/> — it does not sit strictly
+        /// after the accept.
+        ///
+        /// <para>CONTRACT-DEADLINE-CAPTURED-AS-DURATION's cheap guard. A deadline is an
+        /// ABSOLUTE UT and stock only ever assigns <c>dateDeadline = dateAccepted +
+        /// TimeDeadline</c> with a positive duration, so <c>deadline &lt;= acceptUT</c>
+        /// is not a deadline that has passed — it is a value that was never a UT. The
+        /// two consumers below refuse to act on such a value in EITHER direction: it
+        /// neither expires the contract nor denies a completion its reward.</para>
+        /// </summary>
+        internal static bool IsImplausibleContractDeadline(double deadlineUT, double acceptUT)
+        {
+            if (double.IsNaN(deadlineUT))
+                return false;   // open-ended, handled by the NaN path
+            return !(deadlineUT > acceptUT);   // also true for NaN acceptUT
+        }
+
+        /// <summary>
         /// Returns true only when an action UT is strictly before the accepted
         /// contract deadline. The deadline boundary is non-inclusive: a
         /// ContractComplete with UT == DeadlineUT is late and must not earn
         /// completion rewards.
+        ///
+        /// <para>An implausible deadline (see
+        /// <see cref="IsImplausibleContractDeadline"/>) is treated as open-ended, so a
+        /// completion still earns its reward.</para>
         /// </summary>
-        internal static bool IsBeforeContractDeadline(double actionUT, float deadlineUT)
+        internal static bool IsBeforeContractDeadline(double actionUT, double deadlineUT, double acceptUT)
         {
-            return !float.IsNaN(deadlineUT) && actionUT < deadlineUT;
+            if (double.IsNaN(deadlineUT))
+                return false;
+            if (IsImplausibleContractDeadline(deadlineUT, acceptUT))
+                return true;
+            return actionUT < deadlineUT;
         }
 
         /// <summary>
         /// Returns true once the current UT reaches or passes a real deadline.
-        /// NaN deadlines are open-ended and never expire.
+        /// NaN deadlines are open-ended and never expire, and so — deliberately — is an
+        /// implausible one: refusing to expire a value that was never a UT is what
+        /// catches the CONTRACT-DEADLINE-CAPTURED-AS-DURATION class rather than only its
+        /// instance.
         /// </summary>
-        internal static bool HasContractDeadlineElapsed(double currentUT, float deadlineUT)
+        internal static bool HasContractDeadlineElapsed(double currentUT, double deadlineUT, double acceptUT)
         {
-            return !float.IsNaN(deadlineUT) && !IsBeforeContractDeadline(currentUT, deadlineUT);
+            if (double.IsNaN(deadlineUT))
+                return false;
+            if (IsImplausibleContractDeadline(deadlineUT, acceptUT))
+                return false;
+            return !IsBeforeContractDeadline(currentUT, deadlineUT, acceptUT);
+        }
+
+        /// <summary>
+        /// Emits the guard's one-per-contract WARN when a deadline is implausible.
+        /// Returns true when the deadline was implausible (i.e. the caller must not act
+        /// on it).
+        /// </summary>
+        private bool WarnIfImplausibleDeadline(string contractId, double deadlineUT, double acceptUT)
+        {
+            if (!IsImplausibleContractDeadline(deadlineUT, acceptUT))
+                return false;
+
+            string id = contractId ?? "";
+            if (implausibleDeadlineWarned.Add(id))
+            {
+                ParsekLog.Warn(Tag,
+                    $"Implausible contract deadline IGNORED: contractId='{id}' " +
+                    $"deadlineUT={deadlineUT.ToString("R", IC)} is not after acceptUT=" +
+                    $"{acceptUT.ToString("R", IC)}. A deadline is an ABSOLUTE UT; a value " +
+                    "at or before the accept was never one (a stored DURATION is the known " +
+                    "cause). Treating the contract as open-ended rather than expired.");
+            }
+
+            return true;
         }
 
         // ================================================================
@@ -128,6 +194,7 @@ namespace Parsek
             deadlineExpiredContracts.Clear();
             explicitlyResolvedContracts.Clear();
             prepassExplicitResolutionUT.Clear();
+            implausibleDeadlineWarned.Clear();
 
             ParsekLog.Verbose(Tag,
                 $"Reset: cleared {prevActive} active contracts, {prevCredited} credited contracts, " +
@@ -173,7 +240,7 @@ namespace Parsek
                         {
                             activeAcceptUT[id] = action.UT;
                             prepassExplicitResolutionUT.Remove(id);
-                            if (!float.IsNaN(action.DeadlineUT))
+                            if (!double.IsNaN(action.DeadlineUT))
                                 tracked[id] = action;
                         }
                         break;
@@ -183,7 +250,7 @@ namespace Parsek
                         {
                             GameAction accept;
                             if (tracked.TryGetValue(id, out accept)
-                                && IsBeforeContractDeadline(action.UT, accept.DeadlineUT))
+                                && IsBeforeContractDeadline(action.UT, accept.DeadlineUT, accept.UT))
                             {
                                 tracked.Remove(id);
                             }
@@ -228,7 +295,9 @@ namespace Parsek
             foreach (var kvp in tracked)
             {
                 var accept = kvp.Value;
-                if (HasContractDeadlineElapsed(nowUT, accept.DeadlineUT))
+                if (WarnIfImplausibleDeadline(accept.ContractId, accept.DeadlineUT, accept.UT))
+                    continue;
+                if (HasContractDeadlineElapsed(nowUT, accept.DeadlineUT, accept.UT))
                 {
                     var syntheticFail = new GameAction
                     {
@@ -388,7 +457,8 @@ namespace Parsek
 
         /// <summary>
         /// Checks all active contracts for deadline expiration at the given UT.
-        /// Any contract whose DeadlineUT &lt;= currentUT (and is not NaN) is removed
+        /// Any contract whose DeadlineUT &lt;= currentUT (and is neither NaN nor
+        /// implausible — see <see cref="IsImplausibleContractDeadline"/>) is removed
         /// from activeContracts (slot freed). Returns the list of expired contract IDs.
         /// </summary>
         internal List<string> CheckDeadlines(double currentUT)
@@ -397,8 +467,11 @@ namespace Parsek
 
             foreach (var kvp in activeContracts)
             {
-                float deadline = kvp.Value.DeadlineUT;
-                if (HasContractDeadlineElapsed(currentUT, deadline))
+                double deadline = kvp.Value.DeadlineUT;
+                double acceptUT = kvp.Value.UT;
+                if (WarnIfImplausibleDeadline(kvp.Key, deadline, acceptUT))
+                    continue;
+                if (HasContractDeadlineElapsed(currentUT, deadline, acceptUT))
                 {
                     if (expired == null)
                         expired = new List<string>();

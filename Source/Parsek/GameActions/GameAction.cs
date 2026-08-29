@@ -571,8 +571,23 @@ namespace Parsek
         /// <summary>Advance payment received on accept.</summary>
         public float AdvanceFunds;
 
-        /// <summary>Expiration UT. NaN if no deadline.</summary>
-        public float DeadlineUT = float.NaN;
+        /// <summary>
+        /// ABSOLUTE expiration UT (stock <c>Contract.DateDeadline</c>). NaN when the
+        /// contract carries no deadline (stock <c>DeadlineType.None</c>).
+        ///
+        /// <para>CONTRACT-DEADLINE-CAPTURED-AS-DURATION: until 2026-08-29 the capture
+        /// stored stock's <c>Contract.TimeDeadline</c> - a DURATION in seconds - into
+        /// this field, which every consumer reads as an absolute UT. It is a
+        /// <c>double</c> rather than a <c>float</c> because a mid-career UT does not fit
+        /// in a float's ~7 significant digits: the C2Career fixture's row stored
+        /// 8228571.5 for a stock <c>TimeDeadline</c> of 8228571.72775267, already losing
+        /// a quarter second at a value far below a long career's clock.</para>
+        ///
+        /// <para>On disk the absolute form is written under the key
+        /// <c>deadlineAbsUT</c>. The legacy <c>deadlineUT</c> key means a DURATION and is
+        /// migrated to absolute on load by <see cref="DeserializeContractAccept"/>.</para>
+        /// </summary>
+        public double DeadlineUT = double.NaN;
 
         /// <summary>Funds reward on completion.</summary>
         public float FundsReward;
@@ -831,6 +846,23 @@ namespace Parsek
         /// Set by resource modules during recalculation walk. Always derived, never stored.
         /// </summary>
         public bool Affordable;
+
+        /// <summary>
+        /// Running science pool at the moment <c>ScienceModule.ProcessSpending</c> REFUSED this
+        /// spend as unaffordable. Non-null ONLY on a <see cref="GameActionType.ScienceSpending"/>
+        /// row the walk actually processed and refused; null on an affordable spend and on every
+        /// row the science walk never dispatched. Always derived, never stored.
+        ///
+        /// <para>This is a POSITIVE marker, and that is the point: <see cref="Affordable"/> alone
+        /// cannot separate "the walk refused this purchase" from "the module never ran for this
+        /// row", because <c>RecalculationEngine.ResetDerivedFields</c> seeds
+        /// <see cref="Affordable"/> to <c>false</c> for every action. The unaffordable-re-lock
+        /// guard (<c>KspStatePatcher.ShouldRefuseUnaffordableRelock</c>) must never fire on the
+        /// second case — that would suppress a LEGITIMATE re-lock — so it keys on this field's
+        /// presence rather than on <c>!Affordable</c>. It also carries the shortfall number the
+        /// refusal WARN reports.</para>
+        /// </summary>
+        public double? UnaffordableRunningScience;
 
         /// <summary>
         /// Actual reputation change after applying the gain/loss curve against running rep.
@@ -1309,12 +1341,95 @@ namespace Parsek
             if (ContractType != null) n.AddValue("contractType", ContractType);
             if (ContractTitle != null) n.AddValue("contractTitle", ContractTitle);
             n.AddValue("advanceFunds", AdvanceFunds.ToString("R", IC));
-            if (!float.IsNaN(DeadlineUT))
-                n.AddValue("deadlineUT", DeadlineUT.ToString("R", IC));
+            // CONTRACT-DEADLINE-CAPTURED-AS-DURATION: the key NAME is the migration
+            // stamp. `deadlineAbsUT` always means an absolute UT; the legacy
+            // `deadlineUT` key always means a duration. Writing only the new key means
+            // a row this build produced can never be re-migrated, and a row an older
+            // build produced can never be mistaken for an absolute one.
+            if (!double.IsNaN(DeadlineUT))
+                n.AddValue(ContractDeadlineAbsoluteKey, DeadlineUT.ToString("R", IC));
             if (FundsPenalty != 0f)
                 n.AddValue("fundsPenalty", FundsPenalty.ToString("R", IC));
             if (RepPenalty != 0f)
                 n.AddValue("repPenalty", RepPenalty.ToString("R", IC));
+        }
+
+        /// <summary>
+        /// ConfigNode key carrying an ABSOLUTE contract deadline UT. Written by every
+        /// build from 2026-08-29 on.
+        /// </summary>
+        internal const string ContractDeadlineAbsoluteKey = "deadlineAbsUT";
+
+        /// <summary>
+        /// LEGACY ConfigNode key. Its value is a DURATION in seconds (stock
+        /// <c>Contract.TimeDeadline</c>) even though the name says UT - see
+        /// CONTRACT-DEADLINE-CAPTURED-AS-DURATION. Read-only: never written again.
+        /// </summary>
+        internal const string ContractDeadlineLegacyDurationKey = "deadlineUT";
+
+        /// <summary>
+        /// Outcome of resolving a ContractAccept node's deadline. Reported so the
+        /// per-load migration tally can be logged as one batch summary.
+        /// </summary>
+        internal enum ContractDeadlineResolution
+        {
+            /// <summary>Neither key present: the contract has no deadline (NaN).</summary>
+            Absent,
+            /// <summary>The absolute key was present and used verbatim.</summary>
+            Absolute,
+            /// <summary>The legacy duration key was present and converted to absolute.</summary>
+            MigratedFromDuration,
+            /// <summary>A key was present but unparseable; treated as no deadline.</summary>
+            Unparseable
+        }
+
+        /// <summary>
+        /// Pure: resolves a ContractAccept node's deadline to an ABSOLUTE UT.
+        ///
+        /// <para>The absolute key wins outright when present. Otherwise the legacy
+        /// <c>deadlineUT</c> key is a DURATION and the absolute deadline is
+        /// <paramref name="acceptUT"/> + duration - stock assigns
+        /// <c>dateDeadline = dateAccepted + TimeDeadline</c> at accept for a Floating
+        /// contract, and the ledger row's own <c>ut</c> IS <c>dateAccepted</c> (proved
+        /// byte-for-byte against the C2Career fixture's stock CONTRACT node).</para>
+        ///
+        /// <para>Idempotent by construction: the migrated value is re-serialized under
+        /// the absolute key, so a second load takes the <see
+        /// cref="ContractDeadlineResolution.Absolute"/> branch. A non-positive or
+        /// non-finite legacy value is NOT migrated - a zero/NaN duration means "no
+        /// deadline" under the old capture's own convention, and adding it to the accept
+        /// UT would manufacture a deadline that expires the instant it is accepted.</para>
+        /// </summary>
+        internal static ContractDeadlineResolution ResolveContractDeadlineUT(
+            ConfigNode n, double acceptUT, out double deadlineUT)
+        {
+            deadlineUT = double.NaN;
+            if (n == null)
+                return ContractDeadlineResolution.Absent;
+
+            string absStr = n.GetValue(ContractDeadlineAbsoluteKey);
+            if (absStr != null)
+            {
+                double parsed;
+                if (!double.TryParse(absStr, NS, IC, out parsed))
+                    return ContractDeadlineResolution.Unparseable;
+                deadlineUT = parsed;
+                return ContractDeadlineResolution.Absolute;
+            }
+
+            string legacyStr = n.GetValue(ContractDeadlineLegacyDurationKey);
+            if (legacyStr == null)
+                return ContractDeadlineResolution.Absent;
+
+            double duration;
+            if (!double.TryParse(legacyStr, NS, IC, out duration))
+                return ContractDeadlineResolution.Unparseable;
+
+            if (double.IsNaN(duration) || double.IsInfinity(duration) || duration <= 0.0)
+                return ContractDeadlineResolution.Absent;
+
+            deadlineUT = acceptUT + duration;
+            return ContractDeadlineResolution.MigratedFromDuration;
         }
 
         private static void DeserializeContractAccept(ConfigNode n, GameAction a)
@@ -1323,8 +1438,12 @@ namespace Parsek
             a.ContractType = n.GetValue("contractType");
             a.ContractTitle = n.GetValue("contractTitle");
             TryParseFloat(n, "advanceFunds", out a.AdvanceFunds);
-            if (!TryParseFloat(n, "deadlineUT", out a.DeadlineUT))
-                a.DeadlineUT = float.NaN;
+
+            // CONTRACT-DEADLINE-CAPTURED-AS-DURATION on-disk migration. `a.UT` is
+            // already parsed by DeserializeFrom before this type-specific branch runs.
+            var resolution = ResolveContractDeadlineUT(n, a.UT, out a.DeadlineUT);
+            Ledger.NoteContractDeadlineResolution(resolution);
+
             TryParseFloat(n, "fundsPenalty", out a.FundsPenalty);
             TryParseFloat(n, "repPenalty", out a.RepPenalty);
         }

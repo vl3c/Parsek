@@ -2068,14 +2068,26 @@ namespace Parsek
             // live in-tier best value because that finer-grained partial progress is not
             // persisted in the ledger.
             kerbalsModule.ApplyToRoster(HighLogic.CurrentGame?.CrewRoster);
-            // #559: tech-tree patching is rewind-only. Live unlocks that happened after
-            // the latest captured baseline are not replayed by any ledger action, so a
-            // non-rewind (utCutoff == null) patch would clobber them. Only build and pass
-            // the target tech set when a cutoff is supplied; the null branch no-ops
-            // through PatchTechTree's existing null-target guard.
+            // #559: tech-tree patching is gated on a supplied cutoff, NOT on being a rewind.
+            // Live unlocks that happened after the latest captured baseline are not replayed
+            // by any ledger action, so a cutoff-less (techPatchCutoff == null) patch would
+            // clobber them — hence the gate. But the gate is `techPatchCutoff.HasValue`, and
+            // THREE families supply one, only the first of which is time travel:
+            //   * RecalculateAndPatch(utCutoff)                  — the rewind paths;
+            //   * RecalculateAndPatchAfterTombstones             — post-supersede refresh,
+            //     and only when the pass retired a ScienceSpending row;
+            //   * RecalculateAndPatchForCurrentTimelineUT        — ORDINARY CAREER PLAY. It
+            //     passes techPatchCutoff unconditionally and is reached from ksp-load,
+            //     ksc-spending, strategy-conversion, ksc-science, recovery-kerbal-xp,
+            //     vessel-rollout, vessel-recovery, the KSC ledger cursor, and every
+            //     live-timeline event whose committed timeline extends into the future.
+            // Do not restate "rewind-only" here: an earlier reader trusted that wording and
+            // mis-scoped a live defect (UNAFFORDABLE-SCIENCE-SPENDING-SILENTLY-RE-LOCKS-A-TECH-NODE)
+            // to time travel. The null branch no-ops through PatchTechTree's null-target guard.
             HashSet<string> targetTechIds = null;
             double? techBaselineUt = null;
             HashSet<string> baselineTechExclusions = null;
+            Dictionary<string, KspStatePatcher.UnaffordableUnlockDrop> unaffordableTechDrops = null;
             if (techPatchCutoff.HasValue)
             {
                 if (excludeTombstonedTechFromBaseline)
@@ -2085,7 +2097,8 @@ namespace Parsek
                     GameStateStore.Baselines,
                     actions,
                     techPatchCutoff,
-                    baselineTechExclusions);
+                    baselineTechExclusions,
+                    out unaffordableTechDrops);
                 techBaselineUt = KspStatePatcher.GetSelectedTechBaselineUt(
                     GameStateStore.Baselines,
                     techPatchCutoff);
@@ -2095,7 +2108,8 @@ namespace Parsek
                     $"techCutoff={techPatchCutoff.Value.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}, " +
                     $"baselineUt={(techBaselineUt.HasValue ? techBaselineUt.Value.ToString("R", System.Globalization.CultureInfo.InvariantCulture) : "null")}, " +
                     $"baselineTechExclusions={(baselineTechExclusions == null ? "0" : baselineTechExclusions.Count.ToString(System.Globalization.CultureInfo.InvariantCulture))}, " +
-                    $"targetCount={(targetTechIds == null ? "null" : targetTechIds.Count.ToString(System.Globalization.CultureInfo.InvariantCulture))})");
+                    $"targetCount={(targetTechIds == null ? "null" : targetTechIds.Count.ToString(System.Globalization.CultureInfo.InvariantCulture))}, " +
+                    $"unaffordableTechDrops={(unaffordableTechDrops == null ? "null" : unaffordableTechDrops.Count.ToString(System.Globalization.CultureInfo.InvariantCulture))})");
             }
             else
             {
@@ -2110,7 +2124,8 @@ namespace Parsek
                 techUtCutoff: techPatchCutoff,
                 techBaselineUt: techBaselineUt,
                 suppressSuspiciousDrawdownWarnings: suppressSuspiciousDrawdownWarnings,
-                authoritativeReduction: authoritativeReduction);
+                authoritativeReduction: authoritativeReduction,
+                unaffordableTechDrops: unaffordableTechDrops);
 
             // LedgerTrace Tier-A: emit ONE structural snapshot per recalc, here (after
             // PatchAll), never inside a Patch* (that would emit 7x). Built from data

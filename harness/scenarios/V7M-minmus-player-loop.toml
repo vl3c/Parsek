@@ -298,7 +298,9 @@ id = "V7M-minmus-player-loop"
 # inversion would re-prove the evaluator rather than these windows (the V4/V5
 # precedent). `allowedAnomalies = []` with `ghostRenderTracing` on, so the
 # loop-seam-teleport sweep is armed and free. NOT armed: `unityExceptions` - see the
-# teardown-NRE paragraph at the end of this header.
+# teardown-NRE paragraph at the end of this header (whose Parsek half is FIXED
+# 2026-08-29, release-hygiene branch; the ceiling is still unarmed and still needs a
+# fresh census - MOON-LOOP-FINDINGS finding 2 says how to read one).
 #
 # READING LEDGER (2026-08-08, three flights: one reading, one calibration, one final):
 #   RUN 1 `2026-08-08_1600`, INVALID (driver-verdict-mismatch) both attempts, wall 89 s
@@ -446,6 +448,15 @@ id = "V7M-minmus-player-loop"
 #       readings; 144,356 -> 191,499 -> 51,503 m on the archived calibration) DO move
 #       cycle to cycle, and that is not drift: it is where each phase anchor lands
 #       against the 4,620 s park period. See section 3.
+#
+#   THE PRODUCT FINDING BELOW IS FIXED 2026-08-29 (release-hygiene branch) - see
+#   MOON-LOOP-FINDINGS finding 2 for the fix and for how to read a re-measure. The
+#   paragraph is KEPT as the original 2026-08-08 reading (its ceiling reasoning still
+#   stands); read its present tense as of that date. Two things an operator flying this
+#   lane today needs from the fix: the Parsek NRE named below should be ABSENT from a
+#   fresh census, and the fix un-shadowed ~20 lines of `OnDestroy` cleanup that the
+#   escaping NRE used to abort - so a NEW Parsek teardown line in a fresh reading is
+#   newly-reached code to classify, not a regression of the fix.
 #
 #   ONE REPORT-ONLY PRODUCT FINDING, filed not fixed (and filed as finding (2) of
 #   `MOON-LOOP-FINDINGS` in docs/dev/todo-and-known-bugs.md, which is where the

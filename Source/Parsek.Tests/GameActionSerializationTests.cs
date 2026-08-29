@@ -272,12 +272,12 @@ namespace Parsek.Tests
                 ContractType = "TourismContract",
                 ContractTitle = "Fly tourists around Kerbin",
                 AdvanceFunds = 2000.0f,
-                DeadlineUT = float.NaN
+                DeadlineUT = double.NaN
             };
 
             var result = RoundTrip(original);
 
-            Assert.True(float.IsNaN(result.DeadlineUT), "DeadlineUT should be NaN for no-deadline contracts");
+            Assert.True(double.IsNaN(result.DeadlineUT), "DeadlineUT should be NaN for no-deadline contracts");
         }
 
         [Fact]

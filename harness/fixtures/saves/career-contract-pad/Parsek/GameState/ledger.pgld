@@ -10,7 +10,7 @@ GAME_ACTION
 	contractType = PartTest
 	contractTitle = Test RT-5 "Flea" Solid Fuel Booster at the Launch Site.
 	advanceFunds = 0
-	deadlineUT = 9201600
+	deadlineAbsUT = 9201600
 	fundsPenalty = 9000
 	repPenalty = 4
 }
@@ -24,7 +24,7 @@ GAME_ACTION
 	contractType = PartTest
 	contractTitle = Test RT-10 "Hammer" Solid Fuel Booster in flight over Kerbin.
 	advanceFunds = 0
-	deadlineUT = 100
+	deadlineAbsUT = 100
 	fundsPenalty = 9000
 	repPenalty = 1
 }

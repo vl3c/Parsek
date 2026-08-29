@@ -121,7 +121,7 @@ namespace Parsek.Tests
                 switch (action.Type)
                 {
                     case GameActionType.ContractAccept:
-                        if (!float.IsNaN(action.DeadlineUT) && action.ContractId != null)
+                        if (!double.IsNaN(action.DeadlineUT) && action.ContractId != null)
                             tracked[action.ContractId] = action;
                         break;
                     case GameActionType.ContractComplete:
@@ -181,7 +181,8 @@ namespace Parsek.Tests
                 }
 
                 if (action.Type == GameActionType.ContractAccept
-                    && !float.IsNaN(action.DeadlineUT)
+                    && !double.IsNaN(action.DeadlineUT)
+                    && !ContractsModule.IsImplausibleContractDeadline(action.DeadlineUT, action.UT)
                     && action.DeadlineUT > horizon)
                 {
                     horizon = action.DeadlineUT;

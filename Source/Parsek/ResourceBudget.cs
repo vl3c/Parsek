@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using System.Globalization;
 
 namespace Parsek
@@ -17,10 +16,14 @@ namespace Parsek
 
     internal static class ResourceBudget
     {
-        private static BudgetSummary cachedBudget;
-        private static bool budgetDirty = true;
-
-        internal static void Invalidate() { budgetDirty = true; }
+        // Cleanup 2026-08-29 (RESOURCE-BUDGET-READOUTS-ARE-DEAD): ComputeTotal /
+        // ComputeTotalFullCost and the cachedBudget/budgetDirty/Invalidate cache
+        // that existed only to serve ComputeTotal are deleted. They lost their
+        // production callers on 2026-03-31 (e3723b78c) when the LedgerOrchestrator
+        // took over funds/science/reputation, and the two UI readouts they fed
+        // (Timeline "Resources", main-window "Reserved:") are deleted with them.
+        // The per-recording / per-milestone cost helpers below are kept: they are
+        // pure, still covered, and ParseCostFromDetail remains live.
 
         internal static double CommittedFundsCost(Recording rec)
         {
@@ -169,75 +172,8 @@ namespace Parsek
         }
 
         // Phase F: TreeCommittedFundsCost / Science / Reputation removed.
-        // Trees no longer track lump-sum deltas; per-recording CommittedFundsCost
-        // (etc.) is summed directly over tree.Recordings.Values in ComputeTotal.
-
-        internal static BudgetSummary ComputeTotal(
-            IList<Recording> recordings,
-            IReadOnlyList<Milestone> milestones,
-            IReadOnlyList<RecordingTree> trees = null)
-        {
-            if (!budgetDirty)
-                return cachedBudget;
-
-            budgetDirty = false;
-            var result = new BudgetSummary();
-
-            if (recordings != null)
-            {
-                for (int i = 0; i < recordings.Count; i++)
-                {
-                    // Phase F round 2: skip tree-child recordings in the flat-list
-                    // loop. RecordingStore.FinalizeTreeCommit adds every tree child
-                    // into committedRecordings AND exposes it via CommittedTrees[i]
-                    // .Recordings, so the per-tree loop below already counts it.
-                    // Without this skip, mixed-store callers (the production
-                    // `ComputeTotal(CommittedRecordings, Milestones, CommittedTrees)`
-                    // shape) double-count every tree child. The old code used
-                    // `!ManagesOwnResources` for the same skip; ManagesOwnResources
-                    // was deleted as part of Phase F, so we branch on TreeId
-                    // directly (set on every tree child — confirmed via
-                    // ChainSegmentManager.AssignTreeId and
-                    // RecordingStore.AddRecordingWithTreeForTesting).
-                    if (recordings[i] != null && recordings[i].TreeId != null)
-                        continue;
-                    result.reservedFunds += CommittedFundsCost(recordings[i]);
-                    result.reservedScience += CommittedScienceCost(recordings[i]);
-                    result.reservedReputation += CommittedReputationCost(recordings[i]);
-                }
-            }
-
-            if (trees != null)
-            {
-                // Phase F: iterate per-recording inside each tree instead of summing
-                // a tree-level delta. Each recording's CommittedFundsCost (etc.)
-                // captures its share of the tree's resource impact.
-                for (int i = 0; i < trees.Count; i++)
-                {
-                    var tree = trees[i];
-                    if (tree == null) continue;
-                    foreach (var rec in tree.Recordings.Values)
-                    {
-                        result.reservedFunds += CommittedFundsCost(rec);
-                        result.reservedScience += CommittedScienceCost(rec);
-                        result.reservedReputation += CommittedReputationCost(rec);
-                    }
-                }
-            }
-
-            if (milestones != null)
-            {
-                for (int i = 0; i < milestones.Count; i++)
-                {
-                    if (!milestones[i].Committed) continue;
-                    result.reservedFunds += MilestoneCommittedFunds(milestones[i]);
-                    result.reservedScience += MilestoneCommittedScience(milestones[i]);
-                }
-            }
-
-            cachedBudget = result;
-            return result;
-        }
+        // Trees no longer track lump-sum deltas; the per-recording
+        // CommittedFundsCost (etc.) above replaced them.
 
         // Phase F: ComputeStandaloneDelta + ResourceDelta struct removed
         // alongside ApplyResourceDeltas in ParsekFlight (no remaining callers).
@@ -263,111 +199,9 @@ namespace Parsek
         }
 
         // Phase F: FullTreeCommittedFundsCost / Science / Reputation removed.
-        // Tree-level lump-sum delta is gone; ComputeTotalFullCost iterates per
-        // recording inside each tree using FullCommittedFundsCost (etc.) directly.
-
-        internal static double FullMilestoneCommittedFunds(Milestone m)
-        {
-            if (m == null || m.Events.Count == 0) return 0;
-
-            double cost = 0;
-            for (int i = 0; i < m.Events.Count; i++)
-            {
-                var e = m.Events[i];
-                switch (e.eventType)
-                {
-                    case GameStateEventType.PartPurchased:
-                        cost += ParseCostFromDetail(e.detail);
-                        break;
-                    case GameStateEventType.FacilityUpgraded:
-                        cost += ComputeFacilityUpgradeCost(e.valueBefore, e.valueAfter);
-                        break;
-                }
-            }
-            return cost;
-        }
-
-        internal static double FullMilestoneCommittedScience(Milestone m)
-        {
-            if (m == null || m.Events.Count == 0) return 0;
-
-            double cost = 0;
-            for (int i = 0; i < m.Events.Count; i++)
-            {
-                var e = m.Events[i];
-                if (e.eventType == GameStateEventType.TechResearched)
-                    cost += ParseCostFromDetail(e.detail);
-            }
-            return cost;
-        }
-
-        internal static double FullMilestoneCommittedReputation(Milestone m)
-        {
-            // Currently no milestone event types affect reputation,
-            // but included for API symmetry with ComputeTotalFullCost.
-            return 0;
-        }
-
-        internal static BudgetSummary ComputeTotalFullCost(
-            IList<Recording> recordings,
-            IReadOnlyList<Milestone> milestones,
-            IReadOnlyList<RecordingTree> trees = null)
-        {
-            var result = new BudgetSummary();
-
-            ParsekLog.Verbose("ResourceBudget",
-                $"ComputeTotalFullCost: {recordings?.Count ?? 0} recordings, {milestones?.Count ?? 0} milestones, {trees?.Count ?? 0} trees");
-
-            if (recordings != null)
-            {
-                for (int i = 0; i < recordings.Count; i++)
-                {
-                    // Phase F round 2: skip tree-child recordings in the flat-list
-                    // loop to avoid double-counting when the caller passes both
-                    // CommittedRecordings (which includes tree children per
-                    // FinalizeTreeCommit) and CommittedTrees. Mirrors the skip in
-                    // ComputeTotal above.
-                    if (recordings[i] != null && recordings[i].TreeId != null)
-                        continue;
-                    result.reservedFunds += FullCommittedFundsCost(recordings[i]);
-                    result.reservedScience += FullCommittedScienceCost(recordings[i]);
-                    result.reservedReputation += FullCommittedReputationCost(recordings[i]);
-                }
-            }
-
-            if (trees != null)
-            {
-                // Phase F: iterate per-recording inside each tree.
-                for (int i = 0; i < trees.Count; i++)
-                {
-                    var tree = trees[i];
-                    if (tree == null) continue;
-                    foreach (var rec in tree.Recordings.Values)
-                    {
-                        result.reservedFunds += FullCommittedFundsCost(rec);
-                        result.reservedScience += FullCommittedScienceCost(rec);
-                        result.reservedReputation += FullCommittedReputationCost(rec);
-                    }
-                }
-            }
-
-            if (milestones != null)
-            {
-                for (int i = 0; i < milestones.Count; i++)
-                {
-                    if (!milestones[i].Committed) continue;
-                    result.reservedFunds += FullMilestoneCommittedFunds(milestones[i]);
-                    result.reservedScience += FullMilestoneCommittedScience(milestones[i]);
-                    result.reservedReputation += (double)FullMilestoneCommittedReputation(milestones[i]);
-                }
-            }
-
-            ParsekLog.Verbose("ResourceBudget",
-                $"ComputeTotalFullCost result: funds={result.reservedFunds:F0}, " +
-                $"science={result.reservedScience:F1}, reputation={result.reservedReputation:F1}");
-
-            return result;
-        }
+        // Cleanup 2026-08-29: FullMilestoneCommittedFunds / Science / Reputation
+        // removed with ComputeTotalFullCost - it was their only caller anywhere,
+        // production or test.
 
         internal static double ParseCostFromDetail(string detail)
         {

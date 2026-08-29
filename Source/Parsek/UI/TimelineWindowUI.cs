@@ -400,9 +400,6 @@ namespace Parsek
                 CommitWarpField();
             }
 
-            // Zone 1: Resource Budget
-            DrawResourceBudget();
-
             // Zone 2: Filter Bar
             DrawFilterBar();
 
@@ -520,11 +517,19 @@ namespace Parsek
             // Disable while a warp is already in flight (pending forward jump) or a flight
             // warp has been deferred to the Space Center, so a second click can't double-arm
             // it during the one frame before the scene exit takes over.
-            GUI.enabled = actionable
-                && !WarpToTimeRequest.HasPending
-                && !WarpToTimeRequest.HasDeferredKscWarp;
-            if (GUILayout.Button(new GUIContent("Warp to time", tooltip),
-                GUILayout.Width(FilterButtonWidth * 2f)))
+            bool warpPending = WarpToTimeRequest.HasPending;
+            bool warpDeferredKsc = WarpToTimeRequest.HasDeferredKscWarp;
+            bool warpButtonEnabled = actionable && !warpPending && !warpDeferredKsc;
+            GUI.enabled = warpButtonEnabled;
+            bool warpToTimeClicked = GUILayout.Button(new GUIContent("Warp to time", tooltip),
+                GUILayout.Width(FilterButtonWidth * 2f));
+            // The GUIContent tooltip only covers the not-actionable case; the two
+            // already-warping gates grey the button with the ENABLED wording still
+            // attached, so the carrier has to resolve the reason itself.
+            DisabledHoverEcho.CarryLastControl(
+                warpButtonEnabled,
+                WarpToTimeDisabledReason(actionable, tooltip, warpPending, warpDeferredKsc));
+            if (warpToTimeClicked)
             {
                 CommitWarpField();
                 WarpToTimeController.RequestWarp(warpYear, warpDay, warpHour, warpMinute, flight, inFlight);
@@ -1293,9 +1298,11 @@ namespace Parsek
                         }
 
                         GUI.enabled = watchButton.Enabled;
-                        if (GUILayout.Button(
+                        bool watchClicked = GUILayout.Button(
                             new GUIContent(watchButton.Label, watchButton.Tooltip),
-                            GUILayout.Width(GetRowActionButtonWidth(TimelineRowActionButtonKind.Watch))))
+                            GUILayout.Width(GetRowActionButtonWidth(TimelineRowActionButtonKind.Watch)));
+                        DisabledHoverEcho.CarryLastControl(watchButton.Enabled, watchButton.Tooltip);
+                        if (watchClicked)
                         {
                             string beforeFocus = flight.DescribeWatchFocusForLogs();
                             string beforeEligibility = flight.DescribeWatchEligibilityForLogs(recIndex);
@@ -1321,8 +1328,10 @@ namespace Parsek
                         string ffReason;
                         bool canFF = CanFastForwardNow(rec, out ffReason);
                         GUI.enabled = canFF;
-                        if (GUILayout.Button(new GUIContent("FF", canFF ? "Fast-forward to this launch" : ffReason),
-                            GUILayout.Width(GetRowActionButtonWidth(TimelineRowActionButtonKind.FastForward))))
+                        bool ffClicked = GUILayout.Button(new GUIContent("FF", canFF ? "Fast-forward to this launch" : ffReason),
+                            GUILayout.Width(GetRowActionButtonWidth(TimelineRowActionButtonKind.FastForward)));
+                        DisabledHoverEcho.CarryLastControl(canFF, ffReason);
+                        if (ffClicked)
                         {
                             ParsekLog.Info("UI",
                                 $"Timeline FF button clicked: \"{rec.VesselName}\" id={rec.RecordingId}");
@@ -1336,8 +1345,10 @@ namespace Parsek
                         string rewindReason;
                         bool canRewind = CanRewindWithResolvedSaveState(rec, out rewindReason);
                         GUI.enabled = canRewind;
-                        if (GUILayout.Button(new GUIContent("R", canRewind ? "Rewind to this launch" : rewindReason),
-                            GUILayout.Width(GetRowActionButtonWidth(TimelineRowActionButtonKind.Rewind))))
+                        bool rewindClicked = GUILayout.Button(new GUIContent("R", canRewind ? "Rewind to this launch" : rewindReason),
+                            GUILayout.Width(GetRowActionButtonWidth(TimelineRowActionButtonKind.Rewind)));
+                        DisabledHoverEcho.CarryLastControl(canRewind, rewindReason);
+                        if (rewindClicked)
                         {
                             ParsekLog.Info("UI",
                                 $"Timeline rewind button clicked: \"{rec.VesselName}\" id={rec.RecordingId}");
@@ -1352,9 +1363,15 @@ namespace Parsek
                         // Shown DISABLED rather than dropped when the row has no mission to go
                         // to (mirrors the Watch button above, and keeps the row layout stable).
                         GUI.enabled = CanGoToMission(rec);
-                        if (GUILayout.Button(
+                        bool goToClicked = GUILayout.Button(
                                 new GUIContent("GoTo", GetGoToMissionTooltip(rec)),
-                                GUILayout.Width(GetRowActionButtonWidth(TimelineRowActionButtonKind.GoTo))))
+                                GUILayout.Width(GetRowActionButtonWidth(TimelineRowActionButtonKind.GoTo)));
+                        // GUI.enabled is still the button's own value here - it is restored
+                        // to true only after the click block below. Kept in this shape so the
+                        // TimelineGoToMissionTests source gate still reads the predicate
+                        // straight off the assignment.
+                        DisabledHoverEcho.CarryLastControl(GUI.enabled, GetGoToMissionTooltip(rec));
+                        if (goToClicked)
                         {
                             tableUI.ShowMissionForRecording(entry.RecordingId);
                             ParsekLog.Verbose("Timeline",
@@ -1388,9 +1405,15 @@ namespace Parsek
                         // Shown DISABLED rather than dropped when the row has no mission to go
                         // to (mirrors the Watch button above, and keeps the row layout stable).
                         GUI.enabled = CanGoToMission(rec);
-                        if (GUILayout.Button(
+                        bool goToClicked = GUILayout.Button(
                                 new GUIContent("GoTo", GetGoToMissionTooltip(rec)),
-                                GUILayout.Width(GetRowActionButtonWidth(TimelineRowActionButtonKind.GoTo))))
+                                GUILayout.Width(GetRowActionButtonWidth(TimelineRowActionButtonKind.GoTo)));
+                        // GUI.enabled is still the button's own value here - it is restored
+                        // to true only after the click block below. Kept in this shape so the
+                        // TimelineGoToMissionTests source gate still reads the predicate
+                        // straight off the assignment.
+                        DisabledHoverEcho.CarryLastControl(GUI.enabled, GetGoToMissionTooltip(rec));
+                        if (goToClicked)
                         {
                             tableUI.ShowMissionForRecording(entry.RecordingId);
                             ParsekLog.Verbose("Timeline",
@@ -1468,11 +1491,35 @@ namespace Parsek
             flyClicked = GUILayout.Button(
                 new GUIContent("Fly", descriptor.FlyTooltip),
                 GUILayout.Width(width));
+            DisabledHoverEcho.CarryLastControl(descriptor.FlyEnabled, descriptor.FlyTooltip);
             GUI.enabled = descriptor.SealEnabled;
             sealClicked = GUILayout.Button(
                 new GUIContent("Seal", descriptor.SealTooltip),
                 GUILayout.Width(width));
+            DisabledHoverEcho.CarryLastControl(descriptor.SealEnabled, descriptor.SealTooltip);
             GUI.enabled = true;
+        }
+
+        /// <summary>
+        /// Why "Warp to time" is greyed out. Three separate gates share the one button:
+        /// the entered time may not be reachable (the planner already words that), or a
+        /// warp may already be running, or one may be waiting to resume at the Space
+        /// Center. Only the first is covered by the button's own tooltip, which still
+        /// holds the ENABLED wording in the other two. Pure for unit testing.
+        /// </summary>
+        /// <param name="planReason">
+        /// The warp planner's own refusal wording, already player-facing.
+        /// </param>
+        internal static string WarpToTimeDisabledReason(
+            bool actionable, string planReason, bool hasPendingWarp, bool hasDeferredKscWarp)
+        {
+            if (!actionable)
+                return string.IsNullOrEmpty(planReason) ? "Enter a time to warp to" : planReason;
+            if (hasPendingWarp)
+                return "A warp is already running";
+            if (hasDeferredKscWarp)
+                return "This warp continues at the Space Center";
+            return string.Empty;
         }
 
         internal static bool ShouldShowFastForwardButton(Recording rec, bool isFuture)
@@ -1718,75 +1765,6 @@ namespace Parsek
                 return -1;
             int index;
             return lookup.TryGetValue(recordingId, out index) ? index : -1;
-        }
-
-        private void DrawResourceBudget()
-        {
-            Game.Modes? currentMode = GetCurrentGameMode();
-            if (currentMode == Game.Modes.SANDBOX)
-                return;
-
-            var budget = parentUI.GetCachedBudget();
-
-            if (budget.reservedFunds <= 0 && budget.reservedScience <= 0 && budget.reservedReputation <= 0)
-                return;
-
-            var ic = System.Globalization.CultureInfo.InvariantCulture;
-            GUILayout.Space(5);
-            GUILayout.Label(
-                new GUIContent("Resources",
-                    "What is left to spend once the flights ahead of you take their share."),
-                parentUI.GetSectionHeaderStyle());
-
-            bool anyOverCommitted = false;
-            bool isScienceMode = currentMode == Game.Modes.SCIENCE_SANDBOX;
-
-            if (!isScienceMode && budget.reservedFunds > 0)
-            {
-                double currentFunds = 0;
-                try { if (Funding.Instance != null) currentFunds = Funding.Instance.Funds; } catch { }
-                anyOverCommitted |= DrawResourceLine("Funds", currentFunds, budget.reservedFunds, "N0", ic);
-            }
-
-            if (budget.reservedScience > 0)
-            {
-                double currentScience = 0;
-                try { if (ResearchAndDevelopment.Instance != null) currentScience = ResearchAndDevelopment.Instance.Science; } catch { }
-                anyOverCommitted |= DrawResourceLine("Science", currentScience, budget.reservedScience, "F1", ic);
-            }
-
-            if (!isScienceMode && budget.reservedReputation > 0)
-            {
-                float currentRep = 0;
-                try { if (Reputation.Instance != null) currentRep = Reputation.Instance.reputation; } catch { }
-                anyOverCommitted |= DrawResourceLine("Reputation", (double)currentRep, budget.reservedReputation, "F0", ic);
-            }
-
-            if (anyOverCommitted)
-            {
-                Color prev = GUI.contentColor;
-                GUI.contentColor = Color.yellow;
-                GUILayout.Label("Over-committed! Some timeline actions may fail.");
-                GUI.contentColor = prev;
-            }
-        }
-
-        /// <summary>
-        /// Draws a single resource budget line. Returns true if over-committed.
-        /// </summary>
-        private static bool DrawResourceLine(string label, double currentAmount, double reserved,
-            string format, System.Globalization.CultureInfo ic)
-        {
-            double available = currentAmount - reserved;
-            double total = currentAmount;
-            bool over = available < 0;
-            Color prev = GUI.contentColor;
-            if (over) GUI.contentColor = Color.red;
-            GUILayout.Label(new GUIContent(
-                $"{label}: {available.ToString(format, ic)} available to use ({reserved.ToString(format, ic)} committed out of {total.ToString(format, ic)} total)",
-                "Committed means already promised to recorded flights that have not run yet."));
-            GUI.contentColor = prev;
-            return over;
         }
     }
 }

@@ -692,7 +692,8 @@ namespace Parsek
 
         /// <summary>
         /// ContractAccepted -> ContractAccept (contractId=key, title/type/deadline/advance/penalties from detail).
-        /// New format (v4): "title=...;deadline=...;type=...;funds=...;failFunds=...;failRep=..."
+        /// New format (v5): "title=...;deadlineAbsUT=...;type=...;funds=...;failFunds=...;failRep=..."
+        /// v4 (<c>deadline=</c> key): the value is a DURATION, not a UT — migrated here.
         /// v3 (no type= key): backward compatible via snapshot fallback.
         /// v2 (no funds= key): backward compatible, advance defaults to 0.
         /// Legacy (v1): plain title string (no semicolons). Backward compatible.
@@ -701,12 +702,13 @@ namespace Parsek
         {
             string title;
             string contractType = null;
-            float deadlineUT = float.NaN;
+            double deadlineUT = double.NaN;
             float advanceFunds = 0f;
             float fundsPenalty = 0f;
             float repPenalty = 0f;
             bool structured = evt.detail != null && evt.detail.Contains(";");
             string typeSource = "missing";
+            string deadlineSource = "missing";
 
             // Detect structured vs legacy format by checking for semicolons
             if (structured)
@@ -717,9 +719,66 @@ namespace Parsek
                 if (!string.IsNullOrEmpty(contractType))
                     typeSource = "detail";
 
-                string deadlineStr = ExtractDetail(evt.detail, "deadline");
-                if (deadlineStr != null && deadlineStr != "NaN")
-                    float.TryParse(deadlineStr, NumberStyles.Float, IC, out deadlineUT);
+                // CONTRACT-DEADLINE-CAPTURED-AS-DURATION. `deadlineAbsUT=` is an
+                // ABSOLUTE UT (stock Contract.DateDeadline). The legacy `deadline=` key
+                // is stock's TimeDeadline, a DURATION, and stock assigns
+                // dateDeadline = dateAccepted + TimeDeadline at accept — evt.ut IS the
+                // accept UT for this event type, so the migration is exact.
+                //
+                // The discriminator has to live on the record rather than in a one-shot
+                // load-time pass: stored events are re-converted into ledger rows at
+                // arbitrary later loads by LedgerLoadMigration, so a ledger already
+                // migrated (and re-stamped) can still be handed a pre-fix event.
+                string absStr = ExtractDetail(evt.detail, "deadlineAbsUT");
+                if (absStr != null)
+                {
+                    if (absStr != "NaN")
+                    {
+                        // The return value MUST be checked. TryParse zeroes its out
+                        // parameter on failure, so ignoring it would turn an
+                        // unparseable value into DeadlineUT = 0 - a deadline at UT
+                        // zero, which persists permanently and then trips the
+                        // implausibility guard on every walk forever while the log
+                        // claimed the value parsed. Leave NaN (no deadline) and say so.
+                        double parsedAbs;
+                        if (double.TryParse(absStr, NumberStyles.Float, IC, out parsedAbs))
+                        {
+                            deadlineUT = parsedAbs;
+                            deadlineSource = "detail-absolute";
+                        }
+                        else
+                        {
+                            deadlineSource = "detail-absolute-unparseable";
+                        }
+                    }
+                    else
+                    {
+                        deadlineSource = "detail-absolute-none";
+                    }
+                }
+                else
+                {
+                    string legacyStr = ExtractDetail(evt.detail, "deadline");
+                    if (legacyStr != null && legacyStr != "NaN")
+                    {
+                        double duration;
+                        if (double.TryParse(legacyStr, NumberStyles.Float, IC, out duration)
+                            && !double.IsNaN(duration) && !double.IsInfinity(duration)
+                            && duration > 0.0)
+                        {
+                            deadlineUT = evt.ut + duration;
+                            deadlineSource = "detail-legacy-duration-migrated";
+                        }
+                        else
+                        {
+                            deadlineSource = "detail-legacy-duration-unusable";
+                        }
+                    }
+                    else if (legacyStr != null)
+                    {
+                        deadlineSource = "detail-legacy-none";
+                    }
+                }
                 // else remains NaN
 
                 // v3: contract advance payment. Older detail strings omit this key — leave at 0.
@@ -755,7 +814,8 @@ namespace Parsek
             ParsekLog.Verbose(Tag,
                 $"ConvertContractAccepted: {(structured ? "structured" : "legacy")} format " +
                 $"contractId='{evt.key}' title='{title}' type='{contractType ?? ""}' " +
-                $"typeSource={typeSource} deadline={deadlineUT} advance={advanceFunds} " +
+                $"typeSource={typeSource} deadlineAbsUT={deadlineUT.ToString("R", IC)} " +
+                $"deadlineSource={deadlineSource} advance={advanceFunds} " +
                 $"failFunds={fundsPenalty} failRep={repPenalty}");
 
             return new GameAction

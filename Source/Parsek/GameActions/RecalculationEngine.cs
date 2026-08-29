@@ -519,6 +519,10 @@ namespace Parsek
                 sorted[i].Effective = true;
                 sorted[i].EffectiveScience = 0f;
                 sorted[i].Affordable = false;
+                // Cleared alongside Affordable: the pair is what the unaffordable-re-lock
+                // guard reads, and a stale non-null marker from a previous walk would make a
+                // legitimate re-lock look like a bookkeeping shortfall.
+                sorted[i].UnaffordableRunningScience = null;
                 sorted[i].EffectiveRep = 0f;
                 sorted[i].TransformedFundsReward = sorted[i].FundsReward;
                 sorted[i].TransformedScienceReward = sorted[i].ScienceReward;
@@ -535,6 +539,16 @@ namespace Parsek
                     copy.Add(actions[i]);
             }
             return copy;
+        }
+
+        /// <summary>
+        /// Test hook over <see cref="ComputeProjectionHorizon"/>. The horizon is the seam
+        /// where a ContractAccept's deadline meets the funds projection, so it is worth
+        /// pinning directly rather than only through a full recalc.
+        /// </summary>
+        internal static double ComputeProjectionHorizonForTesting(List<GameAction> actions)
+        {
+            return ComputeProjectionHorizon(actions);
         }
 
         private static double ComputeProjectionHorizon(List<GameAction> actions)
@@ -554,7 +568,17 @@ namespace Parsek
                     hasValue = true;
                 }
 
-                if (action.Type != GameActionType.ContractAccept || float.IsNaN(action.DeadlineUT))
+                if (action.Type != GameActionType.ContractAccept || double.IsNaN(action.DeadlineUT))
+                    continue;
+
+                // CONTRACT-DEADLINE-CAPTURED-AS-DURATION degraded this horizon in BOTH
+                // directions while DeadlineUT held a duration: mid-career the duration
+                // sat BELOW the real action UTs, so pending deadlines fell outside the
+                // projection; early-career it sat far ABOVE them and blew the horizon out
+                // to ~8.2e6 for a career at UT ~8000. Capturing the absolute deadline
+                // heals both. The implausibility guard is applied here too so a value
+                // that was never a UT cannot extend the horizon at all.
+                if (ContractsModule.IsImplausibleContractDeadline(action.DeadlineUT, action.UT))
                     continue;
 
                 if (action.DeadlineUT > horizon)

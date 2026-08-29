@@ -13422,6 +13422,211 @@ namespace Parsek.InGameTests
         }
 
         /// <summary>
+        /// THE autoMerge=ON scene-exit cell (plan §7 of
+        /// docs/dev/plans/silent-full-fidelity-autocommit.md, recorded as a coverage
+        /// gap by the default-flip PR #1523 and still missing when the 2026-08-27
+        /// settings simplification made ON UNCONDITIONAL for every player). Its two
+        /// siblings in the SceneExitMerge category both force autoMerge OFF and drive
+        /// the pre-transition dialog; NOTHING exercised the shipped default until this.
+        ///
+        /// <para>What it drives: a real recording on an ORBITING vessel, then the same
+        /// stock save-and-exit-to-SpaceCenter path the dialog cells use. With autoMerge
+        /// ON, <c>SceneExitInterceptor.ShouldShowDialogBeforeSceneChange</c> returns
+        /// <c>None</c> for a non-MAINMENU destination, so there must be NO popup;
+        /// <c>ParsekFlight.CommitTreeSceneExit</c> finalizes and stashes Finalized with
+        /// stable-terminal snapshots PRESERVED (#289); and the SPACECENTER
+        /// <c>ParsekScenario.OnLoad</c> routes through
+        /// <c>AutoCommitPendingTreeOutsideFlight</c> to the SILENT FULL-FIDELITY branch.</para>
+        ///
+        /// <para>What it asserts, and why each one: (1) no ParsekMerge popup — the ON
+        /// path is silent by contract; (2) the committed leaf still carries a
+        /// <c>VesselSnapshot</c> and passes <c>MergeDialog.CanPersistVessel</c> — this
+        /// is the FULL-FIDELITY claim, and the single assertion that would red if the
+        /// ghost-only branch had run; (3) the `Silent full-fidelity auto-commit` log
+        /// line is present and `Ghost-only auto-commit` is ABSENT — the branch is named
+        /// positively AND its alternative negatively, because a tree with no snapshot
+        /// to begin with would satisfy (2)'s negation vacuously.</para>
+        ///
+        /// <para>REQUIRED CONTEXT, and why it skips rather than sets itself up: the
+        /// full-fidelity branch is only reached by a recording whose terminal state is
+        /// stable (Landed / Splashed / Orbiting — <c>CommitTreeSceneExit</c> nulls the
+        /// snapshot for every other terminal state by design), AND the tree must not be
+        /// idle-on-pad (<c>IsTreeIdleOnPad</c> auto-discards a Finalized tree that never
+        /// moved 30 m, BEFORE the commit branch). An ORBITING host satisfies both by
+        /// construction — it is stable-terminal and it covers 30 m in well under a
+        /// second — while a PRELAUNCH pad host satisfies NEITHER: staging it clears the
+        /// pad but leaves it ASCENDING at exit, which is the ghost-only-by-design half.
+        /// A pad host is therefore not a weaker version of this fixture, it is the wrong
+        /// subject, so the cell skips naming the context per the InGameFixtureMath rule
+        /// rather than asserting against an assumed one.</para>
+        ///
+        /// <para>Hidden-setting hygiene: <c>autoMerge</c> has had no player-facing UI
+        /// since the settings simplification and <c>ClampHiddenSettingsToShippingValues</c>
+        /// forces it true on every load outside an armed automation env. This cell WANTS
+        /// true, so the clamp can only agree with it — unlike the two OFF-forcing cells,
+        /// which is why they carry the "finish before a scene load" caveat and this one
+        /// does not. It still saves and restores the field in a finally, so a manual
+        /// batch on a dev instance leaves no residue.</para>
+        /// </summary>
+        [InGameTest(Category = "AutoMergeCommit", Scene = GameScenes.FLIGHT, RunLast = true,
+            AllowBatchExecution = false,
+            RestoreBatchFlightBaselineAfterExecution = true,
+            BatchSkipReason = "Isolated-run only — excluded from ordinary Run All / Run category because this test starts a real recording and exits FLIGHT through stock save-and-exit semantics under autoMerge=ON, committing a tree to the timeline. Use Run All + Isolated or the row play button in a disposable ORBITING FLIGHT session.",
+            Description = "autoMerge=ON Space Center exit commits silently and full-fidelity: no dialog, committed leaf keeps its VesselSnapshot and stays spawn-at-end eligible")]
+        public IEnumerator ExitToSpaceCenter_AutoMergeOn_CommitsSilentlyAtFullFidelity()
+        {
+            var flight = ParsekFlight.Instance;
+            InGameAssert.IsNotNull(flight, "ParsekFlight.Instance required");
+
+            Vessel vessel = FlightGlobals.ActiveVessel;
+            if (vessel == null)
+            {
+                InGameAssert.Skip("no active vessel");
+                yield break;
+            }
+            if (vessel.isEVA || vessel.vesselType == VesselType.EVA)
+            {
+                InGameAssert.Skip("requires a non-EVA active vessel");
+                yield break;
+            }
+            if (vessel.situation != Vessel.Situations.ORBITING)
+            {
+                InGameAssert.Skip(
+                    "requires an ORBITING active vessel so the scene-exit finalize produces a "
+                    + "stable-terminal recording (the only shape CommitTreeSceneExit preserves a "
+                    + "VesselSnapshot for) that is also past the 30 m idle-on-pad discard; got "
+                    + vessel.situation);
+                yield break;
+            }
+            if (flight.IsRecording)
+            {
+                InGameAssert.Skip("requires an idle vessel (recording already active)");
+                yield break;
+            }
+            if (RecordingStore.HasPendingTree)
+            {
+                InGameAssert.Skip("requires no existing pending tree");
+                yield break;
+            }
+            if (ParsekSettings.Current == null)
+            {
+                InGameAssert.Skip("ParsekSettings.Current is null");
+                yield break;
+            }
+
+            int committedTreesBefore = RecordingStore.CommittedTrees.Count;
+            bool originalAutoMerge = ParsekSettings.Current.autoMerge;
+            var captured = new List<string>();
+            var priorObserver = ParsekLog.TestObserverForTesting;
+            string treeId = null;
+            string activeRecId = null;
+
+            try
+            {
+                ParsekLog.TestObserverForTesting = line => { captured.Add(line); priorObserver?.Invoke(line); };
+                MergeDialog.DismissAndClearPendingFlag("auto-merge full-fidelity canary setup");
+                ParsekSettings.Current.autoMerge = true;
+
+                flight.StartRecording();
+                InGameAssert.IsTrue(flight.IsRecording,
+                    "ParsekFlight.StartRecording should start a live recording before the Space Center exit flow");
+
+                treeId = flight.ActiveTreeForSerialization?.Id;
+                activeRecId = flight.ActiveTreeForSerialization?.ActiveRecordingId;
+                InGameAssert.IsNotNull(treeId, "Active tree id should exist before the Space Center exit flow");
+                InGameAssert.IsNotNull(activeRecId,
+                    "ActiveRecordingId should be set before staging the Space Center exit flow");
+
+                // Dwell so the recorder banks more than one sample (its minimum interval is
+                // 200 ms) and the orbital motion carries the recording past the 30 m
+                // idle-on-pad threshold that would otherwise auto-discard the tree at the
+                // SPACECENTER OnLoad before the auto-commit branch is ever reached.
+                yield return new WaitForSeconds(3.0f);
+
+                TriggerSaveAndExitToSpaceCenter();
+
+                // The ON path is silent BY CONTRACT, and a pre-transition dialog would
+                // BLOCK the scene change (that is exactly what the two SceneExitMerge
+                // cells rely on), so watch for the popup ON THE WAY to the Space Center
+                // rather than after arriving — by then a dialog that did spawn has
+                // already been answered or destroyed and is invisible.
+                //
+                // Deliberately NOT WaitForPopupDialog: that helper calls
+                // InGameAssert.Fail on timeout, and here the timeout IS the passing
+                // outcome. Using it would make the correct behaviour red.
+                bool sawMergePopup = false;
+                float popupWatchDeadline = Time.time + 20f;
+                while (Time.time < popupWatchDeadline
+                    && HighLogic.LoadedScene != GameScenes.SPACECENTER)
+                {
+                    if (FindPopupDialog("ParsekMerge") != null)
+                    {
+                        sawMergePopup = true;
+                        break;
+                    }
+                    yield return null;
+                }
+                InGameAssert.IsFalse(sawMergePopup,
+                    "autoMerge=ON must not spawn the pre-transition merge dialog for a Space Center exit");
+
+                yield return WaitForLoadedScene(GameScenes.SPACECENTER, 20f);
+                InGameAssert.AreEqual(GameScenes.SPACECENTER, HighLogic.LoadedScene,
+                    "Save-and-exit should land at the Space Center");
+
+                InGameAssert.IsFalse(RecordingStore.HasPendingTree,
+                    "The silent auto-commit should consume the pending tree on the Space Center load");
+                InGameAssert.AreEqual(committedTreesBefore + 1, RecordingStore.CommittedTrees.Count,
+                    "The silent auto-commit should add exactly one committed tree");
+
+                RecordingTree committedTree = RecordingStore.CommittedTrees.FirstOrDefault(
+                    candidate => candidate != null && candidate.Id == treeId);
+                InGameAssert.IsNotNull(committedTree,
+                    "The silent auto-commit should commit the live tree into CommittedTrees");
+
+                Recording committedLeaf = RecordingStore.CommittedRecordings.FirstOrDefault(
+                    rec => rec != null && rec.TreeId == treeId && rec.RecordingId == activeRecId);
+                InGameAssert.IsNotNull(committedLeaf,
+                    "CommittedRecordings should contain the committed tree's active recording");
+
+                // THE assertion. AutoCommitTreeGhostOnly nulls every VesselSnapshot; the
+                // full-fidelity MergeCommit keeps the spawnable ones. A non-null snapshot
+                // here is only producible by the branch this cell exists to prove ran.
+                InGameAssert.IsNotNull(committedLeaf.VesselSnapshot,
+                    "autoMerge=ON full-fidelity commit must PRESERVE the committed leaf's VesselSnapshot "
+                    + "(a null snapshot is the ghost-only branch, which is what this cell exists to rule out)");
+                InGameAssert.IsTrue(MergeDialog.CanPersistVessel(committedLeaf, committedTree),
+                    "The committed leaf should remain spawn-at-end eligible after the silent full-fidelity commit");
+
+                bool sawFullFidelity = captured.Any(
+                    line => line.Contains("Silent full-fidelity auto-commit"));
+                bool sawGhostOnly = captured.Any(
+                    line => line.Contains("Ghost-only auto-commit"));
+                InGameAssert.IsTrue(sawFullFidelity,
+                    "Expected the autoMerge=ON exit to log the silent full-fidelity auto-commit branch");
+                InGameAssert.IsFalse(sawGhostOnly,
+                    "The autoMerge=ON exit of a stable-terminal tree must not take the ghost-only branch");
+
+                ParsekLog.Info("TestRunner",
+                    $"AutoMerge full-fidelity runtime: treeId={treeId} recId={activeRecId} "
+                    + $"terminal={committedLeaf.TerminalStateValue} "
+                    + $"committedTreesBefore={committedTreesBefore} "
+                    + $"committedTreesAfter={RecordingStore.CommittedTrees.Count}");
+            }
+            finally
+            {
+                MergeDialog.DismissAndClearPendingFlag("auto-merge full-fidelity canary cleanup");
+                if (ParsekSettings.Current != null)
+                    ParsekSettings.Current.autoMerge = originalAutoMerge;
+                ParsekLog.TestObserverForTesting = priorObserver;
+                if (RecordingStore.HasPendingTree && RecordingStore.PendingTree?.Id == treeId)
+                    ParsekScenario.DiscardPendingTreeAndRecalculate("auto-merge full-fidelity canary cleanup");
+                RemoveCommittedTreeByIdForRuntimeTest(treeId, recalculateAfterRemoval: true);
+                if (ParsekFlight.Instance != null && ParsekFlight.Instance.IsRecording)
+                    ParsekFlight.Instance.StopRecording();
+            }
+        }
+
+        /// <summary>
         /// Stock non-revert scene-exit player-flow canary. Starts a real recording,
         /// launches the active vessel far enough to avoid the idle-on-pad discard
         /// heuristic, then drives the same save-and-exit-to-SpaceCenter path that

@@ -1,0 +1,458 @@
+schema = 1
+id = "S0.10-automerge-limbo-warm-exit"
+tier = "operator"
+# THE WARM HALF of the AUTOMERGE-ON-BY-DEFAULT evidence, and the sibling S0.9 is not.
+# Read the entry in docs/dev/todo-and-known-bugs.md first, then this header.
+#
+# ##### STATUS 2026-08-29: SUBJECT FIXED, CONFIRM RE-FLY FLOWN GREEN (`2026-08-29_1202`).
+# The warm chain below was assembled, flown (`2026-08-29_1043`, PASS) and CONFIRMED: a
+# player who leaves FLIGHT within three seconds of a quickload - ENTRANCE B, no fault
+# required - reaches the auto-commit site with a parked Limbo tree, and the product
+# destroyed both snapshots with no dialog. The product fix landed on branch
+# `limbo-fidelity`: a non-re-fly Limbo tree now commits at FIDELITY through the dialog's
+# own MergeCommit. NOTHING ABOUT THE CHAIN OR THE ENTRANCE CHANGED - steps 2 and 3 are
+# untouched product behaviour, the entrance-B subject is untouched, and all ten
+# `required` tokens still describe them exactly - so this spec keeps its subject and its
+# pins and turns over from a reading run into the STANDING REGRESSION INSTRUMENT for the
+# warm half of the fix - LIVE-PROVEN in that role. What moved is step 4's OUTCOME, and
+# the present-tense sentence about it in step 4 below now describes the PRE-FIX product.
+# The post-fix reading is MEASURED in [expectations.logContracts]. The `required` tokens
+# did not move as a RESULT of the fix - only their recording COUNT did, 2 -> 4, because
+# the shared fixture grew two null-terminal leaves.
+# #####
+#
+# WHY A SECOND SPEC EXISTS. S0.9 cold-loads a save carrying a pending-Limbo tree
+# straight into the Space Center: it confirms the LOAD-PATH half only (does the tree
+# survive the schema gate / sidecar hydration / mission-prune and reach
+# `AutoCommitPendingTreeOutsideFlight` with `context=cold-load outside-flight`). It
+# says nothing about the route the 2026-08-29 review assembled from source and called
+# REACHABLE BY PLAYER ACTION, which never involves a cold load at all:
+#
+#   1. player quickloads mid-recording -> the tree is stashed pending-Limbo
+#      (ParsekFlight.cs:3094 -> :14491);
+#   2. the resume's 3-second vessel-match loop MISSES -> RestoreActiveTreeFromPending
+#      warns and gives up (ParsekFlight.cs:14104-14106, yield break at :14141). Its own
+#      parenthetical is the product telling the player what to do next: "leaving tree in
+#      Limbo (user can trigger merge dialog via scene exit)";
+#   3. the player follows that advice and exits to the Space Center - but `activeTree`
+#      is null, so `if (activeTree != null) FinalizeTreeOnSceneChange(scene)`
+#      (ParsekFlight.cs:2311) is skipped and the parked Limbo tree crosses the boundary
+#      un-finalized;
+#   4. the SPACECENTER OnLoad reaches the auto-commit site with `context=scene-exit`
+#      (ParsekScenario.cs:3889), `ShouldSilentFullFidelityCommit` returns false on
+#      Limbo, and the ghost-only branch nulls every VesselSnapshot with no dialog.
+#
+# The product's DOCUMENTED RECOVERY PATH is the silent-destruction path. This spec
+# drives steps 2 -> 3 -> 4 end to end in the shipped DLL.
+#
+# SUBJECT RELABELLED AFTER FLIGHT 1 (2026-08-29) - READ THIS BEFORE THE TOKENS. Step 2
+# above has TWO entrances, and this spec drives the SECOND one:
+#
+#   ENTRANCE A (the give-up): the 3 s match loop runs out and
+#     RestoreActiveTreeFromPending warns + `yield break`s (ParsekFlight.cs:14104-14141).
+#   ENTRANCE B (no fault required): the player LEAVES FLIGHT while the 3 s wait is still
+#     running. FinalizeTreeOnSceneChangeCore's `restoringActiveTree` early return
+#     (ParsekFlight.cs:3029-3035) correctly declines to finalize - the coroutine owns
+#     activeTree - and the coroutine is then destroyed with the scene.
+#
+# Flight 1 drove ENTRANCE B, and it did so by accident: the guid gate closed every
+# identity route on the coroutine's first iteration (so the match was already
+# impossible), but the give-up Warn only fires once the full 3 s ELAPSES, and the seam's
+# ExitToSpaceCenter arrived 0.38 s in. This spec is now pinned to entrance B on purpose.
+# That is the STRONGER of the two results: entrance B needs no match failure at all, only
+# a player who leaves within three seconds of a quickload.
+#
+# ENTRANCE A REMAINS UNDRIVEN, and cannot be driven today: it needs the exit to arrive
+# more than 3 s after FLIGHT entry, i.e. a dwell/wait seam verb. The M-C1 roster has
+# none - TimeJump is an epoch shift with frozen relative positions, not a sleep - so this
+# is a SEAM VERB GAP, noted here and on the AUTOMERGE-ON-BY-DEFAULT entry rather than
+# filed as its own todo: it blocks one pin, not a product question, and both entrances
+# end at the same ghost-only commit.
+#
+# WHAT IT DOES NOT PROVE, stated plainly so the reading is not over-claimed. It does not
+# prove step 1, and it does not prove how OFTEN either entrance is taken on an ordinary
+# flight. The parked tree here is INJECTED rather than produced by a real quickload,
+# because a race is exactly what a driven run cannot schedule. Frequency stays the open
+# question; REACHABILITY of steps 2-4 is what this measures.
+description = "Boot FLIGHT on a save carrying a pending-Limbo recording tree whose recorded vessel does not exist in that save, so every quickload-resume identity route is closed on the first iteration, then exit to the Space Center WHILE THE RESUME IS STILL WAITING - the no-fault second entrance to a parked Limbo tree - and read which branch ParsekScenario.AutoCommitPendingTreeOutsideFlight takes on the warm scene-exit path."
+instanceProfile = "stock-minimal"
+tags = ["auto-merge", "scene-exit", "pending-tree", "limbo", "resume-aborted-by-exit", "S0.10", "R4"]
+
+[fixture]
+# eva2-lko-crewed: a crewed Kerbal X orbital stage in a stable ~100 km Kerbin orbit with
+# `activeVessel = 1`, so `TestCommandLoadGame.DecideLoadRoute` takes the `Focusable`
+# branch and LoadGame lands in FLIGHT. That is load-bearing and it is also the ONLY way
+# to get there: `scene=flight` is deliberately not an accepted LoadGame argument
+# (TestCommandLoadGame.cs:117-133 accepts only spacecenter / trackstation), so a FLIGHT
+# boot is reachable only by supplying a save with a focusable active vessel. S0.7 flies
+# this same fixture for the same reason, so the route is MEASURED elsewhere rather than
+# assumed here.
+#
+# THE INJECTION SURVIVES THE VESSELS, and this is worth stating because it is the one
+# thing that could quietly turn this spec into a duplicate of S0.9. The injector's
+# `CleanSaveStart` (which strips every VESSEL block and resets `activeVessel = -1`) runs
+# ONLY when `PARSEK_INJECT_CLEAN_START` is truthy; `run.py` never passes `--clean-start`,
+# so `scripts/inject-recordings.ps1:122` sets it to "0" and the fixture's vessel and
+# `activeVessel = 1` are preserved. If that ever changes, this spec silently boots to
+# SPACECENTER and measures the cold path twice - which the required `scene=FLIGHT` token
+# in the exit pin below is what catches.
+saveTemplate = "fixtures/saves/eva2-lko-crewed"
+# WHAT FORCES THE MISS, and why this shape was chosen over the alternatives.
+# `pending-limbo-tree` authors its tree with `ActiveRecordingId` pointing at a recording
+# whose `VesselName` is "Limbo Upper" (see PendingLimboTreeFixture.cs).
+# `RestoreActiveTreeFromPending` waits up to 3 s for a LOADED vessel whose name matches
+# `activeRec.VesselName` (ParsekFlight.cs:13975, compared at :14047) - and no stock
+# fixture save contains a vessel by that name, so the match cannot succeed. The pid
+# (310002) and the derived `recordedVesselGuid` cannot match either, so every one of the
+# three identity routes misses.
+#
+# WHAT IS STRUCTURAL HERE IS THE IMPOSSIBILITY OF THE MATCH, not the give-up - a
+# distinction flight 1 forced and that the first draft of this note got wrong. The guid
+# is checked FIRST and conclusively, so all three routes are closed on the coroutine's
+# very first iteration, on every run and any hardware; that is what tokens 3a/3b pin. The
+# GIVE-UP is a different event: it fires only after the full 3 s elapses, so whether it
+# is reached depends on how quickly the exit arrives. This spec drives the exit at
+# ~0.4 s, so it never is - see "SUBJECT RELABELLED AFTER FLIGHT 1" in the header.
+#
+# REJECTED ALTERNATIVES, recorded so this is not re-litigated:
+#  - Driving a REAL quickload (StartRecording -> StopRecording -> a second LoadGame from
+#    FLIGHT). The seam CAN do this - LoadGame is AnyScene and refuses only on
+#    `recording-active` - but the resume would then MATCH (the vessel is right there,
+#    same name, same pid), which is the success path, not this one. Nothing in the seam
+#    can make a correct match fail on demand, which is precisely why the miss has to come
+#    from the fixture.
+#  - Deleting the vessel from the save instead. Same effect on the match, but it also
+#    removes the focusable vessel and sends LoadGame to SPACECENTER, collapsing this spec
+#    back into S0.9.
+injectedRecordings = "pending-limbo-tree"
+craft = []
+
+[driver]
+kind = "seam"
+# `SetSetting autoMerge=true` IS PINNED HERE, and the contrast with S0.9 (which
+# deliberately does not pin it) is a fixture fact rather than a change of mind:
+# `eva2-lko-crewed/persistent.sfs:117` carries an explicit `autoMerge = False`. The
+# hidden-settings clamp stands down under an armed automation env, so without this pin
+# the run would arrive at the site with autoMerge OFF, take the ghost-only branch for
+# `reason=not-automerge` - the PRE-FLIP behaviour, which is not this entry's subject -
+# and, worse, the warm block would spawn the deferred merge dialog instead of committing
+# at all. S0.9 measures the unpinned shipping default on a keyless fixture; this one
+# reproduces the state the clamp now puts every player in. `autoMerge` routes to
+# GameParameters only (SettingWhitelist.cs:94), so the value set here survives the
+# FLIGHT -> SPACECENTER scene change without a reload to overwrite it - and the two
+# `autoMerge=` tokens pinned below are what make that falsifiable at both ends instead
+# of assumed.
+#
+# `autoRecordOnLaunch=false` is NOT hygiene here either: a stray auto-record would create
+# a live `activeTree`, whose scene-exit finalize calls `StashPendingTree` and CLOBBERS
+# the parked Limbo tree this spec exists to observe. The forbidden token below is the
+# second line of defence on that.
+#
+# NO StartRecording, and no dwell. This spec never records anything - the subject arrives
+# pre-parked from the fixture. That is what keeps it a clean read of steps 2-4.
+steps = [
+  { cmd = "LoadGame",          args = { save = "${runSave}", name = "persistent" },     expect = "OK", budget = 300 },
+  { cmd = "SetSetting",        args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",        args = { name = "autoMerge", value = "true" },           expect = "OK" },
+  { cmd = "ExitToSpaceCenter",                                                          expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                               expect = "OK" },
+]
+
+[dimensionsCovered]
+# D14 only, and for the same reason as S0.9: which branch the auto-commit takes is what
+# this spec MEASURES, so claiming a D1 value for it would answer the question in the file
+# that asks it (claim-is-not-gate). Both values here are properties of the fixture and
+# the transition, and both are gated - `scene-flight` by the `exittospacecenter start
+# scene=FLIGHT` token, `scene-ksc` by the `complete scene=SPACECENTER game-loaded=true`
+# token. Re-read this block after flight 1 and claim off what actually appeared.
+D14 = ["kerbin", "sandbox", "scene-flight", "scene-ksc"]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING. run.py reads `expectations.allowedAnomalies`; a bare
+# `allowedAnomalies` written after an `[expectations.<sub>]` header is TOML-scoped to
+# that SUB-table and is never read. hlib.validate_spec REJECTS the misplaced form, so
+# this table must stay ahead of the sub-tables below.
+allowedAnomalies = []
+
+[expectations.recordings]
+# The two injected recordings. Branch-independent for the same reason as S0.9 - both
+# branches COMMIT both rows into the timeline, the ghost-only one nulls snapshots rather
+# than deleting rows - and ranged for the same reason: `RunOptimizationPass` runs on both
+# paths and whether `CanAutoMerge` collapses a parent/child pair across a BranchPoint has
+# never been flown. Tighten from flight 1's reading, not by argument.
+#
+# MEASURED exactly 2 on BOTH flights (`2026-08-29_1027`, the token-3 red, and
+# `2026-08-29_1043`, the green confirm) - on the OLD two-recording fixture. RE-OPENED
+# TO A RANGE 2026-08-29 because that fixture GREW to four recordings with the fidelity
+# fix (see S0.9's count block and the fixture note): the measurement answered a real
+# question for the shape it was taken on, and the two new leaves are two more pairs
+# `CanAutoMerge` has never been flown against. Re-pinning to an exact 4 by argument is
+# the "tighten by argument" this spec's own rule forbids. MEASURED 4 by the confirm
+# re-fly `2026-08-29_1202`, so the range is now the exact pin it was meant to become - no
+# pair collapsed across the four leaves.
+count = { min = 4, max = 4 }
+
+# [expectations.recordings.structure] and [expectations.rewind] are ABSENT. NEVER FLOWN:
+# every saveParse facet would be a predicted number, and a report-only block of invented
+# numbers reads like a measurement (the B21-B25 precedent). Author them from flight 1.
+# Nothing armed; ARMED_ALLOWLIST untouched.
+
+[expectations.logContracts]
+# EVIDENCE STANDING: LIVE-PROVEN PRE-FIX AND POST-FIX. Confirm re-fly
+# `2026-08-29_1202_S0.10-automerge-limbo-warm-exit`, PASS attempt 1, 55 s, every verifier
+# PASS/SKIPPED, expectations mismatches=0, zero `[Parsek][ERROR]`, clobber guard silent.
+# All ten required tokens matched at the new count, the ENTRANCE-B subject held
+# (`coroutine aborted by destroy` present, `not active within 3s` verifiably ABSENT), and
+# the fidelity fix HOLDS on the warm route with every predicted number exact:
+#
+#   TryRestoreActiveTreeNode: stashed active tree 'Limbo Stack' (4 recording(s), activeRecId=limbo_child_9b3e05d1) into pending-Limbo slot
+#   exittospacecenter start scene=FLIGHT autoMerge=true hasActiveTree=false hasPendingTree=true ... activeTreeVariant=None pendingTreeVariant=None
+#   OnDestroy: clearing stale restoringActiveTree guard (coroutine aborted by destroy)
+#   autocommit-outside-flight (scene-exit): entry tree='Limbo Stack' recordings=4 scene=SPACECENTER autoMerge=True pendingState=Limbo reFlyActive=False
+#   Limbo-preserving full-fidelity auto-commit (scene-exit, state=Limbo): tree='Limbo Stack' recordings=4 spawnable=3 snapshotsPreserved=3 snapshotsReleased=1
+#   ApplyVesselDecisions: ghost-only for 'Limbo Escaper' ..., spawn snapshot nulled, ghostVisual=True
+#   exittospacecenter complete scene=SPACECENTER game-loaded=true elapsed=1.8s
+#
+# with `Ghost-only auto-commit`, `Auto-commit tree ghost-only` and `Silent full-fidelity
+# auto-commit` ALL ABSENT (0 occurrences each). The per-leaf decisions were identical to
+# S0.9's - same fixture, and the ESCAPING leaf is the only denial - so the two routes now
+# agree leaf for leaf as well as in total, which is the strongest form of the claim.
+#
+# PRIOR STANDING (kept for the reasoning): LIVE-PROVEN PRE-FIX, PREDICTED POST-FIX.
+#
+# ================== THE PRODUCT CHANGED UNDER THIS SPEC (2026-08-29) ==================
+# The green run below proved the warm chain end to end and measured the ghost-only
+# commit destroying both snapshots. That WAS the repro the entry's escalation trigger
+# names, and the fix landed on branch `limbo-fidelity`: a non-re-fly Limbo /
+# LimboVesselSwitch tree now commits through the dialog's own `MergeDialog.MergeCommit`
+# with its snapshots PRESERVED. Only three carve-outs still reach the blanket-nulling
+# branch (autoMerge off, an active re-fly, MAINMENU). See
+# `ParsekScenario.ClassifyAutoCommitFidelity`.
+#
+# ALL TEN `required` TOKENS SURVIVE UNCHANGED, and that is the pinning rule paying off:
+# every one of them pins a step of the CHAIN (restore, dispatch, the two guid
+# rejections, the #293 skip, the destroy-abort, the two exit lines, the dangling
+# dispatch, the entry line) and not the outcome. The fix touches only what the site does
+# AFTER the entry line. `pendingState=Limbo` in token 10 is still exactly right - the
+# state is unchanged, its disposition is not - and the entrance-B subject is untouched.
+#
+# PREDICTED post-fix reading (DERIVED FROM SOURCE, NOT MEASURED - re-fly owed):
+#
+#   Limbo-preserving full-fidelity auto-commit (scene-exit, state=Limbo): tree='Limbo Stack' recordings=4 spawnable=3 snapshotsPreserved=3 snapshotsReleased=1
+#
+# ~~PREDICTED~~ MEASURED by run `2026-08-29_1202`, exactly as written, with
+# `Ghost-only auto-commit` ABSENT. SAME FIXTURE AS S0.9, including the two leaves
+# it grew with the fix, so the derivation is the same and is written out THERE rather
+# than duplicated here (a second copy of a moving derivation is a second thing to leave
+# stale). The short form: all four recordings are leaves - the tree carries no
+# BranchPoints, so `ParentRecordingId` alone does not make the root a non-leaf - and
+# root/child/coast persist while the ESCAPING leaf is ghost-only'd. Pre-fix the same
+# fixture reads `snapshotsNulled=4`. Both numbers are MACHINE-CHECKED headlessly by
+# `AutoMergeGhostOnlyReachabilityTests.PendingLimboTreeFixture_PredictedCommitNumbers_-
+# MatchTheSpecs`, so a drifted fixture reds locally rather than on this flight.
+#
+# THE RE-FLY IS WHAT CONFIRMS THIS, and it confirms the WARM half specifically: S0.9
+# re-flown proves only the cold route. If either comes back with the ghost-only line, or
+# with different numbers, the prediction is wrong and these numbers are what to correct -
+# do NOT widen them into a range to make a run green.
+# =====================================================================================
+#
+# THE PRE-FIX RUN, kept in full because it is the evidence the fix was taken against.
+# NOTE ON THE NUMBERS BELOW: they are the OLD TWO-recording fixture's. The fixture
+# grew to four leaves with the fix, so every count in this transcript reads 2 where a
+# post-fix run reads 4. Kept verbatim because a quoted run is evidence, not an
+# expectation - do not "correct" it.
+#
+# LIVE-PROVEN 2026-08-29, run
+# `2026-08-29_1043_S0.10-automerge-limbo-warm-exit`, PASS attempt 1, 54 s, every verifier
+# PASS/SKIPPED, expectations mismatches=0, zero `[Parsek][ERROR]`, clobber guard silent.
+# All TEN required tokens matched, including the four re-pointed ones - and
+# `RestoreActiveTreeFromPending: ... not active within 3s` was confirmed ABSENT, which is
+# entrance B holding exactly as the relabel says. THE WARM CHAIN IS REPRODUCIBLE:
+#
+#   RestoreActiveTreeFromPending: active vessel 'Kerbal X' ... liveGuid=... conclusively
+#     differs from recording 'limbo_child_9b3e05d1' recordedGuid=...
+#   RestoreActiveTreeFromPending: parent-walk guid gate rejected rec=limbo_ro
+#   Pending tree 'Limbo Stack' skipped - restore coroutine in progress (#293)
+#   OnDestroy: clearing stale restoringActiveTree guard (coroutine aborted by destroy)
+#   exittospacecenter start scene=FLIGHT autoMerge=true hasActiveTree=false hasPendingTree=true ...
+#   exittospacecenter complete scene=SPACECENTER game-loaded=true
+#   OnLoad: pending-Limbo tree 'Limbo Stack' deferred to OnFlightReady for quickload-resume
+#   autocommit-outside-flight (scene-exit): entry ... autoMerge=True pendingState=Limbo reFlyActive=False
+#   Ghost-only auto-commit (scene-exit, reason=state=Limbo): tree='Limbo Stack' recordings=2 snapshotsNulled=2
+#
+# FLIGHT 1 (`2026-08-29_1027`), kept because it is WHY the tokens read as they do:
+# PARSEK-FAIL attempt 1, 55 s, expectations mismatches=1. THE MISMATCH IS TOKEN 3, THIS
+# SPEC'S OWN WORDING - NOT THE PRODUCT. Six of the seven matched and THE WARM CHAIN WALKED
+# END TO END, ending in the ghost-only commit this spec exists to look for:
+#
+#   TryRestoreActiveTreeNode: stashed active tree 'Limbo Stack' (2 recording(s), ...) into pending-Limbo slot
+#   exittospacecenter start scene=FLIGHT autoMerge=true hasActiveTree=false hasPendingTree=true switchSegmentSession=false activeTreeVariant=None pendingTreeVariant=None
+#   exittospacecenter complete scene=SPACECENTER game-loaded=true
+#   OnLoad: pending-Limbo tree 'Limbo Stack' deferred to OnFlightReady for quickload-resume     <- the dangling dispatch, observed
+#   autocommit-outside-flight (scene-exit): entry tree='Limbo Stack' recordings=2 scene=SPACECENTER autoMerge=True pendingState=Limbo reFlyActive=False
+#   Ghost-only auto-commit (scene-exit, reason=state=Limbo): tree='Limbo Stack' recordings=2 snapshotsNulled=2
+#
+# Every other verifier PASS/SKIPPED, zero `[Parsek][ERROR]`, and the clobber guard did not
+# fire (no StashPendingTree overwrite), so the subject measured IS the parked fixture tree.
+#
+# WHY TOKEN 3 DID NOT FIRE, from the timeline - and it makes the reachability result
+# STRONGER, not weaker:
+#
+#   13:27:51.448  RestoreActiveTreeFromPending: waiting for vessel 'Limbo Upper' ...
+#   13:27:51.448  ... liveGuid=88a8a8a6... conclusively differs from ... recordedGuid=ecc6bdc0...
+#                 - skipping pid/name match (EVA-parent fallback still evaluated)
+#   13:27:51.448  ... parent-walk guid gate rejected rec=limbo_ro
+#   13:27:51.449  Pending tree 'Limbo Stack' skipped - restore coroutine in progress (#293)
+#   13:27:51.578  setting name=autoMerge old=false new=true      <- the fixture DID carry False
+#   13:27:51.830  recv ExitToSpaceCenter                          <- 0.38 s into a 3 s wait
+#   13:27:52.030  OnDestroy: clearing stale restoringActiveTree guard (coroutine aborted by destroy)
+#
+# The match was already impossible on the coroutine's FIRST iteration (all three identity
+# routes guid-rejected, exactly as the fixture note predicts), but the give-up Warn only
+# fires after the full 3 s ELAPSES, and the exit arrived first. So this run drove the
+# SECOND, non-fault entrance the entry documents - leaving FLIGHT during the 3 s wait, the
+# `restoringActiveTree` early return at ParsekFlight.cs:3029-3035 - rather than the give-up
+# entrance token 3 names. That entrance needs no match failure at all, only a player who
+# leaves within three seconds of a quickload.
+#
+# OPTION (a) ADOPTED 2026-08-29 by the maintainer, and confirmed green by the re-fly above:
+# token 3 was re-pointed at what this spec ACTUALLY drives (the iteration-1 guid-rejection
+# pair, the `#293` skip, and `coroutine aborted by destroy`) and the subject relabelled to
+# ENTRANCE B. Option (b) - keeping the give-up as the subject - was declined because it
+# needs the exit to arrive >3 s after FLIGHT entry, i.e. a dwell/wait seam verb that does
+# not exist (TimeJump is an epoch shift with frozen relative positions, not a sleep). That
+# gap is recorded in the header and on the AUTOMERGE-ON-BY-DEFAULT entry.
+#
+# The original PREDICTED note is kept below because its REASONING still governs the pins:
+#
+# The pinning rule is the same as S0.9's and is what keeps a green run meaningful: pin
+# the CHAIN (each step's own token, all of which are structural for this fixture) and
+# leave the OUTCOME - which branch the auto-commit takes - as a documented reading. A
+# spec that pinned the outcome would be asserting the answer it was built to discover.
+#
+# WHAT IS PINNED, in emission order, one token per step of the assembled chain:
+#
+# 1. `TryRestoreActiveTreeNode: stashed active tree ... into pending-Limbo slot` - the
+#    injected `isActive` node survived the schema gate and sidecar hydration and reached
+#    the pending slot NON-Finalized. Anti-vacuity floor: without it everything below is a
+#    reading of an empty slot. `pending-Limbo` (not `pending-LimboVesselSwitch`) because
+#    the fixture authors a non-null ActiveRecordingId, which is what the stash state is
+#    derived from.
+# 2. `OnLoad: cold-start active tree detected (state=Limbo) — deferred to OnFlightReady
+#    as Quickload` - the resume was SCHEDULED. This is what makes step 3's give-up a
+#    give-up rather than a no-op.
+# 3. THE HINGE, and it is FOUR tokens because flight 1 measured which entrance this
+#    spec actually drives (see EVIDENCE STANDING above). In emission order:
+#      3a/3b  the guid gate rejecting the ACTIVE VESSEL and then the PARENT WALK. Both
+#             fire on the coroutine's FIRST iteration, ~1 ms after it starts, with no
+#             timing dependency at all: the fixture's `recordedVesselGuid` is derived
+#             from its recording id and can never equal a live vessel's, so all three
+#             identity routes (guid, the pid/name match it gates, and the EVA-parent
+#             walk) are closed before the wait loop yields once. This pair is the
+#             deterministic heart of the spec - it proves the match was IMPOSSIBLE,
+#             which is the property the fixture exists to guarantee.
+#      3c     `Pending tree 'Limbo Stack' skipped - restore coroutine in progress
+#             (#293)` - the tree is parked and the coroutine owns it. Also immediate.
+#      3d     `OnDestroy: clearing stale restoringActiveTree guard (coroutine aborted by
+#             destroy)` - THE SECOND-ENTRANCE PROOF, and the reason this spec's subject
+#             was relabelled. The scene change killed the restore MID-WAIT, which is the
+#             `restoringActiveTree` early return at ParsekFlight.cs:3029-3035 reached
+#             from the other side. No fault is required for this entrance: the player
+#             simply left FLIGHT within three seconds of the quickload.
+#
+#    THE ONE TIMING DEPENDENCY, stated rather than hidden. 3d requires the exit to arrive
+#    before the 3 s wait elapses. Flight 1 used 0.38 s of that window (two immediate
+#    SetSetting verbs at ~130 ms each), so the margin is ~8x - but a margin is not a
+#    guarantee. If a future run is slow enough that the 3 s elapses first, 3d goes absent
+#    and `RestoreActiveTreeFromPending: ... not active within 3s` appears instead. THAT IS
+#    THE OTHER ENTRANCE - the give-up this spec originally pinned - and it is neither a
+#    defect nor a product change: both entrances end at the same ghost-only commit and
+#    the entry documents both. Report such a run as the GIVE-UP ENTRANCE FINALLY BEING
+#    DRIVEN. Do NOT widen 3d into an alternation to make it green: an alternation stops
+#    distinguishing the two entrances, and which one this spec drives IS its subject.
+# 4. `exittospacecenter start scene=FLIGHT ...` with the WHOLE guard input set. One line,
+#    three assertions: `hasActiveTree=false` proves the restore really did give up
+#    (a successful match would read true), `hasPendingTree=true` proves the Limbo tree
+#    SURVIVED the give-up rather than being discarded, and the two `variant=None` fields
+#    prove the wedge guard evaluated and found no dialog required. `scene=FLIGHT` is the
+#    fixture-route assertion (see the fixture note - a SPACECENTER boot would make this
+#    spec a duplicate of S0.9 and this token is what refuses to let that pass quietly).
+# 5. `exittospacecenter complete scene=SPACECENTER game-loaded=true` - the deferred
+#    terminal, which DecideLoadCompletion emits only once the KSC is settled with a game
+#    loaded. Simultaneously the verb's OK and the "we actually arrived" assertion.
+# 6. `OnLoad: pending-Limbo tree '...' deferred to OnFlightReady for quickload-resume` -
+#    the DANGLING DISPATCH, observed. At SPACECENTER the limbo-dispatch block
+#    (ParsekScenario.cs:3803 -> :3849) has no scene gate, so it arms an `onFlightReady`
+#    restore that can never fire, and the `pending-outside-flight` block consumes the
+#    tree ~40 lines later. Pinned because it is structural, and because it is a smell
+#    worth having a standing instrument on (see the entry's supporting-observation note).
+# 7. `autocommit-outside-flight (scene-exit): entry ...` with its whole input set. Note
+#    `context=scene-exit`, NOT `cold-load outside-flight` - that single word is what
+#    distinguishes this spec's WARM route from S0.9's cold one, and it is why both
+#    specs exist. `recordings=\d+` rather than an exact count for S0.9's reason: the
+#    count is pinned once at token 1, and a guard trimming a recording between the
+#    restore and the site is a FINDING this reading run should deliver as a reading
+#    rather than as a PARSEK-FAIL plus a burned retry.
+#
+# WHAT TO READ, and what each reading MEANS. Exactly one of these THREE follows token 7
+# (the first is new with the 2026-08-29 fix):
+#
+#   Limbo-preserving full-fidelity auto-commit (scene-exit, state=Limbo): tree='Limbo Stack' recordings=4 spawnable=3 snapshotsPreserved=3 snapshotsReleased=1
+#     -> THE FIX HOLDS on the warm route. The same chain runs - entrance B, the parked
+#        Limbo tree, the same site - and the snapshots SURVIVE the commit.
+#        `snapshotsPreserved=3` against a pre-fix `snapshotsNulled=4` is the whole
+#        confirmation; `snapshotsPreserved=0` would mean they were already gone upstream
+#        and the run measured nothing.
+#
+#   Ghost-only auto-commit (scene-exit, reason=...): tree='Limbo Stack' recordings=4 snapshotsNulled=4
+#     -> THE PRE-FIX READING. This is what run `2026-08-29_1043` measured and it is the
+#        repro the entry's escalation trigger names: steps 2-4 all ran and both
+#        full-fidelity snapshots were destroyed silently, on the exit the product's own
+#        give-up Warn recommended. AFTER THE FIX the same line means the fix did not take
+#        on the warm route, and `reason=` says which carve-out claimed it - it can no
+#        longer read `state=Limbo` (the tree state was retired from the reason
+#        vocabulary), so `not-automerge` would mean the spec's own SetSetting failed,
+#        `re-fly-active` a stray marker, `mainmenu` the wrong destination scene.
+#
+#   Silent full-fidelity auto-commit (scene-exit): tree='Limbo Stack' recordings=4 spawnable=N
+#     -> something re-finalized the tree between the give-up and the site. Name it, pin it
+#        headless. Unchanged in meaning by the fix - this is still the FINALIZED route,
+#        which this fixture should never reach.
+#
+# A run reaching token 6 but not token 7 means the pending tree was consumed between the
+# limbo dispatch and the auto-commit block - report it; the idle-on-pad discard is the
+# candidate, though it is gated on `Finalized` and should not fire on a Limbo tree.
+required = [
+  "TryRestoreActiveTreeNode: stashed active tree '.+' \\(4 recording\\(s\\), activeRecId=\\S+\\) into pending-Limbo slot",
+  "OnLoad: cold-start active tree detected \\(state=Limbo\\) . deferred to OnFlightReady as Quickload",
+  "RestoreActiveTreeFromPending: active vessel '.+' pid=\\d+ liveGuid=\\S+ conclusively differs from recording 'limbo_child_9b3e05d1' recordedGuid=\\S+",
+  "RestoreActiveTreeFromPending: parent-walk guid gate rejected rec=\\S+ \\(recordedGuid differs conclusively from live vessel\\)",
+  "Pending tree 'Limbo Stack' skipped . restore coroutine in progress \\(#293\\)",
+  "OnDestroy: clearing stale restoringActiveTree guard \\(coroutine aborted by destroy\\)",
+  "exittospacecenter start scene=FLIGHT autoMerge=true hasActiveTree=false hasPendingTree=true switchSegmentSession=false activeTreeVariant=None pendingTreeVariant=None",
+  "exittospacecenter complete scene=SPACECENTER game-loaded=true elapsed=",
+  "OnLoad: pending-Limbo tree '.+' deferred to OnFlightReady for quickload-resume",
+  "autocommit-outside-flight \\(scene-exit\\): entry tree='.+' recordings=\\d+ scene=SPACECENTER autoMerge=True pendingState=Limbo reFlyActive=False",
+]
+# The clobber guard. If anything creates a live active tree during the FLIGHT window (a
+# stray auto-record is the realistic one), its scene-exit finalize calls StashPendingTree
+# over the parked Limbo tree and this run silently measures the WRONG subject - a green
+# result about a tree nobody meant to observe. StashPendingTree's own overwrite Warn is
+# the only signal, so it is forbidden: a clobber reds naming itself instead of passing.
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "StashPendingTree\\(.*\\): overwriting existing pending tree",
+]
+
+[runtime]
+# 300 (LoadGame) + 120 (ExitToSpaceCenter) + the fast non-deferred verbs + the 3 s the
+# resume give-up deliberately spends + boot + margin. Same arithmetic as S0.7, whose
+# measured wall on this fixture was ~47 s.
+budgetSeconds = 600
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

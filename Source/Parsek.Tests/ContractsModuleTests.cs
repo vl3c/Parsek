@@ -548,14 +548,16 @@ namespace Parsek.Tests
         [Fact]
         public void DeadlineHelpers_TreatExactDeadlineAsElapsed()
         {
-            Assert.True(ContractsModule.IsBeforeContractDeadline(499.999, 500f));
-            Assert.False(ContractsModule.IsBeforeContractDeadline(500.0, 500f));
-            Assert.False(ContractsModule.IsBeforeContractDeadline(500.001, 500f));
+            const double acceptUT = 100.0;
 
-            Assert.False(ContractsModule.HasContractDeadlineElapsed(499.999, 500f));
-            Assert.True(ContractsModule.HasContractDeadlineElapsed(500.0, 500f));
-            Assert.True(ContractsModule.HasContractDeadlineElapsed(500.001, 500f));
-            Assert.False(ContractsModule.HasContractDeadlineElapsed(500.0, float.NaN));
+            Assert.True(ContractsModule.IsBeforeContractDeadline(499.999, 500.0, acceptUT));
+            Assert.False(ContractsModule.IsBeforeContractDeadline(500.0, 500.0, acceptUT));
+            Assert.False(ContractsModule.IsBeforeContractDeadline(500.001, 500.0, acceptUT));
+
+            Assert.False(ContractsModule.HasContractDeadlineElapsed(499.999, 500.0, acceptUT));
+            Assert.True(ContractsModule.HasContractDeadlineElapsed(500.0, 500.0, acceptUT));
+            Assert.True(ContractsModule.HasContractDeadlineElapsed(500.001, 500.0, acceptUT));
+            Assert.False(ContractsModule.HasContractDeadlineElapsed(500.0, double.NaN, acceptUT));
         }
 
         [Fact]

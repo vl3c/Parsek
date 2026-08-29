@@ -403,8 +403,6 @@ namespace Parsek
         // Window drag tracking for position logging
         private Rect lastRecordingsWindowRect;
 
-        private BudgetSummary cachedBudget = default(BudgetSummary);
-
         public bool IsOpen
         {
             get { return showRecordingsWindow; }
@@ -590,14 +588,6 @@ namespace Parsek
             pendingScrollToRecordingId = recordingId;
             ParsekLog.Verbose("UI",
                 $"Cross-link: scroll requested for \"{target.VesselName}\" id={recordingId}");
-        }
-
-        /// <summary>
-        /// Returns the resource budget.
-        /// </summary>
-        internal BudgetSummary GetCachedBudget()
-        {
-            return cachedBudget;
         }
 
         public void DrawIfOpen(Rect mainWindowRect)
@@ -987,6 +977,40 @@ namespace Parsek
             return "disabled (unknown)";
         }
 
+        /// <summary>
+        /// Why a Loop toggle is greyed out. Being driven by a supply route is the only
+        /// cause - the route owns the schedule, so a hand-set loop period would fight it.
+        ///
+        /// <para>A per-recording row knows WHICH route took it over and names it; the
+        /// select-all, folder and chain toggles cover many recordings at once and only
+        /// know that at least one of them is route-bound, so they state the fact without
+        /// a name. Fits the narrowest strip that renders it. Pure for unit testing.</para>
+        /// </summary>
+        /// <param name="boundRouteName">
+        /// Display name of the route driving THIS recording, or null/empty for an
+        /// aggregate toggle that spans more than one recording.
+        /// </param>
+        internal static string LoopToggleDisabledReason(string boundRouteName)
+        {
+            if (string.IsNullOrEmpty(boundRouteName))
+                return "A supply route already drives one of these flights";
+            return "Looped by route: " + boundRouteName;
+        }
+
+        /// <summary>
+        /// Why the loop-period cell is not editable. The period only means something
+        /// while the recording actually loops, and in Auto mode it is the global figure
+        /// from Settings rather than a per-recording one. Pure for unit testing.
+        /// </summary>
+        internal static string LoopPeriodDisabledReason(bool loopPlayback, bool autoUnit)
+        {
+            if (!loopPlayback)
+                return "Turn Loop on for this flight to set its period";
+            if (autoUnit)
+                return "Auto uses the shared period from Settings";
+            return string.Empty;
+        }
+
         /// <inheritdoc cref="GetWatchButtonReason"/>
         internal static string GetWatchButtonTooltip(
             bool isWatching, bool hasGhost, bool sameBody, bool inRange, bool isDebris,
@@ -1092,8 +1116,17 @@ namespace Parsek
         {
             GUILayout.BeginHorizontal(bodyCellWrapStyle, GUILayout.Width(cellWidth));
             GUILayout.Space(BodyCellButtonLeftInset);
+            // Read GUI.enabled BEFORE the draw: the Watch / Forward / Rewind call sites all
+            // restore it to true immediately after this returns, so reading it afterwards
+            // would report every button as enabled.
+            bool enabledWhenDrawn = GUI.enabled;
             bool clicked = GUILayout.Button(content, buttonStyle ?? bodyCellButtonFlush,
                 GUILayout.Width(cellWidth - BodyCellButtonLeftInset));
+            // Every greyed-out button routed through this helper already carries its own
+            // reason in content.tooltip (ffReason / rewindReason / GetWatchButtonTooltip).
+            // This is what actually gets that text to the window's help strip.
+            DisabledHoverEcho.CarryLastControl(
+                enabledWhenDrawn, content != null ? content.tooltip : null);
             GUILayout.EndHorizontal();
             return clicked;
         }
@@ -1120,11 +1153,20 @@ namespace Parsek
             float halfInner = (innerW - 4f) * 0.5f;
             GUILayout.BeginHorizontal(bodyCellWrapStyle, GUILayout.Width(cellWidth));
             GUILayout.Space(BodyCellButtonLeftInset);
-            GUI.enabled = priorEnabled && firstEnabled;
+            bool firstDrawnEnabled = priorEnabled && firstEnabled;
+            GUI.enabled = firstDrawnEnabled;
             firstClicked = GUILayout.Button(firstContent, bodyCellButtonCompact, GUILayout.Width(halfInner));
+            // Per-half carriers: the Re-Fly cell greys Fly and Seal independently and gives
+            // each its own reason, so one carrier for the whole cell would attribute the
+            // wrong half's reason to whichever the pointer is actually over.
+            DisabledHoverEcho.CarryLastControl(
+                firstDrawnEnabled, firstContent != null ? firstContent.tooltip : null);
             GUILayout.Space(4f);
-            GUI.enabled = priorEnabled && secondEnabled;
+            bool secondDrawnEnabled = priorEnabled && secondEnabled;
+            GUI.enabled = secondDrawnEnabled;
             secondClicked = GUILayout.Button(secondContent, bodyCellButtonCompact, GUILayout.Width(halfInner));
+            DisabledHoverEcho.CarryLastControl(
+                secondDrawnEnabled, secondContent != null ? secondContent.tooltip : null);
             GUI.enabled = priorEnabled;
             GUILayout.EndHorizontal();
         }
@@ -1249,8 +1291,13 @@ namespace Parsek
             GUILayout.Label(new GUIContent("Loop", loopHeaderTooltip), boldHeaderInnerLabel);
             bool prevAllLoopEnabled = GUI.enabled;
             if (headerRouteBound) GUI.enabled = false;
+            bool headerLoopDrawnEnabled = GUI.enabled;
             bool newAllLoop = GUILayout.Toggle(headerLoopAgg.AllLoop,
                 new GUIContent("", loopHeaderTooltip));
+            // The header's own tooltip is the generic what-it-does sentence, so the
+            // carrier gets the short aggregate reason instead of echoing 180 characters.
+            DisabledHoverEcho.CarryLastControl(
+                headerLoopDrawnEnabled, LoopToggleDisabledReason(null));
             GUI.enabled = prevAllLoopEnabled;
             GUILayout.FlexibleSpace();
             GUILayout.EndHorizontal();
@@ -1956,12 +2003,16 @@ namespace Parsek
                 GUILayout.FlexibleSpace();
                 bool prevRowLoopEnabled = GUI.enabled;
                 if (rowRouteBound) GUI.enabled = false;
+                bool rowLoopDrawnEnabled = GUI.enabled;
                 bool loop = GUILayout.Toggle(
                     rec.LoopPlayback,
                     rowRouteBound
                         ? new GUIContent("", $"Looped by route: {RouteBindingTooltipName(rec)}")
                         : new GUIContent("",
                             "Replay this flight on a repeating schedule. Set how often in the Period column."));
+                // Named reason: this row knows exactly which route took its loop over.
+                DisabledHoverEcho.CarryLastControl(
+                    rowLoopDrawnEnabled, LoopToggleDisabledReason(RouteBindingTooltipName(rec)));
                 GUI.enabled = prevRowLoopEnabled;
                 GUILayout.FlexibleSpace();
                 GUILayout.EndHorizontal();
@@ -2539,12 +2590,15 @@ namespace Parsek
                 GUILayout.FlexibleSpace();
                 bool prevGrpLoopEnabled = GUI.enabled;
                 if (grpRouteBound) GUI.enabled = false;
+                bool grpLoopDrawnEnabled = GUI.enabled;
                 bool newLoop = GUILayout.Toggle(
                     grpLoopAgg.AllLoop,
                     grpRouteBound
                         ? new GUIContent("", "Looped by route")
                         : new GUIContent("",
                             "Replay every recording in this folder on a repeating schedule."));
+                DisabledHoverEcho.CarryLastControl(
+                    grpLoopDrawnEnabled, LoopToggleDisabledReason(null));
                 GUI.enabled = prevGrpLoopEnabled;
                 GUILayout.FlexibleSpace();
                 GUILayout.EndHorizontal();
@@ -4100,12 +4154,15 @@ namespace Parsek
                 GUILayout.FlexibleSpace();
                 bool prevBlockLoopEnabled = GUI.enabled;
                 if (blockRouteBound) GUI.enabled = false;
+                bool blockLoopDrawnEnabled = GUI.enabled;
                 bool blockNewLoop = GUILayout.Toggle(
                     blockLoopAgg.AllLoop,
                     blockRouteBound
                         ? new GUIContent("", "Looped by route")
                         : new GUIContent("",
                             "Replay every segment of this flight together on a repeating schedule."));
+                DisabledHoverEcho.CarryLastControl(
+                    blockLoopDrawnEnabled, LoopToggleDisabledReason(null));
                 GUI.enabled = prevBlockLoopEnabled;
                 GUILayout.FlexibleSpace();
                 GUILayout.EndHorizontal();
@@ -5688,12 +5745,17 @@ namespace Parsek
                 {
                     disabledText = ParsekUI.FormatLoopValue(ParsekUI.ConvertFromSeconds(rec.LoopIntervalSeconds, rec.LoopTimeUnit), rec.LoopTimeUnit);
                 }
+                string loopOffReason = LoopPeriodDisabledReason(false, false);
                 GUILayout.TextField(disabledText, bodyCellTextFieldFlush, GUILayout.Width(valueBtnW));
+                // A TextField takes no GUIContent, so the value half of this cell could
+                // never explain itself at all before the carrier existed.
+                DisabledHoverEcho.CarryLastControl(false, loopOffReason);
                 GUILayout.Space(4f);
                 GUILayout.Button(
                     new GUIContent(ParsekUI.UnitLabel(rec.LoopTimeUnit),
                         "Period unit for this recording. Enable Loop to change it."),
                     bodyCellButtonFlush, GUILayout.Width(unitBtnW));
+                DisabledHoverEcho.CarryLastControl(false, loopOffReason);
                 GUI.enabled = true;
                 return;
             }
@@ -5708,6 +5770,7 @@ namespace Parsek
                 GUI.enabled = false;
                 var globalDisplayUnit = settings != null ? settings.AutoLoopDisplayUnit : LoopTimeUnit.Sec;
                 GUILayout.TextField(ParsekUI.FormatLoopValue(globalVal, globalDisplayUnit) + UnitSuffix(globalDisplayUnit), bodyCellTextFieldFlush, GUILayout.Width(valueBtnW));
+                DisabledHoverEcho.CarryLastControl(false, LoopPeriodDisabledReason(true, true));
                 GUI.enabled = true;
             }
             else

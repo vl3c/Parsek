@@ -2131,24 +2131,6 @@ namespace Parsek
                     unit.RecordedDeorbitUT, unit.DescentEndUT, unit.CadenceSeconds,
                     unit.DestinationBodyRotationPeriodSeconds);
 
-                // DEBUG AID (MapRenderWarpControl): register this descent's render window so the general debug warp
-                // control can decelerate into it when an agent is debugging the descent render. The window end is the
-                // LIVE-frame conversion of the recorded clip duration (triggerUT + (descentEndUT - recordedDeorbitUT));
-                // RecordedDeorbitUT/DescentEndUT are RECORDED-frame (~2.5e9) while triggerUT/liveUT are LIVE (~3.9e9),
-                // so the raw recorded end would put the window end far below any live UT (the 2026-06-20
-                // dead-warp-control bug). That recorded->live conversion is recording-schema knowledge and stays here
-                // on the descent side; the warp control takes only a plain live-frame window. Registration is cheap
-                // and unconditional (idempotent upsert keyed by the stable mission label, re-registered every frame);
-                // the warp is only ever changed inside MapRenderWarpControl.Tick, which no-ops unless BOTH the
-                // DebugWarpEnabled code flag and the map-render tracer are on (both default off). Reached in BOTH the
-                // tracking station and FLIGHT (the polyline Driver walks this resolver every frame in flight), so one
-                // call site covers both scenes.
-                double dscWindowEndLiveUT = Parsek.Reaim.DescentTrigger.DescentWindowEndLiveUT(
-                    dscTriggerUT, unit.RecordedDeorbitUT, unit.DescentEndUT);
-                MapRenderWarpControl.RegisterWatchWindow(
-                    dscTriggerUT, dscWindowEndLiveUT,
-                    $"descent.{unit.PhaseAnchorUT.ToString("R", dic)}.{unit.SpanStartUT.ToString("R", dic)}");
-
                 if (renderDescent)
                 {
                     renderHidden = false; // this member owns its slice of the re-anchored clip

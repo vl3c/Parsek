@@ -363,6 +363,40 @@ namespace Parsek.InGameTests
         /// <paramref name="hasSurface"/> is false only when the ELS itself is
         /// unavailable; an EMPTY ELS is still a surface (the ledger claims nothing,
         /// which is a real claim the diff can check).
+        ///
+        /// <para>Unaffordable rows are the reachability evidence for
+        /// UNAFFORDABLE-SCIENCE-SPENDING-SILENTLY-RE-LOCKS-A-TECH-NODE, so a nonzero reading
+        /// is promoted from Verbose to a grep-stable Info line
+        /// (<c>ScanResearchedTechIds: unaffordable-science-spending-rows-present</c>) that a
+        /// driven lane can assert on without turning Verbose on for a whole flight. The zero
+        /// case stays Verbose — it is the normal, uninteresting reading.</para>
+        ///
+        /// <para><b>The line carries TWO counts, and an arming operator must pick the right
+        /// one.</b> <c>unaffordableSkipped</c> is the RAW <c>!Affordable</c> population and is
+        /// a strict SUPERSET of what the guard acts on: it also counts rows the science walk
+        /// never dispatched (<c>ResetDerivedFields</c> seeds <c>Affordable=false</c> on every
+        /// action), rows whose node reached the patch target set anyway via the baseline or a
+        /// second affordable row, rows past whatever cutoff a given patch used, and values
+        /// left by a projection walk when read outside a walk.
+        /// <c>refusedByWalk</c> counts only rows carrying
+        /// <see cref="GameAction.UnaffordableRunningScience"/> — the positive "this walk
+        /// processed and REFUSED this row" marker, i.e. the guard-relevant population. Nonzero
+        /// <c>unaffordableSkipped</c> does NOT mean the guard fired; nonzero
+        /// <c>refusedByWalk</c> means the walk refused a spend (and the guard fires from that
+        /// population, further narrowed per-node by target-set membership and live
+        /// availability inside <c>KspStatePatcher</c>). Nothing is armed on either count
+        /// today; the natural home is the L4 ground-truth lane's logContracts block, which
+        /// already reads this harness's output, and <c>refusedByWalk</c> is the count an
+        /// arming operator almost certainly wants.</para>
+        ///
+        /// <para>The claim set below and the patcher's re-lock guard DELIBERATELY disagree
+        /// about an unaffordable row, and that disagreement is the signal, not a bug. This
+        /// scan reports what the ledger can PAY FOR (so an unaffordable row is not a claim);
+        /// the guard keeps the node RESEARCHED in the live game because taking it away would
+        /// destroy purchased parts. So a guarded node reads as a live-but-unclaimed tech in
+        /// the report-only tech facet — exactly the observable you want. Do NOT "fix" the
+        /// disagreement by adding unaffordable rows to the claim set: that would hide the
+        /// shortfall behind an agreeing diff.</para>
         /// </summary>
         private static HashSet<string> ScanResearchedTechIds(out bool hasSurface)
         {
@@ -378,6 +412,8 @@ namespace Parsek.InGameTests
 
             hasSurface = true;
             int unaffordable = 0;
+            int refusedByWalk = 0;
+            List<string> unaffordableNodeIds = null;
             foreach (var a in els)
             {
                 if (a == null) continue;
@@ -386,6 +422,14 @@ namespace Parsek.InGameTests
                 if (!a.Affordable)
                 {
                     unaffordable++;
+                    // The narrower, guard-relevant population: rows a walk actually
+                    // processed and refused, not rows merely left at the seeded false.
+                    if (a.UnaffordableRunningScience.HasValue)
+                        refusedByWalk++;
+                    if (unaffordableNodeIds == null)
+                        unaffordableNodeIds = new List<string>();
+                    if (unaffordableNodeIds.Count < 10)
+                        unaffordableNodeIds.Add(a.NodeId);
                     continue;
                 }
                 ids.Add(a.NodeId);
@@ -393,7 +437,20 @@ namespace Parsek.InGameTests
 
             ParsekLog.Verbose(Tag,
                 $"ScanResearchedTechIds: researchedNodeIds={ids.Count.ToString(IC)} " +
-                $"unaffordableSkipped={unaffordable.ToString(IC)}");
+                $"unaffordableSkipped={unaffordable.ToString(IC)} " +
+                $"refusedByWalk={refusedByWalk.ToString(IC)}");
+
+            if (unaffordable > 0)
+            {
+                // unaffordableSkipped is the RAW superset; refusedByWalk is the
+                // guard-relevant population. See the doc comment before arming either.
+                ParsekLog.Info(Tag,
+                    "ScanResearchedTechIds: unaffordable-science-spending-rows-present: " +
+                    $"unaffordableSkipped={unaffordable.ToString(IC)}, " +
+                    $"refusedByWalk={refusedByWalk.ToString(IC)}, " +
+                    $"researchedNodeIds={ids.Count.ToString(IC)}, " +
+                    $"unaffordableNodeIds=[{string.Join(", ", unaffordableNodeIds.ToArray())}]");
+            }
 
             return ids;
         }

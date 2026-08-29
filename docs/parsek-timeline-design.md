@@ -238,7 +238,7 @@ All remaining entry types: resource transactions (science/funds/rep earning and 
 
 Zones, top to bottom:
 
-**Zone 1: Resource Budget** - reserved vs. available funds/science/reputation. Hidden in sandbox, science-only in science mode.
+**Zone 1: Resource Budget** - REMOVED 2026-08-29. It read `ParsekUI.GetCachedBudget()`, which had returned an all-zero struct since 2026-03-31 (`e3723b78c`), so the zone never drew. Reserved-vs-available now lives on the stock currency widgets (`KspStatePatcher.PatchFunds` writes them reservation-net; `CurrencyReservationOverlay` decomposes Total / Reserved on hover). See RESOURCE-BUDGET-READOUTS-ARE-DEAD in `docs/dev/todo-and-known-bugs.md`.
 
 **Zone 2: Filter Bar** - tier selector (Overview / Detail) plus two action-tier presets (Rewind/FF, Re-Fly) that restrict the list to rows carrying those buttons; source toggles (Recordings / Actions / Events). All toggle states reflected in footer counts.
 

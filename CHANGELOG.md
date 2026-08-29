@@ -6,6 +6,26 @@ All notable changes to Parsek are documented here.
 
 ## 0.10.4
 
+### Added
+
+- Greyed-out buttons now say why. Hover one and the help strip along the bottom of
+  that window (the same strip that already explains what a live control does) tells
+  you what is standing in the way, in a few words: "Stop recording before rewinding",
+  "Looped by route: Minmus Ore Run", "Nothing from this mission is flying right now",
+  "Too far away to spawn". Most of those sentences already
+  existed in the mod and simply never reached you: the Rewind, Forward, Watch and
+  Re-Fly buttons have been working out a precise reason for a long time and
+  attaching it to a control that had no way to speak while it was greyed out. That
+  text is now delivered. Buttons that had never had a reason at all got one
+  written for them, including both Wipe buttons in Settings, the Real Spawn
+  Control launcher and its per-craft warp buttons, a mission's Delete, Watch and
+  "Warp to...", the Logistics Link and mission-log buttons, and the loop-period
+  box, which is a plain text field and so had never been able to carry a hint of
+  any kind. A few of these were quietly misleading before rather than merely
+  silent - the Timeline's "Warp to time" and a mission's "Warp to..." both went
+  grey while still showing the sentence that describes them working normally, so
+  the reason you were shown was for a state you were not in.
+
 ### Changed
 
 - The Gloops Flight Recorder button and window are gone from the Parsek UI. The
@@ -16,6 +36,36 @@ All notable changes to Parsek are documented here.
   play back as ghosts, and still stay invisible to your career.
 
 ### Fixed
+
+- A flight interrupted by a quickload no longer loses its vessels when you leave the scene. Quickloading mid-flight parks the mission to one side while Parsek waits a few seconds to recognise the craft you land back on. If that recognition misses - or you simply head for the Space Center before those few seconds are up - the mission stays parked, and the note Parsek writes at that point tells you to leave the scene to sort it out. Doing exactly that used to commit the mission as ghosts only: the trail still played back, but every craft in it was stripped of the record needed to bring it back as a real vessel. That commit now keeps those records, using the same rules as the "Merge to Timeline" button - each surviving craft that can come back does, and only the ones that could never have appeared anyway (a craft caught mid-descent, say) are left as ghosts, with their appearance preserved for playback. Two cases deliberately keep the old behaviour: a Re-Fly session, whose merge is still yours to confirm, and quitting to the main menu, where nothing is going to be spawned anyway.
+
+- A tech node you have researched can no longer be quietly re-locked because Parsek's own bookkeeping came up short. Parsek keeps a running reconstruction of your career's science, and when it replays your history it re-derives which nodes the R&D tree should show as unlocked. If that reconstruction ever arrived at a node's purchase with less science in hand than the node cost, it refused to charge you - correctly - but then treated the node as never bought and stripped it out of the tree. That took the parts you had already paid entry costs for with it, with no way to get them back short of paying again, and the tree repainted itself into a state that looked perfectly normal, so the only sign was parts missing in the VAB. Nothing about it was limited to rewinding: any ordinary replay could reach it, including the ones that run when you load a save, recover a craft, roll out a vessel or spend at the KSC. Parsek now refuses to take a researched node away on that evidence. When the history it is replaying still says you researched a node and the only obstacle is a shortfall in its own arithmetic, it keeps the node, keeps the parts, and writes a loud, specific line to the log naming the node, its cost and the shortfall. Re-locking a node for a real reason - rewinding to before you researched it, for instance - works exactly as before.
+
+- Long careers no longer silently lose accepted contracts. Parsek stored the wrong
+  number when you accepted a contract: it wrote down how LONG you had to finish it
+  instead of the date it was due, and then read that number back as a date. Early in
+  a career the two look similar enough that nothing went wrong. Once your career had
+  been running longer than a typical deadline is long - roughly one Kerbin year for a
+  one-year contract - every accepted contract suddenly read as already overdue, and
+  the next thing you did in the game, anything at all, made it vanish from Mission
+  Control. No failure message, no red notification, no entry in the contract history:
+  it was simply gone. Contracts now record the real due date, and the funds projection
+  that quietly leans on the same number is correct too. Careers saved before this fix
+  are repaired automatically the first time they load, using the date the contract was
+  accepted, and the repair is stamped so it happens exactly once and says in the log
+  what it did. A contract with no deadline is left alone. Parsek also now refuses
+  outright to expire a contract on a due date that falls before the moment it was
+  accepted, and says so in the log, so a number that was never a date can no longer
+  delete anything.
+
+  If this already happened to your career, the contracts come back. Parsek was never
+  writing the failure down - it was re-deciding, wrongly, every time it recalculated -
+  and it keeps a copy of each contract exactly as the game handed it over when you
+  accepted it. So the contracts you lost are restored the first time the fixed version
+  recalculates your career, with their real deadlines, rewards and penalties intact.
+  Two honest caveats: a contract belonging to a mod you have since uninstalled cannot
+  be rebuilt, and progress you would have made while it was missing is not invented -
+  it comes back in the state it was in when it disappeared.
 
 - Harvesting on a landed mining rig is now recorded correctly across time warp. Parsek brackets resource harvesting into windows - one opens when a converter or drill starts and closes when it stops - so a later delivery can tell mined cargo apart from carried cargo. Those windows must never open or close while the craft is packed away under warp, because the resource figures readable there are whatever the game last caught up to rather than anything Parsek watched. For a craft in orbit that rule held. For a LANDED, splashed or on-the-pad craft it did not: the game leaves a surface craft where it is under warp, so Parsek's own on-rails bookkeeping is deliberately never switched on for it, and the check meant to keep the harvest poll off warp frames read "not warping" for the entire warp. Two things went wrong as a result, and both are fixed. The poll ran on packed frames and could open or close a window off resource figures nobody witnessed - it now sits out every packed frame, judged by whether the craft is actually packed rather than by that bookkeeping. And the note that says "the next harvesting decision belongs to the moment warp ended" was being used up by the first idle frame after the warp instead of by the decision it was meant for, so a drill switched off during a warp had its window closed and labelled an ordinary mid-flight toggle. That note now survives an idle frame, is set when warp ends (including for the surface craft whose warp exit had never set it at all), and expires a few seconds later - long enough for the close a real warp exit produces, short enough that a toggle you make minutes afterwards is no longer blamed on the warp.
 
@@ -49,6 +99,38 @@ All notable changes to Parsek are documented here.
   deleted. Missions already lost this way cannot be recovered by the update; they
   are recoverable from a quicksave or one of the automatic backups.
 
+- Discarding a flight no longer leaves orphan files behind in your save folder.
+  If you had quicksaved and reloaded during the flight, Parsek had already
+  written that flight's recording files to disk, and throwing the flight away
+  only cleared it out of memory - the files stayed. In the common case where
+  that was your only Parsek recording, nothing could ever clean them up either,
+  because the cleanup pass deliberately refuses to touch a recordings folder it
+  cannot account for. Discarding a flight now clears out the files for exactly
+  the recordings it just threw away, and only those: anything still belonging to
+  a saved mission is left strictly alone, and a discard made in the middle of a
+  Re-Fly or a merge deletes nothing at all, because those are the moments when
+  the flight you are discarding is holding the only copy of a real mission's
+  files. If a file happens to be locked when the discard runs, the discard still
+  completes as before and the file is simply left where it was.
+
+- Leaving a flight for the tracking station, the space centre, or another flight
+  and then saving used to wipe the recorded outcome - crashed, or recovered - of
+  every piece of debris Parsek had put back into the world during that flight.
+  The debris kept its trajectory and its place in the mission tree, but the save
+  no longer said how it ended, so the recordings table, the mission summaries and
+  the career bookkeeping all saw it as unclassified. Visit the tracking station
+  and quit, and a real save lost the same thing. What went wrong: leaving a
+  flight runs a reset that deliberately forgets that outcome, because after a
+  Revert those vessels never existed - and the step that puts every other detail
+  back from the save had nothing to put the outcome back with. It does now.
+  Revert is unchanged: there the outcome is meant to be forgotten, and still is.
+  One knock-on worth knowing about: because the outcome survives the scene change
+  now, the career bookkeeping that keys off it - recovery payouts, crew end
+  states, mission timelines - is applied after a scene change too, where before
+  it was quietly skipped. That is the same answer you already got by quitting and
+  loading the save fresh, and the bookkeeping is recomputed from scratch every
+  time rather than added up, so nothing is credited twice.
+
 - Every time a recorded flight crossed from one planet's or moon's area of
   influence into another while on rails, the recorder built a second, completely
   empty slice of timeline sitting exactly on top of the real one. That slice
@@ -67,7 +149,76 @@ All notable changes to Parsek are documented here.
   on disk are not rewritten by this change; they are still repaired the next
   time something saves them.
 
+- A housekeeping pass that runs whenever a save loads or a flight is committed
+  was quietly rearranging recordings in memory and then not saving them. The
+  pass looks for recordings worth splitting at a phase boundary, and before it
+  can look it has to tidy the recording's internal list of timeline slices - a
+  tidy-up that can add, trim, drop and re-order slices. It was doing all of that
+  while flagged as "just looking", so the tidied version lived only in memory
+  and whatever the next unrelated save happened to write was a state nobody
+  chose. The tidy-up is now honest: when it actually changes something it says
+  so, the recording is queued for saving, and the same housekeeping pass writes
+  it out before it finishes. Recordings it does not change are still left
+  untouched, byte for byte.
+
+- Re-ordering those timeline slices could also leave a recording's derived
+  drawing data pointing at the wrong slice. The smoothed paths Parsek fits
+  through recorded flights - and the small position corrections that ride along
+  with them - are filed by slice POSITION, so inserting or dropping a slice
+  renumbered everything after it while the fitted paths stayed put. The path
+  fitted for one stretch of a flight could silently start being applied to a
+  different stretch, and nothing in the freshness checks could notice. Both are
+  now dropped together whenever the tidy-up moves a slice, and rebuilt from
+  scratch the next time the recording is loaded or saved - which, thanks to the
+  fix above, is immediately on the housekeeping route. In the gap between the
+  drop and the rebuild, replayed ghosts are placed by the older, slightly
+  coarser method instead of the smoothed one; that is the trade, because the
+  alternative was a smooth path drawn confidently through the wrong part of the
+  flight. A cached file whose slice numbers have run off the end of the
+  recording is also refused outright on load now, instead of being trusted.
+
 ### Dev
+
+- Removed the two resource-budget readouts that had not drawn since 2026-03-31: the
+  Timeline window's "Resources" section and the main window's "Reserved:" bullet list.
+  Both read `ParsekUI.GetCachedBudget()`, which forwarded to a `RecordingsTableUI` field
+  that was never assigned after `e3723b78c` handed funds/science/reputation to the
+  LedgerOrchestrator, so both guarded out on an all-zero struct on every frame. No player
+  ever saw either one render, and the information itself did not go anywhere - the stock
+  currency widgets have carried it reservation-net since that same change, with the
+  Total/Reserved breakdown on hover. Deleted with them: `ResourceBudget.ComputeTotal` and
+  `ComputeTotalFullCost` (no production callers), the dirty-flag cache that existed only
+  to serve them, the three milestone full-cost helpers only `ComputeTotalFullCost` called,
+  and 31 xUnit cells that asserted through the pair. `BudgetSummary` and
+  `ResourceBudget.ParseCostFromDetail` stay - both have live consumers elsewhere. The user
+  guide's "Resource Budget" section now describes the stock-widget hover that actually
+  ships instead of a UI that stopped existing.
+
+- When Parsek finishes with a mission and files it away outside the flight scene,
+  it now writes down what it was looking at before it decides how. There are two
+  ways it can file a mission: the careful one, which keeps each surviving ship
+  whole so it can be put back in the world later, and the light one, which keeps
+  only the replay and throws the ship away. Which one it picks depends on four
+  things about that moment - the scene, the setting, the state the mission was
+  parked in, and whether a re-flight is in progress - and none of them were ever
+  written down. The log only ever showed the answer, which meant a log where the
+  decision never happened at all looked exactly like a log where it happened and
+  chose the careful path. Now the four go down on one line before the choice is
+  made, and when the light path is taken it also reports how many ships it
+  actually gave up, so a run that gave up nothing reads differently from one that
+  gave up three. The fourth case - reaching that moment with nothing to file at
+  all - now says so in the same words as the other three, so one search of the log
+  turns up every occasion instead of three out of four. Nothing about the
+  behaviour changed; this is so a question that has been open since that setting
+  became the default can be answered by reading a log instead of by arguing about
+  the code.
+
+- The six supply-route test runs now go every night along with the rest. They
+  were being held back for a decision rather than for a problem: each one had
+  already been run unattended and had its expected result written down, and all
+  that was left was someone choosing whether tests this large belong on a nightly
+  schedule. That choice has now been made, so they run on the same cadence as
+  every other in-game test run instead of only when someone asks for them.
 
 - Fourteen more of Parsek's in-game self-tests can now be run automatically. The
   mod ships a large set of tests that only mean anything inside a running game -
@@ -264,6 +415,43 @@ All notable changes to Parsek are documented here.
   design, because they deliberately start from a save with no recorded flights
   in it at all and that check needs one.
   Test-tooling only; no gameplay change, and nothing ships with the mod.
+
+- Four long-standing sources of log noise are gone, which matters because the
+  log file is how every problem in Parsek gets diagnosed and a log that is mostly
+  chatter hides the one line that explains a bug. The biggest was the engine-part
+  inspection dump, which wrote a separate line for every single piece of an
+  engine's model - hundreds of lines for a handful of parts; it now writes the
+  whole tree as one line, with nothing left out. Each part being copied into a
+  ghost also described itself twice, in two lines that between them said the same
+  thing; they are one line now. Saving a recording wrote a line for every slice
+  of timeline that came from somewhere other than the ship you were flying; that
+  is now a single line at the end naming all of them. And the space centre wrote
+  a full announcement for each finished flight it decided it did not need to put
+  a ship down for - the ordinary outcome, and the thing detailed logging exists
+  for, so it moved down to detailed. One noisy line on the list was left exactly
+  as it is on purpose: it is the only evidence an automated test has that a
+  recorded part action was actually applied to a ghost, and quieting it would
+  blind that test. Nothing about what Parsek does changed - only how much it
+  says while doing it.
+
+- Quitting the game while watching a ghost no longer leaves an error in the log
+  file. Watch mode puts the camera back where it found it on the way out, and
+  when the way out is the game shutting down, it was asking which ship the
+  player is flying at a moment when the game has already thrown that answer
+  away - so every session that ended inside watch mode wrote one red-looking
+  Parsek line into the log. Nothing was ever broken by it: it happened after the
+  last frame of play, and the code was already prepared for there being no ship
+  to point the camera at. But an expected error line is the worst kind to leave
+  in a log, because it teaches everyone reading the log to skip that shape of
+  line. The camera restore now treats "the game is already gone" as one more
+  ordinary way to have no ship, and says so quietly in the detailed log instead.
+  One more effect worth naming: that error used to escape and cut short
+  everything Parsek does on the way out - putting ghost models and map markers
+  away, releasing the keyboard, disconnecting the replay machinery - so in this
+  one situation, ending a session while watching a ghost, all of that now
+  finishes instead of stopping half-done. Nothing a player does changes, and the
+  game was closing either way.
+
 - Parsek builds a standing exhibition of every part it knows how to draw: 243
   little one-part replays, one per part, lined up in three rows in front of the
   launch pad, each running a short clip that works that part's own moving bits -
@@ -818,6 +1006,37 @@ All notable changes to Parsek are documented here.
   genuine burn across an SOI crossing still splits, deliberately. Existing saves
   that were already split stay split (the halves are not re-merged); re-recording
   or a fresh mission gets the fixed behaviour.
+
+- **The safety copy Parsek makes of your save the first time it opens it now says
+  so properly in the log, and checks its own work.** The first time Parsek loads a
+  save it has never seen, it copies that save - untouched - into a second folder
+  you can go back to if you ever decide Parsek is not for you. That has always
+  worked, but the log line it wrote said only which folder it made, and the line
+  it wrote when it decided NOT to copy again was written at the quietest level and
+  did not even name the save. Both now read the same way as every other decision
+  in that code: one line, naming the save and the reason, at a level that is on by
+  default. The copy also verifies itself now. Having moved the folder into place,
+  Parsek re-opens the copy it just made and confirms the save inside it really is
+  free of Parsek's own data - the whole promise of the thing - and says so on the
+  same line. That check has three answers, not two, and the difference decides how
+  loudly it speaks: clean, dirty, or could-not-tell. Dirty is a loud error naming
+  what it found. Could-not-tell - the file would not open or would not parse - is
+  only a warning saying the copy went unchecked, because that says nothing about
+  the copy itself, and nothing ever comes back to look again. The folder is kept in
+  every case: a copy that is not perfectly clean is still your save, and making it
+  again would only produce the same file. No change to when the copy happens or
+  what goes into it.
+
+  Behind that, the four things about this feature that had only ever been checked
+  by hand - the copy really does happen before Parsek writes anything, the folder
+  really does turn up beside your other saves with everything the game needs to
+  list it, loading again never makes a second copy, and a brand-new empty career
+  is left alone - are now checked by the automated test rig instead of by a
+  person reading a checklist. That needed a save that has never met Parsek but is
+  not empty either, which nothing in the test library had; two are now built from
+  existing ones and kept in step automatically. The one thing still left to a
+  human eye is whether the folder READS well in the load menu, which no test can
+  judge.
 
 ### Features
 

@@ -125,6 +125,17 @@ namespace Parsek
         internal SpawnControlUI GetSpawnControlUI() { return spawnControlUI; }
         internal TestRunnerUI GetTestRunnerUI() { return testRunnerUI; }
 
+        /// <summary>
+        /// Why the Real Spawn Control launcher is greyed out. The window turns a recorded
+        /// craft that is passing close by into a real vessel, so with nothing in range
+        /// there is nothing for it to act on. Written to the main window's 62-character
+        /// help strip, the narrowest in the mod. Pure for unit testing.
+        /// </summary>
+        internal static string SpawnControlLauncherDisabledReason(int nearbyCount)
+        {
+            return nearbyCount > 0 ? string.Empty : "No recorded craft is passing nearby";
+        }
+
         // Runtime-only empty groups — delegated to RecordingsTableUI
         internal List<string> KnownEmptyGroups => recordingsTableUI.KnownEmptyGroups;
 
@@ -634,22 +645,12 @@ namespace Parsek
             return next == UiComplexityMode.Basic && gloopsRecording;
         }
 
-        /// <summary>
-        /// Returns the resource budget.
-        /// </summary>
-        internal BudgetSummary GetCachedBudget()
-        {
-            return recordingsTableUI.GetCachedBudget();
-        }
-
         public void DrawWindow(int windowID)
         {
             GUILayout.BeginVertical();
 
             if (InFlight)
                 DrawFlightStatus();
-
-            DrawCompactBudgetLine();
 
             GUILayout.Space(SpacingLarge);
 
@@ -676,11 +677,14 @@ namespace Parsek
             {
                 int spawnCount = flight.NearbySpawnCandidates.Count;
                 GUI.enabled = spawnCount > 0;
-                if (GUILayout.Button(new GUIContent(
+                bool spawnControlClicked = GUILayout.Button(new GUIContent(
                     string.Format(
                         System.Globalization.CultureInfo.InvariantCulture,
                         "Real Spawn Control ({0})", spawnCount),
-                    "Turn a recorded craft passing nearby into a real vessel.")))
+                    "Turn a recorded craft passing nearby into a real vessel."));
+                DisabledHoverEcho.CarryLastControl(
+                    spawnCount > 0, SpawnControlLauncherDisabledReason(spawnCount));
+                if (spawnControlClicked)
                 {
                     spawnControlUI.IsOpen = !spawnControlUI.IsOpen;
                     ParsekLog.Verbose("UI",
@@ -927,32 +931,6 @@ namespace Parsek
         public void LogMainWindowPosition(Rect currentRect)
         {
             LogWindowPosition("Main", ref lastMainWindowRect, currentRect);
-        }
-
-        private void DrawCompactBudgetLine()
-        {
-            var budget = GetCachedBudget();
-
-            if (budget.reservedFunds <= 0 && budget.reservedScience <= 0 && budget.reservedReputation <= 0)
-                return;
-
-            var ic = System.Globalization.CultureInfo.InvariantCulture;
-            var parts = new List<string>();
-            if (budget.reservedFunds > 0)
-                parts.Add(budget.reservedFunds.ToString("N0", ic) + " funds");
-            if (budget.reservedScience > 0)
-                parts.Add(budget.reservedScience.ToString("F1", ic) + " science");
-            if (budget.reservedReputation > 0)
-                parts.Add(budget.reservedReputation.ToString("F0", ic) + " reputation");
-
-            if (parts.Count > 0)
-            {
-                GUILayout.Label(new GUIContent(
-                    "Reserved:",
-                    "Held back for recorded flights that have not happened yet."));
-                for (int i = 0; i < parts.Count; i++)
-                    GUILayout.Label("  \u2022 " + parts[i]);
-            }
         }
 
         public void DrawTimelineWindowIfOpen(Rect mainWindowRect)

@@ -6257,6 +6257,110 @@ namespace Parsek.Tests
         }
 
         /// <summary>
+        /// Injects the AUTOMERGE-ON-BY-DEFAULT pending-Limbo fixture: ONE recording
+        /// tree written under the production <c>isActive</c> RECORDING_TREE marker,
+        /// which is the only on-disk shape that restores as a NON-Finalized pending
+        /// tree (<c>ParsekScenario.TryRestoreActiveTreeNode</c> -&gt;
+        /// <c>PendingTreeState.Limbo</c>). Harness-callable via
+        /// <c>dotnet test --filter InjectPendingLimboTree</c> (the
+        /// <c>pending-limbo-tree</c> injection preset). Same env contract as
+        /// <see cref="InjectAllRecordings"/> (PARSEK_INJECT_SAVE_NAME / _TARGET_SAVE /
+        /// _CLEAN_START); no RewindPoint and therefore no RP quicksave sidecar.
+        ///
+        /// <para>See <see cref="Generators.PendingLimboTreeFixture"/> for why the
+        /// marker IS the fixture, and the S0.9 scenario for what a run of it reads.</para>
+        /// </summary>
+        [Trait("Category", "Manual")]
+        [Fact]
+        public void InjectPendingLimboTree()
+        {
+            string saveName = System.Environment.GetEnvironmentVariable("PARSEK_INJECT_SAVE_NAME")
+                ?? "pending-limbo-tree-fixture";
+            string targetSave = System.Environment.GetEnvironmentVariable("PARSEK_INJECT_TARGET_SAVE")
+                ?? "1.sfs";
+            string kspRoot = ResolveKspRoot();
+            string cleanEnv = System.Environment.GetEnvironmentVariable("PARSEK_INJECT_CLEAN_START");
+            bool cleanStart = cleanEnv == null || IsTruthy(cleanEnv);
+
+            string saveDir = Path.Combine(kspRoot, "saves", saveName);
+            string[] targets = { "persistent.sfs", targetSave };
+
+            string targetPath = Path.Combine(saveDir, targetSave);
+            if (!File.Exists(targetPath))
+                return;
+
+            // Same guarded purge as InjectAllRecordings: refuse when KSP.log is
+            // locked by a live session so the inject never races the game.
+            var purgeWriter = new ScenarioWriter();
+            if (!purgeWriter.TryPurgeRecordingSidecarsForInject(
+                    cleanStart ? saveDir : null,
+                    Path.Combine(kspRoot, "KSP.log"),
+                    out string limboRefusalMessage))
+                throw new Xunit.Sdk.SkipException(limboRefusalMessage);
+
+            if (cleanStart)
+            {
+                foreach (string file in targets)
+                {
+                    string sp = Path.Combine(saveDir, file);
+                    if (File.Exists(sp))
+                        CleanSaveStart(sp);
+                }
+            }
+
+            double limboBaseUT = ReadUTFromSave(targetPath);
+
+            var writer = new ScenarioWriter().WithV3Format();
+            Generators.PendingLimboTreeFixture.PopulateWriter(writer, limboBaseUT);
+
+            foreach (string file in targets)
+            {
+                string savePath = Path.Combine(saveDir, file);
+                if (!File.Exists(savePath))
+                    continue;
+
+                string tempPath = savePath + ".tmp";
+                try
+                {
+                    writer.InjectIntoSaveFile(savePath, tempPath);
+
+                    string content = File.ReadAllText(tempPath);
+                    Assert.Contains("name = ParsekScenario", content);
+                    Assert.Contains(
+                        "vesselName = " + Generators.PendingLimboTreeFixture.RootVesselName, content);
+                    Assert.Contains(
+                        "vesselName = " + Generators.PendingLimboTreeFixture.ChildVesselName, content);
+                    // The marker IS the fixture: without this key the tree round-trips
+                    // as a plain committed node and the run measures nothing. Asserted
+                    // on the written bytes, not on the builder, so a ScenarioWriter
+                    // regression that dropped the marker reds HERE rather than turning
+                    // the driven read silently vacuous.
+                    Assert.Contains(
+                        Generators.PendingLimboTreeFixture.TreeMarkerKey + " = True", content);
+
+                    File.Copy(tempPath, savePath, overwrite: true);
+                }
+                finally
+                {
+                    if (File.Exists(tempPath))
+                        File.Delete(tempPath);
+                }
+            }
+
+            // Fail-closed postcondition mirror: run.py checks the .prec sidecars for
+            // this preset, so assert here too that the injector actually wrote them.
+            string recordingsDir = Path.Combine(saveDir, "Parsek", "Recordings");
+            Assert.True(
+                File.Exists(Path.Combine(
+                    recordingsDir, Generators.PendingLimboTreeFixture.RootRecordingId + ".prec")),
+                "pending-limbo-tree root sidecar missing under " + recordingsDir);
+            Assert.True(
+                File.Exists(Path.Combine(
+                    recordingsDir, Generators.PendingLimboTreeFixture.ChildRecordingId + ".prec")),
+                "pending-limbo-tree child sidecar missing under " + recordingsDir);
+        }
+
+        /// <summary>
         /// Injects the B9 rewindable-tree fixture (committed tree with a crashed
         /// booster sibling + a Rewind-to-Separation RewindPoint) into the target
         /// save, the way <see cref="InjectAllRecordings"/> injects the full corpus.

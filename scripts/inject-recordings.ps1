@@ -20,6 +20,7 @@ $injectFilterByPreset = @{
     "refly-world-preservation" = "InjectReFlyWorldPreservation"
     "looped-interplanetary" = "InjectLoopedInterplanetary"
     "part-showcase"         = "InjectPartShowcase"
+    "pending-limbo-tree"    = "InjectPendingLimboTree"
 }
 
 # Per-preset default save name, applied only when -SaveName is not given. Keeps a
@@ -32,6 +33,7 @@ $defaultSaveByPreset = @{
     "refly-world-preservation" = "refly-world-preservation-fixture"
     "looped-interplanetary" = "looped-interplanetary-fixture"
     "part-showcase"         = "part-showcase-fixture"
+    "pending-limbo-tree"    = "pending-limbo-tree-fixture"
 }
 
 $ErrorActionPreference = "Stop"
