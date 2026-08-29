@@ -2,7 +2,6 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Globalization;
-using System.Reflection;
 using UnityEngine;
 
 namespace Parsek.InGameTests
@@ -13,18 +12,6 @@ namespace Parsek.InGameTests
     /// </summary>
     public sealed class LogisticsRouteProofRuntimeTests
     {
-        private static readonly BindingFlags InstanceFieldFlags =
-            BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
-
-        private static readonly FieldInfo StoredPartsField =
-            typeof(ModuleInventoryPart).GetField("storedParts", InstanceFieldFlags);
-        private static readonly FieldInfo StoredPartSnapshotField =
-            typeof(StoredPart).GetField("snapshot", InstanceFieldFlags);
-        private static readonly FieldInfo StoredPartPartNameField =
-            typeof(StoredPart).GetField("partName", InstanceFieldFlags);
-        private static readonly FieldInfo StoredPartQuantityField =
-            typeof(StoredPart).GetField("quantity", InstanceFieldFlags);
-
         [InGameTest(Category = "Logistics", Scene = GameScenes.FLIGHT,
             Description = "Route proof for active-as-target dock merges keeps the absorbed endpoint PID and endpoint coordinates")]
         public void RouteProof_ActiveAsTargetDockWindow_HasEndpointProof()
@@ -270,15 +257,6 @@ namespace Parsek.InGameTests
             candidate = null;
             skipReason = null;
 
-            if (StoredPartsField == null ||
-                StoredPartSnapshotField == null ||
-                StoredPartPartNameField == null ||
-                StoredPartQuantityField == null)
-            {
-                skipReason = "ModuleInventoryPart stored-part reflection surface unavailable on this KSP build";
-                return false;
-            }
-
             List<InventoryModuleRef> modules = CollectInventoryModules(vessel);
             if (modules.Count < 2)
             {
@@ -376,40 +354,40 @@ namespace Parsek.InGameTests
             return modules;
         }
 
+        /// <summary>
+        /// Occupied slots of <paramref name="module"/> through the PUBLIC
+        /// compile-time API (the walk <see cref="LogisticsDeliveryRuntimeTests"/>
+        /// uses): <c>ModuleInventoryPart.storedParts</c> is a public
+        /// <c>DictionaryValueList&lt;int, StoredPart&gt;</c> keyed by slot index,
+        /// and <c>StoredPart.partName / quantity / snapshot</c> are public
+        /// fields. This used to go through reflection whose
+        /// <c>GetProperty("KeysList")</c> bound Public-only against an INTERNAL
+        /// property, so every enumeration came back empty and the finder
+        /// reported "no stored cargo" on a fully loaded container.
+        /// </summary>
         private static List<StoredPartRef> CollectStoredParts(ModuleInventoryPart module)
         {
             var result = new List<StoredPartRef>();
-            object storedParts = StoredPartsField.GetValue(module);
-            if (storedParts == null)
+            if (module == null || module.storedParts == null)
                 return result;
 
-            PropertyInfo keysListProperty = storedParts.GetType().GetProperty("KeysList");
-            PropertyInfo itemProperty = storedParts.GetType().GetProperty("Item");
-            var keys = keysListProperty?.GetValue(storedParts, null) as IEnumerable;
-            if (keys == null || itemProperty == null)
-                return result;
-
-            foreach (object key in keys)
+            for (int slotIndex = 0; slotIndex < module.InventorySlots; slotIndex++)
             {
-                if (!(key is int slotIndex))
+                if (!module.storedParts.ContainsKey(slotIndex))
                     continue;
 
-                object storedPart = itemProperty.GetValue(storedParts, new object[] { slotIndex });
+                StoredPart storedPart = module.storedParts[slotIndex];
                 if (storedPart == null)
                     continue;
-
-                string partName = StoredPartPartNameField.GetValue(storedPart) as string;
-                var snapshot = StoredPartSnapshotField.GetValue(storedPart) as ProtoPartSnapshot;
-                int quantity = StoredPartQuantityField.GetValue(storedPart) is int q ? q : 0;
-                if (string.IsNullOrEmpty(partName) || quantity <= 0)
+                if (string.IsNullOrEmpty(storedPart.partName) || storedPart.quantity <= 0)
                     continue;
 
                 result.Add(new StoredPartRef
                 {
                     SlotIndex = slotIndex,
-                    PartName = partName,
-                    Quantity = quantity,
-                    Snapshot = snapshot
+                    PartName = storedPart.partName,
+                    Quantity = storedPart.quantity,
+                    Snapshot = storedPart.snapshot
                 });
             }
 

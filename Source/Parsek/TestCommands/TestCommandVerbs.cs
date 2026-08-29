@@ -137,6 +137,49 @@ namespace Parsek.TestCommands
             "RunInvariantReport",
         };
 
+        /// <summary>
+        /// Verbs that CANNOT change anything a save would capture. Everything else is
+        /// treated as state-mutating by <see cref="IsStateMutatingVerb"/>.
+        ///
+        /// <para>Deliberately an allow-list of the harmless ones rather than a deny-list
+        /// of the dangerous ones: the consumer is the FlushAndQuit save suppression, and
+        /// the fail-safe direction is "assume it mutated" -> clear the latch -> save
+        /// normally (the pre-suppression behaviour). A new verb that is forgotten here is
+        /// therefore safe by default; only a wrongly-added entry could suppress a save
+        /// that should have happened.</para>
+        ///
+        /// <para><c>FlushAndQuit</c> itself is listed because it is the reader - treating
+        /// it as mutating would clear the latch on the very dispatch that consults it.</para>
+        ///
+        /// <para><b>Kept in step with the harness.</b> <c>hlib.SEAM_VERB_TAIL_ROLE</c>
+        /// classifies the same verbs for a DIFFERENT question (may an unmet-mission tail
+        /// still drive this?), but its <c>TAIL_ROLE_INERT</c> members are picked on the same
+        /// underlying fact - "reads state or stamps the log, never changes the game". The two
+        /// must not drift, and a harness cell reads THIS list out of the source to enforce
+        /// it. The single deliberate difference is <c>FlushAndQuit</c>, which hlib calls
+        /// <c>TAIL_ROLE_CLEANUP</c>; that cell excludes it by name, for the reason above.</para>
+        /// </summary>
+        private static readonly HashSet<string> NonMutatingVerbs = new HashSet<string>
+        {
+            "RecordingState",        // read-only report
+            "MissionMark",           // stamps one log line, nothing else (hlib: TAIL_ROLE_INERT)
+            "ExportRenderManifest",  // read-only w.r.t. the game world; writes only the manifest file
+            "FlushAndQuit",          // the reader of the latch, not a mutator of the world
+        };
+
+        /// <summary>
+        /// True when dispatching <paramref name="verb"/> may change state a subsequent
+        /// save would capture. Pure; see <see cref="NonMutatingVerbs"/> for the
+        /// fail-safe direction. An unknown / null verb counts as mutating.
+        /// </summary>
+        internal static bool IsStateMutatingVerb(string verb)
+        {
+            return string.IsNullOrEmpty(verb) || !NonMutatingVerbs.Contains(verb);
+        }
+
+        /// <summary>Read-only view of the non-mutating verbs (for coverage tests).</summary>
+        internal static IReadOnlyCollection<string> NonMutatingVerbNames => NonMutatingVerbs;
+
         internal static TestCommandVerbClass Classify(string verb)
         {
             if (verb != null && ImplementedVerbs.Contains(verb))

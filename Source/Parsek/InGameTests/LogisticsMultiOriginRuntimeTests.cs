@@ -157,7 +157,8 @@ namespace Parsek.InGameTests
                 var protoSnapB = SnapshotProtoLiquidFuel(depotB);
                 // The delivery half credits the (loaded) delivery target; snapshot it
                 // so finally leaves no resource litter on the player's active vessel.
-                var deliveryTankSnap = SnapshotLoadedLiquidFuel(deliveryTarget);
+                var deliveryTankSnap = SnapshotAndClearDeliveryTarget(
+                    deliveryTarget, PickupAmountA + PickupAmountB);
 
                 List<Route> preExistingRoutes = SnapshotRoutes();
                 int beforeLedgerCount = Ledger.Actions != null ? Ledger.Actions.Count : 0;
@@ -384,7 +385,7 @@ namespace Parsek.InGameTests
                 var protoSnapRefinery = SnapshotProtoLiquidFuel(refinery);
                 // The station delivery credits the (loaded) active vessel; snapshot it
                 // so finally leaves no resource litter.
-                var stationTankSnap = SnapshotLoadedLiquidFuel(station);
+                var stationTankSnap = SnapshotAndClearDeliveryTarget(station, ShuttleLoadAmount);
 
                 List<Route> preExistingRoutes = SnapshotRoutes();
                 int beforeLedgerCount = Ledger.Actions != null ? Ledger.Actions.Count : 0;
@@ -633,7 +634,8 @@ namespace Parsek.InGameTests
                 var protoSnapB = SnapshotProtoLiquidFuel(depotB);
                 // The resume tick's delivery half credits the (loaded) delivery target;
                 // snapshot it so finally leaves no resource litter.
-                var deliveryTankSnap = SnapshotLoadedLiquidFuel(deliveryTarget);
+                var deliveryTankSnap = SnapshotAndClearDeliveryTarget(
+                    deliveryTarget, PickupAmountA + PickupAmountB);
 
                 List<Route> preExistingRoutes = SnapshotRoutes();
                 RecordingTree routeTree = BuildConsolidationBackingTree(treeId);
@@ -1333,6 +1335,30 @@ namespace Parsek.InGameTests
             RecordingStore.ClearCommittedTreesInternal();
             for (int i = 0; i < survivors.Count; i++)
                 RecordingStore.AddCommittedTreeForTesting(survivors[i]);
+        }
+
+        /// <summary>
+        /// Snapshot the delivery target's LiquidFuel FIRST, then ensure it has room
+        /// for <paramref name="deliveryAmount"/> - the manifest the route's LAST
+        /// (delivery) window credits.
+        ///
+        /// <para><c>DestinationHasCapacity</c> is ALL-OR-NOTHING, so on a craft whose
+        /// tank is full it correctly holds the WHOLE cycle in <c>DestinationFull</c> -
+        /// including the SOURCE debits these cells actually assert on, which then read
+        /// as un-debited depots. The snapshot precedes the drain, so the caller's
+        /// existing <c>RestoreLoadedLiquidFuel(...)</c> in its restore lambda already
+        /// undoes it; the helper's own restore snapshot is therefore discarded rather
+        /// than threaded through each cell. Skips (never fails) when the craft cannot
+        /// hold the manifest at all.</para>
+        /// </summary>
+        private static List<KeyValuePair<PartResource, double>> SnapshotAndClearDeliveryTarget(
+            Vessel target, double deliveryAmount)
+        {
+            var snapshot = SnapshotLoadedLiquidFuel(target);
+            if (!DestinationHeadroomFixture.TryEnsureDestinationHeadroom(
+                    target, LiquidFuelName, deliveryAmount, out _, out string headroomSkipReason))
+                InGameAssert.Skip(headroomSkipReason);
+            return snapshot;
         }
 
         private static List<KeyValuePair<PartResource, double>> SnapshotLoadedLiquidFuel(Vessel vessel)

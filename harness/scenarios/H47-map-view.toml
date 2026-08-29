@@ -1,0 +1,97 @@
+schema = 1
+id = "H47-map-view"
+tier = "nightly"
+# PHASE-4 WAVE 1, the H7-H20 shape. Map/TS marker rendering against the LIVE stock icon atlas.
+#
+# WHAT IT COVERS: the ghost polyline's draw-mode following MapView on both paths, the
+# checkpoint source-log world-position resolution, marker opacity against its pinned
+# state, and - the one no headless test can approach - marker icons matched against the
+# LIVE stock icon atlas. An atlas change in a KSP update fails that cell by name.
+#
+# THE REACHABILITY ARGUMENT, which is what earns the exact pin. Two of the four cells
+# carry a guard, and it is the SAME guard in both: `InGameAssert.Skip("test requires
+# flight or tracking station scene")`. This lane boots to TRACKSTATION, so the guard is
+# satisfied by construction and cannot fire. The other two carry no guard at all. That
+# is the whole scan - there is no third family here, unlike H43 and H44 in this same
+# wave, and the difference is why those two are reading runs and this one is not.
+#
+# THE FORM IS AN EXACT PIN ON FIRST AUTHORING, the H7-H20 precedent, and it is earned
+# by a REACHABILITY argument rather than by an absence of guards. What the ordinary
+# group's own comment calls "a reachable-Skip scan" is the test: a guard that CANNOT
+# fire at this lane's boot is not a source of uncertainty, and pinning around it would
+# be superstition. Every guard in this category is enumerated above with the reason it
+# cannot fire here. If a first flight reds on the split, do NOT widen the pattern -
+# read the skip reason out of the log and correct the reachability argument, because
+# one of the statements above is then wrong.
+description = "Run the in-game MapView category unattended in the tracking station: ghost polyline draw-mode following MapView, checkpoint world-position resolution, marker opacity, and marker icons matched against the live stock atlas."
+instanceProfile = "stock-minimal"
+tags = ["ingame-batch", "phase4-wave1", "map-view", "tracking-station", "H47"]
+
+[fixture]
+# gloops-airshow booted to TRACKSTATION via `LoadGame scene=trackstation` (the R12
+# argument, shared with H23 and this wave's H44). TRACKSTATION rather than FLIGHT
+# is a DELIBERATE choice and not a copy of H44's: the two guarded cells accept
+# either scene, so both boots are legal, and the tracking station is the scene
+# where the marker and atlas surfaces actually live for a player.
+saveTemplate = "fixtures/saves/gloops-airshow"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+# No verboseLogging: the only pinned token is BATCH_COMPLETE (Info), and an
+# EXACT-pinned lane has no census to read.
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent", scene = "trackstation" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "RunTests",   args = { category = "MapView" }, expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit", expect = "OK" },
+]
+
+[dimensionsCovered]
+# `scene-ksc` is the pinned `scene=TRACKSTATION` token. NOT claimed: any D10 render
+# value - these cells assert marker and draw-mode contracts, not composition.
+D14 = ["sandbox", "scene-ksc"]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING (see H7): run.py reads `expectations.allowedAnomalies`,
+# and a bare key written AFTER an `[expectations.<sub>]` header is TOML-scoped to that
+# sub-table and never read.
+allowedAnomalies = []
+
+[expectations.recordings]
+# Zero: nothing here records or injects.
+count = { min = 0, max = 0 }
+
+[expectations.logContracts]
+# ANTI-VACUITY: tally pinned WHOLE, and derivable exactly.
+#  - total=4 is ATTRIBUTE-EXACT: 4 `[InGameTest(Category = "MapView")]` declarations in
+#    `RuntimeTests.cs`. Nothing is scene-ineligible at TRACKSTATION and nothing is
+#    batch-disabled, so the ATTRIBUTE FLOOR is 0.
+#  - skipped=0 rests on the reachability argument in the header: the only guard present
+#    is satisfied by this lane's own boot scene.
+#  - failed=0 is the ASSERTION.
+#  - passed=4 follows.
+#  - scene=TRACKSTATION is LOAD-BEARING: a boot that lost the `scene=` argument lands in
+#    FLIGHT, where the same four cells would also run - so unlike H44 this token is a
+#    statement about the boot rather than about the admitted set, and it is pinned so a
+#    silent loss of the argument is still visible.
+required  = ["BATCH_COMPLETE v1 total=4 passed=4 failed=0 skipped=0 category=MapView scene=TRACKSTATION"]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+[runtime]
+# 720, the H7-H20 wave convention. NOTE THE INHERITED FLAW rather than repeating it
+# silently: both LoadGame and RunTests are deferred seam verbs, so run.py waits
+# `required_step_wait(max(budget, 600))` = 660 s on each and the true worst case is
+# 1320 - a seam TIMEOUT here can surface as a harness KILL instead of a retryable
+# driver-INVALID, and run.py warns about exactly that. H21 documents it for the whole
+# family and deliberately did not change 14 committed budgets; this wave joins the
+# family rather than forking its own convention. Raising the whole wave is a separate
+# change with its own evidence.
+budgetSeconds = 720
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

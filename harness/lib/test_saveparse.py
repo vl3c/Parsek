@@ -823,6 +823,22 @@ class CommittedFixtureSweepTests(unittest.TestCase):
         "gloops-airshow": True,
         "gs1-two-stage-pad": True,
         "gs2-orbital-stack": True,
+        # The FORGE-logi-pad harvest: the purpose-built `Logi Cargo Rig` PRELAUNCH on
+        # the pad, the fixture H38-logistics-isolated flies. True like every other
+        # forged pad fixture - the forge boots a save that already carries a
+        # ParsekScenario node, and the harvest prunes Parsek RECORDING state (trees,
+        # supersedes, tombstones, rewind points), not the node itself.
+        #
+        # ONE SHAPE DIFFERENCE from its sibling pad fixtures, recorded here so it is
+        # not rediscovered as a defect: its ParsekScenario node carries a
+        # MILESTONE_STATE CHILD node (`id` + `lastReplayedIdx = 0`) where
+        # gs1-two-stage-pad / bdock-station-pad / b17-duna-pad carry values only. That
+        # node is `MilestoneStore.SaveMutableState`'s per-milestone replay cursor - it
+        # is present in career-earned-pad and in every recorded fixture, and the
+        # siblings lack it only because their own forge session produced no milestone.
+        # It is not recording state, no gate reads it, and the five zero-counts
+        # asserted below all hold over it, so it is deliberately NOT stripped.
+        "logi-cargo-pad": True,
     }
 
     # RECORDED-STATE fixtures (harvest --keep-parsek): produced saves whose

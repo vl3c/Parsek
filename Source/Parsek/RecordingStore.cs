@@ -2807,15 +2807,24 @@ namespace Parsek
             // history and must survive discard.
             var idsToPurge = new HashSet<string>();
             int skippedCommittedEventPurges = 0;
+            int skippedByDurableHint = 0;
             foreach (var rec in pendingTree.Recordings.Values)
             {
                 string recordingId = rec?.RecordingId;
                 if (string.IsNullOrEmpty(recordingId))
                     continue;
 
-                if (IsCommittedRecordingId(recordingId))
+                // Committed-overlap guard. On a COLD load the in-memory store is not
+                // populated yet (DiscardStalePendingState runs before LoadRecordingTrees),
+                // so the save node's declared ids are consulted as well - see
+                // SetDurableCommittedRecordingIdHint.
+                bool committedInMemory = IsCommittedRecordingId(recordingId);
+                bool durableHint = IsDurableCommittedRecordingIdHint(recordingId);
+                if (ShouldPreserveCommittedOverlapOnPendingDiscard(committedInMemory, durableHint))
                 {
                     skippedCommittedEventPurges++;
+                    if (!committedInMemory)
+                        skippedByDurableHint++;
                     continue;
                 }
 
@@ -2886,18 +2895,26 @@ namespace Parsek
             {
                 ParsekLog.Warn("RecordingStore",
                     $"DiscardPendingTree: skipped destructive event/milestone purge for " +
-                    $"{skippedCommittedEventPurges} committed-overlap recording ID(s)" +
+                    $"{skippedCommittedEventPurges} committed-overlap recording ID(s) " +
+                    $"(viaDurableSaveHint={skippedByDurableHint})" +
                     (pendingMatchesCommittedRestoreAttempt
                         ? $"; purged same-id attempt tails={purgedSameIdAttemptEventTails}"
                         : ""));
             }
 
             int skippedCommittedDeletes = 0;
+            int skippedDeletesByDurableHint = 0;
             foreach (var rec in pendingTree.Recordings.Values)
             {
-                if (IsCommittedRecordingId(rec?.RecordingId))
+                string deleteCandidateId = rec?.RecordingId;
+                bool deleteCommittedInMemory = IsCommittedRecordingId(deleteCandidateId);
+                bool deleteDurableHint = IsDurableCommittedRecordingIdHint(deleteCandidateId);
+                if (ShouldPreserveCommittedOverlapOnPendingDiscard(
+                        deleteCommittedInMemory, deleteDurableHint))
                 {
                     skippedCommittedDeletes++;
+                    if (!deleteCommittedInMemory)
+                        skippedDeletesByDurableHint++;
                     continue;
                 }
                 DeleteRecordingFiles(rec);
@@ -2906,7 +2923,17 @@ namespace Parsek
             {
                 ParsekLog.Warn("RecordingStore",
                     $"DiscardPendingTree: skipped deleting {skippedCommittedDeletes} recording sidecar set(s) " +
-                    "because the recording ID still exists in committed history");
+                    "because the recording ID still exists in committed history " +
+                    $"(viaDurableSaveHint={skippedDeletesByDurableHint})");
+            }
+            if (skippedDeletesByDurableHint > 0)
+            {
+                ParsekLog.Warn("RecordingStore",
+                    "committed-overlap sidecars preserved by durable save hint: " +
+                    $"{skippedDeletesByDurableHint} recording(s) in discarded pending tree " +
+                    $"'{pendingTree.TreeName ?? "<unnamed>"}' are declared committed by the save " +
+                    "file but the in-memory committed store is not loaded yet; their .prec/.craft " +
+                    "sidecars were NOT deleted (copy-on-write committed-tree restore overlap)");
             }
             if (preserveIrreversibleLiveGameplay)
             {
@@ -4605,6 +4632,7 @@ namespace Parsek
             committedTrees.Clear();
             BumpStateVersion();
             RecordingGroupStore.ResetForTesting();
+            durableCommittedRecordingIdHint = null;
             pendingTree = null;
             pendingTreeState = PendingTreeState.Finalized;
             pendingTreeSerializedForSave = false;
@@ -5564,6 +5592,72 @@ namespace Parsek
         internal static bool IsCommittedRecordingId(string recordingId)
         {
             return TryFindCommittedRecordingById(recordingId) != null;
+        }
+
+        // ==================================================================
+        // Durable committed-recording-id hint (committed-overlap discard guard)
+        // ==================================================================
+
+        /// <summary>
+        /// Recording ids the SAVE FILE declares as committed, used only while the
+        /// in-memory committed store has not been populated yet.
+        /// </summary>
+        private static HashSet<string> durableCommittedRecordingIdHint;
+
+        /// <summary>
+        /// Publishes the committed recording ids read straight out of the save node,
+        /// for the window in <c>ParsekScenario.OnLoad</c> between the stale-pending
+        /// discard and <c>LoadRecordingTrees</c>.
+        ///
+        /// <para><b>Why this exists (data-loss fix, found 2026-08-28).</b>
+        /// <see cref="DiscardPendingTree"/> refuses to delete a pending recording's
+        /// sidecars when the same id is still committed (#431) - the guard that makes
+        /// the copy-on-write committed-tree restore
+        /// (<c>ParsekFlight.TryTakeCommittedTreeForSpawnedVesselRestore</c>, which
+        /// clones a committed tree into the ACTIVE slot with ids PRESERVED) safe to
+        /// throw away. On a COLD load that guard was answered against an EMPTY store:
+        /// <c>DiscardStalePendingState()</c> runs BEFORE <c>LoadRecordingTrees</c>, so
+        /// every id read as "not committed" and the discard deleted the sidecars of the
+        /// COMMITTED tree the pending tree was cloned from. The committed recordings
+        /// then loaded as <c>trajectory-missing</c> forever and the save silently
+        /// dropped the whole tree. The save node is the authority in that window, so
+        /// the guard consults it.</para>
+        /// </summary>
+        internal static void SetDurableCommittedRecordingIdHint(HashSet<string> recordingIds)
+        {
+            durableCommittedRecordingIdHint =
+                recordingIds != null && recordingIds.Count > 0 ? recordingIds : null;
+            ParsekLog.Verbose("RecordingStore",
+                $"Durable committed-recording-id hint armed: ids={(durableCommittedRecordingIdHint?.Count ?? 0)}");
+        }
+
+        /// <summary>Drops the hint once the in-memory committed store is authoritative again.</summary>
+        internal static void ClearDurableCommittedRecordingIdHint()
+        {
+            if (durableCommittedRecordingIdHint == null)
+                return;
+            ParsekLog.Verbose("RecordingStore",
+                $"Durable committed-recording-id hint cleared (was {durableCommittedRecordingIdHint.Count} id(s))");
+            durableCommittedRecordingIdHint = null;
+        }
+
+        internal static bool IsDurableCommittedRecordingIdHint(string recordingId)
+        {
+            return !string.IsNullOrEmpty(recordingId)
+                && durableCommittedRecordingIdHint != null
+                && durableCommittedRecordingIdHint.Contains(recordingId);
+        }
+
+        /// <summary>
+        /// Pure committed-overlap decision for a pending-tree discard: a recording id
+        /// that is committed IN MEMORY, or that the save file declares committed while
+        /// the store is still unpopulated, must keep its events and its sidecars. Only
+        /// an id owned solely by the pending tree may be purged and deleted.
+        /// </summary>
+        internal static bool ShouldPreserveCommittedOverlapOnPendingDiscard(
+            bool committedInMemory, bool durableCommittedHint)
+        {
+            return committedInMemory || durableCommittedHint;
         }
 
         /// <summary>

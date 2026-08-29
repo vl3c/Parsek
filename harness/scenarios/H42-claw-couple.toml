@@ -1,0 +1,105 @@
+schema = 1
+id = "H42-claw-couple"
+tier = "nightly"
+# PHASE-4 WAVE 1, the H7-H20 shape. The stock claw / asteroid PART-RESOLUTION pair.
+#
+# WHAT IT COVERS, and why headless xUnit structurally cannot: both cells resolve stock
+# prefabs through the LIVE `PartLoader` - the Advanced Grabbing Unit and `PotatoRoid` -
+# and the second then drives a clawed-asteroid snapshot through the real ghost visual
+# builder. `PartLoader.getPartInfoByName` needs the loaded game database; there is no
+# headless substitute, which is why this category has never been driven.
+#
+# THE REACHABILITY ARGUMENT, which is what earns the exact pin. Both bodies DO carry a
+# self-skip - `InGameAssert.Skip("PartLoader not ready (no loaded parts list ...")` -
+# so this is NOT the "zero guards" case H29 had. It is the case where the one guard
+# cannot fire at the boot this lane takes: `PartLoader.LoadedPartsList` being null or
+# empty in a FLIGHT scene is structurally impossible, because the scene cannot load a
+# vessel without it. The guard exists for the manual Ctrl+Shift+T path during a KSP
+# load screen, not for a batch that has already reached FLIGHT with an active vessel.
+#
+# NOTE THE PART-PACK ASSUMPTION, stated so a red is legible: the claw and `PotatoRoid`
+# ship in stock KSP, and `stock-minimal` is stock. A part pack that renamed either
+# would fail both cells together - a clean, self-naming red rather than a silent skip,
+# because these two cells ASSERT the resolution instead of guarding on it.
+#
+# THE FORM IS AN EXACT PIN ON FIRST AUTHORING, the H7-H20 precedent, and it is earned
+# by a REACHABILITY argument rather than by an absence of guards. What the ordinary
+# group's own comment calls "a reachable-Skip scan" is the test: a guard that CANNOT
+# fire at this lane's boot is not a source of uncertainty, and pinning around it would
+# be superstition. Every guard in this category is enumerated above with the reason it
+# cannot fire here. If a first flight reds on the split, do NOT widen the pattern -
+# read the skip reason out of the log and correct the reachability argument, because
+# one of the statements above is then wrong.
+description = "Run the in-game ClawCouple category unattended: stock Advanced Grabbing Unit and PotatoRoid resolution through the live PartLoader, and a clawed-asteroid snapshot surviving the real ghost visual build."
+instanceProfile = "stock-minimal"
+tags = ["ingame-batch", "phase4-wave1", "claw", "asteroid", "H42"]
+
+[fixture]
+# gloops-airshow, the wave host. The choice is genuinely free - neither cell reads
+# the active vessel, the store or any save state; both operate on PartLoader
+# prefabs and a locally built snapshot - so the tie breaks on sharing the
+# family's boot, the same argument H25 and H29 make.
+saveTemplate = "fixtures/saves/gloops-airshow"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+# No verboseLogging: the only pinned token is BATCH_COMPLETE, which is Info. An
+# EXACT-pinned lane has no census to read, so the Verbose per-test lines would
+# be log volume with no consumer.
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "RunTests",   args = { category = "ClawCouple" }, expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit", expect = "OK" },
+]
+
+[dimensionsCovered]
+# HONEST and deliberately minimal, the H13 / H29 shape: the value is the executed
+# contract, not a coverage token. NOT claimed: any D16 sidecar or D2 ghost-visual
+# value - the snapshot cell builds its ghost from a local snapshot and writes
+# nothing, and H15 owns the corpus-wide ghost-build sweep.
+D14 = ["sandbox", "scene-flight"]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING (see H7): run.py reads `expectations.allowedAnomalies`,
+# and a bare key written AFTER an `[expectations.<sub>]` header is TOML-scoped to that
+# sub-table and never read.
+allowedAnomalies = []
+
+[expectations.recordings]
+# Zero, and it doubles as the leak assertion: nothing here records, and neither
+# cell touches RecordingStore.
+count = { min = 0, max = 0 }
+
+[expectations.logContracts]
+# ANTI-VACUITY: tally pinned WHOLE, and derivable exactly.
+#  - total=2 is ATTRIBUTE-EXACT: 2 `[InGameTest(Category = "ClawCouple")]` declarations,
+#    both `Scene = GameScenes.FLIGHT`, in `ClawCoupleInGameTest.cs`. Kept in sync by
+#    `CommittedBatchTallySourceSyncTests`.
+#  - skipped=0 rests on the reachability argument in the header: the single guard in
+#    each body is `PartLoader not ready`, unreachable in a loaded FLIGHT scene.
+#  - failed=0 is the ASSERTION.
+#  - passed=2 follows.
+#  - scene=FLIGHT is the gloops-airshow Focusable route, MEASURED by H13 / H5 / H29 on
+#    this exact fixture.
+required  = ["BATCH_COMPLETE v1 total=2 passed=2 failed=0 skipped=0 category=ClawCouple scene=FLIGHT"]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+[runtime]
+# 720, the H7-H20 wave convention. NOTE THE INHERITED FLAW rather than repeating it
+# silently: both LoadGame and RunTests are deferred seam verbs, so run.py waits
+# `required_step_wait(max(budget, 600))` = 660 s on each and the true worst case is
+# 1320 - a seam TIMEOUT here can surface as a harness KILL instead of a retryable
+# driver-INVALID, and run.py warns about exactly that. H21 documents it for the whole
+# family and deliberately did not change 14 committed budgets; this wave joins the
+# family rather than forking its own convention. Raising the whole wave is a separate
+# change with its own evidence.
+budgetSeconds = 720
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

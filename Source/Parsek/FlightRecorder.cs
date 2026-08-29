@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
@@ -1211,6 +1211,14 @@ namespace Parsek
         // recorder is off rails again consumes it (poll runs only off-rails),
         // attributing a warp-period toggle at the exit boundary.
         private bool harvestRailsExitPollPending;
+
+        /// <summary>
+        /// UT at which <see cref="harvestRailsExitPollPending"/> was armed, so the
+        /// rails-exit label can expire instead of surviving until the next transition of
+        /// any kind. NaN when nothing is armed. See
+        /// <see cref="RouteHarvestCapture.IsRailsExitLabelStillValid"/>.
+        /// </summary>
+        private double harvestRailsExitPollArmedUT = double.NaN;
 
         /// <summary>
         /// Read-only view of the controller identity captured at the most recent
@@ -6658,6 +6666,7 @@ namespace Parsek
             openHarvestWindow = null;
             lastStopClosedHarvestWindow = null;
             harvestRailsExitPollPending = false;
+            harvestRailsExitPollArmedUT = double.NaN;
 
             hasPersistentRotation = AssemblyLoader.loadedAssemblies.Any(
                 a => a.name == "PersistentRotation");
@@ -7199,16 +7208,47 @@ namespace Parsek
         /// Per-frame harvest poll (plan D4): N bool reads + one int compare in
         /// the steady state, zero allocations; manifest extraction happens only
         /// at open/close transitions (player-toggle or rails-transition
-        /// frequency). Consumes the rails-exit pending flag for transition
-        /// attribution. Steady state logs nothing.
+        /// frequency). Steady state logs nothing.
+        ///
+        /// <para><b>Rails gate.</b> The poll must never open or close a window
+        /// off a PACKED frame's manifest.
+        /// <see cref="OnPhysicsFrame"/>'s <c>isOnRails</c> gate does not deliver
+        /// that on its own: <see cref="OnVesselGoOnRails"/> early-returns for
+        /// LANDED / SPLASHED / PRELAUNCH (and for below-atmosphere) BEFORE
+        /// setting <c>isOnRails</c>, so a packed surface vessel keeps ticking
+        /// physics frames with <c>isOnRails == false</c>. The vessel's own
+        /// <c>packed</c> flag is therefore the gate here
+        /// (<see cref="RouteHarvestCapture.ShouldRunHarvestPoll"/>). Do NOT
+        /// "fix" that by setting <c>isOnRails</c> in the surface branch - it
+        /// gates orbit-segment creation and SOI handling.</para>
+        ///
+        /// <para><b>Funnel consume.</b> The rails-exit pending flag is consumed
+        /// only when a transition is actually emitted
+        /// (<see cref="RouteHarvestCapture.ShouldConsumeRailsExitFunnel"/>), so
+        /// a no-transition poll cannot burn the boundary label before the
+        /// warp-period toggle's close reaches it.</para>
         /// </summary>
         private void PollHarvestActivity(Vessel v)
         {
-            if (IsGloopsMode || v == null)
+            if (v == null)
                 return;
-
-            string trigger = harvestRailsExitPollPending ? "rails-exit" : "toggle";
-            harvestRailsExitPollPending = false;
+            if (!RouteHarvestCapture.ShouldRunHarvestPoll(IsGloopsMode, v.packed))
+            {
+                // Zero-allocation on the packed path, for real: the IsVerboseEnabled test
+                // comes FIRST, so with verbose off (the shipping default) this frame builds
+                // nothing at all - no string, and no closure/display-class for the
+                // Func<string> either, which the lambda alone would still have allocated
+                // every frame. With verbose ON the factory defers the interpolation to the
+                // frames the rate limiter actually emits.
+                if (!IsGloopsMode && ParsekLog.IsVerboseEnabled)
+                    ParsekLog.VerboseRateLimited("Recorder", "harvest-poll-packed-skip",
+                        () => $"Harvest poll skipped on packed frame: vessel='{v.vesselName}' " +
+                            $"pid={v.persistentId.ToString(CultureInfo.InvariantCulture)} " +
+                            $"sit={v.situation} isOnRails={(isOnRails ? "1" : "0")} " +
+                            $"railsExitPending={(harvestRailsExitPollPending ? "1" : "0")} " +
+                            $"windowOpen={(openHarvestWindow != null ? "1" : "0")}");
+                return;
+            }
 
             int partCount = v.parts != null ? v.parts.Count : 0;
             if (partCount != cachedConverterPartCount)
@@ -7218,10 +7258,34 @@ namespace Parsek
             HarvestActivityTransition transition = RouteHarvestCapture.EvaluateTransition(
                 anyActive,
                 openHarvestWindow != null);
-            if (transition == HarvestActivityTransition.None)
-                return;
+            if (!RouteHarvestCapture.ShouldConsumeRailsExitFunnel(transition))
+                return; // no transition: the funnel flag stays armed by design
 
             double ut = Planetarium.GetUniversalTime();
+            // The rails-exit label is only true NEAR the boundary. Left unbounded the flag
+            // survives until the next transition of any kind, so a player toggle minutes
+            // later would be attributed to a warp exit it has nothing to do with. Bound it
+            // to the UT stamped at the exit.
+            bool railsExitLabelValid = RouteHarvestCapture.IsRailsExitLabelStillValid(
+                harvestRailsExitPollPending, harvestRailsExitPollArmedUT, ut);
+            string trigger = railsExitLabelValid ? "rails-exit" : "toggle";
+            if (harvestRailsExitPollPending && !railsExitLabelValid)
+                ParsekLog.Verbose("Recorder",
+                    "Harvest funnel label expired: the armed rails-exit label is older than " +
+                    $"{RouteHarvestCapture.RailsExitLabelMaxAgeSeconds.ToString("R", CultureInfo.InvariantCulture)}s " +
+                    $"(armedUT={harvestRailsExitPollArmedUT.ToString("F2", CultureInfo.InvariantCulture)} " +
+                    $"ut={ut.ToString("F2", CultureInfo.InvariantCulture)}); attributing this transition " +
+                    "to a player toggle instead");
+            harvestRailsExitPollPending = false;
+            harvestRailsExitPollArmedUT = double.NaN;
+
+            ParsekLog.Verbose("Recorder",
+                $"Harvest funnel consumed at transition: trigger={trigger} " +
+                $"transition={transition} anyActive={(anyActive ? "1" : "0")} " +
+                $"vessel='{v.vesselName}' pid={v.persistentId.ToString(CultureInfo.InvariantCulture)} " +
+                $"recVessel={RecordingVesselId.ToString(CultureInfo.InvariantCulture)} " +
+                $"ut={ut.ToString("F2", CultureInfo.InvariantCulture)}");
+
             if (transition == HarvestActivityTransition.Open)
                 OpenHarvestWindow(v, ut, atRecordingStart: false, trigger: trigger);
             else
@@ -7250,14 +7314,27 @@ namespace Parsek
         /// Rails-ENTRY re-baseline (plan D4 warp rule): with a window open it
         /// stays open (production continues inside it); with converters active
         /// and no window open (activation raced the poll), open one AT the
-        /// rails boundary. Always arms the rails-exit poll funnel.
+        /// rails boundary.
+        ///
+        /// <para><b>It does NOT arm the exit funnel, and that is a correction.</b>
+        /// An earlier version armed the funnel here too, arguing that the exit
+        /// event can miss this recorder (<see cref="OnVesselGoOffRails"/>
+        /// early-returns unless the unpacking vessel is both the active vessel
+        /// AND the recorded pid) while its polls resume anyway. That argument
+        /// stopped working the moment the label gained a validity window
+        /// (<see cref="RouteHarvestCapture.RailsExitLabelMaxAgeSeconds"/>): an arm
+        /// stamped at rails ENTRY is, by construction, older than the entire warp
+        /// by the time any post-exit poll runs, so it expires and labels nothing.
+        /// Keeping it would have been a comment describing a path the code could
+        /// no longer take. The arm therefore lives ONLY at the exit
+        /// (<see cref="OnVesselGoOffRails"/>, above its surface early-return), which
+        /// is the path the live H38 flights actually exercise - and measure at a
+        /// 0.02 s age, comfortably inside the window.</para>
         /// </summary>
         private void HandleHarvestRailsEntry(Vessel v)
         {
             if (IsGloopsMode || v == null)
                 return;
-
-            harvestRailsExitPollPending = true;
 
             bool anyActive = IsAnyCachedConverterActive();
             if (openHarvestWindow != null)
@@ -10440,10 +10517,14 @@ namespace Parsek
             double packedUT = Planetarium.GetUniversalTime();
             currentOrbitSegment = CreateOrbitSegmentWithRotation(v, packedUT);
             isOnRails = true;
-            // M2 harvest: a recording that STARTS on rails is also a rails
-            // entry - arm the exit-poll funnel (open-at-start already handled
-            // any active converter in StartRecording).
-            harvestRailsExitPollPending = true;
+            // M2 harvest: deliberately NO exit-funnel arm here, for the same reason
+            // HandleHarvestRailsEntry no longer carries one - an arm stamped at rails
+            // ENTRY (or at a rails START) is older than the whole warp by the time a
+            // post-exit poll runs, so it expires against
+            // RouteHarvestCapture.RailsExitLabelMaxAgeSeconds and labels nothing. The
+            // funnel is armed at the EXIT (OnVesselGoOffRails), which is where the
+            // boundary the label names actually is. Open-at-start already handled any
+            // converter active at StartRecording.
 
             // Recording started on rails — switch initial ABSOLUTE section to ORBITAL_CHECKPOINT
             CloseCurrentTrackSection(packedUT);
@@ -10664,6 +10745,19 @@ namespace Parsek
                 return;
             }
             if (v.persistentId != RecordingVesselId) return;
+
+            // M2 harvest rails-EXIT funnel (plan D4 warp rule). Armed here, ABOVE
+            // the surface early-return, so BOTH exit branches arm it: the first
+            // off-rails poll after any pack must carry trigger=rails-exit, and the
+            // surface-situation vessel - which packs without isOnRails ever being
+            // set, and so returns below without touching the orbital bookkeeping -
+            // is exactly the one whose warp-period toggle the funnel has to
+            // attribute. This is the ONLY arm site: an entry-side or start-side arm
+            // would be stamped a whole warp before any post-exit poll and would expire
+            // against RouteHarvestCapture.RailsExitLabelMaxAgeSeconds without ever
+            // labelling anything.
+            harvestRailsExitPollPending = true;
+            harvestRailsExitPollArmedUT = Planetarium.GetUniversalTime();
 
             // Surface vessel went on rails without orbit segment — sample boundary point for continuity
             if (!isOnRails)

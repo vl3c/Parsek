@@ -1,0 +1,182 @@
+schema = 1
+id = "FORGE-logi-pad"
+# =====================================================================================
+# FIXTURE-FORGE for the future ISOLATED Logistics lane (H38). NOT a coverage flight.
+#
+# WHAT THIS BUYS. The `Logistics` in-game category is the largest block of tests in
+# the assembly that NO harness lane can run today, because almost every cell in it
+# precondition-SKIPS against the pad craft the existing fixtures carry. The skips are
+# not incidental - each one names a capability the craft has to HAVE, and no committed
+# fixture craft and no stock VAB craft has all of them at once:
+#
+#   * a PRELAUNCH pad rocket with at least one ModuleEngines, because
+#     `UnloadedFuelVesselFixture` snapshots the ACTIVE pad vessel and re-spawns the
+#     copy into a 250 km parking orbit as the UNLOADED depot the origin-debit /
+#     pickup / multi-stop tests need;
+#   * at least one LiquidFuel RESOURCE node, or that fixture returns
+#     `reason = "no-liquidfuel-resource"` and every unloaded-depot cell skips;
+#   * a PARTIALLY filled, flow-enabled LF tank on the LIVE craft, because the
+#     loaded-path delivery cell pre-drains the first tank and asserts a +5.0 LF
+#     top-up - it needs debitable fuel AND free capacity at once;
+#   * a BaseConverter-derived module, or the two HarvestCapture cells skip with the
+#     literal advice "a stock fuel cell suffices - add one to the test craft";
+#   * TWO ModuleInventoryPart containers in probe order, the FIRST one nearly full
+#     and a LATER one with a free slot, or the multi-module delivery cell skips with
+#     "No later inventory module has an empty slot left".
+#
+# This forge stamps the fixture that satisfies all five at once. It boots the SAME
+# committed `bdock-forge-base` every other forge boots, launches the NEW committed
+# `Logi Cargo Rig` craft onto the pad UNCREWED via kRPC launch_vessel, waits for it
+# to settle PRELAUNCH, and SaveGame + FlushAndQuit persist the pad state. Then
+#
+#   python harness/tools/harvest_bdock_station.py --instance <ksp-instance> \
+#       --run-save bdock-forge-base --target-name logi-cargo-pad \
+#       --expect-situation PRELAUNCH
+#
+# prunes Parsek state, normalizes the title, and writes the committed
+# `fixtures/saves/logi-cargo-pad` fixture the H38 lane will consume.
+#
+# operator tier: like every forge before it this NEVER runs on a cadence
+# (hlib.CADENCE_TIERS maps no cadence to `operator`), only under an explicit
+# `--id FORGE-logi-pad` / `--tier operator`.
+#
+# NO NEW MISSION AND NO NEW HARVEST TOOL, deliberately, and this is the SEVENTH
+# consumer of each. `forge_station` is already generic over craft + launch site +
+# crew names, and `harvest_bdock_station.py` is already generic over the produced
+# situation (`--expect-situation`) and the fixture name (`--target-name`); its own
+# docstring says an nth forge should reuse it rather than fork it.
+#
+# WHERE THE CRAFT LIVES. `Logi Cargo Rig.craft` is committed ONCE in the shared
+# library at `fixtures/ships/`, and `run.py::stage_fixture` overlays it into this
+# spec's staged save. The `bdock-forge-base` row in `fixtures/shared-ships.toml` is
+# what makes that happen; without it the staged save carries no craft to launch and
+# the run dies inside the mission as a driver-INVALID against a fine spec.
+# IT DID NOT START THERE. While `logi-cargo-pad` did not yet exist the craft had ONE
+# consumer, and `hlib.validate_shared_ships_manifest` refuses a library craft with
+# fewer than two ("a craft used once belongs in that fixture's own Ships/VAB"), so it
+# was committed PHYSICALLY into `fixtures/saves/bdock-forge-base/Ships/VAB/` - how
+# `GS1 Auto-Chute Booster` and `Duna Rocket` were first committed too. The harvested
+# `logi-cargo-pad` fixture then arrived carrying a byte-identical second copy (the
+# harvest copies `Ships/` verbatim), exactly as the promotion note predicted; both
+# physical copies were deleted, the single library copy took their place, and both
+# consumers are declared. Full account at the top of `build_logi_craft.py`.
+#
+# The .craft is authored BY CONSTRUCTION by `harness/tools/build_logi_craft.py`
+# (the GS-1 / DD1 pattern: derivation record + `--check` drift gate + a byte-identity
+# rebuild cell in `harness/lib/test_logi_cargo_rig.py`); this forge is what turns
+# that craft into a pad save, because nothing but KSP can.
+#
+# NOT FLOWN YET. A failure classifies driver-INVALID (retryable), never a
+# PARSEK-FAIL: the forge asserts nothing about Parsek and its logContracts.required
+# list is empty on purpose.
+#
+# WHAT A FAILED FIRST RUN MEANS, in the order the assumptions bite. The full
+# derivation and its five numbered assumptions live in `build_logi_craft.py`'s module
+# docstring; the short forms, because this is the run that falsifies them:
+#   A1 root-relative origin    -> craft loads at a silly height on the pad
+#   A2 radial surface radius   -> the fuel cell visibly floats off / sinks into the
+#                                 FL-T400 (cosmetic; the craft never flies)
+#   A3 UInt32 uid ceiling      -> kRPC launch_vessel throws SERVER-SIDE and the run
+#                                 is INVALID before the craft ever appears. This is
+#                                 the one that cost FORGE-b17-duna-pad a whole
+#                                 attempt-set; the builder asserts it at --check, so
+#                                 seeing it here would mean a hand-edited craft
+#   A4 inventory probe order   -> only H38 can falsify this: the multi-module cell
+#                                 would skip because the first ModuleInventoryPart in
+#                                 vessel part order is not the 3-slot container
+#   A5 resource floors         -> likewise H38-only; the forge never runs a
+#                                 Logistics test
+# A crash or a kraken at launch is A1/A2. None of those is a Parsek finding.
+# =====================================================================================
+tier = "operator"
+description = "FIXTURE-FORGE: boot the committed forge base, launch the Logi Cargo Rig onto the pad UNCREWED, settle PRELAUNCH, SaveGame -- headlessly stamps the logi-cargo-pad fixture for the isolated Logistics lane (harvest_bdock_station.py --target-name logi-cargo-pad)."
+instanceProfile = "stock-minimal"
+tags = ["FORGE", "fixture", "H38", "logistics", "flown"]
+
+[fixture]
+# The SAME committed bootable base every other forge uses: gloops-airshow's FLIGHT
+# state (an active vessel, so LoadGame's IsLoadedGameFocusable gate passes) plus a
+# Ships/VAB directory kRPC launch_vessel resolves <save>/Ships/VAB/<craftName>.craft
+# against. This change ADDS `Logi Cargo Rig.craft` to that directory and changes
+# nothing else about the base, so every existing forge is untouched (a forge selects
+# its craft by the craftName param).
+saveTemplate       = "fixtures/saves/bdock-forge-base"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind    = "autopilot"
+# UNCHANGED mission: `forge_station` is already generic over craft + launch site +
+# crew names. No mlib edit, no new mission code, no new schema for the forge half.
+mission = "forge_station"
+
+# `steps` MUST stay in the [driver] table, ABOVE the [driver.missionParams] header (a
+# key after the sub-table header would be TOML-scoped to driver.missionParams.steps
+# and the spec would validate as having zero steps).
+#
+# No SetSetting: the pad craft never stages here, so no recording starts, and the
+# harvest prunes any Parsek/ dir regardless.
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 240 },
+  { phase = "mission",  expect = "MISSION-OK", budget = 120 },
+  { cmd = "SaveGame",   args = { name = "persistent" },                      expect = "OK" },
+  { cmd = "FlushAndQuit",                                                    expect = "OK" },
+]
+
+[driver.missionParams]
+craftName            = "Logi Cargo Rig"
+launchSite           = "LaunchPad"
+# UNCREWED, and load-bearing in two directions. (a) The rig's only ModuleCommand is
+# a probeCoreOcto2.v2, so it is controllable with nobody aboard and needs no seat.
+# (b) EVERY stock command POD carries a ModuleInventoryPart, and putting one at the
+# root would make IT the FIRST inventory module the multi-module delivery cell walks
+# to - `mk1pod.v2` declares InventorySlots = 1, too few for two stowed kits plus the
+# empty slot that cell needs, and only the 2.5 m `mk1-3pod` reaches three. A probe
+# core carries no inventory module at all, which is what keeps the 3-slot small
+# container first in probe order.
+# Empty list -> kRPC launch_vessel(crew=[]), and minCrew then defaults to 0, so the
+# pad crew gate (added 2026-08-12 after the FORGE-CREW-SEATING-SILENT-FAILURE
+# finding) is correctly inert here rather than gating on a seat that does not exist.
+crewNames            = []
+# Game-seconds to see the new craft settle PRELAUNCH before flaking. Generous:
+# launch_vessel is a scene reload. The rig is SIX parts, lighter than every craft
+# the sibling pad forges launch, so the sibling 120 s is ample.
+launchTimeoutSeconds = 120
+settleDebounceFrames = 3
+
+# The forge is a fixture stamp, not a coverage flight: it commits no recording and
+# asserts nothing about Parsek. Only the honest environment cells are cited.
+[dimensionsCovered]
+D14 = ["kerbin", "scene-flight", "sandbox"]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING. run.py reads `expectations.allowedAnomalies`; a bare
+# `allowedAnomalies` written after an `[expectations.<sub>]` header is TOML-scoped to
+# that SUB-table and is never read (hlib.validate_spec REJECTS the misplaced form),
+# so this key must stay ahead of the sub-tables below.
+allowedAnomalies = []
+
+[expectations.recordings]
+# The pad craft never stages here, so no recording starts / commits. max 1 absorbs a
+# nascent auto-record if the base's persisted setting happens to be on; the harvest
+# prunes Parsek state regardless. Same window as every sibling pad forge.
+count = { min = 0, max = 1 }
+
+[expectations.logContracts]
+# EMPTY required list, deliberately: a forge asserts nothing about Parsek, and a
+# required token here would convert a fixture-stamping failure into a PARSEK-FAIL.
+# The forbidden ERROR pattern stays - a forge that makes Parsek throw is still a
+# finding, and the sibling forges have never emitted one.
+required  = []
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+[runtime]
+# 240 LoadGame + 120 mission + the fast SaveGame / FlushAndQuit verbs + margin.
+# Matches the sibling pad forges, which fly the same mission against heavier craft.
+budgetSeconds = 500
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

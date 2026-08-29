@@ -76,6 +76,106 @@ namespace Parsek.Tests
                 RouteHarvestCapture.EvaluateTransition(anyConverterActive: false, windowOpen: true));
         }
 
+        // ---------- Rails gate for the poll (plan D4) ----------
+
+        // catches: the harvest poll opening/closing a window off a PACKED
+        // frame's manifest. OnPhysicsFrame's isOnRails gate does NOT cover a
+        // surface-situation vessel (OnVesselGoOnRails early-returns for
+        // LANDED/SPLASHED/PRELAUNCH BEFORE setting isOnRails), so the vessel's
+        // own packed flag is the gate.
+        [Theory]
+        [InlineData(false, false, true)]   // off-rails, capturing: run
+        [InlineData(false, true, false)]   // packed: never run
+        [InlineData(true, false, false)]   // gloops: no harvest capture at all
+        [InlineData(true, true, false)]
+        public void ShouldRunHarvestPoll_Matrix(bool gloopsMode, bool vesselPacked, bool expected)
+        {
+            Assert.Equal(expected, RouteHarvestCapture.ShouldRunHarvestPoll(gloopsMode, vesselPacked));
+        }
+
+        // ---------- Rails-exit funnel consume (plan D4 warp rule) ----------
+
+        // catches: a no-transition poll burning the rails-exit label, so the
+        // close the warp-period toggle earned is attributed trigger=toggle. The
+        // flag may only be consumed by a poll that actually emits a transition.
+        [Theory]
+        [InlineData((int)HarvestActivityTransition.None, false)]
+        [InlineData((int)HarvestActivityTransition.Open, true)]
+        [InlineData((int)HarvestActivityTransition.Close, true)]
+        public void ShouldConsumeRailsExitFunnel_OnlyOnEmittedTransition(int transition, bool expected)
+        {
+            Assert.Equal(expected,
+                RouteHarvestCapture.ShouldConsumeRailsExitFunnel((HarvestActivityTransition)transition));
+        }
+
+        // catches: the exact H38 shape - a landed drill rig warps with its
+        // window open, the converter is toggled OFF while packed, and the first
+        // off-rails poll must still see the funnel armed. Steady-state polls
+        // between the exit and the close decide None, and None must not consume.
+        [Fact]
+        public void RailsExitFunnel_SurvivesSteadyStatePollsUntilTheClose()
+        {
+            bool railsExitPending = true;
+
+            // Steady-state polls after the exit: converter still reads active
+            // for a frame or two, window open -> None, flag must survive.
+            for (int i = 0; i < 3; i++)
+            {
+                HarvestActivityTransition steady = RouteHarvestCapture.EvaluateTransition(
+                    anyConverterActive: true, windowOpen: true);
+                if (RouteHarvestCapture.ShouldConsumeRailsExitFunnel(steady))
+                    railsExitPending = false;
+            }
+            Assert.True(railsExitPending, "A None poll must not consume the rails-exit funnel flag");
+
+            // The close finally lands and takes the boundary label.
+            HardCloseAssert(ref railsExitPending);
+        }
+
+        private static void HardCloseAssert(ref bool railsExitPending)
+        {
+            HarvestActivityTransition close = RouteHarvestCapture.EvaluateTransition(
+                anyConverterActive: false, windowOpen: true);
+            Assert.Equal(HarvestActivityTransition.Close, close);
+            Assert.True(RouteHarvestCapture.ShouldConsumeRailsExitFunnel(close));
+
+            string trigger = railsExitPending ? "rails-exit" : "toggle";
+            railsExitPending = false;
+            Assert.Equal("rails-exit", trigger);
+        }
+
+        // ---------- Rails-exit label validity window (plan D4 warp rule) ----------
+
+        // catches: the funnel flag surviving no-transition polls FOREVER, so a player
+        // toggle minutes after a warp exit is labelled trigger=rails-exit - asserting a
+        // causal link to a boundary it has nothing to do with. The flag must still be
+        // armed AND the transition must land near the boundary. The two "true" ages at
+        // the top are the MEASURED H38 shape (run 2026-08-28_1858: rails exit at UT
+        // 27.64, close at 27.66; entry-side arm at 27.24), so the WarpToggle cell's
+        // pinned trigger=rails-exit token is unaffected by this bound.
+        [Theory]
+        [InlineData(true, 1000.0, 1000.02, true)]   // measured: close 0.02s after the exit
+        [InlineData(true, 1000.0, 1000.42, true)]   // measured: the entry-side arm's age
+        [InlineData(true, 1000.0, 1005.0, true)]    // exactly at the bound
+        [InlineData(true, 1000.0, 1005.01, false)]  // just past it -> a player toggle
+        [InlineData(true, 1000.0, 1600.0, false)]   // ten minutes later
+        [InlineData(false, 1000.0, 1000.02, false)] // nothing armed
+        [InlineData(true, 1000.0, 999.0, false)]    // clock ran backwards (quickload / rewind)
+        public void IsRailsExitLabelStillValid_BoundedToTheBoundary(
+            bool pending, double armedUT, double nowUT, bool expected)
+        {
+            Assert.Equal(expected,
+                RouteHarvestCapture.IsRailsExitLabelStillValid(pending, armedUT, nowUT));
+        }
+
+        // An arm that never stamped a UT cannot claim the boundary label.
+        [Fact]
+        public void IsRailsExitLabelStillValid_UnstampedArmIsInvalid()
+        {
+            Assert.False(RouteHarvestCapture.IsRailsExitLabelStillValid(true, double.NaN, 1000.0));
+            Assert.False(RouteHarvestCapture.IsRailsExitLabelStillValid(true, 1000.0, double.NaN));
+        }
+
         // ---------- Rails-entry re-baseline (plan D4 warp rule) ----------
 
         // catches: warp-period production going unwitnessed when activation

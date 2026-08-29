@@ -220,6 +220,334 @@ was written; the closing record for #427 says so.
 
 ---
 
+## ~~QUICKLOAD-OVER-COMMITTED-RESTORE-OVERLAP-DELETES-TREE-ON-SAVE~~: a cold load's stale-pending discard deleted the COMMITTED tree's sidecars through a copy-on-write clone, and every save thereafter dropped the whole tree from persistent.sfs [FOUND 2026-08-28 by the H39/H40 isolated censuses (both recorded fixtures collapsed 21/22 recordings -> 9 in the produced save; H40's ROUTE survived with a dangling backingMissionTreeId). PLAYER-REACHABLE DATA LOSS, not a harness artefact. **FIXED 2026-08-29** on branch `logistics-isolated-lanes` in three parts]
+
+### The mechanism, measured
+
+Evidence: `logs/2026-08-28_2358_H40-logistics-isolated-depot-route/KSP.log`.
+
+1. `23:56:42.196` - recording `44129e52...` LOADS fine (`LoadRecordingFiles: id=44129e52...
+   hasVesselSnapshot=True hasGhostSnapshot=True`). Its `.prec` exists.
+2. `ParsekFlight.TryTakeCommittedTreeForSpawnedVesselRestore` DeepClones the matched
+   COMMITTED tree into the ACTIVE slot with **ids preserved** (copy-on-write overlap), so
+   clone and original resolve to the SAME sidecar paths.
+3. The clone is parked as the PENDING tree; a quickload follows.
+4. `23:56:46.365` - cold `OnLoad`: `OnLoad initial: discarding pending tree from previous
+   save` -> `DiscardPendingTree`.
+5. `23:56:46.367` onward - `DeleteRecordingFiles` for **all 13** of that tree's recordings,
+   `Deleted file: ...44129e52....prec` and friends. The collected save carries only the
+   OTHER tree's 9 `.prec` files.
+6. `23:56:47.389` onward - every later OnSave: `reason=trajectory-missing` ->
+   `SaveRecordingFiles: skipping write ... preserving on-disk .prec to avoid data loss
+   (bug #585 follow-up)` -> `remains unsafe to serialize` -> `OnSave: skipped tree ...`
+   and the RECORDING_TREE node is OMITTED. The condition is STICKY, so every save after
+   it omits the tree too.
+
+**The mark was NOT spurious** (the diagnosis's leading hypothesis): the `.prec` really had
+been deleted four seconds earlier.
+
+**Why the existing guard did not fire.** `DiscardPendingTree` has carried a
+committed-overlap guard since #431 - it refuses to purge events or delete sidecars for a
+recording id still present in committed history, which is exactly what makes the
+copy-on-write restore safe to throw away. It reads the IN-MEMORY committed store. In
+`ParsekScenario.OnLoad`'s cold-start branch `DiscardStalePendingState()` runs at
+`loadPhase = "stale-pending-discard"` **before** `LoadRecordingTrees(node, ...)` at
+`loadPhase = "recording-trees"`, so the store is empty, every id answers "not committed",
+and the guard is defeated by ordering alone.
+
+### The fix, three parts
+
+**(C) the trigger.** `RecordingStore.SetDurableCommittedRecordingIdHint` /
+`IsDurableCommittedRecordingIdHint` / `ClearDurableCommittedRecordingIdHint`, with the pure
+decision `ShouldPreserveCommittedOverlapOnPendingDiscard(committedInMemory, durableHint)`.
+`ParsekScenario.CollectCommittedRecordingIdsFromScenarioNode` (pure over the ConfigNode)
+publishes the SAVE NODE's recording ids around `DiscardStalePendingState()` in a
+try/finally. Both discard guards - the event/milestone purge AND the sidecar delete - now
+consult it. Deliberately NOT fixed by reordering OnLoad: the discard precedes
+`ClearCommittedInternal` / `ValidateChains` for reasons of its own, and the save file is
+the correct authority for that window regardless.
+
+The collector takes ids from EVERY `RECORDING_TREE` node, parked ones included. The first
+version excluded `isActive` / `isPending` nodes on the reasoning that a parked node is
+what a discard is entitled to destroy; the branch review corrected it, and the correction
+is the point: `TryRestoreActiveTreeNode` / `TryRestorePendingTreeNode` restore exactly
+those nodes LATER IN THE SAME OnLoad, so their recordings are in the population "this save
+is about to have" and their sidecars are what the restore hydrates from. The tree the
+discard is actually destroying is the IN-MEMORY stale pending tree left over from a
+previous save - it is not in this node at all, so including the parked nodes cannot
+protect it by accident.
+
+**(B) the invariant - A SAVE MUST NEVER DELETE A TREE IT CANNOT SERIALIZE.**
+`ParsekScenario.SaveTreeRecordings`'s both-or-neither skip no longer `continue`s past the
+`AddNode`: it carries the tree's last-known-good RECORDING_TREE node forward from the
+on-disk save (`TryCarryForwardCommittedTreeNodeFromLoadedSave` + `FindCommittedTreeNodeById`,
+siblings of the load-fault guard's `TryRehydrateCommittedTreesAndMissionsFromDiskSave`),
+Warn on success and **Error** when there is nothing to carry. Implemented independently of
+(C): (C) removes this trigger, (B) is the invariant that stops ANY future sidecar fault
+from deleting a mission.
+
+Three properties the branch review added, each closing a way the carry could do harm:
+
+- **Reconciled against the live tree.** The on-disk node is OLDER than memory, so carried
+  verbatim it RESURRECTS recordings the player has since deleted - and those ids then
+  reference sidecars that are gone, leaving the save disagreeing with the corpus the next
+  load's orphan reap works against (which deletes files nothing references, i.e. NEWER
+  data). A carried `RECORDING` is kept only when the LIVE tree still has that id AND its
+  trajectory sidecar is on disk (`IsCarriedRecordingStillReal`); everything else is
+  dropped, counted and logged. Reconciled down to zero, the carry is REFUSED rather than
+  writing a husk that would itself read as a corrupt tree.
+- **Target-file first.** The first version hard-read the campaign `persistent.sfs` for
+  every save target, so a quicksave would have received the CAMPAIGN's node - a foreign
+  timeline. `TryLoadCarryForwardSourceParsekNode` now prefers the file this save is
+  overwriting when it exists. RESIDUAL RISK, documented on that method: stock does NOT
+  expose the target save name inside `ScenarioModule.OnSave` (`GamePersistence.SaveGame`
+  keeps `saveFileName` local and calls `game.Save(node)` before writing), so the target is
+  known only via `SaveTargetFileNameHintForCurrentSave`, which Parsek-driven call sites can
+  set and a stock F5 quicksave cannot. When the target is unknown the campaign save is used
+  - and the reconciliation above is what makes that safe: a cross-timeline read cannot
+  introduce recordings this game does not have. What it can still do is carry a stale FIELD
+  value from the campaign's copy of the same tree, which is strictly better than dropping
+  the tree, the only alternative on this path.
+- **One parse per save.** The `ConfigNode.Load` is lazy and hoisted to at most once per
+  `SaveTreeRecordings` invocation, shared across every failing tree, and is not performed
+  at all on the healthy path.
+
+**(A) the harness ordering defect.** `InGameTestRunner.BatchBaselinePersistentSaveRestored`
+latches inside `RestoreCampaignPersistentSave` the moment the revert commits (covering the
+teardown, cancel and force-revert call sites); `FlushAndQuitImpl` logs `flushandquit: save
+suppressed (batch baseline already restored)` and skips its `GamePersistence.SaveGame`. A
+non-batch FlushAndQuit never sets the latch and saves exactly as before.
+
+**THE SUPPRESSION IS SCOPED, and the scoping is the load-bearing part.** The first version
+latched process-wide, forever, unkeyed by save folder - which silently broke
+`S4.2-refly-world-preservation`, whose steps are `RunTests -> AnswerMergeDialog{merge} ->
+FlushAndQuit` and whose produced save MUST be the merge tail written AFTER the batch. Two
+conditions now gate it, both in the pure
+`TestCommandFlushAndQuit.ShouldSuppressSaveAfterBatchRestore(latched, restoredSaveFolder,
+currentSaveFolder)`:
+
+1. **Same save folder.** `BatchBaselineRestoredSaveFolder` records what the restore actually
+   wrote; a restore of campaign A never suppresses a flush into campaign B (nothing restored
+   B, so suppressing there would simply lose its save). Ordinal comparison - a case-fold
+   would be the wrong equality on a case-sensitive filesystem. An unresolvable folder on
+   either side fails the comparison, i.e. saves.
+2. **Nothing mutated since.** `NotifyStateMutatedAfterBatchBaselineRestore` clears the latch
+   from three places: the cold `OnLoad` (a game load), the main-menu transition, and the
+   seam's `InvokeExecutor` dispatch for any verb `TestCommandVerbs.IsStateMutatingVerb`
+   accepts. That verb table is an ALLOW-LIST of the harmless verbs (`RecordingState`,
+   `ExportRenderManifest`, and `FlushAndQuit` itself, which is the reader) with everything
+   else - including an unknown or later-added verb - counted as mutating, so the fail-safe
+   direction is "assume it mutated -> clear -> save normally".
+
+The hook sits at DISPATCH rather than completion on purpose: `RunTests` is itself mutating
+and clears the latch on the way in, then its own teardown re-arms it as the batch ends - so
+H38-H41's `RunTests -> FlushAndQuit` still suppresses, while S4.2's merge in between clears
+it and writes the tail. S4.2's spec comment now states this dependency explicitly.
+
+### Guards
+
+`Source/Parsek.Tests/UnserializableTreeCarryForwardTests.cs`: the invariant end to end
+through the real `SaveTreeRecordings` (unserializable tree keeps its node WITH its RECORDING
+payload), the loud drop when there is nothing to carry, the healthy tree unaffected, the
+node finders, the reconciliation trio (drops a recording the live tree no longer has; drops
+one whose sidecar is gone; refuses the carry when reconciliation empties the node), the pure
+overlap-decision matrix, the hint round-trip, the hint INCLUDING parked nodes about to be
+restored, and the cold-load overlap discard routing overlap ids to preserve plus its
+negative control. `TestCommandFlushAndQuitTests` carries the suppression matrix, the
+save-folder scoping matrix, and the mutating-verb classification (which pins
+`AnswerMergeDialog` as mutating - the cell that would catch S4.2 losing its merge tail
+again). `RouteHarvestCaptureTests` carries the rails-exit label window, its `[InlineData]`
+rows anchored on the MEASURED H38 ages so the pinned `trigger=rails-exit` token is provably
+unaffected.
+
+NOTE for the next discard-path test author: the sidecar DELETE cannot be asserted by file
+existence headlessly - `DeleteRecordingFiles` resolves through
+`KSPUtil.ApplicationRootPath`, which throws outside KSP, so a file-existence assertion
+passes without the delete branch ever being reachable. These cells assert the decision
+counters the discard logs instead. (The first draft of them was vacuous for exactly this
+reason and was rewritten.)
+
+## ~~LOGISTICS-CELLS-ASSUME-AN-EMPTY-DESTINATION-TANK-AND-A-YOUNG-SAVE~~: ten in-game cells encoded a save property instead of stating a precondition, so two correct product refusals read as ten reds [FOUND 2026-08-28 by the H39/H40 recorded-host reading runs. TEST DEFECTS ONLY - both product gates behaved exactly as designed, and neither is changed. **FIXED THE SAME DAY** on branch `logistics-isolated-lanes`]
+
+**Family A - the full destination tank (9 cells).**
+`LiveRouteRuntimeEnvironment.DestinationHasCapacity` is an ALL-OR-NOTHING
+eligibility gate: a cycle fires only when the FULL delivery manifest fits the
+destination, because dispatch debits the origin for the full manifest. The H40
+fixture's active vessel carries a full 720/720 LiquidFuel tank, so the gate
+CORRECTLY held every synthetic cycle in `DestinationFull` and the cells reded on
+route-state / ledger assertions that were about something else entirely. The nine:
+`LogisticsOriginDebitRuntimeTests` x2 (loaded + unloaded origin), all four
+`LogisticsRoundTripRuntimeTests` cells, and `LogisticsMultiOriginRuntimeTests`
+x3 (`MultiOrigin_TwoSources`, `Shuttle_Refinery`, `MultiOrigin_SaveRoundTrip`).
+Every one resolves `FlightGlobals.ActiveVessel` as its delivery destination and
+never checked or created headroom; five OTHER cells passed only because each had
+independently grown its own inline drain.
+
+FIX: `Source/Parsek/InGameTests/Helpers/DestinationHeadroomFixture.cs` -
+`TryEnsureDestinationHeadroom` drains the MINIMUM needed across deliverable tanks,
+measuring deliverability through the PRODUCTION predicate
+(`RouteOrchestrator.ShouldDeliverToResource`, the same one
+`LiveDeliveryCapacityProbe.ProbeLoadedResourceFree` applies) so the headroom it
+creates cannot drift from the headroom the gate measures. Each cell hangs the
+restore on its existing finally / restore lambda. Two traps recorded: (1) in
+`OriginDebit_Loaded` the origin IS the destination, so the drain must run BEFORE
+`storedBefore` is measured or the pool assertion reads a stale baseline - which is
+why this is wired per-cell and NOT inside the shared `RunOriginDebitCrossing`;
+(2) `OriginGate_EmptyOrigin` and `MultiOrigin_OneSourceShort` are HOLD cells that
+must keep their empty/short vessels, and are deliberately untouched.
+
+The five inline pre-drains were deliberately NOT swapped onto the helper. They are
+a different contract: each drains ONE specific `PartResource` and then asserts on
+THAT reference (`fuelResource.amount == postDrain + expectedDelta`). A helper free
+to satisfy the deficit from any deliverable tank would leave the asserted tank full
+whenever another tank supplied the room, silently degrading those assertions to
+`tankCanReceive == false` / skipped rather than failing. Both docstrings say so.
+
+**Family B - the young save (1 cell).**
+`RouteRewindRedeliveryInGameTest` pinned `RewindCutoffUT = 1500` but left its
+synthetic route's `CreatedUT` at the `-1.0` default. `RouteStore.AddRoute` stamps
+the LIVE save UT whenever `CreatedUT < 0`, and `RouteRewindClassifier.Classify`
+parks any captured route with `CreatedUT > cutoff` on the DORMANT list - correctly:
+a route created after the rewind target does not exist yet on the re-flown
+timeline, and a dormant route is invisible to `TryGetRoute`. So the cell passed
+only on a save younger than ~25 minutes of game time and reded on every older one.
+FIX: `CreatedUT = SpanStartUT` (1000 < 1500), which models what the cell is
+actually about - a route that already existed before the rewind point. The inline
+comment claiming "RouteStore is NOT part of the reconciliation bundle" was
+factually wrong (the bundle captures BOTH route lists and re-splits them through
+`Classify`) and is replaced with the real contract; the assertion is strengthened
+to require the route is committed AND absent from `RouteStore.DormantRoutes`, so a
+future classifier change that parks it cannot read as a plain lookup miss.
+
+Cross-ref: these runs also PROVED the destination-full refusal branch fires live -
+see the **UPDATE 2026-08-28** paragraph on the D10 `destination-full-gate` row,
+inside `ROUTE-CANDIDACY-GATED-ON-SEAL-NO-SEAM-PATH` further down.
+
+## ~~D4-HARVEST-POLL-IS-NOT-RAILS-GATED-ON-SURFACE-VESSELS~~: the M2 harvest poll ran on PACKED frames for every LANDED / SPLASHED / PRELAUNCH vessel, and the rails-exit funnel flag was burned by the first no-transition poll instead of by the transition it labelled [FOUND 2026-08-28 by the first isolated Logistics batch (H38 reading run, `logs/2026-08-28_2105_H38-logistics-isolated`) and diagnosed against the source. TWO PRODUCT BUGS IN ONE FUNNEL, both on the D4 warp rule. **FIXED THE SAME DAY** on branch `logistics-isolated-lanes` - see THE FIX below]
+
+**Bug 1 - the invariant the code states is not the invariant it enforces.**
+`FlightRecorder.PollHarvestActivity` is documented (and asserted in-game) as
+rails-gated: no harvest window may open or close while the vessel is packed,
+because the only resource figures readable there are whatever the last stock
+catch-up left, so a window bracketed off them witnesses nothing. The gate was
+`OnPhysicsFrame`'s `if (isOnRails) return;` - and `OnVesselGoOnRails`
+early-returns for LANDED / SPLASHED / PRELAUNCH (and for below-atmosphere)
+BEFORE setting `isOnRails`, deliberately, because that flag gates orbit-segment
+creation and SOI handling and a surface vessel has no valid Keplerian arc. So
+the whole surface population - every mining rig, which is the ONLY population
+this feature exists for - polled straight through a warp with the gate reading
+"not on rails". The recorder's own `onphysicsframe-packed` breadcrumb had been
+observing packed frames reaching that method for a long time.
+
+**Bug 2 - the funnel flag never survived to its own transition.**
+`harvestRailsExitPollPending` labels the first post-warp transition
+`trigger=rails-exit`, so a converter switched off during warp is attributed to
+the boundary rather than to an ordinary mid-flight toggle. It was read and
+cleared at the TOP of the poll, above the `transition == None` early return, so
+any no-transition poll consumed it. Bug 1 made that certain (packed steady-state
+frames burned it during the warp itself), but it was independently reachable:
+one idle off-rails frame between the exit and the converter's state settling is
+enough. Compounding it, the flag was armed only at rails ENTRY - the exit path
+(`OnVesselGoOffRails`) never armed it in either branch.
+
+### THE FIX
+
+Three coordinated changes, all in the D4 funnel:
+
+1. `RouteHarvestCapture.ShouldRunHarvestPoll(gloopsMode, vesselPacked)` - new
+   pure predicate; `PollHarvestActivity` now gates on the vessel's own `packed`
+   flag, which is the authoritative rails state for this decision.
+   `isOnRails` is deliberately NOT set in the surface branch - that would
+   regress landed recordings.
+2. `RouteHarvestCapture.ShouldConsumeRailsExitFunnel(transition)` - the flag is
+   consumed only when a transition is actually emitted; a `None` poll leaves it
+   armed.
+3. `OnVesselGoOffRails` arms the funnel ABOVE the surface early-return, so both
+   exit branches arm it. The entry-side arm in `HandleHarvestRailsEntry` is
+   KEPT: `OnVesselGoOffRails` early-returns unless the unpacking vessel is both
+   the active vessel and the recorded pid, so a vessel switch taken across a
+   warp unpacks a vessel the poll then adopts with no exit event of its own, and
+   arming the same bool at both boundaries is idempotent.
+
+### THE ACCEPTED TRADE-OFF (recorded 2026-08-29 by the branch review)
+
+The packed gate is a REFUSAL TO GUESS, and it costs something. A converter
+ENABLED while the vessel is packed does not open its window at the moment it was
+enabled - the poll is not running - so its window opens only at UNPACK, and any
+production between the enable and the unpack is unattributed. That is deliberate:
+a packed frame's manifest is whatever the last stock catch-up left, so a window
+opened there would bracket an interval nothing witnessed and report a number
+Parsek did not measure. An unattributed gap is a smaller lie than an invented
+figure, and the delivery analysis treats unwitnessed gain as un-harvested rather
+than as harvested. The reverse case is already covered: a converter enabled
+BEFORE the warp has its window open across the whole warp (the rails-entry
+re-baseline), which is the common shape for a mining rig.
+
+### THE LABEL VALIDITY WINDOW (added 2026-08-29 by the branch review)
+
+Consume-on-transition-only fixed the flag being burned early, but left it valid
+FOREVER: with no transition after a rails exit, a player toggle minutes later
+would still be labelled `trigger=rails-exit`, asserting a causal link to a
+boundary it has nothing to do with. Each arm now stamps
+`harvestRailsExitPollArmedUT`, and
+`RouteHarvestCapture.IsRailsExitLabelStillValid` honours the label only within
+`RailsExitLabelMaxAgeSeconds = 5.0` GAME seconds (also rejecting an unstamped arm
+and a backwards clock, i.e. a quickload / rewind). MEASURED against the live H38
+flights, the real ages are 0.02 s (exit arm -> close, run `2026-08-28_1858`: exit
+UT 27.64, close UT 27.66) and 0.42 s (entry arm -> close), so the WarpToggle
+cell's pinned `trigger=rails-exit` token is unaffected; those two ages are the
+`[InlineData]` rows of `IsRailsExitLabelStillValid_BoundedToTheBoundary`.
+
+Breadcrumbs: `Harvest funnel consumed at transition:` (Verbose, at the consume
+site), `Harvest funnel label expired:` (Verbose, when the window lapses) and
+`Harvest poll skipped on packed frame:` (VerboseRateLimited, at the new gate -
+via the `Func<string>` overload, since it runs on every packed frame of a surface
+warp and the eager interpolation contradicted the method's own zero-allocation
+contract). Unit-guarded by `RouteHarvestCaptureTests`
+(`ShouldRunHarvestPoll_Matrix`, `ShouldConsumeRailsExitFunnel_OnlyOnEmittedTransition`,
+`RailsExitFunnel_SurvivesSteadyStatePollsUntilTheClose`). **LIVE-PROVEN
+2026-08-28** by `HarvestCapture_WarpToggle_RebaselinesAtRailsTransitions`:
+flight `2026-08-28_1802` (pre-fix) FAILED on exactly the funnel assertion
+(`must close its window on the first post-rails poll with trigger=rails-exit`);
+flights `_1833` and `_1858` (post-fix) both PASSED with
+`Harvest window closed: ... trigger=rails-exit` and the new
+`Harvest poll skipped on packed frame: ... sit=PRELAUNCH isOnRails=0
+railsExitPending=1 windowOpen=1` breadcrumb in the log - the packed-frame gate
+and the surviving funnel flag both observed doing their job on a PRELAUNCH
+vessel, which is the population bug 1 was about.
+
+**Found alongside two in-game TEST defects in the same batch** (fixed in the
+same change, no product involvement): the three `LogisticsHarvestRuntimeTests`
+capture tests read `RouteHarvestWindows` / `RouteRunManifest` off the TREE
+recording right after `StopRecording`, but the recorder -> tree flush
+(`ParsekFlight.FlushRecorderToTreeRecording` ->
+`ApplyCapturedLogisticsMetadataToRecording`) runs only at commit / scene exit,
+which those tests never reach - they now drive the real flush themselves before
+reading. And `LogisticsRouteProofRuntimeTests.CollectStoredParts` bound
+`GetProperty("KeysList")` Public-only against an internal property on
+`DictionaryValueList`, so the inventory-move finder saw zero stored parts on a
+fully loaded container - it now uses the public compile-time API
+(`ModuleInventoryPart.storedParts` + `InventorySlots`), the walk
+`LogisticsDeliveryRuntimeTests` already used.
+
+**Settle-retry hardening of the warp test** (found by the H38 negative-control
+flight `2026-08-28_1905`, which SKIPPED where `_1833` / `_1858` passed).
+`HarvestCapture_WarpToggle_RebaselinesAtRailsTransitions` intermittently skipped
+`Rails warp was refused in this situation (PRELAUNCH)` - about one flight in
+four. The log refutes the obvious settle-race reading: the warp was ACCEPTED on
+every flight (`Warp start at UT=27.40`), but on the skipping one at `3.0x` -
+`TimeWarp.physicsWarpRates[2]` - where the three others logged `10.0x`
+(`warpRates[2]`). `TimeWarp.SetRate` picks its rate list from whatever
+`TimeWarp.Mode` is CURRENT (confirmed against the decompiled `setRate`), and a
+PHYSICS warp never packs the vessel, so no amount of waiting could have fixed it
+- the mode has to be asserted, not assumed. Rails entry now runs through
+`EnterRailsWarpWithRetry`: bounded `srfSpeed` settle wait, then
+`TimeWarp.fetch.Mode = HIGH` re-asserted before each `SetRate`, retried within a
+10 s budget, with the session's prior warp MODE restored alongside its rate in
+`finally`. The skip reason keeps its original sentence VERBATIM (H38's spec
+header quotes it) with the measured `mode=` / `rate=` / `srfSpeed=` diagnostics
+appended in brackets, so a future skip states which mechanism it hit.
+
 ## GLOOPS-STANDALONE-WINDDOWN: Gloops UI retired from every mode; extraction to a standalone mod pending [OPENED 2026-08-28]
 
 Product decision (2026-08-28): Gloops becomes a standalone mod later, and Parsek
@@ -9466,11 +9794,88 @@ zero-declarer D10 rows is evidenced either: `docked-depot-origin`, `claw-produce
 2026-08-26: `V18T-depot-route-ts-arrival` declares it off an ARMED
 `routeLineBuilds { min = 1 }` whose red is demonstrated by its own negative
 control - a gate first, then the claim, which is the discipline rather than an
-exception to it. Nine zero-declarer D10 rows remain. Several of them - `multi-stop`,
-`multi-origin-escrow`, `round-trip-pair`, `hold-reasons`, `destination-full-gate` -
-have in-game cells that exist but carry `AllowBatchExecution = false`, so they are
-blocked by the B4 batch-wiring bucket rather than by this seal gap; the two
-route-CREATION-shaped ones are what the fix above would unblock.
+exception to it. FOUR MORE LEFT THAT LIST ON 2026-08-28, and the mechanism is the one
+this paragraph predicted: `multi-stop`, `multi-origin-escrow`, `round-trip-pair` and
+`hold-reasons` were blocked by the B4 batch-wiring bucket (their in-game cells exist
+but carry `AllowBatchExecution = false`), and `H38-logistics-isolated` unblocked them
+by driving the category through the R5 ISOLATED entry point. Its run 2
+(`2026-08-28_1833`, PASS attempt 1) pins the tally WHOLE - `total=47 passed=39
+failed=0 skipped=8` - and THAT is the gate the four claims rest on: with all three
+numbers literal, a cell that fails reds `failed=0`, a cell that self-skips reds
+`passed=39` and `skipped=8`, and a cell that is deleted reds `total=47` locally in
+`harness/lib` before it can reach a flight. The H35 objection quoted above has also
+inverted - run 2's log carries the production `[Parsek][*][Route]` units firing live
+(`ReserveCargo`, `ReserveCycleEscrow`, `DropRouteEscrow`, `short-cause=escrow`,
+`PartnerGate ... HOLD WaitingForPartner` / `CLEAR`, `hold recorded
+kind=OriginLacksCargo`, `DispatchDebit`, `LoopRoute ... FIRED full cycle`,
+`Delivery write: ... path=loaded`), so these are real units, not read-side walkers.
+FIVE zero-declarer D10 rows remained at that point: `docked-depot-origin`,
+~~`claw-producer`~~, `inventory-cargo`, `harvest-provenance`, `destination-full-gate`.
+**`claw-producer` LEFT THAT LIST ON 2026-08-29**, claimed by
+`H41-logistics-grapple-isolated` off its `2026-08-28_2216` flight - and it is the first
+zero-declarer D10 row in the suite earned by PRODUCTION EMITTERS rather than by a
+tally, which makes it the shape to copy. Three REQUIRED tokens name one causal chain:
+`OnPartCouple producer classified: kind=Grapple fromPart=PotatoRoid
+toPart=GrapplingDevice` (the production path recognising a live claw-to-asteroid
+couple), `Route proof dock window captured: ... kind=Grapple` (the window actually
+written - the exact analogue of what `dock-producer` is claimed on), and
+`GrappleCapture PASS: ... complete=True roidGhostRenderers=1` (the window CLOSED on
+release, plus the anti-vacuity half that the asteroid ghost built). A unit that stopped
+producing claw route windows cannot leave all three matching. Note that lane's tally
+CANNOT carry the claim - its `4/3/0/1` is byte-identical to what the ordinary batch
+path prints - so the tokens ARE the gate rather than decoration layered on one.
+FOUR REMAIN: `docked-depot-origin`, `inventory-cargo`, `harvest-provenance`,
+`destination-full-gate`. The last of those
+is the one H38 deliberately did NOT claim despite reaching it: the gate is exercised
+only on the permissive branch (`DestinationHasCapacity: route <id> full manifest
+fits`, x3) and `RouteStatus.DestinationFull` / `WaitDestinationFull` never fire, so
+the unit could stop refusing a full destination entirely and all 39 cells would still
+pass. It needs a cell that drives the REFUSAL, not another lane. The two
+route-CREATION-shaped rows are still what the fix above would unblock.
+
+**UPDATE 2026-08-28 - the refusal branch IS now measured, on H40.** The
+recorded-host reading runs flew against a fixture whose active vessel carries a
+FULL 720/720 LiquidFuel tank, and the all-or-nothing gate did exactly what this
+note said was undriven: it held nine cells' synthetic cycles in `DestinationFull`
+across three suites (origin-debit x2, round-trip x4, multi-origin x3). That is the
+REFUSAL branch firing on a live flight, against a real craft, for the right
+reason - the evidence `destination-full-gate` was missing. Two caveats for the
+pinning round. (1) Those nine cells are being FIXED to create their own headroom
+(`DestinationHeadroomFixture`), so after the fix they take the permissive branch
+again and the refusal is no longer in their path - a claim must rest on a token a
+POST-FIX flight still emits, not on the reading run's incidental reds.
+(2) `LogisticsMultiOriginRuntimeTests.MultiOrigin_OneSourceShort_HoldsNamingSource`
+holds on `OriginLacksCargo`, not on the destination gate, so it is not the cell
+either. Claiming the row therefore still wants a cell that drives the refusal ON
+PURPOSE (a full destination it does not drain, asserting
+`RouteStatus.DestinationFull` + the `destination FULL ... holding cycle
+all-or-nothing` Verbose line) - but the reading runs have now proven the branch is
+reachable from a committed fixture, which is what was in doubt.
+
+**SETTLED 2026-08-29 AT THE PINNING ROUND: THE ROW STAYS ZERO-DECLARER, and caveat (1)
+above is exactly what happened.** H40's green census 3 (`2026-08-28_2122`) was measured
+for it directly: **17** `DestinationHasCapacity: route <id> full manifest fits` lines and
+**ZERO** occurrences of `DestinationFull` or `WaitDestinationFull` anywhere in the log;
+the only `hold recorded kind=` value in the whole run is `OriginLacksCargo`, twice. So on
+the flight that is actually pinned, the gate is reached constantly and takes the
+PERMISSIVE branch every single time.
+
+That is now STRUCTURAL rather than incidental, and census 1 is the proof: the nine cells
+that DID drive the refusal all FAILED because of it, and the fix
+(`DestinationHeadroomFixture.TryEnsureDestinationHeadroom`, commit `7cfde0c20`) gave each
+of them headroom so they take the permissive branch deliberately. The suite therefore now
+contains **nine cells that route AROUND the refusal and none that asserts it** - the
+opposite of a declarer. A unit that stopped refusing a full destination entirely would
+leave all 35 of H40's cells passing and every one of its eight pinned tokens matching.
+
+WHAT WOULD CLOSE IT, unchanged and now with the evidence behind it: a cell that drives
+the refusal ON PURPOSE - a full destination it does NOT drain, asserting
+`RouteStatus.DestinationFull`, the `destination-full-<resource>` reason string from
+`RouteDispatchDecision.WaitDestinationFull`, and the retry UT. Not another lane and not
+another fixture: `depot-route-recorded`'s 720/720 `Depot` is already the most
+destination-full state in the entire suite and it was not enough. Recorded in
+`H40-logistics-isolated-depot-route.toml`'s `[dimensionsCovered]` block, which is where a
+future reader will look first.
 
 ---
 
