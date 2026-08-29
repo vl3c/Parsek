@@ -4,7 +4,7 @@ tier = "operator"
 # THE WARM HALF of the AUTOMERGE-ON-BY-DEFAULT evidence, and the sibling S0.9 is not.
 # Read the entry in docs/dev/todo-and-known-bugs.md first, then this header.
 #
-# ##### STATUS 2026-08-29: THIS SPEC'S SUBJECT WAS FIXED, AND IT OWES A CONFIRM RE-FLY.
+# ##### STATUS 2026-08-29: SUBJECT FIXED, CONFIRM RE-FLY FLOWN GREEN (`2026-08-29_1202`).
 # The warm chain below was assembled, flown (`2026-08-29_1043`, PASS) and CONFIRMED: a
 # player who leaves FLIGHT within three seconds of a quickload - ENTRANCE B, no fault
 # required - reaches the auto-commit site with a parked Limbo tree, and the product
@@ -14,9 +14,11 @@ tier = "operator"
 # untouched product behaviour, the entrance-B subject is untouched, and all ten
 # `required` tokens still describe them exactly - so this spec keeps its subject and its
 # pins and turns over from a reading run into the STANDING REGRESSION INSTRUMENT for the
-# warm half of the fix. What moved is step 4's OUTCOME, and the present-tense sentence
-# about it in step 4 below now describes the PRE-FIX product. The post-fix reading is a
-# PREDICTION in [expectations.logContracts].
+# warm half of the fix - LIVE-PROVEN in that role. What moved is step 4's OUTCOME, and
+# the present-tense sentence about it in step 4 below now describes the PRE-FIX product.
+# The post-fix reading is MEASURED in [expectations.logContracts]. The `required` tokens
+# did not move as a RESULT of the fix - only their recording COUNT did, 2 -> 4, because
+# the shared fixture grew two null-terminal leaves.
 # #####
 #
 # WHY A SECOND SPEC EXISTS. S0.9 cold-loads a save carrying a pending-Limbo tree
@@ -185,9 +187,10 @@ allowedAnomalies = []
 # fix (see S0.9's count block and the fixture note): the measurement answered a real
 # question for the shape it was taken on, and the two new leaves are two more pairs
 # `CanAutoMerge` has never been flown against. Re-pinning to an exact 4 by argument is
-# the "tighten by argument" this spec's own rule forbids. Predicted 4; tighten from the
-# confirm re-fly.
-count = { min = 2, max = 4 }
+# the "tighten by argument" this spec's own rule forbids. MEASURED 4 by the confirm
+# re-fly `2026-08-29_1202`, so the range is now the exact pin it was meant to become - no
+# pair collapsed across the four leaves.
+count = { min = 4, max = 4 }
 
 # [expectations.recordings.structure] and [expectations.rewind] are ABSENT. NEVER FLOWN:
 # every saveParse facet would be a predicted number, and a report-only block of invented
@@ -195,7 +198,27 @@ count = { min = 2, max = 4 }
 # Nothing armed; ARMED_ALLOWLIST untouched.
 
 [expectations.logContracts]
-# EVIDENCE STANDING: LIVE-PROVEN PRE-FIX, PREDICTED POST-FIX, RE-FLY OWED.
+# EVIDENCE STANDING: LIVE-PROVEN PRE-FIX AND POST-FIX. Confirm re-fly
+# `2026-08-29_1202_S0.10-automerge-limbo-warm-exit`, PASS attempt 1, 55 s, every verifier
+# PASS/SKIPPED, expectations mismatches=0, zero `[Parsek][ERROR]`, clobber guard silent.
+# All ten required tokens matched at the new count, the ENTRANCE-B subject held
+# (`coroutine aborted by destroy` present, `not active within 3s` verifiably ABSENT), and
+# the fidelity fix HOLDS on the warm route with every predicted number exact:
+#
+#   TryRestoreActiveTreeNode: stashed active tree 'Limbo Stack' (4 recording(s), activeRecId=limbo_child_9b3e05d1) into pending-Limbo slot
+#   exittospacecenter start scene=FLIGHT autoMerge=true hasActiveTree=false hasPendingTree=true ... activeTreeVariant=None pendingTreeVariant=None
+#   OnDestroy: clearing stale restoringActiveTree guard (coroutine aborted by destroy)
+#   autocommit-outside-flight (scene-exit): entry tree='Limbo Stack' recordings=4 scene=SPACECENTER autoMerge=True pendingState=Limbo reFlyActive=False
+#   Limbo-preserving full-fidelity auto-commit (scene-exit, state=Limbo): tree='Limbo Stack' recordings=4 spawnable=3 snapshotsPreserved=3 snapshotsReleased=1
+#   ApplyVesselDecisions: ghost-only for 'Limbo Escaper' ..., spawn snapshot nulled, ghostVisual=True
+#   exittospacecenter complete scene=SPACECENTER game-loaded=true elapsed=1.8s
+#
+# with `Ghost-only auto-commit`, `Auto-commit tree ghost-only` and `Silent full-fidelity
+# auto-commit` ALL ABSENT (0 occurrences each). The per-leaf decisions were identical to
+# S0.9's - same fixture, and the ESCAPING leaf is the only denial - so the two routes now
+# agree leaf for leaf as well as in total, which is the strongest form of the claim.
+#
+# PRIOR STANDING (kept for the reasoning): LIVE-PROVEN PRE-FIX, PREDICTED POST-FIX.
 #
 # ================== THE PRODUCT CHANGED UNDER THIS SPEC (2026-08-29) ==================
 # The green run below proved the warm chain end to end and measured the ghost-only
@@ -217,7 +240,8 @@ count = { min = 2, max = 4 }
 #
 #   Limbo-preserving full-fidelity auto-commit (scene-exit, state=Limbo): tree='Limbo Stack' recordings=4 spawnable=3 snapshotsPreserved=3 snapshotsReleased=1
 #
-# with `Ghost-only auto-commit` ABSENT. SAME FIXTURE AS S0.9, including the two leaves
+# ~~PREDICTED~~ MEASURED by run `2026-08-29_1202`, exactly as written, with
+# `Ghost-only auto-commit` ABSENT. SAME FIXTURE AS S0.9, including the two leaves
 # it grew with the fix, so the derivation is the same and is written out THERE rather
 # than duplicated here (a second copy of a moving derivation is a second thing to leave
 # stale). The short form: all four recordings are leaves - the tree carries no

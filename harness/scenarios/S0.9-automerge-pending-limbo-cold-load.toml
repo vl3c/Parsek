@@ -4,7 +4,7 @@ tier = "operator"
 # THE SECOND PIECE OF DECISIVE EVIDENCE named by the AUTOMERGE-ON-BY-DEFAULT entry
 # in docs/dev/todo-and-known-bugs.md. Read that entry before this file.
 #
-# ##### STATUS 2026-08-29: THIS SPEC'S SUBJECT WAS FIXED, AND IT OWES A CONFIRM RE-FLY.
+# ##### STATUS 2026-08-29: SUBJECT FIXED, CONFIRM RE-FLY FLOWN GREEN (`2026-08-29_1200`).
 # The question below was asked, flown (`2026-08-29_1025`), and ANSWERED: the ghost-only
 # branch is live and it destroyed both snapshots. The product fix landed on branch
 # `limbo-fidelity` - a non-re-fly Limbo tree now commits at FIDELITY through the
@@ -12,8 +12,10 @@ tier = "operator"
 # what the site does with a non-Finalized tree is a description of the PRE-FIX product,
 # kept because it is the reasoning the fix was taken against. The spec's role has turned
 # over: it was a reading run and it is now the STANDING REGRESSION INSTRUMENT for the
-# fix. Its `required` tokens did not move (they were pinned structural, not outcome);
-# what moved is the documented reading, now PREDICTED, in [expectations.logContracts].
+# fix, LIVE-PROVEN in that role. Its `required` tokens did not move as a RESULT of the
+# fix (they were pinned structural, not outcome) - only their recording COUNT did, 2 -> 4,
+# because the fixture grew two leaves. What moved is the documented reading, now MEASURED,
+# in [expectations.logContracts].
 # #####
 #
 # THE QUESTION. `ParsekScenario.AutoCommitPendingTreeOutsideFlight` routes a pending
@@ -148,8 +150,10 @@ allowedAnomalies = []
 # pairs `CanAutoMerge` has never been flown against. Re-pinning to an exact 4 by
 # argument would be exactly the "tighten by argument" this spec's own rule forbids, and
 # the cost of being wrong is a PARSEK-FAIL plus a burned retry rather than a reading.
-# Predicted 4; tighten from the confirm re-fly's reading.
-count = { min = 2, max = 4 }
+# MEASURED 4 by the confirm re-fly `2026-08-29_1200`, so the range is now the exact pin it
+# was meant to become. The open half is answered for the new shape too:
+# `RunOptimizationPass` did NOT collapse any pair across this fixture's four leaves.
+count = { min = 4, max = 4 }
 
 # [expectations.recordings.structure] and [expectations.rewind] are ABSENT, and
 # deliberately so. This spec has NEVER BEEN FLOWN: every saveParse facet it could
@@ -160,7 +164,36 @@ count = { min = 2, max = 4 }
 # report-only reading run.
 
 [expectations.logContracts]
-# EVIDENCE STANDING: MEASURED PRE-FIX, PREDICTED POST-FIX, RE-FLY OWED.
+# EVIDENCE STANDING: LIVE-PROVEN POST-FIX. Confirm re-fly
+# `2026-08-29_1200_S0.9-automerge-pending-limbo-cold-load`, PASS attempt 1, 54 s, every
+# verifier PASS/SKIPPED, expectations mismatches=0, zero `[Parsek][ERROR]`. The fidelity
+# fix HOLDS on the cold route and every predicted number came back EXACTLY:
+#
+#   TryRestoreActiveTreeNode: stashed active tree 'Limbo Stack' (4 recording(s), activeRecId=limbo_child_9b3e05d1) into pending-Limbo slot
+#   Idle-on-pad auto-discard skipped: pending tree state is Limbo (not Finalized), resume/restore flow will run instead
+#   autocommit-outside-flight (cold-load outside-flight): entry tree='Limbo Stack' recordings=4 scene=SPACECENTER autoMerge=True pendingState=Limbo reFlyActive=False
+#   Limbo-preserving full-fidelity auto-commit (cold-load outside-flight, state=Limbo): tree='Limbo Stack' recordings=4 spawnable=3 snapshotsPreserved=3 snapshotsReleased=1
+#
+# with `Ghost-only auto-commit`, `Auto-commit tree ghost-only` and `Silent full-fidelity
+# auto-commit` ALL ABSENT (0 occurrences each) - the first two are the pre-fix outcome
+# this spec used to measure, the third would mean the tree had been re-finalized.
+#
+# THE PER-LEAF READING, which is the un-finalized situation gate measured live:
+#   leaf='limbo_root_2f7a41c8'   terminal=null  hasSnapshot=True canPersist=True
+#   leaf='limbo_child_9b3e05d1'  terminal=Orbiting             canPersist=True
+#   leaf='limbo_coast_5d1c73a2'  terminal=null  hasSnapshot=True canPersist=True
+#   leaf='limbo_escape_e40b6cf7' terminal=null  hasSnapshot=True canPersist=False
+#   ApplyVesselDecisions: ghost-only for 'Limbo Escaper' ..., spawn snapshot nulled, ghostVisual=True
+# The escape leaf is the ONLY one denied, its ghost geometry preserved on the way - which
+# is exactly what a build WITHOUT the gate would not have done (it would have read
+# canPersist=True and the line would say snapshotsPreserved=4 snapshotsReleased=0).
+#
+# PRODUCED SAVE: all four recordings committed into one RECORDING_TREE, and the escape
+# leaf alone carries a `_ghost.craft` sidecar. Its `_vessel.craft` remains on disk but is
+# unreachable: re-hydration requires a spawnable TERMINAL state and it has none, so the
+# denial survives a reload. Snapshot kept alongside this run's artifacts.
+#
+# PRIOR STANDING (kept for the reasoning): MEASURED PRE-FIX, PREDICTED POST-FIX.
 #
 # ================== THE PRODUCT CHANGED UNDER THIS SPEC (2026-08-29) ==================
 # Run `2026-08-29_1025` (below) measured the ghost-only branch destroying both
@@ -195,7 +228,8 @@ count = { min = 2, max = 4 }
 # 3 and 1. That one-leaf difference is what makes this flight discriminating rather than
 # merely agreeable.
 #
-# PREDICTED post-fix reading (DERIVED, and MACHINE-CHECKED headlessly - see below):
+# ~~PREDICTED~~ MEASURED post-fix reading (derived, machine-checked headlessly, then
+# CONFIRMED by run `2026-08-29_1200` - all four numbers came back exactly as written):
 #
 #   Limbo-preserving full-fidelity auto-commit (cold-load outside-flight, state=Limbo): tree='Limbo Stack' recordings=4 spawnable=3 snapshotsPreserved=3 snapshotsReleased=1
 #
@@ -219,9 +253,10 @@ count = { min = 2, max = 4 }
 # fixture or a changed predicate reds in a second locally instead of after an hour of
 # flight. Keep the literals here and there in step.
 #
-# THE RE-FLY IS WHAT CONFIRMS THIS in the shipped DLL. If it comes back with the
-# ghost-only line, or with different numbers, correct these - do NOT widen them into a
-# range to make a run green.
+# THE RE-FLY CONFIRMED THIS in the shipped DLL (run `2026-08-29_1200`, against a
+# hash-verified deploy of the fix's own build). The rule that governed it still governs
+# any future disagreement: if a run comes back with the ghost-only line or different
+# numbers, correct these - do NOT widen them into a range to make a run green.
 # =====================================================================================
 #
 # THE PRE-FIX RUN, kept in full because it is the evidence the fix was taken against.
