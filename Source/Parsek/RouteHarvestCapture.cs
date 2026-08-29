@@ -54,6 +54,64 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Rails gate for the per-frame poll (plan D4). The poll reads a LIVE
+        /// resource manifest at its transitions, so it may only run on an
+        /// UNPACKED frame: a packed vessel's resource state is whatever the
+        /// last stock catch-up left, and a window opened or closed there
+        /// brackets an interval nothing witnessed. The vessel's own
+        /// <c>packed</c> flag is the authoritative rails state for this gate -
+        /// the recorder's <c>isOnRails</c> bookkeeping is NOT a substitute,
+        /// because a LANDED / SPLASHED / PRELAUNCH (or below-atmosphere) vessel
+        /// packs without it ever being set. Gloops mode captures no harvest at
+        /// all.
+        /// </summary>
+        internal static bool ShouldRunHarvestPoll(bool gloopsMode, bool vesselPacked)
+        {
+            return !gloopsMode && !vesselPacked;
+        }
+
+        /// <summary>
+        /// Funnel-consume rule (plan D4 warp rule): the rails-exit pending flag
+        /// is consumed ONLY by a poll that actually emits a transition. A
+        /// no-transition poll must leave it armed - otherwise the first
+        /// steady-state frame after the rails exit burns the label and the
+        /// close that the warp-period toggle earned is attributed
+        /// <c>trigger=toggle</c> instead of <c>trigger=rails-exit</c>.
+        /// </summary>
+        internal static bool ShouldConsumeRailsExitFunnel(HarvestActivityTransition transition)
+        {
+            return transition != HarvestActivityTransition.None;
+        }
+
+        /// <summary>
+        /// How long after the rails boundary a transition may still be labelled
+        /// <c>trigger=rails-exit</c>, in GAME seconds. The funnel flag deliberately
+        /// survives no-transition polls (so a close landing a few frames after unpack
+        /// still reads as the boundary's), but left unbounded it would equally label a
+        /// player toggle minutes later - asserting a causal link to a warp exit that is
+        /// not there. A few seconds covers the settle-and-close a real rails exit
+        /// produces and excludes anything a player did afterwards.
+        /// </summary>
+        internal const double RailsExitLabelMaxAgeSeconds = 5.0;
+
+        /// <summary>
+        /// Whether an armed rails-exit label still describes the transition being
+        /// emitted. False when nothing is armed, when the arm carries no UT (NaN -
+        /// never stamped), when the clock ran backwards past the arm (a quickload or
+        /// rewind moved UT), or when more than
+        /// <see cref="RailsExitLabelMaxAgeSeconds"/> of game time has elapsed.
+        /// </summary>
+        internal static bool IsRailsExitLabelStillValid(
+            bool railsExitPending, double armedUT, double nowUT)
+        {
+            if (!railsExitPending) return false;
+            if (double.IsNaN(armedUT) || double.IsNaN(nowUT)) return false;
+            double age = nowUT - armedUT;
+            if (age < 0.0) return false;
+            return age <= RailsExitLabelMaxAgeSeconds;
+        }
+
+        /// <summary>
         /// Rails-entry re-baseline rule (plan D4 warp rule): with a window
         /// already open, production continues inside it (no action); with
         /// converters active and NO window open (activation raced the poll),

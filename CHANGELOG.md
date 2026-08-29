@@ -17,6 +17,38 @@ All notable changes to Parsek are documented here.
 
 ### Fixed
 
+- Harvesting on a landed mining rig is now recorded correctly across time warp. Parsek brackets resource harvesting into windows - one opens when a converter or drill starts and closes when it stops - so a later delivery can tell mined cargo apart from carried cargo. Those windows must never open or close while the craft is packed away under warp, because the resource figures readable there are whatever the game last caught up to rather than anything Parsek watched. For a craft in orbit that rule held. For a LANDED, splashed or on-the-pad craft it did not: the game leaves a surface craft where it is under warp, so Parsek's own on-rails bookkeeping is deliberately never switched on for it, and the check meant to keep the harvest poll off warp frames read "not warping" for the entire warp. Two things went wrong as a result, and both are fixed. The poll ran on packed frames and could open or close a window off resource figures nobody witnessed - it now sits out every packed frame, judged by whether the craft is actually packed rather than by that bookkeeping. And the note that says "the next harvesting decision belongs to the moment warp ended" was being used up by the first idle frame after the warp instead of by the decision it was meant for, so a drill switched off during a warp had its window closed and labelled an ordinary mid-flight toggle. That note now survives an idle frame, is set when warp ends (including for the surface craft whose warp exit had never set it at all), and expires a few seconds later - long enough for the close a real warp exit produces, short enough that a toggle you make minutes afterwards is no longer blamed on the warp.
+
+  One deliberate limit is worth stating, because it is a refusal to guess rather than an oversight: a drill you switch ON while the craft is already warping does not start its window until the warp ends, so whatever it produced in between is recorded as not-harvested. Parsek could only invent that figure - the readings available mid-warp are not ones it watched - and an unclaimed gap is a smaller error than a made-up number. A drill already running before the warp keeps its window open across the whole thing, which is the usual case for a mining rig.
+
+- A whole mission could vanish from your save after a quickload, and once it
+  went it never came back. It needed two things to line up. When you fly a craft
+  that one of your recorded missions is about, Parsek takes a working copy of
+  that mission so the flight can carry on from it - a copy that deliberately
+  keeps the original's names for everything, because it IS the same mission.
+  Loading a save then throws that working copy away, and the throwing-away step
+  deletes the recorded flight-path files belonging to it. It is supposed to
+  refuse when those files still belong to a mission you have kept, and it does -
+  except that on a fresh load the check runs a moment BEFORE Parsek has read your
+  kept missions back in, so it had nothing to check against and deleted the
+  originals. From then on the mission's flight paths were gone, and the second
+  half took over: when Parsek cannot write a mission's data out, it was leaving
+  that mission out of the save entirely rather than saving something wrong. That
+  is the right instinct and the wrong action - the mission was already written in
+  the save from last time, and dropping it deleted the only remaining copy. Both
+  halves are fixed. The throwing-away step now reads the save file itself for the
+  list of missions you have kept, so it can never delete a kept mission's files
+  while the list is still loading. And a mission Parsek cannot write is now
+  carried through from the previous save rather than dropped, with a loud
+  complaint in the log, so a data problem can never quietly delete a mission
+  again. What is carried through is checked against the mission as it stands
+  now rather than copied wholesale: a flight the older copy still lists but you
+  have since deleted is left out, and if the mission's own first flight is one
+  of those, the carry is abandoned rather than writing a mission whose starting
+  point no longer exists. So the safety net will not bring back recordings you
+  deleted. Missions already lost this way cannot be recovered by the update; they
+  are recoverable from a quicksave or one of the automatic backups.
+
 - Every time a recorded flight crossed from one planet's or moon's area of
   influence into another while on rails, the recorder built a second, completely
   empty slice of timeline sitting exactly on top of the real one. That slice
@@ -37,6 +69,201 @@ All notable changes to Parsek are documented here.
 
 ### Dev
 
+- Fourteen more of Parsek's in-game self-tests can now be run automatically. The
+  mod ships a large set of tests that only mean anything inside a running game -
+  they check things like the claw and asteroid parts loading, ghosts being held
+  clear of the ground, the decorations Parsek adds to the stock research and
+  astronaut screens, the map and tracking-station markers, and the save-file
+  plumbing - and none of these had any way to be run except by hand. Each one now
+  has an automated run of its own, on whichever saved game and whichever screen
+  that particular group of tests actually needs, which for four of them is not the
+  flight view at all.
+
+  Writing them turned up something worth recording, because it is the kind of
+  mistake that costs a whole test flight to discover. The plan these were written
+  from said nine of them could state their expected result exactly, on the grounds
+  that their tests contain no "give up" conditions. Checking each one against the
+  actual test code says only five can. The plan had counted whether a test LOOKS
+  like it might give up, when the question is whether it could actually do so in
+  the situation that particular run sets up - and it was wrong in both directions.
+  Two tests that do contain a give-up condition can still state their result
+  exactly, because the condition cannot happen once the game has loaded. Three
+  others cannot, and one of those would have failed on a perfectly healthy run: it
+  checks something that needs a rocket sitting on the launchpad, and its run
+  deliberately starts in the tracking station, where there is no rocket at all.
+  The nine that cannot state an exact result say so, and will be tightened once
+  they have actually been run.
+
+  ALL FOURTEEN HAVE NOW BEEN RUN, and every one passed first time with nothing
+  failing anywhere - fourteen flights inside fourteen minutes of running the game.
+  All five of the runs that had stated an exact expected result up front turned
+  out to be right, and the nine that could not now state theirs from what was
+  measured. Three things came out of it that were worth the flying. Two runs did
+  BETTER than expected: a check on holding ghosts clear of the ground needed three
+  separate conditions to line up in the live world and got all three, and both of
+  the checks on Parsek's own on-screen window layout passed - which answers a
+  standing question about whether an unattended run ever draws a window at all,
+  and it does. One run contradicted the note above outright: the test said to need
+  a rocket on the launchpad needs nothing of the sort. It contains no give-up
+  conditions at all, and it passed in the tracking station in under a millisecond.
+  Those conditions had been read off a NEIGHBOURING test in the same very large
+  file. That is the same mistake the plan made, arrived at from a third direction,
+  and it is now written down in all three places it can bite.
+
+  The last finding is about test fixtures rather than tests. Two runs executed
+  fewer checks than expected, and neither is a fault. One needs the game to be in
+  a state a saved file cannot contain - a recording actually in progress - so no
+  amount of choosing a better save fixes it. The other is more useful: the mission
+  checks come in four flavours (a course-correcting flight, a station rendezvous, a
+  combined landing-and-station arrival, and a launch from somewhere other than
+  Kerbin), and any one real saved game is at most one or two of those. The save
+  used is a single Kerbin-to-Duna course-correcting mission, so it answered exactly
+  that one and stood the other three down. Worth stating plainly, because the
+  arithmetic that says "seven of these can run here" counts what the tests declare
+  rather than what any one saved game can be. A fourth check made the same point
+  from the other side: it found the mission named in its own give-up message,
+  looked at it, and stood down anyway, because it was the wrong variant of a
+  mission that happens to share the name.
+
+- The automated test rig's own tidy-up could put back the very state it had just
+  cleaned. A test batch restores your save file to exactly the bytes it had
+  before the batch started; the command that then shuts the game down was saving
+  the live game one more time on its way out, writing the batch's leftovers back
+  over that restore. The shutdown command now skips its save when a batch has
+  already restored the file, and says so in the log. That skip is deliberately
+  narrow, because "the restore is the last word" stops being true the moment
+  anything else happens: it applies only to the exact save the restore wrote, and
+  it is cancelled by loading a game, returning to the main menu, or any later
+  command that can change something a save would capture. One rig scenario turns
+  on precisely that - it runs a batch, then merges a re-flown mission, then shuts
+  down, and the merge is the entire point of the save it produces. A shutdown
+  outside a test batch saves exactly as before. Test-tooling only; no gameplay
+  change.
+- Ten more supply-route in-game tests were making silent assumptions about the
+  save they run in, and the two new recorded-flight test runs caught all of them.
+  Nine assumed the rocket they deliver onto has an EMPTY fuel tank. Parsek will
+  only run a supply cycle when the whole delivery fits at the destination - a
+  deliberate all-or-nothing rule, so a half-delivered load can never be charged
+  for in full - and the test rocket's tank is full, so the product correctly
+  refused to run the cycle and the tests reded on assertions about something else
+  entirely. Five other tests had quietly grown their own little "empty the tank
+  first" step, which is why they passed. There is now one shared piece that makes
+  exactly as much room as the delivery needs, puts the fuel back afterwards, and
+  measures room the same way the product's own refusal does, so the two cannot
+  drift apart. The five that drain one specific tank and then check THAT tank
+  received the fuel keep their own step - a shared helper free to drain any tank
+  would quietly stop them checking anything. The tenth test assumed a YOUNG save:
+  it created a supply route and then rewound to a moment 25 minutes into the
+  flight, and a route is stamped with the time it was created, so on any save
+  older than that the product correctly parked the route as "not created yet on
+  this timeline" and the test could no longer find it. The route is now stamped
+  with a time before the rewind point, which is what the test was always about -
+  a route that already existed when you rewound - and it now also checks the route
+  was not parked, rather than only that it could be found. All ten were test-side;
+  the product refusals were right in every case. Test-tooling only; no gameplay
+  change.
+- Three of the resource-harvesting in-game tests were reading the wrong copy of
+  the flight and could not have passed as written. While a flight is being
+  recorded, what the recorder has gathered and what the flight's stored
+  recording holds are two separate things; the recorder's harvest windows and
+  cargo manifest are handed over to the stored recording only when the flight is
+  committed or the scene is left. These tests stop their recording, read the
+  stored copy immediately, and then throw the whole thing away without ever
+  committing it - so the windows and the manifest they were checking for were
+  always empty, whatever the recorder had actually captured, and the tests
+  reported a Parsek fault that was entirely their own. They now perform that
+  same hand-over themselves after stopping, so what they check is the real
+  forwarded result. The warp one of the three was also skipping itself roughly
+  one run in four: it asked for time warp without saying WHICH kind, and the game
+  gives you whichever kind was last selected - so on a run that happened to be in
+  physics warp it got 3x physics warp rather than 10x on-rails, which never parks
+  the craft and so could never exercise the thing the test is about. It now asks
+  for on-rails warp explicitly, waits for the craft to come to rest first, retries
+  within a bounded window, and reports the warp mode and rate it actually measured
+  if it still has to give up. Test-tooling only; no gameplay change.
+- The cargo-move route-proof test can now see the cargo it needs. It read a
+  container's occupied slots through a general-purpose lookup asked only for
+  publicly-visible parts of the game's own code - and the list of occupied slots
+  is not one of those - so it read every container as empty and gave up with "no
+  stored cargo item found" on a fully loaded craft. It now reads the container
+  directly, the way the neighbouring delivery tests already did.
+  Test-tooling only; no gameplay change.
+- Groundwork for testing the supply-route features automatically. The biggest
+  block of in-game tests Parsek has - the ones covering supply routes, cargo
+  deliveries and resource harvesting - has never been runnable by the automated
+  test rig, because every one of them quietly gives up unless the rocket it
+  finds on the launchpad happens to carry a very specific combination of
+  equipment: an engine, a part-full fuel tank it can both drain and top up, a
+  fuel cell it can switch on and off, and two cargo containers with the first
+  one nearly full and the second one empty. No stock rocket and none of the
+  rig's existing test rockets has all of that at once, so those tests skipped
+  themselves in silence. A small purpose-built rocket that has all of it is now
+  assembled from parts by a script - which doubles as the written record of why
+  each part is there, and as the check that nobody quietly edits the rocket by
+  hand - along with the automated run that will put it on the pad and save the
+  game there, and the test run itself that finally puts all of those
+  supply-route tests through their paces on it. That run was written to be
+  deliberately modest about what it claimed: until it had actually been flown
+  once, it only insisted that noticeably more tests pass than could ever have run
+  the old way, rather than pretending to know the exact result in advance.
+  IT HAS NOW BEEN FLOWN, and the modesty paid for itself. The first run put 36 of
+  the 47 supply-route tests through, and the reading it produced was worth more
+  than a pass: two of them failed, and reading why turned up one genuine Parsek
+  fault - harvesting bookkeeping on a landed rig running during time warp, the
+  fix for which has its own entry above - plus two faults in the tests
+  themselves, one of them a test that had been giving up silently rather than
+  failing. With all three fixed, the second run passed cleanly with 39 of the 47
+  through and none failing, in about four minutes. That exact result is now what
+  the run demands: 39 pass, none fail, 8 give up - the eight being tests that
+  each want a past this launchpad rocket has no way to have (a flight that
+  started docked, a recorded docking, a drill rig sitting on ore), all of them
+  written down by name so the number cannot quietly drift into meaning something
+  else. Two individual tests are additionally named, chosen because each guards
+  a way the total alone could look healthy while something had gone quiet: the
+  harvesting fix, and the test that used to give up in silence.
+  Test-tooling only; no gameplay change, and nothing ships with the mod.
+- Two more automated runs of that same set of supply-route tests, this time over
+  saved games that already contain flight history - because the purpose-built
+  launchpad rocket has none, so everything those tests have concluded so far was
+  concluded against a game with no recorded flights in it at all. One of the two
+  runs uses a save holding a real recorded docking; the other uses the only saved
+  game that carries a live supply route, so the tests that read route data will
+  finally read a real one instead of one they had to invent for themselves.
+  Both were written in the same deliberately
+  modest form the first one was. Reading the tests before writing the runs also
+  settled something worth writing down: three of the tests that were expected to
+  come alive on these saves still cannot, and not for want of the right save.
+  They look for a docking between two craft the game can tell apart by an
+  identifier it stamps into the craft file itself - and both recorded dockings we
+  have are between craft built from the same stock rocket, which therefore share
+  that stamp. No amount of choosing a different save fixes that. It needs a fresh
+  recording of two genuinely different craft docking, which is now written down
+  as a requirement rather than left as a surprise for a future run.
+  BOTH HAVE NOW BEEN FLOWN, three times each, and between them they paid for
+  themselves twice over. The first attempt at each turned up faults in the tests
+  rather than in the game - one run found a single mis-written test, the other
+  found ten failures that traced back to a single cause worth stating plainly:
+  the saved game carrying a live supply route has a completely full fuel tank,
+  and nine tests had been quietly assuming they could deliver into whatever
+  craft they happened to be flying without first checking there was room.
+  Refusing to deliver into a full tank is the game behaving correctly; the tests
+  were the ones at fault, and they now make room for themselves before they
+  start. The second attempt at each is the one that mattered: both sets of tests
+  passed clean, and BOTH RUNS FAILED ANYWAY - on the count of saved flights,
+  which had dropped from nineteen and twenty-two to nine. That is the
+  whole-mission-vanishing fault fixed above, and nothing else in the entire
+  checking chain could have seen it, because no test in that group ever looks at
+  flight history it did not itself create. The third attempt at each passed with
+  the histories intact. Both runs now demand their exact results - how many
+  tests pass, how many stand down and the reason each one gives, and above all
+  the exact number of saved flights that must come out the other side, with no
+  tolerance in either direction. Between them these three runs execute 41 of the
+  group's 47 checks; a fourth, older run reaches one more, so the whole set of
+  five runs covers 42. Of the five checks still not reached, four are waiting on
+  a recording nobody has made yet; the fifth cannot run in these three by
+  design, because they deliberately start from a save with no recorded flights
+  in it at all and that check needs one.
+  Test-tooling only; no gameplay change, and nothing ships with the mod.
 - Parsek builds a standing exhibition of every part it knows how to draw: 243
   little one-part replays, one per part, lined up in three rows in front of the
   launch pad, each running a short clip that works that part's own moving bits -

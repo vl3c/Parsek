@@ -1,0 +1,121 @@
+schema = 1
+id = "H46-settings"
+tier = "nightly"
+# PHASE-4 WAVE 1, the H7-H20 shape. Settings accessibility plus the two LIVE IMGUI layout cells.
+#
+# WHAT IT COVERS: settings accessibility and logging on the live singletons, plus two
+# cells that no headless test can reach at all because their subject is IMGUI LAYOUT -
+# the Settings window shrinking when the UI switches to Basic mode, and the tooltip echo
+# box reserving wrapped height in a narrow window. Both measure real laid-out pixel
+# heights across real Repaint passes.
+#
+# WHY A READING RUN: two of the four admitted cells carry guards that are genuinely
+# runtime. `SettingsWindowShrinksWhenEnteringBasic` needs a live `ParsekUI`, a live
+# `ParsekFlight`, no Gloops recording in progress, and - the load-bearing pair - the
+# window to have been LAID OUT at all ("The Settings window was never laid out
+# (height=0", "The baseline height fit never ran"). `TooltipEchoBox_NarrowWindow_
+# ReservesWrappedHeight` needs the probe to observe an IMGUI Repaint pass at all
+# ("probe never observed an IMGUI Repaint pass"). Whether an unattended batch that
+# never opens a window by hand produces those passes is exactly what has never been
+# measured - it is the same class of unknown H22 flew for `UiComplexityMode`, and H22's
+# skipped=0 was MEASURED off a live run rather than derived.
+#
+# -------------------------------------------------------------------------------------
+# READING HISTORY - ONE CENSUS, AND THE H22-CLASS UNKNOWN IS ANSWERED.
+# `2026-08-28_2221`, **PASS attempt 1**, wall 51 s. MEASURED:
+#     BATCH_COMPLETE v1 total=5 passed=4 failed=0 skipped=1
+#     category=Settings scene=FLIGHT
+# `recordings.count = 0`; every verifier PASS or REPORT.
+#
+# **BOTH IMGUI CELLS PASSED**, which is the answer this lane was flown for. The header
+# asked whether "an unattended batch that never opens a window by hand produces those
+# passes" - whether a Settings window is ever LAID OUT (height != 0), whether the
+# baseline height fit runs, and whether the tooltip probe ever observes an IMGUI Repaint
+# pass. It does, on all three counts: `SettingsWindowShrinksWhenEnteringBasic` and
+# `TooltipEchoBox_NarrowWindow_ReservesWrappedHeight` both executed and passed. That
+# closes the same class of unknown H22 measured for `UiComplexityMode`, and it says an
+# unattended FLIGHT batch is a usable host for IMGUI-layout cells in general - worth
+# knowing before anyone writes another one and assumes it needs a driven UI.
+#
+# THE SKIP ROSTER - ONE, AND IT IS **SCENE-FILTERED RATHER THAN A RUNTIME GUARD**, which
+# is not what the reading-run framing anticipated:
+#   1 RuntimeTests.GhostMarkerProtoVesselsHaveHardenedPartTolerances - declared
+#     `Scene = GameScenes.TRACKSTATION` (`RuntimeTests.cs:1956`), so it is ineligible at
+#     this lane's FLIGHT boot. The runner's summary is the proof:
+#         Scene eligibility skip summary: skipped=1 currentScene=FLIGHT
+#         byRequiredScene=TRACKSTATION:1
+#     There is no per-test `SKIPPED:` line in the whole run.
+# SO `skipped=1` IS THE PURE ATTRIBUTE FLOOR and NO run-time guard fired: no
+# `RUNTIME_SKIPS` entry is owed and the pinned tally is the plain attribute derivation.
+# The distinction is worth keeping straight - a scene skip is a lane's SCOPE, a runtime
+# skip is a lane's DEBT, and only the second is something a fixture could ever pay.
+# CONFIRM RUNS PENDING.
+description = "FLOWN: the in-game Settings category unattended - settings and logging accessibility plus the two live IMGUI layout cells (Basic-mode window shrink, tooltip echo wrapped-height reservation) that headless tests cannot reach."
+instanceProfile = "stock-minimal"
+tags = ["ingame-batch", "phase4-wave1", "settings", "imgui", "H46", "flown"]
+
+[fixture]
+# gloops-airshow, the wave host: a FLIGHT scene with a live ParsekFlight and ParsekUI,
+# which is what both IMGUI cells guard on. The two AnyScene cells are host-free.
+saveTemplate = "fixtures/saves/gloops-airshow"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+# verboseLogging=true: the CENSUS is the product, and the header's open question -
+# whether an unattended batch produces the IMGUI Repaint passes the two layout
+# cells need - is answered by which of the six guard strings appears.
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" }, expect = "OK" },
+  { cmd = "RunTests",   args = { category = "Settings" }, expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit", expect = "OK" },
+]
+
+[dimensionsCovered]
+# HONEST and minimal. NOT claimed: any UI coverage value - H22 owns the
+# Basic/Advanced mode gate and its InputLockManager contract; this lane's two
+# layout cells measure window HEIGHT, not the lock.
+D14 = ["sandbox", "scene-flight"]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING (see H7): run.py reads `expectations.allowedAnomalies`,
+# and a bare key written AFTER an `[expectations.<sub>]` header is TOML-scoped to that
+# sub-table and never read.
+allowedAnomalies = []
+
+[expectations.recordings]
+# Zero: nothing here records.
+count = { min = 0, max = 0 }
+
+[expectations.logContracts]
+# ANTI-VACUITY plus a DELIBERATELY OPEN SPLIT.
+#  - total=5 is ATTRIBUTE-EXACT: 5 `[InGameTest(Category = "Settings")]` declarations
+#    across three files. The ATTRIBUTE FLOOR for `skipped` is 1 - one declaration is
+#    scene-ineligible at FLIGHT.
+#  - passed / skipped are OPEN for the reason in the header: the two IMGUI cells depend
+#    on layout and Repaint passes an unattended batch has never been measured producing.
+#  - failed=0 is the ASSERTION.
+#  - scene=FLIGHT is the gloops-airshow Focusable route, MEASURED by H13 / H5 / H29, and
+#    it is load-bearing here because the skip floor is scene-derived.
+required  = ["BATCH_COMPLETE v1 total=5 passed=4 failed=0 skipped=1 category=Settings scene=FLIGHT"]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+[runtime]
+# 720, the H7-H20 wave convention. NOTE THE INHERITED FLAW rather than repeating it
+# silently: both LoadGame and RunTests are deferred seam verbs, so run.py waits
+# `required_step_wait(max(budget, 600))` = 660 s on each and the true worst case is
+# 1320 - a seam TIMEOUT here can surface as a harness KILL instead of a retryable
+# driver-INVALID, and run.py warns about exactly that. H21 documents it for the whole
+# family and deliberately did not change 14 committed budgets; this wave joins the
+# family rather than forking its own convention. Raising the whole wave is a separate
+# change with its own evidence.
+budgetSeconds = 720
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

@@ -1,0 +1,122 @@
+schema = 1
+id = "H43-terrain-clearance"
+tier = "nightly"
+# PHASE-4 WAVE 1, the H7-H20 shape. Landed-ghost terrain clamping against LIVE PQS.
+#
+# WHAT IT COVERS: the landed-ghost terrain-clearance clamp evaluated against the REAL
+# PQS surface - NaN fallback, recorded-terrain preservation, the already-clear no-op in
+# both recorded and live forms, the negative-clearance floor, and the explosion-anchor
+# clamp that runs before a watch-mode hold. Headless xUnit cannot reach any of it:
+# there is no PQS without a loaded body, so every clamp decision is currently proved
+# only against hand-fed numbers.
+#
+# WHY A READING RUN AND NOT AN EXACT PIN - THE AUDIT'S "zero self-skips" IS WRONG FOR
+# THIS CATEGORY, and the correction is the reason this lane is worth stating carefully.
+# Five of the six cells guard only on "needs Flight scene with an active vessel", which
+# gloops-airshow satisfies, so those five are the H29 case. The sixth,
+# `ExplosionAnchorPosition_BelowTerrain_ClampsBeforeWatchHold`, carries THREE guards
+# that are LIVE GEOMETRY rather than scene facts and that no static reading settles:
+#   * "requires a body with PQS terrain for the landed-ghost clamp"
+#   * "requires the ghost anchor clear of the terrain-clearance knee: it sits ..."
+#   * "requires the ghost anchor close enough to the floating origin for the ..."
+# The first is satisfied on Kerbin; the second and third depend on where the anchor
+# lands relative to a knee and to KSP's floating origin, which is a runtime
+# measurement. Pinning skipped=0 would red on a correct run the moment that cell's
+# anchor fell the wrong side of either threshold, and pinning skipped=1 would assert a
+# skip that may not happen. PREDICTED: five pass; the sixth is the open question and
+# is the whole reason for the census.
+#
+# -------------------------------------------------------------------------------------
+# READING HISTORY - ONE CENSUS, AND THE OPEN QUESTION ANSWERED BETTER THAN PREDICTED.
+# `2026-08-28_2218`, **PASS attempt 1**, wall 51 s. MEASURED:
+#     BATCH_COMPLETE v1 total=6 passed=6 failed=0 skipped=0
+#     category=TerrainClearance scene=FLIGHT
+# `recordings.count = 0`; every verifier PASS or REPORT.
+#
+# **ALL THREE LIVE-GEOMETRY GUARDS HELD.** The prediction above was "five pass; the
+# sixth is the open question". The sixth -
+# `ExplosionAnchorPosition_BelowTerrain_ClampsBeforeWatchHold` - PASSED, so on this host
+# all three of its runtime guards were satisfied at once: Kerbin supplied PQS terrain,
+# the ghost anchor landed CLEAR of the terrain-clearance knee, and it landed CLOSE
+# ENOUGH to the floating origin. That is the whole point of having flown it - none of
+# the three is derivable, and the alternative to measuring was pinning a guess in one
+# direction or the other.
+#
+# THE SKIP ROSTER IS EMPTY, and `skipped=0` is now MEASURED rather than assumed. Both
+# halves matter: the attribute floor at FLIGHT is 0 (nothing scene-ineligible, nothing
+# batch-disabled) AND no run-time guard fired, so no `RUNTIME_SKIPS` entry is owed and
+# the pinned tally is the plain attribute derivation. What the exact pin asserts that
+# the open form did not: if that anchor ever lands the wrong side of the knee or of the
+# floating origin, `skipped=1` reds - where `passed=[1-9][0-9]*` would have accepted the
+# degraded five-cell run silently. CONFIRM RUNS PENDING.
+description = "FLOWN: the in-game TerrainClearance category unattended - landed-ghost terrain clamping evaluated against live PQS, including the explosion-anchor clamp whose three live-geometry guards no static reading can settle."
+instanceProfile = "stock-minimal"
+tags = ["ingame-batch", "phase4-wave1", "terrain", "H43", "flown"]
+
+[fixture]
+# gloops-airshow: a FLIGHT scene with an active vessel on KERBIN, which is what the
+# five straightforward cells need and what gives the sixth a PQS body at all. A
+# vessel-less or non-PQS host would skip all six and print exactly the
+# all-skipped tally this wave exists to avoid.
+saveTemplate = "fixtures/saves/gloops-airshow"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+# verboseLogging=true because the CENSUS is the product of a reading run: the
+# per-test PASSED / SKIPPED lines are Verbose, and correcting the interim pin
+# needs the sixth cell's skip reason by name, not just a count.
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" }, expect = "OK" },
+  { cmd = "RunTests",   args = { category = "TerrainClearance" }, expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit", expect = "OK" },
+]
+
+[dimensionsCovered]
+# HONEST and minimal. NOT claimed: any D2 ghost-playback value - these cells drive
+# the clamp helpers against live terrain and do not play a recording back.
+D14 = ["sandbox", "scene-flight"]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING (see H7): run.py reads `expectations.allowedAnomalies`,
+# and a bare key written AFTER an `[expectations.<sub>]` header is TOML-scoped to that
+# sub-table and never read.
+allowedAnomalies = []
+
+[expectations.recordings]
+# Zero: nothing here records or touches RecordingStore.
+count = { min = 0, max = 0 }
+
+[expectations.logContracts]
+# ANTI-VACUITY plus a DELIBERATELY OPEN SPLIT.
+#  - total=6 is ATTRIBUTE-EXACT: 6 `[InGameTest(Category = "TerrainClearance")]`
+#    declarations, all `Scene = GameScenes.FLIGHT`, all in `RuntimeTests.cs`. The
+#    ATTRIBUTE FLOOR for `skipped` is 0 - nothing is scene-ineligible at FLIGHT and
+#    nothing is batch-disabled.
+#  - passed / skipped are OPEN for the reason in the header. `passed=[1-9][0-9]*`
+#    still rejects the entire vacuous family, so the batch cannot read green over zero
+#    executed cells.
+#  - failed=0 is the ASSERTION.
+#  - scene=FLIGHT is the gloops-airshow Focusable route, MEASURED by H13 / H5 / H29.
+required  = ["BATCH_COMPLETE v1 total=6 passed=6 failed=0 skipped=0 category=TerrainClearance scene=FLIGHT"]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+[runtime]
+# 720, the H7-H20 wave convention. NOTE THE INHERITED FLAW rather than repeating it
+# silently: both LoadGame and RunTests are deferred seam verbs, so run.py waits
+# `required_step_wait(max(budget, 600))` = 660 s on each and the true worst case is
+# 1320 - a seam TIMEOUT here can surface as a harness KILL instead of a retryable
+# driver-INVALID, and run.py warns about exactly that. H21 documents it for the whole
+# family and deliberately did not change 14 committed budgets; this wave joins the
+# family rather than forking its own convention. Raising the whole wave is a separate
+# change with its own evidence.
+budgetSeconds = 720
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

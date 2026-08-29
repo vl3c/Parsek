@@ -149,6 +149,20 @@ namespace Parsek.InGameTests
                     $"{UnpackWaitTimeoutSeconds.ToString("R", IC)}s unpack wait; the origin debit would take " +
                     "the unloaded proto-snapshot path which does not mutate the live PartResource this test reads");
 
+            // The synthetic route's stop delivers the same manifest back onto this
+            // vessel (origin IS the destination here), and DestinationHasCapacity is
+            // ALL-OR-NOTHING: a full tank holds the cycle in DestinationFull before
+            // the debit under test ever runs. Ensure the room FIRST - the drain moves
+            // the debitable pool, so storedBefore must be measured AFTER it or the
+            // pool assertion below reads a stale baseline.
+            List<KeyValuePair<PartResource, double>> tankSnapshot =
+                SnapshotLoadedLiquidFuel(originVessel);
+            if (!DestinationHeadroomFixture.TryEnsureDestinationHeadroom(
+                    originVessel, LiquidFuelName, DefaultDebitAmount,
+                    out List<KeyValuePair<PartResource, double>> headroomSnapshot,
+                    out string headroomSkipReason))
+                InGameAssert.Skip(headroomSkipReason);
+
             // Measure the debitable pool with the PRODUCTION probe (the same
             // gate the planner and the writer use), so the expected delta is
             // exactly what the debit may remove.
@@ -164,10 +178,10 @@ namespace Parsek.InGameTests
             string treeId = "ingame-od-loaded-tree-" + Guid.NewGuid().ToString("N").Substring(0, 8);
             string routeId = "ingame-od-loaded-id-" + Guid.NewGuid().ToString("N").Substring(0, 8);
 
-            // Read-only snapshots (taken BEFORE any mutation).
+            // Read-only snapshots (tankSnapshot was taken above, BEFORE the
+            // headroom drain, so restoring it alone already undoes that drain;
+            // the helper's own snapshot is restored too for contract symmetry).
             List<Route> preExistingRoutes = SnapshotRoutes();
-            List<KeyValuePair<PartResource, double>> tankSnapshot =
-                SnapshotLoadedLiquidFuel(originVessel);
             int beforeLedgerCount = Ledger.Actions != null ? Ledger.Actions.Count : 0;
 
             RunOriginDebitCrossing(
@@ -178,7 +192,11 @@ namespace Parsek.InGameTests
                 destVessel: originVessel,
                 debitAmount: debitAmount,
                 preExistingRoutes: preExistingRoutes,
-                restoreOriginState: () => RestoreLoadedLiquidFuel(tankSnapshot),
+                restoreOriginState: () =>
+                {
+                    DestinationHeadroomFixture.RestoreDrainedResources(headroomSnapshot);
+                    RestoreLoadedLiquidFuel(tankSnapshot);
+                },
                 assertions: capturedLog =>
                 {
                     // 1. LIVE resource: the deliverable pool dropped by exactly
@@ -292,6 +310,18 @@ namespace Parsek.InGameTests
                     SnapshotProtoLiquidFuel(originVessel);
                 int beforeLedgerCount = Ledger.Actions != null ? Ledger.Actions.Count : 0;
 
+                // The stop delivers the manifest onto the ACTIVE vessel, and the
+                // all-or-nothing DestinationHasCapacity gate holds the whole cycle
+                // when that tank is full - which would red the debit assertions for a
+                // reason that has nothing to do with the unloaded write path under
+                // test. The origin here is the separate fixture vessel, so this drain
+                // does not move storedBefore.
+                if (!DestinationHeadroomFixture.TryEnsureDestinationHeadroom(
+                        destVessel, LiquidFuelName, debitAmount,
+                        out List<KeyValuePair<PartResource, double>> headroomSnapshot,
+                        out string headroomSkipReason))
+                    InGameAssert.Skip(headroomSkipReason);
+
                 RunOriginDebitCrossing(
                     label: "OriginDebit_Unloaded",
                     treeId: treeId,
@@ -300,7 +330,11 @@ namespace Parsek.InGameTests
                     destVessel: destVessel,
                     debitAmount: debitAmount,
                     preExistingRoutes: preExistingRoutes,
-                    restoreOriginState: () => RestoreProtoLiquidFuel(protoSnapshot),
+                    restoreOriginState: () =>
+                    {
+                        DestinationHeadroomFixture.RestoreDrainedResources(headroomSnapshot);
+                        RestoreProtoLiquidFuel(protoSnapshot);
+                    },
                     assertions: capturedLog =>
                     {
                     // 1. Proto snapshots: the deliverable pool dropped by the

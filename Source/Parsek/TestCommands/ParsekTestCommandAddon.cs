@@ -1157,6 +1157,20 @@ namespace Parsek.TestCommands
 
         private void InvokeExecutor(ParsedCommand cmd)
         {
+            // Batch-baseline latch clear (finding 1). Any verb that can change state a
+            // save would capture ends the window in which the batch's restore is still the
+            // intended final content of persistent.sfs, so FlushAndQuit must save again.
+            // Hooked at DISPATCH (before the body) on purpose: RunTests is itself mutating,
+            // and its own teardown re-arms the latch as the batch ends - so the
+            // H38-H41 "RunTests -> FlushAndQuit" flow still suppresses, while S4.2's
+            // "RunTests -> AnswerMergeDialog{merge} -> FlushAndQuit" clears on the merge and
+            // writes the merge tail. One HashSet lookup per command; no per-frame cost.
+            if (TestCommandVerbs.IsStateMutatingVerb(cmd.Verb))
+            {
+                InGameTests.InGameTestRunner.NotifyStateMutatedAfterBatchBaselineRestore(
+                    "seam verb " + (cmd.Verb ?? "<none>"));
+            }
+
             ITestCommandExecutor exec = this;
             switch (cmd.Verb)
             {
@@ -1359,9 +1373,28 @@ namespace Parsek.TestCommands
         {
             bool gameLoaded = HighLogic.CurrentGame != null;
             bool saveFolderPresent = !string.IsNullOrEmpty(HighLogic.SaveFolder);
+            // The batch teardown's persistent.sfs revert must be the LAST write to that
+            // file - but only while it is still the intended final state of the file THIS
+            // flush would write. The latch is scoped to the restored save folder and is
+            // cleared by any mutating verb / load / menu transition in between, so a spec
+            // that mutates after the batch (S4.2's AnswerMergeDialog merge tail) still
+            // writes its own save. Non-batch FlushAndQuit is unaffected (never latched).
+            bool batchBaselineRestored =
+                TestCommandFlushAndQuit.ShouldSuppressSaveAfterBatchRestore(
+                    InGameTests.InGameTestRunner.BatchBaselinePersistentSaveRestored,
+                    InGameTests.InGameTestRunner.BatchBaselineRestoredSaveFolder,
+                    HighLogic.SaveFolder);
             bool saved = false;
 
-            if (TestCommandFlushAndQuit.ShouldSave(gameLoaded, saveFolderPresent))
+            if (batchBaselineRestored)
+            {
+                ParsekLog.Info(Tag,
+                    "flushandquit: save suppressed (batch baseline already restored) - the in-game "
+                    + "test batch teardown reverted persistent.sfs to its batch-start bytes and that "
+                    + "revert is the intended final state; quitting without re-saving");
+            }
+
+            if (TestCommandFlushAndQuit.ShouldSave(gameLoaded, saveFolderPresent, batchBaselineRestored))
             {
                 try
                 {

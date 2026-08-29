@@ -412,11 +412,29 @@ namespace Parsek.InGameTests
                     $"Rec-1 restore should have DROPPED the cycle-1 RouteDispatched row; " +
                     $"{postRestoreDispatched.ToString(IC)} remain");
 
-                // RouteStore is NOT part of the reconciliation bundle, so Restore left
-                // our synthetic route in place (with the hand-reset counters). Confirm
-                // it survived so the re-fly Tick has a live route to fire.
+                // RouteStore IS part of the reconciliation bundle: Restore re-splits the
+                // captured committed/dormant lists through RouteRewindClassifier.Classify
+                // at the cutoff. A route whose CreatedUT is STRICTLY AFTER the cutoff is
+                // parked dormant (it does not exist yet on the re-flown timeline) and is
+                // then invisible to TryGetRoute. This route is stamped CreatedUT ==
+                // SpanStartUT (1000 < cutoff 1500), so it models one that already existed
+                // before the rewind point and MUST survive as committed. Assert both
+                // halves - present in the committed store AND absent from DormantRoutes -
+                // so a future classifier change that parks it cannot read as a plain
+                // lookup miss.
                 InGameAssert.IsTrue(RouteStore.TryGetRoute(routeId, out _),
-                    "Synthetic route disappeared from RouteStore across the reconciliation restore");
+                    "Pre-rewind route must stay COMMITTED across the reconciliation restore " +
+                    "(CreatedUT <= cutoff); it was not found in RouteStore");
+                bool parkedDormant = false;
+                IReadOnlyList<Route> dormantAfterRestore = RouteStore.DormantRoutes;
+                if (dormantAfterRestore != null)
+                    for (int i = 0; i < dormantAfterRestore.Count; i++)
+                        if (dormantAfterRestore[i] != null
+                            && string.Equals(dormantAfterRestore[i].Id, routeId, StringComparison.Ordinal))
+                            parkedDormant = true;
+                InGameAssert.IsFalse(parkedDormant,
+                    "Pre-rewind route must NOT be parked on the dormant list by the restore " +
+                    $"(CreatedUT {SpanStartUT.ToString("R", IC)} <= cutoff {RewindCutoffUT.ToString("R", IC)})");
 
                 ParsekLog.Info("TestRunner",
                     $"RewindRedeliver_InGame: post-restore route rows dropped " +
@@ -632,6 +650,19 @@ namespace Parsek.InGameTests
                 Name = "Parsek Rewind-Redeliver In-Game",
                 Status = RouteStatus.Active,
                 IsKscOrigin = true,
+                // CreatedUT is the route's timeline anchor and it is LOAD-BEARING for
+                // this cell. RouteStore.AddRoute stamps the LIVE save UT whenever
+                // CreatedUT < 0 (the field's default), and the rewind classifier parks
+                // any captured route with CreatedUT > cutoff on the DORMANT list -
+                // correctly: a route created after the moment you rewound to has not
+                // been created yet on the re-flown timeline, and a dormant route is
+                // invisible to TryGetRoute. Left at the default, this synthetic route
+                // gets stamped with whatever UT the save happens to sit at, so the cell
+                // passed only on a save younger than RewindCutoffUT (~25 minutes of
+                // game time) and reded on every older one. Pinning it to the span start
+                // models what the cell is actually about: a route that ALREADY EXISTED
+                // before the rewind point, which the restore must keep committed.
+                CreatedUT = SpanStartUT,
                 BackingMissionTreeId = routeTreeId,
                 ExcludedIntervalKeys = new HashSet<string>(),
                 RecordedDockUT = DockUT,

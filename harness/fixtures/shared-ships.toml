@@ -31,7 +31,7 @@
 [ships]
 "b17-duna-pad" = ["DD1 Duna Direct Probe", "GS1 Auto-Chute Booster", "Kerbal X"]
 "b18-dres-pad" = ["DD1 Duna Direct Probe", "Duna Rocket", "GS1 Auto-Chute Booster", "Kerbal X"]
-"bdock-forge-base" = ["DD1 Duna Direct Probe", "Duna Rocket", "GS1 Auto-Chute Booster", "Kerbal X"]
+"bdock-forge-base" = ["DD1 Duna Direct Probe", "Duna Rocket", "GS1 Auto-Chute Booster", "Kerbal X", "Logi Cargo Rig"]
 "bdock-recorded" = ["Kerbal X"]
 "bdock-station-craft" = ["Kerbal X"]
 "bdock-station-pad" = ["Kerbal X"]
@@ -44,3 +44,18 @@
 "eva3-pad-3crew" = ["Kerbal X"]
 "gs1-two-stage-pad" = ["GS1 Auto-Chute Booster", "Kerbal X"]
 "gs2-orbital-stack" = ["GS1 Auto-Chute Booster", "Kerbal X"]
+# The FORGE-logi-pad harvest, and the row restores what the harvest dropped: the forge
+# ran over `bdock-forge-base`, whose four library craft arrive through THIS overlay
+# rather than physically, so the produced save's own `Ships/VAB` carried only the craft
+# the forge launched. Listing them here puts the fixture back on the same footing as
+# every other save derived from that base.
+#
+# `Logi Cargo Rig` IS THE FIFTH ENTRY, and its promotion is the reason this row and
+# `bdock-forge-base`'s were edited together. The craft was committed physically into
+# the forge base while it had ONE consumer (a library craft needs two, and a craft
+# used once belongs in the fixture that uses it). The harvest gave it its second, as
+# `build_logi_craft.py`'s PROMOTION note predicted it would - verbatim: the produced
+# fixture arrived holding a byte-identical second copy - so BOTH physical copies were
+# deleted, the single library copy went into `fixtures/ships/`, and both consumers are
+# declared here. The same route `GS1 Auto-Chute Booster` and `Duna Rocket` took.
+"logi-cargo-pad" = ["DD1 Duna Direct Probe", "Duna Rocket", "GS1 Auto-Chute Booster", "Kerbal X", "Logi Cargo Rig"]
