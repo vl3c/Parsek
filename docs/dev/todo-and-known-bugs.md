@@ -24,8 +24,9 @@ decompiled stock KSP 1.12.5 those are two different quantities on `Contracts.Con
   `days * KSPUtil.dateTimeFormatter.Day * num` and `years * ...Year * num`, and the
   contract description renders it through `KSPRichTextUtil.TextDurationCompact`.
 - `protected double dateDeadline` (exposed as `DateDeadline`) is the ABSOLUTE UT. It is
-  assigned once, at accept, as `dateDeadline = GameTime + TimeDeadline`, and renders
-  through `TextDateCompact`.
+  assigned at accept as `dateDeadline = GameTime + TimeDeadline` for a
+  `DeadlineType.Floating` contract (stock assigns it in `Offer()` for `DeadlineType.Fixed`;
+  the fixture below is Floating), and renders through `TextDateCompact`.
 - Stock's own expiry authority uses the absolute one: `Contract.Update()` on an Active
   contract runs
   `if (deadlineType != DeadlineType.None) { if (GameTime >= dateDeadline) SetState(State.DeadlineExpired); }`.
@@ -67,9 +68,23 @@ the captured value against a same-guid stock save node.
 
 **Blast radius: the ECONOMY is protected, the CONTRACT is not.** The earned-value clamp
 covers the funds/rep half on ordinary recalcs, so this is not believed to be corrupting
-career balances. The contract itself is a different story. `PatchContracts` removes an entry
-that the ledger no longer considers active (`KspStatePatcher.cs:2794-2802`) by calling
-`c.Unregister()` and then `contracts.RemoveAt(i)` (`:3004-3017`) - and decompiled stock
+career balances. The contract itself is a different story.
+
+**What actually evicts it is `CheckDeadlines`, NOT the synthetic fail** - get this wrong and the
+fix gets mis-scoped. The synthetic `ContractFail` is stamped `UT = accept.DeadlineUT`
+(`ContractsModule.cs:234-241`) and `PrePass` returns true to force a re-sort, so mid-career -
+where `DeadlineUT` is a small duration - the synthetic fail sorts BEFORE the accept, and
+`ProcessAccept` then unconditionally revives the contract (`:307-312`, including
+`deadlineExpiredContracts.Remove(id)`). The real evictor is `ProcessAction` calling
+`CheckDeadlines(action.UT)` on EVERY action (`:273`); `CheckDeadlines` (`:394-427`) sweeps
+`activeContracts` for `HasContractDeadlineElapsed` and moves each to `terminalContracts` /
+`deadlineExpiredContracts` with outcome `DeadlineExpired`. So the very next action after the
+accept evicts it.
+
+`PatchContracts` (`KspStatePatcher.cs:2255`) then removes it: `BuildCurrentContractRemovalKeys`
+(`:2783`, keying at `:2794-2802`) marks an entry the ledger no longer considers active, and
+`RemoveContractsByKey` (`:2982`) calls `c.Unregister()` then `contracts.RemoveAt(i)`
+(`:3004-3017`) - and decompiled stock
 `Contract.Unregister()` only unregisters the contract's parameters and calls `OnUnregister()`.
 It never calls `SetState`, so it fires neither `SendStateMessage` (the RED `MessageSystem`
 entry) nor `GameEvents.Contract.onFailed`. **A live accepted contract can therefore be deleted
@@ -83,12 +98,22 @@ ids that are in `activeIds`, so it does not come back.
 `persistent.sfs` (`:1465`) stores stock's comma-joined `values` line, whose field order is
 `TimeExpiry, TimeDeadline, FundsAdvance, FundsCompletion, FundsFailure, ScienceCompletion,
 ReputationCompletion, ReputationFailure, dateExpire, dateAccepted, dateDeadline, dateFinished`:
-`values = 19315.896,8228571.72775267,...,8381.01955017166,8236952.74730284,0`. So (1) Parsek's
+`values = 19315.8960745368,8228571.72775267,1871.8268485569,4913.54525432272,1946.69985752106,1,1.024133,1,19476.4160745368,8381.01955017166,8236952.74730284,0`.
+So (1) Parsek's
 stored number is stock's `TimeDeadline`, not its `dateDeadline`; (2) `dateAccepted` matches the
 ledger row's `ut` exactly; and (3) `dateDeadline = dateAccepted + TimeDeadline`. It stays latent
 in this fixture only because that career's max UT is ~8599.88 - far below one deadline's worth
 of game time, so `HasContractDeadlineElapsed` has not tripped yet. The defect needs a career
 that simply runs longer.
+
+**A second consumer degrades quietly, in both directions.** `ComputeProjectionHorizon`
+(`RecalculationEngine.cs:540-564`) takes the max of every action UT and every ContractAccept's
+`DeadlineUT`. Mid-career the duration is BELOW the real action UTs, so the deadline never
+extends the horizon and pending deadlines fall outside the projection; early-career it is far
+ABOVE them, blowing the horizon out to ~8.2e6 for a career at UT ~8000. The horizon feeds
+`minProjected` -> `GetAvailableFunds()` -> the reservation-net number written to the stock funds
+bar, so this defect quietly degrades the very quantity #427's ResourceOverCommit rule is about.
+The two were treated as unrelated until this pass.
 
 **A cheap guard worth adding with the fix:** `HasContractDeadlineElapsed` currently guards only
 NaN. A `deadline > acceptUT` sanity check would have caught this class of mistake at the point
@@ -124,48 +149,92 @@ player-facing warning printed off this quantity would be a confidently-worded li
 `ClassifyTechNodeForPatch`'s own doc comment already names this the dangerous direction
 ("`MakeUnavailable` ... a researched node being re-locked").
 
-**Scope: two paths only, both player-initiated time travel.** Tech patching is not part of an
-ordinary recalc. `targetTechIds` is built only when `techPatchCutoff.HasValue`
-(`LedgerOrchestrator.cs:2079`), and that is set in exactly two places: a rewind
-(`:1488`, `:1513`, `techPatchCutoff: utCutoff` - "#559: tech-tree patching is rewind-only") and
-the post-supersede tombstone refresh after a re-fly merge (`:1605`,
-`techPatchCutoff: patchTechTree ? double.MaxValue : null`, true only when the tombstone pass
-retired a `ScienceSpending` row). On every other recalc `PatchTechTree` no-ops through its
-null-target guard. Re-locking a node IS the intended outcome of rewinding past its research;
-the surprise is confined to the sub-case where a node the surviving ledger still claims was
-researched is dropped because the reconstructed pool could not afford it.
+**Scope: ANY recalc that supplies a UT cutoff - which includes ordinary play.** An earlier
+draft of this entry said the re-lock was confined to rewind and re-fly merge. **That was wrong,
+and the error is worth recording because of how it was made.** The gate is only
+`techPatchCutoff.HasValue` (`LedgerOrchestrator.cs:2079`), and `RecalculateAndPatchCore` is
+handed a non-null cutoff from three families:
 
-**Why this did not become a toast** (the #427 close considered exactly that, under a directive
-that allows a transient `ScreenMessage`). Four reasons, the third decisive:
+- `RecalculateAndPatch(utCutoff)` (`:1488`) - the rewind paths.
+- `RecalculateAndPatchAfterTombstones` (`:1605`) - the post-supersede refresh after a re-fly
+  merge, and only when the pass retired a `ScienceSpending` row.
+- **`RecalculateAndPatchForCurrentTimelineUT` (`:1509-1516`), which passes
+  `techPatchCutoff: utCutoff` UNCONDITIONALLY** - and whose own doc comment says it runs
+  "without opting into rewind-only patch side effects". It is reached from ordinary career
+  play: `ksp-load` (`:2768`), `ksc-spending` (`:3235`), `strategy-conversion` (`:3363`,
+  `:3367`), `ksc-science` (`:3918`), `recovery-kerbal-xp` (`:4034`), `vessel-rollout`
+  (`:4090`, `:4117`), `vessel-recovery` (`:4357`), the KSC ledger cursor
+  (`ParsekKSC.cs:484`), and `RecalculateAndPatchForLiveTimelineEvent` (`:1550`, `:1578`)
+  whenever `HasActionsAfterUT(now)` - i.e. whenever the committed timeline extends into the
+  future, which is Parsek's normal state.
 
-1. It is confined to rewind and re-fly merge, both of which the player initiates and both of
-   which already carry a confirmation dialog.
-2. Reachability is unproven. No committed run, log, or bug report in this repo shows it firing.
-   It requires a walk in which a `ScienceSpending` precedes the earnings that paid for it -
-   which is what a rewind or re-fly that removes an earning would produce.
-3. **The code's own text calls this condition a bug** ("possible bug or data corruption"). If it
-   fires, the right response is to fix the cause, not to narrate the symptom to the player. A
-   toast would normalise a defect and make it look like designed behaviour.
-4. Every clean implementation is worse than it looks: emitting at the detection site puts a
-   player-facing toast inside a pure walk module (a layering break), and emitting at the re-lock
-   site - the correct layer, and the only one precise enough to avoid firing on a legitimate
-   rewind re-lock - needs the unaffordable-node set plumbed from `BuildTargetTechIdsForPatch`
-   through `LedgerOrchestrator` and `PatchAll` into `PatchTechTree`, i.e. signature changes on
-   the hottest apply path for an unproven condition.
+**How the wrong scope was derived, so the next reader does not repeat it:** by trusting the
+in-source comment `// #559: tech-tree patching is rewind-only` (`LedgerOrchestrator.cs:2071`).
+That comment is STALE - it predates `RecalculateAndPatchForCurrentTimelineUT` being added
+above it. Re-derive the caller set; do not cite that comment.
 
-**What to do instead, in order.** (a) Establish reachability: `LedgerGroundTruthHarness`
-already counts the population (`ScanResearchedTechIds`'s `unaffordableSkipped=`, `:355-397`,
-whose doc comment reads "An UNAFFORDABLE row did not deduct and did not research, so it is not
-a claim") - promote that counter to something a driven rewind/re-fly lane asserts on. (b) If it
-is reachable, fix the cause rather than announcing it. (c) Only if it turns out to be a
-legitimate, non-buggy outcome does a one-shot `ScreenMessage` become the right answer - and then
-emit it at the re-lock site, keyed on the intersection of `madeUnavailableIds` with the
-unaffordable set, never on `madeUnavailable > 0` (which would fire on every legitimate rewind).
+Re-locking a node IS the intended outcome of rewinding past its research. The defect is the
+sub-case where a node the surviving ledger still claims was researched is dropped because the
+reconstructed pool could not afford it - and that sub-case is now known to be reachable from
+ordinary recalcs, not only from time travel.
 
-**Related:** the funds side is asymmetric and worth a look in the same pass -
-`FundsModule.ProcessFundsSpending` (`:320-325`) sets `Affordable` but deducts
-UNCONDITIONALLY, so an over-commit drives the running balance negative there instead of
-refusing. That asymmetry is not itself known to be wrong; it is noted so a fix considers both.
+**Severity: in a default career the loss is PERMANENT, and the screen looks correct.** Two
+things compound:
+
+1. **No rehydrate path.** `EnsureAvailableProtoTechNode` (`:636-667`) - the make-available
+   branch a later corrected recalc would run - builds `proto = existing ?? new ProtoTechNode()`
+   with an empty `partsPurchased`, and re-adds parts ONLY inside
+   `if (GameStateRecorder.IsBypassEntryPurchaseAfterResearch())`. That reads stock's
+   "part entry purchase" difficulty option, which is **off in a default career**. So once the
+   `ProtoTechNode` is stripped, the node's individually-purchased parts stay un-purchased, with
+   no refund of the entry costs already paid and no route back except paying again.
+2. **The UI repaints to a self-consistent state.** `PatchTechTree` calls `RefreshTechTreeUi()`
+   (`:552`), so R&D shows a coherent tree. The player sees no anomaly to investigate - only
+   parts missing in the VAB, which reads as misremembering rather than as a bug.
+
+**And the one toast that IS likely to fire says the opposite of what happened.** A refused
+`ScienceSpending` does not deduct, so the reconstruction's running science sits ABOVE live -
+the `IsGuardableUplift` branch of `ApplyDrawdownGuard` (`:3186-3195`), which clamps down and
+toasts `"Held your science at the spent value"` (`:239`). In the same recalc that silently
+re-locked the node, the player is reassured their science was protected. That is worse than
+silence, and it is why the earlier draft's dismissal of the drawdown guard as "orthogonal" to
+this defect was wrong. (Conditional: only if the clamp actually moves and the session latch is
+unset.)
+
+**Why this still did not become a toast** - the (b) option under the #427 directive. Three of
+the four reasons an earlier draft gave were bad and have been struck above; what remains is the
+one that actually carries the decision, plus a better idea about the fix:
+
+1. **The code's own text calls this condition a bug** ("possible bug or data corruption",
+   `ScienceModule.cs:306`). A toast would dress a defect up as designed behaviour and teach the
+   player to expect losing parts.
+2. **The right shape is a GUARD, not an announcement, and this repo already has the pattern.**
+   The drawdown guard's philosophy is "keep what you earned": a non-authoritative recalc is not
+   allowed to take away live state, so it clamps and logs loudly. A researched node being
+   dropped because the reconstruction could not afford it is the same shape - a
+   non-authoritative walk destroying live career state on evidence it admits is suspect. The
+   fix is very likely to refuse the re-lock when the drop reason is unaffordability (preserve
+   live, WARN always), not to narrate the loss.
+3. **The PRECONDITION is still unproven.** This is now the only honest hedge, and it must be
+   stated separately from scope: the code PATH is reachable in ordinary play (proven above);
+   whether `runningScience < cost` ever actually occurs is not. Note the reachability argument
+   is broader than "a rewind removed an earning" - any UNDER-COUNT of earnings against live
+   produces it with no reordering at all, and this repo ships a guard whose WARN text presumes
+   exactly that is ongoing ("earned value preserved; ledger may be missing an earning channel",
+   `KspStatePatcher.cs:3231`).
+
+**What to do, in order.** (a) Establish reachability: `LedgerGroundTruthHarness`'s
+`ScanResearchedTechIds` already counts the population as a Verbose `unaffordableSkipped=`
+(`:367-397`) - promote it to something a driven lane asserts on. (b) Fix the cause, and prefer
+the guard shape in point 2 over any player-facing message. (c) Only if a re-lock turns out to
+be a legitimate, non-buggy outcome does a one-shot `ScreenMessage` become right - and then emit
+it at the re-lock site keyed on the intersection of `madeUnavailableIds` with the unaffordable
+set, never on `madeUnavailable > 0`, which fires on every legitimate rewind.
+
+**Related:** the funds side is asymmetric - `FundsModule.ProcessFundsSpending` (`:319-325`)
+sets `Affordable` but deducts UNCONDITIONALLY, so an over-commit drives the running balance
+negative there instead of refusing. That asymmetry is not itself known to be wrong; it is noted
+so a fix considers both.
 
 ---
 
@@ -215,8 +284,8 @@ Timeline footer means something again. The second is a feature decision and shou
 as a cleanup.
 
 **Doc consequence, already applied:** entry #427 cited "a single red over-committed warning in
-the Timeline's resource footer" as a premise. That premise was stale by three days when the entry
-was written; the closing record for #427 says so.
+the Timeline's resource footer" as a premise. #427 was written on 2026-04-17 (`15ba6fbe1`), so
+that premise was already **seventeen days** stale; the closing record for #427 says so.
 
 ---
 
@@ -21851,12 +21920,12 @@ individual RULE carry information that fails to reach the player another way?
 
 | Rule | Can the condition arise? | What happens today | Verdict |
 |---|---|---|---|
-| ContractDeadlineMissed | Only from a units defect, not from real play | On a REAL miss stock KSP owns it end to end (its own RED failure message + penalties). The ledger separately injects a synthetic `ContractFail` at the deadline UT, and the zeroed reward is clamped back by the earned-value guard, which toasts once per session | CLOSE - stock owns the real case, and the rule would print a wrong number. (The units defect's own consequence is silent, which is why it is filed as its own bug rather than surfaced here) |
+| ContractDeadlineMissed | Only from a units defect, not from real play | On a REAL miss stock KSP owns it end to end (its own RED failure message + penalties). The ledger separately injects a synthetic `ContractFail` at the deadline UT, and the zeroed reward is clamped back by the earned-value guard, which toasts once per session | CLOSE - stock owns the real case, and the rule would print a wrong number. **Carve-out:** under the units defect stock's own `dateDeadline` has NOT elapsed, so stock stays silent and Parsek deletes the contract instead - that case is owned by nobody, which is why it is filed as its own bug rather than surfaced here |
 | FacilityLevelRequirement | No - no action in this codebase carries a facility-level requirement | Nothing. Facility level feeds exactly two numbers (contract slots, strategy slots) and neither is ever compared against anything | CLOSE - NOT-MODELED; the residue is already on screen |
 | StrategySlotOverflow | Yes, via a supersede that tombstones the Administration upgrade | Never reaches KSP at all - Parsek has no `PatchStrategies`. The Career State window already prints both operands | CLOSE - ALREADY-COVERED |
 | ContractSlotOverflow | Yes - `PatchContracts` adds contracts with no cap check | The over-full state is displayed by TWO independent surfaces, one of them stock's own | CLOSE - ALREADY-COVERED |
 | CrewDoubleBooking | No - not expressible in the data model | Hard-blocked at the crew-assignment seams, so the condition never forms | CLOSE - NOT-MODELED |
-| ResourceOverCommit | Yes | Clamped to zero (never negative) and shown continuously in the stock currency bar, which Parsek writes as `Available = Total - Reserved` | CLOSE - ALREADY-COVERED, but NOT by the surface this entry names, and see the carve-out below |
+| ResourceOverCommit | Yes | Clamped to zero (never negative) and shown continuously in the stock currency bar, which Parsek writes as `Available = Total - Reserved` | CLOSE - ALREADY-COVERED **in SPACECENTER / FLIGHT for a non-deficit reservation**. Two carve-outs this PR itself proves: the explaining tooltip does not exist in the EDITOR, where funds are actually spent, and in a genuine deficit it reports `Reserved: 0`. Neither is the surface this entry names, which is dead |
 
 **Per-rule findings, with the code that settles each.**
 
@@ -21881,7 +21950,7 @@ number the rule would print is wrong - see CONTRACT-DEADLINE-CAPTURED-AS-DURATIO
 *FacilityLevelRequirement.* The rule has no referent. A "requirement" needs a consumer that
 refuses, clamps, or diverges when unmet, and there is none. Facility level feeds exactly two
 derived quantities - `GetContractSlots(MissionControl)` and `GetStrategySlots(Administration)`
-(`LedgerOrchestrator.cs:5958`, `:5973`) - and neither `ContractsModule.ProcessAccept` nor
+(`LedgerOrchestrator.cs:5958`, `:5972`) - and neither `ContractsModule.ProcessAccept` nor
 `StrategiesModule.ProcessActivate` ever reads `maxSlots`; it appears only inside interpolated
 log strings. Every other candidate requirement is absent outright: kerbal hire is an identity
 check, tech research has no R&D-level gate, part purchase converts to a plain `FundsSpending`,
@@ -21889,6 +21958,15 @@ and there is no launchpad mass limit, roster cap, or EVA-permission model in the
 all. `maxSlots` is not even a per-UT value - `UpdateSlotLimitsFromFacilities()` runs AFTER the
 walk (`LedgerOrchestrator.cs:1897` then `:1903`), stamping a terminal-state number onto the
 module once every accept has already been recorded.
+
+The direction the rule does NOT name was considered and also closes: Parsek can LOWER a
+facility, via `ForceDefaultFacilitiesForNextPatch(BuildTombstonedFacilityIdsForPatch())` on the
+tombstone path (`LedgerOrchestrator.cs:1599`), which forces a tombstoned upgrade back toward
+default. That is closer to "a level that won't be reached in time" than the rule as filed. It
+still closes, because every downstream refusal is stock-enforced at the point of use (launchpad
+mass limit, VAB part cap, contract and crew caps) and therefore visible where the player hits
+it - but the CAUSE is not surfaced, and a future reader should know the direction was weighed
+rather than missed.
 
 *StrategySlotOverflow and ContractSlotOverflow.* The entry's premise that overflow is
 "currently only warned in log, not UI" is wrong in both directions. There is no log warning:
@@ -21899,8 +21977,14 @@ either module. And there IS a UI: the Career State window's own tab headers rend
 comparison the rules propose, current and projected side by side -
 `Mission Control L{n} - slots {cur}/{max} now, {projected}/{projectedMax} at timeline end`
 (`CareerStateWindowUI.cs:1425`) and the identical Administration line (`:1531`). An overflow
-reads as `3/1 at timeline end`. Stock corroborates independently: Mission Control renders the
-over-limit count in orange (`#autoLOC_468183`) and the Astronaut Complex in bright orange.
+reads as `3/1 at timeline end`. For CONTRACTS stock corroborates independently: Mission Control
+renders the over-limit count in orange (`#autoLOC_468183`) and disables the Accept button. For
+STRATEGIES stock does NOT - decompiled `Administration.UpdateStrategyCount` formats
+`#autoLOC_439627` with no colour argument and no over-limit branch, and worse,
+`CreateActiveStratList` only adds entries while `activeStrategyCount < maxActiveStrategies`, so
+a surplus strategy is not listed at all and the count reads exactly full. That makes Parsek's
+own Career State header the ONLY surface carrying the strategy overflow - which is precisely why
+the rule still closes there rather than nowhere.
 Strategies additionally cannot be corrupted by Parsek at all - `PatchAll` has no
 `PatchStrategies`, and `StrategyLifecyclePatch` is Postfix-only gated on `__result == true`,
 so it only ever observes activations stock already permitted under its own cap.
@@ -21908,8 +21992,10 @@ so it only ever observes activations stock already permitted under its own cap.
 *CrewDoubleBooking.* Not expressible. A reservation is
 `KerbalReservation { KerbalName, ReservedUntilUT, IsPermanent }` (`KerbalsModule.cs:79-84`) -
 an open-ended ray with no start UT, so two reservations can never be tested for overlap; every
-gate reads `reservations.ContainsKey(name)` and ignores the UT, whose only reader is a display
-string. The physical condition the rule proxies for - one kerbal in two places - is
+gate reads `reservations.ContainsKey(name)` and ignores the UT. `ReservedUntilUT` has exactly
+one non-display read - the extend comparison at `KerbalsModule.cs:322`
+(`if (endUT > existing.ReservedUntilUT) ...`), which merges two reservations rather than
+comparing them - and is otherwise only rendered in the Kerbals window. The physical condition the rule proxies for - one kerbal in two places - is
 hard-blocked upstream instead: `CrewDialogFilterPatch` prefixes
 `BaseCrewAssignmentDialog.AddAvailItem` and skips reserved or retired kerbals, so a reserved
 kerbal is never offered to a second craft, and `CrewAutoAssignPatch` swaps or clears any that
@@ -21935,11 +22021,16 @@ re-locked by `PatchTechTree` - taking its purchased parts with it - with no sign
 a Warn and an Info line. That is exactly the "the ledger silently picks a resolution the player
 didn't intend" case this entry's own rationale names. It is filed as
 UNAFFORDABLE-SCIENCE-SPENDING-SILENTLY-RE-LOCKS-A-TECH-NODE, and it deliberately did **not**
-become a toast: it is confined to rewind and re-fly merge (tech patching is off on every other
-recalc), its reachability in a real career is unproven, and the code's own text calls the
-condition "possible bug or data corruption" - which makes it something to fix, not something to
-narrate. The filed entry records what would have to be true before a `ScreenMessage` is the
-right answer, and exactly where it would have to be emitted.
+become a toast - though NOT for the reason a first draft of this record gave. That draft called
+the path "confined to rewind and re-fly merge"; review refuted it. `RecalculateAndPatchForCurrentTimelineUT`
+passes a non-null tech cutoff unconditionally and is reached from ordinary play (KSC spending,
+science, vessel recovery, rollout, plain loads), so the path is NOT time-travel-only, and the
+damage is permanent in a default career. What survives is narrower and still sufficient: the
+code's own text calls the condition "possible bug or data corruption", and this repo's own
+"keep what you earned" guard philosophy says the fix shape is to REFUSE the re-lock on an
+unaffordable row, not to announce the loss. The precondition also remains unproven. The filed
+entry carries the corrected scope, the severity, and exactly where a `ScreenMessage` would go if
+one ever became right.
 
 **Why nothing was added - the decision, not just the conclusion.** Not one of the six rules is
 genuinely invisible. Four are covered by a surface the player already reads, two of those being
