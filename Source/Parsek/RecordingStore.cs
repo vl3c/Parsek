@@ -6518,13 +6518,17 @@ namespace Parsek
             Recording rec,
             bool markDirty,
             string context,
-            bool reconcileEmptySections = true)
+            bool reconcileEmptySections = true,
+            bool invalidateSectionAnnotations = true)
         {
             OrbitSegmentCheckpointBridgeStats stats =
                 OrbitSegmentCheckpointBridge.EnsureCheckpointSectionsForTopLevelOrbitSegments(
-                    rec, markDirty, reconcileEmptySections);
+                    rec, markDirty, reconcileEmptySections, invalidateSectionAnnotations);
 
-            if (stats.Changed && !SuppressLogging)
+            // AnyMutation, not Changed: a pure-re-sort pass leaves Changed false while
+            // still renumbering sections and wiping CachedStats, and that is exactly
+            // the mutation a markDirty:false caller has to know about.
+            if (stats.AnyMutation && !SuppressLogging)
             {
                 // reconcile=on/off distinguishes "empty-shell pass gated off (read
                 // seam)" from "ran and found nothing" - both print
@@ -6536,6 +6540,7 @@ namespace Parsek
                     $"skippedAfterPredicted={stats.SkippedAfterPredicted} " +
                     $"skippedCovered={stats.SkippedCovered} clipped={stats.Clipped} " +
                     $"reconciledEmptySections={stats.ReconciledEmptySections} " +
+                    $"resorted={stats.Resorted} markDirty={(markDirty ? "on" : "off")} " +
                     $"reconcile={(reconcileEmptySections ? "on" : "off")}");
             }
 
