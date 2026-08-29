@@ -588,19 +588,44 @@ namespace Parsek
         /// `EccentricOrbitOptimizerInvariantTests`.
         /// Producer-C boundary seams (`TrackSection.isBoundarySeam == true`) are skipped at
         /// step 1 of the predicate — see `BackgroundRecorder.FlushLoadedStateForOnRailsTransition`.
+        ///
+        /// The normalization Ensure runs with `markDirty: true`. Ensure is NOT read-only —
+        /// it adds / clips / reconciles / re-sorts sections and can rebuild the flat orbit
+        /// cache — so running it under `markDirty: false` left the in-memory model diverged
+        /// from disk until some unrelated later write silently persisted a state nobody
+        /// deliberately saved. Marking dirty makes the mutation honest: `RunOptimizationPass`
+        /// already ends in `FlushDirtyFiles`, so the normalization this pass performed is the
+        /// state written, and the write is logged. Ensure is idempotent, so the second and
+        /// later iterations of the split pass's while-loop report no mutation and dirty
+        /// nothing. Marking dirty (rather than computing candidates on a COPY) is also what
+        /// keeps the returned `(recordingIndex, sectionIndex)` pairs valid: `SplitAtSection`
+        /// reads `original.TrackSections[sectionIndex].startUT` off the SAME live list before
+        /// running its own Ensure, so analysis and split must see one section list.
         /// </remarks>
         internal static List<(int, int)> FindSplitCandidatesForOptimizer(List<Recording> committed)
         {
             var candidates = new List<(int, int)>();
             if (committed == null) return candidates;
 
+            // Batch counters (CLAUDE.md "Batch counting convention"): a save can hold
+            // hundreds of committed recordings, and the first pass over a save written
+            // before a bridge change can normalize many of them at once.
+            int normalizedRecordings = 0;
+            int normalizedOrdinalShifts = 0;
+
             for (int i = 0; i < committed.Count; i++)
             {
                 var rec = committed[i];
-                RecordingStore.EnsureCheckpointSectionsForTopLevelOrbitSegments(
+                var ensureStats = RecordingStore.EnsureCheckpointSectionsForTopLevelOrbitSegments(
                     rec,
-                    markDirty: false,
+                    markDirty: true,
                     context: "RecordingOptimizer.FindSplitCandidatesForOptimizer");
+                if (ensureStats.AnyMutation)
+                {
+                    normalizedRecordings++;
+                    if (ensureStats.SectionOrdinalsShifted)
+                        normalizedOrdinalShifts++;
+                }
                 if (rec.TrackSections == null || rec.TrackSections.Count < 2) continue;
 
                 // Per-recording aggregate counters (CLAUDE.md "Batch counting convention" —
@@ -695,6 +720,17 @@ namespace Parsek
                         $"exoCoastBodyChangeKept={suppressedExoCoastBodyChange} " +
                         $"splittableButRejected={splittableButRejected}");
                 }
+            }
+
+            if (normalizedRecordings > 0)
+            {
+                ParsekLog.Info("Optimizer",
+                    $"FindSplitCandidatesForOptimizer: normalization Ensure mutated " +
+                    $"{normalizedRecordings.ToString(CultureInfo.InvariantCulture)} of " +
+                    $"{committed.Count.ToString(CultureInfo.InvariantCulture)} committed recordings " +
+                    $"(ordinalShifts={normalizedOrdinalShifts.ToString(CultureInfo.InvariantCulture)}); " +
+                    "marked dirty so RunOptimizationPass's FlushDirtyFiles persists the " +
+                    "normalized sections instead of leaving memory diverged from disk");
             }
 
             return candidates;

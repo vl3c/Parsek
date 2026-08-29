@@ -81,6 +81,29 @@ All notable changes to Parsek are documented here.
   on disk are not rewritten by this change; they are still repaired the next
   time something saves them.
 
+- A housekeeping pass that runs whenever a save loads or a flight is committed
+  was quietly rearranging recordings in memory and then not saving them. The
+  pass looks for recordings worth splitting at a phase boundary, and before it
+  can look it has to tidy the recording's internal list of timeline slices - a
+  tidy-up that can add, trim, drop and re-order slices. It was doing all of that
+  while flagged as "just looking", so the tidied version lived only in memory
+  and whatever the next unrelated save happened to write was a state nobody
+  chose. The tidy-up is now honest: when it actually changes something it says
+  so, the recording is queued for saving, and the same housekeeping pass writes
+  it out before it finishes. Recordings it does not change are still left
+  untouched, byte for byte.
+
+- Re-ordering those timeline slices could also leave a recording's derived
+  drawing data pointing at the wrong slice. The smoothed paths Parsek fits
+  through recorded flights are filed by slice POSITION, so inserting or dropping
+  a slice renumbered everything after it while the fitted paths stayed put - the
+  path fitted for one stretch of a flight could silently start being applied to
+  a different stretch, and nothing in the freshness checks could notice. Those
+  fitted paths are now dropped whenever the tidy-up moves a slice; they are
+  rebuilt from scratch the next time the recording is loaded or saved, which -
+  thanks to the fix above - is immediately. Ghost map lines and replays are
+  unaffected either way; this closes a route to a wrong one.
+
 ### Dev
 
 - Fourteen more of Parsek's in-game self-tests can now be run automatically. The

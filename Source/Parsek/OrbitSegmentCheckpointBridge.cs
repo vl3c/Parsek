@@ -14,9 +14,44 @@ namespace Parsek
         public int SkippedCovered;
         public int Clipped;
         public int ReconciledEmptySections;
+        // 1 when the pass had to re-sort TrackSections (0 otherwise). Previously a
+        // bridge-local `sorted` bool that never reached the caller, which is why
+        // `Changed` alone under-reports a pure-re-sort pass (see the note at
+        // RecordingOptimizer.SplitAtUT). Kept OUT of `Changed` so the existing
+        // Changed semantics (and the tests pinned to them) are unmoved; callers that
+        // mean "did this pass touch the recording at all" use AnyMutation.
+        public int Resorted;
 
         public bool Changed => Added > 0 || Clipped > 0 || SkippedCovered > 0
             || ReconciledEmptySections > 0;
+
+        /// <summary>
+        /// True when the pass mutated the in-memory recording in ANY way — the
+        /// section list, the flat orbit cache, or section order. This is the honest
+        /// "the model no longer matches what is on disk" signal: a caller that runs
+        /// Ensure and does NOT persist afterwards leaves the divergence standing.
+        /// </summary>
+        public bool AnyMutation => Changed || Resorted > 0;
+
+        /// <summary>
+        /// True when a section's ORDINAL may now name a different section than it did
+        /// before the pass. Consumed by the <c>.pann</c> annotation containment
+        /// (annotations are keyed by (recordingId, sectionIndex) and must not survive
+        /// an ordinal shift).
+        ///
+        /// <para>
+        /// Deliberately narrower than <see cref="AnyMutation"/> in both directions:
+        /// <c>SkippedCovered</c> only drives the flat-orbit-cache rebuild and never
+        /// touches the section list, and <c>Added</c> alone cannot shift an ordinal —
+        /// promotion APPENDS, so a chronologically-trailing promotion leaves every
+        /// existing index in place, and a promotion that lands out of order is caught
+        /// by <c>Resorted</c>. <c>Clipped</c> over-approximates (it also counts
+        /// candidate-side clipping, which replaces nothing in the list); erring toward
+        /// invalidation is the safe direction for a regenerable cache.
+        /// </para>
+        /// </summary>
+        public bool SectionOrdinalsShifted => Clipped > 0
+            || ReconciledEmptySections > 0 || Resorted > 0;
     }
 
     /// <summary>
@@ -113,6 +148,7 @@ namespace Parsek
                 rec.TrackSections, uncoveredSegments);
 
             bool addedNewSection = false;
+            int removedEmptyShells = 0;
             for (int i = 0; i < uncoveredSegments.Count; i++)
             {
                 OrbitSegment uncoveredSegment = uncoveredSegments[i];
@@ -122,7 +158,8 @@ namespace Parsek
                     continue;
                 }
 
-                RemoveEmptyCheckpointSectionsMatching(rec.TrackSections, uncoveredSegment);
+                removedEmptyShells +=
+                    RemoveEmptyCheckpointSectionsMatching(rec.TrackSections, uncoveredSegment);
                 rec.TrackSections.Add(BuildClosedCheckpointSection(uncoveredSegment));
                 AppendFlatOrbitCache(rec, uncoveredSegment);
                 addedNewSection = true;
@@ -140,8 +177,13 @@ namespace Parsek
                     $"clippedExistingSections={clippedExisting} reconciledEmptySections={reconciledEmpty}");
             }
 
+            // EnsureTrackSectionsSorted, not SortTrackSections: identical comparator
+            // and identical outcome (it sorts only when the list is out of order), but
+            // it REPORTS whether it had to, which is what tells the annotation
+            // containment below whether section ordinals moved.
+            bool resorted = false;
             if (addedNewSection || clippedExisting > 0 || reconciledEmpty > 0)
-                SortTrackSections(rec.TrackSections);
+                resorted = EnsureTrackSectionsSorted(rec.TrackSections);
             if (clippedExisting > 0)
             {
                 // Existing sections lost span to the incoming close; the flat cache
@@ -151,9 +193,70 @@ namespace Parsek
             SortOrbitSegments(rec.OrbitSegments);
             rec.CachedStats = null;
             rec.CachedStatsPointCount = 0;
+            // Live append shifts section ordinals exactly like the Ensure passes do
+            // (empty shells are removed, existing checkpoint sections are replaced by
+            // clipped clones, and an out-of-order append forces a re-sort), so the
+            // ordinal-keyed .pann annotations must go with them. A plain in-order
+            // append at the tail moves no existing index and is left alone.
+            if (clippedExisting > 0 || reconciledEmpty > 0
+                || removedEmptyShells > 0 || resorted)
+            {
+                InvalidateSectionAnnotationsForOrdinalShift(
+                    rec, "TryAppendClosedCheckpointSection");
+            }
             if (markDirty)
                 rec.MarkFilesDirty();
             return true;
+        }
+
+        /// <summary>
+        /// Drops every in-memory <c>.pann</c> annotation (spline / outlier flags /
+        /// anchor candidates) for a recording whose TrackSection ordinals just moved.
+        ///
+        /// <para>
+        /// <see cref="Parsek.Rendering.SectionAnnotationStore"/> keys annotations by
+        /// (recordingId, sectionIndex). Any bridge pass that adds, removes, replaces
+        /// or re-orders sections renumbers every later section, so an annotation
+        /// computed for old index k would silently start applying to a DIFFERENT
+        /// section. The <c>.pann</c> freshness gate cannot catch it: out-of-band
+        /// sidecar writes deliberately do not bump <c>SidecarEpoch</c> (bug #290),
+        /// and the section list is not part of the configuration hash.
+        /// </para>
+        ///
+        /// <para>
+        /// Annotations are a regenerable derived cache (HR-10), so invalidation is
+        /// the exact containment: the next
+        /// <c>SmoothingPipeline.FitAndStorePerSection</c> (load, commit, or the
+        /// <c>PersistAfterCommit</c> that follows every sidecar write) refits against
+        /// the post-Ensure sections. Until then consumers fall back to the legacy
+        /// lerp path, which is correct-but-coarser rather than wrong.
+        /// </para>
+        /// </summary>
+        private static void InvalidateSectionAnnotationsForOrdinalShift(
+            Recording rec, string context)
+        {
+            string recordingId = rec != null ? rec.RecordingId : null;
+            if (string.IsNullOrEmpty(recordingId))
+                return;
+
+            int splineCount =
+                Rendering.SectionAnnotationStore.GetSplineCountForRecording(recordingId);
+            int candidateCount =
+                Rendering.SectionAnnotationStore.GetAnchorCandidateSectionCountForRecording(recordingId);
+            int outlierCount =
+                Rendering.SectionAnnotationStore.GetOutlierFlagsCountForRecording(recordingId);
+            if (splineCount == 0 && candidateCount == 0 && outlierCount == 0)
+                return;
+
+            Rendering.SectionAnnotationStore.RemoveRecording(recordingId);
+            if (RecordingStore.SuppressLogging)
+                return;
+
+            ParsekLog.Verbose("Pipeline-Smoothing",
+                $"Section annotations invalidated (section-index-shift): recordingId={recordingId} " +
+                $"context={context} splines={splineCount.ToString(CultureInfo.InvariantCulture)} " +
+                $"candidateSections={candidateCount.ToString(CultureInfo.InvariantCulture)} " +
+                $"outlierFlags={outlierCount.ToString(CultureInfo.InvariantCulture)}");
         }
 
         // reconcileEmptySections gates the empty-shell reconcile pass, which trims or
@@ -195,11 +298,17 @@ namespace Parsek
                     // land out of chronological order - re-sort, like the main
                     // path does after its reconcile. Untouched recordings (no
                     // reconcile changes) are deliberately left alone.
-                    EnsureTrackSectionsSorted(rec.TrackSections);
+                    if (EnsureTrackSectionsSorted(rec.TrackSections))
+                        stats.Resorted = 1;
                     rec.CachedStats = null;
                     rec.CachedStatsPointCount = 0;
                     if (markDirty)
                         rec.MarkFilesDirty();
+                }
+                if (stats.SectionOrdinalsShifted)
+                {
+                    InvalidateSectionAnnotationsForOrdinalShift(
+                        rec, "EnsureCheckpointSectionsForTopLevelOrbitSegments");
                 }
                 return stats;
             }
@@ -310,15 +419,21 @@ namespace Parsek
                     ReconcileEmptySectionsAgainstPayloadCoverage(rec.TrackSections);
             }
 
-            bool sorted = EnsureTrackSectionsSorted(rec.TrackSections);
-            if (stats.Changed || sorted)
+            if (EnsureTrackSectionsSorted(rec.TrackSections))
+                stats.Resorted = 1;
+            if (stats.AnyMutation)
             {
                 if (stats.Clipped > 0 || stats.SkippedCovered > 0)
                     RebuildFlatOrbitCacheFromCheckpointSectionsPreservingUncoveredFlat(rec);
                 rec.CachedStats = null;
                 rec.CachedStatsPointCount = 0;
-                if (markDirty && (stats.Changed || sorted))
+                if (markDirty)
                     rec.MarkFilesDirty();
+            }
+            if (stats.SectionOrdinalsShifted)
+            {
+                InvalidateSectionAnnotationsForOrdinalShift(
+                    rec, "EnsureCheckpointSectionsForTopLevelOrbitSegments");
             }
 
             return stats;
@@ -840,13 +955,18 @@ namespace Parsek
             return ranges.Count == 0;
         }
 
-        private static void RemoveEmptyCheckpointSectionsMatching(
+        /// <summary>
+        /// Removes payload-less checkpoint shells exactly matching the segment's span.
+        /// Returns how many were removed (an ordinal shift for every later section).
+        /// </summary>
+        private static int RemoveEmptyCheckpointSectionsMatching(
             List<TrackSection> sections,
             OrbitSegment segment)
         {
             if (sections == null || sections.Count == 0)
-                return;
+                return 0;
 
+            int removed = 0;
             for (int i = sections.Count - 1; i >= 0; i--)
             {
                 TrackSection section = sections[i];
@@ -856,8 +976,11 @@ namespace Parsek
                     && (section.checkpoints == null || section.checkpoints.Count == 0))
                 {
                     sections.RemoveAt(i);
+                    removed++;
                 }
             }
+
+            return removed;
         }
 
         private static bool LastSectionCheckpointMatches(List<TrackSection> sections, OrbitSegment segment)
