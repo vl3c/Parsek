@@ -292,10 +292,21 @@ never nulled. Cold-load (site 3) relies on the prior session's force-written sid
   `CanPersistVessel` already cover which leaves are spawnable.
 
 **In-game (`InGameTests`, live KSP):**
-- FLIGHT test: with `autoMerge=ON`, fly to a stable orbit, trigger the scene-exit commit,
+- ~~FLIGHT test: with `autoMerge=ON`, fly to a stable orbit, trigger the scene-exit commit,
   assert the committed leaf is spawn-at-end eligible (snapshot present / sidecar written), not
   ghost-only. Use the existing `autoMerge` save/restore try/finally pattern
-  (`RuntimeTests.cs:13407`).
+  (`RuntimeTests.cs:13407`).~~ **WRITTEN 2026-08-29 (branch `automerge-coverage`, R4), NOT YET
+  FLOWN:** `RuntimeTests.ExitToSpaceCenter_AutoMergeOn_CommitsSilentlyAtFullFidelity`, in a NEW
+  `AutoMergeCommit` category (deliberately not `SceneExitMerge` — H21 pins that category at
+  exactly two declarations). It follows this contract, and adds two things the contract did not
+  name but that make it non-vacuous: it asserts NO `ParsekMerge` popup spawned (the ON path is
+  silent by contract, so the absence is half the claim), and it asserts the `Ghost-only
+  auto-commit` line is ABSENT alongside `Silent full-fidelity auto-commit` being present —
+  because a tree with no snapshot to begin with would satisfy the "not ghost-only" assertion
+  vacuously. It requires an ORBITING host and skips naming that when it cannot self-set-up: a
+  PRELAUNCH pad host is not a weaker fixture but the wrong subject (staging clears the pad but
+  leaves the vessel Ascending at exit, and `CommitTreeSceneExit` nulls the snapshot for every
+  non-stable terminal state BY DESIGN).
 
 **Harness / autotest:** no scenario `.toml` currently declares a D1 "auto-merge" case and
 `AnswerMergeDialog` is a reserved/unimplemented verb, so the #88 fold strands no live harness
