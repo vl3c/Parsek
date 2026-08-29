@@ -3771,7 +3771,7 @@ reclaim-refusal AND IO-refusal contracts are verified only on Windows runs; a
 POSIX-equivalent mechanism (injected failing rename / injected failing open)
 remains the upgrade path if anyone wants those dark spots lit.
 
-## AUTOMERGE-ON-BY-DEFAULT: is any player flow reachable that now auto-commits GHOST-ONLY where the dialog used to ask? [RAISED 2026-08-24 by the review panel on the default-flip PR (#1523) as PLAUSIBLE-not-confirmed. OPEN QUESTION, no defect demonstrated. The behaviour itself is by design and predates the flip; what changed is that it is now the DEFAULT answer. **RESTATED 2026-08-28 (branch `ledger-followups`) for the settings-simplification clamp: "on by default" is now "on UNCONDITIONALLY". ADOPTED RESOLUTION: leave the question PINNED, unclosed, awaiting the decisive evidence named below**. **FLOWN 2026-08-29 (branch `automerge-coverage`): the ghost-only commit is DEMONSTRATED LIVE on BOTH the cold and the warm route, with every `VesselSnapshot` destroyed and no dialog. The question this entry asks is ANSWERED for reachability; what remains is FREQUENCY. STILL OPEN, because the remedy is a maintainer decision and is deliberately NOT in that branch]
+## AUTOMERGE-ON-BY-DEFAULT: is any player flow reachable that now auto-commits GHOST-ONLY where the dialog used to ask? [RAISED 2026-08-24 by the review panel on the default-flip PR (#1523) as PLAUSIBLE-not-confirmed. OPEN QUESTION, no defect demonstrated. The behaviour itself is by design and predates the flip; what changed is that it is now the DEFAULT answer. **RESTATED 2026-08-28 (branch `ledger-followups`) for the settings-simplification clamp: "on by default" is now "on UNCONDITIONALLY". ADOPTED RESOLUTION: leave the question PINNED, unclosed, awaiting the decisive evidence named below**. **FLOWN 2026-08-29 (branch `automerge-coverage`): the ghost-only commit is DEMONSTRATED LIVE and GREEN-GATED on BOTH the cold and the warm route (`2026-08-29_1025_S0.9` and `2026-08-29_1043_S0.10`, both PASS), with every `VesselSnapshot` destroyed and no dialog, on the warm side through an entrance that requires NO fault at all. The question this entry asks is ANSWERED for reachability; what remains is FREQUENCY. STILL OPEN, because the remedy is a maintainer decision and is deliberately NOT in that branch]
 
 **The 2026-08-27 settings simplification (#1549) widened this question and invalidated
 half of #1523's scoping argument.** `autoMerge` is now a HIDDEN field with no player-facing
@@ -3846,10 +3846,15 @@ carrying this branch's DLL (hash-identical to the building worktree's `bin/Debug
   key, so it is the shipping default reached through the field initializer. The ghost-only
   commit is what a default install does.
 
-- **S0.10 (warm) — `2026-08-29_1027_S0.10-automerge-limbo-warm-exit`, PARSEK-FAIL attempt 1,
-  55 s, expectations mismatches=1 — and the mismatch is the SPEC'S OWN TOKEN, not the
-  product.** Six of seven matched and the warm chain WALKED, ending in
-  `Ghost-only auto-commit (scene-exit, reason=state=Limbo): ... snapshotsNulled=2`. The
+- **S0.10 (warm) — LIVE-PROVEN by `2026-08-29_1043_S0.10-automerge-limbo-warm-exit`, PASS
+  attempt 1, 54 s, every verifier PASS/SKIPPED, expectations mismatches=0, zero
+  `[Parsek][ERROR]`, clobber guard silent.** All ten required tokens matched and the warm
+  chain is REPRODUCIBLE, ending in
+  `Ghost-only auto-commit (scene-exit, reason=state=Limbo): tree='Limbo Stack' recordings=2
+  snapshotsNulled=2`.
+  Flight 1 (`2026-08-29_1027`) was PARSEK-FAIL attempt 1, 55 s, mismatches=1 — **the spec's
+  own token, not the product** — and it earned its keep by discovering which entrance the
+  spec actually drives (below). Six of seven matched even then, and the warm chain walked. The
   `exittospacecenter start scene=FLIGHT autoMerge=true hasActiveTree=false
   hasPendingTree=true ... activeTreeVariant=None pendingTreeVariant=None` line carries three
   of the chain's assertions at once: the restore did not install, the Limbo tree survived,
@@ -3857,18 +3862,43 @@ carrying this branch's DLL (hash-identical to the building worktree's `bin/Debug
   (`OnLoad: pending-Limbo tree 'Limbo Stack' deferred to OnFlightReady for quickload-resume`,
   at SPACECENTER, where that restore can never fire).
 
-**The one token that did not fire, and why it makes the finding STRONGER.** S0.10 pinned the
-give-up Warn. The guid gate rejected the active vessel AND the parent walk on the
+**THE TWO ENTRANCES, and why flight 1's red made the finding STRONGER.** Step 2 of the chain
+has two of them, and they are not equally demanding:
+
+- **ENTRANCE A — the give-up.** The 3 s match loop runs out and
+  `RestoreActiveTreeFromPending` warns + `yield break`s (`ParsekFlight.cs:14104-14141`).
+- **ENTRANCE B — no fault required.** The player leaves FLIGHT *while the 3 s wait is still
+  running*. `FinalizeTreeOnSceneChangeCore`'s `restoringActiveTree` early return
+  (`ParsekFlight.cs:3029-3035`) correctly declines to finalize — the coroutine owns
+  `activeTree` — and the coroutine is then destroyed with the scene.
+
+S0.10 originally pinned entrance A. The guid gate rejected the active vessel AND the parent walk on the
 coroutine's FIRST iteration (`liveGuid=88a8a8a6… conclusively differs from …
 recordedGuid=ecc6bdc0…`, 13:27:51.448), so the match was already impossible — but the Warn
 only fires once the full 3 s ELAPSES, and `ExitToSpaceCenter` arrived 0.38 s in
 (13:27:51.830). The coroutine was then killed by the scene change
 (`OnDestroy: clearing stale restoringActiveTree guard (coroutine aborted by destroy)`,
-13:27:52.030). **So the run drove the SECOND, non-fault entrance this entry documents —
-leaving FLIGHT during the 3-second wait (`ParsekFlight.cs:3029-3035`) — rather than the
-give-up entrance.** That entrance needs no match failure at all: only a player who leaves
-FLIGHT within three seconds of a quickload. Reachability is therefore established by TWO
-independent entrances, one of which was demonstrated by accident.
+13:27:52.030). **So the run drove ENTRANCE B rather than the entrance its token named** —
+and entrance B is the more alarming of the two, because it needs no match failure at all:
+only a player who leaves FLIGHT within three seconds of a quickload.
+
+**Resolution (2026-08-29, maintainer adopted option (a)):** token 3 was re-pointed at what
+the spec deterministically drives — the iteration-1 guid-rejection pair, the `#293`
+coroutine-in-progress skip, and `coroutine aborted by destroy` — the spec's subject was
+relabelled to entrance B, and the re-fly `2026-08-29_1043` confirmed it green with
+`not active within 3s` verifiably ABSENT. Reachability therefore rests on two independent
+entrances, and **the one now under a standing gated instrument is the one that requires no
+fault**.
+
+**SEAM VERB GAP (recorded here rather than as its own entry, because it blocks one pin and
+not a product question): ENTRANCE A REMAINS UNDRIVEN.** Driving the give-up needs the exit
+to arrive more than 3 s after FLIGHT entry, i.e. a dwell/wait verb — and the M-C1 seam
+roster has none (`TimeJump` is an epoch shift with frozen relative positions, not a sleep;
+`EvaExit`'s `settleSeconds` is the only spec-authorable dwell and is EVA-only). Both
+entrances end at the same ghost-only commit, so nothing about the finding depends on
+closing this; a future S0.10 run that flips to the give-up Warn is entrance A finally being
+driven and should be REPORTED, never widened into an alternation — the alternation would
+stop distinguishing the two, and which one the spec drives is its subject.
 
 **WHAT IS NOW PROVEN, and what is not.** Proven: a non-`Finalized` pending tree reaches
 `AutoCommitPendingTreeOutsideFlight` outside FLIGHT on both the cold and warm routes, under
@@ -3877,13 +3907,6 @@ steps 2/3/4 of the player chain, in the shipped DLL. NOT proven: step 1 (a real 
 producing the Limbo stash — both runs inject it) and **how often the resume match misses on
 ordinary flights**, which is the last open question and the only thing between this and a
 routine player experience.
-
-**Pins deliberately NOT retrofitted on S0.10.** Rewriting a token to match the run that just
-failed it is how a spec stops measuring anything. Options recorded on the spec and its
-status row: (a) re-point token 3 at what the spec actually drives (the guid-rejection pair,
-the `#293` skip, `coroutine aborted by destroy`) — deterministic, and re-labels the subject
-as the second entrance; or (b) keep the give-up as the subject, which needs a dwell/wait
-seam verb that does not exist. Maintainer's call.
 
 **THE PRODUCT FIX IS NOT IN THAT BRANCH, ON PURPOSE.** The remedy is scoped, not blanket —
 the dialog returns for the NON-re-fly, NON-`Finalized` case specifically, or Limbo trees
