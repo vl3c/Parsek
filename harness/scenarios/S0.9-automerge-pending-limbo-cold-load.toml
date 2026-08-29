@@ -4,6 +4,18 @@ tier = "operator"
 # THE SECOND PIECE OF DECISIVE EVIDENCE named by the AUTOMERGE-ON-BY-DEFAULT entry
 # in docs/dev/todo-and-known-bugs.md. Read that entry before this file.
 #
+# ##### STATUS 2026-08-29: THIS SPEC'S SUBJECT WAS FIXED, AND IT OWES A CONFIRM RE-FLY.
+# The question below was asked, flown (`2026-08-29_1025`), and ANSWERED: the ghost-only
+# branch is live and it destroyed both snapshots. The product fix landed on branch
+# `limbo-fidelity` - a non-re-fly Limbo tree now commits at FIDELITY through the
+# dialog's own MergeCommit - so everything this header says in the PRESENT TENSE about
+# what the site does with a non-Finalized tree is a description of the PRE-FIX product,
+# kept because it is the reasoning the fix was taken against. The spec's role has turned
+# over: it was a reading run and it is now the STANDING REGRESSION INSTRUMENT for the
+# fix. Its `required` tokens did not move (they were pinned structural, not outcome);
+# what moved is the documented reading, now PREDICTED, in [expectations.logContracts].
+# #####
+#
 # THE QUESTION. `ParsekScenario.AutoCommitPendingTreeOutsideFlight` routes a pending
 # tree through the dialog's own full-fidelity `MergeDialog.MergeCommit` only when
 # `ShouldSilentFullFidelityCommit` qualifies (autoMerge AND Finalized AND no re-fly
@@ -140,7 +152,49 @@ count = { min = 2, max = 2 }
 # report-only reading run.
 
 [expectations.logContracts]
-# EVIDENCE STANDING: MEASURED. Run `2026-08-29_1025_S0.9-automerge-pending-limbo-cold-load`,
+# EVIDENCE STANDING: MEASURED PRE-FIX, PREDICTED POST-FIX, RE-FLY OWED.
+#
+# ================== THE PRODUCT CHANGED UNDER THIS SPEC (2026-08-29) ==================
+# Run `2026-08-29_1025` (below) measured the ghost-only branch destroying both
+# snapshots. That reading WAS the repro the entry's escalation trigger names, and the
+# fix landed on branch `limbo-fidelity`: a non-re-fly Limbo / LimboVesselSwitch tree now
+# commits through the dialog's own `MergeDialog.MergeCommit` with its snapshots
+# PRESERVED, and only three carve-outs still reach the blanket-nulling branch (autoMerge
+# off, an active re-fly, MAINMENU). See `ParsekScenario.ClassifyAutoCommitFidelity` and
+# the AUTOMERGE-ON-BY-DEFAULT entry in docs/dev/todo-and-known-bugs.md.
+#
+# NOTHING IN `required` MOVED, and that is the pinning rule paying off rather than an
+# oversight. Both pinned tokens are STRUCTURAL - the restore line and the entry line
+# report preconditions, not the branch - so they are branch-INDEPENDENT by construction
+# and survive the fix unchanged. `pendingState=Limbo` in the entry line is still exactly
+# right: the fix changes what the site DOES with that state, not the state. What moves is
+# the READING, and it is a PREDICTION until this spec is re-flown.
+#
+# PREDICTED post-fix reading (DERIVED FROM SOURCE, NOT MEASURED - re-fly owed):
+#
+#   Limbo-preserving full-fidelity auto-commit (cold-load outside-flight, state=Limbo): tree='Limbo Stack' recordings=2 spawnable=1 snapshotsPreserved=2 snapshotsReleased=0
+#
+# with `Ghost-only auto-commit` ABSENT. Each number is derived and traceable:
+#   spawnable=1          - `BuildDefaultVesselDecisions` walks `GetAllLeaves()`, and this
+#                          fixture's only leaf is the Orbiting child; `CanPersistVessel`
+#                          returns true for it (a stable terminal overrides the
+#                          snapshot-situation check). The root is a non-leaf and is not
+#                          `ActiveRecordingId`, so it never enters the decision map.
+#   snapshotsPreserved=2 - `ApplyVesselDecisions` nulls only entries the map marks false.
+#                          The child is true and the root is absent, so BOTH survive -
+#                          against `snapshotsNulled=2` pre-fix. The exact inverse.
+#   snapshotsReleased=0  - no decision is false.
+# `[expectations.recordings] count = 2` is unaffected: both branches commit both rows, and
+# `CanAutoMerge` is chain-based with no snapshot input, so the 2026-08-29 measurement of
+# "no collapse across the BranchPoint" carries over.
+#
+# THE RE-FLY IS WHAT CONFIRMS THIS. If it comes back with the ghost-only line, or with
+# different numbers, the prediction is wrong and these numbers are what to correct - do
+# NOT widen them into a range to make a run green.
+# =====================================================================================
+#
+# THE PRE-FIX RUN, kept in full because it is the evidence the fix was taken against.
+# Run `2026-08-29_1025_S0.9-automerge-pending-limbo-cold-load`,
 # PASS attempt 1, 58 s, every verifier PASS/SKIPPED, expectations mismatches=0, zero
 # `[Parsek][ERROR]`. Both required patterns matched token for token.
 #
@@ -202,21 +256,28 @@ count = { min = 2, max = 2 }
 #    PARSEK-FAIL plus a burned retry instead of as a reading. The count is already
 #    pinned once, at the site where pinning it is anti-vacuity rather than prediction.
 #
-# WHAT TO READ IN THE COLLECTED LOG, and what each reading MEANS. Exactly one of
-# these two lines must follow the entry line:
+# WHAT TO READ IN THE COLLECTED LOG, and what each reading MEANS. Exactly one of these
+# THREE lines must follow the entry line (the third is new with the 2026-08-29 fix):
 #
-#   Ghost-only auto-commit (cold-load outside-flight, reason=state=Limbo): tree='Limbo Stack' recordings=2 snapshotsNulled=2
-#     -> the branch IS LIVE. A non-Finalized tree reached the site outside FLIGHT and
-#        the product destroyed both full-fidelity snapshots silently. `snapshotsNulled=2`
-#        is the whole finding; a `snapshotsNulled=0` would mean the snapshots were
-#        already gone upstream and the run measured nothing. Next step is NOT to file a
-#        defect on this alone - it is to ask whether a player flow parks a Limbo tree
-#        outside FLIGHT, which is the remaining half of the entry.
+#   Limbo-preserving full-fidelity auto-commit (cold-load outside-flight, state=Limbo): tree='Limbo Stack' recordings=2 spawnable=1 snapshotsPreserved=2 snapshotsReleased=0
+#     -> THE FIX HOLDS on the cold route. The same non-Finalized tree reaches the same
+#        site, and the snapshots the stash captured SURVIVE the commit.
+#        `snapshotsPreserved=2` against the pre-fix `snapshotsNulled=2` is the whole
+#        confirmation; a `snapshotsPreserved=0` would mean the snapshots were already
+#        gone upstream and the run measured nothing (the same vacuity trap the pre-fix
+#        reading had, inverted).
+#
+#   Ghost-only auto-commit (cold-load outside-flight, reason=...): tree='Limbo Stack' recordings=2 snapshotsNulled=2
+#     -> THE PRE-FIX READING, and after the fix it means the fix did not take on this
+#        route. Read `reason=`: it can no longer be `state=Limbo` (the tree state was
+#        retired from the reason vocabulary), so any of the three surviving reasons here
+#        is itself the finding - `not-automerge` would mean the shipping default moved,
+#        `re-fly-active` a stray marker, `mainmenu` the wrong destination scene.
 #
 #   Silent full-fidelity auto-commit (cold-load outside-flight): tree='Limbo Stack' recordings=2 spawnable=N
 #     -> something between the marker and the site re-finalized the tree, and THAT is
-#        the finding: name the site, pin it headless, and the entry closes with the
-#        branch demonstrated unreachable from disk.
+#        the finding: name the site and pin it headless. Unchanged in meaning by the fix -
+#        this line is still the FINALIZED route, which this fixture should never reach.
 #
 # A run where NEITHER appears but token 2 does is impossible by construction (the
 # site logs an outcome on every path but the exception path, which reds on

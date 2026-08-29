@@ -121,6 +121,19 @@ Commit outcomes today: dialog "Merge to Timeline" (`MergeCommit` +
 
 ### 4.1 The routing rule
 
+> **SUPERSEDED IN PART, 2026-08-29 (branch `limbo-fidelity`).** The `Finalized` conjunct
+> below is no longer a gate on FIDELITY, only on which of two full-fidelity routes runs.
+> After the S0.9 / S0.10 flights measured a non-re-fly Limbo tree reaching this site
+> outside FLIGHT and losing every `VesselSnapshot`, the predicate became the three-way
+> `ParsekScenario.ClassifyAutoCommitFidelity`: the ghost-only commit is kept for autoMerge
+> off, an active re-fly (§4.2 / §10, unchanged) and MAINMENU, and a non-re-fly Limbo /
+> LimboVesselSwitch stash now takes the SAME `MergeCommit` as a Finalized tree under the
+> distinct `LimboPreservingFullFidelity` route. Everything else in this section — the
+> re-fly exclusion, the quicksave suppression, the scene-exit force-write, the
+> de-duplication — stands unchanged. The rationale, and the rejected preserve-what-exists
+> alternative, are on the AUTOMERGE-ON-BY-DEFAULT entry in
+> `docs/dev/todo-and-known-bugs.md`.
+
 Introduce one shared predicate: a pending tree qualifies for the **full-fidelity silent
 commit** iff ALL of:
 - `IsAutoMerge` is ON, AND
@@ -233,8 +246,15 @@ it — otherwise `autoMerge=ON` still nags on every landed/splashed mission, def
 - **Switch-segment sessions.** Can reach the silent path; routing through `MergeCommit` is
   strictly better than the ghost-only path — it clears the `SwitchSegmentSession` marker on
   success (`MergeDialog.Commit.cs:120-130`), which the ghost-only path did not.
-- **Quickload-resume Limbo.** Excluded from the full-fidelity path by the `Finalized` gate
-  (4.1); resume-flow stashes are never heavier-committed.
+- **Quickload-resume Limbo.** ~~Excluded from the full-fidelity path by the `Finalized`
+  gate (4.1); resume-flow stashes are never heavier-committed.~~ **REVERSED 2026-08-29
+  (branch `limbo-fidelity`).** The exclusion was a blast-radius call (P4), not a safety
+  one, and the S0.9 / S0.10 flights measured what it cost: a stash that reaches this site
+  outside FLIGHT can never be resumed (its dispatch arms an `onFlightReady` restore that
+  cannot fire there), so the ghost-only commit was destroying snapshots
+  `StashActiveTreeAsPendingLimbo` captures deliberately. A non-re-fly Limbo /
+  LimboVesselSwitch stash now takes the same `MergeCommit`. Re-fly and MAINMENU below are
+  unchanged.
 - **RouteRunPrompt + screen message.** `MergeCommit` fires
   `Logistics.RouteRunPrompt.NotifyTreeCommitted` (:139, a one-time non-blocking prompt only
   for trees carrying a route proof) and a "Merged - N vessel(s)..." screen message

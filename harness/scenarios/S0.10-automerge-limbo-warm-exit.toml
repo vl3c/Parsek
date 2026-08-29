@@ -4,6 +4,21 @@ tier = "operator"
 # THE WARM HALF of the AUTOMERGE-ON-BY-DEFAULT evidence, and the sibling S0.9 is not.
 # Read the entry in docs/dev/todo-and-known-bugs.md first, then this header.
 #
+# ##### STATUS 2026-08-29: THIS SPEC'S SUBJECT WAS FIXED, AND IT OWES A CONFIRM RE-FLY.
+# The warm chain below was assembled, flown (`2026-08-29_1043`, PASS) and CONFIRMED: a
+# player who leaves FLIGHT within three seconds of a quickload - ENTRANCE B, no fault
+# required - reaches the auto-commit site with a parked Limbo tree, and the product
+# destroyed both snapshots with no dialog. The product fix landed on branch
+# `limbo-fidelity`: a non-re-fly Limbo tree now commits at FIDELITY through the dialog's
+# own MergeCommit. NOTHING ABOUT THE CHAIN OR THE ENTRANCE CHANGED - steps 2 and 3 are
+# untouched product behaviour, the entrance-B subject is untouched, and all ten
+# `required` tokens still describe them exactly - so this spec keeps its subject and its
+# pins and turns over from a reading run into the STANDING REGRESSION INSTRUMENT for the
+# warm half of the fix. What moved is step 4's OUTCOME, and the present-tense sentence
+# about it in step 4 below now describes the PRE-FIX product. The post-fix reading is a
+# PREDICTION in [expectations.logContracts].
+# #####
+#
 # WHY A SECOND SPEC EXISTS. S0.9 cold-loads a save carrying a pending-Limbo tree
 # straight into the Space Center: it confirms the LOAD-PATH half only (does the tree
 # survive the schema gate / sidecar hydration / mission-prune and reach
@@ -176,7 +191,43 @@ count = { min = 2, max = 2 }
 # Nothing armed; ARMED_ALLOWLIST untouched.
 
 [expectations.logContracts]
-# EVIDENCE STANDING: LIVE-PROVEN 2026-08-29, run
+# EVIDENCE STANDING: LIVE-PROVEN PRE-FIX, PREDICTED POST-FIX, RE-FLY OWED.
+#
+# ================== THE PRODUCT CHANGED UNDER THIS SPEC (2026-08-29) ==================
+# The green run below proved the warm chain end to end and measured the ghost-only
+# commit destroying both snapshots. That WAS the repro the entry's escalation trigger
+# names, and the fix landed on branch `limbo-fidelity`: a non-re-fly Limbo /
+# LimboVesselSwitch tree now commits through the dialog's own `MergeDialog.MergeCommit`
+# with its snapshots PRESERVED. Only three carve-outs still reach the blanket-nulling
+# branch (autoMerge off, an active re-fly, MAINMENU). See
+# `ParsekScenario.ClassifyAutoCommitFidelity`.
+#
+# ALL TEN `required` TOKENS SURVIVE UNCHANGED, and that is the pinning rule paying off:
+# every one of them pins a step of the CHAIN (restore, dispatch, the two guid
+# rejections, the #293 skip, the destroy-abort, the two exit lines, the dangling
+# dispatch, the entry line) and not the outcome. The fix touches only what the site does
+# AFTER the entry line. `pendingState=Limbo` in token 10 is still exactly right - the
+# state is unchanged, its disposition is not - and the entrance-B subject is untouched.
+#
+# PREDICTED post-fix reading (DERIVED FROM SOURCE, NOT MEASURED - re-fly owed):
+#
+#   Limbo-preserving full-fidelity auto-commit (scene-exit, state=Limbo): tree='Limbo Stack' recordings=2 spawnable=1 snapshotsPreserved=2 snapshotsReleased=0
+#
+# with `Ghost-only auto-commit` ABSENT. Same fixture as S0.9, so the same derivation:
+# the Orbiting child is the only leaf and `CanPersistVessel` keeps it (spawnable=1); the
+# root is a non-leaf that never enters the decision map, so `ApplyVesselDecisions` leaves
+# it alone; both snapshots therefore survive (snapshotsPreserved=2), the exact inverse of
+# the pre-fix `snapshotsNulled=2`. `count = 2` is unaffected - both branches commit both
+# rows and `CanAutoMerge` reads no snapshot.
+#
+# THE RE-FLY IS WHAT CONFIRMS THIS, and it confirms the WARM half specifically: S0.9
+# re-flown proves only the cold route. If either comes back with the ghost-only line, or
+# with different numbers, the prediction is wrong and these numbers are what to correct -
+# do NOT widen them into a range to make a run green.
+# =====================================================================================
+#
+# THE PRE-FIX RUN, kept in full because it is the evidence the fix was taken against.
+# LIVE-PROVEN 2026-08-29, run
 # `2026-08-29_1043_S0.10-automerge-limbo-warm-exit`, PASS attempt 1, 54 s, every verifier
 # PASS/SKIPPED, expectations mismatches=0, zero `[Parsek][ERROR]`, clobber guard silent.
 # All TEN required tokens matched, including the four re-pointed ones - and
@@ -308,20 +359,30 @@ count = { min = 2, max = 2 }
 #    restore and the site is a FINDING this reading run should deliver as a reading
 #    rather than as a PARSEK-FAIL plus a burned retry.
 #
-# WHAT TO READ, and what each reading MEANS. Exactly one of these follows token 7:
+# WHAT TO READ, and what each reading MEANS. Exactly one of these THREE follows token 7
+# (the first is new with the 2026-08-29 fix):
 #
-#   Ghost-only auto-commit (scene-exit, reason=state=Limbo): tree='Limbo Stack' recordings=2 snapshotsNulled=2
-#     -> THE WARM CHAIN IS CONFIRMED END TO END in the shipped DLL. Steps 2-4 all ran and
-#        both full-fidelity snapshots were destroyed silently, on the exit the product's
-#        own give-up Warn recommended. Combined with the source-read step 1, that is the
-#        repro the entry's escalation trigger names. It is still NOT proof a player hits
-#        it - step 2's frequency on real flights remains unmeasured - and the fix
-#        decision (dialog back for the non-re-fly non-Finalized case, vs preserving
-#        fidelity for Limbo) is a separate, reviewed change.
+#   Limbo-preserving full-fidelity auto-commit (scene-exit, state=Limbo): tree='Limbo Stack' recordings=2 spawnable=1 snapshotsPreserved=2 snapshotsReleased=0
+#     -> THE FIX HOLDS on the warm route. The same chain runs - entrance B, the parked
+#        Limbo tree, the same site - and the snapshots SURVIVE the commit.
+#        `snapshotsPreserved=2` against the pre-fix `snapshotsNulled=2` is the whole
+#        confirmation; `snapshotsPreserved=0` would mean they were already gone upstream
+#        and the run measured nothing.
+#
+#   Ghost-only auto-commit (scene-exit, reason=...): tree='Limbo Stack' recordings=2 snapshotsNulled=2
+#     -> THE PRE-FIX READING. This is what run `2026-08-29_1043` measured and it is the
+#        repro the entry's escalation trigger names: steps 2-4 all ran and both
+#        full-fidelity snapshots were destroyed silently, on the exit the product's own
+#        give-up Warn recommended. AFTER THE FIX the same line means the fix did not take
+#        on the warm route, and `reason=` says which carve-out claimed it - it can no
+#        longer read `state=Limbo` (the tree state was retired from the reason
+#        vocabulary), so `not-automerge` would mean the spec's own SetSetting failed,
+#        `re-fly-active` a stray marker, `mainmenu` the wrong destination scene.
 #
 #   Silent full-fidelity auto-commit (scene-exit): tree='Limbo Stack' recordings=2 spawnable=N
 #     -> something re-finalized the tree between the give-up and the site. Name it, pin it
-#        headless, and the warm half of the entry closes.
+#        headless. Unchanged in meaning by the fix - this is still the FINALIZED route,
+#        which this fixture should never reach.
 #
 # A run reaching token 6 but not token 7 means the pending tree was consumed between the
 # limbo dispatch and the auto-commit block - report it; the idle-on-pad discard is the

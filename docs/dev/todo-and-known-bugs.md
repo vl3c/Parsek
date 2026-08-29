@@ -3952,7 +3952,7 @@ reclaim-refusal AND IO-refusal contracts are verified only on Windows runs; a
 POSIX-equivalent mechanism (injected failing rename / injected failing open)
 remains the upgrade path if anyone wants those dark spots lit.
 
-## AUTOMERGE-ON-BY-DEFAULT: is any player flow reachable that now auto-commits GHOST-ONLY where the dialog used to ask? [RAISED 2026-08-24 by the review panel on the default-flip PR (#1523) as PLAUSIBLE-not-confirmed. OPEN QUESTION, no defect demonstrated. The behaviour itself is by design and predates the flip; what changed is that it is now the DEFAULT answer. **RESTATED 2026-08-28 (branch `ledger-followups`) for the settings-simplification clamp: "on by default" is now "on UNCONDITIONALLY". ADOPTED RESOLUTION: leave the question PINNED, unclosed, awaiting the decisive evidence named below**. **FLOWN 2026-08-29 (branch `automerge-coverage`): the ghost-only commit is DEMONSTRATED LIVE and GREEN-GATED on BOTH the cold and the warm route (`2026-08-29_1025_S0.9` and `2026-08-29_1043_S0.10`, both PASS), with every `VesselSnapshot` destroyed and no dialog, on the warm side through an entrance that requires NO fault at all. The question this entry asks is ANSWERED for reachability; what remains is FREQUENCY. STILL OPEN, because the remedy is a maintainer decision and is deliberately NOT in that branch]
+## AUTOMERGE-ON-BY-DEFAULT: is any player flow reachable that now auto-commits GHOST-ONLY where the dialog used to ask? [RAISED 2026-08-24 by the review panel on the default-flip PR (#1523) as PLAUSIBLE-not-confirmed. OPEN QUESTION, no defect demonstrated. The behaviour itself is by design and predates the flip; what changed is that it is now the DEFAULT answer. **RESTATED 2026-08-28 (branch `ledger-followups`) for the settings-simplification clamp: "on by default" is now "on UNCONDITIONALLY". ADOPTED RESOLUTION: leave the question PINNED, unclosed, awaiting the decisive evidence named below**. **FLOWN 2026-08-29 (branch `automerge-coverage`): the ghost-only commit is DEMONSTRATED LIVE and GREEN-GATED on BOTH the cold and the warm route (`2026-08-29_1025_S0.9` and `2026-08-29_1043_S0.10`, both PASS), with every `VesselSnapshot` destroyed and no dialog, on the warm side through an entrance that requires NO fault at all. The question this entry asks is ANSWERED for reachability; what remains is FREQUENCY. STILL OPEN, because the remedy is a maintainer decision and is deliberately NOT in that branch. **FIXED 2026-08-29 (branch `limbo-fidelity`) — PENDING THE CONFIRM FLIGHT. A non-re-fly Limbo / LimboVesselSwitch tree now commits at FULL FIDELITY through the dialog's own `MergeDialog.MergeCommit` instead of the snapshot-destroying ghost-only branch. Headless-proven; the S0.9 + S0.10 re-fly is what confirms it live, and both specs now carry the PREDICTED post-fix reading. Everything above and below this bracket is the escalation history the fix was taken against and is left INTACT — see "THE FIX (2026-08-29)" at the end of the entry**]
 
 **The 2026-08-27 settings simplification (#1549) widened this question and invalidated
 half of #1523's scoping argument.** `autoMerge` is now a HIDDEN field with no player-facing
@@ -4247,6 +4247,91 @@ coverage gap recorded on the default-flip entry below - the cell that would exer
 ON path live does not exist~~ **— that cell now exists (`AutoMergeCommit`), so the ON
 path's coverage gap is closed as an ASSET even though neither question yet has a driven
 answer.**
+
+---
+
+**THE FIX (2026-08-29, branch `limbo-fidelity`) — FIDELITY IS PRESERVED, THE DIALOG DOES
+NOT COME BACK.** The remedy the entry left as a maintainer decision was taken against the
+two flight verdicts above, and it is the SECOND of the two options the escalation trigger
+named ("the dialog returns for the NON-re-fly, NON-`Finalized` case specifically, **or
+Limbo trees preserve fidelity instead**").
+
+**The rule, stated once:** a commit that runs with no dialog must never silently DESTROY
+vessel snapshots that exist. `ParsekScenario.ClassifyAutoCommitFidelity` replaces the
+two-way `ShouldSilentFullFidelityCommit` gate with a three-way route, checked in an order
+where each ghost-only justification is a stronger statement than the tree's own state:
+
+| condition (in order) | route | ghost-only reason |
+| --- | --- | --- |
+| `!isAutoMerge` | `GhostOnly` | `not-automerge` |
+| `reFlyActive` | `GhostOnly` | `re-fly-active` |
+| `scene == MAINMENU` | `GhostOnly` | `mainmenu` |
+| `pendingState == Finalized` | `SilentFullFidelity` | — |
+| otherwise (Limbo / LimboVesselSwitch) | `LimboPreservingFullFidelity` | — |
+
+The last row is the change; the three above it are the plan's own carve-outs, untouched.
+**`ShouldSilentFullFidelityCommit` is DELETED**, not kept as a derived helper: it had no
+caller left, and its `false` had become a trap — pre-fix it meant "the ghost-only branch
+runs", post-fix it would mean only "not the FINALIZED route", which is equally true of the
+new fidelity-preserving Limbo route. Every reference to it in this entry and in the two
+spec headers is pre-fix HISTORY; the live question is the classifier's three-way answer.
+Note also that `state=` was RETIRED from the ghost-only reason vocabulary: a tree state can
+no longer send a commit to that branch, so a `reason=state=Limbo` line cannot be emitted
+again.
+
+**Why the same `MergeCommit` rather than a preserve-what-exists variant (the rejected
+alternative).** The conservative shape — run the ghost-only pipeline minus the snapshot
+nulling — was considered and rejected on four counts read out of the code, not preference:
+(1) it forks a THIRD commit implementation against plan P2 ("reuse the dialog's machinery;
+do not fork a second commit"); (2) it would retain snapshots nothing can ever use —
+`ShouldSpawnAtRecordingEnd` rejects a mid-flight `sit=FLYING` capture at spawn time
+regardless — so it buys no fidelity for them, only disk and memory; (3) dropping the null
+pass drops `UnreserveCrewInSnapshot` with it, LEAKING a crew reservation on every
+non-spawnable leaf, and keeping the unreserve while keeping the snapshot is worse still
+(a snapshot whose crew has been released); (4) it does not preserve `GhostVisualSnapshot`
+and does not fire `OnTreeCommitted`, both of which `MergeCommit` does. What made the
+reuse SAFE for un-finalized shapes is that the decision machinery was built for them:
+`ShouldSpawnAtRecordingEnd`'s snapshot-situation check exists for "cases where
+TerminalState is null/Landed but the snapshot was captured mid-flight" (#114) — which is
+exactly a Limbo stash, whose `StashActiveTreeAsPendingLimbo` sets no terminal state and
+captures snapshots deliberately ("belt-and-braces … so the merge dialog can still offer
+respawn"). The two commit cores are already the same call pair
+(`CommitPendingTree` + `MarkTreeAsApplied`), so nothing about the tree's state is newly
+exercised; only its snapshots' disposition changes.
+
+**Why not the dialog.** Dialog-in-`OnLoad` is a known hazard class, and the whole point of
+the `autoMerge` clamp is that commits are silent. Bringing a popup back on this path would
+re-litigate the flip rather than fix the loss.
+
+**New log token, deliberately not a reuse:**
+`Limbo-preserving full-fidelity auto-commit ({context}, state={state}): tree='…'
+recordings=N spawnable=M snapshotsPreserved=P snapshotsReleased=R`. `snapshotsPreserved`
+is the mirror of the ghost-only branch's `snapshotsNulled` — what the commit KEPT where
+the old branch reported what it destroyed. The `Silent full-fidelity auto-commit` line is
+byte-identical to before (the in-game `AutoMergeCommit` cell greps it), and the
+`autocommit-outside-flight … entry` line is untouched.
+
+**Headless proof** (`Source/Parsek.Tests/`): `SilentFullFidelityCommitDecisionTests` now
+enumerates the WHOLE 36-row matrix (autoMerge × 3 states × reFly × 3 scenes) with each
+row's expected route and reason written out rather than checked against an oracle — an
+oracle would be a second copy of the predicate and would agree with it when both are
+wrong. `AutoMergeGhostOnlyReachabilityTests` keeps its ghost-only cost cell as the REPRO
+half (that branch is still reached by the three carve-outs) and adds the fixed behaviour:
+the same disk-restored Limbo tree keeps both snapshots through
+`BuildDefaultVesselDecisions` + `ApplyVesselDecisions`, an unspawnable `sit=FLYING` shape
+is still ghost-only'd WITH its `GhostVisualSnapshot` copied, and a re-fly leak detector
+reds if the fix ever widens into the §10 carve-out. Its cells 2 and 3 FLIPPED: they used
+to assert the ghost-only route for the two non-Finalized states and now assert
+`LimboPreservingFullFidelity`; their reachability claim is unchanged.
+
+**What is still open, unchanged by the fix.** (a) FREQUENCY — how often the resume match
+misses on ordinary flights — is untouched; the fix makes the outcome harmless rather than
+making the miss rarer. (b) Step 1 (a REAL quickload producing the Limbo stash) is still
+injected rather than produced by both specs. (c) ENTRANCE A is still undriven (the seam
+verb gap above). (d) The dangling limbo dispatch (`ParsekScenario.cs` limbo-dispatch block
+arming an `onFlightReady` restore outside FLIGHT) is untouched and still worth a look
+independently — the fix consumes the tree at fidelity, it does not stop the dispatch being
+armed where it can never fire.
 
 ## TEST-HYGIENE — SUPPRESSLOGGING-LEFT-ON-IN-DISPOSE: 406 xUnit classes end `Dispose()` by re-suppressing the global log, deterministically blanking the NEXT Sequential class's log capture [FOUND 2026-08-29 while building the AUTOMERGE-ON-BY-DEFAULT coverage (branch `automerge-coverage`), by hitting it: a newly added class made a previously-latent ordering hazard FIRE. TEST-INFRASTRUCTURE ONLY — no product code is involved and no shipped behaviour is at risk. OPEN, unscoped: recorded because it is a real trap with a real cost, not because a sweep is proposed]
 

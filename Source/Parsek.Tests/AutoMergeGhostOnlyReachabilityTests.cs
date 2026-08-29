@@ -27,16 +27,23 @@ namespace Parsek.Tests
     /// and <c>TryRestoreActiveTreeNode</c> reads it straight back as Limbo. So a
     /// non-Finalized tree DOES exist on disk and DOES restore as non-Finalized,
     /// including at a non-FLIGHT scene.</item>
-    /// <item>And with that state in the pending slot, the decision predicate routes
-    /// to ghost-only, which destroys real spawn-at-end eligibility.</item>
+    /// <item>And with that state in the pending slot, the decision predicate USED TO
+    /// route to ghost-only, which destroys real spawn-at-end eligibility.</item>
     /// </list>
     ///
-    /// <para>Together these make the branch demonstrably NOT dead code at the level
-    /// of save state. What they deliberately do NOT settle — and what only a live
-    /// run can — is whether a real KSP session ever leaves a Limbo tree parked when
-    /// an OnLoad lands outside FLIGHT (the resume window is normally consumed by
-    /// <c>ParsekFlight.RestoreActiveTreeFromPending</c> on the next
-    /// <c>onFlightReady</c>). Do not read these cells as a defect report.</para>
+    /// <para>Together these made the branch demonstrably NOT dead code at the level
+    /// of save state, and the S0.9 (cold) and S0.10 (warm) flights of 2026-08-29 then
+    /// measured the shipped product walking it and destroying both snapshots, on a
+    /// warm entrance that needs no fault at all.</para>
+    ///
+    /// <para><b>THE FIX (2026-08-29) lives in this file too.</b> A non-re-fly Limbo /
+    /// LimboVesselSwitch tree now commits through the dialog's own
+    /// <c>MergeDialog.MergeCommit</c> with its snapshots preserved
+    /// (<c>ParsekScenario.AutoCommitFidelity.LimboPreservingFullFidelity</c>), so cells
+    /// 2 and 3 assert the NEW route while cell 4 keeps measuring what the ghost-only
+    /// branch costs — the branch is still reached, by the three carve-outs that
+    /// justify it (autoMerge off, an active re-fly, MAINMENU). Cells 5 and 6 are the
+    /// fix and its leak detector.</para>
     /// </summary>
     [Collection("Sequential")]
     public class AutoMergeGhostOnlyReachabilityTests : IDisposable
@@ -98,11 +105,9 @@ namespace Parsek.Tests
             Assert.Equal(PendingTreeState.Finalized, RecordingStore.PendingTreeStateValue);
             // The whole point: at a non-FLIGHT scene, autoMerge ON, no re-fly, this
             // state takes the FULL-FIDELITY branch, not the ghost-only one.
-            Assert.True(ParsekScenario.ShouldSilentFullFidelityCommit(
-                isAutoMerge: true,
-                pendingState: RecordingStore.PendingTreeStateValue,
-                reFlyActive: false,
-                loadedScene: GameScenes.SPACECENTER));
+            AssertRoute(
+                ParsekScenario.AutoCommitFidelity.SilentFullFidelity,
+                RecordingStore.PendingTreeStateValue);
         }
 
         // ---------------------------------------------------------------------
@@ -111,7 +116,7 @@ namespace Parsek.Tests
         // ---------------------------------------------------------------------
 
         [Fact]
-        public void SavedActiveMarker_RestoresLimboAtSpaceCenter_AndRoutesToGhostOnly()
+        public void SavedActiveMarker_RestoresLimboAtSpaceCenter_AndNowPreservesFidelity()
         {
             var tree = MakeTree("tree_disk_active", "Disk Active", "rec_disk_active");
             var node = new ConfigNode("PARSEK_SCENARIO");
@@ -123,20 +128,25 @@ namespace Parsek.Tests
             Assert.True(RecordingStore.HasPendingTree);
             // A NON-Finalized pending tree, restored from disk, at SPACECENTER.
             Assert.Equal(PendingTreeState.Limbo, RecordingStore.PendingTreeStateValue);
-            Assert.False(ParsekScenario.ShouldSilentFullFidelityCommit(
-                isAutoMerge: true,
-                pendingState: RecordingStore.PendingTreeStateValue,
-                reFlyActive: false,
-                loadedScene: GameScenes.SPACECENTER));
+            // PRE-FIX this asserted the ghost-only route. The reachability claim the
+            // cell was written to make is UNCHANGED and still what matters — this
+            // state does come off disk outside FLIGHT — but what the site DOES with
+            // it moved on 2026-08-29: it now commits at fidelity instead of nulling
+            // every snapshot. The two-way ShouldSilentFullFidelityCommit this cell used
+            // to call was deleted with the fix — its `false` would have been true of
+            // BOTH the ghost-only branch and the new fidelity-preserving one, so it
+            // could no longer distinguish what this cell is about.
+            AssertRoute(
+                ParsekScenario.AutoCommitFidelity.LimboPreservingFullFidelity,
+                RecordingStore.PendingTreeStateValue);
         }
 
         [Fact]
-        public void SavedActiveMarkerWithoutActiveRecordingId_RestoresLimboVesselSwitch_AlsoGhostOnly()
+        public void SavedActiveMarkerWithoutActiveRecordingId_RestoresLimboVesselSwitch_AlsoPreserved()
         {
             // Bug #266's outsider shape: ActiveRecordingId null on disk routes to
-            // LimboVesselSwitch, which is the OTHER non-Finalized state the
-            // decision predicate rejects. Named separately so a future change that
-            // only re-finalized one of the two cannot pass this file.
+            // LimboVesselSwitch, the OTHER non-Finalized state. Named separately so a
+            // future change that only handles one of the two cannot pass this file.
             var tree = MakeTree("tree_disk_outsider", "Disk Outsider", "rec_disk_outsider");
             tree.ActiveRecordingId = null;
             var node = new ConfigNode("PARSEK_SCENARIO");
@@ -144,11 +154,9 @@ namespace Parsek.Tests
 
             Assert.True(ParsekScenario.TryRestoreActiveTreeNode(node));
             Assert.Equal(PendingTreeState.LimboVesselSwitch, RecordingStore.PendingTreeStateValue);
-            Assert.False(ParsekScenario.ShouldSilentFullFidelityCommit(
-                isAutoMerge: true,
-                pendingState: RecordingStore.PendingTreeStateValue,
-                reFlyActive: false,
-                loadedScene: GameScenes.SPACECENTER));
+            AssertRoute(
+                ParsekScenario.AutoCommitFidelity.LimboPreservingFullFidelity,
+                RecordingStore.PendingTreeStateValue);
         }
 
         // ---------------------------------------------------------------------
@@ -182,7 +190,9 @@ namespace Parsek.Tests
         }
 
         // ---------------------------------------------------------------------
-        // 4. What the ghost-only branch actually costs, measured.
+        // 4. What the ghost-only branch actually costs, measured. THE REPRO half of
+        //    the 2026-08-29 fix: this is what a Limbo tree used to get, and what
+        //    the three remaining carve-outs still get. Deliberately unchanged.
         // ---------------------------------------------------------------------
 
         [Fact]
@@ -205,8 +215,125 @@ namespace Parsek.Tests
         }
 
         // ---------------------------------------------------------------------
+        // 5. THE FIX (2026-08-29). The same Limbo tree, committed at fidelity:
+        //    the snapshots the stash deliberately captured SURVIVE. Cell 4 above
+        //    is the repro this pairs against — it is what the S0.9 (cold) and
+        //    S0.10 (warm) flights measured the product doing on 2026-08-29, and
+        //    it is kept unchanged as the ghost-only branch's own cost measurement.
+        // ---------------------------------------------------------------------
+
+        [Fact]
+        public void LimboTreeAtSpaceCenter_CommitsThroughTheDialogDecisions_AndKeepsItsSnapshots()
+        {
+            var tree = MakeTree("tree_limbo_fidelity", "Limbo Fidelity", "rec_limbo_fidelity_a");
+            tree.Recordings["rec_limbo_fidelity_a"].VesselSnapshot = MakeSnapshotNode("A");
+            AddRecording(tree, "rec_limbo_fidelity_b", withSnapshot: true);
+            RecordingStore.StashPendingTree(tree, PendingTreeState.Limbo);
+
+            // The route, and then EXACTLY what the site does with it: the dialog's
+            // own decisions, applied by the dialog's own ApplyVesselDecisions —
+            // which is what MergeDialog.MergeCommit runs first.
+            AssertRoute(
+                ParsekScenario.AutoCommitFidelity.LimboPreservingFullFidelity,
+                RecordingStore.PendingTreeStateValue);
+
+            var decisions = MergeDialog.BuildDefaultVesselDecisions(tree);
+            int released;
+            int preserved = ParsekScenario.CountSnapshotsPreservedByDecisions(
+                tree, decisions, out released);
+            MergeDialog.ApplyVesselDecisions(tree, decisions);
+
+            // THE assertion, and the exact inverse of cell 4's: nothing was destroyed.
+            Assert.Equal(2, preserved);
+            Assert.Equal(0, released);
+            foreach (var rec in tree.Recordings.Values)
+                Assert.NotNull(rec.VesselSnapshot);
+        }
+
+        [Fact]
+        public void LimboCommitStillGhostOnlysAnUnspawnableShape_AndKeepsItsGhostVisual()
+        {
+            // The chosen shape is NOT "preserve every snapshot unconditionally". A
+            // mid-flight capture (`sit = FLYING`) can never spawn — KSP's on-rails
+            // aero check destroys it — so the dialog's decisions still ghost-only it,
+            // and ApplyVesselDecisions copies GhostVisualSnapshot and releases the
+            // crew reservation on the way. That is the whole reason this fix reuses
+            // MergeCommit rather than skipping the null pass: a blanket preserve
+            // would retain a snapshot nothing can use AND leak its crew reservation.
+            var tree = MakeTree("tree_limbo_unsafe", "Limbo Unsafe", "rec_limbo_unsafe");
+            var flying = MakeSnapshotNode("Flying");
+            flying.AddValue("sit", "FLYING");
+            tree.Recordings["rec_limbo_unsafe"].VesselSnapshot = flying;
+            RecordingStore.StashPendingTree(tree, PendingTreeState.Limbo);
+
+            AssertRoute(
+                ParsekScenario.AutoCommitFidelity.LimboPreservingFullFidelity,
+                RecordingStore.PendingTreeStateValue);
+
+            var decisions = MergeDialog.BuildDefaultVesselDecisions(tree);
+            int released;
+            int preserved = ParsekScenario.CountSnapshotsPreservedByDecisions(
+                tree, decisions, out released);
+            MergeDialog.ApplyVesselDecisions(tree, decisions);
+
+            Assert.Equal(0, preserved);
+            Assert.Equal(1, released);
+            var rec = tree.Recordings["rec_limbo_unsafe"];
+            Assert.Null(rec.VesselSnapshot);
+            // ...but the ghost geometry survives, which the blanket ghost-only
+            // branch (AutoCommitTreeGhostOnly) does NOT do.
+            Assert.NotNull(rec.GhostVisualSnapshot);
+        }
+
+        // ---------------------------------------------------------------------
+        // 6. THE LEAK DETECTOR. Re-fly stays ghost-only on purpose
+        //    (silent-full-fidelity-autocommit.md §10): a silent MergeCommit there
+        //    would run TryCommitReFlySupersede, writing supersede rows and
+        //    flipping MergeState with no dialog. This cell reds if the Limbo fix
+        //    ever widens into that carve-out.
+        // ---------------------------------------------------------------------
+
+        [Theory]
+        [InlineData(PendingTreeState.Finalized)]
+        [InlineData(PendingTreeState.Limbo)]
+        [InlineData(PendingTreeState.LimboVesselSwitch)]
+        public void ReFlyActive_StaysGhostOnly_ForEveryTreeStateIncludingTheFixedOnes(
+            PendingTreeState state)
+        {
+            string reason;
+            Assert.Equal(
+                ParsekScenario.AutoCommitFidelity.GhostOnly,
+                ParsekScenario.ClassifyAutoCommitFidelity(
+                    isAutoMerge: true,
+                    pendingState: state,
+                    reFlyActive: true,
+                    loadedScene: GameScenes.SPACECENTER,
+                    ghostOnlyReason: out reason));
+            Assert.Equal("re-fly-active", reason);
+
+            // And the ghost-only commit it falls to still destroys the snapshots,
+            // which for a re-fly is the DESIGNED outcome, not the defect.
+            var tree = MakeTree("tree_refly_ghost", "ReFly Ghost", "rec_refly_ghost");
+            tree.Recordings["rec_refly_ghost"].VesselSnapshot = MakeSnapshotNode("ReFly");
+            Assert.Equal(1, ParsekScenario.AutoCommitTreeGhostOnly(tree));
+            Assert.Null(tree.Recordings["rec_refly_ghost"].VesselSnapshot);
+        }
+
+        // ---------------------------------------------------------------------
         // Helpers
         // ---------------------------------------------------------------------
+
+        private static void AssertRoute(
+            ParsekScenario.AutoCommitFidelity expected, PendingTreeState state)
+        {
+            string reason;
+            Assert.Equal(expected, ParsekScenario.ClassifyAutoCommitFidelity(
+                isAutoMerge: true,
+                pendingState: state,
+                reFlyActive: false,
+                loadedScene: GameScenes.SPACECENTER,
+                ghostOnlyReason: out reason));
+        }
 
         private static ConfigNode MakeSnapshotNode(string tag)
         {

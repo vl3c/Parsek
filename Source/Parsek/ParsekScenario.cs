@@ -7540,39 +7540,164 @@ namespace Parsek
         #region Vessel Lifecycle Events
 
         /// <summary>
-        /// Pure predicate: should an outside-Flight auto-commit (autoMerge ON)
-        /// route through the dialog's full-fidelity <see cref="MergeDialog.MergeCommit"/>
-        /// (spawn-at-end preserved) rather than the lightweight ghost-only commit?
-        ///
-        /// <para>True only when the silent commit is safe for surviving vessels and
-        /// carries no irreversible-timeline risk: autoMerge is on, the pending tree
-        /// is a completed-flight <see cref="PendingTreeState.Finalized"/> candidate
-        /// (never a Limbo resume-stash), no re-fly session is active (a silent
-        /// MergeCommit would otherwise supersede it — kept dialog/journal-gated),
-        /// and the destination is a real scene (not MAINMENU, where the game is
-        /// unloading and spawn-at-end never runs). See
-        /// docs/dev/plans/silent-full-fidelity-autocommit.md.</para>
+        /// How an outside-Flight auto-commit disposes of the pending tree's
+        /// <see cref="Recording.VesselSnapshot"/>s. Returned by
+        /// <see cref="ClassifyAutoCommitFidelity"/>; the two full-fidelity routes
+        /// differ only in the tree state that reached them and in the log token
+        /// they emit, so a collected log says WHICH route ran.
         /// </summary>
-        internal static bool ShouldSilentFullFidelityCommit(
+        internal enum AutoCommitFidelity
+        {
+            /// <summary>
+            /// The lightweight commit: <see cref="AutoCommitTreeGhostOnly"/> nulls
+            /// EVERY snapshot. Reserved for the three cases where a snapshot-preserving
+            /// commit is either wrong or unsafe — autoMerge off (the player answers a
+            /// dialog instead), an active re-fly (a silent MergeCommit would write
+            /// supersede rows, plan §4.2/§10), and MAINMENU (the game is unloading and
+            /// spawn-at-end never runs).
+            /// </summary>
+            GhostOnly = 0,
+
+            /// <summary>
+            /// A completed-flight <see cref="PendingTreeState.Finalized"/> tree routed
+            /// through the dialog's own <see cref="MergeDialog.MergeCommit"/>. The
+            /// original plan-§4.1 route.
+            /// </summary>
+            SilentFullFidelity = 1,
+
+            /// <summary>
+            /// A non-re-fly resume-stash (<see cref="PendingTreeState.Limbo"/> /
+            /// <see cref="PendingTreeState.LimboVesselSwitch"/>) routed through the SAME
+            /// <see cref="MergeDialog.MergeCommit"/>, so the snapshots the stash
+            /// deliberately captured survive the commit instead of being destroyed.
+            /// See the AUTOMERGE-ON-BY-DEFAULT entry in docs/dev/todo-and-known-bugs.md.
+            /// </summary>
+            LimboPreservingFullFidelity = 2,
+        }
+
+        /// <summary>
+        /// Pure classifier for the outside-Flight auto-commit: which of the three
+        /// snapshot dispositions applies, and — when it is
+        /// <see cref="AutoCommitFidelity.GhostOnly"/> — the grep-stable reason.
+        ///
+        /// <para><b>The rule.</b> A commit that runs with no dialog must never silently
+        /// DESTROY vessel snapshots that exist. Only three states justify the
+        /// blanket-nulling ghost-only commit, and they are checked in this order
+        /// because each is a stronger statement than the tree's own state:
+        /// autoMerge OFF (the player is going to be asked, so this site is a
+        /// safety net rather than the commit), an active re-fly (a silent
+        /// <see cref="MergeDialog.MergeCommit"/> would run
+        /// <c>TryCommitReFlySupersede</c> — the irreversible timeline mutation
+        /// plan §4.2 forbids doing silently, and §10 keeps re-fly ghost-only on
+        /// purpose), and MAINMENU (no destination scene; spawn-at-end never runs).</para>
+        ///
+        /// <para><b>Everything else preserves fidelity.</b> A <c>Finalized</c> tree takes
+        /// the plan-§4.1 route it already had. A non-re-fly <c>Limbo</c> /
+        /// <c>LimboVesselSwitch</c> stash takes the SAME route
+        /// (<see cref="AutoCommitFidelity.LimboPreservingFullFidelity"/>) rather than the
+        /// ghost-only one it used to take. That is the 2026-08-29 fix: the stash's
+        /// snapshots are captured DELIBERATELY by
+        /// <c>ParsekFlight.StashActiveTreeAsPendingLimbo</c> ("belt-and-braces … so the
+        /// merge dialog can still offer respawn"), and a tree that reaches this site has
+        /// already lost its resume — the limbo dispatch it arms fires on
+        /// <c>onFlightReady</c>, which cannot happen outside FLIGHT. Destroying those
+        /// snapshots was the product's documented recovery path erasing the thing it was
+        /// recovering.</para>
+        ///
+        /// <para><b>Why the same route rather than a preserve-everything variant.</b>
+        /// <see cref="MergeDialog.BuildDefaultVesselDecisions"/> is explicitly built for
+        /// un-finalized shapes: <c>GhostPlaybackLogic.ShouldSpawnAtRecordingEnd</c>'s
+        /// snapshot-situation check exists for "cases where TerminalState is null/Landed
+        /// but the snapshot was captured mid-flight" (#114), which is exactly a Limbo
+        /// stash. Reusing it keeps plan P2 (one commit implementation), preserves
+        /// <c>GhostVisualSnapshot</c> for the leaves it does null, and releases their crew
+        /// reservation — none of which a blanket preserve-what-exists pass would do.</para>
+        /// </summary>
+        /// <param name="ghostOnlyReason">
+        /// The reason token for the <see cref="AutoCommitFidelity.GhostOnly"/> result,
+        /// empty string otherwise. Note <c>state=</c> is deliberately NOT a reason any
+        /// more: a non-Finalized state no longer sends a tree to the ghost-only branch.
+        /// </param>
+        internal static AutoCommitFidelity ClassifyAutoCommitFidelity(
             bool isAutoMerge,
             PendingTreeState pendingState,
             bool reFlyActive,
-            GameScenes loadedScene)
+            GameScenes loadedScene,
+            out string ghostOnlyReason)
         {
-            return isAutoMerge
-                && pendingState == PendingTreeState.Finalized
-                && !reFlyActive
-                && loadedScene != GameScenes.MAINMENU;
+            if (!isAutoMerge)
+            {
+                ghostOnlyReason = "not-automerge";
+                return AutoCommitFidelity.GhostOnly;
+            }
+            if (reFlyActive)
+            {
+                ghostOnlyReason = "re-fly-active";
+                return AutoCommitFidelity.GhostOnly;
+            }
+            if (loadedScene == GameScenes.MAINMENU)
+            {
+                ghostOnlyReason = "mainmenu";
+                return AutoCommitFidelity.GhostOnly;
+            }
+
+            ghostOnlyReason = "";
+            return pendingState == PendingTreeState.Finalized
+                ? AutoCommitFidelity.SilentFullFidelity
+                : AutoCommitFidelity.LimboPreservingFullFidelity;
+        }
+
+        // NOTE: the two-way `ShouldSilentFullFidelityCommit` predicate this classifier
+        // replaced was DELETED rather than kept as a derived helper (2026-08-29). It had
+        // no caller left, and its `false` had become a trap: pre-fix it meant "the
+        // ghost-only branch runs", post-fix it means only "not the FINALIZED route",
+        // which is also true of the new fidelity-preserving Limbo route. Any reader
+        // reaching for it — including the harness spec headers and the
+        // AUTOMERGE-ON-BY-DEFAULT entry, which name it as pre-fix history — wants
+        // ClassifyAutoCommitFidelity and its three-way answer.
+
+        /// <summary>
+        /// Counts how a decision map will dispose of the tree's live
+        /// <see cref="Recording.VesselSnapshot"/>s, over exactly the inputs
+        /// <see cref="MergeDialog.ApplyVesselDecisions"/> reads: a recording keeps its
+        /// snapshot unless the map names it with <c>false</c>. Pure, so the
+        /// full-fidelity log line can carry the same fidelity fact
+        /// <c>snapshotsNulled</c> carries on the ghost-only branch.
+        /// </summary>
+        internal static int CountSnapshotsPreservedByDecisions(
+            RecordingTree tree,
+            Dictionary<string, bool> decisions,
+            out int released)
+        {
+            released = 0;
+            int preserved = 0;
+            if (tree == null || tree.Recordings == null)
+                return 0;
+
+            foreach (var kvp in tree.Recordings)
+            {
+                if (kvp.Value == null || kvp.Value.VesselSnapshot == null)
+                    continue;
+                bool persist;
+                if (decisions != null
+                    && decisions.TryGetValue(kvp.Key, out persist)
+                    && !persist)
+                    released++;
+                else
+                    preserved++;
+            }
+            return preserved;
         }
 
         /// <summary>
         /// Silent auto-commit of the current pending tree on an outside-Flight
-        /// OnLoad path. Routes through the dialog's full-fidelity
-        /// <see cref="MergeDialog.MergeCommit"/> (spawn-at-end + resources
-        /// preserved, no popup) when <see cref="ShouldSilentFullFidelityCommit"/>
-        /// qualifies, otherwise falls back to the lightweight ghost-only commit
-        /// (re-fly / Limbo / MAINMENU). Shared by the warm scene-change fallback
-        /// and the cold-load pending-outside-flight paths.
+        /// OnLoad path. <see cref="ClassifyAutoCommitFidelity"/> picks one of three
+        /// routes: the dialog's full-fidelity <see cref="MergeDialog.MergeCommit"/>
+        /// for a <c>Finalized</c> tree, the SAME MergeCommit for a non-re-fly
+        /// Limbo resume-stash (so its deliberately-captured snapshots survive), and
+        /// the lightweight ghost-only commit only for autoMerge-off / re-fly /
+        /// MAINMENU. Shared by the warm scene-change fallback and the cold-load
+        /// pending-outside-flight paths.
         /// </summary>
         private static void AutoCommitPendingTreeOutsideFlight(string context)
         {
@@ -7614,19 +7739,49 @@ namespace Parsek
             // the tree stashed so the next load retries, instead of propagating.
             try
             {
-                if (ShouldSilentFullFidelityCommit(
-                        IsAutoMerge,
-                        RecordingStore.PendingTreeStateValue,
-                        reFlyActive,
-                        HighLogic.LoadedScene))
+                PendingTreeState pendingStateAtCommit = RecordingStore.PendingTreeStateValue;
+                string ghostOnlyReason;
+                AutoCommitFidelity route = ClassifyAutoCommitFidelity(
+                    IsAutoMerge,
+                    pendingStateAtCommit,
+                    reFlyActive,
+                    HighLogic.LoadedScene,
+                    out ghostOnlyReason);
+
+                if (route != AutoCommitFidelity.GhostOnly)
                 {
                     var decisions = MergeDialog.BuildDefaultVesselDecisions(pt);
                     int spawnCount = 0;
                     foreach (var v in decisions.Values)
                         if (v) spawnCount++;
-                    ParsekLog.Info("Scenario",
-                        $"Silent full-fidelity auto-commit ({context}): tree='{pt.TreeName}' " +
-                        $"recordings={pt.Recordings.Count} spawnable={spawnCount}");
+                    if (route == AutoCommitFidelity.SilentFullFidelity)
+                    {
+                        ParsekLog.Info("Scenario",
+                            $"Silent full-fidelity auto-commit ({context}): tree='{pt.TreeName}' " +
+                            $"recordings={pt.Recordings.Count} spawnable={spawnCount}");
+                    }
+                    else
+                    {
+                        // DISTINCT token, deliberately not a reuse of the line above: a
+                        // collected log has to say which of the two full-fidelity routes
+                        // ran, because they are reached from different tree states and
+                        // only this one is the 2026-08-29 AUTOMERGE-ON-BY-DEFAULT fix.
+                        // snapshotsPreserved is the mirror of the ghost-only branch's
+                        // snapshotsNulled — the fidelity this commit KEPT, where the old
+                        // branch reported what it destroyed; snapshotsReleased is what the
+                        // dialog's own decisions still ghost-only (non-spawnable shapes,
+                        // GhostVisualSnapshot copied and crew unreserved by
+                        // ApplyVesselDecisions).
+                        int snapshotsReleased;
+                        int snapshotsPreserved = CountSnapshotsPreservedByDecisions(
+                            pt, decisions, out snapshotsReleased);
+                        ParsekLog.Info("Scenario",
+                            $"Limbo-preserving full-fidelity auto-commit ({context}, " +
+                            $"state={pendingStateAtCommit}): tree='{pt.TreeName}' " +
+                            $"recordings={pt.Recordings.Count} spawnable={spawnCount} " +
+                            $"snapshotsPreserved={snapshotsPreserved} " +
+                            $"snapshotsReleased={snapshotsReleased}");
+                    }
                     // MergeCommit runs the full dialog-commit sequence: ApplyVesselDecisions
                     // (keeps spawnable-leaf snapshots), CommitPendingTree + MarkTreeAsApplied,
                     // RunOptimizationPass, NotifyLedgerTreeCommitted, crew swap, and posts its
@@ -7643,11 +7798,7 @@ namespace Parsek
                 }
                 else
                 {
-                    string reason = !IsAutoMerge ? "not-automerge"
-                        : reFlyActive ? "re-fly-active"
-                        : RecordingStore.PendingTreeStateValue != PendingTreeState.Finalized
-                            ? $"state={RecordingStore.PendingTreeStateValue}"
-                        : "mainmenu";
+                    string reason = ghostOnlyReason;
                     int snapshotsNulled = AutoCommitTreeGhostOnly(pt);
                     CommitPendingTreeAsApplied(pt);
                     LedgerOrchestrator.NotifyLedgerTreeCommitted(pt);
