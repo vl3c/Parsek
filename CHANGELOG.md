@@ -63,6 +63,24 @@ All notable changes to Parsek are documented here.
   files. If a file happens to be locked when the discard runs, the discard still
   completes as before and the file is simply left where it was.
 
+- Leaving a flight for the tracking station, the space centre, or another flight
+  and then saving used to wipe the recorded outcome - crashed, or recovered - of
+  every piece of debris Parsek had put back into the world during that flight.
+  The debris kept its trajectory and its place in the mission tree, but the save
+  no longer said how it ended, so the recordings table, the mission summaries and
+  the career bookkeeping all saw it as unclassified. Visit the tracking station
+  and quit, and a real save lost the same thing. What went wrong: leaving a
+  flight runs a reset that deliberately forgets that outcome, because after a
+  Revert those vessels never existed - and the step that puts every other detail
+  back from the save had nothing to put the outcome back with. It does now.
+  Revert is unchanged: there the outcome is meant to be forgotten, and still is.
+  One knock-on worth knowing about: because the outcome survives the scene change
+  now, the career bookkeeping that keys off it - recovery payouts, crew end
+  states, mission timelines - is applied after a scene change too, where before
+  it was quietly skipped. That is the same answer you already got by quitting and
+  loading the save fresh, and the bookkeeping is recomputed from scratch every
+  time rather than added up, so nothing is credited twice.
+
 - Every time a recorded flight crossed from one planet's or moon's area of
   influence into another while on rails, the recorder built a second, completely
   empty slice of timeline sitting exactly on top of the real one. That slice
