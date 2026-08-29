@@ -6060,25 +6060,26 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
                                        "split plus a seam channel. No unattended run discharges them.",
         # S4.2-refly-world-preservation DROPPED 2026-08-12 - see DROPPED_2026_08_12.
         "PPB-1-untouched-career-backup.toml":
-                                       "tier=operator AND UNFLOWN. Two debts, both "
-                                       "only a human discharges: (i) the FIRST FLIGHT "
-                                       "itself - every token in the spec is DERIVED "
-                                       "(the tally from the [InGameTest] attributes, "
-                                       "the route from the fixture's vessel count, the "
-                                       "log lines from the C# format strings) and none "
-                                       "is measured, so an operator must read one run "
-                                       "and re-pin passed=/skipped= before the "
-                                       "PROMOTE-to-daily note is acted on; (ii) the one "
-                                       "property no automation can settle - that the "
-                                       "published backup RENDERS as a resumable entry "
-                                       "in KSP's Resume Saved Game list. The cells "
-                                       "assert the file shape the Load menu "
-                                       "enumerates, not the menu.",
+                                       "tier=operator, now FLOWN GREEN (2026-08-29_1101, "
+                                       "PASS attempt 1). Debt (i), the first flight, is "
+                                       "DISCHARGED and every derived pin came back exact, "
+                                       "so nothing was re-pinned. TWO debts remain, both "
+                                       "human-only: the operator -> daily PROMOTION call "
+                                       "(the S1.5 precedent - a cadence decision needs a "
+                                       "human), and the one property no run can settle - "
+                                       "that the published backup RENDERS as a resumable "
+                                       "entry in KSP's Resume Saved Game list. The cells "
+                                       "assert the file shape the Load menu enumerates, "
+                                       "never the menu itself.",
         "PPB-2-brandnew-career-skip.toml":
-                                       "tier=operator AND UNFLOWN, same first-flight "
-                                       "debt as PPB-1 (derived tally, unmeasured "
-                                       "split). It owes no Load-menu eyeball - its "
-                                       "whole claim is that NOTHING is published.",
+                                       "tier=operator, now FLOWN GREEN (2026-08-29_1107, "
+                                       "PASS attempt 1) after a reading run (_1102) that "
+                                       "red on this spec's OWN over-broad forbid and was "
+                                       "corrected to an ordering pin. First-flight debt "
+                                       "DISCHARGED; what remains is the operator -> daily "
+                                       "PROMOTION call alone. It owes no Load-menu eyeball "
+                                       "- its whole claim is that NOTHING is published, "
+                                       "and the run measured zero backup folders.",
     }
 
     # Untagged specs that are CANDIDATES - they MENTION the token, or they are

@@ -1,13 +1,16 @@
 schema = 1
 id = "PPB-1-untouched-career-backup"
-# TIER = operator, UNFLOWN. Every number below is DERIVED, not measured: the tally
-# from `hlib.parse_ingame_test_declarations` over Source/Parsek (which the suite
-# cross-checks), the route from the fixture's vessel count, the log tokens from the
-# format strings in PreParsekBackup.cs / ParsekScenario.cs. A cadence tier would put
-# an unmeasured pin in front of a nightly before anyone has read a single run of it.
-# PROMOTE TO `daily` AFTER THE FIRST GREEN FLIGHT (it is cheap - one cold load plus a
-# four-cell read-only batch, in the H-series' 50-70 s class - so `daily` is the right
-# home, not `nightly`), re-measuring passed=/skipped= off that run's BATCH_COMPLETE.
+# TIER = operator. LIVE-PROVEN 2026-08-29, run `2026-08-29_1101`: PASS attempt 1, 50 s,
+# every verifier PASS/SKIPPED, `expectations mismatches=0`, analyzer red=0, anomaly sweep
+# `hits=[]`, zero Unity exceptions. EVERY DERIVED NUMBER CAME BACK EXACT - the tally token
+# for token, `scene=FLIGHT` as the route derivation predicted, and all four backup log
+# lines in the shapes derived from the C# format strings - so NOTHING was re-pinned off
+# the reading. That is worth stating plainly because it is unusual: the derivations were
+# checkable ahead of time (`hlib.parse_ingame_test_declarations` for the tally, the
+# fixture's vessel count for the route) and the flight confirmed rather than corrected.
+# PROMOTE TO `daily` (it is cheap - one cold load plus a four-cell read-only batch, 50 s,
+# the H-series class - so `daily` is the right home, not `nightly`). The promotion is the
+# one thing left, and it is a human cadence call, not a technical debt.
 tier = "operator"
 #
 # WHAT THIS SPEC IS FOR. The pre-Parsek safety backup (PreParsekBackup.cs) shipped
@@ -120,6 +123,9 @@ count = { min = 0, max = 0 }
 #    the finding. (PPB-2 stages the brand-new control and legitimately reads
 #    passed=2 skipped=2.)
 #    scene=FLIGHT is the focusable route (driver note above).
+#    MEASURED, run 2026-08-29_1101 (PASS attempt 1, 50 s): the line came back
+#    `total=4 passed=4 failed=0 skipped=0 category=PreParsekBackup scene=FLIGHT` -
+#    the derivation token for token, so nothing was re-pinned off the reading.
 #
 # 2. THE CAPTURE LINE. Derived from the PreParsekBackup.PerformBackup format string.
 #    `pristineVerdict=Pristine` is the OUTCOME half of the pristine guarantee, measured by

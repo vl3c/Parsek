@@ -1248,6 +1248,26 @@
         "2026-08-04T20:12:00Z": 57.0
       }
     },
+    "PPB-1-untouched-career-backup": {
+      "last": 50.0,
+      "lastVsP50": 1.0,
+      "n": 1,
+      "p50": 50.0,
+      "p95": 50.0,
+      "samples": {
+        "2026-08-29T11:02:07Z": 50.0
+      }
+    },
+    "PPB-2-brandnew-career-skip": {
+      "last": 46.0,
+      "lastVsP50": 1.0,
+      "n": 1,
+      "p50": 46.0,
+      "p95": 46.0,
+      "samples": {
+        "2026-08-29T11:08:13Z": 46.0
+      }
+    },
     "R1-rewind-loop-flown": {
       "last": 304.0,
       "lastVsP50": 1.0,

@@ -1,8 +1,17 @@
 schema = 1
 id = "PPB-2-brandnew-career-skip"
-# TIER = operator, UNFLOWN - same reasoning as PPB-1 (every number derived, none
-# measured). PROMOTE TO `daily` beside PPB-1 after the first green flight, re-measuring
-# passed=/skipped= off that run's BATCH_COMPLETE line.
+# TIER = operator. LIVE-PROVEN 2026-08-29 ON THE SECOND RUN, and the FIRST one earned its
+# keep. Reading `2026-08-29_1102`: PARSEK-FAIL(expectation) on exactly ONE token, with
+# every other verifier PASS - and the red was THIS SPEC'S BUG, not the product's. It
+# forbade `Skip: reason=already-parsek-footprint` ABSOLUTELY, a token this category's own
+# repeat-invocation cell legitimately emits once the in-game batch's campaign-isolation
+# marker save has populated the on-disk node. The product decided correctly at the only
+# moment that matters (cold gate, log line 9992, `brand-new-empty`, ahead of any
+# save-write). Forbid re-cut to the ORDERING form; see the forbidden block for the full
+# measurement and the general lesson. CONFIRM `2026-08-29_1107`: PASS attempt 1, 46 s,
+# every verifier PASS/SKIPPED, `mismatches=0`, and the same brand-new-then-footprint
+# sequence reproduced - so the corrected pin is proven against the behaviour, not merely
+# against one log. PROMOTE TO `daily` beside PPB-1; the tally needed no re-pin.
 tier = "operator"
 #
 # THE CONTROL HALF OF THE PRE-PARSEK BACKUP LANE. PPB-1 proves the backup FIRES and what
@@ -73,6 +82,9 @@ count = { min = 0, max = 0 }
 #     fixture the only reason it can say NO is brand-new-empty (there is no Parsek
 #     footprint and it is not a backup folder), which the required Skip literal below
 #     pins independently from the product's own log.
+# MEASURED, run 2026-08-29_1102: the line came back `total=4 passed=2 failed=0
+# skipped=2 category=PreParsekBackup scene=SPACECENTER` - the derivation exactly, so
+# this pin is now backed by a flight rather than by arithmetic.
 # passed=2 with skipped=2 clears the anti-vacuity gate (passed > 0) and the
 # attribute-forced floor (0).
 #
@@ -90,29 +102,63 @@ forbidden = [
   "Captured pre-Parsek backup: save='preparsek-brandnew-career'",
   "First-contact backup: save='preparsek-brandnew-career'",
   "outcome=captured-not-pristine",
-  # The other skip reasons would each mean the fixture stopped being brand-new-empty:
-  # a footprint crept in, or the on-disk persistent.sfs went missing.
-  "Skip: reason=already-parsek-footprint save='preparsek-brandnew-career'",
+  # THE FOOTPRINT SKIP IS FORBIDDEN ONLY *BEFORE* THE BRAND-NEW ONE, and the ordering
+  # form is a CORRECTION off flight 1 (run 2026-08-29_1102, PARSEK-FAIL on exactly this
+  # token as an ABSOLUTE forbid). The absolute form was unsatisfiable by construction and
+  # the red was the lane reporting a SPEC BUG, not a product defect - the product decided
+  # correctly at the only moment that matters.
+  #
+  # WHAT FLIGHT 1 MEASURED, by log line, which is why this is an ordering pin now:
+  #   9992   cold-load gate -> `Skip: reason=brand-new-empty`. The REAL decision, taken
+  #          before any save-write. Correct, and it is what the `required` token pins.
+  #   10152  the in-game batch's own campaign-isolation marker save runs
+  #          ParsekScenario.OnSave, which writes a POPULATED node (4 values) to disk.
+  #   10282  this category's cells re-read the on-disk save and now see footprint=True.
+  #   10307  RepeatColdContactCreatesNoSecondBackup invokes the real
+  #          MaybeBackupOnFirstColdContact() again and legitimately emits
+  #          `already-parsek-footprint`.
+  # The produced save's node is INERT again afterwards (teardown reverts from the .bak),
+  # and zero backup folders were created. Nothing about that sequence is wrong.
+  #
+  # THE GENERAL LESSON, recorded here because the next lane author will hit it: ANY
+  # in-game cell that RE-READS the on-disk save observes a POPULATED ParsekScenario node
+  # mid-batch, because campaign isolation SAVES before teardown REVERTS. A contract
+  # written against the on-disk footprint must therefore be scoped to a moment, not
+  # stated absolutely over the whole log.
+  #
+  # AND THE READING THAT IS REFUTED, so nobody re-derives it: this is NOT evidence that
+  # `IsBrandNewEmptySave` is dead code sitting behind the footprint check. Line 9992 is
+  # the brand-new branch DECIDING, ahead of any footprint. The ordering pin below is
+  # exactly that fact, expressed so a regression would red.
+  "Skip: reason=already-parsek-footprint save='preparsek-brandnew-career'[\\s\\S]*?Skip: reason=brand-new-empty save='preparsek-brandnew-career'",
+  # Unchanged and still absolute: a missing on-disk persistent.sfs at any point would
+  # mean the fixture stopped being the subject it was staged as.
   "Skip: reason=no-persistent-sfs save='preparsek-brandnew-career'",
 ]
 
-# FIRST-FLIGHT READING NOTE, pre-registered so a red is diagnosed rather than argued
-# about. This fixture reaches the backup gate carrying NO ParsekScenario node of its
-# own; the node on disk at cold-OnLoad time is the one KSP writes for itself, because
-# the SPACECENTER route runs `UpdateScenarioModules` + `SaveGame(persistent, OVERWRITE)`
-# before `game.Start()`. That written node is expected to be INERT (`name` + `scene`):
-# a freshly created `ProtoScenarioModule` has a null `moduleRef` and saves only its own
-# two values, the module's own OnSave not having run yet.
+# FIRST-FLIGHT READING NOTE - now MEASURED, and the pre-registered hypothesis it carried
+# was CONFIRMED on the half that mattered and IRRELEVANT on the half that red the run.
+# Kept in full because the prediction and its outcome are the useful record.
 #
-# THE THRESHOLD RESTING ON THAT IS DERIVED, NOT MEASURED. `HasParsekGameplayFootprint`
-# calls a node populated at `values.Count > 2`, so a THIRD value appearing in that
-# pre-boot write - a KSP version stamping something extra, or a Parsek change that gets
-# a value in before the first cold OnLoad - would flip the gate to
-# `reason=already-parsek-footprint` and red this spec's required
-# `Skip: reason=brand-new-empty` token. IF THAT HAPPENS THE LANE IS REPORTING
-# CORRECTLY, and the finding is a real one: the brand-new-empty branch would have become
-# unreachable in production too, for every player starting a new career. Diagnose by
-# reading the produced save's ParsekScenario node before assuming a fixture fault.
+# THE PREDICTION: this fixture reaches the backup gate carrying NO ParsekScenario node of
+# its own; the node on disk at cold-OnLoad time is the one KSP writes for itself, because
+# the SPACECENTER route runs `UpdateScenarioModules` + `SaveGame(persistent, OVERWRITE)`
+# before `game.Start()`, and that written node should be INERT (`name` + `scene`) since a
+# freshly created `ProtoScenarioModule` has a null `moduleRef` and saves only its own two
+# values. CONFIRMED: run 2026-08-29_1102 took the brand-new branch at the cold gate (log
+# line 9992), which it could only do over an inert node, and the produced save's node is
+# `name` + `scene`.
+#
+# THE THRESHOLD CAVEAT REMAINS OPEN AND UNMEASURED, deliberately restated rather than
+# struck: `HasParsekGameplayFootprint` calls a node populated at `values.Count > 2`, so a
+# THIRD value appearing in that PRE-BOOT write - a KSP version stamping something extra,
+# or a Parsek change landing a value before the first cold OnLoad - would flip the cold
+# gate to `already-parsek-footprint` and red the required token. That has NOT been
+# observed; if it ever is, the lane is reporting correctly and the finding is real (the
+# brand-new-empty branch would have become unreachable for every player starting a new
+# career). It is NOT what red flight 1 - see the forbidden block above, where the actual
+# cause (this category's own cells re-reading a mid-batch populated node) is recorded.
+# Diagnose by reading the COLD-GATE line first, then the produced save's node.
 
 [runtime]
 budgetSeconds = 1200
