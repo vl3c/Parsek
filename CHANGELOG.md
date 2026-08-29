@@ -294,7 +294,12 @@ All notable changes to Parsek are documented here.
   in a log, because it teaches everyone reading the log to skip that shape of
   line. The camera restore now treats "the game is already gone" as one more
   ordinary way to have no ship, and says so quietly in the detailed log instead.
-  Log hygiene only; no gameplay change.
+  One more effect worth naming: that error used to escape and cut short
+  everything Parsek does on the way out - putting ghost models and map markers
+  away, releasing the keyboard, disconnecting the replay machinery - so in this
+  one situation, ending a session while watching a ghost, all of that now
+  finishes instead of stopping half-done. Nothing a player does changes, and the
+  game was closing either way.
 
 - Parsek builds a standing exhibition of every part it knows how to draw: 243
   little one-part replays, one per part, lined up in three rows in front of the

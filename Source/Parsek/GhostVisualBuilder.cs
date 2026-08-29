@@ -2623,8 +2623,19 @@ namespace Parsek
         }
 
         /// <summary>
+        /// How many transforms one hierarchy dump may SPELL OUT before the rest is summarised as a count. Walking
+        /// past it still COUNTS (so the total stays honest), it just stops appending. A stock engine prefab runs
+        /// tens of nodes, so this only ever bites a pathological modded part - where the alternative is a
+        /// tens-of-KB single line that some downstream reader truncates SILENTLY, losing the tail with no marker.
+        /// Truncating here is loud: the line says how many were dropped.
+        /// </summary>
+        private const int HierarchyDumpMaxNodes = 500;
+
+        /// <summary>
         /// Appends the full transform hierarchy of a part prefab into <paramref name="sb"/> for diagnostics: one
-        /// <c>depth:name[components](INACTIVE)</c> entry per transform, separated by " | ".
+        /// <c>depth:name[components](INACTIVE)</c> entry per transform, separated by " | ", up to
+        /// <see cref="HierarchyDumpMaxNodes"/> entries. <paramref name="nodeCount"/> comes back as the TOTAL number
+        /// of transforms visited, capped or not, so the caller can report the overflow.
         ///
         /// <para>ONE STRING, NOT ONE LINE PER NODE. This walk used to emit a rate-limited log line per transform,
         /// which is a per-item emit inside an unbounded recursive loop - the batch-counting convention forbids it,
@@ -2634,20 +2645,23 @@ namespace Parsek
         private static void AppendTransformHierarchy(
             Transform t, int depth, System.Text.StringBuilder sb, ref int nodeCount)
         {
-            var components = t.gameObject.GetComponents<Component>();
-            var compNames = new List<string>();
-            foreach (var c in components)
+            if (nodeCount < HierarchyDumpMaxNodes)
             {
-                if (c == null) continue;
-                string cName = c.GetType().Name;
-                if (cName == "Transform") continue; // skip ubiquitous Transform
-                compNames.Add(cName);
+                var components = t.gameObject.GetComponents<Component>();
+                var compNames = new List<string>();
+                foreach (var c in components)
+                {
+                    if (c == null) continue;
+                    string cName = c.GetType().Name;
+                    if (cName == "Transform") continue; // skip ubiquitous Transform
+                    compNames.Add(cName);
+                }
+                string compStr = compNames.Count > 0 ? "[" + string.Join(", ", compNames) + "]" : "";
+                string activeStr = t.gameObject.activeSelf ? "" : "(INACTIVE)";
+                if (nodeCount > 0) sb.Append(" | ");
+                sb.Append(depth.ToString(CultureInfo.InvariantCulture)).Append(':')
+                  .Append(t.name).Append(compStr).Append(activeStr);
             }
-            string compStr = compNames.Count > 0 ? "[" + string.Join(", ", compNames) + "]" : "";
-            string activeStr = t.gameObject.activeSelf ? "" : "(INACTIVE)";
-            if (nodeCount > 0) sb.Append(" | ");
-            sb.Append(depth.ToString(CultureInfo.InvariantCulture)).Append(':')
-              .Append(t.name).Append(compStr).Append(activeStr);
             nodeCount++;
             for (int i = 0; i < t.childCount; i++)
                 AppendTransformHierarchy(t.GetChild(i), depth + 1, sb, ref nodeCount);
@@ -5339,6 +5353,12 @@ namespace Parsek
             var hierarchy = new System.Text.StringBuilder();
             int nodeCount = 0;
             AppendTransformHierarchy(prefab.transform, 0, hierarchy, ref nodeCount);
+            if (nodeCount > HierarchyDumpMaxNodes)
+                hierarchy.Append(" ... +")
+                         .Append((nodeCount - HierarchyDumpMaxNodes).ToString(CultureInfo.InvariantCulture))
+                         .Append(" more (truncated at ")
+                         .Append(HierarchyDumpMaxNodes.ToString(CultureInfo.InvariantCulture))
+                         .Append(')');
             ParsekLog.VerboseRateLimited("GhostVisual", $"part_dump_{partName}",
                 $"  ENGINE PART HIERARCHY DUMP for '{partName}' pid={persistentId}: " +
                 $"{nodeCount.ToString(CultureInfo.InvariantCulture)} transforms " +

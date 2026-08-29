@@ -12694,14 +12694,46 @@ widening them now would be a speculative sweep. File them here rather than fix
 them blind: if a future reading run ever prints an NRE from either, the fix is
 one more arm on the same pattern.
 
+**THE FIX UN-SHADOWS ~20 LINES OF TEARDOWN CLEANUP, and that is the part to hold
+in mind when reading the next census.** The NRE did not stop at
+`GetActiveVesselSafe` - it escaped `watchMode.ExitWatchMode()` at
+`ParsekFlight.cs:2183` and Unity abandoned the rest of `OnDestroy`. So in the
+end-inside-watch shape ONLY, everything below that line has never once executed:
+the `InputLockManager.RemoveControlLock` safety net, `vesselGhoster.CleanupAll`,
+`GhostMapPresence.RemoveAllGhostVessels("scene-cleanup")`, the engine camera-event
+unsubscribe, `policy.Dispose` / `engine.Dispose`, the ParsekFlight-local cache
+clears, and `ui.Cleanup`. All of it now runs for the first time, at a moment when
+`FlightGlobals.fetch` is already gone.
+
+CONSEQUENCE FOR THE CENSUS BELOW: a re-measured `unityExceptions` reading may show
+NEW Parsek lines that were never reachable before, and they are NOT a regression
+of this fix - they are newly-reached code meeting an absent `FlightGlobals`. Read
+any new teardown line as a NEW finding on its own call site, not as evidence that
+the NRE catch failed (the catch's own line is Verbose and carries the words
+`FlightGlobals unavailable (scene teardown)`, so the two are trivially told apart).
+`RemoveAllGhostVessels` is the likeliest new speaker and is already the
+best-defended: it wraps each ghost's `Die()` in its own try/catch with a `Warn`,
+inside a `BeginGhostTeardown`/`finally EndGhostTeardown` scope that exists exactly
+because the stock `SpaceTracking` rebuild it triggers can throw during teardown
+(`GhostMapPresence.cs:482`) - so its failure mode is a Warn line, not an escape.
+
+DELIBERATELY NOT GUARDED, observed-first: none of the newly-reached calls got a
+prophylactic try/catch in this pass. `CleanupAll` only `Destroy`s GameObjects and
+touches no KSP singleton; `RemoveAllGhostVessels` is already guarded as above; the
+rest are dictionary clears and event unsubscribes. Wrapping them blind would be
+precisely the speculative sweep declined for the sibling helpers one paragraph up,
+and would pre-empt the very reading that would tell us which of them actually
+speaks. If a census does surface one, fix THAT call site.
+
 FUTURE WORK, NOT DONE HERE: this removes the one Parsek line from the
 end-inside-watch teardown, which is the precondition for arming an
 `[expectations.unityExceptions] maxTotal` ceiling on the V-family lanes. It is
 NOT sufficient on its own - the 1-vs-5 spread below is four STOCK/MechJeb NREs in
-the same 40 ms window, so any ceiling still has to be pinned against a re-measured
-census (the Parsek line should now be absent from it), not against the readings
-above. Arming is an operator decision after that reading run; nothing is armed by
-this fix.
+the same 40 ms window, and the un-shadowed cleanup above can add lines of its own,
+so any ceiling still has to be pinned against a re-measured census (the OLD Parsek
+line should be absent from it; anything new needs classifying before it is
+counted), not against the readings above. Arming is an operator decision after
+that reading run; nothing is armed by this fix.
 
 The ARMED re-flight of the identical shape (`2026-08-08_1642`) read `total=5`,
 which is worth recording because it bounds what a ceiling here would mean: the
@@ -20464,7 +20496,7 @@ Every Tier 1 merge-queue item below LANDED on `main` (verified 2026-07-11 via `g
 ### Tier 3 - LATER: verification + hygiene
 - **Validation debt (the real bottleneck)** - code-complete-but-in-game-unconfirmed fixes, clustering onto ~4-5 playtest sessions: (1) career-economy (Rec-1 #1242 gate PASSED in-game 2026-07-08; still open: career-freeze milestone-storm, contract-discard-desync, OnMainMenuTransition); (2) looped re-aim descent-render (reaim-descent cluster, arc truncation, M-MIS-2 P4, cross-SOI encounter observation); (3) eccentric-target Eeloo/Moho constant pinning (M-MIS-3) - BEHAVIOURAL HALF CLOSED 2026-08-15: the band is now WALKED in flight (three departures accept outside the base band, deepest 0.1550 vs a 0.0600 base), so what remains is only the constant-pinning judgement on `EccGain` / `MaxHalfWidthFraction`, not a validation debt - see M-MIS-3-BAND-COMPUTED-NOT-EXERCISED; (4) cross-parent station resupply (M4c); (5) in-game test-runner camera-survival batch. KSP cannot run headless, so this is playtest-bound.
 - **M-MIS-10 archetype verification sweep** - constellation deploy / booster flyback / off-Kerbin launch / claw couples / Elcano; cheap verify-and-file, no known break.
-- ~~**Remove `MapRenderWarpControl`** temporary debug aid once re-aim descent-render is signed off.~~ DONE 2026-08-29 (release-hygiene, R5 item 1), per the aid's own removal-recipe banner: `Source/Parsek/MapRenderWarpControl.cs` + `Source/Parsek.Tests/MapRenderWarpControlTests.cs` deleted; the sole `RegisterWatchWindow` caller removed from `GhostPlaybackLogic.ResolveTrackingStationSampleUT`; its now-callerless helper `Reaim.DescentTrigger.DescentWindowEndLiveUT` + the two `DescentTriggerTests` cells deleted; the `DebugFlags` class in `ParsekConfig.cs` deleted (`MapRenderWarpEnabled` was its only member); the aid's how-to section removed from `.claude/CLAUDE.md` and `AGENTS.md`. NO CHANGELOG entry, per the banner (never a shipping feature). Nothing in `harness/` or `scripts/` gated on it - the four surviving mentions are prose only (`autotest-status.md` V3C row, `design-autotest-render-composition.md`, `harness/scenarios/V3C-flight-arrival-companion.toml`, `harness/missions/lib/test_v1_map_dwell.py`), each naming it as the MOLD for a hypothetical future zone-relax aid, so they are kept as historical record rather than rewritten.
+- ~~**Remove `MapRenderWarpControl`** temporary debug aid once re-aim descent-render is signed off.~~ DONE 2026-08-29 (release-hygiene, R5 item 1), per the aid's own removal-recipe banner: `Source/Parsek/MapRenderWarpControl.cs` + `Source/Parsek.Tests/MapRenderWarpControlTests.cs` deleted; the sole `RegisterWatchWindow` caller removed from `GhostPlaybackLogic.ResolveTrackingStationSampleUT`; its now-callerless helper `Reaim.DescentTrigger.DescentWindowEndLiveUT` + the two `DescentTriggerTests` cells deleted; the `DebugFlags` class in `ParsekConfig.cs` deleted (`MapRenderWarpEnabled` was its only member); the aid's how-to section removed from `.claude/CLAUDE.md` and `AGENTS.md`. NO CHANGELOG entry, per the banner (never a shipping feature). Nothing in `harness/` or `scripts/` gated on it - the four surviving mentions in LIVE docs are prose only (`autotest-status.md` V3C row, `design-autotest-render-composition.md`, `harness/scenarios/V3C-flight-arrival-companion.toml`, `harness/missions/lib/test_v1_map_dwell.py`), each naming it as the MOLD for a hypothetical future zone-relax aid, so they are kept as historical record rather than rewritten. Four more sit in the ARCHIVED `docs/dev/done/todo-and-known-bugs-v7.md` and are correctly untouched - an archive records what was true when it was written.
 - ~~**Doc hygiene** - flip the stale "In progress - Forward trajectory rendering" header (shipped 0.10.2) + add SHIPPED markers to roadmap §19.4 M3/M4.~~ DONE (verified 2026-07-11): roadmap §19.4 already marks M1-M5 SHIPPED and no "In progress / Forward trajectory rendering" header remains in the roadmap or this file.
 - **Deferred re-aim solver follow-ups** - ~~M-MIS-2 S4 re-stitch (product-decision-gated)~~ SHIPPED (PR #1263 `reaim-s4-restitch` + sign fix #1279); leg-less-chain forward-run gap remains (low-severity polish). (`SolveArrivalWindow` wiring SHIPPED on branch `mmis4-solve-arrival-window` - see the M-MIS-4 entry.)
 
