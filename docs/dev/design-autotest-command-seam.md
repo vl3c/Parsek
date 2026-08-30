@@ -484,6 +484,35 @@ journal, verdicts) is designed once and the later commands slot in without a for
 > post-mission gating axis (their OK is a read-back of the game's camera mode, never a
 > claim about a kerbal's physical state). The two axes disagree by design.
 
+> Update (the logistics verbs): two further PROMOTIONS out of the reserved list above -
+> `SealSlot` and `RouteCommand` - the FIFTH and SIXTH strict ones (wire token
+> byte-identical, only the response changes). They take the table to **30 implemented /
+> 5 reserved**. (The count crossing 27 -> 28 on the way is `InvokeRewindToLaunch`, which
+> landed additively without an update note of its own; the reserved list was unchanged
+> by it.)
+>
+> **What they close, and it is a MEASURED wall rather than a wish.** No driven lane could
+> create or operate a supply route, so every committed route fixture in the suite is a
+> HARVEST of a hand-flown session (`fixtures/saves/depot-route-recorded`, the suite's only
+> committed Active route, exists for exactly this reason - see the B27 amendment on
+> roadmap G1). The cause is a chain of two: route candidacy requires a FULLY SEALED tree
+> (`RouteCandidateFinder.IsTreeFullySealed` - every recording at `MergeState.Immutable`),
+> and an automated profile ending on a flight-class terminal leaves `CommittedProvisional`
+> members behind BY DESIGN, so no automated mission produces a sealed tree; and sealing is
+> a player action with no seam path. H35's own spec header documents its fixture as
+> deliberately not a candidate for this, and `ROUTE-CANDIDACY-GATED-ON-SEAL-NO-SEAM-PATH`
+> in `todo-and-known-bugs.md` names promoting `SealSlot` as fix road (1). Both verbs are
+> that road.
+>
+> **Why the OTHER two slot names stay reserved.** `FlySlot`'s mechanism is already
+> driveable under a different name - `InvokeRewind` IS the re-fly - and a second spelling
+> would make the wire token ambiguous about which half of the timeline machinery a spec
+> exercised, the identical argument that kept `InvokeRewindToLaunch` a separate verb
+> rather than an `InvokeRewind` mode. `StashSlot` has no consumer: nothing in the suite
+> needs to OPEN a slot, only to close one.
+>
+> Full contracts below (`#### SealSlot` and `#### RouteCommand`).
+
 #### R12/A1 - `LoadGame scene=<spacecenter|trackstation>`
 
 **Contract.** `LoadGame` gains one optional argument. ABSENT is the pre-R12 contract
@@ -778,6 +807,211 @@ route=plain-arm-and-switch activeVesselPid=<n> switched=true". Failure tails: `I
 "switchclick failed reason=switch-refused-by-stock targetPid=<n> activeVesselPid=<n>
 setActiveVesselReturned=<bool> ...", `Error` "switchclick SetActiveVessel threw ...", and the
 Case C `Verbose` pair.
+
+#### SealSlot (the fifth promoted reserved verb)
+
+**Contract.** Precondition `RequiresGameLoaded` - NOT `RequiresFlight`, and the choice is
+load-bearing rather than permissive. The verb reads and mutates SAVE-scoped stores only
+(`RecordingStore.CommittedTrees`, `ParsekScenario.RewindPoints`) and touches no vessel,
+camera or scene; the Unfinished Flights window it reproduces is open in FLIGHT and at the
+KSC alike, and the lane that needs it most runs AFTER an `ExitToSpaceCenter`, where a
+`RequiresFlight` row would defer to its budget and `TIMEOUT`. SINGLE-PHASE: `TrySeal` and
+its persist are synchronous, so the read-back (recount the tree) is a final answer - no
+`TryComplete*` counterpart, no `DeferralBudget` row, the 60 s default bounding only the
+game-not-loaded defer. Two dispatch-level rejects mirror `ExitToSpaceCenter`:
+`merge-journal-in-flight` and `load-in-flight`. There is deliberately NO `recording-active`
+reject - the verb acts on COMMITTED state and the fly -> commit -> seal -> create lane runs
+with a recorder live.
+
+**It drives the production path, and that is the whole point.** Every seal goes through
+`UnfinishedFlightSealHandler.TrySeal`, which is what the UI button calls: resolve the
+recording's rewind point + child slot, flip the slot's EFFECTIVE chain+supersede tip to
+`Immutable`, mark the tip's sidecars dirty, call
+`ParsekScenario.BumpSupersedeStateVersionLive()` (the ERS-cache invalidation AND the
+`RouteStore.RevalidateSources` call, in one), persist the game, and only then reap a
+now-orphaned rewind point. A seam that flipped the enum itself would skip all five and
+leave the very candidacy sweep this verb exists to unblock reading a stale cache.
+
+**Arguments - two spellings, one verb.**
+
+| arg | values | meaning |
+|---|---|---|
+| `tree` | committed `RecordingTree.Id` | seal EVERY open member of the tree |
+| `rp` | `RewindPointId` | the D9 slot spelling, with `slot=` |
+| `slot` | slot index (int >= 0) | `ChildSlot.SlotIndex` under `rp=` |
+
+The reserved NAME is a slot verb (the D9 unfinished-flights lifecycle, beside `StashSlot`
+/ `FlySlot`), so `rp=` + `slot=` is kept and reuses `InvokeRewind`'s `unknown-rp` /
+`unknown-slot` vocabulary verbatim - including that verb's documented choice that an
+ABSENT arg is just an unresolvable target rather than a separate missing-arg reason. The
+CONSUMER that forced the promotion is tree-scoped, though: a fixture typically carries
+more than one open provisional and candidacy needs them all closed, so `tree=` seals the
+whole tree in one command. **`rp=` wins when both are supplied**, mirroring
+`SimulateStockSwitchClick`'s `pid=`-beats-`vessel=` rule and for the same reason: a caller
+who supplies both gets the precise selector rather than a refusal to debug.
+
+**IDEMPOTENT, and a spec must be written against that.** An already-sealed tree answers
+`OK sealed=0 alreadySealed=true`, never a reject - the RVR-2 roadmap sketch uses
+`SealSlot` as a no-op guard over fixtures whose trees are already sealed, and a refusal
+there would red a healthy lane.
+
+**Payload.** Tree mode: `tree`, `mode=tree`, `total`, `sealed`, `failed`, `remaining`,
+`alreadySealed`, `fullySealed`. Slot mode: `mode=slot`, `rp`, `slot`, `tip`, `sealed`,
+`alreadySealed`, `fullySealed`. `sealed` counts what THIS command flipped and
+`alreadySealed` says whether anything needed flipping, so a lane can tell "my step sealed
+it" from "it was already sealed" rather than from an absent key (the map-view pair's rule).
+
+**Typed-error taxonomy.**
+
+| verdict | `msg` | when |
+|---|---|---|
+| REJECTED | `target-arg-missing` | neither `tree=` nor `rp=` |
+| REJECTED | `unknown-slot` | `rp=` present and `slot=` absent / unparseable / negative / unmatched |
+| REJECTED | `unknown-rp` | no rewind point carries that id |
+| REJECTED | `unknown-tree` | no committed tree carries that id |
+| ERROR | `seal-incomplete <firstReason>` | the tree pass ran and left members open |
+| ERROR | `seal-refused <handlerReason>` | slot mode: the production handler declined (`tip-unresolvable`, `slot-index-invalid`, ...) |
+| ERROR | `no-scenario` | slot mode with no `ParsekScenario.Instance` |
+
+The three ERRORs are the post-act-or-product-declined half of the seam's verdict split, not
+the "no side effect yet" half REJECTED owns. `seal-incomplete` is literally post-act
+(earlier members may already be sealed and the game persisted). `seal-refused` and
+`no-scenario` fire before any flip, and they are ERROR for the OTHER half of the same rule:
+the verb reached the production handler (or found the scenario singleton absent) and
+something that is not the seam declined - `InvokeRewind`'s own `no-scenario` row and the
+`switch-refused-by-stock` precedent. A REJECTED on either would claim the seam declined to
+act.
+
+**One tree-mode outcome deserves its own reading, because it looks like a handler failure
+and is not.** `TrySeal` never seals the recording it is handed - it flips that recording's
+slot's EFFECTIVE chain+supersede tip. A tree can therefore carry an open member that is not
+its own slot's tip (`RecordingStore.CommitTree` demotes both a qualifying HEAD and a chain
+tip), and for such a member every `TrySeal` SUCCEEDS while the member stays
+`CommittedProvisional` forever. The pass reports `ERROR seal-incomplete member-not-slot-tip`
+with `failed=0 remaining=N` - the distinct token exists precisely so an operator does not go
+hunting a refusal that never happened. It is a FIXTURE-SHAPE answer: that tree cannot be
+made a route candidate by sealing alone, and the UI's Seal button has the identical residue.
+A lane author reading it should change the fixture, not the verb.
+
+**No new `_SEAM_REFUSAL_SUBKINDS` rows are needed**, and that is a property of the design
+rather than an oversight: every REJECTED token above is already mapped for another verb,
+and the table is keyed by msg token alone, never by (verb, msg). The two ERRORs stay
+UNMAPPED on purpose (the `switch-refused-by-stock` precedent).
+
+**Diagnostic logging:** `Info` "sealslot start mode=<m> rp= slot= tree=", then per-member
+`Warn` "sealslot member-refused tree= rec= reason=" on a decline, closing with `Info`
+"sealslot complete mode=<m> ... alreadySealed=<bool>" or `Error` "sealslot incomplete
+tree= total= sealed= failed= remaining= firstReason=" / "sealslot refused rp= slot= tip=
+reason=". The production handler's own `Sealed slot=... mergeState=X->Y ... reaped=N` line
+still fires per seal, so a lane pins THAT for the state change and this verb's line for
+the command outcome.
+
+#### RouteCommand (the sixth promoted reserved verb)
+
+**Contract.** Precondition `RequiresGameLoaded` and the same two dispatch rejects, for the
+reasons `SealSlot` states above (a merge journal mid-finalize is rewriting the supersede
+list a candidacy walk reads; a `LoadGame` would swap the stores out between the gate read
+and the mutation). SINGLE-PHASE: build + store + orchestrator arm are all synchronous
+state mutation, so the read-back (the route's own status) is a final answer. Sub-commands
+dispatch on an `action=` arg, exactly like `KscAction`.
+
+**Every action drives the production path.** `create` goes through
+`RouteCreationService.CreatePausedFromCandidate` - a new `internal static` funnel holding
+the build + store + manual-loop-clear sequence that used to live inline in
+`LogisticsWindowUI.CreateRouteFromCandidate`, a PRIVATE instance method on a UI window.
+The window now calls the same funnel, so the two cannot drift: identical
+`RouteBuilder.BuildRoute` call shape (`initialStatus: Paused`,
+`allowIntervalBelowTransit: true`), identical `RouteStore.AddRoute`, identical
+`RouteTreeGuard.ForceClearManualLoopForRoute`. What stayed in the window is presentation
+only - the interval resolve, the one-shot "manual loop turned off" toast (the funnel
+returns the cleared count so that decision is unchanged), and its own grep-stable
+`Logistics: Create Route from candidate ...` Info line. The three operations go through
+`RouteOrchestrator.TrySendOneCycleNow` / `TryPause` / `TryActivate`, which are what the
+window's row buttons and the in-game `RouteRewindTimeline` cells call.
+
+**Arguments.**
+
+| arg | values | meaning |
+|---|---|---|
+| `action` | `create` \| `send-once` \| `pause` \| `activate` | required; fail-closed and case-sensitive |
+| `tree` | committed `RecordingTree.Id` | `create` only; the candidate tree |
+| `name` | route name (percent-encoded ON THE WIRE; a spec carries the RAW name) | `create` only; absent lets `RouteBuilder` generate one |
+| `interval` | seconds, InvariantCulture, finite and > 0 | `create` only; absent = the route's snapped minimum |
+| `route` | route id, unique id PREFIX, or exact name | the three operations |
+
+`interval=` absent resolves through `RouteCreationDialog.ComputeRootToUndockSpan`, the SAME
+helper both production create paths funnel their default through, so a driven create and a
+player create produce the identical interval for one analysis. Whatever is passed is then
+snapped by the builder to `N * TransitDuration` with `N >= 1`.
+
+**The `route=` selector is three-tiered** - exact `Id`, then unique `Id` PREFIX, then
+unique exact `Name` - and a tier matching more than once is `route-ambiguous` rather than
+an arbitrary pick. The prefix tier exists because a route id is a bare
+`Guid.NewGuid().ToString("N")` minted at create time and therefore not spec-pinnable; what
+a lane HAS is the 8-char short id every log line prints (`RouteIds.Short`) or the create
+step's own OK payload. The exact-id tier runs first and alone, so an id that IS a route
+wins even if it also prefixes another - the only way a precise handle can never be made
+ambiguous by an unrelated route appearing later. Duplicate NAMES are ordinary rather than
+exotic (`RouteBuilder` generates default names), which is why the name tier refuses an
+ambiguity instead of picking.
+
+**Typed-error taxonomy.**
+
+| verdict | `msg` | when |
+|---|---|---|
+| REJECTED | `missing-arg` | `action=` absent |
+| REJECTED | `unknown-action` | `action=` present and not one of the four |
+| REJECTED | `tree-arg-missing` | `create` without `tree=` |
+| REJECTED | `interval-arg-invalid` | `interval=` present and not a finite positive double |
+| REJECTED | `unknown-tree` | no committed tree carries that id |
+| REJECTED | `candidate-dismissed` | the candidate was dismissed in the Logistics window |
+| REJECTED | `tree-not-sealed` | not every recording is Immutable - run `SealSlot` first |
+| REJECTED | `candidate-ineligible <RouteAnalysisStatus>` | route analysis rejected the tree |
+| REJECTED | `candidate-already-promoted` | a stored route already claims the source recording |
+| REJECTED | `route-build-rejected <builderReason>` | `RouteBuilder` declined (nothing was stored); e.g. `source-no-longer-eligible`, `endpoint-missing`. NOT `interval-below-transit`: the funnel passes `allowIntervalBelowTransit: true`, so a short interval is CLAMPED rather than refused |
+| REJECTED | `route-arg-missing` | an operation without `route=` |
+| REJECTED | `unknown-route` | no stored route matched the selector |
+| REJECTED | `route-ambiguous` | more than one stored route matched |
+| ERROR | `route-action-refused <action>` | the orchestrator declined (wrong status for the action) |
+
+**The create refusals are walked in `RouteCandidateFinder.DeriveCandidates`' OWN gate
+order** (dismissed -> sealed -> eligible -> already-promoted) so the token names the FIRST
+gate that closed and a lane's fix is the right one: `tree-not-sealed` wants an earlier
+`SealSlot` step, `candidate-ineligible` means the FLIGHT did not produce a promotable
+supply run and is a fixture question. The analysis status rides as a compound tail
+(`candidate-ineligible%20MissingRouteProof` on the wire, the `refly-gate` shape) so a lane
+learns WHY the analysis rejected rather than merely that it did; the harness classifies off
+the head token, so the tail costs nothing there.
+
+**`route-action-refused` is ERROR while every create refusal is REJECTED**, and the line is
+drawn exactly where `SimulateStockSwitchClick` draws it: the create refusals all happen
+BEFORE any side effect, whereas the operation refusal happens because the verb reached the
+production call and the PRODUCT declined (`TryActivate` is Paused-only;
+`TrySendOneCycleNow` refuses `InTransit` / `EndpointLost` / `SourceChanged` /
+`MissingSourceRecording`; `TryPause` refuses an already-Paused route). A REJECTED there
+would claim the seam declined to act. NOTE for spec authors: `pause` on an already-paused
+route is therefore an ERROR, not a green no-op - deliberately, because an OK would make the
+assertion vacuous.
+
+**Payload.** `create`: `action`, `created=true`, `route`, `name`, `tree`, `status`,
+`intervalSeconds`, `transitSeconds`, `cadence`, `stops`, `manualLoopsCleared`. Operations:
+`action`, `route`, `name`, `match` (which selector tier hit), `applied`, `statusBefore`,
+`status`. The before/after status pair is not decoration - it is what turns a silent
+no-op into something a lane can assert on.
+
+**What v1 leaves for later:** `delete` / `dismiss` / `link` / cadence edits. Each is a
+separate production surface with its own confirmation dialog and none is on the
+create-and-run path this verb exists to unblock; all are additive under the seam's
+"readers ignore unknown keys" clause.
+
+**Diagnostic logging:** `Info` "routecommand start action= tree= route= name= interval=",
+then for `create` the whole gate input set on one line - `Info` "routecommand create gate
+tree= treeFound= dismissed= sealed= eligible= status= alreadyPromoted= refusal=", so a
+refusal is reconstructable from the log alone - closing with `Info` "routecommand complete
+action=... " or `Warn` "routecommand rejected reason=..." / "routecommand refused action=
+route= statusBefore= status=". The shared funnel emits its own `[Route]`
+"CreatePausedFromCandidate created tree= route= name= status= interval= transit= cadence=
+manualLoopsCleared=" line, which is what a spec pins for the creation itself.
 
 ## Behavior
 

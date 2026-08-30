@@ -1,6 +1,40 @@
 # Automated Testing System - Status
 
-Last updated: 2026-08-05 (**TEN VACUOUS IN-GAME CELLS CONVERTED, H28 + H31
+Last updated: 2026-08-30 (**THE ROUTE WALL IS DOWN AS A CAPABILITY: `SealSlot` +
+`RouteCommand` PROMOTED AND IMPLEMENTED**, branch
+`claude/rover-supply-route-tests-fd02e8`. Two M-A2 seam verbs move out of
+`ReservedVerbs` - the FIFTH and SIXTH strict promotions since M-C1, so the table
+goes 28 -> 30 implemented and 7 -> 5 reserved, mirrored in
+`hlib.IMPLEMENTED_SEAM_VERBS` / `RESERVED_SEAM_VERBS`. What they close is the
+chain `ROUTE-CANDIDACY-GATED-ON-SEAL-NO-SEAM-PATH` names: route candidacy needs a
+FULLY SEALED tree, an automated profile ending on a flight-class terminal leaves
+`CommittedProvisional` members behind by design, and sealing was a player action
+with no seam path - so route CREATION was unreachable from any driven lane and
+every committed route fixture in the suite (`depot-route-recorded`, the only
+committed Active route) is a HARVEST. `SealSlot` seals through the production
+`UnfinishedFlightSealHandler.TrySeal` (the Unfinished Flights per-row button:
+effective-tip flip, `FilesDirty`, `BumpSupersedeStateVersionLive` - which is both
+the ERS-cache invalidation and `RouteStore.RevalidateSources` - persist, then RP
+reap), takes `tree=` or the D9 `rp=`+`slot=` spelling, and is IDEMPOTENT so the
+RVR-2 no-op-guard shape answers OK. `RouteCommand action=create|send-once|pause|
+activate` creates through a NEW shared `RouteCreationService.CreatePausedFromCandidate`
+funnel - the build+store+manual-loop-clear sequence lifted out of
+`LogisticsWindowUI.CreateRouteFromCandidate`, a private instance method on a UI
+window, which is precisely why no seam could reach it; the window now calls the
+same funnel so the two cannot drift - and operates through the three
+`RouteOrchestrator` entries the window's row buttons use. **WHAT IS NOT YET
+TRUE, and must not be read into this:** no lane has FLOWN the seal -> create
+sequence. This ships the CAPABILITY; "routes are automated end to end" becomes
+true when a driven run proves it, and until then every route fixture stays a
+harvest and H35 / H40 / V18T keep their scopes verbatim (their rationale comments
+are updated to say when the verbs landed, and nothing else about them moved).
+`StashSlot` and `FlySlot` stay reserved with stated reasons - `FlySlot`'s
+mechanism is already driveable as `InvokeRewind`, and nothing needs `StashSlot`'s
+slot-OPEN direction. Contracts: `design-autotest-command-seam.md` -> "Update (the
+logistics verbs)" + the `#### SealSlot` / `#### RouteCommand` sections. Suites:
+lib 1902 (1 skipped), provision 238, missions/lib 2234; xUnit green.)
+
+Prior: 2026-08-05 (**TEN VACUOUS IN-GAME CELLS CONVERTED, H28 + H31
 RE-PINNED OFF MEASUREMENT**, branch `vacuous-cells-conversion`. The
 W2-VACUOUS-CELLS census - cells that reported PASSED while asserting nothing -
 now either assert for real or `InGameAssert.Skip` naming the missing context and
@@ -1861,9 +1895,13 @@ anywhere.
 The lane's scope is deliberately the PROOF surface, not route CREATION. The fixture's
 route-owning tree carries two `CommittedProvisional` recordings, so
 `RouteCandidateFinder.IsTreeFullySealed` (every recording must be
-`MergeState.Immutable`) fails and neither tree can become a route candidate; the
-`SealSlot` seam verb that would seal one is RESERVED (`not-implemented-v1`). See
-`ROUTE-CANDIDACY-GATED-ON-SEAL-NO-SEAM-PATH` in todo-and-known-bugs.md.
+`MergeState.Immutable`) fails and neither tree can become a route candidate. When this
+lane was wired, the `SealSlot` seam verb that would seal one was RESERVED
+(`not-implemented-v1`); it was PROMOTED AND IMPLEMENTED 2026-08-30 alongside
+`RouteCommand`, which closes
+`ROUTE-CANDIDACY-GATED-ON-SEAL-NO-SEAM-PATH` in todo-and-known-bugs.md as a CAPABILITY.
+H35's own scope is unchanged and its spec is untouched - the seal -> create sequence has
+not been flown by any lane yet, and this spec is not the place to fly it.
 
 ID NOTE: authored and FLOWN as `H33-logistics-route-proof`; renamed H35 on the merge
 into main, for the same collision (a sibling lane's `H33-recorded-signals` landed

@@ -746,12 +746,14 @@ containment repair on the Transporter's chain segment `a85a7ae0...` - the only
 RECORDED fixture in the suite with a zero-WARN reading.
 
 **Why it is a harvest and not a forge**, restated here because it is the thing a
-reader will question: route candidacy is gated on `IsTreeFullySealed` and both
-verbs that could satisfy it (`SealSlot`, `RouteCommand`) are RESERVED command-seam
-verbs (H35 ROUTE-CANDIDACY-GATED-ON-SEAL-NO-SEAM-PATH), so no driven run can
-create a ROUTE at all today. The register amendment is on the G1 entry in
-`autotest-roadmap.md`; B27 is now a FORGE-CLASS STAMP and the flight variant is
-deferred behind those two verbs.
+reader will question: route candidacy is gated on `IsTreeFullySealed` and, AT HARVEST
+TIME, both verbs that could satisfy it (`SealSlot`, `RouteCommand`) were RESERVED
+command-seam verbs (H35 ROUTE-CANDIDACY-GATED-ON-SEAL-NO-SEAM-PATH), so no driven run
+could create a ROUTE at all. The register amendment is on the G1 entry in
+`autotest-roadmap.md`; B27 is a FORGE-CLASS STAMP and the flight variant was deferred
+behind those two verbs. **Both verbs shipped 2026-08-30**, so the deferral is lifted as a
+CAPABILITY - but this fixture stays a harvest until a driven seal -> create run actually
+produces one, and nothing here should be re-read as forged in the meantime.
 
 **Three residuals, all deliberate, all non-gating:**
 
@@ -4112,7 +4114,7 @@ tier-strength refusal without a flown filter would refuse the very recoveries th
 correlation fix captured, and `L4`'s `KerbalXp` facet would go vacuous again - the failure
 mode the recommendation's "What NOT to do" paragraph names.
 
-## ROUTE-CANDIDACY-GATED-ON-SEAL-NO-SEAM-PATH: a green two-vessel docking flight cannot produce a route-candidate tree, and no seam verb can seal one [FOUND 2026-08-11 while wiring `H35-logistics-route-proof`. A CAPABILITY GAP in the automation surface, not a product defect - the seal policy itself is correct]
+## ~~ROUTE-CANDIDACY-GATED-ON-SEAL-NO-SEAM-PATH: a green two-vessel docking flight cannot produce a route-candidate tree, and no seam verb can seal one~~ [FOUND 2026-08-11 while wiring `H35-logistics-route-proof`. A CAPABILITY GAP in the automation surface, not a product defect - the seal policy itself is correct. **CLOSED 2026-08-30 by fix road (1)**: `SealSlot` and `RouteCommand` are both promoted out of `ReservedVerbs` and implemented against the production paths - see the closure note at the end of this entry]
 
 **What was measured.** The `bdock-recorded` fixture is the produced save of a FULLY
 GREEN `BDOCK-1-station-interceptor` flight (run `2026-08-11_1606`, PASS attempt 1,
@@ -4144,14 +4146,11 @@ gate; it is that a flight-class terminal - which is what an interceptor profile 
 on - leaves provisionals behind BY DESIGN, so **no automated mission produces a
 sealed tree**. Sealing is a player action.
 
-**And the seam cannot perform it.** `SealSlot` is a RESERVED verb:
-`Source/Parsek/TestCommands/TestCommandVerbs.cs:100` lists it in `ReservedVerbs`,
-and `TestCommandDispatcher.cs:298-299` answers `Reject("not-implemented-v1")` for
-the whole reserved class. It is pinned reserved by
-`Source/Parsek.Tests/TestCommandDispatchTests.cs:65-66` and
-`TestCommandVerbTableTests.cs:47`. The only other "Seal" on the seam surface is
-`MergeAnswerChoice.Seal`, which ANSWERS an already-open merge dialog
-(`ParsekTestCommandAddon.cs:2187`) - it cannot seal a tree on demand.
+**And the seam could not perform it (until 2026-08-30).** `SealSlot` was a RESERVED
+verb: `TestCommandVerbs.ReservedVerbs` listed it and `TestCommandDispatcher` answered
+`Reject("not-implemented-v1")` for the whole reserved class. The only other "Seal" on
+the seam surface is `MergeAnswerChoice.Seal`, which ANSWERS an already-open merge dialog
+- it cannot seal a tree on demand. See the closure note below.
 
 **Scope, stated honestly.** What is blocked is end-to-end route CREATION under
 automation: candidate detection -> promotion -> a live route driven by a REAL
@@ -4163,13 +4162,39 @@ coverage (H6's route-rewind timeline, H34's inter-body firing gate, the M3-M5 xU
 stack) all drives SYNTHETIC routes built in memory, which is what this gap keeps it
 doing.
 
-**Fix (either road, both real work, neither taken here):** (1) promote `SealSlot` out of
-`ReservedVerbs` and implement it against the same code path the UI's Seal action
-uses, which makes the whole candidate -> route pipeline drivable; or (2) add an
-in-game seal API a `[InGameTest]` can call, and wire a Logistics cell that seals a
-committed tree, derives candidates and asserts the promotion - cheaper, but it
-proves the pipeline rather than the player workflow. Until one lands, do NOT read
-"BDOCK-1 is green" as "routes are automated end to end".
+**Fix (two roads were open):** (1) promote `SealSlot` out of `ReservedVerbs` and
+implement it against the same code path the UI's Seal action uses, which makes the whole
+candidate -> route pipeline drivable; or (2) add an in-game seal API a `[InGameTest]` can
+call, and wire a Logistics cell that seals a committed tree, derives candidates and
+asserts the promotion - cheaper, but it proves the pipeline rather than the player
+workflow.
+
+**CLOSED 2026-08-30 by road (1), and the SECOND verb went with it.** `SealSlot` and
+`RouteCommand` are both promoted out of `ReservedVerbs` (28 -> 30 implemented, 7 -> 5
+reserved) and implemented as thin appliers over the production paths:
+
+- `SealSlot tree=<treeId>` seals every open member of a committed tree through
+  `UnfinishedFlightSealHandler.TrySeal` - the exact call the Unfinished Flights per-row
+  Seal button makes, so the tip flip, the `FilesDirty` mark, the
+  `BumpSupersedeStateVersionLive()` (ERS-cache invalidation AND
+  `RouteStore.RevalidateSources`), the persist and the RP reap all happen the way they do
+  for a player. The D9 `rp=` + `slot=` spelling is kept beside it. IDEMPOTENT: an
+  already-sealed tree answers `OK sealed=0 alreadySealed=true`.
+- `RouteCommand action=create|send-once|pause|activate` creates through a new shared
+  `RouteCreationService.CreatePausedFromCandidate` funnel - the build + store +
+  manual-loop-clear sequence LIFTED out of `LogisticsWindowUI.CreateRouteFromCandidate`
+  (a private instance method on a UI window, which is why no seam could reach it), with
+  the window now calling the same funnel so the two cannot drift - and operates through
+  `RouteOrchestrator.TrySendOneCycleNow` / `TryPause` / `TryActivate`.
+
+Contracts, arg grammars and the full typed-error taxonomies:
+`docs/dev/design-autotest-command-seam.md` -> "Update (the logistics verbs)" plus the
+`#### SealSlot` / `#### RouteCommand` sections. What is NOT yet true, and must not be
+read into this closure: no lane has FLOWN the seal -> create sequence yet, so
+"routes are automated end to end" becomes true when a driven run proves it, not when
+these verbs compile. `StashSlot` and `FlySlot` stay reserved on purpose - `FlySlot`'s
+mechanism is already driveable as `InvokeRewind`, and nothing needs `StashSlot`'s
+slot-OPEN direction.
 
 **D10 coverage, and why H35 claims NONE of it.** The obvious temptation on a spec
 whose subject is route proofs is to claim a D10 row. H35 claims none, deliberately.

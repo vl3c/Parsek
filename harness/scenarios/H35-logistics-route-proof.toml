@@ -33,10 +33,14 @@ tier = "nightly"
 # recording in a tree to be `MergeState.Immutable`; the fixture's route-owning
 # tree carries two `CommittedProvisional` recordings (the interceptor profile
 # ends in flight-class terminals), so no tree here can be picked up as a
-# candidate, and the `SealSlot` seam verb that would seal one is RESERVED
-# (`TestCommandVerbs.cs:100`, dispatched `not-implemented-v1`). End-to-end route
-# CREATION therefore remains un-automatable; see the
-# ROUTE-CANDIDACY-GATED-ON-SEAL-NO-SEAM-PATH entry in todo-and-known-bugs.md.
+# candidate. When this lane was authored the `SealSlot` seam verb that would seal
+# one was RESERVED (dispatched `not-implemented-v1`), so end-to-end route CREATION
+# was un-automatable. `SealSlot` and `RouteCommand` were PROMOTED AND IMPLEMENTED
+# 2026-08-30, which closes that capability gap (see the
+# ROUTE-CANDIDACY-GATED-ON-SEAL-NO-SEAM-PATH entry in todo-and-known-bugs.md) - but
+# THIS LANE'S SCOPE IS UNCHANGED AND ITS STEPS ARE UNTOUCHED. It stays the proof-read
+# lane it was live-proven as; flying the seal -> create sequence is a NEW spec, not a
+# widening of a pinned one.
 # What IS automatable is the PROOF surface those walkers read, and that is what
 # this spec gates.
 #

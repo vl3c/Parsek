@@ -1492,9 +1492,12 @@ loop.
 FIXTURE.** The paragraph above says "one committed SAME-BODY supply route over
 the BDOCK station fixture", and that path is closed by this entry's own header:
 route candidacy is gated on `IsTreeFullySealed`, and BOTH verbs that could
-satisfy it - `SealSlot` and `RouteCommand` - are RESERVED command-seam verbs
-(H35 ROUTE-CANDIDACY-GATED-ON-SEAL-NO-SEAM-PATH). No driven run can create a
-ROUTE at all today, so a forge over BDOCK cannot produce the subject. The
+satisfy it - `SealSlot` and `RouteCommand` - were RESERVED command-seam verbs
+(H35 ROUTE-CANDIDACY-GATED-ON-SEAL-NO-SEAM-PATH) when this was written. No driven
+run could create a ROUTE at all, so a forge over BDOCK could not produce the
+subject. (BOTH VERBS SHIPPED 2026-08-30 - the capability exists now; this
+amendment stands as the record of why B27's subject is a harvest, and a forge
+variant is a new piece of work rather than a re-reading of this one.) The
 verb-free path is the `duna-one-recorded` provenance class - harvest a save an
 operator already flew - and that is what was done: `fixtures/saves/
 depot-route-recorded`, harvested from the operator's own free-play sandbox save

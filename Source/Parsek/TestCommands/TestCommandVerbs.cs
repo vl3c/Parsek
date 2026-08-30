@@ -27,7 +27,7 @@ namespace Parsek.TestCommands
     /// </summary>
     internal static class TestCommandVerbs
     {
-        // Implemented (v1 + M-C1 batch 1 + M-C1.1 follow-up + M-C2 EVA batch + EVA-4 + R12 + the arrival-validation lane + the player-workflow lane + M-A7 + the map-view pair + InvokeRewindToLaunch): 28 verbs.
+        // Implemented (v1 + M-C1 batch 1 + M-C1.1 follow-up + M-C2 EVA batch + EVA-4 + R12 + the arrival-validation lane + the player-workflow lane + M-A7 + the map-view pair + InvokeRewindToLaunch + the logistics pair): 30 verbs.
         // M-C1 promoted InvokeRewind, AnswerMergeDialog, TimeJump, and KscAction from
         // Reserved to Implemented (design-autotest-seam-verbs-c1.md). The M-C1.1 follow-up
         // added SaveGame (the M-B3 L2/R6 persist-before-reload dependency). M-C2 added the
@@ -117,22 +117,41 @@ namespace Parsek.TestCommands
             // verbs; folding them into one would make the wire token ambiguous about which
             // half of the timeline machinery a spec exercised.
             "InvokeRewindToLaunch",
+            // The logistics pair: the FIFTH and SIXTH strict promotions out of the
+            // reserved list below (28 -> 30 implemented, 7 -> 5 reserved), same shape as
+            // the four before them - the wire token is byte-identical, only the response
+            // changes. Together they close THE wall in front of every route lane: no
+            // driven run could create or operate a supply route, so every committed
+            // route fixture in the suite is a HARVEST of a hand-flown session.
+            // SealSlot is the Unfinished Flights per-row Seal button
+            // (UnfinishedFlightSealHandler.TrySeal), which is what closes the candidacy
+            // gate RouteCandidateFinder.IsTreeFullySealed reads; RouteCommand is the
+            // Logistics window's Create Route button (through the shared
+            // RouteCreationService funnel) plus the three row operations
+            // (RouteOrchestrator.TrySendOneCycleNow / TryPause / TryActivate).
+            // Ordered so seal-then-create is the readable pair.
+            "SealSlot",
+            "RouteCommand",
         };
 
-        // Reserved (recognized, not implemented in v1): 7 verbs.
+        // Reserved (recognized, not implemented in v1): 5 verbs.
         // SimulateStockSwitchClick left this set in R12; MissionConfig left it for the
         // arrival-validation lane; StartLoopPlayback and EnterWatchMode left it for the
-        // player-workflow lane (every one of the four a strict promotion: wire token
-        // byte-identical, only the response changes -- REJECTED not-implemented-v1 -> a
-        // real terminal). StopPlayback deliberately STAYS reserved: teardown is
-        // FlushAndQuit's job, so a stop verb would be a second, weaker owner of it.
+        // player-workflow lane; SealSlot and RouteCommand left it for the logistics lane
+        // (every one of the six a strict promotion: wire token byte-identical, only the
+        // response changes -- REJECTED not-implemented-v1 -> a real terminal).
+        // StopPlayback deliberately STAYS reserved: teardown is FlushAndQuit's job, so a
+        // stop verb would be a second, weaker owner of it. StashSlot and FlySlot stay
+        // reserved beside their promoted sibling SealSlot on purpose: FlySlot's mechanism
+        // is already driveable under a DIFFERENT name (InvokeRewind, the re-fly), so a
+        // second spelling would make the wire token ambiguous about which half of the
+        // timeline machinery a spec exercised, and StashSlot has no consumer - nothing in
+        // the suite needs to OPEN a slot, only to close one.
         private static readonly HashSet<string> ReservedVerbs = new HashSet<string>
         {
             "StopPlayback",
-            "SealSlot",
             "StashSlot",
             "FlySlot",
-            "RouteCommand",
             "CrashAfterJournalPhase",
             "RunInvariantReport",
         };

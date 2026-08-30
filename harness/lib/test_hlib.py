@@ -917,13 +917,14 @@ class SpecValidationRejectTests(unittest.TestCase):
             "is impossible - the ceiling must still fire when the spec is isolated")
 
     def test_reserved_seam_verb_rejected(self):
-        # SealSlot stays RESERVED after M-C1 (the four implemented verbs were removed
-        # from the reserved set; SealSlot is one of the eleven that stay reserved).
+        # StashSlot stays RESERVED. This cell used to name SealSlot, which the
+        # logistics lane promoted; StashSlot is the right remaining stand-in - same
+        # D9 slot family, and nothing in the suite needs the slot-OPEN direction.
         def m(s):
-            s["driver"]["steps"].insert(1, {"cmd": "SealSlot", "expect": "OK"})
+            s["driver"]["steps"].insert(1, {"cmd": "StashSlot", "expect": "OK"})
         v = self._reject(m)
         self.assertFalse(v.ok)
-        self.assertTrue(any("SealSlot" in e and "RESERVED" in e for e in v.errors))
+        self.assertTrue(any("StashSlot" in e and "RESERVED" in e for e in v.errors))
 
     def test_mc1_implemented_verbs_not_reserved(self):
         # M-C1 moved these four RESERVED -> IMPLEMENTED, mirroring the C# verb-table move.
@@ -933,13 +934,16 @@ class SpecValidationRejectTests(unittest.TestCase):
                 self.assertNotIn(verb, hlib.RESERVED_SEAM_VERBS)
 
     def test_mc1_reserved_verbs_still_reserved(self):
-        # The remaining SEVEN names stay RESERVED (not v1-drivable).
+        # The remaining FIVE names stay RESERVED (not v1-drivable).
         # SimulateStockSwitchClick WAS in this list and left it in R12; MissionConfig
         # left it for the arrival-validation lane; StartLoopPlayback and EnterWatchMode
-        # left it for the player-workflow lane - see the promotion cells below.
-        # StopPlayback stays reserved on purpose: teardown is FlushAndQuit's job.
-        for verb in ("StopPlayback", "SealSlot",
-                     "StashSlot", "FlySlot", "RouteCommand",
+        # left it for the player-workflow lane; SealSlot and RouteCommand left it for
+        # the logistics lane - see the promotion cells below. The three hold-outs each
+        # have a reason: StopPlayback (teardown is FlushAndQuit's job), FlySlot (its
+        # mechanism is already driveable as InvokeRewind) and StashSlot (no consumer -
+        # nothing needs to OPEN a slot).
+        for verb in ("StopPlayback",
+                     "StashSlot", "FlySlot",
                      "CrashAfterJournalPhase", "RunInvariantReport"):
             with self.subTest(verb=verb):
                 self.assertIn(verb, hlib.RESERVED_SEAM_VERBS)
@@ -993,9 +997,17 @@ class SpecValidationRejectTests(unittest.TestCase):
         # reserved envelope never carried a camera / scene-presentation verb - so reserved
         # is STILL 7. 28 after InvokeRewindToLaunch, additive the same way: the reserved
         # envelope's rewind names (FlySlot / SealSlot / StashSlot) are all SLOT verbs
-        # against Rewind-to-SEPARATION's RewindPoint model, so reserved is STILL 7.
-        self.assertEqual(len(hlib.IMPLEMENTED_SEAM_VERBS), 28)
-        self.assertEqual(len(hlib.RESERVED_SEAM_VERBS), 7)
+        # against Rewind-to-SEPARATION's RewindPoint model, so reserved was STILL 7.
+        # 30 / 5 after the logistics pair, which is a PROMOTION and therefore moves
+        # BOTH numbers in opposite directions - the arithmetic signature that tells a
+        # promotion from an addition, and that catches a half-done one (a name added to
+        # IMPLEMENTED and left in RESERVED moves the first number without the second).
+        self.assertEqual(len(hlib.IMPLEMENTED_SEAM_VERBS), 30)
+        self.assertEqual(len(hlib.RESERVED_SEAM_VERBS), 5)
+        # Disjointness, asserted rather than assumed: Classify checks Implemented
+        # first in the C# mirror, so a leftover reserved row would be invisible.
+        self.assertEqual(
+            set(), set(hlib.IMPLEMENTED_SEAM_VERBS) & set(hlib.RESERVED_SEAM_VERBS))
 
     def test_ma7_export_render_manifest_implemented_not_reserved(self):
         # M-A7: ExportRenderManifest is a NEW implemented verb (never in the RESERVED
@@ -1079,8 +1091,12 @@ class SpecValidationRejectTests(unittest.TestCase):
         # assumed, because a promotion and an addition have different bookkeeping.
         self.assertIn("InvokeRewindToLaunch", hlib.IMPLEMENTED_SEAM_VERBS)
         self.assertNotIn("InvokeRewindToLaunch", hlib.RESERVED_SEAM_VERBS)
-        for slot_verb in ("FlySlot", "SealSlot", "StashSlot"):
+        # SealSlot has since been PROMOTED by the logistics lane, so only the other two
+        # slot names are still reserved. The point of this loop survives the promotion:
+        # neither remaining slot verb is InvokeRewindToLaunch under another spelling.
+        for slot_verb in ("FlySlot", "StashSlot"):
             self.assertIn(slot_verb, hlib.RESERVED_SEAM_VERBS)
+        self.assertIn("SealSlot", hlib.IMPLEMENTED_SEAM_VERBS)
 
     def test_rewind_to_launch_step_accepted(self):
         # A spec step using the verb is not flagged RESERVED / unknown. The base
@@ -1183,6 +1199,126 @@ class SpecValidationRejectTests(unittest.TestCase):
         # roster that names both lanes lives in
         # `RenderComposeVerifierWiringTests.RENDERCOMPOSE_DECLARER_SPECS`.
         self.assertGreaterEqual(checked, 2)
+
+    def test_logistics_verbs_implemented_not_reserved(self):
+        # The logistics lane's two promotions (the FIFTH and SIXTH strict ones since
+        # M-C1): both must end up implemented and neither reserved. Fails the way a
+        # half-done promotion fails - a name in BOTH sets, or in neither.
+        for verb in ("SealSlot", "RouteCommand"):
+            with self.subTest(verb=verb):
+                self.assertIn(verb, hlib.IMPLEMENTED_SEAM_VERBS)
+                self.assertNotIn(verb, hlib.RESERVED_SEAM_VERBS)
+        # The two slot names left behind, each for a stated reason rather than a
+        # backlog position: FlySlot's mechanism is already driveable as InvokeRewind,
+        # and nothing in the suite needs StashSlot's slot-OPEN direction.
+        for verb in ("FlySlot", "StashSlot"):
+            with self.subTest(verb=verb):
+                self.assertIn(verb, hlib.RESERVED_SEAM_VERBS)
+                self.assertNotIn(verb, hlib.IMPLEMENTED_SEAM_VERBS)
+
+    def test_logistics_steps_are_no_longer_rejected_as_reserved(self):
+        # The BEHAVIOURAL half of both promotions: before this lane a spec naming
+        # either verb failed validation with "is RESERVED, not v1-drivable", which is
+        # what made an end-to-end route lane unauthorable - route CREATION was
+        # unreachable from any driven step, so every committed route fixture is a
+        # harvest. Fails if either promotion is cosmetic.
+        for verb, args in (
+                ("SealSlot", {"tree": "tree-1"}),
+                ("SealSlot", {"rp": "rp-1", "slot": "0"}),
+                ("RouteCommand", {"action": "create", "tree": "tree-1"}),
+                ("RouteCommand", {"action": "send-once", "route": "abcd1234"}),
+                ("RouteCommand", {"action": "pause", "route": "abcd1234"}),
+                ("RouteCommand", {"action": "activate", "route": "abcd1234"})):
+            with self.subTest(verb=verb, args=args):
+                def m(s, _verb=verb, _args=args):
+                    s.get("expectations", {}).pop("ledger", None)
+                    s["driver"]["steps"].insert(
+                        1, {"cmd": _verb, "args": _args, "expect": "OK"})
+                v = self._reject(m)
+                self.assertFalse(
+                    any(verb in e for e in v.errors),
+                    "%s wrongly flagged: %s" % (verb, list(v.errors)))
+
+    def test_logistics_verbs_are_not_two_phase_deferred(self):
+        # Both are SINGLE-phase: the seal (plus its persist) and the
+        # build/store/orchestrator-arm are synchronous, so each read-back is a final
+        # answer and there is nothing to wait for. They therefore ride the 60 s
+        # default dispatch budget, which bounds only their game-not-loaded DEFER.
+        # Membership in DEFERRED_SEAM_VERBS is about the 540 s cap governing a
+        # spec-declared budget, which neither needs.
+        for verb in ("SealSlot", "RouteCommand"):
+            with self.subTest(verb=verb):
+                self.assertNotIn(verb, hlib.DEFERRED_SEAM_VERBS)
+                self.assertEqual(60.0, hlib.dispatch_deferral_budget(verb))
+                self.assertLess(hlib.dispatch_deferral_budget(verb),
+                                hlib.MAX_DEFERRED_STEP_BUDGET_SECONDS)
+
+    def test_logistics_refusal_reasons_classify(self):
+        # The two verbs' REJECTED taxonomy maps to the finer driver-* subkinds instead
+        # of collapsing to the coarse driver-verdict-mismatch.
+        #
+        # SealSlot contributes NO NEW TOKENS - by design it reuses vocabulary that is
+        # already mapped, and this cell asserts that reuse actually resolves rather
+        # than assuming it (the table is keyed by msg token alone, never by
+        # (verb, msg), so the reuse is what makes it free).
+        for token in ("target-arg-missing", "unknown-rp", "unknown-slot",
+                      "unknown-tree"):
+            with self.subTest(token=token):
+                self.assertEqual("driver-arg",
+                                 hlib.classify_seam_refusal_subkind(token))
+        # RouteCommand, arg half: the spec named or spelled something wrong.
+        for token in ("missing-arg", "unknown-action", "tree-arg-missing",
+                      "interval-arg-invalid", "route-arg-missing", "unknown-route",
+                      "route-ambiguous"):
+            with self.subTest(token=token):
+                self.assertEqual("driver-arg",
+                                 hlib.classify_seam_refusal_subkind(token))
+        # RouteCommand, gate half: nothing is misspelled - the run reached a state the
+        # verb does not drive, and the fix is an EARLIER STEP.
+        for token in ("tree-not-sealed", "candidate-dismissed",
+                      "candidate-already-promoted", "route-build-rejected"):
+            with self.subTest(token=token):
+                self.assertEqual("driver-gate",
+                                 hlib.classify_seam_refusal_subkind(token))
+        # candidate-ineligible is COMPOUND on the wire (the analysis status rides as a
+        # percent-encoded tail, the refly-gate shape), so it must classify off the head
+        # token exactly as `refly-gate` and `rewind-gate` do.
+        self.assertEqual(
+            "driver-gate",
+            hlib.classify_seam_refusal_subkind(
+                "candidate-ineligible%20MissingRouteProof"))
+        self.assertEqual("driver-gate",
+                         hlib.classify_seam_refusal_subkind("candidate-ineligible"))
+        self.assertEqual(
+            "driver-gate",
+            hlib.classify_seam_refusal_subkind(
+                "route-build-rejected%20interval-below-transit"))
+        # POST-ACT terminals stay UNMAPPED on purpose (the switch-refused-by-stock
+        # precedent): the verb reached the production call and the PRODUCT declined, so
+        # naming a refusal subkind would claim a refusal that never happened.
+        for token in ("route-action-refused", "seal-incomplete", "seal-refused"):
+            with self.subTest(token=token):
+                self.assertEqual("", hlib.classify_seam_refusal_subkind(token))
+        for sk in ("driver-gate", "driver-arg"):
+            self.assertIn(sk, hlib.RETRYABLE_INVALID_SUBKINDS)
+
+    def test_logistics_verbs_carry_explicit_role_rows(self):
+        # Both role tables gate on an EXPLICIT row per implemented verb, so a promotion
+        # must decide rather than inherit a default. Pinned here as well as by the
+        # table-completeness cells so the VALUES are asserted, not just the presence.
+        for verb in ("SealSlot", "RouteCommand"):
+            with self.subTest(verb=verb):
+                # Tail axis: world-mutating. SealSlot's flip is a documented ONE-WAY
+                # transition that persists the save and then REAPS rewind-point
+                # quicksaves; RouteCommand writes a durable Route and moves dispatch
+                # state with a ledger row.
+                self.assertEqual(hlib.TAIL_ROLE_WORLD_MUTATING,
+                                 hlib.SEAM_VERB_TAIL_ROLE[verb])
+                # Post-mission axis: recording. Neither verdict is a claim about a
+                # kerbal's physical in-world state, which is the whole `outcome` set.
+                self.assertEqual(hlib.POST_MISSION_ROLE_RECORDING,
+                                 hlib.SEAM_VERB_POST_MISSION_ROLE[verb])
+                self.assertFalse(hlib.post_mission_step_gates(verb))
 
     def test_r12_verbs_implemented_not_reserved(self):
         # R12 landed TWO verbs of DIFFERENT shapes, and the distinction is the point:

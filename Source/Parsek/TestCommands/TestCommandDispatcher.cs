@@ -189,6 +189,12 @@ namespace Parsek.TestCommands
         // Distinct from InvokeRewind above: that one is the Re-Fly / Rewind-to-Separation
         // system, this one is the plain launch rewind (RecordingStore.InitiateRewind).
         void InvokeRewindToLaunch(ParsedCommand cmd);
+
+        // ----- Logistics lane (the fifth + sixth promoted reserved verbs) -----
+        // SealSlot closes the route-candidacy gate (the Unfinished Flights Seal
+        // action); RouteCommand creates and operates the route itself.
+        void SealSlot(ParsedCommand cmd);
+        void RouteCommand(ParsedCommand cmd);
     }
 
     /// <summary>The scene/state a verb requires before it may execute.</summary>
@@ -310,6 +316,18 @@ namespace Parsek.TestCommands
                 // in-flight Recordings table. The rewind-specific guards below mirror
                 // InvokeRewind's triple verbatim.
                 ["InvokeRewindToLaunch"] = VerbSceneRequirement.RequiresFlight,
+                // Logistics lane. RequiresGameLoaded, NOT RequiresFlight, and the choice
+                // is load-bearing rather than permissive. Both verbs read and mutate
+                // SAVE-scoped stores (RecordingStore.CommittedTrees,
+                // ParsekScenario.RewindPoints, RouteStore.CommittedRoutes) and touch no
+                // vessel, no camera and no scene: the Unfinished Flights and Logistics
+                // windows they reproduce are open in FLIGHT and at the KSC alike, and
+                // the create-a-route lane naturally runs AFTER an ExitToSpaceCenter,
+                // where a RequiresFlight row would defer to its budget and TIMEOUT.
+                // SetSetting's row for the same reason: what these need is a loaded
+                // game, which is exactly what RequiresGameLoaded waits for.
+                ["SealSlot"] = VerbSceneRequirement.RequiresGameLoaded,
+                ["RouteCommand"] = VerbSceneRequirement.RequiresGameLoaded,
             };
 
         /// <summary>
@@ -451,6 +469,32 @@ namespace Parsek.TestCommands
                     // recording-active guard, and deliberately so: a live recorder is the
                     // PRECONDITION for the switch-segment cases this verb exists to exercise,
                     // not a hazard. The dialog / scope refusals are executor-side and typed.
+                    if (state.LoadInFlight)
+                        return DispatchResult.Reject("load-in-flight");
+                    if (state.MergeJournalInFlight)
+                        return DispatchResult.Reject("merge-journal-in-flight");
+                    break;
+
+                case "SealSlot":
+                case "RouteCommand":
+                    // The same pair ExitToSpaceCenter and SimulateStockSwitchClick carry,
+                    // for reasons specific to these two. A re-fly merge journal
+                    // mid-finalize is REWRITING the very RecordingSupersedes list a seal
+                    // walks to find a slot's effective tip and a candidacy sweep walks to
+                    // resolve a tree's recordings, and its RpReap phase races SealSlot's
+                    // own RewindPointReaper call - so a driven seal must not overlap it.
+                    // A LoadGame mid-flight would swap the stores out from under either
+                    // verb between the gate read and the mutation.
+                    //
+                    // NO recording-active guard, deliberately: both verbs act on
+                    // COMMITTED state, and the lane that needs them most runs with a
+                    // recorder live (fly -> commit -> seal -> create). Rejecting on
+                    // Recording would refuse the ordinary case.
+                    //
+                    // Evaluated load-first, matching the two rows above verbatim. Only
+                    // the token a both-flags-true state reports depends on the order,
+                    // and a family of guards that answers differently depending on
+                    // which member you asked is a family nobody can reason about.
                     if (state.LoadInFlight)
                         return DispatchResult.Reject("load-in-flight");
                     if (state.MergeJournalInFlight)
