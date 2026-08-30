@@ -69,7 +69,8 @@ namespace Parsek
         /// MissingSourceRecording / SourceChanged (design doc §6.6, §10.6). The reason is
         /// captured in <see cref="GameAction.RouteEndpointReason"/>: <c>player-pause</c>,
         /// the armed pause-after-cycle <c>delivered-then-paused</c> /
-        /// <c>delivered-partial-then-paused</c>, or the LIVE source-revalidation
+        /// <c>delivered-partial-then-paused</c> / <c>blocked-then-paused</c>, or the
+        /// LIVE source-revalidation
         /// auto-flips <c>AutoPause:MissingSourceRecording</c> /
         /// <c>AutoPause:SourceChanged</c> (OnLoad revalidation passes stay silent -
         /// caller-gated via <c>RouteStore.RevalidateSources(reason, liveEmitUT)</c>).

@@ -79,6 +79,40 @@ modulo-skipped window to a send-once arm, but that window emits nothing, bumps n
 next deliverable window, which is the intended "every Nth window" semantics. So the skip is not
 a consumed cycle and must not honor the pause. No change made.
 
+## SENDONCE-RESIDUAL-PATHS: three Send-Once arm paths the blocked-cycle fix deliberately did not take, surfaced by PR #1582's clean review [FOUND 2026-08-30 by the pre-merge review of the fix. ALL PRE-EXISTING (none introduced by the fix); filed together because they are one family: "which cycle resolutions consume the arm, and does every consumer say so"]
+
+**1. Multi-stop delivered path can end a Send Once ACTIVE (the fixed defect's delivered-side
+sibling).** `ProcessMultiStopCrossings` fires every due window of the cycle in one pass with no
+status re-check, and `ApplyDeliveryFromPlan`'s armed tail runs PER WINDOW: window A's delivery
+consumes the arm and pauses (now with a toast saying "Paused"), then window B's delivery in the
+same pass sees the flag already cleared, falls into the ordinary else, and transitions the route
+BACK to Active. Related: the catch-up `while (stillDue)` loop never re-checks status between
+passes, so a route paused by window A of pass 1 can have pass 2 dispatch + debit a whole new
+cycle (the blocked branch got the `stillDue = false` guard in the fix; the delivered branch has
+no equivalent). Multi-stop routes have unit coverage only - no driven lane, and no known
+real-save multi-stop route exists yet - which is why this was deferred rather than rushed into
+the release PR. Fix shape: honor the armed tail at CYCLE completion (last window), not per
+window, and stop the catch-up loop on any mid-tick departure from ghost-driving status.
+
+**2. The ELS replay backstop consumes the arm silently.** `ApplyDelivery`'s replay branch
+(`delivered-replay-then-paused`) pauses without a toast - the one resolution shape where the
+player is MOST likely to click again (the run produced no new delivery). Deliberate in the fix
+(no delivery counts available there); a counts-free "already delivered - route is now Paused"
+toast would close it.
+
+**3. Endpoint-lost at delivery leaves the arm live.** That branch transitions to
+`EndpointLost` without touching `PauseAfterCurrentCycle`/`SendOnceArmed`, and both flags
+persist through the codec. Inert today (`EndpointLost` is not ghost-driving, and `TryActivate`
+- the only exit - clears the flags), but it becomes a live stale-arm the moment any path
+returns an endpoint-recovered route to ghost-driving without clearing them; the rewind
+classifier already treats the flags' stickiness as a hazard (`ClearOneShotFlags`).
+
+Also banked from the same review (comment-only, corrected in the follow-up commit): the
+blocked-cycle marker CAN share its `(routeId, UT, Sequence=0)` key with a
+`RouteRecoveryCredited` row on the career-KSC path (rows distinguished by Type; no consumer
+orders between them), and `TryActivate` REBASES owed cycles away rather than resuming them
+(desirable - documented so nobody "restores" a resume that would replay unauthorized cycles).
+
 ## ~~ROUTECADENCE-1X-2X-FLAP-SUSPECTED: a paused single-stop route appeared to oscillate between cadence 1x and 2x every couple of seconds~~ [INVESTIGATED 2026-08-30 off the same log. NOT A DEFECT - the three transitions are three player clicks. No product change]
 
 The reading that raised it: `RouteCadence: cadence 1x->2x interval 45.039->90.079 (rebase)` at
