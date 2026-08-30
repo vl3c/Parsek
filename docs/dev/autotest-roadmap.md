@@ -2190,6 +2190,155 @@ filler between calibration flights.
 
 ---
 
+## The supply-route coverage program (D10, the rover-route wave)
+
+Added 2026-08-30, after the first SURFACE route subject ever flown: two rovers
+at KSC (save `logistics-rover-a`), Runway-origin transport, dock at a landed
+endpoint, 97.6 LiquidFuel + two inventory parts across the window, route
+`fd6ee2ff` created and Send-Once'd live. That one manual session paid for
+itself three times over before any lane existed: it found and same-day-fixed
+SENDONCE-BLOCKED-CYCLE-NEVER-PAUSES (a blocked cycle consumed a Send Once but
+left the route Active and ghost-looping forever), exposed the still-open
+ROUTE-DISPATCH-COST-FREE-ON-SNAPSHOTLESS-ROOT career defect, and produced the
+exact fixture shape `test_hlib.py`'s skip roster names as "a HARVEST
+requirement" (the target-branch dock window + cross-tree committed partner
+that no orbital fixture can produce, because the two docking craft there are
+Kerbal X descendants sharing one baked persistentId).
+
+Direction-document rules as for the other programs: status of individual lanes
+stays in `autotest-status.md`; this section owns the taxonomy, the gap
+register and the sequencing. D10 is the registry dimension (20 cells, 12
+uncovered at time of writing); the Cause-C row `RouteCommand -> D10` above is
+what Tier A retires.
+
+Lessons already banked from the manual flight - read before authoring any lane:
+
+- **Cargo is a corner-difference, not an event.** The window's manifests are
+  dock-vs-undock snapshots; a transfer-and-transfer-back nets to zero and the
+  window then has NO cargo (reject 5). Lanes must move cargo one direction and
+  leave it moved.
+- **The route is not in the save until the game saves again.** Route creation
+  happened after the last `persistent.sfs` write, so the collected save
+  carries the trees + the LANDED window but no ROUTES node. A creation lane
+  (Tier A2) sidesteps this; a route-READING fixture needs a post-creation
+  re-save.
+- **Do not pin `interval == cadence`.** The loop clock runs on the
+  phase-locked quantized cadence (`QuantizeCadenceToMultipleOfP`, measured
+  90.08 -> 95 here); `Route.DispatchInterval` stays raw `N x span`. Two
+  numbers, both correct.
+- **Send Once is now observable.** The fix wave added grep-stable tokens:
+  `ArmedPause:` with `reason=blocked-then-paused`, the delivered/blocked
+  toasts, and `TrySendOneCycleNow:` with `PauseAfterCurrentCycle=true`. Pin
+  these, not UI state.
+- **A destination fills up.** The first delivered cycle consumed the
+  endpoint's free inventory slots and the second cycle blocked
+  `DestinationFull stored-part:evaScienceKit` - which is not a nuisance but
+  the cheapest reproducible route-hold producer we have. Tier A2 uses it
+  deliberately.
+
+### Tier A - the rover-route basics (this branch's wave; machinery listed below)
+
+1. **RVR-1 rover fixture reading lane.** Harvest `logistics-rover-a` (the
+   established `depot-route-recorded` recipe: generic harvest tool +
+   fixture-specific finisher + `RECORDED_FIXTURES` shape pin) and run the
+   isolated `Logistics` category over it. Un-skips the suite's two
+   never-executed cells (`RouteProof_ActiveAsTargetDockWindow`,
+   `RouteProof_CrossTreeCommittedPartner`) - the only Logistics skips shared
+   by BOTH existing recorded hosts. Claims the surface flavor of D10
+   `ksc-origin` + `dock-producer`.
+2. **RVR-2 route creation lane - the unlock.** Load the same fixture, then
+   drive the seam: `SealSlot` (no-op guard; the trees are already sealed) ->
+   `RouteCommand action=create` -> `RouteCommand action=send-once` (delivers:
+   pin the Delivery/Inventory-store rows and `delivered-then-paused`) ->
+   `RouteCommand action=send-once` again (destination now full: pin
+   `BLOCKED kind=DestinationFull` + `blocked-then-paused` + the kept hold).
+   First driven route CREATION anywhere in the suite; claims D10
+   `candidate-detection`, `delivery`, `resource-cargo`, `inventory-cargo`,
+   `hold-reasons`, `destination-full-gate` in one flight, and regression-gates
+   the Send-Once fix live.
+3. **RVR-3 situational in-game category.** New scene-agnostic, batch-safe
+   category (RouteRewindTimeline's synthetic-route pattern) driving the
+   lifecycle headlessly-in-KSP: send-once delivered->paused, send-once
+   blocked->paused, pause-while-in-transit resolving on a blocked cycle,
+   toast-text seams. Own scenario spec with its own pinned tally - a NEW
+   category, deliberately NOT added to `Logistics` (whose `total=47` is
+   pinned by four committed specs).
+
+### Tier B - surface-route variants (one flight each, template established by RVR)
+
+4. **Start-docked origin proof.** Record the transport STARTING docked to the
+   base rover off-pad, undock, deliver elsewhere. First-ever execution of
+   `RouteOriginProof_StartedDockedToNonKsc_ProducerLandsProof` (the save
+   carries no ROUTE_ORIGIN_PROOF node today - both roots are Runway starts,
+   which deliberately skip the proof) and the surface flavor of D10
+   `docked-depot-origin`.
+5. **Ground pickup + mixed direction.** The base loads cargo ONTO the
+   transport (pickup manifest), then a both-directions window
+   (`mixed-direction`). Same two-rover template, transfers reversed.
+6. **EVA-construction drift, live.** Attach a part to a vessel EXTERIOR during
+   the docked window: the `Route window part-set drift on undock` warning path
+   has never fired outside unit tests. Report-only lane; pins that the route
+   still builds and the moved part appears in NO manifest (the documented
+   contract).
+7. **Multi-stop rover run.** One transport, two landed bases in one recording
+   (D10 `multi-stop` - the multi-window `LoopRoute(multi)` path, whose blocked
+   branch the fix wave also patched but no flight has ever driven).
+8. **Round-trip pair.** A->B->A with cargo both legs (D10 `round-trip-pair`).
+
+### Tier C - economics (career), blocked on a product decision
+
+9. **Costed dispatch.** BLOCKED on fixing
+   ROUTE-DISPATCH-COST-FREE-ON-SNAPSHOTLESS-ROOT (todo): today any route whose
+   tree root lacks a `VesselSnapshot` - exactly the rover shape - dispatches
+   for free in career. After the fix: a career lane pinning `DispatchDebit`
+   > 0, the funds-short hold (`hold-reasons` career flavor), and the
+   KSC recovery credit, against the ledger oracle.
+10. **Escrow competition.** Two routes sharing one physical source (D10
+    `multi-origin-escrow`); the reservation/release invariant has unit
+    coverage but no driven lane.
+
+### Tier D - scale and rendering (pair with the render programs' budgets)
+
+11. **Surface-route map presence.** Measured pin exists: a landed-terminal
+    loop has NO map/TS proto (flight-mesh only; KSC host works in-window).
+    A `route-map-lines` lane for a SURFACE route must be authored against
+    that pin, not against the orbital route lines V18T covers.
+12. **Route x rewind, flown.** H6 covers the timeline synthetically;
+    a rover-route rewind variant makes `route-x-rewind` a flown claim.
+13. **Harvest-provenance, surface.** An ISRU drill rover feeding the route
+    (D10 `harvest-provenance` surface flavor; the orbital flavor has
+    coverage via the depot-drill lanes).
+14. **Inter-body surface delivery.** The Nth-window inter-body machinery
+    (H34) with a landed endpoint - the "tanker to a Mun base" shape the
+    design doc names as v0's ceiling.
+
+### Machinery register (build order inside the program)
+
+- **`RouteCommand` + `SealSlot` seam verbs** (Cause C closure) - in flight on
+  this branch. Everything in Tier A2+ depends on them.
+- **saveparse `route` expectation block** - `routes` is a RESERVED block name
+  today (IMPROVEMENT-SAVEPARSE-NO-ROUTES-FACET); until it parses ROUTES nodes,
+  creation lanes pin end-state via logContract tokens + the builder-side
+  `verify_route()` pattern. Promote when RVR-2 stabilizes, then arm per the
+  standing report-only-first protocol.
+- **Fixture: `logistics-rover-a` harvest** (RVR-1/2 host). A second,
+  route-CARRYING fixture (post-creation re-save) is optional and only needed
+  for route-reading lanes that must not create.
+- **Generators** - landed on this branch: `WithRouteConnectionWindow` /
+  `WithRouteOriginProof` through the production codec chokepoint,
+  `RouteWindowFixtures.SurfaceDeliveryWindow` (rover-flight constants),
+  `VesselSnapshotBuilder.AddStoredPartToInventory`. Tier B/C unit siblings
+  build on these, not on new hand-rolled window helpers (16 already exist;
+  do not add a 17th).
+
+Sequencing: Tier A rides this branch. Tier B lanes are operator-tier
+calibration flights, one at a time, each following the RVR template; B4 first
+(it is the only one that also closes an in-game skip). Tier C waits on the
+cost-fix decision. Tier D items ride along whenever their sibling program
+(loop-render / ghost-replay) is already paying the flight cost. The standing
+verdict - the nightly lane does not grow until the basics are gated - stands
+unamended here too.
+
 ## Trust and fail-open risks still outstanding
 
 What IS load-bearing today: the 8-verifier chain (driverValidity, batchComplete,
