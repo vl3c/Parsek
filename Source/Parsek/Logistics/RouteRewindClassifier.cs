@@ -252,7 +252,8 @@ namespace Parsek.Logistics
         /// <see cref="Route.PreMissingStatus"/> recovery baseline). Only
         /// player-driven rows (<c>player-pause</c>, <c>player-activate</c>,
         /// <c>delivered-then-paused</c>, <c>delivered-partial-then-paused</c>,
-        /// <c>delivered-replay-then-paused</c>, or a legacy null/empty reason)
+        /// <c>delivered-replay-then-paused</c>, <c>blocked-then-paused</c>, or a
+        /// legacy null/empty reason)
         /// carry intent, so the latest PLAYER row wins regardless of newer
         /// auto rows.</para> <paramref name="keptActions"/> is
         /// the post-Rec-1-retire list, so every route-typed row in it already
