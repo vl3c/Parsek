@@ -258,6 +258,112 @@ namespace Parsek.Tests.Generators
             return this;
         }
 
+        /// <summary>
+        /// Stores one cargo part inside the part at <paramref name="partIndex"/>'s
+        /// <c>ModuleInventoryPart</c>, in the exact node shape
+        /// <c>VesselSpawner.ExtractInventoryPayloadItems</c> walks:
+        /// <c>PART -&gt; MODULE(name="ModuleInventoryPart") -&gt; STOREDPARTS -&gt; STOREDPART</c>.
+        /// <para>
+        /// The STOREDPART carries the keys the production parse reads —
+        /// <c>partName</c> (required; a STOREDPART without it is dropped),
+        /// <c>quantity</c> (absent =&gt; 1), and the optional
+        /// <c>variantName</c> — plus <c>slotIndex</c> / <c>stackCapacity</c>
+        /// for on-disk fidelity. Stored resources go on an inner <c>PART</c>
+        /// node exactly as KSP writes them, which is where
+        /// <c>ExtractStoredPartResourceManifest</c> looks (it also accepts
+        /// RESOURCE nodes directly on the STOREDPART).
+        /// </para>
+        /// <para>
+        /// Repeated calls against the SAME <paramref name="partIndex"/> append
+        /// to the ONE inventory module's STOREDPARTS list — production emits a
+        /// single <c>ModuleInventoryPart</c> per part, and
+        /// <c>ExtractInventoryPayloadItems</c> aggregates identical payload
+        /// identities by summing quantity + slots, so a second module would
+        /// silently change the extracted <c>SlotsTaken</c>.
+        /// </para>
+        /// <para>
+        /// Note that <c>slot</c> and <c>quantity</c> are deliberately EXCLUDED
+        /// from <c>VesselSpawner.ComputeInventoryPayloadIdentityHash</c>: two
+        /// stored parts differing only in slot or stack size share one payload
+        /// identity. Vary <paramref name="storedPartName"/>,
+        /// <paramref name="variantName"/> or the stored resources to author a
+        /// DIFFERENT identity.
+        /// </para>
+        /// </summary>
+        /// <param name="partIndex">Index of the host part (call order of <see cref="AddPart"/>).</param>
+        /// <param name="storedPartName">Runtime part name of the cargo item (dot-form, e.g. <c>evaChute</c>).</param>
+        /// <param name="slot">Inventory slot index the item occupies.</param>
+        /// <param name="quantity">Stack size stored in that slot.</param>
+        /// <param name="variantName">Optional part variant; part of the payload identity.</param>
+        /// <param name="stackCapacity">Declared stack capacity of the slot (on-disk fidelity only).</param>
+        /// <param name="storedResources">Optional resources carried inside the stored part.</param>
+        public VesselSnapshotBuilder AddStoredPartToInventory(
+            int partIndex,
+            string storedPartName,
+            int slot = 0,
+            int quantity = 1,
+            string variantName = null,
+            int stackCapacity = 1,
+            params (string name, double amount, double maxAmount)[] storedResources)
+        {
+            var parts = partsContainer.GetNodes("PART");
+            if (partIndex < 0 || partIndex >= parts.Length)
+                throw new ArgumentOutOfRangeException(nameof(partIndex),
+                    $"Part index {partIndex} out of range (0..{parts.Length - 1})");
+            if (string.IsNullOrEmpty(storedPartName))
+                throw new ArgumentException(
+                    "storedPartName is required — production drops a STOREDPART with no partName",
+                    nameof(storedPartName));
+
+            ConfigNode inventoryModule = FindInventoryModule(parts[partIndex]);
+            if (inventoryModule == null)
+            {
+                inventoryModule = parts[partIndex].AddNode("MODULE");
+                inventoryModule.AddValue("name", "ModuleInventoryPart");
+                inventoryModule.AddValue("isEnabled", "True");
+                // Not read by the Parsek parse; present because a real
+                // ModuleInventoryPart snapshot always carries it.
+                inventoryModule.AddValue("InventorySlots", "4");
+            }
+
+            ConfigNode storedPartsNode = inventoryModule.GetNode("STOREDPARTS")
+                ?? inventoryModule.AddNode("STOREDPARTS");
+
+            ConfigNode storedPart = storedPartsNode.AddNode("STOREDPART");
+            storedPart.AddValue("slotIndex", slot.ToString(IC));
+            storedPart.AddValue("partName", storedPartName);
+            storedPart.AddValue("quantity", quantity.ToString(IC));
+            storedPart.AddValue("stackCapacity", stackCapacity.ToString(IC));
+            if (!string.IsNullOrEmpty(variantName))
+                storedPart.AddValue("variantName", variantName);
+
+            if (storedResources != null && storedResources.Length > 0)
+            {
+                ConfigNode innerPart = storedPart.AddNode("PART");
+                innerPart.AddValue("name", storedPartName);
+                for (int i = 0; i < storedResources.Length; i++)
+                {
+                    ConfigNode res = innerPart.AddNode("RESOURCE");
+                    res.AddValue("name", storedResources[i].name);
+                    res.AddValue("amount", storedResources[i].amount.ToString("R", IC));
+                    res.AddValue("maxAmount", storedResources[i].maxAmount.ToString("R", IC));
+                }
+            }
+
+            return this;
+        }
+
+        private static ConfigNode FindInventoryModule(ConfigNode partNode)
+        {
+            ConfigNode[] modules = partNode.GetNodes("MODULE");
+            for (int i = 0; i < modules.Length; i++)
+            {
+                if (modules[i].GetValue("name") == "ModuleInventoryPart")
+                    return modules[i];
+            }
+            return null;
+        }
+
         private static string D(double v) => v.ToString("R", IC);
 
         private static string F(float v) => v.ToString("R", IC);
