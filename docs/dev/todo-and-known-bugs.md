@@ -15,6 +15,129 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~SENDONCE-BLOCKED-CYCLE-NEVER-PAUSES: a "Send Once" whose cycle is BLOCKED consumes the cycle but leaves the route Active with the one-shot still armed~~ [FOUND 2026-08-30 on a real flight (log `logs/2026-08-30_1106_rover-route/KSP.log`, route `fd6ee2ff`). FIXED the same day]
+
+**What the flight showed.** A single-stop KSC rover supply route (span 45.04 s, cadence 1x)
+created Paused. First "Send Once" (10:59:14) armed `PauseAfterCurrentCycle`; the loop clock
+caught up instantly (warp-jump path), cycle-0 delivered 97.6 LiquidFuel + 2 inventory parts, and
+the route correctly went `Active->Paused reason=delivered-then-paused`. Second "Send Once"
+(10:59:30) armed again; cycle-1 hit
+`BLOCKED kind=DestinationFull reason=stored-part:evaScienceKit` (the first delivery had filled
+the destination's inventory slots). The blocked branch consumed the cycle (`SkippedCycles+=1`,
+`lastObserved` snapped) and returned - and the route stayed **Active with the ghost looping
+indefinitely and `PauseAfterCurrentCycle` still armed**, which would have silently delivered at
+an arbitrary future crossing the moment the destination freed up. The player's report was "send
+once turned into an endless cycle".
+
+**Root cause.** `Route.PauseAfterCurrentCycle` was honored on the DELIVERED paths only -
+`RouteOrchestrator.ApplyDeliveryFromPlan`'s armed tail (`delivered-then-paused` /
+`delivered-partial-then-paused`) and `ApplyDelivery`'s replay backstop
+(`delivered-replay-then-paused`, itself a later patch of the same omission, PR #1327 finding 3).
+The two BLOCKED branches - `ProcessLoopRoute`'s single-stop `BLOCKED kind=` return and
+`ProcessMultiStopCrossings`'s `LoopRoute(multi) ... BLOCKED` return - consumed the armed cycle
+without ever reading the flag. Neither arming provenance was served: Send Once (the one-shot's
+cycle IS over) nor `TryPause` on an InTransit route (the player asked to pause; a blocked cycle
+still completes the pause).
+
+**Fix.** New `RouteOrchestrator.TryHonorArmedPauseOnBlockedCycle` mirrors the delivered tail
+row-for-row: consume `PauseAfterCurrentCycle` + `SendOnceArmed`, `TransitionTo(Paused)` with the
+new reason `blocked-then-paused` (constant `RouteOrchestrator.BlockedThenPausedReason`), emit the
+`RoutePaused` lifecycle marker through the SAME `EmitRouteLifecycleMarker` helper (sequence 0 -
+a blocked cycle emitted no rows to order behind), and `RouteStore.DropRouteEscrow` as the quiesce
+transition. Two deliberate non-actions: the hold `RecordHold` just wrote is KEPT (the Logistics
+window must still name why it blocked), and the recovery credit is NOT re-flushed (both blocked
+branches already call `EmitPendingRecoveryCredit` at the top). Called from both blocked branches;
+on the multi-stop one it also clears `stillDue` so the catch-up loop stops processing later owed
+cycles on a route that just went quiet. The cadence-modulo-skip branch (`SKIPPED by cadence
+modulo`) is deliberately NOT touched: it advances the marker and consumes nothing, and a
+send-once arm cannot land on it (see the sub-entry below).
+
+**Player feedback, same fix.** A warp-catch-up one-shot resolves inside the frame the click is
+consumed, so both resolutions were silent on screen. Both now post through the existing
+`ParsekLog.ScreenMessage` seam, gated on the `SendOnceArmed` provenance only (an ordinary loop
+cycle and a plain pause-after-cycle arm stay silent): text built by the new pure
+`RouteSendOncePresentation` (`BuildDeliveredMessage` / `BuildBlockedMessage`, InvariantCulture
+counts, the blocked wording reused verbatim from `LogisticsHoldPresentation.DescribeHold` so the
+toast and the detail panel can never disagree).
+
+**Tests.** `RouteSendOnceBlockedPauseTests` (single-stop honor + flags + kept hold + marker +
+toast + the go-quiet pin + an UNARMED negative control, the multi-stop half, the `TryPause`
+InTransit provenance, and the cadence-determinism pins) plus three delivered-path cells in
+`RouteOrchestratorDeliveryTests` (send-once toast, ordinary-cycle silence, pause-after-cycle
+silence).
+
+### ~~Sub-question: can a send-once arm land on a cadence-modulo skip?~~ [ANSWERED 2026-08-30 - NO]
+
+`TrySendOneCycleNow` only pulls `NextDispatchUT` forward and clears `NextEligibilityCheckUT`; it
+does not touch `WindowAnchorCycleIndex` or `LastObservedLoopCycleIndex`, and the loop path
+ignores `NextDispatchUT` entirely (the dock-crossing detector owns the dispatch phase). The
+modulo residual is live only under the `ReaimWindows` basis (`nResidual > 1`), where the D3
+anchor-adoption rule makes the FIRST owed crossing after creation / activation / rebase / engage
+ADOPT the anchor and DELIVER. A route whose anchor is already adopted can present a
+modulo-skipped window to a send-once arm, but that window emits nothing, bumps no
+`SkippedCycles`, records no hold and consumes no cycle - the arm survives it and fires on the
+next deliverable window, which is the intended "every Nth window" semantics. So the skip is not
+a consumed cycle and must not honor the pause. No change made.
+
+## ~~ROUTECADENCE-1X-2X-FLAP-SUSPECTED: a paused single-stop route appeared to oscillate between cadence 1x and 2x every couple of seconds~~ [INVESTIGATED 2026-08-30 off the same log. NOT A DEFECT - the three transitions are three player clicks. No product change]
+
+The reading that raised it: `RouteCadence: cadence 1x->2x interval 45.039->90.079 (rebase)` at
+10:58:02.544, `2x->1x` at 10:58:04.948 (preceded by
+`ResolveLoopUnit ... loop-unit cache rebuilt reason=builder-inputs-changed`), `1x->2x` again at
+10:58:06.634 - on a Paused route with the Logistics window open.
+
+**Why it is not a flap.** Every one of the three is immediately followed by
+`[UI] Logistics: Cadence route=fd6ee2ff N=<n> result=applied`, which is emitted from exactly one
+place - `LogisticsWindowUI`'s deferred `pendingCadenceRoute` apply. `pendingCadenceRoute` is set
+only inside the `-` / `+` `GUILayout.Button` click handlers (row stepper and detail stepper); the
+typed-interval commit path applies through `RouteCadence.ApplyMultiplier` directly and logs its
+own line. `CadenceMultiplier` / `DispatchInterval` have no other production writer than
+`RouteCadence.ApplyMultiplier` and `RouteBuilder` at creation - no tick path, no cache rebuild,
+no loop-unit resolution mutates them. The 2.4 s and 1.7 s spacing is human click speed. So the
+sequence is `+`, `-`, `+`.
+
+**Why the `builder-inputs-changed` rebuild sits in the middle of it.** `ApplyMultiplier`'s M5
+windowed-basis probe calls `ResolveLoopUnit` BEFORE mutating the interval. The loop-unit cache
+key is `MissionLoopUnitBuilder.BuildSignature(...)`, which folds the backing mission's loop
+period - and that period IS `Route.DispatchInterval`, which the PREVIOUS click had just changed.
+So the rebuild is the previous click's consequence observed at the next click's probe, not a
+cause of anything. (The third click's rebuild line is present too, collapsed into the
+`| suppressed=1` rate-limit tail.) Pinned by `TickLoop_NeverMutatesCadenceOrInterval_PausedOrActive`,
+`ApplyMultiplier_SameN_IsNoOp_NoRebase_NoIntervalRewrite` and
+`DeriveDispatchInterval_IsDeterministic` in `RouteSendOnceBlockedPauseTests`.
+
+**The `cadence=95` vs `interval=90.08` question, answered.** Not a discrepancy and not a tail
+gap. `MissionPeriodicity.Solve` returned `method=unconstrained P=5 lock=yes` for this
+single-member tree, so `MissionLoopUnitBuilder` phase-locked the unit and ran
+`QuantizeCadenceToMultipleOfP(90.08, 5)` = `ceil(90.08/5)*5` = `19*5` = **95** - the log says so
+in as many words (`PhaseLock APPLIED: ... cadence 90.079999999918186->95`). The render/delivery
+clock deliberately runs on the quantized cadence so the ghost's relaunch schedule sits on
+faithful windows; the route's own `DispatchInterval` stays the raw `N * span`. Intended.
+
+## ROUTE-DISPATCH-COST-FREE-ON-SNAPSHOTLESS-ROOT: a KSC route whose tree ROOT recording carries no `VesselSnapshot` dispatches for FREE in career [FOUND 2026-08-30 off the same `logs/2026-08-30_1106_rover-route` flight while diagnosing a `cost=0` Verbose line. LATENT CAREER DEFECT — the flight was SANDBOX so nothing was mischarged. OPEN, not yet fixed]
+
+**Evidence.** Every UI repaint logged `ComputeDispatchFundsCostForRoute: route fd6ee2ff source
+recording cf8d06fc... not in ERS or has no VesselSnapshot; cost=0`. The recording IS in ERS (a
+committed member of tree `73e50f1e`); what it lacks is a `VesselSnapshot` — every
+`SaveRecordingFiles: id=cf8d06fc...` line reads `wroteVessel=False` while the other three tree
+members read `True`.
+
+**Mechanism.** The always-tree ROOT is created with a `GhostVisualSnapshot` only
+(`ParsekFlight.cs` says so at the creation site: "VesselSnapshot is captured later at
+stop/split time"), and a root that never reaches a capture site — here the runway stub that
+ended at the rover's undock split, 0 trajectory points — keeps `VesselSnapshot == null`
+forever. `RouteBuilder` sets `SourceRefs[0]` to the tree root, and
+`ComputeDispatchFundsCostForRoute` (`RouteOrchestrator.cs`, ~5039) returns 0 on
+`source.VesselSnapshot == null` BEFORE the M2 run-manifest branch is reachable, even though
+this root DOES carry a run manifest (`RouteRunManifest start written ... parts=16 res=1`). In
+career that zero flows into BOTH the funds eligibility gate (vacuously passes) and the actual
+charge: the KSC dispatch is silently free, with one Verbose line as the only trace.
+
+**Shape of a fix (undecided):** either cost from the first `SourceRefs` member that HAS a
+snapshot / from the run manifest when the root is snapshot-less, or capture a real
+`VesselSnapshot` on the root at the split that orphans it. Product decision — the costing
+basis defines what a "dispatch" charges for.
+
 ## RESERVATION-OVERLAY-GAPS: the reservation readout that replaced the dead budget UI is absent in the EDITOR and reports `Reserved: 0` in a genuine deficit [SPLIT OUT 2026-08-29 from RESOURCE-BUDGET-READOUTS-ARE-DEAD when that entry was struck as cleanup-done. Neither gap was part of that cleanup; refiled here so they survive it]
 
 `CurrencyReservationOverlay` is the surface that carries the reserved-vs-available story now
