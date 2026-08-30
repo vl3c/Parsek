@@ -108,6 +108,27 @@ All notable changes to Parsek are documented here.
 
 ### Fixed
 
+- "Send Once" on a supply route no longer turns into an endless cycle, and it tells
+  you what happened. Pressing Send Once arms one run: the route wakes up, delivers
+  once, and goes back to Paused. That worked only when the run actually delivered.
+  If the run was blocked instead - the destination full, the origin empty, funds
+  short, an endpoint missing - the route counted the cycle as used but stayed
+  running, with the one-shot still armed: the ghost looped forever, and the moment
+  the obstacle cleared, the route would have quietly delivered at some arbitrary
+  later lap nobody asked for. A blocked run now completes the Send Once the same way
+  a delivered one does - the route returns to Paused - and the reason it was blocked
+  stays on the route so the Logistics window can still name it. The same applies to
+  pressing Pause while a cycle is in flight: the cycle finishing badly still finishes
+  the pause. Routes that were not asked to stop are unaffected and keep looping
+  through a blocked cycle exactly as before.
+
+- Send Once now confirms itself on screen. A one-shot can resolve in the same instant
+  you click it - when the route's loop clock has already caught up, the whole run
+  happens inside that frame - so the click looked like it did nothing at all. Both
+  outcomes now post a message: the delivered one names the route and what it dropped
+  off, the blocked one names the route and why it could not run. Ordinary automatic
+  cycles stay silent.
+
 - A flight interrupted by a quickload no longer loses its vessels when you leave the scene. Quickloading mid-flight parks the mission to one side while Parsek waits a few seconds to recognise the craft you land back on. If that recognition misses - or you simply head for the Space Center before those few seconds are up - the mission stays parked, and the note Parsek writes at that point tells you to leave the scene to sort it out. Doing exactly that used to commit the mission as ghosts only: the trail still played back, but every craft in it was stripped of the record needed to bring it back as a real vessel. That commit now keeps those records, using the same rules as the "Merge to Timeline" button - each surviving craft that can come back does, and only the ones that could never have appeared anyway (a craft caught mid-descent, say) are left as ghosts, with their appearance preserved for playback. Two cases deliberately keep the old behaviour: a Re-Fly session, whose merge is still yours to confirm, and quitting to the main menu, where nothing is going to be spawned anyway.
 
 - A tech node you have researched can no longer be quietly re-locked because Parsek's own bookkeeping came up short. Parsek keeps a running reconstruction of your career's science, and when it replays your history it re-derives which nodes the R&D tree should show as unlocked. If that reconstruction ever arrived at a node's purchase with less science in hand than the node cost, it refused to charge you - correctly - but then treated the node as never bought and stripped it out of the tree. That took the parts you had already paid entry costs for with it, with no way to get them back short of paying again, and the tree repainted itself into a state that looked perfectly normal, so the only sign was parts missing in the VAB. Nothing about it was limited to rewinding: any ordinary replay could reach it, including the ones that run when you load a save, recover a craft, roll out a vessel or spend at the KSC. Parsek now refuses to take a researched node away on that evidence. When the history it is replaying still says you researched a node and the only obstacle is a shortfall in its own arithmetic, it keeps the node, keeps the parts, and writes a loud, specific line to the log naming the node, its cost and the shortfall. Re-locking a node for a real reason - rewinding to before you researched it, for instance - works exactly as before.

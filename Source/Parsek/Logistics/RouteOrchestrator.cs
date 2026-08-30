@@ -942,6 +942,11 @@ namespace Parsek.Logistics
                     $"BLOCKED kind={elig.Kind} reason={elig.Reason ?? "<none>"} " +
                     $"shortfall={elig.Shortfall.ToString("R", IC)} — emitted nothing, " +
                     $"snapped lastObserved={dockCycleIndex.ToString(IC)} skippedCycles={route.SkippedCycles.ToString(IC)}");
+                // An armed one-shot / pause-after-cycle is CONSUMED by this blocked
+                // cycle: pause instead of looping on forever with the flag still
+                // armed (which would silently deliver at some arbitrary future
+                // crossing once the block cleared). The hold recorded above is kept.
+                TryHonorArmedPauseOnBlockedCycle(route, currentUT, cycleId);
                 return;
             }
 
@@ -1360,6 +1365,15 @@ namespace Parsek.Logistics
                         $"shortfall={elig.Shortfall.ToString("R", IC)} — emitted nothing for {dueCount.ToString(IC)} " +
                         $"cMin window(s), snapped due stops+lastObserved={cMin.ToString(IC)} " +
                         $"skippedCycles={route.SkippedCycles.ToString(IC)} stillDue={(stillDue ? "1" : "0")}");
+                    // An armed one-shot / pause-after-cycle is CONSUMED by this
+                    // blocked cycle (same contract as the single-stop path). The
+                    // route goes quiet HERE, so the catch-up loop must stop too:
+                    // clear stillDue or the caller would keep processing later owed
+                    // cycles on a route the player just paused. Those cycles are not
+                    // lost - the per-stop cursors still carry them, and they resume
+                    // when the route is activated again.
+                    if (TryHonorArmedPauseOnBlockedCycle(route, currentUT, cycleId))
+                        stillDue = false;
                     return;
                 }
 
@@ -3651,6 +3665,90 @@ namespace Parsek.Logistics
         }
 
         /// <summary>
+        /// Status reason stamped on the Active -&gt; Paused transition (and on the
+        /// <see cref="GameActionType.RoutePaused"/> lifecycle marker) when an armed
+        /// <see cref="Route.PauseAfterCurrentCycle"/> is honored on a BLOCKED cycle.
+        /// Sibling of the delivered path's <c>delivered-then-paused</c> /
+        /// <c>delivered-partial-then-paused</c> and the replay path's
+        /// <c>delivered-replay-then-paused</c>.
+        /// </summary>
+        internal const string BlockedThenPausedReason = "blocked-then-paused";
+
+        /// <summary>
+        /// Honors an armed <see cref="Route.PauseAfterCurrentCycle"/> on a cycle the
+        /// loop path CONSUMED AS BLOCKED (eligibility failed: nothing dispatched,
+        /// nothing delivered, <see cref="Route.SkippedCycles"/> bumped, the crossing
+        /// index snapped forward). Mirrors the delivered-path armed tail in
+        /// <see cref="ApplyDeliveryFromPlan"/> row-for-row: consume both flags,
+        /// transition to <see cref="RouteStatus.Paused"/>, emit the
+        /// <see cref="GameActionType.RoutePaused"/> lifecycle marker, and drop any
+        /// held escrow (a route going quiet must not strand a reservation).
+        ///
+        /// <para><b>Why a blocked cycle must honor the arm.</b> Without this the
+        /// route stayed Active with the flag STILL armed after the one-shot's cycle
+        /// was consumed: the ghost looped forever ("send once turned into an endless
+        /// cycle") and the still-armed flag would silently deliver at an arbitrary
+        /// future crossing whenever the block cleared. Both arming provenances want
+        /// the pause here - Send Once (the one-shot's cycle IS over; a blocked cycle
+        /// is a resolution, not a postponement) and Pause-while-InTransit (the player
+        /// asked to pause; the cycle finished, blocked).</para>
+        ///
+        /// <para><b>The hold is deliberately KEPT.</b> The caller has already run
+        /// <see cref="Route.RecordHold"/> for this cycle; nothing here clears it, so
+        /// the Logistics window still names WHY the run did not happen next to the
+        /// now-Paused row. The recovery credit is NOT flushed here either - both
+        /// blocked branches already called <see cref="EmitPendingRecoveryCredit"/> at
+        /// the top of the branch (the blocked crossing IS the prior cycle's next
+        /// crossing), so a second call would be redundant.</para>
+        ///
+        /// <para>Returns true when the pause was honored (the caller must then stop
+        /// processing further owed cycles this tick), false when nothing was armed.</para>
+        /// </summary>
+        internal static bool TryHonorArmedPauseOnBlockedCycle(
+            Route route, double currentUT, string cycleId)
+        {
+            if (route == null || !route.PauseAfterCurrentCycle)
+                return false;
+
+            bool wasSendOnce = route.SendOnceArmed;
+            RouteStatus previousStatus = route.Status;
+            route.PauseAfterCurrentCycle = false;
+            // Route-timeline events: the one-shot is over (consumed as blocked), so
+            // drop the Send Once provenance exactly as the delivered tail does.
+            route.SendOnceArmed = false;
+            route.TransitionTo(RouteStatus.Paused, BlockedThenPausedReason);
+            // Sequence 0: unlike the delivered tail (which lands at the window's
+            // stride slot +4, after its delivered row) a blocked cycle emitted NO
+            // rows at this UT, so there is nothing to order the marker behind -
+            // mirroring TryPause's player-pause marker.
+            EmitRouteLifecycleMarker(route, currentUT, GameActionType.RoutePaused, BlockedThenPausedReason);
+            // Quiesce transition: the route stops crossing here, so any escrow held
+            // from an earlier partially-fired cycle would strand and mis-gate a
+            // competing route sharing the source. Idempotent no-op when nothing is held.
+            RouteStore.DropRouteEscrow(route.Id);
+
+            ParsekLog.Info(Tag,
+                $"ArmedPause: route {ShortIdForLog(route)} cycle={cycleId ?? "<none>"} " +
+                $"BLOCKED cycle consumed the armed pause — {previousStatus}->Paused " +
+                $"reason={BlockedThenPausedReason} armedBy={(wasSendOnce ? "send-once" : "pause-after-cycle")} " +
+                $"hold kind={route.LastHoldKind} detail={route.LastHoldDetail ?? "<none>"} (kept) " +
+                $"at ut={currentUT.ToString("R", IC)}");
+
+            // Send-once feedback: the click's one-shot resolved without delivering,
+            // and (unlike an ordinary loop cycle) the player is waiting on THIS run,
+            // so say so on screen. Only for the Send Once provenance - an ordinary
+            // pause-after-cycle arm is not a run the player is watching for.
+            if (wasSendOnce)
+            {
+                ParsekLog.ScreenMessage(
+                    RouteSendOncePresentation.BuildBlockedMessage(
+                        route.Name, route.LastHoldKind, route.LastHoldDetail, route.LastHoldShortfall),
+                    6f);
+            }
+            return true;
+        }
+
+        /// <summary>
         /// Endpoint-lost applier. Transitions status, sets the retry timer, and
         /// emits a <see cref="GameActionType.RouteEndpointLost"/> ledger row so
         /// the timeline records the failure. Design §10.1/§10.2 — endpoint loss
@@ -4174,6 +4272,9 @@ namespace Parsek.Logistics
                 route.PauseAfterCurrentCycle = false;
                 // Route-timeline events: the one-shot completed; drop the Send Once
                 // provenance (the dispatched row was already stamped at emit time).
+                // Captured FIRST: the send-once feedback toast below is posted only
+                // for that provenance, and the flag is consumed on this line.
+                bool wasSendOnce = route.SendOnceArmed;
                 route.SendOnceArmed = false;
                 string reason = plan.IsPartial ? "delivered-partial-then-paused" : "delivered-then-paused";
                 route.TransitionTo(RouteStatus.Paused, reason);
@@ -4189,8 +4290,24 @@ namespace Parsek.Logistics
                 // cycle-complete escrow sweep (ProcessMultiStopCrossings) and the pending
                 // window's source reservation would strand, mis-gating a competing route.
                 // Drop it. Idempotent no-op on the complete-cycle / single-stop / no-escrow
-                // paths (this is the sixth and final quiesce transition).
+                // paths (this is the sixth quiesce transition; the seventh is the
+                // blocked-cycle armed pause in TryHonorArmedPauseOnBlockedCycle,
+                // which goes quiet for the same reason without ever delivering).
                 RouteStore.DropRouteEscrow(route.Id);
+
+                // Send-once feedback: a warp-catch-up one-shot can dispatch AND
+                // deliver inside the same frame the click is consumed, so without
+                // this the whole run is invisible and the click reads as "did
+                // nothing". Only the Send Once provenance toasts - an ordinary
+                // pause-after-cycle arm is not a run the player is watching for,
+                // and no ordinary (unarmed) loop cycle toasts at all.
+                if (wasSendOnce)
+                {
+                    ParsekLog.ScreenMessage(
+                        RouteSendOncePresentation.BuildDeliveredMessage(
+                            route.Name, resourceLinesApplied, inventoryActual, plan.IsPartial),
+                        6f);
+                }
             }
             else
             {

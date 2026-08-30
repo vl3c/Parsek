@@ -733,6 +733,77 @@ namespace Parsek.Tests.Logistics
                 "pause marker must sort after the delivered row at the shared UT");
         }
 
+        // REGRESSION PIN for the blocked-cycle armed-pause fix: the DELIVERED
+        // armed tail must be untouched (same reason token, same flags cleared, same
+        // Paused landing) and must now ALSO post the send-once screen message - a
+        // warp-catch-up one-shot delivers in the same frame the click is consumed,
+        // so without the toast the whole run is invisible ("the first click did
+        // nothing"). Uses the existing ParsekLog screen-message sink seam.
+        [Fact]
+        public void StatusTransition_SendOnceArmed_Delivered_PostsScreenMessage_ReasonUnchanged()
+        {
+            var toasts = new List<string>();
+            ParsekLog.ScreenMessageSinkForTesting = (msg, dur) => toasts.Add(msg);
+            var route = BuildInTransitKscRoute(id: "route-oneshot-toast");
+            route.Name = "Rover Supply";
+            route.PauseAfterCurrentCycle = true;
+            route.SendOnceArmed = true;
+            var plan = BuildFullFillPlan(route.Stops[0].DeliveryManifest);
+            var writers = new CapturingWriters();
+            var ctx = BuildContext(writers, cycleId: "cycle-0", ut: 200.0);
+
+            RouteOrchestrator.ApplyDeliveryFromPlan(route, plan, ctx);
+
+            // Unchanged contract.
+            Assert.Equal(RouteStatus.Paused, route.Status);
+            Assert.False(route.PauseAfterCurrentCycle);
+            Assert.False(route.SendOnceArmed);
+            var paused = writers.EmittedActions.Single(a => a.Type == GameActionType.RoutePaused);
+            Assert.Equal("delivered-then-paused", paused.RouteEndpointReason);
+            // New: the player sees the run happened.
+            string toast = Assert.Single(toasts);
+            Assert.Contains("Rover Supply", toast);
+            Assert.Contains("2 resource lines", toast); // LiquidFuel + Oxidizer
+            Assert.Contains("Paused", toast);
+        }
+
+        // catches: the send-once toast leaking onto an ORDINARY loop cycle (every
+        // auto-dispatch would spam the screen). Only an armed Send Once toasts.
+        [Fact]
+        public void StatusTransition_OrdinaryDelivery_PostsNoScreenMessage()
+        {
+            var toasts = new List<string>();
+            ParsekLog.ScreenMessageSinkForTesting = (msg, dur) => toasts.Add(msg);
+            var route = BuildInTransitKscRoute(id: "route-ordinary-toast");
+            var plan = BuildFullFillPlan(route.Stops[0].DeliveryManifest);
+            var writers = new CapturingWriters();
+            var ctx = BuildContext(writers, cycleId: "cycle-0");
+
+            RouteOrchestrator.ApplyDeliveryFromPlan(route, plan, ctx);
+
+            Assert.Empty(toasts);
+        }
+
+        // catches: a pause-after-cycle (player Pause during InTransit) delivery
+        // toasting as if it were a Send Once run.
+        [Fact]
+        public void StatusTransition_PauseAfterCycleArmed_Delivered_PostsNoScreenMessage()
+        {
+            var toasts = new List<string>();
+            ParsekLog.ScreenMessageSinkForTesting = (msg, dur) => toasts.Add(msg);
+            var route = BuildInTransitKscRoute(id: "route-pauseafter-toast");
+            route.PauseAfterCurrentCycle = true;
+            route.SendOnceArmed = false;
+            var plan = BuildFullFillPlan(route.Stops[0].DeliveryManifest);
+            var writers = new CapturingWriters();
+            var ctx = BuildContext(writers, cycleId: "cycle-0");
+
+            RouteOrchestrator.ApplyDeliveryFromPlan(route, plan, ctx);
+
+            Assert.Equal(RouteStatus.Paused, route.Status);
+            Assert.Empty(toasts);
+        }
+
         // Route-timeline events: an ordinary (non-armed) delivery must NOT emit a
         // pause marker.
         [Fact]
