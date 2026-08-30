@@ -432,6 +432,51 @@ gate is taught to accept a no-pools template when the manifest is empty (expecte
 block is removed from `L1-passive-sandbox` (it then runs as a pure recording-invariants
 passivity proof). ~~Left at `pending-fixture` until that is resolved.~~ RESOLVED - it is `tier = "daily"` and live-proven (see the status paragraph below).
 
+## Recorded-state fixtures - where they ARE documented, and one that is here
+
+This file's scope is the FILE-CONSTRUCTED career/fresh templates above. The
+RECORDED-state fixtures (harvest `--keep-parsek`, where the committed RECORDING is the
+payload) are documented in `harness/lib/test_saveparse.py::RECORDED_FIXTURES` - one
+commented block per fixture carrying its provenance, its measured shape and its pins -
+plus each one's own `harness/tools/build_*.py` header. That is deliberate rather than an
+omission: the pin and the prose sit in the same place, so a re-harvest that moves the
+shape reds against the paragraph describing it. Do not restate a recorded fixture's shape
+here; a second copy of a moving list is a second thing to leave stale.
+
+ONE POINTER IS WORTH KEEPING, because the naming rule it rests on can destroy an
+operator's own save if it is ever forgotten.
+
+### rover-route-recorded (GAME Mode = SANDBOX, 3 real vessels + 8 asteroids)
+
+The supply-route lane host (RVR-1 / RVR-2 / RVR-3), landed 2026-08-30. Harvested from a
+scratch COPY of the operator's hand-flown `logistics-rover-A` save (collected into
+`.claude/worktrees/logs/2026-08-30_1106_rover-route/`), finished by
+`harness/tools/build_rover_route_recorded.py`, shape pinned in `RECORDED_FIXTURES` and
+wired into the suite by `harness/lib/test_build_rover_route_recorded.py`.
+
+**IT IS NAMED FOR THE LANE AND NEVER FOR THE SOURCE SAVE, and that is a safety rule
+rather than a style one.** `run.py::stage_fixture` rmtree's the same-named save inside
+the automation instance, so a fixture called `logistics-rover-a` would DELETE the
+operator's hand-played save the first time any scenario staged it. Every recorded harvest
+follows this; `build_depot_route_recorded.py` states it in the same words.
+
+Two facts about it belong in a human-readable place because they are what make it useful
+and what a future re-harvest could silently lose:
+
+- **Its route window is TARGET-branch**, because the two rovers carry DIFFERENT baked
+  `persistentId`s. Every other committed route window in the suite is initiator-branch on
+  one shared baked id (two Kerbal X descendants), which is why
+  `RouteProof_ActiveAsTargetDockWindow_HasEndpointProof` and
+  `RouteProof_CrossTreeCommittedPartner_HasEndpointProof` sit in H39's and H40's
+  MEASURED_SKIPPED rosters as a HARVEST requirement. This is that harvest.
+- **It carries no `ROUTES` node and no `mergeState` key anywhere** - i.e. it is the route
+  CANDIDATE host (both trees already fully sealed, route not yet created), the mirror
+  image of `depot-route-recorded` and not interchangeable with it. That is what gives
+  `RVR-2`'s driven `RouteCommand action=create` something to do.
+
+Both are asserted by the builder's `--check`, so a re-harvest that lost either reds in
+`harness/lib` rather than on a flight.
+
 ## Re-tier
 
 The rule: re-tier from `pending-fixture` to `daily` is the LAST step of a spec's first

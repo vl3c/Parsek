@@ -271,6 +271,22 @@ All notable changes to Parsek are documented here.
 
 ### Dev
 
+- The automated-testing suite gained its first surface supply-route subject, and with
+  it the harvest three existing lanes had been asking for by name. Two of the suite's
+  route-proof checks have never once run: they look for a recorded dock where the
+  vessel being docked INTO is not the one doing the docking, and every recorded dock
+  the suite owned was between two craft built from the same blueprint - which KSP
+  stamps with the same internal part id, so the two roles read as the same vessel and
+  both checks quietly stood down. The new fixture is a hand-flown pair of KSC rovers
+  that are genuinely two different craft, so the roles are distinguishable and both
+  checks now have something to look at. Three scenario specs ride it: one runs the
+  logistics batch over it, one drives the first automated route CREATION and delivery
+  the suite has ever attempted (seal, create, deliver, then a second delivery that
+  must be refused because the destination is full - all four steps derived from the
+  recorded flight's own fuel numbers), and one drives the new route-lifecycle checks.
+  All three are authored and none has flown yet; each says so in its own header and
+  states what its first run has to settle. Nothing here changes the game.
+
 - Removed the two resource-budget readouts that had not drawn since 2026-03-31: the
   Timeline window's "Resources" section and the main window's "Reserved:" bullet list.
   Both read `ParsekUI.GetCachedBudget()`, which forwarded to a `RecordingsTableUI` field

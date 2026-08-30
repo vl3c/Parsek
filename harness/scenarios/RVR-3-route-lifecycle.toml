@@ -1,0 +1,243 @@
+schema = 1
+id = "RVR-3-route-lifecycle"
+tier = "pending-fixture"
+# =====================================================================================
+# THE `RouteLifecycle` BATCH - the send-once / armed-pause / hold-reason state machine,
+# driven against the LIVE production orchestrator over synthetic routes.
+#
+# NEVER FLOWN. `total=6` is attribute-derived and statically certain; `passed=6
+# failed=0 skipped=0` is derived from source guards read cell by cell (below) and is
+# INTERIM until a census - the id is declared in
+# `IngameBatchWiringGroupTests.INTERIM_PIN_IDS`.
+#
+# -------------------------------------------------------------------------------------
+# WHY THE CATEGORY IS ITS OWN, and it is not tidiness. These six cells are
+# `Scene = <unset>` (AnyScene) and `AllowBatchExecution = true` with NO restore flag,
+# where all 47 `Logistics` declarations are FLIGHT-scoped and 38 of them are
+# restore-after-run. Folding them into `Logistics` would move that category's pinned
+# `total=47` in five committed specs at once, and would drag six AnyScene cells through
+# an isolated per-test quickload path none of them needs. A separate category costs one
+# spec and keeps both tallies attribute-exact.
+#
+# -------------------------------------------------------------------------------------
+# THE SIX CELLS AND WHAT EACH NEEDS FROM THE HOST
+# (`Source/Parsek/InGameTests/RouteLifecycleRuntimeTests.cs`). Every one of them BUILDS
+# its own synthetic route; none reads the committed corpus. So the fixture requirement is
+# narrow and is stated exactly:
+#
+#   1  DeliverableCycle_RequiresRealDestination_LiveEnvRefusesSyntheticEndpoint  (:118)
+#      Needs a live clock (`RequireLiveContext`) and needs the near-`uint.MaxValue`
+#      synthetic destination pid to resolve to NOTHING - the cell Skips if the save
+#      happens to hold a vessel on that pid, because it "must not touch a real vessel".
+#      This host's three real vessels are 313889796 / 2875537755 / 2123618197 plus eight
+#      stock asteroids, none near uint.MaxValue.
+#   2  SendOnce_BlockedCycle_PausesWithReason_KeepsHold                          (:180)
+#   4  PauseInTransit_BlockedCycle_CompletesThePause_NoSendOnceToast             (:347)
+#   5  UnarmedRoute_BlockedCycle_StaysActive_NoPauseMarker                       (:415)
+#      The three CROSSING-DRIVING cells. Each calls `RequireLiveContext()` and then
+#      `RequireRenderCompositionUnarmed()` - see the constraint block below.
+#   3  SendOnce_ArmIsObservable_UnPausesAndPullsDispatchForward                  (:285)
+#   6  RouteCommandSeam_CreateGateWalk_LiveCommittedTree                         (:468)
+#      Neither drives a crossing. Cell 6 walks the create GATE (`IsTreeFullySealed` plus
+#      the analysis) over whatever committed trees the save holds, WITHOUT creating
+#      anything.
+#
+# WHY THIS HOST AND NOT A CHEAPER ONE. The five clock-and-pid cells would run on any
+# loaded FLIGHT save; cell 6 would not be exercising anything on a save with no committed
+# trees. `rover-route-recorded` boots into FLIGHT on a LANDED rover with a live clock AND
+# carries two fully sealed committed trees - so the gate walk has real trees to walk, and
+# the whole category runs on one boot rather than needing a second host. That is the only
+# reason this lane shares RVR-1's and RVR-2's fixture rather than picking the cheapest
+# save in the tree.
+#
+# -------------------------------------------------------------------------------------
+# THE ONE HARD CONSTRAINT, FROM THE CATEGORY'S AUTHOR, AND IT IS WHY THIS SPEC
+# DECLARES NO RENDER-COMPOSITION EXPECTATIONS BLOCK BELOW.
+# `RequireRenderCompositionUnarmed` (:638-656) reads:
+#     "A confirmed dock crossing unconditionally appends a `route-dock-crossing`
+#      CLOCK-EVENT to the M-A7 render-composition manifest whenever that capture is armed,
+#      and a synthetic route's crossing is not part of the composition the lane exporting
+#      that manifest is measuring. Skipping (attributably) is the honest answer: a lane
+#      that wants BOTH runs them as separate flights."
+# and its skip string names the remedy: "Run this category on a flight that does not
+# export a render manifest".
+# THE ARMING SURFACE IS THE DECLARATION, NOT A STEP. `run.py` sets
+# `PARSEK_RENDER_MANIFEST=1` for ANY spec that declares a render-composition
+# expectations block ("the DECLARATION is the arming surface; `gating` only decides
+# whether the row can move the verdict"), and `RenderCompositionRecorder.IsEnabled` reads that env var ONCE at
+# Awake with an exact-match, fail-closed comparison. So the ONLY way to keep the three
+# crossing cells executing is to declare no such block, which this spec does not.
+# The render-manifest EXPORT VERB is likewise absent - not because it arms the recorder
+# (it does not) but because `hlib.validate_spec` rejects a spec that drives it with `expect = "OK"`
+# while declaring no block, so its presence would fail validation pre-launch.
+# THAT ABSENCE IS GATED RATHER THAN REMEMBERED:
+# `RoverRouteSpecFixtureSyncTests.test_rvr3_does_not_arm_render_composition_capture` in
+# `harness/lib/test_build_rover_route_recorded.py` reds if either string appears here. A
+# spec that pins `skipped=0` while arming the recorder is internally inconsistent, and the
+# inconsistency would otherwise only surface on a flight.
+# =====================================================================================
+description = "AUTHORED 2026-08-30, NEVER FLOWN. The RouteLifecycle batch - six AnyScene cells covering the send-once arm, the armed pause consumed by a blocked cycle, the pause-in-transit completion, the unarmed-route control that must NOT pause, the live refusal of a synthetic delivery endpoint, and a RouteCommand create-gate walk over real committed trees - run on the rover-route-recorded host, which supplies the two things the category needs in one boot: a loaded FLIGHT scene with a live clock, and committed fully-sealed trees for the gate walk to have something to walk. The spec deliberately declares NO render-composition expectations block: declaring one sets PARSEK_RENDER_MANIFEST=1, and three of the six cells self-skip whenever M-A7 capture is armed because a synthetic dock crossing would inject route-dock-crossing clock events into the manifest. That absence is gated in harness/lib rather than left to memory."
+instanceProfile = "stock-minimal"
+tags = ["ingame-batch", "logistics", "route-lifecycle", "recorded-fixture",
+        "RVR-3", "pending-flight"]
+
+[fixture]
+# `rover-route-recorded`, shared with RVR-1 and RVR-2. What THIS lane needs is the
+# narrowest of the three:
+#   * a loaded FLIGHT scene with a live clock - `RequireLiveContext` is the first line of
+#     all six cells. Active vessel `B`, type=Rover, sit=LANDED, so the boot takes the
+#     Focusable FLIGHT route rather than NoVesselSpaceCenter.
+#   * NO live vessel near `uint.MaxValue` - cell 1's synthetic destination pid. The
+#     builder pins all three real vessels' persistentIds (313889796, 2875537755,
+#     2123618197), so a re-harvest cannot silently collide with it.
+#   * at least one COMMITTED tree for cell 6's gate walk. This host has two, both fully
+#     sealed (no `mergeState` key anywhere), which is what lets the walk observe the
+#     `sealed=True` branch rather than only the refusal one.
+#
+# `injectedRecordings = "none"`: cell 6 walks whatever committed trees the save holds, so
+# a synthetic corpus injected on top would change what it walks without changing anything
+# this spec asserts - an un-attributable difference between runs.
+saveTemplate       = "fixtures/saves/rover-route-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+# The H-series `RunTests` seam form, NOT [driver.autorun]. Zero committed specs use the
+# autorun block: run.py implements it, but PARSEK_AUTORUN_EXIT quits KSP as soon as the
+# first scene settles, which races the seam driver's remaining steps, and
+# hlib.validate_spec forbids owning a batch both ways.
+kind = "seam"
+# NO `isolated` arg: all 6 declarations are AllowBatchExecution (default) with no restore
+# flag, so the ordinary and isolated admission filters are IDENTICAL here
+# (`derive_batch_tally` answers `total=6 scene_skipped=0 batch_skipped=0 executable=6` for
+# both). Passing it would buy nothing and would put this lane in the wrong wiring group.
+#
+# THE KILL TRIPLE, as on every recorded-host lane: this loads a save whose own parked
+# craft is active, and the committed-tree restore path resumes a promotion-stub recording
+# ~1 s into the scene BEFORE any step can run. StopRecording is idempotent-OK and
+# DiscardTree answers OK with nothing-discarded when no plain tree is live.
+#
+# IT MATTERS MORE HERE THAN THE COPY SUGGESTS: cell 6 walks the committed trees, and a
+# live recorder that had resumed a promotion stub would put a NotCommitted recording into
+# a tree the gate walk then reads as un-sealed. The triple closes that before the batch
+# starts. `DiscardTree` touches only the LIVE plain tree, never a committed one.
+#
+# verboseLogging=true is required: the per-cell PASSED / SKIPPED lines the census reads
+# are Verbose, and on a `skipped=0` pin the SKIPPED lines are what a red run needs to say
+# WHICH guard fired.
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                    expect = "OK" },
+  { cmd = "DiscardTree",                                                      expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" },  expect = "OK" },
+  { cmd = "RunTests",   args = { category = "RouteLifecycle" },               expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit",                                                     expect = "OK" },
+]
+
+[dimensionsCovered]
+# BOOT FACTS ONLY. No D10 claim before the first census, on the H35 CLAIM-IS-NOT-GATE
+# rule. The row this category could eventually earn is the armed-pause / hold-reason
+# lifecycle, and claiming it on an unflown spec would be a claim rather than a gate; the
+# first green flight is where it is declared, in the same commit that replaces the interim
+# pin.
+D14 = ["sandbox", "scene-flight"]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING (the H7 lesson): a bare key written after an
+# `[expectations.<sub>]` header is TOML-scoped to that sub-table and never read.
+# No tracer is armed by this spec, so the empty list is honest.
+#
+# AND SEE THE HEADER: there is deliberately NO render-composition
+# expectations sub-table anywhere in this file. Declaring one would set `PARSEK_RENDER_MANIFEST=1` and
+# make three of the six cells self-skip, contradicting the `skipped=0` pin below.
+allowedAnomalies = []
+
+[expectations.recordings]
+# THE ANTI-DATA-LOSS FLOOR, for the H39 census-2 reason - the one instrument in the chain
+# pointed at the committed corpus. EXACT at 5, both bounds: no cell in this category
+# creates or destroys a recording (all six build synthetic ROUTES, and the store is
+# untouched - cell 1's own comment says "No store mutation at all"), and there is no
+# isolated per-test restore to add or remove trees, so any number other than the staged 5
+# is a finding rather than noise.
+#
+# IF THE FIRST FLIGHT MEASURES A LOAD-TIME OPTIMIZER SPLIT on these bytes (H35/H39/H40 all
+# measure one on their hosts'), this becomes 5 + that split and is re-pinned EXACTLY in
+# the same commit as the tally. It is never widened into a window.
+count = { min = 5, max = 5 }
+
+[expectations.logContracts]
+# EVIDENCE STANDING: AUTHORED, NEVER FLOWN.
+#
+# ---------------------------------------------------------------------------------
+# DERIVED, NOT GUESSED. The command, so the next reader re-runs it:
+#   hlib.derive_batch_tally(decls, "RouteLifecycle", "FLIGHT")
+#     -> total=6  scene_skipped=0  batch_skipped=0  executable=6
+# All six declarations are `Scene` unset (AnyScene) and `AllowBatchExecution` default, so
+# BOTH the scene filter and the batch filter admit everything and the ATTRIBUTE SKIP FLOOR
+# IS 0. Run-time `InGameAssert.Skip` guards can only push `skipped` higher, never lower.
+#
+#  - `total=6` is ATTRIBUTE-EXACT and statically certain: six
+#    `[InGameTest]` declarations in `RouteLifecycleRuntimeTests.cs`, whose category comes
+#    from that file's `private const string Category = "RouteLifecycle"`.
+#    `CommittedBatchTallySourceSyncTests` discovers this spec as a batch owner the moment
+#    it lands and holds `total=6` against the source, so adding a seventh cell reds locally
+#    in `harness/lib` rather than on the next nightly.
+#
+#  - `passed=6 skipped=0` IS THE INTERIM PIN and is a PREDICTION with a stated basis, cell
+#    by cell:
+#      * cell 1 skips only if a live vessel sits on the near-`uint.MaxValue` synthetic
+#        pid. The builder pins this host's three real persistentIds; none is near it.
+#      * cells 2, 4, 5 skip only if M-A7 capture is armed. This spec declares no
+#        render-composition expectations block, and that absence is gated in
+#        `harness/lib` rather than remembered.
+#      * cells 3 and 6 drive no crossing and carry neither guard.
+#      * all six need `RequireLiveContext`, which a loaded FLIGHT scene supplies.
+#    WHAT THE PREDICTION CANNOT SETTLE: cells 2, 4 and 5 additionally call
+#    `RequireLiveBlock(route, crossingUT, arena.Env)` before ticking - "only tick once the
+#    LIVE environment has already said this crossing blocks, and blocks with the kind this
+#    cell asserts" - which is a run-time reading of the live environment against a
+#    synthetic route. That is precisely the class no `.sfs` read settles, and it is why
+#    the split is interim rather than derived. If the first census measures a skip there,
+#    the reason string names the environment fact and the pin is re-derived from it.
+#
+#  - `failed=0` IS THE ASSERTION EVEN THOUGH THE SPLIT IS INTERIM. A first census may
+#    legitimately discover a SKIP; a cell that FAILS is a finding either way.
+#
+#  - `scene=FLIGHT` is LOAD-BEARING even though every cell is AnyScene. The cells do not
+#    need FLIGHT, but `RequireLiveContext` needs a loaded game, and the tally's `scene=`
+#    is the cheapest place a boot that landed at the KSC instead becomes visible. The
+#    `loadgame complete` token pins the same fact one layer earlier, where the failure is
+#    legible as a boot fault rather than as a tally.
+#
+# THE SEAM ECHO (`runtests start category=RouteLifecycle`) is the canary for the
+# provisioning trap: the harness flies the `automation/stock-minimal` instance, NOT the one
+# `dotnet build` deploys to, so its ABSENCE means a stale `Parsek.dll` rather than a Parsek
+# regression. It is doubly worth pinning for a BRAND-NEW category - a token that has never
+# appeared in any log before is exactly the shape a stale DLL swallows silently.
+required  = [
+  "loadgame complete scene=FLIGHT save=.* game-loaded=true expected=Flight",
+  "runtests start category=RouteLifecycle",
+  "BATCH_COMPLETE v1 total=6 passed=6 failed=0 skipped=0 category=RouteLifecycle scene=FLIGHT",
+]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+[runtime]
+# Budget arithmetic (M-A5 S8): run.py gives EVERY deferred seam verb
+# `required_step_wait(max(step budget, SEAM_FALLBACK_DEFERRAL_SECONDS=600))` = 660 s
+# regardless of the declared step budget, and BOTH LoadGame and RunTests are deferred, so
+# the worst case is 660 + 660 = 1320. 1400 clears it, which is the number every
+# recorded-host batch lane uses.
+#
+# The observed wall should be far under it - six synthetic-route cells with no per-test
+# quickload against a 5-recording corpus, where H39's 46-cell isolated batch over a
+# 19-recording corpus measured 155 s. The number stays at 1400 anyway: it covers the
+# DEFERRED worst case, not the observed wall, and a KILLED run prints NO tally at all,
+# which on a first census destroys the entire product of the flight.
+budgetSeconds = 1400
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

@@ -2241,24 +2241,54 @@ Lessons already banked from the manual flight - read before authoring any lane:
 
 ### Tier A - the rover-route basics (this branch's wave; machinery listed below)
 
-1. **RVR-1 rover fixture reading lane.** Harvest `logistics-rover-a` (the
+1. **RVR-1 rover fixture reading lane.** ~~Harvest `logistics-rover-a` (the
    established `depot-route-recorded` recipe: generic harvest tool +
    fixture-specific finisher + `RECORDED_FIXTURES` shape pin) and run the
-   isolated `Logistics` category over it. Un-skips the suite's two
-   never-executed cells (`RouteProof_ActiveAsTargetDockWindow`,
+   isolated `Logistics` category over it.~~ **FIXTURE AND SPEC AUTHORED
+   2026-08-30, NEVER FLOWN** - fixture `rover-route-recorded`
+   (`harness/tools/build_rover_route_recorded.py` +
+   `harness/lib/test_build_rover_route_recorded.py` +
+   `RECORDED_FIXTURES` row; analyzer Forbid gate reads `RED=0` with NO `.prec`
+   repair), spec `harness/scenarios/RVR-1-rover-route-proof.toml`. Predicted to
+   un-skip the suite's two never-executed cells
+   (`RouteProof_ActiveAsTargetDockWindow`,
    `RouteProof_CrossTreeCommittedPartner`) - the only Logistics skips shared
-   by BOTH existing recorded hosts. Claims the surface flavor of D10
-   `ksc-origin` + `dock-producer`.
-2. **RVR-2 route creation lane - the unlock.** Load the same fixture, then
-   drive the seam: `SealSlot` (no-op guard; the trees are already sealed) ->
-   `RouteCommand action=create` -> `RouteCommand action=send-once` (delivers:
-   pin the Delivery/Inventory-store rows and `delivered-then-paused`) ->
-   `RouteCommand action=send-once` again (destination now full: pin
-   `BLOCKED kind=DestinationFull` + `blocked-then-paused` + the kept hold).
-   First driven route CREATION anywhere in the suite; claims D10
-   `candidate-detection`, `delivery`, `resource-cargo`, `inventory-cargo`,
-   `hold-reasons`, `destination-full-gate` in one flight, and regression-gates
-   the Send-Once fix live.
+   by BOTH existing recorded hosts - and both are pinned as REQUIRED cell
+   tokens rather than left to the tally. The window is TARGET-branch because
+   the two rovers carry DIFFERENT baked `persistentId`s (313889796 vs
+   2123618197), which is exactly the harvest H39's roster asked for. THE
+   TRADE, recorded rather than hidden: the INITIATOR cell skips here (strict
+   complements over a one-window corpus), so the three cells are covered
+   ACROSS the family and this lane does not replace H39/H40. Tally split is
+   INTERIM (`IsolatedBatchWiringGroupTests.INTERIM_PIN_IDS`) until the first
+   census: the host is a 17-part landed rover with TWO inventory containers
+   where both other recorded hosts have one, so four of H39's inherited
+   run-time skips are re-opened. NO D10 claim yet, on the CLAIM-IS-NOT-GATE
+   rule - the surface flavor of `ksc-origin` + `dock-producer` is earned in
+   the commit that measures the lane green.
+2. **RVR-2 route creation lane - the unlock.** ~~Load the same fixture, then
+   drive the seam.~~ **SPEC AUTHORED 2026-08-30, NEVER FLOWN** -
+   `harness/scenarios/RVR-2-rover-route-create.toml`: `SealSlot` (no-op
+   guard - the fixture is pinned to carry no `mergeState` key anywhere, so
+   `remaining=0 alreadySealed=True` is a real assertion) ->
+   `RouteCommand action=create` (interval deliberately OMITTED so the driven
+   create takes the same `ComputeRootToUndockSpan` default a player create
+   takes) -> `RouteCommand action=send-once` + `TimeJump` (delivers: the
+   Delivery-write and Inventory-store rows are pinned, with `path=unloaded`
+   pinned DELIBERATELY - the endpoint resolves by pid with no loaded gate to a
+   vessel 5.4 km away, and the proto-snapshot writers DO deliver) ->
+   `RouteCommand action=send-once` + `TimeJump` again (destination now full:
+   `BLOCKED kind=DestinationFull` + `reason=blocked-then-paused` + the
+   `RoutePaused` marker). The cycle-1-fits / cycle-2-blocks arithmetic is
+   DERIVED from the recorded window's own dock/undock resource rows (97.6 LF
+   manifest against 102.4 of endpoint headroom) and is gated in `harness/lib`
+   so a re-harvest cannot move it silently. First driven route CREATION
+   anywhere in the suite. THE ONE UNSETTLED LINK, named in the spec header so
+   a first red is diagnosed rather than re-argued: whether an instantaneous
+   `TimeJump` past several loop periods produces a dock crossing the
+   orchestrator acts on. NO D10 claim yet; `candidate-detection`, `delivery`,
+   `resource-cargo`, `inventory-cargo`, `hold-reasons` and
+   `destination-full-gate` are earned in the commit that measures it green.
 3. **RVR-3 situational in-game category.** ~~New scene-agnostic, batch-safe
    category (RouteRewindTimeline's synthetic-route pattern) driving the
    lifecycle headlessly-in-KSP~~ **CATEGORY SHIPPED 2026-08-30** as
@@ -2271,13 +2301,24 @@ Lessons already banked from the manual flight - read before authoring any lane:
    delivery (the live endpoint resolver refuses every synthetic destination, and
    a real one would mean mutating the player's vessels - that half stays with the
    headless fire tests and the driven RVR-1 / RVR-2 flights). Every cell drives
-   the PRODUCTION `LiveRouteRuntimeEnvironment`; no fake env anywhere. STILL OPEN:
-   the scenario spec with its own pinned tally - `BATCH_COMPLETE v1 total=6
-   passed=6 failed=0 skipped=0 category=RouteLifecycle scene=<scene>` on a flight
-   that does NOT export a render manifest (a synthetic dock crossing would inject
-   `route-dock-crossing` clock events into a manifest under capture, so the three
-   ticking cells self-skip when that capture is armed). Deliberately NOT added to
-   `Logistics` (whose `total=47` is pinned by four committed specs).
+   the PRODUCTION `LiveRouteRuntimeEnvironment`; no fake env anywhere.
+   ~~STILL OPEN: the scenario spec with its own pinned tally.~~ **SPEC AUTHORED
+   2026-08-30, NEVER FLOWN** - `harness/scenarios/RVR-3-route-lifecycle.toml`,
+   pinning `BATCH_COMPLETE v1 total=6 passed=6 failed=0 skipped=0
+   category=RouteLifecycle scene=FLIGHT` over the same `rover-route-recorded`
+   host (five cells need only a loaded FLIGHT scene with a live clock; the
+   create-gate walk needs COMMITTED trees to walk, and this host supplies both
+   in one boot). It declares NO render-composition expectations block, which is
+   what leaves `PARSEK_RENDER_MANIFEST` unset so the three ticking cells
+   execute - and that absence is GATED in `harness/lib`
+   (`RoverRouteSpecFixtureSyncTests`) rather than left to memory. `total=6` is
+   attribute-exact and the spec is auto-enrolled in
+   `CommittedBatchTallySourceSyncTests`, so a seventh cell reds locally. The
+   `passed=6 skipped=0` half is a per-cell prediction: what it cannot settle is
+   the three crossing cells' `RequireLiveBlock` pre-flight, a run-time reading
+   of the live environment against a synthetic route. Deliberately NOT added to
+   `Logistics` (whose `total=47` is pinned by four committed specs - five as of
+   this wave, counting RVR-1).
 
 ### Tier B - surface-route variants (one flight each, template established by RVR)
 
@@ -2336,9 +2377,17 @@ Lessons already banked from the manual flight - read before authoring any lane:
   creation lanes pin end-state via logContract tokens + the builder-side
   `verify_route()` pattern. Promote when RVR-2 stabilizes, then arm per the
   standing report-only-first protocol.
-- **Fixture: `logistics-rover-a` harvest** (RVR-1/2 host). A second,
-  route-CARRYING fixture (post-creation re-save) is optional and only needed
-  for route-reading lanes that must not create.
+- ~~**Fixture: `logistics-rover-a` harvest** (RVR-1/2 host).~~ **LANDED
+  2026-08-30 as `harness/fixtures/saves/rover-route-recorded`** - named for the
+  LANE and never for the source save, because `run.py::stage_fixture` rmtree's
+  the same-named save inside the automation instance. Two committed trees, five
+  recordings, 19 authoritative sidecars, one TARGET-branch
+  `ROUTE_CONNECTION_WINDOWS` node, NO `ROUTES` node (the operator created the
+  route after the save was written, which is what gives RVR-2's create something
+  to do), NO `ROUTE_ORIGIN_PROOF` node (both trees start at the Runway) and no
+  `mergeState` key anywhere (both trees already fully sealed). A second,
+  route-CARRYING fixture (post-creation re-save) is still optional and only
+  needed for route-reading lanes that must not create.
 - **Generators** - landed on this branch: `WithRouteConnectionWindow` /
   `WithRouteOriginProof` through the production codec chokepoint,
   `RouteWindowFixtures.SurfaceDeliveryWindow` (rover-flight constants),

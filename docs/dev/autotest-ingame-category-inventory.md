@@ -126,7 +126,7 @@ Two limits of this table, stated so nobody over-reads it:
 | `LedgerGroundTruth` | 2 | 2 | 0 | 0 | 0 | 1 | L2 | B |
 | `LocalizedName` | 3 | 3 | 3 | 3 | 0 | 0 | H29 | A |
 | `LogContracts` | 10 | 10 | 8 | 8 | 0 | 2 | H26 | A |
-| `Logistics` | 47 | 8 | 2 | 1 | 38 | 46 | H34 (SPACECENTER slice), H35 (FLIGHT ordinary slice), H38 (FLIGHT ISOLATED on a built pad rig, flown 2026-08-28, executes 39), H39 + H40 (the same ISOLATED slice on RECORDED hosts, both flown 2026-08-28, executing 34 and 35). Union across all five: 42 of 47 | B |
+| `Logistics` | 47 | 8 | 2 | 1 | 38 | 46 | H34 (SPACECENTER slice), H35 (FLIGHT ordinary slice), H38 (FLIGHT ISOLATED on a built pad rig, flown 2026-08-28, executes 39), H39 + H40 (the same ISOLATED slice on RECORDED hosts, both flown 2026-08-28, executing 34 and 35), RVR-1 (the same ISOLATED slice on the TARGET-BRANCH recorded host `rover-route-recorded`, authored 2026-08-30, NEVER FLOWN - predicted to convert the two dock-window cells H39/H40 both measured as unpayable by existing bytes, at the cost of the initiator cell they pin). Union across the five FLOWN slices: 42 of 47 | B |
 | `LogisticsGrapple` | 4 | 3 | 0 | 0 | 1 | 2 | H41 (ISOLATED, flown 2026-08-28, executes 3 of 4; the 4th wants a harvested Grapple window) | A |
 | `MapPresence` | 5 | 5 | 3 | 3 | 0 | 2 | H28 | A |
 | `MapRender` | 22 | 21 | 0 | 0 | 1 | 14 | S1.7 | B |
@@ -166,7 +166,7 @@ Two limits of this table, stated so nobody over-reads it:
 | `RevertVesselStrip` | 1 | 1 | 0 | 0 | 0 | 1 | - | B |
 | `Rewind` | 38 | 26 | 6 | 0 | 6 | 24 | R7a / R7c | A |
 | `RewindSaves` | 1 | 1 | 1 | 1 | 0 | 1 | - | B |
-| `RouteLifecycle` | 6 | 6 | 6 | 6 | 0 | 6 | - | B |
+| `RouteLifecycle` | 6 | 6 | 6 | 6 | 0 | 6 | RVR-3 (authored 2026-08-30, NEVER FLOWN; pins `total=6 passed=6 failed=0 skipped=0` and declares no render-composition expectations block, which is what keeps the three crossing cells from self-skipping) | B |
 | `RouteLiveAnchor` | 1 | 1 | 0 | 0 | 0 | 1 | - | B |
 | `RouteRewindTimeline` | 7 | 7 | 7 | 7 | 0 | 1 | H6 | B |
 | `SaveLoad` | 4 | 4 | 4 | 4 | 0 | 2 | H51 (flown 2026-08-28, executes 4 of 4) | A |
@@ -218,9 +218,11 @@ The 109th is `RouteLifecycle` (RVR-3, 2026-08-30): six scene-agnostic cells driv
 the supply-route send-once / pause lifecycle against the PRODUCTION
 `LiveRouteRuntimeEnvironment` inside a live session - the live gate for the
 blocked-then-paused fix. Bucket **B**: the cells exist and are batch-safe, but the
-scenario spec that pins their tally is the next wave's work (deliberately its OWN
-category rather than `Logistics`, whose `total=47` four committed specs pin).
-Driven by a committed spec: **44 of 109 categories**, up from 35
+scenario spec that pins their tally, `RVR-3-route-lifecycle`, was AUTHORED
+2026-08-30 and has NEVER FLOWN, so the category stays in **B** until its first
+census (deliberately its OWN category rather than `Logistics`, whose `total=47`
+is pinned by four flown committed specs plus the authored RVR-1).
+Driven by a committed spec: **45 of 109 categories**, up from 35
 across six waves - `ReFlyWorldPreservation` via S4.2, `RecordedSignals` via H33,
 `SnapshotBaseline` via H32, and `Logistics` via H34 all landed together in one merge
 (the S1.8 SoiCrossingPlayback wave had taken it to 35 from 34, and 28 and 8 the waves

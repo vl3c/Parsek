@@ -3880,6 +3880,18 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
         # TALLY_CANNOT_DISCRIMINATE_IDS below for why that single-cell margin changes
         # which pinned evidence carries the proof.
         "H41-logistics-grapple-isolated": ("LogisticsGrapple", 4),
+        # THE THIRD RECORDED `Logistics` HOST, and the first that can pay the debt
+        # H39's and H40's rosters both name as unpayable by existing bytes. Its
+        # fixture `rover-route-recorded` is the harvest H39's roster asked for in so
+        # many words - "a recorded dock between two craft with DIFFERENT baked
+        # `persistentId`s (i.e. not two Kerbal X descendants)" - so its route window
+        # is TARGET-branch where both other recorded hosts' are initiator-branch, and
+        # `RouteProof_ActiveAsTargetDockWindow_HasEndpointProof` /
+        # `RouteProof_CrossTreeCommittedPartner_HasEndpointProof` are predicted to
+        # execute for the first time anywhere. The tally derivation is
+        # ATTRIBUTE-level and therefore the same 47 as its three siblings; only the
+        # split differs, and that split is INTERIM (see INTERIM_PIN_IDS).
+        "RVR-1-rover-route-proof": ("Logistics", 47),
     }
 
     # Members whose category is only PARTLY batch-disabled, i.e. the ordinary path
@@ -3908,7 +3920,13 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
                                  "H38-logistics-isolated",
                                  "H39-logistics-isolated-bdock",
                                  "H40-logistics-isolated-depot-route",
-                                 "H41-logistics-grapple-isolated"}
+                                 "H41-logistics-grapple-isolated",
+                                 # RVR-1 joins on the identical arithmetic as the
+                                 # three Logistics members above - the derivation is
+                                 # attribute-level, so it is the same 8-vs-46 for
+                                 # every Logistics member regardless of which host it
+                                 # boots.
+                                 "RVR-1-rover-route-proof"}
 
     # Members whose BATCH_COMPLETE line cannot distinguish the isolated path from the
     # ordinary one, whatever it is pinned to, so the discrimination duty transfers to
@@ -4046,7 +4064,31 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
     #     captured: ... kind=Grapple`, and the cell's own
     #     `GrappleCapture PASS: ... complete=True` - where H38's four D10 rows rest on
     #     a whole-tally token. A stronger gate, and the shape to copy.
-    INTERIM_PIN_IDS: set = set()
+    #
+    # AND BACK TO ONE ON 2026-08-30 for `RVR-1-rover-route-proof`, the THIRD recorded
+    # `Logistics` host. It is interim for EXACTLY the reason H39 and H40 were, which is
+    # why it earns an entry rather than an argument: the split turns on what a RECORDED
+    # CORPUS and a LIVE CRAFT happen to contain, and no attribute settles a run-time
+    # `InGameAssert.Skip`. What is DIFFERENT here is WHICH questions are open. H39's and
+    # H40's hosts are the same 28-part Kerbal X lineage, so those two censuses agreed on
+    # eleven of twelve run-time skips and the suite has since treated the eleven as
+    # properties of "the recorded-host shape" rather than of either fixture. THIS host is
+    # a 17-part LANDED ROVER carrying TWO `ModuleInventoryPart` containers where both
+    # others carry ONE, so four of those eleven (the multi-module walk, the live stock
+    # move, the stackable-stack cell and the stored-part pickup) are RE-OPENED rather
+    # than inherited, and a fifth (`Escrow_CompetingRouteSeesReservation_Holds`) turns on
+    # a tank size smaller here than on either. The spec header carries the cell-by-cell
+    # hypothesis as a PREDICTION written to be refuted; the census settles it.
+    #
+    # THE TWO SKIPS THIS LANE EXISTS TO CONVERT ARE NOT IN DOUBT and are deliberately not
+    # left to the interim tally: `RouteProof_ActiveAsTargetDockWindow_HasEndpointProof`
+    # and `RouteProof_CrossTreeCommittedPartner_HasEndpointProof` turn on BYTE properties
+    # of the fixture (a target-branch window plus a cross-tree partner recording), pinned
+    # builder-side and gated by `RoverRouteRecordedFixtureDriftTests`. The spec pins both
+    # as REQUIRED cell tokens, because an interim `passed=` says almost nothing about
+    # WHICH cells passed - which is the whole hazard of an interim pin and the reason
+    # this member's REQUIRED list is longer than H38's was while it sat here.
+    INTERIM_PIN_IDS: set = {"RVR-1-rover-route-proof"}
 
     # id -> measured `skipped=` for members whose RUN-TIME InGameAssert.Skip guards
     # push the split above the attribute-derived floor. The attributes give a FLOOR
