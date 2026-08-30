@@ -2259,13 +2259,25 @@ Lessons already banked from the manual flight - read before authoring any lane:
    `candidate-detection`, `delivery`, `resource-cargo`, `inventory-cargo`,
    `hold-reasons`, `destination-full-gate` in one flight, and regression-gates
    the Send-Once fix live.
-3. **RVR-3 situational in-game category.** New scene-agnostic, batch-safe
+3. **RVR-3 situational in-game category.** ~~New scene-agnostic, batch-safe
    category (RouteRewindTimeline's synthetic-route pattern) driving the
-   lifecycle headlessly-in-KSP: send-once delivered->paused, send-once
-   blocked->paused, pause-while-in-transit resolving on a blocked cycle,
-   toast-text seams. Own scenario spec with its own pinned tally - a NEW
-   category, deliberately NOT added to `Logistics` (whose `total=47` is
-   pinned by four committed specs).
+   lifecycle headlessly-in-KSP~~ **CATEGORY SHIPPED 2026-08-30** as
+   `RouteLifecycle` (6 cells, `Source/Parsek/InGameTests/RouteLifecycleRuntimeTests.cs`):
+   send-once blocked->paused with the kept hold (the live regression gate for the
+   blocked-then-paused fix), the arm's own observable transition, the
+   pause-while-in-transit provenance resolving on a blocked cycle, the unarmed
+   negative control, the live RouteCommand create-gate walk, and the
+   deliverable-cycle probe that PINS why no scene-agnostic cell can drive a real
+   delivery (the live endpoint resolver refuses every synthetic destination, and
+   a real one would mean mutating the player's vessels - that half stays with the
+   headless fire tests and the driven RVR-1 / RVR-2 flights). Every cell drives
+   the PRODUCTION `LiveRouteRuntimeEnvironment`; no fake env anywhere. STILL OPEN:
+   the scenario spec with its own pinned tally - `BATCH_COMPLETE v1 total=6
+   passed=6 failed=0 skipped=0 category=RouteLifecycle scene=<scene>` on a flight
+   that does NOT export a render manifest (a synthetic dock crossing would inject
+   `route-dock-crossing` clock events into a manifest under capture, so the three
+   ticking cells self-skip when that capture is armed). Deliberately NOT added to
+   `Logistics` (whose `total=47` is pinned by four committed specs).
 
 ### Tier B - surface-route variants (one flight each, template established by RVR)
 

@@ -9034,7 +9034,11 @@ class IngameCategoryInventoryDocTests(unittest.TestCase):
         # whose BATCH_COMPLETE tally H46 pins from a flown run), 106 -> 107 with
         # `AutoMergeCommit` (R4, the plan-§7 autoMerge=ON scene-exit cell).
         # 107 -> 108 with `PreParsekBackup` (PPB-1 / PPB-2, both live-proven 2026-08-29).
-        self.assertIn("**108 categories / %d declarations**" % stated_decls, body,
+        # 108 -> 109 with `RouteLifecycle` (RVR-3, 2026-08-30): the supply-route
+        # send-once / pause lifecycle driven against the production
+        # LiveRouteRuntimeEnvironment in-session. Its own category on purpose -
+        # `Logistics`' total=47 is pinned by four committed specs.
+        self.assertIn("**109 categories / %d declarations**" % stated_decls, body,
                       "the triage totals line disagrees with the table it summarises "
                       "(table sums to %d declarations across %d categories)"
                       % (stated_decls, len(self.rows)))

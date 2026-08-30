@@ -947,7 +947,7 @@ Each fact about this system lives in exactly one place:
 | `harness/README.md` | Harness module mechanics: ownership boundary, how to run, submodule readiness |
 | `todo-and-known-bugs.md` | Finding forensics: the full evidence trail behind every live finding |
 | `harness/coverage/registry.toml` | The machine-readable coverage denominator (authoritative cell list) |
-| `autotest-ingame-category-inventory.md` | The in-game category axis in DETAIL: all 105 categories with per-scene batch eligibility and self-skip surface, the A/B/C wiring triage, and the H7-H20 fly-order runbook |
+| `autotest-ingame-category-inventory.md` | The in-game category axis in DETAIL: all 109 categories with per-scene batch eligibility and self-skip surface, the A/B/C wiring triage, and the H7-H20 fly-order runbook. A category that ships WRITTEN but not yet driven by a spec (`AutoMergeCommit`, `DisabledHoverEcho`, `RouteLifecycle`) is recorded THERE, in bucket B, and gets a row here only once a committed spec drives it |
 | `test-coverage-audit-2026-07-29.md` | Full-stack coverage SNAPSHOT (all three systems + design-doc contracts, measured 2026-07-29) and the consolidated ranked gap register. A dated audit, not a living status doc |
 | `design-testing-unified.md` | The cross-system explainer (how the three testing systems work and compose, the validation-pyramid/atomic-decomposition model, binding constraints) and the beyond-R14 program (visual validation, mode-axis expansion, fuzz/perf lanes); its build-order extension is indexed as roadmap Tier 5 |
 

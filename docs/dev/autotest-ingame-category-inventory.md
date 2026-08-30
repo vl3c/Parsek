@@ -1,4 +1,4 @@
-# In-game test category inventory (all 108 categories)
+# In-game test category inventory (all 109 categories)
 
 Machine-derived from `Source/Parsek` by `hlib.parse_ingame_test_declarations` +
 `hlib.derive_batch_tally`. Do NOT hand-edit the table: re-derive it. The generator
@@ -166,6 +166,7 @@ Two limits of this table, stated so nobody over-reads it:
 | `RevertVesselStrip` | 1 | 1 | 0 | 0 | 0 | 1 | - | B |
 | `Rewind` | 38 | 26 | 6 | 0 | 6 | 24 | R7a / R7c | A |
 | `RewindSaves` | 1 | 1 | 1 | 1 | 0 | 1 | - | B |
+| `RouteLifecycle` | 6 | 6 | 6 | 6 | 0 | 6 | - | B |
 | `RouteLiveAnchor` | 1 | 1 | 0 | 0 | 0 | 1 | - | B |
 | `RouteRewindTimeline` | 7 | 7 | 7 | 7 | 0 | 1 | H6 | B |
 | `SaveLoad` | 4 | 4 | 4 | 4 | 0 | 2 | H51 (flown 2026-08-28, executes 4 of 4) | A |
@@ -202,8 +203,8 @@ Two limits of this table, stated so nobody over-reads it:
 
 ## Triage
 
-Totals, re-derived: **108 categories / 599 declarations**. Buckets **A 34 categories
-(235 declarations)**, **B 74 categories (364 declarations)**, **C 0 categories (0
+Totals, re-derived: **109 categories / 605 declarations**. Buckets **A 34 categories
+(235 declarations)**, **B 75 categories (370 declarations)**, **C 0 categories (0
 declarations)**. The 107th is `AutoMergeCommit` (R4, the AUTOMERGE-ON-BY-DEFAULT
 wave; the 106th is `DisabledHoverEcho`, landed the same week): the plan-§7
 autoMerge=ON scene-exit cell, batch-disabled and restore-backed exactly like the two
@@ -212,12 +213,19 @@ drives it yet - the cell exists and is the coverage that was missing; pointing a
 at it is the next step, not this one.
 The 108th is `PreParsekBackup` (PPB-1 / PPB-2), and unlike the two above it
 ships DRIVEN and in bucket **A** from its first commit - both specs flew green
-on 2026-08-29. Driven by a committed spec: **44 of 108 categories**, up from 35
+on 2026-08-29.
+The 109th is `RouteLifecycle` (RVR-3, 2026-08-30): six scene-agnostic cells driving
+the supply-route send-once / pause lifecycle against the PRODUCTION
+`LiveRouteRuntimeEnvironment` inside a live session - the live gate for the
+blocked-then-paused fix. Bucket **B**: the cells exist and are batch-safe, but the
+scenario spec that pins their tally is the next wave's work (deliberately its OWN
+category rather than `Logistics`, whose `total=47` four committed specs pin).
+Driven by a committed spec: **44 of 109 categories**, up from 35
 across six waves - `ReFlyWorldPreservation` via S4.2, `RecordedSignals` via H33,
 `SnapshotBaseline` via H32, and `Logistics` via H34 all landed together in one merge
 (the S1.8 SoiCrossingPlayback wave had taken it to 35 from 34, and 28 and 8 the waves
 before), then `PlaybackFidelity` via H36 and `PartEventFidelity` via H37. Measured
-against declarations rather than categories, that is 412 of 599 inside a driven
+against declarations rather than categories, that is 412 of 605 inside a driven
 category (was 318 before these waves: 324 after S4.2, 327 after H33, 334 after H32,
 381 once `Logistics` counted, 388 with `PlaybackFidelity`, 393 with
 `PartEventFidelity`, and 401 once L3's capture matrix took `StrategyLifecycle` from 3
