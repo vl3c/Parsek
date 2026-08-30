@@ -487,7 +487,7 @@ namespace Parsek.Tests.Logistics
         public void BlockedMessage_NamesRouteAndHoldInPlayerLanguage()
         {
             string msg = RouteSendOncePresentation.BuildBlockedMessage(
-                "Rover Supply",
+                "Rover Supply", "route-1",
                 RouteDispatchEvaluator.EligibilityFailureKind.DestinationFull,
                 "stored-part:evaScienceKit",
                 0.0);
@@ -507,7 +507,7 @@ namespace Parsek.Tests.Logistics
         public void BlockedMessage_FundsShortfall_UsesInvariantCulture()
         {
             string msg = RouteSendOncePresentation.BuildBlockedMessage(
-                "Ore Run", RouteDispatchEvaluator.EligibilityFailureKind.FundsShort,
+                "Ore Run", "route-1", RouteDispatchEvaluator.EligibilityFailureKind.FundsShort,
                 "funds-short", 1234.0);
 
             Assert.Contains("1234", msg);
@@ -518,13 +518,13 @@ namespace Parsek.Tests.Logistics
         [Fact]
         public void DeliveredMessage_UsesCountFormAndSingularPlural()
         {
-            string one = RouteSendOncePresentation.BuildDeliveredMessage("Rover Supply", 1, 1, false);
+            string one = RouteSendOncePresentation.BuildDeliveredMessage("Rover Supply", "route-1", 1, 1, false);
             Assert.Contains("1 resource line", one);
             Assert.DoesNotContain("1 resource lines", one);
             Assert.Contains("1 item", one);
             Assert.DoesNotContain("1 items", one);
 
-            string many = RouteSendOncePresentation.BuildDeliveredMessage("Rover Supply", 2, 0, false);
+            string many = RouteSendOncePresentation.BuildDeliveredMessage("Rover Supply", "route-1", 2, 0, false);
             Assert.Contains("2 resource lines", many);
             Assert.Contains("0 items", many);
             Assert.Contains("Rover Supply", many);
@@ -535,18 +535,93 @@ namespace Parsek.Tests.Logistics
         [Fact]
         public void DeliveredMessage_PartialIsFlagged()
         {
-            string msg = RouteSendOncePresentation.BuildDeliveredMessage("Rover Supply", 1, 0, true);
+            string msg = RouteSendOncePresentation.BuildDeliveredMessage("Rover Supply", "route-1", 1, 0, true);
             Assert.Contains("PARTIAL", msg);
         }
 
         [Fact]
-        public void Messages_BlankRouteName_RenderUnnamedNeverEmptyQuotes()
+        public void Messages_BlankRouteName_FallsBackToShortId_ThenUnnamed_NeverEmptyQuotes()
         {
-            Assert.Contains("'unnamed'",
-                RouteSendOncePresentation.BuildDeliveredMessage("   ", 1, 0, false));
-            Assert.Contains("'unnamed'",
+            // Same chain the Logistics window's dormant rows use
+            // (LogisticsDormantPresentation.DormantRouteDisplayName): a blank
+            // name renders the SHORT ROUTE ID, so the toast and the window row
+            // identify an unnamed route identically; only a route with neither
+            // name nor id renders the "<unnamed>" terminal.
+            string routeId = "a1b2c3d4e5f60718293a4b5c6d7e8f90";
+            Assert.Contains("'" + RouteIds.Short(routeId) + "'",
+                RouteSendOncePresentation.BuildDeliveredMessage("   ", routeId, 1, 0, false));
+            Assert.Contains("'" + RouteIds.Short(routeId) + "'",
                 RouteSendOncePresentation.BuildBlockedMessage(
-                    null, RouteDispatchEvaluator.EligibilityFailureKind.OriginLacksCargo, "LiquidFuel", 0.0));
+                    null, routeId, RouteDispatchEvaluator.EligibilityFailureKind.OriginLacksCargo,
+                    "LiquidFuel", 0.0));
+            Assert.Contains("'<unnamed>'",
+                RouteSendOncePresentation.BuildBlockedMessage(
+                    null, null, RouteDispatchEvaluator.EligibilityFailureKind.OriginLacksCargo,
+                    "LiquidFuel", 0.0));
+        }
+
+        // ==================================================================
+        // Postponement holds do not consume the arm (PR #1582 clean review)
+        // ==================================================================
+
+        [Fact]
+        public void IsPostponementHold_CoversExactlyTheTwoSelfResolvingKinds()
+        {
+            // Allowlist pin: SourcesStale and WaitingForPartner are the ONLY
+            // postponements; every other kind (including any future addition)
+            // consumes the arm by default. Enumerate the enum so a new kind
+            // fails here only if someone forgets to classify it deliberately.
+            foreach (RouteDispatchEvaluator.EligibilityFailureKind kind in
+                Enum.GetValues(typeof(RouteDispatchEvaluator.EligibilityFailureKind)))
+            {
+                bool expected =
+                    kind == RouteDispatchEvaluator.EligibilityFailureKind.SourcesStale
+                    || kind == RouteDispatchEvaluator.EligibilityFailureKind.WaitingForPartner;
+                Assert.Equal(expected, RouteOrchestrator.IsPostponementHold(kind));
+            }
+        }
+
+        [Fact]
+        public void SendOnceArmed_PostponementBlock_KeepsArm_RouteStaysActive()
+        {
+            Route route = BuildLoopRoute();
+            route.PauseAfterCurrentCycle = true;
+            route.SendOnceArmed = true;
+            route.RecordHold(
+                RouteDispatchEvaluator.EligibilityFailureKind.SourcesStale,
+                "sources-stale", 0.0, 1000.0);
+
+            bool honored = RouteOrchestrator.TryHonorArmedPauseOnBlockedCycle(
+                route, 1000.0, "cycle-0");
+
+            Assert.False(honored);
+            Assert.Equal(RouteStatus.Active, route.Status);
+            Assert.True(route.PauseAfterCurrentCycle);
+            Assert.True(route.SendOnceArmed);
+            Assert.Empty(screenMessages);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Route]") && l.Contains("BLOCKED by postponement")
+                && l.Contains("SourcesStale") && l.Contains("arm kept"));
+        }
+
+        [Fact]
+        public void SendOnceArmed_WaitingForPartnerBlock_KeepsArm_RouteStaysActive()
+        {
+            Route route = BuildLoopRoute();
+            route.PauseAfterCurrentCycle = true;
+            route.SendOnceArmed = true;
+            route.RecordHold(
+                RouteDispatchEvaluator.EligibilityFailureKind.WaitingForPartner,
+                "partner-turn:other", 0.0, 1000.0);
+
+            bool honored = RouteOrchestrator.TryHonorArmedPauseOnBlockedCycle(
+                route, 1000.0, "cycle-0");
+
+            Assert.False(honored);
+            Assert.Equal(RouteStatus.Active, route.Status);
+            Assert.True(route.PauseAfterCurrentCycle);
+            Assert.True(route.SendOnceArmed);
+            Assert.Empty(screenMessages);
         }
     }
 }

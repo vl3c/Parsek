@@ -493,10 +493,30 @@ namespace Parsek
                 sink(message ?? string.Empty, duration);
                 return;
             }
-            ScreenMessages.PostScreenMessage(
-                $"[Parsek] {message}",
-                duration,
-                ScreenMessageStyle.UPPER_CENTER);
+            // Same ECall guards as Write's Debug.Log: callers now include the
+            // orchestrator's background route tick, which must never be unwound
+            // by an unresolvable Unity ScreenMessages call (headless / mono / a
+            // test that reached a toast path without installing the sink).
+            try
+            {
+                ScreenMessages.PostScreenMessage(
+                    $"[Parsek] {message}",
+                    duration,
+                    ScreenMessageStyle.UPPER_CENTER);
+            }
+            catch (System.Security.SecurityException)
+            {
+                // Unit-test runtime can throw when Unity internals are unavailable.
+            }
+            catch (MethodAccessException)
+            {
+                // Same fallback for some non-Unity execution environments.
+            }
+            catch (MissingMethodException)
+            {
+                // Mono (Linux test runs) surfaces unresolvable Unity native
+                // calls as MissingMethodException instead of the above two.
+            }
         }
 
         // ----- [RecState] structured state-dump logging -----

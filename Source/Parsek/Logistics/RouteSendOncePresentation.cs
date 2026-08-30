@@ -14,7 +14,9 @@ namespace Parsek.Logistics
     /// nothing on screen and the player reads the click as "did nothing". Both
     /// resolution shapes get a toast: DELIVERED (the cycle fired) and BLOCKED
     /// (the cycle was consumed by an eligibility hold and the armed pause was
-    /// honored - see <c>RouteOrchestrator.TryHonorArmedPauseOnBlockedCycle</c>).</para>
+    /// honored - see <c>RouteOrchestrator.TryHonorArmedPauseOnBlockedCycle</c>).
+    /// Postponement holds (see <c>RouteOrchestrator.IsPostponementHold</c>) do
+    /// not resolve the one-shot, so they never toast.</para>
     ///
     /// <para>Unity-free and side-effect-free so both strings are unit tested
     /// directly off the IMGUI / ScreenMessages path, mirroring the
@@ -23,15 +25,23 @@ namespace Parsek.Logistics
     /// </summary>
     internal static class RouteSendOncePresentation
     {
+        /// <summary>
+        /// On-screen duration for both send-once toasts. 5s is the house range
+        /// (every other Parsek ScreenMessage uses 5f or less); one constant so
+        /// retuning does not mean hunting orchestrator call sites.
+        /// </summary>
+        internal const float ToastSeconds = 5f;
+
         /// <summary>Shown when a send-once cycle DELIVERED and the route auto-paused.</summary>
-        /// <param name="routeName">The route's display name (null / blank renders as "unnamed").</param>
+        /// <param name="routeName">The route's display name (blank falls back to the short id).</param>
+        /// <param name="routeId">The route id, for the unnamed-route fallback label.</param>
         /// <param name="resourceLines">Count of resource lines actually written at the destination.</param>
         /// <param name="inventoryUnits">Count of inventory parts actually placed at the destination.</param>
         /// <param name="isPartial">True when the delivery plan was short (remainder lost).</param>
         internal static string BuildDeliveredMessage(
-            string routeName, int resourceLines, int inventoryUnits, bool isPartial)
+            string routeName, string routeId, int resourceLines, int inventoryUnits, bool isPartial)
         {
-            return "Send Once: route '" + DisplayName(routeName) + "' delivered "
+            return "Send Once: route '" + DisplayName(routeName, routeId) + "' delivered "
                 + Count(resourceLines, "resource line", "resource lines") + " and "
                 + Count(inventoryUnits, "item", "items")
                 + (isPartial ? " (PARTIAL - see the route's detail panel)" : string.Empty)
@@ -45,12 +55,14 @@ namespace Parsek.Logistics
         /// and the window must never disagree about why the run did not happen - by
         /// reusing <see cref="LogisticsHoldPresentation.DescribeHold"/> verbatim.
         /// </summary>
-        /// <param name="routeName">The route's display name (null / blank renders as "unnamed").</param>
+        /// <param name="routeName">The route's display name (blank falls back to the short id).</param>
+        /// <param name="routeId">The route id, for the unnamed-route fallback label.</param>
         /// <param name="kind">The evaluator's failure kind, as recorded on the hold.</param>
         /// <param name="detail">The evaluator's raw reason token, as recorded on the hold.</param>
         /// <param name="shortfall">The recorded funds shortfall (0 when not a funds hold).</param>
         internal static string BuildBlockedMessage(
             string routeName,
+            string routeId,
             RouteDispatchEvaluator.EligibilityFailureKind kind,
             string detail,
             double shortfall)
@@ -61,15 +73,20 @@ namespace Parsek.Logistics
             // "did not run: ." if a future kind slips through as None.
             string why = LogisticsHoldPresentation.DescribeHold(kind, detail, shortfall)
                 ?? "the route was not eligible to dispatch";
-            return "Send Once: route '" + DisplayName(routeName) + "' did not run - "
+            return "Send Once: route '" + DisplayName(routeName, routeId) + "' did not run - "
                 + why + " - route is now Paused";
         }
 
-        private static string DisplayName(string routeName)
+        /// <summary>
+        /// Same fallback chain the Logistics window's dormant rows use
+        /// (name -> short route id -> "&lt;unnamed&gt;"), so the toast and the
+        /// window row identify an unnamed route the same way (reuse finding,
+        /// PR #1582 clean review).
+        /// </summary>
+        private static string DisplayName(string routeName, string routeId)
         {
-            return string.IsNullOrEmpty(routeName) || string.IsNullOrWhiteSpace(routeName)
-                ? "unnamed"
-                : routeName;
+            string name = string.IsNullOrWhiteSpace(routeName) ? null : routeName;
+            return LogisticsDormantPresentation.DormantRouteDisplayName(name, routeId);
         }
 
         /// <summary>"1 item" / "0 items" / "3 items" - InvariantCulture count + singular/plural noun.</summary>

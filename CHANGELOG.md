@@ -119,8 +119,12 @@ All notable changes to Parsek are documented here.
   a delivered one does - the route returns to Paused - and the reason it was blocked
   stays on the route so the Logistics window can still name it. The same applies to
   pressing Pause while a cycle is in flight: the cycle finishing badly still finishes
-  the pause. Routes that were not asked to stop are unaffected and keep looping
-  through a blocked cycle exactly as before.
+  the pause. Two kinds of hold are deliberately exempt: a route waiting its turn
+  behind a linked partner route, and the momentary source-cache warm-up right
+  after a load. Those are postponements, not outcomes - the Send Once stays
+  armed through them and fires on the next real attempt. Routes that were not
+  asked to stop are unaffected and keep looping through a blocked cycle exactly
+  as before.
 
 - Send Once now confirms itself on screen. A one-shot can resolve in the same instant
   you click it - when the route's loop clock has already caught up, the whole run

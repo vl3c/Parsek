@@ -1369,9 +1369,11 @@ namespace Parsek.Logistics
                     // blocked cycle (same contract as the single-stop path). The
                     // route goes quiet HERE, so the catch-up loop must stop too:
                     // clear stillDue or the caller would keep processing later owed
-                    // cycles on a route the player just paused. Those cycles are not
-                    // lost - the per-stop cursors still carry them, and they resume
-                    // when the route is activated again.
+                    // cycles on a route the player just paused. Those owed cycles
+                    // are then REBASED AWAY, deliberately: TryActivate resets every
+                    // per-stop cursor and LastObservedLoopCycleIndex, so a later
+                    // re-activation starts fresh instead of replaying cycles the
+                    // player never authorized.
                     if (TryHonorArmedPauseOnBlockedCycle(route, currentUT, cycleId))
                         stillDue = false;
                     return;
@@ -3710,6 +3712,30 @@ namespace Parsek.Logistics
             if (route == null || !route.PauseAfterCurrentCycle)
                 return false;
 
+            // A POSTPONEMENT is not a resolution. SourcesStale (the defensive
+            // ERS cross-check, which clears itself once ERS warms after a scene
+            // load / mid-recalc tick) and WaitingForPartner (round-trip
+            // linking's by-design wait turn - the route "keeps flying its loop
+            // while it waits") block individual crossings ROUTINELY on a
+            // healthy route. Consuming the one-shot on them would cancel a
+            // Send Once for a reason the player cannot see coming - a linked
+            // route could never be Send-Once'd during the partner's turn at
+            // all. The arm survives (matching pre-fix behavior for these kinds:
+            // the crossing was consumed as skipped either way) and fires on the
+            // next crossing that RESOLVES - delivers, or blocks for a real
+            // per-cycle reason (destination full, funds short, origin cargo,
+            // endpoint lost). Every other kind consumes by default, so a future
+            // kind lands on the consuming side unless deliberately classified
+            // as a postponement here.
+            if (IsPostponementHold(route.LastHoldKind))
+            {
+                ParsekLog.Verbose(Tag,
+                    $"ArmedPause: route {ShortIdForLog(route)} cycle={cycleId ?? "<none>"} " +
+                    $"BLOCKED by postponement kind={route.LastHoldKind} — arm kept, " +
+                    $"route stays {route.Status} at ut={currentUT.ToString("R", IC)}");
+                return false;
+            }
+
             bool wasSendOnce = route.SendOnceArmed;
             RouteStatus previousStatus = route.Status;
             route.PauseAfterCurrentCycle = false;
@@ -3717,10 +3743,13 @@ namespace Parsek.Logistics
             // drop the Send Once provenance exactly as the delivered tail does.
             route.SendOnceArmed = false;
             route.TransitionTo(RouteStatus.Paused, BlockedThenPausedReason);
-            // Sequence 0: unlike the delivered tail (which lands at the window's
-            // stride slot +4, after its delivered row) a blocked cycle emitted NO
-            // rows at this UT, so there is nothing to order the marker behind -
-            // mirroring TryPause's player-pause marker.
+            // Ordering note: the marker lands at Sequence 0, like TryPause's
+            // player-pause marker. On the career-KSC path the blocked branch's
+            // EmitPendingRecoveryCredit can have emitted a RouteRecoveryCredited
+            // row at this same (routeId, UT, Sequence 0) key - the two rows are
+            // distinguished by Type and no consumer orders between them
+            // (DeriveTimelineStatus scans only RoutePaused/RouteResumed; the
+            // credit is a funds row with no marker dependency).
             EmitRouteLifecycleMarker(route, currentUT, GameActionType.RoutePaused, BlockedThenPausedReason);
             // Quiesce transition: the route stops crossing here, so any escrow held
             // from an earlier partially-fired cycle would strand and mis-gate a
@@ -3742,10 +3771,26 @@ namespace Parsek.Logistics
             {
                 ParsekLog.ScreenMessage(
                     RouteSendOncePresentation.BuildBlockedMessage(
-                        route.Name, route.LastHoldKind, route.LastHoldDetail, route.LastHoldShortfall),
-                    6f);
+                        route.Name, route.Id, route.LastHoldKind, route.LastHoldDetail,
+                        route.LastHoldShortfall),
+                    RouteSendOncePresentation.ToastSeconds);
             }
             return true;
+        }
+
+        /// <summary>
+        /// The two <see cref="RouteDispatchEvaluator.EligibilityFailureKind"/>s
+        /// that are POSTPONEMENTS (the crossing self-resolves on a later tick /
+        /// the partner's grant) rather than resolutions of the cycle. An armed
+        /// pause survives them; see the classification rationale at the call
+        /// site in <see cref="TryHonorArmedPauseOnBlockedCycle"/>. Deliberately
+        /// an allowlist: a future kind consumes the arm unless classified here.
+        /// </summary>
+        internal static bool IsPostponementHold(
+            RouteDispatchEvaluator.EligibilityFailureKind kind)
+        {
+            return kind == RouteDispatchEvaluator.EligibilityFailureKind.SourcesStale
+                || kind == RouteDispatchEvaluator.EligibilityFailureKind.WaitingForPartner;
         }
 
         /// <summary>
@@ -4305,8 +4350,9 @@ namespace Parsek.Logistics
                 {
                     ParsekLog.ScreenMessage(
                         RouteSendOncePresentation.BuildDeliveredMessage(
-                            route.Name, resourceLinesApplied, inventoryActual, plan.IsPartial),
-                        6f);
+                            route.Name, route.Id, resourceLinesApplied, inventoryActual,
+                            plan.IsPartial),
+                        RouteSendOncePresentation.ToastSeconds);
                 }
             }
             else
