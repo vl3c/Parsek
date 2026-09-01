@@ -86,14 +86,17 @@ namespace Parsek
         private string renamingGroupText = "";
         private bool renamingGroupFocused;
 
-        // Recording rename (deferred to next frame)
-        private int renamingRecordingIdx = -1;
+        // Recording rename (deferred to next frame). Captured by RecordingId, not row
+        // index: the committed list can be restructured between two OnGUI frames (a
+        // chain-segment commit on EVA exit runs the optimizer), and an index captured
+        // before that would rename the neighbour.
+        private string renamingRecordingId;
         private string renamingRecordingText = "";
         private bool renamingRecordingFocused;
         private Rect activeRenameRect;
 
-        // Double-click detection
-        private int lastClickedRecIdx = -1;
+        // Double-click detection (same by-id rule as the rename capture)
+        private string lastClickedRecordingId;
         private float lastClickTime;
         private string lastClickedGroup;
         private float lastGroupClickTime;
@@ -399,8 +402,10 @@ namespace Parsek
         // copied from GUI.skin.button.active). Mirrors KerbalsWindowUI / CareerStateWindowUI.
         private GUIStyle toggleButtonStyle;
 
-        // Deferred ghost-only recording deletion (avoids mid-layout list mutation)
-        private int pendingDeleteGhostOnlyIndex = -1;
+        // Deferred ghost-only recording deletion (avoids mid-layout list mutation).
+        // Captured by RecordingId and resolved on consume: the committed list can be
+        // restructured between the click frame and the next OnGUI.
+        private string pendingDeleteGhostOnlyRecordingId;
 
         // Window drag tracking for position logging
         private Rect lastRecordingsWindowRect;
@@ -1057,11 +1062,11 @@ namespace Parsek
         {
             // Click outside active rename field -> commit and close
             if (Event.current.type == EventType.MouseDown &&
-                (renamingRecordingIdx >= 0 || renamingGroup != null))
+                (renamingRecordingId != null || renamingGroup != null))
             {
                 if (activeRenameRect.width > 0 && !activeRenameRect.Contains(Event.current.mousePosition))
                 {
-                    if (renamingRecordingIdx >= 0)
+                    if (renamingRecordingId != null)
                         CommitRecordingRename(committed);
                     if (renamingGroup != null)
                         CommitGroupRename(renamingGroup);
@@ -1558,12 +1563,18 @@ namespace Parsek
             }
 
             // ===== Recordings tab =====
-            // Process deferred ghost-only recording deletion (avoids mid-layout list mutation)
-            if (pendingDeleteGhostOnlyIndex >= 0)
+            // Process deferred ghost-only recording deletion (avoids mid-layout list mutation).
+            // Captured by id: the list may have been restructured since the click.
+            if (pendingDeleteGhostOnlyRecordingId != null)
             {
-                int delIdx = pendingDeleteGhostOnlyIndex;
-                pendingDeleteGhostOnlyIndex = -1;
-                DeleteGhostOnlyRecording(delIdx);
+                string delId = pendingDeleteGhostOnlyRecordingId;
+                pendingDeleteGhostOnlyRecordingId = null;
+                int delIdx = RecordingStore.IndexOfRecordingId(RecordingStore.CommittedRecordings, delId);
+                if (delIdx >= 0)
+                    DeleteGhostOnlyRecording(delIdx);
+                else
+                    ParsekLog.Warn("UI",
+                        $"Deferred ghost-only delete skipped: recording id={delId} is no longer in the committed list");
             }
 
             // [ERS-exempt] reason: the recordings-table window is the authoritative
@@ -1968,8 +1979,8 @@ namespace Parsek
                 }
                 if (ghostXClicked)
                 {
-                    pendingDeleteGhostOnlyIndex = ri;
-                    ParsekLog.Verbose("UI", $"Delete ghost-only recording clicked: index={ri} name='{rec.VesselName}'");
+                    pendingDeleteGhostOnlyRecordingId = rec.RecordingId;
+                    ParsekLog.Verbose("UI", $"Delete ghost-only recording clicked: index={ri} id={rec.RecordingId} name='{rec.VesselName}'");
                 }
             }
             else
@@ -2174,7 +2185,7 @@ namespace Parsek
             // Indent inside Name column for grouped/chained subitems.
             if (indentPx > 0f) GUILayout.Space(indentPx);
             string name = string.IsNullOrEmpty(rec.VesselName) ? "Untitled" : rec.VesselName;
-            if (renamingRecordingIdx == ri)
+            if (renamingRecordingId != null && renamingRecordingId == rec.RecordingId)
             {
                 bool submitRec = Event.current.type == EventType.KeyDown &&
                     (Event.current.keyCode == KeyCode.Return || Event.current.keyCode == KeyCode.KeypadEnter);
@@ -2199,7 +2210,7 @@ namespace Parsek
                 }
                 else if (cancelRec)
                 {
-                    renamingRecordingIdx = -1;
+                    renamingRecordingId = null;
                     activeRenameRect = default;
                     Event.current.Use();
                 }
@@ -2216,21 +2227,22 @@ namespace Parsek
                         GUI.skin.label, GUILayout.ExpandWidth(true)))
                 {
                     float now2 = Time.realtimeSinceStartup;
-                    if (lastClickedRecIdx == ri && now2 - lastClickTime < DoubleClickThreshold)
+                    if (lastClickedRecordingId != null && lastClickedRecordingId == rec.RecordingId
+                        && now2 - lastClickTime < DoubleClickThreshold)
                     {
                         // Commit any active rename first
-                        if (renamingRecordingIdx >= 0)
+                        if (renamingRecordingId != null)
                             CommitRecordingRename(committed);
                         if (renamingGroup != null)
                             CommitGroupRename(renamingGroup);
-                        renamingRecordingIdx = ri;
+                        renamingRecordingId = rec.RecordingId;
                         renamingRecordingText = rec.VesselName ?? "";
                         renamingRecordingFocused = false;
-                        lastClickedRecIdx = -1;
+                        lastClickedRecordingId = null;
                     }
                     else
                     {
-                        lastClickedRecIdx = ri;
+                        lastClickedRecordingId = rec.RecordingId;
                         lastClickTime = now2;
                     }
                 }
@@ -2481,7 +2493,7 @@ namespace Parsek
                         }
 
                         // Commit any active rename first
-                        if (renamingRecordingIdx >= 0)
+                        if (renamingRecordingId != null)
                             CommitRecordingRename(committed);
                         if (renamingGroup != null)
                             CommitGroupRename(renamingGroup);
@@ -4271,10 +4283,15 @@ namespace Parsek
 
         private void CommitRecordingRename(IReadOnlyList<Recording> committed)
         {
-            int ri = renamingRecordingIdx;
-            renamingRecordingIdx = -1;
+            string id = renamingRecordingId;
+            renamingRecordingId = null;
             activeRenameRect = default;
-            if (ri < 0 || ri >= committed.Count) return;
+            int ri = RecordingStore.IndexOfRecordingId(committed, id);
+            if (ri < 0)
+            {
+                ParsekLog.Warn("UI", $"Recording rename dropped: id={id ?? "<null>"} is no longer in the committed list");
+                return;
+            }
 
             string trimmed = renamingRecordingText.Trim();
             if (!string.IsNullOrEmpty(trimmed) && trimmed != committed[ri].VesselName)
@@ -4603,6 +4620,12 @@ namespace Parsek
                 return;
 
             lastSortedStateVersion = stateVersion;
+            // The per-row change-log dedup dicts are index-keyed; after a membership
+            // change their entries describe the neighbour, so start them over.
+            lastCanRewind.Clear();
+            lastCanFF.Clear();
+            lastStashSealInReFlyColumn.Clear();
+            lastSuppressedTreeBranch.Clear();
             sortedIndices = new int[committed.Count];
             for (int i = 0; i < committed.Count; i++)
                 sortedIndices[i] = i;

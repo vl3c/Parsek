@@ -7,14 +7,15 @@ namespace Parsek
         // ─── Committed-list structural notifications ────────────────────────
         //
         // Index-keyed live state (ghost engine slots, held ghosts, map-presence dicts,
-        // watch-mode index, chain continuation indices) mirrors committedRecordings by
-        // position. Every mid-list mutation of that list must raise these so the FLIGHT
-        // controller can shift that state in step. Raised today by RunOptimizationPass
-        // (merge removal + split insert), InsertCommittedAfter (the Re-Fly origin
-        // splitter's TIP insert) and RemoveRecordingAt (every delete path). The other
-        // removal helpers (RemoveCommittedInternal / RemoveCommittedById /
-        // RemoveChainRecordings / RemoveCommittedTreeById) still only bump StateVersion;
-        // see COMMITTED-LIST-SILENT-REMOVERS in docs/dev/todo-and-known-bugs.md.
+        // watch-mode index, chain continuation indices, KSC ghost slots) mirrors
+        // committedRecordings by position. Every mid-list mutation of that list must raise
+        // these so the scene controller (ParsekFlight / ParsekKSC / ParsekTrackingStation)
+        // can shift that state in step. Raised by RunOptimizationPass (merge removal +
+        // split insert), InsertCommittedAfter, and every removal helper through
+        // RemoveCommittedAtWithNotifications (RemoveRecordingAt, RemoveCommittedInternal,
+        // RemoveCommittedById, RemoveChainRecordings, RemoveCommittedTreeById,
+        // ClearCommittedInternal - the last one removes top-down one item at a time, because
+        // the failed-rewind-load bundle restore reaches it in FLIGHT with ghosts alive).
 
         /// <summary>
         /// Raised immediately BEFORE a committed recording leaves the list. The index still

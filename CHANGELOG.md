@@ -29,6 +29,17 @@ _(unreleased — entries accumulate here per commit)_
   recording was merged away follows its trajectory into the merge target, and the
   recordings table re-sorts on the state version. Load-time passes were already
   harmless (stores rebuild afterwards) and stay so.
+- **Every other way a recording leaves the list mid-session now shifts that state
+  too.** Discarding a Re-Fly attempt, a rewind rollback, replacing a committed tree
+  on quickload and deleting from the recordings table at the Space Center all
+  removed recordings through helpers that told nobody. They now go through the same
+  notification as the optimizer, the Space Center and Tracking Station ghost hosts
+  shift their own index-keyed ghost and map state from it (a Space Center delete
+  used to leave every ghost above the deleted row playing its neighbour's
+  trajectory until the scene changed), and the recordings table remembers a
+  pending ghost-only delete, an open rename and a double-click by recording
+  identity instead of row number, so a chain commit landing between two frames can
+  no longer redirect them at the neighbouring row.
 
 - Send Once on a route that visits SEVERAL destinations now stops after that one
   round, instead of quietly carrying on. A multi-stop route drops off at each
