@@ -336,9 +336,12 @@ namespace Parsek
                 worldRot,
                 DescribeKscBranch(section, useBodyFixedPrimary),
                 null);
-            ParsekLog.VerboseRateLimited("KSCGhost", $"ksc-surface-position-{rec.RecordingId}",
+            // Own rate-limit key per emitter: the point and segment paths used to share
+            // one, so whichever fired first inside the window silenced the other.
+            ParsekLog.VerboseRateLimited("KSCGhost", $"ksc-surface-point-{rec.RecordingId}",
                 $"KSC SURFACE playback resolved: recording={rec.DebugName} " +
-                $"ut={point.ut:F2} body={point.bodyName} branch={pose.Branch}",
+                $"ut={point.ut.ToString("F2", System.Globalization.CultureInfo.InvariantCulture)} " +
+                $"body={point.bodyName} branch={pose.Branch}",
                 2.0);
             return true;
         }
@@ -434,9 +437,10 @@ namespace Parsek
                 worldRot,
                 DescribeKscBranch(section, useBodyFixedPrimary),
                 null);
-            ParsekLog.VerboseRateLimited("KSCGhost", $"ksc-surface-position-{rec.RecordingId}",
+            ParsekLog.VerboseRateLimited("KSCGhost", $"ksc-surface-segment-{rec.RecordingId}",
                 $"KSC SURFACE playback resolved: recording={rec.DebugName} " +
-                $"targetUT={targetUT:F2} branch={pose.Branch}",
+                $"targetUT={targetUT.ToString("F2", System.Globalization.CultureInfo.InvariantCulture)} " +
+                $"body={before.bodyName} branch={pose.Branch}",
                 2.0);
             return true;
         }

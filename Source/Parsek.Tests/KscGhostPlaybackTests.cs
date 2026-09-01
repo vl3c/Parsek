@@ -631,6 +631,47 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void SurfaceResolvedLines_PointAndSegmentPaths_EmitIndependentlyAndBothCarryBody()
+        {
+            // KSC-SURFACE-RESOLVED-TWO-EMITTERS-SHARE-ONE-RATE-LIMIT-KEY: the exact-point and
+            // the interpolation resolvers used to share one rate-limit key, so inside a 2 s
+            // window the second one to fire was silently dropped, and only the point variant
+            // carried body=. Drive both for one recording inside one window.
+            var rec = MakeKerbinRecording();
+            // A duplicated final sample makes any UT past the end resolve with
+            // before.ut == after.ut, which is the exact-point dispatch.
+            rec.Points.Add(rec.Points[rec.Points.Count - 1]);
+            int cachedIndex = 0;
+            int cachedFrameSourceKey = ParsekKSC.KscFlatPointFrameSourceKey;
+            ParsekLog.ResetRateLimitsForTesting();
+            ParsekLog.ClockOverrideForTesting = () => 1000.0;
+
+            Assert.True(ParsekKSC.TryInterpolateKscPlaybackPose(
+                rec, ref cachedIndex, ref cachedFrameSourceKey, 150,
+                SurfaceLookupFromLatLonAlt(() => { }),
+                AnchorLookup("anchor-rec", new Vector3d(0, 0, 0)),
+                out ParsekKSC.KscPoseResolution segmentPose));
+            // Past the last sample the search lands on the duplicated pair (t=0,
+            // before.ut == after.ut), the exact-point path on ut=200.
+            Assert.True(ParsekKSC.TryInterpolateKscPlaybackPose(
+                rec, ref cachedIndex, ref cachedFrameSourceKey, 250,
+                SurfaceLookupFromLatLonAlt(() => { }),
+                AnchorLookup("anchor-rec", new Vector3d(0, 0, 0)),
+                out ParsekKSC.KscPoseResolution pointPose));
+
+            var resolvedLines = logLines.FindAll(line =>
+                line.Contains("[KSCGhost]") && line.Contains("KSC SURFACE playback resolved"));
+            string joined = string.Join(" || ", resolvedLines);
+            Assert.True(resolvedLines.Exists(line => line.Contains("targetUT=150.00") && line.Contains("body=Kerbin")),
+                "segment variant missing: " + joined);
+            Assert.True(resolvedLines.Exists(line => line.Contains(" ut=200.00") && line.Contains("body=Kerbin")),
+                "point variant missing: " + joined);
+            // The V22K pin shape matches both variants.
+            Assert.All(resolvedLines, line =>
+                Assert.Matches("KSC SURFACE playback resolved: recording=.* branch=", line));
+        }
+
+        [Fact]
         public void TryInterpolateKscPlaybackPose_ResetsCacheWhenFrameSourceChanges()
         {
             var relative = MakeKscRelativeRecording();
