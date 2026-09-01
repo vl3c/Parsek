@@ -338,7 +338,21 @@ partner from the docking node's own docked-partner information at recording star
 the parent-vessel identity, and pin it with a self-provisioning capture cell; the B4 manual
 flight is then unnecessary. If refuted: record the KSP state that yields the link and fly B4.
 
-## RESERVATION-OVERLAY-GAPS: the reservation readout that replaced the dead budget UI is absent in the EDITOR and reports `Reserved: 0` in a genuine deficit [SPLIT OUT 2026-08-29 from RESOURCE-BUDGET-READOUTS-ARE-DEAD when that entry was struck as cleanup-done. Neither gap was part of that cleanup; refiled here so they survive it]
+## RESERVATION-OVERLAY-GAPS: the reservation readout that replaced the dead budget UI is absent in the EDITOR and reports `Reserved: 0` in a genuine deficit [SPLIT OUT 2026-08-29 from RESOURCE-BUDGET-READOUTS-ARE-DEAD when that entry was struck as cleanup-done. Neither gap was part of that cleanup; refiled here so they survive it. **(b) FIXED 2026-09-02; (a) still open** - extending the overlay to a scene where it never showed is a product decision, not a wording fix]
+
+**Fix for (b) (2026-09-02).** `FundsModule` / `ScienceModule` now keep the projection's unclamped
+minimum (`GetProjectionMinBalance()`, the value `GetAvailable*()` floors at zero; legacy
+unclamped availability when no projection is installed). `CurrencyReservationOverlay`
+derives the tooltip through the pure `BuildTooltipFromLedger(runningBalance, available,
+minProjected, displayed)`: a healthy pool keeps the two-line `Total / Reserved` form; an
+over-committed pool (balance positive, projected minimum negative) keeps `Total / Reserved`
+and adds `Short by: <over-commit magnitude>`; a genuine deficit (running balance negative)
+replaces the pair with `Balance: <signed> / Short by: <magnitude>`, because nothing is being
+held back and `Total: 0 / Reserved: 0` was reporting the opposite of the truth. The
+`Reserved` slot never carries a negative number, per the analysis below. Pinned by
+`CurrencyReservationOverlayTests` (all three shapes, through both the pure builder and the
+ledger derivation) and `ProjectionMinBalanceTests` (the modules expose the unclamped minimum
+and drop it on `Reset`).
 
 `CurrencyReservationOverlay` is the surface that carries the reserved-vs-available story now
 that the Timeline "Resources" section and the main window's "Reserved:" line are deleted. Two

@@ -59,6 +59,8 @@ namespace Parsek
         /// </summary>
         private bool hasProjectedAvailableScience;
         private double projectedAvailableScience;
+        // The unclamped minimum of the projection (see FundsModule.projectedMinBalance).
+        private double projectedMinBalance;
 
         /// <summary>
         /// True when a ScienceInitial action was processed during the current walk.
@@ -83,6 +85,7 @@ namespace Parsek
             totalEffectiveEarnings = 0.0;
             hasProjectedAvailableScience = false;
             projectedAvailableScience = 0.0;
+            projectedMinBalance = 0.0;
             hasInitialSeed = false;
 
             ParsekLog.Verbose("ScienceModule",
@@ -575,6 +578,19 @@ namespace Parsek
             return runningScience;
         }
 
+        /// <summary>
+        /// The unclamped minimum projected balance: the value <see cref="GetAvailableScience"/>
+        /// floors at zero. Negative means the committed future overdraws the balance by
+        /// that much. Falls back to the legacy unclamped availability when no projection
+        /// has been installed.
+        /// </summary>
+        internal double GetProjectionMinBalance()
+        {
+            if (hasProjectedAvailableScience)
+                return projectedMinBalance;
+            return totalEffectiveEarnings - totalCommittedSpendings;
+        }
+
         public bool TryGetProjectionDelta(GameAction action, out double delta)
         {
             delta = 0.0;
@@ -620,6 +636,7 @@ namespace Parsek
             int deltaActions)
         {
             projectedAvailableScience = available > 0.0 ? available : 0.0;
+            projectedMinBalance = minProjectedBalance;
             hasProjectedAvailableScience = true;
 
             ParsekLog.Verbose("ScienceModule",

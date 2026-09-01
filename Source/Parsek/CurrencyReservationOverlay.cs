@@ -169,15 +169,36 @@ namespace Parsek
         /// how much, if anything, is reserved. No header line: the hovered widget makes the
         /// currency obvious. <paramref name="available"/> is the value shown on the bar, so by
         /// construction the bar equals <paramref name="available"/> = Total - Reserved.
+        ///
+        /// <paramref name="minProjected"/> is the projection's unclamped minimum balance. When
+        /// it is negative the committed future overdraws the pool, and the Total / Reserved
+        /// pair cannot say so: the bar is floored at zero, so a plain deficit reads
+        /// "Total: 0 / Reserved: 0" at exactly the moment the pool is eaten. That is not a
+        /// reservation (nothing is being held back), so it gets its own line, "Short by",
+        /// carrying the over-commit magnitude, and a negative running balance replaces the
+        /// pair with the signed "Balance" the bar cannot show.
         /// </summary>
-        internal static string BuildReservationTooltip(double total, double available, string format)
+        internal static string BuildReservationTooltip(
+            double total, double available, string format, double minProjected = 0.0)
         {
             double reserved = total - available;
             if (reserved < 0.0)
                 reserved = 0.0;
 
-            return "Total: " + total.ToString(format, IC) + "\n"
+            if (total < 0.0)
+            {
+                // Genuine deficit: the running balance itself is negative. Total (bar +
+                // reserved) would print 0 here; show the signed balance instead.
+                double shortBy = minProjected < total ? -minProjected : -total;
+                return "Balance: " + total.ToString(format, IC) + "\n"
+                    + "Short by: " + shortBy.ToString(format, IC);
+            }
+
+            string text = "Total: " + total.ToString(format, IC) + "\n"
                 + "Reserved: " + reserved.ToString(format, IC);
+            if (minProjected < 0.0)
+                text += "\nShort by: " + (-minProjected).ToString(format, IC);
+            return text;
         }
 
         // "Available" is anchored on the LIVE singleton (Funding.Instance.Funds /
@@ -192,11 +213,12 @@ namespace Parsek
             var funds = LedgerOrchestrator.Funds;
             if (funds == null || Funding.Instance == null)
                 return null;
-            double reserved = funds.GetProjectionCurrentBalance() - funds.GetAvailableFunds();
-            if (reserved < 0.0)
-                reserved = 0.0;
-            double displayed = Funding.Instance.Funds;
-            return BuildReservationTooltip(displayed + reserved, displayed, "N0");
+            return BuildTooltipFromLedger(
+                funds.GetProjectionCurrentBalance(),
+                funds.GetAvailableFunds(),
+                funds.GetProjectionMinBalance(),
+                Funding.Instance.Funds,
+                "N0");
         }
 
         internal static string GetScienceTooltip()
@@ -204,11 +226,30 @@ namespace Parsek
             var science = LedgerOrchestrator.Science;
             if (science == null || ResearchAndDevelopment.Instance == null)
                 return null;
-            double reserved = science.GetProjectionCurrentBalance() - science.GetAvailableScience();
+            return BuildTooltipFromLedger(
+                science.GetProjectionCurrentBalance(),
+                science.GetAvailableScience(),
+                science.GetProjectionMinBalance(),
+                ResearchAndDevelopment.Instance.Science,
+                "F1");
+        }
+
+        /// <summary>
+        /// Pure: derives the tooltip from the ledger's running balance, its floored
+        /// availability, its unclamped projected minimum and the value on the bar. A
+        /// negative running balance is passed through as the (signed) total so the deficit
+        /// wording engages; otherwise Total = displayed + reserved as before.
+        /// </summary>
+        internal static string BuildTooltipFromLedger(
+            double runningBalance, double available, double minProjected, double displayed, string format)
+        {
+            if (runningBalance < 0.0)
+                return BuildReservationTooltip(runningBalance, displayed, format, minProjected);
+
+            double reserved = runningBalance - available;
             if (reserved < 0.0)
                 reserved = 0.0;
-            double displayed = ResearchAndDevelopment.Instance.Science;
-            return BuildReservationTooltip(displayed + reserved, displayed, "F1");
+            return BuildReservationTooltip(displayed + reserved, displayed, format, minProjected);
         }
     }
 }

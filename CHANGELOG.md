@@ -40,6 +40,14 @@ _(unreleased — entries accumulate here per commit)_
   pending ghost-only delete, an open rename and a double-click by recording
   identity instead of row number, so a chain commit landing between two frames can
   no longer redirect them at the neighbouring row.
+- **The funds and science tooltips now say when the pool is short instead of
+  "Reserved: 0".** Hovering the currency bar shows how much of your total is
+  reserved for the committed future. When that future overdraws the pool, the
+  tooltip used to show the whole balance as reserved and nothing more, and when the
+  balance itself had gone negative it showed `Total: 0 / Reserved: 0`, which is the
+  opposite of what was happening. An over-committed pool now adds a `Short by`
+  line with the shortfall, and a negative balance shows the signed `Balance` and
+  the `Short by` amount instead of a reservation that does not exist.
 
 - Send Once on a route that visits SEVERAL destinations now stops after that one
   round, instead of quietly carrying on. A multi-stop route drops off at each

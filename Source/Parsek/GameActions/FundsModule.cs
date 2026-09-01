@@ -55,6 +55,10 @@ namespace Parsek
         /// </summary>
         private bool hasProjectedAvailableFunds;
         private double projectedAvailableFunds;
+        // The unclamped minimum of the projection: negative when the committed future
+        // overdraws the balance. Available is this floored at zero, which hides the
+        // over-commit magnitude the currency tooltip needs to explain a deficit.
+        private double projectedMinBalance;
 
         /// <summary>
         /// True when a FundsInitial action was processed during the current walk.
@@ -84,6 +88,7 @@ namespace Parsek
             totalEarnings = 0.0;
             hasProjectedAvailableFunds = false;
             projectedAvailableFunds = 0.0;
+            projectedMinBalance = 0.0;
             hasInitialSeed = false;
 
             ParsekLog.Verbose(Tag,
@@ -626,6 +631,19 @@ namespace Parsek
             return runningBalance;
         }
 
+        /// <summary>
+        /// The unclamped minimum projected balance: the value <see cref="GetAvailableFunds"/>
+        /// floors at zero. Negative means the committed future overdraws the balance by
+        /// that much (a deficit the bar cannot show). Falls back to the legacy unclamped
+        /// availability when no projection has been installed.
+        /// </summary>
+        internal double GetProjectionMinBalance()
+        {
+            if (hasProjectedAvailableFunds)
+                return projectedMinBalance;
+            return initialFunds + totalEarnings - totalCommittedSpendings;
+        }
+
         public bool TryGetProjectionDelta(GameAction action, out double delta)
         {
             delta = 0.0;
@@ -692,6 +710,7 @@ namespace Parsek
             int deltaActions)
         {
             projectedAvailableFunds = available > 0.0 ? available : 0.0;
+            projectedMinBalance = minProjectedBalance;
             hasProjectedAvailableFunds = true;
 
             ParsekLog.Verbose(Tag,
