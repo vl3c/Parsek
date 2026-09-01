@@ -144,6 +144,28 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ClearCommittedInternal_RaisesPerItemTopDown_SoEverySlotTearsDown()
+        {
+            // The failed-rewind-load bundle restore wipes and rebuilds the list in FLIGHT
+            // with ghosts alive; a silent Clear() left every ghost slot keyed against the
+            // rebuilt list.
+            AddThree();
+
+            RecordingStore.ClearCommittedInternal();
+
+            Assert.Empty(RecordingStore.CommittedRecordings);
+            Assert.Equal(new[]
+            {
+                "removing:2:c:count=3",
+                "removed:2:c:target=none:count=2",
+                "removing:1:b:count=2",
+                "removed:1:b:target=none:count=1",
+                "removing:0:a:count=1",
+                "removed:0:a:target=none:count=0",
+            }, sequence);
+        }
+
+        [Fact]
         public void IndexOfRecordingId_FindsOrdinalMatch_ElseMinusOne()
         {
             AddThree();

@@ -13,10 +13,9 @@ namespace Parsek
         // can shift that state in step. Raised by RunOptimizationPass (merge removal +
         // split insert), InsertCommittedAfter, and every removal helper through
         // RemoveCommittedAtWithNotifications (RemoveRecordingAt, RemoveCommittedInternal,
-        // RemoveCommittedById, RemoveChainRecordings, RemoveCommittedTreeById).
-        // ClearCommittedInternal wipes the whole list without per-item notifications; its
-        // only caller runs inside ParsekScenario.OnLoad before any scene controller holds
-        // ghost state.
+        // RemoveCommittedById, RemoveChainRecordings, RemoveCommittedTreeById,
+        // ClearCommittedInternal - the last one removes top-down one item at a time, because
+        // the failed-rewind-load bundle restore reaches it in FLIGHT with ghosts alive).
 
         /// <summary>
         /// Raised immediately BEFORE a committed recording leaves the list. The index still

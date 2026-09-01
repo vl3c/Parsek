@@ -2280,7 +2280,6 @@ namespace Parsek
                 pivot, insert,
                 kscGhosts, kscOverlapGhosts, loggedGhostSpawn, loggedReshow,
                 lastLoggedKscCadence, autoLoopLaunchSchedules, lastUnitSelection);
-            autoLoopQueueScratch.Clear();
             if (before > 0)
                 ParsekLog.Verbose("KSCGhost",
                     $"KSC ghost state reindexed after committed {(insert ? "insert" : "removal")} at #{pivot}: " +

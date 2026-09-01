@@ -857,13 +857,20 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Clears all recordings from the internal committed list.
-        /// For production code that needs mutation after CommittedRecordings became IReadOnlyList.
+        /// Clears all recordings from the internal committed list, removing from the top
+        /// down through the notifying primitive so every index-keyed consumer tears its
+        /// slot down and shifts in step. The bundle restore that runs when a rewind's
+        /// quicksave load fails (FLIGHT, ghosts alive, no scene change) reaches this; a
+        /// silent wipe there left every ghost slot keyed against a rebuilt list.
         /// </summary>
         internal static void ClearCommittedInternal()
         {
-            committedRecordings.Clear();
+            int count = committedRecordings.Count;
+            for (int i = count - 1; i >= 0; i--)
+                RemoveCommittedAtWithNotifications(i);
             BumpStateVersion();
+            if (count > 0)
+                ParsekLog.Verbose("RecordingStore", $"ClearCommittedInternal: removed {count} recording(s) with notifications");
         }
 
         /// <summary>
@@ -3800,13 +3807,13 @@ namespace Parsek
 
         /// <summary>
         /// Removes all committed recordings with the given chainId, deleting their files.
-        /// Call only when no timeline ghosts are active (e.g. from merge dialog before playback).
+        /// Each removal notifies, so live ghost state for those slots is torn down and
+        /// shifted by the scene controller.
         /// </summary>
         internal static void RemoveChainRecordings(string chainId)
         {
             if (string.IsNullOrEmpty(chainId)) return;
 
-            int removed = 0;
             for (int i = committedRecordings.Count - 1; i >= 0; i--)
             {
                 if (committedRecordings[i].ChainId == chainId)
@@ -3814,7 +3821,6 @@ namespace Parsek
                     DeleteRecordingFiles(committedRecordings[i]);
                     Log($"[Parsek] Removed chain recording: {committedRecordings[i].VesselName} (chain={chainId}, idx={committedRecordings[i].ChainIndex})");
                     RemoveCommittedAtWithNotifications(i);
-                    removed++;
                 }
             }
         }
