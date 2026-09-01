@@ -4,12 +4,55 @@ tier = "pending-fixture"
 # =====================================================================================
 # THE FIRST DRIVEN ROUTE CREATION IN THE SUITE'S HISTORY, and the first driven DELIVERY.
 #
-# NEVER FLOWN. Everything below is DERIVED from committed bytes and from source. Two of
-# the pinned outcomes are ARITHMETIC over the fixture (the seal no-op and the
-# cycle-1-fits / cycle-2-blocks headroom); one is a CONTROL-FLOW reading that only a
-# flight can settle (whether an instantaneous TimeJump past several loop periods produces
-# a dock crossing the orchestrator acts on). That last one is called out by name in the
-# TIMING block below so a first red is diagnosed rather than re-argued.
+# FLOWN ONCE, 2026-09-01 (`2026-09-01_2011_RVR-2-rover-route-create`, wall 50 s).
+# ALL THIRTEEN DRIVEN STEPS ANSWERED OK and every verifier passed except `expectations`,
+# which red on the two DELIVERY tokens. What flew, in order, from the collected KSP.log:
+#     sealslot complete mode=tree tree=73e50f1e... total=4 sealed=0 remaining=0 alreadySealed=True
+#     routecommand create gate ... sealed=True eligible=True ... refusal=None
+#     Built route id=3c7e6a7e ... stops=1 stop-resources=1 stop-inventory=2 ... mode=SANDBOX
+#     PauseAfterCurrentCycle=true (...)                              [both send-once steps]
+#     LoopRoute: route 3c7e6a7e DOCK CROSSING confirmed dockCycleIdx=20 cycleIdx=21 ... at ut=1600
+#     LoopRoute: route 3c7e6a7e warp jump=21 (lastObserved=-1 -> dockCycleIndex=20); firing ONCE and snapping forward
+#     LoopRoute: route 3c7e6a7e cycle=cycle-0 BLOCKED kind=DestinationFull reason=stored-part:evaScienceKit
+#     Route 3c7e6a7e Active->Paused reason=blocked-then-paused
+#     LifecycleMarker: route 3c7e6a7e type=RoutePaused reason=blocked-then-paused ut=1600 seq=0
+#     ArmedPause: route 3c7e6a7e cycle=cycle-0 BLOCKED cycle consumed the armed pause ...
+#         reason=blocked-then-paused armedBy=send-once hold kind=DestinationFull ... at ut=1600
+#
+# **THE ONE UNSETTLED LINK IS SETTLED, AND IT WENT THE WAY THIS FILE HOPED.** The TIMING
+# block below says an instantaneous `TimeJump` past several loop periods might produce no
+# crossing the orchestrator acts on, and names that as "the single most likely first-flight
+# red". It is not: the jump to UT 1600 crossed 21 loop cycles and the orchestrator printed
+# `warp jump=21 ... firing ONCE and snapping forward`, then acted on the cycle. The second
+# jump did the same (`warp jump=12`). A driven TimeJump IS a usable dispatch trigger for a
+# loop route, which no lane in the suite could state before. **The `blocked-then-paused`
+# path is likewise now PROVEN LIVE in a driven run** rather than argued from source: the
+# armed pause was consumed by a genuinely blocked cycle, twice.
+#
+# WHY IT STILL RED, AND IT WAS THE FIXTURE RATHER THAN THE PRODUCT. Cycle 0 BLOCKED where
+# link 3 predicts a delivery, and the reason line names the cause exactly:
+# `reason=stored-part:evaScienceKit`, i.e. INVENTORY SLOTS, not LiquidFuel. The endpoint
+# `rover fuel 0` had no free slot because the harvested save already carried the output of
+# a delivery: the operator hand-created route `fd6ee2ff` over these same trees and drove
+# one Send Once at UT 750.06 before the game wrote the save, storing an evaChute into
+# `part7/mod1/slot1` and an evaScienceKit into `part7/mod1/slot2`. Link 4 below checked
+# the LiquidFuel headroom and never checked slot occupancy, so the arithmetic was right
+# about the half it looked at and silent about the half that decided the run.
+#
+# THE REPAIR, and what it changes for this lane. `build_rover_route_recorded.py` step 3
+# now strips exactly those two `STOREDPART` nodes (see its "THE ENDPOINT INVENTORY REPAIR"
+# section for the positive identification and the evidence), restoring the endpoint to 3
+# free slots of 6 and leaving the second container and the 297.6 / 400 LiquidFuel
+# untouched. POST-REPAIR PREDICTION, both halves this time:
+#     cycle 1: 3 free slots >= the 2-item manifest AND 97.6 <= 102.4 of LF headroom
+#              -> DELIVERS. Endpoint 297.6 -> 395.2 / 400, 5 of 6 slots occupied.
+#     cycle 2: 1 free slot < 2 items AND 97.6 > 4.8 of remaining LF headroom
+#              -> BLOCKED kind=DestinationFull, both ways at once.
+# `RouteDestinationCapacityCheck.FirstShortToken` names the first short RESOURCE line
+# BEFORE any inventory line, so cycle 2's `reason=` is EXPECTED to read `LiquidFuel` where
+# flight 1 read `stored-part:evaScienceKit`. That ordering is the evaluator's, not the
+# fixture's, so the token below pins `BLOCKED kind=DestinationFull` and leaves the detail
+# to a regex; the re-fly measures it and it is pinned exactly then.
 #
 # -------------------------------------------------------------------------------------
 # WHY THIS COULD NOT EXIST BEFORE. `build_depot_route_recorded.py`'s header states the
@@ -105,11 +148,22 @@ tier = "pending-fixture"
 #   token is the bare resource name. That arithmetic is asserted against the fixture in
 #   `test_the_endpoint_headroom_makes_rvr2s_two_cycle_chain_derivable`, so a re-harvest
 #   that moved either number reds in `harness/lib` rather than on this flight.
-#   THE INVENTORY HALF POINTS THE SAME WAY and is not relied on: the manifest also carries
-#   DeployedCentralStation x1 / evaChute x1 / evaScienceKit x1, and the endpoint already
-#   holds 5 stored parts across 2 containers, so slot pressure can only make the block
-#   arrive sooner. The RESOURCE arithmetic is what the pin rests on because it is the half
-#   the bytes settle exactly.
+#   THE INVENTORY HALF IS NOW LOAD-BEARING TOO, AND FLIGHT 1 IS WHY. This paragraph used
+#   to read "the inventory half points the same way and is not relied on ... slot pressure
+#   can only make the block arrive sooner". That was true and it was the whole defect: slot
+#   pressure made the block arrive at cycle ZERO, before any delivery, and the run red on
+#   the delivery tokens with the LiquidFuel arithmetic still perfectly correct. "Can only
+#   make it arrive sooner" is not a safe thing to leave unchecked when the lane's product
+#   IS the first cycle. The fixture is repaired (see the top of this file) and BOTH halves
+#   are now pinned in `harness/lib`: `test_the_endpoint_headroom_makes_rvr2s_two_cycle_
+#   chain_derivable` for the resource half and
+#   `test_the_repaired_slot_headroom_makes_cycle_1_deliver_and_cycle_2_block` for the slot
+#   half, each asserting its own cycle-1-fits AND cycle-2-does-not pair.
+#     slots: 6 across 2 `ConformalStorageUnit` containers, 3 occupied after the repair
+#            -> 3 free >= the 2-item manifest (cycle 1), 1 free < 2 (cycle 2)
+#   The 6 is MEASURED off the collected flight log's `ProbeLoadedFirstEmpty: ...
+#   modulesScanned=2 slotsOccupied=5 slotsConsumed=1`, since `InventorySlots` is a
+#   part-config property and not a save property.
 #
 # LINK 5 - THE BLOCK CONSUMES THE ARMED PAUSE.
 #   `RouteOrchestrator.ProcessLoopRoute` calls `TryHonorArmedPauseOnBlockedCycle`
@@ -128,25 +182,34 @@ tier = "pending-fixture"
 #   gates the refusing direction of this gate today. This one does.
 #
 # -------------------------------------------------------------------------------------
-# THE TIMING, AND IT IS THE ONE LINK A FLIGHT MUST SETTLE.
+# THE TIMING. THIS WAS THE ONE LINK ONLY A FLIGHT COULD SETTLE, AND FLIGHT 1 SETTLED IT.
 # `TrySendOneCycleNow` does NOT dispatch. It arms `PauseAfterCurrentCycle` +
 # `SendOnceArmed`, un-pauses to Active, and pulls `NextDispatchUT` forward. The cycle
-# fires - and the BLOCKED branch is reached - only inside `ProcessLoopRoute` AFTER the
-# crossing gate (`if (!crossing) { ... return; }`), i.e. at a dock crossing of the backing
-# mission loop. So each send-once needs the clock to reach one.
-# THE LOOP PERIOD IS 125.74 s: the backing mission is the trimmed `[launch .. undock]`
-# span of tree `73e50f1e`, and the fixture's own recordings give
-# `explicitStartUT 468.53999999986382` -> `undockUT 594.27999999974952`. Absent an
-# explicit `interval=`, the create takes `ComputeRootToUndockSpan`, which is that span.
-# THE TWO TimeJumps ARE +600 s EACH, ~4.8 loop periods, from the fixture's save clock of
-# UT 979.48 -> 1600 -> 2200. Generous on purpose: the cost of overshooting is nothing (the
-# orchestrator snaps `lastObservedLoopCycleIndex` forward) and the cost of undershooting
-# is a run that reds on the delivery token for a clock reason rather than a product one.
-# WHAT A FIRST FLIGHT MUST CHECK BEFORE BLAMING THE PRODUCT: whether an INSTANTANEOUS jump
-# past several periods produces a crossing the orchestrator acts on at all. If the log
-# shows the rate-limited `no dock crossing` Verbose line and no `LoopRoute: route ... cycle=`
-# at either jump, the fix is a driver one (more, smaller jumps, or a settle wait), NOT a
-# route defect. That is the single most likely first-flight red and it is not a finding.
+# fires - and the BLOCKED / delivering branch is reached - only inside `ProcessLoopRoute`
+# AFTER the crossing gate (`if (!crossing) { ... return; }`), i.e. at a dock crossing of
+# the backing mission loop. So each send-once needs the clock to reach one.
+# MEASURED, replacing this block's authored derivation: the driven create printed
+#     Built route id=3c7e6a7e ... spanStartUT=468.49999999986386 undockUT=594.27999999974952
+#     dockUT=513.539999999823 span=45.039999999959093 interval=45.039999999959093 cadenceN=1
+# so `ComputeRootToUndockSpan` yields 45.04 s here, NOT the 125.74 s this file derived by
+# hand from `[explicitStartUT .. undockUT]`. The measured span is `dockUT - spanStartUT`.
+# NOTHING IN THE LANE DEPENDS ON WHICH IT IS - both TimeJumps clear either period many
+# times over - and no token pins the number, which is exactly why the create ACK
+# deliberately does not pin `interval=`. Recorded here so the next reader does not
+# re-derive 125.74 and then disbelieve the log.
+# THE TWO TimeJumps ARE +600 s EACH from the fixture's save clock of UT 979.48 -> 1600 ->
+# 2200. Generous on purpose: the cost of overshooting is nothing (the orchestrator snaps
+# `lastObservedLoopCycleIndex` forward) and the cost of undershooting is a run that reds on
+# the delivery token for a clock reason rather than a product one.
+# THE VERDICT ON THE UNSETTLED QUESTION - "does an INSTANTANEOUS jump past several periods
+# produce a crossing the orchestrator acts on at all?" - is YES, and both jumps prove it:
+#     DOCK CROSSING confirmed dockCycleIdx=20 cycleIdx=21 ... lastObserved=-1 at ut=1600
+#     warp jump=21 (lastObserved=-1 -> dockCycleIndex=20); firing ONCE and snapping forward
+#     DOCK CROSSING confirmed dockCycleIdx=32 cycleIdx=33 ... lastObserved=20 at ut=2200
+#     warp jump=12 (lastObserved=20 -> dockCycleIndex=32); firing ONCE and snapping forward
+# So the driver shape needs no change (no smaller jumps, no settle wait), and a future red
+# on the delivery tokens is NOT to be diagnosed as a clock problem: that hypothesis is
+# spent.
 #
 # -------------------------------------------------------------------------------------
 # WHY THE ROUTE END-STATE IS PINNED THROUGH `logContracts` AND NOT `saveParse`.
@@ -157,7 +220,7 @@ tier = "pending-fixture"
 # below are chosen to be the grep-stable literal RUNS between interpolation holes rather
 # than whole rendered lines.
 # =====================================================================================
-description = "AUTHORED 2026-08-30, NEVER FLOWN. THE FIRST DRIVEN ROUTE CREATION AND THE FIRST DRIVEN DELIVERY: SealSlot proves the idempotent no-op on an already-fully-sealed tree (the fixture carries no mergeState key anywhere, so IsTreeFullySealed is already true), RouteCommand action=create promotes the transport rover's committed tree through the production RouteCreationService funnel with the player default interval, and two send-once cycles walk the whole dispatch gate in both directions. Cycle 1 delivers 97.6 LiquidFuel to an UNLOADED endpoint 5.4 km away via path=unloaded (FlightGlobals.FindVessel resolves by pid with no loaded gate, and WriteResourceUnloaded writes the proto snapshot); cycle 2 is short by 92.8 against the endpoint's remaining 4.8 of headroom and blocks DestinationFull, consuming the armed pause into blocked-then-paused. The whole two-cycle arithmetic is derived from the recorded window's own dock/undock resource rows and is gated in harness/lib so a re-harvest cannot move it silently. The one unsettled link is whether an instantaneous TimeJump past several loop periods produces a dock crossing the orchestrator acts on."
+description = "AUTHORED 2026-08-30, FLOWN ONCE 2026-09-01 (PARSEK-FAIL(expectation) on a polluted fixture endpoint, repaired since; re-fly pending). FLIGHT 1 SETTLED THE LANE'S ONE UNSETTLED LINK: an instantaneous TimeJump past several loop periods DOES produce a dock crossing the orchestrator acts on (warp jump=21 ... firing ONCE and snapping forward), and the blocked-then-paused armed-pause consumption is now PROVEN LIVE in a driven run. What it could not prove is the delivery: the harvested endpoint already held the output of a Send Once the operator hand-drove before the save was written, so it had no free inventory slot and cycle 0 answered BLOCKED kind=DestinationFull reason=stored-part:evaScienceKit instead of delivering. The fixture builder now strips those two route-delivered STOREDPART nodes, restoring 3 free slots of 6; post-repair, cycle 1 delivers 97.6 LiquidFuel plus 2 items and cycle 2 is short on BOTH halves at once. THE LANE AS AUTHORED: SealSlot proves the idempotent no-op on an already-fully-sealed tree (the fixture carries no mergeState key anywhere, so IsTreeFullySealed is already true), RouteCommand action=create promotes the transport rover's committed tree through the production RouteCreationService funnel with the player default interval, and two send-once cycles walk the whole dispatch gate in both directions. Cycle 1 delivers 97.6 LiquidFuel to an UNLOADED endpoint 5.4 km away via path=unloaded (FlightGlobals.FindVessel resolves by pid with no loaded gate, and WriteResourceUnloaded writes the proto snapshot); cycle 2 is short by 92.8 against the endpoint's remaining 4.8 of headroom and blocks DestinationFull, consuming the armed pause into blocked-then-paused. The whole two-cycle arithmetic is derived from the recorded window's own dock/undock resource rows and is gated in harness/lib so a re-harvest cannot move it silently - and since flight 1 the INVENTORY-SLOT half is gated there too, because that was the half that decided the run and the half nobody had checked."
 instanceProfile = "stock-minimal"
 tags = ["seam-verbs", "logistics", "route-create", "route-delivery", "recorded-fixture",
         "RVR-2", "pending-flight", "reading-iteration"]
@@ -262,18 +325,22 @@ allowedAnomalies = []
 # `SourceChanged`, which never auto-recovers, and the failure would present as a route
 # defect rather than as data loss.
 #
-# EXACT AT 5, both bounds. Unlike RVR-1 there is no isolated batch to add or remove trees,
-# and no in-game cell here builds one - so any number other than the staged 5 is a
-# finding. If the first flight measures a load-time optimizer split here (H35/H39/H40 all
-# measure one on their hosts' bytes) this becomes 5 + that split and is re-pinned EXACTLY,
-# never widened.
+# EXACT AT 5, both bounds, and flight 1 CONFIRMED IT (`observed.recordings.count = 5`).
+# Unlike RVR-1 there is no isolated batch to add or remove trees, and no in-game cell here
+# builds one - so any number other than the staged 5 is a finding. The load-time optimizer
+# split H35/H39/H40 all measure on their hosts' bytes does NOT happen on this corpus, which
+# RVR-1's flight measured independently on the same fixture; the pin therefore stands as
+# authored and needs no re-derivation after the endpoint-inventory repair (that edit lives
+# inside a FLIGHTSTATE VESSEL node and no recording count reads it).
 count = { min = 5, max = 5 }
 
 [expectations.logContracts]
-# EVIDENCE STANDING: AUTHORED, NEVER FLOWN. Every token below is a literal RUN taken from
-# the emitting `string.Format` / interpolation in source, never a line pasted from a log -
-# an interpolated string is not stored the way it renders, and a token spanning a hole
-# cannot match.
+# EVIDENCE STANDING: FLOWN ONCE 2026-09-01, PRE-REPAIR. NINE of the eleven tokens below
+# MATCHED on that run; the two that did not are the cycle-1 DELIVERY pair (tokens 6 and 7),
+# which the endpoint-inventory repair exists to make satisfiable. Every token is still a
+# literal RUN taken from the emitting `string.Format` / interpolation in source, never a
+# line pasted from a log - an interpolated string is not stored the way it renders, and a
+# token spanning a hole (or an em dash) cannot match.
 #
 # TOKEN 1  the boot. Pins `scene=FLIGHT` one layer earlier than anything else, where a
 #          failure is legible as a boot fault.
@@ -332,19 +399,46 @@ count = { min = 5, max = 5 }
 #          kind=DestinationFull` is the rendered pair; `kind=` and the enum name are
 #          separated by no hole. This is the token that carries the whole cycle-2 half of
 #          the lane, and per H38's header it is the FIRST time any committed lane gates the
-#          refusing direction of the destination-capacity gate.
+#          refusing direction of the destination-capacity gate. MEASURED LIVE on flight 1
+#          (at cycle 0 and cycle 1, on the pre-repair endpoint).
+#          THE DETAIL IS DELIBERATELY NOT PINNED. The rendered line continues
+#          `reason=<token> shortfall=<n>`, and WHICH shortfall it names is
+#          `RouteDestinationCapacityCheck.FirstShortToken`'s ORDERING, not a fact about
+#          this fixture: it returns the first short RESOURCE line before any inventory
+#          line. Post-repair, cycle 2 is short on BOTH, so the expected reading flips from
+#          flight 1's `stored-part:evaScienceKit` to `LiquidFuel`. Pinning either spelling
+#          today would be pinning a prediction; the re-fly measures it and it is pinned
+#          exactly in that commit.
 #
-# TOKEN 9  THE ARMED PAUSE (link 5), from `TryHonorArmedPauseOnBlockedCycle`'s Info line.
-#          `reason=blocked-then-paused` is contiguous (`BlockedThenPausedReason` is a plain
-#          const) and `armedBy=send-once` is likewise. Pinning BOTH is what distinguishes
-#          "the route paused because a cycle blocked" from "the route paused because
-#          something else asked it to".
+# TOKEN 9  THE ARMED PAUSE (link 5), from `TryHonorArmedPauseOnBlockedCycle`'s Info line,
+#          pinned as TWO tokens because the line carries an em dash the run cannot match
+#          across and because each half asserts something different.
+#          9a `ArmedPause: route .* BLOCKED cycle consumed the armed pause` anchors the
+#             claim to THAT emitter. Its sibling `TryHonorArmedPauseOnCompletedCycle`
+#             renders the identical shape with `COMPLETED` in the same slot, and
+#             post-repair BOTH will appear in one run (cycle 1 completes, cycle 2 blocks),
+#             so the discriminating word must be inside the token.
+#          9b `reason=blocked-then-paused armedBy=send-once` is contiguous
+#             (`BlockedThenPausedReason` is a plain const, `armedBy` immediately follows).
+#             Pinning BOTH halves distinguishes "the route paused because a cycle blocked"
+#             from "the route paused because something else asked it to", and pins the
+#             PROVENANCE as the send-once arm rather than an ordinary pause-after-cycle.
+#          Both measured live on flight 1.
 #
 # TOKEN 10 THE LIFECYCLE MARKER, from `EmitRouteLifecycleMarker`. `type=RoutePaused
 #          reason=blocked-then-paused` is the persisted-timeline half of the same event -
 #          token 9 is the orchestrator's decision, this is the marker it emitted. A
 #          regression that took the decision without emitting the marker would leave the
-#          UI unable to name the blocker and would red only here.
+#          UI unable to name the blocker and would red only here. Measured live on
+#          flight 1 (`... type=RoutePaused reason=blocked-then-paused ut=1600 seq=0`).
+#
+# WHAT IS EXPECTED POST-REPAIR BUT DELIBERATELY NOT PINNED: cycle 1's
+# `LoopRoute: route ... FIRED full cycle (dispatch+debit+delivered)` and its
+# `reason=delivered-then-paused` armed-pause line. Both should appear, and the operator's
+# own hand-flown cycle 0 printed the first verbatim - but neither has been measured in a
+# DRIVEN run, and flight 1's single red is the standing lesson about pinning a required
+# token derived rather than measured. The two `path=unloaded` delivery tokens already
+# carry the cycle-1 claim; these are added, if at all, in the commit that measures them.
 #
 # WHAT IS NOT PINNED, AND WHY: no `status=DestinationFull` reading anywhere. On the loop
 # path the route ends at `Paused` with `LastHoldKind = DestinationFull` - `RouteStatus.
@@ -359,6 +453,7 @@ required  = [
   "Delivery write: route=.* resource=LiquidFuel .* path=unloaded",
   "Inventory store: route=.* path=unloaded",
   "BLOCKED kind=DestinationFull",
+  "ArmedPause: route .* BLOCKED cycle consumed the armed pause",
   "reason=blocked-then-paused armedBy=send-once",
   "LifecycleMarker: route .* type=RoutePaused reason=blocked-then-paused",
 ]

@@ -2473,7 +2473,8 @@ class CommittedFixtureSweepTests(unittest.TestCase):
         # to answer `alreadySealed=True remaining=0`. The builder pins that
         # absence; without the pin the no-op guard would be untestable.
         #
-        # THE ACTIVE VESSEL WAS RE-POINTED, the one edit to the save body. The
+        # THE ACTIVE VESSEL WAS RE-POINTED, the first of the two edits to the
+        # save body (the second is the endpoint inventory repair below). The
         # source's `activeVessel = 10` is `rover fuel 0`, PRELAUNCH on the
         # Runway; the builder re-points to index 7 = `B` (pid 313889796, Rover,
         # LANDED), the transport rover and route origin, re-resolving the index
@@ -2482,6 +2483,27 @@ class CommittedFixtureSweepTests(unittest.TestCase):
         # which is not a posture a committed-tree lane should open in. Neither
         # RVR-1 cell reads `FlightGlobals.ActiveVessel` (both walk
         # `CommittedTrees`), so the choice is free for them.
+        #
+        # THE ENDPOINT INVENTORY WAS REPAIRED (2026-09-01, after RVR-2 flight 1),
+        # the second edit to the save body and the only one NO NUMBER IN THIS MAP
+        # MOVES FOR: it lives inside a FLIGHTSTATE VESSEL node, so trees,
+        # recordings, terminal states, branch points, sidecars, schema generation
+        # and pointCount are all unchanged, and the pin lives builder-side in
+        # `verify_endpoint_inventory` instead. What moved: two `STOREDPART` nodes
+        # a ROUTE DELIVERY had placed into `rover fuel 0` were stripped. The
+        # operator hand-created route `fd6ee2ff` over these same trees and drove
+        # one Send Once at UT 750.06 BEFORE the save was written, and its own log
+        # lines name the two slots verbatim (`part7/mod1/slot1` evaChute,
+        # `part7/mod1/slot2` evaScienceKit) - so the harvested endpoint was the
+        # physical state PLUS one already-run delivery, with no free slot left.
+        # RVR-2 flight 1 measured the consequence exactly: the whole driven chain
+        # executed and cycle 0 answered `BLOCKED kind=DestinationFull
+        # reason=stored-part:evaScienceKit` instead of delivering. The second
+        # container (`part8/mod1`) is untouched and is pinned as such. The
+        # LiquidFuel is deliberately NOT reverted (297.6 is post-delivery too);
+        # keeping it is what makes RVR-2's cycle-1-fits / cycle-2-blocks chain
+        # reachable in TWO driven cycles, and the builder header records the
+        # asymmetry as a decision rather than an oversight.
         #
         # NO `.prec` IS REPAIRED, and that is a MEASUREMENT. The analyzer Forbid
         # gate was run on the harvested bytes BEFORE anything else and read

@@ -473,9 +473,23 @@ and what a future re-harvest could silently lose:
   CANDIDATE host (both trees already fully sealed, route not yet created), the mirror
   image of `depot-route-recorded` and not interchangeable with it. That is what gives
   `RVR-2`'s driven `RouteCommand action=create` something to do.
+- **Its endpoint inventory was REPAIRED on 2026-09-01, after RVR-2's first flight**, and
+  a re-harvest must repeat the repair rather than inherit these bytes. The source save
+  was written AFTER the operator had hand-created route `fd6ee2ff` over the same trees
+  and driven one Send Once, so the harvested endpoint `rover fuel 0` (pid 2123618197)
+  carried that delivery's output: two extra `STOREDPART` nodes and no free inventory
+  slot. RVR-2 flight 1 executed its whole driven chain and then blocked at cycle 0
+  (`BLOCKED kind=DestinationFull reason=stored-part:evaScienceKit`) instead of
+  delivering - a route-creation lane cannot start from a destination the same delivery
+  has already filled. The builder strips exactly the two slots the delivery's own
+  `Inventory store:` log lines name (`part7/mod1/slot1` evaChute, `part7/mod1/slot2`
+  evaScienceKit), leaves the second container verbatim, and rewrites the module's
+  `inventory = ` mirror. The 297.6 / 400 LiquidFuel is post-delivery too and is
+  deliberately KEPT: 102.4 of headroom against a 97.6 manifest is what makes RVR-2's
+  cycle-1-fits / cycle-2-blocks chain reachable in two driven cycles.
 
-Both are asserted by the builder's `--check`, so a re-harvest that lost either reds in
-`harness/lib` rather than on a flight.
+All three are asserted by the builder's `--check`, so a re-harvest that lost any of them
+reds in `harness/lib` rather than on a flight.
 
 ## Re-tier
 

@@ -33,25 +33,58 @@ namespace Parsek.InGameTests
     /// <see cref="RouteDispatchEvaluator.CheckEligibility"/> must pass all six
     /// gates before <c>EmitLoopCycle</c> runs: ERS-resolvable sources, a resolved
     /// endpoint for every stop, origin cargo, Career/KSC funds, destination
-    /// capacity, and the partner constraint. The endpoint gate is the hard one -
-    /// it resolves a LIVE <c>Vessel</c> by <c>persistentId</c> (or by surface
-    /// proximity), so the only way a scene-agnostic cell could reach a delivery is
-    /// by pointing a stop at a REAL vessel in the player's save and then debiting
-    /// / filling it. That is a world mutation no batch-safe cell may make, so
+    /// capacity, and the partner constraint. Two cells here deliberately pass the
+    /// first three and stop at the fourth (see the RESOLUTION half below): they
+    /// point a stop at a REAL live vessel, because the endpoint gate resolves a
+    /// live <c>Vessel</c> by <c>persistentId</c> and nothing synthetic satisfies
+    /// it. What they never do is DELIVER: the capacity gate only probes, and the
+    /// cycle blocks before <c>EmitDispatchDebit</c>, so no debit / delivery / funds
+    /// row touches the real craft (both cells assert zero of each for their route
+    /// id). Actually FILLING a real destination would be a world mutation no
+    /// batch-safe cell may make, so
     /// <see cref="DeliverableCycle_RequiresRealDestination_LiveEnvRefusesSyntheticEndpoint"/>
-    /// PINS the refusal instead (the live resolver's exact reason token), and the
-    /// delivered half is owned by the headless fire tests plus the driven RVR-1 /
-    /// RVR-2 flights, which fly a real transport to a real base.</para>
+    /// PINS the synthetic-endpoint refusal (the live resolver's exact reason
+    /// token), and the delivered half stays owned by the headless fire tests plus
+    /// the driven RVR-1 / RVR-2 flights, which fly a real transport to a real
+    /// base.</para>
     ///
-    /// <para><b>The blocked kind is SourcesStale, on purpose.</b> Under the live
-    /// env a synthetic route's first eligibility failure is the ERS gate: its
-    /// source ids are fresh GUIDs that no ERS snapshot can contain, in any scene,
-    /// with no arranging at all. Endpoint-lost would need a committed source tree
-    /// planted first just to get PAST the ERS gate, i.e. more live state to mutate
-    /// and restore for a strictly less stable verdict. All blocked kinds enter the
-    /// SAME <c>ProcessLoopRoute</c> branch (<c>!elig.Eligible</c>), so the contract
-    /// under test is identical; cell 1 pins that the endpoint half refuses too, so
-    /// the choice hides nothing.</para>
+    /// <para><b>TWO blocked populations, and the split is the whole point.</b>
+    /// <see cref="RouteOrchestrator.IsPostponementHold"/> divides the evaluator's
+    /// failure kinds in two, and the armed pause behaves OPPOSITELY across the
+    /// divide:
+    /// <list type="bullet">
+    ///   <item><b>POSTPONEMENTS</b> (<c>SourcesStale</c>, <c>WaitingForPartner</c>)
+    ///     - the crossing self-resolves on a later tick, so
+    ///     <see cref="RouteOrchestrator.TryHonorArmedPauseOnBlockedCycle"/> returns
+    ///     false and KEEPS the arm: the crossing is still consumed as skipped, but
+    ///     the route does not pause, emits no <c>RoutePaused</c> row and posts no
+    ///     toast. Cheap to reach live: a fresh-GUID source id is in no ERS snapshot
+    ///     in any scene, with no arranging at all.</item>
+    ///   <item><b>RESOLUTIONS</b> (every other kind - <c>DestinationFull</c>,
+    ///     <c>FundsShort</c>, <c>OriginLacksCargo</c>, <c>EndpointLost</c>) - the
+    ///     one-shot's cycle IS over, so the arm is CONSUMED: Paused, reason
+    ///     <see cref="RouteOrchestrator.BlockedThenPausedReason"/>, flags cleared,
+    ///     hold kept, marker row, toast (Send Once only).</item>
+    /// </list>
+    /// The first flight (2026-09-01) measured the postponement half only, because
+    /// every cell here reached the ERS gate first. The resolution half now has its
+    /// own pair of cells, which get PAST the ERS gate by pointing the route's
+    /// <c>SourceRefs</c> at a REAL id out of the live ERS snapshot and its stop at
+    /// a REAL live vessel pid, then hand it a delivery manifest no craft can hold
+    /// (see <see cref="ResolutionBlockKind"/>). Both halves drive the SAME
+    /// <c>ProcessLoopRoute</c> branch (<c>!elig.Eligible</c>); what differs is only
+    /// which side of <c>IsPostponementHold</c> the recorded hold lands on.</para>
+    ///
+    /// <para><b>Why the resolution cells are still world-safe.</b> The capacity
+    /// gate (<c>LiveRouteRuntimeEnvironment.DestinationHasCapacity</c> ->
+    /// <c>RouteDestinationCapacityCheck</c> -> <c>RouteDeliveryPlanner</c> over
+    /// <c>LiveDeliveryCapacityProbe</c>) only PROBES free capacity; it writes
+    /// nothing. The cycle then blocks BEFORE <c>EmitDispatchDebit</c>, so no debit,
+    /// no delivery and no funds row ever touch the real destination vessel. The
+    /// pre-tick <see cref="RequireLiveResolutionBlock"/> gate refuses to tick at
+    /// all unless the live environment has ALREADY judged the crossing blocked with
+    /// the expected kind, so an eligible verdict is a hard failure rather than a
+    /// dispatch against live world state.</para>
     ///
     /// <para><b>Batch-safety contract</b> (mirrors
     /// <see cref="RouteRewindTimelineRuntimeTests"/>): every cell is
@@ -93,14 +126,49 @@ namespace Parsek.InGameTests
         /// <summary>Dock phase inside the span, seconds from span start.</summary>
         private const double DockPhaseSeconds = 150.0;
 
-        /// <summary>The eligibility verdict every ticking cell drives its blocked
-        /// cycle through. See the class doc for why this kind and not another.</summary>
-        private const RouteDispatchEvaluator.EligibilityFailureKind ExpectedBlockKind =
+        /// <summary>
+        /// The POSTPONEMENT verdict the fresh-GUID-source cells drive their blocked
+        /// cycle through: the ERS gate is the first thing
+        /// <see cref="RouteDispatchEvaluator.CheckEligibility"/> checks, and a fresh
+        /// GUID cannot be in any ERS snapshot in any scene. Classified a
+        /// postponement by <see cref="RouteOrchestrator.IsPostponementHold"/>, so an
+        /// armed pause SURVIVES it.
+        /// </summary>
+        private const RouteDispatchEvaluator.EligibilityFailureKind PostponementBlockKind =
             RouteDispatchEvaluator.EligibilityFailureKind.SourcesStale;
 
         /// <summary>The detail token <see cref="RouteDispatchEvaluator.CheckEligibility"/>
-        /// pairs with <see cref="ExpectedBlockKind"/>.</summary>
-        private const string ExpectedBlockDetail = "sources-stale";
+        /// pairs with <see cref="PostponementBlockKind"/>.</summary>
+        private const string PostponementBlockDetail = "sources-stale";
+
+        /// <summary>
+        /// The RESOLUTION verdict the two live-source cells drive: gate 8 of
+        /// <see cref="RouteDispatchEvaluator.CheckEligibility"/>, reached only once
+        /// the ERS (gate 4), endpoint (gate 5) and origin-cargo (gate 6) gates all
+        /// PASS. NOT a postponement, so an armed pause is CONSUMED by it - which is
+        /// the contract the 2026-08-30 blocked-then-paused fix shipped and the half
+        /// of the state machine no postponement cell can reach.
+        /// </summary>
+        private const RouteDispatchEvaluator.EligibilityFailureKind ResolutionBlockKind =
+            RouteDispatchEvaluator.EligibilityFailureKind.DestinationFull;
+
+        /// <summary>
+        /// The single resource the resolution cells' delivery manifest carries. The
+        /// gate's <c>fullToken</c> is the bare name of the first short resource line
+        /// (<c>RouteDestinationCapacityCheck.FirstShortToken</c>), and a one-entry
+        /// manifest makes that token deterministic.
+        /// </summary>
+        private const string ResolutionBlockResource = "LiquidFuel";
+
+        /// <summary>
+        /// The amount that makes the block a property of arithmetic rather than of
+        /// the host: 1e9 units of LiquidFuel is ~5e9 kg, orders of magnitude beyond
+        /// any craft KSP can hold, so <c>ProbeResourceFreeCapacity</c> cannot cover
+        /// it on ANY destination - including one with empty tanks. The planner
+        /// clamps available to free capacity and reports the plan PARTIAL, which is
+        /// exactly the all-or-nothing hold.
+        /// </summary>
+        private const double ResolutionBlockAmount = 1e9;
 
         /// <summary>
         /// Destination pid every synthetic stop carries: near <c>uint.MaxValue</c>,
@@ -157,11 +225,11 @@ namespace Parsek.InGameTests
             InGameAssert.IsFalse(elig.Eligible,
                 "A synthetic route was judged ELIGIBLE by the live environment - a cycle " +
                 "would have dispatched and delivered against live world state");
-            InGameAssert.AreEqual(ExpectedBlockKind, elig.Kind,
+            InGameAssert.AreEqual(PostponementBlockKind, elig.Kind,
                 $"Live eligibility blocked with kind={elig.Kind} reason={elig.Reason ?? "<none>"}; " +
-                "the ticking cells in this category are written against " +
-                $"{ExpectedBlockKind} and would be measuring a different gate");
-            InGameAssert.AreEqual(ExpectedBlockDetail, elig.Reason,
+                "the fresh-GUID-source cells in this category are written against " +
+                $"{PostponementBlockKind} and would be measuring a different gate");
+            InGameAssert.AreEqual(PostponementBlockDetail, elig.Reason,
                 $"Unexpected live block detail '{elig.Reason ?? "<null>"}'");
 
             ParsekLog.Info("TestRunner",
@@ -174,31 +242,33 @@ namespace Parsek.InGameTests
         }
 
         // ==================================================================
-        // (b) THE regression gate: send-once armed + blocked cycle -> Paused
+        // (b) THE resolution gate: send-once armed + a RESOLUTION block -> Paused
         // ==================================================================
 
         [InGameTest(Category = Category,
-            Description = "Regression gate for the 2026-08-30 Send-Once fix, driven live: a send-once-armed route whose crossing blocks lands Paused with reason blocked-then-paused, both one-shot flags cleared, the hold KEPT, SkippedCycles bumped, a RoutePaused ledger row at the crossing UT, nothing dispatched or delivered, and the player toast posted")]
-        public void SendOnce_BlockedCycle_PausesWithReason_KeepsHold()
+            Description = "Live gate for the 2026-08-30 blocked-then-paused fix on a RESOLUTION kind: a send-once-armed route whose sources are REAL live-ERS ids and whose stop is a REAL live vessel blocks at the destination-capacity gate (DestinationFull), and that consumes the arm - Paused with reason blocked-then-paused, both one-shot flags cleared, the hold KEPT, SkippedCycles bumped, a RoutePaused ledger row at the crossing UT, nothing dispatched or delivered, and the player toast posted")]
+        public void SendOnce_ResolutionBlock_PausesWithReason_KeepsHold()
         {
             double liveUT = RequireLiveContext();
             RequireRenderCompositionUnarmed();
+            RouteSourceRef sourceRef = RequireLiveErsSourceRef();
+            Vessel destination = RequireLiveDestinationVessel();
 
             double baseUT = liveUT + SyntheticBandOffset;
             double crossingUT = baseUT + DockPhaseSeconds;
-            string routeId = NewId("sendonce-blocked");
-            Route route = BuildLoopRoute(routeId, "Parsek RouteLifecycle Send Once",
-                RouteStatus.Active, baseUT);
+            string routeId = NewId("sendonce-resolution");
+            Route route = BuildResolutionBlockRoute(routeId, "Parsek RouteLifecycle Send Once",
+                RouteStatus.Active, baseUT, sourceRef, destination.persistentId);
 
             var lines = new List<string>();
             var toasts = new List<string>();
             using (var arena = new LifecycleArena(lines, toasts, route, baseUT))
             {
                 // Pre-flight: only tick once the LIVE environment has already said
-                // this crossing blocks, and blocks with the kind this cell asserts.
-                // A cell that ticked first could - in some future scene - dispatch a
-                // real cycle before finding out.
-                RequireLiveBlock(route, crossingUT, arena.Env);
+                // this crossing blocks, and blocks with the RESOLUTION kind this
+                // cell asserts. A cell that ticked first could dispatch a real cycle
+                // against the real destination vessel before finding out.
+                RequireLiveResolutionBlock(route, crossingUT, arena.Env, destination);
 
                 InGameAssert.IsTrue(RouteOrchestrator.TrySendOneCycleNow(route, baseUT + 1.0),
                     "TrySendOneCycleNow returned false for an Active synthetic route");
@@ -216,11 +286,13 @@ namespace Parsek.InGameTests
                 InGameAssert.AreEqual(0L, route.LastObservedLoopCycleIndex,
                     "The blocked cycle did not snap the crossing index forward - it would re-fire every tick");
 
-                // ...nothing was emitted beyond the pause marker...
+                // ...nothing was emitted beyond the pause marker. This is also the
+                // world-safety assertion: the stop points at a REAL vessel, so a
+                // debit or delivery row here would mean the cell moved live cargo.
                 InGameAssert.AreEqual(0, CountRouteRows(routeId, GameActionType.RouteDispatched),
                     "A blocked cycle emitted a RouteDispatched row");
                 InGameAssert.AreEqual(0, CountRouteRows(routeId, GameActionType.RouteCargoDelivered),
-                    "A blocked cycle emitted a RouteCargoDelivered row");
+                    "A blocked cycle emitted a RouteCargoDelivered row against a REAL vessel");
                 InGameAssert.AreEqual(0, CountRouteRows(routeId, GameActionType.RouteCargoDebited),
                     "A blocked cycle emitted a RouteCargoDebited row");
 
@@ -228,7 +300,8 @@ namespace Parsek.InGameTests
                 // stay Active with the flag still armed - an endless ghost loop plus
                 // a live arm that would deliver at some arbitrary later crossing).
                 InGameAssert.AreEqual(RouteStatus.Paused, route.Status,
-                    $"Armed route did not pause on the blocked cycle (status={route.Status})");
+                    $"A RESOLUTION block ({ResolutionBlockKind}) did not consume the armed pause " +
+                    $"(status={route.Status}); only IsPostponementHold kinds keep the arm");
                 InGameAssert.IsFalse(route.PauseAfterCurrentCycle,
                     "PauseAfterCurrentCycle survived the blocked cycle");
                 InGameAssert.IsFalse(route.SendOnceArmed,
@@ -236,10 +309,10 @@ namespace Parsek.InGameTests
 
                 // The hold is deliberately KEPT so the Logistics window still names
                 // WHY the run did not happen next to the now-Paused row.
-                InGameAssert.AreEqual(ExpectedBlockKind, route.LastHoldKind,
+                InGameAssert.AreEqual(ResolutionBlockKind, route.LastHoldKind,
                     $"Hold kind not retained across the armed pause (got {route.LastHoldKind})");
-                InGameAssert.AreEqual(ExpectedBlockDetail, route.LastHoldDetail,
-                    $"Hold detail not retained (got '{route.LastHoldDetail ?? "<null>"}')");
+                InGameAssert.AreEqual(ResolutionBlockResource, route.LastHoldDetail,
+                    $"Hold detail not the first-short resource token (got '{route.LastHoldDetail ?? "<null>"}')");
                 InGameAssert.ApproxEqual(crossingUT, route.LastHoldUT, 0.001,
                     "Hold UT not stamped at the crossing");
 
@@ -262,6 +335,9 @@ namespace Parsek.InGameTests
                     AnyLine(lines, "LifecycleMarker:", "type=RoutePaused",
                         "reason=" + RouteOrchestrator.BlockedThenPausedReason, "ut="),
                     "No genuine 'LifecycleMarker: ... reason=blocked-then-paused ut=' emission observed");
+                InGameAssert.IsFalse(AnyLine(lines, "BLOCKED by postponement"),
+                    "The resolution cell took the POSTPONEMENT branch - its block is on the " +
+                    "wrong side of IsPostponementHold and it is measuring the other contract");
 
                 // The player-visible half: a send-once run that resolved without
                 // delivering says so on screen and names the hold.
@@ -273,8 +349,104 @@ namespace Parsek.InGameTests
                     "The blocked send-once toast does not say the route paused");
 
                 ParsekLog.Info("TestRunner",
-                    $"RouteLifecycle sendonce-blocked: PASS routeId={routeId} " +
-                    $"crossingUT={crossingUT.ToString("R", IC)} hold={route.LastHoldKind}");
+                    $"RouteLifecycle sendonce-resolution: PASS routeId={routeId} " +
+                    $"holdKind={route.LastHoldKind} holdDetail={route.LastHoldDetail ?? "<none>"} " +
+                    $"destPid={destination.persistentId.ToString(IC)} " +
+                    $"sourceId={sourceRef.RecordingId} " +
+                    $"crossingUT={crossingUT.ToString("R", IC)} armedBy=send-once");
+            }
+        }
+
+        // ==================================================================
+        // (b2) The POSTPONEMENT half: the arm SURVIVES a self-resolving block
+        // ==================================================================
+
+        [InGameTest(Category = Category,
+            Description = "Live pin of the PR #1583 postponement carve-out: a send-once-armed route whose crossing blocks on SourcesStale (a postponement, not a resolution) KEEPS both one-shot flags and stays Active - the crossing is still consumed as skipped and the hold is recorded, but there is no pause transition, no RoutePaused row, no ledger row at all and no toast, and the production 'BLOCKED by postponement ... arm kept' line is emitted")]
+        public void SendOnce_PostponementBlock_KeepsArm_RouteStaysActive_NoToast()
+        {
+            double liveUT = RequireLiveContext();
+            RequireRenderCompositionUnarmed();
+
+            double baseUT = liveUT + SyntheticBandOffset;
+            double crossingUT = baseUT + DockPhaseSeconds;
+            string routeId = NewId("sendonce-postponed");
+            Route route = BuildLoopRoute(routeId, "Parsek RouteLifecycle Send Once",
+                RouteStatus.Active, baseUT);
+
+            var lines = new List<string>();
+            var toasts = new List<string>();
+            using (var arena = new LifecycleArena(lines, toasts, route, baseUT))
+            {
+                // Pre-flight: only tick once the LIVE environment has already said
+                // this crossing blocks, and blocks with the kind this cell asserts.
+                // A cell that ticked first could - in some future scene - dispatch a
+                // real cycle before finding out.
+                RequireLivePostponementBlock(route, crossingUT, arena.Env);
+
+                InGameAssert.IsTrue(RouteOrchestrator.TrySendOneCycleNow(route, baseUT + 1.0),
+                    "TrySendOneCycleNow returned false for an Active synthetic route");
+                InGameAssert.IsTrue(route.PauseAfterCurrentCycle, "PauseAfterCurrentCycle not armed");
+                InGameAssert.IsTrue(route.SendOnceArmed, "SendOnceArmed not armed");
+                int beforeTick = Ledger.Actions.Count;
+
+                RouteOrchestrator.Tick(crossingUT, arena.Env);
+
+                // The crossing IS consumed as skipped - a postponement does not undo
+                // the cycle, it only refuses to RESOLVE the one-shot.
+                InGameAssert.AreEqual(1, route.SkippedCycles,
+                    $"SkippedCycles not bumped by the postponed cycle (got {route.SkippedCycles.ToString(IC)})");
+                InGameAssert.AreEqual(0, route.CompletedCycles,
+                    "A blocked cycle must not count as completed");
+                InGameAssert.AreEqual(0L, route.LastObservedLoopCycleIndex,
+                    "The blocked cycle did not snap the crossing index forward - it would re-fire every tick");
+
+                // The hold is recorded, naming the postponement.
+                InGameAssert.AreEqual(PostponementBlockKind, route.LastHoldKind,
+                    $"Hold kind not recorded (got {route.LastHoldKind})");
+                InGameAssert.AreEqual(PostponementBlockDetail, route.LastHoldDetail,
+                    $"Hold detail not recorded (got '{route.LastHoldDetail ?? "<null>"}')");
+                InGameAssert.ApproxEqual(crossingUT, route.LastHoldUT, 0.001,
+                    "Hold UT not stamped at the crossing");
+                InGameAssert.IsTrue(RouteOrchestrator.IsPostponementHold(route.LastHoldKind),
+                    $"{route.LastHoldKind} is no longer classified a postponement - this cell " +
+                    "is written against the arm-kept branch and would measure the other one");
+
+                // THE contract: the arm survives, and so does the status.
+                InGameAssert.AreEqual(RouteStatus.Active, route.Status,
+                    $"A postponement block paused the route (status={route.Status}); a Send Once " +
+                    "cancelled by a self-resolving ERS gap is a cancellation the player cannot see coming");
+                InGameAssert.IsTrue(route.PauseAfterCurrentCycle,
+                    "PauseAfterCurrentCycle was consumed by a POSTPONEMENT block");
+                InGameAssert.IsTrue(route.SendOnceArmed,
+                    "SendOnceArmed was consumed by a POSTPONEMENT block");
+
+                // Nothing durable happened: no pause marker, and in fact no row at
+                // all (the blocked branch emits nothing, and the postponement branch
+                // returns before the marker emission).
+                InGameAssert.IsNull(LatestRouteRow(routeId, GameActionType.RoutePaused, beforeTick),
+                    "A postponement block emitted a RoutePaused row");
+                InGameAssert.AreEqual(beforeTick, Ledger.Actions.Count,
+                    "A postponement block emitted ledger rows (it must emit NOTHING)");
+                InGameAssert.AreEqual(0, toasts.Count,
+                    $"A postponement block posted {toasts.Count.ToString(IC)} screen message(s); " +
+                    "the one-shot has not resolved, so there is nothing to report yet");
+
+                // Grep-stable production log lines: the postponement audit line is
+                // present and the resolution tail is absent.
+                InGameAssert.IsTrue(
+                    AnyLine(lines, "ArmedPause:", "BLOCKED by postponement",
+                        "kind=" + PostponementBlockKind, "arm kept"),
+                    "No 'ArmedPause: ... BLOCKED by postponement kind=SourcesStale - arm kept' line " +
+                    "observed (Verbose; the arena force-arms verbose logging for exactly this)");
+                InGameAssert.IsFalse(
+                    AnyLine(lines, "ArmedPause:", RouteOrchestrator.BlockedThenPausedReason),
+                    "A postponement block ran the blocked-then-paused resolution tail");
+
+                ParsekLog.Info("TestRunner",
+                    $"RouteLifecycle sendonce-postponed: PASS routeId={routeId} " +
+                    $"crossingUT={crossingUT.ToString("R", IC)} hold={route.LastHoldKind} " +
+                    "armKept=true status=Active");
             }
         }
 
@@ -345,23 +517,25 @@ namespace Parsek.InGameTests
         // ==================================================================
 
         [InGameTest(Category = Category,
-            Description = "Pause-while-InTransit provenance driven live: TryPause on an InTransit route arms PauseAfterCurrentCycle WITHOUT SendOnceArmed, and a blocked crossing COMPLETES that pause (Paused, reason blocked-then-paused, hold kept, armedBy=pause-after-cycle) with NO send-once toast - nobody is watching for that run")]
-        public void PauseInTransit_BlockedCycle_CompletesThePause_NoSendOnceToast()
+            Description = "Pause-while-InTransit provenance driven live against a RESOLUTION kind: TryPause on an InTransit route arms PauseAfterCurrentCycle WITHOUT SendOnceArmed, and a DestinationFull crossing (real ERS sources, real destination vessel) COMPLETES that pause (Paused, reason blocked-then-paused, hold kept, armedBy=pause-after-cycle) with NO send-once toast - nobody is watching for that run")]
+        public void PauseInTransit_ResolutionBlock_CompletesThePause_NoSendOnceToast()
         {
             double liveUT = RequireLiveContext();
             RequireRenderCompositionUnarmed();
+            RouteSourceRef sourceRef = RequireLiveErsSourceRef();
+            Vessel destination = RequireLiveDestinationVessel();
 
             double baseUT = liveUT + SyntheticBandOffset;
             double crossingUT = baseUT + DockPhaseSeconds;
-            string routeId = NewId("pause-intransit");
-            Route route = BuildLoopRoute(routeId, "Parsek RouteLifecycle in-transit pause",
-                RouteStatus.InTransit, baseUT);
+            string routeId = NewId("pause-intransit-resolution");
+            Route route = BuildResolutionBlockRoute(routeId, "Parsek RouteLifecycle in-transit pause",
+                RouteStatus.InTransit, baseUT, sourceRef, destination.persistentId);
 
             var lines = new List<string>();
             var toasts = new List<string>();
             using (var arena = new LifecycleArena(lines, toasts, route, baseUT))
             {
-                RequireLiveBlock(route, crossingUT, arena.Env);
+                RequireLiveResolutionBlock(route, crossingUT, arena.Env, destination);
 
                 // Arm through the REAL InTransit branch (env-injected overload, so
                 // the recovery-credit flush runs against the same live env the tick
@@ -379,13 +553,20 @@ namespace Parsek.InGameTests
                 RouteOrchestrator.Tick(crossingUT, arena.Env);
 
                 InGameAssert.AreEqual(RouteStatus.Paused, route.Status,
-                    $"The blocked cycle did not complete the armed pause (status={route.Status})");
+                    $"The {ResolutionBlockKind} cycle did not complete the armed pause " +
+                    $"(status={route.Status})");
                 InGameAssert.IsFalse(route.PauseAfterCurrentCycle,
                     "PauseAfterCurrentCycle survived the blocked cycle");
                 InGameAssert.AreEqual(1, route.SkippedCycles,
                     $"SkippedCycles not bumped (got {route.SkippedCycles.ToString(IC)})");
-                InGameAssert.AreEqual(ExpectedBlockKind, route.LastHoldKind,
+                InGameAssert.AreEqual(ResolutionBlockKind, route.LastHoldKind,
                     $"Hold kind not retained across the armed pause (got {route.LastHoldKind})");
+
+                // World safety: the stop is a REAL vessel, so nothing may be written.
+                InGameAssert.AreEqual(0, CountRouteRows(routeId, GameActionType.RouteCargoDelivered),
+                    "A blocked cycle emitted a RouteCargoDelivered row against a REAL vessel");
+                InGameAssert.AreEqual(0, CountRouteRows(routeId, GameActionType.RouteCargoDebited),
+                    "A blocked cycle emitted a RouteCargoDebited row");
 
                 GameAction pauseRow = LatestRouteRow(routeId, GameActionType.RoutePaused, beforeTick);
                 InGameAssert.IsNotNull(pauseRow, "No RoutePaused row for the completed in-transit pause");
@@ -403,8 +584,78 @@ namespace Parsek.InGameTests
                     "only the Send Once provenance is a run the player is waiting on");
 
                 ParsekLog.Info("TestRunner",
-                    $"RouteLifecycle pause-intransit: PASS routeId={routeId} " +
-                    $"crossingUT={crossingUT.ToString("R", IC)}");
+                    $"RouteLifecycle pause-intransit-resolution: PASS routeId={routeId} " +
+                    $"holdKind={route.LastHoldKind} holdDetail={route.LastHoldDetail ?? "<none>"} " +
+                    $"destPid={destination.persistentId.ToString(IC)} " +
+                    $"crossingUT={crossingUT.ToString("R", IC)} armedBy=pause-after-cycle");
+            }
+        }
+
+        // ==================================================================
+        // (d2) The postponement half of the pause-in-transit provenance
+        // ==================================================================
+
+        [InGameTest(Category = Category,
+            Description = "The pause-after-cycle sibling of the send-once postponement pin: TryPause arms an InTransit route, its crossing blocks on SourcesStale (a postponement), and the pause is NOT completed - the route stays InTransit with the arm intact, the crossing is consumed as skipped, and no RoutePaused row, no ledger row and no toast are produced")]
+        public void PauseInTransit_PostponementBlock_KeepsArm_StaysInTransit()
+        {
+            double liveUT = RequireLiveContext();
+            RequireRenderCompositionUnarmed();
+
+            double baseUT = liveUT + SyntheticBandOffset;
+            double crossingUT = baseUT + DockPhaseSeconds;
+            string routeId = NewId("pause-intransit-postponed");
+            Route route = BuildLoopRoute(routeId, "Parsek RouteLifecycle in-transit pause",
+                RouteStatus.InTransit, baseUT);
+
+            var lines = new List<string>();
+            var toasts = new List<string>();
+            using (var arena = new LifecycleArena(lines, toasts, route, baseUT))
+            {
+                RequireLivePostponementBlock(route, crossingUT, arena.Env);
+
+                InGameAssert.IsTrue(RouteOrchestrator.TryPause(route, baseUT + 1.0, arena.Env),
+                    "TryPause returned false for an InTransit route");
+                InGameAssert.IsTrue(route.PauseAfterCurrentCycle,
+                    "TryPause did not arm PauseAfterCurrentCycle on the InTransit branch");
+                InGameAssert.IsFalse(route.SendOnceArmed,
+                    "TryPause must not set the Send Once provenance");
+                int beforeTick = Ledger.Actions.Count;
+
+                RouteOrchestrator.Tick(crossingUT, arena.Env);
+
+                InGameAssert.AreEqual(RouteStatus.InTransit, route.Status,
+                    $"A postponement block completed the armed pause (status={route.Status}); " +
+                    "the cycle has not resolved, so the pause must wait for one that does");
+                InGameAssert.IsTrue(route.PauseAfterCurrentCycle,
+                    "PauseAfterCurrentCycle was consumed by a POSTPONEMENT block");
+                InGameAssert.AreEqual(1, route.SkippedCycles,
+                    $"SkippedCycles not bumped (got {route.SkippedCycles.ToString(IC)})");
+                InGameAssert.AreEqual(PostponementBlockKind, route.LastHoldKind,
+                    $"Hold kind not recorded (got {route.LastHoldKind})");
+                InGameAssert.AreEqual(PostponementBlockDetail, route.LastHoldDetail,
+                    $"Hold detail not recorded (got '{route.LastHoldDetail ?? "<null>"}')");
+
+                InGameAssert.IsNull(LatestRouteRow(routeId, GameActionType.RoutePaused, beforeTick),
+                    "A postponement block emitted a RoutePaused row");
+                InGameAssert.AreEqual(beforeTick, Ledger.Actions.Count,
+                    "A postponement block emitted ledger rows (it must emit NOTHING)");
+                InGameAssert.AreEqual(0, toasts.Count,
+                    "A pause-after-cycle arm must never toast, postponed or not");
+
+                InGameAssert.IsTrue(
+                    AnyLine(lines, "ArmedPause:", "BLOCKED by postponement",
+                        "kind=" + PostponementBlockKind, "arm kept", "route stays InTransit"),
+                    "No 'ArmedPause: ... BLOCKED by postponement ... arm kept, route stays InTransit' " +
+                    "line observed (Verbose; the arena force-arms verbose logging for exactly this)");
+                InGameAssert.IsFalse(
+                    AnyLine(lines, "ArmedPause:", RouteOrchestrator.BlockedThenPausedReason),
+                    "A postponement block ran the blocked-then-paused resolution tail");
+
+                ParsekLog.Info("TestRunner",
+                    $"RouteLifecycle pause-intransit-postponed: PASS routeId={routeId} " +
+                    $"crossingUT={crossingUT.ToString("R", IC)} hold={route.LastHoldKind} " +
+                    "armKept=true status=InTransit");
             }
         }
 
@@ -429,7 +680,7 @@ namespace Parsek.InGameTests
             var toasts = new List<string>();
             using (var arena = new LifecycleArena(lines, toasts, route, baseUT))
             {
-                RequireLiveBlock(route, crossingUT, arena.Env);
+                RequireLivePostponementBlock(route, crossingUT, arena.Env);
                 int beforeTick = Ledger.Actions.Count;
 
                 RouteOrchestrator.Tick(crossingUT, arena.Env);
@@ -443,7 +694,7 @@ namespace Parsek.InGameTests
                     $"SkippedCycles not bumped (got {route.SkippedCycles.ToString(IC)})");
                 InGameAssert.AreEqual(0L, route.LastObservedLoopCycleIndex,
                     "Crossing index not snapped forward on the unarmed blocked cycle");
-                InGameAssert.AreEqual(ExpectedBlockKind, route.LastHoldKind,
+                InGameAssert.AreEqual(PostponementBlockKind, route.LastHoldKind,
                     $"Hold not recorded on the unarmed blocked cycle (got {route.LastHoldKind})");
 
                 InGameAssert.IsNull(LatestRouteRow(routeId, GameActionType.RoutePaused, beforeTick),
@@ -553,10 +804,11 @@ namespace Parsek.InGameTests
         /// <summary>
         /// Owns EVERY global a ticking cell touches and restores all of them on
         /// dispose, so an assertion that throws mid-cell can never leave a
-        /// synthetic route, a stale ledger row, an installed loop-unit resolver or
-        /// a hijacked screen-message sink behind in the player's session. Mirrors
-        /// the RouteRewindTimeline seam tests' <c>finally</c> block, hoisted into a
-        /// struct because five of this category's globals travel together.
+        /// synthetic route, a stale ledger row, an installed loop-unit resolver, a
+        /// forced verbose-logging override or a hijacked screen-message sink behind
+        /// in the player's session. Mirrors the RouteRewindTimeline seam tests'
+        /// <c>finally</c> block, hoisted into a struct because six of this
+        /// category's globals travel together.
         /// </summary>
         private struct LifecycleArena : IDisposable
         {
@@ -565,6 +817,7 @@ namespace Parsek.InGameTests
             private readonly List<Route> preDormant;
             private readonly Action<string> prevObserver;
             private readonly Action<string, float> prevScreenSink;
+            private readonly bool? prevVerboseOverride;
 
             /// <summary>The PRODUCTION environment every cell drives its tick with.</summary>
             internal LiveRouteRuntimeEnvironment Env { get; }
@@ -577,6 +830,17 @@ namespace Parsek.InGameTests
                 prevObserver = ParsekLog.TestObserverForTesting;
                 prevScreenSink = ParsekLog.ScreenMessageSinkForTesting;
                 Env = new LiveRouteRuntimeEnvironment();
+
+                // The two lines these cells assert on - `ArmedPause: ... BLOCKED by
+                // postponement ... arm kept` and the PartnerGate audit - are
+                // ParsekLog.Verbose, which is gated on the LIVE
+                // ParsekSettings.verboseLogging. A session with verbose off would
+                // make an arm-kept cell fail on a MISSING LINE while the product
+                // behaved correctly, so force the override on for the tick and
+                // restore whatever was there. [ThreadStatic], and these cells are
+                // synchronous, so it cannot leak into the 1 Hz background tick.
+                prevVerboseOverride = ParsekLog.VerboseOverrideForTesting;
+                ParsekLog.VerboseOverrideForTesting = true;
 
                 Action<string> observer = prevObserver;
                 ParsekLog.TestObserverForTesting = l => { lines.Add(l); observer?.Invoke(l); };
@@ -594,6 +858,7 @@ namespace Parsek.InGameTests
             public void Dispose()
             {
                 RouteOrchestrator.LoopUnitResolverForTesting = null;
+                ParsekLog.VerboseOverrideForTesting = prevVerboseOverride;
                 ParsekLog.ScreenMessageSinkForTesting = prevScreenSink;
                 ParsekLog.TestObserverForTesting = prevObserver;
                 RouteStore.InstallRoutesAtRewind(preCommitted, preDormant);
@@ -656,14 +921,15 @@ namespace Parsek.InGameTests
         }
 
         /// <summary>
-        /// Pre-tick safety + stability gate: refuses to drive the crossing unless
-        /// the LIVE environment has already judged this cycle blocked with the kind
-        /// the cell asserts. Fails closed in both directions - an ELIGIBLE verdict
-        /// is a hard failure (a real cycle would have dispatched against live world
-        /// state), a DIFFERENT block kind is a skip (the cell would be measuring a
-        /// gate it was not written for).
+        /// Pre-tick safety + stability gate for the POSTPONEMENT cells: refuses to
+        /// drive the crossing unless the LIVE environment has already judged this
+        /// cycle blocked with the kind the cell asserts. Fails closed in both
+        /// directions - an ELIGIBLE verdict is a hard failure (a real cycle would
+        /// have dispatched against live world state), a DIFFERENT block kind is a
+        /// skip (the cell would be measuring a gate it was not written for).
         /// </summary>
-        private static void RequireLiveBlock(Route route, double currentUT, IRouteRuntimeEnvironment env)
+        private static void RequireLivePostponementBlock(
+            Route route, double currentUT, IRouteRuntimeEnvironment env)
         {
             RouteDispatchEvaluator.EligibilityResult elig =
                 RouteDispatchEvaluator.CheckEligibility(route, currentUT, env);
@@ -674,13 +940,192 @@ namespace Parsek.InGameTests
                     "refusing to tick, because the cycle would emit debits and deliveries " +
                     "against live world state");
             }
-            if (elig.Kind != ExpectedBlockKind)
+            if (elig.Kind != PostponementBlockKind)
             {
                 InGameAssert.Skip(
                     $"Live eligibility blocked with kind={elig.Kind} reason={elig.Reason ?? "<none>"} " +
-                    $"instead of the expected {ExpectedBlockKind}; this cell is written against " +
+                    $"instead of the expected {PostponementBlockKind}; this cell is written against " +
                     "the ERS gate and would otherwise measure a different one");
             }
+        }
+
+        /// <summary>
+        /// The RESOLUTION-side twin of <see cref="RequireLivePostponementBlock"/>,
+        /// and the reason the two live-source cells are safe to run at all. Same
+        /// fail-closed shape: an ELIGIBLE verdict is a hard FAILURE (the tick would
+        /// debit and deliver against a REAL vessel), any other kind is an
+        /// attributable SKIP naming what the live gate actually answered.
+        ///
+        /// <para>The skip is the honest outcome for a save whose destination
+        /// somehow HAS capacity for <see cref="ResolutionBlockAmount"/>, or whose
+        /// earlier gates refuse (the ERS id went stale between the pick and the
+        /// tick, the vessel unloaded out of the pid map, a pickup source appeared).
+        /// Each of those is a different gate and the cell would be measuring it
+        /// silently.</para>
+        /// </summary>
+        private static void RequireLiveResolutionBlock(
+            Route route, double currentUT, IRouteRuntimeEnvironment env, Vessel destination)
+        {
+            RouteDispatchEvaluator.EligibilityResult elig =
+                RouteDispatchEvaluator.CheckEligibility(route, currentUT, env);
+            if (elig.Eligible)
+            {
+                InGameAssert.Fail(
+                    "The live environment judged the synthetic route ELIGIBLE against real " +
+                    $"destination '{destination?.vesselName ?? "<none>"}' " +
+                    $"pid={(destination != null ? destination.persistentId.ToString(IC) : "<none>")} - " +
+                    "refusing to tick, because the cycle would debit and deliver against live " +
+                    $"world state. {ResolutionBlockAmount.ToString("R", IC)} units of " +
+                    $"{ResolutionBlockResource} were expected to exceed every destination's capacity");
+            }
+            if (elig.Kind != ResolutionBlockKind)
+            {
+                InGameAssert.Skip(
+                    $"Live eligibility blocked with kind={elig.Kind} reason={elig.Reason ?? "<none>"} " +
+                    $"instead of the expected {ResolutionBlockKind}; an earlier gate " +
+                    "(ERS sources / endpoint / origin cargo / funds) refused first, so this cell " +
+                    "would be measuring a gate it was not written for");
+            }
+        }
+
+        /// <summary>
+        /// A source ref pointing at a REAL recording in the LIVE ERS snapshot, or an
+        /// attributable skip. This is the ONLY thing standing between a synthetic
+        /// route and the ERS gate: <c>LiveRouteRuntimeEnvironment.RouteHasValidSourcesInErs</c>
+        /// requires every <see cref="RouteSourceRef.RecordingId"/> to be a KEY of the
+        /// per-tick ERS-by-id dictionary and reads NOTHING else off the ref - not the
+        /// proof hash, not the epoch, not the tree id, not the UT span. The remaining
+        /// fields are filled anyway, mirroring <c>RouteBuilder</c> field for field, so
+        /// the fixture is production-shaped rather than minimally sufficient.
+        ///
+        /// <para>Read through <see cref="RouteOrchestrator.SafeComputeErs"/> - the
+        /// SAME <see cref="EffectiveState.ComputeERS"/> surface the live env builds
+        /// its dictionary from - so the pick cannot disagree with the gate. (In-game
+        /// tests are ERS-audit-allowlisted, but routing through the production helper
+        /// is what makes the two snapshots the same computation.)</para>
+        /// </summary>
+        private static RouteSourceRef RequireLiveErsSourceRef()
+        {
+            IReadOnlyList<Recording> ers = RouteOrchestrator.SafeComputeErs();
+            if (ers == null || ers.Count == 0)
+            {
+                InGameAssert.Skip(
+                    "The live ERS snapshot is empty, so no synthetic route can pass the ERS " +
+                    "gate and reach a RESOLUTION eligibility kind; this cell needs a save " +
+                    "carrying at least one committed recording");
+                return null; // unreachable
+            }
+
+            for (int i = 0; i < ers.Count; i++)
+            {
+                Recording rec = ers[i];
+                if (rec == null || string.IsNullOrEmpty(rec.RecordingId)) continue;
+                return new RouteSourceRef
+                {
+                    RecordingId = rec.RecordingId,
+                    TreeId = rec.TreeId,
+                    TreeOrder = rec.TreeOrder,
+                    RecordingFormatVersion = rec.RecordingFormatVersion,
+                    RecordingSchemaGeneration = rec.RecordingSchemaGeneration,
+                    SidecarEpoch = rec.SidecarEpoch,
+                    StartUT = rec.StartUT,
+                    EndUT = rec.EndUT,
+                    RouteProofHash = RouteProofHasher.ComputeRouteProofHashFromRecording(rec),
+                };
+            }
+
+            InGameAssert.Skip(
+                $"The live ERS snapshot holds {ers.Count.ToString(IC)} entr(y/ies) but none " +
+                "carries a usable RecordingId, so the ERS gate cannot be satisfied");
+            return null; // unreachable
+        }
+
+        /// <summary>
+        /// A REAL live vessel to point the synthetic stop at, or an attributable
+        /// skip. Requirements, in the order they matter:
+        /// <list type="bullet">
+        ///   <item>NOT a ghost map vessel - <c>RouteEndpointResolver</c> excludes
+        ///     those by <see cref="GhostMapPresence.IsGhostMapVessel"/>, so one
+        ///     would resolve to nothing and the cell would measure EndpointLost.</item>
+        ///   <item>NOT the ACTIVE vessel. Nothing here writes, but the active craft
+        ///     is the one the batch's own baseline restore is anchored on, and a
+        ///     capacity PROBE walking its live part list is needless proximity to
+        ///     the thing a test must not disturb.</item>
+        ///   <item>A real craft, not a <c>SpaceObject</c> (asteroid) / <c>Flag</c> /
+        ///     <c>Unknown</c>: those carry no resource capacity worth probing and,
+        ///     for asteroids, a pid population this category deliberately avoids.</item>
+        ///   <item>LANDED / SPLASHED / PRELAUNCH preferred - the stable, host-shaped
+        ///     population (the RVR fixture boots a landed rover beside a landed
+        ///     base) - falling back to any other qualifying vessel so the cell is
+        ///     scene-agnostic rather than fixture-bound.</item>
+        /// </list>
+        /// </summary>
+        private static Vessel RequireLiveDestinationVessel()
+        {
+            IReadOnlyList<Vessel> vessels = null;
+            try
+            {
+                vessels = FlightGlobals.Vessels;
+            }
+            catch (Exception ex)
+            {
+                InGameAssert.Skip($"FlightGlobals.Vessels threw {ex.GetType().Name}; no live vessel list");
+            }
+            if (vessels == null || vessels.Count == 0)
+            {
+                InGameAssert.Skip(
+                    "No live vessels in this save, so the synthetic stop has no REAL endpoint " +
+                    "to resolve and the cell cannot reach the destination-capacity gate");
+                return null; // unreachable
+            }
+
+            Vessel active = null;
+            try { active = FlightGlobals.ActiveVessel; } catch { }
+
+            Vessel fallback = null;
+            int examined = 0;
+            for (int i = 0; i < vessels.Count; i++)
+            {
+                Vessel v = vessels[i];
+                if (v == null) continue;
+                if (v.persistentId == 0u) continue;
+                if (active != null && ReferenceEquals(v, active)) continue;
+                if (GhostMapPresence.IsGhostMapVessel(v.persistentId)) continue;
+                if (v.vesselType == VesselType.SpaceObject
+                    || v.vesselType == VesselType.Flag
+                    || v.vesselType == VesselType.Unknown)
+                {
+                    continue;
+                }
+                examined++;
+
+                // The resolver is the authority, not this walk: only accept a
+                // candidate the PRODUCTION endpoint resolver actually returns for
+                // the pid the route will carry.
+                var endpoint = new RouteEndpoint { VesselPersistentId = v.persistentId };
+                if (!RouteEndpointResolver.TryResolveEndpoint(endpoint, out Vessel resolved, out _)
+                    || resolved == null)
+                {
+                    continue;
+                }
+
+                if (v.situation == Vessel.Situations.LANDED
+                    || v.situation == Vessel.Situations.SPLASHED
+                    || v.situation == Vessel.Situations.PRELAUNCH)
+                {
+                    return resolved;
+                }
+                if (fallback == null) fallback = resolved;
+            }
+
+            if (fallback != null) return fallback;
+
+            InGameAssert.Skip(
+                $"No usable destination vessel among {vessels.Count.ToString(IC)} live vessel(s) " +
+                $"({examined.ToString(IC)} survived the ghost / active / vessel-type filters, none " +
+                "resolved through RouteEndpointResolver); this cell needs one REAL non-active, " +
+                "non-ghost craft to point the synthetic stop at");
+            return null; // unreachable
         }
 
         // ==================================================================
@@ -753,6 +1198,75 @@ namespace Parsek.InGameTests
                         RouteProofHash = "ingame-rlc",
                     },
                 },
+            };
+        }
+
+        /// <summary>
+        /// The RESOLUTION-block fixture: the same single-stop loop route, rebuilt so
+        /// every eligibility gate BEFORE destination capacity passes against the
+        /// live environment, and that one fails.
+        ///
+        /// <para>Gate by gate, in <c>RouteDispatchEvaluator.CheckEligibility</c>'s
+        /// own order:</para>
+        /// <list type="number">
+        ///   <item>(4) ERS - <paramref name="sourceRef"/> names a recording that IS
+        ///     in the live ERS snapshot.</item>
+        ///   <item>(5) endpoint - the stop carries <paramref name="destinationPid"/>,
+        ///     a REAL live vessel pid the production resolver returns. The ORIGIN
+        ///     endpoint is skipped entirely because the route is
+        ///     <c>IsHarvestOrigin</c>: a harvest origin has no origin vessel by
+        ///     design (plan D7), which is the only way a synthetic route can pass
+        ///     gate 5 without a second real craft to point <c>Route.Origin</c> at.</item>
+        ///   <item>(6) origin cargo - the harvest-origin branch returns true (no
+        ///     physical source to gate), and the single stop carries NO
+        ///     <c>PickupManifest</c>, so the per-pickup-source gate groups zero
+        ///     sources and passes.</item>
+        ///   <item>(7) funds - <c>IsKscOrigin</c> is false, so the Career funds gate
+        ///     does not run at all. This is deliberate: it keeps the verdict
+        ///     identical on a career and a sandbox host, where a KSC origin would
+        ///     hand a career save a FundsShort hold instead.</item>
+        ///   <item>(8) destination capacity - <see cref="ResolutionBlockAmount"/>
+        ///     units of <see cref="ResolutionBlockResource"/> fit in no craft, so
+        ///     the plan is partial and the gate holds all-or-nothing. THIS is the
+        ///     verdict the cells measure.</item>
+        ///   <item>(9) partner - unreached; <c>LinkedRouteId</c> is null anyway.</item>
+        /// </list>
+        /// <c>CostManifest</c> is deliberately EMPTY (a harvest origin's is, by
+        /// construction) so nothing about the origin half can influence the verdict.
+        /// </summary>
+        private static Route BuildResolutionBlockRoute(
+            string id, string name, RouteStatus status, double baseUT,
+            RouteSourceRef sourceRef, uint destinationPid)
+        {
+            return new Route
+            {
+                Id = id,
+                Name = name,
+                Status = status,
+                IsKscOrigin = false,
+                IsHarvestOrigin = true,
+                BackingMissionTreeId = id + "-tree",
+                RecordedDockUT = baseUT + DockPhaseSeconds,
+                DockMemberRecordingId = sourceRef.RecordingId,
+                LoopAnchorUT = baseUT,
+                LastObservedLoopCycleIndex = -1,
+                NextDispatchUT = baseUT,
+                DispatchInterval = SpanSeconds,
+                TransitDuration = SpanSeconds,
+                CadenceMultiplier = 1,
+                CostManifest = new Dictionary<string, double>(),
+                Stops = new List<RouteStop>
+                {
+                    new RouteStop
+                    {
+                        Endpoint = new RouteEndpoint { VesselPersistentId = destinationPid },
+                        DeliveryManifest = new Dictionary<string, double>
+                        {
+                            { ResolutionBlockResource, ResolutionBlockAmount },
+                        },
+                    },
+                },
+                SourceRefs = new List<RouteSourceRef> { sourceRef },
             };
         }
 

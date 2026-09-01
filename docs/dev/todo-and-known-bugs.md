@@ -291,6 +291,37 @@ snapshot the walk visited is proved mechanically rather than by the basis line a
 Unblocks Tier C item 9 of the supply-route coverage program (`autotest-roadmap.md`); that
 career lane is still unauthored and has never flown.
 
+## ROUTE-ORIGIN-PROOF-PRODUCER-UNREACHABLE (SUSPECTED): the start-docked `RouteOriginProof` producer keys on a part-parent condition that a settled dock can never satisfy, so no live recording has ever carried a proof [FOUND BY READING 2026-09-01 while scoping which route flights can be automated, CORROBORATED by the 2026-08-30 rover flight log. SUSPECTED, not yet probed live - REPORT-ONLY until the probe cell below runs]
+
+**The condition.** `FlightRecorder.CaptureStartRouteOriginProofIfDocked` builds its partner
+candidates from parts where `p.parent.vessel != null && p.parent.vessel != v`
+(`RouteProofCapture.TryResolveStartDockedOriginPartner` names the same rule). KSP's
+`Part.Couple` reassigns `vessel` across the whole absorbed subtree - `GrappleCaptureInGameTest`
+asserts exactly that after a live couple - so on any settled docked pair, and after any
+save/load of one, every part reads `p.parent.vessel == v` and the candidate list is empty.
+
+**Corroboration.** The rover flight logged `RouteOriginProof skipped: no external coupling ...
+candidates=0` at EVERY recording start, including the one at 10:55:00 for the dock-merged
+child created while B was docked to A (`logs/2026-08-30_1106_rover-route/KSP.log:18547`).
+Zero committed fixtures carry a `ROUTE_ORIGIN_PROOF` node, every Logistics skip roster gives
+the same missing-subject reason for `RouteOriginProof_StartedDockedToNonKsc_ProducerLandsProof`,
+and the only tests of the resolver (`RouteOriginProofCaptureTests`) feed it hand-built
+candidate lists - they prove the pure resolver and say nothing about whether the live list
+can be non-empty. The design source (`docs/dev/done/logistics-origin-ownership-proposal.md`)
+asserts the cross-vessel parent link without a decompile finding behind it.
+
+**Why it has stayed invisible.** Docked-depot origins are resolved today by the M-MIS-5 P2b
+mid-tree docked-origin window path (`RouteAnalysisEngine.AnalyzeWindows`), which is what the
+`depot-route-recorded` fixture exercises - the start proof was never load-bearing for any
+committed route.
+
+**Next step (cheap, before any operator flight for the roadmap's B4 subject).** A FLIGHT
+probe cell that couples a spawned `dockingPort2` part into the active vessel and counts
+parts with `p.parent.vessel != v` (expected 0). If confirmed: fix the producer to derive the
+partner from the docking node's own docked-partner information at recording start instead of
+the parent-vessel identity, and pin it with a self-provisioning capture cell; the B4 manual
+flight is then unnecessary. If refuted: record the KSP state that yields the link and fly B4.
+
 ## RESERVATION-OVERLAY-GAPS: the reservation readout that replaced the dead budget UI is absent in the EDITOR and reports `Reserved: 0` in a genuine deficit [SPLIT OUT 2026-08-29 from RESOURCE-BUDGET-READOUTS-ARE-DEAD when that entry was struck as cleanup-done. Neither gap was part of that cleanup; refiled here so they survive it]
 
 `CurrencyReservationOverlay` is the surface that carries the reserved-vs-available story now

@@ -2316,7 +2316,7 @@ Lessons already banked from the manual flight - read before authoring any lane:
    attribute-exact and the spec is auto-enrolled in
    `CommittedBatchTallySourceSyncTests`, so a seventh cell reds locally. The
    `passed=6 skipped=0` half is a per-cell prediction: what it cannot settle is
-   the three crossing cells' `RequireLiveBlock` pre-flight, a run-time reading
+   the five crossing cells' `RequireLivePostponementBlock` / `RequireLiveResolutionBlock` pre-flights, a run-time reading
    of the live environment against a synthetic route. Deliberately NOT added to
    `Logistics` (whose `total=47` is pinned by four committed specs - five as of
    this wave, counting RVR-1).

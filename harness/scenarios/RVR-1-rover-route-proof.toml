@@ -5,11 +5,48 @@ tier = "pending-fixture"
 # THE ISOLATED `Logistics` BATCH ON THE **TARGET-BRANCH** RECORDED HOST - THE THIRD
 # RECORDED HOST, AND THE ONLY ONE THAT CAN PAY THE DEBT H38, H39 AND H40 ALL ROSTER.
 #
-# NEVER FLOWN. Everything below is DERIVED from committed bytes and from source; the
-# tally's split is INTERIM (see [expectations.logContracts]) and the id is declared in
-# `IsolatedBatchWiringGroupTests.INTERIM_PIN_IDS`. The obligation that carries: the first
-# flight MEASURES the split, the pin is replaced with the whole tally, a MEASURED_SKIPPED
-# entry is added, and the id LEAVES that set in the same commit.
+# FLOWN ONCE, 2026-09-01 (`2026-09-01_2008_RVR-1-rover-route-proof`, wall 184 s).
+# EVERY VERIFIER PASSED except `expectations`, which red on ONE required token - an
+# AUTHORING ERROR in this file, corrected below, not a product finding. MEASURED:
+#     BATCH_COMPLETE v1 total=47 passed=39 failed=0 skipped=8 category=Logistics scene=FLIGHT
+# with 7 `SKIPPED:` lines plus the one scene filter (`byRequiredScene=SPACECENTER:1`), and
+# `[expectations.recordings] count` observed 5 - the staged set exactly, NO load-time
+# optimizer split on these bytes (unlike H35/H39/H40's hosts).
+#
+# **THE DEBT IS PAID.** Both target-branch cells executed and PASSED for the first time in
+# the suite's history:
+#     PASSED: LogisticsRouteProofRuntimeTests.RouteProof_ActiveAsTargetDockWindow_HasEndpointProof
+#     PASSED: LogisticsRouteProofRuntimeTests.RouteProof_CrossTreeCommittedPartner_HasEndpointProof
+# and the predicted initiator-cell trade held (`RouteProof_ActiveAsInitiatorDockWindow_
+# HasEndpointProof` SKIPPED, as the strict-complement argument says it must).
+#
+# THE TALLY SPLIT STAYS INTERIM ON PURPOSE, and this is a deliberate departure from the
+# usual "flight 1 measures it, the pin is replaced whole" obligation: the fixture's
+# ENDPOINT INVENTORY was repaired after this run (see `build_rover_route_recorded.py` ->
+# "THE ENDPOINT INVENTORY REPAIR"), and the repair frees two inventory slots on a vessel
+# several `Logistics` cells walk. Pinning `passed=39 skipped=8` from a run made against
+# the PRE-REPAIR bytes would pin a subject that no longer exists. The obligation is
+# unchanged, only deferred by one flight: the RE-FLY measures the split, the pin is
+# replaced whole, a MEASURED_SKIPPED entry is added, and the id LEAVES
+# `IsolatedBatchWiringGroupTests.INTERIM_PIN_IDS` in the same commit.
+#
+# THE FLIGHT-1 SKIP ROSTER, recorded so the re-fly's delta is attributable (7 cells):
+#   HarvestCapture_ConverterToggle_OpensAndClosesWindow          (no BaseConverter)
+#   HarvestCapture_WarpToggle_RebaselinesAtRailsTransitions      (no BaseConverter)
+#   HarvestCapture_CatchUpOnLoad_AttributesInsideWindowOrBridges (no BaseConverter)
+#   HarvestRoute_AnalyzesEligible_FromSyntheticRecording         (injectedRecordings=none)
+#   RouteOriginProof_StartedDockedToNonKsc_ProducerLandsProof    (H38's last open debt)
+#   RouteOriginProof_StartedOnRunway_ProducerSkipsProof          (see below - by design)
+#   RouteProof_ActiveAsInitiatorDockWindow_HasEndpointProof      (the stated trade)
+# All FIVE re-opened questions the header below poses therefore resolved IN FAVOUR of this
+# host - none of them appears in the roster above, i.e. all five executed:
+# `Delivery_MultiModule_FirstContainerFullSecondReceives`,
+# `InventoryPayloadIdentityHash_LiveStockMove_PreservesIdentity`,
+# `Delivery_LoadedVessel_StacksInventoryQuantityIntoSlot`,
+# `InventoryPickupDebit_LoadedEndpointVessel_RemovesStoredPart` and
+# `Escrow_CompetingRouteSeesReservation_Holds`. The two-container inventory is exactly the
+# axis four of those read, and it is exactly what the repair edited - which is the other
+# half of why the split is not pinned from this run.
 #
 # -------------------------------------------------------------------------------------
 # THE DEBT, IN THE TWO EXISTING LANES' OWN WORDS.
@@ -65,9 +102,25 @@ tier = "pending-fixture"
 #     initiator cell's PASS echo; this lane pins the other two. The three cells are
 #     covered ACROSS the family, not within any one member - which is the honest reading
 #     and is why this lane does not replace either of them.
-#   * `RouteOriginProof_StartedOnRunway_ProducerSkipsProof`       -> PASSES. Both trees
-#     carry `launchSiteName = Runway`, and the builder asserts ZERO `ROUTE_ORIGIN_PROOF`
-#     nodes - which is the producer's correct behaviour for a KSC-site start.
+#   * `RouteOriginProof_StartedOnRunway_ProducerSkipsProof`       -> SKIPS, and flight 1
+#     MEASURED the skip. THE AUTHORED PREDICTION ABOVE WAS WRONG AND ITS TOKEN HAS BEEN
+#     REMOVED. The error was reading the cell's NAME instead of its predicate: the name
+#     says "StartedOnRunway", but the guard is `TryFindRecordingStartedPrelaunch`, i.e.
+#     `StartSituation == "Prelaunch"` - and A WHEELED ROVER ROLLED OUT ONTO THE RUNWAY IS
+#     `Landed`, NOT `PRELAUNCH`. Only a craft KSP holds on launch clamps (a pad rollout)
+#     reports PRELAUNCH; a rover's wheels are on the ground the instant the scene loads.
+#     The fixture agrees, in the bytes: all three flight recordings read
+#     `startSituation = Landed` with `launchSiteName = Runway`, and the fourth reads
+#     `Flying`. There is no `Prelaunch` anywhere, so the cell has no subject and skips:
+#         RouteOriginProof_StartedOnRunway: skipping - no recording with
+#         StartSituation == "Prelaunch" was found across active / pending / committed trees
+#     NOTE WHAT DOES NOT CHANGE: the builder's ZERO-`ROUTE_ORIGIN_PROOF` assertion is
+#     still correct and still load-bearing - the producer skips proof for a KSC-site start
+#     by design, and a proof node here would mean it misclassified one. That absence is
+#     just not the thing THIS cell measures. Whoever wants the KSC-origin producer gated
+#     on a live flight needs a host with a PAD-launched (clamped) committed recording;
+#     H39's `bdock-recorded` has one and pins the PASS echo, which is where that coverage
+#     lives.
 #   * `RouteOriginProof_StartedDockedToNonKsc_ProducerLandsProof` -> STILL SKIPS. Same
 #     reason as on both other recorded hosts: no committed mission profile in the suite
 #     starts docked to a non-PRELAUNCH partner, so there is no proof node to land on.
@@ -108,7 +161,7 @@ tier = "pending-fixture"
 # ("what a RECORDED CORPUS happens to CONTAIN ... no attribute, no craft property and no
 # amount of reading the .sfs settles a run-time InGameAssert.Skip").
 # =====================================================================================
-description = "AUTHORED 2026-08-30, NEVER FLOWN. The isolated Logistics batch (46 admitted cells, 38 of them restore-after-run) over rover-route-recorded, the FIRST committed fixture whose ROUTE_CONNECTION_WINDOWS node is TARGET-branch: two surface rovers with DIFFERENT baked persistentIds dock on the Runway, so the window's transferTargetPid (2123618197) differs from its carrier's (313889796) and is also carried by a recording in the OTHER committed tree. That is the exact harvest H38 rostered as one debt and H39/H40 both measured as unpayable by existing bytes, and this lane is its acceptance test: RouteProof_ActiveAsTargetDockWindow_HasEndpointProof and RouteProof_CrossTreeCommittedPartner_HasEndpointProof are predicted to execute for the first time in the suite's history. The initiator cell skips here by strict complement, which is a trade the family absorbs (H39/H40 pin it) rather than a regression. Tally split INTERIM until the first census: the host is a 17-part landed rover with two inventory containers where both other recorded hosts have one, so six of H39's run-time skips are re-opened questions."
+description = "AUTHORED 2026-08-30, FLOWN ONCE 2026-09-01. The isolated Logistics batch (46 admitted cells, 38 of them restore-after-run) over rover-route-recorded, the FIRST committed fixture whose ROUTE_CONNECTION_WINDOWS node is TARGET-branch: two surface rovers with DIFFERENT baked persistentIds dock on the Runway, so the window's transferTargetPid (2123618197) differs from its carrier's (313889796) and is also carried by a recording in the OTHER committed tree. That is the exact harvest H38 rostered as one debt and H39/H40 both measured as unpayable by existing bytes, and flight 1 took the acceptance test and PASSED IT: RouteProof_ActiveAsTargetDockWindow_HasEndpointProof and RouteProof_CrossTreeCommittedPartner_HasEndpointProof both executed and passed for the first time in the suite's history, on a run measuring total=47 passed=39 failed=0 skipped=8 with every verifier green. The initiator cell skipped by strict complement as predicted, which is a trade the family absorbs (H39/H40 pin it) rather than a regression. The run's ONE red was an authoring error since corrected: a REQUIRED PASSED token for RouteOriginProof_StartedOnRunway_ProducerSkipsProof, whose predicate is StartSituation == Prelaunch - and a wheeled Runway rollout is Landed, so the cell self-skips here by design and the token is removed. recordings.count is now PINNED EXACTLY at the measured 5 (no load-time optimizer split on these bytes); the tally split stays INTERIM for one more flight because the fixture's endpoint inventory was repaired after this run and the repair moves the very slots several Logistics cells walk."
 instanceProfile = "stock-minimal"
 tags = ["ingame-batch", "isolated-batch", "logistics", "route-proof", "recorded-fixture",
         "RVR-1", "pending-flight", "reading-iteration"]
@@ -225,22 +278,28 @@ allowedAnomalies = []
 # instrument pointed at the committed corpus, and this lane subjects a corpus to the same
 # 38 interleaved quickloads.
 #
-# THE FLOOR IS EXACT AND THE CEILING IS INTERIM. `min = 5` is the staged set, so ANY
-# committed recording destroyed during the batch reds here - that is the half of the row
-# that does the work, and it is not a window. The ceiling is 7 rather than 5 for one
-# reason only: H35/H39/H40 all measure a deterministic LOAD-TIME OPTIMIZER SPLIT adding 2
-# on their host's bytes, and whether this corpus splits at all is unmeasured. 7 admits
-# "up to two splits" and nothing else.
+# PINNED EXACTLY AT 5 BY FLIGHT 1, replacing the authored `{5, 7}` window. The measurement
+# is `verifiers.expectations.observed.recordings.count = 5` in
+# `2026-09-01_2008_RVR-1-rover-route-proof.json`, i.e. the staged set EXACTLY and NO
+# load-time optimizer split on these bytes. That is the `depot-route-recorded` outcome
+# rather than the `bdock-recorded` one (H35/H39/H40 measure a deterministic two-split pass
+# on their host), so the authored ceiling of 7 - which existed only to admit "up to two
+# splits" - was never exercised and is now a weakening rather than a hedge. Above 5 means
+# a mid-run tree leaked past the teardown; below 5 means destroyed sidecars, which is the
+# H39 census-2 anti-data-loss instrument doing its job.
 #
-# THE OBLIGATION: the first flight MEASURES the number and this row is PINNED EXACTLY in
-# the same commit, per H39's own conclusion that "after census 2 there is no such thing as
-# an acceptable amount of drift here". A ceiling left loose past flight 1 is a weakening.
-count = { min = 5, max = 7 }
+# THIS NUMBER IS INDEPENDENT OF THE FIXTURE'S ENDPOINT-INVENTORY REPAIR and so is pinned
+# now rather than deferred with the tally: the repair edits two `STOREDPART` nodes inside
+# a FLIGHTSTATE VESSEL node, which no recording, tree or sidecar count reads.
+count = { min = 5, max = 5 }
 
 [expectations.logContracts]
-# EVIDENCE STANDING: AUTHORED, NEVER FLOWN. `total=` is attribute-derived and
-# source-synced; `passed=` and `skipped=` are the INTERIM spelling and the id is declared
-# in `IsolatedBatchWiringGroupTests.INTERIM_PIN_IDS`.
+# EVIDENCE STANDING: FLOWN ONCE 2026-09-01, PRE-REPAIR. `total=` is attribute-derived and
+# source-synced; `passed=` and `skipped=` STAY in the INTERIM spelling and the id stays
+# declared in `IsolatedBatchWiringGroupTests.INTERIM_PIN_IDS`, because the run that
+# measured `passed=39 skipped=8` flew the PRE-REPAIR fixture. See the header block for the
+# full reasoning; the short version is that pinning a split measured against bytes the
+# next flight will not fly is worse than one more interim flight.
 #
 # ---------------------------------------------------------------------------------
 # DERIVED, NOT GUESSED. The commands, so the next reader re-runs them rather than trusting
@@ -274,8 +333,9 @@ count = { min = 5, max = 7 }
 #
 #  - `skipped=[0-9]+` is the interim half. The attribute FLOOR is 1 (the SPACECENTER cell
 #    `InterBodyRoute_RealBuilder_ClassifiesReaimWindows_AndModuloFires`, which H34 owns);
-#    run-time guards can only push it higher. The header's cell-by-cell prediction is a
-#    HYPOTHESIS written to be refuted, not a pin.
+#    run-time guards can only push it higher. Flight 1 measured 8 on the PRE-REPAIR bytes
+#    and its 7-name roster is recorded in the header; the header's remaining cell-by-cell
+#    prediction is a HYPOTHESIS written to be refuted, not a pin.
 #
 # THE BASELINE-SLOT LITERAL IS 38, not 47 and not 46: the runner logs
 # `ordered.Count(t => t.RestoreBatchFlightBaselineAfterExecution)` over the ADMITTED batch
@@ -303,9 +363,20 @@ count = { min = 5, max = 7 }
 # loud. They are also a FIXTURE assertion the drift test cannot make: the drift test proves
 # the BYTES carry a target-branch cross-tree window; only a flight proves the RUNTIME
 # walk finds it.
-# The third names the KSC-origin producer, which H39 pins for the same reason on its own
-# host and which this fixture must independently satisfy (both trees launch from the
-# Runway).
+# THERE IS NO THIRD CELL TOKEN, AND ITS REMOVAL IS THE WHOLE CORRECTION FLIGHT 1 BOUGHT.
+# This file used to also require
+#   PASSED: LogisticsRouteProducerRuntimeTests.RouteOriginProof_StartedOnRunway_ProducerSkipsProof
+# on the reasoning that "both trees launch from the Runway, so this fixture must
+# independently satisfy the KSC-origin producer cell the way H39 does". That reasoning
+# read the cell's NAME as its predicate. The predicate is `StartSituation == "Prelaunch"`,
+# and a Runway rollout on wheels is `Landed` - so the cell has no subject here and
+# self-skips BY DESIGN, which is what flight 1 measured. The token was the ONLY red on an
+# otherwise all-PASS run: an authoring error, not a product finding.
+# THE GENERAL LESSON, because it is cheap to repeat: a REQUIRED `PASSED:` token is a claim
+# about a cell's RUN-TIME GUARD, not about the fixture property the cell is named after.
+# Derive it from the guard's own source before pinning it. The KSC-origin producer stays
+# covered where a PAD-launched (clamped) recording exists - H39's `bdock-recorded` - and
+# this lane pins nothing about it.
 #
 # THE TEARDOWN-PROTECTION TOKEN is STRUCTURAL PROOF of half the 5218b13a8 fix: the
 # isolated batch's teardown baseline restore must be the LAST write, so `FlushAndQuit`
@@ -321,7 +392,6 @@ required  = [
   "BATCH_COMPLETE v1 total=47 passed=(?:9|[1-9][0-9]+) failed=0 skipped=[0-9]+ category=Logistics scene=FLIGHT",
   "PASSED: LogisticsRouteProofRuntimeTests\\.RouteProof_ActiveAsTargetDockWindow_HasEndpointProof",
   "PASSED: LogisticsRouteProofRuntimeTests\\.RouteProof_CrossTreeCommittedPartner_HasEndpointProof",
-  "PASSED: LogisticsRouteProducerRuntimeTests\\.RouteOriginProof_StartedOnRunway_ProducerSkipsProof",
   "flushandquit: save suppressed \\(batch baseline already restored\\)",
 ]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]

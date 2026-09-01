@@ -84,6 +84,12 @@ WHAT IT DOES, in order:
      618-byte `DistantObject/Settings.cfg` every sibling fixture carries is
      copied from a RECORDED sibling, and `verify` re-checks its size AND the
      donor's bytes.
+  3. THE ENDPOINT INVENTORY REPAIR (added 2026-09-01, after RVR-2 flight 1).
+     Strips the TWO `STOREDPART` nodes that a ROUTE DELIVERY - not the recorded
+     mission - placed into the endpoint vessel `rover fuel 0` (pid 2123618197),
+     restoring the endpoint's slot occupancy to what it was before the operator
+     hand-drove a Send Once over this save. Section "THE ENDPOINT INVENTORY
+     REPAIR" below sets out the whole argument and the evidence.
 
 WHAT IT DELIBERATELY DOES NOT DO:
 
@@ -112,6 +118,99 @@ WHAT IT DELIBERATELY DOES NOT DO:
     `mergeState` key at all. `verify_seal_state` is that pin; without it the
     no-op guard would be untestable and a future re-harvest carrying an open
     provisional would turn RVR-2's `alreadySealed=True` into a silent lie.
+
+THE ENDPOINT INVENTORY REPAIR (step 3), AND WHY A FIXTURE IS EDITED AT ALL.
+
+WHAT WENT WRONG. RVR-2 flight 1 (`2026-09-01_2011_RVR-2-rover-route-create`) drove
+the whole chain correctly - seal no-op, create, send-once, TimeJump, `DOCK
+CROSSING confirmed` - and then cycle 0 answered `BLOCKED kind=DestinationFull
+reason=stored-part:evaScienceKit` instead of delivering. The endpoint had no free
+inventory slot. It had none because the SAVE ALREADY CARRIED A ROUTE DELIVERY:
+the operator hand-created route `fd6ee2ff` over these same trees and drove one
+Send Once at UT 750.06, BEFORE the game wrote the save that was later collected
+and harvested. Its own log lines (collected KSP.log,
+`.claude/worktrees/logs/2026-08-30_1106_rover-route/KSP.log`, 10:59:14) are:
+
+    Delivery write: route=fd6ee2ff... dest=rover fuel 0 pid=2123618197
+        resource=LiquidFuel requested=97.6 written=97.6 tankBefore=200
+        tankAfter=297.6 capacity=400 path=loaded
+    Inventory store: route=fd6ee2ff... part=evaChute        slot=part7/mod1/slot1 units=1/1
+    Inventory store: route=fd6ee2ff... part=evaScienceKit    slot=part7/mod1/slot2 units=1/1
+
+So the harvested endpoint is not the physical state a route-CREATION lane must
+start from: it is that state plus one already-run delivery. A lane whose whole
+subject is "create a route and watch it deliver" cannot start from a destination
+the same delivery has already filled.
+
+WHICH TWO NODES, AND HOW THEY ARE IDENTIFIED POSITIVELY (never by shape alone):
+  * `RouteDeliveryPlanner.InventorySlotAddress.ToString` renders
+    `part<PartIndex>/mod<ModuleIndex>/slot<SlotIndex>`, and the interface doc on
+    `IDeliveryCapacityProbe.ProbeFirstEmptyInventorySlot` fixes the meaning of
+    those indices: "vessel part order, then module order within the part, then
+    ascending slot index". So `part7/mod1` is the EIGHTH `PART` of the endpoint
+    vessel and the SECOND `MODULE` inside it.
+  * In the committed bytes that is `ConformalStorageUnit` persistentId
+    4218985329, whose MODULE list is `[ModuleCargoPart, ModuleInventoryPart,
+    ModulePartVariants]` - index 1 IS the inventory module. The addressing is
+    re-derived from the bytes by `_inventory_modules` below rather than trusted.
+  * Its `STOREDPARTS` carried slot 0 `evaChute`, slot 1 `evaChute`, slot 2
+    `evaScienceKit` - slots 1 and 2 are exactly the two the log names, by slot
+    index AND by part name.
+  * SLOT 0 IS PROVEN PRE-EXISTING RATHER THAN ASSUMED: the writer stores into
+    the FIRST EMPTY slot in that same deterministic order, and parts 0..6 carry
+    no inventory module at all, so `part7/mod1/slot1` can only have been chosen
+    over slot 0 if slot 0 was already occupied when the delivery ran.
+  * NOTHING ELSE IS TOUCHED. The delivery emitted exactly two `Inventory store`
+    lines, both on `part7/mod1`; the second container (`part8/mod1`,
+    persistentId 584475495: slot 0 `evaScienceKit` x2, slot 1
+    `DeployedCentralStation` x1) is not named by any delivery line and is left
+    verbatim. `verify_endpoint_inventory` pins BOTH containers, so a repair that
+    reached into the wrong one reds.
+
+THE `inventory = ` MIRROR MUST MOVE WITH THE SLOTS. KSP writes a
+comma-joined `inventory = <partName>,...` line on the module that mirrors its
+`STOREDPART` `partName`s in slot order, and omits it entirely when the module is
+empty (measured across all six inventory modules in this save). Removing two
+STOREDPART nodes without rewriting that line would leave a save whose module
+claims three items and stores one.
+
+WHAT IS DELIBERATELY *NOT* REVERTED, and it is the one asymmetry in this repair:
+the LiquidFuel. The same delivery moved the endpoint from 200 to 297.6, so the
+pinned `ENDPOINT_VESSEL_LIQUIDFUEL = 297.6 / 400` is post-delivery too. It is
+KEPT, because 102.4 of headroom against a 97.6 manifest is what makes RVR-2's
+two-cycle chain (cycle 1 fits, cycle 2 short by 92.8) derivable in TWO driven
+cycles; reverting to 200 would need a three-cycle driver to reach the same
+refusal and would buy nothing. The repair is therefore scoped to the half that
+BLOCKED the lane, and this paragraph exists so the asymmetry is a decision on
+the record rather than an oversight a later reader has to re-derive.
+
+THE POST-REPAIR ARITHMETIC, and the slot capacity it rests on. Each
+`ConformalStorageUnit` holds THREE slots. That is not a save property (it is the
+part's `InventorySlots`), so it is MEASURED off the same collected log, whose
+cycle-1 probe reads
+
+    ProbeLoadedFirstEmpty: no empty slot on dest=rover fuel 0
+        modulesScanned=2 slotsOccupied=5 slotsConsumed=1
+
+i.e. 5 occupied + 1 consumed by that cycle's evaChute = 6 slots across 2 modules.
+So, with 3 occupied after the repair (part7 slot 0; part8 slots 0 and 1):
+  cycle 1: 3 free slots >= 2 manifest items, and 97.6 <= 102.4 of LF headroom
+           -> DELIVERS. Endpoint goes to 395.2 / 400 with 5 slots occupied.
+  cycle 2: 1 free slot < 2 items, AND 97.6 > 4.8 of remaining LF headroom
+           -> BLOCKED kind=DestinationFull.
+`RouteDestinationCapacityCheck.FirstShortToken` names the first SHORT RESOURCE
+line before any inventory line, so cycle 2's `reason=` is expected to read
+`LiquidFuel` rather than the `stored-part:evaScienceKit` flight 1 measured. That
+ordering is the evaluator's, not the fixture's, so RVR-2 pins `BLOCKED
+kind=DestinationFull` and leaves the detail to a regex until a flight settles it.
+
+THE LEDGER IS NOT A SECOND COPY OF THIS STATE. The save's `Parsek/GameState`
+ledger carries the operator's `RouteDispatched` row for `fd6ee2ff` (it replays as
+`Processed RouteDispatched for route=fd6ee2ff... cycle=1` on every boot), but
+`RouteModule` is OBSERVE-ONLY by contract - its own doc comment reads "A future
+edit MUST NOT mutate vessel cargo from here" - so nothing re-applies the delivery
+at load and the repair is stable. The ledger row is left alone: it is a true
+record of something that happened.
 
 THE ROUTE WINDOW PINS ARE BUILDER-SIDE ON PURPOSE, exactly as
 `build_depot_route_recorded.py`'s ROUTE pins are: `harness/lib/saveparse.py` has
@@ -328,8 +427,51 @@ EXPECTED_REAL_VESSEL_COUNT = 3
 # two-cycle chain derivable from the fixture instead of guessed. 400 - 297.6 =
 # 102.4 free >= the 97.6 manifest (cycle 1 fits), leaving 4.8 free < 97.6
 # (cycle 2 is short by 92.8 and blocks DestinationFull).
+#
+# THIS NUMBER IS ITSELF POST-DELIVERY (the operator's hand-driven Send Once moved
+# it 200 -> 297.6) AND IS KEPT ON PURPOSE - see "THE ENDPOINT INVENTORY REPAIR"
+# in the module docstring for why the repair reverts the slots and not the tank.
 ENDPOINT_VESSEL_LIQUIDFUEL = (297.5999999999984, 400.0)
 ENDPOINT_VESSEL_LIQUIDFUEL_EPS = 1e-6
+
+# --- the endpoint inventory repair (step 3) ------------------------------
+#
+# The two containers on `rover fuel 0`, addressed the way
+# `RouteDeliveryPlanner.InventorySlotAddress` addresses them: (part index within
+# the vessel, module index within the part). Both are `ConformalStorageUnit`.
+ENDPOINT_INVENTORY_MODULES = ((7, 1, "4218985329"), (8, 1, "584475495"))
+# `part7/mod1` is the container the delivery wrote into, named verbatim by the
+# two `Inventory store:` lines quoted in the module docstring.
+ROUTE_DELIVERED_MODULE = ENDPOINT_INVENTORY_MODULES[0]
+# (slotIndex, partName) of the two STOREDPART nodes the delivery placed, as the
+# log names them: `slot=part7/mod1/slot1` evaChute and `slot=part7/mod1/slot2`
+# evaScienceKit. Stripped by step 3; asserted ABSENT afterwards.
+ROUTE_DELIVERED_SLOTS = (("1", "evaChute"), ("2", "evaScienceKit"))
+# What each container must hold AFTER the repair: (slotIndex, partName,
+# quantity), in file order. `part7/mod1` keeps only the slot-0 evaChute the
+# delivery's own first-empty-slot choice proves was already there; `part8/mod1`
+# is untouched, and is pinned so a repair that reached into the wrong container
+# reds here rather than on a flight.
+ENDPOINT_INVENTORY_AFTER = {
+    (7, 1): (("0", "evaChute", "1"),),
+    (8, 1): (("0", "evaScienceKit", "2"), ("1", "DeployedCentralStation", "1")),
+}
+# The pre-repair shape of the polluted container, so step 3 refuses to run on
+# bytes it does not recognise instead of deleting whatever sits at slots 1 / 2.
+ENDPOINT_INVENTORY_BEFORE_REPAIR = (("0", "evaChute", "1"),
+                                    ("1", "evaChute", "1"),
+                                    ("2", "evaScienceKit", "1"))
+# `InventorySlots` per `ConformalStorageUnit`. NOT a save property - MEASURED off
+# the collected flight log's `ProbeLoadedFirstEmpty: ... modulesScanned=2
+# slotsOccupied=5 slotsConsumed=1` (5 + 1 = 6 across the two modules). Used only
+# to state the post-repair free-slot arithmetic RVR-2's cycle 1 rests on.
+ENDPOINT_INVENTORY_SLOTS_PER_MODULE = 3
+# How many inventory items ONE cycle must find slots for. MEASURED, not derived
+# from the window's four ITEM lists: both the operator's create and RVR-2's
+# driven create print `stops=1 stop-resources=1 stop-inventory=2` on their `Built
+# route` line, and the operator's delivering cycle emitted exactly two
+# `Inventory store:` lines (evaChute, evaScienceKit).
+ROUTE_MANIFEST_INVENTORY_ITEMS = 2
 
 # Harvest exhaust and derived data no fixture may carry. `Saves` and `analysis`
 # are the two worth naming: the source carries `Parsek/Saves` (three
@@ -478,6 +620,127 @@ def repoint_active_vessel(lines: List[str]) -> Tuple[List[str], str]:
 
 
 # ---------------------------------------------------------------------------
+# Step 3: the endpoint inventory repair.
+# ---------------------------------------------------------------------------
+
+
+def endpoint_vessel_node(lines: List[str]) -> Optional[Tuple[int, int]]:
+    """The FLIGHTSTATE VESSEL node of the route endpoint `rover fuel 0`.
+
+    Resolved by persistentId rather than by index or name: the pid is what
+    `RouteEndpointResolver.TryResolveEndpoint` itself resolves by, and it is the
+    value the window's `transferTargetPid` names."""
+    for record in vessel_records(lines):
+        if record["pid"] == ROUTE_WINDOW_TARGET_PID:
+            return record["span"]
+    return None
+
+
+def _inventory_modules(lines: List[str],
+                       vessel: Tuple[int, int]) -> List[Tuple[int, int, Tuple[int, int], str]]:
+    """(partIndex, moduleIndex, moduleSpan, partPersistentId) per inventory module.
+
+    The indices are re-derived from the bytes in exactly the order
+    `IDeliveryCapacityProbe.ProbeFirstEmptyInventorySlot` documents ("vessel part
+    order, then module order within the part"), so a `part7/mod1` token out of a
+    KSP.log addresses the same node here that it addressed live."""
+    out: List[Tuple[int, int, Tuple[int, int], str]] = []
+    for part_index, part in enumerate(child_nodes(lines, vessel, "PART")):
+        for module_index, module in enumerate(child_nodes(lines, part, "MODULE")):
+            if get_value(lines, module, "name") == "ModuleInventoryPart":
+                out.append((part_index, module_index, module,
+                            get_value(lines, part, "persistentId") or ""))
+    return out
+
+
+def _stored_part_rows(lines: List[str],
+                      module: Tuple[int, int]) -> List[Tuple[str, str, str, Tuple[int, int]]]:
+    """(slotIndex, partName, quantity, span) per STOREDPART, in file order."""
+    holders = child_nodes(lines, module, "STOREDPARTS")
+    if not holders:
+        return []
+    rows = []
+    for node in child_nodes(lines, holders[0], "STOREDPART"):
+        rows.append((get_value(lines, node, "slotIndex") or "",
+                     get_value(lines, node, "partName") or "",
+                     get_value(lines, node, "quantity") or "",
+                     node))
+    return rows
+
+
+def strip_route_delivered_storedparts(lines: List[str]) -> Tuple[List[str], str]:
+    """Remove the two STOREDPART nodes the operator's hand-driven route delivered.
+
+    IDEMPOTENT and FAIL-LOUD, in that order: bytes already carrying the repaired
+    shape are a no-op, bytes carrying the known polluted shape are repaired, and
+    ANYTHING ELSE aborts rather than deleting whatever happens to sit at slots 1
+    and 2. A re-harvest whose endpoint moved must re-derive this recipe from its
+    own flight log, not inherit two slot numbers from this one."""
+    out = list(lines)
+    vessel = endpoint_vessel_node(out)
+    if vessel is None:
+        raise SystemExit("no FLIGHTSTATE VESSEL with persistentId %s (the route "
+                         "endpoint) to repair" % ROUTE_WINDOW_TARGET_PID)
+
+    modules = _inventory_modules(out, vessel)
+    addresses = [(p, m) for p, m, _span, _pid in modules]
+    want_addresses = [(p, m) for p, m, _pid in ENDPOINT_INVENTORY_MODULES]
+    if addresses != want_addresses:
+        raise SystemExit(
+            "the endpoint vessel carries inventory modules at %r, expected %r - "
+            "the `partN/modM` addressing the delivery log uses no longer resolves"
+            % (addresses, want_addresses))
+    for (part_index, module_index, _span, pid), (_p, _m, want_pid) in zip(
+            modules, ENDPOINT_INVENTORY_MODULES):
+        if pid != want_pid:
+            raise SystemExit(
+                "part%d/mod%d belongs to part persistentId %s, expected %s"
+                % (part_index, module_index, pid, want_pid))
+
+    target_part, target_module, _pid = ROUTE_DELIVERED_MODULE
+    module = [span for p, m, span, _ in modules
+              if (p, m) == (target_part, target_module)][0]
+    rows = _stored_part_rows(out, module)
+    shape = tuple((slot, name, qty) for slot, name, qty, _span in rows)
+
+    if shape == ENDPOINT_INVENTORY_AFTER[(target_part, target_module)]:
+        return out, ("part%d/mod%d already repaired (%d stored part(s))"
+                     % (target_part, target_module, len(rows)))
+    if shape != ENDPOINT_INVENTORY_BEFORE_REPAIR:
+        raise SystemExit(
+            "part%d/mod%d holds %r, which is neither the polluted shape %r nor "
+            "the repaired one %r - re-derive the repair from this save's own "
+            "`Inventory store:` log lines"
+            % (target_part, target_module, shape, ENDPOINT_INVENTORY_BEFORE_REPAIR,
+               ENDPOINT_INVENTORY_AFTER[(target_part, target_module)]))
+
+    # Delete bottom-up so the earlier spans stay valid.
+    removed = []
+    for slot, name in reversed(ROUTE_DELIVERED_SLOTS):
+        match = [span for s, n, _q, span in rows if s == slot and n == name]
+        if len(match) != 1:
+            raise SystemExit("expected exactly one STOREDPART at slot %s named %s, "
+                             "found %d" % (slot, name, len(match)))
+        start, end = match[0]
+        del out[start:end]
+        removed.append("slot%s/%s" % (slot, name))
+
+    # The `inventory = ` mirror must move with the slots (KSP writes it as the
+    # module's partNames in slot order and omits it when the module is empty).
+    vessel = endpoint_vessel_node(out)
+    module = [span for p, m, span, _ in _inventory_modules(out, vessel)
+              if (p, m) == (target_part, target_module)][0]
+    survivors = [name for _slot, name, _qty, _span in _stored_part_rows(out, module)]
+    if not set_value(out, module, "inventory", ",".join(survivors)):
+        raise SystemExit("part%d/mod%d has no `inventory` line to rewrite"
+                         % (target_part, target_module))
+
+    return out, ("part%d/mod%d: dropped %s; inventory -> %s"
+                 % (target_part, target_module, " + ".join(reversed(removed)),
+                    ",".join(survivors)))
+
+
+# ---------------------------------------------------------------------------
 # Post-conditions. Run on the freshly finished fixture AND on --check.
 # ---------------------------------------------------------------------------
 
@@ -566,6 +829,84 @@ def verify_save(lines: List[str]) -> List[str]:
     problems += verify_seal_state(lines, scn)
     problems += _verify_active_vessel(lines)
     problems += verify_route_windows(lines, scn)
+    problems += verify_endpoint_inventory(lines)
+    return problems
+
+
+def verify_endpoint_inventory(lines: List[str]) -> List[str]:
+    """THE REPAIR PIN (step 3), and RVR-2's cycle-1 DELIVERY rests entirely on it.
+
+    Four claims, in the order a reader needs them:
+      (a) the endpoint carries exactly the two inventory containers the
+          `partN/modM` addressing resolves against, at the same part pids;
+      (b) NEITHER route-delivered STOREDPART survives anywhere on the vessel -
+          stated over the whole vessel rather than over one module, so a
+          re-harvest that moved the delivery into the other container cannot
+          pass vacuously;
+      (c) both containers hold exactly the pinned surviving rows, including the
+          UNTOUCHED second container, and the `inventory = ` mirror agrees with
+          them slot for slot;
+      (d) the free-slot arithmetic RVR-2's cycle 1 needs actually holds, so the
+          numbers and the conclusion cannot drift apart.
+    """
+    problems: List[str] = []
+    vessel = endpoint_vessel_node(lines)
+    if vessel is None:
+        return ["no FLIGHTSTATE VESSEL with persistentId %s (the route endpoint)"
+                % ROUTE_WINDOW_TARGET_PID]
+
+    modules = _inventory_modules(lines, vessel)
+    got = [(p, m, pid) for p, m, _span, pid in modules]
+    if got != [tuple(x) for x in ENDPOINT_INVENTORY_MODULES]:
+        return problems + [
+            "the endpoint's inventory containers are %r, expected %r - the "
+            "`partN/modM` addressing the delivery log uses no longer resolves"
+            % (got, [tuple(x) for x in ENDPOINT_INVENTORY_MODULES])]
+
+    occupied = 0
+    for part_index, module_index, module, _pid in modules:
+        rows = _stored_part_rows(lines, module)
+        occupied += len(rows)
+        shape = tuple((slot, name, qty) for slot, name, qty, _span in rows)
+        want = ENDPOINT_INVENTORY_AFTER[(part_index, module_index)]
+        if shape != want:
+            problems.append("part%d/mod%d holds %r, expected %r"
+                            % (part_index, module_index, shape, want))
+        mirror = get_value(lines, module, "inventory")
+        want_mirror = ",".join(name for _slot, name, _qty in want)
+        if mirror != want_mirror:
+            problems.append(
+                "part%d/mod%d `inventory` reads %r, expected %r - KSP writes that "
+                "line as the module's partNames in slot order, so it must move "
+                "with the STOREDPART set"
+                % (part_index, module_index, mirror, want_mirror))
+
+    # (b) THE ABSENCE, over the WHOLE vessel.
+    for part_index, module_index, module, _pid in modules:
+        for slot, name, _qty, _span in _stored_part_rows(lines, module):
+            for want_slot, want_name in ROUTE_DELIVERED_SLOTS:
+                if (part_index, module_index) == ROUTE_DELIVERED_MODULE[:2] \
+                        and slot == want_slot and name == want_name:
+                    problems.append(
+                        "part%d/mod%d/slot%s still holds the route-delivered %s - "
+                        "the endpoint is polluted by the operator's hand-driven "
+                        "Send Once and RVR-2's cycle 1 will block instead of "
+                        "delivering" % (part_index, module_index, slot, name))
+
+    # (d) THE ARITHMETIC.
+    capacity = len(modules) * ENDPOINT_INVENTORY_SLOTS_PER_MODULE
+    free = capacity - occupied
+    if free < ROUTE_MANIFEST_INVENTORY_ITEMS:
+        problems.append(
+            "the endpoint has %d free inventory slot(s) of %d against a %d-item "
+            "manifest - cycle 1 would BLOCK kind=DestinationFull instead of "
+            "delivering, which is the exact failure this repair exists to undo"
+            % (free, capacity, ROUTE_MANIFEST_INVENTORY_ITEMS))
+    if free - ROUTE_MANIFEST_INVENTORY_ITEMS >= ROUTE_MANIFEST_INVENTORY_ITEMS:
+        problems.append(
+            "the endpoint has %d free inventory slot(s), enough for TWO cycles - "
+            "RVR-2's cycle-2 block would then rest on the LiquidFuel half alone"
+            % free)
     return problems
 
 
@@ -936,6 +1277,11 @@ def main(argv: Optional[List[str]] = None) -> int:
     print("restored %s from %s (%d bytes)"
           % (ADDONS_REL.replace("\\", "/"), ADDONS_DONOR_NAME,
              os.path.getsize(addons_dst)))
+
+    # --- 3: the endpoint inventory repair -------------------------------
+    lines, note = strip_route_delivered_storedparts(read_lines(sfs))
+    write_lines(sfs, lines)
+    print("repaired endpoint inventory: %s" % note)
 
     problems = verify_save(read_lines(sfs))
     problems += verify_tree(fixture_dir)

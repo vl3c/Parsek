@@ -29,6 +29,17 @@ in the suite makes:
   * NOTHING CARRIES A `mergeState` KEY. That absence IS
     `RouteCandidateFinder.IsTreeFullySealed`, and RVR-2's
     `SealSlot ... alreadySealed=True` pin is a lie without it.
+  * THE ENDPOINT INVENTORY IS REPAIRED (added 2026-09-01, after RVR-2 flight 1).
+    The harvested endpoint carried two `STOREDPART` nodes a ROUTE DELIVERY had
+    placed - the operator hand-drove a Send Once over these trees before the
+    save was written - and with them the destination had no free slot, so RVR-2
+    flight 1 answered `BLOCKED kind=DestinationFull
+    reason=stored-part:evaScienceKit` at cycle 0 instead of delivering. The
+    builder strips exactly the two the delivery's own `Inventory store:` lines
+    name (`part7/mod1/slot1` evaChute, `part7/mod1/slot2` evaScienceKit) and
+    leaves the second container verbatim. Without a pin here the repair is one
+    re-harvest away from silently reverting, and the symptom would present as a
+    route defect on a flight rather than as a fixture defect in this suite.
 
 Stdlib only; ASCII only; no em dashes.
 """
@@ -159,6 +170,74 @@ class RoverRouteRecordedFixtureDriftTests(unittest.TestCase):
         self.assertLess(headroom - delivered, delivered,
                         "cycle 2 would ALSO fit: the DestinationFull block the "
                         "spec pins would never fire")
+
+    def test_the_endpoint_inventory_repair_holds(self):
+        """THE REPAIR PIN, run on its own so a revert names the INVENTORY rather
+        than arriving inside a fifty-line save diff.
+
+        RVR-2 flight 1 is the worked example this guards against: every driven
+        step succeeded, the chain reached a confirmed dock crossing, and cycle 0
+        still answered `BLOCKED kind=DestinationFull
+        reason=stored-part:evaScienceKit` - because the harvested endpoint was
+        already holding the output of a delivery the operator had hand-driven
+        over the same trees before the save was written."""
+        problems = self.builder.verify_endpoint_inventory(self.lines)
+        self.assertEqual([], problems, "\n".join(problems))
+
+    def test_neither_route_delivered_stored_part_survives(self):
+        """The absence stated over the WHOLE endpoint vessel and from the BYTES,
+        not from the builder's own constants.
+
+        The two nodes are identified POSITIVELY rather than by shape: the
+        collected flight log names them as `part7/mod1/slot1` (evaChute) and
+        `part7/mod1/slot2` (evaScienceKit), and
+        `IDeliveryCapacityProbe.ProbeFirstEmptyInventorySlot` fixes what those
+        indices mean ("vessel part order, then module order within the part,
+        then ascending slot index"). Slot 0 is proven PRE-EXISTING by the same
+        rule: the writer takes the first EMPTY slot, and no part before 7 carries
+        an inventory module at all, so slot 1 can only have been chosen over slot
+        0 if slot 0 was already occupied."""
+        b = self.builder
+        vessel = b.endpoint_vessel_node(self.lines)
+        self.assertIsNotNone(vessel, "the endpoint vessel is missing")
+        rows = {}
+        for part_index, module_index, module, _pid in b._inventory_modules(
+                self.lines, vessel):
+            rows[(part_index, module_index)] = tuple(
+                (slot, name, qty)
+                for slot, name, qty, _span in b._stored_part_rows(self.lines, module))
+        self.assertEqual(b.ENDPOINT_INVENTORY_AFTER, rows)
+        target = b.ROUTE_DELIVERED_MODULE[:2]
+        for slot, name in b.ROUTE_DELIVERED_SLOTS:
+            self.assertNotIn(
+                (slot, name), [(s, n) for s, n, _q in rows[target]],
+                "part%d/mod%d/slot%s still holds the route-delivered %s"
+                % (target[0], target[1], slot, name))
+
+    def test_the_repaired_slot_headroom_makes_cycle_1_deliver_and_cycle_2_block(self):
+        """The INVENTORY half of RVR-2's two-cycle chain, checked the way the
+        LiquidFuel half is: the numbers and the conclusion against each other, so
+        neither can move alone.
+
+        Slot capacity is 3 per `ConformalStorageUnit`, MEASURED off the collected
+        log's `ProbeLoadedFirstEmpty: ... modulesScanned=2 slotsOccupied=5
+        slotsConsumed=1` (5 + 1 = 6 across the two modules) rather than read from
+        the save, since `InventorySlots` is a part-config property."""
+        b = self.builder
+        vessel = b.endpoint_vessel_node(self.lines)
+        modules = b._inventory_modules(self.lines, vessel)
+        occupied = sum(len(b._stored_part_rows(self.lines, m))
+                       for _p, _m, m, _pid in modules)
+        capacity = len(modules) * b.ENDPOINT_INVENTORY_SLOTS_PER_MODULE
+        free = capacity - occupied
+        items = b.ROUTE_MANIFEST_INVENTORY_ITEMS
+        self.assertGreaterEqual(
+            free, items,
+            "cycle 1 would BLOCK on slots: the endpoint is still polluted")
+        self.assertLess(
+            free - items, items,
+            "cycle 2 would ALSO fit on slots, so the DestinationFull block would "
+            "rest on the LiquidFuel half alone")
 
     def test_the_fixture_carries_no_route_and_that_is_what_rvr2_needs(self):
         """The mirror image of `depot-route-recorded`, stated so the two are not

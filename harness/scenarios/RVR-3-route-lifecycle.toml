@@ -5,62 +5,133 @@ tier = "pending-fixture"
 # THE `RouteLifecycle` BATCH - the send-once / armed-pause / hold-reason state machine,
 # driven against the LIVE production orchestrator over synthetic routes.
 #
-# NEVER FLOWN. `total=6` is attribute-derived and statically certain; `passed=6
-# failed=0 skipped=0` is derived from source guards read cell by cell (below) and is
-# INTERIM until a census - the id is declared in
-# `IngameBatchWiringGroupTests.INTERIM_PIN_IDS`.
+# FLOWN ONCE (2026-09-01_2013), and the census REFUTED the pin: measured
+# `BATCH_COMPLETE v1 total=6 passed=4 failed=2 skipped=0`.
+#
+# WHAT THE TWO FAILURES WERE, AND WHY THEY ARE NOT A PRODUCT DEFECT. Both crossing cells
+# that armed a pause red'd:
+#     SendOnce_BlockedCycle_PausesWithReason_KeepsHold
+#       -> "Armed route did not pause on the blocked cycle (status=Active)"
+#     PauseInTransit_BlockedCycle_CompletesThePause_NoSendOnceToast
+#       -> "The blocked cycle did not complete the armed pause (status=InTransit)"
+# Both drove a crossing whose LIVE eligibility kind is `SourcesStale` (the collected log
+# shows `hold recorded kind=SourcesStale detail=sources-stale` then `BLOCKED
+# kind=SourcesStale` for each). The category was AUTHORED on this branch BEFORE main's
+# PR #1583 merged in, and that PR made `SourcesStale` and `WaitingForPartner`
+# POSTPONEMENT holds which deliberately KEEP the arm
+# (`RouteOrchestrator.IsPostponementHold`; `TryHonorArmedPauseOnBlockedCycle` returns
+# false and logs `ArmedPause: ... BLOCKED by postponement kind=SourcesStale - arm kept`).
+# The log carries exactly that line on both cells. So the product behaved per its
+# SHIPPED contract and the cells asserted the pre-exemption one: CONTRACT DRIFT in the
+# test, not a Parsek regression. The headless pins of the shipped contract are
+# `RouteSendOnceBlockedPauseTests.SendOnceArmed_PostponementBlock_KeepsArm_RouteStaysActive`
+# and its `WaitingForPartner` sibling.
+#
+# WHAT THAT COST, AND WHAT IT BOUGHT. The flight measured only the POSTPONEMENT half of
+# the state machine - every cell reached the ERS gate first, so `blocked-then-paused`,
+# the reason the category exists, had NO live gate at all. The fix is not to delete the
+# two cells: it is to pin BOTH halves. The two are now four (see the roster below), and
+# the two RESOLUTION cells reach a consuming kind on purpose, by pointing the synthetic
+# route's `SourceRefs` at a REAL id out of the live ERS snapshot and its stop at a REAL
+# live vessel pid, then handing it 1e9 units of LiquidFuel - a manifest no craft can
+# hold, so gate 8 (destination capacity) answers `DestinationFull`, which is NOT a
+# postponement.
+#
+# `total=8` is attribute-derived and statically certain
+# (`hlib.derive_batch_tally(decls, "RouteLifecycle", "FLIGHT")` -> `total=8
+# scene_skipped=0 batch_skipped=0 executable=8`). `failed=0` IS ASSERTED. `passed=` and
+# `skipped=` stay INTERIM (a regex class): the four postponement/arm/gate cells are now
+# measured, but the two RESOLUTION cells have never flown and each carries two run-time
+# `InGameAssert.Skip` guards whose outcome is a property of the LIVE save
+# (`RequireLiveErsSourceRef`, `RequireLiveDestinationVessel`) plus the
+# `RequireLiveResolutionBlock` pre-flight. What defends them instead of the split is a
+# REQUIRED CELL TOKEN each (below): an interim `passed=` says almost nothing about WHICH
+# cells passed, and these two are the point of the lane.
 #
 # -------------------------------------------------------------------------------------
-# WHY THE CATEGORY IS ITS OWN, and it is not tidiness. These six cells are
+# WHY THE CATEGORY IS ITS OWN, and it is not tidiness. These eight cells are
 # `Scene = <unset>` (AnyScene) and `AllowBatchExecution = true` with NO restore flag,
 # where all 47 `Logistics` declarations are FLIGHT-scoped and 38 of them are
 # restore-after-run. Folding them into `Logistics` would move that category's pinned
-# `total=47` in five committed specs at once, and would drag six AnyScene cells through
+# `total=47` in five committed specs at once, and would drag eight AnyScene cells through
 # an isolated per-test quickload path none of them needs. A separate category costs one
 # spec and keeps both tallies attribute-exact.
 #
 # -------------------------------------------------------------------------------------
-# THE SIX CELLS AND WHAT EACH NEEDS FROM THE HOST
-# (`Source/Parsek/InGameTests/RouteLifecycleRuntimeTests.cs`). Every one of them BUILDS
-# its own synthetic route; none reads the committed corpus. So the fixture requirement is
-# narrow and is stated exactly:
+# THE EIGHT CELLS AND WHAT EACH NEEDS FROM THE HOST
+# (`Source/Parsek/InGameTests/RouteLifecycleRuntimeTests.cs`). Six of them BUILD a wholly
+# synthetic route and read no live state beyond the clock; the two RESOLUTION cells read
+# the live ERS snapshot and the live vessel list, and that is the only widening this
+# revision makes to the fixture requirement:
 #
-#   1  DeliverableCycle_RequiresRealDestination_LiveEnvRefusesSyntheticEndpoint  (:118)
+#   1  DeliverableCycle_RequiresRealDestination_LiveEnvRefusesSyntheticEndpoint
 #      Needs a live clock (`RequireLiveContext`) and needs the near-`uint.MaxValue`
 #      synthetic destination pid to resolve to NOTHING - the cell Skips if the save
 #      happens to hold a vessel on that pid, because it "must not touch a real vessel".
 #      This host's three real vessels are 313889796 / 2875537755 / 2123618197 plus eight
-#      stock asteroids, none near uint.MaxValue.
-#   2  SendOnce_BlockedCycle_PausesWithReason_KeepsHold                          (:180)
-#   4  PauseInTransit_BlockedCycle_CompletesThePause_NoSendOnceToast             (:347)
-#   5  UnarmedRoute_BlockedCycle_StaysActive_NoPauseMarker                       (:415)
-#      The three CROSSING-DRIVING cells. Each calls `RequireLiveContext()` and then
-#      `RequireRenderCompositionUnarmed()` - see the constraint block below.
-#   3  SendOnce_ArmIsObservable_UnPausesAndPullsDispatchForward                  (:285)
-#   6  RouteCommandSeam_CreateGateWalk_LiveCommittedTree                         (:468)
-#      Neither drives a crossing. Cell 6 walks the create GATE (`IsTreeFullySealed` plus
-#      the analysis) over whatever committed trees the save holds, WITHOUT creating
-#      anything.
+#      stock asteroids, none near uint.MaxValue. PASSED on flight 1.
 #
-# WHY THIS HOST AND NOT A CHEAPER ONE. The five clock-and-pid cells would run on any
-# loaded FLIGHT save; cell 6 would not be exercising anything on a save with no committed
-# trees. `rover-route-recorded` boots into FLIGHT on a LANDED rover with a live clock AND
-# carries two fully sealed committed trees - so the gate walk has real trees to walk, and
-# the whole category runs on one boot rather than needing a second host. That is the only
-# reason this lane shares RVR-1's and RVR-2's fixture rather than picking the cheapest
-# save in the tree.
+#   THE POSTPONEMENT HALF (arm KEPT, route does not pause, nothing emitted, no toast).
+#   These are the two flight-1 failures, rewritten to pin the SHIPPED contract, plus the
+#   unarmed control that already passed:
+#   2  SendOnce_PostponementBlock_KeepsArm_RouteStaysActive_NoToast
+#   3  PauseInTransit_PostponementBlock_KeepsArm_StaysInTransit
+#   4  UnarmedRoute_BlockedCycle_StaysActive_NoPauseMarker                (PASSED flight 1)
+#
+#   THE RESOLUTION HALF (arm CONSUMED: Paused, reason `blocked-then-paused`, flags
+#   cleared, hold kept, RoutePaused row, toast for the Send Once provenance only). NEW,
+#   NEVER FLOWN, and the reason the tally stays interim:
+#   5  SendOnce_ResolutionBlock_PausesWithReason_KeepsHold
+#   6  PauseInTransit_ResolutionBlock_CompletesThePause_NoSendOnceToast
+#      Each needs, beyond the clock: (a) at least one recording in the LIVE ERS snapshot
+#      whose id it can copy into `SourceRefs` - the ERS gate reads ONLY the id, no proof
+#      hash, no epoch, no tree id - and (b) one REAL live vessel that is not the active
+#      one, not a ghost map vessel, and not a SpaceObject/Flag/Unknown, which the
+#      PRODUCTION `RouteEndpointResolver` resolves by pid. This host supplies both: the
+#      flight-1 log shows `ERS Rebuilt: 5 entries from 5 committed`, and the fixture pins
+#      three real vessels of which two are non-active. Both cells then refuse to tick
+#      unless the live env has ALREADY answered `DestinationFull`
+#      (`RequireLiveResolutionBlock`): an ELIGIBLE verdict is a hard FAILURE, any other
+#      kind an attributable SKIP naming the gate that refused first.
+#
+#   NEITHER OF THESE DRIVES A CROSSING:
+#   7  SendOnce_ArmIsObservable_UnPausesAndPullsDispatchForward           (PASSED flight 1)
+#   8  RouteCommandSeam_CreateGateWalk_LiveCommittedTree                  (PASSED flight 1)
+#      Cell 8 walks the create GATE (`IsTreeFullySealed` plus the analysis) over whatever
+#      committed trees the save holds, WITHOUT creating anything.
+#
+#   The five crossing-driving cells (2, 3, 4, 5, 6) each call `RequireLiveContext()` and
+#   then `RequireRenderCompositionUnarmed()` - see the constraint block below.
+#
+# WHY THIS HOST AND NOT A CHEAPER ONE. Three reasons now, where the first revision had
+# one: cell 8 would exercise nothing on a save with no committed trees; cells 5 and 6
+# would SKIP on a save with an empty ERS snapshot or no non-active vessel; and every cell
+# needs a loaded scene with a live clock. `rover-route-recorded` boots into FLIGHT on a
+# LANDED rover with a live clock, carries two fully sealed committed trees (5 ERS
+# recordings), and parks two more real vessels beside the active one - so the whole
+# category runs on one boot rather than needing a second host.
+#
+# THE WORLD-SAFETY QUESTION cells 5 and 6 raise, answered: the destination-capacity gate
+# (`LiveRouteRuntimeEnvironment.DestinationHasCapacity` -> `RouteDestinationCapacityCheck`
+# -> `RouteDeliveryPlanner` over `LiveDeliveryCapacityProbe`) only PROBES free capacity;
+# it writes nothing, and the cycle blocks BEFORE `EmitDispatchDebit`, so no debit, no
+# delivery and no funds row reaches the real vessel. Both cells additionally assert ZERO
+# `RouteCargoDelivered` / `RouteCargoDebited` rows for their route id, which is that
+# claim as a gate rather than an argument.
 #
 # -------------------------------------------------------------------------------------
 # THE ONE HARD CONSTRAINT, FROM THE CATEGORY'S AUTHOR, AND IT IS WHY THIS SPEC
 # DECLARES NO RENDER-COMPOSITION EXPECTATIONS BLOCK BELOW.
-# `RequireRenderCompositionUnarmed` (:638-656) reads:
+# `RequireRenderCompositionUnarmed` reads:
 #     "A confirmed dock crossing unconditionally appends a `route-dock-crossing`
 #      CLOCK-EVENT to the M-A7 render-composition manifest whenever that capture is armed,
 #      and a synthetic route's crossing is not part of the composition the lane exporting
 #      that manifest is measuring. Skipping (attributably) is the honest answer: a lane
 #      that wants BOTH runs them as separate flights."
 # and its skip string names the remedy: "Run this category on a flight that does not
-# export a render manifest".
+# export a render manifest". It now guards FIVE cells rather than three (the two
+# resolution cells drive a crossing too), so declaring the block would cost more, not
+# less, than it did on the first revision.
 # THE ARMING SURFACE IS THE DECLARATION, NOT A STEP. `run.py` sets
 # `PARSEK_RENDER_MANIFEST=1` for ANY spec that declares a render-composition
 # expectations block ("the DECLARATION is the arming surface; `gating` only decides
@@ -73,29 +144,36 @@ tier = "pending-fixture"
 # THAT ABSENCE IS GATED RATHER THAN REMEMBERED:
 # `RoverRouteSpecFixtureSyncTests.test_rvr3_does_not_arm_render_composition_capture` in
 # `harness/lib/test_build_rover_route_recorded.py` reds if either string appears here. A
-# spec that pins `skipped=0` while arming the recorder is internally inconsistent, and the
-# inconsistency would otherwise only surface on a flight.
+# spec that arms the recorder while pinning cell tokens for two crossing-driving cells is
+# internally inconsistent, and the inconsistency would otherwise only surface on a flight.
 # =====================================================================================
-description = "AUTHORED 2026-08-30, NEVER FLOWN. The RouteLifecycle batch - six AnyScene cells covering the send-once arm, the armed pause consumed by a blocked cycle, the pause-in-transit completion, the unarmed-route control that must NOT pause, the live refusal of a synthetic delivery endpoint, and a RouteCommand create-gate walk over real committed trees - run on the rover-route-recorded host, which supplies the two things the category needs in one boot: a loaded FLIGHT scene with a live clock, and committed fully-sealed trees for the gate walk to have something to walk. The spec deliberately declares NO render-composition expectations block: declaring one sets PARSEK_RENDER_MANIFEST=1, and three of the six cells self-skip whenever M-A7 capture is armed because a synthetic dock crossing would inject route-dock-crossing clock events into the manifest. That absence is gated in harness/lib rather than left to memory."
+description = "FLOWN ONCE 2026-09-01 (total=6 passed=4 failed=2); the two failures were CONTRACT DRIFT in the cells, not a product defect - both drove a SourcesStale crossing, which PR #1583 made a POSTPONEMENT hold that deliberately keeps the armed pause, and the cells asserted the pre-exemption contract. Revised to eight cells pinning BOTH halves of the armed-pause state machine: the postponement half (arm kept, route stays Active/InTransit, nothing emitted, no toast) and the RESOLUTION half (arm consumed: Paused with reason blocked-then-paused, flags cleared, hold kept, RoutePaused row, Send-Once toast), the latter reached deterministically by pointing the synthetic route at a REAL live-ERS recording id and a REAL live vessel pid with a delivery manifest no craft can hold, so the destination-capacity gate answers DestinationFull. Runs on the rover-route-recorded host, which supplies everything the category needs in one boot: a loaded FLIGHT scene with a live clock, five committed ERS recordings, two fully sealed trees for the create-gate walk, and two non-active real vessels to point a stop at. The spec deliberately declares NO render-composition expectations block: declaring one sets PARSEK_RENDER_MANIFEST=1, and five of the eight cells self-skip whenever M-A7 capture is armed because a synthetic dock crossing would inject route-dock-crossing clock events into the manifest. That absence is gated in harness/lib rather than left to memory."
 instanceProfile = "stock-minimal"
 tags = ["ingame-batch", "logistics", "route-lifecycle", "recorded-fixture",
         "RVR-3", "pending-flight"]
 
 [fixture]
-# `rover-route-recorded`, shared with RVR-1 and RVR-2. What THIS lane needs is the
-# narrowest of the three:
+# `rover-route-recorded`, shared with RVR-1 and RVR-2. What THIS lane needs, restated for
+# the eight-cell roster:
 #   * a loaded FLIGHT scene with a live clock - `RequireLiveContext` is the first line of
-#     all six cells. Active vessel `B`, type=Rover, sit=LANDED, so the boot takes the
+#     all eight cells. Active vessel `B`, type=Rover, sit=LANDED, so the boot takes the
 #     Focusable FLIGHT route rather than NoVesselSpaceCenter.
 #   * NO live vessel near `uint.MaxValue` - cell 1's synthetic destination pid. The
 #     builder pins all three real vessels' persistentIds (313889796, 2875537755,
 #     2123618197), so a re-harvest cannot silently collide with it.
-#   * at least one COMMITTED tree for cell 6's gate walk. This host has two, both fully
+#   * at least one COMMITTED tree for the create-gate walk. This host has two, both fully
 #     sealed (no `mergeState` key anywhere), which is what lets the walk observe the
 #     `sealed=True` branch rather than only the refusal one.
+#   * NEW, for the two RESOLUTION cells: at least one recording in the LIVE ERS snapshot
+#     and at least one REAL non-active, non-ghost vessel. The same two committed trees
+#     supply the first (flight 1 logged `ERS Rebuilt: 5 entries from 5 committed`), and
+#     the same three pinned persistentIds supply the second - `B` is active, so the other
+#     two are the candidates `RequireLiveDestinationVessel` walks to. Both are properties
+#     the builder already pins, so neither widens what a re-harvest must preserve.
 #
-# `injectedRecordings = "none"`: cell 6 walks whatever committed trees the save holds, so
-# a synthetic corpus injected on top would change what it walks without changing anything
+# `injectedRecordings = "none"`: the create-gate walk reads whatever committed trees the
+# save holds and the resolution cells copy an id out of whatever ERS holds, so a
+# synthetic corpus injected on top would change what both read without changing anything
 # this spec asserts - an un-attributable difference between runs.
 saveTemplate       = "fixtures/saves/rover-route-recorded"
 injectedRecordings = "none"
@@ -107,9 +185,9 @@ craft              = []
 # first scene settles, which races the seam driver's remaining steps, and
 # hlib.validate_spec forbids owning a batch both ways.
 kind = "seam"
-# NO `isolated` arg: all 6 declarations are AllowBatchExecution (default) with no restore
+# NO `isolated` arg: all 8 declarations are AllowBatchExecution (default) with no restore
 # flag, so the ordinary and isolated admission filters are IDENTICAL here
-# (`derive_batch_tally` answers `total=6 scene_skipped=0 batch_skipped=0 executable=6` for
+# (`derive_batch_tally` answers `total=8 scene_skipped=0 batch_skipped=0 executable=8` for
 # both). Passing it would buy nothing and would put this lane in the wrong wiring group.
 #
 # THE KILL TRIPLE, as on every recorded-host lane: this loads a save whose own parked
@@ -123,8 +201,12 @@ kind = "seam"
 # starts. `DiscardTree` touches only the LIVE plain tree, never a committed one.
 #
 # verboseLogging=true is required: the per-cell PASSED / SKIPPED lines the census reads
-# are Verbose, and on a `skipped=0` pin the SKIPPED lines are what a red run needs to say
-# WHICH guard fired.
+# are Verbose, and on an interim `skipped=` pin the SKIPPED lines are the only thing that
+# says WHICH guard fired. It is NOT what makes the postponement cells' assertion work -
+# the `ArmedPause: ... BLOCKED by postponement ... arm kept` line they grep is Verbose
+# too, and `LifecycleArena` force-arms `ParsekLog.VerboseOverrideForTesting` for exactly
+# that reason, so a session with the setting off would still measure the contract rather
+# than fail on a missing line.
 steps = [
   { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
   { cmd = "StopRecording",                                                    expect = "OK" },
@@ -136,11 +218,11 @@ steps = [
 ]
 
 [dimensionsCovered]
-# BOOT FACTS ONLY. No D10 claim before the first census, on the H35 CLAIM-IS-NOT-GATE
-# rule. The row this category could eventually earn is the armed-pause / hold-reason
-# lifecycle, and claiming it on an unflown spec would be a claim rather than a gate; the
-# first green flight is where it is declared, in the same commit that replaces the interim
-# pin.
+# BOOT FACTS ONLY, STILL. No D10 claim, on the H35 CLAIM-IS-NOT-GATE rule. The row this
+# category could earn is the armed-pause / hold-reason lifecycle, and flight 1 did NOT
+# earn it: it measured the postponement half only, on cells that were asserting the wrong
+# contract. The claim belongs to the first GREEN flight of the resolution pair, in the
+# same commit that replaces the interim pin with the measured split - not to this one.
 D14 = ["sandbox", "scene-flight"]
 
 [expectations]
@@ -150,59 +232,81 @@ D14 = ["sandbox", "scene-flight"]
 #
 # AND SEE THE HEADER: there is deliberately NO render-composition
 # expectations sub-table anywhere in this file. Declaring one would set `PARSEK_RENDER_MANIFEST=1` and
-# make three of the six cells self-skip, contradicting the `skipped=0` pin below.
+# make FIVE of the eight cells self-skip - including both cells whose PASS lines this
+# spec pins as REQUIRED tokens below, so the run would red on the tokens rather than
+# merely under-measuring.
 allowedAnomalies = []
 
 [expectations.recordings]
 # THE ANTI-DATA-LOSS FLOOR, for the H39 census-2 reason - the one instrument in the chain
 # pointed at the committed corpus. EXACT at 5, both bounds: no cell in this category
-# creates or destroys a recording (all six build synthetic ROUTES, and the store is
-# untouched - cell 1's own comment says "No store mutation at all"), and there is no
-# isolated per-test restore to add or remove trees, so any number other than the staged 5
-# is a finding rather than noise.
+# creates or destroys a recording (all eight build synthetic ROUTES, and the store is
+# untouched - cell 1's own comment says "No store mutation at all", and the two resolution
+# cells only READ the ERS snapshot to copy an id out of it), and there is no isolated
+# per-test restore to add or remove trees, so any number other than the staged 5 is a
+# finding rather than noise.
 #
-# IF THE FIRST FLIGHT MEASURES A LOAD-TIME OPTIMIZER SPLIT on these bytes (H35/H39/H40 all
-# measure one on their hosts'), this becomes 5 + that split and is re-pinned EXACTLY in
-# the same commit as the tally. It is never widened into a window.
+# CONFIRMED BY FLIGHT 1: the collected log's `ERS Rebuilt: 5 entries from 5 committed`
+# measures no load-time optimizer split on these bytes (H35/H39/H40 all measure one on
+# their hosts'), so the exact 5 stands rather than becoming 5 + split. It is never
+# widened into a window.
 count = { min = 5, max = 5 }
 
 [expectations.logContracts]
-# EVIDENCE STANDING: AUTHORED, NEVER FLOWN.
+# EVIDENCE STANDING: FLOWN ONCE (2026-09-01_2013, `total=6 passed=4 failed=2 skipped=0`).
+# The two failures were contract drift in the cells - see the header. Four of the six
+# original cells are now MEASURED; two were rewritten and two are new and NEVER FLOWN.
 #
 # ---------------------------------------------------------------------------------
 # DERIVED, NOT GUESSED. The command, so the next reader re-runs it:
 #   hlib.derive_batch_tally(decls, "RouteLifecycle", "FLIGHT")
-#     -> total=6  scene_skipped=0  batch_skipped=0  executable=6
-# All six declarations are `Scene` unset (AnyScene) and `AllowBatchExecution` default, so
+#     -> total=8  scene_skipped=0  batch_skipped=0  executable=8
+# All eight declarations are `Scene` unset (AnyScene) and `AllowBatchExecution` default, so
 # BOTH the scene filter and the batch filter admit everything and the ATTRIBUTE SKIP FLOOR
 # IS 0. Run-time `InGameAssert.Skip` guards can only push `skipped` higher, never lower.
 #
-#  - `total=6` is ATTRIBUTE-EXACT and statically certain: six
+#  - `total=8` is ATTRIBUTE-EXACT and statically certain: eight
 #    `[InGameTest]` declarations in `RouteLifecycleRuntimeTests.cs`, whose category comes
 #    from that file's `private const string Category = "RouteLifecycle"`.
-#    `CommittedBatchTallySourceSyncTests` discovers this spec as a batch owner the moment
-#    it lands and holds `total=6` against the source, so adding a seventh cell reds locally
-#    in `harness/lib` rather than on the next nightly.
+#    `CommittedBatchTallySourceSyncTests` discovers this spec as a batch owner and holds
+#    `total=8` against the source, so adding a ninth cell reds locally in `harness/lib`
+#    rather than on the next nightly.
 #
-#  - `passed=6 skipped=0` IS THE INTERIM PIN and is a PREDICTION with a stated basis, cell
-#    by cell:
-#      * cell 1 skips only if a live vessel sits on the near-`uint.MaxValue` synthetic
-#        pid. The builder pins this host's three real persistentIds; none is near it.
-#      * cells 2, 4, 5 skip only if M-A7 capture is armed. This spec declares no
-#        render-composition expectations block, and that absence is gated in
+#  - `passed=` and `skipped=` STAY INTERIM (a regex class, not a literal), and the reason
+#    is narrower than it was on the first revision. What is now MEASURED:
+#      * cell 1 (`DeliverableCycle_...`), `SendOnce_ArmIsObservable_...`,
+#        `UnarmedRoute_BlockedCycle_...` and `RouteCommandSeam_CreateGateWalk_...` all
+#        PASSED on flight 1 on this exact host.
+#      * the two POSTPONEMENT cells drive the identical crossing the two flight-1
+#        failures drove (same route shape, same fresh-GUID sources), so their live
+#        eligibility verdict is measured: `SourcesStale` / `sources-stale`. Only their
+#        ASSERTIONS changed.
+#    What is NOT measured, and why the split stays a class:
+#      * the two RESOLUTION cells have never flown. Each carries THREE run-time skip
+#        guards whose outcome is a property of the live save rather than of any
+#        attribute: `RequireLiveErsSourceRef` (needs a non-empty ERS snapshot),
+#        `RequireLiveDestinationVessel` (needs one non-active, non-ghost, real-type
+#        vessel the PRODUCTION resolver returns by pid), and `RequireLiveResolutionBlock`
+#        (needs the live env to answer `DestinationFull` rather than an earlier gate).
+#        The host satisfies all three on the evidence of flight 1 - 5 ERS recordings, two
+#        non-active real vessels - but "satisfies on paper" is exactly the class the
+#        census exists to settle, so it is not pinned as a number.
+#      * all five crossing cells still skip if M-A7 capture is armed. This spec declares
+#        no render-composition expectations block, and that absence is gated in
 #        `harness/lib` rather than remembered.
-#      * cells 3 and 6 drive no crossing and carry neither guard.
-#      * all six need `RequireLiveContext`, which a loaded FLIGHT scene supplies.
-#    WHAT THE PREDICTION CANNOT SETTLE: cells 2, 4 and 5 additionally call
-#    `RequireLiveBlock(route, crossingUT, arena.Env)` before ticking - "only tick once the
-#    LIVE environment has already said this crossing blocks, and blocks with the kind this
-#    cell asserts" - which is a run-time reading of the live environment against a
-#    synthetic route. That is precisely the class no `.sfs` read settles, and it is why
-#    the split is interim rather than derived. If the first census measures a skip there,
-#    the reason string names the environment fact and the pin is re-derived from it.
+#    THE OBLIGATION: the next green flight replaces the two regex classes with the
+#    measured literals, in the same commit that records the split here.
 #
-#  - `failed=0` IS THE ASSERTION EVEN THOUGH THE SPLIT IS INTERIM. A first census may
+#  - `failed=0` IS THE ASSERTION EVEN THOUGH THE SPLIT IS INTERIM. A census may
 #    legitimately discover a SKIP; a cell that FAILS is a finding either way.
+#
+#  - THE TWO CELL TOKENS ARE WHAT AN INTERIM `passed=` CANNOT SAY. `passed=[1-9][0-9]*`
+#    is satisfied by a run where both resolution cells SKIPPED and the other six passed,
+#    i.e. by a run that measured nothing this revision exists to measure. So each
+#    resolution cell's PASS line is pinned directly, including the tokens that make it
+#    the RESOLUTION half (`holdKind=DestinationFull`, and the `armedBy=` provenance that
+#    tells the two cells apart). A skip on either now reds the run and names itself,
+#    which is the H41 `claw-producer` shape: pin the causal chain, not the tally.
 #
 #  - `scene=FLIGHT` is LOAD-BEARING even though every cell is AnyScene. The cells do not
 #    need FLIGHT, but `RequireLiveContext` needs a loaded game, and the tally's `scene=`
@@ -213,12 +317,16 @@ count = { min = 5, max = 5 }
 # THE SEAM ECHO (`runtests start category=RouteLifecycle`) is the canary for the
 # provisioning trap: the harness flies the `automation/stock-minimal` instance, NOT the one
 # `dotnet build` deploys to, so its ABSENCE means a stale `Parsek.dll` rather than a Parsek
-# regression. It is doubly worth pinning for a BRAND-NEW category - a token that has never
-# appeared in any log before is exactly the shape a stale DLL swallows silently.
+# regression. It matters MORE on this revision than on the first: the two cell tokens
+# below are strings that have never appeared in any log, which is exactly the shape a
+# stale DLL swallows silently - the seam echo separates "the new DLL did not deploy" from
+# "the new cells did not pass".
 required  = [
   "loadgame complete scene=FLIGHT save=.* game-loaded=true expected=Flight",
   "runtests start category=RouteLifecycle",
-  "BATCH_COMPLETE v1 total=6 passed=6 failed=0 skipped=0 category=RouteLifecycle scene=FLIGHT",
+  "RouteLifecycle sendonce-resolution: PASS .* holdKind=DestinationFull holdDetail=LiquidFuel .* armedBy=send-once",
+  "RouteLifecycle pause-intransit-resolution: PASS .* holdKind=DestinationFull .* armedBy=pause-after-cycle",
+  "BATCH_COMPLETE v1 total=8 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=RouteLifecycle scene=FLIGHT",
 ]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 
@@ -229,11 +337,11 @@ forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 # the worst case is 660 + 660 = 1320. 1400 clears it, which is the number every
 # recorded-host batch lane uses.
 #
-# The observed wall should be far under it - six synthetic-route cells with no per-test
-# quickload against a 5-recording corpus, where H39's 46-cell isolated batch over a
-# 19-recording corpus measured 155 s. The number stays at 1400 anyway: it covers the
-# DEFERRED worst case, not the observed wall, and a KILLED run prints NO tally at all,
-# which on a first census destroys the entire product of the flight.
+# MEASURED on flight 1: the six-cell batch ran in ~2.4 s of wall inside the runner
+# (23:14:05.527 -> 23:14:05.602 across the cells, plus the batch teardown restore), so the
+# eight-cell revision is nowhere near the budget either. The number stays at 1400 anyway:
+# it covers the DEFERRED worst case (660 + 660), not the observed wall, and a KILLED run
+# prints NO tally at all, which on a census destroys the entire product of the flight.
 budgetSeconds = 1400
 
 [retry]
