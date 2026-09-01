@@ -224,6 +224,11 @@ namespace Parsek
             nextLifecycleCheckTime = 0f;
             atmosCachedIndices.Clear();
             lastKnownCommittedCount = RecordingStore.CommittedRecordings?.Count ?? 0;
+            // The map-presence stores this scene drives are keyed by committed index; a
+            // table delete or a deferred merge dialog can restructure the list mid-scene.
+            RecordingStore.CommittedRecordingRemoving += OnCommittedRecordingRemoving;
+            RecordingStore.CommittedRecordingRemoved += OnCommittedRecordingRemoved;
+            RecordingStore.CommittedRecordingInserted += OnCommittedRecordingInserted;
 
             ParsekLog.Info(Tag,
                 $"ParsekTrackingStation initialized: created {created} ghost vessel(s), " +
@@ -908,8 +913,30 @@ namespace Parsek
             return hasCoveringOrbitSegment && !polylineOwnsPhase && !iconSuppressed;
         }
 
+        private void OnCommittedRecordingRemoving(int index, Recording removed)
+        {
+            GhostMapPresence.HandleCommittedRecordingRemoving(index);
+        }
+
+        private void OnCommittedRecordingRemoved(int index, Recording removed, Recording absorbedInto)
+        {
+            GhostMapPresence.ReindexPresenceAfterDelete(index);
+            atmosCachedIndices.Clear();
+            nextLifecycleCheckTime = 0f;
+        }
+
+        private void OnCommittedRecordingInserted(int index)
+        {
+            GhostMapPresence.ReindexPresenceAfterInsert(index);
+            atmosCachedIndices.Clear();
+            nextLifecycleCheckTime = 0f;
+        }
+
         void OnDestroy()
         {
+            RecordingStore.CommittedRecordingRemoving -= OnCommittedRecordingRemoving;
+            RecordingStore.CommittedRecordingRemoved -= OnCommittedRecordingRemoved;
+            RecordingStore.CommittedRecordingInserted -= OnCommittedRecordingInserted;
             DismissCurrentGhostPopup("tracking-station-cleanup");
             DestroyAtmosphericFocusTarget("tracking-station-cleanup");
             GhostTrackingStationSelection.ClearSelectedGhost("tracking-station-cleanup");

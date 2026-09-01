@@ -727,20 +727,39 @@ namespace Parsek
         /// </summary>
         internal static bool RemoveCommittedById(string recordingId)
         {
-            if (string.IsNullOrEmpty(recordingId)) return false;
-            for (int i = 0; i < committedRecordings.Count; i++)
+            int index = IndexOfRecordingId(committedRecordings, recordingId);
+            if (index < 0) return false;
+            RemoveCommittedAtWithNotifications(index);
+            return true;
+        }
+
+        /// <summary>
+        /// Index of the recording whose <see cref="Recording.RecordingId"/> equals
+        /// <paramref name="recordingId"/> in <paramref name="recordings"/>, or -1.
+        /// </summary>
+        internal static int IndexOfRecordingId(IReadOnlyList<Recording> recordings, string recordingId)
+        {
+            if (recordings == null || string.IsNullOrEmpty(recordingId)) return -1;
+            for (int i = 0; i < recordings.Count; i++)
             {
-                if (string.Equals(
-                        committedRecordings[i].RecordingId,
-                        recordingId,
-                        StringComparison.Ordinal))
-                {
-                    committedRecordings.RemoveAt(i);
-                    BumpStateVersion();
-                    return true;
-                }
+                if (recordings[i] != null
+                    && string.Equals(recordings[i].RecordingId, recordingId, StringComparison.Ordinal))
+                    return i;
             }
-            return false;
+            return -1;
+        }
+
+        // The one removal primitive every by-object / by-id / by-chain remover routes
+        // through, so the Removing / Removed notifications and the StateVersion bump
+        // cannot be forgotten by the next helper. Files and chain degradation stay with
+        // the callers that want them (RemoveRecordingAt).
+        private static void RemoveCommittedAtWithNotifications(int index)
+        {
+            var rec = committedRecordings[index];
+            NotifyCommittedRecordingRemoving(index, rec);
+            committedRecordings.RemoveAt(index);
+            BumpStateVersion();
+            NotifyCommittedRecordingRemoved(index, rec, null);
         }
 
         /// <summary>
@@ -800,10 +819,11 @@ namespace Parsek
         /// </summary>
         internal static bool RemoveCommittedInternal(Recording rec)
         {
-            bool removed = committedRecordings.Remove(rec);
-            if (removed)
-                BumpStateVersion();
-            return removed;
+            if (rec == null) return false;
+            int index = committedRecordings.IndexOf(rec);
+            if (index < 0) return false;
+            RemoveCommittedAtWithNotifications(index);
+            return true;
         }
 
         /// <summary>
@@ -3793,12 +3813,10 @@ namespace Parsek
                 {
                     DeleteRecordingFiles(committedRecordings[i]);
                     Log($"[Parsek] Removed chain recording: {committedRecordings[i].VesselName} (chain={chainId}, idx={committedRecordings[i].ChainIndex})");
-                    committedRecordings.RemoveAt(i);
+                    RemoveCommittedAtWithNotifications(i);
                     removed++;
                 }
             }
-            if (removed > 0)
-                BumpStateVersion();
         }
 
         /// <summary>
@@ -3922,7 +3940,6 @@ namespace Parsek
             }
 
             var rec = committedRecordings[index];
-            NotifyCommittedRecordingRemoving(index, rec);
 
             // If part of a chain, degrade remaining chain siblings to standalone
             if (!string.IsNullOrEmpty(rec.ChainId))
@@ -3944,9 +3961,7 @@ namespace Parsek
             }
 
             DeleteRecordingFiles(rec);
-            committedRecordings.RemoveAt(index);
-            BumpStateVersion();
-            NotifyCommittedRecordingRemoved(index, rec, null);
+            RemoveCommittedAtWithNotifications(index);
             Log($"[Parsek] Removed recording '{rec.VesselName}' (id={rec.RecordingId}) at index {index}");
         }
 

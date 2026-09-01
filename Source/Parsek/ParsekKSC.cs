@@ -120,6 +120,11 @@ namespace Parsek
             ui = new ParsekUI(UIMode.KSC);
             GameEvents.onGamePause.Add(OnGamePause);
             GameEvents.onGameUnpause.Add(OnGameUnpause);
+            // kscGhosts and its side tables are keyed by committed index; a table delete or
+            // a deferred merge dialog can restructure the list while they are populated.
+            RecordingStore.CommittedRecordingRemoving += OnCommittedRecordingRemoving;
+            RecordingStore.CommittedRecordingRemoved += OnCommittedRecordingRemoved;
+            RecordingStore.CommittedRecordingInserted += OnCommittedRecordingInserted;
 
             toolbarControl = gameObject.AddComponent<ToolbarControl>();
             toolbarControl.AddToAllToolbars(
@@ -2237,8 +2242,94 @@ namespace Parsek
 
         #endregion
 
+        /// <summary>
+        /// The committed recording at <paramref name="index"/> is about to leave the list
+        /// (list still unshifted): tear down its KSC ghost and overlap set so the slot is
+        /// empty before the shift.
+        /// </summary>
+        private void OnCommittedRecordingRemoving(int index, Recording removed)
+        {
+            if (kscGhosts.TryGetValue(index, out var state))
+            {
+                ParsekLog.Verbose("KSCGhost",
+                    $"Committed recording #{index} ('{removed?.VesselName}') removing - destroying its KSC ghost");
+                DestroyKscGhost(state, index);
+                kscGhosts.Remove(index);
+            }
+            if (kscOverlapGhosts.ContainsKey(index))
+            {
+                DestroyAllKscOverlapGhosts(index);
+                kscOverlapGhosts.Remove(index);
+            }
+        }
+
+        private void OnCommittedRecordingRemoved(int index, Recording removed, Recording absorbedInto)
+        {
+            ShiftKscIndexKeyedState(index, insert: false);
+        }
+
+        private void OnCommittedRecordingInserted(int index)
+        {
+            ShiftKscIndexKeyedState(index, insert: true);
+        }
+
+        private void ShiftKscIndexKeyedState(int pivot, bool insert)
+        {
+            int before = kscGhosts.Count + kscOverlapGhosts.Count;
+            ShiftKscIndexKeyedState(
+                pivot, insert,
+                kscGhosts, kscOverlapGhosts, loggedGhostSpawn, loggedReshow,
+                lastLoggedKscCadence, autoLoopLaunchSchedules, lastUnitSelection);
+            autoLoopQueueScratch.Clear();
+            if (before > 0)
+                ParsekLog.Verbose("KSCGhost",
+                    $"KSC ghost state reindexed after committed {(insert ? "insert" : "removal")} at #{pivot}: " +
+                    $"primary={kscGhosts.Count} overlapSets={kscOverlapGhosts.Count}");
+        }
+
+        /// <summary>
+        /// Pure: shifts every KSC index-keyed collection for a committed-list removal
+        /// (<paramref name="insert"/> false: the pivot key is dropped, keys above move down)
+        /// or insert (keys at or above the pivot move up). One list of collections so the
+        /// two directions cannot drift apart.
+        /// </summary>
+        internal static void ShiftKscIndexKeyedState(
+            int pivot, bool insert,
+            Dictionary<int, GhostPlaybackState> primaryGhosts,
+            Dictionary<int, List<GhostPlaybackState>> overlapGhosts,
+            HashSet<int> loggedSpawn,
+            HashSet<int> loggedReshowSet,
+            Dictionary<int, (double userPeriod, double effectiveCadence, double duration)> loggedCadence,
+            Dictionary<int, GhostPlaybackLogic.AutoLoopLaunchSchedule> launchSchedules,
+            Dictionary<int, (long cycle, int liveMemberIdx)> unitSelection)
+        {
+            // Launch schedules and the unit-selection log are rebuilt from the list on the
+            // next frame; clearing beats shifting a schedule that may reference other slots.
+            launchSchedules.Clear();
+            unitSelection.Clear();
+            if (insert)
+            {
+                IndexShift.DictAfterInsert(primaryGhosts, pivot);
+                IndexShift.DictAfterInsert(overlapGhosts, pivot);
+                IndexShift.SetAfterInsert(loggedSpawn, pivot);
+                IndexShift.SetAfterInsert(loggedReshowSet, pivot);
+                IndexShift.DictAfterInsert(loggedCadence, pivot);
+            }
+            else
+            {
+                IndexShift.DictAfterDelete(primaryGhosts, pivot);
+                IndexShift.DictAfterDelete(overlapGhosts, pivot);
+                IndexShift.SetAfterDelete(loggedSpawn, pivot);
+                IndexShift.SetAfterDelete(loggedReshowSet, pivot);
+                IndexShift.DictAfterDelete(loggedCadence, pivot);
+            }
+        }
+
         void OnDestroy()
         {
+            RecordingStore.CommittedRecordingRemoving -= OnCommittedRecordingRemoving;
+            RecordingStore.CommittedRecordingRemoved -= OnCommittedRecordingRemoved;
+            RecordingStore.CommittedRecordingInserted -= OnCommittedRecordingInserted;
             GameEvents.onGamePause.Remove(OnGamePause);
             GameEvents.onGameUnpause.Remove(OnGameUnpause);
 
