@@ -1,78 +1,187 @@
-## Git Commits
-- Do NOT add `Co-Authored-By` or any signature line to commit messages
+# Parsek agent instructions
 
-## Build & Test
+This file (`.claude/CLAUDE.md`) is canonical. The repo-root `AGENTS.md` (read natively by Codex and other agent tools) must be a byte-identical copy: `AgentInstructionMirrorTests` fails the suite when they differ, so after editing this file run `cp .claude/CLAUDE.md AGENTS.md`. The umbrella-root copies `../.claude/CLAUDE.md` and `../AGENTS.md` (outside git) are the copies Vlad's sessions actually load (he opens the umbrella folder); they are refreshed by the `SyncAgentInstructionMirrors` post-build target under the intentional-deploy gate and by `build.bat`, and a docs-only change triggers no build, so after a docs-only merge copy this file over both by hand.
 
-```bash
-dotnet build Source/Parsek/Parsek.csproj                         # builds + auto-copies to KSP GameData
-dotnet test Source/Parsek.Tests/Parsek.Tests.csproj             # full xUnit suite
-dotnet test Source/Parsek.Tests/Parsek.Tests.csproj --filter InjectAllRecordings
-pwsh -File scripts/test-coverage.ps1                            # local xUnit coverage report
-```
+## Hard rules
 
-Post-build copy uses `ContinueOnError="true"` - builds succeed when KSP has DLL locked.
-Prefer running these commands from the repo/worktree root so they behave the same in sibling worktrees.
+- **Never edit or commit inside `Parsek/` (the main checkout) without explicit per-session approval.** Every change that will produce a commit - code, tests, CHANGELOG trims, todo edits, doc tweaks, anything - starts in a dedicated sibling worktree (`../Parsek-<branch>`). "It's just a one-line fix" is not an exception. Recovery if you slip: `git worktree add` a new worktree at the tip containing the direct-edit commit, `git reset --hard` `Parsek/` back to the pre-direct-edit tip, land the rescue branch via PR. Never leave a direct-edit commit standing on `main` or a shared branch.
+- **Do not edit or commit in another task's `Parsek-<branch>/` worktree** unless the user asks you to work in that exact worktree. Reuse a worktree only when it is yours and already dedicated to the same line of work; within one line of work keep editing, committing, and pushing there. A fresh worktree per change is unnecessary ceremony.
+- **Land finished work via a GitHub PR, never a local merge into `Parsek/`.** A fix stacked on an unmerged feature branch may open a PR targeting that branch. Leave branches around unless asked to prune.
+- **Never run bare `git stash` / `git stash pop`.** The stash stack is shared across every worktree of this repository and holds months of old entries; a conflicted pop resurrects old-era files with NO conflict markers. Set work aside with a WIP commit instead.
+- **No `Co-Authored-By` or any signature line in commit messages.** PR bodies carry no AI attribution either.
+- **Docs move with the code, per commit** (see "Documentation updates" below).
+- **No new player-facing UI surfaces** (windows, popups, badge counters, persistent "issues" panels). When information seems to need surfacing, the only options are extra wording in an EXISTING hover tooltip (budgeted by `TooltipEchoBudgetTests`), a one-shot `ParsekLog.ScreenMessage` for an EVENT that actually changed something (never for a standing condition, never for a no-op), or nothing - and nothing is the preferred answer. Establish what stock KSP and Parsek already tell the player before proposing either.
+- **House style for docs and comments: plain ASCII, no em dashes, no emoji.** Comments explain constraints, not history.
 
-`dotnet test` only covers the headless xUnit suite. Runtime / in-game tests live under `Source/Parsek/InGameTests/` and must be run inside KSP via `Ctrl+Shift+T`; results export to `parsek-test-results.txt` in the KSP root.
-
-Tests marked `AllowBatchExecution = false` are single-run only. They do not execute under `Run All` / batch category runs and will show up as `(never run)` in `parsek-test-results.txt` until you launch them individually from the in-game test runner.
-
-If a machine-specific environment issue blocks `dotnet test` or `dotnet restore` (for example testhost socket startup or NuGet initialization), treat that as an environment blocker, not a repo failure. In that case, use:
+## Build & test
 
 ```bash
-dotnet build Source/Parsek.Tests/Parsek.Tests.csproj --no-restore
+cd Source/Parsek && dotnet build          # builds + deploys to the dev KSP instance (deploy gate below)
+cd Source/Parsek.Tests && dotnet test     # xUnit suite (never deploys)
+dotnet test --filter InjectAllRecordings  # inject the synthetic recordings into the dev test save
+python scripts/release.py                 # Release build + tests + Parsek-v{version}.zip
 ```
 
-and record clearly that full xUnit execution was blocked by the local environment.
+`release.py` validates that `GameData/Parsek/Parsek.version` and `AssemblyInfo.cs` agree, then packages `GameData/Parsek/` (DLL + version file + toolbar textures) into `Parsek-v{version}.zip` at the repo root.
 
-If a command that needs network access fails in the sandbox (for example `git fetch`, `dotnet restore`, package downloads, or DNS/host resolution), retry it with an escalation request instead of treating it as a repo failure. If the sandbox shell/network path still misbehaves, rerun the command via `pwsh`/`pwsh.exe` and record that the blocker was environmental.
+**KSP deploy is intentional-only.** The post-build copy to `GameData/Parsek/Plugins` runs ONLY when the build starts from the building checkout's own `Source/Parsek` directory, or with `-p:ForceKspDeploy=true`. It works from any worktree (`cd Parsek-<branch>/Source/Parsek && dotnet build` deploys that branch's DLL). What never deploys: `dotnet test` (builds Parsek via ProjectReference), builds started from the repo root or elsewhere, and `release.py`; those print `KSP deploy skipped`. `-p:SkipKspDeploy=true` suppresses the deploy even from the project dir. The copy uses `ContinueOnError="true"`, so a KSP-locked DLL does not fail the build. Rationale: multiple worktrees share one KSP install, and every sibling test run used to clobber the deployed DLL.
 
-## Release
+**Worktree depth.** `Parsek.csproj` probes 5 parent levels of the csproj for `Kerbal Space Program/`, so sibling worktrees (`../Parsek-<branch>`) build unaided. A session worktree under `.claude/worktrees/` is two levels too deep for BOTH the csproj probe (hundreds of `CS0246: Vessel / ConfigNode not found`) and the harness umbrella-root walk (`provision.py` / `run.py` derive the umbrella as the worktree's parent and abort `EC-PRE dev install missing`; an analyzer verifier can then classify a green flight `INVALID / analyzer-error` late). Docs-only and test-only work is fine there; anything that builds against KSP or flies belongs in a sibling worktree. Overrides if a move is not worth it: set `KSPDIR` (or `-p:KSPDir=`) AND pass `--umbrella-root` on the harness CLI - you need both.
+
+**Cloud (Linux) sessions** build and test via `scripts/cloud-test.sh`, NOT `dotnet test` (Ubuntu's apt SDK lacks the net472 testhost; tests run under mono + the xunit console runner; filter with xunit syntax, e.g. `-class`, `-method`). Reference DLLs come from the PRIVATE `vl3c/ksp-refs` repo (attach + clone to `/workspace/ksp-refs`; `KSPDIR` points there); `.claude/hooks/session-start.sh` provisions dotnet-sdk-8.0 + mono and clones it when attached. Mono gotchas when touching headless guards: Unity ECalls throw `MissingMethodException` on mono (vs `SecurityException` on Windows), and mono runs `FlightGlobals`' failing initializer at JIT of the CALLING method - keep `FlightGlobals` reads inside `[MethodImpl(NoInlining)]` cores (see `RecordingStore.ReadUnityApplicationIsPlayingCore`).
+
+**CI (GitHub Actions):** `.github/workflows/tests.yml` runs the three harness Python suites (`harness/lib`, `harness/missions/lib`, `harness/provision`; exit-code gated; two machine-lock cells self-skip on Linux with stated reasons) and then `scripts/cloud-test.sh` on `ubuntu-latest` for every PR and every push to `main`. `tests` is a required check. The pwsh grep-audit gates run there too: each probes PATH for `pwsh`/`pwsh.exe` and falls back to an equivalent managed scan when pwsh is absent, so no gate silently skips. Two `gh` traps: `gh run watch --exit-status` exits 0 on a CANCELLED run (confirm `conclusion == "success"` via `gh run view --json`), and "no checks reported" on a fresh PR usually means the merge ref could not build because the PR conflicts with a moved `main` (check `gh pr view --json mergeable` before waiting on CI).
+
+### The autotest harness runs a DIFFERENT KSP instance
+
+Harness flights do NOT use the dev instance at `Kerbal Space Program/`; they run the provisioned instance at `automation/stock-minimal/` (umbrella root), which has its own `GameData/Parsek/Plugins/Parsek.dll`. `cd Source/Parsek && dotnet build` deploys ONLY to the dev instance, so verifying that DLL proves nothing about a harness run. To get a C# change into a harness flight:
 
 ```bash
-python scripts/release.py    # build Release, run tests, package zip
+cd harness && python provision/provision.py --profile stock-minimal
 ```
 
-Produces `Parsek-v{version}.zip` in repo root with `GameData/Parsek/` layout (DLL + version file + toolbar textures). Validates that `Parsek.version` and `AssemblyInfo.cs` versions match before building.
+Its DEPLOY phase copies THIS worktree's `Source/Parsek/bin/Debug/Parsek.dll` (or `--parsek-dll`; aborts EC-9 when missing). Then verify the AUTOMATION DLL carries your marker. The assembly version string is identical across builds, so `Parsek' V<x.y.z>` in the log does NOT discriminate. Skipping this costs a full flight: a 2026-07-25 run red'd on a required log token that looked exactly like a Parsek defect until the collected KSP.log showed zero occurrences of the new line.
 
-## Utility Scripts
+**`provision.py` and `harness/run.py` are mutually exclusive machine-wide** through one lockfile, `<umbrella>/automation/.ksp-machine.lock`. Provisioning aborts `EC-10 machine locked ...` naming the holder's worktree and selection; `run.py` refuses with `INVALID(instance-locked)`. That is the guard working, not a failure. It reclaims when the holder is dead or its 8h lease expires; delete the lockfile only when certain nothing is running. Full contract: `harness/README.md` -> "The machine lock". The lock does NOT protect a finished run's produced save: a sibling run sharing the same `saveTemplate` re-stages over it within seconds, so make the snapshot + harvest (`--save-dir <snapshot>`) the first chained post-flight action, commit the fixture immediately, and never pass `--force` to a fixture harvest (the situation gate is the only thing between a clobbered save and a silently wrong fixture).
 
-- `build.bat [Debug|Release] [KSP_PATH]` - wrapper around `dotnet build Source/Parsek/Parsek.csproj`; resolves `KSPDIR` automatically, syncs this canonical `AGENTS.md` and `.claude/CLAUDE.md` to the parent workspace, and relies on the project post-build copy to deploy `Parsek.dll` into `GameData/Parsek/Plugins`.
-- `python scripts/collect-logs.py [label] [--save NAME] [--skip-validation] [--skip-recordings] [--ksp-dir PATH]` - gathers `KSP.log`, `Player.log`, `parsek-test-results.txt`, save snapshots, and recording sidecars into `../logs/<timestamp>[_label]/`; runs log validation unless explicitly skipped.
-- `pwsh -File scripts/inject-recordings.ps1 [--clean-start] [--save-name NAME] [--target-save FILE] [--build] [--run-diagnostics-tests]` - injects synthetic test recordings into a chosen KSP save, optionally rebuilding first and/or running the diagnostics/observability test slice before injection.
-- `python scripts/release.py` - builds Release, runs the full headless test suite, and packages `Parsek-v{version}.zip` with the `GameData/Parsek/` release layout.
-- `pwsh -File scripts/test-coverage.ps1 [-TestProject PATH] [-OutputDir DIR] [-Format cobertura] [-NoRestore] [-NoBuild]` - runs local xUnit coverage, validates the emitted report shape, and writes coverage artifacts under `TestResults/Coverage` by default.
-- `pwsh -File scripts/validate-ksp-log.ps1 [-LogPath PATH] [-NoBuild]` - resolves the latest `KSP.log`, then runs `LiveKspLogValidationTests.ValidateLatestSession` against it and fails if the retained session does not satisfy the log contract.
-- `python scripts/validate-release-bundle.py <bundle-dir> [--profile NAME]` - validates a retained release-closeout bundle: required artifacts, `log-validation.txt` pass marker, and required runtime rows in `parsek-test-results.txt`; writes `release-bundle-validation.txt` into the bundle.
+Harness flights are run on request only: `python harness/tools/tier_runner.py --tier {daily|nightly|operator}` or the `run-tier` skill (`harness/README.md` -> "Running a tier on request"). Never provision or fly autonomously; provisioning replaces the automation DLL underneath every sibling session.
 
-## Investigating KSP Internals
+### Verify the deployed DLL after building
 
-When investigating KSP API behavior, search the web and read other open-source KSP mods (Trajectories, Principia, KSPCommunityFixes, VesselMover) for patterns and prior art.
+Always, and especially with sibling worktrees active. The copy can silently fail (KSP holding the file, MSBuild "up-to-date" skip, a sibling's `dotnet build` clobbering the shared file). "I don't see my change in game" means: check the deployed DLL first.
 
-## KSP API & Code Gotchas
+```bash
+# 1. size + mtime vs your worktree build
+ls -la "$KSPDIR/GameData/Parsek/Plugins/Parsek.dll" Source/Parsek/bin/Debug/Parsek.dll
+# 2. grep the deployed DLL for a distinctive new marker - CHECK BOTH ENCODINGS
+python -c "
+with open(r'...GameData/Parsek/Plugins/Parsek.dll','rb') as f: d=f.read()
+for s in ['NewMethodName','some new literal']:
+    u8, u16 = d.count(s.encode('utf-8')), d.count(s.encode('utf-16-le'))
+    print(s, 'utf8=%d utf16=%d' % (u8, u16), 'OK' if (u8 or u16) else 'MISSING')
+"
+# 3. mismatch -> force-copy
+cp Source/Parsek/bin/Debug/Parsek.dll "$KSPDIR/GameData/Parsek/Plugins/Parsek.dll"
+```
+
+Reading the result:
+- Metadata identifiers (type / method / enum-member names) live in the `#Strings` heap as UTF-8; string literals live in `#US` as UTF-16LE; attribute arguments (`[InGameTest(Category = "X")]`) are UTF-8 in `#Blob`. A UTF-16-only check reports a present identifier as MISSING and sends you hunting a non-existent sibling clobber.
+- The marker must be long and distinctive: `count` is a raw substring scan, so a fragment of a pre-existing name (`Reap`, `RecordingTreeSplit`) passes against a DLL WITHOUT your change. Both counts nonzero is normal (a name also used in `nameof()` or a log message lands in both heaps).
+- Prefer a new string literal you control. Traps: an interpolated string is stored split at its holes (grep one literal run between holes, never a line pasted from KSP.log), and a change made purely of lambda bodies leaves no identifier to grep.
+- Hashes: the build is deterministic per worktree PATH, not across worktrees - two worktrees at identical source produce different hashes at identical size (the DLL embeds its build path). Equality proves identity; cross-worktree inequality proves nothing about source. Pin the DEPLOYED hash right after provisioning and re-assert only that before each launch; never pin against your own `bin/Debug` (any `dotnet test` rebuilds it).
+
+**Which build produced a collected log?** `git-state.txt` in a `collect-logs.py` folder reflects the directory the script ran from, not necessarily the deployed DLL. Grep `KSP.log` for feature-signature strings of the code you are investigating (e.g. `RouteOriginProof` / `Route proof dock window` for logistics, `OnVesselsUndocking` for the undock handler). A log without your feature's signatures ran the wrong DLL and proves nothing about your change.
+
+## Worktree and PR workflow
+
+```bash
+cd Parsek
+git worktree add ../Parsek-<branch-name> -b <branch-name> <target>
+```
+
+Pick `<target>` carefully: from `main`, use `origin/main` (local main may be behind or ahead of remote). From a feature branch about to be merged, compare `git log --oneline <local>..origin/<branch>` first and use whichever ref is ahead.
+
+Fresh-worktree preflight for harness work: `python harness/missions/bootstrap_venv.py` (the `.venv` is per-worktree and gitignored; without it an autopilot lane reads `INVALID subkind=tooling-venv` with wall=0, or `run.py` exits with no Classify line).
+
+Land: commit on the branch, `git push -u origin <branch>`, `gh pr create` with a clean body. `gh pr merge` blocks on the required `tests` check. When the PR conflicts with a moved `main`, merge `origin/main` into the branch: CHANGELOG / todo / autotest-status conflicts are keep-both, resolved at ENTRY level (`## ` headers - line-level splicing corrupts), scenario and status counts are re-derived mechanically rather than hand-summed, and grep the tree for stray conflict markers before committing. Before pushing a follow-up to an open PR, re-check `gh pr view --json headRefOid,state` - the operator may have merged it meanwhile.
+
+The full feature process (vision -> scenarios -> design doc -> plan / build / review) is `docs/dev/development-workflow.md`.
+
+## Documentation updates - per commit, not per PR
+
+Before every commit that changes behavior (not just the first one in a PR), check whether these need updating and stage them in the same commit:
+
+- `CHANGELOG.md` - add or update the entry under the current version. On follow-up commits that change the fix approach, edit the existing entry rather than leaving the original wording stale.
+- `docs/dev/todo-and-known-bugs.md` - mark completed items as ~~done~~, add newly discovered items, and update the "Fix:" description on follow-up commits when the approach changes.
+- `docs/dev/autotest-status.md` - for automated-testing changes only: update the status tables when a PR ships a module, live-proves a scenario, adds a test case, or opens/closes a gate. It is the SINGLE status authority for that system (its doc-map section defines which doc owns what - do not duplicate status elsewhere).
+- This file - only when file layout, build commands, workflow, or key patterns change. Then `cp .claude/CLAUDE.md AGENTS.md`. Deep per-file contracts belong in the owning design doc (see the appendices of `design-map-ts-render-tracer.md` / `design-map-ts-render-architecture.md` for the pattern), with a pointer here.
+
+**Follow-up commit trap:** when a review comment lands on an open PR and changes the fix approach, the CHANGELOG and todo entries written for the first commit become stale. The reviewer reads those docs as authoritative - they must match the code in the current HEAD. Before pushing the follow-up, re-read the existing entries and update them.
+
+**Practical check:** after `git add`, run `git diff --cached` and ask: "does any of this contradict or supersede existing wording in CHANGELOG.md or todo-and-known-bugs.md?" If yes, stage the doc updates in the same commit.
+
+## Code review follow-ups
+
+Do one full review at the end of a task/worktree before creating or finalizing the PR, except for low-risk small single-file fixes, docs-only changes, test-only changes, and obvious bug fixes with focused validation; for those, self-review and report validation.
+
+When a reviewer flags fixes on an open PR, re-review only the follow-up changes and any directly affected code paths. Do not restart a full-PR review on every follow-up unless the new changes broaden the risk surface. Re-review is for risky changes: shared behavior, serialization/schema, runtime-only paths, broad refactors, concurrency/lifecycle changes, or fixes that change the PR's behavioral contract. Docs-only edits, small copy fixes, and test-only clarifications do not need another pass.
+
+Review effort goes to mechanical, reproducible proof (mutation-testing a gate, reading a collected log, driving a real code path) over more opinion. Vlad is the only human developer: "no human has read this diff" is the normal operating condition, not a caveat to raise.
+
+## Multi-agent workflows & token discipline
+
+Default to lean, targeted work. Favor the smallest set of agents that produces a correct answer. Do not fan out broadly or stack redundant verification passes unless the task genuinely needs it (large migration, repo-wide audit, multi-subsystem read). For ordinary tasks, work inline or use one or two direct agents, not a workflow.
+
+- **Model routing:** both models default to High effort. Fable is the scarce budget (Anthropic allots it 50% of the weekly allowance), so spend it on judgment: planning, reviews, forensics. Fable Extra high is the one escalation worth its price (reviews and design). Opus at High for implementation, bulk reads, and mechanical work; Opus Extra high only when the Fable budget is exhausted and the task is judgment-heavy; never Opus Max (Fable High matches its score at about half the cost per task). When the Fable budget runs short, drop Fable to Medium before switching to Opus - it still beats Opus High on both score and cost. Hard caps: at most 2 Fable agents in parallel, at most 8 Opus agents in parallel. If a Workflow's Fable-routed tail dies on a quota limit, edit the persisted script (drop `model: 'fable'`, normalize CRLF) and resume from the run id rather than relaunching.
+- The Workflow tool's concurrent-agent cap is `min(16, cpu cores - 2)` per workflow and is NOT configurable (no env var, `settings.json` key, or CLI flag). Bound fan-out by shaping the script: process items in batches of N via `parallel()`.
+- Reserve heavy patterns (multi-vote, adversarial verify, loop-until-dry, large finder pools) for explicit "thorough"/"audit" requests.
+- Program-wide claims need a program-wide grep: before writing "no lane does X" / "every arrival reads Y", grep the other specs for the literal that would contradict it and cite what the grep returned. A claim about N lanes needs N data points, or scope the sentence to the subset by name.
+- Treat in-source comments as hypotheses, never evidence: a scope claim ("this only happens on path X") is re-derived from the full caller set, and guards that derive a set from source walk the AST, never regex over source text (comments read as code and fail GREEN). Spec TOML headers quote key lines verbatim in comments, so anchor edits to the uncommented assignment and re-grep the live value before flying.
+- A fix derived from a discovered asymmetry (edge direction, carrier/non-carrier, fail-open/fail-closed, encode/decode) must be checked in the mirror direction before it is accepted.
+
+## Logging requirements
+
+Every action, state transition, guard condition skip, and FX lifecycle event MUST be logged. The KSP.log is the primary debugging tool - if it didn't get logged, it didn't happen.
+
+- `ParsekLog.Info` / `ParsekLog.Warn` for important events; `ParsekLog.Verbose` for one-shot diagnostics; `ParsekLog.VerboseRateLimited` for per-frame or per-ghost-per-cycle data (shared keys for aggregate summaries, per-index keys only when the index identity matters).
+- Include subsystem tag, relevant IDs (recording index, vessel name, part PID), and numeric values. Format: `[Parsek][LEVEL][Subsystem] message` (handled by `ParsekLog.Write`).
+- **Batch counting convention:** when iterating with per-item decisions, declare local `int` counters, increment inside the loop, log ONE summary after it (`Verbose` for one-shot operations, `VerboseRateLimited` per-frame). Log per-item only when the count is bounded (under ~20). Patterns: `GhostPlaybackEngine.cs` (frame batch counters), `ParsekScenario.cs` (save/load summaries).
+
+## Testing requirements
+
+- Every new method with logic (guards, state transitions, decisions) needs unit tests. Pure/static methods should be `internal static` for direct testability.
+- Capture log output with `ParsekLog.TestSinkForTesting = line => logLines.Add(line)` in the constructor, `ParsekLog.ResetTestOverrides()` in Dispose, and assert `Assert.Contains(logLines, l => l.Contains("[Subsystem]") && l.Contains("expected text"))`. Canonical example: `RewindLoggingTests.cs`.
+- Classes touching shared static state (`ParsekLog`, `RecordingStore`, `ParsekScenario.crewReplacements`) need `[Collection("Sequential")]` and the corresponding `ResetForTesting()` calls. xUnit runs from `Source/Parsek.Tests/bin/Debug/net472/`; use 5 `..` segments to reach the repo root.
+- `SyntheticRecordingTests.InjectAllRecordings` writes into the shared dev save, so it flakes under concurrent sibling test runs (locked file, doubled sidecar count); retry once before investigating.
+- **In-game tests** (`Source/Parsek/InGameTests/`) for anything that needs live KSP (ghost visuals, PartLoader, crew roster, CommNet): `[InGameTest(Category = "...", Scene = GameScenes.FLIGHT)]`, returning `void` or `IEnumerator`. Run via Ctrl+Shift+T or Settings > Diagnostics; results export to `parsek-test-results.txt` in the KSP root. Tests with `AllowBatchExecution = false` are single-run only and show `(never run)` until launched individually.
+
+## Visual & recording design principle
+
+Ghost visuals and recording data must be **correct visually, minimal, and efficient**. Many recordings play simultaneously - every per-frame computation and every stored event multiplies across all active ghosts. Prefer coarse-grained state snapshots over continuous sampling. Record threshold crossings, not continuous values; a binary or 3-state signal beats a continuous float. Debounce noise. Reserve the continuous-sampling budget for trajectory data. If a visual detail isn't noticeable at playback speed, don't record it.
+
+## Post-change checklist
+
+After any change to enums, event types, serialized fields, or schema:
+1. Verify `ParsekScenario.cs` OnSave/OnLoad handles the new data.
+2. Verify the generators in `Source/Parsek.Tests/Generators/` (RecordingBuilder, VesselSnapshotBuilder, ScenarioWriter) can produce data for the new feature.
+3. Consider adding a synthetic recording for end-to-end testing.
+4. Run `dotnet test` - all tests must pass.
+5. If the change affects runtime-only behavior, run the relevant in-game tests and keep `parsek-test-results.txt` / `KSP.log` evidence.
+
+## KSP API & code gotchas
+
+When investigating KSP API behavior, search the web and read other open-source KSP mods (Trajectories, Principia, KSPCommunityFixes, VesselMover). To verify stock member names and signatures before writing reflection probes or Harmony patches, decompile with `ilspycmd` against `KSP_x64_Data/Managed/Assembly-CSharp.dll` (bodies are obfuscation-noisy; signatures and field names are reliable).
 
 **Enums / APIs**
 - `GameScenes.TRACKSTATION` (not `TRACKINGSTATION`)
-- `PopupDialog` / `MultiOptionDialog` live in `Assembly-CSharp` — no extra Unity module reference needed
+- `PopupDialog` / `MultiOptionDialog` live in `Assembly-CSharp` - no extra Unity module reference needed
 - `ScenarioCreationOptions.AddToAllGames` for ScenarioModules that must exist in every save
-- `FlightCamera.camPitch/camHdg` are **radians**, not degrees (stock defaults 0.2/0.3 = ~11.5°/~17°); pivot rotation is `frameOfReference * Yaw(camHdg) * Pitch(camPitch)`
-- `VesselPrecalculate.vessel` is protected — compare with `__instance.gameObject != v.gameObject` instead
-- `ModuleEngines.runningEffectName`/`directThrottleEffectName` not accessible at compile time — scan EFFECTS config instead
+- `FlightCamera.camPitch/camHdg` are **radians**, not degrees (stock defaults 0.2/0.3 = ~11.5 deg / ~17 deg); pivot rotation is `frameOfReference * Yaw(camHdg) * Pitch(camPitch)`
+- `VesselPrecalculate.vessel` is protected - compare with `__instance.gameObject != v.gameObject` instead
+- `ModuleEngines.runningEffectName`/`directThrottleEffectName` not accessible at compile time - scan EFFECTS config instead
 - `onPartJointBreak` signature: `(PartJoint joint, float breakForce)`
+- **Docking-port undock event order** (decompiled `Part.Undock`, KSP 1.12.5): inside one `Part.Undock()` call KSP fires `onPartUndock(part)` FIRST (once, before the split, part still on the combined vessel), runs `attachJoint.DestroyJoint()` (fires the synchronous `onPartJointBreak`), creates the new vessel, then fires `onVesselsUndocking(oldVessel, newVessel)` LAST and unconditionally on every path with final PIDs. Subscribe to `onVesselsUndocking` for the authoritative split signal; never wait for a second `onPartUndock`. Parsek: `ParsekFlight.OnPartUndock` (snapshot + `pendingUndockRootPartSeed` only) -> `OnVesselsUndocking` -> `DeferredUndockBranch` -> `CreateSplitBranch`. See `docs/dev/dock-undock-recording-structure.md` section 2.2.
 
-**Part names**: KSP converts underscores to dots at runtime. cfg `name = solidBooster_v2` → runtime `solidBooster.v2`. Always use dot-form in `PartLoader.getPartInfoByName` and ghost snapshot part names.
+**Part names**: KSP converts underscores to dots at runtime. cfg `name = solidBooster_v2` -> runtime `solidBooster.v2`. Always use dot-form in `PartLoader.getPartInfoByName` and ghost snapshot part names.
 
 **Rotation / world frame**: KSP uses two different rotation contracts here; do not mix them.
 - Surface-relative capture: `srfRelRotation = Inverse(body.bodyTransform.rotation) * v.transform.rotation`
 - Live `Transform.rotation` playback/ghost placement: `worldRot = body.bodyTransform.rotation * srfRelRotation`
 - ProtoVessel snapshots: `VESSEL.rot` is parsed as `ProtoVessel.rotation` and `ProtoVessel.Load()` assigns it to `vesselRef.srfRelRotation`, so Parsek-authored ProtoVessel nodes must write the raw recorded `srfRelRotation`, not `body.bodyTransform.rotation * srfRelRotation`.
-- All recording rotation is unconditionally surface-relative under the current format. Orbital rotation needs inertial-frame + `Planetarium.Rotation` snapshot (future work).
-- `ReferenceFrame.Relative` track sections store anchor-local world rotation: `Inverse(anchor.rotation) * focusWorldRotation`, and playback resolves with `anchor.rotation * localRot`.
-- `ReferenceFrame.Relative` track sections store anchor-local Cartesian POSITION offset (metres) in `TrajectoryPoint.latitude`/`longitude`/`altitude`: `Inverse(anchor.rotation) * (focusWorldPos - anchorWorldPos)`. Recorder side: `FlightRecorder.ApplyRelativeOffset` (`FlightRecorder.cs:7782`) calls `TrajectoryMath.ComputeRelativeLocalOffset` (`TrajectoryMath.cs:1660`). Playback side: `TrajectoryMath.ApplyRelativeLocalOffset` (`TrajectoryMath.cs:1675`) and `ParsekFlight.TryResolveRelativeOffsetWorldPosition`. The field NAMES are misleading: in RELATIVE sections those are NOT body-fixed lat/lon/alt, values commonly fall outside `[-90,90]` / `[-180,180]` and represent metres along the anchor's local x/y/z axes. Any code path that reads `point.latitude/longitude/altitude` from a flat `Recording.Points` list MUST first resolve `TrackSection.referenceFrame` for that UT and dispatch through `TryResolveRelativeWorldPosition` when the section is RELATIVE; calling `body.GetWorldSurfacePosition(lat, lon, alt)` directly on a RELATIVE-frame point will silently produce a position deep inside the planet because metre-scale dx/dy/dz are interpreted as degrees + altitude. There is one current RELATIVE contract; the legacy v5 world-offset path was purged in PR #916.
-- The current recording schema is `RecordingStore.CurrentRecordingFormatVersion = 1` with `RecordingStore.CurrentRecordingSchemaGeneration = 4`. The discriminator was bumped to 3 in a clean-slate schema reset (PR #916) that retired the last pre-reset compatibility seams (legacy v5 world-offset RELATIVE contract, the committed-bool to MergeState migration, the Phase-F tree-resource residual seam, the legacy rewind-suppression marker normalizer, the no-op format-version contract-upgrade helpers), and to 4 for the parent-anchor ConfigNode key rename (`debrisParentRecordingId` -> `parentAnchorRecordingId`), which is why generation 3 and older recordings are rejected `generation-older` - they carry the old key. There is only the one `CurrentRecordingSchemaGeneration` constant (no separate named per-generation constant; `ControlledChildParentAnchorSchemaGeneration` was always a doc-comment convention, not a code symbol). Recordings and sidecars carrying a different format or older / newer generation are rejected on load through `RecordingStore.IsRecordingSchemaCompatible` (reasons: `generation-missing`, `generation-older`, `generation-newer`, `format-version-mismatch`). Treat the format as one current contract, not a ladder; do not add migration or compatibility paths for pre-reset recordings.
+- Absolute / surface trajectory points store surface-relative rotation (`v.srfRelRotation`).
+- `ReferenceFrame.Relative` track sections store anchor-local world rotation: `Inverse(anchor.rotation) * focusWorldRotation`; playback resolves with `anchor.rotation * localRot`.
+- `ReferenceFrame.Relative` track sections store anchor-local Cartesian POSITION offset (metres) in `TrajectoryPoint.latitude`/`longitude`/`altitude`: `Inverse(anchor.rotation) * (focusWorldPos - anchorWorldPos)`. Recorder side: `FlightRecorder.ApplyRelativeOffset` -> `TrajectoryMath.ComputeRelativeLocalOffset`. Playback side: `TrajectoryMath.ApplyRelativeLocalOffset` and `ParsekFlight.TryResolveRelativeOffsetWorldPosition`. The field NAMES are misleading: in RELATIVE sections those are NOT body-fixed lat/lon/alt (values commonly fall outside `[-90,90]` / `[-180,180]`; they are metres along the anchor's local axes). Any code path reading `point.latitude/longitude/altitude` from a flat `Recording.Points` list MUST first resolve `TrackSection.referenceFrame` for that UT and dispatch through `TryResolveRelativeWorldPosition` when the section is RELATIVE; calling `body.GetWorldSurfacePosition(lat, lon, alt)` on a RELATIVE-frame point silently produces a position deep inside the planet. There is exactly one RELATIVE contract (the legacy world-offset path is gone).
+
+**Orbit frames:**
+- `OrbitSegment` angular elements are KSP-NATIVE: degrees for inc/LAN/argPe (mEp radians), with LAN measured from `Planetarium.right`, NOT from the raw +x of the element frame. The ONLY element-frame crossing is `TwoBodyOrbit`'s segment I/O (`TryCreateFromSegment` subtracts the `Planetarium.Zup` polar angle, `CreateSegment` adds it back; contract on `BallisticExtrapolator.GetStockElementFrameZupAngleRadians`). Nothing downstream may apply a second Zup rotation, and every state `TryPropagate` returns is already stock-frame (Zup-swizzled body-relative, the `getRelativePositionAtUT`/`getOrbitalVelocityAtUT` frame).
+- `Planetarium.Zup` is NOT static: `CelestialBody.CBUpdate` rebuilds it every physics tick and the polar angle advances ~1 deg/min of game time in the inverse-rotation regime. Never cache the angle across frames; never split an extrapolation pass across frames/coroutines - one synchronous pass = one Zup.
+- `orbitalFrameRotation` quaternions encode AND decode against WORLD velocity forward + WORLD radial up. `orbit.getOrbitalVelocityAtUT`/`orbit.vel` are Zup; `v.obt_velocity` is world (`= orbit.vel.xzy`). The named converter is `TrajectoryMath.SwizzleZupBodyRelativeToWorld` (self-inverse, so a double conversion is silently wrong). `ParsekFlight.ComputeOrbitalRotation` takes Zup velocity BY CONTRACT and converts internally; the recorder encode seam is `FlightRecorder.StampVesselOrbitalFrameRotation`. Live guards: H9's `Site1FrameProbe` / `Site4AttitudeRoundTrip` / `RecorderAttitudeRoundTrip` (site 4 cancels any convention both sides share; the recorder cell catches an asymmetric move). `TwoBodyOrbit`'s elliptic Kepler solve mirrors stock's dispatch (extreme-ecc branch at e >= 0.8); e=0.9948 is every landed/prelaunch vessel, not an edge case.
+
+**Recording schema**: the current contract is `RecordingStore.CurrentRecordingFormatVersion = 1` with `RecordingStore.CurrentRecordingSchemaGeneration = 4` - one constant, no per-generation named constants (`ControlledChildParentAnchorSchemaGeneration` is not a code symbol). Recordings and sidecars carrying a different format or older/newer generation are rejected on load through `RecordingStore.IsRecordingSchemaCompatible` (reasons: `generation-missing`, `generation-older`, `generation-newer`, `format-version-mismatch`). Treat the format as one current contract; do NOT add migration or compatibility paths for pre-bump recordings.
+
 - **`TrackSection.anchorRecordingId`** carries the anchor recording id for non-loop Relative sections; non-loop flight, map, and KSC playback resolve through recorded anchor trajectories. Loop Relative playback stays on the live-PID contract via `Recording.LoopAnchorVesselId` plus explicit loop-only gates.
-- **`Recording.ParentAnchorRecordingId`** is set on parent-anchored recordings to the parent recording's id; null on top-level recordings. Two populations carry it today: genuine debris (`IsDebris=true`) and controlled-decoupled children (`IsDebris=false`, probes / landers / capsules that come off a parent through a decoupler). `IsDebris` and `ParentAnchorRecordingId != null` are orthogonal on disk; both populations live in the single current contract (`CurrentRecordingSchemaGeneration = 4`).
-- **Parent-anchored contract:** any recording with `ParentAnchorRecordingId != null` records two surfaces while close to its parent: `TrackSection.bodyFixedFrames` (full `TrajectoryPoint`s in body-fixed world-coordinate form: lat/lon/alt + `srfRelRotation` + velocity + body + altitude) is the primary playback surface, and `TrackSection.frames` (anchor-local metre offsets + anchor-local rotation) is the secondary surface for loop-anchored chains and diagnostics. Ordinary parent-anchored recordings render through `bodyFixedFrames` first. Loop-anchored debris chains try the live loop-relative path first and fall back to `bodyFixedFrames` only when the loop anchor cannot resolve. Body-fixed primary playback requires at least two samples and a playback UT inside the actual `bodyFixedFrames` endpoint range; never clamp a single or out-of-range body-fixed sample into a stale ghost. The old shadow / tumbling-parent router has been removed. Controlled-decoupled children record post-hysteresis-exit Absolute tails indefinitely; their post-window playback dispatches through the standard Absolute path via per-section routing. Close-formation accuracy that the retired co-bubble blend used to provide is now delivered by this contract.
+- **`Recording.ParentAnchorRecordingId`** is set on parent-anchored recordings to the parent recording's id; null on top-level recordings. Two populations carry it: genuine debris (`IsDebris=true`) and controlled-decoupled children (`IsDebris=false`; probes/landers/capsules that come off a parent through a decoupler). `IsDebris` and `ParentAnchorRecordingId != null` are orthogonal on disk.
+- **Parent-anchored contract:** any recording with `ParentAnchorRecordingId != null` records two surfaces while close to its parent: `TrackSection.bodyFixedFrames` (full `TrajectoryPoint`s in body-fixed form: lat/lon/alt + `srfRelRotation` + velocity + body + altitude) is the primary playback surface, and `TrackSection.frames` (anchor-local metre offsets + anchor-local rotation) is the secondary surface for loop-anchored chains and diagnostics. Ordinary parent-anchored recordings render through `bodyFixedFrames` first. Loop-anchored debris chains try the live loop-relative path first and fall back to `bodyFixedFrames` only when the loop anchor cannot resolve. Body-fixed primary playback requires at least two samples and a playback UT inside the actual `bodyFixedFrames` endpoint range; never clamp a single or out-of-range body-fixed sample into a stale ghost. Controlled-decoupled children record post-hysteresis-exit Absolute tails indefinitely; their post-window playback dispatches through the standard Absolute path via per-section routing.
 - Parent-anchored debris Relative `TrackSection` metadata is not proof of renderable coverage. The authored surface used by the chosen path must cover the playback UT; otherwise playback retires the debris instead of clamping to stale child offsets or falling through to orbit / flat point tails.
 - Recorder persistence follows the parent-anchored debris-frame invariant: a parent-anchored Relative section must not outlive recorder-persistable authored coverage (`section.frames`, two-point `bodyFixedFrames`, or non-predicted checkpoints). A single Relative frame persists only its own UT, flat `Recording.Points` / boundary samples do not extend a parent-anchored Relative tail, and a later real non-relative section or accepted orbit tail is required to extend the recording past the Relative payload.
 
@@ -80,155 +189,112 @@ When investigating KSP API behavior, search the web and read other open-source K
 
 **ConfigNode file I/O**: `ConfigNode.Save()` writes node CONTENTS only (values + children), NOT the node-name wrapper. `ConfigNode.Load()` returns a node already containing the file contents. Do NOT call `root.GetNode("Name")` after load. Use `FileIOUtils` for safe-write (.tmp + rename).
 
-**InvariantCulture everywhere**: all float/double serialization uses `ToString("R", CultureInfo.InvariantCulture)`. UI formatting (`$"{val:F1}"`) also needs InvariantCulture — comma-locale systems produce broken output otherwise.
+**InvariantCulture everywhere**: all float/double serialization uses `ToString("R", CultureInfo.InvariantCulture)`. UI formatting (`$"{val:F1}"`) also needs InvariantCulture - comma-locale systems produce broken output otherwise.
 
-**Ghost event ↔ snapshot PID**: `VesselSnapshotBuilder.AddPart` assigns `persistentId = 100000 + idx*1111`. Single-part showcase ghosts must use PID `100000` for their events or playback lookup silently fails. Ghost part GameObjects are named by `persistentId` for O(1) lookup.
+**Ghost event <-> snapshot PID**: `VesselSnapshotBuilder.AddPart` assigns `persistentId = 100000 + idx*1111`. Single-part showcase ghosts must use PID `100000` for their events or playback lookup silently fails. Ghost part GameObjects are named by `persistentId` for O(1) lookup.
 
-**Engine key encoding**: `(ulong)pid << 8 | (uint)moduleIndex` — up to 256 engine modules per part. RCS uses separate dicts (`activeRcsKeys`/`lastRcsThrottle`) so keys may overlap.
+**`persistentId` is craft-baked, NOT launch-unique**: KSP bakes `persistentId` into the `.craft` file and reuses it verbatim on every launch of that craft (vessel pid AND part pids), regenerating only on collision with a *currently-live* vessel. Parsek keeps historical recordings of the same craft carrying the baked pid, invisible to KSP's live-dedup, so a fresh launch's pid collides with prior recordings of the same craft. NEVER trust a bare `persistentId` match (stored-vs-live, or recording-vs-recording) as proof of "same physical object / same launch". The launch-unique discriminator is KSP's `Vessel.id` (a Guid, assigned fresh per launch, not stored in the `.craft`), captured as `Recording.RecordedVesselGuid` and compared via `VesselLaunchIdentity` (`LiveVesselIsRecordedLaunch` / `RecordingsShareLaunch`): a pid match is an identity match only when the guid does not conclusively differ; an unknown guid falls back to pid-only. Adoption-stamp sites (`SpawnedVesselPersistentId == VesselPersistentId`) collide and must be guid-gated; genuine Parsek spawns use a KSP-unique spawn pid and stay pid-only. Chain-continuation segments of one launch share a guid; distinct launches differ. The fresh-rollout pid (`RecordingStore.SceneEntryFreshRolloutVesselPid`) is the cheap in-flight fast path for recordings still lacking a guid. Same trap in fixtures: two same-craft-file vessels share the baked pid, so a recorded dock between them is initiator-branch only.
 
-**Test working dir**: xUnit runs from `Source/Parsek.Tests/bin/Debug/net472/` — use 5 `..` segments to reach project root. Classes touching shared static state (`ParsekLog`, `RecordingStore`, `ParsekScenario.crewReplacements`) need `[Collection("Sequential")]` and the corresponding `ResetForTesting()` calls.
+**Engine key encoding**: `(ulong)pid << 8 | (uint)moduleIndex` - up to 256 engine modules per part. RCS uses separate dicts (`activeRcsKeys`/`lastRcsThrottle`) so keys may overlap.
 
-**Recording storage (sidecar layout)**: bulk data lives in sidecar files under `saves/<save>/Parsek/Recordings/`: `<id>.prec` (trajectory), `<id>_vessel.craft`, `<id>_ghost.craft`, `<id>.pcrf` (ghost geometry; legacy - the current pipeline no longer writes new `.pcrf` files). Only lightweight metadata + mutable state stays in `.sfs`. `RecordingPaths.ValidateRecordingId` rejects path traversal and invalid filename chars.
+**Recording storage (sidecar layout)**: bulk data lives in sidecar files under `saves/<save>/Parsek/Recordings/`: `<id>.prec` (trajectory), `<id>_vessel.craft`, `<id>_ghost.craft`, `<id>.pcrf` (ghost geometry; legacy - no longer written). Rewind-to-Separation quicksaves live alongside at `saves/<save>/Parsek/RewindPoints/<rpId>.sfs` (KSP-format; written deferred-one-frame via `FileIOUtils.SafeMove` from the save root). Only lightweight metadata + mutable state stays in `.sfs`. `RecordingPaths.ValidateRecordingId` rejects path traversal and invalid filename chars.
 
-**On-rails BG vessels emit no env-classified per-frame TrackSections**: `BackgroundOnRailsState` (`BackgroundRecorder.cs:157`) deliberately omits `currentTrackSection` / `trackSections` / `environmentHysteresis`, and `OnBackgroundPhysicsFrame` early-returns on `bgVessel.packed`. Packed/on-rails closes may emit `OrbitalCheckpoint`/`Checkpoint` sections that wrap closed `OrbitSegment`s, but they are orbit-only bridges, not per-frame Atmospheric/ExoBallistic classifications. An eccentric BG-recorded orbit grazing atmosphere across N orbits cannot generate optimizer-splittable Atmospheric<->ExoBallistic toggles. Don't add a TrackSection field or environment hysteresis to the on-rails state, and don't move env-classification ahead of the packed/isOnRails gates without re-reading `docs/dev/research/extending-rewind-to-stable-leaves.md` §S16. Guarded by `EccentricOrbitOptimizerInvariantTests`.
+**On-rails BG vessels emit no env-classified per-frame TrackSections**: `BackgroundOnRailsState` (`BackgroundRecorder.cs`) deliberately omits `currentTrackSection` / `trackSections` / `environmentHysteresis`, and `OnBackgroundPhysicsFrame` early-returns on `bgVessel.packed`. Packed/on-rails closes may emit `OrbitalCheckpoint`/`Checkpoint` sections that wrap closed `OrbitSegment`s, but they are orbit-only bridges, not per-frame Atmospheric/ExoBallistic classifications. An eccentric BG-recorded orbit grazing atmosphere across N orbits cannot generate optimizer-splittable Atmospheric<->ExoBallistic toggles. Don't add a TrackSection field or environment hysteresis to the on-rails state, and don't move env-classification ahead of the packed/isOnRails gates without re-reading `docs/dev/research/extending-rewind-to-stable-leaves.md` section S16. Guarded by `EccentricOrbitOptimizerInvariantTests`.
 
-**Optimizer split predicate (§3 ordering)**: `RecordingOptimizer.IsSplittableEnvOrBodyBoundary` walks the boundary classification top-down: (1) seam short-circuit on `TrackSection.isBoundarySeam` — hard "always wins" override; (2) not-a-boundary skip; (3) same-class ExoBallistic body change kept cohesive for transfer coasts, with UI labels showing the body path; (4) other body changes (#251), including ExoPropulsive SOI boundaries; (5) Surface (class 2) default split, except brief Atmospheric/Approach runs bracketed by Surface on both sides suppress as surface grazes; (6) ExoPropulsive at the crossing; (7) persistence predicate (`IsGrazePattern` collapse-walk on `SplitEnvironmentClass` runs, suppressing brief bracketed runs < `BriefSectionMaxSeconds = 120s`). The seam check is step 1 — Producer-C boundary seams emitted by `BackgroundRecorder.FlushLoadedStateForOnRailsTransition` carry `isBoundarySeam=true`. Future producers that emit recorder bookkeeping artifacts should set the same flag; do NOT replicate the persistence predicate at producer level. See `docs/dev/done/plans/optimizer-persistence-split.md` for the full rationale and `docs/dev/research/optimizer-meaningful-split-rule.md` for the historical PartEvent-window dead end.
+**Optimizer split predicate (section 3 ordering)**: `RecordingOptimizer.IsSplittableEnvOrBodyBoundary` walks the boundary classification top-down: (1) seam short-circuit on `TrackSection.isBoundarySeam` - hard "always wins" override; (2) not-a-boundary skip; (3) same-class Exo body change kept cohesive for transfer coasts, with UI labels showing the body path - either both sides raw `ExoBallistic`, or both sections `OrbitalCheckpoint`-framed (an ON-RAILS SOI traversal, where a packed vessel cannot thrust so an `ExoPropulsive` label is recorder bookkeeping); a PHYSICS-frame burn across the crossing still splits; (4) other body changes (#251), including ExoPropulsive SOI boundaries; (5) Surface (class 2) default split, except brief Atmospheric/Approach runs bracketed by Surface on both sides suppress as surface grazes; (6) ExoPropulsive at the crossing; (7) persistence predicate (`IsGrazePattern` collapse-walk on `SplitEnvironmentClass` runs, suppressing brief bracketed runs < `BriefSectionMaxSeconds = 120s`). Producer-emitted recorder bookkeeping artifacts (e.g. `BackgroundRecorder.FlushLoadedStateForOnRailsTransition`) carry `isBoundarySeam=true`; future producers set the same flag, NOT a producer-level copy of the persistence predicate. Rationale: `docs/dev/done/plans/optimizer-persistence-split.md`; historical dead end: `docs/dev/research/optimizer-meaningful-split-rule.md`.
 
-## Project Layout
+**ERS / ELS routing**: any code reading `RecordingStore.CommittedRecordings` / `Ledger.Actions` must route through `EffectiveState.ComputeERS()` / `ComputeELS()` unless its file is in `scripts/ers-els-audit-allowlist.txt`. The grep gate `scripts/grep-audit-ers-els.ps1` runs in the xUnit suite via `GrepAuditTests` (with the managed fallback on Linux) and fails the build on any un-allowlisted raw read. Add a file-level `[ERS-exempt]` comment + one-line rationale in the allowlist when a new exemption is justified (physical-identity correlation, tombstone construction, etc.).
+
+## Project layout
 
 ```
 Source/Parsek/              # Mod source (SDK-style .csproj)
 Source/Parsek/InGameTests/  # Runtime test framework (runs inside KSP via Ctrl+Shift+T)
 Source/Parsek.Tests/        # xUnit tests + Generators/ (RecordingBuilder, VesselSnapshotBuilder, ScenarioWriter)
-Kerbal Space Program/       # Local KSP instance (gitignored, auto-deployed)
-docs/                       # Design docs, roadmap, reference analyses
+harness/                    # Automated-testing harness (Python, stdlib-only; also fixtures/, tools/, status.py, warp_audit.py)
+scripts/                    # Dev scripts (release, log collection, analyzers, grep-audit gates, cloud-test.sh)
+docs/                       # Design docs (docs/dev/), roadmap, reference analyses; docs/dev/done/ holds archived plans and closed todo volumes
+../Kerbal Space Program/    # Local dev KSP instance (UMBRELLA root, outside git; deploy target)
+../automation/              # Provisioned harness KSP instances (stock-minimal; umbrella root, outside git)
+../logs/                    # collect-logs.py output (umbrella root, outside git)
 ```
 
-Key source files and what they do - read the relevant one before modifying:
-- `ParsekFlight.cs` - flight-scene controller (policy, recording, chain management, input). Camera follow delegated to WatchModeController.
-- `WatchModeController.cs` - camera-follow / watch-mode state machine (enter/exit watch, camera anchoring, overlap retarget, explosion hold)
-- `GhostPlaybackEngine.cs` - ghost playback mechanics engine: owns ghostStates, per-frame positioning, loop/overlap playback, zone transitions, soft caps, reentry FX. Zero Recording references — accesses trajectories via IPlaybackTrajectory only. Future standalone mod core.
-- `ParsekPlaybackPolicy.cs` - event subscriber reacting to engine lifecycle events (spawn decisions, resource deltas, camera management, deferred spawn queue)
-- `IPlaybackTrajectory.cs` - interface exposing 27 trajectory/visual/orbital fields from Recording to the engine
-- `IGhostPositioner.cs` - 8 positioning methods implemented by ParsekFlight, delegates world-space placement to the host scene
-- `GhostPlaybackEvents.cs` - lifecycle event types (PlaybackCompleted, LoopRestarted, OverlapExpired, CameraAction), TrajectoryPlaybackFlags, FrameContext
-- `ChainSegmentManager.cs` - chain segment state (active chain ID, continuation tracking, boundary anchors). Owns 16 fields previously scattered across ParsekFlight.
-- `FlightRecorder.cs` - recording state + sampling (called by Harmony patch). Always-tree mode: every recording gets a RecordingTree (#271). `DecideOnVesselSwitch` has no Stop decision.
-- `ParsekUI.cs` - UI main window, map markers, and coordinator for extracted sub-windows
-- `UI/RecordingsTableUI.cs` - recordings table window (sort, rename, group tree, chain blocks, loop period editing)
-- `UI/SettingsWindowUI.cs` - settings window (recording, looping, ghost, diagnostics, sampling, data management)
-- `UI/TestRunnerUI.cs` - in-game test runner window
-- `UI/GroupPickerUI.cs` - group picker popup (recording/chain group assignment)
-- `UI/SpawnControlUI.cs` - Real Spawn Control window (nearby vessel proximity spawning)
-- `UI/ActionsWindowUI.cs` - Game Actions window (ledger display, budget, retired kerbals)
-- `InGameTests/` - runtime test framework: `InGameTestAttribute` (discovery), `InGameAssert` (assertions), `InGameTestRunner` (execution + results export), `TestRunnerShortcut` (global Ctrl+Shift+T addon), `RuntimeTests` (74 tests across 21 categories), `LogContractTests` (log format/level/resource validation migrated from post-hoc KSP.log checker)
-- `SelectiveSpawnUI.cs` - pure static methods for Real Spawn Control (proximity candidates, countdown formatting)
-- `ParsekScenario.cs` - ScenarioModule for save/load, coroutine hosting, scene transitions
-- `CrewReservationManager.cs` - crew reservation lifecycle (reserve/unreserve/swap/clear)
-- `GameActions/` - ledger-based game actions system (GameAction, Ledger, RecalculationEngine, 8 resource modules including KerbalsModule, KspStatePatcher, LedgerOrchestrator, GameStateEventConverter)
-- `GroupHierarchyStore.cs` - UI recording group hierarchy and visibility state
-- `RecordingGroupStore.cs` - recording group membership/orchestration helpers (auto-generated tree groups, group mutations, and in-memory mirror of `Recording.AutoAssignedStandaloneGroupName`)
-- `FileIOUtils.cs` - shared safe-write (tmp+rename) utility for ConfigNode file I/O
-- `SuppressionGuard.cs` - IDisposable guard struct for GameStateRecorder suppression flags
-- `RecordingStore.cs` - static recording storage surviving scene changes; delegates group orchestration to RecordingGroupStore
-- `GhostVisualBuilder.cs` - ghost mesh building from vessel snapshots
-- `TrajectoryMath.cs` - pure static math (sampling, interpolation, orbit search)
-- `VesselSpawner.cs` - vessel spawn/recover/snapshot utilities, resource manifest extraction (`ExtractResourceManifest`)
-- `ResourceManifest.cs` - `ResourceAmount` struct and `ComputeResourceDelta` for per-resource change computation (Phase 11)
-- `MergeDialog.cs` - post-revert tree merge dialog (standalone/chain dialogs removed in T56)
-- `GhostMapPresence.cs` - ProtoVessel lifecycle for ghost map presence: creates/destroys lightweight vessels for tracking station, orbit lines, targeting. Manages ghostMapVesselPids HashSet for O(1) guard checks across codebase.
-- `ParsekHarmony.cs` + `Patches/` - Harmony patcher + patches (PhysicsFrame, GhostVesselLoad, GhostCommNetVessel, GhostTrackingStation, FacilityUpgrade, FlightResults, ScienceSubject, TechResearch, CrewDialogFilter, KerbalDismissal, GhostOrbitLine)
+**Scripts** (`--help` / the `param(...)` block is authoritative):
+- `python scripts/collect-logs.py [label] [--save NAME] [--ksp-dir PATH] [--output-dir DIR] [--skip-validation] [--skip-recordings]` - gathers `KSP.log`, `Player.log`, `parsek-test-results.txt`, save snapshots, and recording sidecars into `../logs/<timestamp>[_label]/`, and runs the log validation. Snapshots the DEV instance, not the automation one.
+- `pwsh -File scripts/validate-ksp-log.ps1 [-LogPath PATH] [-NoBuild] [-KilledRun] [-NoRecordingRun]` - runs `LiveKspLogValidationTests.ValidateLatestSession` against the latest `KSP.log`. The two switches are harness seams; the C# checker's `ParseSuppressionList` rejects suppressing FMT/WRN (the cannot-mask guarantee).
+- `pwsh -File scripts/analyze-recordings.ps1 -SaveDir DIR [-ResultsDir DIR] [-NoBuild] [-FailOnRed] [-UseBaseline] [-WriteBaseline] [-KeepStaleBaselineEntries] [-FreshSaveGate]` - the offline recording analyzer over a save.
+- `pwsh -File scripts/inject-recordings.ps1 [-CleanStart] [-SaveName NAME] [-TargetSave FILE] [-Build] [-RunDiagnosticsTests] [-Preset NAME]` - injects synthetic recordings into a KSP save.
+- `pwsh -File scripts/test-coverage.ps1 [-TestProject PATH] [-OutputDir DIR] [-Format cobertura|lcov|opencover|json|teamcity] [-NoRestore] [-NoBuild]` - local xUnit coverage under `TestResults/Coverage`.
+- `python scripts/validate-release-bundle.py <bundle-dir> [--profile NAME]` - validates a release-closeout bundle (required artifacts, `log-validation.txt` pass marker, required runtime rows) and writes `release-bundle-validation.txt` into it.
+- `scripts/grep-audit-*.ps1` + `scripts/*-allowlist.txt` - the allowlist-shaped grep gates run by `GrepAuditTests`.
+- `build.bat [Debug|Release] [KSP_PATH]` - wrapper around `dotnet build Source/Parsek/Parsek.csproj` that resolves `KSPDIR` and refreshes the umbrella instruction mirrors.
 
-## Worktree Workflow
+### harness/ (Python automated-testing pipeline)
 
-**HARD RULE - never edit or commit inside `Parsek/` (the main checkout) without explicit per-session approval.** This applies to every change that will produce a commit — code, tests, doc tweaks, anything.
+Pure-decision-library + thin-I/O-shell split, mirrored across three modules; stdlib only. Run its tests: `cd harness && python -m unittest discover -s lib -q`, then `discover -s provision -q` and `discover -s missions/lib -q`.
 
-**HARD RULE - every change that will produce a commit starts in your own dedicated sibling worktree.** Do not edit or commit in another task's `Parsek-<branch>/` worktree unless the user specifically asks you to work in that exact worktree. Create a dedicated `../Parsek-<branch-name>` worktree from the right base, work there, and push that branch. Reuse a worktree only when it is yours and already dedicated to the same line of work — within one line of work, keep editing, committing, and pushing inside the same worktree. Spinning up a fresh worktree per change is unnecessary ceremony.
+- `harness/lib/hlib.py` (pure M-A5 decisions) + `harness/run.py` (thin I/O orchestrator: admit -> stage -> launch -> drive seam -> verifier chain -> classify -> collect-logs -> result JSON). `harness/lib/_fake_ksp.py` + `test_run_smoke.py` drive full runs with no real game.
+- `harness/scenarios/*.toml` - declarative scenario specs; `harness/coverage/registry.toml` - the committed D1-D18 dimension value set. Results/coverage/flake outputs are generated and gitignored. Before picking a new scenario id, check `harness/scenarios/` on every OPEN PR branch too (`gh pr list`), not just `origin/main` - parallel branches have both claimed the same H-number. Do NOT use `[driver.autorun]` in specs (zero committed specs do; the batch-owner shape is the `RunTests` seam step). A never-flown spec pins `total=` exactly and regexes the rest (`passed=[1-9][0-9]*`), registered in `IngameBatchWiringGroupTests.INTERIM_PIN_IDS` until its first flight.
+- `harness/provision/` - the M-A6 stack provisioner (`provlib.py` pure + `provision.py` shell + `pins.toml` / `profiles/*.toml`); live CLONE/BUILD-TT/INSTALL/VERIFY/DEPLOY phases plus `--repair`. DEPLOY requires this worktree's own `Source/Parsek/bin/Debug/Parsek.dll` (or `--parsek-dll`) or it aborts EC-9. Prefer cached artifacts over re-downloads: pre-point a pin at a `file:///` URL of a cached zip (the committed sha256 still gates the bytes) rather than hammering small community hosts, and revert `pins.toml` before committing.
+- `harness/missions/` - the M-B1 mission library: `lib/mlib.py` (pure mission decisions) + `mission_runner.py` (injectable MissionControl seam over kRPC) + mission shells + schema TOMLs + `bootstrap_venv.py` (gitignored `.venv/`; krpc==0.5.4).
+- `harness/lib/oracle.py` - the M-B2 pure ledger oracle (expected-vs-parsed career diff; hard drift classifies `PARSEK-FAIL(ledger)`).
+- `harness/lib/saveparse.py` - the M-C2 pure save-structure parser + evaluator behind the `saveParse` verifier row (R9): parses the produced save's ParsekScenario surfaces and evaluates `[expectations.rewind]` / `[expectations.recordings.structure]`. REPORT-ONLY unless a block declares `gating = true`; the armed set is pinned by `ARMED_ALLOWLIST` in `harness/lib/test_hlib.py`, whose `test_no_committed_spec_arms_gating` cell reds whenever a committed spec arms a block the allowlist does not name. Arming is a per-scenario operator decision taken only after a report-only reading run whose facets match the declared windows.
 
-For manual worktrees (when not using `isolation=worktree`), create as sibling folders:
-```bash
-cd Parsek
-git worktree add ../Parsek-<branch-name> -b <branch-name> <target>
-```
+Harness traps that bite C# work:
+- **Four hlib test cells read OUTSIDE `harness/`:** `CommittedBatchTallySourceSyncTests` walks `Source/Parsek` to keep each spec's pinned `BATCH_COMPLETE v1 total=N ... skipped=S` tally in step with the C# `[InGameTest]` attributes it counts - adding an in-game test to `Missions`, `Periodicity`, `GameActionsHealth`, `RouteRewindTimeline`, `RecordingInvariants`, `GhostPlayback` or `SoiCrossingPlayback` reds locally, and an attribute spelling the parse does not model also reds. `test_doc_spec_sync.py` reads `docs/dev`. `test_the_c_sharp_writer_still_emits_pointcount` reads `Source/Parsek/RecordingTreeRecordCodec.cs` (the `pointCount` key it writes is the ONLY source for `[expectations.recordings.points]`). `test_career_earned_pad.py` reads `Source/Parsek.Tests/Fixtures/C2CareerPostFix/` (the harness fixture `career-earned-pad` is DERIVED from it by `harness/tools/build_career_earned_pad.py`, asserting byte-identity; a re-harvest reds `harness/lib` naming the builder to re-run).
+- **Mission-vs-Parsek orthogonality:** a mission that did not fly is driver-INVALID, never PARSEK-FAIL. Post-mission RECORDING seam steps are non-gating on a MISSION-OK run; post-mission OUTCOME steps DO gate as `PARSEK-FAIL(mission-outcome)` via the `missionOutcome` verifier row. A HANDOFF mission declares what it did not verify via `mlib.MISSION_HANDOFF_CONTRACTS`.
+- Two dev-script seams the harness passes (additive, inert by default): `analyze-recordings.ps1 -FreshSaveGate` and `validate-ksp-log.ps1 -KilledRun` / `-NoRecordingRun`.
+- A PARSEK-FAIL verdict already survived `run.py`'s retry policy: file it in `docs/dev/todo-and-known-bugs.md`, never re-run it away.
 
-Pick `<target>` carefully: for new work from main, use `origin/main` because local `main` may include in-progress work; for follow-ups to a feature branch, use the branch tip that actually contains the work being fixed.
+Design authorities (binding): `docs/dev/design-autotest-harness-core.md` (M-A5), `design-autotest-command-seam.md` (M-A2), `design-autotest-autorun-hooks.md` (M-A3), `design-autotest-offline-analyzer.md` / `design-autotest-findings-baseline.md` (M-A1), `design-autotest-stack-setup.md` (M-A6), `design-autotest-mission-library.md` (M-B1), `design-autotest-ledger-oracle.md` (M-B2), `design-autotest-render-composition.md` (M-A7). Module layout: `harness/README.md`. Status authority: `docs/dev/autotest-status.md`. Next-work register: `docs/dev/autotest-roadmap.md`.
 
-`Parsek.csproj` probes up to 5 parent levels for `Kerbal Space Program/`, so builds work from worktrees at this location. Merge: `cd Parsek && git merge <branch-name>`
+## Key source files
 
-## In-Game Controls
+Read the relevant one before modifying. Deep per-file contracts live in the owning design doc; the entries here name the invariant and point at it.
 
-- **Toolbar button** - Toggle Parsek UI
-- **Ctrl+Shift+T** - Toggle in-game test runner (works in any scene). Results auto-export to `parsek-test-results.txt` in KSP root.
-- UI buttons: Start/Stop Recording, Preview Playback, Stop Preview
+- `ParsekFlight.cs` - flight-scene controller (policy, recording, chain management, input); camera follow delegated to `WatchModeController.cs`. `TryConsumeStockActionIntent` runs from `OnVesselSwitchComplete` (Map Switch-To) and `OnFlightReady` (TS Fly / KSC marker Fly): validates an armed `StockActionIntentMarker`, picks one of three branches (committed-tree clone, BG-member continuation, standalone), mutates `activeTree` via `SwitchSegmentBuilder`, arms a fresh `SwitchSegmentSession`, clears the consumed marker.
+- `GhostPlaybackEngine.cs` - ghost playback mechanics (ghostStates, per-frame positioning, loop/overlap playback, zone transitions, soft caps, reentry FX). Zero `Recording` references: trajectories via `IPlaybackTrajectory.cs` only; world placement via `IGhostPositioner.cs` (implemented by ParsekFlight); lifecycle events in `GhostPlaybackEvents.cs`. `ParsekPlaybackPolicy.cs` subscribes to those events (spawn decisions, resource deltas, camera, deferred spawn queue).
+- `ChainSegmentManager.cs` - chain segment state (active chain ID, continuation tracking, boundary anchors).
+- `FlightRecorder.cs` - recording state + sampling (called by the Harmony physics-frame patch). Always-tree mode: every recording gets a `RecordingTree` (`RecordingTree.cs`: tree save/load metadata and branch topology); `DecideOnVesselSwitch` has no Stop decision. `BackgroundRecorder.cs` records non-active vessels (see the on-rails gotcha).
+- `RecordingStore.cs` - static recording storage surviving scene changes; delegates group orchestration to `RecordingGroupStore.cs` (auto-generated tree groups, group mutations, in-memory mirror of `Recording.AutoAssignedStandaloneGroupName`); `GroupHierarchyStore.cs` holds the UI group hierarchy / visibility state.
+- `ParsekScenario.cs` - ScenarioModule: save/load, coroutine hosting, scene transitions, OnLoad sweeps (crash reconcile, journal finisher, load-time sweep, reaper).
+- `ParsekUI.cs` + `UI/` - main window, map markers, and the sub-windows: `RecordingsTableUI` (sort, rename, group tree, chain blocks, loop period), `SettingsWindowUI`, `TestRunnerUI`, `GroupPickerUI`, `SpawnControlUI` (Real Spawn Control; pure helpers in `SelectiveSpawnUI.cs`), `GloopsRecorderUI`, `KerbalsWindowUI`, `MissionsWindowUI`. The 2026-08-27 settings simplification retired the Recording and Stock UI sections: auto-record x3 / autoMerge / forceFaithfulLoopPlayback are hidden fields (harness-pinned via `SettingWhitelist`, clamped to shipping values in `ParsekScenario.OnLoad` unless an automation env hook is armed); autoBackupExistingSaves / showCommittedFutureOverlays / blockCommittedActions / transitedBodyRotationModeIndex were deleted (behaviors permanently on; landing-body alignment pinned Loose via `ParsekSettings.LandingBodyAlignmentMode`).
+- `MissionPresentation.cs` / `MissionVesselRows.cs` / `MissionGroupLink.cs` - Missions tab. Pure presentation derivations with no Unity/KSP calls (unit-tested in `MissionPresentationTests.cs`); the flattened per-vessel row model (`MissionVesselRowBuilder`: one row per physical vessel / EVA kerbal from the composition trees, depth = separation lineage, per-vessel include affordance over the vessel's OWN interval keys - the non-cascading `ExcludedIntervalKeys` contract is untouched; the interval staircase `DrawCompositionNode` remains only for foreign partner-journey subtrees and expanded detail rows); and the mission-name <-> root-group-name sync (`RenameMissionGroup` renames root + auto `/ Debris` + `/ Crew` subgroups + `Mission.Name` atomically, reject-both on collision; `MissionStore.EnsureDefaultsForTrees` seeds from `AutoGeneratedRootGroupName`).
+- `InGameTests/` - runtime test framework: `InGameTestAttribute` (discovery), `InGameAssert`, `InGameTestRunner` (execution + results export), `TestRunnerShortcut` (Ctrl+Shift+T), `RuntimeTests` / `ExtendedRuntimeTests`, `LogContractTests`. Discovery reflects over the WHOLE assembly (500+ declarations across 90+ categories - count with `hlib.parse_ingame_test_declarations`, never by hand; standalone files like `ContractTombstonesAcrossSupersedeTest` and `LedgerGroundTruthHarness` are auto-discovered). `InGameFixtureMath` sizes a FLIGHT test against whatever vessel the batch flies: `SceneFloatGridToleranceMeters` / `ToleranceResolvesSignal` for world-position assertions (the floating origin tracks the active vessel, so a `Vector3` grid step is `magnitude * 2^-23`; a fixed millimetre epsilon is a bet on a landed craft), plus walkback trajectory sizing. A FLIGHT test that cannot self-set-up must `InGameAssert.Skip` naming the required context.
+- `InGameTests/AutorunHooks.cs` - the M-A3 automation env hooks, read ONCE at addon Awake and inert when unset: `PARSEK_AUTORUN_TESTS` (auto-fire a batch after the scene settles), `PARSEK_AUTORUN_EXIT=1` (quit after the batch), `PARSEK_TEST_COMMANDS=1` (arm the M-A2 command-seam addon). `PARSEK_RENDER_MANIFEST=1` arms the M-A7 render-composition manifest recorder.
+- `TestBatchMarker.cs` - `PARSEK_TEST_BATCH_MARKER` singleton written into `persistent.sfs` at batch start. Campaign isolation: `InGameTestRunner.CaptureBatchBaseline` writes the clean `.bak` BEFORE the marker (per-scene mode via `ClassifyBatchIsolationMode`); clean teardown / cancel revert from it; a mid-batch crash is caught on the next `ParsekScenario.OnLoad` in a DIFFERENT process by `RunTestBatchCrashReconcile` (revert `.bak` + sweep + deferred REAL `GamePersistence.LoadGame` - NEVER `SaveGame` from inside OnLoad).
+- `InGameTests/LedgerGroundTruthHarness.cs` + `LedgerGroundTruth.cs` / `CareerSaveParser.cs` / `LedgerGroundTruthDiff.cs` - the ledger ground-truth harness. Layer B (in-game `LedgerGroundTruth` category) quicksaves the live career, parses it independently, runs `LedgerOrchestrator.RecalculateAndPatch()`, and diffs: NON-circular (recalc output vs KSP's own on-disk save), HARD-asserting the seeded pools + guid-corroborated vessel-recovery consistency, per-identity facets report-only by default. Layer A is the pure headless parse + diff (`LedgerGroundTruth{Parser,Diff}Tests.cs`). Design: `docs/dev/design-ledger-groundtruth-harness.md`.
+- `Analyzer/` (`Parsek.Analyzer`, `Parsek.Analyzer.Rules`) - the offline recording-analyzer CORE (model types, `InvariantRegistry`, pure rule evaluators) lives in `Parsek.dll` so the in-game `RecordingInvariants` category reuses the exact rules; the analyzer test files stay in `Parsek.Tests`. Per-save findings baseline: pure `BaselineFilter.cs` / `BaselineTypes.cs` here, codec + `-WriteBaseline` builder in `Source/Parsek.Tests/Analyzer/`, file at `<save>/analysis/baseline.cfg`; a reporting-layer filter so a gated run reds only on NEW findings. The `.analysis.txt` header's terminal `RED=<0|1>` token is the SINGLE gate source (`analyze-recordings.ps1 -FailOnRed` reads it, never recomputes). Modes `Forbid` (baseline-presence-is-FAIL, the harness fresh-save guard) / `Apply` / `Ignore` via `PARSEK_ANALYZER_BASELINE_MODE` + `-UseBaseline`. `AnalyzerVersion` is `4`. Design: `docs/dev/design-autotest-findings-baseline.md`.
+- `CrewReservationManager.cs` - crew reservation lifecycle (reserve/unreserve/swap/clear).
+- `GameActions/` - ledger-based game actions (GameAction, Ledger, RecalculationEngine, the resource modules including RouteModule, KspStatePatcher, LedgerOrchestrator, GameStateEventConverter); `KerbalsModule.cs` lives at `Source/Parsek/` root. `LedgerTrace.cs` is its gated observability (`ledgerTracing`; contract in the tracer-doc appendix).
+- `FileIOUtils.cs` - safe-write (tmp+rename) for ConfigNode I/O, plus `CopyDirectory`. `SuppressionGuard.cs` - IDisposable guard for GameStateRecorder suppression flags. `ParsekProcess.cs` - AppDomain-lifetime `ProcessSessionId` used by intent markers to detect cross-run orphaned saves.
+- `PreParsekBackup.cs` - one-time pre-Parsek safety backup on the first cold `OnLoad` of a save with no Parsek footprint: stage-copies persistent.sfs (+ loadmeta + Ships/Subassemblies) into a staging dir in the save folder (NOT under `Parsek/`, so a failed copy leaves no false footprint), then atomic-moves it to a sibling `saves/<Name> (pre-Parsek <ts>)/` visible in the Load menu. Fail-open, fail-loud (Error + on-screen warn, retry next cold load), unconditional.
+- `PatchedConicSnapshot.cs` / `BallisticExtrapolator.cs` / `IncompleteBallisticSceneExitFinalizer.cs` - scene-exit tail finalization: snapshot patched-conic coast chains into predicted `OrbitSegment` lists, extrapolate incomplete ballistic tails through atmosphere / terrain / SOI events to a terminal endpoint, validate and apply the extended tail.
+- `GhostVisualBuilder.cs` - ghost mesh building from vessel snapshots. `GhostFxEmissionProbe.cs` / `GhostFxFingerprint.cs` - FX orientation ground truth (`[FxEmissionProbe] measured:`) and per-part `[FxFingerprint]` parity lines.
+- `WaterfallCompat.cs` / `PristinePartFxResolver.cs` / `ReStockPatchFxIndex.cs` - modded-install ghost FX recovery when Waterfall config packs delete the stock particle definitions (pristine on-disk EFFECTS + legacy `fx_*` keys, ReStock's own patch files). Gate closed = stock installs behavior-identical. Two hard rules: NEVER add `Effects/` to the shared `TryResolveFxPrefabExact` probes, and match fresh `EFFECTS` by EXACT name (never `!EFFECTS`). Full contract: `docs/dev/mod-compatibility-notes.md`, "Waterfall ... and ReStock" section.
+- `Display/GhostTrajectoryPolylineRenderer.cs` - map-view non-orbital ghost trajectory polyline (`[ERS-exempt]`, always on). The Director pipeline renders unconditionally (grep gates keep the removed flags removed); a Director-owned TracedPath leg draws via `TracedPathTreatment.TryDrawOwnedLeg`, and the Driver walk is RETAINED as the fenced single draw host for everything else (file gate `PolylineDriverWalkDeleteGateTests`). `drewNonOrbitalLegRecordings` is the SOLE ownership source, published only on an ACTUAL draw; the icon floor + `ghostsWithSuppressedIcon` + `IsIconSuppressed` are a KEPT PERMANENT fallback - do not delete them. Full contract: `docs/dev/design-map-ts-render-architecture.md`, Appendix A.
+- `GhostMapPresence.cs` - ProtoVessel lifecycle for ghost map presence (tracking station entries, orbit lines, targeting; `ghostMapVesselPids` HashSet for O(1) guards - every `FlightGlobals.Vessels` iteration and vessel GameEvent handler must check `IsGhostMapVessel(pid)` first). Both marker call sites (`ParsekUI.DrawMapMarkers`, `ParsekTrackingStation.ClassifyAtmosphericMarkerSkip`) route through `ShouldDrawNonProtoMarkerForGhost(pid)` (pure `ResolveMarkerDrawDecision`); the decision is a SUPERSET of the line-hide, so no marker gap and no double marker. Contract: same Appendix A.
+- `MapRenderTrace.cs` / `MapRenderProbe.cs` - gated map/TS render observability (`mapRenderTracing`, off by default; sibling of the flight-scene `GhostRenderTrace.cs`): Tier-A structural events, Tier-B change-based truth, Tier-C anomalies (`icon-jump` measured in the orbit's own reference-body frame, `line-blink`). `IsLineBlink`'s four exemptions read stamps written at EXACTLY the pinned `GhostOrbitLinePatch` sites on the single-writer `RecordLineIntent` channel (source-gated by `LineBlinkWindowExitExemptionTests`): do not add stamp sites, derive coverage generically from logged bounds, or refactor a shared formatter out of `GhostRenderTrace.cs`. Full contract: `docs/dev/design-map-ts-render-tracer.md`, Appendix A.
+- `TrajectoryMath.cs` - pure static math (sampling, interpolation, orbit search, the RELATIVE offset converters, `SwizzleZupBodyRelativeToWorld`).
+- `VesselSpawner.cs` / `ResourceManifest.cs` - vessel spawn/recover/snapshot utilities and `ExtractResourceManifest`; `ResourceAmount` + `ComputeResourceDelta` for per-resource change computation.
+- `MergeDialog.cs` - post-revert tree merge dialog. Hosts the switch-segment scoped Discard hook (`MergeDiscardRanToCompletion` calls `RecordingStore.TryDiscardActiveSwitchSegmentAttempt` before the whole-pending-tree fallback; scoped Discard sweeps the topological subtree rooted at the segment recording, catching in-segment debris). `BuildWholeTreeMergeDialogBody` renders the unified `"{TreeName} - {Duration}"` body for both switch-segment and whole-tree merges (the duration line is the distinguisher). `MergeCommit` clears the `SwitchSegmentSession` marker after a successful commit. `ShowPreSwitchDecisionDialog` spawns the rapid-switch Merge / Discard dialog before stock map focus runs.
+- `ParsekHarmony.cs` + `Patches/` - Harmony patcher + patches (PhysicsFrame, GhostVesselLoad, GhostCommNetVessel, GhostTrackingStation, FacilityUpgrade, FlightResults, ScienceSubject, TechResearch, CrewDialogFilter, KerbalDismissal, GhostOrbitLine, and the intent-arming patches below).
+- **Stock-action intent (switch / Fly continuation segments).** `StockActionIntentMarker.cs` is a positive marker armed only by confirmed stock-UI click handlers (TTL + UT + `ProcessSessionId`; pure `EvaluateStaleness`), armed by `Patches/GhostTrackingStationPatch.cs` (`SwitchIntentTrackingStationFlyPatch`, TS Fly, mirrors the ghost-block guard), `Patches/KscVesselMarkerFlyPatch.cs` (`KSCVesselMarkers.FlyVessel`), and `Patches/MapFocusObjectOnSelectPatch.cs` (`MapContextMenuOptions.FocusObject.OnSelect`; Prefix-arms / Postfix-refunds on `SetActiveVessel` early-return). That Prefix spawns `MergeDialog.ShowPreSwitchDecisionDialog` instead of arm-and-skip in two cases filtered by `DecidePreSwitchDialogAction`: **Case A** - a `SwitchSegmentSession` is armed and the new target differs from its focused PID (handlers commit or scoped-discard the prior session); **Case B** - no session armed, an in-flight recording exists, and `target.loaded == false` (far Switch-To triggers `FlightDriver.StartAndFocusVessel`'s scene reload, which bypasses the SceneExit FLIGHT->FLIGHT filter; handlers commit or active-tree-discard the live `activeTree`). Both arm a fresh intent + call `FlightGlobals.SetActiveVessel` from the button handlers; same-target re-clicks and concurrent-dialog re-entry are filtered by the same predicate. Consume side: `SwitchSegmentConsume.cs` (pure `StockActionIntentConsumeDecision.Evaluate` mapping staleness / setting / target-mismatch / duplicate / missed-switch-recovery to clear-reason strings and routes), `SwitchSegmentBuilder.cs` (pure tree mutation: `ResolveSwitchContinuationParent` walks PID-coherent terminal leaves; `CreateSwitchContinuationSegment` attaches a `VesselSwitchContinuation` branch + recording under the chosen parent or standalone; the live wrapper handles parent-side BG flush and BG-map removal), `SwitchSegmentSession.cs` (live segment-attempt marker owned by `ParsekScenario`, serialized through OnSave/OnLoad so scoped Discard survives reload), `SwitchSegmentNoOpClassifier.cs` (`IsNoOpSegment` / `IsMeaningfulPartEvent` / `SwitchSegmentDisposition`: auto-discard a resumed segment that changed nothing meaningful. Deliberately NOT `RecordingOptimizer.IsInertPartEventForTailTrim` - here shutdown / stop / zero-throttle resume seeds are inert and only positive throttle counts. Live side `RecordingStore.TryClassifyActiveSwitchSegmentNoOp` + `ParsekFlight.TryEvaluateActiveSwitchSegmentNoOp`; hooks at scene exit via `SceneExitInterceptor.TryAutoDiscardNoOpSwitchSegment` and in Case A's `DiscardPriorAndSwitchTo`).
+- **Rewind-to-Separation / Re-Fly.** `RewindInvoker.cs` (five-precondition gate, pre-load reconciliation bundle capture, RP quicksave copy to save root, post-load Restore + Strip + Activate + atomic provisional + `ReFlySessionMarker` write). `SupersedeCommit.cs` (merge tail: appends `RecordingSupersedeRelation` rows for the superseded subtree, flips MergeState - Immutable vs CommittedProvisional by `TerminalKindClassifier` - builds `LedgerTombstone`s for in-scope kerbal-death actions + bundled rep penalties, bumps ERS/ELS cache versions; `IsPreRewindCarveOut` keeps HEAD and pre-rewind debris out of the write-set after the splitter runs). `RecordingTreeSplitter.cs` (when the closure-root recording spans the rewind UT, split it into HEAD (pre-rewind, kept visible) + TIP (post-rewind, superseded by the fork) through a 13-step orchestrator with deep-clone snapshot + ChainIndex map + incremental retag ledger for transactional rollback; the in-recording cut is `RecordingOptimizer.SplitAtUT`, and `RecordingOptimizer.CanAutoMerge` carries a supersede-row guard against re-merging HEAD + TIP). `MergeJournalOrchestrator.cs` (Begin -> Split -> Supersede -> Tombstone -> Finalize -> Durable1Done -> RpReap -> MarkerCleared -> Durable2Done; only `Begin` rolls back on crash, every later phase drives forward via `CompleteFromPostDurable`'s idempotent re-run; `RunFinisher` on OnLoad dispatches accordingly). `LoadTimeSweep.cs` (OnLoad sweep between journal finisher and reaper: validates the marker's six durable fields, discards zombie NotCommitted provisionals + session-provisional RPs, warn-logs orphan supersede/tombstone rows, clears stray `SupersedeTargetId` fields). `EffectiveState.cs` (ERS / ELS / subtree closure / supersede walking / chain resolution / RP slot resolution; `EffectiveRecordingId` is the pure supersede walker for visibility checks, `EffectiveTipRecordingId` the composite chain+supersede walker for slot tips - HEAD -> chain -> TIP -> supersede -> fork in one traversal, cycle-safe via one shared visited set). `ReFlyProvisionalBinding.cs` - observation-only raise predicates (`EvaluateRestoreGiveUp`, `EvaluateSidecarRewrite`; grep-stable `outcome=unbound-refly-provisional` Warn) for a Re-Fly session whose provisional never had a recorder bound. That state is reachable from ordinary play (rewind, F5/F9, conclude without flying); since the 2026-08-11 conclusion-route fix the leaf prune retires such a provisional (`outcome=retired-empty-provisional`) and `MergeDialog.TryCommitReFlySupersede` runs `AppendRelations` on it so `outcome=refused-unflown-provisional` / `concluded-no-supersede` fire in-session with zero rows and no journal (by design). "Unflown" and "trajectory-less" are not the same predicate (the provisional carries a copy of the origin's pre-rewind anchor tail). Do NOT relax `ReFlySessionMarker.ResolveInPlaceContinuationTarget`'s tree-id gate to "fix" anything here - it is a genuine stale-marker guard; any marker-driven adoption must be an ADDITIONAL entry point.
+- **RP quicksave fixtures are production-shaped:** `ScenarioWriter.BuildRewindPointQuicksave` authors the RP's tree as `RECORDING_TREE isActive=True` (what `TryRestoreActiveTreeNode` reads back) and stamps each slot's sidecar VESSEL `pid` from `DeriveVesselLaunchGuid(originRecordingId)` so it agrees with `recordedVesselGuid`. A sidecar missing either lets a FIXTURE divergence read as a product defect (it did once, and cost a wrong diagnosis). Guarded by `RewindB9FixtureTests.Inject_RpSidecar*`.
+
+## In-game controls
+
+- **Toolbar button** - toggle the Parsek UI (Flight and Map view)
+- **Ctrl+Shift+T** - toggle the in-game test runner (any scene); results auto-export to `parsek-test-results.txt` in the KSP root
+- **Alt+F12** - Unity debug console
 
 ## Debug
 
 ```bash
-grep "[Parsek]" "Kerbal Space Program/KSP.log"    # all diagnostic logs
-pwsh -File scripts/validate-ksp-log.ps1            # log pipeline health check (4 rules: session markers, recording start/stop)
-python scripts/collect-logs.py [label] [--save NAME]  # gather all logs/saves/test results into ../logs/ timestamped folder
+grep "[Parsek]" "Kerbal Space Program/KSP.log"        # all diagnostic logs
+pwsh -File scripts/validate-ksp-log.ps1                # log pipeline health check
+python scripts/collect-logs.py [label] [--save NAME]   # snapshot logs/saves/results into ../logs/<timestamp>_<label>/
 ```
 
-When asked to debug an issue, run `python scripts/collect-logs.py <label>` first to snapshot all relevant state, then work from the collected files. The script also runs the log validation automatically. Output goes to `../logs/` (sibling of repo root, outside git).
-
-Alt+F12 opens Unity debug console in-game.
-
-## Logging Requirements
-
-Every action, state transition, guard condition skip, and FX lifecycle event MUST be logged. The KSP.log is our primary debugging tool — if it didn't get logged, it didn't happen.
-
-- Use `ParsekLog.Info` / `ParsekLog.Warn` for important events
-- Use `ParsekLog.Verbose` for detailed diagnostic info (one-shot operations)
-- Use `ParsekLog.VerboseRateLimited` for per-frame or per-ghost-per-cycle data (avoids log spam). Use shared keys for aggregate summaries, per-index keys only when the index identity matters for debugging.
-- Include subsystem tag, relevant IDs (recording index, vessel name, part PID), and numeric values
-- Log format: `[Parsek][LEVEL][Subsystem] message` (handled by ParsekLog.Write)
-- **Batch counting convention:** When iterating over collections with per-item decisions (skip/process), declare local `int` counters, increment inside the loop, and log a single summary after the loop. Use `Verbose` for one-shot operations (load/save), `VerboseRateLimited` for per-frame summaries. Do not log per-item inside the loop unless the item count is bounded (under ~20).
-- See existing patterns in `GhostPlaybackEngine.cs` (frame batch counters) and `ParsekScenario.cs` (save/load batch summaries) for reference
-
-## Testing Requirements
-
-- Every new method with logic (guards, state transitions, decisions) needs unit tests
-- Pure/static methods should be `internal static` for direct testability
-- Use `ParsekLog.TestSinkForTesting` to capture log output and assert on it — log assertions verify that code paths executed and logged the expected data
-- Test pattern: `ParsekLog.TestSinkForTesting = line => logLines.Add(line)` in constructor, `ParsekLog.ResetTestOverrides()` in Dispose
-- Assert with: `Assert.Contains(logLines, l => l.Contains("[Subsystem]") && l.Contains("expected text"))`
-- Use `[Collection("Sequential")]` on test classes that touch shared static state (ParsekLog, RecordingStore, etc.)
-- See `RewindLoggingTests.cs` for the canonical log-capture test pattern
-- **In-game tests** (`InGameTests/RuntimeTests.cs`): for things that require live KSP (ghost visuals, PartLoader resolution, crew roster, CommNet). Use `[InGameTest(Category = "...", Scene = GameScenes.FLIGHT)]` attribute. Tests can return `void` (sync) or `IEnumerator` (multi-frame coroutine). Run via Ctrl+Shift+T or Settings > Diagnostics.
-
-## Visual & Recording Design Principle
-
-Ghost visuals and recording data must be **correct visually, minimal, and efficient**. Many recordings play simultaneously — every per-frame computation and every stored event multiplies across all active ghosts. Prefer coarse-grained state snapshots over continuous sampling. Record threshold crossings, not continuous values. Use debounce to filter noise. If a visual detail isn't noticeable at playback speed, don't record it.
-
-## Post-Change Checklist
-
-After any change to enums, event types, serialized fields, or schema:
-1. Verify `ParsekScenario.cs` OnSave/OnLoad handles the new data
-2. Verify test generators in `Tests/Generators/` can produce test data for the new feature
-3. Consider adding a synthetic recording for end-to-end testing
-4. Run `dotnet test Source/Parsek.Tests/Parsek.Tests.csproj` - all headless tests must pass
-5. If the change affects runtime-only behavior, run the relevant in-game tests via `Ctrl+Shift+T` and keep `parsek-test-results.txt` / `KSP.log` evidence
-
-## Documentation Updates — Per Commit, Not Per PR
-
-Before every commit that changes behavior (not just the first one in a PR), check whether these docs need updating and stage them in the same commit:
-
-- `CHANGELOG.md` — add or update the entry under the current version. On follow-up commits that change the fix approach, edit the existing entry rather than leaving the original wording stale.
-- `docs/dev/todo-and-known-bugs.md` — mark completed items as ~~done~~, add newly discovered items, and update the "Fix:" description on follow-up commits when the approach changes.
-- This file (`AGENTS.md`) and `.claude/CLAUDE.md` — update when file layout, build commands, workflow, or key patterns change.
-
-**Follow-up commit trap:** When a review comment lands on an open PR and changes the fix approach, the CHANGELOG and todo entries written for the first commit become stale. The reviewer reads those docs as authoritative — they must match the code in the current HEAD. Before pushing the follow-up commit, re-read the existing doc entries for the bug/feature and update them to match the new approach.
-
-**Practical check:** after `git add`, run `git diff --cached` and ask: "does any of this contradict or supersede existing wording in CHANGELOG.md or todo-and-known-bugs.md?" If yes, stage the doc updates in the same commit.
-
-## Code Review Follow-Ups
-
-Do one full review at the end of a task/worktree before creating or finalizing the PR, except for low-risk small single-file fixes, docs-only changes, test-only changes, and obvious bug fixes with focused validation; for those, self-review and report validation.
-
-When a reviewer flags fixes on an open PR, re-review only the follow-up changes and any directly affected code paths. Do not restart a full-PR review from scratch on every follow-up unless the new changes actually broaden the risk surface.
-
-Do not re-review excessively. Re-review is for risky code changes: shared behavior, serialization/schema, runtime-only paths, broad refactors, concurrency/lifecycle changes, or fixes that change the PR's behavioral contract. Docs-only edits, small copy/typo fixes, and test-only clarifications do not need another review pass; self-review them and report the validation performed.
-
-## Workflow
-
-See `docs/dev/development-workflow.md` for the full feature development process (vision → scenarios → design doc → plan/build/review cycle).
+When asked to debug an issue, run `python scripts/collect-logs.py <label>` first to snapshot all relevant state, then work from the collected files (the script runs the log validation too). Then confirm which DLL produced the log (see "Which build produced a collected log?" above) before reading anything into it.
