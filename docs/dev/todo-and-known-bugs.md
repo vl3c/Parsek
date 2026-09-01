@@ -79,7 +79,7 @@ modulo-skipped window to a send-once arm, but that window emits nothing, bumps n
 next deliverable window, which is the intended "every Nth window" semantics. So the skip is not
 a consumed cycle and must not honor the pause. No change made.
 
-## SENDONCE-RESIDUAL-PATHS: three Send-Once arm paths the blocked-cycle fix deliberately did not take, surfaced by PR #1582's clean review [FOUND 2026-08-30 by the pre-merge review of the fix. ALL PRE-EXISTING (none introduced by the fix); filed together because they are one family: "which cycle resolutions consume the arm, and does every consumer say so". Items 1 and 2 FIXED 2026-09-01; item 3 CLASSIFIED and left open by design; item 4 ADDED 2026-09-01 from the same family, found while fixing 1 and 2 - see below]
+## SENDONCE-RESIDUAL-PATHS: three Send-Once arm paths the blocked-cycle fix deliberately did not take, surfaced by PR #1582's clean review [FOUND 2026-08-30 by the pre-merge review of the fix. ALL PRE-EXISTING (none introduced by the fix); filed together because they are one family: "which cycle resolutions consume the arm, and does every consumer say so". Items 1 and 2 FIXED 2026-09-01; item 3 CLASSIFIED and left open by design; item 4 ADDED and FIXED 2026-09-01 from the same family, found while fixing 1 and 2 - see below. Only item 3 remains, deliberately]
 
 **~~1. Multi-stop delivered path can end a Send Once ACTIVE (the fixed defect's delivered-side
 sibling).~~** [FIXED 2026-09-01] `ProcessMultiStopCrossings` fired every due window of the cycle
@@ -159,19 +159,31 @@ surface). Any new one must do the same - or, if endpoint-lost is ever reclassifi
 resolution, it should be added to the postponement allowlist's mirror, not fixed at one call
 site.
 
-**4. A SINGLE-STOP pure-PICKUP loop route never honors the arm on its delivered path.**
-[FOUND 2026-09-01 while fixing 1 and 2; NOT fixed - out of that scope, filed so it is not lost]
-`EmitLoopCycle`'s `else` branch (no delivery manifest) bumps `CompletedCycles` and returns; the
+**~~4. A SINGLE-STOP pure-PICKUP loop route never honors the arm on its delivered path.~~**
+[FOUND 2026-09-01 while fixing 1 and 2; FIXED 2026-09-01 in the same family]
+`EmitLoopCycle`'s `else` branch (no delivery manifest) bumped `CompletedCycles` and returned; the
 armed tail lives inside `ApplyDelivery`, which that branch never calls. So a Send Once on a
-pickup-only single-stop route completes its cycle and keeps looping with both flags armed - the
+pickup-only single-stop route completed its cycle and kept looping with both flags armed - the
 same end state as the blocked defect #1582 fixed, reached through a different door. (A blocked
 cycle on such a route DOES pause, via `TryHonorArmedPauseOnBlockedCycle`, so the two resolutions
-disagree.) The multi-stop equivalent is already covered by item 1's fix, because
+disagreed.) The multi-stop equivalent was already covered by item 1's fix, because
 `TryHonorArmedPauseOnCompletedCycle` sits at cycle completion and does not care which halves the
-windows emitted. Fix shape: call the same helper from `EmitLoopCycle`'s pure-pickup branch (and,
-for symmetry, consider making the single-stop delivered tail route through it too so there is
-ONE delivered-resolution site instead of two). Unverified against a real save - no known
-pickup-only route exists yet.
+windows emitted.
+
+Fix: that `else` branch IS the cycle's completion for a pure-pickup route, so it now calls the
+same `TryHonorArmedPauseOnCompletedCycle` helper, immediately after the `CompletedCycles` bump -
+the single-stop mirror of the multi-stop `cycleLastDockReached` call site, with the same
+`delivered-then-paused` reason, the same last-stop stride+4 marker slot (Sequence 4 at one stop,
+where the single-stop delivered tail also lands it), the same counts-free toast and the same
+pending-recovery-credit flush. The helper is a no-op when nothing is armed, so an ordinary
+pickup cycle is byte-identical. The DELIVERED path is untouched: the single-stop delivered tail
+still resolves inside `ApplyDeliveryFromPlan` under its `BumpCompletedCycle` gate (folding it
+into the helper too was considered and left alone - it would move a working, ledger-pinned
+resolution for tidiness alone). Still unverified against a real save; no known pickup-only route
+exists yet. Covered by `SendOnceArmed_PurePickupCycle_EndsPaused_ClearsFlags_OneToast`,
+`Unarmed_PurePickupCycle_StaysActive_NoPauseNoToast` and
+`PauseAfterCycleArmed_PurePickupCycle_PausesWithoutToast` (`RouteLoopPickupFireTests`); all
+three go red against the pre-fix branch.
 
 Also banked from the same review (comment-only, corrected in the follow-up commit): the
 blocked-cycle marker CAN share its `(routeId, UT, Sequence=0)` key with a
@@ -214,7 +226,7 @@ in as many words (`PhaseLock APPLIED: ... cadence 90.079999999918186->95`). The 
 clock deliberately runs on the quantized cadence so the ghost's relaunch schedule sits on
 faithful windows; the route's own `DispatchInterval` stays the raw `N * span`. Intended.
 
-## ROUTE-DISPATCH-COST-FREE-ON-SNAPSHOTLESS-ROOT: a KSC route whose tree ROOT recording carries no `VesselSnapshot` dispatches for FREE in career [FOUND 2026-08-30 off the same `logs/2026-08-30_1106_rover-route` flight while diagnosing a `cost=0` Verbose line. LATENT CAREER DEFECT — the flight was SANDBOX so nothing was mischarged. OPEN, not yet fixed]
+## ~~ROUTE-DISPATCH-COST-FREE-ON-SNAPSHOTLESS-ROOT: a KSC route whose tree ROOT recording carries no `VesselSnapshot` dispatches for FREE in career~~ [FOUND 2026-08-30 off the same `logs/2026-08-30_1106_rover-route` flight while diagnosing a `cost=0` Verbose line. LATENT CAREER DEFECT — the flight was SANDBOX so nothing was mischarged. FIXED 2026-09-01]
 
 **Evidence.** Every UI repaint logged `ComputeDispatchFundsCostForRoute: route fd6ee2ff source
 recording cf8d06fc... not in ERS or has no VesselSnapshot; cost=0`. The recording IS in ERS (a
@@ -233,10 +245,51 @@ this root DOES carry a run manifest (`RouteRunManifest start written ... parts=1
 career that zero flows into BOTH the funds eligibility gate (vacuously passes) and the actual
 charge: the KSC dispatch is silently free, with one Verbose line as the only trace.
 
-**Shape of a fix (undecided):** either cost from the first `SourceRefs` member that HAS a
-snapshot / from the run manifest when the root is snapshot-less, or capture a real
-`VesselSnapshot` on the root at the split that orphans it. Product decision — the costing
-basis defines what a "dispatch" charges for.
+**Fix (2026-09-01): a member fallback for the PARTS term, the root's manifest for the
+RESOURCE term.** `SourceRefs[0]` (the tree root) stays the PREFERRED basis, so every route
+that already costs from its root is byte-identical. When the root carries no
+`VesselSnapshot` (or is absent from ERS), `ComputeDispatchFundsCostForRoute` now walks
+`route.SourceRefs` IN ORDER and prices the PARTS term from the first member whose ERS
+recording has one; the RESOURCE term still prefers the ROOT's COMPLETE `RouteRunManifest`
+(the launch load is the root's fact, and the root carries the manifest even when it carries
+no snapshot), falling back to the chosen member's snapshot resources through the legacy
+stop-snapshot walk. The other half of the decision - do NOT capture a snapshot on the root
+at the orphaning split - was rejected: it would rewrite recorder behavior for a costing
+question, and would not repair a single existing save.
+
+**The combined-vessel exclusion, and why it is load-bearing.** The dock-merged child IS a
+`SourceRefs` member: `RouteBuilder.BuildRouteSourceRefs` adds the window-carrying leaf
+unconditionally ("The leaf (dock child) is ALWAYS a member"), and the M-MIS-5 origin carrier
+joins the same way. That recording's `VesselSnapshot` is the MERGED snapshot
+(`ParsekFlight`'s dock-merge site stamps the window and the combined snapshot together), so
+a naive first-member-with-a-snapshot walk would have charged the player for the destination
+station's parts on every cycle. `RouteOrchestrator.IsCombinedVesselSourceMember` skips such
+a member on three positive facts, any one of which suffices: it carries a
+`RouteConnectionWindow` (the dock-merge site is that list's ONLY writer, so carrying one IS
+being a merged child - and this catches the origin carrier too, whose StartUT is well before
+the delivery dock), its id is the route's own `DockMemberRecordingId`, or its recording
+starts at/after `Route.RecordedDockUT`. The exclusion applies to the FALLBACK walk only.
+`RouteStore.RevalidateSources` / `RouteProofHasher` are indifferent to which member is
+costed - they inspect every ref equally and have no notion of a costed member.
+
+**When nothing can be costed.** If no member is in ERS with a usable snapshot the method
+still returns 0, but that case is now a distinct rate-limited line (this method runs per UI
+repaint): `FundsCost: route <id> UNCOSTED - no SourceRefs member ... (a career KSC dispatch
+charges nothing)`. The costed path logs `FundsCost basis=<launch-manifest|stop-snapshot>
+route=... source=<root id> snapshotSource=<priced member id> fallback=<0|1>`.
+
+**Tests** (`RouteOrchestratorTests`): `..._RootHasSnapshot_PricesRoot_NoFallback` (the
+regression pin), `..._SnapshotlessRoot_FallsBackToMemberParts_KeepsRootLaunchManifest`,
+`..._SnapshotlessRoot_IncompleteManifest_UsesMemberSnapshotResources`,
+`..._SnapshotlessRoot_SkipsDockMergedMember` (merged child ordered AHEAD of the transport so
+the walk must SKIP it, not merely never reach it),
+`..._NoMemberWithUsableSnapshot_ReturnsZero_LogsUncosted`, and
+`IsCombinedVesselSourceMember_MatchesEachPositiveFact_NotThePreDockTransport`. WHICH
+snapshot the walk visited is proved mechanically rather than by the basis line alone: headless
+`LookupPartCost` prices everything at 0, so every visited part name emits its own
+`Unknown part cost: name=...` Warn, and each fixture recording carries a distinct part name.
+Unblocks Tier C item 9 of the supply-route coverage program (`autotest-roadmap.md`); that
+career lane is still unauthored and has never flown.
 
 ## RESERVATION-OVERLAY-GAPS: the reservation readout that replaced the dead budget UI is absent in the EDITOR and reports `Reserved: 0` in a genuine deficit [SPLIT OUT 2026-08-29 from RESOURCE-BUDGET-READOUTS-ARE-DEAD when that entry was struck as cleanup-done. Neither gap was part of that cleanup; refiled here so they survive it]
 

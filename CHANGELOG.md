@@ -27,6 +27,27 @@ _(unreleased — entries accumulate here per commit)_
   stopping the route in silence - the one resolution where clicking again was most
   tempting, because nothing visibly happened.
 
+- Send Once on a COLLECTION route - one that only picks cargo up and brings nothing
+  out - now stops after that one round, like every other route. Because such a route
+  never makes a delivery, the answer to the click was never given: the round finished,
+  the flight was counted, and the route just carried on looping with the one-shot
+  still waiting. Odder still, the very same route DID stop correctly when its round
+  was blocked instead of completed, so the two outcomes disagreed. A finished
+  collection round now pauses the route and says so, exactly as a finished delivery
+  round does.
+
+- In career, a route flown by a craft whose recording begins with a stub - a launch
+  that ended the moment the transport separated, which is the ordinary shape for a
+  rover driven off the pad - was dispatching for FREE. Parsek prices a KSC dispatch
+  from the recorded craft, and when that first recording never captured one, the
+  price came out as zero: no funds were checked and none were charged, every cycle,
+  silently. Parsek now prices such a dispatch from the first recording of the run
+  that DID capture the craft, while still billing the fuel and cargo the launch
+  actually carried. Care is taken not to price the craft after it has docked - that
+  snapshot includes the destination station, and charging for it would have billed
+  you for the base you were resupplying. A route that can be priced no other way says
+  so in the log instead of quietly charging nothing.
+
 ### Dev
 
 - The automated-testing suite gained its first surface supply-route subject, and with

@@ -33,12 +33,14 @@ namespace Parsek.Tests.Logistics
     {
         private static readonly CultureInfo IC = CultureInfo.InvariantCulture;
         private readonly List<string> logLines = new List<string>();
+        private readonly List<string> screenMessages = new List<string>();
 
         public RouteLoopPickupFireTests()
         {
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = false;
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+            ParsekLog.ScreenMessageSinkForTesting = (msg, dur) => screenMessages.Add(msg);
             RouteStore.ResetForTesting();
             Ledger.ResetForTesting();
             RouteOrchestrator.LoopUnitResolverForTesting = null;
@@ -47,6 +49,7 @@ namespace Parsek.Tests.Logistics
             RouteOrchestrator.PickupDebitApplierForTesting = null;
             RouteOrchestrator.InventoryPickupApplierForTesting = null;
             logLines.Clear();
+            screenMessages.Clear();
         }
 
         public void Dispose()
@@ -736,6 +739,97 @@ namespace Parsek.Tests.Logistics
                 BuildLoopRoute(deliveryManifest: new Dictionary<string, double>())));
             Assert.False(RouteOrchestrator.RouteHasDeliveryManifest(
                 BuildLoopRoute(pickupManifest: M(("Ore", 50.0))))); // pure-pickup
+        }
+
+        // ==================================================================
+        // SENDONCE-RESIDUAL-PATHS item 4: a pure-PICKUP cycle honors the arm
+        // ==================================================================
+
+        // THE item-4 defect. EmitLoopCycle's no-delivery-manifest else branch bumps
+        // CompletedCycles and returns; the armed tail lives inside ApplyDelivery,
+        // which that branch never calls. So a Send Once on a pickup-only single-stop
+        // route completed its cycle and kept looping with BOTH flags armed - the same
+        // end state as the blocked defect (#1582) reached through a different door,
+        // and disagreeing with the BLOCKED resolution of the very same route (which
+        // pauses, via TryHonorArmedPauseOnBlockedCycle). The pickup must still fire,
+        // the cycle must still count, and the route must END Paused with the flags
+        // consumed and exactly ONE toast.
+        [Fact]
+        public void SendOnceArmed_PurePickupCycle_EndsPaused_ClearsFlags_OneToast()
+        {
+            var route = BuildLoopRoute(pickupManifest: M(("Ore", 50.0)));
+            RouteStore.AddRoute(route);
+            InstallUnitResolver(BuildUnit());
+            InstallFakePickupApplier(endpointPid: 777u);
+            Assert.True(RouteOrchestrator.TrySendOneCycleNow(route, 1100.0));
+
+            RouteOrchestrator.Tick(1150.0, new EligibleEnv());
+
+            // The cycle really fired: dispatch + pickup, no delivery half.
+            Assert.Contains(Ledger.Actions, a => a.Type == GameActionType.RouteDispatched);
+            Assert.Contains(Ledger.Actions, a => a.Type == GameActionType.RouteCargoPickedUp);
+            Assert.DoesNotContain(Ledger.Actions, a => a.Type == GameActionType.RouteCargoDelivered);
+            Assert.Equal(1, route.CompletedCycles);
+
+            // ...and it consumed the one-shot.
+            Assert.Equal(RouteStatus.Paused, route.Status);
+            Assert.False(route.PauseAfterCurrentCycle);
+            Assert.False(route.SendOnceArmed);
+
+            var paused = Assert.Single(
+                Ledger.Actions.Where(a => a.Type == GameActionType.RoutePaused).ToList());
+            Assert.Equal("delivered-then-paused", paused.RouteEndpointReason);
+            // Last stop's stride block + 4 (single stop -> 4), the same slot the
+            // single-stop delivered tail uses.
+            Assert.Equal(4, paused.Sequence);
+
+            string toast = Assert.Single(screenMessages);
+            Assert.Contains("Send Once", toast);
+            Assert.Contains("Paused", toast);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Route]") && l.Contains("COMPLETED cycle consumed the armed pause")
+                && l.Contains("armedBy=send-once"));
+        }
+
+        // catches: the new call site pausing / toasting an ORDINARY pickup cycle.
+        // Nothing armed -> the helper is a no-op and the route keeps looping.
+        [Fact]
+        public void Unarmed_PurePickupCycle_StaysActive_NoPauseNoToast()
+        {
+            var route = BuildLoopRoute(pickupManifest: M(("Ore", 50.0)));
+            RouteStore.AddRoute(route);
+            InstallUnitResolver(BuildUnit());
+            InstallFakePickupApplier(endpointPid: 777u);
+
+            RouteOrchestrator.Tick(1150.0, new EligibleEnv());
+
+            Assert.Contains(Ledger.Actions, a => a.Type == GameActionType.RouteCargoPickedUp);
+            Assert.Equal(1, route.CompletedCycles);
+            Assert.Equal(RouteStatus.Active, route.Status);
+            Assert.DoesNotContain(Ledger.Actions, a => a.Type == GameActionType.RoutePaused);
+            Assert.Empty(screenMessages);
+        }
+
+        // catches: the pause-after-cycle (non-Send-Once) provenance toasting. It
+        // resolves the same way but is not a run the player is watching for, so it
+        // pauses SILENTLY - the same split the delivered tails apply.
+        [Fact]
+        public void PauseAfterCycleArmed_PurePickupCycle_PausesWithoutToast()
+        {
+            var route = BuildLoopRoute(pickupManifest: M(("Ore", 50.0)));
+            route.PauseAfterCurrentCycle = true; // armed WITHOUT the Send Once provenance
+            RouteStore.AddRoute(route);
+            InstallUnitResolver(BuildUnit());
+            InstallFakePickupApplier(endpointPid: 777u);
+
+            RouteOrchestrator.Tick(1150.0, new EligibleEnv());
+
+            Assert.Equal(RouteStatus.Paused, route.Status);
+            Assert.False(route.PauseAfterCurrentCycle);
+            Assert.Empty(screenMessages);
+            Assert.Contains(logLines, l =>
+                l.Contains("COMPLETED cycle consumed the armed pause")
+                && l.Contains("armedBy=pause-after-cycle"));
         }
     }
 }

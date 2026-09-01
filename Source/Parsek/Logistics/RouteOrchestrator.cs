@@ -2606,6 +2606,21 @@ namespace Parsek.Logistics
                     $"EmitLoopCycle: route {ShortIdForLog(route)} cycle={cycleId} " +
                     $"pure-pickup (no delivery manifest) - delivery half skipped, " +
                     $"bumped completedCycles={route.CompletedCycles.ToString(IC)}");
+
+                // SENDONCE-RESIDUAL-PATHS item 4: this branch IS the cycle's
+                // completion for a pure-PICKUP route, so it owns the armed
+                // one-shot exactly as the multi-stop cycle-completion seam does.
+                // The delivered path resolves the arm inside ApplyDelivery's
+                // BumpCompletedCycle-gated tail, which this branch never calls;
+                // without the call here a Send Once on a pickup-only single-stop
+                // route completed its cycle and kept looping with both flags
+                // armed - the same end state as the blocked defect (#1582),
+                // reached through a different door, and disagreeing with the
+                // BLOCKED resolution of the very same route (which DOES pause,
+                // via TryHonorArmedPauseOnBlockedCycle). Same helper, same
+                // reason/marker/toast contract; a no-op when nothing is armed,
+                // so an ordinary pickup cycle is byte-identical.
+                TryHonorArmedPauseOnCompletedCycle(route, currentUT, env, cycleId);
             }
 
             // M4b escrow-strand fix (PR #1180 review): the single-stop analogue of the
@@ -3834,11 +3849,18 @@ namespace Parsek.Logistics
         }
 
         /// <summary>
-        /// (SENDONCE-RESIDUAL-PATHS item 1) Honors an armed
-        /// <see cref="Route.PauseAfterCurrentCycle"/> at the completion of a
-        /// MULTI-STOP cycle. Sibling of <see cref="TryHonorArmedPauseOnBlockedCycle"/>
-        /// (the blocked resolution) and of <see cref="ApplyDeliveryFromPlan"/>'s
-        /// delivered tail (the single-stop resolution).
+        /// (SENDONCE-RESIDUAL-PATHS items 1 and 4) Honors an armed
+        /// <see cref="Route.PauseAfterCurrentCycle"/> at CYCLE COMPLETION.
+        /// Sibling of <see cref="TryHonorArmedPauseOnBlockedCycle"/> (the blocked
+        /// resolution) and of <see cref="ApplyDeliveryFromPlan"/>'s delivered tail
+        /// (the single-stop DELIVERED resolution).
+        ///
+        /// <para>Two callers, both of which own a cycle completion that no
+        /// delivery tail can: <see cref="ProcessMultiStopCrossings"/>'s
+        /// <c>cycleLastDockReached</c> branch (item 1), and
+        /// <see cref="EmitLoopCycle"/>'s pure-PICKUP branch (item 4), which
+        /// completes a single-stop cycle without ever calling
+        /// <see cref="ApplyDelivery"/>.</para>
         ///
         /// <para><b>Why the caller owns this.</b> A multi-stop cycle fires N delivery
         /// windows under ONE cycleId, so no single window is "the cycle". The
@@ -3860,8 +3882,8 @@ namespace Parsek.Logistics
         /// <see cref="Route.LastPartialDeliveryCycleId"/> report that
         /// <see cref="ApplyDeliveryFromPlan"/> maintains across the cycle's windows.</para>
         ///
-        /// <para>Idempotent: a no-op when nothing is armed, so the single-stop /
-        /// legacy path (which resolves inside <see cref="ApplyDeliveryFromPlan"/>) is
+        /// <para>Idempotent: a no-op when nothing is armed, so the single-stop
+        /// DELIVERED path (which resolves inside <see cref="ApplyDeliveryFromPlan"/>) is
         /// untouched, and a multi-stop cycle whose completing window already consumed
         /// the flags cannot double-pause. Returns true when the pause was honored (the
         /// caller must then stop processing further owed cycles this tick).</para>
@@ -5251,15 +5273,35 @@ namespace Parsek.Logistics
         /// stop-snapshot walk byte-identical, so existing routes keep their
         /// exact cost. Both the eligibility gate and the emit recompute call
         /// this one method, so they always pick the same basis.</para>
+        ///
+        /// <para><b>Snapshot-less root fallback</b>
+        /// (ROUTE-DISPATCH-COST-FREE-ON-SNAPSHOTLESS-ROOT). The always-tree ROOT is
+        /// created with a <c>GhostVisualSnapshot</c> only and receives its
+        /// <c>VesselSnapshot</c> at the first stop/split capture site, so a root that
+        /// never reaches one - the rover-route shape: a runway stub ending at the
+        /// transport's undock split, 0 trajectory points - keeps
+        /// <c>VesselSnapshot == null</c> forever and used to make the whole KSC
+        /// dispatch FREE in career (the zero fed BOTH the funds eligibility gate and
+        /// the charge). When the root has no snapshot the PARTS basis falls back to
+        /// the FIRST <see cref="Route.SourceRefs"/> member, in order, whose ERS
+        /// recording carries one; the RESOURCE basis still prefers the ROOT's complete
+        /// run manifest (the launch load is the root's fact, and the root carries the
+        /// manifest even when it carries no snapshot), falling back to the chosen
+        /// member's snapshot resources through the legacy walk. Members whose snapshot
+        /// describes a COMBINED (dock-merged) vessel are skipped by
+        /// <see cref="IsCombinedVesselSourceMember"/> - pricing a dispatch from the
+        /// transport-plus-endpoint snapshot would charge for the destination station.
+        /// Only when NO member carries a usable snapshot does the method still return
+        /// 0, and that case now says "uncosted" in its own rate-limited line (this
+        /// method runs per UI repaint).</para>
         /// </summary>
         internal static double ComputeDispatchFundsCostForRoute(Route route)
         {
             if (route == null || route.SourceRefs == null || route.SourceRefs.Count == 0)
                 return 0.0;
 
-            // v0 routes have a single source recording — chain-source routes
-            // will pick the first/transport recording once multi-source funds
-            // computation is specified.
+            // The PREFERRED basis stays SourceRefs[0], the tree ROOT (the member
+            // list is ordered by TreeOrder then recording id at build time).
             string sourceId = route.SourceRefs[0]?.RecordingId;
             if (string.IsNullOrEmpty(sourceId))
                 return 0.0;
@@ -5267,35 +5309,66 @@ namespace Parsek.Logistics
             var ers = SafeComputeErs();
             if (ers == null) return 0.0;
 
-            Recording source = null;
-            for (int i = 0; i < ers.Count; i++)
-            {
-                var rec = ers[i];
-                if (rec != null && string.Equals(rec.RecordingId, sourceId, StringComparison.Ordinal))
-                {
-                    source = rec;
-                    break;
-                }
-            }
-            if (source == null || source.VesselSnapshot == null)
-            {
-                ParsekLog.Verbose(Tag,
-                    $"ComputeDispatchFundsCostForRoute: route {ShortIdForLog(route)} source " +
-                    $"recording {sourceId} not in ERS or has no VesselSnapshot; cost=0");
-                return 0.0;
-            }
+            Recording root = FindErsRecording(ers, sourceId);
 
             // D9 basis selection: launch manifest only from a COMPLETE run
             // manifest (same gate as the analysis presence gate); anything
-            // else stays on the legacy stop-snapshot walk.
-            RouteRunCargoManifest runManifest = source.RouteRunManifest;
+            // else stays on the legacy stop-snapshot walk. Read off the ROOT
+            // even on the fallback path - the launch load is the root's fact.
+            RouteRunCargoManifest runManifest = root?.RouteRunManifest;
             Dictionary<string, ResourceAmount> startResources =
                 runManifest != null && runManifest.IsComplete
                     ? runManifest.StartTransportResources
                     : null;
 
+            Recording partsBasis = root != null && root.VesselSnapshot != null ? root : null;
+            bool fallback = false;
+            if (partsBasis == null)
+            {
+                // Walk the remaining members IN ORDER and take the first one whose
+                // ERS recording carries a real (single-vessel) snapshot.
+                for (int i = 1; i < route.SourceRefs.Count; i++)
+                {
+                    RouteSourceRef memberRef = route.SourceRefs[i];
+                    string memberId = memberRef?.RecordingId;
+                    if (string.IsNullOrEmpty(memberId)) continue;
+
+                    Recording member = FindErsRecording(ers, memberId);
+                    if (member == null || member.VesselSnapshot == null) continue;
+                    if (IsCombinedVesselSourceMember(route, memberRef, member))
+                    {
+                        ParsekLog.Verbose(Tag,
+                            $"FundsCost: route {ShortIdForLog(route)} skipping member {memberId} " +
+                            "as a costing basis - dock-merged (combined-vessel) snapshot");
+                        continue;
+                    }
+
+                    partsBasis = member;
+                    fallback = true;
+                    ParsekLog.Verbose(Tag,
+                        $"FundsCost: route {ShortIdForLog(route)} root {sourceId} " +
+                        $"{(root == null ? "not in ERS" : "has no VesselSnapshot")} - parts basis " +
+                        $"falls back to member {memberId}");
+                    break;
+                }
+            }
+
+            if (partsBasis == null)
+            {
+                // Every member is missing from ERS or snapshot-less: there is no
+                // basis to price from, so the dispatch is UNCOSTED (a career KSC
+                // dispatch is silently free). Rate-limited because this method
+                // runs per UI repaint; deliberately distinct wording from the
+                // per-member fallback breadcrumb above.
+                ParsekLog.VerboseRateLimited(Tag, "funds-cost-uncosted-" + route.Id,
+                    $"FundsCost: route {ShortIdForLog(route)} UNCOSTED - no SourceRefs member " +
+                    $"(of {route.SourceRefs.Count.ToString(IC)}, root {sourceId}) is in ERS with a " +
+                    "usable VesselSnapshot; cost=0 (a career KSC dispatch charges nothing)");
+                return 0.0;
+            }
+
             double cost = RouteFundsCalculator.ComputeDispatchFundsCost(
-                source.VesselSnapshot,
+                partsBasis.VesselSnapshot,
                 startResources,
                 LiveRouteRuntimeEnvironment.LookupPartCost,
                 LiveRouteRuntimeEnvironment.LookupResourceUnitCost);
@@ -5303,8 +5376,76 @@ namespace Parsek.Logistics
             ParsekLog.Verbose(Tag,
                 $"FundsCost basis={(startResources != null ? "launch-manifest" : "stop-snapshot")} " +
                 $"route={ShortIdForLog(route)} source={sourceId} " +
+                $"snapshotSource={partsBasis.RecordingId} fallback={(fallback ? "1" : "0")} " +
                 $"cost={cost.ToString("R", CultureInfo.InvariantCulture)}");
             return cost;
+        }
+
+        /// <summary>
+        /// Linear ERS lookup by recording id, shared by
+        /// <see cref="ComputeDispatchFundsCostForRoute"/>'s root read and its
+        /// member fallback walk. Returns null when the id is absent.
+        /// </summary>
+        private static Recording FindErsRecording(IReadOnlyList<Recording> ers, string recordingId)
+        {
+            if (ers == null || string.IsNullOrEmpty(recordingId)) return null;
+            for (int i = 0; i < ers.Count; i++)
+            {
+                Recording rec = ers[i];
+                if (rec != null && string.Equals(rec.RecordingId, recordingId, StringComparison.Ordinal))
+                    return rec;
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// True when a <see cref="Route.SourceRefs"/> member's
+        /// <c>VesselSnapshot</c> describes a COMBINED vessel (the transport docked
+        /// to its partner) rather than the transport alone, so it must never become
+        /// the dispatch costing basis - pricing from it would charge the player for
+        /// the destination station's parts on every cycle.
+        ///
+        /// <para>Three positive facts, any of which identifies a dock-merged
+        /// member. (1) It carries a <c>RouteConnectionWindow</c>: the ONLY writer of
+        /// that list is <c>ParsekFlight</c>'s dock-merge site, which stamps it on the
+        /// merged child alongside the merged (combined) snapshot, so carrying a
+        /// window IS being a merged child - and this catches BOTH merged members that
+        /// can appear in the set, the delivery leaf and the M-MIS-5 origin carrier.
+        /// (2) Its id is the route's own <see cref="Route.DockMemberRecordingId"/> -
+        /// the route's persisted naming of that leaf, which still holds if the
+        /// recording reached ERS without its proof metadata. (3) Its recording STARTS
+        /// at or after the route's <see cref="Route.RecordedDockUT"/> - the merged
+        /// child begins at the dock instant, and so does anything split off it
+        /// afterwards.</para>
+        ///
+        /// <para>Applies to the FALLBACK walk only: <c>SourceRefs[0]</c> stays the
+        /// preferred basis unconditionally, so a route already costing from its root
+        /// is byte-identical.</para>
+        /// </summary>
+        internal static bool IsCombinedVesselSourceMember(
+            Route route, RouteSourceRef memberRef, Recording member)
+        {
+            if (member == null) return false;
+
+            if (member.RouteConnectionWindows != null && member.RouteConnectionWindows.Count > 0)
+                return true;
+
+            if (route != null && !string.IsNullOrEmpty(route.DockMemberRecordingId)
+                && string.Equals(member.RecordingId, route.DockMemberRecordingId, StringComparison.Ordinal))
+                return true;
+
+            if (route != null && route.RecordedDockUT > 0.0)
+            {
+                // Prefer the ref's persisted StartUT (the value the route was built
+                // with); fall back to the live recording's own start.
+                double startUT = memberRef != null && memberRef.StartUT > 0.0
+                    ? memberRef.StartUT
+                    : member.StartUT;
+                if (startUT > 0.0 && startUT >= route.RecordedDockUT)
+                    return true;
+            }
+
+            return false;
         }
 
         /// <summary>

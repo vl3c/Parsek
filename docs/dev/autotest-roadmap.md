@@ -2201,8 +2201,9 @@ endpoint, 97.6 LiquidFuel + two inventory parts across the window, route
 `fd6ee2ff` created and Send-Once'd live. That one manual session paid for
 itself three times over before any lane existed: it found and same-day-fixed
 SENDONCE-BLOCKED-CYCLE-NEVER-PAUSES (a blocked cycle consumed a Send Once but
-left the route Active and ghost-looping forever), exposed the still-open
-ROUTE-DISPATCH-COST-FREE-ON-SNAPSHOTLESS-ROOT career defect, and produced the
+left the route Active and ghost-looping forever), exposed the
+ROUTE-DISPATCH-COST-FREE-ON-SNAPSHOTLESS-ROOT career defect (fixed 2026-09-01,
+which is what unblocks Tier C below), and produced the
 exact fixture shape `test_hlib.py`'s skip roster names as "a HARVEST
 requirement" (the target-branch dock window + cross-tree committed partner
 that no orbital fixture can produce, because the two docking craft there are
@@ -2341,14 +2342,19 @@ Lessons already banked from the manual flight - read before authoring any lane:
    branch the fix wave also patched but no flight has ever driven).
 8. **Round-trip pair.** A->B->A with cargo both legs (D10 `round-trip-pair`).
 
-### Tier C - economics (career), blocked on a product decision
+### Tier C - economics (career)
 
-9. **Costed dispatch.** BLOCKED on fixing
-   ROUTE-DISPATCH-COST-FREE-ON-SNAPSHOTLESS-ROOT (todo): today any route whose
-   tree root lacks a `VesselSnapshot` - exactly the rover shape - dispatches
-   for free in career. After the fix: a career lane pinning `DispatchDebit`
-   > 0, the funds-short hold (`hold-reasons` career flavor), and the
-   KSC recovery credit, against the ledger oracle.
+9. **Costed dispatch.** **UNBLOCKED 2026-09-01** -
+   ROUTE-DISPATCH-COST-FREE-ON-SNAPSHOTLESS-ROOT is fixed (the costing basis
+   falls back to the first `SourceRefs` member carrying a single-vessel
+   snapshot, so the rover shape - a snapshot-less runway-stub root - now prices
+   a dispatch instead of returning 0). LANE STILL TO AUTHOR, never flown: a
+   career lane pinning `DispatchDebit` > 0, the funds-short hold
+   (`hold-reasons` career flavor), and the KSC recovery credit, against the
+   ledger oracle. The fix also gives the lane its own negative control - the
+   grep-stable `FundsCost basis=... snapshotSource=... fallback=1` line names
+   which member was priced, and the rate-limited `FundsCost: ... UNCOSTED`
+   line is what a genuinely free dispatch now looks like in the log.
 10. **Escrow competition.** Two routes sharing one physical source (D10
     `multi-origin-escrow`); the reservation/release invariant has unit
     coverage but no driven lane.
@@ -2397,8 +2403,9 @@ Lessons already banked from the manual flight - read before authoring any lane:
 
 Sequencing: Tier A rides this branch. Tier B lanes are operator-tier
 calibration flights, one at a time, each following the RVR template; B4 first
-(it is the only one that also closes an in-game skip). Tier C waits on the
-cost-fix decision. Tier D items ride along whenever their sibling program
+(it is the only one that also closes an in-game skip). Tier C is no longer
+gated on the cost fix (landed 2026-09-01); its two lanes are simply unauthored.
+Tier D items ride along whenever their sibling program
 (loop-render / ghost-replay) is already paying the flight cost. The standing
 verdict - the nightly lane does not grow until the basics are gated - stands
 unamended here too.
