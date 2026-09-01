@@ -1344,6 +1344,16 @@
         "2026-09-01T20:50:05Z": 51.0
       }
     },
+    "RVR-4-rover-route-career-cost": {
+      "last": 52.0,
+      "lastVsP50": 1.0,
+      "n": 1,
+      "p50": 52.0,
+      "p95": 52.0,
+      "samples": {
+        "2026-09-01T22:54:30Z": 52.0
+      }
+    },
     "S0.10-automerge-limbo-warm-exit": {
       "last": 54.0,
       "lastVsP50": 1.0,
