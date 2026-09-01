@@ -60,6 +60,10 @@ namespace Parsek.Tests
             // Clearing the sink does not touch the flag.
             ParsekLog.TestSinkForTesting = null;
             Assert.True(ParsekLog.SuppressLogging);
+
+            // This class has no Dispose; do not leave the flag suppressed for the observer
+            // seam, which the sink setter deliberately does not cover.
+            ParsekLog.ResetTestOverrides();
         }
 
         [Fact]
