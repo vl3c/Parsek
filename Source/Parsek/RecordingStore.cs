@@ -4631,6 +4631,7 @@ namespace Parsek
             committedRecordings.Clear();
             committedTrees.Clear();
             BumpStateVersion();
+            ResetOptimizationNotificationsForTesting();
             RecordingGroupStore.ResetForTesting();
             durableCommittedRecordingIdHint = null;
             pendingTree = null;

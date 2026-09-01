@@ -115,6 +115,72 @@ namespace Parsek
             return true;
         }
 
+        /// <summary>
+        /// Pure: the tracked committed index after the optimization pass removed
+        /// <paramref name="removedIndex"/>. Untracked (-1) stays untracked; an index above the
+        /// removal shifts down; the removed index itself is returned unchanged so the id
+        /// guard in <see cref="TryGetContinuationRecording"/> reports the mismatch.
+        /// </summary>
+        internal static int ShiftTrackedIndexAfterRemoval(int trackedIndex, int removedIndex)
+        {
+            if (trackedIndex < 0) return trackedIndex;
+            return trackedIndex > removedIndex ? trackedIndex - 1 : trackedIndex;
+        }
+
+        /// <summary>
+        /// Pure: the tracked committed index after the optimization pass inserted a split
+        /// second half at <paramref name="insertedIndex"/>. Untracked (-1) stays untracked;
+        /// an index at or above the insert shifts up.
+        /// </summary>
+        internal static int ShiftTrackedIndexAfterInsert(int trackedIndex, int insertedIndex)
+        {
+            if (trackedIndex < 0) return trackedIndex;
+            return trackedIndex >= insertedIndex ? trackedIndex + 1 : trackedIndex;
+        }
+
+        /// <summary>
+        /// Keeps the two continuation indices aligned with the committed list after the
+        /// optimization pass removed a merge-absorbed recording at <paramref name="index"/>.
+        /// A continuation whose own recording was absorbed keeps its index: the id guard
+        /// fires on the next sample and the Warn below names the cause up front.
+        /// </summary>
+        internal void OnCommittedRecordingRemoved(int index)
+        {
+            if (ContinuationRecordingIdx == index)
+                ParsekLog.Warn("Chain",
+                    $"Optimization pass removed continuation recording #{index} (id={ContinuationRecordingId}) - " +
+                    "continuation sampling will stop on the id guard");
+            if (UndockContinuationRecIdx == index)
+                ParsekLog.Warn("Chain",
+                    $"Optimization pass removed undock continuation recording #{index} (id={UndockContinuationRecId}) - " +
+                    "undock continuation sampling will stop on the id guard");
+
+            int before = ContinuationRecordingIdx;
+            ContinuationRecordingIdx = ShiftTrackedIndexAfterRemoval(ContinuationRecordingIdx, index);
+            int undockBefore = UndockContinuationRecIdx;
+            UndockContinuationRecIdx = ShiftTrackedIndexAfterRemoval(UndockContinuationRecIdx, index);
+            if (before != ContinuationRecordingIdx || undockBefore != UndockContinuationRecIdx)
+                ParsekLog.Info("Chain",
+                    $"Optimization pass removed committed #{index} - continuation indices shifted " +
+                    $"continuation={before}->{ContinuationRecordingIdx} undock={undockBefore}->{UndockContinuationRecIdx}");
+        }
+
+        /// <summary>
+        /// Insert mirror of <see cref="OnCommittedRecordingRemoved"/> for the optimizer's
+        /// split second half inserted at <paramref name="index"/>.
+        /// </summary>
+        internal void OnCommittedRecordingInserted(int index)
+        {
+            int before = ContinuationRecordingIdx;
+            ContinuationRecordingIdx = ShiftTrackedIndexAfterInsert(ContinuationRecordingIdx, index);
+            int undockBefore = UndockContinuationRecIdx;
+            UndockContinuationRecIdx = ShiftTrackedIndexAfterInsert(UndockContinuationRecIdx, index);
+            if (before != ContinuationRecordingIdx || undockBefore != UndockContinuationRecIdx)
+                ParsekLog.Info("Chain",
+                    $"Optimization pass inserted committed #{index} - continuation indices shifted " +
+                    $"continuation={before}->{ContinuationRecordingIdx} undock={undockBefore}->{UndockContinuationRecIdx}");
+        }
+
         // Continuation adaptive sampling thresholds (read from settings, same as FlightRecorder)
         private static float ContinuationMinInterval =>
             ParsekSettings.Current?.minSampleInterval ?? ParsekSettings.GetMinSampleInterval(SamplingDensity.Medium);

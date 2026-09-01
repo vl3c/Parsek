@@ -265,6 +265,9 @@ namespace Parsek
         }
         private int[] sortedIndices; // maps display row -> CommittedRecordings index
         private int lastSortedCount = -1;
+        // A count-only gate misses a same-count restructure (the optimizer's merge + split
+        // nets zero), so the rebuild is also keyed on the store's StateVersion.
+        private int lastSortedStateVersion = int.MinValue;
 
         // Dock-partner naming (design-dock-event-graph.md 6.5 / 7.6): the global dock-event
         // graph, fetched at most once per frame so a per-row tooltip lookup is a dictionary hit
@@ -4592,14 +4595,33 @@ namespace Parsek
         private void InvalidateSort()
         {
             lastSortedCount = -1;
+            lastSortedStateVersion = int.MinValue;
+        }
+
+        /// <summary>
+        /// Pure: whether the cached row-to-index map still describes the committed list.
+        /// Current only when it exists and both the count and the store StateVersion it
+        /// was built against are unchanged.
+        /// </summary>
+        internal static bool IsSortedIndicesCurrent(
+            bool hasSortedIndices, int lastCount, int lastStateVersion,
+            int committedCount, int stateVersion)
+        {
+            return hasSortedIndices
+                && lastCount == committedCount
+                && lastStateVersion == stateVersion;
         }
 
         private void RebuildSortedIndices(IReadOnlyList<Recording> committed, double now)
         {
-            if (sortedIndices != null && lastSortedCount == committed.Count)
+            int stateVersion = RecordingStore.StateVersion;
+            if (IsSortedIndicesCurrent(
+                    sortedIndices != null, lastSortedCount, lastSortedStateVersion,
+                    committed.Count, stateVersion))
                 return;
 
             lastSortedCount = committed.Count;
+            lastSortedStateVersion = stateVersion;
             sortedIndices = new int[committed.Count];
             for (int i = 0; i < committed.Count; i++)
                 sortedIndices[i] = i;

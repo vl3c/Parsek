@@ -8,6 +8,24 @@ All notable changes to Parsek are documented here.
 
 _(unreleased — entries accumulate here per commit)_
 
+### Fixes
+
+- **The mid-session optimization pass now tells the rest of the mod when it
+  restructures the recordings list.** Merging to the timeline or committing a chain
+  segment runs the same merge/split pass that runs at load, and that pass removes
+  merge-absorbed recordings and inserts split second halves in the middle of the
+  committed list. It never bumped the store's state version, so the effective
+  recording set could keep serving a pre-pass cached list, and it never told the
+  ghost engine, watch mode, chain continuation or the recordings table that indices
+  had moved, so every index-keyed slot above the change could point one recording
+  off (a real ghost playing another recording's trajectory, a watched ghost jumping
+  to its neighbour, a continuation stopping on an id mismatch). The pass now bumps
+  the state version whenever it merged or split anything, and raises removing /
+  removed / inserted notifications that the flight controller consumes exactly the
+  way a manual delete already did (plus a new insert-side reindex mirror); the
+  recordings table re-sorts on the state version as well as the row count. Load-time
+  passes were already harmless (stores rebuild afterwards) and stay so.
+
 ---
 
 ## 0.10.4

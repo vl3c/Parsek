@@ -8869,6 +8869,51 @@ namespace Parsek
             }
         }
 
+        /// <summary>
+        /// Mirror of <see cref="ReindexAfterDelete"/> for a mid-list insert into the committed
+        /// list (the optimizer's split second half): keys at or above the inserted index shift
+        /// up by 1, nothing is dropped. The slot at <paramref name="insertedIndex"/> is left
+        /// empty for the new recording to spawn into through the normal path.
+        /// </summary>
+        internal void ReindexAfterInsert(int insertedIndex)
+        {
+            autoLoopLaunchSchedules.Clear();
+            autoLoopQueueScratch.Clear();
+            lastUnitSelection.Clear();
+            ReindexDictAfterInsert(ghostStates, insertedIndex);
+            ReindexDictAfterInsert(overlapGhosts, insertedIndex);
+            ReindexDictAfterInsert(loopPhaseOffsets, insertedIndex);
+            ReindexDictAfterInsert(chainBridgeOpenedUT, insertedIndex);
+            ReindexSetAfterInsert(loggedGhostEnter, insertedIndex);
+            ReindexSetAfterInsert(loggedReshow, insertedIndex);
+            ReindexSetAfterInsert(completedEventFired, insertedIndex);
+            ReindexSetAfterInsert(earlyDestroyedDebrisCompleted, insertedIndex);
+        }
+
+        private static void ReindexDictAfterInsert<T>(Dictionary<int, T> dict, int insertedIndex)
+        {
+            var keys = new List<int>(dict.Keys);
+            // Descending so key k moves into k+1 only after k+1 has itself moved on.
+            keys.Sort((a, b) => b.CompareTo(a));
+            foreach (int key in keys)
+            {
+                if (key >= insertedIndex)
+                {
+                    var value = dict[key];
+                    dict.Remove(key);
+                    dict[key + 1] = value;
+                }
+            }
+        }
+
+        private static void ReindexSetAfterInsert(HashSet<int> set, int insertedIndex)
+        {
+            var items = new List<int>(set);
+            set.Clear();
+            foreach (int item in items)
+                set.Add(item >= insertedIndex ? item + 1 : item);
+        }
+
         #endregion
 
         #region Dispose

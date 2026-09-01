@@ -1313,6 +1313,12 @@ namespace Parsek
             // delegates verbatim to policy.CheckPendingMapVessels; relocating the body is Phase 8d.1.
             mapViewScene.SetPresenceDriver(policy);
 
+            // The optimization pass restructures the committed list mid-session (tree commit,
+            // chain-segment commit); every index-keyed slot here must shift with it.
+            RecordingStore.OptimizationRecordingRemoving += OnOptimizationRecordingRemoving;
+            RecordingStore.OptimizationRecordingRemoved += OnOptimizationRecordingRemoved;
+            RecordingStore.OptimizationRecordingInserted += OnOptimizationRecordingInserted;
+
             // Clean up any orphaned toolbar from rapid scene transitions (e.g. rewind)
             if (toolbarControl != null)
             {
@@ -2197,6 +2203,9 @@ namespace Parsek
                 engine.OnLoopCameraAction -= watchMode.HandleLoopCameraAction;
                 engine.OnOverlapCameraAction -= watchMode.HandleOverlapCameraAction;
             }
+            RecordingStore.OptimizationRecordingRemoving -= OnOptimizationRecordingRemoving;
+            RecordingStore.OptimizationRecordingRemoved -= OnOptimizationRecordingRemoved;
+            RecordingStore.OptimizationRecordingInserted -= OnOptimizationRecordingInserted;
 
             // Clean up engine + policy (engine.Dispose calls DestroyAllGhosts internally)
             policy?.Dispose();
@@ -19491,6 +19500,65 @@ namespace Parsek
             policy.RemovePendingSpawn(rec.RecordingId);
 
             ParsekLog.ScreenMessage($"Recording '{rec.VesselName}' deleted", 2f);
+        }
+
+        /// <summary>
+        /// Optimization-pass mirror of <see cref="DeleteRecording"/>'s pre-removal block. Fires
+        /// while the committed list is still unshifted, so the engine's OnGhostDestroyed
+        /// subscribers (GhostMapPresence's index-keyed teardown) read the right recording.
+        /// </summary>
+        private void OnOptimizationRecordingRemoving(int index, Recording removed)
+        {
+            if (engine == null) return;
+            ParsekLog.Info("Flight",
+                $"Optimization pass removing committed recording #{index} " +
+                $"('{removed?.VesselName}', id={removed?.RecordingId}) - destroying its ghost state");
+            DestroyAllOverlapGhosts(index);
+            engine.DestroyGhost(index, reason: "optimization-merge-absorbed");
+        }
+
+        /// <summary>
+        /// Optimization-pass mirror of <see cref="DeleteRecording"/>'s post-removal block:
+        /// the committed list has shifted down above <paramref name="index"/>, so every
+        /// index-keyed slot (engine dicts, watch-mode index, continuation indices, orbit and
+        /// map-marker caches) shifts with it.
+        /// </summary>
+        private void OnOptimizationRecordingRemoved(int index, Recording removed)
+        {
+            if (engine == null) return;
+            watchMode.OnRecordingDeleted(index);
+            engine.ReindexAfterDelete(index);
+            chainManager.OnCommittedRecordingRemoved(index);
+            ClearOrbitPlaybackCaches();
+            ui?.ClearMapMarkerCache();
+            loggedOrbitSegments.Clear();
+            loggedOrbitRotationSegments.Clear();
+            if (removed != null)
+                policy.RemovePendingSpawn(removed.RecordingId);
+            ParsekLog.Info("Flight",
+                $"Optimization pass removed committed recording #{index} - reindexed engine, watch and chain state " +
+                $"(ghostStates={engine.ghostStates.Count}, committed={RecordingStore.CommittedRecordings.Count})");
+        }
+
+        /// <summary>
+        /// Insert mirror of <see cref="OnOptimizationRecordingRemoved"/>: the optimizer inserted a
+        /// split second half at <paramref name="index"/>, so every index-keyed slot at or above
+        /// it shifts up by one. The first half keeps its ghost state at <c>index - 1</c> and
+        /// plays its (now shorter) trajectory; the second half spawns through the normal path.
+        /// </summary>
+        private void OnOptimizationRecordingInserted(int index)
+        {
+            if (engine == null) return;
+            engine.ReindexAfterInsert(index);
+            watchMode.OnRecordingInserted(index);
+            chainManager.OnCommittedRecordingInserted(index);
+            ClearOrbitPlaybackCaches();
+            ui?.ClearMapMarkerCache();
+            loggedOrbitSegments.Clear();
+            loggedOrbitRotationSegments.Clear();
+            ParsekLog.Info("Flight",
+                $"Optimization pass inserted committed recording #{index} - reindexed engine, watch and chain state " +
+                $"(ghostStates={engine.ghostStates.Count}, committed={RecordingStore.CommittedRecordings.Count})");
         }
 
         /// <summary>

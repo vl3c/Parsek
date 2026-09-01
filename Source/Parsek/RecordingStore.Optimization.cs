@@ -8,9 +8,84 @@ namespace Parsek
         // ─── Recording optimization ─────────────────────────────────────────
 
         /// <summary>
+        /// Raised by the optimization pass immediately BEFORE it removes a merge-absorbed
+        /// recording from <see cref="committedRecordings"/>. The index still addresses the
+        /// absorbed recording and the list is unshifted, so a subscriber can tear down
+        /// index-keyed ghost state through the same lookups it uses every frame.
+        /// </summary>
+        internal static event Action<int, Recording> OptimizationRecordingRemoving;
+
+        /// <summary>
+        /// Raised immediately AFTER the optimization pass removed a merge-absorbed recording:
+        /// every committed index above <c>index</c> has shifted down by one. Subscribers
+        /// reindex index-keyed state here (the mirror of
+        /// <c>ParsekFlight.DeleteRecording</c>'s post-removal block).
+        /// </summary>
+        internal static event Action<int, Recording> OptimizationRecordingRemoved;
+
+        /// <summary>
+        /// Raised immediately AFTER the optimization pass inserted a split second half at
+        /// <c>index</c>: every committed index at or above it has shifted up by one, and the
+        /// recording at <c>index - 1</c> is the (now truncated) first half.
+        /// </summary>
+        internal static event Action<int> OptimizationRecordingInserted;
+
+        internal static void ResetOptimizationNotificationsForTesting()
+        {
+            OptimizationRecordingRemoving = null;
+            OptimizationRecordingRemoved = null;
+            OptimizationRecordingInserted = null;
+        }
+
+        private static void NotifyOptimizationRecordingRemoving(int index, Recording removed)
+        {
+            var handler = OptimizationRecordingRemoving;
+            if (handler == null) return;
+            try { handler(index, removed); }
+            catch (Exception ex)
+            {
+                ParsekLog.Error("RecordingStore",
+                    $"Optimization pass: OptimizationRecordingRemoving subscriber threw for index={index} " +
+                    $"id={removed?.RecordingId}: {ex}");
+            }
+        }
+
+        private static void NotifyOptimizationRecordingRemoved(int index, Recording removed)
+        {
+            var handler = OptimizationRecordingRemoved;
+            if (handler == null) return;
+            try { handler(index, removed); }
+            catch (Exception ex)
+            {
+                ParsekLog.Error("RecordingStore",
+                    $"Optimization pass: OptimizationRecordingRemoved subscriber threw for index={index} " +
+                    $"id={removed?.RecordingId}: {ex}");
+            }
+        }
+
+        private static void NotifyOptimizationRecordingInserted(int index)
+        {
+            var handler = OptimizationRecordingInserted;
+            if (handler == null) return;
+            try { handler(index); }
+            catch (Exception ex)
+            {
+                ParsekLog.Error("RecordingStore",
+                    $"Optimization pass: OptimizationRecordingInserted subscriber threw for index={index}: {ex}");
+            }
+        }
+
+        /// <summary>
         /// Runs the optimization pass: find merge candidates among committed recordings,
         /// execute merges, re-index chains, then split multi-environment recordings at
-        /// environment boundaries. Called on save load after migrations.
+        /// environment boundaries. Called on save load after migrations, and mid-session
+        /// after every tree commit and chain-segment commit.
+        ///
+        /// Structural changes (a merge removes the absorbed recording mid-list, a split
+        /// inserts the second half mid-list) bump <see cref="StateVersion"/> so the
+        /// <see cref="EffectiveState"/> caches rebuild, and raise the
+        /// <c>OptimizationRecording*</c> notifications so index-keyed live state (ghost
+        /// engine dicts, watch-mode index, continuation indices) reindexes in step.
         /// </summary>
         internal static void RunOptimizationPass()
         {
@@ -23,6 +98,13 @@ namespace Parsek
 
             int mergeCount = RunOptimizationMergePass(recordings);
             int splitCount = RunOptimizationSplitPass(recordings);
+            if (mergeCount > 0 || splitCount > 0)
+            {
+                BumpStateVersion();
+                ParsekLog.Verbose("RecordingStore",
+                    $"Optimization pass: committed list restructured (merges={mergeCount} splits={splitCount}) - " +
+                    $"StateVersion bumped to {StateVersion}");
+            }
             TrimBoringTailsForOptimization(recordings);
 
             // Loop sync pass: link debris recordings to their parent recording
@@ -66,7 +148,9 @@ namespace Parsek
                 UpdateTreeStateAfterOptimizationMerge(target, absorbed);
 
                 // Remove absorbed recording from committed list
+                NotifyOptimizationRecordingRemoving(idxB, absorbed);
                 recordings.RemoveAt(idxB);
+                NotifyOptimizationRecordingRemoved(idxB, absorbed);
 
                 // Delete absorbed recording's sidecar files
                 try { DeleteRecordingFiles(absorbed); }
@@ -184,6 +268,7 @@ namespace Parsek
 
                 // Add to committed recordings (after original)
                 recordings.Insert(recIdx + 1, second);
+                NotifyOptimizationRecordingInserted(recIdx + 1);
 
                 // Update tree dict if applicable
                 if (!string.IsNullOrEmpty(original.TreeId))

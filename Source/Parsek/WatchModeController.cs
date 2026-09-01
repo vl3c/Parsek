@@ -3659,6 +3659,50 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Insert mirror of <see cref="OnRecordingDeleted"/>: the optimization pass inserted a
+        /// split second half at <paramref name="index"/>, so a watched or lineage-protected
+        /// index at or above it moved up by one. Called from ParsekFlight's
+        /// OptimizationRecordingInserted handler after the committed list has shifted.
+        /// </summary>
+        internal void OnRecordingInserted(int index)
+        {
+            if (watchedRecordingIndex >= 0)
+            {
+                var result = ComputeWatchIndexAfterInsert(
+                    watchedRecordingIndex, watchedRecordingId, index,
+                    RecordingStore.CommittedRecordings);
+                if (result.newIndex < 0)
+                {
+                    ParsekLog.Warn("CameraFollow",
+                        $"Watched recording \"{watchedRecordingId}\" not found after insert at #{index} - auto-exiting watch mode");
+                    ExitWatchMode();
+                }
+                else if (result.newIndex != watchedRecordingIndex)
+                {
+                    ParsekLog.Info("CameraFollow",
+                        $"Recording inserted at #{index} - watchedRecordingIndex adjusted from {watchedRecordingIndex} to {result.newIndex}");
+                    watchedRecordingIndex = result.newIndex;
+                }
+            }
+
+            if (lineageProtectionRecordingIndex >= 0)
+            {
+                var protectionResult = ComputeWatchIndexAfterInsert(
+                    lineageProtectionRecordingIndex, lineageProtectionRecordingId, index,
+                    RecordingStore.CommittedRecordings);
+                if (protectionResult.newIndex < 0)
+                {
+                    ClearLineageProtection(
+                        $"Protected watch-lineage root \"{lineageProtectionRecordingId}\" not found after insert at #{index} - clearing retained debris protection");
+                }
+                else
+                {
+                    lineageProtectionRecordingIndex = protectionResult.newIndex;
+                }
+            }
+        }
+
+        /// <summary>
         /// Handles vessel switch re-targeting: when KSP switches the active vessel
         /// while in watch mode, re-point the camera at the watched ghost.
         /// </summary>

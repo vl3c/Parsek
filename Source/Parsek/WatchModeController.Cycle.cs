@@ -123,5 +123,34 @@ namespace Parsek
             // Not found -- exit watch mode
             return (-1, null);
         }
+
+        /// <summary>
+        /// Pure static helper, the insert mirror of <see cref="ComputeWatchIndexAfterDelete"/>:
+        /// computes the new watch index after a recording was inserted at
+        /// <paramref name="insertedIndex"/> (the optimizer's split second half). Indices at or
+        /// above the insert shift up by one; the result is verified by id against the
+        /// post-insert list and falls back to an id scan. Returns newIndex=-1 only when the
+        /// watched id is no longer in the list at all.
+        /// </summary>
+        internal static (int newIndex, string newId) ComputeWatchIndexAfterInsert(
+            int watchedIndex, string watchedId, int insertedIndex,
+            IReadOnlyList<Recording> recordings)
+        {
+            int newIndex = watchedIndex >= insertedIndex ? watchedIndex + 1 : watchedIndex;
+
+            if (newIndex >= 0 && newIndex < recordings.Count &&
+                recordings[newIndex].RecordingId == watchedId)
+            {
+                return (newIndex, watchedId);
+            }
+
+            for (int j = 0; j < recordings.Count; j++)
+            {
+                if (recordings[j].RecordingId == watchedId)
+                    return (j, watchedId);
+            }
+
+            return (-1, null);
+        }
     }
 }
