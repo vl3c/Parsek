@@ -79,33 +79,99 @@ modulo-skipped window to a send-once arm, but that window emits nothing, bumps n
 next deliverable window, which is the intended "every Nth window" semantics. So the skip is not
 a consumed cycle and must not honor the pause. No change made.
 
-## SENDONCE-RESIDUAL-PATHS: three Send-Once arm paths the blocked-cycle fix deliberately did not take, surfaced by PR #1582's clean review [FOUND 2026-08-30 by the pre-merge review of the fix. ALL PRE-EXISTING (none introduced by the fix); filed together because they are one family: "which cycle resolutions consume the arm, and does every consumer say so"]
+## SENDONCE-RESIDUAL-PATHS: three Send-Once arm paths the blocked-cycle fix deliberately did not take, surfaced by PR #1582's clean review [FOUND 2026-08-30 by the pre-merge review of the fix. ALL PRE-EXISTING (none introduced by the fix); filed together because they are one family: "which cycle resolutions consume the arm, and does every consumer say so". Items 1 and 2 FIXED 2026-09-01; item 3 CLASSIFIED and left open by design; item 4 ADDED 2026-09-01 from the same family, found while fixing 1 and 2 - see below]
 
-**1. Multi-stop delivered path can end a Send Once ACTIVE (the fixed defect's delivered-side
-sibling).** `ProcessMultiStopCrossings` fires every due window of the cycle in one pass with no
-status re-check, and `ApplyDeliveryFromPlan`'s armed tail runs PER WINDOW: window A's delivery
-consumes the arm and pauses (now with a toast saying "Paused"), then window B's delivery in the
-same pass sees the flag already cleared, falls into the ordinary else, and transitions the route
-BACK to Active. Related: the catch-up `while (stillDue)` loop never re-checks status between
-passes, so a route paused by window A of pass 1 can have pass 2 dispatch + debit a whole new
-cycle (the blocked branch got the `stillDue = false` guard in the fix; the delivered branch has
-no equivalent). Multi-stop routes have unit coverage only - no driven lane, and no known
-real-save multi-stop route exists yet - which is why this was deferred rather than rushed into
-the release PR. Fix shape: honor the armed tail at CYCLE completion (last window), not per
-window, and stop the catch-up loop on any mid-tick departure from ghost-driving status.
+**~~1. Multi-stop delivered path can end a Send Once ACTIVE (the fixed defect's delivered-side
+sibling).~~** [FIXED 2026-09-01] `ProcessMultiStopCrossings` fired every due window of the cycle
+in one pass with no status re-check, and `ApplyDeliveryFromPlan`'s armed tail ran PER WINDOW:
+window A's delivery consumed the arm and paused (with a toast saying "Paused"), then window B's
+delivery in the same pass saw the flag already cleared, fell into the ordinary else, and
+transitioned the route BACK to Active. Related: the catch-up `while (stillDue)` loop never
+re-checked status between passes, so a route paused by window A of pass 1 could have pass 2
+dispatch + debit a whole new cycle (the blocked branch got the `stillDue = false` guard in the
+fix; the delivered branch had no equivalent).
 
-**2. The ELS replay backstop consumes the arm silently.** `ApplyDelivery`'s replay branch
-(`delivered-replay-then-paused`) pauses without a toast - the one resolution shape where the
-player is MOST likely to click again (the run produced no new delivery). Deliberate in the fix
-(no delivery counts available there); a counts-free "already delivered - route is now Paused"
-toast would close it.
+Fix: the arm is honored at CYCLE completion, never per window, keyed to the signal that ALREADY
+means "this delivery is the cycle" - `ApplyDeliveryContext.BumpCompletedCycle`, which is true
+only on the single-stop / legacy path and false on EVERY multi-stop window (a pickup-only last
+window still completes a cycle, so no delivery window can be trusted to be "the" one). Both
+armed tails inside `ApplyDelivery` / `ApplyDeliveryFromPlan` (the delivered one and the
+`delivered-replay-then-paused` one) are gated on it, so an earlier window delivers WITHOUT
+consuming the arm or transitioning to Paused; single-stop reduces to the previous behaviour
+byte-for-byte (its ledger rows are unchanged - the `RoutePaused` marker still lands at the
+window's own `stopIndex * SeqStride + 4`). The multi-stop resolution moved to the new
+`RouteOrchestrator.TryHonorArmedPauseOnCompletedCycle`, called from the `cycleLastDockReached`
+branch beside the once-per-cycle `CompletedCycles` bump and the cycle-complete escrow sweep -
+the same seam, for the same reason. It emits the same `delivered-then-paused` /
+`delivered-partial-then-paused` reason (partial read off the cycle-scoped
+`Route.LastPartialDeliveryCycleId`), lands its marker at the LAST stop's stride block + 4, and
+posts a counts-free toast (`RouteSendOncePresentation.BuildCycleDeliveredMessage`) because a
+cycle's windows can straddle several ticks, so no site can quote the whole cycle's actuals.
+For the catch-up loop: `ProcessLoopRoute` now re-checks `RouteStatusPolicy.GhostDriving` - the
+SAME gate it opens with - after every pass and breaks out, so no later owed cycle is dispatched
+on a route that stopped driving its ghost mid-tick (the honored pause also clears `stillDue`
+directly, mirroring the blocked branch). Owed cycles are then rebased away by `TryActivate`, as
+documented below. Covered by `SendOnceArmed_MultiStop_BothWindowsInOneTick_EndsPaused_OneToast`,
+`..._WindowsAcrossTwoTicks_PausesOnlyOnCompletion`,
+`..._CatchUpStopsAfterThePause_NoNextCycleDispatch`,
+`Unarmed_MultiStop_BothWindowsInOneTick_StaysActive_NoPauseNoToast`,
+`PauseArmedWhileInTransit_MultiStopCycleCompletes_PausesWithoutToast`
+(`RouteSendOnceBlockedPauseTests`) and the core gate pin
+`StatusTransition_MultiStopWindow_ArmedPause_DeliversWithoutConsumingTheArm`
+(`RouteOrchestratorDeliveryTests`).
 
-**3. Endpoint-lost at delivery leaves the arm live.** That branch transitions to
-`EndpointLost` without touching `PauseAfterCurrentCycle`/`SendOnceArmed`, and both flags
-persist through the codec. Inert today (`EndpointLost` is not ghost-driving, and `TryActivate`
-- the only exit - clears the flags), but it becomes a live stale-arm the moment any path
-returns an endpoint-recovered route to ghost-driving without clearing them; the rewind
-classifier already treats the flags' stickiness as a hazard (`ClearOneShotFlags`).
+**~~2. The ELS replay backstop consumes the arm silently.~~** [FIXED 2026-09-01]
+`ApplyDelivery`'s replay branch (`delivered-replay-then-paused`) paused without a toast - the one
+resolution shape where the player is MOST likely to click again (the run produced no new
+delivery). It now posts `RouteSendOncePresentation.BuildAlreadyDeliveredMessage` under the same
+`SendOnceArmed`-only gate as the other toasts, capturing the provenance flag before consuming it
+exactly as the delivered tail does. Counts-free by construction: the delivered row is already in
+the ledger and the branch re-plans nothing, so there are no actuals to quote. Covered by
+`IdempotentReplay_SendOnceArmed_PostsAlreadyDeliveredToast` plus the two negative controls
+`IdempotentReplay_PauseAfterCycleArmed_PausesWithoutToast` /
+`IdempotentReplay_Unarmed_PostsNoToast_StaysActive`.
+
+**3. Endpoint-lost at delivery leaves the arm live.** [OPEN - classified 2026-09-01 as
+DELIBERATE, not a bug to close] That branch transitions to `EndpointLost` without touching
+`PauseAfterCurrentCycle`/`SendOnceArmed`, and both flags persist through the codec. Inert today
+(`EndpointLost` is not ghost-driving, and `TryActivate` - the only exit - clears the flags).
+
+**Why the arm deliberately SURVIVES an endpoint loss** (the classification decision, made while
+fixing 1 and 2 and recorded here so nobody "completes the family" by consuming it): an endpoint
+loss is RETRYABLE, not a resolution. `ApplyEndpointLost` / the delivery-time loss both set
+`NextEligibilityCheckUT = currentUT + WaitRetryIntervalSec` precisely because the endpoint may
+come back on its own (the surface-proximity fallback re-resolves, the destination reloads, the
+vessel comes back into range) - the route is waiting, not finished. That puts it in the SAME
+class as the two `IsPostponementHold` kinds (`SourcesStale`, `WaitingForPartner`), which the
+#1582 fix already exempts from consuming the arm on the blocked path: the player's one run has
+not happened yet, and cancelling their Send Once for a hold that self-clears is exactly the
+failure mode that exemption exists to prevent. Consuming the arm here would ALSO be
+inconsistent with the blocked path, where `EndpointLost` arrives as an eligibility kind and is
+handled by `TryHonorArmedPauseOnBlockedCycle`'s postponement allowlist policy - two paths, one
+kind, opposite answers.
+
+What keeps it OPEN is the stale-arm hazard, not the current behaviour: if any future path ever
+returns an endpoint-recovered route to a ghost-driving status WITHOUT clearing the flags, a
+one-shot armed hours ago would silently fire. The invariant to hold is "every entry back into
+ghost-driving either honors or clears the one-shot"; `TryActivate` is the only such entry today
+and it clears (`ClearOneShotFlags`, which the rewind classifier already treats as a hazard
+surface). Any new one must do the same - or, if endpoint-lost is ever reclassified as a
+resolution, it should be added to the postponement allowlist's mirror, not fixed at one call
+site.
+
+**4. A SINGLE-STOP pure-PICKUP loop route never honors the arm on its delivered path.**
+[FOUND 2026-09-01 while fixing 1 and 2; NOT fixed - out of that scope, filed so it is not lost]
+`EmitLoopCycle`'s `else` branch (no delivery manifest) bumps `CompletedCycles` and returns; the
+armed tail lives inside `ApplyDelivery`, which that branch never calls. So a Send Once on a
+pickup-only single-stop route completes its cycle and keeps looping with both flags armed - the
+same end state as the blocked defect #1582 fixed, reached through a different door. (A blocked
+cycle on such a route DOES pause, via `TryHonorArmedPauseOnBlockedCycle`, so the two resolutions
+disagree.) The multi-stop equivalent is already covered by item 1's fix, because
+`TryHonorArmedPauseOnCompletedCycle` sits at cycle completion and does not care which halves the
+windows emitted. Fix shape: call the same helper from `EmitLoopCycle`'s pure-pickup branch (and,
+for symmetry, consider making the single-stop delivered tail route through it too so there is
+ONE delivered-resolution site instead of two). Unverified against a real save - no known
+pickup-only route exists yet.
 
 Also banked from the same review (comment-only, corrected in the follow-up commit): the
 blocked-cycle marker CAN share its `(routeId, UT, Sequence=0)` key with a

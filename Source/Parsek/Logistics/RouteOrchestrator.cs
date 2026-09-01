@@ -773,6 +773,24 @@ namespace Parsek.Logistics
                         basis, nResidual,
                         ref dispatched, ref transitioned, ref skipped, out stillDue);
                     passes++;
+
+                    // SENDONCE-RESIDUAL-PATHS item 1 (second half): a pass can take the
+                    // route OUT of ghost-driving status MID-TICK - an armed pause honored
+                    // on the cycle it just completed or blocked, or an endpoint lost at a
+                    // window's delivery. Re-check the SAME gate this method opens with
+                    // (RouteStatusPolicy.GhostDriving) rather than trusting the pass's own
+                    // stillDue: a later owed cycle must never be dispatched + debited on a
+                    // route that stopped driving its ghost part-way through the tick.
+                    if (!RouteStatusPolicy.GhostDriving(route.Status))
+                    {
+                        ParsekLog.Info(Tag,
+                            $"LoopRoute(multi): route {ShortIdForLog(route)} left ghost-driving " +
+                            $"status={route.Status} after catch-up pass {passes.ToString(IC)} " +
+                            $"at ut={currentUT.ToString("R", IC)} - stopping catch-up " +
+                            $"(stillDue={(stillDue ? "1" : "0")} deferred/rebased away)");
+                        stillDue = false;
+                        break;
+                    }
                 }
                 if (stillDue)
                 {
@@ -1506,10 +1524,25 @@ namespace Parsek.Logistics
                 // own un-fired windows are all reached this pass, so the only
                 // remaining work is cMin+1's windows.)
                 stillDue = laterOwed > 0;
+
+                // SENDONCE-RESIDUAL-PATHS item 1: an armed one-shot / pause-after-cycle
+                // is resolved by the COMPLETED cycle, here - not by whichever window
+                // happened to deliver first (see TryHonorArmedPauseOnCompletedCycle).
+                // The route goes quiet, so the catch-up loop must stop with it: clear
+                // stillDue exactly as the blocked branch does, or the caller would
+                // dispatch + debit a whole further cycle on a route the player just
+                // paused. Those owed cycles are then REBASED AWAY deliberately
+                // (TryActivate resets every cursor on a later re-activation).
+                bool armedPauseHonored =
+                    TryHonorArmedPauseOnCompletedCycle(route, currentUT, env, cycleId);
+                if (armedPauseHonored)
+                    stillDue = false;
+
                 ParsekLog.Info(Tag,
                     $"LoopRoute(multi): route {ShortIdForLog(route)} cycle={cycleId} cMin={cMin.ToString(IC)} " +
                     $"last dock reached — firedWindows={firedWindows.ToString(IC)} " +
                     $"snapped lastObserved={cMin.ToString(IC)} completedCycles={route.CompletedCycles.ToString(IC)} " +
+                    $"armedPause={(armedPauseHonored ? "honored" : "none")} " +
                     $"stillDue={(stillDue ? "1" : "0")}");
             }
             else
@@ -3677,6 +3710,28 @@ namespace Parsek.Logistics
         internal const string BlockedThenPausedReason = "blocked-then-paused";
 
         /// <summary>
+        /// Status reason stamped when an armed <see cref="Route.PauseAfterCurrentCycle"/>
+        /// is honored on a cycle that DELIVERED in full. Emitted from two sites that
+        /// must never both fire for one cycle: the single-stop / legacy delivered tail
+        /// in <see cref="ApplyDeliveryFromPlan"/>, and the multi-stop cycle-complete
+        /// tail in <see cref="TryHonorArmedPauseOnCompletedCycle"/>.
+        /// </summary>
+        internal const string DeliveredThenPausedReason = "delivered-then-paused";
+
+        /// <summary>
+        /// <see cref="DeliveredThenPausedReason"/>'s PARTIAL sibling (the cycle
+        /// delivered, but at least one window fell short and the remainder is lost).
+        /// </summary>
+        internal const string DeliveredPartialThenPausedReason = "delivered-partial-then-paused";
+
+        /// <summary>
+        /// Status reason stamped when the armed pause is honored on the ELS REPLAY
+        /// backstop (the delivered row was already in the ledger; nothing new was
+        /// emitted, only the pause marker the crash lost).
+        /// </summary>
+        internal const string DeliveredReplayThenPausedReason = "delivered-replay-then-paused";
+
+        /// <summary>
         /// Honors an armed <see cref="Route.PauseAfterCurrentCycle"/> on a cycle the
         /// loop path CONSUMED AS BLOCKED (eligibility failed: nothing dispatched,
         /// nothing delivered, <see cref="Route.SkippedCycles"/> bumped, the crossing
@@ -3773,6 +3828,95 @@ namespace Parsek.Logistics
                     RouteSendOncePresentation.BuildBlockedMessage(
                         route.Name, route.Id, route.LastHoldKind, route.LastHoldDetail,
                         route.LastHoldShortfall),
+                    RouteSendOncePresentation.ToastSeconds);
+            }
+            return true;
+        }
+
+        /// <summary>
+        /// (SENDONCE-RESIDUAL-PATHS item 1) Honors an armed
+        /// <see cref="Route.PauseAfterCurrentCycle"/> at the completion of a
+        /// MULTI-STOP cycle. Sibling of <see cref="TryHonorArmedPauseOnBlockedCycle"/>
+        /// (the blocked resolution) and of <see cref="ApplyDeliveryFromPlan"/>'s
+        /// delivered tail (the single-stop resolution).
+        ///
+        /// <para><b>Why the caller owns this.</b> A multi-stop cycle fires N delivery
+        /// windows under ONE cycleId, so no single window is "the cycle". The
+        /// per-window tail used to run on whichever window happened to deliver first:
+        /// window A consumed the arm and paused, then window B - same pass, no status
+        /// re-check - fell into the ordinary delivered branch and put the route back
+        /// to Active. The route kept looping with the toast already claiming
+        /// "Paused". Cycle completion is exactly where
+        /// <see cref="Route.CompletedCycles"/> is bumped and the cycle-complete escrow
+        /// sweep runs (<see cref="ProcessMultiStopCrossings"/>), so the one-shot's
+        /// resolution belongs on the same seam - it fires ONCE per cycle regardless of
+        /// which windows emitted, which halves they emitted, or how many ticks the
+        /// cycle spanned.</para>
+        ///
+        /// <para><b>Counts-free toast by construction.</b> The windows of one cycle can
+        /// straddle several TICKS (window A at dock A, window B at dock B), so no
+        /// caller-side accumulator could quote the whole cycle's per-resource actuals
+        /// anyway; the partial/full discriminator IS available, off the cycle-scoped
+        /// <see cref="Route.LastPartialDeliveryCycleId"/> report that
+        /// <see cref="ApplyDeliveryFromPlan"/> maintains across the cycle's windows.</para>
+        ///
+        /// <para>Idempotent: a no-op when nothing is armed, so the single-stop /
+        /// legacy path (which resolves inside <see cref="ApplyDeliveryFromPlan"/>) is
+        /// untouched, and a multi-stop cycle whose completing window already consumed
+        /// the flags cannot double-pause. Returns true when the pause was honored (the
+        /// caller must then stop processing further owed cycles this tick).</para>
+        /// </summary>
+        internal static bool TryHonorArmedPauseOnCompletedCycle(
+            Route route, double currentUT, IRouteRuntimeEnvironment env, string cycleId)
+        {
+            if (route == null || !route.PauseAfterCurrentCycle)
+                return false;
+
+            // Mirrors the delivered tail (logistics-recovery-credit section 5.4): this
+            // cycle armed its pending recovery credit at dispatch and there is no
+            // further crossing, so flush it before the route goes quiet. Idempotent.
+            EmitPendingRecoveryCredit(route, currentUT, env);
+
+            // Captured FIRST: the toast below is posted only for the Send Once
+            // provenance, and the flag is consumed on the line after.
+            bool wasSendOnce = route.SendOnceArmed;
+            RouteStatus previousStatus = route.Status;
+            // Cycle-scoped partial report: ApplyDeliveryFromPlan APPENDS same-cycle
+            // partials under one cycleId and only clears a report from an EARLIER
+            // cycle, so a match here means at least one window of THIS cycle fell
+            // short - the same discriminator the single-stop tail reads off plan.IsPartial.
+            bool cyclePartial = !string.IsNullOrEmpty(cycleId)
+                && string.Equals(route.LastPartialDeliveryCycleId, cycleId, StringComparison.Ordinal);
+            string reason = cyclePartial
+                ? DeliveredPartialThenPausedReason
+                : DeliveredThenPausedReason;
+
+            route.PauseAfterCurrentCycle = false;
+            route.SendOnceArmed = false;
+            route.TransitionTo(RouteStatus.Paused, reason);
+            // Sequence: the LAST stop's stride block + 4, so the marker sorts after
+            // every window's rows at this UT (the single-stop tail uses this window's
+            // own block + 4; here the "window" is the whole cycle).
+            int lastStopIndex = (route.Stops != null && route.Stops.Count > 0)
+                ? route.Stops.Count - 1 : 0;
+            EmitRouteLifecycleMarker(
+                route, currentUT, GameActionType.RoutePaused, reason,
+                lastStopIndex * SeqStride + 4);
+            // Quiesce transition (the eighth): a route going quiet must not strand a
+            // reservation. Idempotent no-op after the cycle-complete sweep.
+            RouteStore.DropRouteEscrow(route.Id);
+
+            ParsekLog.Info(Tag,
+                $"ArmedPause: route {ShortIdForLog(route)} cycle={cycleId ?? "<none>"} " +
+                $"COMPLETED cycle consumed the armed pause — {previousStatus}->Paused " +
+                $"reason={reason} armedBy={(wasSendOnce ? "send-once" : "pause-after-cycle")} " +
+                $"at ut={currentUT.ToString("R", IC)}");
+
+            if (wasSendOnce)
+            {
+                ParsekLog.ScreenMessage(
+                    RouteSendOncePresentation.BuildCycleDeliveredMessage(
+                        route.Name, route.Id, cyclePartial),
                     RouteSendOncePresentation.ToastSeconds);
             }
             return true;
@@ -3961,16 +4105,42 @@ namespace Parsek.Logistics
                 // drop any held escrow (quiesce transition). The dedup
                 // semantics are preserved: no delivery/funds/debit row is
                 // (re-)emitted here — only the pause marker the crash lost.
-                if (route.PauseAfterCurrentCycle)
+                //
+                // SENDONCE-RESIDUAL-PATHS item 1: gated on bumpCompletedCycle,
+                // the cycle-RESOLUTION signal (true exactly when this delivery IS
+                // the whole cycle - the single-stop / legacy path). Every
+                // multi-stop window passes false because ProcessMultiStopCrossings
+                // owns cycle completion, and it owns the armed pause with it
+                // (TryHonorArmedPauseOnCompletedCycle). Without the gate, window
+                // A's replay consumed the arm and paused, then window B's ordinary
+                // delivery in the SAME pass put the route back to Active - the
+                // one-shot silently became an endless loop.
+                if (bumpCompletedCycle && route.PauseAfterCurrentCycle)
                 {
                     EmitPendingRecoveryCredit(route, currentUT, env);
+                    // Captured FIRST: the toast below is posted only for the Send
+                    // Once provenance, and the flag is consumed on the next line.
+                    bool wasSendOnce = route.SendOnceArmed;
                     route.PauseAfterCurrentCycle = false;
                     route.SendOnceArmed = false;
-                    route.TransitionTo(RouteStatus.Paused, "delivered-replay-then-paused");
+                    route.TransitionTo(RouteStatus.Paused, DeliveredReplayThenPausedReason);
                     EmitRouteLifecycleMarker(
                         route, currentUT, GameActionType.RoutePaused,
-                        "delivered-replay-then-paused", stopIndex * SeqStride + 4);
+                        DeliveredReplayThenPausedReason, stopIndex * SeqStride + 4);
                     RouteStore.DropRouteEscrow(route.Id);
+                    // SENDONCE-RESIDUAL-PATHS item 2: the replay backstop used to
+                    // consume the arm SILENTLY - and it is the resolution shape
+                    // where the player is most likely to click again, because the
+                    // run produced no NEW delivery to see. Counts-free by
+                    // construction: the delivered row is already in the ledger and
+                    // this branch re-plans nothing, so there are no per-resource
+                    // actuals to quote.
+                    if (wasSendOnce)
+                    {
+                        ParsekLog.ScreenMessage(
+                            RouteSendOncePresentation.BuildAlreadyDeliveredMessage(route.Name, route.Id),
+                            RouteSendOncePresentation.ToastSeconds);
+                    }
                 }
                 else
                 {
@@ -4303,7 +4473,19 @@ namespace Parsek.Logistics
             // after its in-flight cycle completes, instead of looping back to
             // Active. The flag is consumed here (cleared) so a subsequent
             // un-pause + dispatch doesn't auto-pause again.
-            if (route.PauseAfterCurrentCycle)
+            //
+            // SENDONCE-RESIDUAL-PATHS item 1 - the arm is honored at CYCLE
+            // completion, not per WINDOW. ctx.BumpCompletedCycle is the
+            // authoritative "this delivery IS the cycle's completion" signal:
+            // true only on the single-stop / legacy path, false on EVERY
+            // multi-stop window (ProcessMultiStopCrossings owns the once-per-cycle
+            // bump, and owns the armed pause with it - see
+            // TryHonorArmedPauseOnCompletedCycle). Before the gate, a multi-stop
+            // cycle with both windows due in one pass paused on window A (toast:
+            // "route is now Paused"), then window B fell into the ordinary else
+            // below and transitioned the route BACK to Active: the ghost looped
+            // forever and the toast had lied.
+            if (ctx.BumpCompletedCycle && route.PauseAfterCurrentCycle)
             {
                 // Armed pause-after-cycle tail (logistics-recovery-credit section 5.4):
                 // this cycle SET its pending recovery credit during its own
@@ -4321,7 +4503,9 @@ namespace Parsek.Logistics
                 // for that provenance, and the flag is consumed on this line.
                 bool wasSendOnce = route.SendOnceArmed;
                 route.SendOnceArmed = false;
-                string reason = plan.IsPartial ? "delivered-partial-then-paused" : "delivered-then-paused";
+                string reason = plan.IsPartial
+                    ? DeliveredPartialThenPausedReason
+                    : DeliveredThenPausedReason;
                 route.TransitionTo(RouteStatus.Paused, reason);
                 // Record the armed-pause point in the timeline. Sequence +4 lands it
                 // after this window's stride block (dispatch +0 / debit +1 / pickup +2 /
@@ -5003,13 +5187,22 @@ namespace Parsek.Logistics
             public Action<GameAction> LedgerEmitter;
 
             /// <summary>
-            /// M4a A3 (Horn A): true when this delivery window COMPLETES the cycle
-            /// (the only window, or the last window of a multi-stop cycle). The
-            /// CompletedCycles bump fires ONCE per cycle and is gated on this flag,
-            /// so an EARLIER window of a multi-stop cycle does NOT advance the
-            /// cycleId the LATER windows compute. A single-stop / legacy delivery
-            /// always sets this true -> CompletedCycles bumps exactly once
-            /// (byte-behaviour-identical to pre-A3).
+            /// M4a A3 (Horn A): true when this delivery IS the cycle's completion -
+            /// i.e. the single-stop / legacy path, where one delivery is the whole
+            /// cycle. EVERY multi-stop window passes FALSE, including the last:
+            /// <see cref="ProcessMultiStopCrossings"/> owns the once-per-cycle
+            /// completion (a pickup-only last window still completes the cycle, so
+            /// no delivery window can be trusted to be "the" one). The
+            /// CompletedCycles bump is gated on this flag, so an earlier window of a
+            /// multi-stop cycle does NOT advance the cycleId the later windows
+            /// compute.
+            ///
+            /// <para>SENDONCE-RESIDUAL-PATHS item 1: this is ALSO the
+            /// cycle-RESOLUTION signal the armed <see cref="Route.PauseAfterCurrentCycle"/>
+            /// tail is gated on, for the same reason and with the same owner - the
+            /// multi-stop arm is honored by
+            /// <see cref="TryHonorArmedPauseOnCompletedCycle"/> at cycle completion,
+            /// never per window.</para>
             /// </summary>
             public bool BumpCompletedCycle;
         }

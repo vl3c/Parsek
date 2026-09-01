@@ -638,6 +638,129 @@ namespace Parsek.Tests.Logistics
             Assert.DoesNotContain(Ledger.Actions, a => a.Type == GameActionType.RoutePaused);
         }
 
+        // SENDONCE-RESIDUAL-PATHS item 2: the replay backstop used to consume the arm
+        // SILENTLY. It is the resolution shape where the player is MOST likely to click
+        // Send Once again - the run produced no NEW delivery to watch - so it must say
+        // so on screen like the delivered and blocked resolutions do. Counts-free by
+        // construction (the delivered row was already in the ledger; nothing is
+        // re-planned, so there are no actuals to quote).
+        [Fact]
+        public void IdempotentReplay_SendOnceArmed_PostsAlreadyDeliveredToast()
+        {
+            var toasts = new List<string>();
+            ParsekLog.ScreenMessageSinkForTesting = (msg, dur) => toasts.Add(msg);
+            var route = BuildInTransitKscRoute(id: "route-replay-toast");
+            route.Name = "Rover Supply";
+            route.PauseAfterCurrentCycle = true;
+            route.SendOnceArmed = true;
+            RouteStore.AddRoute(route);
+
+            string cycleId = "cycle-" + (route.CompletedCycles + route.SkippedCycles);
+            Ledger.AddAction(new GameAction
+            {
+                Type = GameActionType.RouteCargoDelivered,
+                UT = 150.0,
+                RouteId = route.Id,
+                RouteCycleId = cycleId,
+                RouteStopIndex = 0,
+                Sequence = 3,
+            });
+
+            RouteOrchestrator.Tick(200.0, new EndpointLostFakeEnv());
+
+            Assert.Equal(RouteStatus.Paused, route.Status);
+            string toast = Assert.Single(toasts);
+            Assert.Contains("Rover Supply", toast);
+            Assert.Contains("already been delivered", toast);
+            Assert.Contains("Paused", toast);
+        }
+
+        // NEGATIVE CONTROL for the replay toast: a plain pause-after-cycle arm (the
+        // player hit Pause during an in-flight cycle) is not a run anybody is watching
+        // for, so it pauses silently - exactly as the delivered and blocked tails do.
+        [Fact]
+        public void IdempotentReplay_PauseAfterCycleArmed_PausesWithoutToast()
+        {
+            var toasts = new List<string>();
+            ParsekLog.ScreenMessageSinkForTesting = (msg, dur) => toasts.Add(msg);
+            var route = BuildInTransitKscRoute(id: "route-replay-silent");
+            route.PauseAfterCurrentCycle = true;
+            route.SendOnceArmed = false;
+            RouteStore.AddRoute(route);
+
+            Ledger.AddAction(new GameAction
+            {
+                Type = GameActionType.RouteCargoDelivered,
+                UT = 150.0,
+                RouteId = route.Id,
+                RouteCycleId = "cycle-0",
+                RouteStopIndex = 0,
+                Sequence = 3,
+            });
+
+            RouteOrchestrator.Tick(200.0, new EndpointLostFakeEnv());
+
+            Assert.Equal(RouteStatus.Paused, route.Status);
+            Assert.Empty(toasts);
+        }
+
+        // NEGATIVE CONTROL for the replay toast: an UNARMED replay must stay silent
+        // AND stay Active (the pre-fix ordinary behaviour, untouched).
+        [Fact]
+        public void IdempotentReplay_Unarmed_PostsNoToast_StaysActive()
+        {
+            var toasts = new List<string>();
+            ParsekLog.ScreenMessageSinkForTesting = (msg, dur) => toasts.Add(msg);
+            var route = BuildInTransitKscRoute(id: "route-replay-unarmed");
+            RouteStore.AddRoute(route);
+
+            Ledger.AddAction(new GameAction
+            {
+                Type = GameActionType.RouteCargoDelivered,
+                UT = 150.0,
+                RouteId = route.Id,
+                RouteCycleId = "cycle-0",
+                RouteStopIndex = 0,
+                Sequence = 3,
+            });
+
+            RouteOrchestrator.Tick(200.0, new EndpointLostFakeEnv());
+
+            Assert.Equal(RouteStatus.Active, route.Status);
+            Assert.Empty(toasts);
+        }
+
+        // SENDONCE-RESIDUAL-PATHS item 1, THE per-window gate, pinned at the core.
+        // ctx.BumpCompletedCycle is the cycle-RESOLUTION signal: false on EVERY
+        // multi-stop window, so an earlier window of an armed multi-stop cycle must
+        // deliver WITHOUT consuming the arm, WITHOUT pausing and WITHOUT toasting -
+        // otherwise a later window of the same pass falls into the ordinary else and
+        // transitions the route back to Active with the toast already claiming
+        // "Paused". ProcessMultiStopCrossings honors the arm at cycle completion
+        // instead (TryHonorArmedPauseOnCompletedCycle).
+        [Fact]
+        public void StatusTransition_MultiStopWindow_ArmedPause_DeliversWithoutConsumingTheArm()
+        {
+            var toasts = new List<string>();
+            ParsekLog.ScreenMessageSinkForTesting = (msg, dur) => toasts.Add(msg);
+            var route = BuildInTransitKscRoute(id: "route-multiwindow-arm");
+            route.PauseAfterCurrentCycle = true;
+            route.SendOnceArmed = true;
+            var plan = BuildFullFillPlan(route.Stops[0].DeliveryManifest);
+            var writers = new CapturingWriters();
+            var ctx = BuildContext(writers, cycleId: "cycle-0", bumpCompletedCycle: false);
+
+            RouteOrchestrator.ApplyDeliveryFromPlan(route, plan, ctx);
+
+            // The window DELIVERED (the row is there) but resolved nothing.
+            Assert.Contains(writers.EmittedActions, a => a.Type == GameActionType.RouteCargoDelivered);
+            Assert.Equal(RouteStatus.Active, route.Status);
+            Assert.True(route.PauseAfterCurrentCycle);
+            Assert.True(route.SendOnceArmed);
+            Assert.DoesNotContain(writers.EmittedActions, a => a.Type == GameActionType.RoutePaused);
+            Assert.Empty(toasts);
+        }
+
         // catches: reason string regression for UI consumers.
         [Fact]
         public void StatusTransition_PartialReason_VsFullReason()

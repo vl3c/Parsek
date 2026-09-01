@@ -11,12 +11,19 @@ namespace Parsek.Logistics
     /// <para><b>Why this exists.</b> A send-once cycle can resolve instantly -
     /// the loop clock catches up in the same frame the click is consumed (the
     /// warp catch-up path) - so the route silently goes Active -> Paused with
-    /// nothing on screen and the player reads the click as "did nothing". Both
-    /// resolution shapes get a toast: DELIVERED (the cycle fired) and BLOCKED
-    /// (the cycle was consumed by an eligibility hold and the armed pause was
-    /// honored - see <c>RouteOrchestrator.TryHonorArmedPauseOnBlockedCycle</c>).
+    /// nothing on screen and the player reads the click as "did nothing". EVERY
+    /// resolution shape gets a toast: DELIVERED (the single-stop cycle fired -
+    /// <see cref="BuildDeliveredMessage"/>), CYCLE COMPLETE (a multi-stop cycle
+    /// finished across its N windows - <see cref="BuildCycleDeliveredMessage"/>,
+    /// posted by <c>RouteOrchestrator.TryHonorArmedPauseOnCompletedCycle</c>),
+    /// ALREADY DELIVERED (the ELS replay backstop -
+    /// <see cref="BuildAlreadyDeliveredMessage"/>), and BLOCKED (the cycle was
+    /// consumed by an eligibility hold and the armed pause was honored - see
+    /// <c>RouteOrchestrator.TryHonorArmedPauseOnBlockedCycle</c>).
     /// Postponement holds (see <c>RouteOrchestrator.IsPostponementHold</c>) do
-    /// not resolve the one-shot, so they never toast.</para>
+    /// not resolve the one-shot, so they never toast. An ENDPOINT LOST at
+    /// delivery is not a resolution either - the arm deliberately survives it
+    /// (see SENDONCE-RESIDUAL-PATHS item 3), so it never toasts.</para>
     ///
     /// <para>Unity-free and side-effect-free so both strings are unit tested
     /// directly off the IMGUI / ScreenMessages path, mirroring the
@@ -46,6 +53,43 @@ namespace Parsek.Logistics
                 + Count(inventoryUnits, "item", "items")
                 + (isPartial ? " (PARTIAL - see the route's detail panel)" : string.Empty)
                 + " - route is now Paused";
+        }
+
+        /// <summary>
+        /// Shown when a send-once MULTI-STOP cycle completed and the route
+        /// auto-paused (SENDONCE-RESIDUAL-PATHS item 1). Counts-free on purpose:
+        /// the windows of one cycle can straddle several ticks, so no site can
+        /// quote the whole cycle's per-resource actuals - quoting only the last
+        /// window's would under-report the run. The partial/full discriminator IS
+        /// cycle-scoped (<c>Route.LastPartialDeliveryCycleId</c>), so it survives.
+        /// </summary>
+        /// <param name="routeName">The route's display name (blank falls back to the short id).</param>
+        /// <param name="routeId">The route id, for the unnamed-route fallback label.</param>
+        /// <param name="isPartial">True when any window of the cycle fell short (remainder lost).</param>
+        internal static string BuildCycleDeliveredMessage(
+            string routeName, string routeId, bool isPartial)
+        {
+            return "Send Once: route '" + DisplayName(routeName, routeId)
+                + "' completed its delivery run"
+                + (isPartial ? " (PARTIAL - see the route's detail panel)" : string.Empty)
+                + " - route is now Paused";
+        }
+
+        /// <summary>
+        /// Shown when a send-once cycle resolved on the ELS REPLAY backstop
+        /// (SENDONCE-RESIDUAL-PATHS item 2): the delivered row was already in the
+        /// ledger - a save/reload or crash landed it without the pause marker - so
+        /// the run produced no NEW delivery. That is precisely the shape where a
+        /// silent resolution makes the player click Send Once again, so it toasts
+        /// like the other two. Counts-free by construction: this branch re-plans
+        /// nothing and has no actuals to quote.
+        /// </summary>
+        /// <param name="routeName">The route's display name (blank falls back to the short id).</param>
+        /// <param name="routeId">The route id, for the unnamed-route fallback label.</param>
+        internal static string BuildAlreadyDeliveredMessage(string routeName, string routeId)
+        {
+            return "Send Once: route '" + DisplayName(routeName, routeId)
+                + "' - this cycle had already been delivered - route is now Paused";
         }
 
         /// <summary>
