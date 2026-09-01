@@ -1,6 +1,7 @@
 """
-collect-logs.py - Gather KSP/Parsek logs, save snapshots, recordings sidecars,
-and test results for debugging.
+collect-logs.py - Gather KSP/Parsek logs, save snapshots (with every Parsek
+sidecar directory: Recordings, Saves, GameState, RewindPoints), and test
+results for debugging.
 
 Usage:  python scripts/collect-logs.py [label] [--save NAME] [--skip-validation]
                                       [--skip-recordings]
@@ -106,6 +107,35 @@ def copy_file(src, dst_dir):
     except (OSError, shutil.Error) as exc:
         print(f"  {src.name}  (copy failed: {exc})")
         return False
+
+
+def parsek_sidecar_dirs_to_copy(parsek_dir, skip_recordings):
+    """Names of the save's Parsek/<dir> subdirectories to copy, sorted.
+
+    Every subdirectory rides along except Recordings when the caller asked to skip
+    it. Pure over the directory listing so the selection is testable.
+    """
+    parsek_dir = Path(parsek_dir)
+    if not parsek_dir.is_dir():
+        return []
+    names = sorted(p.name for p in parsek_dir.iterdir() if p.is_dir())
+    if skip_recordings:
+        names = [n for n in names if n != "Recordings"]
+    return names
+
+
+def copy_parsek_sidecar_dirs(parsek_dir, dst_root, skip_recordings):
+    """Copy each Parsek/<dir> into dst_root/<dir>, printing one line per directory."""
+    parsek_dir, dst_root = Path(parsek_dir), Path(dst_root)
+    if skip_recordings:
+        print("  Parsek/Recordings/  (skipped)")
+    names = parsek_sidecar_dirs_to_copy(parsek_dir, skip_recordings)
+    if not names:
+        print("  Parsek/  (no sidecar directories)")
+        return
+    for name in names:
+        if not copy_tree(parsek_dir / name, dst_root / name):
+            print(f"  {name}/  (empty)")
 
 
 def copy_tree(src, dst):
@@ -366,19 +396,17 @@ def main():
             if copy_file(lm, save_out):
                 copied_loadmetas += 1
         print(f"  {copied_loadmetas}/{len(loadmetas)} .loadmeta files")
-    if args.skip_recordings:
-        print("  Parsek/Recordings/  (skipped)")
-    else:
-        copy_tree(save_dir / "Parsek" / "Recordings", save_out / "Parsek" / "Recordings")
+    # Every Parsek sidecar directory rides along (Recordings, Saves, GameState,
+    # RewindPoints, and whatever is added next): the analyzer and a fixture harvest
+    # run over THIS copy, and a save missing Parsek/Saves or Parsek/RewindPoints
+    # reads as INV9 rewind-save loss that the live save does not have.
+    copy_parsek_sidecar_dirs(save_dir / "Parsek", save_out / "Parsek", args.skip_recordings)
     print()
 
-    # Parsek data
+    # Parsek data (flat, for readers that do not want the save-relative layout)
     print("Parsek data:")
     parsek_out = out_dir / "parsek"
-    if not args.skip_recordings:
-        copy_tree(save_dir / "Parsek" / "Recordings", parsek_out / "Recordings")
-    copy_tree(save_dir / "Parsek" / "GameState", parsek_out / "GameState")
-    copy_tree(save_dir / "Parsek" / "Saves", parsek_out / "Saves")
+    copy_parsek_sidecar_dirs(save_dir / "Parsek", parsek_out, args.skip_recordings)
     print()
 
     # Log validation
