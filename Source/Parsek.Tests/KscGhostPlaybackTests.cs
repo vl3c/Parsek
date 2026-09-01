@@ -659,6 +659,8 @@ namespace Parsek.Tests
                 AnchorLookup("anchor-rec", new Vector3d(0, 0, 0)),
                 out ParsekKSC.KscPoseResolution pointPose));
 
+            Assert.Equal("no-section", segmentPose.Branch);
+            Assert.Equal("no-section", pointPose.Branch);
             var resolvedLines = logLines.FindAll(line =>
                 line.Contains("[KSCGhost]") && line.Contains("KSC SURFACE playback resolved"));
             string joined = string.Join(" || ", resolvedLines);
