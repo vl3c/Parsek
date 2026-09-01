@@ -432,7 +432,7 @@ gate is taught to accept a no-pools template when the manifest is empty (expecte
 block is removed from `L1-passive-sandbox` (it then runs as a pure recording-invariants
 passivity proof). ~~Left at `pending-fixture` until that is resolved.~~ RESOLVED - it is `tier = "daily"` and live-proven (see the status paragraph below).
 
-## Recorded-state fixtures - where they ARE documented, and one that is here
+## Recorded-state fixtures - where they ARE documented, and two that are here
 
 This file's scope is the FILE-CONSTRUCTED career/fresh templates above. The
 RECORDED-state fixtures (harvest `--keep-parsek`, where the committed RECORDING is the
@@ -443,8 +443,12 @@ omission: the pin and the prose sit in the same place, so a re-harvest that move
 shape reds against the paragraph describing it. Do not restate a recorded fixture's shape
 here; a second copy of a moving list is a second thing to leave stale.
 
-ONE POINTER IS WORTH KEEPING, because the naming rule it rests on can destroy an
-operator's own save if it is ever forgotten.
+TWO ENTRIES SIT HERE ANYWAY, each for its own reason. `rover-route-recorded` is a
+POINTER worth keeping, because the naming rule it rests on can destroy an operator's own
+save if it is ever forgotten. `rover-route-career` is not a harvest at all - it is
+file-constructed from two committed inputs, exactly like everything above this section -
+so it belongs to this file's scope even though its payload is recorded. Neither entry
+restates a shape `RECORDED_FIXTURES` already pins.
 
 ### rover-route-recorded (GAME Mode = SANDBOX, 3 real vessels + 8 asteroids)
 
@@ -490,6 +494,73 @@ and what a future re-harvest could silently lose:
 
 All three are asserted by the builder's `--check`, so a re-harvest that lost any of them
 reds in `harness/lib` rather than on a flight.
+
+### rover-route-career (GAME Mode = CAREER, the SAME 3 real vessels + 8 asteroids)
+
+The costed-dispatch lane host (`RVR-4-rover-route-career-cost`, the roadmap's Tier C
+item 9), landed 2026-09-02. **NOT A HARVEST** - which is why it is documented HERE, in
+the file-constructed section's own idiom, and not only in `RECORDED_FIXTURES`. It is
+`rover-route-recorded` STAMPED INTO CAREER by
+`harness/tools/build_rover_route_career.py`, built headlessly from two COMMITTED inputs:
+the recorded save supplies the Parsek payload and the world, `fresh-career` supplies the
+career SCENARIO nodes. That is `build_strategy_career.py`'s precedent applied in the
+other direction, and because both inputs are committed the drift cell can RE-RUN the
+build and assert byte-identity - which `RoverRouteRecordedFixtureDriftTests` cannot do,
+its own input being a collected operator save outside the repo.
+
+**THE ENTIRE DIFF from its sibling**, and it is worth stating exhaustively because the
+lane's whole claim is that nothing else moved:
+
+| Change | Detail |
+| --- | --- |
+| GAME `Mode` | `SANDBOX` -> `CAREER` |
+| GAME `Title` | this fixture's own leaf (the leaf IS the runSaveName `run.py` stages into) |
+| ADD, verbatim from `fresh-career` | `Funding`, `ResearchAndDevelopment`, `Reputation`, `ScenarioUpgradeableFacilities`, `StrategySystem`, `ScenarioContractEvents`, `ContractSystem` - inserted at the positions that reproduce the donor's OWN ordering, so the result's scenario list is EXACTLY `fresh-career`'s plus `ParsekScenario` |
+| DROP | `ScenarioNewGameIntro` (SANDBOX-only; the donor career save carries none) |
+| RESEED | `Funding funds` -> `11000` (see below); loadmeta `gameMode` / `funds` / `science` restamped to match |
+| UNCHANGED, asserted BYTE-IDENTICAL | the whole `ParsekScenario` node, the whole `FLIGHTSTATE` (all 11 VESSEL nodes, `activeVessel`), and every file under `Parsek/` - trees, recordings, sidecars, `GameState` |
+
+Facility levels are the donor's, i.e. all ten at `lvl = 0`. Nothing in the lane reads
+one: it loads straight into FLIGHT and `TimeJump` moves the clock with
+`Planetarium.SetUniversalTime` rather than through TimeWarp.
+
+**THE FUNDS SEED IS 11000, SOLVED - AND FLIGHT 2 SHOWED IT IS THIS LANE'S OWN GATE.**
+The dispatch cost is 7410 (7250 of stock parts read off the AUTOMATION instance's own
+`ModuleManager.ConfigCache`, where ProbesBeforeCrew prices `dockingPort2` at 600 against
+Squad's 280, plus 200 LiquidFuel at unit cost 0.8 from the root's complete launch
+manifest) - derived before the flight and measured at 7410.0000023841858 on it. The seed
+is sized so the pool affords exactly ONE dispatch and not two: band `[7488.08, 14663.84)`
+(floor = the highest reading any costing basis could give, ceiling = twice the lowest),
+whole thousand nearest its centre.
+
+**THE PART THAT WAS INITIALLY DERIVED WRONG, kept here because it is a general trap.**
+This section first said the funds-short hold was unreachable on this fixture: the
+committed `Parsek/GameState/ledger.pgld` carries five `MilestoneAchievement` rows
+totalling 18,200 funds, all Effective by `MilestonesModule`'s distinct-id first-hit rule,
+and `EnsureInitialFundsSeed` seeds from the LIVE pool (no `FundsInitial` row,
+`baseline_0.pgsb` carries `funds = 0`) - so effective funds looked like `seed + 18200`
+for any positive seed. **A LEDGER AMOUNT IS NOT A LIVE POOL AMOUNT.**
+`KspStatePatcher.PatchFunds` runs its target through `ApplyDrawdownGuard`, and the "keep
+what you earned" guard REFUSES an upward patch whose running balance exceeds the live
+value, holding the pool at the spent value - measured on the flight as `GUARDED UPLIFT
+clamped resource=Funds running=29200 live=11000 clampedTo=11000 - spent value held;
+ledger may be missing a spending channel`. So the 18,200 stays ledger-side, the live pool
+IS the seed, and the chain runs: cycle 0 is charged 7410 out of 11000, cycle 1 sees 3590
+against 7410 and blocks `FundsShort shortfall=3820` - which is exactly `2 * cost - seed`,
+the quantity the band was solved to produce. The clamp fires because a file-constructed
+career carries award rows with no matching live-pool history; that is a property of this
+fixture class, filed report-only in `docs/dev/todo-and-known-bugs.md`, and no token pins
+it.
+
+Every claim above is re-derived from the committed bytes by
+`RoverRouteCareerFixtureDriftTests` / `RoverRouteCareerSeedBandTests` /
+`RoverRouteCareerSpecSyncTests` in `harness/lib/test_build_rover_route_career.py`, which
+also re-run the splice over the current inputs asserting byte-identity, compare every
+sidecar as bytes, re-derive the 7410 cost and the 3820 shortfall from those bytes, and
+fail if the spec ever pins a `DestinationFull` cycle-1 token (which is what the lane
+measured only while the dispatch was still free). The structural
+counts are pinned in `CommittedFixtureSweepTests.RECORDED_FIXTURES` as a second row
+identical to `rover-route-recorded`'s - two rows that must agree, read independently.
 
 ## Re-tier
 

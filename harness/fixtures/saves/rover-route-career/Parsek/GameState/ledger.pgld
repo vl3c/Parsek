@@ -1,0 +1,115 @@
+version = 0
+recordingSchemaGeneration = 4
+GAME_ACTION
+{
+	ut = 0
+	type = 21
+	actionId = act_c38c1c03d4304589a49f39aaf171c089
+	initialScience = 0
+}
+GAME_ACTION
+{
+	ut = 0
+	type = 22
+	actionId = act_465e22be28614f539d5472c2a8f38843
+	initialReputation = 0
+}
+GAME_ACTION
+{
+	ut = 392.57999999993291
+	type = 4
+	actionId = act_837bce520e71459eb1a63b36c0d48463
+	recordingId = 3582d724892245c8939f6a354baff278
+	seq = 1
+	milestoneId = RecordsDistance
+	milestoneFundsAwarded = 4800
+	milestoneRepAwarded = 0
+	milestoneSciAwarded = 0
+}
+GAME_ACTION
+{
+	ut = 404.87999999992172
+	type = 4
+	actionId = act_46b0133841944ac48108a2d1aec54014
+	recordingId = 3582d724892245c8939f6a354baff278
+	seq = 2
+	milestoneId = RecordsSpeed
+	milestoneFundsAwarded = 4800
+	milestoneRepAwarded = 0
+	milestoneSciAwarded = 0
+}
+GAME_ACTION
+{
+	ut = 513.539999999823
+	type = 4
+	actionId = act_a216412842874150913bc26307e5cc59
+	recordingId = cf8d06fc7bf74e1a82bc70fc79290847
+	seq = 1
+	milestoneId = Kerbin/BaseConstruction
+	milestoneFundsAwarded = 5400
+	milestoneRepAwarded = 1
+	milestoneSciAwarded = 0
+}
+GAME_ACTION
+{
+	ut = 513.539999999823
+	type = 4
+	actionId = act_5c6f528e56a04a7fa48dc8998190c668
+	recordingId = cf8d06fc7bf74e1a82bc70fc79290847
+	seq = 2
+	milestoneId = Kerbin/Docking
+	milestoneFundsAwarded = 2400
+	milestoneRepAwarded = 0
+	milestoneSciAwarded = 0
+}
+GAME_ACTION
+{
+	ut = 594.27999999974952
+	type = 4
+	actionId = act_94183602ae4e4b1aa8a265044eab8b2f
+	recordingId = 4370a799d00644f68d9b4a2ca9f72d0c
+	seq = 1
+	milestoneId = Kerbin/Landing
+	milestoneFundsAwarded = 800
+	milestoneRepAwarded = 0
+	milestoneSciAwarded = 0
+}
+GAME_ACTION
+{
+	ut = 750.05999999960784
+	type = 23
+	actionId = act_baae0be1e4bd46af8682791b6c83eea9
+	routeId = fd6ee2ffc35f454a8c3136eec0aa96c2
+	routeCycleId = cycle-0
+	routeSendOnce = True
+}
+GAME_ACTION
+{
+	ut = 750.05999999960784
+	type = 24
+	actionId = act_2a28af2f660643f2b4bb92af4feec8fb
+	seq = 1
+	routeId = fd6ee2ffc35f454a8c3136eec0aa96c2
+	routeCycleId = cycle-0
+	resource = LiquidFuel|97.599999999998431
+}
+GAME_ACTION
+{
+	ut = 750.05999999960784
+	type = 25
+	actionId = act_cc7e16354b4d4fa2bcb210f6a4d98f04
+	seq = 3
+	routeId = fd6ee2ffc35f454a8c3136eec0aa96c2
+	routeCycleId = cycle-0
+	routeStopIndex = 0
+	resource = LiquidFuel|97.599999999998431
+}
+GAME_ACTION
+{
+	ut = 750.05999999960784
+	type = 26
+	actionId = act_f778e0c2f130488b8ce72a4d199ed384
+	seq = 4
+	routeId = fd6ee2ffc35f454a8c3136eec0aa96c2
+	routeEndpointReason = delivered-then-paused
+}

@@ -242,7 +242,7 @@ in as many words (`PhaseLock APPLIED: ... cadence 90.079999999918186->95`). The 
 clock deliberately runs on the quantized cadence so the ghost's relaunch schedule sits on
 faithful windows; the route's own `DispatchInterval` stays the raw `N * span`. Intended.
 
-## ~~ROUTE-DISPATCH-COST-FREE-ON-SNAPSHOTLESS-ROOT: a KSC route whose tree ROOT recording carries no `VesselSnapshot` dispatches for FREE in career~~ [FOUND 2026-08-30 off the same `logs/2026-08-30_1106_rover-route` flight while diagnosing a `cost=0` Verbose line. LATENT CAREER DEFECT — the flight was SANDBOX so nothing was mischarged. FIXED 2026-09-01]
+## ROUTE-DISPATCH-COST-FREE-ON-SNAPSHOTLESS-ROOT: a KSC route whose tree ROOT recording carries no `VesselSnapshot` dispatches for FREE in career [FOUND 2026-08-30 off the same `logs/2026-08-30_1106_rover-route` flight while diagnosing a `cost=0` Verbose line. LATENT CAREER DEFECT — the flight was SANDBOX so nothing was mischarged. FIXED 2026-09-01. **RE-OPENED 2026-09-01**: lane RVR-4's first flight measured the shipped fix as insufficient on the real tree. RE-FIXED 2026-09-02 (round 2 below); STILL UNFLOWN - the RVR-4 re-fly is what closes this]
 
 **Evidence.** Every UI repaint logged `ComputeDispatchFundsCostForRoute: route fd6ee2ff source
 recording cf8d06fc... not in ERS or has no VesselSnapshot; cost=0`. The recording IS in ERS (a
@@ -307,6 +307,137 @@ snapshot the walk visited is proved mechanically rather than by the basis line a
 Unblocks Tier C item 9 of the supply-route coverage program (`autotest-roadmap.md`); that
 career lane is still unauthored and has never flown.
 
+### ROUND 2 - the 2026-09-01 fix was insufficient on the real tree (RE-OPENED 2026-09-01 by RVR-4 flight 1; RE-FIXED 2026-09-02, unflown)
+
+**What flew.** Lane `RVR-4-rover-route-career-cost`, first flight `2026-09-01_2204`
+(`harness/results/2026-09-01_2204_RVR-4-rover-route-career-cost_shots/KSP.log`). Verdict
+`PARSEK-FAIL(expectation)` on the two cost tokens; the delivery chain itself was green
+(97.6 LiquidFuel `path=unloaded` plus two inventory units, cycle 1 `DestinationFull`
+exactly as RVR-2 measured). What the log carries instead of a charge:
+
+```
+FundsCost: route 1dcc955a UNCOSTED - no SourceRefs member (of 2, root cf8d06fc...) is in
+ERS with a usable VesselSnapshot; cost=0 (a career KSC dispatch charges nothing)
+DispatchDebit: route 1dcc955a cycle=cycle-0 ut=1600 cost=0 careerKsc=1
+```
+
+**Blocker 1 (the earlier one, and the one the spec did not predict): after a load NO member
+has a `VesselSnapshot` at all.** `ParsekScenario.cs` (~4275, load phase
+`crew-auto-unreserve`) sweeps every committed recording and, for
+`rec.VesselSnapshot != null && !rec.VesselSpawned && currentUT > rec.EndUT`, unreserves the
+crew and NULLS `rec.VesselSnapshot`. On this flight that fired 4.6 s before the dispatch -
+log lines 11505-11508, `Auto-unreserved crew for recording #0 (A)`, `#2 (B)`, `#3 (B)`,
+`#4 (A)`; `#2` is the dock-merged leaf `f2fb77ea`, loaded moments earlier with
+`hasVesselSnapshot=True`. That is why the flight logged NO
+`FundsCost: ... skipping member ...` line (grep count 0): the fallback walk short-circuited
+on `member.VesselSnapshot == null` before `IsCombinedVesselSourceMember` ever ran. The
+`_vessel.craft` sidecar is still on disk; only the in-memory spawn surface is gone.
+
+**Blocker 2 (the one the round-1 fix aimed at, mis-modelled): there is no un-merged member
+to fall back to.** The route's members are exactly `[cf8d06fc (root, no snapshot),
+f2fb77ea (dock-merged leaf)]` - the flight logged `ComputeMemberRecordingIds: ...
+keptIntervals=1 members=1` and then `Built route ... members=2 excluded=3`.
+`RouteBackingMission.CollectMemberRecordingIds` collects one id per composition
+**through-line head** (`StripSegMarker(node.HeadLegId)`), and the transport's driving legs
+are further structural intervals of the SAME vessel line, so their `HeadLegId` strips back
+to the root id. The spec's expected basis `4370a799` is not a member at all (and, starting
+after the dock, would be excluded as combined anyway). The unit fixture in
+`RouteOrchestratorTests` had assumed a separate transport member the builder does not
+produce for this shape, which is how a green suite shipped a fix with no candidate.
+
+**Round-2 fix, both halves in `RouteOrchestrator.ComputeDispatchFundsCostForRoute`.**
+
+1. *Durable costing surface.* Every basis read now goes through
+   `ResolveCostingSnapshot(rec, out surface)`, which prefers `VesselSnapshot` and falls back
+   to `GhostVisualSnapshot` - the same ConfigNode (a `CreateCopy` taken at the same capture
+   sites, with its own `_ghost.craft` sidecar), which the sweep does not touch. It is read
+   strictly READ-ONLY. The chosen surface is logged as `snapshotSurface=vessel|ghost`. This
+   applies to the PREFERRED root basis and to the fallback walk alike. The
+   `ParsekScenario` sweep itself is deliberately UNCHANGED.
+2. *Transport-subset basis.* When no un-merged member yields a snapshot, the dock-merged
+   member is priced RESTRICTED to its `RouteConnectionWindow.TransportPartPersistentIds`
+   (`ResolveTransportSubsetWindow` picks the window matching `Route.RecordedDockUT`, else
+   the earliest dock). Those parts are the launch vehicle - a transport cannot reach the
+   dock carrying parts it did not launch with, EVA construction aside - and the endpoint's
+   parts are never billed. The resource basis is unchanged: the root's COMPLETE run
+   manifest first, else the (now filtered) snapshot's own `RESOURCE` amounts.
+   `RouteFundsCalculator` gained a five-argument overload taking the pid set; both existing
+   overloads route through the same walk with `restrict == null`, pinned by
+   `..._NullRestriction_MatchesUnrestrictedBases`.
+3. *Two fail-closed refusals*, both landing on the UNCOSTED breadcrumb rather than a wrong
+   charge: an empty/missing transport pid set (nothing separates transport from endpoint),
+   and a pid set that matches ZERO `PART` nodes on the chosen surface (which would emit the
+   resource term with no parts term - a plausible-looking but wrong bill). A `PART` with no
+   parseable `persistentId` is excluded under any restriction.
+
+The costed line is now
+`FundsCost basis=<launch-manifest|stop-snapshot> route=... source=<root id>
+snapshotSource=<priced member id> fallback=<0|1>[ subset=transport] snapshotSurface=<vessel|ghost>[ parts=<n>/<total>] cost=...`.
+
+**New tests.** `RouteOrchestratorTests`: `..._OnlyDockMergedMember_PricesTransportSubset`,
+`..._OnlyDockMergedMember_IncompleteManifest_UsesFilteredSnapshotResources`,
+`..._EmptyTransportPidSet_StaysUncosted`,
+`..._TransportPidsMatchNoPart_StaysUncosted`,
+`..._GhostSurfaceOnMergedMember_PricesTransportSubset`,
+`..._GhostSurfaceOnRoot_PricesRootDirectly`,
+`ResolveTransportSubsetWindow_PrefersRouteDockUT_ThenEarliest`,
+`ResolveCostingSnapshot_PrefersVessel_FallsBackToGhost`. `RouteFundsCalculatorTests`:
+`..._TransportSubset_ExcludesEndpointPartsAndResources` (the value proof - the depot's
+9000-cost part and 250 of depot fuel stay out),
+`..._TransportSubset_ManifestBasis_PricesTransportPartsOnly`,
+`..._TransportSubset_UnidentifiablePart_Excluded`,
+`..._NullRestriction_MatchesUnrestrictedBases`, `CountRestrictedParts_ReportsKeptOverTotal`.
+The five round-1 pins are unchanged and still green.
+
+**OBSERVATION (report-only, NOT a fix, filed for a maintainer look).** The
+`crew-auto-unreserve` sweep nulls `VesselSnapshot` on EVERY aged committed recording, not
+just spawn candidates: its purpose is releasing crew reservations, but dropping the snapshot
+is a side effect that every later consumer of the spawn surface inherits. After any load,
+`rec.VesselSnapshot` is null for every committed recording whose `EndUT` has passed without
+a spawn - so any code that reads it as "the recording's parts" silently sees nothing, which
+is exactly how a costing bug survived a green unit suite and a shipped fix. Route costing is
+now insulated (it reads `GhostVisualSnapshot` instead), but the general question - should
+crew unreservation drop the snapshot at all, given the sidecar is still on disk and
+`GhostVisualSnapshot` is retained regardless - is unanswered here. No change proposed;
+recorded so the next reader of a `VesselSnapshot == null` surprise finds the cause in one
+grep rather than one flight.
+
+**OBSERVATION (2026-09-01, REPORT-ONLY, NOT A DEFECT CLAIM): on a FILE-CONSTRUCTED career
+fixture the guarded uplift holds ledger milestone funds out of the live pool, and says so
+every recalc.** Measured on RVR-4 round 2 (`2026-09-01_2228`), which is the run that also
+measured the costed dispatch above:
+
+```
+PatchFunds: GUARDED UPLIFT clamped resource=Funds running=29200 live=11000
+            wouldBeTarget=29200 clampedTo=11000 (no time-travel context)
+            - spent value held; ledger may be missing a spending channel
+PatchReputation: GUARDED UPLIFT clamped resource=Reputation running=0.999999463558197
+            live=0 wouldBeTarget=0.999999463558197 clampedTo=0 ...
+```
+
+`rover-route-career` is `rover-route-recorded` stamped into CAREER by construction, so it
+inherits a `Parsek/GameState/ledger.pgld` carrying five `MilestoneAchievement` rows worth
+18,200 funds (and 1 reputation) with NO corresponding live-pool history - the source save
+was SANDBOX, where KSP computes milestone awards but no pool exists to receive them.
+`FundsModule` adds all five to the running balance (distinct `milestoneId`s, first-hit
+branch), `EnsureInitialFundsSeed` seeds from the live pool because there is no
+`FundsInitial` row, and `KspStatePatcher.PatchFunds` then sees a running balance above the
+live value and does the conservative thing: `ApplyDrawdownGuard`'s keep-what-you-earned
+branch refuses the uplift and holds the pool at the spent value. The WARN repeats on every
+recalc for the life of the save.
+
+THE GUARD IS BEHAVING AS DESIGNED - "ledger may be missing a spending channel" is exactly
+what a ledger with award rows and no matching history looks like, and it cannot tell that
+apart from a real leak. Nothing here is proposed as a fix. It is filed because (a) a
+reader meeting the repeating WARN on a synthetic career fixture should find the cause in
+one grep rather than diagnosing a funds bug, and (b) it is load-bearing for RVR-4: the
+clamp is precisely why that lane's live pool equals its 11,000 seed, which is what makes
+cycle 1 go `FundsShort shortfall=3820` at `2 * cost - seed`. The lane deliberately does
+NOT pin the WARN (a fixture that later gained a spending channel would stop emitting it,
+and that must not red); the arithmetic it produces is pinned instead. If a future career
+fixture is built by construction from a sandbox harvest, expect the same line and expect
+its live pools to be the seeded values rather than the ledger's totals.
+
 ## ROUTE-ORIGIN-PROOF-PRODUCER-UNREACHABLE (SUSPECTED): the start-docked `RouteOriginProof` producer keys on a part-parent condition that a settled dock can never satisfy, so no live recording has ever carried a proof [FOUND BY READING 2026-09-01 while scoping which route flights can be automated, CORROBORATED by the 2026-08-30 rover flight log. SUSPECTED, not yet probed live - REPORT-ONLY until the probe cell below runs]
 
 **The condition.** `FlightRecorder.CaptureStartRouteOriginProofIfDocked` builds its partner
@@ -331,12 +462,103 @@ mid-tree docked-origin window path (`RouteAnalysisEngine.AnalyzeWindows`), which
 `depot-route-recorded` fixture exercises - the start proof was never load-bearing for any
 committed route.
 
-**Next step (cheap, before any operator flight for the roadmap's B4 subject).** A FLIGHT
-probe cell that couples a spawned `dockingPort2` part into the active vessel and counts
-parts with `p.parent.vessel != v` (expected 0). If confirmed: fix the producer to derive the
-partner from the docking node's own docked-partner information at recording start instead of
-the parent-vessel identity, and pin it with a self-provisioning capture cell; the B4 manual
-flight is then unnecessary. If refuted: record the KSP state that yields the link and fly B4.
+**The settling instrument is now AUTHORED (2026-09-02), and this entry stays SUSPECTED
+until it runs.** `OriginProofProbe_SettledDockLeavesNoExternalParent`
+(`Source/Parsek/InGameTests/RouteDockCaptureInGameTest.cs`, category `RouteDockCapture`,
+driven by `harness/scenarios/H55-route-dock-capture-isolated.toml`) spawns a `dockingPort2`,
+couples it into the active vessel, lets it settle, counts the parts satisfying the
+producer's OWN predicate through the mirrored pure core
+(`RouteDockCaptureMath.IsExternallyParentedPart`, unit-tested against all four shapes), then
+starts a recording on the docked vessel and reads the production producer's own log branch
+back off the observer channel. It emits one grep-stable line -
+`OriginProofProbe: externalParentParts=N proofCaptured=<bool> situation=S outcome=<branch>
+partnerPid=P` - and asserts NO VERDICT: it is an INSTRUMENT and passes whenever it measured,
+so it cannot pre-judge the question it exists to answer. The lane pins the line with the
+values regexed, so a run can neither omit it nor satisfy the token by producing one
+particular answer.
+
+**How to read it.** `externalParentParts=0 proofCaptured=False` CONFIRMS this entry: fix the
+producer to derive the partner from the docking node's own docked-partner information at
+recording start instead of the parent-vessel identity, pin it with a self-provisioning
+capture cell in the same category, and the roadmap's B4 manual flight is unnecessary.
+Anything else REFUTES it: record the KSP state that yields the link and fly B4 as
+originally planned. Do not fly B4 before reading this line.
+
+**FIRST MEASUREMENT, 2026-09-01 (`harness/results/2026-09-01_2206_H55-route-dock-capture-isolated_shots/KSP.log`).
+The probe was the one cell of six that passed, and it read:**
+
+    OriginProofProbe: externalParentParts=0 proofCaptured=False situation=4
+      outcome=active-vessel-PRELAUNCH partnerPid=108351093
+
+It is HALF an answer, and the halves must not be conflated. `externalParentParts=0` is the
+measurement this instrument exists for and it SUPPORTS the suspicion: after a settled
+`Part.Couple` of a `dockingPort2` partner into the active vessel, not one part on the merged
+vessel satisfies `p.parent != null && p.parent.vessel != null && p.parent.vessel != v`. That
+is the predicate the producer builds its candidate list from, so on this evidence the list is
+empty for exactly the reason the entry names. What the run did NOT do is exercise the producer
+past that point: `situation=4` is PRELAUNCH (the `logi-cargo-pad` host sits clamped on the
+LaunchPad), and `TryResolveStartDockedOriginPartner` returns `ActiveVesselPrelaunch` BEFORE it
+walks candidates at all - so `outcome=active-vessel-PRELAUNCH` is the PRELAUNCH short-circuit,
+not the empty-candidate branch, and the Captured branch remains unexercised. The count is
+evidence; the producer's verdict on this host is not.
+
+**STATUS STAYS SUSPECTED, and the follow-up is a host change rather than a code change.** A
+LANDED host reaches the candidate walk (the guard excludes PRELAUNCH only), and one is already
+committed: `harness/fixtures/saves/rover-route-recorded`, whose vessels read
+`startSituation = Landed launchSiteName = Runway` - the same fact RVR-1's roster records for a
+different reason. Adding the `RouteDockCapture` probe to a lane on that host would produce
+either `outcome=no-external-coupling candidates=0` (which CONFIRMS this entry outright, since
+the walk ran and found nothing) or a `Captured` line (which refutes it). That lane does not
+exist yet and is the cheapest remaining step here.
+
+## ROUTE-DISPATCH-COST-BASIS-RESIDUALS: what the transport-subset + ghost-surface costing fix still leaves open [FOUND 2026-09-02 by the pre-merge correctness pass on PR #1597. NONE blocking - every item is a strict improvement over the pre-#1597 state, where the same routes dispatched for FREE - but each names a real follow-up. REPORT-ONLY, fix shapes recorded]
+
+1. **The two snapshot surfaces are not the same instant.** `GhostVisualSnapshot` is captured at
+   recording START (`FlightRecorder` start-state node); `VesselSnapshot` at STOP. Preferring
+   vessel and falling back to ghost means a staged launch prices the post-separation stack
+   in-session and the FULL launch stack after any OnLoad outside SPACECENTER (the
+   crew-auto-unreserve sweep nulls the vessel surface; it is skipped at SPACECENTER, so the
+   KSC-shown cost and the FLIGHT-charged cost can differ in one session). Fix shape: pick ONE
+   surface by contract - the launch stack (ghost/start) is the honest basis for a KSC dispatch
+   and survives sweeps and splits - and accept the one-time cost change for existing staged
+   routes; the rover shape is unaffected (root carries only the ghost surface, 7410 either way).
+2. **An optimizer split moves the vessel surface to the second half and nulls
+   `RouteRunManifest` on both halves** (`RecordingOptimizer.TransferTerminalFieldsToSecondHalf`)
+   while `SourceRefs` still names the first half - basis flips launch-manifest -> stop-walk on
+   the ghost. Same fix as 1 (start surface + start manifest are split-stable).
+3. **The subset path latches the FIRST combined member** (`mergedCandidate == null` guard) even
+   when it carries no window (the `StartUT >= RecordedDockUT` rule alone), so a windowless
+   member ahead of the real dock-merged leaf sends the route to UNCOSTED; an origin-carrier
+   member ahead of it would supply the WRONG window. Fix: latch only a member whose window
+   matches `RecordedDockUT`, else keep walking. Practically unreachable today - the ghost
+   fallback prices the root first on every real tree - which is why it is not fixed here.
+4. **`keptParts > 0` is presence, not coverage**: a snapshot matching 1 of N transport pids
+   prices one part and still adds the full launch-manifest resource term. Fix: require
+   `keptParts == transportPids.Count`, else UNCOSTED (better free-and-logged than plausible-
+   and-wrong).
+5. **Bare `persistentId` matching inside the subset** (`RouteFundsCalculator.IsRestrictedOut`):
+   a same-blueprint transport/endpoint pair shares baked pids, so endpoint parts would be
+   billed as transport - the standing craft-baked-pid rule. Upstream `DeriveEndpointPartPids`
+   (merged minus transport) has the same blind spot. Fix: gate the subset on the window's
+   endpoint set being DISJOINT from the transport set (refuse to price when they overlap).
+6. **Staged launches under-charge on the subset path**: the window's transport pid set is the
+   craft AT THE DOCK, so staged-away boosters are not priced while their propellant (start
+   manifest) is. Item 1's start-surface contract fixes this too.
+7. **`Unknown part cost:` is a plain `Warn` per unpriced PART per call** (`RouteFundsCalculator`
+   ~88/199), and the ghost fallback makes the walk reachable post-load for every loaded route
+   at the ~1 Hz Logistics refresh, where the UNCOSTED early return was rate-limited. A save
+   carrying a removed/renamed mod part now warns per part per route per second, and the log
+   validator cannot suppress WRN. Fix: once-per-part-name per session (a static seen-set), or
+   `VerboseRateLimited`; note the xUnit cost cells currently COUNT these per-call warn lines
+   as their proof of which parts were walked, so the tests move with the fix.
+8. **Gate and emit recompute independently** (`KscFundsAvailable` and `EmitDispatchDebit` each
+   call `ComputeDispatchFundsCostForRoute`); no single-compute-per-cycle capture asserts the
+   gated and charged numbers agree. Low probability (one synchronous stack), recorded for
+   completeness; `route.KscDispatchFundsCost` persists only the emit value.
+
+Measured coverage note: RVR-4's green run took the root/ghost path (`fallback=0 snapshotSurface=
+ghost`); the transport-subset last resort has NEVER executed in flight and is covered by its
+eight xUnit cells only.
 
 ## RESERVATION-OVERLAY-GAPS: the reservation readout that replaced the dead budget UI is absent in the EDITOR and reports `Reserved: 0` in a genuine deficit [SPLIT OUT 2026-08-29 from RESOURCE-BUDGET-READOUTS-ARE-DEAD when that entry was struck as cleanup-done. Neither gap was part of that cleanup; refiled here so they survive it. **(b) FIXED 2026-09-02; (a) still open** - extending the overlay to a scene where it never showed is a product decision, not a wording fix]
 

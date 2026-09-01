@@ -2336,38 +2336,174 @@ gated behind the ROUTE-ORIGIN-PROOF-PRODUCER-UNREACHABLE probe (todo) before any
 
 ### Tier B - surface-route variants (one flight each, template established by RVR)
 
-4. **Start-docked origin proof.** Record the transport STARTING docked to the
-   base rover off-pad, undock, deliver elsewhere. First-ever execution of
-   `RouteOriginProof_StartedDockedToNonKsc_ProducerLandsProof` (the save
-   carries no ROUTE_ORIGIN_PROOF node today - both roots are Runway starts,
-   which deliberately skip the proof) and the surface flavor of D10
-   `docked-depot-origin`.
-5. **Ground pickup + mixed direction.** The base loads cargo ONTO the
+4. **Start-docked origin proof.** ~~Record the transport STARTING docked to the
+   base rover off-pad, undock, deliver elsewhere.~~ **GATED ON THE PROBE, AND
+   THE PROBE IS NOW AUTHORED (2026-09-02).**
+   `OriginProofProbe_SettledDockLeavesNoExternalParent` (category
+   `RouteDockCapture`, lane H55) couples a spawned `dockingPort2` into the
+   active vessel, counts the parts satisfying the producer's OWN predicate
+   (`p.parent.vessel != v`) after the couple settles, and reads back whether
+   `RouteOriginProof` was captured - logging
+   `OriginProofProbe: externalParentParts=N proofCaptured=<bool> ...` and
+   asserting NO verdict. `externalParentParts=0 proofCaptured=False` confirms
+   ROUTE-ORIGIN-PROOF-PRODUCER-UNREACHABLE (todo, SUSPECTED) and this item
+   becomes a bug fix plus a capture cell rather than a flight; anything else
+   refutes it and the flight goes ahead as written. Either way the first-ever
+   execution of `RouteOriginProof_StartedDockedToNonKsc_ProducerLandsProof` and
+   the surface flavor of D10 `docked-depot-origin` still ride whichever route
+   the measurement picks. DO NOT FLY THIS ITEM BEFORE READING THE PROBE LINE.
+   **FIRST MEASUREMENT TAKEN 2026-09-01 (H55 flight 1), AND IT IS HALF AN
+   ANSWER**: `externalParentParts=0 proofCaptured=False situation=4
+   outcome=active-vessel-PRELAUNCH partnerPid=108351093`. The zero count
+   supports the suspicion, but the pad host is PRELAUNCH and the producer
+   short-circuits on that BEFORE walking candidates, so the branch in question
+   is still unexercised. Closing it needs the probe on a LANDED host - the
+   committed `rover-route-recorded` fixture is one - which is a follow-up lane,
+   and until it runs this item stays gated exactly as written.
+5. **Ground pickup + mixed direction.** ~~The base loads cargo ONTO the
    transport (pickup manifest), then a both-directions window
-   (`mixed-direction`). Same two-rover template, transfers reversed.
-6. **EVA-construction drift, live.** Attach a part to a vessel EXTERIOR during
+   (`mixed-direction`). Same two-rover template, transfers reversed.~~
+   **AUTOMATABLE: `RouteDockCapture` cells authored 2026-09-02, lane H55 never
+   flown.** Two cells -
+   `DockCapture_LiveRecordedDockingPortCouple_StampsDockingPortWindowWithDelivery`
+   (the delivery half: LiquidFuel AND a stored cargo item transport->partner)
+   and `DockCapture_PickupAndMixedDirection_ManifestsBothWays` (LiquidFuel
+   partner->transport plus inventory transport->partner in ONE window).
+6. **EVA-construction drift, live.** ~~Attach a part to a vessel EXTERIOR during
    the docked window: the `Route window part-set drift on undock` warning path
    has never fired outside unit tests. Report-only lane; pins that the route
    still builds and the moved part appears in NO manifest (the documented
-   contract).
-7. **Multi-stop rover run.** One transport, two landed bases in one recording
+   contract).~~ **AUTOMATABLE: `DockCapture_EvaConstructionDrift_WarnsButRoute-
+   StillBuilds` authored 2026-09-02, lane H55 re-fly pending.** The KSP fact that
+   shaped it, decompiled rather than assumed: `Part.Couple` fires
+   `onPartCouple` UNCONDITIONALLY, so a second couple inside an open docked
+   window opens a SECOND route window whose transport pid set already spans the
+   partner, and the later undock then fails
+   `RouteProofCapture.TryVerifyRoutePartSetsSeparated` instead of completing -
+   a drift cell built on `Part.Couple` could never observe the warning at all.
+   Real EVA construction does not use it: `EVAConstructionModeEditor.AttachPart`
+   ends in `Part.OnAttachFlight(parent)`, which sets parent / vessel and adds
+   the part to `vessel.Parts` with NO coupling event. The cell drives THAT.
+7. **Multi-stop rover run.** ~~One transport, two landed bases in one recording
    (D10 `multi-stop` - the multi-window `LoopRoute(multi)` path, whose blocked
-   branch the fix wave also patched but no flight has ever driven).
-8. **Round-trip pair.** A->B->A with cargo both legs (D10 `round-trip-pair`).
+   branch the fix wave also patched but no flight has ever driven).~~
+   **AUTOMATABLE: `DockCapture_TwoPartnersSequential_TwoWindowsOneRecording`
+   authored 2026-09-02, lane H55 re-fly pending.** Note the shape the architecture
+   forces and the cell pins: each dock opens its own dock-merged CHILD, so two
+   stops are two windows on two recordings of ONE tree - which is exactly what
+   `AnalyzeTree`'s M4a collection walks, and NOT two windows on one recording.
+8. **Round-trip pair.** ~~A->B->A with cargo both legs (D10
+   `round-trip-pair`).~~ **AUTOMATABLE:
+   `DockCapture_RoundTripPair_SamePartnerTwice` authored 2026-09-02, lane H55
+   re-fly pending** - deliver on the first window, pick up on the second, both
+   against the same PHYSICAL partner. The cell asserts that sameness on the
+   endpoint PART pids rather than on `TransferTargetVesselPid`, because
+   `Part.Undock` builds a fresh `Vessel` whose `persistentId` is re-stamped by
+   `Vessel.Initialize` - so a re-dock of the same craft legitimately reports a
+   different target vessel pid, and any future route lane comparing vessel pids
+   across an undock is comparing the wrong thing.
+
+**H55 GREEN 2026-09-01 (run 2, `2026-09-01_2229`, 6/6, re-tiered nightly): B5, B6, B7 and B8 are MEASURED on a driven run - the only Tier B item still owing anything is B4, gated on the probe reading on a LANDED host.**
+
+**RVR-4 GREEN 2026-09-01 (run 3, `2026-09-01_2253`, re-tiered nightly): Tier C item 9 is MEASURED on a driven career run - dispatch cost 7410 (offline derivation confirmed to the unit), the FundsShort hold at shortfall 3820 (live funds are the seed alone: PatchFunds' guarded uplift keeps the ledger's milestone awards out of the live pool on a file-constructed career), recovery credit absent. Round 1 of that lane found the shipped free-dispatch fix insufficient on the real tree (two blockers, both fixed on this branch).**
+
+**What Tier B still owes a flight, after H55.** The lane itself: FLOWN ONCE
+2026-09-01 (`total=6 passed=1 failed=5`) and RED on an authoring defect in the
+partner rig - it carried no `ModuleCommand` part, so
+`ParsekFlight.IsTrackableVessel` classified the undocked half as debris,
+`DeferredUndockBranch` returned before `CreateSplitBranch`, and no route window
+could ever complete. Every rig is now rooted on a probe core and the re-fly is
+pending. THE STANDING LESSON IS WIDER THAN THIS LANE: any self-provisioned
+undock subject must be TRACKABLE (SpaceObject, EVA kerbal, or a part carrying
+`ModuleCommand`) or it produces no branch and no window completion at all.
+Flight 1 did prove the spawn half, the live `kind=DockingPort` classification,
+the window capture and both live cargo moves, and the probe cell passed and
+measured. And the SURFACE half that was always the
+other axis of these items - H55 produces the docked-window behaviour on the KSC
+pad host, not on two landed rovers at distance, so the surface flavors of the
+D10 rows stay unclaimed until a lane measures them. What H55 removes is the
+need to spend a manual flight to see delivery, pickup, mixed direction, drift,
+multi-stop and round-trip AT ALL.
 
 ### Tier C - economics (career)
 
-9. **Costed dispatch.** **UNBLOCKED 2026-09-01** -
-   ROUTE-DISPATCH-COST-FREE-ON-SNAPSHOTLESS-ROOT is fixed (the costing basis
-   falls back to the first `SourceRefs` member carrying a single-vessel
-   snapshot, so the rover shape - a snapshot-less runway-stub root - now prices
-   a dispatch instead of returning 0). LANE STILL TO AUTHOR, never flown: a
-   career lane pinning `DispatchDebit` > 0, the funds-short hold
-   (`hold-reasons` career flavor), and the KSC recovery credit, against the
-   ledger oracle. The fix also gives the lane its own negative control - the
-   grep-stable `FundsCost basis=... snapshotSource=... fallback=1` line names
-   which member was priced, and the rate-limited `FundsCost: ... UNCOSTED`
-   line is what a genuinely free dispatch now looks like in the log.
+9. **Costed dispatch.** ~~UNBLOCKED 2026-09-01 - LANE STILL TO AUTHOR.~~
+   **FIXTURE AND SPEC AUTHORED 2026-09-02, NEVER FLOWN** - fixture
+   `rover-route-career` (`harness/tools/build_rover_route_career.py` +
+   `harness/lib/test_build_rover_route_career.py` + a `RECORDED_FIXTURES` row),
+   spec `harness/scenarios/RVR-4-rover-route-career-cost.toml`.
+   ROUTE-DISPATCH-COST-FREE-ON-SNAPSHOTLESS-ROOT was fixed 2026-09-01 (the
+   costing basis falls back to the first `SourceRefs` member carrying a
+   single-vessel snapshot, so the rover shape - a snapshot-less runway-stub root
+   - now prices a dispatch instead of returning 0) and has been unmeasured
+   since; this lane is that measurement.
+   **THE SUBJECT COST NO FLIGHT.** `rover-route-career` is
+   `rover-route-recorded` STAMPED INTO CAREER by construction from two committed
+   inputs - the recorded save supplies the Parsek payload and the world,
+   `fresh-career` supplies seven career SCENARIO nodes lifted verbatim - with
+   `Mode` flipped, `ScenarioNewGameIntro` (SANDBOX-only) dropped, and the
+   `ParsekScenario` node, the whole `FLIGHTSTATE` and every sidecar asserted
+   BYTE-IDENTICAL to the sibling's. The lane is RVR-2's thirteen driven steps
+   verbatim, so `env.IsCareer` is the only variable moved and RVR-2's green run 2
+   is the control. Because both inputs are committed the drift cell RE-RUNS the
+   build and asserts byte-identity, which no other recorded fixture's cell can
+   do. Precedent: `build_strategy_career.py`, applied in the other direction.
+   **WHAT IT PINS:** the `FundsCost basis=... snapshotSource=... fallback=1`
+   breadcrumb, where `fallback=1` IS the assertion (the fix firing on the shape
+   that motivated it - the root `cf8d06fc` has no `_vessel.craft` sidecar at
+   all, and the dock member is skipped as a combined-vessel snapshot), plus
+   `DispatchDebit: ... cost=<non-zero> careerKsc=1`. The cost DERIVES to 7410
+   (7250 of parts + 200 LiquidFuel at 0.8 from the root's complete launch
+   manifest) but is pinned as a regex, not a number: the price table came off the
+   automation instance's own `ModuleManager.ConfigCache` - which no CI job can
+   re-read, and where ProbesBeforeCrew prices `dockingPort2` at 600 against
+   Squad's 280 - so the first flight is what measures the figure.
+   **FLOWN TWICE 2026-09-01, AND TWO OF THE THREE ASKS ARE NOW MEASURED.** Both
+   runs driver-valid, both `PARSEK-FAIL(expectation)`, neither on a token that
+   was wrong about the product. Round 1 (`_2204`, 74 s) measured the round-1 cost
+   fix as INSUFFICIENT for this shape and is why the ghost-surface follow-on
+   exists: `UNCOSTED - no SourceRefs member (of 2, root cf8d06fc...)`, so
+   `cost=0` and the dispatch was still free. It also killed the lane's authored
+   basis derivation in passing - `of 2`: the route holds TWO SourceRefs, because
+   `ComputeMemberRecordingIds` collects one id per composition through-line head,
+   so the transport's driving legs strip back to the root and `4370a799...` is
+   not a member at all. Round 2 (`_2228`, 50 s) on the follow-on DLL measured the
+   whole chain and red only on this spec's own two derivations.
+   **WHAT ROUND 2 BOUGHT:** the first COSTED route dispatch in the suite's
+   history (`FundsCost basis=launch-manifest source=cf8d06fc...
+   snapshotSource=cf8d06fc... fallback=0 snapshotSurface=ghost
+   cost=7410.0000023841858` - the ROOT priced ITSELF off its ghost copy, so the
+   subset path was never needed and its absence is now pinned by contiguity), the
+   first career funds debit driven end to end
+   (`Career KSC funds debited: -7410.0000023841858`), AND the funds-short hold.
+   THE DERIVED COST WAS RIGHT TO THE UNIT.
+   **THE FUNDS-SHORT HOLD FIRED, AND THIS ITEM'S OWN NOTE HAD CALLED IT
+   UNREACHABLE.** The correction is worth carrying because the missing step is a
+   general trap: A LEDGER AMOUNT IS NOT A LIVE POOL AMOUNT. The committed
+   `ledger.pgld`'s five `MilestoneAchievement` rows do raise the RUNNING balance
+   by 18,200, but `KspStatePatcher.PatchFunds` runs its target through
+   `ApplyDrawdownGuard` and the "keep what you earned" guard refuses the upward
+   patch, holding the live pool at the spent value (`GUARDED UPLIFT clamped
+   resource=Funds running=29200 live=11000 clampedTo=11000 - spent value held;
+   ledger may be missing a spending channel`). So the live pool IS the 11000
+   seed: cycle 0 is charged 7410, cycle 1 sees 3590 and blocks
+   `kind=FundsShort reason=funds-short shortfall=3820.0000047683716` into
+   `blocked-then-paused armedBy=send-once hold kind=FundsShort`. The shortfall is
+   `2 * cost - seed`, exactly what the seed band was solved to produce - so the
+   band was never "for a future lane", it was this lane's gate all along.
+   Cycle 1 stops reading `DestinationFull` only because the funds gate is step 7
+   of `CheckEligibility` and capacity is step 8; both refusals are true on these
+   bytes and ordering picks which is logged, which is what round 1 measured from
+   the other side at `cost=0`.
+   **THE RECOVERY CREDIT stays the one ask not collected**, and that half of the
+   derivation held: the ledger carries no recovery rows, measured as
+   `credit-skip zero-recovery (recoveryRows=0)` and now pinned as a token so the
+   absence is a gate rather than a paragraph. A recovery-credit lane needs a
+   recorded flight that ENDS in a KSC recovery, which no committed route fixture
+   is - that is the remaining Tier C gap, and it is a fixture decision.
+   RE-FLY OWED on the corrected token set; the tier stays `pending-fixture` until
+   a run is green. NO D10 claim yet, on the CLAIM-IS-NOT-GATE rule: the career
+   flavor of `ksc-origin` is earned in the commit that measures the lane green.
 10. **Escrow competition.** Two routes sharing one physical source (D10
     `multi-origin-escrow`); the reservation/release invariant has unit
     coverage but no driven lane.
@@ -2407,6 +2543,16 @@ gated behind the ROUTE-ORIGIN-PROOF-PRODUCER-UNREACHABLE probe (todo) before any
   `mergeState` key anywhere (both trees already fully sealed). A second,
   route-CARRYING fixture (post-creation re-save) is still optional and only
   needed for route-reading lanes that must not create.
+- **Self-provisioning `RouteDockCapture` category + lane H55** - LANDED
+  2026-09-02 (`Source/Parsek/InGameTests/RouteDockCaptureInGameTest.cs`,
+  `RouteDockCaptureMath.cs`, `harness/scenarios/H55-route-dock-capture-isolated.toml`).
+  The docking-port sibling of H41's claw cell: it spawns docking ports, tanks
+  and cargo containers beside the active vessel and drives the REAL
+  `Part.Couple` -> classifier -> window capture -> stock cargo move ->
+  `Part.Undock` -> window completion cycle, which is what makes Tier B items
+  5-8 producible without a flight each. Everything Tier B needs beyond it is a
+  fixture decision (a two-rover landed host), not new machinery. The honest
+  residual, same as H41's: the stock docking FSM is not exercised.
 - **Generators** - landed on this branch: `WithRouteConnectionWindow` /
   `WithRouteOriginProof` through the production codec chokepoint,
   `RouteWindowFixtures.SurfaceDeliveryWindow` (rover-flight constants),
@@ -2414,10 +2560,19 @@ gated behind the ROUTE-ORIGIN-PROOF-PRODUCER-UNREACHABLE probe (todo) before any
   build on these, not on new hand-rolled window helpers (16 already exist;
   do not add a 17th).
 
-Sequencing: Tier A rides this branch. Tier B lanes are operator-tier
-calibration flights, one at a time, each following the RVR template; B4 first
-(it is the only one that also closes an in-game skip). Tier C is no longer
-gated on the cost fix (landed 2026-09-01); its two lanes are simply unauthored.
+Sequencing: Tier A rides this branch. Tier B is no longer five separate
+calibration flights: items 5-8 are authored as in-game cells on lane H55
+(operator tier, flown once and red on a rig defect, re-fly pending), so the
+sequencing is now ONE clean census of H55 followed by whatever its probe line
+says about item 4. Flight 1 already took half that measurement
+(`externalParentParts=0`, which supports the suspicion) but the pad host is
+PRELAUNCH and the producer short-circuits there, so item 4 now also owes the
+probe a run on a LANDED host before it can be settled either way. Tier C item 9
+has FLOWN TWICE (2026-09-01), measured the costed dispatch AND the funds-short
+hold, and owes one re-fly on its corrected tokens; item 10 is still unauthored.
+The recovery credit is now the only unbought third of item 9, and it needs its
+own subject - a recorded flight that ENDS in a KSC recovery - rather than a
+re-tuned seed or a second career stamp.
 Tier D items ride along whenever their sibling program
 (loop-render / ghost-replay) is already paying the flight cost. The standing
 verdict - the nightly lane does not grow until the basics are gated - stands

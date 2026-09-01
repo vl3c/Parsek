@@ -3880,6 +3880,21 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
         # TALLY_CANNOT_DISCRIMINATE_IDS below for why that single-cell margin changes
         # which pinned evidence carries the proof.
         "H41-logistics-grapple-isolated": ("LogisticsGrapple", 4),
+        # THE DOCKING-PORT SIBLING OF H41, and the member with the WIDEST margin the set
+        # has ever held: ordinary 0, isolated 6. All six `RouteDockCapture` cells are
+        # `AllowBatchExecution = false` + `RestoreBatchFlightBaselineAfterExecution =
+        # true` because every one of them SELF-PROVISIONS - it spawns docking ports,
+        # tanks and cargo containers beside the active vessel, couples them in, moves
+        # real resources and real stored cargo, and undocks. So the category is WHOLLY
+        # batch-disabled (H21's shape, not H41's), it is NOT in
+        # PARTLY_BATCH_DISABLED_IDS, and its tally discriminates on the `passed=` floor
+        # alone - the ordinary path's ceiling is zero.
+        # FLOWN ONCE 2026-09-01 (`total=6 passed=1 failed=5`), RED on an authoring
+        # defect in the cells' own partner rig - it carried no `ModuleCommand` part, so
+        # `ParsekFlight.IsTrackableVessel` classified the undocked half as debris and
+        # `DeferredUndockBranch` returned before `CreateSplitBranch`. Rigs re-rooted on a
+        # probe core; the split stays INTERIM until the re-fly (see INTERIM_PIN_IDS).
+        "H55-route-dock-capture-isolated": ("RouteDockCapture", 6),
         # THE THIRD RECORDED `Logistics` HOST, and the first that can pay the debt
         # H39's and H40's rosters both name as unpayable by existing bytes. Its
         # fixture `rover-route-recorded` is the harvest H39's roster asked for in so
@@ -4091,7 +4106,24 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
     # AND BACK TO ZERO ON 2026-09-01: RVR-1 flew twice the same day (pre- and post- the
     # endpoint-inventory repair), measured the identical split both times, and moved to
     # MEASURED_SKIPPED below.
-    INTERIM_PIN_IDS: set = set()
+    #
+    # AND BACK TO ONE ON 2026-09-02 for `H55-route-dock-capture-isolated`, which has now
+    # flown ONCE and not green. Its `total=6` is attribute-exact and its `failed=0` is
+    # asserted; flight 1 measured `passed=1 failed=5 skipped=0`, so the SKIP half of the
+    # hypothesis is answered (zero self-skips - the pad host satisfies every
+    # precondition) while the PASS half is not, because all five capture cells died on
+    # ONE authoring defect in the rig rather than on their own subjects. That defect is
+    # fixed (every partner rig is now rooted on a `probeCoreOcto2.v2`, without which the
+    # undocked half is debris and `DeferredUndockBranch` never reaches
+    # `CreateSplitBranch`), and the split stays a regex class until a census measures
+    # the REPAIRED batch. As with RVR-1, the interim `passed=` says almost nothing about
+    # WHICH cells passed - flight 1 is the worked example, since its `passed=1` was the
+    # probe and none of the five subjects - so the obligation is discharged by the SIX
+    # REQUIRED cell tokens the spec pins, one per cell, which is why this member's
+    # REQUIRED list is the longest in the family.
+    # AND BACK TO ZERO ON 2026-09-02: H55 flew twice the same day and PASSED run 2
+    # (`2026-09-01_2229`, total=6 passed=6 failed=0 skipped=0), pinned whole.
+    INTERIM_PIN_IDS = set()
 
     # id -> measured `skipped=` for members whose RUN-TIME InGameAssert.Skip guards
     # push the split above the attribute-derived floor. The attributes give a FLOOR
@@ -4430,10 +4462,27 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
                 pat = batch_pats[0]
                 scene = hlib.resolve_batch_tally_pin(batch_pats).scene
                 ord_ = hlib.derive_batch_tally(self.decls, category, scene)
-                self.assertGreater(ord_.executable, 0,
-                                   "%s is declared PARTLY batch-disabled but the "
-                                   "ordinary path executes nothing - this sweep would "
-                                   "be inert" % sid)
+                # GENERALISED-BY-H55. This used to assert `ord_.executable > 0`
+                # unconditionally, which silently assumed every INTERIM member is
+                # also PARTLY batch-disabled. H55 is the first member where that
+                # does not hold: `RouteDockCapture` is WHOLLY batch-disabled (H21's
+                # shape), so the ordinary path's ceiling is zero and the sweep below
+                # runs exactly one iteration - passed=0, the vacuous line - which is
+                # still a real check and is exactly what the plain
+                # `passed=[1-9][0-9]*` interim spelling rejects. The guard therefore
+                # applies only to the members that CLAIM a non-zero ordinary
+                # ceiling; asserting it for the others would red a correct spec.
+                if sid in self.PARTLY_BATCH_DISABLED_IDS:
+                    self.assertGreater(ord_.executable, 0,
+                                       "%s is declared PARTLY batch-disabled but the "
+                                       "ordinary path executes nothing - this sweep would "
+                                       "be inert" % sid)
+                else:
+                    self.assertEqual(0, ord_.executable,
+                                     "%s is NOT in PARTLY_BATCH_DISABLED_IDS, so the "
+                                     "ordinary path must execute nothing - it executes "
+                                     "%d, which means the membership declaration is "
+                                     "stale" % (sid, ord_.executable))
                 for passed in range(0, ord_.executable + 1):
                     line = (prefix + "BATCH_COMPLETE v1 total=%d passed=%d failed=0 "
                             "skipped=%d category=%s scene=%s"
@@ -4575,6 +4624,18 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
         # all, so holding it to the `logistics` requirement would assert a capability
         # none of its cells reads.
         "LogisticsGrapple": "loaded-vessel",
+        # `RouteDockCapture` is a SUPERSET of `LogisticsGrapple`'s need, not a copy of
+        # it, and the row says `logistics` deliberately. Like the claw cell it spawns
+        # fixtures beside the active vessel and couples them in, so it needs everything
+        # `loaded-vessel` asserts. UNLIKE the claw cell, four of its six cells move
+        # LiquidFuel across the docked window in one direction or the other and read the
+        # window's own resource manifests back, so the ACTIVE vessel must genuinely
+        # carry a LiquidFuel tank with positive capacity - the exact floor the
+        # `logistics` predicate applies. Holding it to `loaded-vessel` would let a host
+        # with no tank through, and every transfer cell would then self-skip on
+        # "Active vessel carries no part with a LiquidFuel resource" - a fixture problem
+        # reported as a category problem.
+        "RouteDockCapture": "logistics",
     }
 
     @staticmethod
@@ -9094,7 +9155,14 @@ class IngameCategoryInventoryDocTests(unittest.TestCase):
         # send-once / pause lifecycle driven against the production
         # LiveRouteRuntimeEnvironment in-session. Its own category on purpose -
         # `Logistics`' total=47 is pinned by four committed specs.
-        self.assertIn("**109 categories / %d declarations**" % stated_decls, body,
+        # 109 -> 110 with `RouteDockCapture` (H55, 2026-09-02): the self-provisioning
+        # DOCKING-PORT sibling of `LogisticsGrapple` - six cells that produce the
+        # roadmap's Tier B supply-route subjects (delivery, pickup + mixed direction,
+        # EVA-construction part-set drift, multi-stop, round-trip) in-session, plus the
+        # origin-proof instrument. Its own category rather than a slice of `Logistics`
+        # for the same reason `LogisticsGrapple` is: `Logistics`' total=47 is pinned by
+        # five committed specs, and adding a cell family there would red all of them.
+        self.assertIn("**110 categories / %d declarations**" % stated_decls, body,
                       "the triage totals line disagrees with the table it summarises "
                       "(table sums to %d declarations across %d categories)"
                       % (stated_decls, len(self.rows)))

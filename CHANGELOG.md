@@ -81,12 +81,17 @@ _(unreleased — entries accumulate here per commit)_
   rover driven off the pad - was dispatching for FREE. Parsek prices a KSC dispatch
   from the recorded craft, and when that first recording never captured one, the
   price came out as zero: no funds were checked and none were charged, every cycle,
-  silently. Parsek now prices such a dispatch from the first recording of the run
-  that DID capture the craft, while still billing the fuel and cargo the launch
-  actually carried. Care is taken not to price the craft after it has docked - that
-  snapshot includes the destination station, and charging for it would have billed
-  you for the base you were resupplying. A route that can be priced no other way says
-  so in the log instead of quietly charging nothing.
+  silently. Parsek now prices such a dispatch from whichever recording of the run
+  did capture the craft. On a rover-shaped run that is the recording taken at the
+  dock, which holds the transport and the destination together in one snapshot - so
+  Parsek bills only the transport's own parts out of it, using the part list the
+  dock itself recorded. You are never charged for the base you are resupplying. The
+  fuel and cargo the launch actually carried are billed as before. Pricing also now
+  survives loading the save: the craft snapshot Parsek used to read is released from
+  memory when a game loads, which used to make every reloaded route free again, and
+  it now falls back to the copy kept for ghost rendering. A route that still cannot
+  be priced honestly says so in the log instead of quietly charging nothing, or
+  charging a wrong part-less price.
 
 ### Dev
 
@@ -103,8 +108,38 @@ _(unreleased — entries accumulate here per commit)_
   the suite has ever attempted (seal, create, deliver, then a second delivery that
   must be refused because the destination is full - all four steps derived from the
   recorded flight's own fuel numbers), and one drives the new route-lifecycle checks.
-  All three are authored and none has flown yet; each says so in its own header and
-  states what its first run has to settle. Nothing here changes the game.
+  All three have since run for real and all three pass. A fourth rides the same
+  recorded flight stamped into a CAREER game - built from the two saves already
+  committed rather than flown again, with the recorded flight itself copied across
+  byte for byte - so it can watch the free-dispatch fix above actually charge for a
+  launch, which no test had yet seen it do. It has now run twice, and both runs paid
+  for themselves. The first did exactly the job a test exists for: it found that the
+  earlier fix did not hold on a real recorded tree, for two separate reasons neither
+  the unit tests nor the hand-written expectations had modelled, and the fix above is
+  the result. The second, on the fixed build, watched the whole thing happen for the
+  first time - a launch priced, charged to the player's account, and then a SECOND
+  launch refused because the account could no longer cover it. Both numbers came out
+  where they had been worked out in advance: the price to the exact fund, and the
+  shortfall to the exact fund. That second refusal is one the test's own notes had
+  said could never happen here, on the reasoning that the recorded flight arrives with
+  prize money already banked from its milestones - and the notes were wrong for an
+  instructive reason, now written down where the next reader will find it: that prize
+  money sits in Parsek's own books and never reaches the player's actual account,
+  because a safety check that exists to stop bookkeeping from inventing funds holds
+  the account at what was really spent. The one thing the test still cannot check is
+  the refund side - the recorded craft was never recovered, so there is nothing to
+  credit back - and that now needs a different recorded flight rather than a different
+  starting balance. A third run on the corrected expectations is owed before it counts
+  as green. Five more of the planned supply-route sessions no longer need a
+  human to fly them at all: a new set of automated checks builds its own docking
+  target out of stock parts beside whatever craft is on the pad, docks to it for
+  real, moves fuel and a cargo item across while docked, and undocks again - so
+  delivery, pickup, a both-directions transfer, a two-destination run, and a
+  there-and-back pair are all produced inside the test session instead of costing a
+  flight each. A sixth check measures, without judging, whether the game leaves any
+  trace Parsek can use to tell that a craft STARTED a recording already docked to
+  something; whichever way that reads decides whether the one remaining session is a
+  flight or a bug fix. Nothing here changes the game.
 
 ---
 
