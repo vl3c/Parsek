@@ -777,3 +777,91 @@ Always:
   MVP-probe vs second-cut-decision variants of one phase; tightened the
   `ghostMapVesselPids` registration site to `BuildAndLoadGhostProtoVesselCore` (`:9455`).
   All other revision claims verified correct against the source.
+
+---
+
+## Appendix A: pinned implementation contracts (moved from `.claude/CLAUDE.md`, 2026-09-01)
+
+These are the load-bearing invariants of the shipped tracer and probe. They used to live in
+the agent instruction file; they were moved here so that file stays short, and this doc stays
+the authority for anyone touching `MapRenderTrace.cs`, `MapRenderProbe.cs`, or the stamp
+sites in `GhostOrbitLinePatch`. Source-gated by `LineBlinkWindowExitExemptionTests`.
+
+### `MapRenderTrace.cs`
+
+- Gated map/TS ghost render observability, sibling of the flight-scene `GhostRenderTrace.cs`;
+  off by default behind the `mapRenderTracing` setting.
+- Tier-A structural events (`EmitStructural`: GhostCreated / GhostDestroyed / FirstPosition ->
+  Info). Tier-B change-based truth (`EmitOnChange` -> Verbose; routes straight to `Verbose`
+  with caller-owned change detection, NOT through `ParsekLog.VerboseOnChange`, whose identity
+  dict is not cleared on scene switch and would drop the first post-re-entry transition).
+  Tier-C anomalies (`EmitAnomaly`; pure Unity-ECall-free predicates `IsIconJump` /
+  `IsLineBlink`).
+- `IsLineBlink` carries FOUR principled exemptions, each a POSITIVE fact about a real
+  transition and never a widened window:
+  1. `bodyChanged` (SOI / segment seam);
+  2. `offWindowCovered` (the dark window was polyline-painted end to end);
+  3. `windowTransitionExempt` (the pair left the recording's rendered body-frame window and
+     came back onto a clock it COVERS - `ClassifyLineToggle` + `ResolveWindowTransitionExempt`);
+  4. `tracedPathHandoffExempt` (the OFF was the Director's DESIGNED StockConic -> TracedPath
+     descent handoff - `ResolveTracedPathHandoffExempt`).
+- The THIRD exemption reads a 3-state `RenderWindowCoverage` stamped by `GhostOrbitLinePatch`
+  at EXACTLY four sites whose branch condition IS the measurement (`Outside`:
+  `past-body-frame-end` / `before-body-frame-start`, `parking-conic-loiter-hold`; `Inside`:
+  `director-stockconic-visible`, `visible-body-frame`). It requires BOTH halves proven - one
+  half is never enough in EITHER direction, because `parking-conic-loiter-hold` holds the line
+  lit OUTSIDE the window. Do NOT derive coverage generically from whatever bounds a site logs
+  (`stale-segment-awaiting-reseed`'s "outside bounds" is the applied segment bounds lagging
+  INSIDE the window), and keep `Inside` POSITIVE, never "not Outside" (`terminal-visible` is
+  lit past the recorded window and stamps nothing).
+- The FOURTH exemption reads a second enum-valued stamp, `LineHandoffKind.TracedPathOwned`,
+  written at EXACTLY ONE site (the `director-traced-path-suppress` branch, whose condition IS
+  `IsTracedPathOwnedThisFrame`) on the SAME single-writer `RecordLineIntent` channel; that
+  site must NEVER also stamp coverage (the two exemptions stay disjoint). It is fail-closed on
+  a definitively dark edge, a fresh AGREEING decision, the handoff stamp, a prior proven
+  `InsideWindowOn`, AND two anti-masking conjuncts:
+  - (a) whenever the ownership/paint publish surface RAN this frame
+    (`GhostTrajectoryPolylineRenderer.DidOwnershipPublishRunOnFrame`, which reuses the
+    Driver's existing `pendingDrawsFrame` walk-completed stamp - do NOT add a new per-frame
+    signal; the stamp is written BEFORE `NoteOwnershipPublish`, and the reuse is justified
+    because the probe's real inputs are populated during the walk ahead of it), the polyline
+    must ALSO have covered the ghost, so a map-OPEN handoff that never draws keeps raising;
+  - (b) the selector-alone lane requires a POSITIVELY measured closed map (`mapWasOpen`
+    false), NEVER the mere absence of a publish: `publishSurfaceRan == false` is a NEGATIVE
+    fact strictly broader than map-closed (the TS/FLIGHT controller-not-yet-awake defers, an
+    exception escaping the walk body, and a null Driver all land there with the map possibly
+    OPEN), and resting the lane on it would exempt a genuinely dark handoff.
+- Source-gated by enum-value spelling + count (BOTH stamps) and a single-writer pin on
+  `RecordLineIntent`, in `LineBlinkWindowExitExemptionTests`.
+- `RecordLineIntent` + `ReconcileLineState` / `ReconcilePolylineOverlap` reconcile
+  intended-vs-actual line/icon state (`decision-vs-truth` / `polyline-orbit-overlap`).
+- Every line carries `pid=` + `recId=`. Formatters are SELF-CONTAINED (duplicated from
+  `GhostRenderTrace`; do NOT refactor a shared formatter out or touch `GhostRenderTrace.cs`).
+
+### `MapRenderProbe.cs`
+
+- End-of-frame truth probe for the map/TS render path (`[DefaultExecutionOrder(10000)]` DDOL
+  addon, FLIGHT/TRACKSTATION + `ghostMapVesselPids` gated, on only when
+  `MapRenderTrace.IsEnabled`). Reads renderer/line/orbit truth per tracked ghost and emits
+  Tier-B truth + Tier-C `icon-jump` / `line-blink` anomalies.
+- The `icon-jump` delta is measured in the orbit's OWN reference-body frame
+  (`GetWorldPos3D - referenceBody.position`), NOT raw world: KSP builds an on-rails position
+  as `referenceBody.position + orbitRelative`, so the body-relative delta is the actual
+  orbital arc; comparing a raw-world delta against body-centered orbital speed
+  false-positives smooth fast coasts at high warp (the body's own world motion dominates).
+  SOI-crossing frames suppressed via `bodyChanged`.
+- Also emits the Tier-A `FirstPosition` event per pid and reconciles intended-vs-actual
+  line/icon state each `Sample`.
+
+### `LedgerTrace.cs` (sibling tracer, for the shared formatter rule)
+
+- Gated, EVENT-DRIVEN observability for the ledger apply boundary; off by default behind
+  `ledgerTracing`. NO per-frame probe, no window registry - the read-back reconcile runs
+  synchronously inside each `KspStatePatcher` Patch*.
+- Tier-A: one grep-stable `phase=Structural ...` line per recalc (emitted ONCE from
+  `LedgerOrchestrator.ApplyRecalculatedStateToKsp` after `PatchAll`, never inside a Patch*).
+  Tier-B: per-identity change lines reusing the patch-site changed-sets. Tier-C: read-back
+  `ledger-vs-truth` anomaly via pure predicates (NaN/Inf actual not flagged, NaN/Inf target
+  flagged - RewindReadbackGuard semantics). Monotonic `recalcSeq` stamped on every line so
+  one recalc burst is grep-sliceable.
+- Formatters SELF-CONTAINED (do not refactor a shared formatter out of the render tracers).
