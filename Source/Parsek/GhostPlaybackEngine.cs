@@ -8821,51 +8821,55 @@ namespace Parsek
 
         /// <summary>
         /// Reindex all engine dictionaries after a recording is deleted.
-        /// Keys above the removed index shift down by 1.
+        /// Keys above the removed index shift down by 1; the removed key is dropped.
         /// </summary>
         internal void ReindexAfterDelete(int removedIndex)
         {
+            ShiftIndexKeyedState(removedIndex, insert: false);
+        }
+
+        /// <summary>
+        /// Mirror of <see cref="ReindexAfterDelete"/> for a mid-list insert into the committed
+        /// list (the optimizer's split second half, the Re-Fly origin splitter's TIP): keys at
+        /// or above the inserted index shift up by 1, nothing is dropped. The slot at
+        /// <paramref name="insertedIndex"/> is left empty for the new recording to spawn into
+        /// through the normal path.
+        /// </summary>
+        internal void ReindexAfterInsert(int insertedIndex)
+        {
+            ShiftIndexKeyedState(insertedIndex, insert: true);
+        }
+
+        // Single list of every index-keyed engine collection, so delete and insert cannot
+        // drift apart when the next one is added.
+        private void ShiftIndexKeyedState(int pivot, bool insert)
+        {
             autoLoopLaunchSchedules.Clear();
             autoLoopQueueScratch.Clear();
-            // Owner indices shift on delete; the unit set + transition log are rebuilt next frame
+            // Owner indices shift; the unit set + transition log are rebuilt next frame
             // from host detection, so clear the stale transition-log keys here.
             lastUnitSelection.Clear();
-            ReindexDict(ghostStates, removedIndex);
-            ReindexDict(overlapGhosts, removedIndex);
-            ReindexDict(loopPhaseOffsets, removedIndex);
-            ReindexDict(chainBridgeOpenedUT, removedIndex);
-            ReindexSet(loggedGhostEnter, removedIndex);
-            ReindexSet(loggedReshow, removedIndex);
-            ReindexSet(completedEventFired, removedIndex);
-            ReindexSet(earlyDestroyedDebrisCompleted, removedIndex);
-        }
-
-        private static void ReindexDict<T>(Dictionary<int, T> dict, int removedIndex)
-        {
-            var keys = new List<int>(dict.Keys);
-            keys.Sort();
-            foreach (int key in keys)
+            if (insert)
             {
-                if (key > removedIndex)
-                {
-                    var value = dict[key];
-                    dict.Remove(key);
-                    dict[key - 1] = value;
-                }
+                IndexShift.DictAfterInsert(ghostStates, pivot);
+                IndexShift.DictAfterInsert(overlapGhosts, pivot);
+                IndexShift.DictAfterInsert(loopPhaseOffsets, pivot);
+                IndexShift.DictAfterInsert(chainBridgeOpenedUT, pivot);
+                IndexShift.SetAfterInsert(loggedGhostEnter, pivot);
+                IndexShift.SetAfterInsert(loggedReshow, pivot);
+                IndexShift.SetAfterInsert(completedEventFired, pivot);
+                IndexShift.SetAfterInsert(earlyDestroyedDebrisCompleted, pivot);
             }
-        }
-
-        private static void ReindexSet(HashSet<int> set, int removedIndex)
-        {
-            var items = new List<int>(set);
-            set.Clear();
-            foreach (int item in items)
+            else
             {
-                if (item > removedIndex)
-                    set.Add(item - 1);
-                else if (item < removedIndex)
-                    set.Add(item);
-                // item == removedIndex is dropped
+                IndexShift.DictAfterDelete(ghostStates, pivot);
+                IndexShift.DictAfterDelete(overlapGhosts, pivot);
+                IndexShift.DictAfterDelete(loopPhaseOffsets, pivot);
+                IndexShift.DictAfterDelete(chainBridgeOpenedUT, pivot);
+                IndexShift.SetAfterDelete(loggedGhostEnter, pivot);
+                IndexShift.SetAfterDelete(loggedReshow, pivot);
+                IndexShift.SetAfterDelete(completedEventFired, pivot);
+                IndexShift.SetAfterDelete(earlyDestroyedDebrisCompleted, pivot);
             }
         }
 

@@ -13156,7 +13156,138 @@ namespace Parsek
         /// and chain-based ghost map ProtoVessels. The policy's handler keeps the Verbose log and the
         /// <c>heldGhosts.Remove</c> (soft-cap state) and calls this with <c>evt.Index</c>.
         /// </summary>
+        /// <summary>
+        /// The committed recording at <paramref name="index"/> is about to leave the list
+        /// (list still unshifted). A recording whose ghost already completed can still own a
+        /// retained map ProtoVessel and per-index presence entries; the engine's DestroyGhost
+        /// never fires OnGhostDestroyed for a slot without ghost state, so tear those down
+        /// here or the recording that shifts into the slot inherits them.
+        /// </summary>
+        internal static void HandleCommittedRecordingRemoving(int index)
+        {
+            bool hadProto = vesselsByRecordingIndex.ContainsKey(index);
+            bool hadFlightEntries = flightPendingMapVessels.ContainsKey(index)
+                || flightLastMapOrbitByIndex.ContainsKey(index)
+                || flightStateVectorOrbitTrajectories.ContainsKey(index)
+                || flightSoiGapStateVectorExpectedBodies.ContainsKey(index)
+                || flightStateVectorCachedIndices.ContainsKey(index);
+            if (!hadProto && !hadFlightEntries) return;
+
+            ParsekLog.Verbose(Tag,
+                $"Committed recording #{index} removing with retained map presence " +
+                $"(proto={hadProto} flightEntries={hadFlightEntries}) - tearing down");
+            // Chain-pid presence is shared with a surviving merge target, so only the
+            // recording-index proto goes; pid 0 skips the chain branch.
+            HandleFlightGhostDestroyedMapPresenceCore(index, vesselPid: 0, "committed-removed");
+        }
+
+        /// <summary>
+        /// Shifts every index-keyed map-presence store after the committed list lost the
+        /// entry at <paramref name="removedIndex"/> (entries at that index were torn down by
+        /// <see cref="HandleCommittedRecordingRemoving"/> / the ghost destroy; any leftover
+        /// is dropped here).
+        /// </summary>
+        internal static void ReindexPresenceAfterDelete(int removedIndex)
+        {
+            ShiftIndexKeyedPresence(removedIndex, insert: false);
+        }
+
+        /// <summary>Insert mirror of <see cref="ReindexPresenceAfterDelete"/>.</summary>
+        internal static void ReindexPresenceAfterInsert(int insertedIndex)
+        {
+            ShiftIndexKeyedPresence(insertedIndex, insert: true);
+        }
+
+        // Single list of every recording-index-keyed presence store, so delete and insert
+        // cannot drift apart. vesselPidToRecordingIndex (pid -> index) and flightChainMapOwner
+        // (chainId -> index) carry indices as VALUES and are rebuilt from the shifted stores.
+        private static void ShiftIndexKeyedPresence(int pivot, bool insert)
+        {
+            int protosBefore = vesselsByRecordingIndex.Count;
+            if (insert)
+            {
+                IndexShift.DictAfterInsert(vesselsByRecordingIndex, pivot);
+                IndexShift.DictAfterInsert(lastKnownByRecordingIndex, pivot);
+                IndexShift.DictAfterInsert(activeReFlyDeferredStateVectorGhostSessions, pivot);
+                IndexShift.DictAfterInsert(trackingStationStateVectorOrbitTrajectories, pivot);
+                IndexShift.DictAfterInsert(trackingStationStateVectorCachedIndices, pivot);
+                IndexShift.DictAfterInsert(flightPendingMapVessels, pivot);
+                IndexShift.DictAfterInsert(flightSoiGapStateVectorExpectedBodies, pivot);
+                IndexShift.DictAfterInsert(flightLastMapOrbitByIndex, pivot);
+                IndexShift.DictAfterInsert(flightStateVectorOrbitTrajectories, pivot);
+                IndexShift.DictAfterInsert(flightStateVectorCachedIndices, pivot);
+            }
+            else
+            {
+                IndexShift.DictAfterDelete(vesselsByRecordingIndex, pivot);
+                IndexShift.DictAfterDelete(lastKnownByRecordingIndex, pivot);
+                IndexShift.DictAfterDelete(activeReFlyDeferredStateVectorGhostSessions, pivot);
+                IndexShift.DictAfterDelete(trackingStationStateVectorOrbitTrajectories, pivot);
+                IndexShift.DictAfterDelete(trackingStationStateVectorCachedIndices, pivot);
+                IndexShift.DictAfterDelete(flightPendingMapVessels, pivot);
+                IndexShift.DictAfterDelete(flightSoiGapStateVectorExpectedBodies, pivot);
+                IndexShift.DictAfterDelete(flightLastMapOrbitByIndex, pivot);
+                IndexShift.DictAfterDelete(flightStateVectorOrbitTrajectories, pivot);
+                IndexShift.DictAfterDelete(flightStateVectorCachedIndices, pivot);
+            }
+
+            // Overlap instances key on (recIdx, cycle); rebuild the tuple keys.
+            if (overlapInstanceVessels.Count > 0)
+            {
+                var shifted = new Dictionary<(int recIdx, long cycle), Vessel>(overlapInstanceVessels.Count);
+                foreach (var kv in overlapInstanceVessels)
+                {
+                    int recIdx = kv.Key.recIdx;
+                    if (insert)
+                        recIdx = IndexShift.AfterInsert(recIdx, pivot);
+                    else if (recIdx == pivot)
+                        continue;
+                    else
+                        recIdx = IndexShift.AfterDelete(recIdx, pivot);
+                    shifted[(recIdx, kv.Key.cycle)] = kv.Value;
+                }
+                overlapInstanceVessels.Clear();
+                foreach (var kv in shifted) overlapInstanceVessels[kv.Key] = kv.Value;
+            }
+
+            vesselPidToRecordingIndex.Clear();
+            foreach (var kv in vesselsByRecordingIndex)
+            {
+                if (kv.Value != null)
+                    vesselPidToRecordingIndex[kv.Value.persistentId] = kv.Key;
+            }
+
+            if (flightChainMapOwner.Count > 0)
+            {
+                var owners = new List<string>(flightChainMapOwner.Keys);
+                foreach (string chainId in owners)
+                {
+                    int owner = flightChainMapOwner[chainId];
+                    if (insert)
+                        flightChainMapOwner[chainId] = IndexShift.AfterInsert(owner, pivot);
+                    else if (owner == pivot)
+                        flightChainMapOwner.Remove(chainId);
+                    else
+                        flightChainMapOwner[chainId] = IndexShift.AfterDelete(owner, pivot);
+                }
+            }
+
+            ParsekLog.Verbose(Tag,
+                $"Map presence reindexed after committed {(insert ? "insert" : "removal")} at #{pivot}: " +
+                $"protos {protosBefore} -> {vesselsByRecordingIndex.Count}, " +
+                $"overlapInstances={overlapInstanceVessels.Count}, chainOwners={flightChainMapOwner.Count}");
+        }
+
         internal static void HandleFlightGhostDestroyedMapPresence(int index)
+        {
+            var committed = RecordingStore.CommittedRecordings;
+            uint vesselPid = 0;
+            if (committed != null && index >= 0 && index < committed.Count)
+                vesselPid = committed[index].VesselPersistentId;
+            HandleFlightGhostDestroyedMapPresenceCore(index, vesselPid, "ghost-destroyed");
+        }
+
+        private static void HandleFlightGhostDestroyedMapPresenceCore(int index, uint vesselPid, string reason)
         {
             flightPendingMapVessels.Remove(index);
             flightLastMapOrbitByIndex.Remove(index);
@@ -13166,15 +13297,13 @@ namespace Parsek
 
             // Remove both recording-index and chain-based ghost map ProtoVessels
             var committed = RecordingStore.CommittedRecordings;
-            uint vesselPid = 0;
-            if (committed != null && index >= 0 && index < committed.Count)
+            if (committed != null && index >= 0 && index < committed.Count
+                && !string.IsNullOrEmpty(committed[index].RecordingId))
             {
-                vesselPid = committed[index].VesselPersistentId;
-                if (!string.IsNullOrEmpty(committed[index].RecordingId))
-                    flightTerminalMapRetentionLoggedIds.Remove(committed[index].RecordingId);
+                flightTerminalMapRetentionLoggedIds.Remove(committed[index].RecordingId);
             }
 
-            RemoveAllGhostPresenceForIndex(index, vesselPid, "ghost-destroyed");
+            RemoveAllGhostPresenceForIndex(index, vesselPid, reason);
         }
     }
 }

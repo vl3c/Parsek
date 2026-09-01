@@ -713,6 +713,7 @@ namespace Parsek
             }
             committedRecordings.Insert(insertAt, toInsert);
             BumpStateVersion();
+            NotifyCommittedRecordingInserted(insertAt);
         }
 
         /// <summary>
@@ -3908,7 +3909,9 @@ namespace Parsek
         /// <summary>
         /// Removes a single committed recording by index, deleting its external files.
         /// If the recording is part of a chain, all remaining chain siblings are degraded to standalone.
-        /// Does NOT handle ghost cleanup or crew unreservation — caller must do that first.
+        /// Raises <see cref="CommittedRecordingRemoving"/> before and
+        /// <see cref="CommittedRecordingRemoved"/> after the removal; in FLIGHT those carry the
+        /// ghost teardown and the index reindex. Crew unreservation stays with the caller.
         /// </summary>
         internal static void RemoveRecordingAt(int index)
         {
@@ -3919,6 +3922,7 @@ namespace Parsek
             }
 
             var rec = committedRecordings[index];
+            NotifyCommittedRecordingRemoving(index, rec);
 
             // If part of a chain, degrade remaining chain siblings to standalone
             if (!string.IsNullOrEmpty(rec.ChainId))
@@ -3942,6 +3946,7 @@ namespace Parsek
             DeleteRecordingFiles(rec);
             committedRecordings.RemoveAt(index);
             BumpStateVersion();
+            NotifyCommittedRecordingRemoved(index, rec, null);
             Log($"[Parsek] Removed recording '{rec.VesselName}' (id={rec.RecordingId}) at index {index}");
         }
 
@@ -4631,6 +4636,7 @@ namespace Parsek
             committedRecordings.Clear();
             committedTrees.Clear();
             BumpStateVersion();
+            ResetCommittedListNotificationsForTesting();
             RecordingGroupStore.ResetForTesting();
             durableCommittedRecordingIdHint = null;
             pendingTree = null;
