@@ -224,7 +224,7 @@ This is where code exploration enters the workflow. The design doc says *what* t
 Agent(subagent_type=Explore):
   "Read docs/design-[feature].md. Then investigate the current codebase:
    - Which source files will be affected?
-   - What KSP APIs/events are relevant? (check docs/mods-references/ and MEMORY.md for known gotchas)
+   - What KSP APIs/events are relevant? (check the "KSP API & Code Gotchas" section of `.claude/CLAUDE.md` and `docs/dev/mod-compatibility-notes.md` for known gotchas)
    - How does existing code handle similar problems? (patterns to reuse)
    - What data structures exist and how do they serialize?
    - What tests cover the affected area?
@@ -244,7 +244,7 @@ Agent(subagent_type=Plan):
    which files, what the test/verification looks like."
 ```
 
-**Plan output location:** The plan is ephemeral - it lives in the Plan agent's response, not in a file. The orchestrator reads it, reviews it, and translates the approved tasks into TaskCreate calls. The plan itself is consumed and doesn't need to persist; the design doc (in `docs/`) and the task list are the durable artifacts.
+**Plan output location:** The plan is ephemeral - it lives in the Plan agent's response, not in a file. The orchestrator reads it, reviews it, and translates the approved tasks into the session's task list. The plan itself is consumed and doesn't need to persist; the design doc (in `docs/`) and the task list are the durable artifacts.
 
 **Phase structure:**
 - Each phase produces a working, testable increment
@@ -266,16 +266,16 @@ The orchestrator reads the plan and checks:
 
 If the plan needs adjustment, the orchestrator either edits it directly or re-runs the Plan agent with feedback. **Do not start implementation with an unclear plan.**
 
-Once approved, create tasks:
+Once approved, create tasks. A task entry looks like:
 ```
-TaskCreate: "Add BranchPoint struct and serialization"
+Task: "Add BranchPoint struct and serialization"
   description: "Create BranchPoint struct in new file BranchPoint.cs.
     Fields: id, ut, type (enum), parentRecordingIds, childRecordingIds.
     Serialization: BRANCH_POINT ConfigNode with repeated parentId/childId keys.
     Test: round-trip serialization test in BranchPointTests.cs."
 ```
 
-Set up dependencies with `TaskUpdate(addBlockedBy: [...])` so tasks execute in the right order.
+Record the dependencies between tasks (blocked-by relationships) so they execute in the right order.
 
 ### 4c. Implement (Implementation Agent - clean context)
 
@@ -283,7 +283,7 @@ Each task is handled by a fresh general-purpose agent. The orchestrator decides 
 
 **Isolation modes:**
 - **No isolation (default for small/medium tasks):** The agent works directly on the current branch. The orchestrator stays in the same worktree and dispatches agents sequentially. Best for tightly coupled sequential tasks within a single feature (e.g., data model → builder → tests), where each task builds on the previous commit. Avoids the overhead of creating/merging worktree branches for every small unit of work.
-- **Isolated worktree (for large or parallel tasks):** The `isolation=worktree` parameter creates an automatic worktree under `.claude/worktrees/`. Best for independent tasks that can run in parallel, tasks that might need to be discarded, or large changes where isolation protects the main branch. Use `run_in_background: true` for parallel agents.
+- **Isolated worktree (for large or parallel tasks):** The `isolation=worktree` parameter creates an automatic worktree under `.claude/worktrees/`. Best for independent tasks that can run in parallel, tasks that might need to be discarded, or large changes where isolation protects the main branch. Use `run_in_background: true` for parallel agents. Caveat: a worktree under `.claude/worktrees/` is two levels deeper than the layout the tooling assumes, so the csproj's `Kerbal Space Program/` probe and the harness umbrella-root walk both miss (hundreds of `CS0246` errors; `EC-PRE dev install missing`). Fine for docs-only or test-only tasks; anything that must build against KSP or fly the harness belongs in a sibling `../Parsek-<branch>` worktree (see `.claude/CLAUDE.md`).
 
 **Choosing isolation level:**
 
@@ -461,23 +461,21 @@ After all phases pass automated review, do a manual in-game verification:
 
 ## Step 5: Commit and Update (Human + Claude)
 
-**Merge worktree branches:**
-
-Agent worktrees (created via `isolation=worktree`) live under `.claude/worktrees/` and return the branch name in their result. Merge from the main repo:
+**Land the branch via a GitHub PR, never a local merge into the main checkout** (the hard rule in `.claude/CLAUDE.md`):
 ```bash
-git merge <branch-name-from-agent-result>
+git push -u origin <branch-name>
+gh pr create          # clean body, no AI attribution
 ```
 
-If using manual worktrees (sibling folders per `.claude/CLAUDE.md`):
+Agent worktrees created via `isolation=worktree` live under `.claude/worktrees/` and return the branch name in their result; push that branch and open the PR from it the same way. Once the PR is merged on GitHub, fetch `origin/main` into the main checkout and remove the worktree:
 ```bash
-cd Parsek && git merge <branch-name>
+cd Parsek && git fetch origin && git merge --ff-only origin/main
 git worktree remove ../Parsek-<branch-name>
 ```
 
 **Update project docs:**
 - Move completed items in `docs/roadmap.md` to the "Completed" section
-- Update `MEMORY.md` with new patterns, gotchas, or architectural decisions discovered during implementation
-- Update the root `CLAUDE.md` if new files, test workflows, or debug procedures were added (this is the canonical copy - the inner `.claude/CLAUDE.md` mirrors worktree-specific instructions only)
+- Add hard-won gotchas to the "KSP API & Code Gotchas" section of `.claude/CLAUDE.md`, and new key files or workflow changes to its layout / workflow sections. `.claude/CLAUDE.md` is the canonical copy; the repo-root `AGENTS.md` must stay a byte-identical copy (`cp .claude/CLAUDE.md AGENTS.md`; `AgentInstructionMirrorTests` fails the suite otherwise)
 
 **Clean up:**
 - Delete completed tasks
@@ -522,7 +520,7 @@ git worktree remove ../Parsek-<branch-name>
 
 **Parallelizing dependent work.** Two agents editing the same file or depending on each other's output will produce merge conflicts and inconsistent code. Use `blockedBy` relationships.
 
-**Not updating MEMORY.md.** Hard-won gotchas (like KSP converting underscores to dots in part names, or `GameScenes.TRACKSTATION` not `TRACKINGSTATION`) save hours on future tasks. If you learn something surprising, write it down.
+**Not writing down gotchas.** Hard-won gotchas (like KSP converting underscores to dots in part names, or `GameScenes.TRACKSTATION` not `TRACKINGSTATION`) save hours on future tasks. If you learn something surprising about KSP or the codebase, add it to the gotchas section of `.claude/CLAUDE.md` so every agent sees it.
 
 **Silent code paths.** An `if/else` with no logging on one branch is a debugging blind spot. When something goes wrong in-game, the only tool is KSP.log - if the code didn't log why it chose a particular path, you're left guessing. Every non-obvious branch should explain itself in the log. This is especially true for fallback paths and edge case handlers that rarely execute - those are exactly the paths that are hardest to debug without logging.
 

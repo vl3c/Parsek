@@ -870,3 +870,57 @@ oracle is green on it.
 - Substrate retype (god-object split, typed `TrackSegment` subtypes, killing the dual orbital
   representation) — separate effort, carries the Re-Fly value-copy/rollback cost.
 ```
+
+---
+
+## Appendix A: pinned implementation contracts (moved from `.claude/CLAUDE.md`, 2026-09-01)
+
+The shipped Director / polyline / marker ownership rules. Moved out of the agent instruction
+file so it stays short; this doc is the authority for anyone touching
+`Display/GhostTrajectoryPolylineRenderer.cs`, `GhostMapPresence.cs`, `GhostOrbitLinePatch`,
+or `TracedPathTreatment`.
+
+### `Display/GhostTrajectoryPolylineRenderer.cs`
+
+- Map-view non-orbital ghost trajectory polyline: data structs + pure builder + cache + DDOL
+  Driver MonoBehaviour walking `RecordingStore.CommittedRecordings` for atmospheric /
+  non-orbital phases (`[ERS-exempt]`, always on).
+- Current contract after the Director cutover: the Director pipeline renders unconditionally
+  (no setting; grep gates `grep-audit-map-render-director-drive.ps1` /
+  `grep-audit-map-render-phase-spine-drive.ps1` / `grep-audit-active-leg-recordings.ps1`
+  enforce that the removed flags stay removed).
+- A Director-owned TracedPath leg draws via `TracedPathTreatment.TryDrawOwnedLeg`. The Driver
+  walk is RETAINED as the fenced single draw host - the only renderer for proto-less pid-0
+  recordings, StockConic Driver-direct bridge legs, the boundary-overlap secondary, and the
+  forward legs / arcs / bridges (its I1 deorbit clock consumed exclusively through
+  `CrossMemberSeamStitcher.TryResolveTransferDeorbitTailHead`; file gate
+  `PolylineDriverWalkDeleteGateTests`).
+- Ownership: `drewNonOrbitalLegRecordings` is the SOLE ownership source, published ONLY on an
+  ACTUAL draw (either the owned or the Driver-direct path - the draw, not the TracedPath /
+  StockConic classification, decides whether the proto line must hide);
+  `IsRenderingNonOrbitalLeg` resolves membership via the pure `ResolveNonOrbitalLegOwnership`.
+  Per-leg head-UT gate + contiguous-span merge; `[DefaultExecutionOrder(-50)]` so the publish
+  precedes the orbit-patch read.
+- The icon floor + `ghostsWithSuppressedIcon` + `IsIconSuppressed` are a KEPT PERMANENT
+  fallback - the ONLY marker signal for below-atmosphere descent, off-arc / window-clamp, and
+  no-bounds (loiter / terminal / atmospheric) ghosts; do not delete them.
+- The S0 polyline-coverage instrument (`unaccounted-drawn-recording` /
+  `AssertDrawnRecordingsAccounted`) stays as the cheap coverage proof. Tier-C
+  `rigid-seam-tangent-discontinuity` raises at the owned descent draw (tracing-gated,
+  once-per-onset).
+
+### `GhostMapPresence.cs` marker-draw authority
+
+- ProtoVessel lifecycle for ghost map presence: creates / destroys lightweight vessels for
+  the tracking station, orbit lines, and targeting; manages the `ghostMapVesselPids` HashSet
+  for O(1) guard checks.
+- Both marker call sites (`ParsekUI.DrawMapMarkers` flight-map,
+  `ParsekTrackingStation.ClassifyAtmosphericMarkerSkip` TS) route the "draw our non-proto
+  marker?" decision through `ShouldDrawNonProtoMarkerForGhost(pid)` (pure core
+  `ResolveMarkerDrawDecision`): `IsTracedPathOwnedThisFrame || IsPolylineOwningGhostPhase ||
+  IsIconSuppressed`.
+- The decision is a SUPERSET of the line-hide, so no marker gap; the line Postfix sets
+  `drawIcons=NONE` whenever the TracedPath owns, so no double marker.
+- The marker rides the line via `GhostTrajectoryPolylineRenderer.TryAnchorMarkerToPolyline`
+  when a leg drew, else the trajectory head. The `IsIconSuppressed` / `ghostsWithSuppressedIcon`
+  disjunct is the KEPT PERMANENT no-conic / suppressed-icon fallback (see the polyline entry).

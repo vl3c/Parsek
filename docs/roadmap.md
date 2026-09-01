@@ -437,13 +437,18 @@ Out of scope by doctrine (revisit on demand): non-docking connection producers b
 
 ## Phase 14: Cooperative Async Multiplayer
 
-Multiple players contribute recordings to a shared timeline. The Kerbal system feels populated with vessels flying and bases being built. All players share one game actions timeline — science, funds, reputation, contracts, and kerbals are pooled.
+Multiple players run one shared space program: one KSC, one pooled economy (science, funds, reputation, kerbals; contracts stay local-only in v1), one timeline with per-player attribution. The Kerbal system feels populated with vessels flying and bases being built. Players never need to be online simultaneously; the timeline converges over time - correspondence chess, not real-time multiplayer.
 
-### Gloops Extraction (Phase 14 Prerequisite)
+**Design (binding):** `docs/dev/design-coop-async-multiplayer.md` (2026-09-01). It supersedes this section's earlier sketch in two ways:
 
-Extract the ghost playback engine into a separate assembly (`Gloops.dll`) within the same repository. This provides build-time boundary enforcement and defines the `.gloop` file format needed for recording export/import. See `docs/dev/gloops-recorder-design.md` for the full design.
+- **No Gloops prerequisite.** The exchange uses Parsek-native full-fidelity packets (recording metadata + sidecars + ledger actions), because imported missions are full timeline citizens that feed the ledger, spawn real vessels, and support docking - all things a stripped `.gloop` deliberately cannot carry. The Gloops extraction (see below) remains on the roadmap for the standalone-mod goal but is no longer on this feature's critical path.
+- **Full citizenship, not ghost-only import.** The earlier "purely additive ghosts, no conflict with live game state" model is replaced by: per-player append-only contribution folders in a file-sharing-synced shared folder, foreign recordings imported as read-only citizens, real spawns of peers' terminal vessels with dock/board interaction, a deterministic arbitration fold for concurrent-interaction conflicts, and a merged economy (deterministic walk order, once-ever spend dedup, debt semantics, earlier-UT milestone credit).
 
-**Extraction timing rationale:** The engine boundary already exists (IPlaybackTrajectory, IGhostPositioner, GhostPlaybackEngine with zero Recording references). Extracting earlier than Phase 14 adds overhead without user benefit — new features through Phase 13 still touch engine code, and doing that across assemblies adds friction. Phase 14 is the natural trigger because recording export/import requires a standalone file format (`.gloop`), which is exactly what the extraction produces.
+Carried forward from the original sketch: the shared cloud-synced folder, player identity + attribution, and the correspondence-chess framing. Launch pad allocation is not part of v1.
+
+### Gloops Extraction (decoupled from Phase 14)
+
+Extract the ghost playback engine into a separate assembly (`Gloops.dll`) within the same repository, defining the `.gloop` file format for standalone recording sharing. See `docs/dev/gloops-recorder-design.md` for the full design. No longer a Phase 14 prerequisite (see above); the natural trigger is now the standalone Gloops mod itself.
 
 **Extraction scope:**
 - Separate .csproj in the same repo (not a submodule yet)
@@ -451,25 +456,11 @@ Extract the ghost playback engine into a separate assembly (`Gloops.dll`) within
 - Pre-extraction refactors: split `GhostPlaybackLogic.cs` (engine vs. policy), extract recorder from `FlightRecorder.cs`, `ParsekLog` abstraction
 - Parsek becomes a consumer of the Gloops API
 
-**Standalone Gloops mod (post Phase 14, if demand exists):**
+**Standalone Gloops mod (if demand exists):**
 - Split into separate repository / submodule
 - Content pack system for ambient world activity (KSC traffic, scenery)
 - Standalone UI (loop manager, pack toggles, settings)
 - Custom mesh support for non-vessel content
-
-### Recording Export/Import
-
-Prerequisite for multiplayer. Share recordings as standalone `.gloop` archive files. Export bundles trajectory data, vessel snapshot, and metadata. Import validates, assigns new IDs, and injects into current save. Handles missing parts gracefully (warn, skip, or substitute).
-
-### Shared Timeline
-
-- **Shared recordings folder** — local or cloud-synced where players drop recording files
-- **Import/merge on load** — Parsek scans the shared folder for new recordings and merges them into the local timeline as ghosts; purely additive, no conflict with live game state
-- **Player identity** — each recording tagged with a player ID for filtering, color-coding, and attribution
-- **Launch pad allocation** — different players claim different launch sites (Phase 10); each player's recordings originate from their claimed sites
-- **Version tolerance** — additive recording format means players on different Parsek versions can share recordings safely
-
-Players never need to be online simultaneously. Fly missions, export recordings. Others import whenever they play. The timeline converges over time — correspondence chess, not real-time multiplayer.
 
 ---
 
@@ -540,11 +531,11 @@ Phase 13: Logistics (Supply Routes) (v0.10.0 ✓)
     │  (v0: docking/delivery/single-stop/same-body; pickup/multi-stop/round-trip deferred)
     │
     ▼
-Gloops Extraction ─── Extract ghost engine to separate assembly,
-    │                   define .gloop file format
-    ▼
 Phase 14: Cooperative Async Multiplayer
-    │  .gloop export/import, shared folder, player identity
+    │  Parsek-native packet exchange, shared folder, campaigns,
+    │  player identity, pooled economy, arbitration fold
+    │  (design: docs/dev/design-coop-async-multiplayer.md;
+    │   Gloops extraction decoupled - no longer a prerequisite)
     │
     ▼
 Phase 15: Competitive Play + Space Race
