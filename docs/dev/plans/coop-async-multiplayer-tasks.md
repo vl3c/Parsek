@@ -2,9 +2,19 @@
 
 *Master task list for implementing `docs/dev/design-coop-async-multiplayer.md` (design v3). Each task below becomes one `coop-async-multiplayer-task-N-<component>.md` plan, written by a clean-context Plan agent at dispatch time per `docs/dev/development-workflow.md` step 4a, and one TaskCreate entry for the orchestrator.*
 
-**Status:** PLANNED (2026-09-01). No implementation started.
+**Status:** PLANNED (2026-09-01, revised 2026-09-02 for design v4: full control of foreign vessels, schema generation 5, attribution gate, integration-branch workflow). No implementation started.
 **Design authority:** `docs/dev/design-coop-async-multiplayer.md` (section numbers below refer to it).
 **Companion artifacts:** `coop-async-multiplayer-inventory.md` (verified mechanics, baseline at kickoff), `coop-async-multiplayer-deferred.md`.
+
+**Branching (maintainer decision 2026-09-02):** all multiplayer work lives on
+a long-lived integration branch `coop-multiplayer` cut from `main`. Every
+task is implemented on a sub-branch (`coop-multiplayer/<task-id>-<slug>`,
+e.g. `coop-multiplayer/m2.4-packet-codec`) and lands via a PR targeting
+`coop-multiplayer`, reviewed per the workflow. `main` receives the feature
+only when the whole thing is good to merge (one final PR, `coop-multiplayer`
+-> `main`). `coop-multiplayer` rebases or merges `main` forward at phase
+boundaries so it never drifts far. CI runs on every sub-branch PR because the
+Actions workflow triggers on all PRs.
 
 ---
 
@@ -24,9 +34,9 @@ Sizes: S (one agent session, 1-2 files), M (one session, 2-4 files), L (may need
 
 | Step | Action | Done |
 |------|--------|------|
-| 0.1 | Create the dedicated sibling worktree `../Parsek-coop-multiplayer` off `origin/main` per `.claude/CLAUDE.md` (the session worktree under `.claude/worktrees/` is too deep for the csproj KSP probe and the harness umbrella walk) | worktree exists, `dotnet build` clean |
+| 0.1 | Create the integration branch `coop-multiplayer` from `origin/main` and push it; create the dedicated sibling worktree `../Parsek-coop-multiplayer` on it per `.claude/CLAUDE.md` (the session worktree under `.claude/worktrees/` is too deep for the csproj KSP probe and the harness umbrella walk). Task sub-branches are cut from `coop-multiplayer`, never from `main` | branch pushed, worktree exists, `dotnet build` clean |
 | 0.2 | Record the baseline in `coop-async-multiplayer-inventory.md`: `dotnet test` count, branch, base commit | inventory header filled |
-| 0.3 | Decide section 11's schema-generation question (stay on 4 with additive fields, or bump to 5) and record it in the design doc | design doc updated |
+| 0.3 | (resolved 2026-09-02) Schema generation bumps to 5 in task M2.1, with fixture re-stamping in the same task | - |
 | 0.4 | Dispatch two Explore agents to refresh the inventory's line references against the kickoff commit (the seeded references date from 2026-09-01) | inventory `Status` column initialized |
 
 ---
@@ -57,7 +67,7 @@ Goal: peers' missions appear in your save (timeline, Recordings Manager, ghosts,
 
 | Task | Title | Scope | Files | Tests | Depends | Size |
 |------|-------|-------|-------|-------|---------|------|
-| M2.1 | Owner / Exported / orphan fields + codecs | 6.2: `OwnerPlayerId` on Recording/Tree/GameAction, `Exported`, `OrphanedByRetiredRecordingId`, `MissingParts` (runtime-only); ConfigNode round-trips, null-defaulted | modify `Recording.cs`, `RecordingTree.cs`, `GameAction.cs`, `RecordingTreeRecordCodec.cs`, `GameActions/Ledger.cs` (action codec) | `OwnerFieldsRoundTripAndDefaultNull` (a pre-campaign save loads with all null); `ExportedFlagPersists` | - | S |
+| M2.1 | Owner / Exported / orphan / foreign-link fields + codecs + generation 5 | 6.2: `OwnerPlayerId` on Recording/Tree/GameAction, `Exported`, `OrphanedByRetiredRecordingId`, `ContinuesForeignRecordingId`, `MissingParts` (runtime-only); ConfigNode round-trips, null-defaulted; `CurrentRecordingSchemaGeneration` 4 -> 5 (section 11) with the committed fixture saves re-stamped (`Fixtures/C1Career`, `Fixtures/C2CareerPostFix`, `harness/fixtures/saves/**`; rerun `harness/tools/build_career_earned_pad.py` so its byte-identity cell stays green) | modify `Recording.cs`, `RecordingTree.cs`, `GameAction.cs`, `RecordingTreeRecordCodec.cs`, `GameActions/Ledger.cs` (action codec), `RecordingStore.cs` (constant); fixture saves | `OwnerFieldsRoundTripAndDefaultNull` (a generation-5 save with no campaign loads with all null); `ExportedFlagPersists`; `Generation4RecordingRejected` (existing gate reasons, new constant) | - | M |
 | M2.2 | Ownership fence core + call-site guards | 6.4 predicate (`OwnershipFence.CanMutate(owner, surface)`) + guards at every owner-authoritative mutation site (rewind/re-fly entry, supersede authorship, seal/stash, discard, rename, loop-config edits, group reassignment, Fly/Switch-To restore) with `[OwnershipFence]` Warn on block | create `Multiplayer/OwnershipFence.cs`; modify `RewindInvoker.cs`, `SupersedeCommit.cs`, `RecordingStore.cs`, `UI/RecordingsTableUI.cs`, `MissionGroupLink.cs`, `ParsekFlight.cs` (restore path) | `OwnershipFenceMatrix`; `FenceBlockAlwaysWarns` (log assertion); per-site guard tests | M2.1 | L (split at plan time: core+2 sites first, remaining sites second) |
 | M2.3 | Optimizer freeze | 6.4: `RunOptimizationPass` / `CanAutoMerge` / `CanAutoSplit` skip Exported and foreign recordings with a Verbose line | modify `RecordingStore.Optimization.cs`, `RecordingOptimizer.cs` | `ExportedFreezeIncludesSnapshotHistory`; `OptimizerSkipsForeign` | M2.1 | S |
 | M2.4 | Packet envelope + payload codec | 6.1 `PacketEnvelope` (all blocks incl. EVENTS/CREW/TIP_CLAIMS/RETIREMENTS placeholders), PAYLOAD hash list, completeness protocol (payload dir first, envelope last), chunked time-budgeted hash verification, id safety via `ValidateRecordingId`, owner consistency, seed stripping | create `Multiplayer/PacketCodec.cs`, `Multiplayer/PacketHasher.cs` | `PacketEnvelopeRoundTrip`; `PayloadWithoutEnvelopeIgnored`; `HashMismatchRefuses`; `ChunkedHashResumesAcrossTicks`; `SeedRowStrippedWithWarn` | M1.2, M2.1 | M |
@@ -66,7 +76,7 @@ Goal: peers' missions appear in your save (timeline, Recordings Manager, ghosts,
 | M2.7 | Citizenship wiring | scope-tracker latch for imported recordings, ghost-chain re-derivation trigger after import, `MissingParts` derivation against `PartLoader` (dot-form), spawn-gate early reject for `MissingParts`, foreign group naming (owner's `AutoGeneratedRootGroupName` honored, display uniquify), read-only mission seeding | modify `PlaybackScopeTracker.cs`, `ParsekFlight.cs` (`EvaluateAndApplyGhostChains` call), `GhostPlaybackLogic.cs`, `RecordingGroupStore.cs`, `MissionStore.cs` | `ImportedPastRecordingPlaysAndSpawns`; `MissingPartsImportDegrades`; `ForeignGroupNameCollisionUniquifiesDisplayOnly` | M2.6 | M |
 | M2.8 | MilestoneStore registration from EVENTS | exporter builds the per-tree game-state event bundle; importer registers `Milestone` entries so `GetCommittedTechIds` / `GetCommittedKerbalHireNames` include foreign items | modify `Multiplayer/PacketExporter.cs`, `Multiplayer/PacketImporter.cs`, `MilestoneStore.cs` | `MilestoneStoreRegistrationFromEvents` | M2.5, M2.6 | S |
 | M2.9 | Merge cadence + notifications | 7.5 entry points: OnLoad (after sweeps), scene change into KSC/TS, 90 s poll coroutine in KSC/TS/Map, Sync now; batched ScreenMessage per merge; `[PacketImport]` summary line; world-affecting deferral while a vessel is loaded | modify `ParsekScenario.cs`, `Multiplayer/PacketImporter.cs`; create `Multiplayer/MergeNotifier.cs` (pure batching) | `MergeSummaryLineAlwaysEmitted` (log assertion); `PollSkipsWhenNoNewEnvelopes`; `NotifierBatchesOnePerMerge` | M2.6 | M |
-| M2.10 | Attribution | timeline owner names + per-player filter; Recordings Manager owner badge + disabled mutation controls; Missions tab read-only foreign trees | modify `Timeline/TimelineBuilder.cs`, `UI/TimelineWindowUI.cs`, `UI/RecordingsTableUI.cs`, `UI/MissionsWindowUI.cs` | `TimelineEntriesCarryOwnerName`; `PlayerFilterHidesOthers` | M2.1 | M |
+| M2.10 | Attribution (gated) | `ShowOwnerAttribution` pure predicate (campaign linked AND >= 2 distinct registered player ids; sticky once true); timeline owner names + per-player filter; Recordings Manager owner badge + disabled mutation controls; Missions tab read-only foreign trees; nothing renders for solo saves or one-member campaigns (7.12) | create `Multiplayer/OwnerAttribution.cs`; modify `Timeline/TimelineBuilder.cs`, `UI/TimelineWindowUI.cs`, `UI/RecordingsTableUI.cs`, `UI/MissionsWindowUI.cs` | `ShowOwnerAttributionPredicate`; `TimelineEntriesCarryOwnerNameOnlyWhenGated`; `PlayerFilterHidesOthers` | M2.1 | M |
 | M2.11 | Two-player fixture v0 + integration | `Generators/` fixture: founder save + two packet sets (no claims yet), scale-parameterized recording count; integration tests `JoinBootstrapEqualsIncumbentState` (M2 subset), `RefusedPacketLeavesNoTrace`; first scale measurement rows for section 12 | create `Source/Parsek.Tests/Generators/CampaignFixtureBuilder.cs`, `Source/Parsek.Tests/Multiplayer/*Tests.cs` | as listed | M2.6, M2.7 | M |
 
 **Phase done:** in-game, a second save sees the founder's missions as attributed ghosts and spawns; `dotnet test` green; section 12 budgets measured at 200 and 800 recordings and recorded in the inventory.
@@ -94,13 +104,14 @@ Goal: peers' missions appear in your save (timeline, Recordings Manager, ghosts,
 | Task | Title | Scope | Files | Tests | Depends | Size |
 |------|-------|-------|-------|-------|---------|------|
 | M4.1 | Dock-time parent snapshot stamp | `CreateMergeBranch` stamps `pendingDockSelfSnapshot` onto the closing pre-dock parent (additive; solo-safe) | modify `ParsekFlight.cs` | `MergeBranchStampsDockTimeParentSnapshot` (parent snapshot UT == dock UT; fails if the segment-start snapshot is kept) | - | S |
-| M4.2 | Tip-claim derivation + structural recompute | exporter derives `TipClaim`s from Dock/Board branch points whose partner resolves to a shared recording plus commit-time continued-source marks; claimant computes `structural` from manifests; importer recomputes and refuses on mismatch | modify `Multiplayer/PacketExporter.cs`, `Multiplayer/PacketImporter.cs`; create `Multiplayer/ClaimDerivation.cs` (pure) | `ClaimDerivedFromDockBranch`; `EvaGrappleProducesNoClaim`; `StructuralHintRecompute` | M2.5, M2.6 | M |
-| M4.3 | Fit predicate + conflict classifier | 7.9 inputs map, fit clauses (a) and (b), Case 1/2/3 classification | create `Multiplayer/ConflictClassifier.cs` (pure) | `FitPredicate` (four fixtures); `ClassifierCases` | - | S |
+| M4.2 | Tip-claim derivation + tip-advance recompute | exporter derives `TipClaim`s (kinds Dock/Board/Claw from branch points whose partner resolves to a shared recording plus commit-time continued-source marks; Control from foreign-continuation trees; Recover from the recovery hook into the flush packet); claimant computes `advancesTip` (part tree, crew, trajectory within tolerance); importer recomputes and refuses on mismatch | modify `Multiplayer/PacketExporter.cs`, `Multiplayer/PacketImporter.cs`; create `Multiplayer/ClaimDerivation.cs` (pure) | `ClaimDerivedFromDockBranch`; `ControlClaimDerivation`; `EvaGrappleProducesNoClaim`; `AdvancesTipHintRecompute` | M2.5, M2.6, M4.11 | M |
+| M4.3 | Fit predicate + conflict classifier | 7.9 inputs map, trajectory tolerance constants, fit clauses (a) and (b) incl. trajectory, transient-vs-tip-advancing, Case 1/2/3 classification (Control form of Case 3) | create `Multiplayer/ConflictClassifier.cs` (pure) | `FitPredicate` (four fixtures); `TransientVisitRequiresUnchangedTrajectory`; `ClassifierCases` | - | S |
 | M4.4 | Arbitration fold core | 7.8 steps 1-5: global order, withdrawals by any retirement kind, pending, acceptance (structural advances tip, non-structural annotates), rejection, derived masks, crew ownership hook; canonical chain/tip derivation from exchanged topology only | create `Multiplayer/ArbitrationFold.cs` (pure) | `FoldGlobalOrderAndCascade`; `FoldWithdrawalPermanence`; `WithdrawalByAnyRetirementKind`; `NonStructuralWinnerDoesNotAdvanceTip`; `FoldFreshReplayEqualsIncremental` | M1.2, M4.3 | L (split: chain/tip derivation + acceptance first; masks/pending/withdrawal second) |
-| M4.5 | ERS-level masks + spawn-ownership reconciliation | fold outputs applied: masked recordings excluded at `EffectiveState` (ghosts, spawn gate, ledger); 7.8 step 6 reconciliation (clear stale stamps, re-point at live pid, local spawn link for unspawnable tips) | modify `EffectiveState.cs`, `RecordingStore.SupersedeTerminalSpawn.cs`, `GhostPlaybackLogic.cs` (spawn-link override) | `MaskedRecordingsExcludedFromErs`; `SpawnOwnershipReconciliation`; `UnspawnableTipDesignatesLocalSpawnLink` | M4.4 | M |
+| M4.5 | ERS-level masks + spawn-ownership reconciliation | fold outputs applied: masked recordings excluded at `EffectiveState` (ghosts, spawn gate, ledger); 7.8 step 6 reconciliation (clear stale stamps, re-point at live pid, held degraded ghost for unspawnable tips via the existing terminal-hold path) | modify `EffectiveState.cs`, `RecordingStore.SupersedeTerminalSpawn.cs`, `GhostPlaybackLogic.cs`, `ParsekPlaybackPolicy.cs` (hold) | `MaskedRecordingsExcludedFromErs`; `SpawnOwnershipReconciliation`; `UnspawnableTipHeldAsDegradedGhost` | M4.4 | M |
 | M4.6 | Salvage executor: truncation | 7.9 procedure: new head id, `ChildBranchPointId` clear, terminal recompute wiring around the `InferTerminalStateFromTrajectory` / `PopulateTerminal*` cores, dock-time snapshot (fallback segment-start), retire window + tail, tombstones, Truncation retirement export, local target instance retirement | create `Multiplayer/SalvageExecutor.cs`; modify `ParsekFlight.Finalization.cs` (core exposure), `SupersedeCommit.cs` (tombstone reuse) | `SalvageTruncationCut`; `TruncatedHeadIsSpawnable`; `TruncationExportsWithdrawal` | M4.1, M4.4, M4.7 | L |
 | M4.7 | Retirement propagation | exporter: rewind/supersede/discard/truncation records; importer: supersede rows, withdrawals into the fold, `OrphanedByRetiredRecordingId` flags, tombstones; delete the `EffectiveState.cs:109` halt TODO (walk stays non-halting) | modify `Multiplayer/PacketExporter.cs`, `Multiplayer/PacketImporter.cs`, `EffectiveState.cs`, `RewindInvoker.cs`, `SupersedeCommit.cs`, `TreeDiscardPurge.cs` | `RetirementOrphanFlagging`; `CrossTreeSupersedeWalkFollows` (fails if a halt is added) | M2.6, M4.4 | M |
-| M4.8 | Foreign-spawn guards + route endpoint gate | second pid set; Fly/Switch-To restore block; TS Recover/Terminate/Fly and KSC marker Fly prefixes; ScreenMessages; `RouteStore` endpoint ownership refusal | modify `Patches/GhostTrackingStationPatch.cs`, `Patches/KscVesselMarkerFlyPatch.cs`, `Patches/MapFocusObjectOnSelectPatch.cs`, `ParsekFlight.cs`, `Logistics/RouteStore.cs` | `ForeignSpawnGuardMatrix` (each verb blocked, dock path untouched); `RouteEndpointOwnershipGate` | M2.7 | M |
+| M4.8 | Route endpoint gate | `RouteStore` refuses foreign-owned endpoints at route creation with the owner named (7.11) | modify `Logistics/RouteStore.cs` | `RouteEndpointOwnershipGate` | M2.7 | S |
+| M4.11 | Foreign-continuation route + Recover claim hook | fourth branch in `TryConsumeStockActionIntent`: foreign spawned target -> new local tree via `SwitchSegmentBuilder` with `ContinuesForeignRecordingId` (never the restore path); `SwitchSegmentSession` armed; no-op auto-discard via the existing `SwitchSegmentNoOpClassifier` hooks; TS/KSC Recover of a foreign spawn mirrors own-vessel recovery and queues a Recover claim (plan-time verification: how own-vessel recovery marks the recording terminal today) | modify `ParsekFlight.cs` (consume), `SwitchSegmentBuilder.cs`, `SwitchSegmentConsume.cs`, recovery hook (`Patches/FlightResultsPatch.cs` or the TS recover path), `Multiplayer/PacketExporter.cs` | `ForeignConsumeRouteNeverRestores` (foreign tree byte-unchanged; new tree owned locally); `ForeignNoOpSegmentDiscards`; `RecoverQueuesClaim` | M2.7, M2.5 | M |
 | M4.9 | Stale local spawn retirement | on tip advance: despawn the old local instance (no recovery rows), deferred while loaded/nearby; deferred-application queue drained at scene change | modify `Multiplayer/PacketImporter.cs`, `ParsekPlaybackPolicy.cs`, `VesselSpawner.cs` | `StaleSpawnDespawnsWhenUnloaded`; `StaleSpawnDefersWhenLoaded` | M4.5 | S |
 | M4.10 | Fold + salvage integration | fixture: one collision per ladder case, a cascade, withdrawal-after-winner-retirement; end-to-end on two simulated machines | modify `Generators/CampaignFixtureBuilder.cs`, tests | `JoinBootstrapEqualsIncumbentState` (full); `VerdictLineCarriesIds` (log assertion) | M4.2-M4.9 | M |
 
@@ -125,7 +136,7 @@ Goal: peers' missions appear in your save (timeline, Recordings Manager, ghosts,
 | M6.1 | Founder checkpoints N>0 | 7.13: Create checkpoint (requires empty pending set + all known packets applied), highwater, joiners bootstrap from latest, gap rule relative to highwater | modify `Multiplayer/CampaignStore.cs`, `Multiplayer/PacketImporter.cs`, `UI/SettingsWindowUI.cs` | `CheckpointRequiresQuiescentMerge`; `JoinFromLatestCheckpointSkipsBelowHighwater`; `GapBelowHighwaterIsNormal` | M1.6, M2.6 | M |
 | M6.2 | Cloud placeholders + conflict copies | placeholder attribute detection (offline / recall-on-data-access), Warn wording, escalation downgrade; conflict-copy filename recognition Warn | modify `Multiplayer/PacketHasher.cs`, `Multiplayer/PacketImporter.cs` | `PlaceholderDowngradesEscalation`; `ConflictCopyNamesWarnOnce` | M2.4 | S |
 | M6.3 | Missing-parts UX + member clocks | per-peer missing-part summary in Settings; `exporterUT` in envelope + member clock display; second-save-same-campaign Warn (edge 36) | modify `Multiplayer/PacketCodec.cs`, `Multiplayer/SettingsStatusText.cs`, `UI/SettingsWindowUI.cs`, `Multiplayer/PlayerIdentity.cs` | `MemberClockFromLatestPacket`; `SecondLinkedSaveWarns` | M1.7, M2.7 | S |
-| M6.4 | In-game test category `Multiplayer` | `CampaignCreateJoinRoundTrip`, `ForeignSpawnFlyBlocked`, `MergeWhileFlying`; note the `CommittedBatchTallySourceSyncTests` trap in `harness/lib` if the category joins a pinned tally | create `InGameTests/MultiplayerTests.cs` | the three in-game cells | M4.8 | M |
+| M6.4 | In-game test category `Multiplayer` | `CampaignCreateJoinRoundTrip`, `ForeignSpawnControlContinues`, `AttributionHiddenUntilSecondMember`, `MergeWhileFlying`; note the `CommittedBatchTallySourceSyncTests` trap in `harness/lib` if the category joins a pinned tally | create `InGameTests/MultiplayerTests.cs` | the four in-game cells | M4.11 | M |
 | M6.5 | Scale measurement + conditional TS proto cap | run the parameterized fixture at 200/800/3,000; record section 12 rows in the inventory; implement the per-peer TS proto visibility cap ONLY if the 3,000 row fails its budget | tests + possibly `GhostMapPresence.cs` | measured numbers recorded; `TsProtoCapPerPeer` if implemented | M2.11 | S-M |
 | M6.6 | Docs closeout | user guide section (setup, one service per campaign, backups-not-play, folder-loss recovery), CHANGELOG, roadmap status, move plan artifacts to `docs/dev/done/coop-async-multiplayer/` | docs | - | all | S |
 
@@ -146,15 +157,16 @@ M3.1 sort, M3.3 dedup, M3.5 baseline (independent of each other; after M2.1)
 M3.2 flush, M3.4 mandate (after M2.6) ---> M3.6 surfacing ---> M3.7 integration
 M4.1 stamp, M4.3 classifier (independent)
 M4.3 ---> M4.4 fold ---> M4.5 masks/reconcile ---> M4.9 stale spawn
+M4.11 foreign route (after M2.5, M2.7) ---> M4.2 claims
 M4.2 claims, M4.7 retirements (after M2.6) ---> M4.6 salvage (after M4.1, M4.4, M4.7)
-M4.8 guards (after M2.7)                    ---> M4.10 integration
+M4.8 route gate (after M2.7)                ---> M4.10 integration
 M5.1 ---> M5.2 ---> M5.3
 M6.* after their listed deps
 ```
 
 Parallel-safe sets (distinct files, no shared invariant): {M2.2, M2.3, M2.4, M2.10}; {M3.1, M3.3, M3.5}; {M4.1, M4.3}; {M4.8, M4.9}. Everything touching `PacketImporter.cs` / `PacketExporter.cs` serializes.
 
-Rough count: 37 tasks (7 + 11 + 7 + 10 + 3 + 6, minus the shared M2.1). Four are flagged L and expected to split at plan time into ~8, so plan for ~41 dispatches.
+Rough count: 38 tasks (7 + 11 + 7 + 11 + 3 + 6, minus the shared M2.1). Four are flagged L and expected to split at plan time into ~8, so plan for ~42 dispatches.
 
 ---
 
@@ -162,7 +174,11 @@ Rough count: 37 tasks (7 + 11 + 7 + 10 + 3 + 6, minus the shared M2.1). Four are
 
 - Logging per design section 14 (tags `[Campaign]`, `[PacketExport]`, `[PacketImport]`, `[Fold]`, `[Salvage]`, `[MergeEconomy]`, `[OwnershipFence]`, `[ForeignRoster]`); silent branches are review failures.
 - ERS/ELS routing discipline: new readers of `CommittedRecordings` / `Ledger.Actions` go through `EffectiveState` or earn a documented `[ERS-exempt]` allowlist entry (the fold's masks are implemented AT the ERS layer).
-- No new UI surfaces (existing windows/tooltips/ScreenMessages only).
+- No new UI surfaces (existing windows/tooltips/ScreenMessages only), and no
+  owner names on any surface unless `ShowOwnerAttribution` is true.
+- No ownership guards on stock verbs: any player controls any campaign
+  vessel as if their own; the only fenced thing is the owner's stored data
+  (design 6.4, 7.7).
 - Constants centralized (poll interval, staleness thresholds, retry counts, protocol filenames/extensions, timestamp format) in one `MultiplayerConstants` static class.
 - Every new decision core is `internal static` and headlessly tested; `[Collection("Sequential")]` where static stores are touched.
 - Each task's final commit leaves `dotnet test` green; docs (CHANGELOG, todo, this file's status) updated per commit when behavior changes.

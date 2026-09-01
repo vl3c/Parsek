@@ -4,9 +4,9 @@
 
 *Parsek is a KSP1 mod for time-rewind mission recording. Players fly missions, commit recordings to a timeline, rewind to earlier points, and see previously recorded missions play back as ghost vessels alongside new ones. This document specifies how multiple players, each in their own KSP instance, share one cooperative career: one KSC, one pooled economy, one timeline, exchanged asynchronously through a file-sharing folder (Dropbox, Google Drive, or any service of the players' choice).*
 
-**Status:** DESIGN v3 (pre-implementation; interview complete 2026-09-01; adversarial review + code verification folded in 2026-09-01; player-perspective edge-case pass, spawn-ownership reconciliation, and implementation task breakdown added 2026-09-01 - see `docs/dev/plans/coop-async-multiplayer-tasks.md`)
+**Status:** DESIGN v4 (pre-implementation; interview complete 2026-09-01; adversarial review + code verification folded in 2026-09-01; player-perspective edge-case pass, spawn-ownership reconciliation, and implementation task breakdown added 2026-09-01; 2026-09-02: full control of foreign vessels (Fly/Switch-To/Recover as claims via a foreign-continuation route, replacing the earlier Fly block), trajectory-aware tip-advance predicate, attribution shown only with 2+ registered players - see `docs/dev/plans/coop-async-multiplayer-tasks.md`)
 **Version:** v1 (roadmap Phase 14)
-**Out of scope:** competitive play and per-player economies (Phase 15, `docs/roadmap.md`), real-time synchronization (permanently out per roadmap), Gloops extraction (decoupled from this feature; see section 10), contract pooling (v2; see 7.11 and section 10), excise-and-stitch conflict salvage (v1.1 upgrade; see 7.9 Case 2), cross-player Fly/Switch-To of foreign vessels (v2; see 7.7 and section 10).
+**Out of scope:** competitive play and per-player economies (Phase 15, `docs/roadmap.md`), real-time synchronization (permanently out per roadmap), Gloops extraction (decoupled from this feature; see section 10), contract pooling (v2; see 7.11 and section 10), excise-and-stitch conflict salvage (v1.1 upgrade; see 7.9 Case 2).
 **Related docs:** `docs/parsek-architecture.md`, `docs/parsek-game-actions-and-resources-recorder-design.md`, `docs/parsek-timeline-design.md`, `docs/parsek-rewind-to-separation-design.md`, `docs/dev/design-mission-crosstree-dock.md`, `docs/dev/dock-undock-recording-structure.md`, `docs/roadmap.md` (Phase 14).
 
 ---
@@ -41,14 +41,17 @@ It deliberately does not cover: per-player economies, contract instance pooling,
 | Player researches tech / upgrades a facility at KSC | The actions ride the next action-flush packet (no commit needed) |
 | Peer's packet arrives (sync service delivers it) | On next merge (load, scene change, or background poll): peer's mission appears in the timeline, Recordings Manager, and as ghosts, attributed to them |
 | Peer's station recording completes and current UT passes its end | The station spawns as a real vessel in your game; you can fly to it and dock |
-| Player clicks Fly / Recover / Terminate on a peer's spawned vessel in the Tracking Station | Blocked with a message naming the owner; docking to it or boarding it from your own vessel is how you interact |
-| Player's kerbal boards a peer's spawned station and takes control | Allowed: the crewed vessel continues in YOUR tree as a structural claim; the arbitration fold decides whether it becomes canonical |
+| Player clicks Fly / Switch-To on a peer's spawned vessel | Works exactly like flying your own spawned vessel: you take control; the flight records as YOUR continuation of their vessel (a new local tree linked to their recording) and becomes a claim at commit; the fold decides whether it is canonical |
+| Player recovers or terminates a peer's spawned vessel from the Tracking Station | Same behavior as for your own spawned vessels; a recovery additionally shares a terminal claim so the vessel's canonical story ends Recovered for everyone |
+| Player's kerbal boards a peer's spawned station and takes control | Allowed: the crewed vessel continues in YOUR tree as a claim; the arbitration fold decides whether it becomes canonical |
+| Player takes control of a peer's vessel, looks around, and leaves without changing anything | The no-op segment is auto-discarded (existing switch-segment classifier); no claim, nothing shared |
 | Player opens Settings after a merge | Member list shows each player's name and last-known game clock ("Ana: Y1 D120"), the shared balance including any debt, and pending export/import counts |
+| Solo save, or a campaign with only one registered player | No player names appear anywhere (timeline, Recordings Manager, Kerbals window); attribution renders only once two or more distinct player ids are registered in the campaign |
 | Two players interacted with the same vessel before syncing | The arbitration fold picks the canonical interaction (share order); the other player is auto-resolved by the salvage ladder and notified on screen |
 | Two players spent the same funds before syncing | Balance goes into debt (displays 0); a warning names the colliding spends; future earnings fill the hole |
 | Two players achieve the same milestone first | Earlier UT gets the credit; the total payout never doubles |
 | Two players both flew Jebediah before syncing | The earlier-shared packet claims him; the other mission gets a derived stand-in and a flagged row |
-| A peer uses a mod you do not have | Their ghost renders with missing parts skipped, marked, and never spawns real |
+| A peer uses a mod you do not have | Their ghost renders with missing parts skipped, marked, and never spawns real; if they modify YOUR station with such a part, it becomes a held, marked ghost instead of a real vessel until you have the part |
 | Player rewinds their own shared mission | Peers receive the supersede as a retirement record; dependent peer recordings are orphan-flagged, kept, and marked |
 
 ### 1.2 Worked example
@@ -130,7 +133,9 @@ If Bogdan's fuel run had happened before Ana's lab flight on the timeline AND ag
 | Checkpoint | A founder-written full-state snapshot plus a per-player seq high-water map. Checkpoint 0 is the campaign snapshot. Joiners bootstrap from the latest checkpoint; packets at or below every mark of a checkpoint are prunable. |
 | Foreign (data/recording/vessel) | Owned by another player. Loaded locally as a full citizen but fenced read-only (owner-authoritative surfaces). |
 | Canonical chain / tip | Per physical vessel: the owner's committed topology (the leaf owning the terminal) extended by the structural continuations the arbitration fold selects. The tip is the last link. Derived purely from exchanged data; local spawn stamps play no role. |
-| Consuming interaction | An interaction that couples with a vessel and can continue its state: dock, claw (non-EVA), board, EVA construction on it. Flying nearby or targeting is not consuming (verified: no store mutation occurs). |
+| Consuming interaction | An interaction that takes over a vessel's state: taking control (Fly/Switch-To), dock, claw (non-EVA), board, EVA construction on it, recovery. Flying nearby or targeting is not consuming (verified: no store mutation occurs). |
+| Tip-advancing vs transient | A consuming interaction ADVANCES the tip when it leaves the target with a different part tree, crew, or trajectory (orbit / landed position beyond tolerance) than it found; it is TRANSIENT (a visit) when it leaves all three as it found them. Resources and inventory never decide this. |
+| Foreign continuation | A new local tree, owned by the controlling player, whose root recording continues a foreign recording's spawned vessel (cross-tree link `ContinuesForeignRecordingId`). The route Fly/Switch-To on a foreign spawn takes instead of the tree-replacing restore path. |
 | Tip claim | A packet's declaration that one of its recordings consumed a specific recording's terminal (target recording id + window + claim timestamp). |
 | Arbitration fold | The pure, deterministic pass every machine runs at every merge over ALL known claims and retirements, in one global (claimRealTime, playerId) order, producing all derived multiplayer state from scratch. |
 | Salvage ladder | The deterministic three-case resolution applied to a claim the fold rejects: splice, truncate (stitch later), truncate. |
@@ -238,8 +243,8 @@ Design-concept-to-implementation-class mapping: section 18.
 | `KerbalsModule` / `CrewReservationManager` | Reservation derived from UT=0; unknown crew names warn-and-skip at reservation; only `VesselSpawner.EnsureCrewExistInRoster` creates missing crew (spawn-time, name-only, random stats) | Import-time crew materialization from packet crew attributes; crew claim rule (share order) + derived stand-in substitution for losers | Med |
 | `PlaybackScopeTracker` | A recording whose activation start is past and was never latched is `historical-never-replayed` and suppressed from playback AND spawn | Importer latches imported recordings as replayed so peer history plays and spawns | Low |
 | Spawn gate (`GhostPlaybackLogic.ShouldSpawnAtRecordingEnd` + hosts) | Spawns terminal Orbiting/Landed/Splashed leaves once | Unchanged for foreign recordings (spawn stamps are local runtime state); `MissingParts` recordings get a new early reject | Low |
-| Fly/Switch-To restore (`ParsekFlight.TryTakeCommittedTreeForSpawnedVesselRestore`) | Deep-clones committed tree, replaces it at commit | Blocked for foreign-owned trees (guard + screen message) | Low |
-| TS/KSC terminal verbs (`GhostTrackingStationPatch` `OnRecoverConfirm` / `OnVesselDeleteConfirm` prefixes, `KscVesselMarkerFlyPatch`) | Block ghosts only (`IsGhostMapVessel` pid set) | Second pid set for foreign spawns; same prefixes also block Recover/Terminate/Fly for them | Low |
+| Fly/Switch-To consume (`ParsekFlight.TryConsumeStockActionIntent` -> `TryTakeCommittedTreeForSpawnedVesselRestore`) | Three branches: committed-tree clone (deep-clone + replace in place at commit), BG-member continuation, standalone | Fourth branch for FOREIGN spawned vessels: a new local tree whose root continues the foreign recording (`ContinuesForeignRecordingId`), built with `SwitchSegmentBuilder`; the restore path is never taken for foreign trees (it would replace the owner's tree). No-op segments auto-discard via `SwitchSegmentNoOpClassifier` | Med |
+| TS Recover of a spawned committed vessel (`GhostTrackingStationPatch` `OnRecoverConfirm` passthrough for real vessels; recovery ledger rows) | Own spawned vessels: whatever happens today (verify at plan time how the recording's terminal is marked) | Foreign spawns: identical behavior plus a Recover terminal claim in the next flush packet. No guards: foreign vessels are controlled as if own | Low |
 | `TerminalSpawnSupersededByRecordingId` (`RecordingStore.SupersedeTerminalSpawn.cs`) | Written at dock merge + commit-time pass; read by the spawn gate; NEVER cleared anywhere | Fold-driven spawn-ownership reconciliation: clear stale/dangling stamps, re-point the canonical tip at a live tracked instance, designate a local spawn link when the tip is unspawnable (7.8 step 6) | Med |
 | `Logistics/RouteStore` endpoint validation | Endpoint resolves any Parsek-tracked pid | Refuse foreign-owned endpoints at route creation | Low |
 | Dock merge (`ParsekFlight.HandleTreeDockMerge` / `CreateMergeBranch`) | Branch in controller's tree; `MarkTerminalSpawnSupersededByDockMerge` stamps the foreign recording's local spawn state; pre-dock parent closed `TerminalState.Docked`, NO fresh snapshot stamped on it | Allowed on foreign spawns; stamp stays local-only; commit derives a tip claim; NEW: stamp the transient dock-time self-snapshot onto the closing parent (makes truncation clean; additive, harmless solo) | Med |
@@ -308,14 +313,21 @@ PacketEnvelope (<seq>_<shortId>.ppkt, ConfigNode, written LAST)
   PAYLOAD { FILE name size sha256 ... } - integrity list for the payload dir
 
 TipClaim (node inside envelope; the claimant is the envelope's ownerPlayerId)
+  kind: enum { Dock=0, Board=1, Claw=2, Control=3, Recover=4 }
   targetRecordingId: string      - the consumed recording's id
   targetOwnerPlayerId: string
-  continuationRecordingId: string - the claimant's docked-window recording
-  interactionStartUT: double      - dock/board UT
-  interactionEndUT: double        - undock/unboard UT (= start for one-way)
-  structural: bool                - claimant-computed HINT; every importer recomputes
-                                    it from the payload manifests and refuses the
-                                    packet on mismatch (Error naming the claim)
+  continuationRecordingId: string - the claimant's continuation recording (the
+                                    docked-window recording for Dock/Board/Claw;
+                                    the foreign-continuation root for Control;
+                                    null for Recover, which carries no recording)
+  interactionStartUT: double      - dock/board/take-control/recover UT
+  interactionEndUT: double        - undock/unboard/release UT (= start for one-way)
+  advancesTip: bool               - claimant-computed HINT: the target's part tree,
+                                    crew, or trajectory differs at exit vs entry
+                                    (tolerances in 7.9); every importer recomputes
+                                    it from the payload and refuses the packet on
+                                    mismatch (Error naming the claim). Recover is
+                                    always tip-advancing (it ends the chain)
   claimRealTime: string           - equals envelope exportedRealTime
 
 RetirementRecord (node inside envelope; append-only)
@@ -359,6 +371,11 @@ fields). Enums carry explicit int values (serialized).
   forbids destructive local edits not expressible as a retirement.
 - `OrphanedByRetiredRecordingId: string` - set when a retirement removed a
   recording this one depended on (7.10); null otherwise. Local, persisted.
+- `ContinuesForeignRecordingId: string` - set on the ROOT recording of a
+  foreign-continuation tree (7.7): the foreign recording whose spawned vessel
+  this tree took control of. Owner-authoritative on the continuing side (it
+  is the claimant's own data), exchanged in the TREES fragment, read by claim
+  derivation and by the fold's chain walk. Null otherwise.
 - `MissingParts: bool` (runtime-only, derived at load/import) - snapshot
   references part names absent from the local `PartLoader`; blocks spawn and
   interaction, marks the ghost.
@@ -723,33 +740,51 @@ stamps land locally (exempt state). Two additions:
 - `MissingParts` recordings never pass the spawn gate (new early reject with a
   logged reason) and their ghosts render with missing parts skipped plus a
   marker in the Recordings Manager row.
-- **Fly/Switch-To, Recover, and Terminate of a foreign spawned vessel are
-  blocked** using the ghost-block guard template (pid-set membership + Harmony
-  prefix on the stock entry points the ghost block already covers: TS
-  `FlyVessel` / `OnRecoverConfirm` / `OnVesselDeleteConfirm`, KSC marker Fly,
-  map `SetActiveVessel`; + ScreenMessage "This vessel belongs to Ana - it can
-  be docked with or boarded, not flown, recovered, or terminated"). The pid
-  set is populated at spawn time for foreign-owned recordings. What the block
-  protects is the RESTORE path (`TryTakeCommittedTreeForSpawnedVesselRestore`
-  deep-clones and replaces the owner's tree) and the two terminal verbs that
-  would end a vessel with no claim. Control obtained through COUPLING is not
-  blocked and needs no block: when your kerbal boards a peer's station (or
-  your tug docks and the assembly is controlled from your part), the
-  continuation lands in YOUR tree as a structural claim and the fold
-  arbitrates it - the same mechanics as today, only with an owner tag. A
-  boarded-and-recovered peer vessel is therefore a legitimate structural
-  claim whose accepted outcome ends the vessel's canonical chain as
-  Recovered (recovery funds enter the shared pool as the recoverer's row).
+- **Any player controls any vessel in the campaign as if it were their own.**
+  It is co-op: there are no ownership guards on stock verbs. Fly/Switch-To,
+  Recover, and Terminate on a peer's spawned vessel behave exactly as on your
+  own spawned vessels. What differs is only WHERE the resulting data lands
+  and how it is shared:
+  - **Fly/Switch-To (taking control).** The stock click arms the existing
+    `StockActionIntentMarker`; `TryConsumeStockActionIntent` gains a fourth
+    branch: when the target is a FOREIGN spawned vessel, the continuation is
+    NOT the restore path (`TryTakeCommittedTreeForSpawnedVesselRestore`
+    deep-clones and replaces the owner's committed tree, which the fence
+    forbids and the exchange cannot carry). Instead `SwitchSegmentBuilder`
+    creates a new local tree, owned by the local player, whose root recording
+    continues the foreign vessel (`ContinuesForeignRecordingId` = the foreign
+    recording; `VesselPersistentId` = the live spawn pid). A fresh
+    `SwitchSegmentSession` is armed as today. The foreign recording receives
+    only local spawn-state stamps (exempt). A segment that changed nothing is
+    auto-discarded by the existing `SwitchSegmentNoOpClassifier` hooks (scene
+    exit, in-flight re-switch): no claim, nothing exported. Otherwise the
+    commit exports the tree plus a `Control` tip claim whose window is
+    [take-control UT, release UT].
+  - **Recover from the Tracking Station / KSC.** Same behavior as recovering
+    your own spawned committed vessel today (recovery funds and crew return
+    as the recoverer's ledger rows; the local instance despawns), plus a
+    `Recover` tip claim in the next flush packet so the fold ends the
+    vessel's canonical chain as Recovered on every machine. Recover is always
+    tip-advancing. (Plan-time verification item: how own-vessel TS recovery
+    marks the recording's terminal today; the foreign path mirrors it.)
+  - **Terminate from the Tracking Station.** Same as for own spawned
+    committed vessels today: the local instance is deleted, the spawn-death
+    check re-spawns it up to `MaxSpawnDeathCycles`, then marks it abandoned
+    LOCALLY. No claim (termination is not a recorded event today for own
+    vessels either); the canonical chain is untouched and peers are
+    unaffected. Consistent, if slightly haunted; documented in the user
+    guide.
+  - **Coupling (dock, non-EVA claw, board, EVA construction).** Exactly as
+    against own spawned vessels today: the branch and merged recording land
+    in the controller's tree (verified: the dock branch point has one parent,
+    the merged child carries the survivor pid and a combined snapshot
+    including the target's parts); the foreign recording receives only the
+    local spawn-state stamp; at commit the interaction is a `Dock` / `Board`
+    / `Claw` claim. The EVA-kerbal grapple carve-out is preserved (no partner
+    stamp, no claim).
 
-Consuming interactions (dock, non-EVA claw, board, EVA construction) with
-foreign spawned vessels are ALLOWED and behave exactly as against own spawned
-vessels today: the branch and merged recording land in the controller's tree
-(verified: the dock branch point has one parent, the merged child carries the
-survivor pid and a combined snapshot including the target's parts); the foreign
-recording receives only the local spawn-state stamp. The EVA-kerbal grapple
-carve-out is preserved (no partner stamp, no claim). Flying nearby without
-coupling touches nothing and never produces a claim (verified: no store
-mutation on proximity).
+Flying nearby without coupling or taking control touches nothing and never
+produces a claim (verified: no store mutation on proximity).
 
 One additive recorder change ships with this feature: at dock-merge time,
 `CreateMergeBranch` stamps the transient dock-time self-snapshot
@@ -788,8 +823,11 @@ The fold:
      retried next merge).
    - Determine the target vessel's canonical chain as built so far. If the
      claim's target is the current canonical tip and the fit predicate (7.9)
-     passes: the claim is ACCEPTED. Structural claims advance the tip (their
-     continuation becomes the next link). Non-structural claims canonicalize
+     passes: the claim is ACCEPTED. Tip-advancing claims (the target left
+     with a different part tree, crew, or trajectory; every Control claim
+     that moved the vessel; every Recover claim) advance the tip: their
+     continuation becomes the next link (Recover ends the chain). Transient
+     claims (the target left exactly as found, resources aside) canonicalize
      as a VisitAnnotation and do NOT advance the tip (a fuel run leaves the
      tip unchanged, so later fuel runs against the same tip id are ordinary
      accepted visits, not conflicts).
@@ -819,10 +857,18 @@ The fold:
    station you undocked from, now with less fuel), the canonical tip's
    local `SpawnedVesselPersistentId` is re-pointed at that instance's pid so
    the same physical vessel keeps standing and no duplicate spawns. When the
-   canonical tip cannot spawn locally (missing parts), the fold designates
-   the LATEST canonical link whose parts are all available as the local
-   spawn link, marked "stale: the current state needs parts X" - shared
-   infrastructure never vanishes, it goes stale visibly (edge case 37).
+   canonical tip cannot spawn locally (missing parts), the vessel is
+   represented as a HELD DEGRADED GHOST at the tip's terminal state: the
+   existing terminal-hold machinery (the same hold the terminal-orbit
+   safety check uses instead of spawning) keeps the ghost at its end pose
+   indefinitely, the existing missing-parts rendering skips the absent
+   parts, and the row/tooltip says "needs parts X". A held ghost is inert by
+   construction (no physics; the ghost-block guard family already covers
+   every stock verb), so it cannot lure the player into interactions whose
+   claims would inevitably fail the fit predicate against the true tip. Any
+   older REAL instance retires when the tip advances (edge case 12). Shared
+   infrastructure never vanishes; it becomes a visible, honest placeholder
+   (edge case 37).
 
 Clock skew between machines can misorder a photo-finish by seconds; the key is
 still total and identical everywhere, which is the property that matters
@@ -831,38 +877,67 @@ iterated later without schema changes.
 
 ### 7.9 The salvage ladder
 
-Classification inputs are exchanged data: the docked-window recording's start/
-end crew and resource manifests and its vessel snapshot, the post-undock
-recordings' snapshots, the claim window UTs. Concretely: part tree at entry =
-the docked-window recording's vessel snapshot; part tree at exit = the
-post-undock recordings' snapshots; net crew = the docked-window recording's
-start/end crew manifests (both vessels); resource deltas = start/end resource
-manifests; window = the claim's interactionStart/EndUT.
+Classification inputs are exchanged data: the continuation recording's start/
+end crew and resource manifests, its vessel snapshot(s), the post-undock
+recordings' snapshots, the trajectory points at the window boundaries, and the
+claim window UTs. Concretely: part tree at entry = the continuation
+recording's vessel snapshot (the docked-window recording for coupling, the
+foreign-continuation root for Control); part tree at exit = the post-undock
+recordings' snapshots (coupling) or the continuation's terminal snapshot
+(Control); net crew = start/end crew manifests (both vessels for coupling);
+trajectory at entry/exit = the target's recorded state at interactionStartUT
+and interactionEndUT (orbit elements, or landed body-fixed position); resource
+deltas = start/end resource manifests (informational only); window = the
+claim's interactionStart/EndUT.
 
-**The fit predicate** (referenced by the fold): a visit window [s,e] FITS iff
+**Trajectory tolerance** (constant, centralized): an orbit counts as unchanged
+when semi-major axis, eccentricity, inclination, and LAN each stay within the
+same tolerances the existing loop-alignment / re-aim machinery already uses
+for "same orbit" decisions; a landed position counts as unchanged within the
+scene float-grid tolerance (`InGameFixtureMath.SceneFloatGridToleranceMeters`)
+plus a docking-nudge allowance. Docking imparts real but tiny impulses; a
+reboost or a plane change does not fit inside these tolerances, and that is
+the point.
+
+**The fit predicate** (referenced by the fold): a claim window [s,e] FITS iff
 (a) [s,e] intersects no canonical continuation or accepted-visit window of the
-target, AND (b) the target's canonical part tree and crew at UT s (walking the
-canonical chain) equal the target state the visitor's recording captured at
-dock. Resources and inventory are exempt from (b) (accepted slack). A window
-after a structural canonical continuation therefore never fits; a window after
-only non-structural canonical visits fits.
+target, AND (b) the target's canonical part tree, crew, and trajectory at UT
+s (walking the canonical chain) equal, within tolerance, the target state the
+claimant's recording captured at entry. Resources and inventory are exempt
+from (b) (accepted slack). A window after a tip-advancing canonical
+continuation therefore never fits unless the claimant started from that
+continuation's exit state; a window after only transient canonical visits
+fits.
 
-- **Case 1 - splice.** Non-structural (part trees and net crew identical at
-  exit vs entry on BOTH vessels) AND the fit predicate passes. The claim is
-  ACCEPTED by the fold (this is the accepted-visit path of 7.8, listed here
-  for completeness): the visitor's mission is fully canonical, the target
-  gains a derived VisitAnnotation ("Docked: Tanker (Bogdan)"), the visitor's
-  target-side post-undock recording is derived-demoted (never canonical on
-  any machine; its bytes are untouched). Resource deltas are NEVER applied to
-  the canonical target chain: fuel may appear from nothing, never vanish.
-- **Case 2 - non-structural, fit fails.** v1 verdict: truncate (as Case 3).
-  The designed upgrade (v1.1, out of scope for the first ship):
+- **Case 1 - splice (transient visit).** The interaction left the target as
+  found (part trees, net crew, and trajectory identical at exit vs entry,
+  within tolerance, on BOTH vessels) AND the fit predicate passes. The claim
+  is ACCEPTED by the fold (this is the accepted-visit path of 7.8, listed
+  here for completeness): the visitor's mission is fully canonical, the
+  target gains a derived VisitAnnotation ("Docked: Tanker (Bogdan)"), the
+  visitor's target-side post-undock recording is derived-demoted (never
+  canonical on any machine; its bytes are untouched). Resource deltas are
+  NEVER applied to the canonical target chain: fuel may appear from nothing,
+  never vanish. A docked visit that reboosted the station is NOT transient:
+  it is a tip-advancing claim and, if accepted, advances the tip to the
+  visitor's target-side post-undock recording.
+- **Case 2 - transient, fit fails.** v1 verdict: truncate (as Case 3). The
+  designed upgrade (v1.1, out of scope for the first ship):
   excise-and-stitch - retire only the docked-window recording and re-link the
   pre-dock segment to the structurally-identical post-undock segment with a
   synthetic continuation link, preserving the rest of the mission. The
   dock/undock segmentation already provides the clean cut points; the
   synthetic link is the one new mechanism, hence deferred.
-- **Case 3 - structural (or net-crew) change.** Truncate.
+- **Case 3 - tip-advancing, rejected** (structure, crew, or trajectory
+  changed, and the target was not the canonical tip in the recorded state).
+  Truncate. For a Control claim (foreign-continuation tree) truncation
+  degenerates: there is no pre-control segment of the claimant's own to keep
+  (the vessel flown was the peer's), so the whole continuation tree is
+  retired, its ledger rows tombstoned, a Truncation retirement exported, and
+  the claimant's local instance of the target reverts to the canonical tip
+  per edge case 12. Anything the claimant's OWN vessels did in that session
+  (their tug's flight to the rendezvous, for example) lives in their own
+  trees and is untouched.
 
 **Truncation procedure** (executes ONLY on the claimant's machine, on the
 claimant's own data; every other machine holds the derived mask until the
@@ -977,14 +1052,26 @@ Policies:
 
 ### 7.12 Timeline and attribution
 
-Every attributed entry (recordings and recording-scoped actions) resolves the
-owner's display name through the campaign member list; KSC/system actions with
-`RecordingId == null` use the action's own `OwnerPlayerId`. Display: name
-appended to the entry text ("Launch: Tanker from Launch Pad on Kerbin -
-Bogdan"); existing semantic colors unchanged (a per-player color scheme would
-fight the earning/spending/action color language - deferred). A per-player
-filter joins the existing source filter row. Fold-derived visit annotations
-render as attributed timeline entries on the target. The timeline's NOW
+**Attribution is shown only when there is someone to attribute to.** One
+predicate, `ShowOwnerAttribution`, gates every owner-name surface: true iff
+the save is campaign-linked AND the campaign has at least two DISTINCT
+registered player ids (counted from the `players/<id>/` manifests seen at the
+last merge, plus the local player). A solo save (no campaign) and a
+one-member campaign show no names anywhere: the timeline, the Recordings
+Manager, the Missions tab, and the Kerbals window look exactly as they do in
+single-player Parsek. The first time a second member's manifest arrives, the
+names appear; they never disappear afterwards (a departed member's history
+still needs its author).
+
+When shown: every attributed entry (recordings and recording-scoped actions)
+resolves the owner's display name through the campaign member list;
+KSC/system actions with `RecordingId == null` use the action's own
+`OwnerPlayerId`. Display: name appended to the entry text ("Launch: Tanker
+from Launch Pad on Kerbin - Bogdan"); existing semantic colors unchanged (a
+per-player color scheme would fight the earning/spending/action color
+language - deferred). A per-player filter joins the existing source filter
+row (also gated). Fold-derived visit annotations render as attributed
+timeline entries on the target. The timeline's NOW
 divider carries the shared balance text when the walk is in debt ("shared
 funds in debt: 12,000"), since KSP's own display clamps at 0 and would
 otherwise hide the fact.
@@ -1152,14 +1239,29 @@ Player-perspective cases (a session walked as a player, not a developer):
     knows how far to warp; the timeline shows the future entries dimmed
     beyond the NOW divider.
 32. **"I clicked Terminate on Ana's old probe in the Tracking Station."**
-    Blocked (7.7) with the owner named. Without the block the local spawn
-    would just re-spawn from its snapshot on the next spawn-death check
-    cycle (existing behavior), which reads as haunted. Same for Recover.
-33. **"I boarded Bogdan's station and flew it to a higher orbit."** Allowed:
-    a structural claim from your tree (7.7). If Bogdan shared a structural
-    change first, your flight truncates at the board boundary and your
-    kerbal parks on EVA (edge 26). Settings and the Recordings Manager show
-    "pending arbitration" until the fold has both packets.
+    Same as terminating your own spawned committed vessel today: the local
+    instance goes, the spawn-death check re-spawns it a few times, then it
+    is abandoned locally (7.7). Ana's canonical probe is unaffected; nothing
+    is shared. Recover, by contrast, IS shared: it ends the probe's canonical
+    chain as Recovered for everyone via a Recover claim.
+33. **"I switched to Bogdan's station and flew it to a higher orbit."**
+    Allowed and recorded as YOUR continuation of his station (a
+    foreign-continuation tree, 7.7): a tip-advancing Control claim at
+    commit. If Bogdan shared a tip-advancing change first, your continuation
+    is rejected: the tree is retired whole (Case 3, Control form), your
+    local station reverts to the canonical tip, and your own tug's flight
+    (a separate tree) is untouched. Boarding it with a kerbal and flying it
+    is the same story via a Board claim (a truncated board parks your kerbal
+    on EVA, edge 26). Settings and the Recordings Manager show "pending
+    arbitration" until the fold has both packets.
+33a. **"I took control of Ana's rover, drove it 200 m, and switched back."**
+    A tip-advancing Control claim (landed position moved beyond tolerance).
+    If you only turned the lights on and left: `SwitchSegmentNoOpClassifier`
+    treats it as a no-op segment and auto-discards it; no claim.
+33b. **"While docked for refueling I reboosted the station."** Not a transient
+    visit: the trajectory clause fails, so the claim is tip-advancing; if
+    accepted, the station's canonical tip moves to your target-side
+    post-undock recording (the station on its new orbit).
 34. **Quickload (F9) after a merge tick.** Within a session the in-memory
     store is the source of truth (existing `ParsekScenario` rule), so the
     imported recordings and actions survive the quickload; the quickloaded
@@ -1177,13 +1279,14 @@ Player-perspective cases (a session walked as a player, not a developer):
     on screen ("another save on this machine is linked to this campaign as
     you"). Backups are fine to keep, not to play.
 37. **"Ana attached a modded module to my station and now I can't see my
-    station."** The canonical tip needs parts you lack; 7.8 step 6 keeps the
-    latest fully-available canonical link spawned, marked stale, with the
-    missing part names in the Recordings Manager row and Settings summary.
-    You can still dock to the stale instance; the fold treats your claim
-    against the true tip normally (structural mismatch -> your interaction
-    will truncate unless it fits), and the Recordings Manager warns before
-    launch that the vessel is stale.
+    station."** The canonical tip needs parts you lack; 7.8 step 6 replaces
+    the real instance with a held degraded ghost at the tip's terminal
+    state, marked with the missing part names in the Recordings Manager row
+    and the Settings summary. You can see it and target it but not dock to
+    it (ghosts are inert), which is deliberate: a real stale instance would
+    invite interactions whose claims can never fit the true tip. Install the
+    mod (or ask Ana to detach the module and share) and the next merge
+    spawns it real again.
 38. **"My Dropbox moved to another drive."** Relink via the Settings path
     field; accepted only if the campaignId matches (7.1).
 39. **"Someone deleted the shared folder."** Every member's local save still
@@ -1246,8 +1349,9 @@ Player-perspective cases (a session walked as a player, not a developer):
 - Per-player economies, milestone racing, opponent packs (Phase 15).
 - Contract pooling / canonical contract identity (v2; contracts are
   local-only per 7.11).
-- Flying or continuing a peer's vessel (Fly/Switch-To restore of foreign
-  trees; v2 "cross-player continuation").
+- Using the tree-replacing RESTORE path on a foreign tree (foreign control
+  goes through the foreign-continuation route, 7.7; the restore path stays
+  own-tree only, forever).
 - Excise-and-stitch salvage (Case 2 upgrade; v1.1; see 7.9).
 - Applying visit resource deltas to canonical chains (decided against, not
   deferred: fuel from nothing beats deleted state).
@@ -1264,17 +1368,21 @@ Player-perspective cases (a session walked as a player, not a developer):
 
 ## 11. Backward Compatibility
 
-- **No schema-generation bump (proposed).** All new persisted fields
-  (`OwnerPlayerId`, `Exported`, `OrphanedByRetiredRecordingId`, campaign
-  link, annotation cache) are additive and null/absent-defaulted; a
-  pre-multiplayer save loads on the new build unchanged, and generation stays
-  4. Cross-PLAYER compatibility is enforced at the exchange boundary instead:
-  the packet gate hard-refuses any generation/format mismatch (existing
-  `IsRecordingSchemaCompatible` policy, no migration), and the campaign
-  manifest pins the values as the join gate. If a later change to the
-  recording contract itself lands during implementation, it bumps the
-  generation on its own merits. DECISION POINT for review: bump anyway to 5
-  if we prefer the exchange format to be born on a fresh generation.
+- **Schema generation bumps to 5 (decided 2026-09-02).** The exchange layer
+  is born on a fresh generation: `RecordingStore.CurrentRecordingSchemaGeneration`
+  becomes 5 with the first data-model task (M2.1), so every recording and
+  sidecar that carries the new fields (`OwnerPlayerId`, `Exported`,
+  `OrphanedByRetiredRecordingId`, `ContinuesForeignRecordingId`) is
+  generation-5 data. Per the standing rule there is NO migration path:
+  generation-4 recordings are rejected on load (`generation-older`), exactly
+  like every earlier bump. The mod is not public yet, so the cost is
+  re-stamping the committed fixture saves (`Fixtures/C1Career`,
+  `Fixtures/C2CareerPostFix`, the harness fixture saves; the derived
+  `career-earned-pad` harness fixture is rebuilt by its builder script) in
+  the same task. Cross-PLAYER compatibility is enforced at the exchange
+  boundary on top of that: the packet gate hard-refuses any
+  generation/format mismatch (existing `IsRecordingSchemaCompatible`
+  policy), and the campaign manifest pins the values as the join gate.
 - New-build saves opened on an old build: old builds ignore unknown ConfigNode
   values by construction; a campaign-linked save degrades to a normal solo
   save on an old build (no fence, no merge) - players on one campaign are
@@ -1438,12 +1546,22 @@ every merge, every fold verdict, and why.
 - **SpawnOwnershipReconciliation** - after a fold: a stamp pointing at a
   masked/demoted/retired/unknown recording is cleared; a demoted
   continuation tracking a live pid re-points the canonical tip at that pid;
-  an unspawnable tip designates the latest fully-available link. Fails if a
-  stale stamp survives or two links claim spawn for one vessel.
+  an unspawnable tip yields a held degraded ghost, never a real spawn of an
+  older link. Fails if a stale stamp survives, two links claim spawn for one
+  vessel, or an older link spawns real.
 - **WithdrawalByAnyRetirementKind** - a RewindRetire whose ids include a
   claim's continuation withdraws the claim exactly like a Truncation.
 - **RouteEndpointOwnershipGate** - route creation against a foreign-owned
   endpoint refuses with the owner named; own endpoints pass.
+- **TransientVisitRequiresUnchangedTrajectory** - a docked visit whose exit
+  orbit differs from entry beyond tolerance classifies tip-advancing, not
+  transient; a docking-nudge-sized delta stays transient.
+- **ControlClaimDerivation** - a foreign-continuation tree exports one
+  `Control` claim with the right window; a no-op segment exports none;
+  a Recover exports a `Recover` claim with `advancesTip = true`.
+- **ShowOwnerAttributionPredicate** - false for no campaign and for one
+  registered id; true at two distinct ids; stays true when a member's
+  manifest later disappears.
 
 ### 15.2 Integration tests (synthetic fixtures)
 
@@ -1491,10 +1609,16 @@ every merge, every fold verdict, and why.
 - **CampaignCreateJoinRoundTrip** - create in a temp shared dir, join into a
   fresh save, assert converged funds/science/rep vs founder, and assert the
   clone's contract queue and applicant pool differ from the founder's.
-- **ForeignSpawnFlyBlocked** - import a fixture packet with a terminal-orbit
-  recording, warp past EndUT, assert spawn + Fly/Recover/Terminate block
-  ScreenMessages + dockability (guard family parity with the ghost-block
-  tests).
+- **ForeignSpawnControlContinues** - import a fixture packet with a
+  terminal-orbit recording, warp past EndUT, Switch-To the spawned vessel,
+  burn, switch back: assert a foreign-continuation tree exists with
+  `ContinuesForeignRecordingId` set, the foreign committed tree is
+  byte-unchanged, and the commit exports a `Control` claim; then repeat
+  without burning and assert the no-op auto-discard leaves no tree and no
+  claim.
+- **AttributionHiddenUntilSecondMember** - a one-member campaign renders no
+  owner names in the timeline / Recordings Manager / Kerbals window; a second
+  member manifest makes them appear.
 - **MergeWhileFlying** - packet drop during an active recording: walk runs,
   patch deferred, world untouched until scene change.
 
@@ -1520,7 +1644,7 @@ every merge, every fold verdict, and why.
 | M1 | Identity + campaign store (manifest, checkpoint 0, join/rejoin, ContractSystem/applicant regeneration) + Settings section | Ships inert without a campaign |
 | M2 | Export/import of recordings as read-only citizens + ownership fence + journal + scope-tracker latching + MilestoneStore/crew registration + attribution | No interaction, no economy merge: purely additive world sharing; scale budgets measured here |
 | M3 | Ledger exchange: deterministic sort + ordering freeze, seeds policy, once-ever dedup, debt, cutoff-walk mandate, reconcile preservation, baseline pinning, authoritative merges, credit notifications, action flush | The pooled economy |
-| M4 | Foreign spawns + interaction + dock-time parent snapshot stamp + tip claims + the arbitration fold + salvage ladder (Cases 1 and 3; Case 2 = truncate) + retirement propagation + derived masks | The co-op world |
+| M4 | Foreign spawns + full control (foreign-continuation route, Recover claims) + coupling + dock-time parent snapshot stamp + tip claims + the arbitration fold + salvage ladder (Cases 1 and 3; Case 2 = truncate) + retirement propagation + derived masks | The co-op world |
 | M5 | Crew claim rule + derived substitution + assignment gate | |
 | M6 | Polish: founder checkpoints N>0, missing-parts UX, cloud-placeholder handling, poll tuning, notifications batching, per-player timeline filter | |
 | v1.1 | Excise-and-stitch (Case 2 upgrade) | Designed here, built later |
@@ -1540,9 +1664,8 @@ Plan agents at dispatch time, per `docs/dev/development-workflow.md` step 4a.
 
 ## 17. Open Questions
 
-### 17.1 Schema generation bump
-Section 11's decision point: additive fields on generation 4 (proposed) vs a
-clean bump to 5 at the exchange layer's birth.
+### 17.1 (resolved) Schema generation bump
+Decided 2026-09-02: bump to 5 (section 11).
 
 ### 17.2 Arbitration clock hardening
 (timestamp, playerId) is v1. If skew-unfairness bites in practice, candidates:
@@ -1582,7 +1705,9 @@ cosmetic divergence on derived stand-ins, is an M5 call.
 | Ownership fence | `Source/Parsek/Multiplayer/OwnershipFence.cs` (pure predicate) + call-site guards |
 | Foreign roster + crew claims | extensions in `KerbalsModule.cs` / `CrewReservationManager.cs`; materialization extending the `VesselSpawner.EnsureCrewExistInRoster` mechanism |
 | Economy foundations | `RecalculationEngine.SortActions`, keyed sets in the four spend modules, `LedgerOrchestrator` merge trigger + cutoff mandate, `Ledger.Reconcile` preservation flag, `KspStatePatcher` baseline pinning |
-| Fly-block on foreign spawns | new pid set + prefix reuse in the `GhostVesselLoadPatch` / `GhostTrackingStationPatch` family |
+| Foreign-continuation route (taking control of a foreign spawn) | fourth branch in `ParsekFlight.TryConsumeStockActionIntent` + `SwitchSegmentBuilder`; no-op discard via `SwitchSegmentNoOpClassifier` |
+| Recover claim | recovery hook (FlightResults / TS recover path) -> `PacketExporter` flush |
+| Attribution gate | `Multiplayer/OwnerAttribution.cs` (`ShowOwnerAttribution`, pure) consumed by `TimelineBuilder`, `RecordingsTableUI`, `MissionsWindowUI`, `KerbalsWindowUI` |
 | Dock-time parent snapshot stamp | `ParsekFlight.CreateMergeBranch` |
 | Settings section | `UI/SettingsWindowUI.cs` |
 | Attribution | `TimelineBuilder` + timeline window filter row |
