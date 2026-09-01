@@ -1,6 +1,6 @@
 schema = 1
 id = "RVR-1-rover-route-proof"
-tier = "pending-fixture"
+tier = "nightly"
 # =====================================================================================
 # THE ISOLATED `Logistics` BATCH ON THE **TARGET-BRANCH** RECORDED HOST - THE THIRD
 # RECORDED HOST, AND THE ONLY ONE THAT CAN PAY THE DEBT H38, H39 AND H40 ALL ROSTER.
@@ -161,7 +161,7 @@ tier = "pending-fixture"
 # ("what a RECORDED CORPUS happens to CONTAIN ... no attribute, no craft property and no
 # amount of reading the .sfs settles a run-time InGameAssert.Skip").
 # =====================================================================================
-description = "AUTHORED 2026-08-30, FLOWN ONCE 2026-09-01. The isolated Logistics batch (46 admitted cells, 38 of them restore-after-run) over rover-route-recorded, the FIRST committed fixture whose ROUTE_CONNECTION_WINDOWS node is TARGET-branch: two surface rovers with DIFFERENT baked persistentIds dock on the Runway, so the window's transferTargetPid (2123618197) differs from its carrier's (313889796) and is also carried by a recording in the OTHER committed tree. That is the exact harvest H38 rostered as one debt and H39/H40 both measured as unpayable by existing bytes, and flight 1 took the acceptance test and PASSED IT: RouteProof_ActiveAsTargetDockWindow_HasEndpointProof and RouteProof_CrossTreeCommittedPartner_HasEndpointProof both executed and passed for the first time in the suite's history, on a run measuring total=47 passed=39 failed=0 skipped=8 with every verifier green. The initiator cell skipped by strict complement as predicted, which is a trade the family absorbs (H39/H40 pin it) rather than a regression. The run's ONE red was an authoring error since corrected: a REQUIRED PASSED token for RouteOriginProof_StartedOnRunway_ProducerSkipsProof, whose predicate is StartSituation == Prelaunch - and a wheeled Runway rollout is Landed, so the cell self-skips here by design and the token is removed. recordings.count is now PINNED EXACTLY at the measured 5 (no load-time optimizer split on these bytes); the tally split stays INTERIM for one more flight because the fixture's endpoint inventory was repaired after this run and the repair moves the very slots several Logistics cells walk."
+description = "AUTHORED 2026-08-30, FLOWN ONCE 2026-09-01. The isolated Logistics batch (46 admitted cells, 38 of them restore-after-run) over rover-route-recorded, the FIRST committed fixture whose ROUTE_CONNECTION_WINDOWS node is TARGET-branch: two surface rovers with DIFFERENT baked persistentIds dock on the Runway, so the window's transferTargetPid (2123618197) differs from its carrier's (313889796) and is also carried by a recording in the OTHER committed tree. That is the exact harvest H38 rostered as one debt and H39/H40 both measured as unpayable by existing bytes, and flight 1 took the acceptance test and PASSED IT: RouteProof_ActiveAsTargetDockWindow_HasEndpointProof and RouteProof_CrossTreeCommittedPartner_HasEndpointProof both executed and passed for the first time in the suite's history, on a run measuring total=47 passed=39 failed=0 skipped=8 with every verifier green. The initiator cell skipped by strict complement as predicted, which is a trade the family absorbs (H39/H40 pin it) rather than a regression. The run's ONE red was an authoring error since corrected: a REQUIRED PASSED token for RouteOriginProof_StartedOnRunway_ProducerSkipsProof, whose predicate is StartSituation == Prelaunch - and a wheeled Runway rollout is Landed, so the cell self-skips here by design and the token is removed. recordings.count is now PINNED EXACTLY at the measured 5 (no load-time optimizer split on these bytes); run 2 (2026-09-01_2043, on the repaired fixture) measured the SAME total=47 passed=39 failed=0 skipped=8 and PASSED attempt 1 with every verifier green, so the tally is now PINNED WHOLE and the lane is re-tiered to nightly beside H38/H39/H40."
 instanceProfile = "stock-minimal"
 tags = ["ingame-batch", "isolated-batch", "logistics", "route-proof", "recorded-fixture",
         "RVR-1", "pending-flight", "reading-iteration"]
@@ -294,12 +294,14 @@ allowedAnomalies = []
 count = { min = 5, max = 5 }
 
 [expectations.logContracts]
-# EVIDENCE STANDING: FLOWN ONCE 2026-09-01, PRE-REPAIR. `total=` is attribute-derived and
-# source-synced; `passed=` and `skipped=` STAY in the INTERIM spelling and the id stays
-# declared in `IsolatedBatchWiringGroupTests.INTERIM_PIN_IDS`, because the run that
-# measured `passed=39 skipped=8` flew the PRE-REPAIR fixture. See the header block for the
-# full reasoning; the short version is that pinning a split measured against bytes the
-# next flight will not fly is worse than one more interim flight.
+# EVIDENCE STANDING: FLOWN TWICE 2026-09-01, PINNED WHOLE off run 2 (`2026-09-01_2043`,
+# PASS attempt 1, every verifier green) on the REPAIRED fixture. `total=` is attribute-
+# derived and source-synced; `passed=39 skipped=8` is MEASURED and the id sits in
+# `IsolatedBatchWiringGroupTests.MEASURED_SKIPPED` (8 = 1 attribute-forced SPACECENTER
+# cell + 7 run-time, roster in the header). Run 1 (`2026-09-01_2008`, pre-repair bytes)
+# measured the SAME split, so the endpoint-inventory repair moved no Logistics cell -
+# which is itself a measurement. The interim-spelling paragraphs below are kept as the
+# record of why the first-flight pin was shaped the way it was.
 #
 # ---------------------------------------------------------------------------------
 # DERIVED, NOT GUESSED. The commands, so the next reader re-runs them rather than trusting
@@ -389,7 +391,7 @@ required  = [
   "loadgame complete scene=FLIGHT save=.* game-loaded=true expected=Flight",
   "runtests start category=Logistics isolated=true",
   "Using batch baseline slot .* for 38 restore-after-run test\\(s\\)",
-  "BATCH_COMPLETE v1 total=47 passed=(?:9|[1-9][0-9]+) failed=0 skipped=[0-9]+ category=Logistics scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=47 passed=39 failed=0 skipped=8 category=Logistics scene=FLIGHT",
   "PASSED: LogisticsRouteProofRuntimeTests\\.RouteProof_ActiveAsTargetDockWindow_HasEndpointProof",
   "PASSED: LogisticsRouteProofRuntimeTests\\.RouteProof_CrossTreeCommittedPartner_HasEndpointProof",
   "flushandquit: save suppressed \\(batch baseline already restored\\)",

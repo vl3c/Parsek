@@ -4088,7 +4088,10 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
     # as REQUIRED cell tokens, because an interim `passed=` says almost nothing about
     # WHICH cells passed - which is the whole hazard of an interim pin and the reason
     # this member's REQUIRED list is longer than H38's was while it sat here.
-    INTERIM_PIN_IDS: set = {"RVR-1-rover-route-proof"}
+    # AND BACK TO ZERO ON 2026-09-01: RVR-1 flew twice the same day (pre- and post- the
+    # endpoint-inventory repair), measured the identical split both times, and moved to
+    # MEASURED_SKIPPED below.
+    INTERIM_PIN_IDS: set = set()
 
     # id -> measured `skipped=` for members whose RUN-TIME InGameAssert.Skip guards
     # push the split above the attribute-derived floor. The attributes give a FLOOR
@@ -4154,6 +4157,17 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
         # `RestoreBatchFlightBaselineAfterExecution` restore wipes the window it just
         # stamped. The two cells cannot hand off to each other by construction.
         "H41-logistics-grapple-isolated": 1,
+        # RVR-1 (`rover-route-recorded`): 1 attribute-forced + 7 run-time. MEASURED off
+        # run 2, `2026-09-01_2043` (post endpoint-inventory repair; run 1 `2026-09-01_2008`
+        # on the pre-repair bytes measured the SAME split). The seven: the 4 harvest cells
+        # (no BaseConverter / no drill / injected corpus withheld, as on every recorded
+        # host), the docked-origin producer (still a HARVEST requirement - see the
+        # ROUTE-ORIGIN-PROOF-PRODUCER-UNREACHABLE todo), the RUNWAY origin-proof cell
+        # (its predicate is Prelaunch; a wheeled Runway rollout is Landed) and the
+        # active-as-INITIATOR window cell (strict complement of the target-branch window
+        # this fixture exists to carry). What is NOT here, for the first time on any
+        # recorded host: the active-as-target and cross-tree partner cells - both PASS.
+        "RVR-1-rover-route-proof": 8,
     }
 
     @classmethod

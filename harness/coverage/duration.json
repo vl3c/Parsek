@@ -1304,6 +1304,36 @@
         "2026-08-20T20:59:15Z": 59.0
       }
     },
+    "RVR-1-rover-route-proof": {
+      "last": 179.0,
+      "lastVsP50": 1.0,
+      "n": 1,
+      "p50": 179.0,
+      "p95": 179.0,
+      "samples": {
+        "2026-09-01T20:46:55Z": 179.0
+      }
+    },
+    "RVR-2-rover-route-create": {
+      "last": 50.0,
+      "lastVsP50": 1.0,
+      "n": 1,
+      "p50": 50.0,
+      "p95": 50.0,
+      "samples": {
+        "2026-09-01T20:48:02Z": 50.0
+      }
+    },
+    "RVR-3-route-lifecycle": {
+      "last": 51.0,
+      "lastVsP50": 1.0,
+      "n": 1,
+      "p50": 51.0,
+      "p95": 51.0,
+      "samples": {
+        "2026-09-01T20:50:05Z": 51.0
+      }
+    },
     "S0.10-automerge-limbo-warm-exit": {
       "last": 54.0,
       "lastVsP50": 1.0,

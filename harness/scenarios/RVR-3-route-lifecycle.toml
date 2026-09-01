@@ -1,6 +1,6 @@
 schema = 1
 id = "RVR-3-route-lifecycle"
-tier = "pending-fixture"
+tier = "daily"
 # =====================================================================================
 # THE `RouteLifecycle` BATCH - the send-once / armed-pause / hold-reason state machine,
 # driven against the LIVE production orchestrator over synthetic routes.
@@ -147,7 +147,7 @@ tier = "pending-fixture"
 # spec that arms the recorder while pinning cell tokens for two crossing-driving cells is
 # internally inconsistent, and the inconsistency would otherwise only surface on a flight.
 # =====================================================================================
-description = "FLOWN ONCE 2026-09-01 (total=6 passed=4 failed=2); the two failures were CONTRACT DRIFT in the cells, not a product defect - both drove a SourcesStale crossing, which PR #1583 made a POSTPONEMENT hold that deliberately keeps the armed pause, and the cells asserted the pre-exemption contract. Revised to eight cells pinning BOTH halves of the armed-pause state machine: the postponement half (arm kept, route stays Active/InTransit, nothing emitted, no toast) and the RESOLUTION half (arm consumed: Paused with reason blocked-then-paused, flags cleared, hold kept, RoutePaused row, Send-Once toast), the latter reached deterministically by pointing the synthetic route at a REAL live-ERS recording id and a REAL live vessel pid with a delivery manifest no craft can hold, so the destination-capacity gate answers DestinationFull. Runs on the rover-route-recorded host, which supplies everything the category needs in one boot: a loaded FLIGHT scene with a live clock, five committed ERS recordings, two fully sealed trees for the create-gate walk, and two non-active real vessels to point a stop at. The spec deliberately declares NO render-composition expectations block: declaring one sets PARSEK_RENDER_MANIFEST=1, and five of the eight cells self-skip whenever M-A7 capture is armed because a synthetic dock crossing would inject route-dock-crossing clock events into the manifest. That absence is gated in harness/lib rather than left to memory."
+description = "FLOWN TWICE 2026-09-01. RUN 2 (2026-09-01_2049, 51 s) on the rebuilt 8-cell category: PASS attempt 1, total=8 passed=8 failed=0 skipped=0 with both resolution tokens matched - blocked-then-paused now has a LIVE gate through the production environment, and the postponement contract is pinned live beside it; tally pinned whole, lane re-tiered to daily beside H6. Run 1 (total=6 passed=4 failed=2); the two failures were CONTRACT DRIFT in the cells, not a product defect - both drove a SourcesStale crossing, which PR #1583 made a POSTPONEMENT hold that deliberately keeps the armed pause, and the cells asserted the pre-exemption contract. Revised to eight cells pinning BOTH halves of the armed-pause state machine: the postponement half (arm kept, route stays Active/InTransit, nothing emitted, no toast) and the RESOLUTION half (arm consumed: Paused with reason blocked-then-paused, flags cleared, hold kept, RoutePaused row, Send-Once toast), the latter reached deterministically by pointing the synthetic route at a REAL live-ERS recording id and a REAL live vessel pid with a delivery manifest no craft can hold, so the destination-capacity gate answers DestinationFull. Runs on the rover-route-recorded host, which supplies everything the category needs in one boot: a loaded FLIGHT scene with a live clock, five committed ERS recordings, two fully sealed trees for the create-gate walk, and two non-active real vessels to point a stop at. The spec deliberately declares NO render-composition expectations block: declaring one sets PARSEK_RENDER_MANIFEST=1, and five of the eight cells self-skip whenever M-A7 capture is armed because a synthetic dock crossing would inject route-dock-crossing clock events into the manifest. That absence is gated in harness/lib rather than left to memory."
 instanceProfile = "stock-minimal"
 tags = ["ingame-batch", "logistics", "route-lifecycle", "recorded-fixture",
         "RVR-3", "pending-flight"]
@@ -326,7 +326,7 @@ required  = [
   "runtests start category=RouteLifecycle",
   "RouteLifecycle sendonce-resolution: PASS .* holdKind=DestinationFull holdDetail=LiquidFuel .* armedBy=send-once",
   "RouteLifecycle pause-intransit-resolution: PASS .* holdKind=DestinationFull .* armedBy=pause-after-cycle",
-  "BATCH_COMPLETE v1 total=8 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=RouteLifecycle scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=8 passed=8 failed=0 skipped=0 category=RouteLifecycle scene=FLIGHT",
 ]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 

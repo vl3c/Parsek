@@ -2321,6 +2321,19 @@ Lessons already banked from the manual flight - read before authoring any lane:
    `Logistics` (whose `total=47` is pinned by four committed specs - five as of
    this wave, counting RVR-1).
 
+**Tier A flight census, 2026-09-01.** All three lanes flew twice the same day and are
+GREEN on round 2 (PASS attempt 1, every verifier): RVR-1 `total=47 passed=39 failed=0
+skipped=8` pinned whole (both debt cells PASSED for the first time in the suite's history),
+RVR-2 delivered-then-blocked exactly as derived (cycle 0 `path=unloaded` delivery of 97.6 LF +
+2 items, cycle 1 `DestinationFull reason=LiquidFuel` -> `blocked-then-paused`) - the first
+driven route creation AND delivery anywhere in the suite - and RVR-3 8/8. Round 1 found no
+product defect: one authoring pin (a wheeled Runway rollout is `Landed`, not `Prelaunch`),
+one polluted fixture endpoint (repaired builder-side, proven from the flight log's slot
+addresses), and one contract drift in the category (cells authored before #1583's
+postponement exemption merged in; rebuilt to the shipped contract and grown 6 -> 8 with a real
+`DestinationFull` live gate). Tiers: RVR-1/RVR-2 nightly, RVR-3 daily. The B4 subject is now
+gated behind the ROUTE-ORIGIN-PROOF-PRODUCER-UNREACHABLE probe (todo) before any flight.
+
 ### Tier B - surface-route variants (one flight each, template established by RVR)
 
 4. **Start-docked origin proof.** Record the transport STARTING docked to the
