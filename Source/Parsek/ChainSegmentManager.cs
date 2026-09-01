@@ -115,6 +115,148 @@ namespace Parsek
             return true;
         }
 
+        // Optimizer merges consumed while a segment commit is in flight: absorbed recording
+        // id -> the merge target's id. CommitChainSegment resolves "the segment we just
+        // committed" through it, because the pass inside CommitSegmentCore may have folded
+        // that segment into its chain predecessor.
+        private readonly Dictionary<string, string> absorbedIntoByRecordingId =
+            new Dictionary<string, string>(StringComparer.Ordinal);
+
+        /// <summary>
+        /// Pure: follows <paramref name="absorbedInto"/> from <paramref name="recordingId"/>
+        /// to the recording that carries its trajectory now (itself when never absorbed),
+        /// then returns that recording's committed index, or -1 when it is not in the list.
+        /// Cycle-safe (bounded by the map size).
+        /// </summary>
+        internal static int ResolveCommittedIndexThroughAbsorption(
+            string recordingId,
+            IReadOnlyDictionary<string, string> absorbedInto,
+            IReadOnlyList<Recording> committed)
+        {
+            if (string.IsNullOrEmpty(recordingId) || committed == null) return -1;
+            string id = recordingId;
+            int hops = 0;
+            while (absorbedInto != null && absorbedInto.TryGetValue(id, out string target)
+                   && !string.IsNullOrEmpty(target) && hops++ <= absorbedInto.Count)
+            {
+                id = target;
+            }
+            for (int i = 0; i < committed.Count; i++)
+            {
+                if (string.Equals(committed[i]?.RecordingId, id, StringComparison.Ordinal))
+                    return i;
+            }
+            return -1;
+        }
+
+        /// <summary>
+        /// The committed list lost the recording at <paramref name="index"/>. A continuation
+        /// tracking that very recording retargets to <paramref name="absorbedInto"/> (the
+        /// optimizer merge target now carrying its trajectory) or stops when there is none;
+        /// every other tracked slot is rebound by id, because the per-frame sampler indexes
+        /// the list directly and has no id guard of its own.
+        /// </summary>
+        internal void OnCommittedRecordingRemoved(int index, Recording removed, Recording absorbedInto)
+        {
+            string removedId = removed?.RecordingId;
+            if (!string.IsNullOrEmpty(removedId) && !string.IsNullOrEmpty(absorbedInto?.RecordingId))
+                absorbedIntoByRecordingId[removedId] = absorbedInto.RecordingId;
+
+            if (ContinuationVesselPid != 0 && ContinuationRecordingIdx == index)
+            {
+                if (absorbedInto != null && !string.IsNullOrEmpty(absorbedInto.RecordingId))
+                {
+                    ParsekLog.Info("Chain",
+                        $"Continuation recording #{index} (id={ContinuationRecordingId}) merged into " +
+                        $"id={absorbedInto.RecordingId} - retargeting continuation sampling");
+                    ContinuationRecordingId = absorbedInto.RecordingId;
+                }
+                else
+                {
+                    StopContinuation("tracked recording removed from committed list");
+                }
+            }
+            if (UndockContinuationPid != 0 && UndockContinuationRecIdx == index)
+            {
+                if (absorbedInto != null && !string.IsNullOrEmpty(absorbedInto.RecordingId))
+                {
+                    ParsekLog.Info("Chain",
+                        $"Undock continuation recording #{index} (id={UndockContinuationRecId}) merged into " +
+                        $"id={absorbedInto.RecordingId} - retargeting undock continuation sampling");
+                    UndockContinuationRecId = absorbedInto.RecordingId;
+                }
+                else
+                {
+                    StopUndockContinuation("tracked recording removed from committed list");
+                }
+            }
+
+            RebindContinuationIndices($"committed removal at #{index}");
+        }
+
+        /// <summary>
+        /// Insert mirror of <see cref="OnCommittedRecordingRemoved"/>: a recording was inserted
+        /// at <paramref name="index"/>, so both tracked slots are rebound by id.
+        /// </summary>
+        internal void OnCommittedRecordingInserted(int index)
+        {
+            RebindContinuationIndices($"committed insert at #{index}");
+        }
+
+        /// <summary>
+        /// Re-derives both continuation indices from their recording ids against the current
+        /// committed list. A tracked id that is no longer in the list stops that continuation.
+        /// </summary>
+        internal void RebindContinuationIndices(string cause)
+        {
+            var committed = RecordingStore.CommittedRecordings;
+            if (ContinuationVesselPid != 0)
+            {
+                int before = ContinuationRecordingIdx;
+                int idx = ResolveCommittedIndexThroughAbsorption(ContinuationRecordingId, null, committed);
+                if (idx < 0)
+                    StopContinuation($"tracked recording id={ContinuationRecordingId} not found after {cause}");
+                else if (idx != before)
+                {
+                    ContinuationRecordingIdx = idx;
+                    ParsekLog.Info("Chain",
+                        $"Continuation index rebound after {cause}: #{before} -> #{idx} (id={ContinuationRecordingId})");
+                }
+            }
+            if (UndockContinuationPid != 0)
+            {
+                int before = UndockContinuationRecIdx;
+                int idx = ResolveCommittedIndexThroughAbsorption(UndockContinuationRecId, null, committed);
+                if (idx < 0)
+                    StopUndockContinuation($"tracked recording id={UndockContinuationRecId} not found after {cause}");
+                else if (idx != before)
+                {
+                    UndockContinuationRecIdx = idx;
+                    ParsekLog.Info("Chain",
+                        $"Undock continuation index rebound after {cause}: #{before} -> #{idx} (id={UndockContinuationRecId})");
+                }
+            }
+        }
+
+        /// <summary>
+        /// The committed index of the segment <see cref="CommitSegmentCore"/> just committed,
+        /// after the optimization pass it runs may have folded that segment into its chain
+        /// predecessor. Consumes the absorption map. -1 when the segment is gone entirely.
+        /// </summary>
+        private int ResolveJustCommittedSegmentIndex(string segmentId)
+        {
+            int idx = ResolveCommittedIndexThroughAbsorption(
+                segmentId, absorbedIntoByRecordingId, RecordingStore.CommittedRecordings);
+            if (absorbedIntoByRecordingId.Count > 0)
+            {
+                ParsekLog.Verbose("Chain",
+                    $"Segment id={segmentId} resolved through {absorbedIntoByRecordingId.Count} optimizer " +
+                    $"absorption(s) to committed #{idx}");
+                absorbedIntoByRecordingId.Clear();
+            }
+            return idx;
+        }
+
         // Continuation adaptive sampling thresholds (read from settings, same as FlightRecorder)
         private static float ContinuationMinInterval =>
             ParsekSettings.Current?.minSampleInterval ?? ParsekSettings.GetMinSampleInterval(SamplingDensity.Medium);
@@ -154,6 +296,7 @@ namespace Parsek
             UndockContinuationRecId = null;
             UndockContinuationLastVel = Vector3.zero;
             UndockContinuationLastUT = -1;
+            absorbedIntoByRecordingId.Clear();
             ParsekLog.Verbose("Chain", "ClearAll: all chain state reset");
         }
 
@@ -625,17 +768,30 @@ namespace Parsek
                 return false;
             }
 
-            ParsekLog.Verbose("Chain",
-                $"CommitChainSegment: VesselSnapshot={RecordingStore.CommittedRecordings[RecordingStore.CommittedRecordings.Count - 1].VesselSnapshot != null}, " +
-                $"GhostVisualSnapshot={RecordingStore.CommittedRecordings[RecordingStore.CommittedRecordings.Count - 1].GhostVisualSnapshot != null}");
+            // The optimization pass inside CommitSegmentCore may have merged the new segment
+            // into its predecessor or split something below it, so "the segment we just
+            // committed" is resolved by id, never as Count - 1.
+            int committedSegmentIdx = ResolveJustCommittedSegmentIndex(segmentRecorder.CaptureAtStop.RecordingId);
+            Recording committedSegment = committedSegmentIdx >= 0
+                ? RecordingStore.CommittedRecordings[committedSegmentIdx]
+                : null;
+            if (committedSegment == null)
+                ParsekLog.Warn("Chain",
+                    $"CommitChainSegment: committed segment id={segmentRecorder.CaptureAtStop.RecordingId} " +
+                    "not found after the optimization pass - continuation sampling will not start");
+            else
+                ParsekLog.Verbose("Chain",
+                    $"CommitChainSegment: committed segment resolved to #{committedSegmentIdx} (id={committedSegment.RecordingId}), " +
+                    $"VesselSnapshot={committedSegment.VesselSnapshot != null}, " +
+                    $"GhostVisualSnapshot={committedSegment.GhostVisualSnapshot != null}");
 
             // Continuation sampling: track the vessel after mid-chain commit
-            if (!segmentRecorder.RecordingStartedAsEva)
+            if (!segmentRecorder.RecordingStartedAsEva && committedSegment != null)
             {
                 // Vessel segment committed (V→EVA): start continuation to extend trajectory
                 ContinuationVesselPid = segmentRecorder.RecordingVesselId;
-                ContinuationRecordingIdx = RecordingStore.CommittedRecordings.Count - 1;
-                ContinuationRecordingId = RecordingStore.CommittedRecordings[ContinuationRecordingIdx].RecordingId;
+                ContinuationRecordingIdx = committedSegmentIdx;
+                ContinuationRecordingId = committedSegment.RecordingId;
                 // Bug #95: save boundary for rollback on revert.
                 // Deep-copy snapshots because RefreshContinuationSnapshotCore path B
                 // mutates the existing ConfigNode in place (SetValue on lat/lon/alt).

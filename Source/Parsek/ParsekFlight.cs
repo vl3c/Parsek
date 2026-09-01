@@ -1313,6 +1313,13 @@ namespace Parsek
             // delegates verbatim to policy.CheckPendingMapVessels; relocating the body is Phase 8d.1.
             mapViewScene.SetPresenceDriver(policy);
 
+            // The committed list is restructured mid-session (optimizer merges / splits on a
+            // tree or chain-segment commit, the Re-Fly origin splitter, deletes); every
+            // index-keyed slot here must shift with it.
+            RecordingStore.CommittedRecordingRemoving += OnCommittedRecordingRemoving;
+            RecordingStore.CommittedRecordingRemoved += OnCommittedRecordingRemoved;
+            RecordingStore.CommittedRecordingInserted += OnCommittedRecordingInserted;
+
             // Clean up any orphaned toolbar from rapid scene transitions (e.g. rewind)
             if (toolbarControl != null)
             {
@@ -2132,6 +2139,11 @@ namespace Parsek
             restoringActiveTree = false;
             ParsekLog.Info("Flight", "OnDestroy: cleaning up ParsekFlight");
             Camera.onPreCull -= OnCameraPreCull;
+            // First, before anything below can throw: a dead instance left on these static
+            // events would run ahead of the next scene's ParsekFlight and abort its reindex.
+            RecordingStore.CommittedRecordingRemoving -= OnCommittedRecordingRemoving;
+            RecordingStore.CommittedRecordingRemoved -= OnCommittedRecordingRemoved;
+            RecordingStore.CommittedRecordingInserted -= OnCommittedRecordingInserted;
             DisarmPostSwitchAutoRecord("ParsekFlight destroyed");
 
             if (toolbarControl != null)
@@ -19465,32 +19477,79 @@ namespace Parsek
             // Unreserve crew
             CrewReservationManager.UnreserveCrewInSnapshot(rec.VesselSnapshot);
 
-            // Destroy ghost if active (primary + overlap)
-            DestroyAllOverlapGhosts(index);
-            engine.DestroyGhost(index);
-
-            // Remove from store (handles chain degradation + file deletion)
+            // Remove from store (chain degradation + file deletion). Its Removing / Removed
+            // notifications drive the ghost teardown and the index reindex below.
             RecordingStore.RemoveRecordingAt(index);
 
-            // Update watch mode index if watching a ghost
+            ParsekLog.ScreenMessage($"Recording '{rec.VesselName}' deleted", 2f);
+        }
+
+        /// <summary>
+        /// A committed recording is about to leave the list (any remover: a delete, an
+        /// optimizer merge). The list is still unshifted, so the engine's OnGhostDestroyed
+        /// subscribers (GhostMapPresence's index-keyed teardown) read the right recording,
+        /// and a retained ghost-less map presence at the slot is torn down too.
+        /// </summary>
+        private void OnCommittedRecordingRemoving(int index, Recording removed)
+        {
+            ParsekLog.Verbose("Flight",
+                $"Committed recording #{index} ('{removed?.VesselName}', id={removed?.RecordingId}) " +
+                "removing - destroying its ghost state");
+            DestroyAllOverlapGhosts(index);
+            engine.DestroyGhost(index, reason: "committed-recording-removed");
+            GhostMapPresence.HandleCommittedRecordingRemoving(index);
+        }
+
+        /// <summary>
+        /// A committed recording left the list: every index above <paramref name="index"/>
+        /// shifted down, so every index-keyed slot (engine dicts, held ghosts, map presence,
+        /// watch-mode index, continuation indices, orbit and map-marker caches) shifts with
+        /// it. <paramref name="absorbedInto"/> is the optimizer merge target that now carries
+        /// the removed trajectory, null for a plain delete.
+        /// </summary>
+        private void OnCommittedRecordingRemoved(int index, Recording removed, Recording absorbedInto)
+        {
             watchMode.OnRecordingDeleted(index);
-
-            // Reindex all engine-owned ghost state (dicts + sets)
             engine.ReindexAfterDelete(index);
-
-            // Clear orbit cache — keys are index-derived (i * 10000 + segIdx),
-            // so after reindexing they would map to wrong recordings
+            policy.ReindexHeldGhostsAfterDelete(index);
+            GhostMapPresence.ReindexPresenceAfterDelete(index);
+            chainManager.OnCommittedRecordingRemoved(index, removed, absorbedInto);
+            // Orbit cache keys are index-derived (i * 10000 + segIdx); the map marker
+            // waypoint cache and the diagnostic guards are index-keyed too.
             ClearOrbitPlaybackCaches();
-
-            // Clear map marker waypoint cache (index-keyed, stale after reindex)
             ui?.ClearMapMarkerCache();
-
-            // Clear ParsekFlight-local diagnostic guards since indices shifted
             loggedOrbitSegments.Clear();
             loggedOrbitRotationSegments.Clear();
-            policy.RemovePendingSpawn(rec.RecordingId);
+            if (removed != null)
+                policy.RemovePendingSpawn(removed.RecordingId);
+            ParsekLog.Verbose("Flight",
+                $"Committed recording #{index} removed" +
+                (absorbedInto != null ? $" (merged into id={absorbedInto.RecordingId})" : "") +
+                $" - reindexed engine, held, map, watch and chain state " +
+                $"(ghostStates={engine.ghostStates.Count}, committed={RecordingStore.CommittedRecordings.Count})");
+        }
 
-            ParsekLog.ScreenMessage($"Recording '{rec.VesselName}' deleted", 2f);
+        /// <summary>
+        /// Insert mirror of <see cref="OnCommittedRecordingRemoved"/>: a recording was inserted
+        /// at <paramref name="index"/> (the optimizer's split second half, the Re-Fly origin
+        /// splitter's TIP), so every index-keyed slot at or above it shifts up by one. A split
+        /// first half keeps its ghost state at <c>index - 1</c> and plays its (now shorter)
+        /// trajectory; the inserted recording spawns through the normal path.
+        /// </summary>
+        private void OnCommittedRecordingInserted(int index)
+        {
+            engine.ReindexAfterInsert(index);
+            policy.ReindexHeldGhostsAfterInsert(index);
+            GhostMapPresence.ReindexPresenceAfterInsert(index);
+            watchMode.OnRecordingInserted(index);
+            chainManager.OnCommittedRecordingInserted(index);
+            ClearOrbitPlaybackCaches();
+            ui?.ClearMapMarkerCache();
+            loggedOrbitSegments.Clear();
+            loggedOrbitRotationSegments.Clear();
+            ParsekLog.Verbose("Flight",
+                $"Committed recording inserted at #{index} - reindexed engine, held, map, watch and chain state " +
+                $"(ghostStates={engine.ghostStates.Count}, committed={RecordingStore.CommittedRecordings.Count})");
         }
 
         /// <summary>
@@ -19516,19 +19575,8 @@ namespace Parsek
 
             ParsekLog.Info("Flight", $"Deleting ghost-only recording '{rec.VesselName}' at index {index}");
 
-            // Destroy ghost if active (primary + overlap)
-            DestroyAllOverlapGhosts(index);
-            engine.DestroyGhost(index);
-
+            // Ghost teardown + reindex ride on the store's Removing / Removed notifications.
             RecordingStore.RemoveRecordingAt(index);
-
-            watchMode.OnRecordingDeleted(index);
-            engine.ReindexAfterDelete(index);
-            ClearOrbitPlaybackCaches();
-            ui?.ClearMapMarkerCache();
-            loggedOrbitSegments.Clear();
-            loggedOrbitRotationSegments.Clear();
-            policy.RemovePendingSpawn(rec.RecordingId);
 
             ParsekLog.ScreenMessage($"Ghost recording '{rec.VesselName}' deleted", 2f);
         }
@@ -19789,15 +19837,7 @@ namespace Parsek
         /// </summary>
         internal static void ReindexAfterDelete<T>(Dictionary<int, T> dict, int removedIndex)
         {
-            var old = new Dictionary<int, T>(dict);
-            dict.Clear();
-            foreach (var kvp in old)
-            {
-                if (kvp.Key < removedIndex)
-                    dict[kvp.Key] = kvp.Value;
-                else if (kvp.Key > removedIndex)
-                    dict[kvp.Key - 1] = kvp.Value;
-            }
+            IndexShift.DictAfterDelete(dict, removedIndex);
         }
 
 

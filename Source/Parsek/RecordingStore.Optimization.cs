@@ -10,7 +10,15 @@ namespace Parsek
         /// <summary>
         /// Runs the optimization pass: find merge candidates among committed recordings,
         /// execute merges, re-index chains, then split multi-environment recordings at
-        /// environment boundaries. Called on save load after migrations.
+        /// environment boundaries. Called on save load after migrations, and mid-session
+        /// after every tree commit and chain-segment commit.
+        ///
+        /// Structural changes (a merge removes the absorbed recording mid-list, a split
+        /// inserts the second half mid-list) bump <see cref="StateVersion"/> at the
+        /// mutation so the <see cref="EffectiveState"/> caches rebuild even if a later step
+        /// of the pass throws, and raise the <c>CommittedRecording*</c> notifications
+        /// (RecordingStore.CommittedListNotifications.cs) so index-keyed live state
+        /// reindexes in step.
         /// </summary>
         internal static void RunOptimizationPass()
         {
@@ -23,6 +31,12 @@ namespace Parsek
 
             int mergeCount = RunOptimizationMergePass(recordings);
             int splitCount = RunOptimizationSplitPass(recordings);
+            if (mergeCount > 0 || splitCount > 0)
+            {
+                ParsekLog.Verbose("RecordingStore",
+                    $"Optimization pass: committed list restructured (merges={mergeCount} splits={splitCount}) - " +
+                    $"StateVersion now {StateVersion}");
+            }
             TrimBoringTailsForOptimization(recordings);
 
             // Loop sync pass: link debris recordings to their parent recording
@@ -66,7 +80,10 @@ namespace Parsek
                 UpdateTreeStateAfterOptimizationMerge(target, absorbed);
 
                 // Remove absorbed recording from committed list
+                NotifyCommittedRecordingRemoving(idxB, absorbed);
                 recordings.RemoveAt(idxB);
+                BumpStateVersion();
+                NotifyCommittedRecordingRemoved(idxB, absorbed, target);
 
                 // Delete absorbed recording's sidecar files
                 try { DeleteRecordingFiles(absorbed); }
@@ -184,6 +201,8 @@ namespace Parsek
 
                 // Add to committed recordings (after original)
                 recordings.Insert(recIdx + 1, second);
+                BumpStateVersion();
+                NotifyCommittedRecordingInserted(recIdx + 1);
 
                 // Update tree dict if applicable
                 if (!string.IsNullOrEmpty(original.TreeId))

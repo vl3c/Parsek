@@ -264,7 +264,9 @@ namespace Parsek
             public List<int> Members;
         }
         private int[] sortedIndices; // maps display row -> CommittedRecordings index
-        private int lastSortedCount = -1;
+        // Keyed on the store's StateVersion, which every committed-list membership mutation
+        // bumps; a count-only gate missed a same-count restructure (merge + split nets zero).
+        private int lastSortedStateVersion = int.MinValue;
 
         // Dock-partner naming (design-dock-event-graph.md 6.5 / 7.6): the global dock-event
         // graph, fetched at most once per frame so a per-row tooltip lookup is a dictionary hit
@@ -4591,15 +4593,16 @@ namespace Parsek
 
         private void InvalidateSort()
         {
-            lastSortedCount = -1;
+            lastSortedStateVersion = int.MinValue;
         }
 
         private void RebuildSortedIndices(IReadOnlyList<Recording> committed, double now)
         {
-            if (sortedIndices != null && lastSortedCount == committed.Count)
+            int stateVersion = RecordingStore.StateVersion;
+            if (sortedIndices != null && lastSortedStateVersion == stateVersion)
                 return;
 
-            lastSortedCount = committed.Count;
+            lastSortedStateVersion = stateVersion;
             sortedIndices = new int[committed.Count];
             for (int i = 0; i < committed.Count; i++)
                 sortedIndices[i] = i;
