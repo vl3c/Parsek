@@ -1,4 +1,4 @@
-# In-game test category inventory (all 109 categories)
+# In-game test category inventory (all 110 categories)
 
 Machine-derived from `Source/Parsek` by `hlib.parse_ingame_test_declarations` +
 `hlib.derive_batch_tally`. Do NOT hand-edit the table: re-derive it. The generator
@@ -166,6 +166,7 @@ Two limits of this table, stated so nobody over-reads it:
 | `RevertVesselStrip` | 1 | 1 | 0 | 0 | 0 | 1 | - | B |
 | `Rewind` | 38 | 26 | 6 | 0 | 6 | 24 | R7a / R7c | A |
 | `RewindSaves` | 1 | 1 | 1 | 1 | 0 | 1 | - | B |
+| `RouteDockCapture` | 6 | 0 | 0 | 0 | 6 | 6 | H55 (ISOLATED, AUTHORED 2026-09-02 and NEVER FLOWN; the ordinary path executes 0 of 6, so the isolated arg is the only way to run any of it. Pins `total=6` exactly with `passed=`/`skipped=` interim and `failed=0` asserted, plus one REQUIRED token per cell) | B |
 | `RouteLifecycle` | 8 | 8 | 8 | 8 | 0 | 8 | RVR-3 (flown once 2026-09-01, `total=6 passed=4 failed=2`; the two failures were CONTRACT DRIFT - see the triage note - and the category is now 8 cells pinning BOTH halves of the armed-pause state machine. Pins `total=8` exactly with `passed=`/`skipped=` interim, `failed=0` asserted, plus a REQUIRED PASS token per resolution cell, and declares no render-composition expectations block, which is what keeps the five crossing cells from self-skipping) | B |
 | `RouteLiveAnchor` | 1 | 1 | 0 | 0 | 0 | 1 | - | B |
 | `RouteRewindTimeline` | 7 | 7 | 7 | 7 | 0 | 1 | H6 | B |
@@ -203,8 +204,8 @@ Two limits of this table, stated so nobody over-reads it:
 
 ## Triage
 
-Totals, re-derived: **109 categories / 607 declarations**. Buckets **A 34 categories
-(235 declarations)**, **B 75 categories (372 declarations)**, **C 0 categories (0
+Totals, re-derived: **110 categories / 613 declarations**. Buckets **A 34 categories
+(235 declarations)**, **B 76 categories (378 declarations)**, **C 0 categories (0
 declarations)**. The 107th is `AutoMergeCommit` (R4, the AUTOMERGE-ON-BY-DEFAULT
 wave; the 106th is `DisabledHoverEcho`, landed the same week): the plan-§7
 autoMerge=ON scene-exit cell, batch-disabled and restore-backed exactly like the two
@@ -241,12 +242,24 @@ the arm is consumed. The lesson generalises past this category: a cell that reac
 its assertion through the FIRST gate that refuses is measuring that gate, not the
 contract it was written for, and only naming the expected kind in a pre-flight guard
 makes the difference visible.
-Driven by a committed spec: **45 of 109 categories**, up from 35
+The 110th is `RouteDockCapture` (H55, 2026-09-02): SIX self-provisioning cells that
+spawn docking ports, tanks and cargo containers beside the active vessel, couple them
+in, move real resources and real stored cargo across the docked window and undock -
+producing the roadmap's Tier B supply-route subjects (delivery, pickup + mixed
+direction, EVA-construction part-set drift, multi-stop, round-trip) in-session instead
+of costing a manual flight each - plus the origin-proof INSTRUMENT that decides whether
+Tier B item 4 is a flight or a bug fix. The docking-port sibling of `LogisticsGrapple`,
+and its own category for the same reason that one is: `Logistics`' `total=47` is pinned
+by five committed specs. Bucket **B**: the whole category is driven by one committed
+spec, but that spec has NEVER FLOWN, so it moves to **A** on its first clean census -
+`RouteLifecycle`'s standing, arrived at from the other side.
+
+Driven by a committed spec: **46 of 110 categories**, up from 35
 across six waves - `ReFlyWorldPreservation` via S4.2, `RecordedSignals` via H33,
 `SnapshotBaseline` via H32, and `Logistics` via H34 all landed together in one merge
 (the S1.8 SoiCrossingPlayback wave had taken it to 35 from 34, and 28 and 8 the waves
 before), then `PlaybackFidelity` via H36 and `PartEventFidelity` via H37. Measured
-against declarations rather than categories, that is 412 of 607 inside a driven
+against declarations rather than categories, that is 418 of 613 inside a driven
 category (was 318 before these waves: 324 after S4.2, 327 after H33, 334 after H32,
 381 once `Logistics` counted, 388 with `PlaybackFidelity`, 393 with
 `PartEventFidelity`, and 401 once L3's capture matrix took `StrategyLifecycle` from 3

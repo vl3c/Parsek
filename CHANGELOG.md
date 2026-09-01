@@ -92,7 +92,16 @@ _(unreleased — entries accumulate here per commit)_
   CANNOT check and why: the recorded flight comes with prize money already banked
   from its own milestones, so this craft can always afford a second launch and the
   "not enough funds" refusal needs a different test save rather than a different
-  starting balance. Nothing here changes the game.
+  starting balance. Five more of the planned supply-route sessions no longer need a
+  human to fly them at all: a new set of automated checks builds its own docking
+  target out of stock parts beside whatever craft is on the pad, docks to it for
+  real, moves fuel and a cargo item across while docked, and undocks again - so
+  delivery, pickup, a both-directions transfer, a two-destination run, and a
+  there-and-back pair are all produced inside the test session instead of costing a
+  flight each. A sixth check measures, without judging, whether the game leaves any
+  trace Parsek can use to tell that a craft STARTED a recording already docked to
+  something; whichever way that reads decides whether the one remaining session is a
+  flight or a bug fix. Nothing here changes the game.
 
 ---
 

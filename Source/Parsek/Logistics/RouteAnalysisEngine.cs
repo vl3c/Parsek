@@ -1880,7 +1880,16 @@ namespace Parsek.Logistics
                 : 0.0;
         }
 
-        private static List<InventoryPayloadItem> BuildInventoryDeliveryManifest(
+        /// <summary>
+        /// Internal (not private) for the same reason its pickup mirror
+        /// <see cref="BuildInventoryLoadManifest"/> is: the in-game
+        /// <c>RouteDockCapture</c> cells assert the inventory delivery manifest
+        /// of a window they just produced live, and routing that through
+        /// <see cref="AnalyzeTree"/> would make the assertion depend on the
+        /// host fixture's origin workflow gate rather than on the capture path
+        /// under test.
+        /// </summary>
+        internal static List<InventoryPayloadItem> BuildInventoryDeliveryManifest(
             RouteConnectionWindow window)
         {
             Dictionary<string, InventoryPayloadItem> deliveredByIdentity =

@@ -2336,24 +2336,74 @@ gated behind the ROUTE-ORIGIN-PROOF-PRODUCER-UNREACHABLE probe (todo) before any
 
 ### Tier B - surface-route variants (one flight each, template established by RVR)
 
-4. **Start-docked origin proof.** Record the transport STARTING docked to the
-   base rover off-pad, undock, deliver elsewhere. First-ever execution of
-   `RouteOriginProof_StartedDockedToNonKsc_ProducerLandsProof` (the save
-   carries no ROUTE_ORIGIN_PROOF node today - both roots are Runway starts,
-   which deliberately skip the proof) and the surface flavor of D10
-   `docked-depot-origin`.
-5. **Ground pickup + mixed direction.** The base loads cargo ONTO the
+4. **Start-docked origin proof.** ~~Record the transport STARTING docked to the
+   base rover off-pad, undock, deliver elsewhere.~~ **GATED ON THE PROBE, AND
+   THE PROBE IS NOW AUTHORED (2026-09-02).**
+   `OriginProofProbe_SettledDockLeavesNoExternalParent` (category
+   `RouteDockCapture`, lane H55) couples a spawned `dockingPort2` into the
+   active vessel, counts the parts satisfying the producer's OWN predicate
+   (`p.parent.vessel != v`) after the couple settles, and reads back whether
+   `RouteOriginProof` was captured - logging
+   `OriginProofProbe: externalParentParts=N proofCaptured=<bool> ...` and
+   asserting NO verdict. `externalParentParts=0 proofCaptured=False` confirms
+   ROUTE-ORIGIN-PROOF-PRODUCER-UNREACHABLE (todo, SUSPECTED) and this item
+   becomes a bug fix plus a capture cell rather than a flight; anything else
+   refutes it and the flight goes ahead as written. Either way the first-ever
+   execution of `RouteOriginProof_StartedDockedToNonKsc_ProducerLandsProof` and
+   the surface flavor of D10 `docked-depot-origin` still ride whichever route
+   the measurement picks. DO NOT FLY THIS ITEM BEFORE READING THE PROBE LINE.
+5. **Ground pickup + mixed direction.** ~~The base loads cargo ONTO the
    transport (pickup manifest), then a both-directions window
-   (`mixed-direction`). Same two-rover template, transfers reversed.
-6. **EVA-construction drift, live.** Attach a part to a vessel EXTERIOR during
+   (`mixed-direction`). Same two-rover template, transfers reversed.~~
+   **AUTOMATABLE: `RouteDockCapture` cells authored 2026-09-02, lane H55 never
+   flown.** Two cells -
+   `DockCapture_LiveRecordedDockingPortCouple_StampsDockingPortWindowWithDelivery`
+   (the delivery half: LiquidFuel AND a stored cargo item transport->partner)
+   and `DockCapture_PickupAndMixedDirection_ManifestsBothWays` (LiquidFuel
+   partner->transport plus inventory transport->partner in ONE window).
+6. **EVA-construction drift, live.** ~~Attach a part to a vessel EXTERIOR during
    the docked window: the `Route window part-set drift on undock` warning path
    has never fired outside unit tests. Report-only lane; pins that the route
    still builds and the moved part appears in NO manifest (the documented
-   contract).
-7. **Multi-stop rover run.** One transport, two landed bases in one recording
+   contract).~~ **AUTOMATABLE: `DockCapture_EvaConstructionDrift_WarnsButRoute-
+   StillBuilds` authored 2026-09-02, lane H55 never flown.** The KSP fact that
+   shaped it, decompiled rather than assumed: `Part.Couple` fires
+   `onPartCouple` UNCONDITIONALLY, so a second couple inside an open docked
+   window opens a SECOND route window whose transport pid set already spans the
+   partner, and the later undock then fails
+   `RouteProofCapture.TryVerifyRoutePartSetsSeparated` instead of completing -
+   a drift cell built on `Part.Couple` could never observe the warning at all.
+   Real EVA construction does not use it: `EVAConstructionModeEditor.AttachPart`
+   ends in `Part.OnAttachFlight(parent)`, which sets parent / vessel and adds
+   the part to `vessel.Parts` with NO coupling event. The cell drives THAT.
+7. **Multi-stop rover run.** ~~One transport, two landed bases in one recording
    (D10 `multi-stop` - the multi-window `LoopRoute(multi)` path, whose blocked
-   branch the fix wave also patched but no flight has ever driven).
-8. **Round-trip pair.** A->B->A with cargo both legs (D10 `round-trip-pair`).
+   branch the fix wave also patched but no flight has ever driven).~~
+   **AUTOMATABLE: `DockCapture_TwoPartnersSequential_TwoWindowsOneRecording`
+   authored 2026-09-02, lane H55 never flown.** Note the shape the architecture
+   forces and the cell pins: each dock opens its own dock-merged CHILD, so two
+   stops are two windows on two recordings of ONE tree - which is exactly what
+   `AnalyzeTree`'s M4a collection walks, and NOT two windows on one recording.
+8. **Round-trip pair.** ~~A->B->A with cargo both legs (D10
+   `round-trip-pair`).~~ **AUTOMATABLE:
+   `DockCapture_RoundTripPair_SamePartnerTwice` authored 2026-09-02, lane H55
+   never flown** - deliver on the first window, pick up on the second, both
+   against the same PHYSICAL partner. The cell asserts that sameness on the
+   endpoint PART pids rather than on `TransferTargetVesselPid`, because
+   `Part.Undock` builds a fresh `Vessel` whose `persistentId` is re-stamped by
+   `Vessel.Initialize` - so a re-dock of the same craft legitimately reports a
+   different target vessel pid, and any future route lane comparing vessel pids
+   across an undock is comparing the wrong thing.
+
+**What Tier B still owes a flight, after H55.** The lane itself: authored,
+never flown, `operator` tier, and the first run is a reading run (the interim
+`passed=` / `skipped=` split, the census of which spawn / cargo guards
+self-skip, and the probe's numbers). And the SURFACE half that was always the
+other axis of these items - H55 produces the docked-window behaviour on the KSC
+pad host, not on two landed rovers at distance, so the surface flavors of the
+D10 rows stay unclaimed until a lane measures them. What H55 removes is the
+need to spend a manual flight to see delivery, pickup, mixed direction, drift,
+multi-stop and round-trip AT ALL.
 
 ### Tier C - economics (career)
 
@@ -2446,6 +2496,16 @@ gated behind the ROUTE-ORIGIN-PROOF-PRODUCER-UNREACHABLE probe (todo) before any
   `mergeState` key anywhere (both trees already fully sealed). A second,
   route-CARRYING fixture (post-creation re-save) is still optional and only
   needed for route-reading lanes that must not create.
+- **Self-provisioning `RouteDockCapture` category + lane H55** - LANDED
+  2026-09-02 (`Source/Parsek/InGameTests/RouteDockCaptureInGameTest.cs`,
+  `RouteDockCaptureMath.cs`, `harness/scenarios/H55-route-dock-capture-isolated.toml`).
+  The docking-port sibling of H41's claw cell: it spawns docking ports, tanks
+  and cargo containers beside the active vessel and drives the REAL
+  `Part.Couple` -> classifier -> window capture -> stock cargo move ->
+  `Part.Undock` -> window completion cycle, which is what makes Tier B items
+  5-8 producible without a flight each. Everything Tier B needs beyond it is a
+  fixture decision (a two-rover landed host), not new machinery. The honest
+  residual, same as H41's: the stock docking FSM is not exercised.
 - **Generators** - landed on this branch: `WithRouteConnectionWindow` /
   `WithRouteOriginProof` through the production codec chokepoint,
   `RouteWindowFixtures.SurfaceDeliveryWindow` (rover-flight constants),
@@ -2453,9 +2513,11 @@ gated behind the ROUTE-ORIGIN-PROOF-PRODUCER-UNREACHABLE probe (todo) before any
   build on these, not on new hand-rolled window helpers (16 already exist;
   do not add a 17th).
 
-Sequencing: Tier A rides this branch. Tier B lanes are operator-tier
-calibration flights, one at a time, each following the RVR template; B4 first
-(it is the only one that also closes an in-game skip). Tier C item 9 is
+Sequencing: Tier A rides this branch. Tier B is no longer five separate
+calibration flights: items 5-8 are authored as in-game cells on lane H55
+(operator tier, never flown), so the sequencing is now ONE reading run of H55
+followed by whatever its probe line says about item 4 - a bug fix if the
+producer is confirmed unreachable, the originally planned flight if not. Tier C item 9 is
 AUTHORED as of 2026-09-02 and owes one flight; item 10 is still unauthored, and
 the funds-short half of item 9 is now a THIRD Tier C item in all but numbering -
 it needs its own fixture (see item 9), not a re-tuned seed.

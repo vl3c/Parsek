@@ -331,12 +331,27 @@ mid-tree docked-origin window path (`RouteAnalysisEngine.AnalyzeWindows`), which
 `depot-route-recorded` fixture exercises - the start proof was never load-bearing for any
 committed route.
 
-**Next step (cheap, before any operator flight for the roadmap's B4 subject).** A FLIGHT
-probe cell that couples a spawned `dockingPort2` part into the active vessel and counts
-parts with `p.parent.vessel != v` (expected 0). If confirmed: fix the producer to derive the
-partner from the docking node's own docked-partner information at recording start instead of
-the parent-vessel identity, and pin it with a self-provisioning capture cell; the B4 manual
-flight is then unnecessary. If refuted: record the KSP state that yields the link and fly B4.
+**The settling instrument is now AUTHORED (2026-09-02), and this entry stays SUSPECTED
+until it runs.** `OriginProofProbe_SettledDockLeavesNoExternalParent`
+(`Source/Parsek/InGameTests/RouteDockCaptureInGameTest.cs`, category `RouteDockCapture`,
+driven by `harness/scenarios/H55-route-dock-capture-isolated.toml`) spawns a `dockingPort2`,
+couples it into the active vessel, lets it settle, counts the parts satisfying the
+producer's OWN predicate through the mirrored pure core
+(`RouteDockCaptureMath.IsExternallyParentedPart`, unit-tested against all four shapes), then
+starts a recording on the docked vessel and reads the production producer's own log branch
+back off the observer channel. It emits one grep-stable line -
+`OriginProofProbe: externalParentParts=N proofCaptured=<bool> situation=S outcome=<branch>
+partnerPid=P` - and asserts NO VERDICT: it is an INSTRUMENT and passes whenever it measured,
+so it cannot pre-judge the question it exists to answer. The lane pins the line with the
+values regexed, so a run can neither omit it nor satisfy the token by producing one
+particular answer.
+
+**How to read it.** `externalParentParts=0 proofCaptured=False` CONFIRMS this entry: fix the
+producer to derive the partner from the docking node's own docked-partner information at
+recording start instead of the parent-vessel identity, pin it with a self-provisioning
+capture cell in the same category, and the roadmap's B4 manual flight is unnecessary.
+Anything else REFUTES it: record the KSP state that yields the link and fly B4 as
+originally planned. Do not fly B4 before reading this line.
 
 ## RESERVATION-OVERLAY-GAPS: the reservation readout that replaced the dead budget UI is absent in the EDITOR and reports `Reserved: 0` in a genuine deficit [SPLIT OUT 2026-08-29 from RESOURCE-BUDGET-READOUTS-ARE-DEAD when that entry was struck as cleanup-done. Neither gap was part of that cleanup; refiled here so they survive it]
 
