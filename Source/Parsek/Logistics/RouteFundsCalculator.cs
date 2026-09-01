@@ -29,10 +29,41 @@ namespace Parsek.Logistics
             Func<string, float> partCostLookup,
             Func<string, float> resourceUnitCostLookup)
         {
+            return ComputeDispatchFundsCost(
+                vesselSnapshot, startResourceManifest, null, partCostLookup, resourceUnitCostLookup);
+        }
+
+        /// <summary>
+        /// PID-restricted funds-basis overload. Identical to the four-argument
+        /// overload except that, when <paramref name="restrictToPartPersistentIds"/>
+        /// is non-null, only <c>PART</c> nodes whose <c>persistentId</c> is IN that
+        /// set are priced (parts AND, on the legacy resource basis, their
+        /// <c>RESOURCE</c> amounts). A null set prices everything, so both existing
+        /// bases route through here unchanged.
+        ///
+        /// <para>The restriction exists for one caller: pricing a dispatch off a
+        /// dock-MERGED (transport + endpoint) snapshot when no un-merged snapshot
+        /// survives anywhere in the route's member set. Restricting to the
+        /// connection window's TRANSPORT pid set prices exactly the launch vehicle
+        /// and never the destination station.</para>
+        ///
+        /// <para>Fail-closed by construction: under a restriction a <c>PART</c> with
+        /// a missing or unparseable <c>persistentId</c> is EXCLUDED, so an
+        /// unidentifiable endpoint part can never leak into the bill.</para>
+        /// </summary>
+        internal static double ComputeDispatchFundsCost(
+            ConfigNode vesselSnapshot,
+            Dictionary<string, ResourceAmount> startResourceManifest,
+            HashSet<uint> restrictToPartPersistentIds,
+            Func<string, float> partCostLookup,
+            Func<string, float> resourceUnitCostLookup)
+        {
             if (startResourceManifest == null)
             {
                 // Legacy basis: per-PART resource walk over the stop snapshot.
-                return ComputeDispatchFundsCost(vesselSnapshot, partCostLookup, resourceUnitCostLookup);
+                return ComputeSnapshotWalk(
+                    vesselSnapshot, restrictToPartPersistentIds,
+                    partCostLookup, resourceUnitCostLookup);
             }
 
             if (vesselSnapshot == null) return 0.0;
@@ -45,6 +76,7 @@ namespace Parsek.Logistics
             {
                 ConfigNode partNode = parts[i];
                 if (partNode == null) continue;
+                if (IsRestrictedOut(partNode, restrictToPartPersistentIds)) continue;
 
                 string partName = partNode.GetValue("name") ?? partNode.GetValue("part");
                 if (string.IsNullOrEmpty(partName)) continue;
@@ -69,6 +101,47 @@ namespace Parsek.Logistics
         }
 
         /// <summary>
+        /// True when <paramref name="restrict"/> is non-null and this <c>PART</c>
+        /// node is NOT in it. Fail-closed: a part carrying no parseable
+        /// <c>persistentId</c> is excluded under any restriction.
+        /// </summary>
+        private static bool IsRestrictedOut(ConfigNode partNode, HashSet<uint> restrict)
+        {
+            if (restrict == null) return false;
+
+            string pidStr = partNode.GetValue("persistentId");
+            if (string.IsNullOrEmpty(pidStr)) return true;
+            if (!uint.TryParse(pidStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out uint pid))
+                return true;
+            return !restrict.Contains(pid);
+        }
+
+        /// <summary>
+        /// Counts how many <c>PART</c> nodes a restriction keeps, out of how many
+        /// the snapshot holds - the <c>parts=n/total</c> term on the diagnostic
+        /// <c>FundsCost basis=</c> line. Shares <see cref="IsRestrictedOut"/> with
+        /// the walk so the count can never disagree with what was priced.
+        /// </summary>
+        internal static void CountRestrictedParts(
+            ConfigNode vesselSnapshot, HashSet<uint> restrict, out int priced, out int total)
+        {
+            priced = 0;
+            total = 0;
+            if (vesselSnapshot == null) return;
+
+            ConfigNode[] parts = vesselSnapshot.GetNodes("PART");
+            if (parts == null) return;
+
+            for (int i = 0; i < parts.Length; i++)
+            {
+                ConfigNode partNode = parts[i];
+                if (partNode == null) continue;
+                total++;
+                if (!IsRestrictedOut(partNode, restrict)) priced++;
+            }
+        }
+
+        /// <summary>
         /// Walk every <c>PART</c> node summing
         /// <c>partCostLookup(name) + Σ RESOURCE.amount * resourceUnitCostLookup(name)</c>.
         /// Returns 0 when the snapshot is null or empty.
@@ -90,6 +163,20 @@ namespace Parsek.Logistics
             Func<string, float> partCostLookup,
             Func<string, float> resourceUnitCostLookup)
         {
+            return ComputeSnapshotWalk(vesselSnapshot, null, partCostLookup, resourceUnitCostLookup);
+        }
+
+        /// <summary>
+        /// The legacy per-PART walk, optionally restricted to a
+        /// <c>persistentId</c> set. <c>restrict == null</c> is the historical
+        /// behavior verbatim.
+        /// </summary>
+        private static double ComputeSnapshotWalk(
+            ConfigNode vesselSnapshot,
+            HashSet<uint> restrict,
+            Func<string, float> partCostLookup,
+            Func<string, float> resourceUnitCostLookup)
+        {
             if (vesselSnapshot == null) return 0.0;
 
             ConfigNode[] parts = vesselSnapshot.GetNodes("PART");
@@ -100,6 +187,7 @@ namespace Parsek.Logistics
             {
                 ConfigNode partNode = parts[i];
                 if (partNode == null) continue;
+                if (IsRestrictedOut(partNode, restrict)) continue;
 
                 string partName = partNode.GetValue("name") ?? partNode.GetValue("part");
                 if (string.IsNullOrEmpty(partName)) continue;

@@ -5291,9 +5291,29 @@ namespace Parsek.Logistics
         /// describes a COMBINED (dock-merged) vessel are skipped by
         /// <see cref="IsCombinedVesselSourceMember"/> - pricing a dispatch from the
         /// transport-plus-endpoint snapshot would charge for the destination station.
-        /// Only when NO member carries a usable snapshot does the method still return
-        /// 0, and that case now says "uncosted" in its own rate-limited line (this
+        /// Only when NO member yields a usable basis does the method still return
+        /// 0, and that case says "uncosted" in its own rate-limited line (this
         /// method runs per UI repaint).</para>
+        ///
+        /// <para><b>Round 2 (RVR-4, measured 2026-09-01).</b> The first fix was
+        /// insufficient on the real rover tree, for two independent reasons, and both
+        /// are handled here. (a) <b>No un-merged member exists.</b> RouteBuilder's
+        /// member set is one id per composition THROUGH-LINE HEAD, so the transport's
+        /// driving legs - further structural intervals of the same vessel line - strip
+        /// back to the root id; the members are exactly [snapshot-less root,
+        /// dock-merged leaf] and the fallback walk has no candidate. Last resort: price
+        /// the dock-merged member RESTRICTED to its connection window's TRANSPORT pid
+        /// set (<see cref="ResolveTransportSubsetWindow"/>), which bills the launch
+        /// vehicle and never the endpoint; an empty/missing transport pid set falls
+        /// through to UNCOSTED rather than pricing the combined vessel. (b) <b>The
+        /// spawn surface is gone after a load.</b> <c>ParsekScenario</c>'s OnLoad
+        /// crew-auto-unreserve sweep nulls <c>VesselSnapshot</c> on every committed
+        /// recording with <c>!VesselSpawned &amp;&amp; currentUT &gt; EndUT</c>, so on
+        /// a loaded save even the merged leaf is snapshot-less. Every basis read here
+        /// therefore goes through <see cref="ResolveCostingSnapshot"/>, which prefers
+        /// <c>VesselSnapshot</c> and falls back to the surviving
+        /// <c>GhostVisualSnapshot</c>; the chosen surface is logged as
+        /// <c>snapshotSurface=vessel|ghost</c>.</para>
         /// </summary>
         internal static double ComputeDispatchFundsCostForRoute(Route route)
         {
@@ -5321,8 +5341,17 @@ namespace Parsek.Logistics
                     ? runManifest.StartTransportResources
                     : null;
 
-            Recording partsBasis = root != null && root.VesselSnapshot != null ? root : null;
+            ConfigNode basisSnapshot = ResolveCostingSnapshot(root, out string basisSurface);
+            Recording partsBasis = basisSnapshot != null ? root : null;
             bool fallback = false;
+
+            // The dock-merged member kept aside for the LAST-RESORT subset basis
+            // below. Recorded on the first skip so the subset path does not re-walk.
+            Recording mergedCandidate = null;
+            ConfigNode mergedSnapshot = null;
+            string mergedSurface = null;
+            HashSet<uint> transportSubset = null;
+
             if (partsBasis == null)
             {
                 // Walk the remaining members IN ORDER and take the first one whose
@@ -5334,9 +5363,18 @@ namespace Parsek.Logistics
                     if (string.IsNullOrEmpty(memberId)) continue;
 
                     Recording member = FindErsRecording(ers, memberId);
-                    if (member == null || member.VesselSnapshot == null) continue;
+                    if (member == null) continue;
+                    ConfigNode memberSnapshot = ResolveCostingSnapshot(member, out string memberSurface);
+                    if (memberSnapshot == null) continue;
+
                     if (IsCombinedVesselSourceMember(route, memberRef, member))
                     {
+                        if (mergedCandidate == null)
+                        {
+                            mergedCandidate = member;
+                            mergedSnapshot = memberSnapshot;
+                            mergedSurface = memberSurface;
+                        }
                         ParsekLog.Verbose(Tag,
                             $"FundsCost: route {ShortIdForLog(route)} skipping member {memberId} " +
                             "as a costing basis - dock-merged (combined-vessel) snapshot");
@@ -5344,6 +5382,8 @@ namespace Parsek.Logistics
                     }
 
                     partsBasis = member;
+                    basisSnapshot = memberSnapshot;
+                    basisSurface = memberSurface;
                     fallback = true;
                     ParsekLog.Verbose(Tag,
                         $"FundsCost: route {ShortIdForLog(route)} root {sourceId} " +
@@ -5351,34 +5391,187 @@ namespace Parsek.Logistics
                         $"falls back to member {memberId}");
                     break;
                 }
+
+                // LAST RESORT (RVR-4, 2026-09-01): on the REAL rover tree there is no
+                // un-merged member to fall back to. RouteBuilder's member set is one id
+                // per composition THROUGH-LINE HEAD, and the transport's driving legs
+                // are further structural intervals of the SAME vessel line, so their
+                // HeadLegId strips back to the root id - the members are exactly
+                // [snapshot-less root, dock-merged leaf]. Price the merged leaf
+                // RESTRICTED to the connection window's TRANSPORT pid set: those parts
+                // are the launch vehicle (it cannot reach the dock carrying parts it
+                // did not launch with, EVA construction aside), and the endpoint's
+                // parts are never billed.
+                if (partsBasis == null && mergedCandidate != null)
+                {
+                    RouteConnectionWindow window = ResolveTransportSubsetWindow(route, mergedCandidate);
+                    List<uint> transportPids = window?.TransportPartPersistentIds;
+                    if (transportPids != null && transportPids.Count > 0)
+                    {
+                        var candidateSubset = new HashSet<uint>(transportPids);
+                        RouteFundsCalculator.CountRestrictedParts(
+                            mergedSnapshot, candidateSubset,
+                            out int keptParts, out int snapshotParts);
+                        if (keptParts > 0)
+                        {
+                            transportSubset = candidateSubset;
+                            partsBasis = mergedCandidate;
+                            basisSnapshot = mergedSnapshot;
+                            basisSurface = mergedSurface;
+                            fallback = true;
+                            ParsekLog.Verbose(Tag,
+                                $"FundsCost: route {ShortIdForLog(route)} no un-merged member carries a " +
+                                $"snapshot - parts basis falls back to dock-merged member " +
+                                $"{mergedCandidate.RecordingId} RESTRICTED to window " +
+                                $"{window.WindowId ?? "<unnamed>"} transport pids " +
+                                $"({transportPids.Count.ToString(IC)} pid(s), " +
+                                $"parts={keptParts.ToString(IC)}/{snapshotParts.ToString(IC)})");
+                        }
+                        else
+                        {
+                            // The pid set matched NOTHING in the chosen surface (a
+                            // pid-less ghost snapshot, or a pid set from a different
+                            // launch). Pricing here would emit the resource term with
+                            // no parts term - a plausible-looking but wrong charge.
+                            // Stay UNCOSTED instead.
+                            ParsekLog.Verbose(Tag,
+                                $"FundsCost: route {ShortIdForLog(route)} dock-merged member " +
+                                $"{mergedCandidate.RecordingId} transport pid subset matched 0 of " +
+                                $"{snapshotParts.ToString(IC)} PART node(s) on the {mergedSurface} " +
+                                "surface - refusing a parts-less charge");
+                        }
+                    }
+                    else
+                    {
+                        // No transport pid set means no way to separate transport from
+                        // endpoint, and pricing the combined vessel would bill the
+                        // destination station every cycle. Stay UNCOSTED.
+                        ParsekLog.Verbose(Tag,
+                            $"FundsCost: route {ShortIdForLog(route)} dock-merged member " +
+                            $"{mergedCandidate.RecordingId} carries no usable transport pid set " +
+                            $"(window={window?.WindowId ?? "<none>"}) - refusing to price the " +
+                            "combined vessel");
+                    }
+                }
             }
 
             if (partsBasis == null)
             {
-                // Every member is missing from ERS or snapshot-less: there is no
-                // basis to price from, so the dispatch is UNCOSTED (a career KSC
-                // dispatch is silently free). Rate-limited because this method
-                // runs per UI repaint; deliberately distinct wording from the
-                // per-member fallback breadcrumb above.
+                // Every member is missing from ERS or carries neither snapshot
+                // surface (and no dock-merged member offered a transport subset):
+                // there is no basis to price from, so the dispatch is UNCOSTED (a
+                // career KSC dispatch is silently free). Rate-limited because this
+                // method runs per UI repaint; deliberately distinct wording from the
+                // per-member fallback breadcrumbs above.
                 ParsekLog.VerboseRateLimited(Tag, "funds-cost-uncosted-" + route.Id,
                     $"FundsCost: route {ShortIdForLog(route)} UNCOSTED - no SourceRefs member " +
                     $"(of {route.SourceRefs.Count.ToString(IC)}, root {sourceId}) is in ERS with a " +
-                    "usable VesselSnapshot; cost=0 (a career KSC dispatch charges nothing)");
+                    "usable snapshot surface (VesselSnapshot or GhostVisualSnapshot) and no " +
+                    "dock-merged member offers a transport pid subset; cost=0 " +
+                    "(a career KSC dispatch charges nothing)");
                 return 0.0;
             }
 
             double cost = RouteFundsCalculator.ComputeDispatchFundsCost(
-                partsBasis.VesselSnapshot,
+                basisSnapshot,
                 startResources,
+                transportSubset,
                 LiveRouteRuntimeEnvironment.LookupPartCost,
                 LiveRouteRuntimeEnvironment.LookupResourceUnitCost);
+
+            string subsetTerm = string.Empty;
+            string partsTerm = string.Empty;
+            if (transportSubset != null)
+            {
+                subsetTerm = " subset=transport";
+                RouteFundsCalculator.CountRestrictedParts(
+                    basisSnapshot, transportSubset, out int pricedParts, out int totalParts);
+                partsTerm = $" parts={pricedParts.ToString(IC)}/{totalParts.ToString(IC)}";
+            }
 
             ParsekLog.Verbose(Tag,
                 $"FundsCost basis={(startResources != null ? "launch-manifest" : "stop-snapshot")} " +
                 $"route={ShortIdForLog(route)} source={sourceId} " +
-                $"snapshotSource={partsBasis.RecordingId} fallback={(fallback ? "1" : "0")} " +
-                $"cost={cost.ToString("R", CultureInfo.InvariantCulture)}");
+                $"snapshotSource={partsBasis.RecordingId} fallback={(fallback ? "1" : "0")}" +
+                subsetTerm +
+                $" snapshotSurface={basisSurface}" +
+                partsTerm +
+                $" cost={cost.ToString("R", CultureInfo.InvariantCulture)}");
             return cost;
+        }
+
+        /// <summary>
+        /// Tolerance for matching a <see cref="RouteConnectionWindow.DockUT"/> to the
+        /// route's persisted <see cref="Route.RecordedDockUT"/>. Both sides are copies
+        /// of the same recorded double, so this only absorbs a serialization round trip.
+        /// </summary>
+        private const double DockWindowMatchToleranceSeconds = 0.001;
+
+        /// <summary>
+        /// The snapshot surface a costing basis is priced from, preferring
+        /// <c>VesselSnapshot</c> and falling back to <c>GhostVisualSnapshot</c>.
+        ///
+        /// <para>Why the fallback exists (RVR-4, 2026-09-01): <c>VesselSnapshot</c> is
+        /// the SPAWN surface, and <c>ParsekScenario</c>'s OnLoad crew-auto-unreserve
+        /// sweep nulls it in memory for every committed recording with
+        /// <c>!VesselSpawned &amp;&amp; currentUT &gt; EndUT</c>. On any LOADED save,
+        /// therefore, every member of an already-flown route is snapshot-less even
+        /// though its <c>_vessel.craft</c> sidecar is still on disk - which made the
+        /// career dispatch free. <c>GhostVisualSnapshot</c> is the same ConfigNode
+        /// (a <c>CreateCopy</c> taken at the same capture sites, and its own
+        /// <c>_ghost.craft</c> sidecar on load), survives that sweep, and is read here
+        /// strictly READ-ONLY.</para>
+        /// </summary>
+        internal static ConfigNode ResolveCostingSnapshot(Recording rec, out string surface)
+        {
+            surface = null;
+            if (rec == null) return null;
+            if (rec.VesselSnapshot != null)
+            {
+                surface = "vessel";
+                return rec.VesselSnapshot;
+            }
+            if (rec.GhostVisualSnapshot != null)
+            {
+                surface = "ghost";
+                return rec.GhostVisualSnapshot;
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// The connection window on a dock-merged member whose TRANSPORT pid set
+        /// defines the costing subset. Prefers the window matching the route's own
+        /// <see cref="Route.RecordedDockUT"/>; otherwise the EARLIEST dock, which is
+        /// the reading closest to launch (the transport pid set is a launch fact).
+        /// Returns null when the member carries no dated window.
+        /// </summary>
+        internal static RouteConnectionWindow ResolveTransportSubsetWindow(
+            Route route, Recording member)
+        {
+            List<RouteConnectionWindow> windows = member?.RouteConnectionWindows;
+            if (windows == null || windows.Count == 0) return null;
+
+            double routeDockUT = route != null ? route.RecordedDockUT : -1.0;
+            if (routeDockUT > 0.0)
+            {
+                for (int i = 0; i < windows.Count; i++)
+                {
+                    RouteConnectionWindow w = windows[i];
+                    if (w == null || double.IsNaN(w.DockUT)) continue;
+                    if (Math.Abs(w.DockUT - routeDockUT) <= DockWindowMatchToleranceSeconds)
+                        return w;
+                }
+            }
+
+            RouteConnectionWindow earliest = null;
+            for (int i = 0; i < windows.Count; i++)
+            {
+                RouteConnectionWindow w = windows[i];
+                if (w == null || double.IsNaN(w.DockUT)) continue;
+                if (earliest == null || w.DockUT < earliest.DockUT) earliest = w;
+            }
+            return earliest;
         }
 
         /// <summary>

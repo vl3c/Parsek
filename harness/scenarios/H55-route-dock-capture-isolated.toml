@@ -63,28 +63,29 @@ tier = "operator"
 # -------------------------------------------------------------------------------------
 # EXPECTED-SKIP HYPOTHESIS - PREDICTIONS, PINNED BY NOTHING. This lane has NEVER FLOWN.
 #
-#   The six cells share eight preconditions (live `ParsekFlight`, a loaded+unpacked
-#   non-EVA active vessel, not within 5 degrees of a pole, `dockingPort2` / `fuelTank` /
-#   `smallCargoContainer` prefabs in `PartLoader`, and a part on the active vessel
-#   carrying a `LiquidFuel` resource). The `logi-cargo-pad` rig answers every one of
-#   them by construction - see [fixture].
-#   WHAT NO FIXTURE SETTLES, and what this reading run exists to measure:
-#     * the SPAWN half. Between two and four `SpawnAtPosition` calls per cell, each
-#       followed by a bounded settle wait. H41 measured both of its spawns live on this
-#       exact host (76 frames each, `mode=surface`), which is the only evidence that the
-#       path works at all; this lane asks for up to four at once and for a longer
-#       programmatic joint chain (a partner rig is assembled from three separately
-#       spawned parts).
-#     * cell 1 and cell 2 additionally need a quantity-1 stored cargo item on the
-#       TRANSPORT side. The rig ships `evaRepairKit` + `evaScienceKit` in its
-#       `smallCargoContainer` (`build_logi_craft.py` property L5), so the item exists;
-#       what is unmeasured is whether `StoreCargoPartAtSlot` accepts it into a
-#       freshly-spawned partner container. Both cells SKIP (loudly, naming the reason)
-#       rather than fail if it does not.
-#     * cell 3's `OnAttachFlight` re-home. Derived from the decompile, never driven.
-#   So a first run measuring `passed=6` is the good case and `passed=4 skipped=2` is the
-#   most likely partial. `failed=0` is asserted either way - a FAILED cell here means a
-#   Parsek defect or a wrong derivation, not a missing subject.
+#   The six cells share nine preconditions (live `ParsekFlight`, a loaded+unpacked
+#   non-EVA active vessel, not within 5 degrees of a pole, `probeCoreOcto2.v2` /
+#   `dockingPort2` / `fuelTank` / `smallCargoContainer` prefabs in `PartLoader`, and a
+#   part on the active vessel carrying a `LiquidFuel` resource). The `logi-cargo-pad` rig
+#   answers every one of them by construction - see [fixture] - and flight 1 confirmed it
+#   (zero of the six cells self-skipped).
+#   WHAT FLIGHT 1 SETTLED, moved here from the open list:
+#     * the SPAWN half WORKS on this host - seven `SpawnAtPosition` calls settled, and
+#       the longer programmatic joint chain held. Each rig now costs one MORE spawn (the
+#       command core), which is the one thing the re-fly re-opens about the spawn budget.
+#     * the stored-cargo move WORKS - `StoreCargoPartAtSlot` accepted the rig's
+#       `evaRepairKit` / `evaScienceKit` into a freshly spawned partner container, so the
+#       "what if the stock inventory API refuses it" branch of the hypothesis is spent.
+#   WHAT IS STILL UNMEASURED:
+#     * the UNDOCK half end to end. Flight 1 never reached a completed window on any
+#       cell, so every assertion downstream of the split - the manifests, the drift
+#       warning, the two-window ordering, the round-trip directions - is still unproven.
+#     * cell 3's `OnAttachFlight` re-home. Derived from the decompile, and flight 1 did
+#       reach it without an exception, but its OBSERVABLE (the drift warning, which is
+#       emitted inside the completion path) was unreachable behind the debris bug.
+#   So the re-fly's good case is `passed=6 skipped=0`; `failed=0` is asserted either way,
+#   and flight 1 is the worked example of why - a FAILED cell here named a real defect in
+#   the subject-production machinery, exactly as the assertion intends.
 #
 # -------------------------------------------------------------------------------------
 # THE PROBE IS NOT A GATE, and the spec must not turn it into one.
@@ -99,9 +100,85 @@ tier = "operator"
 # `externalParentParts=0 proofCaptured=False` confirms the producer is unreachable and
 # B4 becomes a bug fix; anything else refutes it and B4 stays a flight.
 #
-# CONFIRM RUNS PENDING. NEVER FLOWN.
+# -------------------------------------------------------------------------------------
+# FLIGHT 1: `2026-09-01_2206`, `total=6 passed=1 failed=5`. ONE CAUSE, FIVE CELLS, AND IT
+# WAS AN AUTHORING DEFECT IN THE RIG - NOT A PARSEK DEFECT AND NOT A FIXTURE PROBLEM.
+#
+# Everything up to the undock worked on all five capture cells: the spawns settled, the
+# port-to-port `Part.Couple` fired, `OnPartCouple producer classified: kind=DockingPort`
+# was emitted, the route window was captured, and the LiquidFuel and stored-cargo moves
+# went through. All five then failed on the SAME assert - "the undock must complete the
+# route window through the real onVesselsUndocking split (timeout 15s)" - and the cause
+# is one line further up the collected log:
+#
+#     DeferredUndockBranch: vessel pid=2201905282 is not trackable (debris),
+#       resuming recording capturedSeed=False
+#     Recording resumed after false alarm: undocked vessel is debris
+#
+# `ParsekFlight.DeferredUndockBranch` filters the backgrounded half through
+# `ParsekFlight.IsTrackableVessel`, which admits a vessel ONLY when it is a
+# `VesselType.SpaceObject`, an EVA kerbal, or carries at least one part with a
+# `ModuleCommand` (crewed pod or probe core). The authored partner rig was
+# `dockingPort2` + `fuelTank` + `smallCargoContainer` - no command part - so the undocked
+# half was debris, the branch returned before `CreateSplitBranch`, and
+# `RouteProofCapture.TryCompleteLatestRouteConnectionWindow` (which lives INSIDE
+# `CreateSplitBranch`) was never reached. The window stayed open and the wait timed out.
+# The operator's hand-flown rover carried a probe core, which is why the manual subject
+# never showed this.
+#
+# THE FIX, and it is a STANDING REQUIREMENT for any future self-provisioned undock
+# subject rather than a detail of this lane: every partner rig is now ROOTED ON A
+# `probeCoreOcto2.v2` (the same probe core the committed `logi-cargo-pad` rig is rooted
+# on, so its presence in `PartLoader` is already proven on this host), with the docking
+# port, tank and container coupled onto it as children. The port is still the part that
+# couples and undocks - `Part.Couple` begins with `SetHierarchyRoot(this)`, so coupling a
+# CHILD port re-roots the rig at the port and carries the core across - and the undock
+# now passes the core's `flightID` as `DockedVesselInfo.rootPartUId`, which is what
+# stock's DOCKEDVESSEL bookkeeping does. The cells assert trackability in THREE places so
+# a regression names the cause instead of the symptom: on the assembled rig before it
+# ever docks, on the undocked half, and on the absence of the `is not trackable (debris)`
+# line itself - checked BEFORE the completion assert, because flight 1 reported the
+# symptom five times while the cause sat one line above it in the log.
+#
+# WHY NO `forbidden` TOKEN FOR THAT LINE, though it is tempting: the per-cell teardown
+# undocks the transport-side `dockingPort2` off the active vessel, and THAT half really
+# is a lone docking port, so the line can legitimately appear late in a healthy run. The
+# guard therefore lives in the cells (scoped to each partner undock) where it can be
+# precise, not in a whole-log pattern that would red on a correct run.
+#
+# WHAT FLIGHT 1 ALREADY BOUGHT, and it is not nothing:
+#   * the spawn half is MEASURED. Seven `SpawnAtPosition` calls settled on this host, so
+#     the open question the reading run existed to answer is answered for the spawn side.
+#   * `kind=DockingPort` on a live port-to-port couple is PROVEN - the classifier does
+#     what the derivation said it does, with no docking FSM involved.
+#   * the window capture and the live cargo moves (LiquidFuel via `PartResource.amount`,
+#     the stored item via `StoreCargoPartAtSlot` / `ClearPartAtSlot`) all worked, which
+#     retires the "will the stock inventory API accept it into a freshly spawned
+#     container" question from the hypothesis below.
+#   * THE PROBE PASSED AND MEASURED (see below). It is the one cell that did.
+#
+# THE PROBE'S MEASURED LINE, flight 1:
+#     OriginProofProbe: externalParentParts=0 proofCaptured=False situation=4
+#       outcome=active-vessel-PRELAUNCH partnerPid=108351093
+# READ IT CAREFULLY, because it is half an answer. `externalParentParts=0` is the
+# measurement the instrument exists for and it SUPPORTS
+# ROUTE-ORIGIN-PROOF-PRODUCER-UNREACHABLE: after a settled `Part.Couple` not one part on
+# the merged vessel satisfies the producer's own `p.parent.vessel != v` predicate. But
+# `situation=4` is PRELAUNCH and the producer short-circuits on
+# `ActiveVesselPrelaunch` BEFORE it walks candidates, so the Captured branch itself is
+# still unexercised on this host: the count is evidence, the producer's verdict here is
+# not. Closing it needs the probe on a LANDED host (`rover-route-recorded`), which is a
+# follow-up lane, not a change here. The todo entry stays SUSPECTED.
+#
+# THE PROBE'S TOKEN IS DELIBERATELY LEFT AS A VALUE REGEX rather than re-pinned to the
+# measured literals, even though this lane's other pins move to literals as they are
+# measured. An instrument whose token pins one verdict stops being an instrument: the
+# regex proves the line was emitted and that every field is present, and the values
+# belong in this header and in the todo entry where a human reads them.
+#
+# CONFIRM RUN PENDING on the rebuilt rig.
 # =====================================================================================
-description = "AUTHORED, NEVER FLOWN: the in-game RouteDockCapture category through the ISOLATED batch entry point over the logi-cargo-pad rig - six self-provisioning cells that spawn docking ports, tanks and cargo containers beside the active vessel and drive the REAL Part.Couple / cargo-move / Part.Undock cycle to produce the roadmap's Tier B supply-route subjects (delivery, pickup + mixed direction, EVA-construction part-set drift, multi-stop, round-trip) without a manual flight, plus the origin-proof probe that decides whether Tier B item 4 is a flight or a bug fix."
+description = "FLOWN ONCE 2026-09-01, RED ON AN AUTHORING DEFECT (5 of 6 cells), RE-FLY PENDING: the in-game RouteDockCapture category through the ISOLATED batch entry point over the logi-cargo-pad rig - six self-provisioning cells that spawn a command core, docking ports, tanks and cargo containers beside the active vessel and drive the REAL Part.Couple / cargo-move / Part.Undock cycle to produce the roadmap's Tier B supply-route subjects (delivery, pickup + mixed direction, EVA-construction part-set drift, multi-stop, round-trip) without a manual flight, plus the origin-proof probe that decides whether Tier B item 4 is a flight or a bug fix. Flight 1 proved the couple, the DockingPort classification, the window capture and the live cargo moves, and red because the partner rig carried no ModuleCommand part, so the undocked half was debris and no split branch - hence no window completion - was ever created."
 instanceProfile = "stock-minimal"
 # TIER. `operator`, and the lane carries the operator-debt tag to say so honestly: it
 # has NEVER FLOWN, and every Tier B subject is a CALIBRATION measurement the roadmap

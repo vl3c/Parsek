@@ -61,12 +61,17 @@ _(unreleased — entries accumulate here per commit)_
   rover driven off the pad - was dispatching for FREE. Parsek prices a KSC dispatch
   from the recorded craft, and when that first recording never captured one, the
   price came out as zero: no funds were checked and none were charged, every cycle,
-  silently. Parsek now prices such a dispatch from the first recording of the run
-  that DID capture the craft, while still billing the fuel and cargo the launch
-  actually carried. Care is taken not to price the craft after it has docked - that
-  snapshot includes the destination station, and charging for it would have billed
-  you for the base you were resupplying. A route that can be priced no other way says
-  so in the log instead of quietly charging nothing.
+  silently. Parsek now prices such a dispatch from whichever recording of the run
+  did capture the craft. On a rover-shaped run that is the recording taken at the
+  dock, which holds the transport and the destination together in one snapshot - so
+  Parsek bills only the transport's own parts out of it, using the part list the
+  dock itself recorded. You are never charged for the base you are resupplying. The
+  fuel and cargo the launch actually carried are billed as before. Pricing also now
+  survives loading the save: the craft snapshot Parsek used to read is released from
+  memory when a game loads, which used to make every reloaded route free again, and
+  it now falls back to the copy kept for ghost rendering. A route that still cannot
+  be priced honestly says so in the log instead of quietly charging nothing, or
+  charging a wrong part-less price.
 
 ### Dev
 
@@ -87,9 +92,12 @@ _(unreleased — entries accumulate here per commit)_
   recorded flight stamped into a CAREER game - built from the two saves already
   committed rather than flown again, with the recorded flight itself copied across
   byte for byte - so it can watch the free-dispatch fix above actually charge for a
-  launch, which no test has yet seen it do. That one is authored and has not run yet;
-  its header states what its first run has to settle, and also states plainly what it
-  CANNOT check and why: the recorded flight comes with prize money already banked
+  launch, which no test had yet seen it do. Its first run did exactly the job a test
+  exists for: it found that the earlier fix did not hold on a real recorded tree, for
+  two separate reasons neither the unit tests nor the hand-written expectations had
+  modelled, and the fix above is the result. It has not been re-run yet. Its header
+  states what its next run has to settle, and also states plainly what it CANNOT
+  check and why: the recorded flight comes with prize money already banked
   from its own milestones, so this craft can always afford a second launch and the
   "not enough funds" refusal needs a different test save rather than a different
   starting balance. Five more of the planned supply-route sessions no longer need a

@@ -2352,6 +2352,14 @@ gated behind the ROUTE-ORIGIN-PROOF-PRODUCER-UNREACHABLE probe (todo) before any
    execution of `RouteOriginProof_StartedDockedToNonKsc_ProducerLandsProof` and
    the surface flavor of D10 `docked-depot-origin` still ride whichever route
    the measurement picks. DO NOT FLY THIS ITEM BEFORE READING THE PROBE LINE.
+   **FIRST MEASUREMENT TAKEN 2026-09-01 (H55 flight 1), AND IT IS HALF AN
+   ANSWER**: `externalParentParts=0 proofCaptured=False situation=4
+   outcome=active-vessel-PRELAUNCH partnerPid=108351093`. The zero count
+   supports the suspicion, but the pad host is PRELAUNCH and the producer
+   short-circuits on that BEFORE walking candidates, so the branch in question
+   is still unexercised. Closing it needs the probe on a LANDED host - the
+   committed `rover-route-recorded` fixture is one - which is a follow-up lane,
+   and until it runs this item stays gated exactly as written.
 5. **Ground pickup + mixed direction.** ~~The base loads cargo ONTO the
    transport (pickup manifest), then a both-directions window
    (`mixed-direction`). Same two-rover template, transfers reversed.~~
@@ -2366,7 +2374,7 @@ gated behind the ROUTE-ORIGIN-PROOF-PRODUCER-UNREACHABLE probe (todo) before any
    has never fired outside unit tests. Report-only lane; pins that the route
    still builds and the moved part appears in NO manifest (the documented
    contract).~~ **AUTOMATABLE: `DockCapture_EvaConstructionDrift_WarnsButRoute-
-   StillBuilds` authored 2026-09-02, lane H55 never flown.** The KSP fact that
+   StillBuilds` authored 2026-09-02, lane H55 re-fly pending.** The KSP fact that
    shaped it, decompiled rather than assumed: `Part.Couple` fires
    `onPartCouple` UNCONDITIONALLY, so a second couple inside an open docked
    window opens a SECOND route window whose transport pid set already spans the
@@ -2380,14 +2388,14 @@ gated behind the ROUTE-ORIGIN-PROOF-PRODUCER-UNREACHABLE probe (todo) before any
    (D10 `multi-stop` - the multi-window `LoopRoute(multi)` path, whose blocked
    branch the fix wave also patched but no flight has ever driven).~~
    **AUTOMATABLE: `DockCapture_TwoPartnersSequential_TwoWindowsOneRecording`
-   authored 2026-09-02, lane H55 never flown.** Note the shape the architecture
+   authored 2026-09-02, lane H55 re-fly pending.** Note the shape the architecture
    forces and the cell pins: each dock opens its own dock-merged CHILD, so two
    stops are two windows on two recordings of ONE tree - which is exactly what
    `AnalyzeTree`'s M4a collection walks, and NOT two windows on one recording.
 8. **Round-trip pair.** ~~A->B->A with cargo both legs (D10
    `round-trip-pair`).~~ **AUTOMATABLE:
    `DockCapture_RoundTripPair_SamePartnerTwice` authored 2026-09-02, lane H55
-   never flown** - deliver on the first window, pick up on the second, both
+   re-fly pending** - deliver on the first window, pick up on the second, both
    against the same PHYSICAL partner. The cell asserts that sameness on the
    endpoint PART pids rather than on `TransferTargetVesselPid`, because
    `Part.Undock` builds a fresh `Vessel` whose `persistentId` is re-stamped by
@@ -2395,10 +2403,18 @@ gated behind the ROUTE-ORIGIN-PROOF-PRODUCER-UNREACHABLE probe (todo) before any
    different target vessel pid, and any future route lane comparing vessel pids
    across an undock is comparing the wrong thing.
 
-**What Tier B still owes a flight, after H55.** The lane itself: authored,
-never flown, `operator` tier, and the first run is a reading run (the interim
-`passed=` / `skipped=` split, the census of which spawn / cargo guards
-self-skip, and the probe's numbers). And the SURFACE half that was always the
+**What Tier B still owes a flight, after H55.** The lane itself: FLOWN ONCE
+2026-09-01 (`total=6 passed=1 failed=5`) and RED on an authoring defect in the
+partner rig - it carried no `ModuleCommand` part, so
+`ParsekFlight.IsTrackableVessel` classified the undocked half as debris,
+`DeferredUndockBranch` returned before `CreateSplitBranch`, and no route window
+could ever complete. Every rig is now rooted on a probe core and the re-fly is
+pending. THE STANDING LESSON IS WIDER THAN THIS LANE: any self-provisioned
+undock subject must be TRACKABLE (SpaceObject, EVA kerbal, or a part carrying
+`ModuleCommand`) or it produces no branch and no window completion at all.
+Flight 1 did prove the spawn half, the live `kind=DockingPort` classification,
+the window capture and both live cargo moves, and the probe cell passed and
+measured. And the SURFACE half that was always the
 other axis of these items - H55 produces the docked-window behaviour on the KSC
 pad host, not on two landed rovers at distance, so the surface flavors of the
 D10 rows stay unclaimed until a lane measures them. What H55 removes is the
@@ -2515,9 +2531,12 @@ multi-stop and round-trip AT ALL.
 
 Sequencing: Tier A rides this branch. Tier B is no longer five separate
 calibration flights: items 5-8 are authored as in-game cells on lane H55
-(operator tier, never flown), so the sequencing is now ONE reading run of H55
-followed by whatever its probe line says about item 4 - a bug fix if the
-producer is confirmed unreachable, the originally planned flight if not. Tier C item 9 is
+(operator tier, flown once and red on a rig defect, re-fly pending), so the
+sequencing is now ONE clean census of H55 followed by whatever its probe line
+says about item 4. Flight 1 already took half that measurement
+(`externalParentParts=0`, which supports the suspicion) but the pad host is
+PRELAUNCH and the producer short-circuits there, so item 4 now also owes the
+probe a run on a LANDED host before it can be settled either way. Tier C item 9 is
 AUTHORED as of 2026-09-02 and owes one flight; item 10 is still unauthored, and
 the funds-short half of item 9 is now a THIRD Tier C item in all but numbering -
 it needs its own fixture (see item 9), not a re-tuned seed.

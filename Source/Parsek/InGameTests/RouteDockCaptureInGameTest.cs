@@ -62,6 +62,43 @@ namespace Parsek.InGameTests
     /// split, and logs both vessel pids so the first flight records the
     /// change.</para>
     ///
+    /// <para><b>Third KSP/Parsek fact, and FLIGHT 1 FOUND IT THE HARD WAY: the
+    /// partner rig MUST be trackable.</b> <c>ParsekFlight.DeferredUndockBranch</c>
+    /// filters the backgrounded half through
+    /// <c>ParsekFlight.IsTrackableVessel</c> - true only for
+    /// <c>VesselType.SpaceObject</c>, an EVA kerbal, or a vessel carrying at
+    /// least one part with a <c>ModuleCommand</c> (crewed pod or probe core).
+    /// An untrackable half logs
+    /// <c>"DeferredUndockBranch: vessel pid=... is not trackable (debris),
+    /// resuming recording"</c>, resumes the split recorder and returns, so
+    /// <c>CreateSplitBranch</c> never runs and
+    /// <c>RouteProofCapture.TryCompleteLatestRouteConnectionWindow</c> - which
+    /// lives INSIDE it - is never reached. The window then stays open forever.
+    /// Flight 1 (2026-09-01_2206) authored the rig as port + tank + container,
+    /// with no command part, and all five capture cells failed on exactly that:
+    /// the couple, the <c>DockingPort</c> classification, the window capture and
+    /// the cargo moves all worked, and the undock-completion wait timed out.
+    /// Every rig is therefore rooted on a <c>probeCoreOcto2.v2</c>; the docking
+    /// port, tank and container hang off it as children, which is also what the
+    /// operator's rover looked like. THIS IS A STANDING REQUIREMENT FOR ANY
+    /// FUTURE SELF-PROVISIONED UNDOCK SUBJECT, not a detail of this file: an
+    /// undock that produces debris produces no branch and no window
+    /// completion.</para>
+    ///
+    /// <para><b>Which part is coupled, and which is the vessel root.</b> They
+    /// are deliberately DIFFERENT. The rig's vessel root is the probe core (so
+    /// the split half is trackable and reads as a real craft), while the part
+    /// that is coupled and later undocked is the docking PORT.
+    /// <c>Part.Couple</c> begins with <c>SetHierarchyRoot(this)</c>, which
+    /// re-roots the coupling part's own subtree at itself, so coupling a CHILD
+    /// port is well-defined and carries the whole rig across. The undock passes
+    /// the probe core's <c>flightID</c> as
+    /// <c>DockedVesselInfo.rootPartUId</c>, which is what stock's DOCKEDVESSEL
+    /// bookkeeping does, so the split half re-roots at the command part; if
+    /// that lookup ever fails, <c>Part.Undock</c> falls back to rooting at the
+    /// undocked part itself and the rig is STILL trackable, because the probe
+    /// core rides along as a descendant either way.</para>
+    ///
     /// <para><b>Isolation.</b> Isolated tier only, every cell: they spawn
     /// vessels, mutate the ACTIVE vessel's part tree and resources, and drive
     /// live recordings. Everything is torn down in <c>finally</c>; the
@@ -71,6 +108,15 @@ namespace Parsek.InGameTests
     {
         private static readonly CultureInfo IC = CultureInfo.InvariantCulture;
 
+        // THE TRACKABILITY PART, and it is load-bearing rather than decorative -
+        // see the class remarks. `ParsekFlight.IsTrackableVessel` admits a
+        // vessel only when it is a SpaceObject, an EVA kerbal, or carries a
+        // part with a `ModuleCommand`; without one the undocked half is debris,
+        // `DeferredUndockBranch` returns before `CreateSplitBranch`, and the
+        // route window never completes. `probeCoreOcto2.v2` is the same probe
+        // core the committed `logi-cargo-pad` rig is rooted on, so its presence
+        // in `PartLoader` is already proven on this host.
+        private const string CommandPartName = "probeCoreOcto2.v2";
         private const string DockPortPartName = "dockingPort2";
         private const string TankPartName = "fuelTank";
         private const string ContainerPartName = "smallCargoContainer";
@@ -84,16 +130,15 @@ namespace Parsek.InGameTests
 
         // Along-track / along-parallel spawn offsets, in the claw cell's proven
         // 15 m spacing (its two fixtures sat at +30 m and +45 m and both
-        // settled in 76 frames on the pad host). The transport's own docking
-        // port sits closest; each partner part gets its own slot so no two
-        // spawns overlap a hull.
+        // settled in 76 frames on the pad host, and flight 1 measured the same
+        // here for seven spawns). The transport's own docking port sits
+        // closest; each partner part gets its own slot so no two spawns overlap
+        // a hull. Four slots per rig, in build order: command core, docking
+        // port, tank, container.
         private const double TransportPortOffsetMeters = 20.0;
-        private const double PartnerA1OffsetMeters = 35.0;
-        private const double PartnerA2OffsetMeters = 50.0;
-        private const double PartnerA3OffsetMeters = 65.0;
-        private const double PartnerB1OffsetMeters = 80.0;
-        private const double PartnerB2OffsetMeters = 95.0;
-        private const double DriftPartOffsetMeters = 110.0;
+        private static readonly double[] PartnerAOffsetsMeters = { 35.0, 50.0, 65.0, 80.0 };
+        private static readonly double[] PartnerBOffsetsMeters = { 95.0, 110.0, 125.0, 140.0 };
+        private const double DriftPartOffsetMeters = 155.0;
 
         private const float SpawnLoadTimeoutSeconds = 30f;
         private const float RecordingStartTimeoutSeconds = 5f;
@@ -134,8 +179,7 @@ namespace Parsek.InGameTests
 
                 var rig = new PartnerRig("A");
                 IEnumerator build = ctx.BuildPartnerRig(
-                    rig, PartnerA1OffsetMeters, PartnerA2OffsetMeters, PartnerA3OffsetMeters,
-                    withTank: true, withContainer: true);
+                    rig, PartnerAOffsetsMeters, withTank: true, withContainer: true);
                 while (build.MoveNext()) yield return build.Current;
 
                 // The partner tank spawns FULL from its prefab; drain the
@@ -229,8 +273,7 @@ namespace Parsek.InGameTests
 
                 var rig = new PartnerRig("A");
                 IEnumerator build = ctx.BuildPartnerRig(
-                    rig, PartnerA1OffsetMeters, PartnerA2OffsetMeters, PartnerA3OffsetMeters,
-                    withTank: true, withContainer: true);
+                    rig, PartnerAOffsetsMeters, withTank: true, withContainer: true);
                 while (build.MoveNext()) yield return build.Current;
 
                 // Pickup direction: the partner keeps its full prefab tank and
@@ -321,8 +364,7 @@ namespace Parsek.InGameTests
 
                 var rig = new PartnerRig("A");
                 IEnumerator build = ctx.BuildPartnerRig(
-                    rig, PartnerA1OffsetMeters, PartnerA2OffsetMeters, PartnerA3OffsetMeters,
-                    withTank: true, withContainer: false);
+                    rig, PartnerAOffsetsMeters, withTank: true, withContainer: false);
                 while (build.MoveNext()) yield return build.Current;
 
                 IEnumerator rec = ctx.StartRecordingAndWait();
@@ -410,15 +452,13 @@ namespace Parsek.InGameTests
 
                 var rigA = new PartnerRig("A");
                 IEnumerator buildA = ctx.BuildPartnerRig(
-                    rigA, PartnerA1OffsetMeters, PartnerA2OffsetMeters, PartnerA3OffsetMeters,
-                    withTank: true, withContainer: false);
+                    rigA, PartnerAOffsetsMeters, withTank: true, withContainer: false);
                 while (buildA.MoveNext()) yield return buildA.Current;
                 ctx.SetResourceAmount(rigA.Tank, TransferResourceName, 0.0);
 
                 var rigB = new PartnerRig("B");
                 IEnumerator buildB = ctx.BuildPartnerRig(
-                    rigB, PartnerB1OffsetMeters, PartnerB2OffsetMeters, DriftPartOffsetMeters,
-                    withTank: true, withContainer: false);
+                    rigB, PartnerBOffsetsMeters, withTank: true, withContainer: false);
                 while (buildB.MoveNext()) yield return buildB.Current;
                 ctx.SetResourceAmount(rigB.Tank, TransferResourceName, 0.0);
 
@@ -499,8 +539,7 @@ namespace Parsek.InGameTests
 
                 var rig = new PartnerRig("A");
                 IEnumerator build = ctx.BuildPartnerRig(
-                    rig, PartnerA1OffsetMeters, PartnerA2OffsetMeters, PartnerA3OffsetMeters,
-                    withTank: true, withContainer: false);
+                    rig, PartnerAOffsetsMeters, withTank: true, withContainer: false);
                 while (build.MoveNext()) yield return build.Current;
                 // Half-empty so BOTH directions have somewhere to go.
                 ctx.SetResourceAmountToHalf(rig.Tank, TransferResourceName);
@@ -607,23 +646,24 @@ namespace Parsek.InGameTests
 
                 var rig = new PartnerRig("A");
                 IEnumerator build = ctx.BuildPartnerRig(
-                    rig, PartnerA1OffsetMeters, PartnerA2OffsetMeters, PartnerA3OffsetMeters,
-                    withTank: false, withContainer: false);
+                    rig, PartnerAOffsetsMeters, withTank: false, withContainer: false);
                 while (build.MoveNext()) yield return build.Current;
 
                 // The dock itself, OUTSIDE any recording: this probe is about
                 // what the world looks like at the NEXT recording start, which
                 // is exactly when the producer runs.
-                Part partnerRoot = rig.Root;
+                Part partnerPort = rig.Port;
                 uint partnerPid = rig.Vessel != null ? rig.Vessel.persistentId : 0u;
-                partnerRoot.Couple(ctx.TransportPort);
+                partnerPort.Couple(ctx.TransportPort);
                 for (int i = 0; i < SettleFrames; i++)
                     yield return null;
 
                 Vessel v = FlightGlobals.ActiveVessel;
                 InGameAssert.IsNotNull(v, "the active vessel disappeared during the probe couple");
-                InGameAssert.AreEqual(v, partnerRoot.vessel,
+                InGameAssert.AreEqual(v, partnerPort.vessel,
                     "the partner must belong to the active vessel after Part.Couple");
+                InGameAssert.AreEqual(v, rig.Root.vessel,
+                    "the partner's command core must have come across with it");
 
                 int externalParentParts = 0;
                 for (int i = 0; i < v.parts.Count; i++)
@@ -763,6 +803,8 @@ namespace Parsek.InGameTests
                         "Active vessel is landed/splashed within 5 degrees of a pole; the longitude-offset " +
                         "surface spawn math is unreliable there");
                 }
+                if (PrefabPart(CommandPartName) == null)
+                    InGameAssert.Skip("Command prefab '" + CommandPartName + "' not in PartLoader");
                 if (PrefabPart(DockPortPartName) == null)
                     InGameAssert.Skip("Docking prefab '" + DockPortPartName + "' not in PartLoader");
                 if (PrefabPart(TankPartName) == null)
@@ -871,44 +913,67 @@ namespace Parsek.InGameTests
                 attachedRoots.Add(port);
             }
 
+            /// <summary>
+            /// Builds one partner vessel ROOTED ON A COMMAND PART. The probe
+            /// core is spawned first and becomes the rig's vessel root; the
+            /// docking port, tank and container are spawned separately and
+            /// coupled onto it PRE-RECORDING (so no route window opens). The
+            /// command part is what makes the undocked half pass
+            /// <c>ParsekFlight.IsTrackableVessel</c> - without it
+            /// <c>DeferredUndockBranch</c> classifies the split as debris and
+            /// the route window never completes (flight 1's failure, five cells
+            /// at once). See the class remarks.
+            /// </summary>
             internal IEnumerator BuildPartnerRig(
-                PartnerRig rig, double rootOffset, double tankOffset, double containerOffset,
-                bool withTank, bool withContainer)
+                PartnerRig rig, double[] offsets, bool withTank, bool withContainer)
             {
                 uint rootPid = SpawnSinglePartVessel(
-                    DockPortPartName, RunId + "-p" + rig.Label + "-port", VesselType.Probe,
-                    ActiveVessel, rootOffset);
+                    CommandPartName, RunId + "-p" + rig.Label + "-core", VesselType.Probe,
+                    ActiveVessel, offsets[0]);
                 if (rootPid == 0)
-                    InGameAssert.Skip("Partner " + rig.Label + " port spawn failed");
+                    InGameAssert.Skip("Partner " + rig.Label + " command core spawn failed");
                 Vessel partnerVessel = null;
                 IEnumerator wait = WaitForSpawnedVesselLive(
-                    rootPid, "partner-" + rig.Label + "-port", v => partnerVessel = v);
+                    rootPid, "partner-" + rig.Label + "-core", v => partnerVessel = v);
                 while (wait.MoveNext()) yield return wait.Current;
                 if (partnerVessel == null)
-                    InGameAssert.Skip("Partner " + rig.Label + " port never became loaded+unpacked");
+                    InGameAssert.Skip("Partner " + rig.Label + " command core never became loaded+unpacked");
                 spawnedVessels.Add(partnerVessel);
                 rig.Vessel = partnerVessel;
                 rig.Root = partnerVessel.rootPart;
-                attachedRoots.Add(rig.Root);
-                InGameAssert.IsNotNull(rig.Root.FindModuleImplementing<ModuleDockingNode>(),
-                    "the partner root must carry ModuleDockingNode");
+                InGameAssert.IsNotNull(rig.Root.FindModuleImplementing<ModuleCommand>(),
+                    "the partner rig must be rooted on a part carrying ModuleCommand, or the undocked " +
+                    "half is debris and DeferredUndockBranch never reaches CreateSplitBranch");
+
+                IEnumerator addPort = AddPartToRig(
+                    rig, DockPortPartName, "port", offsets[1], p => rig.Port = p);
+                while (addPort.MoveNext()) yield return addPort.Current;
+                InGameAssert.IsNotNull(rig.Port.FindModuleImplementing<ModuleDockingNode>(),
+                    "the partner's coupling part must carry ModuleDockingNode - the classifier's " +
+                    "DockingPort branch requires one on BOTH endpoints");
+                attachedRoots.Add(rig.Port);
 
                 if (withTank)
                 {
                     IEnumerator addTank = AddPartToRig(
-                        rig, TankPartName, "tank", tankOffset, p => rig.Tank = p);
+                        rig, TankPartName, "tank", offsets[2], p => rig.Tank = p);
                     while (addTank.MoveNext()) yield return addTank.Current;
                 }
                 if (withContainer)
                 {
                     IEnumerator addBox = AddPartToRig(
-                        rig, ContainerPartName, "box", containerOffset, p => rig.Container = p);
+                        rig, ContainerPartName, "box", offsets[3], p => rig.Container = p);
                     while (addBox.MoveNext()) yield return addBox.Current;
                 }
 
-                ParsekLog.Verbose("TestRunner",
+                InGameAssert.IsTrue(ParsekFlight.IsTrackableVessel(rig.Vessel),
+                    "the assembled partner rig must be TRACKABLE before it is ever docked - the " +
+                    "undock split is filtered by this exact predicate, and an untrackable half " +
+                    "silently skips CreateSplitBranch and leaves the route window open");
+                ParsekLog.Info("TestRunner",
                     "RouteDockCapture partner rig " + rig.Label + " built: pid=" +
-                    rig.Vessel.persistentId.ToString(IC) + " parts=" + rig.Vessel.parts.Count.ToString(IC));
+                    rig.Vessel.persistentId.ToString(IC) + " parts=" + rig.Vessel.parts.Count.ToString(IC) +
+                    " root=" + CommandPartName + " trackable=True");
             }
 
             /// <summary>Pre-recording couple of one extra part onto the partner
@@ -1019,7 +1084,11 @@ namespace Parsek.InGameTests
 
                 uint partnerPid = rig.Vessel != null ? rig.Vessel.persistentId : 0u;
                 int before = captured.Count;
-                rig.Root.Couple(TransportPort);
+                // The PORT couples, not the rig root: `Part.Couple` begins with
+                // `SetHierarchyRoot(this)`, so coupling a child port re-roots
+                // the rig's own subtree at the port and carries the command
+                // core across as its child.
+                rig.Port.Couple(TransportPort);
                 IEnumerator wait = WaitUntil(
                     () => FindFrom(before, IsWindowCapturedLine),
                     CoupleEventTimeoutSeconds, "route window capture after dock");
@@ -1068,18 +1137,37 @@ namespace Parsek.InGameTests
                 while (ready.MoveNext()) yield return ready.Current;
 
                 int before = captured.Count;
+                // `rootPartUId` names the COMMAND CORE, which is what stock's
+                // DOCKEDVESSEL bookkeeping stores, so the split half re-roots
+                // at a trackable part. If the lookup ever fails Part.Undock
+                // roots at the undocked part instead and the core still rides
+                // along, so the trackability guarantee does not depend on it.
                 var info = new DockedVesselInfo
                 {
                     name = RunId + "-p" + rig.Label + "-undocked",
                     vesselType = VesselType.Probe,
                     rootPartUId = rig.Root.flightID
                 };
-                rig.Root.Undock(info);
+                rig.Port.Undock(info);
                 IEnumerator wait = WaitUntil(
                     () => FindFrom(before, IsWindowCompletedLine),
                     UndockEventTimeoutSeconds, "route window completion after undock");
                 while (wait.MoveNext()) yield return wait.Current;
 
+                // THE CAUSE ASSERT COMES FIRST, deliberately. Flight 1 reported
+                // "the undock must complete the route window ... (timeout 15s)"
+                // five times, which names the SYMPTOM; the cause was one line
+                // earlier in the log (`is not trackable (debris)`). Checking
+                // trackability before the completion assert means a future
+                // regression of the same shape says so directly.
+                InGameAssert.IsFalse(
+                    FindFrom(before, l => l.Contains("is not trackable (debris)")),
+                    "DeferredUndockBranch classified the undocked half as DEBRIS, so CreateSplitBranch " +
+                    "never ran and the route window could never complete - the rig lost its " +
+                    "ModuleCommand part (ParsekFlight.IsTrackableVessel)");
+                InGameAssert.IsTrue(ParsekFlight.IsTrackableVessel(rig.Port.vessel),
+                    "the undocked half must still be TRACKABLE (SpaceObject, EVA, or a part carrying " +
+                    "ModuleCommand) or no split branch is created at all");
                 InGameAssert.IsTrue(
                     FindFrom(before, IsWindowCompletedLine),
                     "the undock must complete the route window through the real onVesselsUndocking split " +
@@ -1089,7 +1177,7 @@ namespace Parsek.InGameTests
                 InGameAssert.IsTrue(rig.LastWindow.UndockUT >= rig.LastWindow.DockUT,
                     "the undock UT must not precede the dock UT");
                 if (rig.Vessel == null || rig.Vessel.state == Vessel.State.DEAD)
-                    rig.Vessel = rig.Root.vessel;
+                    rig.Vessel = rig.Port.vessel;
             }
 
             // ----------------------------------------------------------
@@ -1223,12 +1311,25 @@ namespace Parsek.InGameTests
                 return null;
             }
 
+            /// <summary>
+            /// Whether <paramref name="part"/> belongs to the partner rig
+            /// inside the MERGED stack. The walk tests every known rig part,
+            /// not just the vessel root, because Part.Couple's
+            /// SetHierarchyRoot INVERTS the rig's parent links at the dock:
+            /// the port becomes the local root and the command core becomes its
+            /// child, so a walk that only looked for the core would miss the
+            /// port and answer "transport side" for the endpoint's own parts.
+            /// </summary>
             private static bool IsPartOfRig(Part part, PartnerRig rig)
             {
                 Part walk = part;
                 while (walk != null)
                 {
-                    if (walk == rig.Root) return true;
+                    if (walk == rig.Root || walk == rig.Port
+                        || walk == rig.Tank || walk == rig.Container)
+                    {
+                        return true;
+                    }
                     walk = walk.parent;
                 }
                 return false;
@@ -1358,12 +1459,19 @@ namespace Parsek.InGameTests
             }
         }
 
-        /// <summary>One spawned partner vessel and the parts of it the cells touch.</summary>
+        /// <summary>
+        /// One spawned partner vessel and the parts of it the cells touch.
+        /// <see cref="Root"/> is the COMMAND core (the vessel root, and the
+        /// reason the undocked half is trackable); <see cref="Port"/> is the
+        /// docking port that is actually coupled and undocked. They are
+        /// deliberately different parts - see the class remarks.
+        /// </summary>
         private sealed class PartnerRig
         {
             internal readonly string Label;
             internal Vessel Vessel;
             internal Part Root;
+            internal Part Port;
             internal Part Tank;
             internal Part Container;
             internal RouteConnectionWindow LastWindow;

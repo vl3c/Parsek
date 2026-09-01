@@ -3889,7 +3889,11 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
         # batch-disabled (H21's shape, not H41's), it is NOT in
         # PARTLY_BATCH_DISABLED_IDS, and its tally discriminates on the `passed=` floor
         # alone - the ordinary path's ceiling is zero.
-        # AUTHORED 2026-09-02, NEVER FLOWN: the split is INTERIM (see INTERIM_PIN_IDS).
+        # FLOWN ONCE 2026-09-01 (`total=6 passed=1 failed=5`), RED on an authoring
+        # defect in the cells' own partner rig - it carried no `ModuleCommand` part, so
+        # `ParsekFlight.IsTrackableVessel` classified the undocked half as debris and
+        # `DeferredUndockBranch` returned before `CreateSplitBranch`. Rigs re-rooted on a
+        # probe core; the split stays INTERIM until the re-fly (see INTERIM_PIN_IDS).
         "H55-route-dock-capture-isolated": ("RouteDockCapture", 6),
         # THE THIRD RECORDED `Logistics` HOST, and the first that can pay the debt
         # H39's and H40's rosters both name as unpayable by existing bytes. Its
@@ -4103,17 +4107,20 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
     # endpoint-inventory repair), measured the identical split both times, and moved to
     # MEASURED_SKIPPED below.
     #
-    # AND BACK TO ONE ON 2026-09-02 for `H55-route-dock-capture-isolated`, authored and
-    # never flown. Its `total=6` is attribute-exact and its `failed=0` is asserted; the
-    # `passed=` / `skipped=` split is genuinely unknown because six brand-new cells each
-    # carry run-time guards no save file can settle - up to four `SpawnAtPosition` calls
-    # per cell with bounded settle waits, and two cells that need a quantity-1 stored
-    # cargo item to move through the stock inventory API into a freshly spawned
-    # container. Both directions are real: the good case is `passed=6 skipped=0`, and a
-    # partial would be a NAMED self-skip rather than a failure. As with RVR-1, the
-    # interim `passed=` says almost nothing about WHICH cells passed, so the obligation
-    # is discharged by the SIX REQUIRED cell tokens the spec pins - one per cell - which
-    # is why this member's REQUIRED list is the longest in the family.
+    # AND BACK TO ONE ON 2026-09-02 for `H55-route-dock-capture-isolated`, which has now
+    # flown ONCE and not green. Its `total=6` is attribute-exact and its `failed=0` is
+    # asserted; flight 1 measured `passed=1 failed=5 skipped=0`, so the SKIP half of the
+    # hypothesis is answered (zero self-skips - the pad host satisfies every
+    # precondition) while the PASS half is not, because all five capture cells died on
+    # ONE authoring defect in the rig rather than on their own subjects. That defect is
+    # fixed (every partner rig is now rooted on a `probeCoreOcto2.v2`, without which the
+    # undocked half is debris and `DeferredUndockBranch` never reaches
+    # `CreateSplitBranch`), and the split stays a regex class until a census measures
+    # the REPAIRED batch. As with RVR-1, the interim `passed=` says almost nothing about
+    # WHICH cells passed - flight 1 is the worked example, since its `passed=1` was the
+    # probe and none of the five subjects - so the obligation is discharged by the SIX
+    # REQUIRED cell tokens the spec pins, one per cell, which is why this member's
+    # REQUIRED list is the longest in the family.
     INTERIM_PIN_IDS = {"H55-route-dock-capture-isolated"}
 
     # id -> measured `skipped=` for members whose RUN-TIME InGameAssert.Skip guards
@@ -6295,7 +6302,9 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
                                        "makes. NOT tier=operator: a nightly spec can owe operator "
                                        "work, exactly as S1.5 does.",
         "H55-route-dock-capture-isolated.toml":
-                                       "tier=operator AND never flown. The debt is a READING "
+                                       "tier=operator AND flown once, not green (2026-09-01, "
+                                       "total=6 passed=1 failed=5 on an authoring defect in "
+                                       "the cells own partner rig). The debt is a READING "
                                        "RUN a human has to look at: the interim passed= / "
                                        "skipped= split, the census of which spawn / cargo "
                                        "guards self-skip on the pad host, and above all the "

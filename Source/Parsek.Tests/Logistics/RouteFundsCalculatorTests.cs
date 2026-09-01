@@ -313,5 +313,165 @@ namespace Parsek.Tests.Logistics
             // launch fuel, including the burned 40) = 325.
             Assert.Equal(325.0, cost, 3);
         }
+
+        // ---------------------------------------------------------------
+        // ROUTE-DISPATCH-COST-FREE-ON-SNAPSHOTLESS-ROOT round 2 (RVR-4):
+        // the transport-pid-RESTRICTED basis
+        //
+        // On the real rover tree the ONLY member carrying a snapshot is the
+        // dock-merged child, whose snapshot is transport + endpoint. Pricing it
+        // whole would bill the destination station every cycle, so the walk is
+        // restricted to the connection window's TRANSPORT pid set.
+        // ---------------------------------------------------------------
+
+        private const uint TransportPid = 313889796u;   // logistics-rover-a transport
+        private const uint EndpointPid = 2123618197u;   // logistics-rover-a endpoint
+
+        private static ConfigNode MakePartWithPid(
+            string name, uint persistentId,
+            params (string resName, double amount)[] resources)
+        {
+            ConfigNode part = MakePart(name, resources);
+            part.AddValue("persistentId", persistentId.ToString(CultureInfo.InvariantCulture));
+            return part;
+        }
+
+        /// <summary>
+        /// The dock-merged (combined) snapshot: the transport's tank plus the
+        /// endpoint depot's much larger tank, each pid-stamped.
+        /// </summary>
+        private static ConfigNode MergedSnapshot()
+        {
+            return MakeVessel(
+                MakePartWithPid("transportTank", TransportPid, ("LiquidFuel", 40.0)),
+                MakePartWithPid("depotTank", EndpointPid, ("LiquidFuel", 500.0)));
+        }
+
+        // catches: the restricted LEGACY basis leaking the endpoint's parts or,
+        // worse, its full depot tank into a per-cycle dispatch charge.
+        [Fact]
+        public void ComputeDispatchFundsCost_TransportSubset_ExcludesEndpointPartsAndResources()
+        {
+            var partCosts = new Dictionary<string, float>
+            {
+                { "transportTank", 100f },
+                { "depotTank", 9000f },
+            };
+            var resourceCosts = new Dictionary<string, float> { { "LiquidFuel", 0.5f } };
+
+            double cost = RouteFundsCalculator.ComputeDispatchFundsCost(
+                MergedSnapshot(),
+                startResourceManifest: null,
+                restrictToPartPersistentIds: new HashSet<uint> { TransportPid },
+                partCostLookup: name => partCosts.TryGetValue(name, out float c) ? c : 0f,
+                resourceUnitCostLookup: name => resourceCosts.TryGetValue(name, out float c) ? c : 0f);
+
+            // 100 (transport part) + 40 * 0.5 (transport fuel) = 120.
+            // The depot's 9000 part cost and 500 * 0.5 = 250 of fuel are excluded.
+            Assert.Equal(120.0, cost, 3);
+        }
+
+        // catches: the restriction being applied to the parts term but not to the
+        // MANIFEST-basis walk (where the resource term comes from the root's launch
+        // manifest and only the parts term reads the snapshot).
+        [Fact]
+        public void ComputeDispatchFundsCost_TransportSubset_ManifestBasis_PricesTransportPartsOnly()
+        {
+            var partCosts = new Dictionary<string, float>
+            {
+                { "transportTank", 100f },
+                { "depotTank", 9000f },
+            };
+            var resourceCosts = new Dictionary<string, float> { { "LiquidFuel", 0.5f } };
+
+            double cost = RouteFundsCalculator.ComputeDispatchFundsCost(
+                MergedSnapshot(),
+                StartManifest(("LiquidFuel", 50.0)),
+                new HashSet<uint> { TransportPid },
+                name => partCosts.TryGetValue(name, out float c) ? c : 0f,
+                name => resourceCosts.TryGetValue(name, out float c) ? c : 0f);
+
+            // 100 (transport part only) + 50 * 0.5 (launch manifest) = 125.
+            Assert.Equal(125.0, cost, 3);
+        }
+
+        // catches: the restriction failing OPEN on a part that carries no parseable
+        // persistentId. Under a restriction an unidentifiable part must be excluded -
+        // failing open would let an endpoint part slip into the bill.
+        [Fact]
+        public void ComputeDispatchFundsCost_TransportSubset_UnidentifiablePart_Excluded()
+        {
+            ConfigNode vessel = MakeVessel(
+                MakePartWithPid("transportTank", TransportPid),
+                MakePart("pidlessPart"),                       // no persistentId at all
+                MakePartWithPid("garbagePidPart", 0u));        // present but not in the set
+            var partCosts = new Dictionary<string, float>
+            {
+                { "transportTank", 100f },
+                { "pidlessPart", 700f },
+                { "garbagePidPart", 800f },
+            };
+
+            double cost = RouteFundsCalculator.ComputeDispatchFundsCost(
+                vessel,
+                startResourceManifest: null,
+                restrictToPartPersistentIds: new HashSet<uint> { TransportPid },
+                partCostLookup: name => partCosts.TryGetValue(name, out float c) ? c : 0f,
+                resourceUnitCostLookup: _ => 0f);
+
+            Assert.Equal(100.0, cost, 3);
+            // Excluded parts are never even name-looked-up, so no warn is emitted
+            // for them (the mechanical proof the walk skipped them).
+            Assert.DoesNotContain(logLines, l => l.Contains("Unknown part cost") && l.Contains("pidless"));
+        }
+
+        // catches: the restriction parameter perturbing the UNRESTRICTED bases. A null
+        // set must reproduce both legacy overloads exactly, value and warn count.
+        [Fact]
+        public void ComputeDispatchFundsCost_NullRestriction_MatchesUnrestrictedBases()
+        {
+            ConfigNode vessel = MergedSnapshot();
+            var partCosts = new Dictionary<string, float> { { "transportTank", 100f } };
+            var resourceCosts = new Dictionary<string, float> { { "LiquidFuel", 0.5f } };
+            Func<string, float> partLookup =
+                name => partCosts.TryGetValue(name, out float c) ? c : 0f;
+            Func<string, float> resourceLookup =
+                name => resourceCosts.TryGetValue(name, out float c) ? c : 0f;
+
+            double legacy = RouteFundsCalculator.ComputeDispatchFundsCost(
+                vessel, partLookup, resourceLookup);
+            int warnsAfterLegacy = logLines.Count(l => l.Contains("Unknown part cost"));
+
+            double restrictedNull = RouteFundsCalculator.ComputeDispatchFundsCost(
+                vessel, null, null, partLookup, resourceLookup);
+            int warnsAfterRestricted = logLines.Count(l => l.Contains("Unknown part cost"));
+
+            double manifestLegacy = RouteFundsCalculator.ComputeDispatchFundsCost(
+                vessel, StartManifest(("LiquidFuel", 10.0)), partLookup, resourceLookup);
+            double manifestRestrictedNull = RouteFundsCalculator.ComputeDispatchFundsCost(
+                vessel, StartManifest(("LiquidFuel", 10.0)), null, partLookup, resourceLookup);
+
+            Assert.Equal(legacy, restrictedNull, 9);
+            Assert.Equal(manifestLegacy, manifestRestrictedNull, 9);
+            // One unknown-part warn (depotTank) per call, neither added nor dropped.
+            Assert.Equal(warnsAfterLegacy * 2, warnsAfterRestricted);
+        }
+
+        // catches: the parts=n/total diagnostic drifting from what was actually
+        // priced (it shares the exclusion predicate with the walk, and must).
+        [Fact]
+        public void CountRestrictedParts_ReportsKeptOverTotal()
+        {
+            RouteFundsCalculator.CountRestrictedParts(
+                MergedSnapshot(), new HashSet<uint> { TransportPid },
+                out int priced, out int total);
+            Assert.Equal(1, priced);
+            Assert.Equal(2, total);
+
+            RouteFundsCalculator.CountRestrictedParts(
+                MergedSnapshot(), null, out int allPriced, out int allTotal);
+            Assert.Equal(2, allPriced);
+            Assert.Equal(2, allTotal);
+        }
     }
 }

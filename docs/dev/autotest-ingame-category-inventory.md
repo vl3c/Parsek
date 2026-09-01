@@ -166,7 +166,7 @@ Two limits of this table, stated so nobody over-reads it:
 | `RevertVesselStrip` | 1 | 1 | 0 | 0 | 0 | 1 | - | B |
 | `Rewind` | 38 | 26 | 6 | 0 | 6 | 24 | R7a / R7c | A |
 | `RewindSaves` | 1 | 1 | 1 | 1 | 0 | 1 | - | B |
-| `RouteDockCapture` | 6 | 0 | 0 | 0 | 6 | 6 | H55 (ISOLATED, AUTHORED 2026-09-02 and NEVER FLOWN; the ordinary path executes 0 of 6, so the isolated arg is the only way to run any of it. Pins `total=6` exactly with `passed=`/`skipped=` interim and `failed=0` asserted, plus one REQUIRED token per cell) | B |
+| `RouteDockCapture` | 6 | 0 | 0 | 0 | 6 | 6 | H55 (ISOLATED, flown once 2026-09-01, `total=6 passed=1 failed=5` - RED on an authoring defect in the cells' own partner rig, which carried no `ModuleCommand` part so the undocked half was debris and no split branch, hence no route-window completion, was created; rigs re-rooted on a probe core, re-fly pending. The ordinary path executes 0 of 6, so the isolated arg is the only way to run any of it. Pins `total=6` exactly with `passed=`/`skipped=` interim and `failed=0` asserted, plus one REQUIRED token per cell) | B |
 | `RouteLifecycle` | 8 | 8 | 8 | 8 | 0 | 8 | RVR-3 (flown once 2026-09-01, `total=6 passed=4 failed=2`; the two failures were CONTRACT DRIFT - see the triage note - and the category is now 8 cells pinning BOTH halves of the armed-pause state machine. Pins `total=8` exactly with `passed=`/`skipped=` interim, `failed=0` asserted, plus a REQUIRED PASS token per resolution cell, and declares no render-composition expectations block, which is what keeps the five crossing cells from self-skipping) | B |
 | `RouteLiveAnchor` | 1 | 1 | 0 | 0 | 0 | 1 | - | B |
 | `RouteRewindTimeline` | 7 | 7 | 7 | 7 | 0 | 1 | H6 | B |
@@ -251,8 +251,15 @@ of costing a manual flight each - plus the origin-proof INSTRUMENT that decides 
 Tier B item 4 is a flight or a bug fix. The docking-port sibling of `LogisticsGrapple`,
 and its own category for the same reason that one is: `Logistics`' `total=47` is pinned
 by five committed specs. Bucket **B**: the whole category is driven by one committed
-spec, but that spec has NEVER FLOWN, so it moves to **A** on its first clean census -
-`RouteLifecycle`'s standing, arrived at from the other side.
+spec, and that spec has flown ONCE and not green (`total=6 passed=1 failed=5`, 2026-09-01),
+so it moves to **A** on its first clean census - `RouteLifecycle`'s standing exactly. The
+five reds shared ONE cause and it was an authoring defect in the cells rather than a Parsek
+defect: the self-provisioned partner rig carried no `ModuleCommand` part, so
+`ParsekFlight.IsTrackableVessel` classified the undocked half as debris,
+`DeferredUndockBranch` returned before `CreateSplitBranch`, and the route window could never
+complete. Every rig is now rooted on a `probeCoreOcto2.v2`. THE LESSON GENERALISES past this
+category and is worth carrying into any future self-provisioned undock subject: an undock
+that produces debris produces no branch at all.
 
 Driven by a committed spec: **46 of 110 categories**, up from 35
 across six waves - `ReFlyWorldPreservation` via S4.2, `RecordedSignals` via H33,
