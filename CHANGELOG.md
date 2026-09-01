@@ -8,6 +8,43 @@ All notable changes to Parsek are documented here.
 
 _(unreleased — entries accumulate here per commit)_
 
+### Fixed
+
+- Send Once on a route that visits SEVERAL destinations now stops after that one
+  round, instead of quietly carrying on. A multi-stop route drops off at each
+  destination in turn, and all of those drop-offs belong to one round. Send Once was
+  being answered by the first drop-off: the route announced "now Paused", and then
+  the next drop-off of the very same round started it running again - so the ghost
+  kept flying its loop forever and the message had been wrong. The one-shot is now
+  answered by the ROUND, once every stop on it has been served, however many game
+  ticks that takes. On top of that, a route that stops mid-tick is no longer allowed
+  to start a fresh round in that same tick: if catching up on missed laps was in
+  progress, it ends the moment the route stops, so nothing is dispatched - or
+  charged for - after you paused it.
+
+- A Send Once whose run turns out to have already been delivered (a crash or a
+  reload landed the delivery but not the pause) now says so on screen instead of
+  stopping the route in silence - the one resolution where clicking again was most
+  tempting, because nothing visibly happened.
+
+### Dev
+
+- The automated-testing suite gained its first surface supply-route subject, and with
+  it the harvest three existing lanes had been asking for by name. Two of the suite's
+  route-proof checks have never once run: they look for a recorded dock where the
+  vessel being docked INTO is not the one doing the docking, and every recorded dock
+  the suite owned was between two craft built from the same blueprint - which KSP
+  stamps with the same internal part id, so the two roles read as the same vessel and
+  both checks quietly stood down. The new fixture is a hand-flown pair of KSC rovers
+  that are genuinely two different craft, so the roles are distinguishable and both
+  checks now have something to look at. Three scenario specs ride it: one runs the
+  logistics batch over it, one drives the first automated route CREATION and delivery
+  the suite has ever attempted (seal, create, deliver, then a second delivery that
+  must be refused because the destination is full - all four steps derived from the
+  recorded flight's own fuel numbers), and one drives the new route-lifecycle checks.
+  All three are authored and none has flown yet; each says so in its own header and
+  states what its first run has to settle. Nothing here changes the game.
+
 ---
 
 ## 0.10.4
@@ -134,24 +171,10 @@ _(unreleased — entries accumulate here per commit)_
 
 - Send Once now confirms itself on screen. A one-shot can resolve in the same instant
   you click it - when the route's loop clock has already caught up, the whole run
-  happens inside that frame - so the click looked like it did nothing at all. Every
-  outcome now posts a message: the delivered one names the route and what it dropped
-  off, the blocked one names the route and why it could not run, and a run that turns
-  out to have already been delivered (after a crash or a reload landed the delivery
-  but not the pause) says so instead of stopping the route in silence. Ordinary
-  automatic cycles stay silent.
-
-- Send Once on a route that visits SEVERAL destinations now stops after that one
-  round, instead of quietly carrying on. A multi-stop route drops off at each
-  destination in turn, and all of those drop-offs belong to one round. Send Once was
-  being answered by the first drop-off: the route announced "now Paused", and then
-  the next drop-off of the very same round started it running again - so the ghost
-  kept flying its loop forever and the message had been wrong. The one-shot is now
-  answered by the ROUND, once every stop on it has been served, however many game
-  ticks that takes. On top of that, a route that stops mid-tick is no longer allowed
-  to start a fresh round in that same tick: if catching up on missed laps was in
-  progress, it ends the moment the route stops, so nothing is dispatched - or
-  charged for - after you paused it.
+  happens inside that frame - so the click looked like it did nothing at all. Both
+  outcomes now post a message: the delivered one names the route and what it dropped
+  off, the blocked one names the route and why it could not run. Ordinary automatic
+  cycles stay silent.
 
 - A flight interrupted by a quickload no longer loses its vessels when you leave the scene. Quickloading mid-flight parks the mission to one side while Parsek waits a few seconds to recognise the craft you land back on. If that recognition misses - or you simply head for the Space Center before those few seconds are up - the mission stays parked, and the note Parsek writes at that point tells you to leave the scene to sort it out. Doing exactly that used to commit the mission as ghosts only: the trail still played back, but every craft in it was stripped of the record needed to bring it back as a real vessel. That commit now keeps those records, using the same rules as the "Merge to Timeline" button - each surviving craft that can come back does, and only the ones that could never have appeared anyway (a craft caught mid-descent, say) are left as ghosts, with their appearance preserved for playback. Two cases deliberately keep the old behaviour: a Re-Fly session, whose merge is still yours to confirm, and quitting to the main menu, where nothing is going to be spawned anyway.
 
@@ -294,22 +317,6 @@ _(unreleased — entries accumulate here per commit)_
   recording is also refused outright on load now, instead of being trusted.
 
 ### Dev
-
-- The automated-testing suite gained its first surface supply-route subject, and with
-  it the harvest three existing lanes had been asking for by name. Two of the suite's
-  route-proof checks have never once run: they look for a recorded dock where the
-  vessel being docked INTO is not the one doing the docking, and every recorded dock
-  the suite owned was between two craft built from the same blueprint - which KSP
-  stamps with the same internal part id, so the two roles read as the same vessel and
-  both checks quietly stood down. The new fixture is a hand-flown pair of KSC rovers
-  that are genuinely two different craft, so the roles are distinguishable and both
-  checks now have something to look at. Three scenario specs ride it: one runs the
-  logistics batch over it, one drives the first automated route CREATION and delivery
-  the suite has ever attempted (seal, create, deliver, then a second delivery that
-  must be refused because the destination is full - all four steps derived from the
-  recorded flight's own fuel numbers), and one drives the new route-lifecycle checks.
-  All three are authored and none has flown yet; each says so in its own header and
-  states what its first run has to settle. Nothing here changes the game.
 
 - Removed the two resource-budget readouts that had not drawn since 2026-03-31: the
   Timeline window's "Resources" section and the main window's "Reserved:" bullet list.
