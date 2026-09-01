@@ -2793,14 +2793,21 @@ namespace Parsek
 
         /// <summary>
         /// Builds (and stores) a Paused route from a candidate via the single
-        /// <see cref="RouteBuilder.BuildRoute"/> funnel and returns the built
-        /// <see cref="Route"/> (or null on a null candidate or a builder reject).
-        /// The H6 confirm callbacks call this to build, then the "Create and
-        /// Activate" branch additionally calls
+        /// <see cref="RouteCreationService.CreatePausedFromCandidate"/> funnel and
+        /// returns the built <see cref="Route"/> (or null on a null candidate or a
+        /// builder reject). The H6 confirm callbacks call this to build, then the
+        /// "Create and Activate" branch additionally calls
         /// <see cref="RouteOrchestrator.TryActivate"/> on the returned non-null
         /// route; returning the route keeps a single AddRoute +
         /// manual-loop-clear funnel and guarantees the window-created route's
         /// interval / geometry stays identical to today.
+        ///
+        /// <para>The build + store + manual-loop-clear sequence itself lives in
+        /// <see cref="RouteCreationService"/> so the <c>RouteCommand action=create</c>
+        /// seam verb drives the SAME production path a player click does rather than
+        /// re-deriving it. What stays here is presentation: the interval resolve, the
+        /// one-shot "manual loop turned off" toast, and this window's own grep-stable
+        /// Info lines.</para>
         /// </summary>
         private Route CreateRouteFromCandidate(RouteCandidate candidate)
         {
@@ -2822,41 +2829,29 @@ namespace Parsek
             // for the same candidate analysis. Created Paused so the player verifies
             // via Send Once before turning on periodic dispatch.
             double interval = ResolveWindowCreateInterval(candidate);
-            var inputs = new RouteBuilder.RouteCreationInputs
-            {
-                Name = null, // RouteBuilder generates a default name
-                DispatchIntervalSeconds = interval
-            };
 
-            RouteBuilder.RouteBuildOutcome outcome = RouteBuilder.BuildRoute(
-                candidate.Analysis, candidate.Tree, inputs, mode,
-                idFactory: null,
-                initialStatus: RouteStatus.Paused,
-                // Belt-and-suspenders: the dock-based span should never be below
-                // transit, but keep the window path permissive so a degenerate
-                // span can never reject a player-initiated create.
-                allowIntervalBelowTransit: true);
+            RouteCreationService.RouteCreateOutcome outcome =
+                RouteCreationService.CreatePausedFromCandidate(
+                    candidate,
+                    name: null, // RouteBuilder generates a default name
+                    intervalSeconds: interval,
+                    mode: mode,
+                    currentUT: TryGetCurrentUT());
 
             if (outcome.Route != null)
             {
-                RouteStore.AddRoute(outcome.Route);
-                // Mutual exclusion (design §0.6): a tree is EITHER a supply route OR a
-                // manually looped recording/mission. Activating a route turns OFF any
-                // pre-existing manual loop (mission + per-recording) on its tree so the
-                // single loop owner is never contended. Route looping wins.
-                int cleared = RouteTreeGuard.ForceClearManualLoopForRoute(outcome.Route, TryGetCurrentUT());
                 // M5: a manual loop was actually turned off by this create, so tell the
                 // player with a one-shot toast (and the always-visible detail note). The
                 // toast fires ONLY when something was cleared, never on every create.
                 // Done DIRECTLY here in the synchronous create path (no PopupDialog
                 // callback / frame-reset field), so the QW2 trap does not apply.
-                if (LogisticsCreatePresentation.ShouldToastManualLoopCleared(cleared))
+                if (LogisticsCreatePresentation.ShouldToastManualLoopCleared(outcome.ManualLoopsCleared))
                 {
                     string treeName = ResolveTreeDisplayName(ResolveRouteSourceTreeId(outcome.Route));
                     string toast = LogisticsCreatePresentation.FormatManualLoopTurnedOffToast(treeName);
                     ParsekLog.ScreenMessage(toast, 5f);
                     ParsekLog.Info("UI",
-                        $"Logistics: manual loop turned off by create route={ShortId(outcome.Route.Id)} tree='{treeName}' cleared={cleared.ToString(CultureInfo.InvariantCulture)} (toast posted)");
+                        $"Logistics: manual loop turned off by create route={ShortId(outcome.Route.Id)} tree='{treeName}' cleared={outcome.ManualLoopsCleared.ToString(CultureInfo.InvariantCulture)} (toast posted)");
                 }
                 ParsekLog.Info("UI",
                     $"Logistics: Create Route from candidate tree={ShortId(candidate.Tree.Id)} -> route={ShortId(outcome.Route.Id)} name='{outcome.Route.Name}' (Paused, interval={interval.ToString("R", CultureInfo.InvariantCulture)}s)");

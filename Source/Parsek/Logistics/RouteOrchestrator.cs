@@ -773,6 +773,24 @@ namespace Parsek.Logistics
                         basis, nResidual,
                         ref dispatched, ref transitioned, ref skipped, out stillDue);
                     passes++;
+
+                    // SENDONCE-RESIDUAL-PATHS item 1 (second half): a pass can take the
+                    // route OUT of ghost-driving status MID-TICK - an armed pause honored
+                    // on the cycle it just completed or blocked, or an endpoint lost at a
+                    // window's delivery. Re-check the SAME gate this method opens with
+                    // (RouteStatusPolicy.GhostDriving) rather than trusting the pass's own
+                    // stillDue: a later owed cycle must never be dispatched + debited on a
+                    // route that stopped driving its ghost part-way through the tick.
+                    if (!RouteStatusPolicy.GhostDriving(route.Status))
+                    {
+                        ParsekLog.Info(Tag,
+                            $"LoopRoute(multi): route {ShortIdForLog(route)} left ghost-driving " +
+                            $"status={route.Status} after catch-up pass {passes.ToString(IC)} " +
+                            $"at ut={currentUT.ToString("R", IC)} - stopping catch-up " +
+                            $"(stillDue={(stillDue ? "1" : "0")} deferred/rebased away)");
+                        stillDue = false;
+                        break;
+                    }
                 }
                 if (stillDue)
                 {
@@ -1506,10 +1524,25 @@ namespace Parsek.Logistics
                 // own un-fired windows are all reached this pass, so the only
                 // remaining work is cMin+1's windows.)
                 stillDue = laterOwed > 0;
+
+                // SENDONCE-RESIDUAL-PATHS item 1: an armed one-shot / pause-after-cycle
+                // is resolved by the COMPLETED cycle, here - not by whichever window
+                // happened to deliver first (see TryHonorArmedPauseOnCompletedCycle).
+                // The route goes quiet, so the catch-up loop must stop with it: clear
+                // stillDue exactly as the blocked branch does, or the caller would
+                // dispatch + debit a whole further cycle on a route the player just
+                // paused. Those owed cycles are then REBASED AWAY deliberately
+                // (TryActivate resets every cursor on a later re-activation).
+                bool armedPauseHonored =
+                    TryHonorArmedPauseOnCompletedCycle(route, currentUT, env, cycleId);
+                if (armedPauseHonored)
+                    stillDue = false;
+
                 ParsekLog.Info(Tag,
                     $"LoopRoute(multi): route {ShortIdForLog(route)} cycle={cycleId} cMin={cMin.ToString(IC)} " +
                     $"last dock reached — firedWindows={firedWindows.ToString(IC)} " +
                     $"snapped lastObserved={cMin.ToString(IC)} completedCycles={route.CompletedCycles.ToString(IC)} " +
+                    $"armedPause={(armedPauseHonored ? "honored" : "none")} " +
                     $"stillDue={(stillDue ? "1" : "0")}");
             }
             else
@@ -2573,6 +2606,21 @@ namespace Parsek.Logistics
                     $"EmitLoopCycle: route {ShortIdForLog(route)} cycle={cycleId} " +
                     $"pure-pickup (no delivery manifest) - delivery half skipped, " +
                     $"bumped completedCycles={route.CompletedCycles.ToString(IC)}");
+
+                // SENDONCE-RESIDUAL-PATHS item 4: this branch IS the cycle's
+                // completion for a pure-PICKUP route, so it owns the armed
+                // one-shot exactly as the multi-stop cycle-completion seam does.
+                // The delivered path resolves the arm inside ApplyDelivery's
+                // BumpCompletedCycle-gated tail, which this branch never calls;
+                // without the call here a Send Once on a pickup-only single-stop
+                // route completed its cycle and kept looping with both flags
+                // armed - the same end state as the blocked defect (#1582),
+                // reached through a different door, and disagreeing with the
+                // BLOCKED resolution of the very same route (which DOES pause,
+                // via TryHonorArmedPauseOnBlockedCycle). Same helper, same
+                // reason/marker/toast contract; a no-op when nothing is armed,
+                // so an ordinary pickup cycle is byte-identical.
+                TryHonorArmedPauseOnCompletedCycle(route, currentUT, env, cycleId);
             }
 
             // M4b escrow-strand fix (PR #1180 review): the single-stop analogue of the
@@ -3677,6 +3725,28 @@ namespace Parsek.Logistics
         internal const string BlockedThenPausedReason = "blocked-then-paused";
 
         /// <summary>
+        /// Status reason stamped when an armed <see cref="Route.PauseAfterCurrentCycle"/>
+        /// is honored on a cycle that DELIVERED in full. Emitted from two sites that
+        /// must never both fire for one cycle: the single-stop / legacy delivered tail
+        /// in <see cref="ApplyDeliveryFromPlan"/>, and the multi-stop cycle-complete
+        /// tail in <see cref="TryHonorArmedPauseOnCompletedCycle"/>.
+        /// </summary>
+        internal const string DeliveredThenPausedReason = "delivered-then-paused";
+
+        /// <summary>
+        /// <see cref="DeliveredThenPausedReason"/>'s PARTIAL sibling (the cycle
+        /// delivered, but at least one window fell short and the remainder is lost).
+        /// </summary>
+        internal const string DeliveredPartialThenPausedReason = "delivered-partial-then-paused";
+
+        /// <summary>
+        /// Status reason stamped when the armed pause is honored on the ELS REPLAY
+        /// backstop (the delivered row was already in the ledger; nothing new was
+        /// emitted, only the pause marker the crash lost).
+        /// </summary>
+        internal const string DeliveredReplayThenPausedReason = "delivered-replay-then-paused";
+
+        /// <summary>
         /// Honors an armed <see cref="Route.PauseAfterCurrentCycle"/> on a cycle the
         /// loop path CONSUMED AS BLOCKED (eligibility failed: nothing dispatched,
         /// nothing delivered, <see cref="Route.SkippedCycles"/> bumped, the crossing
@@ -3773,6 +3843,102 @@ namespace Parsek.Logistics
                     RouteSendOncePresentation.BuildBlockedMessage(
                         route.Name, route.Id, route.LastHoldKind, route.LastHoldDetail,
                         route.LastHoldShortfall),
+                    RouteSendOncePresentation.ToastSeconds);
+            }
+            return true;
+        }
+
+        /// <summary>
+        /// (SENDONCE-RESIDUAL-PATHS items 1 and 4) Honors an armed
+        /// <see cref="Route.PauseAfterCurrentCycle"/> at CYCLE COMPLETION.
+        /// Sibling of <see cref="TryHonorArmedPauseOnBlockedCycle"/> (the blocked
+        /// resolution) and of <see cref="ApplyDeliveryFromPlan"/>'s delivered tail
+        /// (the single-stop DELIVERED resolution).
+        ///
+        /// <para>Two callers, both of which own a cycle completion that no
+        /// delivery tail can: <see cref="ProcessMultiStopCrossings"/>'s
+        /// <c>cycleLastDockReached</c> branch (item 1), and
+        /// <see cref="EmitLoopCycle"/>'s pure-PICKUP branch (item 4), which
+        /// completes a single-stop cycle without ever calling
+        /// <see cref="ApplyDelivery"/>.</para>
+        ///
+        /// <para><b>Why the caller owns this.</b> A multi-stop cycle fires N delivery
+        /// windows under ONE cycleId, so no single window is "the cycle". The
+        /// per-window tail used to run on whichever window happened to deliver first:
+        /// window A consumed the arm and paused, then window B - same pass, no status
+        /// re-check - fell into the ordinary delivered branch and put the route back
+        /// to Active. The route kept looping with the toast already claiming
+        /// "Paused". Cycle completion is exactly where
+        /// <see cref="Route.CompletedCycles"/> is bumped and the cycle-complete escrow
+        /// sweep runs (<see cref="ProcessMultiStopCrossings"/>), so the one-shot's
+        /// resolution belongs on the same seam - it fires ONCE per cycle regardless of
+        /// which windows emitted, which halves they emitted, or how many ticks the
+        /// cycle spanned.</para>
+        ///
+        /// <para><b>Counts-free toast by construction.</b> The windows of one cycle can
+        /// straddle several TICKS (window A at dock A, window B at dock B), so no
+        /// caller-side accumulator could quote the whole cycle's per-resource actuals
+        /// anyway; the partial/full discriminator IS available, off the cycle-scoped
+        /// <see cref="Route.LastPartialDeliveryCycleId"/> report that
+        /// <see cref="ApplyDeliveryFromPlan"/> maintains across the cycle's windows.</para>
+        ///
+        /// <para>Idempotent: a no-op when nothing is armed, so the single-stop
+        /// DELIVERED path (which resolves inside <see cref="ApplyDeliveryFromPlan"/>) is
+        /// untouched, and a multi-stop cycle whose completing window already consumed
+        /// the flags cannot double-pause. Returns true when the pause was honored (the
+        /// caller must then stop processing further owed cycles this tick).</para>
+        /// </summary>
+        internal static bool TryHonorArmedPauseOnCompletedCycle(
+            Route route, double currentUT, IRouteRuntimeEnvironment env, string cycleId)
+        {
+            if (route == null || !route.PauseAfterCurrentCycle)
+                return false;
+
+            // Mirrors the delivered tail (logistics-recovery-credit section 5.4): this
+            // cycle armed its pending recovery credit at dispatch and there is no
+            // further crossing, so flush it before the route goes quiet. Idempotent.
+            EmitPendingRecoveryCredit(route, currentUT, env);
+
+            // Captured FIRST: the toast below is posted only for the Send Once
+            // provenance, and the flag is consumed on the line after.
+            bool wasSendOnce = route.SendOnceArmed;
+            RouteStatus previousStatus = route.Status;
+            // Cycle-scoped partial report: ApplyDeliveryFromPlan APPENDS same-cycle
+            // partials under one cycleId and only clears a report from an EARLIER
+            // cycle, so a match here means at least one window of THIS cycle fell
+            // short - the same discriminator the single-stop tail reads off plan.IsPartial.
+            bool cyclePartial = !string.IsNullOrEmpty(cycleId)
+                && string.Equals(route.LastPartialDeliveryCycleId, cycleId, StringComparison.Ordinal);
+            string reason = cyclePartial
+                ? DeliveredPartialThenPausedReason
+                : DeliveredThenPausedReason;
+
+            route.PauseAfterCurrentCycle = false;
+            route.SendOnceArmed = false;
+            route.TransitionTo(RouteStatus.Paused, reason);
+            // Sequence: the LAST stop's stride block + 4, so the marker sorts after
+            // every window's rows at this UT (the single-stop tail uses this window's
+            // own block + 4; here the "window" is the whole cycle).
+            int lastStopIndex = (route.Stops != null && route.Stops.Count > 0)
+                ? route.Stops.Count - 1 : 0;
+            EmitRouteLifecycleMarker(
+                route, currentUT, GameActionType.RoutePaused, reason,
+                lastStopIndex * SeqStride + 4);
+            // Quiesce transition (the eighth): a route going quiet must not strand a
+            // reservation. Idempotent no-op after the cycle-complete sweep.
+            RouteStore.DropRouteEscrow(route.Id);
+
+            ParsekLog.Info(Tag,
+                $"ArmedPause: route {ShortIdForLog(route)} cycle={cycleId ?? "<none>"} " +
+                $"COMPLETED cycle consumed the armed pause — {previousStatus}->Paused " +
+                $"reason={reason} armedBy={(wasSendOnce ? "send-once" : "pause-after-cycle")} " +
+                $"at ut={currentUT.ToString("R", IC)}");
+
+            if (wasSendOnce)
+            {
+                ParsekLog.ScreenMessage(
+                    RouteSendOncePresentation.BuildCycleDeliveredMessage(
+                        route.Name, route.Id, cyclePartial),
                     RouteSendOncePresentation.ToastSeconds);
             }
             return true;
@@ -3961,16 +4127,42 @@ namespace Parsek.Logistics
                 // drop any held escrow (quiesce transition). The dedup
                 // semantics are preserved: no delivery/funds/debit row is
                 // (re-)emitted here — only the pause marker the crash lost.
-                if (route.PauseAfterCurrentCycle)
+                //
+                // SENDONCE-RESIDUAL-PATHS item 1: gated on bumpCompletedCycle,
+                // the cycle-RESOLUTION signal (true exactly when this delivery IS
+                // the whole cycle - the single-stop / legacy path). Every
+                // multi-stop window passes false because ProcessMultiStopCrossings
+                // owns cycle completion, and it owns the armed pause with it
+                // (TryHonorArmedPauseOnCompletedCycle). Without the gate, window
+                // A's replay consumed the arm and paused, then window B's ordinary
+                // delivery in the SAME pass put the route back to Active - the
+                // one-shot silently became an endless loop.
+                if (bumpCompletedCycle && route.PauseAfterCurrentCycle)
                 {
                     EmitPendingRecoveryCredit(route, currentUT, env);
+                    // Captured FIRST: the toast below is posted only for the Send
+                    // Once provenance, and the flag is consumed on the next line.
+                    bool wasSendOnce = route.SendOnceArmed;
                     route.PauseAfterCurrentCycle = false;
                     route.SendOnceArmed = false;
-                    route.TransitionTo(RouteStatus.Paused, "delivered-replay-then-paused");
+                    route.TransitionTo(RouteStatus.Paused, DeliveredReplayThenPausedReason);
                     EmitRouteLifecycleMarker(
                         route, currentUT, GameActionType.RoutePaused,
-                        "delivered-replay-then-paused", stopIndex * SeqStride + 4);
+                        DeliveredReplayThenPausedReason, stopIndex * SeqStride + 4);
                     RouteStore.DropRouteEscrow(route.Id);
+                    // SENDONCE-RESIDUAL-PATHS item 2: the replay backstop used to
+                    // consume the arm SILENTLY - and it is the resolution shape
+                    // where the player is most likely to click again, because the
+                    // run produced no NEW delivery to see. Counts-free by
+                    // construction: the delivered row is already in the ledger and
+                    // this branch re-plans nothing, so there are no per-resource
+                    // actuals to quote.
+                    if (wasSendOnce)
+                    {
+                        ParsekLog.ScreenMessage(
+                            RouteSendOncePresentation.BuildAlreadyDeliveredMessage(route.Name, route.Id),
+                            RouteSendOncePresentation.ToastSeconds);
+                    }
                 }
                 else
                 {
@@ -4303,7 +4495,19 @@ namespace Parsek.Logistics
             // after its in-flight cycle completes, instead of looping back to
             // Active. The flag is consumed here (cleared) so a subsequent
             // un-pause + dispatch doesn't auto-pause again.
-            if (route.PauseAfterCurrentCycle)
+            //
+            // SENDONCE-RESIDUAL-PATHS item 1 - the arm is honored at CYCLE
+            // completion, not per WINDOW. ctx.BumpCompletedCycle is the
+            // authoritative "this delivery IS the cycle's completion" signal:
+            // true only on the single-stop / legacy path, false on EVERY
+            // multi-stop window (ProcessMultiStopCrossings owns the once-per-cycle
+            // bump, and owns the armed pause with it - see
+            // TryHonorArmedPauseOnCompletedCycle). Before the gate, a multi-stop
+            // cycle with both windows due in one pass paused on window A (toast:
+            // "route is now Paused"), then window B fell into the ordinary else
+            // below and transitioned the route BACK to Active: the ghost looped
+            // forever and the toast had lied.
+            if (ctx.BumpCompletedCycle && route.PauseAfterCurrentCycle)
             {
                 // Armed pause-after-cycle tail (logistics-recovery-credit section 5.4):
                 // this cycle SET its pending recovery credit during its own
@@ -4321,7 +4525,9 @@ namespace Parsek.Logistics
                 // for that provenance, and the flag is consumed on this line.
                 bool wasSendOnce = route.SendOnceArmed;
                 route.SendOnceArmed = false;
-                string reason = plan.IsPartial ? "delivered-partial-then-paused" : "delivered-then-paused";
+                string reason = plan.IsPartial
+                    ? DeliveredPartialThenPausedReason
+                    : DeliveredThenPausedReason;
                 route.TransitionTo(RouteStatus.Paused, reason);
                 // Record the armed-pause point in the timeline. Sequence +4 lands it
                 // after this window's stride block (dispatch +0 / debit +1 / pickup +2 /
@@ -5003,13 +5209,22 @@ namespace Parsek.Logistics
             public Action<GameAction> LedgerEmitter;
 
             /// <summary>
-            /// M4a A3 (Horn A): true when this delivery window COMPLETES the cycle
-            /// (the only window, or the last window of a multi-stop cycle). The
-            /// CompletedCycles bump fires ONCE per cycle and is gated on this flag,
-            /// so an EARLIER window of a multi-stop cycle does NOT advance the
-            /// cycleId the LATER windows compute. A single-stop / legacy delivery
-            /// always sets this true -> CompletedCycles bumps exactly once
-            /// (byte-behaviour-identical to pre-A3).
+            /// M4a A3 (Horn A): true when this delivery IS the cycle's completion -
+            /// i.e. the single-stop / legacy path, where one delivery is the whole
+            /// cycle. EVERY multi-stop window passes FALSE, including the last:
+            /// <see cref="ProcessMultiStopCrossings"/> owns the once-per-cycle
+            /// completion (a pickup-only last window still completes the cycle, so
+            /// no delivery window can be trusted to be "the" one). The
+            /// CompletedCycles bump is gated on this flag, so an earlier window of a
+            /// multi-stop cycle does NOT advance the cycleId the later windows
+            /// compute.
+            ///
+            /// <para>SENDONCE-RESIDUAL-PATHS item 1: this is ALSO the
+            /// cycle-RESOLUTION signal the armed <see cref="Route.PauseAfterCurrentCycle"/>
+            /// tail is gated on, for the same reason and with the same owner - the
+            /// multi-stop arm is honored by
+            /// <see cref="TryHonorArmedPauseOnCompletedCycle"/> at cycle completion,
+            /// never per window.</para>
             /// </summary>
             public bool BumpCompletedCycle;
         }
@@ -5058,15 +5273,35 @@ namespace Parsek.Logistics
         /// stop-snapshot walk byte-identical, so existing routes keep their
         /// exact cost. Both the eligibility gate and the emit recompute call
         /// this one method, so they always pick the same basis.</para>
+        ///
+        /// <para><b>Snapshot-less root fallback</b>
+        /// (ROUTE-DISPATCH-COST-FREE-ON-SNAPSHOTLESS-ROOT). The always-tree ROOT is
+        /// created with a <c>GhostVisualSnapshot</c> only and receives its
+        /// <c>VesselSnapshot</c> at the first stop/split capture site, so a root that
+        /// never reaches one - the rover-route shape: a runway stub ending at the
+        /// transport's undock split, 0 trajectory points - keeps
+        /// <c>VesselSnapshot == null</c> forever and used to make the whole KSC
+        /// dispatch FREE in career (the zero fed BOTH the funds eligibility gate and
+        /// the charge). When the root has no snapshot the PARTS basis falls back to
+        /// the FIRST <see cref="Route.SourceRefs"/> member, in order, whose ERS
+        /// recording carries one; the RESOURCE basis still prefers the ROOT's complete
+        /// run manifest (the launch load is the root's fact, and the root carries the
+        /// manifest even when it carries no snapshot), falling back to the chosen
+        /// member's snapshot resources through the legacy walk. Members whose snapshot
+        /// describes a COMBINED (dock-merged) vessel are skipped by
+        /// <see cref="IsCombinedVesselSourceMember"/> - pricing a dispatch from the
+        /// transport-plus-endpoint snapshot would charge for the destination station.
+        /// Only when NO member carries a usable snapshot does the method still return
+        /// 0, and that case now says "uncosted" in its own rate-limited line (this
+        /// method runs per UI repaint).</para>
         /// </summary>
         internal static double ComputeDispatchFundsCostForRoute(Route route)
         {
             if (route == null || route.SourceRefs == null || route.SourceRefs.Count == 0)
                 return 0.0;
 
-            // v0 routes have a single source recording — chain-source routes
-            // will pick the first/transport recording once multi-source funds
-            // computation is specified.
+            // The PREFERRED basis stays SourceRefs[0], the tree ROOT (the member
+            // list is ordered by TreeOrder then recording id at build time).
             string sourceId = route.SourceRefs[0]?.RecordingId;
             if (string.IsNullOrEmpty(sourceId))
                 return 0.0;
@@ -5074,35 +5309,66 @@ namespace Parsek.Logistics
             var ers = SafeComputeErs();
             if (ers == null) return 0.0;
 
-            Recording source = null;
-            for (int i = 0; i < ers.Count; i++)
-            {
-                var rec = ers[i];
-                if (rec != null && string.Equals(rec.RecordingId, sourceId, StringComparison.Ordinal))
-                {
-                    source = rec;
-                    break;
-                }
-            }
-            if (source == null || source.VesselSnapshot == null)
-            {
-                ParsekLog.Verbose(Tag,
-                    $"ComputeDispatchFundsCostForRoute: route {ShortIdForLog(route)} source " +
-                    $"recording {sourceId} not in ERS or has no VesselSnapshot; cost=0");
-                return 0.0;
-            }
+            Recording root = FindErsRecording(ers, sourceId);
 
             // D9 basis selection: launch manifest only from a COMPLETE run
             // manifest (same gate as the analysis presence gate); anything
-            // else stays on the legacy stop-snapshot walk.
-            RouteRunCargoManifest runManifest = source.RouteRunManifest;
+            // else stays on the legacy stop-snapshot walk. Read off the ROOT
+            // even on the fallback path - the launch load is the root's fact.
+            RouteRunCargoManifest runManifest = root?.RouteRunManifest;
             Dictionary<string, ResourceAmount> startResources =
                 runManifest != null && runManifest.IsComplete
                     ? runManifest.StartTransportResources
                     : null;
 
+            Recording partsBasis = root != null && root.VesselSnapshot != null ? root : null;
+            bool fallback = false;
+            if (partsBasis == null)
+            {
+                // Walk the remaining members IN ORDER and take the first one whose
+                // ERS recording carries a real (single-vessel) snapshot.
+                for (int i = 1; i < route.SourceRefs.Count; i++)
+                {
+                    RouteSourceRef memberRef = route.SourceRefs[i];
+                    string memberId = memberRef?.RecordingId;
+                    if (string.IsNullOrEmpty(memberId)) continue;
+
+                    Recording member = FindErsRecording(ers, memberId);
+                    if (member == null || member.VesselSnapshot == null) continue;
+                    if (IsCombinedVesselSourceMember(route, memberRef, member))
+                    {
+                        ParsekLog.Verbose(Tag,
+                            $"FundsCost: route {ShortIdForLog(route)} skipping member {memberId} " +
+                            "as a costing basis - dock-merged (combined-vessel) snapshot");
+                        continue;
+                    }
+
+                    partsBasis = member;
+                    fallback = true;
+                    ParsekLog.Verbose(Tag,
+                        $"FundsCost: route {ShortIdForLog(route)} root {sourceId} " +
+                        $"{(root == null ? "not in ERS" : "has no VesselSnapshot")} - parts basis " +
+                        $"falls back to member {memberId}");
+                    break;
+                }
+            }
+
+            if (partsBasis == null)
+            {
+                // Every member is missing from ERS or snapshot-less: there is no
+                // basis to price from, so the dispatch is UNCOSTED (a career KSC
+                // dispatch is silently free). Rate-limited because this method
+                // runs per UI repaint; deliberately distinct wording from the
+                // per-member fallback breadcrumb above.
+                ParsekLog.VerboseRateLimited(Tag, "funds-cost-uncosted-" + route.Id,
+                    $"FundsCost: route {ShortIdForLog(route)} UNCOSTED - no SourceRefs member " +
+                    $"(of {route.SourceRefs.Count.ToString(IC)}, root {sourceId}) is in ERS with a " +
+                    "usable VesselSnapshot; cost=0 (a career KSC dispatch charges nothing)");
+                return 0.0;
+            }
+
             double cost = RouteFundsCalculator.ComputeDispatchFundsCost(
-                source.VesselSnapshot,
+                partsBasis.VesselSnapshot,
                 startResources,
                 LiveRouteRuntimeEnvironment.LookupPartCost,
                 LiveRouteRuntimeEnvironment.LookupResourceUnitCost);
@@ -5110,8 +5376,76 @@ namespace Parsek.Logistics
             ParsekLog.Verbose(Tag,
                 $"FundsCost basis={(startResources != null ? "launch-manifest" : "stop-snapshot")} " +
                 $"route={ShortIdForLog(route)} source={sourceId} " +
+                $"snapshotSource={partsBasis.RecordingId} fallback={(fallback ? "1" : "0")} " +
                 $"cost={cost.ToString("R", CultureInfo.InvariantCulture)}");
             return cost;
+        }
+
+        /// <summary>
+        /// Linear ERS lookup by recording id, shared by
+        /// <see cref="ComputeDispatchFundsCostForRoute"/>'s root read and its
+        /// member fallback walk. Returns null when the id is absent.
+        /// </summary>
+        private static Recording FindErsRecording(IReadOnlyList<Recording> ers, string recordingId)
+        {
+            if (ers == null || string.IsNullOrEmpty(recordingId)) return null;
+            for (int i = 0; i < ers.Count; i++)
+            {
+                Recording rec = ers[i];
+                if (rec != null && string.Equals(rec.RecordingId, recordingId, StringComparison.Ordinal))
+                    return rec;
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// True when a <see cref="Route.SourceRefs"/> member's
+        /// <c>VesselSnapshot</c> describes a COMBINED vessel (the transport docked
+        /// to its partner) rather than the transport alone, so it must never become
+        /// the dispatch costing basis - pricing from it would charge the player for
+        /// the destination station's parts on every cycle.
+        ///
+        /// <para>Three positive facts, any of which identifies a dock-merged
+        /// member. (1) It carries a <c>RouteConnectionWindow</c>: the ONLY writer of
+        /// that list is <c>ParsekFlight</c>'s dock-merge site, which stamps it on the
+        /// merged child alongside the merged (combined) snapshot, so carrying a
+        /// window IS being a merged child - and this catches BOTH merged members that
+        /// can appear in the set, the delivery leaf and the M-MIS-5 origin carrier.
+        /// (2) Its id is the route's own <see cref="Route.DockMemberRecordingId"/> -
+        /// the route's persisted naming of that leaf, which still holds if the
+        /// recording reached ERS without its proof metadata. (3) Its recording STARTS
+        /// at or after the route's <see cref="Route.RecordedDockUT"/> - the merged
+        /// child begins at the dock instant, and so does anything split off it
+        /// afterwards.</para>
+        ///
+        /// <para>Applies to the FALLBACK walk only: <c>SourceRefs[0]</c> stays the
+        /// preferred basis unconditionally, so a route already costing from its root
+        /// is byte-identical.</para>
+        /// </summary>
+        internal static bool IsCombinedVesselSourceMember(
+            Route route, RouteSourceRef memberRef, Recording member)
+        {
+            if (member == null) return false;
+
+            if (member.RouteConnectionWindows != null && member.RouteConnectionWindows.Count > 0)
+                return true;
+
+            if (route != null && !string.IsNullOrEmpty(route.DockMemberRecordingId)
+                && string.Equals(member.RecordingId, route.DockMemberRecordingId, StringComparison.Ordinal))
+                return true;
+
+            if (route != null && route.RecordedDockUT > 0.0)
+            {
+                // Prefer the ref's persisted StartUT (the value the route was built
+                // with); fall back to the live recording's own start.
+                double startUT = memberRef != null && memberRef.StartUT > 0.0
+                    ? memberRef.StartUT
+                    : member.StartUT;
+                if (startUT > 0.0 && startUT >= route.RecordedDockUT)
+                    return true;
+            }
+
+            return false;
         }
 
         /// <summary>

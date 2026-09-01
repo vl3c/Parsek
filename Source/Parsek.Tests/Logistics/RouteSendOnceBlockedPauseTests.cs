@@ -152,19 +152,55 @@ namespace Parsek.Tests.Logistics
             };
         }
 
-        private static Route Build2StopRoute(string id = "route-sendonce-multi")
+        // The REAL ApplyDelivery path runs (DeliveryApplierForTesting null) and the
+        // row-emitter seam emits a genuine RouteCargoDelivered row AFTER the real
+        // per-window guard - mirrors RouteMultiStopFireTests.InstallRealPathRowEmitter,
+        // so a window-suppressed / stopIndex-collision regression goes RED. The fake
+        // does NOT bump CompletedCycles (the caller owns it).
+        private void InstallRealPathRowEmitter()
+        {
+            RouteOrchestrator.DeliveryRowEmitterForTesting =
+                (route, currentUT, env, cycleId, stopIndex, bumpCompletedCycle) =>
+                {
+                    Ledger.AddAction(new GameAction
+                    {
+                        Type = GameActionType.RouteCargoDelivered,
+                        UT = currentUT,
+                        RouteId = route.Id,
+                        RouteCycleId = cycleId,
+                        RouteStopIndex = stopIndex,
+                        Sequence = stopIndex * RouteOrchestrator.SeqStride + 3,
+                    });
+                };
+        }
+
+        private static List<GameAction> Delivered() =>
+            Ledger.Actions.Where(a => a.Type == GameActionType.RouteCargoDelivered).ToList();
+
+        private static List<GameAction> Dispatched() =>
+            Ledger.Actions.Where(a => a.Type == GameActionType.RouteDispatched).ToList();
+
+        private static List<GameAction> PausedMarkers() =>
+            Ledger.Actions.Where(a => a.Type == GameActionType.RoutePaused).ToList();
+
+        private static Route Build2StopRoute(
+            string id = "route-sendonce-multi",
+            bool isKscOrigin = false,
+            long lastObservedLoopCycleIndex = -1,
+            long stop0LastFired = -1,
+            long stop1LastFired = -1)
         {
             return new Route
             {
                 Id = id,
                 Name = "Two Stop Run",
                 Status = RouteStatus.Active,
-                IsKscOrigin = false,
+                IsKscOrigin = isKscOrigin,
                 BackingMissionTreeId = "tree-1",
                 RecordedDockUT = 1300.0,
                 DockMemberRecordingId = "rec-dock-b",
                 LoopAnchorUT = 1000.0,
-                LastObservedLoopCycleIndex = -1,
+                LastObservedLoopCycleIndex = lastObservedLoopCycleIndex,
                 DispatchInterval = 400.0,
                 TransitDuration = 400.0,
                 CadenceMultiplier = 1,
@@ -181,7 +217,7 @@ namespace Parsek.Tests.Logistics
                         DeliveryManifest = new Dictionary<string, double> { { "LiquidFuel", 100.0 } },
                         SegmentIndexBefore = 0,
                         RecordedDockUT = 1150.0,
-                        LastFiredCycleIndex = -1,
+                        LastFiredCycleIndex = stop0LastFired,
                     },
                     new RouteStop
                     {
@@ -189,7 +225,7 @@ namespace Parsek.Tests.Logistics
                         DeliveryManifest = new Dictionary<string, double> { { "Oxidizer", 120.0 } },
                         SegmentIndexBefore = 1,
                         RecordedDockUT = 1300.0,
-                        LastFiredCycleIndex = -1,
+                        LastFiredCycleIndex = stop1LastFired,
                     },
                 },
                 SourceRefs = new List<RouteSourceRef>
@@ -381,6 +417,201 @@ namespace Parsek.Tests.Logistics
         }
 
         // ==================================================================
+        // (b2) Multi-stop DELIVERED: the arm resolves at CYCLE completion
+        //      (SENDONCE-RESIDUAL-PATHS item 1)
+        // ==================================================================
+
+        // THE item-1 defect. ProcessMultiStopCrossings fires EVERY due window of the
+        // cycle in ONE pass with no status re-check, and the armed tail used to run PER
+        // WINDOW: window A's delivery consumed the arm and paused (toast: "route is now
+        // Paused"), then window B's delivery in the SAME pass saw the flag already
+        // cleared, fell into the ordinary else, and transitioned the route BACK to
+        // Active. The ghost looped forever and the toast had lied. Both windows must
+        // deliver, the route must END Paused, the flags must be consumed exactly once,
+        // and exactly ONE toast may appear.
+        [Fact]
+        public void SendOnceArmed_MultiStop_BothWindowsInOneTick_EndsPaused_OneToast()
+        {
+            var route = Build2StopRoute(isKscOrigin: true);
+            RouteStore.AddRoute(route);
+            InstallUnitResolver(BuildMultiUnit()); // span [1000,1400], docks 1150 / 1300
+            InstallRealPathRowEmitter();
+            Assert.True(RouteOrchestrator.TrySendOneCycleNow(route, 1100.0));
+
+            // loopUT 1350 >= dock B (1300): BOTH windows of cycle 0 are due in one pass.
+            RouteOrchestrator.Tick(1350.0, new EligibleEnv());
+
+            // Both windows delivered under ONE cycleId (nothing was suppressed to
+            // "fix" the pause).
+            var delivered = Delivered();
+            Assert.Equal(2, delivered.Count);
+            Assert.Contains(delivered, d => d.RouteStopIndex == 0 && d.RouteCycleId == "cycle-0");
+            Assert.Contains(delivered, d => d.RouteStopIndex == 1 && d.RouteCycleId == "cycle-0");
+            Assert.Single(Dispatched());
+            Assert.Equal(1, route.CompletedCycles);
+
+            // The cycle RESOLVED the one-shot: Paused, flags consumed, ONE marker.
+            Assert.Equal(RouteStatus.Paused, route.Status);
+            Assert.False(route.PauseAfterCurrentCycle);
+            Assert.False(route.SendOnceArmed);
+            var paused = Assert.Single(PausedMarkers());
+            Assert.Equal("delivered-then-paused", paused.RouteEndpointReason);
+
+            // ...and NOTHING put it back to Active afterwards (the defect's signature:
+            // a Paused->Active transition inside the same pass, or a resume row).
+            Assert.DoesNotContain(logLines, l => l.Contains("Paused→Active"));
+            Assert.DoesNotContain(Ledger.Actions, a => a.Type == GameActionType.RouteResumed);
+
+            // Exactly one toast, and it does not lie about the landing status.
+            string toast = Assert.Single(screenMessages);
+            Assert.Contains("Two Stop Run", toast);
+            Assert.Contains("Paused", toast);
+        }
+
+        // catches: the cycle-completion signal being read as "any window delivered".
+        // The same cycle spread over TWO ticks must keep the arm LIVE through window A
+        // (the cycle is not over - window B has not docked yet) and resolve only on the
+        // tick that completes it. A route that paused at window A would strand window
+        // B's delivery, which the player paid for at dispatch.
+        [Fact]
+        public void SendOnceArmed_MultiStop_WindowsAcrossTwoTicks_PausesOnlyOnCompletion()
+        {
+            var route = Build2StopRoute(isKscOrigin: true);
+            RouteStore.AddRoute(route);
+            InstallUnitResolver(BuildMultiUnit());
+            InstallRealPathRowEmitter();
+            RouteOrchestrator.TrySendOneCycleNow(route, 1100.0);
+
+            // Tick 1 - loopUT 1150 == dock A: only window A is due, cycle NOT complete.
+            RouteOrchestrator.Tick(1150.0, new EligibleEnv());
+
+            Assert.Single(Delivered());
+            Assert.Equal(0, Delivered()[0].RouteStopIndex);
+            Assert.Equal(0, route.CompletedCycles);
+            // The arm is still LIVE and the route still driving its ghost.
+            Assert.True(route.PauseAfterCurrentCycle);
+            Assert.True(route.SendOnceArmed);
+            Assert.Equal(RouteStatus.Active, route.Status);
+            Assert.Empty(PausedMarkers());
+            Assert.Empty(screenMessages);
+
+            // Tick 2 - loopUT 1350 >= dock B: window B fires and COMPLETES the cycle.
+            RouteOrchestrator.Tick(1350.0, new EligibleEnv());
+
+            Assert.Equal(2, Delivered().Count);
+            Assert.Equal(1, route.CompletedCycles);
+            Assert.Equal(RouteStatus.Paused, route.Status);
+            Assert.False(route.PauseAfterCurrentCycle);
+            Assert.False(route.SendOnceArmed);
+            Assert.Equal("delivered-then-paused", Assert.Single(PausedMarkers()).RouteEndpointReason);
+            Assert.Single(screenMessages);
+        }
+
+        // The B5 half of item 1. The catch-up loop never re-checked status between
+        // passes, so a pass that PAUSED the route could be followed by a pass that
+        // dispatched + DEBITED a whole fresh cycle on the now-Paused route (the blocked
+        // branch got its stillDue=false guard in PR #1582; the delivered branch had no
+        // equivalent). Shape: a half-fired cycle 0 (window A already delivered +
+        // persisted) plus an owed window of cycle 1, both resolvable in ONE tick.
+        // Pass 1 completes cycle 0 and honors the arm; cycle 1 must NOT be dispatched.
+        [Fact]
+        public void SendOnceArmed_MultiStop_CatchUpStopsAfterThePause_NoNextCycleDispatch()
+        {
+            // Persisted post-window-A state: stop 0 fired cycle 0, route marker still
+            // -1 (cycle 0 not complete at save), its dispatch + delivered rows landed.
+            var route = Build2StopRoute(isKscOrigin: true, stop0LastFired: 0);
+            RouteStore.AddRoute(route);
+            InstallUnitResolver(BuildMultiUnit());
+            InstallRealPathRowEmitter();
+            Ledger.AddAction(new GameAction
+            {
+                Type = GameActionType.RouteDispatched, UT = 1150.0, RouteId = route.Id,
+                RouteCycleId = "cycle-0", RouteStopIndex = 0, Sequence = 0,
+            });
+            Ledger.AddAction(new GameAction
+            {
+                Type = GameActionType.RouteCargoDelivered, UT = 1150.0, RouteId = route.Id,
+                RouteCycleId = "cycle-0", RouteStopIndex = 0,
+                Sequence = 0 * RouteOrchestrator.SeqStride + 3,
+            });
+            RouteOrchestrator.TrySendOneCycleNow(route, 1100.0);
+
+            // ONE tick in cycle 1's (dockA, dockB) gap: ut 1600 -> loopUT 1200. Cycle
+            // 0's owed dock B resolves as cMin=0 (and completes cycle 0); cycle 1's
+            // dock A is owed above it (laterOwed -> the catch-up loop would re-invoke).
+            RouteOrchestrator.Tick(1600.0, new EligibleEnv());
+
+            // cMin=0 pass ran to completion: window B delivered, cycle 0 counted.
+            Assert.Single(Delivered().Where(d => d.RouteStopIndex == 1 && d.RouteCycleId == "cycle-0"));
+            Assert.Equal(1, route.CompletedCycles);
+            // ...and the arm resolved there.
+            Assert.Equal(RouteStatus.Paused, route.Status);
+            Assert.False(route.PauseAfterCurrentCycle);
+            Assert.False(route.SendOnceArmed);
+            Assert.Single(screenMessages);
+
+            // THE B5 ASSERTION: cycle 1 was NOT dispatched or debited on the paused
+            // route. Only the pre-seeded cycle-0 dispatch exists.
+            Assert.Single(Dispatched());
+            Assert.DoesNotContain(Ledger.Actions,
+                a => a.RouteCycleId == "cycle-1"
+                    && (a.Type == GameActionType.RouteDispatched
+                        || a.Type == GameActionType.RouteCargoDebited));
+            Assert.DoesNotContain(Delivered(), d => d.RouteCycleId == "cycle-1");
+            Assert.Contains(logLines, l =>
+                l.Contains("LoopRoute(multi)") && l.Contains("left ghost-driving"));
+        }
+
+        // NEGATIVE CONTROL: an UNARMED multi-stop cycle must keep its pre-fix behaviour
+        // - both windows deliver, the route stays Active and keeps looping, no pause
+        // marker, no toast. Without this the fix could silently pause every multi-stop
+        // route at cycle completion.
+        [Fact]
+        public void Unarmed_MultiStop_BothWindowsInOneTick_StaysActive_NoPauseNoToast()
+        {
+            var route = Build2StopRoute(isKscOrigin: true);
+            RouteStore.AddRoute(route);
+            InstallUnitResolver(BuildMultiUnit());
+            InstallRealPathRowEmitter();
+
+            RouteOrchestrator.Tick(1350.0, new EligibleEnv());
+
+            Assert.Equal(2, Delivered().Count);
+            Assert.Equal(1, route.CompletedCycles);
+            Assert.Equal(RouteStatus.Active, route.Status);
+            Assert.Empty(PausedMarkers());
+            Assert.Empty(screenMessages);
+
+            // Still looping: the NEXT cycle fires normally.
+            RouteOrchestrator.Tick(1700.0, new EligibleEnv()); // cycle 1, past dock B
+            Assert.Equal(2, route.CompletedCycles);
+            Assert.Equal(RouteStatus.Active, route.Status);
+        }
+
+        // catches: the multi-stop cycle-complete tail firing the send-once toast for a
+        // plain pause-after-cycle arm (the player hit Pause mid-cycle). It must pause,
+        // silently - the same provenance split the delivered / blocked tails honor.
+        [Fact]
+        public void PauseArmedWhileInTransit_MultiStopCycleCompletes_PausesWithoutToast()
+        {
+            var route = Build2StopRoute(isKscOrigin: true);
+            route.PauseAfterCurrentCycle = true;
+            route.SendOnceArmed = false;
+            RouteStore.AddRoute(route);
+            InstallUnitResolver(BuildMultiUnit());
+            InstallRealPathRowEmitter();
+
+            RouteOrchestrator.Tick(1350.0, new EligibleEnv());
+
+            Assert.Equal(RouteStatus.Paused, route.Status);
+            Assert.False(route.PauseAfterCurrentCycle);
+            Assert.Empty(screenMessages);
+            Assert.Contains(logLines, l =>
+                l.Contains("ArmedPause") && l.Contains("COMPLETED cycle")
+                && l.Contains("armedBy=pause-after-cycle"));
+        }
+
+        // ==================================================================
         // (c) TryPause-armed (InTransit) provenance
         // ==================================================================
 
@@ -539,6 +770,42 @@ namespace Parsek.Tests.Logistics
             Assert.Contains("PARTIAL", msg);
         }
 
+        // SENDONCE-RESIDUAL-PATHS item 2's message: counts-free (nothing was
+        // re-planned, so there are no actuals to quote) but it must still name the
+        // route, say WHY the run produced nothing new, and say where the route landed.
+        [Fact]
+        public void AlreadyDeliveredMessage_NamesRouteAndSaysWhyNothingNewHappened()
+        {
+            string msg = RouteSendOncePresentation.BuildAlreadyDeliveredMessage(
+                "Rover Supply", "route-1");
+
+            Assert.Contains("Rover Supply", msg);
+            Assert.Contains("already been delivered", msg);
+            Assert.Contains("Paused", msg);
+            // Counts-free: no fabricated "0 resource lines".
+            Assert.DoesNotContain("resource line", msg);
+            Assert.DoesNotContain("item", msg);
+        }
+
+        // SENDONCE-RESIDUAL-PATHS item 1's message: the multi-stop cycle-complete
+        // toast. Counts-free (the cycle's windows can straddle ticks), but the
+        // partial/full discriminator IS cycle-scoped, so it must survive.
+        [Fact]
+        public void CycleDeliveredMessage_NamesRoute_FlagsPartial_IsCountsFree()
+        {
+            string full = RouteSendOncePresentation.BuildCycleDeliveredMessage(
+                "Two Stop Run", "route-1", isPartial: false);
+            Assert.Contains("Two Stop Run", full);
+            Assert.Contains("Paused", full);
+            Assert.DoesNotContain("PARTIAL", full);
+            Assert.DoesNotContain("resource line", full);
+
+            string partial = RouteSendOncePresentation.BuildCycleDeliveredMessage(
+                "Two Stop Run", "route-1", isPartial: true);
+            Assert.Contains("PARTIAL", partial);
+            Assert.Contains("Paused", partial);
+        }
+
         [Fact]
         public void Messages_BlankRouteName_FallsBackToShortId_ThenUnnamed_NeverEmptyQuotes()
         {
@@ -550,6 +817,16 @@ namespace Parsek.Tests.Logistics
             string routeId = "a1b2c3d4e5f60718293a4b5c6d7e8f90";
             Assert.Contains("'" + RouteIds.Short(routeId) + "'",
                 RouteSendOncePresentation.BuildDeliveredMessage("   ", routeId, 1, 0, false));
+            // The two counts-free builders use the SAME chain (they must identify an
+            // unnamed route exactly like the window row and the other two toasts).
+            Assert.Contains("'" + RouteIds.Short(routeId) + "'",
+                RouteSendOncePresentation.BuildAlreadyDeliveredMessage(null, routeId));
+            Assert.Contains("'" + RouteIds.Short(routeId) + "'",
+                RouteSendOncePresentation.BuildCycleDeliveredMessage("  ", routeId, false));
+            Assert.Contains("'<unnamed>'",
+                RouteSendOncePresentation.BuildAlreadyDeliveredMessage(null, null));
+            Assert.Contains("'<unnamed>'",
+                RouteSendOncePresentation.BuildCycleDeliveredMessage(null, null, true));
             Assert.Contains("'" + RouteIds.Short(routeId) + "'",
                 RouteSendOncePresentation.BuildBlockedMessage(
                     null, routeId, RouteDispatchEvaluator.EligibilityFailureKind.OriginLacksCargo,

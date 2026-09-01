@@ -2405,6 +2405,156 @@ class CommittedFixtureSweepTests(unittest.TestCase):
                              "efb9be7191284013983a9f3662604bc4"],
             "schemaGeneration": 4,
         },
+        # --- THE SUPPLY-ROUTE LANE HOST (RVR-1 / RVR-2 / RVR-3) -----------
+        # PROVENANCE: rover-route-recorded <- THE OPERATOR'S OWN HAND-FLOWN
+        # SANDBOX SAVE `logistics-rover-A`, collected 2026-08-30 into
+        # `.claude/worktrees/logs/2026-08-30_1106_rover-route/saves/
+        # logistics-rover-a` (persistent.sfs 364 KB, 33 sidecar files),
+        # harvested from a scratch COPY with `--target-name
+        # rover-route-recorded --expect-situation PRELAUNCH --keep-parsek`,
+        # then finished by `harness/tools/build_rover_route_recorded.py`.
+        # The `duna-one-recorded` / `depot-route-recorded` provenance class.
+        #
+        # THE COLLECTED-LOG RESTORE. `collect-logs.py` moves the save's
+        # `Parsek/` to a SIBLING `parsek/` and leaves only `Parsek/Recordings`
+        # behind, so the six `Parsek/GameState` files were restored into the
+        # scratch copy BEFORE the harvest. The builder asserts all six by name;
+        # a missed restore reds there rather than shipping a thinner fixture.
+        #
+        # WHY IT EXISTS, AND IT IS A DEBT H39 AND H40 BOTH NAME. Every
+        # `ROUTE_CONNECTION_WINDOWS` node in the committed corpus before this
+        # one is INITIATOR-branch (`transferTargetPid` equals the carrying
+        # recording's `vesselPersistentId`), because `bdock-recorded` and
+        # `depot-route-recorded` both dock Kerbal X descendants that share ONE
+        # BAKED `persistentId`. That is why
+        # `RouteProof_ActiveAsTargetDockWindow_HasEndpointProof` and
+        # `RouteProof_CrossTreeCommittedPartner_HasEndpointProof` appear in both
+        # lanes' MEASURED_SKIPPED rosters as "a HARVEST requirement: a recorded
+        # dock between craft with DIFFERENT baked pids". This is that harvest -
+        # two rovers, pids 313889796 and 2123618197 - so the window is
+        # TARGET-branch and both cells find a subject.
+        #
+        # THE ROUTE WINDOW - the one thing this fixture exists for, and the one
+        # thing THIS MAP DOES NOT PIN, because `saveparse.py` has no
+        # route-window facet (nor a `routes` one). It is pinned BUILDER-side in
+        # `build_rover_route_recorded.py::verify_route_windows`, wired into the
+        # suite by `RoverRouteRecordedFixtureDriftTests`:
+        #   carrier              f2fb77ea... (tree 73e50f1e "B", treeOrder 1),
+        #                        vesselPersistentId 313889796
+        #   windowId             dock-513.539999999823-target-2123618197
+        #   dockUT / undockUT    513.539999999823 / 594.27999999974952
+        #   transferTargetPid    2123618197 -> carried by 3582d724... in the
+        #                        OTHER tree, which is the cross-tree conjunct
+        #   transferKind         DockingPort
+        #   endpointSituation    1 (LANDED) - THE SUITE'S FIRST SURFACE ROUTE
+        #                        ENDPOINT; both other route fixtures are orbital
+        #   ENDPOINT_AT_DOCK     Kerbin, lat 0.0055209707591019428,
+        #                        lon -74.726196706906393, alt 65.978650289936922,
+        #                        isSurface True
+        #   measured transfer    LiquidFuel 97.6 (transport 200 -> 102.4,
+        #                        endpoint 200 -> 297.6) plus
+        #                        DeployedCentralStation x1 / evaChute x1 /
+        #                        evaScienceKit x1
+        #
+        # THERE IS NO `ROUTES` NODE, AND THAT IS THE POINT - the mirror image of
+        # `depot-route-recorded`, so the two are not interchangeable. The
+        # operator created the route AFTER this save was written, which is
+        # exactly what gives RVR-2's `RouteCommand action=create` something to
+        # do. What the save DOES carry is `PROMPTED_ROUTE_CANDIDATES { treeId =
+        # 73e50f1e... }`, Parsek's own record that it found the transport tree
+        # route-eligible. There is no `ROUTE_ORIGIN_PROOF` node either: both
+        # trees launch from the Runway and the producer skips proof for a KSC
+        # site by design.
+        #
+        # NOTHING IS SEALED BECAUSE EVERYTHING ALREADY IS. No RECORDING node
+        # carries a `mergeState` key, which is how the codec spells the default
+        # `MergeState.Immutable`, so `RouteCandidateFinder.IsTreeFullySealed` is
+        # already true for BOTH trees and RVR-2's `SealSlot tree=...` is expected
+        # to answer `alreadySealed=True remaining=0`. The builder pins that
+        # absence; without the pin the no-op guard would be untestable.
+        #
+        # THE ACTIVE VESSEL WAS RE-POINTED, the first of the two edits to the
+        # save body (the second is the endpoint inventory repair below). The
+        # source's `activeVessel = 10` is `rover fuel 0`, PRELAUNCH on the
+        # Runway; the builder re-points to index 7 = `B` (pid 313889796, Rover,
+        # LANDED), the transport rover and route origin, re-resolving the index
+        # by name + pid. A PRELAUNCH-focused boot is the fresh-rollout shape
+        # `RecordingStore.SceneEntryFreshRolloutVesselPid` has a fast path for,
+        # which is not a posture a committed-tree lane should open in. Neither
+        # RVR-1 cell reads `FlightGlobals.ActiveVessel` (both walk
+        # `CommittedTrees`), so the choice is free for them.
+        #
+        # THE ENDPOINT INVENTORY WAS REPAIRED (2026-09-01, after RVR-2 flight 1),
+        # the second edit to the save body and the only one NO NUMBER IN THIS MAP
+        # MOVES FOR: it lives inside a FLIGHTSTATE VESSEL node, so trees,
+        # recordings, terminal states, branch points, sidecars, schema generation
+        # and pointCount are all unchanged, and the pin lives builder-side in
+        # `verify_endpoint_inventory` instead. What moved: two `STOREDPART` nodes
+        # a ROUTE DELIVERY had placed into `rover fuel 0` were stripped. The
+        # operator hand-created route `fd6ee2ff` over these same trees and drove
+        # one Send Once at UT 750.06 BEFORE the save was written, and its own log
+        # lines name the two slots verbatim (`part7/mod1/slot1` evaChute,
+        # `part7/mod1/slot2` evaScienceKit) - so the harvested endpoint was the
+        # physical state PLUS one already-run delivery, with no free slot left.
+        # RVR-2 flight 1 measured the consequence exactly: the whole driven chain
+        # executed and cycle 0 answered `BLOCKED kind=DestinationFull
+        # reason=stored-part:evaScienceKit` instead of delivering. The second
+        # container (`part8/mod1`) is untouched and is pinned as such. The
+        # LiquidFuel is deliberately NOT reverted (297.6 is post-delivery too);
+        # keeping it is what makes RVR-2's cycle-1-fits / cycle-2-blocks chain
+        # reachable in TWO driven cycles, and the builder header records the
+        # asymmetry as a decision rather than an oversight.
+        #
+        # NO `.prec` IS REPAIRED, and that is a MEASUREMENT. The analyzer Forbid
+        # gate was run on the harvested bytes BEFORE anything else and read
+        # `FAIL=0 WARN=0 INFO=0 STALE=0 BASELINED=0 RED=0` - clean on the first
+        # pass, unlike `depot-route-recorded`, which needed a two-section INV2
+        # containment dedupe.
+        #
+        # OTHER MEASURED BYTES:
+        #   save clock (FLIGHTSTATE UT)  979.47999999939918, Mode SANDBOX,
+        #     11 VESSEL nodes of which 3 are real (`B` 313889796 Rover LANDED,
+        #     `A` 2875537755 Rover LANDED, `rover fuel 0` 2123618197 Probe
+        #     PRELAUNCH) and 8 are stock asteroids kept verbatim.
+        #   THE PID COLLISION IS REAL AND IS LOAD-BEARING: `rover fuel 0` carries
+        #     the SAME baked persistentId 2123618197 as the recorded destination
+        #     rover in tree 6a2d7247, with conclusively different `pid` guids
+        #     (836ca8fa... live vs 0c322ddb... recorded) - the craft-baked-pid
+        #     trap, here as a fixture property. `RouteEndpointResolver` resolves
+        #     by `FlightGlobals.FindVessel(pid)` with no guid gate and no loaded
+        #     gate, so a driven route's STOP resolves to `rover fuel 0`, 5.4 km
+        #     from the focus and therefore UNLOADED - `path=unloaded`, which IS
+        #     a delivering path (`LiveDeliveryWriters.WriteResourceUnloaded`
+        #     writes `ProtoPartResourceSnapshot.amount`).
+        #   `terminalStates` SUMS TO 4, NOT 5: the dock member f2fb77ea carries
+        #     no `terminalState` (it is a mid-tree merged child).
+        #   `branchPoints` is the suite's second `Dock`/`Undock` pair and carries
+        #     NO `JointBreak` and no `Launch` - two rovers, one dock, one undock,
+        #     nothing shed.
+        #   `minAuthoritativeSidecars` is 19 = 5 x .prec + 5 x .pann +
+        #     4 x _vessel.craft + 5 x _ghost.craft; `cf8d06fc` carries no
+        #     `_vessel.craft`.
+        #   pointCount total 426 over the 5 recordings (largest 116, smallest 32).
+        #
+        # WHAT THE FIXTURE DOES NOT CARRY: `Parsek/Saves` (three `parsek_rw_*`
+        # plus a `parsek_career_start`, pruned by the harvest with the one
+        # `rewindSave` hint that referenced them cleared), `Ships/` (the
+        # collected save carried none, and this is a RECORDED subject that
+        # launches nothing), and the two `.craft.txt` snapshot mirrors.
+        "rover-route-recorded": {
+            "trees": 2, "committedTrees": 2, "recordings": 5,
+            "supersedes": 0, "tombstones": 0, "rewind_points": 0,
+            "rewind_retirements": 0,
+            "terminalStates": {"Landed": 3, "Docked": 1},
+            "branchPoints": {"Dock": 1, "Undock": 1},
+            "minAuthoritativeSidecars": 19,
+            "recordingIds": ["0996f1ba7c7b4d3a8d95cf8be77fbe6d",
+                             "3582d724892245c8939f6a354baff278",
+                             "4370a799d00644f68d9b4a2ca9f72d0c",
+                             "cf8d06fc7bf74e1a82bc70fc79290847",
+                             "f2fb77ea5af34870bc08f5a0e9f0d78f"],
+            "schemaGeneration": 4,
+        },
     }
 
     def test_fixture_set_is_exactly_the_committed_set(self):

@@ -1,4 +1,4 @@
-# In-game test category inventory (all 108 categories)
+# In-game test category inventory (all 109 categories)
 
 Machine-derived from `Source/Parsek` by `hlib.parse_ingame_test_declarations` +
 `hlib.derive_batch_tally`. Do NOT hand-edit the table: re-derive it. The generator
@@ -126,7 +126,7 @@ Two limits of this table, stated so nobody over-reads it:
 | `LedgerGroundTruth` | 2 | 2 | 0 | 0 | 0 | 1 | L2 | B |
 | `LocalizedName` | 3 | 3 | 3 | 3 | 0 | 0 | H29 | A |
 | `LogContracts` | 10 | 10 | 8 | 8 | 0 | 2 | H26 | A |
-| `Logistics` | 47 | 8 | 2 | 1 | 38 | 46 | H34 (SPACECENTER slice), H35 (FLIGHT ordinary slice), H38 (FLIGHT ISOLATED on a built pad rig, flown 2026-08-28, executes 39), H39 + H40 (the same ISOLATED slice on RECORDED hosts, both flown 2026-08-28, executing 34 and 35). Union across all five: 42 of 47 | B |
+| `Logistics` | 47 | 8 | 2 | 1 | 38 | 46 | H34 (SPACECENTER slice), H35 (FLIGHT ordinary slice), H38 (FLIGHT ISOLATED on a built pad rig, flown 2026-08-28, executes 39), H39 + H40 (the same ISOLATED slice on RECORDED hosts, both flown 2026-08-28, executing 34 and 35), RVR-1 (the same ISOLATED slice on the TARGET-BRANCH recorded host `rover-route-recorded`, authored 2026-08-30, NEVER FLOWN - predicted to convert the two dock-window cells H39/H40 both measured as unpayable by existing bytes, at the cost of the initiator cell they pin). Union across the five FLOWN slices: 42 of 47 | B |
 | `LogisticsGrapple` | 4 | 3 | 0 | 0 | 1 | 2 | H41 (ISOLATED, flown 2026-08-28, executes 3 of 4; the 4th wants a harvested Grapple window) | A |
 | `MapPresence` | 5 | 5 | 3 | 3 | 0 | 2 | H28 | A |
 | `MapRender` | 22 | 21 | 0 | 0 | 1 | 14 | S1.7 | B |
@@ -166,6 +166,7 @@ Two limits of this table, stated so nobody over-reads it:
 | `RevertVesselStrip` | 1 | 1 | 0 | 0 | 0 | 1 | - | B |
 | `Rewind` | 38 | 26 | 6 | 0 | 6 | 24 | R7a / R7c | A |
 | `RewindSaves` | 1 | 1 | 1 | 1 | 0 | 1 | - | B |
+| `RouteLifecycle` | 8 | 8 | 8 | 8 | 0 | 8 | RVR-3 (flown once 2026-09-01, `total=6 passed=4 failed=2`; the two failures were CONTRACT DRIFT - see the triage note - and the category is now 8 cells pinning BOTH halves of the armed-pause state machine. Pins `total=8` exactly with `passed=`/`skipped=` interim, `failed=0` asserted, plus a REQUIRED PASS token per resolution cell, and declares no render-composition expectations block, which is what keeps the five crossing cells from self-skipping) | B |
 | `RouteLiveAnchor` | 1 | 1 | 0 | 0 | 0 | 1 | - | B |
 | `RouteRewindTimeline` | 7 | 7 | 7 | 7 | 0 | 1 | H6 | B |
 | `SaveLoad` | 4 | 4 | 4 | 4 | 0 | 2 | H51 (flown 2026-08-28, executes 4 of 4) | A |
@@ -202,8 +203,8 @@ Two limits of this table, stated so nobody over-reads it:
 
 ## Triage
 
-Totals, re-derived: **108 categories / 599 declarations**. Buckets **A 34 categories
-(235 declarations)**, **B 74 categories (364 declarations)**, **C 0 categories (0
+Totals, re-derived: **109 categories / 607 declarations**. Buckets **A 34 categories
+(235 declarations)**, **B 75 categories (372 declarations)**, **C 0 categories (0
 declarations)**. The 107th is `AutoMergeCommit` (R4, the AUTOMERGE-ON-BY-DEFAULT
 wave; the 106th is `DisabledHoverEcho`, landed the same week): the plan-§7
 autoMerge=ON scene-exit cell, batch-disabled and restore-backed exactly like the two
@@ -212,12 +213,40 @@ drives it yet - the cell exists and is the coverage that was missing; pointing a
 at it is the next step, not this one.
 The 108th is `PreParsekBackup` (PPB-1 / PPB-2), and unlike the two above it
 ships DRIVEN and in bucket **A** from its first commit - both specs flew green
-on 2026-08-29. Driven by a committed spec: **44 of 108 categories**, up from 35
+on 2026-08-29.
+The 109th is `RouteLifecycle` (RVR-3, 2026-08-30): EIGHT scene-agnostic cells driving
+the supply-route send-once / pause lifecycle against the PRODUCTION
+`LiveRouteRuntimeEnvironment` inside a live session - the live gate for the
+blocked-then-paused fix. Bucket **B**: the cells exist and are batch-safe, but the
+scenario spec that pins their tally, `RVR-3-route-lifecycle`, has flown ONCE and not
+green, so the category stays in **B** until a clean census (deliberately its OWN
+category rather than `Logistics`, whose `total=47` is pinned by four flown committed
+specs plus the authored RVR-1).
+
+WHAT THE FIRST FLIGHT SETTLED, and why the row moved 6 -> 8. RVR-3 flew
+2026-09-01 measuring `total=6 passed=4 failed=2 skipped=0`. Both failures were
+CONTRACT DRIFT in the cells rather than a Parsek defect: the category was authored
+before PR #1583 landed, and that PR made `SourcesStale` / `WaitingForPartner`
+POSTPONEMENT holds that deliberately KEEP an armed pause
+(`RouteOrchestrator.IsPostponementHold`). Every cell reached the ERS gate first - a
+synthetic route's fresh-GUID source ids are in no ERS snapshot - so the flight
+measured only the postponement half, and `blocked-then-paused`, the reason the
+category exists, had no live gate at all. The two cells were rewritten to pin the
+SHIPPED postponement contract (arm KEPT, no pause, no marker row, no toast) and TWO
+new cells were added to reach a RESOLUTION kind on purpose: they point the synthetic
+route's `SourceRefs` at a real id out of the live ERS snapshot and its stop at a real
+live vessel pid, then hand it a delivery manifest no craft can hold, so the
+destination-capacity gate answers `DestinationFull` - which is not a postponement, so
+the arm is consumed. The lesson generalises past this category: a cell that reaches
+its assertion through the FIRST gate that refuses is measuring that gate, not the
+contract it was written for, and only naming the expected kind in a pre-flight guard
+makes the difference visible.
+Driven by a committed spec: **45 of 109 categories**, up from 35
 across six waves - `ReFlyWorldPreservation` via S4.2, `RecordedSignals` via H33,
 `SnapshotBaseline` via H32, and `Logistics` via H34 all landed together in one merge
 (the S1.8 SoiCrossingPlayback wave had taken it to 35 from 34, and 28 and 8 the waves
 before), then `PlaybackFidelity` via H36 and `PartEventFidelity` via H37. Measured
-against declarations rather than categories, that is 412 of 599 inside a driven
+against declarations rather than categories, that is 412 of 607 inside a driven
 category (was 318 before these waves: 324 after S4.2, 327 after H33, 334 after H32,
 381 once `Logistics` counted, 388 with `PlaybackFidelity`, 393 with
 `PartEventFidelity`, and 401 once L3's capture matrix took `StrategyLifecycle` from 3

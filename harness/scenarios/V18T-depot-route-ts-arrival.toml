@@ -201,8 +201,10 @@ id = "V18T-depot-route-ts-arrival"
 # `fixtures/saves/depot-route-recorded` is a HARVEST of the operator's own free-play
 # sandbox save, not a forged fixture, because route candidacy is gated on
 # `IsTreeFullySealed` and both verbs that could satisfy it (`SealSlot`, `RouteCommand`)
-# are RESERVED - H35 ROUTE-CANDIDACY-GATED-ON-SEAL-NO-SEAM-PATH. No driven run can create
-# a ROUTE today. The full provenance, the pinned route shape, the two-recording INV2
+# were RESERVED at harvest time - H35 ROUTE-CANDIDACY-GATED-ON-SEAL-NO-SEAM-PATH. No
+# driven run could create a ROUTE. (Both verbs shipped 2026-08-30; this subject stays a
+# harvest until a driven seal -> create run actually produces one, and this lane's
+# provenance claim is unchanged.) The full provenance, the pinned route shape, the two-recording INV2
 # repair and the analyzer reading (`FAIL=0 WARN=0 INFO=0 STALE=0 RED=0` - the only
 # zero-WARN RECORDED fixture in the suite) live in
 # `harness/lib/test_saveparse.py::CommittedFixtureSweepTests.RECORDED_FIXTURES`, and the

@@ -641,6 +641,13 @@ namespace Parsek.Tests.Logistics
                 InventoryActualCountReader = writers.ReadInventoryActualCount,
                 FundsDebiter = writers.DebitFunds,
                 LedgerEmitter = Ledger.AddAction,
+                // SENDONCE-RESIDUAL-PATHS item 1: BumpCompletedCycle is the
+                // cycle-RESOLUTION signal the armed tail is gated on, and the subject
+                // here is a SINGLE-STOP delivery - one window IS the whole cycle, so
+                // production passes true (ApplyDelivery's 3-arg overload). Leaving it
+                // at the struct default would model a multi-stop EARLIER window, whose
+                // arm is honored by ProcessMultiStopCrossings instead.
+                BumpCompletedCycle = true,
             };
 
             RouteOrchestrator.ApplyDeliveryFromPlan(route, plan, ctx);

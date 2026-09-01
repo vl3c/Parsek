@@ -1254,5 +1254,318 @@ namespace Parsek.Tests.Logistics
                 && l.Contains("FundsCost basis=stop-snapshot")
                 && l.Contains("source=rec-funds-basis"));
         }
+
+        // ==================================================================
+        // ROUTE-DISPATCH-COST-FREE-ON-SNAPSHOTLESS-ROOT: the snapshot-less
+        // root fallback
+        //
+        // The always-tree ROOT gets its VesselSnapshot at the first stop/split
+        // capture site, so a root that never reaches one (the rover-route
+        // shape: a runway stub ending at the transport's undock split, 0
+        // trajectory points) keeps VesselSnapshot == null forever and used to
+        // make the whole KSC dispatch FREE in career.
+        //
+        // WHICH SNAPSHOT WAS WALKED is proved mechanically, not just by the
+        // basis line: every part name the walk visits emits its own
+        // "Unknown part cost: name=..." Warn (headless PartLoader prices
+        // everything at 0), so each fixture recording carries a DISTINCT part
+        // name and the assertions read the visited set directly.
+        // ==================================================================
+
+        private const string RoverTreeId = "tree-rover-supply";
+        private const string RoverRootId = "rover-root";
+        private const string RoverTransportId = "rover-transport";
+        private const string RoverDockMergeId = "rover-dock-merge";
+        private const double RoverRootStartUT = 1000.0;
+        private const double RoverDockUT = 3000.0;
+        private const string RootPartName = "roverRootStubPart";
+        private const string TransportPartName = "roverTransportTankPart";
+        private const string DepotPartName = "roverDepotStationPart";
+
+        private static ConfigNode PartsSnapshot(params string[] partNames)
+        {
+            var snapshot = new ConfigNode("VESSEL");
+            for (int i = 0; i < partNames.Length; i++)
+                snapshot.AddNode("PART").AddValue("name", partNames[i]);
+            return snapshot;
+        }
+
+        private static Recording RoverMember(
+            string id, int treeOrder, ConfigNode snapshot, double startUT, double endUT)
+        {
+            return new Recording
+            {
+                RecordingId = id,
+                TreeId = RoverTreeId,
+                TreeOrder = treeOrder,
+                VesselName = id,
+                MergeState = MergeState.Immutable,
+                VesselSnapshot = snapshot,
+                ExplicitStartUT = startUT,
+                ExplicitEndUT = endUT,
+            };
+        }
+
+        /// <summary>
+        /// The rover-route tree shape: a snapshot-LESS runway-stub root, the
+        /// transport leg that split off it (snapshot), and the dock-merged
+        /// child that carries the connection window and a COMBINED
+        /// transport + depot snapshot. Commits whichever members the caller
+        /// names, builds a route whose SourceRefs list them in the given
+        /// order, and returns the computed cost.
+        /// </summary>
+        private double RunRoverFundsCase(
+            RouteRunCargoManifest rootManifest,
+            bool rootHasSnapshot,
+            params string[] sourceRefOrder)
+        {
+            RecordingStore.ResetForTesting();
+            EffectiveState.ResetCachesForTesting();
+            ParsekScenario.ResetInstanceForTesting();
+            try
+            {
+                Recording root = RoverMember(
+                    RoverRootId, 0,
+                    rootHasSnapshot ? PartsSnapshot(RootPartName) : null,
+                    RoverRootStartUT, RoverDockUT);
+                root.RouteRunManifest = rootManifest;
+
+                Recording transport = RoverMember(
+                    RoverTransportId, 1, PartsSnapshot(TransportPartName),
+                    RoverRootStartUT + 100.0, RoverDockUT);
+
+                Recording merged = RoverMember(
+                    RoverDockMergeId, 2,
+                    PartsSnapshot(TransportPartName, DepotPartName),
+                    RoverDockUT, RoverDockUT + 500.0);
+                merged.RouteConnectionWindows = new List<RouteConnectionWindow>
+                {
+                    new RouteConnectionWindow
+                    {
+                        WindowId = "w-rover",
+                        DockUT = RoverDockUT,
+                        UndockUT = RoverDockUT + 400.0,
+                    },
+                };
+
+                var byId = new Dictionary<string, Recording>(StringComparer.Ordinal)
+                {
+                    [RoverRootId] = root,
+                    [RoverTransportId] = transport,
+                    [RoverDockMergeId] = merged,
+                };
+
+                var refs = new List<RouteSourceRef>();
+                for (int i = 0; i < sourceRefOrder.Length; i++)
+                {
+                    Recording member = byId[sourceRefOrder[i]];
+                    RecordingStore.AddRecordingWithTreeForTesting(member);
+                    refs.Add(new RouteSourceRef
+                    {
+                        RecordingId = member.RecordingId,
+                        TreeId = RoverTreeId,
+                        TreeOrder = member.TreeOrder,
+                        StartUT = member.StartUT,
+                        EndUT = member.EndUT,
+                    });
+                }
+
+                var route = new Route
+                {
+                    Id = "route-rover-supply",
+                    RecordedDockUT = RoverDockUT,
+                    DockMemberRecordingId = RoverDockMergeId,
+                    SourceRefs = refs,
+                };
+
+                return RouteOrchestrator.ComputeDispatchFundsCostForRoute(route);
+            }
+            finally
+            {
+                RecordingStore.ResetForTesting();
+                EffectiveState.ResetCachesForTesting();
+                ParsekScenario.ResetInstanceForTesting();
+            }
+        }
+
+        private static RouteRunCargoManifest CompleteRootManifest()
+        {
+            return new RouteRunCargoManifest
+            {
+                TransportPartPersistentIds = new List<uint> { 100001u },
+                StartTransportResources = new Dictionary<string, ResourceAmount>
+                {
+                    ["LiquidFuel"] = new ResourceAmount { amount = 97.6, maxAmount = 100.0 },
+                },
+                EndTransportResources = new Dictionary<string, ResourceAmount>
+                {
+                    ["LiquidFuel"] = new ResourceAmount { amount = 0.0, maxAmount = 100.0 },
+                },
+                EndCaptured = true,
+            };
+        }
+
+        private bool VisitedPart(string partName) =>
+            logLines.Any(l => l.Contains("Unknown part cost: name=" + partName));
+
+        // catches: the fallback stealing the PREFERRED basis. A root that HAS a
+        // VesselSnapshot must still be priced from the root, from the root's own
+        // launch manifest, with fallback=0 - byte-identical to pre-fix behavior.
+        [Fact]
+        public void ComputeDispatchFundsCostForRoute_RootHasSnapshot_PricesRoot_NoFallback()
+        {
+            RunRoverFundsCase(
+                CompleteRootManifest(), rootHasSnapshot: true,
+                RoverRootId, RoverTransportId, RoverDockMergeId);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[Route]")
+                && l.Contains("FundsCost basis=launch-manifest")
+                && l.Contains("snapshotSource=" + RoverRootId)
+                && l.Contains("fallback=0"));
+            // Only the ROOT's snapshot was walked.
+            Assert.True(VisitedPart(RootPartName));
+            Assert.False(VisitedPart(TransportPartName));
+            Assert.False(VisitedPart(DepotPartName));
+        }
+
+        // THE defect. A snapshot-less root used to return 0 BEFORE the run-manifest
+        // branch was reachable, so the KSC dispatch was silently free in career (the
+        // zero fed BOTH the funds eligibility gate and the charge). The parts basis
+        // must fall back to the first member that HAS a snapshot while the resource
+        // term stays on the root's complete launch manifest.
+        [Fact]
+        public void ComputeDispatchFundsCostForRoute_SnapshotlessRoot_FallsBackToMemberParts_KeepsRootLaunchManifest()
+        {
+            RunRoverFundsCase(
+                CompleteRootManifest(), rootHasSnapshot: false,
+                RoverRootId, RoverTransportId, RoverDockMergeId);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[Route]")
+                && l.Contains("FundsCost basis=launch-manifest")
+                && l.Contains("source=" + RoverRootId)
+                && l.Contains("snapshotSource=" + RoverTransportId)
+                && l.Contains("fallback=1"));
+            Assert.Contains(logLines, l =>
+                l.Contains("has no VesselSnapshot - parts basis falls back to member "
+                    + RoverTransportId));
+            // The TRANSPORT's snapshot was walked; the combined dock-merge snapshot
+            // was not (that would charge for the depot every cycle).
+            Assert.True(VisitedPart(TransportPartName));
+            Assert.False(VisitedPart(DepotPartName));
+            Assert.DoesNotContain(logLines, l => l.Contains("UNCOSTED"));
+        }
+
+        // catches: the fallback silently promoting an INCOMPLETE root manifest onto
+        // the launch basis. With no complete manifest the resource term must come
+        // from the chosen member's snapshot through the legacy stop-snapshot walk -
+        // the same completeness gate the root-snapshot path applies.
+        [Fact]
+        public void ComputeDispatchFundsCostForRoute_SnapshotlessRoot_IncompleteManifest_UsesMemberSnapshotResources()
+        {
+            RunRoverFundsCase(
+                new RouteRunCargoManifest
+                {
+                    TransportPartPersistentIds = new List<uint> { 100001u },
+                    StartTransportResources = new Dictionary<string, ResourceAmount>
+                    {
+                        ["LiquidFuel"] = new ResourceAmount { amount = 97.6, maxAmount = 100.0 },
+                    },
+                    EndCaptured = false,
+                },
+                rootHasSnapshot: false,
+                RoverRootId, RoverTransportId, RoverDockMergeId);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[Route]")
+                && l.Contains("FundsCost basis=stop-snapshot")
+                && l.Contains("snapshotSource=" + RoverTransportId)
+                && l.Contains("fallback=1"));
+        }
+
+        // catches: the fallback pricing the COMBINED (dock-merged) vessel. The
+        // dock-merged child IS a SourceRefs member - RouteBuilder adds the
+        // window-carrying leaf unconditionally - and its snapshot is transport +
+        // endpoint, so charging from it would bill the player for the destination
+        // station on every cycle. Ordered here with the merged child AHEAD of the
+        // transport so the walk must skip it rather than merely never reach it.
+        [Fact]
+        public void ComputeDispatchFundsCostForRoute_SnapshotlessRoot_SkipsDockMergedMember()
+        {
+            RunRoverFundsCase(
+                CompleteRootManifest(), rootHasSnapshot: false,
+                RoverRootId, RoverDockMergeId, RoverTransportId);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[Route]")
+                && l.Contains("snapshotSource=" + RoverTransportId)
+                && l.Contains("fallback=1"));
+            Assert.Contains(logLines, l =>
+                l.Contains("skipping member " + RoverDockMergeId)
+                && l.Contains("dock-merged (combined-vessel) snapshot"));
+            Assert.True(VisitedPart(TransportPartName));
+            Assert.False(VisitedPart(DepotPartName));
+        }
+
+        // catches: the "no basis at all" case going silent again. When the root has
+        // no snapshot and the only other member is the dock-merged child, there IS
+        // no honest basis - the dispatch stays uncosted, and that must say so in a
+        // line distinct from the fallback breadcrumb (rate-limited: this method runs
+        // per UI repaint).
+        [Fact]
+        public void ComputeDispatchFundsCostForRoute_NoMemberWithUsableSnapshot_ReturnsZero_LogsUncosted()
+        {
+            double cost = RunRoverFundsCase(
+                CompleteRootManifest(), rootHasSnapshot: false,
+                RoverRootId, RoverDockMergeId);
+
+            Assert.Equal(0.0, cost);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Route]")
+                && l.Contains("FundsCost: route ")
+                && l.Contains("UNCOSTED")
+                && l.Contains("a career KSC dispatch charges nothing"));
+            Assert.DoesNotContain(logLines, l => l.Contains("FundsCost basis="));
+            Assert.False(VisitedPart(DepotPartName));
+        }
+
+        // catches: the combined-vessel predicate losing one of its three positive
+        // facts. Each disjunct identifies a dock-merged member on its own, and a
+        // pre-dock transport leg must NOT match any of them.
+        [Fact]
+        public void IsCombinedVesselSourceMember_MatchesEachPositiveFact_NotThePreDockTransport()
+        {
+            var route = new Route
+            {
+                Id = "route-predicate",
+                RecordedDockUT = RoverDockUT,
+                DockMemberRecordingId = RoverDockMergeId,
+            };
+
+            // (1) carries a connection window (the dock-merge site's own stamp).
+            var windowed = RoverMember("member-windowed", 5, PartsSnapshot("x"),
+                RoverRootStartUT, RoverDockUT);
+            windowed.RouteConnectionWindows = new List<RouteConnectionWindow>
+            {
+                new RouteConnectionWindow { WindowId = "w", DockUT = RoverDockUT },
+            };
+            Assert.True(RouteOrchestrator.IsCombinedVesselSourceMember(route, null, windowed));
+
+            // (2) it is the route's own named dock member.
+            var named = RoverMember(RoverDockMergeId, 6, PartsSnapshot("x"),
+                RoverRootStartUT, RoverDockUT);
+            Assert.True(RouteOrchestrator.IsCombinedVesselSourceMember(route, null, named));
+
+            // (3) it starts at or after the route's dock UT.
+            var postDock = RoverMember("member-post-dock", 7, PartsSnapshot("x"),
+                RoverDockUT, RoverDockUT + 100.0);
+            Assert.True(RouteOrchestrator.IsCombinedVesselSourceMember(route, null, postDock));
+
+            // The pre-dock transport leg matches none of them.
+            var transport = RoverMember(RoverTransportId, 1, PartsSnapshot(TransportPartName),
+                RoverRootStartUT + 100.0, RoverDockUT);
+            Assert.False(RouteOrchestrator.IsCombinedVesselSourceMember(route, null, transport));
+        }
     }
 }

@@ -46,6 +46,8 @@ namespace Parsek.Tests
             public void EnterMapView(ParsedCommand cmd) => Calls.Add("EnterMapView");
             public void ExitMapView(ParsedCommand cmd) => Calls.Add("ExitMapView");
             public void InvokeRewindToLaunch(ParsedCommand cmd) => Calls.Add("InvokeRewindToLaunch");
+            public void SealSlot(ParsedCommand cmd) => Calls.Add("SealSlot");
+            public void RouteCommand(ParsedCommand cmd) => Calls.Add("RouteCommand");
         }
 
         [Fact]
@@ -106,6 +108,14 @@ namespace Parsek.Tests
         // reload the world out from under the current scene, and the Recordings-table "R"
         // button this one reproduces is offered from the in-flight table.
         [InlineData("InvokeRewindToLaunch", "RequiresFlight")]
+        // Logistics lane: RequiresGameLoaded and deliberately NOT RequiresFlight. Both
+        // verbs read and mutate SAVE-scoped stores only (committed trees, rewind points,
+        // the route store) and touch no vessel, camera or scene, and the create lane
+        // naturally runs after an ExitToSpaceCenter - where a RequiresFlight row would
+        // defer to its budget and TIMEOUT. This is the row that catches a future
+        // "make it FLIGHT-only like the rest".
+        [InlineData("SealSlot", "RequiresGameLoaded")]
+        [InlineData("RouteCommand", "RequiresGameLoaded")]
         public void RequirementFor_MatchesTable(string verb, string expected)
         {
             Assert.Equal(expected, TestCommandDispatcher.RequirementFor(verb).ToString());
@@ -144,6 +154,8 @@ namespace Parsek.Tests
             fake.EnterMapView(cmd);
             fake.ExitMapView(cmd);
             fake.InvokeRewindToLaunch(cmd);
+            fake.SealSlot(cmd);
+            fake.RouteCommand(cmd);
 
             // One interface method per implemented v1 verb, no more, no less.
             var interfaceMethods = typeof(ITestCommandExecutor).GetMethods();

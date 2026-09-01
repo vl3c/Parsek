@@ -8,7 +8,7 @@ All notable changes to Parsek are documented here.
 
 _(unreleased — entries accumulate here per commit)_
 
-### Fixes
+### Fixed
 
 - **Restructuring the recordings list mid-session now tells every index-keyed
   consumer.** Merging to the timeline or committing a chain segment runs the same
@@ -29,6 +29,62 @@ _(unreleased — entries accumulate here per commit)_
   recording was merged away follows its trajectory into the merge target, and the
   recordings table re-sorts on the state version. Load-time passes were already
   harmless (stores rebuild afterwards) and stay so.
+
+- Send Once on a route that visits SEVERAL destinations now stops after that one
+  round, instead of quietly carrying on. A multi-stop route drops off at each
+  destination in turn, and all of those drop-offs belong to one round. Send Once was
+  being answered by the first drop-off: the route announced "now Paused", and then
+  the next drop-off of the very same round started it running again - so the ghost
+  kept flying its loop forever and the message had been wrong. The one-shot is now
+  answered by the ROUND, once every stop on it has been served, however many game
+  ticks that takes. On top of that, a route that stops mid-tick is no longer allowed
+  to start a fresh round in that same tick: if catching up on missed laps was in
+  progress, it ends the moment the route stops, so nothing is dispatched - or
+  charged for - after you paused it.
+
+- A Send Once whose run turns out to have already been delivered (a crash or a
+  reload landed the delivery but not the pause) now says so on screen instead of
+  stopping the route in silence - the one resolution where clicking again was most
+  tempting, because nothing visibly happened.
+
+- Send Once on a COLLECTION route - one that only picks cargo up and brings nothing
+  out - now stops after that one round, like every other route. Because such a route
+  never makes a delivery, the answer to the click was never given: the round finished,
+  the flight was counted, and the route just carried on looping with the one-shot
+  still waiting. Odder still, the very same route DID stop correctly when its round
+  was blocked instead of completed, so the two outcomes disagreed. A finished
+  collection round now pauses the route and says so, exactly as a finished delivery
+  round does.
+
+- In career, a route flown by a craft whose recording begins with a stub - a launch
+  that ended the moment the transport separated, which is the ordinary shape for a
+  rover driven off the pad - was dispatching for FREE. Parsek prices a KSC dispatch
+  from the recorded craft, and when that first recording never captured one, the
+  price came out as zero: no funds were checked and none were charged, every cycle,
+  silently. Parsek now prices such a dispatch from the first recording of the run
+  that DID capture the craft, while still billing the fuel and cargo the launch
+  actually carried. Care is taken not to price the craft after it has docked - that
+  snapshot includes the destination station, and charging for it would have billed
+  you for the base you were resupplying. A route that can be priced no other way says
+  so in the log instead of quietly charging nothing.
+
+### Dev
+
+- The automated-testing suite gained its first surface supply-route subject, and with
+  it the harvest three existing lanes had been asking for by name. Two of the suite's
+  route-proof checks have never once run: they look for a recorded dock where the
+  vessel being docked INTO is not the one doing the docking, and every recorded dock
+  the suite owned was between two craft built from the same blueprint - which KSP
+  stamps with the same internal part id, so the two roles read as the same vessel and
+  both checks quietly stood down. The new fixture is a hand-flown pair of KSC rovers
+  that are genuinely two different craft, so the roles are distinguishable and both
+  checks now have something to look at. Three scenario specs ride it: one runs the
+  logistics batch over it, one drives the first automated route CREATION and delivery
+  the suite has ever attempted (seal, create, deliver, then a second delivery that
+  must be refused because the destination is full - all four steps derived from the
+  recorded flight's own fuel numbers), and one drives the new route-lifecycle checks.
+  All three are authored and none has flown yet; each says so in its own header and
+  states what its first run has to settle. Nothing here changes the game.
 
 ---
 

@@ -40,6 +40,8 @@ namespace Parsek.Tests
         [InlineData("EnterMapView")]
         [InlineData("ExitMapView")]
         [InlineData("InvokeRewindToLaunch")]
+        [InlineData("SealSlot")]
+        [InlineData("RouteCommand")]
         public void ImplementedVerbs_ClassifyImplemented(string verb)
         {
             Assert.Equal(TestCommandVerbClass.Implemented, TestCommandVerbs.Classify(verb));
@@ -47,10 +49,8 @@ namespace Parsek.Tests
 
         [Theory]
         [InlineData("StopPlayback")]
-        [InlineData("SealSlot")]
         [InlineData("StashSlot")]
         [InlineData("FlySlot")]
-        [InlineData("RouteCommand")]
         [InlineData("CrashAfterJournalPhase")]
         [InlineData("RunInvariantReport")]
         public void ReservedVerbs_ClassifyReserved(string verb)
@@ -102,8 +102,18 @@ namespace Parsek.Tests
             // (20 -> 21 implemented, 11 -> 10 reserved) - its wire token is byte-identical
             // before and after and only the response changed. A future name that appears in
             // BOTH sets, or in neither, is what these two numbers catch.
-            Assert.Equal(28, TestCommandVerbs.ImplementedVerbNames.Count);
-            Assert.Equal(7, TestCommandVerbs.ReservedVerbNames.Count);
+            //
+            // The logistics pair (SealSlot + RouteCommand) is a PROMOTION, so it moves
+            // BOTH numbers in opposite directions: 28 -> 30 implemented, 7 -> 5 reserved.
+            // That is the arithmetic signature this cell exists to hold - an additive
+            // verb moves one number, a promotion moves two, and a half-done promotion
+            // (added to Implemented, left in Reserved) moves the first without the
+            // second and is caught here as well as by the disjointness cell below.
+            // StashSlot and FlySlot deliberately stay behind: FlySlot's mechanism is
+            // already driveable as InvokeRewind, and nothing needs StashSlot's slot-OPEN
+            // direction.
+            Assert.Equal(30, TestCommandVerbs.ImplementedVerbNames.Count);
+            Assert.Equal(5, TestCommandVerbs.ReservedVerbNames.Count);
         }
 
         [Fact]

@@ -254,6 +254,34 @@ IMPLEMENTED_SEAM_VERBS: Tuple[str, ...] = (
     # silent pick. 28 total, mirroring the C# TestCommandVerbs.ImplementedVerbs set
     # exactly.
     "InvokeRewindToLaunch",
+    # The logistics pair (SealSlot + RouteCommand). Two PROMOTIONS out of
+    # RESERVED_SEAM_VERBS below - the FIFTH and SIXTH since M-C1, same strict shape as
+    # the four before them: the wire token is byte-identical and only the response
+    # changes, so no committed spec's bytes move. 30 implemented / 5 reserved,
+    # mirroring the C# TestCommandVerbs sets exactly.
+    #
+    # WHAT THEY CLOSE, and it is a measured wall rather than a wish: no driven lane
+    # could create or operate a supply route, so every committed route fixture in the
+    # suite is a HARVEST of a hand-flown session. Route candidacy is gated on a FULLY
+    # SEALED tree (RouteCandidateFinder.IsTreeFullySealed wants every recording at
+    # MergeState.Immutable) and a flight ending in flight-class terminals leaves open
+    # provisionals behind, which is why H35's spec documents its own fixture as
+    # deliberately NOT a candidate and names SealSlot's reserved status as the cause
+    # (ROUTE-CANDIDACY-GATED-ON-SEAL-NO-SEAM-PATH in todo-and-known-bugs.md).
+    #   SealSlot is the Unfinished Flights per-row Seal button
+    #     (UnfinishedFlightSealHandler.TrySeal - flip the slot's effective tip, dirty
+    #     its sidecars, bump the supersede state version, persist, then reap). It takes
+    #     `tree=` (seal every open member, the route-candidacy consumer) or the D9
+    #     `rp=` + `slot=` spelling, and is IDEMPOTENT: an already-sealed tree answers
+    #     OK alreadySealed=true, never a reject.
+    #   RouteCommand is the Logistics window's Create Route button (through the shared
+    #     RouteCreationService funnel) plus the three row operations, dispatched by an
+    #     `action=` arg the way KscAction dispatches its sub-actions:
+    #     create / send-once / pause / activate.
+    # Both SINGLE-PHASE (synchronous state mutation, read-back is a final answer), so
+    # neither joins DEFERRED_SEAM_VERBS and both ride the 60 s default budget - which
+    # bounds only their game-not-loaded dispatch defer.
+    "SealSlot", "RouteCommand",
 )
 
 # The M-A7 export verb, named once. Referenced by the verb/block coupling rule in
@@ -261,14 +289,22 @@ IMPLEMENTED_SEAM_VERBS: Tuple[str, ...] = (
 # expectations-block name.
 RENDER_MANIFEST_EXPORT_VERB = "ExportRenderManifest"
 
-# The remaining SEVEN stay RESERVED (SimulateStockSwitchClick left this set in R12;
+# The remaining FIVE stay RESERVED (SimulateStockSwitchClick left this set in R12;
 # MissionConfig left it for the arrival-validation lane; StartLoopPlayback and
-# EnterWatchMode left it for the player-workflow lane). StopPlayback deliberately
-# STAYS reserved: teardown is FlushAndQuit's job, so a stop verb would be a second,
-# weaker owner of it.
+# EnterWatchMode left it for the player-workflow lane; SealSlot and RouteCommand left
+# it for the logistics lane). Three deliberate hold-outs, each with a reason rather
+# than a backlog position:
+#   StopPlayback  - teardown is FlushAndQuit's job, so a stop verb would be a second,
+#                   weaker owner of it.
+#   FlySlot       - its mechanism is ALREADY driveable under a different name
+#                   (InvokeRewind, the re-fly). A second spelling would make the wire
+#                   token ambiguous about which half of the timeline machinery a spec
+#                   exercised - the same argument that kept InvokeRewindToLaunch a
+#                   separate verb rather than an InvokeRewind mode.
+#   StashSlot     - no consumer. Nothing in the suite needs to OPEN a slot, only to
+#                   close one, which is what its promoted sibling SealSlot does.
 RESERVED_SEAM_VERBS: Tuple[str, ...] = (
-    "StopPlayback", "SealSlot", "StashSlot",
-    "FlySlot", "RouteCommand",
+    "StopPlayback", "StashSlot", "FlySlot",
     "CrashAfterJournalPhase", "RunInvariantReport",
 )
 
@@ -710,6 +746,19 @@ SEAM_VERB_TAIL_ROLE: Dict[str, str] = {
     # preserve. Emphatically not `cleanup` despite ending in SPACECENTER: FlushAndQuit
     # owns the quit, and a rewind that reloads the save is not a no-cost close.
     "InvokeRewindToLaunch": TAIL_ROLE_WORLD_MUTATING,
+    # The logistics pair. Both world-mutating, and neither is a borderline call.
+    #   SealSlot is the least reversible verb in this table after the two rewinds: the
+    #     CommittedProvisional -> Immutable flip is a documented ONE-WAY transition, it
+    #     forces a GamePersistence.SaveGame, and it then REAPS the rewind-point
+    #     quicksave files that the now-closed slots were holding open. Driving it on an
+    #     unmet run would permanently close the re-fly options for the very attempt the
+    #     collect-logs snapshot exists to preserve.
+    #   RouteCommand writes a durable Route into the save on `create` and moves a
+    #     route's dispatch state (with a RouteResumed / RoutePaused ledger row) on the
+    #     three operations. Persisted career-adjacent state, exactly the class the
+    #     unmet tail exists to stop firing.
+    "SealSlot": TAIL_ROLE_WORLD_MUTATING,
+    "RouteCommand": TAIL_ROLE_WORLD_MUTATING,
 }
 
 # ---------------------------------------------------------------------------
@@ -827,6 +876,19 @@ SEAM_VERB_POST_MISSION_ROLE: Dict[str, str] = {
     # a rewind defect through mission-outcome would name the wrong cause AND skip the
     # save-reading verifiers that can actually describe it.
     "InvokeRewindToLaunch": POST_MISSION_ROLE_RECORDING,
+    # The logistics pair. Both `recording`, and neither is near the line: the `outcome`
+    # set is exactly the verbs whose verdict is a claim about a KERBAL's physical
+    # in-world state that no other verifier re-derives.
+    #   SealSlot's OK means "every recording in the tree reads Immutable" - a read-back
+    #     of PARSEK's own merge state.
+    #   RouteCommand's OK means "the route exists / its dispatch state is as commanded",
+    #     a claim about a Parsek FEATURE UNDER TEST. Whether the route then DELIVERS is
+    #     the saveParse / ledger-oracle chain's job, which is the original carve-out
+    #     exactly: a good flight whose route then mis-dispatches is a PARSEK-FAIL, never
+    #     a retryable driver-INVALID.
+    # Both are WORLD-MUTATING on the tail axis; the two axes disagree by design.
+    "SealSlot": POST_MISSION_ROLE_RECORDING,
+    "RouteCommand": POST_MISSION_ROLE_RECORDING,
 }
 
 
@@ -5832,6 +5894,48 @@ _SEAM_REFUSAL_SUBKINDS: Dict[str, str] = {
     "rewind-gate": "driver-gate",
     "no-committed-tree": "driver-gate",
     "ambiguous-tree": "driver-arg",
+    # The logistics pair (SealSlot + RouteCommand). Same reasoning as R12 and the loop
+    # lanes: both ship a typed refusal taxonomy and without these rows every token
+    # collapses to the coarse driver-verdict-mismatch.
+    #
+    # SealSlot needs NO NEW ROWS AT ALL, and that is a property of the design rather
+    # than an oversight: it deliberately reuses vocabulary that is already mapped -
+    # `target-arg-missing` (SimulateStockSwitchClick), `unknown-rp` / `unknown-slot`
+    # (InvokeRewind, verbatim, including the "an absent arg is just an unresolvable
+    # target" choice) and `unknown-tree` (the loop lanes). This table is keyed by msg
+    # token alone, never by (verb, msg), so they map for the new verb for free.
+    #
+    # RouteCommand reuses `missing-arg` / `unknown-action` (KscAction's sub-action
+    # vocabulary, since it dispatches the same way), `tree-arg-missing` /
+    # `unknown-tree` / `interval-arg-invalid` (the loop lanes). Its own tokens split
+    # the usual two ways:
+    #   Arg half - the SPEC named or spelled something wrong (the `unknown-target`
+    #     call). `route-ambiguous` is arg-class rather than gate-class because the fix
+    #     is a longer selector in the spec, not an earlier step.
+    "route-arg-missing": "driver-arg",
+    "unknown-route": "driver-arg",
+    "route-ambiguous": "driver-arg",
+    #   Gate half - nothing is misspelled; the run reached a state the verb does not
+    #     drive, and the fix is an EARLIER STEP (the `loop-not-armed` call).
+    #     `tree-not-sealed` wants a SealSlot step first. `candidate-ineligible` is
+    #     compound on the wire (`candidate-ineligible%20MissingRouteProof`, the
+    #     `refly-gate` shape) and classifies off its head token; it means the FLIGHT did
+    #     not produce a promotable supply run, which is a fixture question.
+    #     `candidate-dismissed` / `candidate-already-promoted` mean the tree was
+    #     consumed already. `route-build-rejected` carries the builder's own reason as
+    #     its tail.
+    "tree-not-sealed": "driver-gate",
+    "candidate-ineligible": "driver-gate",
+    "candidate-dismissed": "driver-gate",
+    "candidate-already-promoted": "driver-gate",
+    "route-build-rejected": "driver-gate",
+    # NOT mapped, deliberately, and for the SAME reason as switch-refused-by-stock:
+    # `route-action-refused`, `seal-incomplete` and `seal-refused` are all POST-ACT
+    # terminals (ERROR, not REJECTED). The verb reached the production call and the
+    # PRODUCT declined, or the seal pass ran and left something open - claiming a
+    # refusal subkind would name a refusal that never happened, so they ride the coarse
+    # driver-verdict-mismatch.
+    #
     # NOT mapped, deliberately: StartLoopPlayback's `jump-timeout`. Like switch-threw /
     # switch-refused-by-stock it is a POST-arm terminal - the clock jump was initiated
     # and never landed - so it rides the coarse driver-verdict-mismatch rather than

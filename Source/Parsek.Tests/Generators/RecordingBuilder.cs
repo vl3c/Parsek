@@ -46,6 +46,8 @@ namespace Parsek.Tests.Generators
         private Dictionary<string, ResourceAmount> endResources;
         private RouteRunCargoManifest routeRunManifest;
         private List<RouteHarvestWindow> routeHarvestWindows;
+        private List<RouteConnectionWindow> routeConnectionWindows;
+        private RouteOriginProof routeOriginProof;
 
         // Default rotation for points that don't specify one explicitly
         private float defaultRotX, defaultRotY, defaultRotZ;
@@ -510,6 +512,66 @@ namespace Parsek.Tests.Generators
 
         /// <summary>Returns the harvest window list (may be null).</summary>
         internal List<RouteHarvestWindow> GetRouteHarvestWindows() => routeHarvestWindows;
+
+        /// <summary>
+        /// Appends one witnessed dock-transfer-undock
+        /// <see cref="RouteConnectionWindow"/> — the payload
+        /// <c>RouteAnalysisEngine</c> reads to decide route eligibility. Call
+        /// once per window; multiple calls append in call order (the engine
+        /// sorts by <c>DockUT</c> itself, so authoring order is free). A null
+        /// window is ignored.
+        /// <para>
+        /// Serialization is the production one: the window is stamped onto a
+        /// <see cref="Recording"/> proof carrier in
+        /// <see cref="SerializeRouteProofMetadataInto"/> and written through
+        /// <c>RecordingStore.SerializeRouteProofMetadata</c> -&gt;
+        /// <c>RouteProofCodec</c>, the same chokepoint both persistence paths
+        /// (<c>RecordingTreeRecordCodec.SaveRecordingResourceAndState</c> and
+        /// <c>ParsekScenario.SaveRecordingMetadata</c>) use. There is
+        /// deliberately no hand-written <c>ROUTE_CONNECTION_WINDOWS</c> node
+        /// here — mirroring the codec by hand is how a fixture drifts from the
+        /// format it claims to produce.
+        /// </para>
+        /// <para>
+        /// See <see cref="RouteWindowFixtures"/> for a ready-made
+        /// production-shaped LANDED-endpoint delivery window.
+        /// </para>
+        /// </summary>
+        internal RecordingBuilder WithRouteConnectionWindow(RouteConnectionWindow window)
+        {
+            if (window == null)
+                return this;
+            if (routeConnectionWindows == null)
+                routeConnectionWindows = new List<RouteConnectionWindow>();
+            routeConnectionWindows.Add(window);
+            return this;
+        }
+
+        /// <summary>
+        /// Sets the start-docked <see cref="RouteOriginProof"/> (the depot
+        /// partner a run undocked from at recording start, plus its M1 origin
+        /// endpoint descriptor and the transport's start/end cargo). One per
+        /// recording — a second call replaces the first, matching the field's
+        /// single-valued shape on <see cref="Recording"/>. Serialized through
+        /// the same <c>RouteProofCodec</c> chokepoint as
+        /// <see cref="WithRouteConnectionWindow"/>.
+        /// <para>
+        /// A KSC-launched run leaves this null: its origin is proven by
+        /// <see cref="WithLaunchIdentity"/> + a Kerbin <c>StartBodyName</c>
+        /// instead (<c>RouteAnalysisEngine.IsKscOriginRecording</c>).
+        /// </para>
+        /// </summary>
+        internal RecordingBuilder WithRouteOriginProof(RouteOriginProof proof)
+        {
+            routeOriginProof = proof;
+            return this;
+        }
+
+        /// <summary>Returns the connection window list (may be null).</summary>
+        internal List<RouteConnectionWindow> GetRouteConnectionWindows() => routeConnectionWindows;
+
+        /// <summary>Returns the start-docked origin proof (may be null).</summary>
+        internal RouteOriginProof GetRouteOriginProof() => routeOriginProof;
 
         // --- v6 TrackSection builder methods ---
 
@@ -991,19 +1053,23 @@ namespace Parsek.Tests.Generators
         }
 
         /// <summary>
-        /// Serializes the M2 route-proof fields (run cargo manifest) through the
-        /// production <c>RouteProofCodec</c> chokepoint. No-op when unset, so
-        /// pre-M2 fixture nodes stay byte-identical.
+        /// Serializes the route-proof fields (run cargo manifest, harvest
+        /// windows, connection windows, start-docked origin proof) through the
+        /// production <c>RouteProofCodec</c> chokepoint. No-op when every field
+        /// is unset, so pre-route fixture nodes stay byte-identical.
         /// </summary>
         private void SerializeRouteProofMetadataInto(ConfigNode node)
         {
-            if (routeRunManifest == null && routeHarvestWindows == null)
+            if (routeRunManifest == null && routeHarvestWindows == null
+                && routeConnectionWindows == null && routeOriginProof == null)
                 return;
 
             var proofCarrier = new Recording
             {
                 RouteRunManifest = routeRunManifest,
-                RouteHarvestWindows = routeHarvestWindows
+                RouteHarvestWindows = routeHarvestWindows,
+                RouteConnectionWindows = routeConnectionWindows,
+                RouteOriginProof = routeOriginProof
             };
             RecordingStore.SerializeRouteProofMetadata(node, proofCarrier);
         }

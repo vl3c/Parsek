@@ -95,33 +95,111 @@ modulo-skipped window to a send-once arm, but that window emits nothing, bumps n
 next deliverable window, which is the intended "every Nth window" semantics. So the skip is not
 a consumed cycle and must not honor the pause. No change made.
 
-## SENDONCE-RESIDUAL-PATHS: three Send-Once arm paths the blocked-cycle fix deliberately did not take, surfaced by PR #1582's clean review [FOUND 2026-08-30 by the pre-merge review of the fix. ALL PRE-EXISTING (none introduced by the fix); filed together because they are one family: "which cycle resolutions consume the arm, and does every consumer say so"]
+## SENDONCE-RESIDUAL-PATHS: three Send-Once arm paths the blocked-cycle fix deliberately did not take, surfaced by PR #1582's clean review [FOUND 2026-08-30 by the pre-merge review of the fix. ALL PRE-EXISTING (none introduced by the fix); filed together because they are one family: "which cycle resolutions consume the arm, and does every consumer say so". Items 1 and 2 FIXED 2026-09-01; item 3 CLASSIFIED and left open by design; item 4 ADDED and FIXED 2026-09-01 from the same family, found while fixing 1 and 2 - see below. Only item 3 remains, deliberately]
 
-**1. Multi-stop delivered path can end a Send Once ACTIVE (the fixed defect's delivered-side
-sibling).** `ProcessMultiStopCrossings` fires every due window of the cycle in one pass with no
-status re-check, and `ApplyDeliveryFromPlan`'s armed tail runs PER WINDOW: window A's delivery
-consumes the arm and pauses (now with a toast saying "Paused"), then window B's delivery in the
-same pass sees the flag already cleared, falls into the ordinary else, and transitions the route
-BACK to Active. Related: the catch-up `while (stillDue)` loop never re-checks status between
-passes, so a route paused by window A of pass 1 can have pass 2 dispatch + debit a whole new
-cycle (the blocked branch got the `stillDue = false` guard in the fix; the delivered branch has
-no equivalent). Multi-stop routes have unit coverage only - no driven lane, and no known
-real-save multi-stop route exists yet - which is why this was deferred rather than rushed into
-the release PR. Fix shape: honor the armed tail at CYCLE completion (last window), not per
-window, and stop the catch-up loop on any mid-tick departure from ghost-driving status.
+**~~1. Multi-stop delivered path can end a Send Once ACTIVE (the fixed defect's delivered-side
+sibling).~~** [FIXED 2026-09-01] `ProcessMultiStopCrossings` fired every due window of the cycle
+in one pass with no status re-check, and `ApplyDeliveryFromPlan`'s armed tail ran PER WINDOW:
+window A's delivery consumed the arm and paused (with a toast saying "Paused"), then window B's
+delivery in the same pass saw the flag already cleared, fell into the ordinary else, and
+transitioned the route BACK to Active. Related: the catch-up `while (stillDue)` loop never
+re-checked status between passes, so a route paused by window A of pass 1 could have pass 2
+dispatch + debit a whole new cycle (the blocked branch got the `stillDue = false` guard in the
+fix; the delivered branch had no equivalent).
 
-**2. The ELS replay backstop consumes the arm silently.** `ApplyDelivery`'s replay branch
-(`delivered-replay-then-paused`) pauses without a toast - the one resolution shape where the
-player is MOST likely to click again (the run produced no new delivery). Deliberate in the fix
-(no delivery counts available there); a counts-free "already delivered - route is now Paused"
-toast would close it.
+Fix: the arm is honored at CYCLE completion, never per window, keyed to the signal that ALREADY
+means "this delivery is the cycle" - `ApplyDeliveryContext.BumpCompletedCycle`, which is true
+only on the single-stop / legacy path and false on EVERY multi-stop window (a pickup-only last
+window still completes a cycle, so no delivery window can be trusted to be "the" one). Both
+armed tails inside `ApplyDelivery` / `ApplyDeliveryFromPlan` (the delivered one and the
+`delivered-replay-then-paused` one) are gated on it, so an earlier window delivers WITHOUT
+consuming the arm or transitioning to Paused; single-stop reduces to the previous behaviour
+byte-for-byte (its ledger rows are unchanged - the `RoutePaused` marker still lands at the
+window's own `stopIndex * SeqStride + 4`). The multi-stop resolution moved to the new
+`RouteOrchestrator.TryHonorArmedPauseOnCompletedCycle`, called from the `cycleLastDockReached`
+branch beside the once-per-cycle `CompletedCycles` bump and the cycle-complete escrow sweep -
+the same seam, for the same reason. It emits the same `delivered-then-paused` /
+`delivered-partial-then-paused` reason (partial read off the cycle-scoped
+`Route.LastPartialDeliveryCycleId`), lands its marker at the LAST stop's stride block + 4, and
+posts a counts-free toast (`RouteSendOncePresentation.BuildCycleDeliveredMessage`) because a
+cycle's windows can straddle several ticks, so no site can quote the whole cycle's actuals.
+For the catch-up loop: `ProcessLoopRoute` now re-checks `RouteStatusPolicy.GhostDriving` - the
+SAME gate it opens with - after every pass and breaks out, so no later owed cycle is dispatched
+on a route that stopped driving its ghost mid-tick (the honored pause also clears `stillDue`
+directly, mirroring the blocked branch). Owed cycles are then rebased away by `TryActivate`, as
+documented below. Covered by `SendOnceArmed_MultiStop_BothWindowsInOneTick_EndsPaused_OneToast`,
+`..._WindowsAcrossTwoTicks_PausesOnlyOnCompletion`,
+`..._CatchUpStopsAfterThePause_NoNextCycleDispatch`,
+`Unarmed_MultiStop_BothWindowsInOneTick_StaysActive_NoPauseNoToast`,
+`PauseArmedWhileInTransit_MultiStopCycleCompletes_PausesWithoutToast`
+(`RouteSendOnceBlockedPauseTests`) and the core gate pin
+`StatusTransition_MultiStopWindow_ArmedPause_DeliversWithoutConsumingTheArm`
+(`RouteOrchestratorDeliveryTests`).
 
-**3. Endpoint-lost at delivery leaves the arm live.** That branch transitions to
-`EndpointLost` without touching `PauseAfterCurrentCycle`/`SendOnceArmed`, and both flags
-persist through the codec. Inert today (`EndpointLost` is not ghost-driving, and `TryActivate`
-- the only exit - clears the flags), but it becomes a live stale-arm the moment any path
-returns an endpoint-recovered route to ghost-driving without clearing them; the rewind
-classifier already treats the flags' stickiness as a hazard (`ClearOneShotFlags`).
+**~~2. The ELS replay backstop consumes the arm silently.~~** [FIXED 2026-09-01]
+`ApplyDelivery`'s replay branch (`delivered-replay-then-paused`) paused without a toast - the one
+resolution shape where the player is MOST likely to click again (the run produced no new
+delivery). It now posts `RouteSendOncePresentation.BuildAlreadyDeliveredMessage` under the same
+`SendOnceArmed`-only gate as the other toasts, capturing the provenance flag before consuming it
+exactly as the delivered tail does. Counts-free by construction: the delivered row is already in
+the ledger and the branch re-plans nothing, so there are no actuals to quote. Covered by
+`IdempotentReplay_SendOnceArmed_PostsAlreadyDeliveredToast` plus the two negative controls
+`IdempotentReplay_PauseAfterCycleArmed_PausesWithoutToast` /
+`IdempotentReplay_Unarmed_PostsNoToast_StaysActive`.
+
+**3. Endpoint-lost at delivery leaves the arm live.** [OPEN - classified 2026-09-01 as
+DELIBERATE, not a bug to close] That branch transitions to `EndpointLost` without touching
+`PauseAfterCurrentCycle`/`SendOnceArmed`, and both flags persist through the codec. Inert today
+(`EndpointLost` is not ghost-driving, and `TryActivate` - the only exit - clears the flags).
+
+**Why the arm deliberately SURVIVES an endpoint loss** (the classification decision, made while
+fixing 1 and 2 and recorded here so nobody "completes the family" by consuming it): an endpoint
+loss is RETRYABLE, not a resolution. `ApplyEndpointLost` / the delivery-time loss both set
+`NextEligibilityCheckUT = currentUT + WaitRetryIntervalSec` precisely because the endpoint may
+come back on its own (the surface-proximity fallback re-resolves, the destination reloads, the
+vessel comes back into range) - the route is waiting, not finished. That puts it in the SAME
+class as the two `IsPostponementHold` kinds (`SourcesStale`, `WaitingForPartner`), which the
+#1582 fix already exempts from consuming the arm on the blocked path: the player's one run has
+not happened yet, and cancelling their Send Once for a hold that self-clears is exactly the
+failure mode that exemption exists to prevent. Consuming the arm here would ALSO be
+inconsistent with the blocked path, where `EndpointLost` arrives as an eligibility kind and is
+handled by `TryHonorArmedPauseOnBlockedCycle`'s postponement allowlist policy - two paths, one
+kind, opposite answers.
+
+What keeps it OPEN is the stale-arm hazard, not the current behaviour: if any future path ever
+returns an endpoint-recovered route to a ghost-driving status WITHOUT clearing the flags, a
+one-shot armed hours ago would silently fire. The invariant to hold is "every entry back into
+ghost-driving either honors or clears the one-shot"; `TryActivate` is the only such entry today
+and it clears (`ClearOneShotFlags`, which the rewind classifier already treats as a hazard
+surface). Any new one must do the same - or, if endpoint-lost is ever reclassified as a
+resolution, it should be added to the postponement allowlist's mirror, not fixed at one call
+site.
+
+**~~4. A SINGLE-STOP pure-PICKUP loop route never honors the arm on its delivered path.~~**
+[FOUND 2026-09-01 while fixing 1 and 2; FIXED 2026-09-01 in the same family]
+`EmitLoopCycle`'s `else` branch (no delivery manifest) bumped `CompletedCycles` and returned; the
+armed tail lives inside `ApplyDelivery`, which that branch never calls. So a Send Once on a
+pickup-only single-stop route completed its cycle and kept looping with both flags armed - the
+same end state as the blocked defect #1582 fixed, reached through a different door. (A blocked
+cycle on such a route DOES pause, via `TryHonorArmedPauseOnBlockedCycle`, so the two resolutions
+disagreed.) The multi-stop equivalent was already covered by item 1's fix, because
+`TryHonorArmedPauseOnCompletedCycle` sits at cycle completion and does not care which halves the
+windows emitted.
+
+Fix: that `else` branch IS the cycle's completion for a pure-pickup route, so it now calls the
+same `TryHonorArmedPauseOnCompletedCycle` helper, immediately after the `CompletedCycles` bump -
+the single-stop mirror of the multi-stop `cycleLastDockReached` call site, with the same
+`delivered-then-paused` reason, the same last-stop stride+4 marker slot (Sequence 4 at one stop,
+where the single-stop delivered tail also lands it), the same counts-free toast and the same
+pending-recovery-credit flush. The helper is a no-op when nothing is armed, so an ordinary
+pickup cycle is byte-identical. The DELIVERED path is untouched: the single-stop delivered tail
+still resolves inside `ApplyDeliveryFromPlan` under its `BumpCompletedCycle` gate (folding it
+into the helper too was considered and left alone - it would move a working, ledger-pinned
+resolution for tidiness alone). Still unverified against a real save; no known pickup-only route
+exists yet. Covered by `SendOnceArmed_PurePickupCycle_EndsPaused_ClearsFlags_OneToast`,
+`Unarmed_PurePickupCycle_StaysActive_NoPauseNoToast` and
+`PauseAfterCycleArmed_PurePickupCycle_PausesWithoutToast` (`RouteLoopPickupFireTests`); all
+three go red against the pre-fix branch.
 
 Also banked from the same review (comment-only, corrected in the follow-up commit): the
 blocked-cycle marker CAN share its `(routeId, UT, Sequence=0)` key with a
@@ -164,7 +242,7 @@ in as many words (`PhaseLock APPLIED: ... cadence 90.079999999918186->95`). The 
 clock deliberately runs on the quantized cadence so the ghost's relaunch schedule sits on
 faithful windows; the route's own `DispatchInterval` stays the raw `N * span`. Intended.
 
-## ROUTE-DISPATCH-COST-FREE-ON-SNAPSHOTLESS-ROOT: a KSC route whose tree ROOT recording carries no `VesselSnapshot` dispatches for FREE in career [FOUND 2026-08-30 off the same `logs/2026-08-30_1106_rover-route` flight while diagnosing a `cost=0` Verbose line. LATENT CAREER DEFECT — the flight was SANDBOX so nothing was mischarged. OPEN, not yet fixed]
+## ~~ROUTE-DISPATCH-COST-FREE-ON-SNAPSHOTLESS-ROOT: a KSC route whose tree ROOT recording carries no `VesselSnapshot` dispatches for FREE in career~~ [FOUND 2026-08-30 off the same `logs/2026-08-30_1106_rover-route` flight while diagnosing a `cost=0` Verbose line. LATENT CAREER DEFECT — the flight was SANDBOX so nothing was mischarged. FIXED 2026-09-01]
 
 **Evidence.** Every UI repaint logged `ComputeDispatchFundsCostForRoute: route fd6ee2ff source
 recording cf8d06fc... not in ERS or has no VesselSnapshot; cost=0`. The recording IS in ERS (a
@@ -183,10 +261,82 @@ this root DOES carry a run manifest (`RouteRunManifest start written ... parts=1
 career that zero flows into BOTH the funds eligibility gate (vacuously passes) and the actual
 charge: the KSC dispatch is silently free, with one Verbose line as the only trace.
 
-**Shape of a fix (undecided):** either cost from the first `SourceRefs` member that HAS a
-snapshot / from the run manifest when the root is snapshot-less, or capture a real
-`VesselSnapshot` on the root at the split that orphans it. Product decision — the costing
-basis defines what a "dispatch" charges for.
+**Fix (2026-09-01): a member fallback for the PARTS term, the root's manifest for the
+RESOURCE term.** `SourceRefs[0]` (the tree root) stays the PREFERRED basis, so every route
+that already costs from its root is byte-identical. When the root carries no
+`VesselSnapshot` (or is absent from ERS), `ComputeDispatchFundsCostForRoute` now walks
+`route.SourceRefs` IN ORDER and prices the PARTS term from the first member whose ERS
+recording has one; the RESOURCE term still prefers the ROOT's COMPLETE `RouteRunManifest`
+(the launch load is the root's fact, and the root carries the manifest even when it carries
+no snapshot), falling back to the chosen member's snapshot resources through the legacy
+stop-snapshot walk. The other half of the decision - do NOT capture a snapshot on the root
+at the orphaning split - was rejected: it would rewrite recorder behavior for a costing
+question, and would not repair a single existing save.
+
+**The combined-vessel exclusion, and why it is load-bearing.** The dock-merged child IS a
+`SourceRefs` member: `RouteBuilder.BuildRouteSourceRefs` adds the window-carrying leaf
+unconditionally ("The leaf (dock child) is ALWAYS a member"), and the M-MIS-5 origin carrier
+joins the same way. That recording's `VesselSnapshot` is the MERGED snapshot
+(`ParsekFlight`'s dock-merge site stamps the window and the combined snapshot together), so
+a naive first-member-with-a-snapshot walk would have charged the player for the destination
+station's parts on every cycle. `RouteOrchestrator.IsCombinedVesselSourceMember` skips such
+a member on three positive facts, any one of which suffices: it carries a
+`RouteConnectionWindow` (the dock-merge site is that list's ONLY writer, so carrying one IS
+being a merged child - and this catches the origin carrier too, whose StartUT is well before
+the delivery dock), its id is the route's own `DockMemberRecordingId`, or its recording
+starts at/after `Route.RecordedDockUT`. The exclusion applies to the FALLBACK walk only.
+`RouteStore.RevalidateSources` / `RouteProofHasher` are indifferent to which member is
+costed - they inspect every ref equally and have no notion of a costed member.
+
+**When nothing can be costed.** If no member is in ERS with a usable snapshot the method
+still returns 0, but that case is now a distinct rate-limited line (this method runs per UI
+repaint): `FundsCost: route <id> UNCOSTED - no SourceRefs member ... (a career KSC dispatch
+charges nothing)`. The costed path logs `FundsCost basis=<launch-manifest|stop-snapshot>
+route=... source=<root id> snapshotSource=<priced member id> fallback=<0|1>`.
+
+**Tests** (`RouteOrchestratorTests`): `..._RootHasSnapshot_PricesRoot_NoFallback` (the
+regression pin), `..._SnapshotlessRoot_FallsBackToMemberParts_KeepsRootLaunchManifest`,
+`..._SnapshotlessRoot_IncompleteManifest_UsesMemberSnapshotResources`,
+`..._SnapshotlessRoot_SkipsDockMergedMember` (merged child ordered AHEAD of the transport so
+the walk must SKIP it, not merely never reach it),
+`..._NoMemberWithUsableSnapshot_ReturnsZero_LogsUncosted`, and
+`IsCombinedVesselSourceMember_MatchesEachPositiveFact_NotThePreDockTransport`. WHICH
+snapshot the walk visited is proved mechanically rather than by the basis line alone: headless
+`LookupPartCost` prices everything at 0, so every visited part name emits its own
+`Unknown part cost: name=...` Warn, and each fixture recording carries a distinct part name.
+Unblocks Tier C item 9 of the supply-route coverage program (`autotest-roadmap.md`); that
+career lane is still unauthored and has never flown.
+
+## ROUTE-ORIGIN-PROOF-PRODUCER-UNREACHABLE (SUSPECTED): the start-docked `RouteOriginProof` producer keys on a part-parent condition that a settled dock can never satisfy, so no live recording has ever carried a proof [FOUND BY READING 2026-09-01 while scoping which route flights can be automated, CORROBORATED by the 2026-08-30 rover flight log. SUSPECTED, not yet probed live - REPORT-ONLY until the probe cell below runs]
+
+**The condition.** `FlightRecorder.CaptureStartRouteOriginProofIfDocked` builds its partner
+candidates from parts where `p.parent.vessel != null && p.parent.vessel != v`
+(`RouteProofCapture.TryResolveStartDockedOriginPartner` names the same rule). KSP's
+`Part.Couple` reassigns `vessel` across the whole absorbed subtree - `GrappleCaptureInGameTest`
+asserts exactly that after a live couple - so on any settled docked pair, and after any
+save/load of one, every part reads `p.parent.vessel == v` and the candidate list is empty.
+
+**Corroboration.** The rover flight logged `RouteOriginProof skipped: no external coupling ...
+candidates=0` at EVERY recording start, including the one at 10:55:00 for the dock-merged
+child created while B was docked to A (`logs/2026-08-30_1106_rover-route/KSP.log:18547`).
+Zero committed fixtures carry a `ROUTE_ORIGIN_PROOF` node, every Logistics skip roster gives
+the same missing-subject reason for `RouteOriginProof_StartedDockedToNonKsc_ProducerLandsProof`,
+and the only tests of the resolver (`RouteOriginProofCaptureTests`) feed it hand-built
+candidate lists - they prove the pure resolver and say nothing about whether the live list
+can be non-empty. The design source (`docs/dev/done/logistics-origin-ownership-proposal.md`)
+asserts the cross-vessel parent link without a decompile finding behind it.
+
+**Why it has stayed invisible.** Docked-depot origins are resolved today by the M-MIS-5 P2b
+mid-tree docked-origin window path (`RouteAnalysisEngine.AnalyzeWindows`), which is what the
+`depot-route-recorded` fixture exercises - the start proof was never load-bearing for any
+committed route.
+
+**Next step (cheap, before any operator flight for the roadmap's B4 subject).** A FLIGHT
+probe cell that couples a spawned `dockingPort2` part into the active vessel and counts
+parts with `p.parent.vessel != v` (expected 0). If confirmed: fix the producer to derive the
+partner from the docking node's own docked-partner information at recording start instead of
+the parent-vessel identity, and pin it with a self-provisioning capture cell; the B4 manual
+flight is then unnecessary. If refuted: record the KSP state that yields the link and fly B4.
 
 ## RESERVATION-OVERLAY-GAPS: the reservation readout that replaced the dead budget UI is absent in the EDITOR and reports `Reserved: 0` in a genuine deficit [SPLIT OUT 2026-08-29 from RESOURCE-BUDGET-READOUTS-ARE-DEAD when that entry was struck as cleanup-done. Neither gap was part of that cleanup; refiled here so they survive it]
 
@@ -796,12 +946,14 @@ containment repair on the Transporter's chain segment `a85a7ae0...` - the only
 RECORDED fixture in the suite with a zero-WARN reading.
 
 **Why it is a harvest and not a forge**, restated here because it is the thing a
-reader will question: route candidacy is gated on `IsTreeFullySealed` and both
-verbs that could satisfy it (`SealSlot`, `RouteCommand`) are RESERVED command-seam
-verbs (H35 ROUTE-CANDIDACY-GATED-ON-SEAL-NO-SEAM-PATH), so no driven run can
-create a ROUTE at all today. The register amendment is on the G1 entry in
-`autotest-roadmap.md`; B27 is now a FORGE-CLASS STAMP and the flight variant is
-deferred behind those two verbs.
+reader will question: route candidacy is gated on `IsTreeFullySealed` and, AT HARVEST
+TIME, both verbs that could satisfy it (`SealSlot`, `RouteCommand`) were RESERVED
+command-seam verbs (H35 ROUTE-CANDIDACY-GATED-ON-SEAL-NO-SEAM-PATH), so no driven run
+could create a ROUTE at all. The register amendment is on the G1 entry in
+`autotest-roadmap.md`; B27 is a FORGE-CLASS STAMP and the flight variant was deferred
+behind those two verbs. **Both verbs shipped 2026-08-30**, so the deferral is lifted as a
+CAPABILITY - but this fixture stays a harvest until a driven seal -> create run actually
+produces one, and nothing here should be re-read as forged in the meantime.
 
 **Three residuals, all deliberate, all non-gating:**
 
@@ -4162,7 +4314,7 @@ tier-strength refusal without a flown filter would refuse the very recoveries th
 correlation fix captured, and `L4`'s `KerbalXp` facet would go vacuous again - the failure
 mode the recommendation's "What NOT to do" paragraph names.
 
-## ROUTE-CANDIDACY-GATED-ON-SEAL-NO-SEAM-PATH: a green two-vessel docking flight cannot produce a route-candidate tree, and no seam verb can seal one [FOUND 2026-08-11 while wiring `H35-logistics-route-proof`. A CAPABILITY GAP in the automation surface, not a product defect - the seal policy itself is correct]
+## ~~ROUTE-CANDIDACY-GATED-ON-SEAL-NO-SEAM-PATH: a green two-vessel docking flight cannot produce a route-candidate tree, and no seam verb can seal one~~ [FOUND 2026-08-11 while wiring `H35-logistics-route-proof`. A CAPABILITY GAP in the automation surface, not a product defect - the seal policy itself is correct. **CLOSED 2026-08-30 by fix road (1)**: `SealSlot` and `RouteCommand` are both promoted out of `ReservedVerbs` and implemented against the production paths - see the closure note at the end of this entry]
 
 **What was measured.** The `bdock-recorded` fixture is the produced save of a FULLY
 GREEN `BDOCK-1-station-interceptor` flight (run `2026-08-11_1606`, PASS attempt 1,
@@ -4194,14 +4346,11 @@ gate; it is that a flight-class terminal - which is what an interceptor profile 
 on - leaves provisionals behind BY DESIGN, so **no automated mission produces a
 sealed tree**. Sealing is a player action.
 
-**And the seam cannot perform it.** `SealSlot` is a RESERVED verb:
-`Source/Parsek/TestCommands/TestCommandVerbs.cs:100` lists it in `ReservedVerbs`,
-and `TestCommandDispatcher.cs:298-299` answers `Reject("not-implemented-v1")` for
-the whole reserved class. It is pinned reserved by
-`Source/Parsek.Tests/TestCommandDispatchTests.cs:65-66` and
-`TestCommandVerbTableTests.cs:47`. The only other "Seal" on the seam surface is
-`MergeAnswerChoice.Seal`, which ANSWERS an already-open merge dialog
-(`ParsekTestCommandAddon.cs:2187`) - it cannot seal a tree on demand.
+**And the seam could not perform it (until 2026-08-30).** `SealSlot` was a RESERVED
+verb: `TestCommandVerbs.ReservedVerbs` listed it and `TestCommandDispatcher` answered
+`Reject("not-implemented-v1")` for the whole reserved class. The only other "Seal" on
+the seam surface is `MergeAnswerChoice.Seal`, which ANSWERS an already-open merge dialog
+- it cannot seal a tree on demand. See the closure note below.
 
 **Scope, stated honestly.** What is blocked is end-to-end route CREATION under
 automation: candidate detection -> promotion -> a live route driven by a REAL
@@ -4213,13 +4362,39 @@ coverage (H6's route-rewind timeline, H34's inter-body firing gate, the M3-M5 xU
 stack) all drives SYNTHETIC routes built in memory, which is what this gap keeps it
 doing.
 
-**Fix (either road, both real work, neither taken here):** (1) promote `SealSlot` out of
-`ReservedVerbs` and implement it against the same code path the UI's Seal action
-uses, which makes the whole candidate -> route pipeline drivable; or (2) add an
-in-game seal API a `[InGameTest]` can call, and wire a Logistics cell that seals a
-committed tree, derives candidates and asserts the promotion - cheaper, but it
-proves the pipeline rather than the player workflow. Until one lands, do NOT read
-"BDOCK-1 is green" as "routes are automated end to end".
+**Fix (two roads were open):** (1) promote `SealSlot` out of `ReservedVerbs` and
+implement it against the same code path the UI's Seal action uses, which makes the whole
+candidate -> route pipeline drivable; or (2) add an in-game seal API a `[InGameTest]` can
+call, and wire a Logistics cell that seals a committed tree, derives candidates and
+asserts the promotion - cheaper, but it proves the pipeline rather than the player
+workflow.
+
+**CLOSED 2026-08-30 by road (1), and the SECOND verb went with it.** `SealSlot` and
+`RouteCommand` are both promoted out of `ReservedVerbs` (28 -> 30 implemented, 7 -> 5
+reserved) and implemented as thin appliers over the production paths:
+
+- `SealSlot tree=<treeId>` seals every open member of a committed tree through
+  `UnfinishedFlightSealHandler.TrySeal` - the exact call the Unfinished Flights per-row
+  Seal button makes, so the tip flip, the `FilesDirty` mark, the
+  `BumpSupersedeStateVersionLive()` (ERS-cache invalidation AND
+  `RouteStore.RevalidateSources`), the persist and the RP reap all happen the way they do
+  for a player. The D9 `rp=` + `slot=` spelling is kept beside it. IDEMPOTENT: an
+  already-sealed tree answers `OK sealed=0 alreadySealed=true`.
+- `RouteCommand action=create|send-once|pause|activate` creates through a new shared
+  `RouteCreationService.CreatePausedFromCandidate` funnel - the build + store +
+  manual-loop-clear sequence LIFTED out of `LogisticsWindowUI.CreateRouteFromCandidate`
+  (a private instance method on a UI window, which is why no seam could reach it), with
+  the window now calling the same funnel so the two cannot drift - and operates through
+  `RouteOrchestrator.TrySendOneCycleNow` / `TryPause` / `TryActivate`.
+
+Contracts, arg grammars and the full typed-error taxonomies:
+`docs/dev/design-autotest-command-seam.md` -> "Update (the logistics verbs)" plus the
+`#### SealSlot` / `#### RouteCommand` sections. What is NOT yet true, and must not be
+read into this closure: no lane has FLOWN the seal -> create sequence yet, so
+"routes are automated end to end" becomes true when a driven run proves it, not when
+these verbs compile. `StashSlot` and `FlySlot` stay reserved on purpose - `FlySlot`'s
+mechanism is already driveable as `InvokeRewind`, and nothing needs `StashSlot`'s
+slot-OPEN direction.
 
 **D10 coverage, and why H35 claims NONE of it.** The obvious temptation on a spec
 whose subject is route proofs is to claim a D10 row. H35 claims none, deliberately.

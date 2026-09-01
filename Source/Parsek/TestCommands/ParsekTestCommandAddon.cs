@@ -1155,6 +1155,14 @@ namespace Parsek.TestCommands
         // settled SPACECENTER rather than on a re-fly marker.
         void ITestCommandExecutor.InvokeRewindToLaunch(ParsedCommand cmd) => InvokeRewindToLaunchImpl(cmd);
 
+        // Logistics lane: the bodies live in the sibling
+        // ParsekTestCommandAddon.SealSlot.cs / ParsekTestCommandAddon.RouteCommand.cs
+        // partials. Both single-phase - the seal (plus its persist) and the
+        // build/store/orchestrator-arm are synchronous, so each read-back is a final
+        // answer - so neither has a TryComplete* counterpart in TryCompleteTwoPhaseCore.
+        void ITestCommandExecutor.SealSlot(ParsedCommand cmd) => SealSlotImpl(cmd);
+        void ITestCommandExecutor.RouteCommand(ParsedCommand cmd) => RouteCommandImpl(cmd);
+
         private void InvokeExecutor(ParsedCommand cmd)
         {
             // Batch-baseline latch clear (finding 1). Any verb that can change state a
@@ -1202,6 +1210,8 @@ namespace Parsek.TestCommands
                 case "EnterMapView": exec.EnterMapView(cmd); break;
                 case "ExitMapView": exec.ExitMapView(cmd); break;
                 case "InvokeRewindToLaunch": exec.InvokeRewindToLaunch(cmd); break;
+                case "SealSlot": exec.SealSlot(cmd); break;
+                case "RouteCommand": exec.RouteCommand(cmd); break;
                 default:
                     // Unreachable: DecideDispatch rejects unknown/reserved verbs before Execute.
                     SetExecResult("ERROR", null, "unknown-command");

@@ -14,9 +14,12 @@ tier = "nightly"
 # `ROUTE` node at all: H35's own header records that its route-owning tree cannot even
 # become a route candidate, because `RouteCandidateFinder.IsTreeFullySealed` requires
 # every recording to be `MergeState.Immutable` and two of its recordings are
-# `CommittedProvisional`, while the `SealSlot` seam verb that would seal one is RESERVED
-# (`not-implemented-v1`; see ROUTE-CANDIDACY-GATED-ON-SEAL-NO-SEAM-PATH in
-# todo-and-known-bugs.md). `depot-route-recorded` is the B27 harvest that HAS one, and it
+# `CommittedProvisional`, while the `SealSlot` seam verb that would seal one was RESERVED
+# when both lanes were authored (`not-implemented-v1`; PROMOTED AND IMPLEMENTED
+# 2026-08-30 alongside `RouteCommand` - see ROUTE-CANDIDACY-GATED-ON-SEAL-NO-SEAM-PATH in
+# todo-and-known-bugs.md, and note that no lane has yet FLOWN the seal -> create
+# sequence, so the fixture split below is still the only ROUTE-PRESENT source).
+# `depot-route-recorded` is the B27 harvest that HAS one, and it
 # is the suite's ONLY committed Active route. So the axis this lane adds is
 # ROUTE-PRESENT vs ROUTE-ABSENT, and every route-reading cell in the category
 # (`LogisticsRouteStoreRuntimeTests`, `LogisticsRouteDispatchRuntimeTests`,
