@@ -2429,7 +2429,11 @@ routes is a product question this entry deliberately does not answer.
 
 ---
 
-## KSC-SURFACE-RESOLVED-TWO-EMITTERS-SHARE-ONE-RATE-LIMIT-KEY: the KSC host logs `KSC SURFACE playback resolved` from two sites with DIFFERENT field sets under ONE rate-limit key, so the only variant carrying `body=` can be silently suppressed by the one that does not [FOUND BY AUDIT 2026-08-21 while authoring `V22K-kerbin-splashdown-ksc-arrival`, the first lane ever to pin the KSC render host. OBSERVABILITY FINDING, REPORT-ONLY: no product change is proposed, nothing gates it, and the lane routes around it. Filed because it silently degrades a diagnostic and because the next author to pin that line will otherwise design an unsatisfiable pin]
+## ~~KSC-SURFACE-RESOLVED-TWO-EMITTERS-SHARE-ONE-RATE-LIMIT-KEY: the KSC host logs `KSC SURFACE playback resolved` from two sites with DIFFERENT field sets under ONE rate-limit key, so the only variant carrying `body=` can be silently suppressed by the one that does not~~ [FOUND BY AUDIT 2026-08-21 while authoring `V22K-kerbin-splashdown-ksc-arrival`, the first lane ever to pin the KSC render host. OBSERVABILITY FINDING. FIXED 2026-09-02 in the cheap shape the entry named]
+
+**Fix (2026-09-02).** The two emitters now carry their own rate-limit keys (`ksc-surface-point-<recId>` and `ksc-surface-segment-<recId>`), and the interpolation variant carries `body=` too (`before.bodyName`, which the upstream gate has already proven equals `after.bodyName` equals `Kerbin`). Both paths are therefore independently observable and a future lane can pin the frame directly. V22K's committed pin, `KSC SURFACE playback resolved: recording=.* branch=`, matches both variants before and after (the `.*` spans the new field), and its control inversion is untouched, so the lane's header remains accurate as a description of why the body-agnostic pin was chosen; it is no longer the ONLY satisfiable pin. Pinned by `KscGhostPlaybackTests.SurfaceResolvedLines_PointAndSegmentPaths_EmitIndependentlyAndBothCarryBody`, which drives the point path and the segment path for one recording inside one rate-limit window and asserts both lines land with `body=Kerbin`.
+
+Original entry follows for the mechanism.
 
 `ParsekKSC.Playback.cs` resolves a KSC surface pose on two paths and both log the
 same prefix:

@@ -95,7 +95,7 @@ namespace Parsek
             if (rec == null)
             {
                 ParsekLog.Verbose("KSCGhost",
-                    $"KSC pose interpolation skipped: recording=null targetUT={targetUT:F2}");
+                    $"KSC pose interpolation skipped: recording=null targetUT={FormatUt(targetUT)}");
                 return false;
             }
 
@@ -127,7 +127,7 @@ namespace Parsek
                 ParsekLog.VerboseRateLimited("KSCGhost",
                     $"ksc-no-points-{rec.RecordingId}",
                     $"KSC pose interpolation skipped: no points recording={rec.DebugName} " +
-                    $"targetUT={targetUT:F2} sections={rec.TrackSections?.Count ?? 0}");
+                    $"targetUT={FormatUt(targetUT)} sections={rec.TrackSections?.Count ?? 0}");
                 return false;
             }
 
@@ -292,7 +292,7 @@ namespace Parsek
                     "non-kerbin",
                     section.HasValue ? NormalizeKscAnchorRecordingId(section.Value) : null);
                 ParsekLog.VerboseRateLimited("KSCGhost", $"ksc-point-non-kerbin-{rec.RecordingId}",
-                    $"KSC point skipped: recording={rec.DebugName} body={point.bodyName ?? "null"} ut={point.ut:F2}");
+                    $"KSC point skipped: recording={rec.DebugName} body={point.bodyName ?? "null"} ut={FormatUt(point.ut)}");
                 return false;
             }
 
@@ -336,11 +336,20 @@ namespace Parsek
                 worldRot,
                 DescribeKscBranch(section, useBodyFixedPrimary),
                 null);
-            ParsekLog.VerboseRateLimited("KSCGhost", $"ksc-surface-position-{rec.RecordingId}",
+            // Own rate-limit key per emitter: the point and segment paths used to share
+            // one, so whichever fired first inside the window silenced the other.
+            ParsekLog.VerboseRateLimited("KSCGhost", $"ksc-surface-point-{rec.RecordingId}",
                 $"KSC SURFACE playback resolved: recording={rec.DebugName} " +
-                $"ut={point.ut:F2} body={point.bodyName} branch={pose.Branch}",
+                $"ut={FormatUt(point.ut)} body={point.bodyName} branch={pose.Branch}",
                 2.0);
             return true;
+        }
+
+        // Log-line number formatting must not follow the OS culture (a comma-locale
+        // machine printed targetUT=150,00, which no harness regex expects).
+        private static string FormatUt(double value)
+        {
+            return value.ToString("F2", System.Globalization.CultureInfo.InvariantCulture);
         }
 
         private static bool TryResolveKscSegmentPose(
@@ -367,7 +376,7 @@ namespace Parsek
                     section.HasValue ? NormalizeKscAnchorRecordingId(section.Value) : null);
                 ParsekLog.VerboseRateLimited("KSCGhost", "ksc-segment-non-kerbin",
                     $"KSC segment skipped: beforeBody={before.bodyName ?? "null"} " +
-                    $"afterBody={after.bodyName ?? "null"} targetUT={targetUT:F2}");
+                    $"afterBody={after.bodyName ?? "null"} targetUT={FormatUt(targetUT)}");
                 return false;
             }
 
@@ -423,7 +432,7 @@ namespace Parsek
                 double.IsNaN(interpolatedPos.z))
             {
                 ParsekLog.VerboseRateLimited("KSCGhost", "ksc-pos-nan-fallback",
-                    $"KSC interpolation produced NaN; using before point at ut={before.ut:F2}");
+                    $"KSC interpolation produced NaN; using before point at ut={FormatUt(before.ut)}");
                 interpolatedPos = posBefore;
             }
 
@@ -434,9 +443,9 @@ namespace Parsek
                 worldRot,
                 DescribeKscBranch(section, useBodyFixedPrimary),
                 null);
-            ParsekLog.VerboseRateLimited("KSCGhost", $"ksc-surface-position-{rec.RecordingId}",
+            ParsekLog.VerboseRateLimited("KSCGhost", $"ksc-surface-segment-{rec.RecordingId}",
                 $"KSC SURFACE playback resolved: recording={rec.DebugName} " +
-                $"targetUT={targetUT:F2} branch={pose.Branch}",
+                $"targetUT={FormatUt(targetUT)} body={before.bodyName} branch={pose.Branch}",
                 2.0);
             return true;
         }
@@ -500,8 +509,8 @@ namespace Parsek
             ParsekLog.VerboseRateLimited("KSCGhost", $"ksc-relative-position-{rec.RecordingId}",
                 $"RELATIVE KSC playback resolved: recording={rec.DebugName} " +
                 $"contract=anchor-local " +
-                $"version={rec.RecordingFormatVersion} dx={dx:F2} dy={dy:F2} dz={dz:F2} " +
-                $"anchorRec={anchorRecordingId} |offset|={Math.Sqrt(dx * dx + dy * dy + dz * dz):F2}m",
+                $"version={rec.RecordingFormatVersion} dx={FormatUt(dx)} dy={FormatUt(dy)} dz={FormatUt(dz)} " +
+                $"anchorRec={anchorRecordingId} |offset|={FormatUt(Math.Sqrt(dx * dx + dy * dy + dz * dz))}m",
                 2.0);
             return true;
         }
