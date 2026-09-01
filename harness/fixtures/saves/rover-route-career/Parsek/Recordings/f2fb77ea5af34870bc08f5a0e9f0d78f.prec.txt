@@ -1,0 +1,2444 @@
+version = 1
+recordingSchemaGeneration = 4
+recordingId = f2fb77ea5af34870bc08f5a0e9f0d78f
+sidecarEpoch = 3
+sectionAuthoritative = True
+PART_EVENT
+{
+	ut = 513.61999999982288
+	pid = 894881109
+	type = 28
+	part = roverWheel1
+	value = 0.332857668
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 513.61999999982288
+	pid = 2709475368
+	type = 28
+	part = roverWheel1
+	value = 0.334524781
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 513.63999999982286
+	pid = 894881109
+	type = 30
+	part = roverWheel1
+	value = 0.333301336
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 513.63999999982286
+	pid = 2709475368
+	type = 30
+	part = roverWheel1
+	value = 0.334969044
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 513.67999999982283
+	pid = 3234524950
+	type = 28
+	part = roverWheel1
+	value = 0.328929543
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 513.67999999982283
+	pid = 2245285422
+	type = 28
+	part = roverWheel1
+	value = 0.329181671
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 513.67999999982283
+	pid = 2791927569
+	type = 28
+	part = roverWheel1
+	value = 0.3247154
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 513.67999999982283
+	pid = 894881109
+	type = 28
+	part = roverWheel1
+	value = 0.334021479
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 513.67999999982283
+	pid = 2709475368
+	type = 28
+	part = roverWheel1
+	value = 0.335767478
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 513.69999999982281
+	pid = 3234524950
+	type = 30
+	part = roverWheel1
+	value = 0.32852754
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 513.69999999982281
+	pid = 2245285422
+	type = 30
+	part = roverWheel1
+	value = 0.32876423
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 513.69999999982281
+	pid = 2478770940
+	type = 28
+	part = roverWheel1
+	value = 0.323551327
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 513.69999999982281
+	pid = 2791927569
+	type = 30
+	part = roverWheel1
+	value = 0.3247943
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 513.69999999982281
+	pid = 894881109
+	type = 30
+	part = roverWheel1
+	value = 0.334429473
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 513.69999999982281
+	pid = 2709475368
+	type = 30
+	part = roverWheel1
+	value = 0.3362072
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 513.71999999982279
+	pid = 2478770940
+	type = 30
+	part = roverWheel1
+	value = 0.323678762
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 513.73999999982277
+	pid = 3234524950
+	type = 28
+	part = roverWheel1
+	value = 0.327843279
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 513.73999999982277
+	pid = 2245285422
+	type = 28
+	part = roverWheel1
+	value = 0.3280396
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 513.73999999982277
+	pid = 894881109
+	type = 28
+	part = roverWheel1
+	value = 0.335499883
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 513.73999999982277
+	pid = 2709475368
+	type = 28
+	part = roverWheel1
+	value = 0.337358534
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 513.75999999982275
+	pid = 3234524950
+	type = 30
+	part = roverWheel1
+	value = 0.327592969
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 513.75999999982275
+	pid = 2245285422
+	type = 30
+	part = roverWheel1
+	value = 0.327741474
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 513.77999999982273
+	pid = 2478770940
+	type = 28
+	part = roverWheel1
+	value = 0.324346066
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 513.77999999982273
+	pid = 2791927569
+	type = 28
+	part = roverWheel1
+	value = 0.325692832
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 513.79999999982272
+	pid = 2478770940
+	type = 30
+	part = roverWheel1
+	value = 0.324619442
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 513.79999999982272
+	pid = 2791927569
+	type = 30
+	part = roverWheel1
+	value = 0.325903
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 513.83999999982268
+	pid = 3234524950
+	type = 28
+	part = roverWheel1
+	value = 0.3268013
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 513.85999999982266
+	pid = 3234524950
+	type = 30
+	part = roverWheel1
+	value = 0.326552063
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 513.87999999982264
+	pid = 2245285422
+	type = 28
+	part = roverWheel1
+	value = 0.3269427
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 513.89999999982263
+	pid = 3234524950
+	type = 28
+	part = roverWheel1
+	value = 0.325711876
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 513.89999999982263
+	pid = 2245285422
+	type = 30
+	part = roverWheel1
+	value = 0.3265254
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 513.91999999982261
+	pid = 4261069922
+	type = 28
+	part = roverWheel1
+	value = 0.321757555
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 513.91999999982261
+	pid = 3234524950
+	type = 30
+	part = roverWheel1
+	value = 0.325122952
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 513.93999999982259
+	pid = 4261069922
+	type = 30
+	part = roverWheel1
+	value = 0.321291745
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 513.93999999982259
+	pid = 3879536111
+	type = 28
+	part = roverWheel1
+	value = 0.321923882
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 513.93999999982259
+	pid = 3234524950
+	type = 28
+	part = roverWheel1
+	value = 0.324443
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 513.93999999982259
+	pid = 2245285422
+	type = 28
+	part = roverWheel1
+	value = 0.3252915
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 513.93999999982259
+	pid = 2791927569
+	type = 28
+	part = roverWheel1
+	value = 0.324928015
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 513.95999999982257
+	pid = 3879536111
+	type = 30
+	part = roverWheel1
+	value = 0.3213812
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 513.95999999982257
+	pid = 2478770940
+	type = 28
+	part = roverWheel1
+	value = 0.323757857
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 513.95999999982257
+	pid = 2791927569
+	type = 30
+	part = roverWheel1
+	value = 0.3244258
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 513.97999999982255
+	pid = 4261069922
+	type = 28
+	part = roverWheel1
+	value = 0.32018736
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 513.97999999982255
+	pid = 2478770940
+	type = 30
+	part = roverWheel1
+	value = 0.3231947
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 513.99999999982253
+	pid = 4261069922
+	type = 30
+	part = roverWheel1
+	value = 0.319568
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 513.99999999982253
+	pid = 3879536111
+	type = 28
+	part = roverWheel1
+	value = 0.320120841
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 513.99999999982253
+	pid = 2791927569
+	type = 28
+	part = roverWheel1
+	value = 0.323242277
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 513.99999999982253
+	pid = 2709475368
+	type = 30
+	part = roverWheel1
+	value = 0.337774
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 514.01999999982252
+	pid = 4261069922
+	type = 28
+	part = roverWheel1
+	value = 0.318925381
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 514.01999999982252
+	pid = 2478770940
+	type = 28
+	part = roverWheel1
+	value = 0.321901321
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 514.01999999982252
+	pid = 894881109
+	type = 30
+	part = roverWheel1
+	value = 0.335965663
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 514.01999999982252
+	pid = 2709475368
+	type = 28
+	part = roverWheel1
+	value = 0.3370358
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 514.0399999998225
+	pid = 894881109
+	type = 28
+	part = roverWheel1
+	value = 0.335112959
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 514.19999999982235
+	pid = 3234524950
+	type = 29
+	part = roverWheel1
+	value = 0.320153445
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 514.19999999982235
+	pid = 2245285422
+	type = 29
+	part = roverWheel1
+	value = 0.3205473
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 514.2599999998223
+	pid = 2791927569
+	type = 29
+	part = roverWheel1
+	value = 0.320034772
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 514.27999999982228
+	pid = 4261069922
+	type = 30
+	part = roverWheel1
+	value = 0.31834358
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 514.27999999982228
+	pid = 2478770940
+	type = 29
+	part = roverWheel1
+	value = 0.319268733
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 514.27999999982228
+	pid = 2791927569
+	type = 30
+	part = roverWheel1
+	value = 0.3201585
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 514.27999999982228
+	pid = 2709475368
+	type = 29
+	part = roverWheel1
+	value = 0.330090016
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 514.29999999982226
+	pid = 2478770940
+	type = 30
+	part = roverWheel1
+	value = 0.319376141
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 514.29999999982226
+	pid = 894881109
+	type = 29
+	part = roverWheel1
+	value = 0.32852903
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 514.29999999982226
+	pid = 2709475368
+	type = 30
+	part = roverWheel1
+	value = 0.3298993
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 514.31999999982224
+	pid = 894881109
+	type = 30
+	part = roverWheel1
+	value = 0.328375936
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 514.33999999982223
+	pid = 4261069922
+	type = 28
+	part = roverWheel1
+	value = 0.31911248
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 514.35999999982221
+	pid = 4261069922
+	type = 30
+	part = roverWheel1
+	value = 0.319321215
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 514.35999999982221
+	pid = 3879536111
+	type = 30
+	part = roverWheel1
+	value = 0.3195174
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 514.39999999982217
+	pid = 2791927569
+	type = 28
+	part = roverWheel1
+	value = 0.320804477
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 514.41999999982215
+	pid = 2791927569
+	type = 30
+	part = roverWheel1
+	value = 0.320858657
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 514.43999999982213
+	pid = 2478770940
+	type = 28
+	part = roverWheel1
+	value = 0.320022881
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 514.45999999982212
+	pid = 3879536111
+	type = 28
+	part = roverWheel1
+	value = 0.320151716
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 514.45999999982212
+	pid = 3234524950
+	type = 29
+	part = roverWheel1
+	value = 0.326432854
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 514.45999999982212
+	pid = 2245285422
+	type = 29
+	part = roverWheel1
+	value = 0.3268809
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 514.45999999982212
+	pid = 2478770940
+	type = 30
+	part = roverWheel1
+	value = 0.3200599
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 514.4799999998221
+	pid = 3879536111
+	type = 30
+	part = roverWheel1
+	value = 0.3201929
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 514.4799999998221
+	pid = 3234524950
+	type = 30
+	part = roverWheel1
+	value = 0.326511085
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 514.4799999998221
+	pid = 2245285422
+	type = 30
+	part = roverWheel1
+	value = 0.3269572
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 514.49999999982208
+	pid = 4261069922
+	type = 28
+	part = roverWheel1
+	value = 0.3199528
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 514.51999999982206
+	pid = 4261069922
+	type = 30
+	part = roverWheel1
+	value = 0.319967717
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 526.719999999811
+	pid = 3234524950
+	type = 28
+	part = roverWheel1
+	value = 0.3258812
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 526.719999999811
+	pid = 2245285422
+	type = 28
+	part = roverWheel1
+	value = 0.3263161
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 526.739999999811
+	pid = 3234524950
+	type = 30
+	part = roverWheel1
+	value = 0.3258544
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 526.739999999811
+	pid = 2245285422
+	type = 30
+	part = roverWheel1
+	value = 0.326292664
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 526.77999999981091
+	pid = 894881109
+	type = 28
+	part = roverWheel1
+	value = 0.3290234
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 526.79999999981089
+	pid = 894881109
+	type = 30
+	part = roverWheel1
+	value = 0.329048067
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 526.8999999998108
+	pid = 2709475368
+	type = 28
+	part = roverWheel1
+	value = 0.330534071
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 526.91999999981078
+	pid = 2709475368
+	type = 30
+	part = roverWheel1
+	value = 0.330563456
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 527.21999999981051
+	pid = 2245285422
+	type = 28
+	part = roverWheel1
+	value = 0.325652778
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 527.23999999981049
+	pid = 3234524950
+	type = 28
+	part = roverWheel1
+	value = 0.325206727
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 527.23999999981049
+	pid = 2245285422
+	type = 30
+	part = roverWheel1
+	value = 0.325627834
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 527.23999999981049
+	pid = 894881109
+	type = 28
+	part = roverWheel1
+	value = 0.329701275
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 527.25999999981047
+	pid = 3234524950
+	type = 30
+	part = roverWheel1
+	value = 0.3251805
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 527.25999999981047
+	pid = 894881109
+	type = 30
+	part = roverWheel1
+	value = 0.329732358
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 527.3399999998104
+	pid = 2709475368
+	type = 28
+	part = roverWheel1
+	value = 0.3312197
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 527.35999999981038
+	pid = 2709475368
+	type = 30
+	part = roverWheel1
+	value = 0.331251979
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 527.69999999981007
+	pid = 894881109
+	type = 28
+	part = roverWheel1
+	value = 0.330385745
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 527.71999999981
+	pid = 894881109
+	type = 30
+	part = roverWheel1
+	value = 0.3304172
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 527.73999999981
+	pid = 2245285422
+	type = 28
+	part = roverWheel1
+	value = 0.324983239
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 527.75999999981
+	pid = 3234524950
+	type = 28
+	part = roverWheel1
+	value = 0.324555218
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 527.75999999981
+	pid = 2245285422
+	type = 30
+	part = roverWheel1
+	value = 0.324955672
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 527.75999999981
+	pid = 2709475368
+	type = 28
+	part = roverWheel1
+	value = 0.331879258
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 527.77999999981
+	pid = 3234524950
+	type = 30
+	part = roverWheel1
+	value = 0.32452777
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 527.77999999981
+	pid = 2709475368
+	type = 30
+	part = roverWheel1
+	value = 0.331907
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 527.83999999981
+	pid = 2791927569
+	type = 28
+	part = roverWheel1
+	value = 0.321488142
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 527.85999999980993
+	pid = 2791927569
+	type = 30
+	part = roverWheel1
+	value = 0.321494877
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 528.13999999980967
+	pid = 894881109
+	type = 28
+	part = roverWheel1
+	value = 0.33105284
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 528.15999999980966
+	pid = 894881109
+	type = 30
+	part = roverWheel1
+	value = 0.3310847
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 528.17999999980964
+	pid = 2709475368
+	type = 28
+	part = roverWheel1
+	value = 0.332544744
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 528.19999999980962
+	pid = 2709475368
+	type = 30
+	part = roverWheel1
+	value = 0.332576066
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 528.25999999980957
+	pid = 2245285422
+	type = 28
+	part = roverWheel1
+	value = 0.324325085
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 528.27999999980955
+	pid = 2245285422
+	type = 30
+	part = roverWheel1
+	value = 0.324301422
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 528.27999999980955
+	pid = 2478770940
+	type = 28
+	part = roverWheel1
+	value = 0.3206852
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 528.29999999980953
+	pid = 3234524950
+	type = 28
+	part = roverWheel1
+	value = 0.323890477
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 528.29999999980953
+	pid = 2478770940
+	type = 30
+	part = roverWheel1
+	value = 0.3206899
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 528.31999999980951
+	pid = 3234524950
+	type = 30
+	part = roverWheel1
+	value = 0.323865622
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 528.57999999980927
+	pid = 4261069922
+	type = 28
+	part = roverWheel1
+	value = 0.3193391
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 528.57999999980927
+	pid = 894881109
+	type = 28
+	part = roverWheel1
+	value = 0.33172673
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 528.59999999980926
+	pid = 4261069922
+	type = 30
+	part = roverWheel1
+	value = 0.319335073
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 528.59999999980926
+	pid = 894881109
+	type = 30
+	part = roverWheel1
+	value = 0.331755459
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 528.59999999980926
+	pid = 2709475368
+	type = 28
+	part = roverWheel1
+	value = 0.3332154
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 528.61999999980924
+	pid = 2709475368
+	type = 30
+	part = roverWheel1
+	value = 0.333247066
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 528.63999999980922
+	pid = 3879536111
+	type = 28
+	part = roverWheel1
+	value = 0.319563925
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 528.6599999998092
+	pid = 3879536111
+	type = 30
+	part = roverWheel1
+	value = 0.3195601
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 528.79999999980907
+	pid = 2245285422
+	type = 28
+	part = roverWheel1
+	value = 0.323661417
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 528.819999999809
+	pid = 2245285422
+	type = 30
+	part = roverWheel1
+	value = 0.3236396
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 528.859999999809
+	pid = 3234524950
+	type = 28
+	part = roverWheel1
+	value = 0.3232188
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 528.879999999809
+	pid = 3234524950
+	type = 30
+	part = roverWheel1
+	value = 0.323197424
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 528.99999999980889
+	pid = 894881109
+	type = 28
+	part = roverWheel1
+	value = 0.33238247
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 529.01999999980887
+	pid = 894881109
+	type = 30
+	part = roverWheel1
+	value = 0.332413137
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 529.01999999980887
+	pid = 2709475368
+	type = 28
+	part = roverWheel1
+	value = 0.33390227
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 529.03999999980886
+	pid = 2709475368
+	type = 30
+	part = roverWheel1
+	value = 0.333933473
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 529.33999999980858
+	pid = 2245285422
+	type = 28
+	part = roverWheel1
+	value = 0.323014379
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 529.35999999980857
+	pid = 2245285422
+	type = 30
+	part = roverWheel1
+	value = 0.3229902
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 529.41999999980851
+	pid = 3234524950
+	type = 28
+	part = roverWheel1
+	value = 0.3225631
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 529.41999999980851
+	pid = 894881109
+	type = 28
+	part = roverWheel1
+	value = 0.333044648
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 529.41999999980851
+	pid = 2709475368
+	type = 28
+	part = roverWheel1
+	value = 0.334560454
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 529.43999999980849
+	pid = 3234524950
+	type = 30
+	part = roverWheel1
+	value = 0.322540641
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 529.43999999980849
+	pid = 894881109
+	type = 30
+	part = roverWheel1
+	value = 0.333074272
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 529.43999999980849
+	pid = 2709475368
+	type = 30
+	part = roverWheel1
+	value = 0.33459416
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 529.81999999980815
+	pid = 2709475368
+	type = 28
+	part = roverWheel1
+	value = 0.3352317
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 529.83999999980813
+	pid = 2791927569
+	type = 28
+	part = roverWheel1
+	value = 0.3221249
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 529.83999999980813
+	pid = 894881109
+	type = 28
+	part = roverWheel1
+	value = 0.333715856
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 529.83999999980813
+	pid = 2709475368
+	type = 30
+	part = roverWheel1
+	value = 0.335263848
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 529.85999999980811
+	pid = 2791927569
+	type = 30
+	part = roverWheel1
+	value = 0.3221299
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 529.85999999980811
+	pid = 894881109
+	type = 30
+	part = roverWheel1
+	value = 0.333749115
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 529.89999999980807
+	pid = 2245285422
+	type = 28
+	part = roverWheel1
+	value = 0.3223594
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 529.919999999808
+	pid = 2245285422
+	type = 30
+	part = roverWheel1
+	value = 0.322335452
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 529.999999999808
+	pid = 3234524950
+	type = 28
+	part = roverWheel1
+	value = 0.321901828
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 530.019999999808
+	pid = 3234524950
+	type = 30
+	part = roverWheel1
+	value = 0.321878433
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 530.21999999980778
+	pid = 2709475368
+	type = 28
+	part = roverWheel1
+	value = 0.335906357
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 530.23999999980776
+	pid = 2709475368
+	type = 30
+	part = roverWheel1
+	value = 0.3359412
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 530.25999999980775
+	pid = 894881109
+	type = 28
+	part = roverWheel1
+	value = 0.3343996
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 530.27999999980773
+	pid = 894881109
+	type = 30
+	part = roverWheel1
+	value = 0.334431738
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 530.39999999980762
+	pid = 2478770940
+	type = 28
+	part = roverWheel1
+	value = 0.3213176
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 530.4199999998076
+	pid = 2478770940
+	type = 30
+	part = roverWheel1
+	value = 0.321323961
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 530.47999999980755
+	pid = 2245285422
+	type = 28
+	part = roverWheel1
+	value = 0.3216966
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 530.49999999980753
+	pid = 2245285422
+	type = 30
+	part = roverWheel1
+	value = 0.3216753
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 530.59999999980744
+	pid = 3234524950
+	type = 28
+	part = roverWheel1
+	value = 0.321241021
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 530.61999999980742
+	pid = 3234524950
+	type = 30
+	part = roverWheel1
+	value = 0.321219355
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 530.61999999980742
+	pid = 2709475368
+	type = 28
+	part = roverWheel1
+	value = 0.3365908
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 530.6399999998074
+	pid = 2709475368
+	type = 30
+	part = roverWheel1
+	value = 0.336626381
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 530.65999999980738
+	pid = 894881109
+	type = 28
+	part = roverWheel1
+	value = 0.335057169
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 530.67999999980736
+	pid = 894881109
+	type = 30
+	part = roverWheel1
+	value = 0.335089743
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 531.019999999807
+	pid = 2709475368
+	type = 28
+	part = roverWheel1
+	value = 0.337286234
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 531.039999999807
+	pid = 2709475368
+	type = 30
+	part = roverWheel1
+	value = 0.337317079
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 531.059999999807
+	pid = 894881109
+	type = 28
+	part = roverWheel1
+	value = 0.3357248
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 531.079999999807
+	pid = 2245285422
+	type = 28
+	part = roverWheel1
+	value = 0.321033984
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 531.079999999807
+	pid = 894881109
+	type = 30
+	part = roverWheel1
+	value = 0.3357552
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 531.099999999807
+	pid = 2245285422
+	type = 30
+	part = roverWheel1
+	value = 0.321011931
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 531.139999999807
+	pid = 3879536111
+	type = 28
+	part = roverWheel1
+	value = 0.31893003
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 531.15999999980693
+	pid = 3879536111
+	type = 30
+	part = roverWheel1
+	value = 0.318925083
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 531.19999999980689
+	pid = 4261069922
+	type = 28
+	part = roverWheel1
+	value = 0.318705231
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 531.21999999980687
+	pid = 4261069922
+	type = 30
+	part = roverWheel1
+	value = 0.318699479
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 531.21999999980687
+	pid = 3234524950
+	type = 28
+	part = roverWheel1
+	value = 0.320575118
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 531.23999999980686
+	pid = 3234524950
+	type = 30
+	part = roverWheel1
+	value = 0.320556521
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 531.47999999980664
+	pid = 2709475368
+	type = 28
+	part = roverWheel1
+	value = 0.337945879
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 531.49999999980662
+	pid = 2709475368
+	type = 30
+	part = roverWheel1
+	value = 0.337953478
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 552.61999999978741
+	pid = 894881109
+	type = 28
+	part = roverWheel1
+	value = 0.336380631
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 552.63999999978739
+	pid = 894881109
+	type = 30
+	part = roverWheel1
+	value = 0.336385667
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 558.65999999978192
+	pid = 2791927569
+	type = 28
+	part = roverWheel1
+	value = 0.322755665
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 558.6799999997819
+	pid = 2791927569
+	type = 30
+	part = roverWheel1
+	value = 0.322757423
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 560.99999999977979
+	pid = 2245285422
+	type = 28
+	part = roverWheel1
+	value = 0.320378035
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 561.01999999977977
+	pid = 2245285422
+	type = 30
+	part = roverWheel1
+	value = 0.3203273
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 561.23999999977957
+	pid = 3234524950
+	type = 28
+	part = roverWheel1
+	value = 0.319926441
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 561.25999999977955
+	pid = 3234524950
+	type = 30
+	part = roverWheel1
+	value = 0.319916278
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 561.33999999977948
+	pid = 2709475368
+	type = 28
+	part = roverWheel1
+	value = 0.338581979
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 561.35999999977946
+	pid = 2709475368
+	type = 30
+	part = roverWheel1
+	value = 0.338589072
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 565.5999999997756
+	pid = 894881109
+	type = 28
+	part = roverWheel1
+	value = 0.337039024
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 565.61999999977559
+	pid = 894881109
+	type = 30
+	part = roverWheel1
+	value = 0.337092042
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 565.7199999997755
+	pid = 2709475368
+	type = 28
+	part = roverWheel1
+	value = 0.339224577
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 565.73999999977548
+	pid = 2709475368
+	type = 30
+	part = roverWheel1
+	value = 0.339245439
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 594.23999999974956
+	pid = 1120315486
+	type = 9
+	part = solarPanels5
+	value = 0
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 594.23999999974956
+	pid = 1919891687
+	type = 9
+	part = solarPanels5
+	value = 0
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 594.23999999974956
+	pid = 4058111479
+	type = 9
+	part = solarPanels5
+	value = 0
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 594.23999999974956
+	pid = 587608031
+	type = 9
+	part = solarPanels5
+	value = 0
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 594.23999999974956
+	pid = 1386676799
+	type = 9
+	part = solarPanels5
+	value = 0
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 594.23999999974956
+	pid = 1485998496
+	type = 9
+	part = solarPanels5
+	value = 0
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 594.23999999974956
+	pid = 2609936969
+	type = 11
+	part = dockingPort2
+	value = 0
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 594.23999999974956
+	pid = 1373868859
+	type = 0
+	part = dockingPort2
+	value = 0
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 594.23999999974956
+	pid = 2823035582
+	type = 0
+	part = probeStackSmall
+	value = 0
+	midx = 0
+}
+TRACK_SECTION
+{
+	env = 3
+	ref = 0
+	startUT = 513.57999999982292
+	endUT = 517.23999999981959
+	sampleRate = 1.63934422
+	minAlt = 65.971344
+	maxAlt = 65.99648
+	POINT
+	{
+		ut = 513.5999999998229
+		lat = 0.0054580518821687012
+		lon = -74.726198800650351
+		alt = 65.972644014749676
+		rotX = 0.004005107
+		rotY = -0.132900745
+		rotZ = -0.020701712
+		rotW = 0.9909051
+		body = Kerbin
+		velX = 0.0150715308
+		velY = 1.11562145
+		velZ = -0.08964054
+		funds = 0
+		science = 0
+		rep = 0
+		clearance = 1.1873043399536982
+	}
+	POINT
+	{
+		ut = 513.8199999998227
+		lat = 0.0054777430671081751
+		lon = -74.72619766852462
+		alt = 65.971342414151877
+		rotX = 0.00776029238
+		rotY = -0.133043855
+		rotZ = -0.0239246674
+		rotW = 0.990790963
+		body = Kerbin
+		velX = -0.01623198
+		velY = 0.717283368
+		velZ = -0.0496554673
+		funds = 0
+		science = 0
+		rep = 0
+		clearance = 1.1860026270151138
+	}
+	POINT
+	{
+		ut = 514.0399999998225
+		lat = 0.0054851044027623194
+		lon = -74.726197363275332
+		alt = 65.996481006382965
+		rotX = 0.00972337648
+		rotY = -0.133341476
+		rotZ = -0.02347912
+		rotW = 0.990744352
+		body = Kerbin
+		velX = -0.147663623
+		velY = 0.0244957935
+		velZ = 0.111584738
+		funds = 0
+		science = 0
+		rep = 0
+		clearance = 1.2111411769874394
+	}
+	POINT
+	{
+		ut = 514.2599999998223
+		lat = 0.0054835452396437574
+		lon = -74.726197659104841
+		alt = 65.994564339285716
+		rotX = 0.006494222
+		rotY = -0.133038864
+		rotZ = -0.02429407
+		rotW = 0.9907918
+		body = Kerbin
+		velX = 0.0525013432
+		velY = -0.0505863726
+		velZ = -0.0233268123
+		funds = 0
+		science = 0
+		rep = 0
+		clearance = 1.2092245182720944
+	}
+	POINT
+	{
+		ut = 514.4799999998221
+		lat = 0.0054832291123505759
+		lon = -74.726197813945177
+		alt = 65.986592378583737
+		rotX = 0.00420856569
+		rotY = -0.132996365
+		rotZ = -0.0247977152
+		rotW = 0.9907973
+		body = Kerbin
+		velX = 0.00738457032
+		velY = 0.00746360561
+		velZ = -0.0004170427
+		funds = 0
+		science = 0
+		rep = 0
+		clearance = 1.2012525590835139
+	}
+	POINT
+	{
+		ut = 517.23999999981959
+		lat = 0.0054854883384065512
+		lon = -74.726199447660946
+		alt = 65.986955543514341
+		rotX = 0.00492052967
+		rotY = -0.132996157
+		rotZ = -0.0274244882
+		rotW = 0.9907249
+		body = Kerbin
+		velX = 0.00312138954
+		velY = 0.007793936
+		velZ = 0.004458726
+		funds = 0
+		science = 0
+		rep = 0
+		clearance = 1.2016157067846507
+	}
+}
+TRACK_SECTION
+{
+	env = 4
+	ref = 0
+	startUT = 517.23999999981959
+	endUT = 594.23999999974956
+	sampleRate = 0.350649357
+	minAlt = 65.98695
+	maxAlt = 65.99278
+	POINT
+	{
+		ut = 517.23999999981959
+		lat = 0.0054854883384065512
+		lon = -74.726199447660946
+		alt = 65.986955543514341
+		rotX = 0.00492052967
+		rotY = -0.132996157
+		rotZ = -0.0274244882
+		rotW = 0.9907249
+		body = Kerbin
+		velX = 0.00312138954
+		velY = 0.007793936
+		velZ = 0.004458726
+		funds = 0
+		science = 0
+		rep = 0
+		clearance = 1.2016157067846507
+	}
+	POINT
+	{
+		ut = 520.25999999981684
+		lat = 0.0054877435242229669
+		lon = -74.726201046971411
+		alt = 65.986951337428764
+		rotX = 0.00498198
+		rotY = -0.132995844
+		rotZ = -0.0278856084
+		rotW = 0.990711749
+		body = Kerbin
+		velX = 0.003010907
+		velY = 0.007811402
+		velZ = 0.004504794
+		funds = 0
+		science = 0
+		rep = 0
+		clearance = 1.2016114834696054
+	}
+	POINT
+	{
+		ut = 523.27999999981409
+		lat = 0.0054899986303288684
+		lon = -74.726202613899773
+		alt = 65.986950822989456
+		rotX = 0.004990152
+		rotY = -0.132996023
+		rotZ = -0.0279472061
+		rotW = 0.99070996
+		body = Kerbin
+		velX = 0.00315037626
+		velY = 0.00780814
+		velZ = 0.004440396
+		funds = 0
+		science = 0
+		rep = 0
+		clearance = 1.2016109520336613
+	}
+	POINT
+	{
+		ut = 526.29999999981135
+		lat = 0.0054922536624015857
+		lon = -74.7262041767942
+		alt = 65.986955510918051
+		rotX = 0.00499303266
+		rotY = -0.1329961
+		rotZ = -0.02795511
+		rotW = 0.990709662
+		body = Kerbin
+		velX = 0.00311986241
+		velY = 0.007829099
+		velZ = 0.004422302
+		funds = 0
+		science = 0
+		rep = 0
+		clearance = 1.2016156228492036
+	}
+	POINT
+	{
+		ut = 529.3199999998086
+		lat = 0.0054952326333815209
+		lon = -74.726205673077729
+		alt = 65.989294780651107
+		rotX = 0.008340691
+		rotY = -0.13306123
+		rotZ = -0.0275847968
+		rotW = 0.99068886
+		body = Kerbin
+		velX = 0.00333712
+		velY = 0.0102203628
+		velZ = 0.00369619741
+		funds = 0
+		science = 0
+		rep = 0
+		clearance = 1.2039548713946715
+	}
+	POINT
+	{
+		ut = 532.33999999980585
+		lat = 0.0054980241109425934
+		lon = -74.726207089721413
+		alt = 65.99098107102327
+		rotX = 0.0108526908
+		rotY = -0.1331108
+		rotZ = -0.0273842346
+		rotW = 0.99066335
+		body = Kerbin
+		velX = 0.00288441288
+		velY = 0.007745457
+		velZ = 0.00397796
+		funds = 0
+		science = 0
+		rep = 0
+		clearance = 1.2056411419762298
+	}
+	POINT
+	{
+		ut = 535.35999999980311
+		lat = 0.0055002559713018349
+		lon = -74.72620851085675
+		alt = 65.990983990486711
+		rotX = 0.010857706
+		rotY = -0.133111358
+		rotZ = -0.02741849
+		rotW = 0.990662336
+		body = Kerbin
+		velX = 0.0027765
+		velY = 0.007739581
+		velZ = 0.004066446
+		funds = 0
+		science = 0
+		rep = 0
+		clearance = 1.2056440449086949
+	}
+	POINT
+	{
+		ut = 538.37999999980036
+		lat = 0.00550248751868544
+		lon = -74.726209927739532
+		alt = 65.99098251608666
+		rotX = 0.010858845
+		rotY = -0.133112893
+		rotZ = -0.0274231955
+		rotW = 0.9906619
+		body = Kerbin
+		velX = 0.0028340288
+		velY = 0.00773995975
+		velZ = 0.003990686
+		funds = 0
+		science = 0
+		rep = 0
+		clearance = 1.205642553861253
+	}
+	POINT
+	{
+		ut = 541.39999999979761
+		lat = 0.0055047188896081393
+		lon = -74.7262113444281
+		alt = 65.990984723088332
+		rotX = 0.0108584445
+		rotY = -0.1331116
+		rotZ = -0.02742396
+		rotW = 0.9906621
+		body = Kerbin
+		velX = 0.00266787712
+		velY = 0.007734962
+		velZ = 0.00413831649
+		funds = 0
+		science = 0
+		rep = 0
+		clearance = 1.2056447443319485
+	}
+	POINT
+	{
+		ut = 544.41999999979487
+		lat = 0.0055069503743416081
+		lon = -74.726212761017266
+		alt = 65.990988367702812
+		rotX = 0.0108591337
+		rotY = -0.133110657
+		rotZ = -0.0274239555
+		rotW = 0.9906622
+		body = Kerbin
+		velX = 0.00269418024
+		velY = 0.0077362163
+		velZ = 0.00413774932
+		funds = 0
+		science = 0
+		rep = 0
+		clearance = 1.2056483724154532
+	}
+	POINT
+	{
+		ut = 547.43999999979212
+		lat = 0.0055091816827380477
+		lon = -74.726214177298985
+		alt = 65.990982193732634
+		rotX = 0.0108591029
+		rotY = -0.133111238
+		rotZ = -0.0274239052
+		rotW = 0.9906622
+		body = Kerbin
+		velX = 0.00282709184
+		velY = 0.007737939
+		velZ = 0.0040090913
+		funds = 0
+		science = 0
+		rep = 0
+		clearance = 1.2056421819142997
+	}
+	POINT
+	{
+		ut = 550.45999999978937
+		lat = 0.005511414822910744
+		lon = -74.726215591922525
+		alt = 65.991062000044622
+		rotX = 0.01087223
+		rotY = -0.133120447
+		rotZ = -0.0274218544
+		rotW = 0.9906608
+		body = Kerbin
+		velX = 0.002508464
+		velY = 0.007923633
+		velZ = 0.004035614
+		funds = 0
+		science = 0
+		rep = 0
+		clearance = 1.205721971578896
+	}
+	POINT
+	{
+		ut = 553.47999999978663
+		lat = 0.0055136553058990406
+		lon = -74.72621700071727
+		alt = 65.991014452418312
+		rotX = 0.0109055443
+		rotY = -0.133146673
+		rotZ = -0.0274156779
+		rotW = 0.990657151
+		body = Kerbin
+		velX = 0.002896244
+		velY = 0.00773814041
+		velZ = 0.0039343033
+		funds = 0
+		science = 0
+		rep = 0
+		clearance = 1.2056744074216112
+	}
+	POINT
+	{
+		ut = 556.49999999978388
+		lat = 0.0055159069731244431
+		lon = -74.7262184272328
+		alt = 65.9914737950312
+		rotX = 0.0109876692
+		rotY = -0.1330881
+		rotZ = -0.0274046622
+		rotW = 0.990664363
+		body = Kerbin
+		velX = 0.00273258262
+		velY = 0.008037281
+		velZ = 0.004189473
+		funds = 0
+		science = 0
+		rep = 0
+		clearance = 1.2061337332706898
+	}
+	POINT
+	{
+		ut = 559.51999999978113
+		lat = 0.0055181681291918867
+		lon = -74.726219853029576
+		alt = 65.991138344164938
+		rotX = 0.0110887205
+		rotY = -0.133024335
+		rotZ = -0.0273891967
+		rotW = 0.990672231
+		body = Kerbin
+		velX = 0.00279766042
+		velY = 0.007768654
+		velZ = 0.00403542724
+		funds = 0
+		science = 0
+		rep = 0
+		clearance = 1.2057982656406239
+	}
+	POINT
+	{
+		ut = 562.53999999977839
+		lat = 0.0055204879432859686
+		lon = -74.726221305786027
+		alt = 65.99278467381373
+		rotX = 0.0113828471
+		rotY = -0.132824808
+		rotZ = -0.0273467936
+		rotW = 0.990696847
+		body = Kerbin
+		velX = 0.00278043165
+		velY = 0.007849308
+		velZ = 0.00400679465
+		funds = 0
+		science = 0
+		rep = 0
+		clearance = 1.2074445781763643
+	}
+	POINT
+	{
+		ut = 565.55999999977564
+		lat = 0.0055227748217826994
+		lon = -74.726222683302865
+		alt = 65.99202483589761
+		rotX = 0.0115536954
+		rotY = -0.1329497
+		rotZ = -0.0273185186
+		rotW = 0.990678847
+		body = Kerbin
+		velX = 0.00575459749
+		velY = 0.0100534325
+		velZ = -0.0005658906
+		funds = 0
+		science = 0
+		rep = 0
+		clearance = 1.2066847233800218
+	}
+	POINT
+	{
+		ut = 568.57999999977289
+		lat = 0.0055250736890976549
+		lon = -74.726224047533393
+		alt = 65.9915411566617
+		rotX = 0.0116856685
+		rotY = -0.13303557
+		rotZ = -0.02731291
+		rotW = 0.9906659
+		body = Kerbin
+		velX = 0.00275030662
+		velY = 0.00780676538
+		velZ = 0.00398522
+		funds = 0
+		science = 0
+		rep = 0
+		clearance = 1.2062010273803025
+	}
+	POINT
+	{
+		ut = 571.59999999977015
+		lat = 0.0055273271248138635
+		lon = -74.726225434692836
+		alt = 65.991541279829107
+		rotX = 0.0116859674
+		rotY = -0.133038327
+		rotZ = -0.0273142122
+		rotW = 0.990665555
+		body = Kerbin
+		velX = 0.00269095949
+		velY = 0.007817175
+		velZ = 0.00399140269
+		funds = 0
+		science = 0
+		rep = 0
+		clearance = 1.206201133900322
+	}
+	POINT
+	{
+		ut = 574.6199999997674
+		lat = 0.0055295805776033715
+		lon = -74.726226821801689
+		alt = 65.991541435942054
+		rotX = 0.01168535
+		rotY = -0.133035839
+		rotZ = -0.0273143947
+		rotW = 0.9906659
+		body = Kerbin
+		velX = 0.00275956048
+		velY = 0.0078035756
+		velZ = 0.003980785
+		funds = 0
+		science = 0
+		rep = 0
+		clearance = 1.2062012733658776
+	}
+	POINT
+	{
+		ut = 577.63999999976465
+		lat = 0.0055318339620913752
+		lon = -74.726228208447438
+		alt = 65.991542365401983
+		rotX = 0.0116857281
+		rotY = -0.1330382
+		rotZ = -0.027314309
+		rotW = 0.990665555
+		body = Kerbin
+		velX = 0.00268096756
+		velY = 0.00780310063
+		velZ = 0.00396568049
+		funds = 0
+		science = 0
+		rep = 0
+		clearance = 1.2062021862948313
+	}
+	POINT
+	{
+		ut = 580.65999999976191
+		lat = 0.0055340873807325852
+		lon = -74.726229595725016
+		alt = 65.9915426428197
+		rotX = 0.0116858156
+		rotY = -0.133036792
+		rotZ = -0.0273143575
+		rotW = 0.9906658
+		body = Kerbin
+		velX = 0.00271141785
+		velY = 0.007817664
+		velZ = 0.003956672
+		funds = 0
+		science = 0
+		rep = 0
+		clearance = 1.2062024470651522
+	}
+	POINT
+	{
+		ut = 583.67999999975916
+		lat = 0.0055363408392132534
+		lon = -74.726230982387079
+		alt = 65.991542804986238
+		rotX = 0.011686014
+		rotY = -0.133037671
+		rotZ = -0.02731435
+		rotW = 0.9906657
+		body = Kerbin
+		velX = 0.00269327033
+		velY = 0.007823487
+		velZ = 0.003984358
+		funds = 0
+		science = 0
+		rep = 0
+		clearance = 1.2062025925843045
+	}
+	POINT
+	{
+		ut = 586.69999999975641
+		lat = 0.0055385942180068617
+		lon = -74.7262323694948
+		alt = 65.991544082062319
+		rotX = 0.0116864927
+		rotY = -0.133037552
+		rotZ = -0.027314242
+		rotW = 0.990665555
+		body = Kerbin
+		velX = 0.00285901735
+		velY = 0.007815211
+		velZ = 0.00387220178
+		funds = 0
+		science = 0
+		rep = 0
+		clearance = 1.2062038530129939
+	}
+	POINT
+	{
+		ut = 589.71999999975367
+		lat = 0.0055408476082028455
+		lon = -74.726233756389192
+		alt = 65.991543195326813
+		rotX = 0.0116855036
+		rotY = -0.133036271
+		rotZ = -0.0273143332
+		rotW = 0.990665853
+		body = Kerbin
+		velX = 0.00273874472
+		velY = 0.007816663
+		velZ = 0.003962976
+		funds = 0
+		science = 0
+		rep = 0
+		clearance = 1.2062029497465119
+	}
+	POINT
+	{
+		ut = 592.73999999975092
+		lat = 0.0055431009699335827
+		lon = -74.726235143511545
+		alt = 65.991543311974965
+		rotX = 0.011685919
+		rotY = -0.133035913
+		rotZ = -0.0273142811
+		rotW = 0.990665853
+		body = Kerbin
+		velX = 0.00271399971
+		velY = 0.007821257
+		velZ = 0.004006909
+		funds = 0
+		science = 0
+		rep = 0
+		clearance = 1.2062030497472733
+	}
+	POINT
+	{
+		ut = 594.23999999974956
+		lat = 0.00554422016687911
+		lon = -74.726235832306941
+		alt = 65.9915427082451
+		rotX = 0.0116856145
+		rotY = -0.133037552
+		rotZ = -0.02731431
+		rotW = 0.9906656
+		body = Kerbin
+		velX = 0.00278346636
+		velY = 0.007810869
+		velZ = 0.00392495
+		funds = 0
+		science = 0
+		rep = 0
+		clearance = 1.2062024377519265
+		flags = 1
+	}
+}

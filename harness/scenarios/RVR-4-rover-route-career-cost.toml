@@ -1,0 +1,395 @@
+schema = 1
+id = "RVR-4-rover-route-career-cost"
+tier = "pending-fixture"
+# =====================================================================================
+# THE FIRST COSTED ROUTE DISPATCH ANYWHERE IN THE SUITE, and the first live measurement
+# of the ROUTE-DISPATCH-COST-FREE-ON-SNAPSHOTLESS-ROOT fix (landed 2026-09-01).
+#
+# AUTHORED 2026-09-02, NEVER FLOWN. Every number below is DERIVED - from the committed
+# fixture bytes, from the automation instance's own part-cost database, and from
+# RVR-2's two flights over the identical recorded payload - and the header says which
+# is which so a first red is diagnosed rather than re-argued.
+#
+# WHAT THIS LANE IS. It is `RVR-2-rover-route-create`'s driver, step for step, over
+# `rover-route-career`: `rover-route-recorded` STAMPED INTO CAREER by
+# `harness/tools/build_rover_route_career.py`, with the ParsekScenario node, the whole
+# FLIGHTSTATE and every sidecar byte-identical to the sandbox sibling. `env.IsCareer` is
+# the ONLY variable moved. That is deliberate and it is the whole design: RVR-2 run 2
+# (`2026-09-01_2047`, PASS attempt 1, every verifier green) already measured what this
+# payload does in sandbox, so anything this run does differently is career.
+#
+# WHAT CAREER TURNS ON, from `RouteDispatchEvaluator.CheckEligibility` and
+# `RouteOrchestrator.EmitDispatchDebit`, both gated on the same `env.IsCareer &&
+# route.IsKscOrigin` predicate:
+#   * step 7 of the per-cycle gate, `KscFundsAvailable` -> `funds >= cost`;
+#   * `EmitDispatchDebit`'s `computedCost = ComputeDispatchFundsCostForRoute(route)`,
+#     which writes `route.KscDispatchFundsCost`, stamps `RouteKscFundsCost` on the
+#     `RouteCargoDebited` ledger row, and logs `DispatchDebit: ... careerKsc=1`;
+#   * `ApplyDeliveryFromPlan` step 7's LIVE `Funding.Instance.AddFunds(-cost)`.
+# In sandbox all three are structurally unreachable, so RVR-2 could not touch them and
+# no committed lane ever has.
+#
+# -------------------------------------------------------------------------------------
+# THE FIX THIS LANE MEASURES, and why it needed a lane at all.
+#
+# `ComputeDispatchFundsCostForRoute` prices from `SourceRefs[0]`, the tree ROOT. The
+# always-tree root is created with a `GhostVisualSnapshot` only and receives its
+# `VesselSnapshot` at the first stop/split capture site - and the rover shape's root is a
+# runway stub that never reaches one. `cf8d06fc...` is in
+# `build_rover_route_recorded.py`'s own `NO_VESSEL_CRAFT_RECORDING_IDS`: it has NO
+# `_vessel.craft` sidecar at all. Before the fix that made `partsBasis` null, the method
+# returned 0.0, and the zero fed BOTH the eligibility gate and the charge - a career KSC
+# dispatch of this shape was silently FREE.
+#
+# The fix walks `SourceRefs[1..]` in order and takes the first member whose ERS recording
+# carries a real single-vessel snapshot, skipping dock-merged ones via
+# `IsCombinedVesselSourceMember`. On this fixture that walk is fully determined by the
+# committed bytes:
+#     cf8d06fc...  treeOrder 0  ROOT, no VesselSnapshot          -> fallback opens
+#     f2fb77ea...  treeOrder 1  32 PART nodes (16 + 16), carries the
+#                               RouteConnectionWindow            -> SKIPPED (combined)
+#     4370a799...  treeOrder 2  16 PART nodes, single vessel     -> THE EXPECTED BASIS
+# and the grep-stable breadcrumb the fix added,
+#     "FundsCost basis={launch-manifest|stop-snapshot} route={..} source={..}
+#      snapshotSource={..} fallback={0|1}"
+# is what names which member was priced. `fallback=1` IS THE FIX FIRING; `fallback=0`
+# would mean the root suddenly had a snapshot and this lane is measuring something else;
+# the rate-limited `FundsCost: ... UNCOSTED` line is what the DEFECT looks like today.
+#
+# -------------------------------------------------------------------------------------
+# THE COST, DERIVED. Not pinned as a number - see "WHAT THE FIRST FLIGHT SETTLES" - but
+# derived here so a red is legible.
+#
+# `RouteFundsCalculator.ComputeDispatchFundsCost` (M2 overload) = sum of
+# `LookupPartCost(part)` over the basis snapshot's PART nodes, plus
+# `amount * LookupResourceUnitCost(name)` over the ROOT's COMPLETE run manifest's
+# START_TRANSPORT_RESOURCES. The root's manifest IS complete here
+# (`endCaptured = True`, `START_TRANSPORT_RESOURCES` = LiquidFuel 200), and the M2
+# overload reads it off the ROOT even on the fallback path.
+#
+#   parts, from the committed `4370a799..._vessel.craft` (16 PART nodes):
+#     probeStackSmall 2250 + mk2FuselageShortLiquid 750 + advSasModule 1200
+#     + roverWheel1 x4 @450 = 1800 + ConformalStorageUnit x2 @100 = 200
+#     + solarPanels5 x6 @75 = 450 + dockingPort2 600                     = 7250
+#   resources: 200 LiquidFuel @ unitCost 0.8                             =  160
+#   TOTAL                                                                =  7410
+#
+# THE PRICES ARE THE AUTOMATION INSTANCE'S, not Squad's. They were read off
+# `automation/stock-minimal/GameData/ModuleManager.ConfigCache` - the fully-MM-patched
+# database `PartLoader` builds `AvailablePart.cost` from - because `ProbesBeforeCrew`
+# (a `stock-minimal` devSourcedMod) patches
+# `@PART[dockingPort2]:NEEDS[CommunityTechTree] { @cost = 600 }` and CommunityTechTree is
+# installed. The Squad cfg says 280. A table transcribed from `GameData/Squad/**` alone
+# would be wrong by 320, which is exactly the kind of near-miss that makes an exact pin
+# red on a correct run.
+#
+# THE BAND, because two of the inputs are RUN-TIME decisions this file cannot settle
+# (which member the fallback picks, and whether the root manifest is judged complete).
+# All three readings are computed from the committed bytes by
+# `build_rover_route_career.dispatch_cost_readings` and gated in `harness/lib`:
+#     m2-launch-manifest      7410.00   <- expected
+#     legacy-expected-member  7331.92   (7250 + 102.4 LF; EC prices at unitCost 0)
+#     legacy-alternate-member 7488.08   (7250 + 297.6 LF, if `0996f1ba...` were picked)
+# The parts term is 7250 for BOTH candidate bases - the two rovers carry the identical
+# 16-part multiset - so the band is 156 wide on a 7410 number.
+#
+# -------------------------------------------------------------------------------------
+# THE FUNDS SEED, AND THE HOLD THIS LANE DELIBERATELY DOES NOT PIN.
+#
+# The roadmap's Tier C item 9 asks for three things: a `DispatchDebit` > 0, the
+# funds-short hold, and the KSC recovery credit. THIS LANE BUYS THE FIRST ONLY, and the
+# reason is a property of the recorded ledger rather than of the seed. Stated in full
+# because the obvious reading - "seed between one and two dispatch costs" - is wrong
+# here, and rediscovering that on a flight costs the flight.
+#
+#   (a) THE COMMITTED LEDGER PAYS 18,200 FUNDS. `Parsek/GameState/ledger.pgld` (kept
+#       byte-identical, as it must be) carries five `MilestoneAchievement` rows -
+#       RecordsDistance 4800, RecordsSpeed 4800, Kerbin/BaseConstruction 5400,
+#       Kerbin/Docking 2400, Kerbin/Landing 800. Every `milestoneId` is distinct, so
+#       `MilestonesModule.ProcessAction` marks all five `Effective = true` on its
+#       first-hit branch and `FundsModule` pays every one. The sandbox source recorded
+#       the awards because KSP computes them regardless of mode; in career they are
+#       payable.
+#   (b) THE SEED IS THE LIVE POOL, so those awards land ON TOP of it.
+#       `LedgerOrchestrator.EnsureInitialFundsSeed` finds no `FundsInitial` row (the
+#       sandbox ledger has none) and `baseline_0.pgsb` carries `funds = 0`, so it falls
+#       through to `Ledger.SeedInitialFunds(Funding.Instance.Funds)`; `PatchFunds` then
+#       patches the pool to `seed + 18200`. A zero seed is no escape - it makes
+#       `EnsureInitialFundsSeed` return false, `PatchFunds` skip on `!funds.HasSeed`,
+#       and the FIRST cycle block FundsShort.
+#   (c) ONLY ONE CYCLE EVER CHARGES. `ProcessLoopRoute` returns before `EmitLoopCycle`
+#       on a blocked cycle, so a blocked cycle emits no `RouteCargoDebited` and moves no
+#       funds - and RVR-2 measured cycle 0 delivering and cycle 1 blocking
+#       `DestinationFull` on these same bytes. After the one delivery the destination is
+#       full forever, so no third dispatch exists to be refused for funds.
+#   => funds-short needs `seed + 18200 < 2 x 7410`, i.e. a NEGATIVE seed. It is not a
+#      tuning problem, and no token below pins `FundsShort`. That half needs a DIFFERENT
+#      subject (a ledger without the milestone rows, or a destination with room for two
+#      cycles), which is a separate fixture and a separate commit.
+#
+# WHAT THE SEED IS SOLVED FOR ANYWAY. `FUNDS_SEED = 11000` is sized so the SEED ALONE -
+# before a single milestone award is counted - affords exactly one dispatch and not two:
+# floor 7488.08 (the highest reading in the band), ceiling 14663.84 (twice the lowest),
+# and 11000 is the nearest whole thousand to that band's centre. It clears the highest
+# possible cost by 47% and sits 25% below twice the lowest, so a 20% error in the price
+# table moves neither conclusion - and a future funds-short lane inherits a fixture whose
+# seed is already the right shape, with exactly ONE thing left to change.
+# `RoverRouteCareerSeedBandTests` re-derives both bounds from the committed snapshot
+# bytes, so a re-harvest cannot move them silently.
+#
+# EFFECTIVE FUNDS AT THE FIRST DISPATCH ARE THEREFORE 11000 + 18200 = 29200 against a
+# 7410 cost. Cycle 0 dispatches with no ambiguity; cycle 1 blocks `DestinationFull
+# reason=LiquidFuel` exactly as RVR-2 run 2 measured.
+#
+# THE RECOVERY CREDIT is not collected here either, and the bytes say why:
+# `EmitPendingRecoveryCredit` sums `RouteRunCostCalculator.SumRecoveredCredits` over the
+# source tree's ELS recovery rows and this ledger has none (neither rover was ever
+# recovered), so it is expected to log `credit-skip zero-recovery`. A recovery-credit
+# lane needs a recorded flight that ENDS in a KSC recovery, which no committed route
+# fixture is.
+#
+# -------------------------------------------------------------------------------------
+# WHAT CARRIES OVER FROM RVR-2 UNCHANGED, and is therefore NOT re-argued here.
+# Read that file's LINK 1 through LINK 5 and its TIMING block; all of it applies to the
+# same bytes. The one-line summary of what its two flights settled:
+#   * an instantaneous `TimeJump` past several loop periods DOES produce a dock crossing
+#     the orchestrator acts on (`warp jump=21 ... firing ONCE and snapping forward`), so
+#     a red on the delivery tokens is NOT to be diagnosed as a clock problem;
+#   * the endpoint resolves by pid to a vessel 5.4 km away and delivers `path=unloaded`;
+#   * cycle 0 delivers 97.6 LiquidFuel (297.6 -> 395.2) plus evaChute + evaScienceKit,
+#     and cycle 1 is short on BOTH halves at once, blocking `DestinationFull` with
+#     `FirstShortToken` naming `LiquidFuel` (resources are checked before inventory).
+# Career changes NONE of that: the funds gate is step 7 of `CheckEligibility` and the
+# destination-capacity gate is step 8, so on cycle 1 the funds gate PASSES (29200 minus
+# the one charge is still far above the cost) and the capacity gate is still what
+# refuses.
+#
+# -------------------------------------------------------------------------------------
+# WHAT THE FIRST FLIGHT SETTLES, named so the run has a product beyond green/red.
+#   1. THE EXACT COST. `cost=` is pinned as a non-zero regex, never as 7410. The number
+#      rests on a price table no CI job can re-read, and pinning a derived float on an
+#      unflown spec is how a correct run reds on a rounding difference (RVR-2's own
+#      standing lesson). The flight measures it; the exact figure is written in - here
+#      and in the builder's header - in the commit that reads it.
+#   2. WHICH MEMBER WAS PRICED. `snapshotSource=` is pinned as a regex for the same
+#      reason: `4370a799...` is derived from the treeOrder walk, not measured. If the
+#      flight names `0996f1ba...` instead, the band above already covers it and only the
+#      header changes.
+#   3. WHETHER THE M2 OR THE LEGACY BASIS RAN. `basis=` is pinned as a bare prefix; the
+#      flight decides between `launch-manifest` (expected) and `stop-snapshot`.
+#   4. THE MILESTONE PAY-OUT, which is derived from the ledger rows and the module's
+#      first-hit rule and has never been watched happen on this save. It is not pinned
+#      (no token), but the collected log's `Credited milestone '...'` lines are what a
+#      reader should check first if the funds gate behaves unexpectedly.
+#
+# WHY THE ROUTE END-STATE IS PINNED THROUGH `logContracts` AND NOT `saveParse`: the M-C2
+# parser has no `route` block - it is RESERVED - and arming one that does not exist would
+# be a spec that cannot be evaluated. Same call RVR-2 made, same reason.
+# =====================================================================================
+description = "AUTHORED 2026-09-02, NEVER FLOWN. RVR-2's driver over `rover-route-career` - `rover-route-recorded` stamped into CAREER by construction, ParsekScenario node / FLIGHTSTATE / every sidecar byte-identical - so `env.IsCareer` is the only variable moved and RVR-2's green sandbox run is the control. THE PRODUCT: the first COSTED route dispatch in the suite, and the first live measurement of the ROUTE-DISPATCH-COST-FREE-ON-SNAPSHOTLESS-ROOT fix. The transport tree's root is a runway stub with NO `_vessel.craft` at all, so the snapshot-less-root fallback must walk `SourceRefs`, skip the dock-merged member as a combined-vessel snapshot, and price from `4370a799...` - which the `FundsCost basis=... snapshotSource=... fallback=1` breadcrumb names, and which `fallback=1` is the whole assertion for. `DispatchDebit: ... cost=<n> careerKsc=1` then carries the charge, and the derived figure is 7410 (7250 of stock parts read off the automation instance's OWN ModuleManager.ConfigCache - ProbesBeforeCrew prices dockingPort2 at 600, not Squad's 280 - plus 200 LiquidFuel at 0.8 from the root's complete launch manifest). NEITHER the funds-short hold NOR the recovery credit is pinned, and both refusals are derived rather than deferred: the committed ledger pays 18,200 in milestone awards on top of whatever seed the live pool supplies, and only a DELIVERING cycle charges (a blocked cycle returns before EmitDispatchDebit), so no positive seed can put a second dispatch out of reach; and the ledger carries no recovery rows, so the credit path logs `credit-skip zero-recovery`. The 11000 seed is solved anyway for the shape a future funds-short lane needs - one dispatch and not two on the seed ALONE, band [7488.08, 14663.84) - so that lane inherits a fixture with exactly one thing left to change. Cycle 0 delivers 97.6 LiquidFuel path=unloaded and cycle 1 blocks DestinationFull reason=LiquidFuel exactly as RVR-2 run 2 measured, because the funds gate is step 7 of CheckEligibility and the capacity gate is step 8."
+instanceProfile = "stock-minimal"
+tags = ["seam-verbs", "logistics", "route-create", "route-delivery", "career",
+        "dispatch-cost", "recorded-fixture", "RVR-4", "pending-fixture"]
+
+[fixture]
+# `rover-route-career`, built BY CONSTRUCTION from two committed inputs by
+# `harness/tools/build_rover_route_career.py` - no harvest, no forge flight, no operator
+# session. What it adds over `rover-route-recorded`, and nothing else:
+#   * GAME `Mode = CAREER` (+ this fixture's own Title leaf);
+#   * the seven career SCENARIO nodes lifted VERBATIM from `fresh-career` - Funding,
+#     ResearchAndDevelopment, Reputation, ScenarioUpgradeableFacilities, StrategySystem,
+#     ScenarioContractEvents, ContractSystem - at the positions that reproduce
+#     `fresh-career`'s own ordering, with `funds` reseeded to 11000;
+#   * `ScenarioNewGameIntro` (SANDBOX-only) dropped.
+# Facility levels are the donor's, i.e. all ten at `lvl = 0`, the mode default every
+# career fixture in the corpus carries. Nothing in this lane reads one: it loads straight
+# into FLIGHT and `TimeJump` moves the clock with `Planetarium.SetUniversalTime` rather
+# than through TimeWarp, so no tracking-station warp tier is in the path.
+#
+# EVERYTHING RVR-2 NEEDS IS STILL THERE BY CONSTRUCTION, not by re-assertion: the
+# ParsekScenario node and the whole FLIGHTSTATE are byte-identical to the sandbox
+# sibling's, gated by `verify_payload_unchanged` / `verify_flightstate_unchanged`, and
+# the sandbox builder's OWN `verify_save` / `verify_tree` run verbatim over this save
+# (two sealed trees, five recordings, the TARGET-branch route window, no `ROUTES` node,
+# the repaired endpoint inventory, 19 authoritative sidecars).
+#
+# `injectedRecordings = "none"`: the payload is the TEMPLATE's, and a synthetic corpus on
+# top would give `RouteAnalysisEngine` other trees to consider and make the create's
+# candidate resolution un-attributable. Same call RVR-2 made.
+saveTemplate       = "fixtures/saves/rover-route-career"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+# RVR-2's THIRTEEN STEPS, VERBATIM. That is the design: a step this lane changed would be
+# a variable this lane did not mean to move, and the whole claim is that only
+# `env.IsCareer` differs. The prologue (StopRecording / DiscardTree / the two SetSettings)
+# is H39's / H40's / RVR-1's / RVR-2's, for the same reasons - the committed-tree restore
+# path resumes a promotion-stub recording ~1 s into the scene, StopRecording is
+# idempotent-OK, DiscardTree answers OK with nothing-discarded when no plain tree is live
+# (and it discards the LIVE PLAIN tree, never a committed one), and `verboseLogging=true`
+# is REQUIRED because the `FundsCost basis=` breadcrumb this lane exists for is a Verbose
+# line.
+#
+# THE TWO TimeJumps ARE +600 s EACH from the fixture's save clock of UT 979.48 -> 1600 ->
+# 2200, unchanged and generous on purpose. RVR-2 measured `warp jump=21` and `warp
+# jump=12` at these exact UTs on these exact bytes, so the clock is settled and a red on
+# a delivery token is not a clock diagnosis.
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                    expect = "OK" },
+  { cmd = "DiscardTree",                                                      expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" },  expect = "OK" },
+  { cmd = "SealSlot",     args = { tree = "73e50f1e3aa24c299919016cd9e92269" }, expect = "OK", budget = 120 },
+  { cmd = "RouteCommand", args = { action = "create", tree = "73e50f1e3aa24c299919016cd9e92269", name = "RVR4 Career Supply" }, expect = "OK", budget = 120 },
+  { cmd = "RouteCommand", args = { action = "send-once", route = "RVR4 Career Supply" }, expect = "OK", budget = 120 },
+  { cmd = "TimeJump",     args = { ut = "1600" },                             expect = "OK", budget = 300 },
+  { cmd = "RouteCommand", args = { action = "send-once", route = "RVR4 Career Supply" }, expect = "OK", budget = 120 },
+  { cmd = "TimeJump",     args = { ut = "2200" },                             expect = "OK", budget = 300 },
+  { cmd = "SaveGame",                                                         expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                     expect = "OK" },
+]
+
+[dimensionsCovered]
+# BOOT FACTS ONLY, on the H35 CLAIM-IS-NOT-GATE rule. The rows this lane would eventually
+# earn are D10 `ksc-origin` (the career flavor - the funds gate and the charge are the
+# ONLY things that make a KSC origin behave differently from any other) and, once the
+# funds-short subject exists, `hold-reasons`. Both are declared in the commit that
+# measures this lane green, never on an unflown spec.
+D14 = ["kerbin", "career", "scene-flight"]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING (the H7 lesson): a bare key after an `[expectations.<sub>]`
+# header is TOML-scoped to that sub-table and never read. No tracer is armed by this
+# spec, so the empty list is honest, and NO render-composition expectations block is
+# declared - declaring one would set `PARSEK_RENDER_MANIFEST=1`, and a confirmed dock
+# crossing appends `route-dock-crossing` CLOCK-EVENTs to that manifest.
+allowedAnomalies = []
+
+[expectations.recordings]
+# THE ANTI-DATA-LOSS FLOOR, EXACT AT 5, both bounds - RVR-2's pin, unchanged, and it is
+# not bookkeeping. The route this lane creates holds `SOURCE` references into the
+# committed corpus which `RouteStore.RevalidateSources` compares against a live rebuild;
+# a recording destroyed mid-run would flip the fresh route to `SourceChanged`, which never
+# auto-recovers, and the failure would present as a route defect rather than as data loss.
+# RVR-2's two flights both observed exactly 5 on these bytes, and the career stamp touches
+# no RECORDING node (`verify_payload_unchanged` gates that as byte-identity), so 5 is a
+# measured number here rather than an inherited guess.
+count = { min = 5, max = 5 }
+
+[expectations.logContracts]
+# THIRTEEN TOKENS: RVR-2's eleven, plus the two this lane exists for. Every token is a
+# literal RUN taken from the emitting `string.Format` / interpolation in source, never a
+# line pasted from a log - an interpolated string is not stored the way it renders, and a
+# token spanning a hole (or an em dash) cannot match.
+#
+# TOKENS 1-11 ARE RVR-2's, VERBATIM, and were MEASURED GREEN on run `2026-09-01_2047`
+# over the identical recorded payload. They are kept rather than trimmed because they are
+# this lane's control: if any of them reds, the run diverged from the sandbox baseline
+# somewhere OTHER than the career surface, and that is the first thing to know. Read
+# RVR-2's own per-token commentary for what each one asserts; only the two additions are
+# argued here.
+#
+# TOKEN 12  THE COSTING BASIS (the fix, and the reason this lane exists), from
+#           `ComputeDispatchFundsCostForRoute`'s Verbose line:
+#             "FundsCost basis={0} route={1} source={2} snapshotSource={3}
+#              fallback={4} cost={5}"
+#           `FundsCost basis=` is the literal run before the first hole; the rest is
+#           regex across holes to `fallback=1`.
+#           **`fallback=1` IS THE ASSERTION.** It says the ROOT carried no
+#           `VesselSnapshot` and the member walk found one - i.e. exactly the code path
+#           the 2026-09-01 fix added, on exactly the shape that motivated it. A run that
+#           printed `fallback=0` would mean the root acquired a snapshot and this lane is
+#           measuring a different thing; a run that printed nothing here and the
+#           rate-limited `FundsCost: ... UNCOSTED` line instead would be the DEFECT back.
+#           `snapshotSource=` is pinned as a bare key plus a regex rather than as
+#           `4370a799...`: which member the walk picks is DERIVED from the treeOrder
+#           ordering plus `IsCombinedVesselSourceMember`, and the first flight is what
+#           measures it. `basis=` is likewise a prefix - `launch-manifest` is expected
+#           (the root's manifest is complete) but `stop-snapshot` is inside the band.
+#           `cost=` is NOT in this token at all; token 13 carries the charge.
+#
+# TOKEN 13  THE CHARGE, from `EmitDispatchDebit`'s Info line:
+#             "DispatchDebit: route {0} cycle={1} ut={2} cost={3} careerKsc={4}"
+#           plus a `physicalSuffix` that is EMPTY on a KSC origin, so `careerKsc=1` is
+#           the end of the rendered line here.
+#           TWO claims in one token and both are the point. `cost=[1-9][0-9]*` says the
+#           dispatch was PRICED - a nonzero integer part, which is what the whole fix is
+#           for and what the pre-fix code could not produce. `careerKsc=1` says the
+#           career + KSC-origin predicate held, i.e. this is the branch sandbox can never
+#           reach; a `careerKsc=0` here would mean the career stamp did not take (a
+#           missing `Funding` SCENARIO node makes `Funding.Instance` null and
+#           `PatchFunds` log `funding-null (sandbox mode)`), and the whole lane would be
+#           RVR-2 with extra steps.
+#           THE EXACT FIGURE IS DELIBERATELY NOT PINNED. 7410 is derived from a stock
+#           price table read off the automation instance's `ModuleManager.ConfigCache`,
+#           which no CI job can re-read, and pinning a derived float on an unflown spec is
+#           how a correct run reds on a rounding difference. The regex is anchored on
+#           `cost=` and `careerKsc=1` being CONTIGUOUS around one hole, so a line that
+#           dropped either half still reds.
+#
+# WHAT IS EXPECTED BUT DELIBERATELY NOT PINNED, each with its reason:
+#   * `Delivery: route ... Career KSC funds debited: -<n>` (`ApplyDeliveryFromPlan` step
+#     7). It should appear and it is the live half of the charge - but it has never been
+#     measured in ANY run, and flight 1's standing lesson from RVR-2 is about pinning a
+#     required token derived rather than measured. Token 13 already carries the costing
+#     claim. Added, if at all, in the commit that measures it.
+#   * `FundsInitial: seed=11000` / `Seeded initial funds: amount=11000`
+#     (`Ledger.SeedInitialFunds`). Derived from `EnsureInitialFundsSeed`'s fall-through
+#     to the live pool, which depends on `baseline_0.pgsb` carrying `funds = 0` - true in
+#     the bytes, but the seeding path also has a `hasInitialBaseline` branch that could
+#     fire first if a future edit gave that baseline funds.
+#   * `credit-skip zero-recovery` (`EmitPendingRecoveryCredit`). Expected, and it is the
+#     positive statement that the recovery-credit half is out of scope rather than
+#     broken - but a route whose `PendingRecoveryCreditCycleId` is empty logs the "no
+#     pending credit" line instead, and WHICH of the two fires depends on cycle ordering
+#     no one has watched.
+#   * any `FundsShort` token. It CANNOT fire on this fixture (see the funds-seed section
+#     of the header) and is gated ABSENT by
+#     `RoverRouteCareerSpecSyncTests.test_the_spec_does_not_pin_a_funds_short_hold`, so a
+#     future editor cannot add one by analogy with the roadmap item.
+required  = [
+  "loadgame complete scene=FLIGHT save=.* game-loaded=true expected=Flight",
+  "sealslot complete mode=tree tree=73e50f1e3aa24c299919016cd9e92269 total=4 sealed=0 remaining=0 alreadySealed=True",
+  "routecommand create gate tree=73e50f1e3aa24c299919016cd9e92269 treeFound=True dismissed=False sealed=True eligible=True status=Eligible alreadyPromoted=False refusal=None",
+  "routecommand complete action=create tree=73e50f1e3aa24c299919016cd9e92269 route=.* name='RVR4 Career Supply' status=Paused",
+  "PauseAfterCurrentCycle=true \\(route will dispatch one cycle when conditions allow, then transition to Paused\\)",
+  "FundsCost basis=\\S+ route=\\S+ source=\\S+ snapshotSource=\\S+ fallback=1",
+  "DispatchDebit: route .* cost=[1-9][0-9]*(\\.[0-9]+)? careerKsc=1",
+  "Delivery write: route=.* resource=LiquidFuel .* path=unloaded",
+  "Inventory store: route=.* path=unloaded",
+  "cycle=cycle-1 BLOCKED kind=DestinationFull reason=LiquidFuel",
+  "ArmedPause: route .* BLOCKED cycle consumed the armed pause",
+  "reason=blocked-then-paused armedBy=send-once",
+  "LifecycleMarker: route .* type=RoutePaused reason=blocked-then-paused",
+]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+# NO [expectations.ledger] BLOCK, and the reason is L5-career-contract-complete's own,
+# not a different one: the M-B2 oracle has no report-only mode, so an armed manifest must
+# account for EVERY pool movement of the run. Here that is the five committed milestone
+# awards (18,200 funds, plus Kerbin/BaseConstruction's 1 reputation, both landing through
+# the load-time recalc rather than through anything this driver does) AND the dispatch
+# debit, whose exact amount is the very thing the first flight exists to measure. Arming
+# a manifest built on an unmeasured cost would be a manifest that reds on the run that
+# measures it. What this spec DOES gate is the ROW: token 13 carries the charge's own
+# `RouteCargoDebited` breadcrumb, so a dispatch that charged a different-shaped amount
+# reds there. Arming the ledger block is a separate decision with its own measurements,
+# taken after the first green run.
+
+[runtime]
+# RVR-2's budget arithmetic, unchanged: `run.py` gives EVERY deferred seam verb
+# `required_step_wait(max(step budget, SEAM_FALLBACK_DEFERRAL_SECONDS=600))` = 660 s
+# regardless of the declared step budget. LoadGame and both TimeJumps are deferred, so
+# the worst case is 660 x 3 = 1980; the six synchronous route/seal/save verbs add their
+# own budgets on top. 2400 clears it with headroom, and RVR-2's own runs came in at 50 s
+# wall on the identical driver.
+budgetSeconds = 2400
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

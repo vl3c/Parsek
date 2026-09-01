@@ -83,8 +83,16 @@ _(unreleased — entries accumulate here per commit)_
   the suite has ever attempted (seal, create, deliver, then a second delivery that
   must be refused because the destination is full - all four steps derived from the
   recorded flight's own fuel numbers), and one drives the new route-lifecycle checks.
-  All three are authored and none has flown yet; each says so in its own header and
-  states what its first run has to settle. Nothing here changes the game.
+  All three have since run for real and all three pass. A fourth rides the same
+  recorded flight stamped into a CAREER game - built from the two saves already
+  committed rather than flown again, with the recorded flight itself copied across
+  byte for byte - so it can watch the free-dispatch fix above actually charge for a
+  launch, which no test has yet seen it do. That one is authored and has not run yet;
+  its header states what its first run has to settle, and also states plainly what it
+  CANNOT check and why: the recorded flight comes with prize money already banked
+  from its own milestones, so this craft can always afford a second launch and the
+  "not enough funds" refusal needs a different test save rather than a different
+  starting balance. Nothing here changes the game.
 
 ---
 

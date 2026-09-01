@@ -2357,17 +2357,56 @@ gated behind the ROUTE-ORIGIN-PROOF-PRODUCER-UNREACHABLE probe (todo) before any
 
 ### Tier C - economics (career)
 
-9. **Costed dispatch.** **UNBLOCKED 2026-09-01** -
-   ROUTE-DISPATCH-COST-FREE-ON-SNAPSHOTLESS-ROOT is fixed (the costing basis
-   falls back to the first `SourceRefs` member carrying a single-vessel
-   snapshot, so the rover shape - a snapshot-less runway-stub root - now prices
-   a dispatch instead of returning 0). LANE STILL TO AUTHOR, never flown: a
-   career lane pinning `DispatchDebit` > 0, the funds-short hold
-   (`hold-reasons` career flavor), and the KSC recovery credit, against the
-   ledger oracle. The fix also gives the lane its own negative control - the
-   grep-stable `FundsCost basis=... snapshotSource=... fallback=1` line names
-   which member was priced, and the rate-limited `FundsCost: ... UNCOSTED`
-   line is what a genuinely free dispatch now looks like in the log.
+9. **Costed dispatch.** ~~UNBLOCKED 2026-09-01 - LANE STILL TO AUTHOR.~~
+   **FIXTURE AND SPEC AUTHORED 2026-09-02, NEVER FLOWN** - fixture
+   `rover-route-career` (`harness/tools/build_rover_route_career.py` +
+   `harness/lib/test_build_rover_route_career.py` + a `RECORDED_FIXTURES` row),
+   spec `harness/scenarios/RVR-4-rover-route-career-cost.toml`.
+   ROUTE-DISPATCH-COST-FREE-ON-SNAPSHOTLESS-ROOT was fixed 2026-09-01 (the
+   costing basis falls back to the first `SourceRefs` member carrying a
+   single-vessel snapshot, so the rover shape - a snapshot-less runway-stub root
+   - now prices a dispatch instead of returning 0) and has been unmeasured
+   since; this lane is that measurement.
+   **THE SUBJECT COST NO FLIGHT.** `rover-route-career` is
+   `rover-route-recorded` STAMPED INTO CAREER by construction from two committed
+   inputs - the recorded save supplies the Parsek payload and the world,
+   `fresh-career` supplies seven career SCENARIO nodes lifted verbatim - with
+   `Mode` flipped, `ScenarioNewGameIntro` (SANDBOX-only) dropped, and the
+   `ParsekScenario` node, the whole `FLIGHTSTATE` and every sidecar asserted
+   BYTE-IDENTICAL to the sibling's. The lane is RVR-2's thirteen driven steps
+   verbatim, so `env.IsCareer` is the only variable moved and RVR-2's green run 2
+   is the control. Because both inputs are committed the drift cell RE-RUNS the
+   build and asserts byte-identity, which no other recorded fixture's cell can
+   do. Precedent: `build_strategy_career.py`, applied in the other direction.
+   **WHAT IT PINS:** the `FundsCost basis=... snapshotSource=... fallback=1`
+   breadcrumb, where `fallback=1` IS the assertion (the fix firing on the shape
+   that motivated it - the root `cf8d06fc` has no `_vessel.craft` sidecar at
+   all, and the dock member is skipped as a combined-vessel snapshot), plus
+   `DispatchDebit: ... cost=<non-zero> careerKsc=1`. The cost DERIVES to 7410
+   (7250 of parts + 200 LiquidFuel at 0.8 from the root's complete launch
+   manifest) but is pinned as a regex, not a number: the price table came off the
+   automation instance's own `ModuleManager.ConfigCache` - which no CI job can
+   re-read, and where ProbesBeforeCrew prices `dockingPort2` at 600 against
+   Squad's 280 - so the first flight is what measures the figure.
+   **TWO OF THIS ITEM'S THREE ASKS ARE REFUSED WITH A DERIVATION, and the
+   refusals are gated in `harness/lib` rather than deferred.** The funds-short
+   hold is structurally unreachable on this subject: the committed `ledger.pgld`
+   carries five `MilestoneAchievement` rows totalling 18,200 funds, all Effective
+   by `MilestonesModule`'s distinct-id first-hit rule, and
+   `EnsureInitialFundsSeed` seeds from the LIVE pool (no `FundsInitial` row,
+   `baseline_0.pgsb` funds 0), so effective funds are `seed + 18200`; and only a
+   DELIVERING cycle charges (a blocked cycle returns before `EmitLoopCycle`)
+   while the destination is full after cycle 0, so no positive seed puts a second
+   dispatch out of reach. The recovery credit is absent by measurement - the
+   ledger holds no recovery rows, so the path logs `credit-skip zero-recovery`.
+   The 11000 funds seed is solved anyway for the shape a FUTURE funds-short lane
+   needs (one dispatch and not two on the seed ALONE, band
+   `[7488.08, 14663.84)` re-derived from the committed snapshot bytes), so that
+   lane inherits a fixture with exactly ONE thing left to change: a ledger
+   without those milestone rows, or a destination with room for two cycles. That
+   is now the Tier C follow-on, and it is a fixture decision rather than a seed
+   one. NO D10 claim yet, on the CLAIM-IS-NOT-GATE rule: the career flavor of
+   `ksc-origin` is earned in the commit that measures the lane green.
 10. **Escrow competition.** Two routes sharing one physical source (D10
     `multi-origin-escrow`); the reservation/release invariant has unit
     coverage but no driven lane.
@@ -2416,8 +2455,10 @@ gated behind the ROUTE-ORIGIN-PROOF-PRODUCER-UNREACHABLE probe (todo) before any
 
 Sequencing: Tier A rides this branch. Tier B lanes are operator-tier
 calibration flights, one at a time, each following the RVR template; B4 first
-(it is the only one that also closes an in-game skip). Tier C is no longer
-gated on the cost fix (landed 2026-09-01); its two lanes are simply unauthored.
+(it is the only one that also closes an in-game skip). Tier C item 9 is
+AUTHORED as of 2026-09-02 and owes one flight; item 10 is still unauthored, and
+the funds-short half of item 9 is now a THIRD Tier C item in all but numbering -
+it needs its own fixture (see item 9), not a re-tuned seed.
 Tier D items ride along whenever their sibling program
 (loop-render / ghost-replay) is already paying the flight cost. The standing
 verdict - the nightly lane does not grow until the basics are gated - stands

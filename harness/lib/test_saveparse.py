@@ -2555,6 +2555,73 @@ class CommittedFixtureSweepTests(unittest.TestCase):
                              "f2fb77ea5af34870bc08f5a0e9f0d78f"],
             "schemaGeneration": 4,
         },
+        # --- THE SAME PAYLOAD, STAMPED INTO CAREER -----------------------
+        # PROVENANCE: NOT A HARVEST. `rover-route-career` is built BY
+        # CONSTRUCTION from two COMMITTED inputs by
+        # `harness/tools/build_rover_route_career.py`: the save above supplies
+        # the Parsek payload and the world, and `fresh-career` supplies the
+        # seven career SCENARIO nodes (Funding / ResearchAndDevelopment /
+        # Reputation / ScenarioUpgradeableFacilities / StrategySystem /
+        # ScenarioContractEvents / ContractSystem), lifted VERBATIM. GAME `Mode`
+        # flips SANDBOX -> CAREER, `Title` takes this fixture's own leaf, and
+        # SANDBOX-only `ScenarioNewGameIntro` is dropped. That is the entire
+        # diff. It is the `build_strategy_career.py` precedent applied in the
+        # other direction, and because BOTH inputs are committed the drift cell
+        # can re-run the build and assert byte-identity - which
+        # `RoverRouteRecordedFixtureDriftTests` cannot do, its input being a
+        # collected operator save outside the repo.
+        #
+        # IT BELONGS IN THIS MAP RATHER THAN IN `EXPECTED_SCENARIO_PRESENCE`
+        # for the ordinary reason: it carries the recorded payload, so the
+        # zero-trees contract that map asserts is exactly what it breaks.
+        #
+        # WHY THE ROW BELOW IS IDENTICAL TO ITS SIBLING'S, LINE FOR LINE, AND
+        # WHY THAT IS THE POINT RATHER THAN A COPY-PASTE. The career stamp
+        # touches GAME-level VALUES and GAME-level SCENARIO SIBLINGS only; the
+        # `ParsekScenario` node and the whole `FLIGHTSTATE` are asserted
+        # BYTE-IDENTICAL to the sandbox save's by
+        # `build_rover_route_career.verify_payload_unchanged` /
+        # `verify_flightstate_unchanged`, and every sidecar is compared as bytes
+        # by `test_the_sidecar_tree_is_a_verbatim_copy`. So every facet this map
+        # reads is READ OUT OF THE SAME BYTES. Two rows that must agree, checked
+        # independently, is what makes a stamp that quietly touched a RECORDING
+        # node red HERE as well as there.
+        #
+        # WHAT IT IS FOR: `RVR-4-rover-route-career-cost`, the roadmap's Tier C
+        # item 9 (Costed dispatch). `env.IsCareer && route.IsKscOrigin` is the
+        # gate on all three career-only surfaces -
+        # `RouteDispatchEvaluator.CheckEligibility` step 7 (`KscFundsAvailable`),
+        # `EmitDispatchDebit`'s cost computation, and `ApplyDeliveryFromPlan`
+        # step 7's live `Funding.Instance.AddFunds(-cost)` - and none of them is
+        # reachable in sandbox, so no committed lane has ever touched them. The
+        # lane is RVR-2's driver over these bytes with `env.IsCareer` the only
+        # variable moved, which makes RVR-2's green sandbox run its control.
+        #
+        # THE ONE NUMBER A READER WILL WANT, and it is NOT in this map because
+        # nothing in `saveparse.py` can read it: the seeded `Funding funds` is
+        # 11000, solved so the seed ALONE affords exactly one dispatch and not
+        # two (band [7488.08, 14663.84), derived from the committed snapshot
+        # bytes plus the automation instance's own part-cost database). The
+        # derived dispatch cost is 7410. `RoverRouteCareerSeedBandTests` in
+        # `harness/lib/test_build_rover_route_career.py` re-derives both bounds;
+        # the builder's header carries the whole derivation, including why the
+        # funds-short hold is NOT reachable on this subject (the committed
+        # `ledger.pgld` pays 18,200 in milestone awards on top of any seed, and
+        # only a delivering cycle charges).
+        "rover-route-career": {
+            "trees": 2, "committedTrees": 2, "recordings": 5,
+            "supersedes": 0, "tombstones": 0, "rewind_points": 0,
+            "rewind_retirements": 0,
+            "terminalStates": {"Landed": 3, "Docked": 1},
+            "branchPoints": {"Dock": 1, "Undock": 1},
+            "minAuthoritativeSidecars": 19,
+            "recordingIds": ["0996f1ba7c7b4d3a8d95cf8be77fbe6d",
+                             "3582d724892245c8939f6a354baff278",
+                             "4370a799d00644f68d9b4a2ca9f72d0c",
+                             "cf8d06fc7bf74e1a82bc70fc79290847",
+                             "f2fb77ea5af34870bc08f5a0e9f0d78f"],
+            "schemaGeneration": 4,
+        },
     }
 
     def test_fixture_set_is_exactly_the_committed_set(self):
