@@ -65,8 +65,24 @@ namespace Parsek
         [ThreadStatic]
         internal static Func<double> ClockOverrideForTesting;
         [ThreadStatic]
+        private static Action<string> testSinkForTesting;
+
         // Test-only override: receives the rendered line and suppresses Debug.Log.
-        internal static Action<string> TestSinkForTesting;
+        // Installing a sink means "capture this class's log", so it also clears
+        // SuppressLogging: hundreds of Sequential test classes end Dispose() by
+        // re-suppressing the global flag, and without this the NEXT class's capture
+        // came back empty whenever xUnit happened to order it right after one of them.
+        // The class's own later SuppressLogging = true (or a SuppressScope) still wins.
+        internal static Action<string> TestSinkForTesting
+        {
+            get => testSinkForTesting;
+            set
+            {
+                testSinkForTesting = value;
+                if (value != null)
+                    SuppressLogging = false;
+            }
+        }
         [ThreadStatic]
         // Test-only observer: receives the rendered line but still lets Debug.Log run.
         internal static Action<string> TestObserverForTesting;

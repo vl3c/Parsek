@@ -2951,7 +2951,11 @@ arming an `onFlightReady` restore outside FLIGHT) is untouched and still worth a
 independently — the fix consumes the tree at fidelity, it does not stop the dispatch being
 armed where it can never fire.
 
-## TEST-HYGIENE — SUPPRESSLOGGING-LEFT-ON-IN-DISPOSE: 406 xUnit classes end `Dispose()` by re-suppressing the global log, deterministically blanking the NEXT Sequential class's log capture [FOUND 2026-08-29 while building the AUTOMERGE-ON-BY-DEFAULT coverage (branch `automerge-coverage`), by hitting it: a newly added class made a previously-latent ordering hazard FIRE. TEST-INFRASTRUCTURE ONLY — no product code is involved and no shipped behaviour is at risk. OPEN, unscoped: recorded because it is a real trap with a real cost, not because a sweep is proposed]
+## ~~TEST-HYGIENE - SUPPRESSLOGGING-LEFT-ON-IN-DISPOSE: 406 xUnit classes end `Dispose()` by re-suppressing the global log, deterministically blanking the NEXT Sequential class's log capture~~ [FOUND 2026-08-29 while building the AUTOMERGE-ON-BY-DEFAULT coverage (branch `automerge-coverage`), by hitting it: a newly added class made a previously-latent ordering hazard FIRE. TEST-INFRASTRUCTURE ONLY - no product code is involved and no shipped behaviour is at risk. CLOSED 2026-09-02 at the root, without the sweep]
+
+**Fix (2026-09-02).** `ParsekLog.TestSinkForTesting` is now a property whose setter clears `SuppressLogging` whenever a non-null sink is installed: installing a sink means "capture this class's log", so a predecessor's trailing `SuppressLogging = true` in `Dispose()` can no longer blank it. The class's own later `SuppressLogging = true` or a `SuppressScope()` still wins (the setter only acts at install time), so the two production/test uses of `SuppressScope` and every class that deliberately suppresses after installing a sink keep their meaning. The 406 `Dispose()` sites are left as they are: they are now harmless, and the audit that made the sweep expensive ("was any class RELYING on the suppression") was run mechanically instead - the full suite is green with the change, so no capture-asserting class was passing vacuously on a blanked list. Pinned by `ParsekLogTests.InstallingASink_ClearsSuppressLogging_SoAPredecessorsDisposeCannotBlankTheCapture`.
+
+Original entry follows for the mechanism.
 
 **The shape.** `ParsekLog.SuppressLogging` is a static bool. The house pattern for a
 Sequential test class that captures log output is: set `ParsekLog.TestSinkForTesting` in

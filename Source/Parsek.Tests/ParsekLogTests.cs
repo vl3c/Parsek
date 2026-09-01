@@ -37,6 +37,32 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void InstallingASink_ClearsSuppressLogging_SoAPredecessorsDisposeCannotBlankTheCapture()
+        {
+            // TEST-HYGIENE SUPPRESSLOGGING-LEFT-ON-IN-DISPOSE: a preceding Sequential class
+            // leaves the global flag suppressed; the next class installs its sink without
+            // touching the flag and must still capture.
+            ParsekLog.SuppressLogging = true;
+            var lines = new List<string>();
+
+            ParsekLog.TestSinkForTesting = line => lines.Add(line);
+            ParsekLog.Info("UnitTest", "captured");
+
+            Assert.False(ParsekLog.SuppressLogging);
+            Assert.Single(lines);
+
+            // Suppressing AFTER the sink is installed still silences (the class's own intent
+            // and SuppressScope keep their meaning).
+            ParsekLog.SuppressLogging = true;
+            ParsekLog.Info("UnitTest", "silenced");
+            Assert.Single(lines);
+
+            // Clearing the sink does not touch the flag.
+            ParsekLog.TestSinkForTesting = null;
+            Assert.True(ParsekLog.SuppressLogging);
+        }
+
+        [Fact]
         public void TestObserverForTesting_ReceivesStructuredFormat()
         {
             var lines = new List<string>();
