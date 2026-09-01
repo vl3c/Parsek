@@ -402,6 +402,42 @@ crew unreservation drop the snapshot at all, given the sidecar is still on disk 
 recorded so the next reader of a `VesselSnapshot == null` surprise finds the cause in one
 grep rather than one flight.
 
+**OBSERVATION (2026-09-01, REPORT-ONLY, NOT A DEFECT CLAIM): on a FILE-CONSTRUCTED career
+fixture the guarded uplift holds ledger milestone funds out of the live pool, and says so
+every recalc.** Measured on RVR-4 round 2 (`2026-09-01_2228`), which is the run that also
+measured the costed dispatch above:
+
+```
+PatchFunds: GUARDED UPLIFT clamped resource=Funds running=29200 live=11000
+            wouldBeTarget=29200 clampedTo=11000 (no time-travel context)
+            - spent value held; ledger may be missing a spending channel
+PatchReputation: GUARDED UPLIFT clamped resource=Reputation running=0.999999463558197
+            live=0 wouldBeTarget=0.999999463558197 clampedTo=0 ...
+```
+
+`rover-route-career` is `rover-route-recorded` stamped into CAREER by construction, so it
+inherits a `Parsek/GameState/ledger.pgld` carrying five `MilestoneAchievement` rows worth
+18,200 funds (and 1 reputation) with NO corresponding live-pool history - the source save
+was SANDBOX, where KSP computes milestone awards but no pool exists to receive them.
+`FundsModule` adds all five to the running balance (distinct `milestoneId`s, first-hit
+branch), `EnsureInitialFundsSeed` seeds from the live pool because there is no
+`FundsInitial` row, and `KspStatePatcher.PatchFunds` then sees a running balance above the
+live value and does the conservative thing: `ApplyDrawdownGuard`'s keep-what-you-earned
+branch refuses the uplift and holds the pool at the spent value. The WARN repeats on every
+recalc for the life of the save.
+
+THE GUARD IS BEHAVING AS DESIGNED - "ledger may be missing a spending channel" is exactly
+what a ledger with award rows and no matching history looks like, and it cannot tell that
+apart from a real leak. Nothing here is proposed as a fix. It is filed because (a) a
+reader meeting the repeating WARN on a synthetic career fixture should find the cause in
+one grep rather than diagnosing a funds bug, and (b) it is load-bearing for RVR-4: the
+clamp is precisely why that lane's live pool equals its 11,000 seed, which is what makes
+cycle 1 go `FundsShort shortfall=3820` at `2 * cost - seed`. The lane deliberately does
+NOT pin the WARN (a fixture that later gained a spending channel would stop emitting it,
+and that must not red); the arithmetic it produces is pinned instead. If a future career
+fixture is built by construction from a sandbox harvest, expect the same line and expect
+its live pools to be the seeded values rather than the ledger's totals.
+
 ## ROUTE-ORIGIN-PROOF-PRODUCER-UNREACHABLE (SUSPECTED): the start-docked `RouteOriginProof` producer keys on a part-parent condition that a settled dock can never satisfy, so no live recording has ever carried a proof [FOUND BY READING 2026-09-01 while scoping which route flights can be automated, CORROBORATED by the 2026-08-30 rover flight log. SUSPECTED, not yet probed live - REPORT-ONLY until the probe cell below runs]
 
 **The condition.** `FlightRecorder.CaptureStartRouteOriginProofIfDocked` builds its partner

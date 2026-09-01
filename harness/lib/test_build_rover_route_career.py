@@ -25,13 +25,23 @@ FOUR CLAIMS NOTHING ELSE IN THE SUITE MAKES:
     driver over the same bytes with `env.IsCareer` the only variable moved, so a
     payload difference would make the two runs incomparable.
   * THE FUNDS SEED SITS IN ITS SOLVED BAND, re-derived from the committed
-    snapshot bytes rather than restated. See the builder's "THE FUNDS SEED"
-    section for why the band is what a FUTURE funds-short lane needs and why THIS
-    lane cannot collect that hold at all.
-  * THE 18,200 OF COMMITTED MILESTONE EARNINGS IS STILL THERE. It is the reason
-    the funds-short half is out of scope, so it is asserted as a POSITIVE fact:
-    if a future ledger edit removed those rows the constraint would lift, and the
-    next reader must find that out from a red rather than from the prose.
+    snapshot bytes rather than restated - and flight 2 proved the band is THIS
+    lane's own gate rather than a future lane's convenience. See the builder's
+    "THE FUNDS SEED" section.
+  * THE MEASURED COST AND SHORTFALL ARE RE-DERIVABLE FROM THE FIXTURE. 7410 and
+    3820 are pinned in the spec; both are recomputed here from the committed
+    snapshot's parts, the root's launch manifest and `FUNDS_SEED`, so a
+    re-harvest that moved the rover reds locally instead of on the re-fly.
+  * THE 18,200 OF COMMITTED MILESTONE EARNINGS IS STILL THERE, and it is now
+    asserted as a LEDGER-SIDE fact. It raises the running balance to 29,200; the
+    live pool never sees it, because `PatchFunds`' guarded uplift holds the pool
+    at the spent value. That clamp is what makes the seed the pool, and the pool
+    is what makes cycle 1 go short.
+
+THIS FILE'S FIRST CUT ASSERTED THE OPPOSITE OF TWO OF THOSE, and the corrections
+are kept visible in the cells rather than swapped in silently: it FORBADE a
+`FundsShort` token and encoded the funds-short hold as structurally unreachable.
+The missing step was `PatchFunds` - a ledger amount is not a live pool amount.
 
 Stdlib only; ASCII only; no em dashes.
 """
@@ -169,13 +179,14 @@ class RoverRouteCareerFixtureDriftTests(unittest.TestCase):
 
 
 class RoverRouteCareerSeedBandTests(unittest.TestCase):
-    """THE FUNDS SEED, SOLVED RATHER THAN CHOSEN - and the constraint that keeps
-    the roadmap's funds-short half out of this lane.
+    """THE FUNDS SEED, SOLVED RATHER THAN CHOSEN - and, since flight 2, the gate
+    that makes the roadmap's funds-short half land IN this lane.
 
     Every number below is re-derived from the committed bytes plus the builder's
     pinned stock price table, so a re-harvest that changed the rover's part
     multiset, or an edit to the table, reds here rather than shipping a seed that
-    no longer affords one dispatch (or affords two)."""
+    no longer affords one dispatch (or affords two) - either of which would move
+    the lane's measured outcome without moving a single token."""
 
     @classmethod
     def setUpClass(cls):
@@ -193,31 +204,83 @@ class RoverRouteCareerSeedBandTests(unittest.TestCase):
         self.assertGreaterEqual(seed, hi)
         self.assertLess(seed, 2.0 * lo)
 
-    def test_the_three_cost_readings_are_the_three_bases_the_fallback_can_take(self):
+    def test_the_three_cost_readings_are_the_bases_the_resolver_can_take(self):
         """WHICH reading is which, pinned by name.
 
-        `ComputeDispatchFundsCostForRoute` prefers the ROOT's COMPLETE run
-        manifest for the resource term and falls back through `SourceRefs` for
-        the parts term, so the value it returns depends on two run-time
-        decisions this suite cannot settle. Naming all three keeps the band
-        honest AND tells a red flight which branch it took."""
+        `measured-root-ghost-launch-manifest` is the basis flight 2 took. The two
+        legacy readings are KEPT rather than trimmed: which surface and which
+        member the resolver reaches is a RUN-TIME decision this suite cannot
+        settle for every future DLL - flight 2 proved that by taking a branch the
+        spec had not imagined - and they are what the seed band is sized
+        against."""
         self.assertEqual(
-            {"m2-launch-manifest", "legacy-expected-member",
-             "legacy-alternate-member"},
+            {"measured-root-ghost-launch-manifest", "legacy-alternate-member",
+             "legacy-second-alternate-member"},
             set(self.readings))
-        # The parts term is the SAME for both candidate bases (both rovers carry
-        # the identical 16-part multiset), so the three readings differ only in
+        # The parts term is the SAME for every candidate (all three snapshots
+        # carry the identical 16-part multiset), so the readings differ only in
         # their resource term. That is what makes the band narrow enough to size
         # a seed against at all.
         b = self.builder
-        expected = b.snapshot_part_names(
-            FIXTURE_DIR, b.EXPECTED_PARTS_BASIS_RECORDING_ID)
+        measured = b.snapshot_part_names(
+            FIXTURE_DIR, b.MEASURED_PARTS_BASIS_RECORDING_ID,
+            b.MEASURED_PARTS_BASIS_SURFACE)
         alternate = b.snapshot_part_names(
             FIXTURE_DIR, b.ALTERNATE_PARTS_BASIS_RECORDING_ID)
-        self.assertEqual(sorted(expected), sorted(alternate),
-                         "the two candidate costing bases no longer carry the "
-                         "same parts, so the band must be re-derived")
-        self.assertEqual(b.parts_term(expected), b.parts_term(alternate))
+        second = b.snapshot_part_names(
+            FIXTURE_DIR, b.SECOND_ALTERNATE_PARTS_BASIS_RECORDING_ID)
+        self.assertEqual(sorted(measured), sorted(alternate),
+                         "the candidate costing bases no longer carry the same "
+                         "parts, so the band must be re-derived")
+        self.assertEqual(sorted(measured), sorted(second))
+        self.assertEqual(b.parts_term(measured), b.parts_term(alternate))
+
+    def test_the_measured_cost_and_shortfall_are_re_derivable(self):
+        """THE TWO NUMBERS THE SPEC PINS, re-derived from the committed bytes.
+
+        Flight 2 measured `cost=7410.0000023841858` and
+        `shortfall=3820.0000047683716`; the spec pins their integer parts. This
+        cell is what keeps those pins tied to the FIXTURE rather than to a
+        transcription: the cost comes from the committed snapshot's parts plus
+        the root's launch manifest, and the shortfall is `2 * cost - FUNDS_SEED`,
+        which is the whole arithmetic of the lane.
+
+        The float tails are float32 accumulation in `AvailablePart.cost` sums and
+        are deliberately not re-derived - the integer part is the claim."""
+        b = self.builder
+        cost = self.readings["measured-root-ghost-launch-manifest"]
+        self.assertEqual(7410, int(cost))
+        self.assertAlmostEqual(b.MEASURED_DISPATCH_COST, cost, places=4)
+        shortfall = b.expected_funds_shortfall(FIXTURE_DIR, self.lines)
+        self.assertEqual(3820, int(shortfall))
+        self.assertAlmostEqual(b.MEASURED_FUNDS_SHORTFALL, shortfall, places=4)
+        # And the identity the spec header rests on, stated as arithmetic.
+        self.assertAlmostEqual(2.0 * cost - b.FUNDS_SEED, shortfall, places=9)
+
+    def test_the_measured_basis_is_the_roots_own_ghost_surface(self):
+        """WHY `fallback=0 snapshotSurface=ghost` is pinnable at all.
+
+        `VesselSnapshot` is the SPAWN surface, and ParsekScenario's OnLoad
+        crew-auto-unreserve sweep nulls it in memory for every committed
+        recording past its EndUT - which is why flight 1 read `UNCOSTED` with the
+        `_vessel.craft` sidecars intact on disk. `ResolveCostingSnapshot` falls
+        back to `GhostVisualSnapshot`, and the ROOT has one even though it has NO
+        `_vessel.craft` at all. Both halves are facts about the committed sidecar
+        set, so both are asserted here rather than left to the flight."""
+        b = self.builder
+        recordings = os.path.join(FIXTURE_DIR, "Parsek", "Recordings")
+        root = b.MEASURED_PARTS_BASIS_RECORDING_ID
+        self.assertFalse(
+            os.path.isfile(os.path.join(recordings, root + "_vessel.craft")),
+            "the root gained a _vessel.craft - the ghost-surface fallback this "
+            "lane measures would no longer be the path taken, and the spec's "
+            "snapshotSurface=ghost pin would red on a correct run")
+        self.assertTrue(
+            os.path.isfile(os.path.join(recordings, root + "_ghost.craft")),
+            "the root lost its _ghost.craft - the measured costing basis is gone "
+            "and the dispatch would be UNCOSTED again")
+        self.assertEqual(
+            16, len(b.snapshot_part_names(FIXTURE_DIR, root, "ghost")))
 
     def test_the_root_still_carries_the_complete_launch_manifest(self):
         """The M2 basis's precondition, as a positive fact.
@@ -229,19 +292,30 @@ class RoverRouteCareerSeedBandTests(unittest.TestCase):
         launch = self.builder.root_launch_resources(self.lines)
         self.assertEqual({"LiquidFuel": 200.0}, launch)
 
-    def test_the_committed_ledger_still_pays_the_milestones_that_block_funds_short(self):
-        """THE CONSTRAINT, ASSERTED SO ITS REMOVAL IS A RED RATHER THAN A
-        SURPRISE.
+    def test_the_committed_ledger_milestone_awards_stay_ledger_side(self):
+        """THE 18,200, AND THE CLAMP THAT KEEPS IT OUT OF THE LIVE POOL.
 
-        `Parsek/GameState/ledger.pgld` carries five `MilestoneAchievement` rows
-        totalling 18,200 funds, every one of which `MilestonesModule` marks
-        Effective (distinct milestoneIds, first-hit branch) and `FundsModule`
-        pays on top of whatever seed `LedgerOrchestrator.EnsureInitialFundsSeed`
-        takes from the live pool. That is why effective funds at the first
-        dispatch are `FUNDS_SEED + 18200` and why no positive seed can put a
-        SECOND dispatch out of reach - the funds-short hold needs a different
-        subject, not a different number. If a future edit removes these rows the
-        constraint lifts, and this cell is where that must be noticed."""
+        THIS CELL USED TO ASSERT THE OPPOSITE CONCLUSION. It kept the same five
+        rows as a positive fact but concluded from them that the funds-short hold
+        was unreachable, because `FundsModule` adds every one (distinct
+        milestoneIds, first-hit branch) to the running balance on top of a seed
+        `EnsureInitialFundsSeed` takes from the live pool. FLIGHT 2 CONFIRMED THE
+        PREMISE AND REFUTED THE CONCLUSION:
+
+            PatchFunds: GUARDED UPLIFT clamped resource=Funds running=29200
+                        live=11000 wouldBeTarget=29200 clampedTo=11000
+                        - spent value held; ledger may be missing a spending channel
+
+        `PatchFunds` runs its target through `ApplyDrawdownGuard`, and the "keep
+        what you earned" guard REFUSES an upward patch whose running balance
+        exceeds the live pool. So the awards are LEDGER-SIDE ONLY: the running
+        balance is 11000 + 18200 = 29200 while the live pool stays at the 11000
+        seed - which is what puts the seed band in charge of the lane.
+
+        The rows are still asserted, for the mirrored reason: if a future edit
+        removed them the running balance would stop exceeding the live pool, the
+        clamp would stop firing, and the mechanism this lane's arithmetic depends
+        on would have changed silently."""
         path = os.path.join(FIXTURE_DIR, "Parsek", "GameState", "ledger.pgld")
         with open(path, encoding="utf-8") as fh:
             text = fh.read()
@@ -250,14 +324,18 @@ class RoverRouteCareerSeedBandTests(unittest.TestCase):
         self.assertEqual(sorted(LEDGER_MILESTONE_FUNDS), sorted(awards))
         total = sum(awards)
         self.assertEqual(18200, total)
-        # And the conclusion, from the numbers rather than from the prose.
-        lo = min(self.readings.values())
-        self.assertGreaterEqual(
-            self.builder.FUNDS_SEED + total, 2.0 * lo,
-            "the committed milestone awards no longer put a second dispatch "
-            "inside reach - the funds-short hold may now be drivable on this "
-            "fixture, so re-read the builder's seed section before pinning "
-            "anything")
+        # The clamp's PRECONDITION, from the numbers rather than the prose: the
+        # running balance must EXCEED the live pool or there is no uplift to
+        # clamp, and the live pool would then carry the awards after all.
+        seed = self.builder.FUNDS_SEED
+        self.assertGreater(
+            total, 0,
+            "the milestone awards are gone, so PatchFunds has no uplift to clamp "
+            "and the live-pool arithmetic this lane pins has changed")
+        self.assertEqual(
+            29200, seed + total,
+            "the measured `running=` reading moved - re-read the flight log "
+            "before trusting the spec's shortfall pin")
         # There is no FundsInitial row: the sandbox source never had one, which
         # is why the seed is taken from the live pool in the first place.
         self.assertNotIn("initialFunds", text)
@@ -308,56 +386,101 @@ class RoverRouteCareerSpecSyncTests(unittest.TestCase):
         self.assertIn(recorded.TRANSPORT_TREE_ID, self.text)
         self.assertNotIn('tree = "%s"' % recorded.ENDPOINT_TREE_ID, self.text)
 
-    def test_the_spec_pins_the_career_tokens_the_lane_exists_for(self):
+    def test_the_spec_pins_the_measured_career_tokens(self):
         """THE ANTI-VACUITY FLOOR for this lane's own product.
 
-        RVR-4 is RVR-2's driver over a career save; without the two career
-        tokens it would be RVR-2 again, passing green and proving nothing about
-        the costing fix. Checked against the PARSED required list, not the file
-        text: every fragment below also appears in the spec's header prose, so a
-        whole-file scan would pass against a spec that had dropped the token
-        itself (measured - dropping `fallback=1` from the required entry left a
-        text-scanning version of this cell green)."""
+        RVR-4 is RVR-2's driver over a career save; without these tokens it would
+        be RVR-2 again, passing green and proving nothing about the costing fix.
+        Checked against the PARSED required list, not the file text: every
+        fragment below also appears in the spec's header prose, so a whole-file
+        scan would pass against a spec that had dropped the token itself
+        (measured - dropping `fallback=0` from the required entry left a
+        text-scanning version of this cell green).
+
+        All of it is MEASURED on run `2026-09-01_2228`; nothing here is a
+        prediction."""
         blob = "\n".join(self.required)
-        for token in ("FundsCost basis=", "snapshotSource=", "fallback=1",
-                      "DispatchDebit: route ", "careerKsc=1"):
+        for token in ("FundsCost basis=launch-manifest", "snapshotSource=",
+                      "fallback=0 snapshotSurface=ghost",
+                      "DispatchDebit: route ", "careerKsc=1",
+                      "kind=FundsShort", "credit-skip zero-recovery"):
             with self.subTest(token=token):
                 self.assertIn(token, blob,
                               "the required logContract list no longer pins %r"
                               % token)
-        # `fallback=1` and `careerKsc=1` are the two ASSERTIONS rather than
-        # context, so each is additionally required to sit in the SAME entry as
-        # the emitter that owns it - a spec that split them onto a bare
-        # `fallback=1` line would match some other emitter's output.
+        # Each ASSERTION must sit in the SAME entry as the emitter that owns it;
+        # split onto a bare line it would match some other emitter's output.
         self.assertTrue(
-            any("FundsCost basis=" in t and "fallback=1" in t for t in self.required),
-            "`fallback=1` must be pinned inside the FundsCost token - alone it "
-            "would match any line carrying that fragment")
+            any("FundsCost basis=" in t and "fallback=0 snapshotSurface=ghost" in t
+                for t in self.required),
+            "`fallback=0 snapshotSurface=ghost` must be pinned inside the "
+            "FundsCost token, and CONTIGUOUS: subsetTerm is emitted between "
+            "those two fields, so the contiguity is what asserts the "
+            "transport-subset path did not run")
         self.assertTrue(
             any("DispatchDebit: route " in t and "careerKsc=1" in t
                 for t in self.required),
             "`careerKsc=1` must be pinned inside the DispatchDebit token")
-        # And the charge must be pinned as NON-ZERO: `cost=0` is precisely what
-        # the pre-fix defect produced, so a token matching any cost is vacuous.
+        # And the armed-pause PROVENANCE: `hold kind=FundsShort` must sit in the
+        # `armedBy=send-once` entry, not merely somewhere in the list. Without
+        # this conjunct the cell passed against a spec whose ArmedPause token had
+        # dropped the hold kind entirely, because the cycle-1 BLOCKED token still
+        # carried the `kind=FundsShort` fragment (measured).
         self.assertTrue(
-            any("DispatchDebit: route " in t and "cost=[1-9]" in t
+            any("armedBy=send-once" in t and "hold kind=FundsShort" in t
                 for t in self.required),
-            "the DispatchDebit token must require a NON-ZERO cost - cost=0 is "
-            "what ROUTE-DISPATCH-COST-FREE-ON-SNAPSHOTLESS-ROOT produced")
+            "`hold kind=FundsShort` must be pinned inside the armed-pause token "
+            "- it is what says WHICH refusal consumed the one-shot, and the same "
+            "line reads `hold kind=DestinationFull` in sandbox and on round 1")
 
-    def test_the_spec_does_not_pin_a_funds_short_hold(self):
-        """The half this fixture CANNOT buy, gated so it is not added by
-        analogy. See `RoverRouteCareerSeedBandTests` and the builder's seed
-        section: the committed ledger's 18,200 of milestone awards puts a second
-        dispatch inside reach for any positive seed, and only one cycle ever
-        charges (a blocked cycle returns before `EmitLoopCycle`).
+    def test_the_spec_pins_the_measured_cost_and_shortfall_figures(self):
+        """THE TWO FIGURES, tied to the builder's derivation rather than typed.
+
+        `cost=0` is exactly what ROUTE-DISPATCH-COST-FREE-ON-SNAPSHOTLESS-ROOT
+        produced and what flight 1 measured, so a token matching any cost would
+        be vacuous. Both pins are checked against the values
+        `dispatch_cost_readings` / `expected_funds_shortfall` derive from the
+        committed bytes, so a re-harvest that moved the parts multiset reds here
+        instead of on the re-fly."""
+        b = self.builder
+        lines = b.read_lines(FIXTURE_SFS)
+        cost = int(b.dispatch_cost_readings(
+            FIXTURE_DIR, lines)["measured-root-ghost-launch-manifest"])
+        shortfall = int(b.expected_funds_shortfall(FIXTURE_DIR, lines))
+        self.assertTrue(
+            any("DispatchDebit: route " in t and ("cost=%d" % cost) in t
+                for t in self.required),
+            "the DispatchDebit token must pin the DERIVED cost %d" % cost)
+        self.assertTrue(
+            any("FundsCost basis=" in t and ("cost=%d" % cost) in t
+                for t in self.required),
+            "the FundsCost token must pin the DERIVED cost %d" % cost)
+        self.assertTrue(
+            any("kind=FundsShort" in t and ("shortfall=%d" % shortfall) in t
+                for t in self.required),
+            "the FundsShort token must pin the DERIVED shortfall %d "
+            "(2 * cost - FUNDS_SEED)" % shortfall)
+
+    def test_the_spec_does_not_pin_a_destination_full_cycle_1(self):
+        """THE REFUSAL THAT NO LONGER HAPPENS, gated so it is not restored by
+        analogy with RVR-2 (or with this lane's own round-1 log).
+
+        `CheckEligibility` runs the Career funds gate at step 7 and the
+        destination-capacity gate at step 8. BOTH would refuse cycle 1 on these
+        bytes - the endpoint has 4.8 of LiquidFuel headroom left against a 97.6
+        manifest - and once the dispatch is actually charged, FUNDS WINS. Round 1
+        measured the other side of that ordering, with `cost=0` leaving the funds
+        gate nothing to refuse. A DestinationFull token here would red a correct
+        run.
 
         Over the PARSED required list, so the header may (and does) discuss
-        FundsShort at length without tripping it."""
+        DestinationFull at length without tripping it."""
         for token in self.required:
-            self.assertNotIn("FundsShort", token,
-                             "a FundsShort token cannot fire on this fixture - "
-                             "it would red a correct run")
+            self.assertNotIn(
+                "DestinationFull", token,
+                "cycle 1 blocks FundsShort on this fixture, not "
+                "DestinationFull - the funds gate is step 7 and capacity is "
+                "step 8")
 
     def test_the_spec_does_not_arm_render_composition_capture(self):
         """Same reason RVR-2 does not: declaring the block sets

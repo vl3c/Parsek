@@ -58,43 +58,62 @@ FLIGHT on a landed rover, and `TimeJump` moves the clock with
 tracking-station warp tier is in the path.
 
 ===========================================================================
-THE FUNDS SEED, AND THE HALF OF THE ROADMAP ITEM IT CANNOT BUY
+THE FUNDS SEED - MEASURED 2026-09-01, AND THE AUTHORED DERIVATION CORRECTED
 ===========================================================================
 
 The roadmap asks this lane for THREE things: a `DispatchDebit` > 0, the
-funds-short hold, and the KSC recovery credit. ONE FIXTURE CANNOT SERVE THE
-FIRST TWO, and the reason is a property of the recorded ledger rather than of
-the seed. It is set out in full because the obvious reading - "seed funds
-between one and two dispatch costs" - is wrong here, and rediscovering that on a
-flight costs the flight.
+funds-short hold, and the KSC recovery credit. RVR-4 FLEW TWICE ON 2026-09-01
+AND MEASURED THE FIRST TWO; the third is absent, and that absence is itself
+measured rather than argued.
 
-STEP 1 - THE DISPATCH COST IS DERIVABLE, AND IT IS 7410.
-`RouteOrchestrator.ComputeDispatchFundsCostForRoute` prices a KSC dispatch as
-`sum(LookupPartCost(part)) + resource term`, where `LookupPartCost` is
-`PartLoader.getPartInfoByName(name).cost` and the resource term comes from the
-ROOT recording's COMPLETE `RouteRunCargoManifest` when it has one
-(`RouteFundsCalculator.ComputeDispatchFundsCost`'s M2 overload) or from the
-chosen snapshot's own per-part RESOURCE amounts otherwise (the legacy walk).
+THIS SECTION WAS WRONG WHEN IT WAS AUTHORED. It said the funds-short hold was
+"structurally unreachable on this subject, whatever the seed is". The flight
+refuted that, and the correction is kept in full below rather than quietly
+replaced, because the missing step is a general trap: a ledger amount is not a
+live pool amount, and the guard between them is `PatchFunds`.
 
-  PARTS BASIS. `SourceRefs[0]` is the transport tree's root
-  `cf8d06fc...`, which carries NO `_vessel.craft` sidecar at all (it is in the
-  builder's own `NO_VESSEL_CRAFT_RECORDING_IDS`), so the snapshot-less-root
-  fallback runs and walks the remaining members in order. `f2fb77ea...` is the
-  dock member and is SKIPPED by `IsCombinedVesselSourceMember` (32 direct PART
-  children, 16 + 16 - the transport plus the endpoint - and it carries the
-  `RouteConnectionWindow`).
-  The next member `4370a799...` carries a 16-part single-vessel snapshot and is
-  the expected basis. THE CHOICE BARELY MATTERS: the fixture's OTHER candidate
-  `0996f1ba...` carries the SAME 16-part multiset, so the parts term is
-  7250 either way. That multiset is read out of the committed sidecar by
-  `snapshot_part_names` below, so it is a fact about the committed bytes and not
-  a transcription.
+STEP 1 - THE DISPATCH COST. AUTHORED AT 7410, MEASURED AT
+7410.0000023841858 - confirmed to the unit, so the parts multiset and the price
+table were both right. `RouteOrchestrator.ComputeDispatchFundsCostForRoute`
+prices a KSC dispatch as `sum(LookupPartCost(part)) + resource term`, where
+`LookupPartCost` is `PartLoader.getPartInfoByName(name).cost` and the resource
+term comes from the ROOT recording's COMPLETE `RouteRunCargoManifest` when it
+has one (`RouteFundsCalculator.ComputeDispatchFundsCost`'s M2 overload).
 
-  RESOURCE TERM. The root `cf8d06fc...` DOES carry a complete run manifest
-  (`endCaptured = True`, `START_TRANSPORT_RESOURCES` = LiquidFuel 200), and the
-  M2 overload reads it OFF THE ROOT even on the fallback path ("the launch load
-  is the root's fact"), so the term is `200 * unitCost(LiquidFuel)` = 160.
+  THE BASIS, AS MEASURED, IS THE ROOT PRICING ITSELF OFF ITS GHOST SNAPSHOT:
+      FundsCost basis=launch-manifest route=b54e5a5b
+                source=cf8d06fc... snapshotSource=cf8d06fc...
+                fallback=0 snapshotSurface=ghost cost=7410.0000023841858
+  `source == snapshotSource` and `fallback=0`: the member walk never ran. The
+  AUTHORED derivation here predicted `fallback=1` onto `4370a799...` by a
+  treeOrder walk, and it was wrong twice over - round 1's UNCOSTED line reports
+  `no SourceRefs member (of 2, root cf8d06fc...)`, so the route holds TWO
+  SourceRefs and not the four tree recordings this file assumed, and
+  `4370a799...` is not among them.
 
+  WHY THE ROOT HAS A USABLE SURFACE AT ALL, which is the whole 2026-09-01
+  follow-on fix: `VesselSnapshot` is the SPAWN surface and `ParsekScenario`'s
+  OnLoad crew-auto-unreserve sweep NULLS it in memory for every committed
+  recording past its EndUT, so on ANY loaded save every member of an
+  already-flown route is snapshot-less even though its `_vessel.craft` sidecar
+  is still on disk. `ResolveCostingSnapshot` now falls back to
+  `GhostVisualSnapshot` - the same ConfigNode, taken at the same capture sites,
+  with its own `_ghost.craft` sidecar - and the root's ghost copy survives the
+  sweep. That is `snapshotSurface=ghost`.
+  THE TRANSPORT-SUBSET PATH (`subset=transport parts=P/T`, pricing a dock-merged
+  member restricted to the window's transport pid set) IS NOT EXERCISED HERE and
+  the token below deliberately pins its ABSENCE: `fallback=0 snapshotSurface=ghost`
+  is contiguous only when no subset term was emitted. It remains a valid fallback
+  for a subject whose root carries neither surface; this fixture is not that
+  subject.
+
+  PARTS TERM 7250, read out of the committed `cf8d06fc..._ghost.craft` by
+  `snapshot_part_names` below - a fact about the committed bytes, not a
+  transcription. All three candidate snapshots in this fixture carry the SAME
+  16-part multiset, so the term does not move with the basis.
+  RESOURCE TERM 160: the root's manifest is complete (`endCaptured = True`,
+  `START_TRANSPORT_RESOURCES` = LiquidFuel 200) and the M2 overload reads it off
+  the ROOT, so `200 * unitCost(LiquidFuel) = 160`.
   TOTAL = 7250 + 160 = 7410.
 
 STEP 2 - WHERE THE UNIT PRICES COME FROM, AND WHY THEY ARE NOT A GUESS.
@@ -108,73 +127,91 @@ for one part: `ProbesBeforeCrew` (a `stock-minimal` devSourcedMod) patches
 `@PART[dockingPort2]:NEEDS[CommunityTechTree] { @cost = 600 }`, and
 CommunityTechTree IS installed, so the Clamp-O-Tron prices at 600 in the harness
 and at the Squad cfg's 280 anywhere else. A table transcribed from
-`GameData/Squad/**` alone would be wrong by 320.
-THE TABLE CANNOT BE RE-DERIVED BY THIS SUITE (no KSP, no GameData in CI), so it
-is an INPUT, pinned here with its provenance, and the FIRST FLIGHT is what
-measures the real number: the lane pins `cost=` as a non-zero regex and the
-exact figure is written in only after a run has printed it.
+`GameData/Squad/**` alone would be wrong by 320. The flight vindicated the
+table to the unit.
 
-STEP 3 - AND THE FUNDS-SHORT HOLD IS STRUCTURALLY UNREACHABLE ON THIS SUBJECT,
-whatever the seed is. Three facts compose:
+STEP 3 - THE FUNDS-SHORT HOLD IS REACHABLE, AND THE SEED BAND IS WHAT MAKES IT
+FIRE. The authored argument had two true premises and one missing step.
 
-  (a) THE COMMITTED LEDGER PAYS 18,200 FUNDS. `Parsek/GameState/ledger.pgld` -
-      kept byte-identical, as it must be - carries FIVE `MilestoneAchievement`
+  TRUE (a): THE COMMITTED LEDGER PAYS 18,200 FUNDS. `Parsek/GameState/ledger.pgld`
+      - kept byte-identical, as it must be - carries FIVE `MilestoneAchievement`
       rows (RecordsDistance 4800, RecordsSpeed 4800, Kerbin/BaseConstruction
       5400, Kerbin/Docking 2400, Kerbin/Landing 800). Each has a DISTINCT
-      `milestoneId`, so `MilestonesModule.ProcessAction` marks every one of them
-      `Effective = true` on its first-hit branch, and `FundsModule` adds all
-      five to the running balance. The sandbox source recorded the awards
-      because KSP computes them regardless of mode; in CAREER they are payable.
-  (b) THE LEDGER SEED IS THE LIVE POOL, so the awards land ON TOP of it.
-      `LedgerOrchestrator.EnsureInitialFundsSeed` finds no `FundsInitial` row
-      (the sandbox ledger has none) and `baseline_0.pgsb` carries `funds = 0`,
-      so it falls through to `Ledger.SeedInitialFunds(Funding.Instance.Funds)`.
-      `KspStatePatcher.PatchFunds` then patches the pool to
-      `seed + 18200 - spendings`. Effective funds at the first dispatch are
-      therefore `FUNDS_SEED + 18200`, and `FUNDS_SEED = 0` is not an escape: a
-      zero pool makes `EnsureInitialFundsSeed` return false, `PatchFunds` skip
-      on `!funds.HasSeed`, and the FIRST cycle block FundsShort.
-  (c) ONLY ONE CYCLE EVER CHARGES. `ProcessLoopRoute` returns before
-      `EmitLoopCycle` on a blocked cycle, so a blocked cycle emits no
-      `RouteCargoDebited` and moves no funds - and RVR-2 measured cycle 1
-      DELIVERING and cycle 2 blocking `DestinationFull` on these same bytes
-      (the endpoint's 102.4 of LiquidFuel headroom against a 97.6 manifest).
-      After the one delivery the destination is full forever, so no third
-      dispatch is reachable to be refused for funds.
-  => funds-short would need `FUNDS_SEED + 18200 < 2 * 7410 = 14820`, i.e. a
-      NEGATIVE seed. It is not a tuning problem.
+      `milestoneId`, so `MilestonesModule.ProcessAction` marks every one
+      `Effective = true` on its first-hit branch and `FundsModule` adds all five
+      to the RUNNING BALANCE. Measured: `running=29200` at load.
+  TRUE (b): THE LEDGER SEED IS THE LIVE POOL.
+      `LedgerOrchestrator.EnsureInitialFundsSeed` finds no `FundsInitial` row and
+      `baseline_0.pgsb` carries `funds = 0`, so it falls through to
+      `Ledger.SeedInitialFunds(Funding.Instance.Funds)`. Measured:
+      `Seeded initial funds: amount=11000`.
+  MISSING STEP: A RUNNING BALANCE IS NOT A LIVE POOL. `KspStatePatcher.PatchFunds`
+      runs the running balance through `ApplyDrawdownGuard` first, and the
+      "keep what you earned" guard REFUSES AN UPWARD PATCH whose running balance
+      exceeds the live value, holding the pool at the spent value. Measured at
+      load, and again after the charge:
+          PatchFunds: GUARDED UPLIFT clamped resource=Funds running=29200
+                      live=11000 wouldBeTarget=29200 clampedTo=11000
+                      (no time-travel context) - spent value held; ledger may be
+                      missing a spending channel
+          PatchFunds: GUARDED UPLIFT clamped resource=Funds running=21790
+                      live=3589.9999976158142 wouldBeTarget=21790
+                      clampedTo=3589.9999976158142
+      SO THE 18,200 NEVER REACHES `Funding.Instance`. The live pool is exactly
+      the seed, then exactly the seed minus the one charge. (The same clamp fires
+      on Reputation for the same reason: `running=0.99999946 live=0`.)
+      WHY THE GUARD FIRES AT ALL is a property of a FILE-CONSTRUCTED career, not
+      a defect: the ledger carries award rows with no matching live-pool history,
+      which is indistinguishable from a missing spending channel, so the guard
+      does the conservative thing. It repeats on every recalc. Filed as a
+      report-only observation in `docs/dev/todo-and-known-bugs.md`; nothing here
+      treats it as a bug, and no token pins it (a fixture whose ledger later
+      gained a spending channel would stop clamping and should not red).
+  TRUE (c), and unchanged: ONLY ONE CYCLE EVER CHARGES. `ProcessLoopRoute`
+      returns before `EmitLoopCycle` on a blocked cycle, so a blocked cycle moves
+      no funds.
 
-WHAT THE SEED IS SOLVED FOR INSTEAD. `FUNDS_SEED` is sized so the SEED ALONE -
-before a single milestone award is counted - affords exactly ONE dispatch and
-not two. That is the shape a future funds-short lane needs, and it leaves that
-lane with exactly ONE thing to change (neutralize the five MilestoneAchievement
-rows, which is a ledger edit and therefore a DIFFERENT fixture) rather than a
-seed to re-solve as well:
+  => THE MEASURED CHAIN. live 11000 >= cost 7410 (cycle 0 dispatches and
+     delivers; `Career KSC funds debited: -7410.0000023841858`), leaving
+     3589.9999976158142; then 3590 < 7410, so cycle 1 blocks
+     `kind=FundsShort reason=funds-short shortfall=3820.0000047683716` and
+     consumes the armed pause into `blocked-then-paused armedBy=send-once
+     hold kind=FundsShort`. The shortfall IS `2 * cost - FUNDS_SEED`, exactly the
+     quantity the seed band was solved to make positive-and-smaller-than-cost.
+
+THE SEED, THEREFORE, IS LOAD-BEARING FOR THIS LANE RATHER THAN FOR A FUTURE ONE.
+`FUNDS_SEED` is sized so the seed ALONE affords exactly one dispatch and not two,
+and because the clamp holds the live pool at the seed, "the seed alone" is
+simply what the pool IS:
 
   FLOOR   `DISPATCH_COST_MAX` = 7488.08, the highest reading the cost can take
-          across every basis the fallback could pick: the legacy walk over
-          `0996f1ba...` (7250 parts + 297.6 LiquidFuel * 0.8; its ElectricCharge
-          is priced at unitCost 0). The expected M2 reading is 7410 and the
-          third possibility is the legacy walk over `4370a799...` at 7331.92.
-  CEILING `2 * DISPATCH_COST_MIN` = 14663.84, twice the LOWEST reading
-          (7331.92), because at or above it a second dispatch would also
-          afford.
+          across every basis the resolver could pick (the legacy walk over
+          `0996f1ba...`: 7250 parts + 297.6 LiquidFuel * 0.8, its ElectricCharge
+          priced at unitCost 0). Below this the FIRST dispatch might not afford.
+  CEILING `2 * DISPATCH_COST_MIN` = 14663.84, twice the lowest reading
+          (7331.92 - the legacy walk over `4370a799...`), because at or above it
+          a SECOND dispatch would also afford and the hold would never fire.
   `FUNDS_SEED` is 11000, the nearest whole thousand to the centre of
   `[7488.08, 14663.84)` (11075.96). It clears the highest possible cost by 47%
-  and sits 25% below twice the lowest, so a 20% error in the measured price
-  table moves neither conclusion.
+  and sits 25% below twice the lowest, so a 20% error in the price table moves
+  neither conclusion - which is why the measured 7410 landing between the bounds
+  was never in doubt.
 
-AND IT COSTS THE LANE NOTHING TODAY. 11000 + 18200 = 29200 is far above 7410, so
-cycle 0 dispatches with no ambiguity whatever, and cycle 1 blocks
-`DestinationFull reason=LiquidFuel` exactly as RVR-2's second flight measured -
-which is what RVR-4 pins.
+WHAT CYCLE 1 DOES *NOT* SAY, and it is a gate-ordering fact rather than a
+capacity one: `CheckEligibility` runs the Career funds gate at step 7 and the
+destination-capacity gate at step 8, so on this fixture BOTH would refuse cycle 1
+(the endpoint has 4.8 of LiquidFuel headroom left against a 97.6 manifest) and
+FUNDS WINS. Round 1 - flown before the ghost-surface fix, with `cost=0` and
+therefore no funds gate to trip - measured the other side of that ordering:
+`BLOCKED kind=DestinationFull reason=LiquidFuel shortfall=0`, exactly what RVR-2
+sees in sandbox. A `DestinationFull` token here would red a correct run now.
 
-THE RECOVERY CREDIT, the roadmap's third ask, is likewise not collected here and
-the reason is in the bytes: `EmitPendingRecoveryCredit` sums
-`RouteRunCostCalculator.SumRecoveredCredits` over the source tree's ELS
-recovery rows, and this ledger has none (neither rover was ever recovered), so
-it is expected to log `credit-skip zero-recovery`. A recovery-credit lane needs
-a recorded flight that ENDS in a KSC recovery, which no committed route fixture
+THE RECOVERY CREDIT, the roadmap's third ask, IS still not collected, and that
+was derived correctly: `EmitPendingRecoveryCredit` sums
+`RouteRunCostCalculator.SumRecoveredCredits` over the source tree's ELS recovery
+rows and this ledger has none (neither rover was ever recovered). MEASURED:
+`credit-skip zero-recovery (recoveryRows=0)`. A recovery-credit lane needs a
+recorded flight that ENDS in a KSC recovery, which no committed route fixture
 is.
 
 ===========================================================================
@@ -276,16 +313,34 @@ STOCK_RESOURCE_UNIT_COSTS: Dict[str, float] = {
     "ElectricCharge": 0.0,
 }
 
-# The recording whose snapshot the snapshot-less-root fallback is expected to
-# price, and the one other member that carries a single-vessel snapshot. Both
-# are read from the committed sidecars by `snapshot_part_names`; the expected
-# basis is named separately from the alternative so the band below states WHICH
-# reading is which.
-EXPECTED_PARTS_BASIS_RECORDING_ID = "4370a799d00644f68d9b4a2ca9f72d0c"
-ALTERNATE_PARTS_BASIS_RECORDING_ID = "0996f1ba7c7b4d3a8d95cf8be77fbe6d"
-# The root's COMPLETE run manifest's START_TRANSPORT_RESOURCES (the launch load
-# the M2 basis prices). Read off the committed save by `root_launch_resources`.
+# THE MEASURED BASIS (flight 2, 2026-09-01): the tree ROOT, priced off its own
+# `_ghost.craft` (`fallback=0 snapshotSurface=ghost`) because the OnLoad
+# crew-auto-unreserve sweep nulls every committed recording's `VesselSnapshot`
+# in memory while the ghost copy survives. This is also the recording whose
+# COMPLETE run manifest supplies the resource term.
 ROOT_LAUNCH_MANIFEST_RECORDING_ID = "cf8d06fc7bf74e1a82bc70fc79290847"
+MEASURED_PARTS_BASIS_RECORDING_ID = ROOT_LAUNCH_MANIFEST_RECORDING_ID
+MEASURED_PARTS_BASIS_SURFACE = "ghost"
+# The two members that DO carry `_vessel.craft` sidecars. Neither was priced on
+# the measured flight (the root's ghost surface resolved first), but they bound
+# the band the seed is sized against, because which basis the resolver reaches is
+# a RUN-TIME decision this file cannot settle for every future DLL.
+ALTERNATE_PARTS_BASIS_RECORDING_ID = "4370a799d00644f68d9b4a2ca9f72d0c"
+SECOND_ALTERNATE_PARTS_BASIS_RECORDING_ID = "0996f1ba7c7b4d3a8d95cf8be77fbe6d"
+
+# MEASURED on run `2026-09-01_2228` (`harness/results/..._shots/KSP.log`):
+#     FundsCost basis=launch-manifest ... fallback=0 snapshotSurface=ghost
+#               cost=7410.0000023841858
+#     DispatchDebit: route b54e5a5b cycle=cycle-0 ut=1600
+#               cost=7410.0000023841858 careerKsc=1
+# The integer part is what the spec pins; the tail is float32 accumulation in
+# `AvailablePart.cost` sums and is deliberately left to a regex.
+MEASURED_DISPATCH_COST = 7410.0000023841858
+# `2 * cost - FUNDS_SEED`, i.e. what cycle 1 is short by once cycle 0 has spent
+# `cost` out of a pool the guarded uplift clamp holds at exactly `FUNDS_SEED`.
+# MEASURED: `BLOCKED kind=FundsShort reason=funds-short
+# shortfall=3820.0000047683716`.
+MEASURED_FUNDS_SHORTFALL = 3820.0000047683716
 
 # --- inherited donor values, asserted rather than assumed ----------------
 EXPECT_SCIENCE = "100"
@@ -451,22 +506,35 @@ def _decode_snapshot_sidecar(path: str) -> str:
     return zlib.decompress(data[25:], -15).decode("utf-8")
 
 
-def snapshot_part_names(fixture_dir: str, recording_id: str) -> List[str]:
-    """The `PART` node names of a recording's committed vessel snapshot.
+def _sidecar_vessel_lines(fixture_dir: str, recording_id: str,
+                          surface: str) -> Tuple[List[str], Tuple[int, int]]:
+    """(lines, VESSEL span) of one recording's committed snapshot sidecar.
+
+    `surface` is `"vessel"` (`_vessel.craft`) or `"ghost"` (`_ghost.craft`),
+    mirroring `RouteOrchestrator.ResolveCostingSnapshot`'s two surfaces. The two
+    are the SAME ConfigNode shape - the ghost copy is a `CreateCopy` taken at the
+    same capture site - which is exactly why the costing fallback can use it."""
+    suffix = {"vessel": "_vessel.craft", "ghost": "_ghost.craft"}.get(surface)
+    if suffix is None:
+        raise SystemExit("unknown snapshot surface %r" % surface)
+    path = os.path.join(fixture_dir, "Parsek", "Recordings",
+                        recording_id + suffix)
+    lines = _decode_snapshot_sidecar(path).split("\n")
+    wrapper = find_node(lines, "SNAPSHOT_SIDECAR", 0) or (0, len(lines))
+    vessel = find_node(lines, "VESSEL", wrapper[0], wrapper[1])
+    if vessel is None:
+        raise SystemExit("%s carries no VESSEL node" % path)
+    return lines, vessel
+
+
+def snapshot_part_names(fixture_dir: str, recording_id: str,
+                        surface: str = "vessel") -> List[str]:
+    """The `PART` node names of a recording's committed snapshot.
 
     These are exactly the nodes `RouteFundsCalculator.ComputeDispatchFundsCost`
     walks (`vesselSnapshot.GetNodes("PART")`, then `name` falling back to
     `part`), so the multiset returned here IS the parts term's input."""
-    path = os.path.join(fixture_dir, "Parsek", "Recordings",
-                        recording_id + "_vessel.craft")
-    lines = _decode_snapshot_sidecar(path).split("\n")
-    sidecar = (0, len(lines))
-    wrapper = find_node(lines, "SNAPSHOT_SIDECAR", 0)
-    if wrapper is not None:
-        sidecar = wrapper
-    vessel = find_node(lines, "VESSEL", sidecar[0], sidecar[1])
-    if vessel is None:
-        raise SystemExit("%s carries no VESSEL node" % path)
+    lines, vessel = _sidecar_vessel_lines(fixture_dir, recording_id, surface)
     out: List[str] = []
     for part in child_nodes(lines, vessel, "PART"):
         name = get_value(lines, part, "name") or get_value(lines, part, "part")
@@ -475,16 +543,10 @@ def snapshot_part_names(fixture_dir: str, recording_id: str) -> List[str]:
     return out
 
 
-def snapshot_part_resources(fixture_dir: str,
-                            recording_id: str) -> Dict[str, float]:
+def snapshot_part_resources(fixture_dir: str, recording_id: str,
+                            surface: str = "vessel") -> Dict[str, float]:
     """Summed per-PART `RESOURCE.amount` of a snapshot (the LEGACY walk's term)."""
-    path = os.path.join(fixture_dir, "Parsek", "Recordings",
-                        recording_id + "_vessel.craft")
-    lines = _decode_snapshot_sidecar(path).split("\n")
-    wrapper = find_node(lines, "SNAPSHOT_SIDECAR", 0) or (0, len(lines))
-    vessel = find_node(lines, "VESSEL", wrapper[0], wrapper[1])
-    if vessel is None:
-        raise SystemExit("%s carries no VESSEL node" % path)
+    lines, vessel = _sidecar_vessel_lines(fixture_dir, recording_id, surface)
     out: Dict[str, float] = {}
     for part in child_nodes(lines, vessel, "PART"):
         for res in child_nodes(lines, part, "RESOURCE"):
@@ -554,23 +616,53 @@ def dispatch_cost_readings(fixture_dir: str,
                            lines: List[str]) -> Dict[str, float]:
     """Every value `ComputeDispatchFundsCostForRoute` could return here.
 
-    Three readings, keyed by which basis produced them. The M2 one is what the
-    lane expects; the two legacy ones bound the band the seed is sized against,
-    because which member the fallback picks and whether the root's manifest is
-    judged complete are RUN-TIME decisions this file cannot settle."""
+    `measured-root-ghost-launch-manifest` is the basis flight 2 actually took
+    (`fallback=0 snapshotSurface=ghost basis=launch-manifest`) and is what the
+    spec's `cost=7410` pin rests on. The two legacy readings are NOT dead weight:
+    which surface and which member the resolver reaches is a RUN-TIME decision
+    this file cannot settle for every future DLL, and they are what the seed band
+    is sized against so a resolver change cannot silently move the lane's
+    outcome from "delivers then blocks FundsShort" to "delivers twice"."""
     launch = root_launch_resources(lines)
     readings: Dict[str, float] = {}
-    expected_parts = parts_term(
-        snapshot_part_names(fixture_dir, EXPECTED_PARTS_BASIS_RECORDING_ID))
+    root_ghost_parts = parts_term(snapshot_part_names(
+        fixture_dir, MEASURED_PARTS_BASIS_RECORDING_ID,
+        MEASURED_PARTS_BASIS_SURFACE))
     alternate_parts = parts_term(
         snapshot_part_names(fixture_dir, ALTERNATE_PARTS_BASIS_RECORDING_ID))
+    second_parts = parts_term(
+        snapshot_part_names(fixture_dir, SECOND_ALTERNATE_PARTS_BASIS_RECORDING_ID))
     if launch:
-        readings["m2-launch-manifest"] = expected_parts + resource_term(launch)
-    readings["legacy-expected-member"] = expected_parts + resource_term(
-        snapshot_part_resources(fixture_dir, EXPECTED_PARTS_BASIS_RECORDING_ID))
+        readings["measured-root-ghost-launch-manifest"] = (
+            root_ghost_parts + resource_term(launch))
     readings["legacy-alternate-member"] = alternate_parts + resource_term(
         snapshot_part_resources(fixture_dir, ALTERNATE_PARTS_BASIS_RECORDING_ID))
+    readings["legacy-second-alternate-member"] = second_parts + resource_term(
+        snapshot_part_resources(fixture_dir,
+                                SECOND_ALTERNATE_PARTS_BASIS_RECORDING_ID))
     return readings
+
+
+def expected_funds_shortfall(fixture_dir: str, lines: List[str],
+                             funds_seed: int = FUNDS_SEED) -> float:
+    """What cycle 1 must be short by, DERIVED rather than transcribed.
+
+    The guarded uplift clamp holds the live pool at exactly `funds_seed` (the
+    ledger's milestone awards raise the RUNNING balance and are clamped away), so
+    cycle 0 spends `cost` out of `funds_seed` and cycle 1 sees
+    `funds_seed - cost` against `cost`:
+
+        shortfall = cost - (funds_seed - cost) = 2 * cost - funds_seed
+
+    MEASURED 3820.0000047683716 against a 7410.0000023841858 cost and an 11000
+    seed. Returned from the DERIVED cost so a re-harvest that moved the parts
+    multiset moves this too."""
+    readings = dispatch_cost_readings(fixture_dir, lines)
+    cost = readings.get("measured-root-ghost-launch-manifest")
+    if cost is None:
+        raise SystemExit("the measured costing basis is gone - the root's "
+                         "COMPLETE run manifest no longer resolves")
+    return 2.0 * cost - float(funds_seed)
 
 
 # ---------------------------------------------------------------------------
@@ -702,28 +794,33 @@ def verify_seed_band(fixture_dir: str, lines: List[str],
     Both bounds are recomputed from the committed snapshot bytes plus the pinned
     price table, so a re-harvest that changed the rover - or an edit to the price
     table - reds here instead of shipping a seed that no longer affords one
-    dispatch (or affords two). See "THE FUNDS SEED" in the module docstring for
-    why the band is what a FUTURE funds-short lane needs rather than something
-    this lane can collect."""
+    dispatch (or affords two).
+
+    THE BAND IS THIS LANE'S OWN, not a future lane's, and flight 2 is why. The
+    guarded uplift clamp holds the live pool at exactly `funds_seed` (see "THE
+    FUNDS SEED" in the module docstring), so "what the seed alone affords" IS
+    what the pool affords: seed >= cost makes cycle 0 dispatch, seed < 2 * cost
+    makes cycle 1 block `FundsShort`. Break either bound and the lane stops
+    measuring the thing it exists for, silently and only on a flight."""
     problems: List[str] = []
     readings = dispatch_cost_readings(fixture_dir, lines)
-    if "m2-launch-manifest" not in readings:
+    if "measured-root-ghost-launch-manifest" not in readings:
         problems.append(
             "the root recording %s no longer carries a COMPLETE "
-            "ROUTE_RUN_MANIFEST, so the M2 launch-manifest basis is gone and "
-            "the expected cost reading with it"
+            "ROUTE_RUN_MANIFEST, so the measured launch-manifest basis is gone "
+            "and the expected cost reading with it"
             % ROOT_LAUNCH_MANIFEST_RECORDING_ID)
     lo = min(readings.values())
     hi = max(readings.values())
     if funds_seed < hi:
         problems.append(
             "FUNDS_SEED %d is below the highest possible dispatch cost %.2f - "
-            "the seed alone would not afford one dispatch" % (funds_seed, hi))
+            "cycle 0 might not afford to dispatch at all" % (funds_seed, hi))
     if funds_seed >= 2.0 * lo:
         problems.append(
             "FUNDS_SEED %d reaches twice the lowest possible dispatch cost "
-            "%.2f - the seed alone would afford TWO dispatches, which is the "
-            "shape a funds-short lane cannot use" % (funds_seed, 2.0 * lo))
+            "%.2f - cycle 1 would afford a SECOND dispatch and the FundsShort "
+            "hold this lane pins would never fire" % (funds_seed, 2.0 * lo))
     if funds_seed <= 0:
         problems.append(
             "FUNDS_SEED must be positive: a zero pool makes "

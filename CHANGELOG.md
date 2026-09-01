@@ -92,15 +92,25 @@ _(unreleased — entries accumulate here per commit)_
   recorded flight stamped into a CAREER game - built from the two saves already
   committed rather than flown again, with the recorded flight itself copied across
   byte for byte - so it can watch the free-dispatch fix above actually charge for a
-  launch, which no test had yet seen it do. Its first run did exactly the job a test
-  exists for: it found that the earlier fix did not hold on a real recorded tree, for
-  two separate reasons neither the unit tests nor the hand-written expectations had
-  modelled, and the fix above is the result. It has not been re-run yet. Its header
-  states what its next run has to settle, and also states plainly what it CANNOT
-  check and why: the recorded flight comes with prize money already banked
-  from its own milestones, so this craft can always afford a second launch and the
-  "not enough funds" refusal needs a different test save rather than a different
-  starting balance. Five more of the planned supply-route sessions no longer need a
+  launch, which no test had yet seen it do. It has now run twice, and both runs paid
+  for themselves. The first did exactly the job a test exists for: it found that the
+  earlier fix did not hold on a real recorded tree, for two separate reasons neither
+  the unit tests nor the hand-written expectations had modelled, and the fix above is
+  the result. The second, on the fixed build, watched the whole thing happen for the
+  first time - a launch priced, charged to the player's account, and then a SECOND
+  launch refused because the account could no longer cover it. Both numbers came out
+  where they had been worked out in advance: the price to the exact fund, and the
+  shortfall to the exact fund. That second refusal is one the test's own notes had
+  said could never happen here, on the reasoning that the recorded flight arrives with
+  prize money already banked from its milestones - and the notes were wrong for an
+  instructive reason, now written down where the next reader will find it: that prize
+  money sits in Parsek's own books and never reaches the player's actual account,
+  because a safety check that exists to stop bookkeeping from inventing funds holds
+  the account at what was really spent. The one thing the test still cannot check is
+  the refund side - the recorded craft was never recovered, so there is nothing to
+  credit back - and that now needs a different recorded flight rather than a different
+  starting balance. A third run on the corrected expectations is owed before it counts
+  as green. Five more of the planned supply-route sessions no longer need a
   human to fly them at all: a new set of automated checks builds its own docking
   target out of stock parts beside whatever craft is on the pad, docks to it for
   real, moves fuel and a cargo item across while docked, and undocks again - so

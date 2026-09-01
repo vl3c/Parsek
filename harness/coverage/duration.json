@@ -1005,6 +1005,16 @@
         "2026-08-28T23:05:50Z": 52.0
       }
     },
+    "H55-route-dock-capture-isolated": {
+      "last": 108.0,
+      "lastVsP50": 1.0,
+      "n": 1,
+      "p50": 108.0,
+      "p95": 108.0,
+      "samples": {
+        "2026-09-01T22:31:39Z": 108.0
+      }
+    },
     "H6-route-rewind-timeline": {
       "last": 50.0,
       "lastVsP50": 1.0,

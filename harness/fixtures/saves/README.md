@@ -524,27 +524,41 @@ Facility levels are the donor's, i.e. all ten at `lvl = 0`. Nothing in the lane 
 one: it loads straight into FLIGHT and `TimeJump` moves the clock with
 `Planetarium.SetUniversalTime` rather than through TimeWarp.
 
-**THE FUNDS SEED IS 11000, SOLVED - AND IT DOES NOT BUY WHAT THE ROADMAP ITEM ASKED
-FOR.** The derived dispatch cost is 7410 (7250 of stock parts read off the AUTOMATION
-instance's own `ModuleManager.ConfigCache`, where ProbesBeforeCrew prices `dockingPort2`
-at 600 against Squad's 280, plus 200 LiquidFuel at unit cost 0.8 from the root's complete
-launch manifest). The obvious seeding - between one and two dispatch costs, so cycle 1
-delivers and cycle 2 blocks FundsShort - is UNREACHABLE here, and the reason is the
-recorded ledger rather than the number: `Parsek/GameState/ledger.pgld` carries five
-`MilestoneAchievement` rows totalling 18,200 funds, every one Effective by
-`MilestonesModule`'s distinct-id first-hit rule, and `EnsureInitialFundsSeed` seeds from
-the LIVE pool (there is no `FundsInitial` row and `baseline_0.pgsb` carries `funds = 0`),
-so effective funds are `seed + 18200` for any positive seed - and only a DELIVERING cycle
-charges, while the destination is full after cycle 0. The seed is therefore solved for
-what a FUTURE funds-short lane will need: one dispatch and not two on the seed ALONE,
-band `[7488.08, 14663.84)`, whole thousand nearest its centre. That lane needs a
-different ledger, not a different number.
+**THE FUNDS SEED IS 11000, SOLVED - AND FLIGHT 2 SHOWED IT IS THIS LANE'S OWN GATE.**
+The dispatch cost is 7410 (7250 of stock parts read off the AUTOMATION instance's own
+`ModuleManager.ConfigCache`, where ProbesBeforeCrew prices `dockingPort2` at 600 against
+Squad's 280, plus 200 LiquidFuel at unit cost 0.8 from the root's complete launch
+manifest) - derived before the flight and measured at 7410.0000023841858 on it. The seed
+is sized so the pool affords exactly ONE dispatch and not two: band `[7488.08, 14663.84)`
+(floor = the highest reading any costing basis could give, ceiling = twice the lowest),
+whole thousand nearest its centre.
+
+**THE PART THAT WAS INITIALLY DERIVED WRONG, kept here because it is a general trap.**
+This section first said the funds-short hold was unreachable on this fixture: the
+committed `Parsek/GameState/ledger.pgld` carries five `MilestoneAchievement` rows
+totalling 18,200 funds, all Effective by `MilestonesModule`'s distinct-id first-hit rule,
+and `EnsureInitialFundsSeed` seeds from the LIVE pool (no `FundsInitial` row,
+`baseline_0.pgsb` carries `funds = 0`) - so effective funds looked like `seed + 18200`
+for any positive seed. **A LEDGER AMOUNT IS NOT A LIVE POOL AMOUNT.**
+`KspStatePatcher.PatchFunds` runs its target through `ApplyDrawdownGuard`, and the "keep
+what you earned" guard REFUSES an upward patch whose running balance exceeds the live
+value, holding the pool at the spent value - measured on the flight as `GUARDED UPLIFT
+clamped resource=Funds running=29200 live=11000 clampedTo=11000 - spent value held;
+ledger may be missing a spending channel`. So the 18,200 stays ledger-side, the live pool
+IS the seed, and the chain runs: cycle 0 is charged 7410 out of 11000, cycle 1 sees 3590
+against 7410 and blocks `FundsShort shortfall=3820` - which is exactly `2 * cost - seed`,
+the quantity the band was solved to produce. The clamp fires because a file-constructed
+career carries award rows with no matching live-pool history; that is a property of this
+fixture class, filed report-only in `docs/dev/todo-and-known-bugs.md`, and no token pins
+it.
 
 Every claim above is re-derived from the committed bytes by
 `RoverRouteCareerFixtureDriftTests` / `RoverRouteCareerSeedBandTests` /
 `RoverRouteCareerSpecSyncTests` in `harness/lib/test_build_rover_route_career.py`, which
 also re-run the splice over the current inputs asserting byte-identity, compare every
-sidecar as bytes, and fail if the spec ever pins a `FundsShort` token. The structural
+sidecar as bytes, re-derive the 7410 cost and the 3820 shortfall from those bytes, and
+fail if the spec ever pins a `DestinationFull` cycle-1 token (which is what the lane
+measured only while the dispatch was still free). The structural
 counts are pinned in `CommittedFixtureSweepTests.RECORDED_FIXTURES` as a second row
 identical to `rover-route-recorded`'s - two rows that must agree, read independently.
 

@@ -4121,7 +4121,9 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
     # probe and none of the five subjects - so the obligation is discharged by the SIX
     # REQUIRED cell tokens the spec pins, one per cell, which is why this member's
     # REQUIRED list is the longest in the family.
-    INTERIM_PIN_IDS = {"H55-route-dock-capture-isolated"}
+    # AND BACK TO ZERO ON 2026-09-02: H55 flew twice the same day and PASSED run 2
+    # (`2026-09-01_2229`, total=6 passed=6 failed=0 skipped=0), pinned whole.
+    INTERIM_PIN_IDS = set()
 
     # id -> measured `skipped=` for members whose RUN-TIME InGameAssert.Skip guards
     # push the split above the attribute-derived floor. The attributes give a FLOOR
@@ -6301,19 +6303,6 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
                                        "except the cadence decision itself, which only a human "
                                        "makes. NOT tier=operator: a nightly spec can owe operator "
                                        "work, exactly as S1.5 does.",
-        "H55-route-dock-capture-isolated.toml":
-                                       "tier=operator AND flown once, not green (2026-09-01, "
-                                       "total=6 passed=1 failed=5 on an authoring defect in "
-                                       "the cells own partner rig). The debt is a READING "
-                                       "RUN a human has to look at: the interim passed= / "
-                                       "skipped= split, the census of which spawn / cargo "
-                                       "guards self-skip on the pad host, and above all the "
-                                       "origin-proof probe's own numbers, which decide whether "
-                                       "the roadmap's Tier B item 4 is a flight or a bug fix "
-                                       "(ROUTE-ORIGIN-PROOF-PRODUCER-UNREACHABLE, SUSPECTED). "
-                                       "No unattended run discharges that - the probe asserts "
-                                       "no verdict by design, so only a person reading its line "
-                                       "closes it.",
         "B16-eve-orbit.toml":          "tier=operator AND a documented outstanding human call - "
                                        "the PROMOTE note ('the PROVISIONAL pins need a human "
                                        "reading the result'); status doc: 'TIER NOT CHANGED ... "

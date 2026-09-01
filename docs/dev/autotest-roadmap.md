@@ -2403,6 +2403,8 @@ gated behind the ROUTE-ORIGIN-PROOF-PRODUCER-UNREACHABLE probe (todo) before any
    different target vessel pid, and any future route lane comparing vessel pids
    across an undock is comparing the wrong thing.
 
+**H55 GREEN 2026-09-01 (run 2, `2026-09-01_2229`, 6/6, re-tiered nightly): B5, B6, B7 and B8 are MEASURED on a driven run - the only Tier B item still owing anything is B4, gated on the probe reading on a LANDED host.**
+
 **What Tier B still owes a flight, after H55.** The lane itself: FLOWN ONCE
 2026-09-01 (`total=6 passed=1 failed=5`) and RED on an authoring defect in the
 partner rig - it carried no `ModuleCommand` part, so
@@ -2454,25 +2456,52 @@ multi-stop and round-trip AT ALL.
    automation instance's own `ModuleManager.ConfigCache` - which no CI job can
    re-read, and where ProbesBeforeCrew prices `dockingPort2` at 600 against
    Squad's 280 - so the first flight is what measures the figure.
-   **TWO OF THIS ITEM'S THREE ASKS ARE REFUSED WITH A DERIVATION, and the
-   refusals are gated in `harness/lib` rather than deferred.** The funds-short
-   hold is structurally unreachable on this subject: the committed `ledger.pgld`
-   carries five `MilestoneAchievement` rows totalling 18,200 funds, all Effective
-   by `MilestonesModule`'s distinct-id first-hit rule, and
-   `EnsureInitialFundsSeed` seeds from the LIVE pool (no `FundsInitial` row,
-   `baseline_0.pgsb` funds 0), so effective funds are `seed + 18200`; and only a
-   DELIVERING cycle charges (a blocked cycle returns before `EmitLoopCycle`)
-   while the destination is full after cycle 0, so no positive seed puts a second
-   dispatch out of reach. The recovery credit is absent by measurement - the
-   ledger holds no recovery rows, so the path logs `credit-skip zero-recovery`.
-   The 11000 funds seed is solved anyway for the shape a FUTURE funds-short lane
-   needs (one dispatch and not two on the seed ALONE, band
-   `[7488.08, 14663.84)` re-derived from the committed snapshot bytes), so that
-   lane inherits a fixture with exactly ONE thing left to change: a ledger
-   without those milestone rows, or a destination with room for two cycles. That
-   is now the Tier C follow-on, and it is a fixture decision rather than a seed
-   one. NO D10 claim yet, on the CLAIM-IS-NOT-GATE rule: the career flavor of
-   `ksc-origin` is earned in the commit that measures the lane green.
+   **FLOWN TWICE 2026-09-01, AND TWO OF THE THREE ASKS ARE NOW MEASURED.** Both
+   runs driver-valid, both `PARSEK-FAIL(expectation)`, neither on a token that
+   was wrong about the product. Round 1 (`_2204`, 74 s) measured the round-1 cost
+   fix as INSUFFICIENT for this shape and is why the ghost-surface follow-on
+   exists: `UNCOSTED - no SourceRefs member (of 2, root cf8d06fc...)`, so
+   `cost=0` and the dispatch was still free. It also killed the lane's authored
+   basis derivation in passing - `of 2`: the route holds TWO SourceRefs, because
+   `ComputeMemberRecordingIds` collects one id per composition through-line head,
+   so the transport's driving legs strip back to the root and `4370a799...` is
+   not a member at all. Round 2 (`_2228`, 50 s) on the follow-on DLL measured the
+   whole chain and red only on this spec's own two derivations.
+   **WHAT ROUND 2 BOUGHT:** the first COSTED route dispatch in the suite's
+   history (`FundsCost basis=launch-manifest source=cf8d06fc...
+   snapshotSource=cf8d06fc... fallback=0 snapshotSurface=ghost
+   cost=7410.0000023841858` - the ROOT priced ITSELF off its ghost copy, so the
+   subset path was never needed and its absence is now pinned by contiguity), the
+   first career funds debit driven end to end
+   (`Career KSC funds debited: -7410.0000023841858`), AND the funds-short hold.
+   THE DERIVED COST WAS RIGHT TO THE UNIT.
+   **THE FUNDS-SHORT HOLD FIRED, AND THIS ITEM'S OWN NOTE HAD CALLED IT
+   UNREACHABLE.** The correction is worth carrying because the missing step is a
+   general trap: A LEDGER AMOUNT IS NOT A LIVE POOL AMOUNT. The committed
+   `ledger.pgld`'s five `MilestoneAchievement` rows do raise the RUNNING balance
+   by 18,200, but `KspStatePatcher.PatchFunds` runs its target through
+   `ApplyDrawdownGuard` and the "keep what you earned" guard refuses the upward
+   patch, holding the live pool at the spent value (`GUARDED UPLIFT clamped
+   resource=Funds running=29200 live=11000 clampedTo=11000 - spent value held;
+   ledger may be missing a spending channel`). So the live pool IS the 11000
+   seed: cycle 0 is charged 7410, cycle 1 sees 3590 and blocks
+   `kind=FundsShort reason=funds-short shortfall=3820.0000047683716` into
+   `blocked-then-paused armedBy=send-once hold kind=FundsShort`. The shortfall is
+   `2 * cost - seed`, exactly what the seed band was solved to produce - so the
+   band was never "for a future lane", it was this lane's gate all along.
+   Cycle 1 stops reading `DestinationFull` only because the funds gate is step 7
+   of `CheckEligibility` and capacity is step 8; both refusals are true on these
+   bytes and ordering picks which is logged, which is what round 1 measured from
+   the other side at `cost=0`.
+   **THE RECOVERY CREDIT stays the one ask not collected**, and that half of the
+   derivation held: the ledger carries no recovery rows, measured as
+   `credit-skip zero-recovery (recoveryRows=0)` and now pinned as a token so the
+   absence is a gate rather than a paragraph. A recovery-credit lane needs a
+   recorded flight that ENDS in a KSC recovery, which no committed route fixture
+   is - that is the remaining Tier C gap, and it is a fixture decision.
+   RE-FLY OWED on the corrected token set; the tier stays `pending-fixture` until
+   a run is green. NO D10 claim yet, on the CLAIM-IS-NOT-GATE rule: the career
+   flavor of `ksc-origin` is earned in the commit that measures the lane green.
 10. **Escrow competition.** Two routes sharing one physical source (D10
     `multi-origin-escrow`); the reservation/release invariant has unit
     coverage but no driven lane.
@@ -2536,10 +2565,12 @@ sequencing is now ONE clean census of H55 followed by whatever its probe line
 says about item 4. Flight 1 already took half that measurement
 (`externalParentParts=0`, which supports the suspicion) but the pad host is
 PRELAUNCH and the producer short-circuits there, so item 4 now also owes the
-probe a run on a LANDED host before it can be settled either way. Tier C item 9 is
-AUTHORED as of 2026-09-02 and owes one flight; item 10 is still unauthored, and
-the funds-short half of item 9 is now a THIRD Tier C item in all but numbering -
-it needs its own fixture (see item 9), not a re-tuned seed.
+probe a run on a LANDED host before it can be settled either way. Tier C item 9
+has FLOWN TWICE (2026-09-01), measured the costed dispatch AND the funds-short
+hold, and owes one re-fly on its corrected tokens; item 10 is still unauthored.
+The recovery credit is now the only unbought third of item 9, and it needs its
+own subject - a recorded flight that ENDS in a KSC recovery - rather than a
+re-tuned seed or a second career stamp.
 Tier D items ride along whenever their sibling program
 (loop-render / ghost-replay) is already paying the flight cost. The standing
 verdict - the nightly lane does not grow until the basics are gated - stands
