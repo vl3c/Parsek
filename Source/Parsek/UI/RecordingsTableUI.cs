@@ -264,9 +264,8 @@ namespace Parsek
             public List<int> Members;
         }
         private int[] sortedIndices; // maps display row -> CommittedRecordings index
-        private int lastSortedCount = -1;
-        // A count-only gate misses a same-count restructure (the optimizer's merge + split
-        // nets zero), so the rebuild is also keyed on the store's StateVersion.
+        // Keyed on the store's StateVersion, which every committed-list membership mutation
+        // bumps; a count-only gate missed a same-count restructure (merge + split nets zero).
         private int lastSortedStateVersion = int.MinValue;
 
         // Dock-partner naming (design-dock-event-graph.md 6.5 / 7.6): the global dock-event
@@ -4594,33 +4593,15 @@ namespace Parsek
 
         private void InvalidateSort()
         {
-            lastSortedCount = -1;
             lastSortedStateVersion = int.MinValue;
-        }
-
-        /// <summary>
-        /// Pure: whether the cached row-to-index map still describes the committed list.
-        /// Current only when it exists and both the count and the store StateVersion it
-        /// was built against are unchanged.
-        /// </summary>
-        internal static bool IsSortedIndicesCurrent(
-            bool hasSortedIndices, int lastCount, int lastStateVersion,
-            int committedCount, int stateVersion)
-        {
-            return hasSortedIndices
-                && lastCount == committedCount
-                && lastStateVersion == stateVersion;
         }
 
         private void RebuildSortedIndices(IReadOnlyList<Recording> committed, double now)
         {
             int stateVersion = RecordingStore.StateVersion;
-            if (IsSortedIndicesCurrent(
-                    sortedIndices != null, lastSortedCount, lastSortedStateVersion,
-                    committed.Count, stateVersion))
+            if (sortedIndices != null && lastSortedStateVersion == stateVersion)
                 return;
 
-            lastSortedCount = committed.Count;
             lastSortedStateVersion = stateVersion;
             sortedIndices = new int[committed.Count];
             for (int i = 0; i < committed.Count; i++)

@@ -10,21 +10,25 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixes
 
-- **The mid-session optimization pass now tells the rest of the mod when it
-  restructures the recordings list.** Merging to the timeline or committing a chain
-  segment runs the same merge/split pass that runs at load, and that pass removes
-  merge-absorbed recordings and inserts split second halves in the middle of the
-  committed list. It never bumped the store's state version, so the effective
-  recording set could keep serving a pre-pass cached list, and it never told the
-  ghost engine, watch mode, chain continuation or the recordings table that indices
-  had moved, so every index-keyed slot above the change could point one recording
-  off (a real ghost playing another recording's trajectory, a watched ghost jumping
-  to its neighbour, a continuation stopping on an id mismatch). The pass now bumps
-  the state version whenever it merged or split anything, and raises removing /
-  removed / inserted notifications that the flight controller consumes exactly the
-  way a manual delete already did (plus a new insert-side reindex mirror); the
-  recordings table re-sorts on the state version as well as the row count. Load-time
-  passes were already harmless (stores rebuild afterwards) and stay so.
+- **Restructuring the recordings list mid-session now tells every index-keyed
+  consumer.** Merging to the timeline or committing a chain segment runs the same
+  merge/split pass that runs at load, and that pass removes merge-absorbed
+  recordings and inserts split second halves in the middle of the committed list;
+  the Re-Fly origin splitter inserts its post-rewind tip the same way. None of that
+  bumped the store's state version, so the effective recording set could keep
+  serving a pre-pass cached list, and none of it told the ghost engine, the held
+  ghost set, the map presence, watch mode, chain continuation or the recordings
+  table that indices had moved, so every index-keyed slot above the change could
+  point one recording off (a ghost playing another recording's trajectory, a held
+  ghost releasing its neighbour, a split second half wearing its neighbour's map
+  icon, a watched ghost jumping, continuation sampling appending the vessel's
+  points into a foreign recording). The store now bumps the state version at each
+  such mutation and raises removing / removed / inserted notifications from one
+  seam that the optimizer, the splitter's insert and every delete path share; the
+  flight controller shifts all of that state from them, a continuation whose
+  recording was merged away follows its trajectory into the merge target, and the
+  recordings table re-sorts on the state version. Load-time passes were already
+  harmless (stores rebuild afterwards) and stay so.
 
 ---
 

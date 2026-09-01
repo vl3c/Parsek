@@ -3618,15 +3618,37 @@ namespace Parsek
         /// </summary>
         internal void OnRecordingDeleted(int index)
         {
+            RebindWatchSlots(
+                (idx, id) => ComputeWatchIndexAfterDelete(idx, id, index, RecordingStore.CommittedRecordings),
+                $"deleted at #{index}");
+        }
+
+        /// <summary>
+        /// Insert mirror of <see cref="OnRecordingDeleted"/>: a recording was inserted at
+        /// <paramref name="index"/> (the optimizer's split second half, the Re-Fly origin
+        /// splitter's TIP), so a watched or lineage-protected index at or above it moved up
+        /// by one. Called from ParsekFlight's CommittedRecordingInserted handler after the
+        /// committed list has shifted.
+        /// </summary>
+        internal void OnRecordingInserted(int index)
+        {
+            RebindWatchSlots(
+                (idx, id) => ComputeWatchIndexAfterInsert(idx, id, index, RecordingStore.CommittedRecordings),
+                $"inserted at #{index}");
+        }
+
+        // One body for both directions: the watched slot exits watch mode when its id is
+        // gone, the lineage-protection slot clears; both just re-point when the id moved.
+        private void RebindWatchSlots(
+            Func<int, string, (int newIndex, string newId)> resolve, string cause)
+        {
             if (watchedRecordingIndex >= 0)
             {
-                var result = ComputeWatchIndexAfterDelete(
-                    watchedRecordingIndex, watchedRecordingId, index,
-                    RecordingStore.CommittedRecordings);
+                var result = resolve(watchedRecordingIndex, watchedRecordingId);
                 if (result.newIndex < 0)
                 {
                     ParsekLog.Warn("CameraFollow",
-                        $"Watched recording \"{watchedRecordingId}\" deleted \u2014 auto-exiting watch mode");
+                        $"Watched recording \"{watchedRecordingId}\" gone after recording {cause} - auto-exiting watch mode");
                     ExitWatchMode();
                 }
                 else
@@ -3636,68 +3658,22 @@ namespace Parsek
                     watchedRecordingId = result.newId;
                     if (oldIdx != result.newIndex)
                         ParsekLog.Info("CameraFollow",
-                            $"Recording deleted at #{index} \u2014 watchedRecordingIndex adjusted from {oldIdx} to {result.newIndex}");
+                            $"Recording {cause} - watchedRecordingIndex adjusted from {oldIdx} to {result.newIndex}");
                 }
             }
 
             if (lineageProtectionRecordingIndex >= 0)
             {
-                var protectionResult = ComputeWatchIndexAfterDelete(
-                    lineageProtectionRecordingIndex, lineageProtectionRecordingId, index,
-                    RecordingStore.CommittedRecordings);
+                var protectionResult = resolve(lineageProtectionRecordingIndex, lineageProtectionRecordingId);
                 if (protectionResult.newIndex < 0)
                 {
                     ClearLineageProtection(
-                        $"Protected watch-lineage root \"{lineageProtectionRecordingId}\" deleted \u2014 clearing retained debris protection");
+                        $"Protected watch-lineage root \"{lineageProtectionRecordingId}\" gone after recording {cause} - clearing retained debris protection");
                 }
                 else
                 {
                     lineageProtectionRecordingIndex = protectionResult.newIndex;
                     lineageProtectionRecordingId = protectionResult.newId;
-                }
-            }
-        }
-
-        /// <summary>
-        /// Insert mirror of <see cref="OnRecordingDeleted"/>: the optimization pass inserted a
-        /// split second half at <paramref name="index"/>, so a watched or lineage-protected
-        /// index at or above it moved up by one. Called from ParsekFlight's
-        /// OptimizationRecordingInserted handler after the committed list has shifted.
-        /// </summary>
-        internal void OnRecordingInserted(int index)
-        {
-            if (watchedRecordingIndex >= 0)
-            {
-                var result = ComputeWatchIndexAfterInsert(
-                    watchedRecordingIndex, watchedRecordingId, index,
-                    RecordingStore.CommittedRecordings);
-                if (result.newIndex < 0)
-                {
-                    ParsekLog.Warn("CameraFollow",
-                        $"Watched recording \"{watchedRecordingId}\" not found after insert at #{index} - auto-exiting watch mode");
-                    ExitWatchMode();
-                }
-                else if (result.newIndex != watchedRecordingIndex)
-                {
-                    ParsekLog.Info("CameraFollow",
-                        $"Recording inserted at #{index} - watchedRecordingIndex adjusted from {watchedRecordingIndex} to {result.newIndex}");
-                    watchedRecordingIndex = result.newIndex;
-                }
-            }
-
-            if (lineageProtectionRecordingIndex >= 0)
-            {
-                var protectionResult = ComputeWatchIndexAfterInsert(
-                    lineageProtectionRecordingIndex, lineageProtectionRecordingId, index,
-                    RecordingStore.CommittedRecordings);
-                if (protectionResult.newIndex < 0)
-                {
-                    ClearLineageProtection(
-                        $"Protected watch-lineage root \"{lineageProtectionRecordingId}\" not found after insert at #{index} - clearing retained debris protection");
-                }
-                else
-                {
-                    lineageProtectionRecordingIndex = protectionResult.newIndex;
                 }
             }
         }

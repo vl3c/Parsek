@@ -269,6 +269,30 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Keeps the index-keyed held-ghost set aligned with the committed list after a
+        /// removal at <paramref name="removedIndex"/>. The removed slot itself is dropped
+        /// (its ghost was destroyed by the pre-removal handler, which already ran
+        /// <see cref="HandleGhostDestroyed"/>); everything above shifts down.
+        /// </summary>
+        internal void ReindexHeldGhostsAfterDelete(int removedIndex)
+        {
+            int before = heldGhosts.Count;
+            IndexShift.DictAfterDelete(heldGhosts, removedIndex);
+            if (before > 0)
+                ParsekLog.Verbose("Policy",
+                    $"Held ghosts reindexed after committed removal at #{removedIndex}: {before} -> {heldGhosts.Count}");
+        }
+
+        /// <summary>Insert mirror of <see cref="ReindexHeldGhostsAfterDelete"/>.</summary>
+        internal void ReindexHeldGhostsAfterInsert(int insertedIndex)
+        {
+            if (heldGhosts.Count == 0) return;
+            IndexShift.DictAfterInsert(heldGhosts, insertedIndex);
+            ParsekLog.Verbose("Policy",
+                $"Held ghosts reindexed after committed insert at #{insertedIndex}: {heldGhosts.Count} entries shifted");
+        }
+
+        /// <summary>
         /// Flush deferred spawns that were queued during warp.
         /// Runs AFTER engine.UpdatePlayback() when warp ends.
         /// Iterates committed recordings and materializes eligible vessels.

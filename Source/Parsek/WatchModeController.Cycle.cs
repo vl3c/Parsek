@@ -102,52 +102,42 @@ namespace Parsek
             if (deletedIndex == watchedIndex)
                 return (-1, null);
 
-            int newIndex = watchedIndex;
-            if (deletedIndex < watchedIndex)
-                newIndex = watchedIndex - 1;
-
-            // Verify by ID -- the recording at the new index should match
-            if (newIndex >= 0 && newIndex < recordings.Count &&
-                recordings[newIndex].RecordingId == watchedId)
-            {
-                return (newIndex, watchedId);
-            }
-
-            // ID mismatch -- scan for correct index
-            for (int j = 0; j < recordings.Count; j++)
-            {
-                if (recordings[j].RecordingId == watchedId)
-                    return (j, watchedId);
-            }
-
-            // Not found -- exit watch mode
-            return (-1, null);
+            return ResolveIndexById(
+                IndexShift.AfterDelete(watchedIndex, deletedIndex), watchedId, recordings);
         }
 
         /// <summary>
         /// Pure static helper, the insert mirror of <see cref="ComputeWatchIndexAfterDelete"/>:
         /// computes the new watch index after a recording was inserted at
-        /// <paramref name="insertedIndex"/> (the optimizer's split second half). Indices at or
-        /// above the insert shift up by one; the result is verified by id against the
-        /// post-insert list and falls back to an id scan. Returns newIndex=-1 only when the
-        /// watched id is no longer in the list at all.
+        /// <paramref name="insertedIndex"/> (the optimizer's split second half, the Re-Fly
+        /// origin splitter's TIP). Indices at or above the insert shift up by one. Returns
+        /// newIndex=-1 only when the watched id is no longer in the list at all.
         /// </summary>
         internal static (int newIndex, string newId) ComputeWatchIndexAfterInsert(
             int watchedIndex, string watchedId, int insertedIndex,
             IReadOnlyList<Recording> recordings)
         {
-            int newIndex = watchedIndex >= insertedIndex ? watchedIndex + 1 : watchedIndex;
+            return ResolveIndexById(
+                IndexShift.AfterInsert(watchedIndex, insertedIndex), watchedId, recordings);
+        }
 
-            if (newIndex >= 0 && newIndex < recordings.Count &&
-                recordings[newIndex].RecordingId == watchedId)
+        /// <summary>
+        /// Verifies an arithmetic index guess by id against the post-mutation list and falls
+        /// back to an id scan. Returns (-1, null) when the id is not in the list at all.
+        /// </summary>
+        internal static (int newIndex, string newId) ResolveIndexById(
+            int guess, string id, IReadOnlyList<Recording> recordings)
+        {
+            if (guess >= 0 && guess < recordings.Count &&
+                recordings[guess].RecordingId == id)
             {
-                return (newIndex, watchedId);
+                return (guess, id);
             }
 
             for (int j = 0; j < recordings.Count; j++)
             {
-                if (recordings[j].RecordingId == watchedId)
-                    return (j, watchedId);
+                if (recordings[j].RecordingId == id)
+                    return (j, id);
             }
 
             return (-1, null);
