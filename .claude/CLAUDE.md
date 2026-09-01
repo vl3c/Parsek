@@ -220,7 +220,7 @@ docs/                       # Design docs (docs/dev/), roadmap, reference analys
 ```
 
 **Scripts** (`--help` / the `param(...)` block is authoritative):
-- `python scripts/collect-logs.py [label] [--save NAME] [--ksp-dir PATH] [--output-dir DIR] [--skip-validation] [--skip-recordings]` - gathers `KSP.log`, `Player.log`, `parsek-test-results.txt`, save snapshots, and recording sidecars into `../logs/<timestamp>[_label]/`, and runs the log validation. Snapshots the DEV instance, not the automation one.
+- `python scripts/collect-logs.py [label] [--save NAME] [--ksp-dir PATH] [--output-dir DIR] [--skip-validation] [--skip-recordings]` - gathers `KSP.log`, `Player.log`, `parsek-test-results.txt`, save snapshots with every `Parsek/<dir>` sidecar directory (Recordings, Saves, GameState, RewindPoints) into `../logs/<timestamp>[_label]/`, and runs the log validation. Snapshots the DEV instance, not the automation one.
 - `pwsh -File scripts/validate-ksp-log.ps1 [-LogPath PATH] [-NoBuild] [-KilledRun] [-NoRecordingRun]` - runs `LiveKspLogValidationTests.ValidateLatestSession` against the latest `KSP.log`. The two switches are harness seams; the C# checker's `ParseSuppressionList` rejects suppressing FMT/WRN (the cannot-mask guarantee).
 - `pwsh -File scripts/analyze-recordings.ps1 -SaveDir DIR [-ResultsDir DIR] [-NoBuild] [-FailOnRed] [-UseBaseline] [-WriteBaseline] [-KeepStaleBaselineEntries] [-FreshSaveGate]` - the offline recording analyzer over a save.
 - `pwsh -File scripts/inject-recordings.ps1 [-CleanStart] [-SaveName NAME] [-TargetSave FILE] [-Build] [-RunDiagnosticsTests] [-Preset NAME]` - injects synthetic recordings into a KSP save.

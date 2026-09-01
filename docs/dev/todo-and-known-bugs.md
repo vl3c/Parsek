@@ -1088,11 +1088,19 @@ session keeps only the second manifest. A per-scene partition suffix
 preserve both; the harness reader would take the newest/richest. Deliberately not
 built until a session actually needs it.
 
-## COLLECT-LOGS-SAVE-COPY-IS-ANALYZER-INCOMPLETE: `scripts/collect-logs.py` copies `Parsek/Recordings` but not `Parsek/Saves` or `Parsek/GameState`, so an analyzer run over a COLLECTED save always WARNs INV9 (missing rewind saves) and loses the GameState sidecars a fixture harvest needs [FOUND 2026-08-25: the s15 collection WARNed INV9 on four recordings whose rewind saves exist in the live save, and the duna-one-recorded harvest had to reach into the separately-collected `parsek/` dir for GameState. TOOLING IMPROVEMENT, REPORT-ONLY]
+## ~~COLLECT-LOGS-SAVE-COPY-IS-ANALYZER-INCOMPLETE: `scripts/collect-logs.py` copies `Parsek/Recordings` but not `Parsek/Saves` or `Parsek/GameState`, so an analyzer run over a COLLECTED save always WARNs INV9 (missing rewind saves) and loses the GameState sidecars a fixture harvest needs~~ [FOUND 2026-08-25: the s15 collection WARNed INV9 on four recordings whose rewind saves exist in the live save, and the duna-one-recorded harvest had to reach into the separately-collected `parsek/` dir for GameState. TOOLING IMPROVEMENT. FIXED 2026-09-02]
 
-Copy `Parsek/Saves` and `Parsek/GameState` alongside `Parsek/Recordings` in the
-save-copy leg (both are small: s15's are 1.3 MB + 64 KB). That makes a collected
-save analyzer-faithful and harvest-complete without touching the live save twice.
+**Fix (2026-09-02).** The save-copy leg now copies EVERY `Parsek/<dir>` subdirectory of the
+save (`Recordings`, `Saves`, `GameState`, `RewindPoints` - the directory INV9 actually
+reads - and whatever is added next) into `saves/<name>/Parsek/`, through one
+`copy_parsek_sidecar_dirs` helper the flat `parsek/` leg shares; `--skip-recordings` still
+excludes `Recordings` from both. A collected save is therefore analyzer-faithful and
+harvest-complete. Validated against a fabricated save layout with and without
+`--skip-recordings` (all four directories land, Recordings alone drops on the flag).
+
+The original proposal named `Saves` + `GameState`; `RewindPoints` is what
+`Inv9RewindPoint` resolves through `RecordingPaths`, so a copy of only those two would have
+left the WARN in place.
 
 ## ROUTE-DELIVERY-CLOCK-OMITS-THE-HOLD-ARGS: `RouteLoopClock.TryGetRouteLoopState` threads only the relaunch schedule and the loiter cuts into the span clock, so on a hold-carrying or launch-aligned route-backed unit the DELIVERY clock and the RENDER clock are not the same clock [FOUND BY READING 2026-08-25 while scouting the M-A7 render-composition plan surface, from the source alone - NOT measured on a flight. LATENT on every committed route today (v0 same-body routes carry no holds). REPORT-ONLY and DELIBERATELY NOT FIXED IN THE M-A7 PR: that PR is observation-only, and changing what the delivery clock computes is a product decision of its own]
 
