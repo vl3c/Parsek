@@ -511,6 +511,55 @@ either `outcome=no-external-coupling candidates=0` (which CONFIRMS this entry ou
 the walk ran and found nothing) or a `Captured` line (which refutes it). That lane does not
 exist yet and is the cheapest remaining step here.
 
+## ROUTE-DISPATCH-COST-BASIS-RESIDUALS: what the transport-subset + ghost-surface costing fix still leaves open [FOUND 2026-09-02 by the pre-merge correctness pass on PR #1597. NONE blocking - every item is a strict improvement over the pre-#1597 state, where the same routes dispatched for FREE - but each names a real follow-up. REPORT-ONLY, fix shapes recorded]
+
+1. **The two snapshot surfaces are not the same instant.** `GhostVisualSnapshot` is captured at
+   recording START (`FlightRecorder` start-state node); `VesselSnapshot` at STOP. Preferring
+   vessel and falling back to ghost means a staged launch prices the post-separation stack
+   in-session and the FULL launch stack after any OnLoad outside SPACECENTER (the
+   crew-auto-unreserve sweep nulls the vessel surface; it is skipped at SPACECENTER, so the
+   KSC-shown cost and the FLIGHT-charged cost can differ in one session). Fix shape: pick ONE
+   surface by contract - the launch stack (ghost/start) is the honest basis for a KSC dispatch
+   and survives sweeps and splits - and accept the one-time cost change for existing staged
+   routes; the rover shape is unaffected (root carries only the ghost surface, 7410 either way).
+2. **An optimizer split moves the vessel surface to the second half and nulls
+   `RouteRunManifest` on both halves** (`RecordingOptimizer.TransferTerminalFieldsToSecondHalf`)
+   while `SourceRefs` still names the first half - basis flips launch-manifest -> stop-walk on
+   the ghost. Same fix as 1 (start surface + start manifest are split-stable).
+3. **The subset path latches the FIRST combined member** (`mergedCandidate == null` guard) even
+   when it carries no window (the `StartUT >= RecordedDockUT` rule alone), so a windowless
+   member ahead of the real dock-merged leaf sends the route to UNCOSTED; an origin-carrier
+   member ahead of it would supply the WRONG window. Fix: latch only a member whose window
+   matches `RecordedDockUT`, else keep walking. Practically unreachable today - the ghost
+   fallback prices the root first on every real tree - which is why it is not fixed here.
+4. **`keptParts > 0` is presence, not coverage**: a snapshot matching 1 of N transport pids
+   prices one part and still adds the full launch-manifest resource term. Fix: require
+   `keptParts == transportPids.Count`, else UNCOSTED (better free-and-logged than plausible-
+   and-wrong).
+5. **Bare `persistentId` matching inside the subset** (`RouteFundsCalculator.IsRestrictedOut`):
+   a same-blueprint transport/endpoint pair shares baked pids, so endpoint parts would be
+   billed as transport - the standing craft-baked-pid rule. Upstream `DeriveEndpointPartPids`
+   (merged minus transport) has the same blind spot. Fix: gate the subset on the window's
+   endpoint set being DISJOINT from the transport set (refuse to price when they overlap).
+6. **Staged launches under-charge on the subset path**: the window's transport pid set is the
+   craft AT THE DOCK, so staged-away boosters are not priced while their propellant (start
+   manifest) is. Item 1's start-surface contract fixes this too.
+7. **`Unknown part cost:` is a plain `Warn` per unpriced PART per call** (`RouteFundsCalculator`
+   ~88/199), and the ghost fallback makes the walk reachable post-load for every loaded route
+   at the ~1 Hz Logistics refresh, where the UNCOSTED early return was rate-limited. A save
+   carrying a removed/renamed mod part now warns per part per route per second, and the log
+   validator cannot suppress WRN. Fix: once-per-part-name per session (a static seen-set), or
+   `VerboseRateLimited`; note the xUnit cost cells currently COUNT these per-call warn lines
+   as their proof of which parts were walked, so the tests move with the fix.
+8. **Gate and emit recompute independently** (`KscFundsAvailable` and `EmitDispatchDebit` each
+   call `ComputeDispatchFundsCostForRoute`); no single-compute-per-cycle capture asserts the
+   gated and charged numbers agree. Low probability (one synchronous stack), recorded for
+   completeness; `route.KscDispatchFundsCost` persists only the emit value.
+
+Measured coverage note: RVR-4's green run took the root/ghost path (`fallback=0 snapshotSurface=
+ghost`); the transport-subset last resort has NEVER executed in flight and is covered by its
+eight xUnit cells only.
+
 ## RESERVATION-OVERLAY-GAPS: the reservation readout that replaced the dead budget UI is absent in the EDITOR and reports `Reserved: 0` in a genuine deficit [SPLIT OUT 2026-08-29 from RESOURCE-BUDGET-READOUTS-ARE-DEAD when that entry was struck as cleanup-done. Neither gap was part of that cleanup; refiled here so they survive it]
 
 `CurrencyReservationOverlay` is the surface that carries the reserved-vs-available story now
