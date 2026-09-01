@@ -170,29 +170,31 @@ namespace Parsek
         /// currency obvious. <paramref name="available"/> is the value shown on the bar, so by
         /// construction the bar equals <paramref name="available"/> = Total - Reserved.
         ///
-        /// <paramref name="minProjected"/> is the projection's unclamped minimum balance. When
-        /// it is negative the committed future overdraws the pool, and the Total / Reserved
-        /// pair cannot say so: the bar is floored at zero, so a plain deficit reads
-        /// "Total: 0 / Reserved: 0" at exactly the moment the pool is eaten. That is not a
-        /// reservation (nothing is being held back), so it gets its own line, "Short by",
-        /// carrying the over-commit magnitude, and a negative running balance replaces the
-        /// pair with the signed "Balance" the bar cannot show.
+        /// <paramref name="minProjected"/> is the projection's unclamped minimum balance
+        /// (never above <paramref name="total"/>: the projection seeds its minimum at the
+        /// current balance and only lowers it). When it is negative the committed future
+        /// overdraws the pool, and the Total / Reserved pair cannot say so: that is not a
+        /// reservation (nothing is being held back), so it gets its own "Short by" line
+        /// carrying the over-commit magnitude. A negative <paramref name="total"/> is the
+        /// genuine deficit whose bar is floored at zero, where the pair would read
+        /// "Total: 0 / Reserved: 0"; it renders the signed "Balance" instead, plus
+        /// "Short by" only when the future digs deeper than the current hole (the two
+        /// numbers nest, so the line is omitted when it would just repeat the balance).
         /// </summary>
         internal static string BuildReservationTooltip(
-            double total, double available, string format, double minProjected = 0.0)
+            double total, double available, string format, double minProjected)
         {
+            if (total < 0.0)
+            {
+                string deficit = "Balance: " + total.ToString(format, IC);
+                if (minProjected < total)
+                    deficit += "\nShort by: " + (-minProjected).ToString(format, IC);
+                return deficit;
+            }
+
             double reserved = total - available;
             if (reserved < 0.0)
                 reserved = 0.0;
-
-            if (total < 0.0)
-            {
-                // Genuine deficit: the running balance itself is negative. Total (bar +
-                // reserved) would print 0 here; show the signed balance instead.
-                double shortBy = minProjected < total ? -minProjected : -total;
-                return "Balance: " + total.ToString(format, IC) + "\n"
-                    + "Short by: " + shortBy.ToString(format, IC);
-            }
 
             string text = "Total: " + total.ToString(format, IC) + "\n"
                 + "Reserved: " + reserved.ToString(format, IC);
@@ -236,15 +238,19 @@ namespace Parsek
 
         /// <summary>
         /// Pure: derives the tooltip from the ledger's running balance, its floored
-        /// availability, its unclamped projected minimum and the value on the bar. A
-        /// negative running balance is passed through as the (signed) total so the deficit
-        /// wording engages; otherwise Total = displayed + reserved as before.
+        /// availability, its unclamped projected minimum and the value on the bar. The
+        /// deficit wording engages only when the running balance is negative AND the bar
+        /// shows nothing: KspStatePatcher's "keep what you earned" drawdown guard can hold
+        /// the bar at a positive live value while the ledger runs below zero, and the
+        /// tooltip must reconcile with the number the player is looking at, so that case
+        /// stays on the bar-anchored Total / Reserved form (with its Short by line).
+        /// Otherwise Total = displayed + reserved as before.
         /// </summary>
         internal static string BuildTooltipFromLedger(
             double runningBalance, double available, double minProjected, double displayed, string format)
         {
-            if (runningBalance < 0.0)
-                return BuildReservationTooltip(runningBalance, displayed, format, minProjected);
+            if (runningBalance < 0.0 && displayed <= 0.0)
+                return BuildReservationTooltip(runningBalance, 0.0, format, minProjected);
 
             double reserved = runningBalance - available;
             if (reserved < 0.0)

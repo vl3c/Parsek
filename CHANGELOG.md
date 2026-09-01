@@ -46,8 +46,9 @@ _(unreleased — entries accumulate here per commit)_
   tooltip used to show the whole balance as reserved and nothing more, and when the
   balance itself had gone negative it showed `Total: 0 / Reserved: 0`, which is the
   opposite of what was happening. An over-committed pool now adds a `Short by`
-  line with the shortfall, and a negative balance shows the signed `Balance` and
-  the `Short by` amount instead of a reservation that does not exist.
+  line with the shortfall, and a negative balance whose bar reads zero shows the
+  signed `Balance` (and `Short by` when the committed future digs deeper still)
+  instead of a reservation that does not exist.
 
 - Send Once on a route that visits SEVERAL destinations now stops after that one
   round, instead of quietly carrying on. A multi-stop route drops off at each

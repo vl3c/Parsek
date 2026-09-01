@@ -346,10 +346,16 @@ unclamped availability when no projection is installed). `CurrencyReservationOve
 derives the tooltip through the pure `BuildTooltipFromLedger(runningBalance, available,
 minProjected, displayed)`: a healthy pool keeps the two-line `Total / Reserved` form; an
 over-committed pool (balance positive, projected minimum negative) keeps `Total / Reserved`
-and adds `Short by: <over-commit magnitude>`; a genuine deficit (running balance negative)
-replaces the pair with `Balance: <signed> / Short by: <magnitude>`, because nothing is being
-held back and `Total: 0 / Reserved: 0` was reporting the opposite of the truth. The
-`Reserved` slot never carries a negative number, per the analysis below. Pinned by
+and adds `Short by: <over-commit magnitude>`; a genuine deficit (running balance negative AND
+the bar floored at zero) replaces the pair with `Balance: <signed>`, plus `Short by` only when
+the projected minimum digs deeper than the current hole (the two numbers nest, so a repeated
+magnitude is omitted), because nothing is being held back and `Total: 0 / Reserved: 0` was
+reporting the opposite of the truth. The bar-floored condition matters: `KspStatePatcher`'s
+"keep what you earned" drawdown guard can hold the bar at a positive live value while the
+ledger runs below zero, and there the tooltip stays bar-anchored (`Total: <bar> / Reserved: 0
+/ Short by: <magnitude>`) so it reconciles with the number on screen (the PR #1596 review
+caught this). The `Reserved` slot never carries a negative number, per the analysis below.
+Pinned by
 `CurrencyReservationOverlayTests` (all three shapes, through both the pure builder and the
 ledger derivation) and `ProjectionMinBalanceTests` (the modules expose the unclamped minimum
 and drop it on `Reset`).
