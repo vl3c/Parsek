@@ -237,6 +237,16 @@
         "2026-08-24T16:16:25Z": 2377.0
       }
     },
+    "B32-interbody-route-scope": {
+      "last": 61.0,
+      "lastVsP50": 1.0,
+      "n": 1,
+      "p50": 61.0,
+      "p95": 61.0,
+      "samples": {
+        "2026-09-02T19:17:20Z": 61.0
+      }
+    },
     "B4-reentry-splashdown": {
       "last": 1065.0,
       "lastVsP50": 1.0,
@@ -2029,6 +2039,26 @@
         "2026-08-26T18:24:05Z": 54.0,
         "2026-08-26T18:37:59Z": 53.0,
         "2026-08-26T19:30:29Z": 53.0
+      }
+    },
+    "V26M-interbody-route-map-lines": {
+      "last": 62.0,
+      "lastVsP50": 1.0,
+      "n": 1,
+      "p50": 62.0,
+      "p95": 62.0,
+      "samples": {
+        "2026-09-02T19:20:06Z": 62.0
+      }
+    },
+    "V26T-interbody-route-ts-arrival": {
+      "last": 59.0,
+      "lastVsP50": 1.0,
+      "n": 1,
+      "p50": 59.0,
+      "p95": 59.0,
+      "samples": {
+        "2026-09-02T19:21:23Z": 59.0
       }
     },
     "V3C-flight-arrival-companion": {
