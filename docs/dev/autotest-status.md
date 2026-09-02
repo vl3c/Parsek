@@ -4075,6 +4075,31 @@ six publish or compare numbers the runner already measured.
     half on a recording that crosses NO seam; forensics on
     RECORDER-SUSPECTED-DOUBLE-EMIT-AT-SOI-SEAM in todo-and-known-bugs.md.
 
+16. G10's INTER-BODY ROUTE SCOPE IS UNREACHABLE FROM CREATION, so B32 / V26M /
+    V26T cannot be authored (2026-09-02, branch `interbody-route-lane`).
+    `ClassifyRouteScope` reads `Route.DispatchWindowPeriod` as the authoritative
+    scope flag; `RouteBuilder.cs:486` hard-codes it to `0.0` and no other
+    production site in `Source/Parsek/` ever assigns it. A route whose members
+    span Kerbin and Duna therefore classifies `MalformedMixedBodies`, its route
+    line is SKIPPED, and `FilterLegsToEndpointBodies` (behind the same
+    `!= 0.0` branch) never runs. Confirmed against the operator's own
+    `orbital supply route` save: a real `Route: KSC -> Duna`, `Active`,
+    `reaimWindowBasisEngaged = True`, `dispatchWindowPeriod = 0`. The re-aim
+    BASIS is a different and healthy mechanism (derived per tick, never read from
+    the period), so `H34-logistics-inter-body`'s `basis=ReaimWindows` pin is
+    unaffected. Independently, no committed fixture carries an inter-body
+    connection window: the four with a `ROUTE_CONNECTION_WINDOW`
+    (`bdock-recorded`, `depot-route-recorded`, `rover-route-recorded`,
+    `rover-route-career`) are Kerbin-only, and `duna-park-recorded` /
+    `duna-one-recorded` carry none, so the create gate answers
+    `candidate-ineligible MissingRouteProof` over every one of them. The operator
+    save specification that WOULD produce the subject is written into the G10
+    entry in `autotest-roadmap.md`; the defect is
+    ROUTE-INTERBODY-SCOPE-NEVER-REACHABLE in todo-and-known-bugs.md; the full
+    gate walk is `docs/dev/research/g10-interbody-route-feasibility.md`. NO
+    scenario ids are consumed - `B32` / `V26M` / `V26T` stay reserved and
+    unauthored.
+
 ## Operator items outstanding
 
 1. Career fixture saves (3) - DONE + LIVE-PROVEN (no operator session): file-
