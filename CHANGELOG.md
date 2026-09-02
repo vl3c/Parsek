@@ -102,29 +102,6 @@ _(unreleased — entries accumulate here per commit)_
   expected wording and one line that turned out not to exist, all of which were corrected
   against what the game actually printed; nothing about the game itself was wrong on that
   run either. Nothing player-facing changes.
-- **Test coverage: a supply relay that the game correctly REFUSES to turn into a
-  route now has a saved subject and two automated lanes.** Everything the automated
-  tests had ever checked about supply routes was a route that worked; nothing checked
-  the cases where Parsek is supposed to say no. A hand-flown session was saved as a new
-  test subject: three identical rovers parked along the KSC shore, one of which drives
-  to the second, takes on fuel, drives on to the third and hands some over. It looks
-  from the outside exactly like a supply run that should be offered as a route, and it
-  is not offered - for two separate and entirely correct reasons. Neither depot rover
-  was ever marked as a Base or a Station in the tracking station, so the game recorded
-  no supply origin for either dock; and while docked the player carried one stored part
-  across from the second rover, which the game failed to recognise as the same part on
-  the far side and so treated as cargo that had appeared from nowhere. **The second of
-  those is a real bug**, now written up separately: KSP itself adds a computed value to
-  a part while it is being handed over, and Parsek's fingerprint for "is this the same
-  item" includes that value, so a part that was genuinely passed from one craft to the
-  other stops matching itself. Nothing about how the player moved it was wrong - the
-  message the game shows in that case is misleading, and the fix needs a decision that
-  has not been taken yet. One new lane drives the "create a route from this" action and
-  requires it to be refused, with the refusal naming that second reason exactly, so it
-  doubles as the check that will notice when the bug is fixed; a second lane runs the
-  whole supply test suite on top of the same save, which is the largest and most
-  complicated saved history any of those tests has ever run against. Nothing
-  player-facing changes.
 
 - **Automated testing: three new checks now watch the between-planets supply route
   the map fix restored, and they have been proved able to fail.** They load the new

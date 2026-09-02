@@ -486,6 +486,18 @@ class RoverRelayCSpecFixtureSyncTests(unittest.TestCase):
         self.assertNotIn('tree = "%s"' % self.builder.ENDPOINT_A_TREE_ID, text)
         self.assertNotIn('tree = "%s"' % self.builder.ENDPOINT_B_TREE_ID, text)
 
+    def test_rvr7_pins_the_seal_total_to_the_relay_tree_size(self):
+        """`sealslot complete ... total=N` counts the RECORDING nodes of the sealed
+        tree, so N is the relay tree's own size and nothing else. Before this cell
+        the token was a free literal: a `total=8 -> total=7` mutation passed the
+        whole `harness/lib` suite (measured 2026-09-03 in the PR #1622 review),
+        because `verify_seal_state` pins the SAVE and no cell pinned the SPEC.
+        Scoped to the `required` list, not the whole file, for the same reason as
+        the path cell below: the header quotes the token in prose."""
+        want = "sealslot complete mode=tree tree=%s total=%d sealed=0" % (
+            self.builder.RELAY_TREE_ID, len(self.builder.RELAY_TREE_RECORDING_IDS))
+        self.assertIn(want, self._required_block())
+
     def test_rvr7_expects_the_create_to_be_admitted(self):
         """The lane's ENTIRE product is the ADMISSION of the relay, so an
         `expect = "REJECTED"` on the create step would be a spec that passes when

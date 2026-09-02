@@ -327,6 +327,19 @@ class RoverRelaySpecFixtureSyncTests(unittest.TestCase):
         self.assertNotIn('tree = "%s"' % self.builder.ENDPOINT_A_TREE_ID, text)
         self.assertNotIn('tree = "%s"' % self.builder.ENDPOINT_B_TREE_ID, text)
 
+    def test_rvr5_pins_the_seal_total_to_the_relay_tree_size(self):
+        """`sealslot complete ... total=N` counts the RECORDING nodes of the sealed
+        tree, so N is the relay tree's own size and nothing else. The mirror of
+        the RVR-7 cell in `test_build_rover_relay_c_recorded.py`: until 2026-09-03
+        the `total=7` here was a free literal no cell pinned. Scoped to RVR-5's
+        `required` list, because the header quotes the token in prose and RVR-6
+        seals nothing."""
+        text = self.text["RVR-5-rover-relay-eligibility.toml"]
+        required_block = text.split("required  = [", 1)[1].split("]", 1)[0]
+        want = "sealslot complete mode=tree tree=%s total=%d sealed=0" % (
+            self.builder.RELAY_TREE_ID, len(self.builder.RELAY_TREE_RECORDING_IDS))
+        self.assertIn(want, required_block)
+
     def test_rvr5_expects_the_create_to_be_admitted(self):
         """INVERTED WITH THE LANE ON 2026-09-03. Until then this cell asserted
         `expect = "REJECTED"` and the `candidate-ineligible` reason, because RVR-5
