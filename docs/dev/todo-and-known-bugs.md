@@ -780,7 +780,24 @@ as its own supply origin. Both seam-pair lines appear (`selection=OriginIsFar` a
 (`TryFindPartByFlightIdOnVessel`) still has no headless pin - the helper takes a live
 `Vessel`. Its only pin is H57's negative-control cell, which passed on flight 1.
 
-## ROUTE-ORIGIN-PROOF-SELF-ORIGIN-ON-A-DEPOT-SIDE-START: a base or station that starts a recording with a transport docked to it records ITSELF as its supply origin [FOUND 2026-09-02 as the F2 residue of the partner ruling. OPEN, low severity, needs undock-side routing]
+## ~~ROUTE-ORIGIN-PROOF-SELF-ORIGIN-ON-A-DEPOT-SIDE-START: a base or station that starts a recording with a transport docked to it records ITSELF as its supply origin~~ [FOUND 2026-09-02 as the F2 residue of the partner ruling. FIXED 2026-09-02 by the P12 undock-side binding, code green, NOT YET FLOWN]
+
+**FIXED BY THE BINDING, which is the fix shape this entry itself named.** Capture no longer
+names an origin at all: it records BOTH halves of the seam as a pending pair, and the UNDOCK
+binds the origin to the half the player did NOT keep flying
+(`RouteProofCapture.ClassifyUndockOriginBinding` -> `TryBindStartDockedOriginAtUndock`, called
+from `ParsekFlight.CreateSplitBranch`). A recording that never undocks is stamped
+`UnboundAtStop` and is refused by `RouteAnalysisEngine.HasDockedOriginProof`, so the
+depot-side start that produced this entry now names nothing rather than naming itself. The pid
+stamp is separately guid-gated (`DecideOriginPidStamp` returns `RefusedSameLaunch` for a
+candidate pid equal to the recorded launch's), which is the same guard one level down.
+
+RESIDUE, filed separately rather than left inside this entry:
+ROUTE-ORIGIN-PROOF-BIND-FOLLOWS-FOCUS-NOT-THE-RUN.
+
+ORIGINAL ENTRY BELOW.
+
+
 
 The partner rule names the depot-typed half of the seam. When the RECORDED vessel IS the
 depot (the player starts a recording on their base while a tanker is docked to it), the
@@ -810,6 +827,33 @@ a SURFACE depot resolves by identity first and by the M1 descriptor only if the 
 root part is gone. What binding the pid at the undock still buys is a cheaper O(1) lookup
 and a second corroborating key, not the difference between resolving and not.
 
+## ROUTE-ORIGIN-PROOF-BIND-FOLLOWS-FOCUS-NOT-THE-RUN: the undock bind names the origin from which half KEPT FOCUS, which is the wrong half when the player stays with the depot [FOUND 2026-09-02 as the mirror-direction check on the P12 binding. OPEN, low severity, inert on the recording that carries it]
+
+THE RULING is that the origin is the half the player did NOT keep flying, and
+`RouteProofCapture.ClassifyUndockOriginBinding` implements exactly that: the ACTIVE side of the
+split is the transport, the BACKGROUND side is the origin. That is self-consistent because the
+recorder FOLLOWS the focused vessel across a split (`ParsekFlight.DeferredUndockBranch`: "the
+recorder follows the focused side"), so the active half is the half this RUN continues on.
+
+THE MIRROR DIRECTION, walked as the rule requires: the player is controlling their landed base and
+undocks a tanker from it. Focus stays on the base, so the base is the "active" half and the
+TANKER is bound as the origin - backwards. Two reasons it is low severity rather than urgent:
+
+- On the recording that carries the proof it is INERT. That recording is the base's, a base that
+  never moves produces no delivery window elsewhere, so `RouteBuilder` builds no route from it and
+  the wrong binding is never read.
+- The pickup validation is a second filter: the base half rarely gains cargo across the docked
+  span it just supplied.
+
+WHAT WOULD ACTUALLY FIX IT, stated so it is not re-derived: the discriminator has to be "which
+half is the RUN" rather than "which half has focus", and the honest source for that is the same
+pickup direction the transfer rule already computes - the half whose cargo went UP across the
+docked span is the one that took delivery. Today that reading is used only to validate; using it
+to CHOOSE would need the depot half's own undock manifest as well (the bind currently extracts
+only the transport side's), and a tie-break for the `Carried` case where neither side moved. Not
+built here because it changes which vessel a route debits, which is exactly the class of change
+that wants its own deliberate pass.
+
 ## HARNESS-SUITE-REWRITES-TRACKED-DURATION-JSON: running the harness `lib` suite dirties the committed `harness/coverage/duration.json` [FOUND 2026-09-02 while running the suites for the origin-proof wave. OPEN, NOT FIXED BY DECISION - filed so the dirty file is recognised rather than investigated]
 
 `cd harness && python -m unittest discover -s lib -q` leaves
@@ -827,7 +871,36 @@ IT: `git checkout -- harness/coverage/duration.json` before staging, and do NOT 
 in an unrelated commit - a diff that silently carries a rewritten ledger makes the real
 change harder to read and can clobber a genuine sample another branch added.
 
-## ROUTE-ORIGIN-PROOF-REQUIRES-A-PLAYER-TYPED-DEPOT: the depot-typed partner rule captures nothing unless the player has set the base's vessel type to Base or Station [FOUND 2026-09-02 by the adversarial review of the partner ruling (F2). OPEN by decision, fail-closed, announced at Info]
+## ~~ROUTE-ORIGIN-PROOF-REQUIRES-A-PLAYER-TYPED-DEPOT: the depot-typed partner rule captures nothing unless the player has set the base's vessel type to Base or Station~~ [FOUND 2026-09-02 by the adversarial review of the partner ruling (F2). THE REQUIREMENT IS DELETED 2026-09-02 by the P12 operator ruling, code green, NOT YET FLOWN]
+
+**NOT FIXED - THE REQUIREMENT ITSELF IS GONE, and with it the rule that created it.** The
+operator's ruling: there is no "base" type that matters, bases are ordinary vessels, and a route
+candidate is defined by TRANSFERS AND DOCKS - the transport takes cargo at one docked partner and
+delivers it at another. `RouteProofCapture.IsDepotVesselType` is deleted as an authority
+(`StartDockedOriginBindingTests.NoVesselTypeAuthorityRemains_TheDepotPredicateIsGone` pins the
+absence by reflection); the type survives only as a logged and serialized INFORMATIONAL field.
+Every pair of valid cargo owners is now admitted, whatever the two halves are typed as, and the
+origin is bound at the UNDOCK to the half the player did not keep flying.
+
+The mechanism analysis below (no stock part declares `Base` or `Station`, so an ordinary landed
+base reads `Ship` / `Probe` / `Lander`) STANDS as the reason the old rule was unshippable, and it
+was measured live before the deletion: a sibling session's rover-relay flight logged
+`RouteOriginProof skipped: no depot half recId=1461186781 ... seams=2 candidates=0` with
+`nearType=5 farType=5` on BOTH docks - two Rovers, the exact shape the roadmap is aimed at,
+capturing nothing. The rejected alternatives (a)-(d) below are also superseded: (c) "infer it from
+which half leaves at undock - not knowable at capture, and the capture has to be complete before
+the undock because the run may never undock" is what SHIPPED, and the objection is answered by
+capturing BOTH halves and deferring only the CHOICE. A run that never undocks reads
+`UnboundAtStop` and is not an origin, which is correct rather than a gap: nothing witnessed which
+half it left behind.
+
+The `no depot half` Info announcement is replaced by `RouteOriginProof skipped: unusable seam
+pair`, which now fires only on the structural causes (a half with no identity, or one that cannot
+own cargo at all) and no longer advises retyping anything.
+
+ORIGINAL ENTRY BELOW.
+
+
 
 **The mechanism, decompiled and then measured.** `Vessel.FindDefaultVesselType()` starts
 from the vessel's own `vesselType` and only RAISES it to a higher part `vesselType` - it
@@ -880,7 +953,29 @@ into the Logistics window's near-miss list (that is how the undocked-start rule 
 "the origin base is not typed as a Base or Station" belongs there, in player language, at
 the moment the player is trying to make the route.
 
-## ROUTE-ORIGIN-PROOF-TRANSPORT-MANIFESTS-INCLUDE-THE-DEPOT: the start-docked proof's transport manifests are scoped to the whole merged vessel [FOUND 2026-09-02 while building the partner rule. OPEN, wrong-quantity risk on a start-docked route]
+## ~~ROUTE-ORIGIN-PROOF-TRANSPORT-MANIFESTS-INCLUDE-THE-DEPOT: the start-docked proof's transport manifests are scoped to the whole merged vessel~~ [FOUND 2026-09-02 while building the partner rule. FIXED 2026-09-02 for the ORIGIN PROOF by P12, code green, NOT YET FLOWN. `RouteRunCargoManifest` still merged-scoped, see below]
+
+**FIXED FOR `RouteOriginProof`.** Capture now walks the merged part tree and CUTS THE SEAM EDGE
+(`RouteProofCapture.TrySplitPartsAcrossSeam`), storing each half's own part-`persistentId` set and
+its own start manifests on the pending pair. At the UNDOCK bind the proof's
+`StartTransportResources` / `StartTransportInventory` are replaced by the TRANSPORT half's
+(whichever half the player kept flying), and the end manifests are re-extracted from the same stop
+snapshot scoped to the same half - so both ends of the run are measured on one part set. Before
+the bind the manifests remain the merged pair's, which is the only honest baseline while both
+halves are one `Vessel`, and an unbound proof is never an origin, so the merged scope is never
+costed. The splitter FAILS CLOSED (a seam that is not a parent/child edge, or a part list that is
+not one tree, yields no part sets and therefore no bind) because a wrong part set would silently
+mis-scope every manifest downstream.
+
+STILL OPEN: `RouteRunCargoManifest` (the M2 full-run manifest) keeps
+`VesselSpawner.CollectPartPersistentIds(snapshot)` over the whole merged vessel. It is a separate
+producer with its own write-once / void lifecycle and its own consumers (the harvest gain check),
+and re-scoping it changes quantities on every leg, not just start-docked ones. Do it as its own
+pass with the delta-vs-today measured. The seam splitter it would need already exists.
+
+ORIGINAL ENTRY BELOW.
+
+
 
 `RouteProofCapture.BuildStartRouteOriginProof` scopes `StartTransportResources` /
 `StartTransportInventory` with `VesselSpawner.CollectPartPersistentIds(snapshot)` over the

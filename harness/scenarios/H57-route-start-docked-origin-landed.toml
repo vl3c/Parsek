@@ -346,11 +346,20 @@ required  = [
   "Using batch baseline slot .* for 2 restore-after-run test\\(s\\)",
   "BATCH_COMPLETE v1 total=2 passed=2 failed=0 skipped=0 category=RouteStartDockedOrigin scene=FLIGHT",
   "RouteOriginProof seam scan: settledDockSeamCandidates=[1-9][0-9]* externalParentCandidates=0",
-  # partnerPid=0 is a LITERAL and load-bearing: the pid slot is 0 by contract on every
-  # captured proof (Part.Couple destroys the depot's own Vessel, and the merged pid names
-  # whichever half stock made dominant - here the TRANSPORT, because the rig couples the
-  # depot in). originType=10 is VesselType.Base: the depot half the partner rule selected.
-  "RouteOriginProof captured: recId=[0-9]+ vessel='.*' partnerPid=0 originRoot=[1-9][0-9]* originName='[^']+' originType=10 transportRoot=[1-9][0-9]* transportType=[0-9]+ candidates=2 transportParts=[1-9][0-9]* startRes=[0-9]+ startInv=[0-9]+ partnerBody=Kerbin partnerSituation=1 surface=1",
+  # P12: CAPTURE NAMES NO ORIGIN. Both halves are recorded and the choice is deferred to
+  # the undock, so the producer line is now `pair captured` and carries halfA / halfB
+  # rather than origin / transport. `bindState=PairPendingBinding` is a LITERAL and is the
+  # whole point of the line: a capture that already named an origin would be the deleted
+  # depot-typed rule coming back. The two half TYPES are regex classes, not literals - the
+  # rig no longer stamps VesselType.Base and nothing decides on a type any more.
+  "RouteOriginProof pair captured: recId=[0-9]+ vessel='.*' halfARoot=[1-9][0-9]* halfAName='[^']+' halfAType=[0-9]+ halfAParts=[0-9]+ halfARes=[0-9]+ halfBRoot=[1-9][0-9]* halfBName='[^']+' halfBType=[0-9]+ halfBParts=[0-9]+ halfBRes=[0-9]+ bindState=PairPendingBinding candidates=2 mergedParts=[1-9][0-9]* startRes=[0-9]+ startInv=[0-9]+ partnerBody=Kerbin partnerSituation=1 surface=1",
+  # THE BIND, the line P12 exists to produce. `binding=BoundToHalf[AB]` says the split
+  # separated the captured pair; `pickupValidated=1` is a LITERAL because the transport
+  # leaves this seam carrying LiquidFuel, and an unvalidated pickup makes the proof a
+  # non-origin. The cell additionally ASSERTS that originRoot equals the depot's own root
+  # flightID - a regex cannot express that equality across two independent classes.
+  "RouteOriginProof bound at undock: recording=\\S+ ut=\\S+ binding=BoundToHalf[AB] originHalf=[AB] originRoot=[1-9][0-9]* originName='[^']+' originType=[0-9]+ originPid=[0-9]+ guidDecision=\\S+ transportRoot=[1-9][0-9]* transportParts=[1-9][0-9]* pickup=(Gain|Carried) pickupValidated=1 pickupDelta=\\[.*\\] startRes=[0-9]+ undockRes=[0-9]+",
+  "StartDockedOriginBind: cell=start-docked depotRoot=[1-9][0-9]* line=.*originRoot=[1-9][0-9]*.*",
   # The forwarding fix's own line. Without it the proof dies on FlightRecorder.CaptureAtStop
   # and never reaches a tree recording - which is what flights 1 and 2 measured.
   #
@@ -361,11 +370,14 @@ required  = [
   # hands the adoption to the split. Both callers are the fix; which one fires first is a
   # property of the cell's own choreography, and pinning one of them pinned the
   # choreography rather than the behaviour. What still discriminates: the line must exist
-  # at all, and originType=10 proves it carries the DEPOT half. The ordinary stop-flush
+  # at all. NOTE (P12): originRoot is 0 on this line when the ADOPTION runs before the
+  # BIND - the split adopts the pending PAIR and CreateSplitBranch binds the origin onto
+  # the adopted copy immediately afterwards - so the root is a plain [0-9]+ class here and
+  # the bound identity is pinned by the bind line above instead. The ordinary stop-flush
   # entry point - the one an adoption written only into AppendCapturedDataToRecording
   # would have missed - is pinned headlessly instead, by
   # RouteOriginProofForwardingTests.StopFlush_ForwardsTheProofOntoTheTreeRecording.
-  "Logistics metadata: RouteOriginProof adopted \\(write-once\\) path=(FlushRecorderToTreeRecording|AppendCapturedDataToRecording) target=\\S+ source=\\S+ originRoot=[1-9][0-9]* originName='[^']+' originType=10",
+  "Logistics metadata: RouteOriginProof adopted \\(write-once\\) path=(FlushRecorderToTreeRecording|AppendCapturedDataToRecording) target=\\S+ source=\\S+ originRoot=[0-9]+ originName='.*' originType=-?[0-9]+",
   # WHAT THIS LANE DOES NOT PIN: the endpoint RESOLUTION step order (root-part, then pid,
   # then surface proximity). Nothing in either cell dispatches a route, so no
   # `Endpoint resolved:` line is emitted at all - measured on the armed run
@@ -377,7 +389,10 @@ required  = [
   # see the header. SaveRecordingInto / LoadRecordingFrom is the pair ParsekScenario.OnSave
   # and OnLoad drive for every tree recording, so node=present plus a reloaded origin root
   # equal to depotRoot IS the save/load round trip.
-  "StartDockedOriginPersist: cell=start-docked node=present reloadedOriginRoot=[1-9][0-9]* reloadedOriginType=10 depotRoot=[1-9][0-9]*",
+  # reloadedOriginType is a CLASS, not 10: the rig no longer stamps VesselType.Base, and
+  # the type is informational. What the round trip has to preserve is the ROOT (and, in
+  # cell, the bind state and pickup validation, both asserted).
+  "StartDockedOriginPersist: cell=start-docked node=present reloadedOriginRoot=[1-9][0-9]* reloadedOriginType=-?[0-9]+ depotRoot=[1-9][0-9]*",
   "OnPartCouple producer classified: kind=DockingPort fromPart=dockingPort2 toPart=dockingPort2 involvesEva=False",
   "Route proof dock window captured: child=\\S+ window=\\S+ targetPid=[0-9]+ kind=DockingPort",
   # treeProof=yes is now a LITERAL, not a class: the read-back is asserted again.
@@ -388,7 +403,7 @@ required  = [
   # when the persisted origin is not the depot half. The two values are logged side by side
   # so a human reading the census can see the equality that the assert enforced.
   "StartDockedOrigin: cell=start-docked run=routedock-start-docked-[0-9a-f]{8} proofCaptured=True originPid=[1-9][0-9]* body=Kerbin surface=1 situation=1 windows=1 detail=recordedPid=[1-9][0-9]*;treeProof=yes;originRoot=[1-9][0-9]*;depotRoot=[1-9][0-9]*;delivered=[0-9]+\\.[0-9]{2}",
-  "StartDockedOriginForward: cell=start-docked treeRecordingWithProof=\\S+ expectedOriginRoot=[1-9][0-9]* expectedOriginName='[^']+' actualOriginRoot=[1-9][0-9]* actualOriginName='[^']+' actualOriginType=10",
+  "StartDockedOriginForward: cell=start-docked treeRecordingWithProof=\\S+ expectedOriginRoot=[1-9][0-9]* expectedOriginName='[^']+' actualOriginRoot=[1-9][0-9]* actualOriginName='[^']+' actualOriginType=-?[0-9]+",
   "StartDockedOrigin: cell=undocked-before-start run=routedock-undocked-before-start-[0-9a-f]{8} proofCaptured=False originPid=0 body=<none> surface=0 situation=1 windows=0 detail=outcome=no-external-coupling",
   "DockCapture PASS: cell=start-docked run=routedock-start-docked-[0-9a-f]{8} windows=1 kind=DockingPort complete=True deliveryResources=1 deliveryInventory=0 pickupResources=0 pickupInventory=0 detail=recordedPid=[1-9][0-9]*;treeProof=yes;originRoot=[1-9][0-9]*;delivered=[0-9]+\\.[0-9]{2}",
   "flushandquit: save suppressed \\(batch baseline already restored\\)",

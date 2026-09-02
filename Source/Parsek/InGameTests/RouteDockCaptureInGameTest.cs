@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Globalization;
@@ -645,13 +645,13 @@ namespace Parsek.InGameTests
                 IEnumerator port = ctx.AttachTransportDockPort();
                 while (port.MoveNext()) yield return port.Current;
 
-                // A DEPOT-TYPED partner: the start-docked partner rule names the Base /
-                // Station half of the seam as the origin, so a Probe-typed partner would read
-                // NoDepotHalf and capture nothing.
+                // NO DECLARED TYPE. Since P12 the pair is admitted whatever the two halves
+                // are typed as (they only have to be able to own cargo at all), so this rig
+                // is deliberately whatever the spawn produced - which is what a stock-built
+                // base reads as, and what used to capture NOTHING.
                 var rig = new PartnerRig("A");
                 IEnumerator build = ctx.BuildPartnerRig(
-                    rig, PartnerAOffsetsMeters, withTank: false, withContainer: false,
-                    rigVesselType: VesselType.Base);
+                    rig, PartnerAOffsetsMeters, withTank: false, withContainer: false);
                 while (build.MoveNext()) yield return build.Current;
 
                 // The dock itself, OUTSIDE any recording: this probe is about
@@ -694,12 +694,34 @@ namespace Parsek.InGameTests
                 while (rec.MoveNext()) yield return rec.Current;
 
                 bool proofCaptured = ctx.FindFrom(beforeStart,
-                    l => l.Contains("RouteOriginProof captured:"));
+                    l => l.Contains("RouteOriginProof pair captured:"));
                 string outcome = ctx.FirstMatchSuffix(beforeStart, "RouteOriginProof skipped: ")
                     ?? (proofCaptured ? "captured" : "no-producer-line");
 
+                // THE BIND, in the same cell. The capture only records a PAIR now, so a probe
+                // that stops at the capture would never exercise the half that actually names
+                // an origin. Undock the partner WHILE THE RECORDING RUNS: ParsekFlight's
+                // undock chain reaches CreateSplitBranch, which binds the origin to the half
+                // the player did not keep flying - the partner - and validates the pickup.
+                // Skipped on a PRELAUNCH host, where the producer captured nothing to bind.
+                string bindLine = null;
+                if (v.situation != Vessel.Situations.PRELAUNCH)
+                {
+                    int beforeUndock = ctx.CapturedCount;
+                    partnerPort.Undock(new DockedVesselInfo
+                    {
+                        name = ctx.RunId + "-probe-partner",
+                        vesselType = VesselType.Probe,
+                        rootPartUId = rig.Root.flightID
+                    });
+                    for (int i = 0; i < SettleFrames; i++)
+                        yield return null;
+                    bindLine = ctx.FirstMatchSuffix(beforeUndock, "RouteOriginProof bound at undock: ");
+                }
+
                 string line = RouteDockCaptureMath.FormatOriginProofProbeLine(
-                    externalParentParts, proofCaptured, (int)v.situation, outcome, partnerPid);
+                    externalParentParts, proofCaptured, (int)v.situation, outcome, partnerPid,
+                    bound: bindLine != null);
                 ParsekLog.Info("TestRunner", line);
 
                 InGameAssert.IsTrue(ctx.Flight.IsRecording,
@@ -735,12 +757,28 @@ namespace Parsek.InGameTests
                 else
                 {
                     InGameAssert.IsTrue(proofCaptured,
-                        "the settled dock seam must produce a RouteOriginProof on a non-PRELAUNCH " +
-                        "host (situation=" + ((int)v.situation).ToString(IC) + " outcome=" + outcome +
-                        "). 'no-external-coupling' here means the docking-node seam producer " +
-                        "regressed back to the retired parent-vessel reading");
+                        "the settled dock seam must produce a RouteOriginProof PAIR on a " +
+                        "non-PRELAUNCH host (situation=" + ((int)v.situation).ToString(IC) +
+                        " outcome=" + outcome + "). 'no-external-coupling' here means the " +
+                        "docking-node seam producer regressed back to the retired " +
+                        "parent-vessel reading; 'unusable seam pair' means a half lost its " +
+                        "identity or its cargo-owner admission");
                     InGameAssert.AreEqual("captured", outcome,
                         "the producer must report the Captured branch, not a skip");
+
+                    // (3b) THE BIND. This is the half P12 adds, and it is the only live proof
+                    // that the undock chain reaches RouteProofCapture's binder at all.
+                    InGameAssert.IsNotNull(bindLine,
+                        "the undock must emit 'RouteOriginProof bound at undock:' - a captured " +
+                        "PAIR with no bind names no origin, which is a route silently lost");
+                    InGameAssert.IsTrue(
+                        bindLine.Contains("originRoot=" + rig.Root.flightID.ToString(IC)),
+                        "the bound origin must be the half that LEFT (root flightID " +
+                        rig.Root.flightID.ToString(IC) + "), not the half the player kept " +
+                        "flying. Line: " + bindLine);
+                    InGameAssert.IsTrue(bindLine.Contains("pickupDelta=["),
+                        "the bind line must carry the transport-half pickup delta, or the " +
+                        "transfer validation has no observable evidence. Line: " + bindLine);
                 }
             }
             finally
@@ -789,17 +827,15 @@ namespace Parsek.InGameTests
                 IEnumerator port = ctx.AttachTransportDockPort();
                 while (port.MoveNext()) yield return port.Current;
 
-                // The DEPOT: partner A stands in for the landed base, and is TYPED as one.
-                // The type is the whole subject here - the partner rule reads the two halves'
-                // pre-dock vesselType off the docking-node pair and names the Base / Station
-                // half the origin, INDEPENDENT of which half stock made dominant. This cell
-                // couples the depot INTO the transport, so the depot is the child that leaves
-                // and the merged pid names the TRANSPORT; a dominance-derived rule would name
-                // the transport as its own origin here.
+                // The DEPOT: partner A stands in for the landed base, and carries NO declared
+                // type - since P12 nothing decides on one. The subject is the UNDOCK: this cell
+                // couples the depot INTO the transport, so the depot is the child that LEAVES
+                // and the merged pid names the TRANSPORT. A dominance-derived rule would name
+                // the transport as its own origin here, and the binding rule - the origin is
+                // the half the player did NOT keep flying - names the depot.
                 var depot = new PartnerRig("A");
                 IEnumerator buildDepot = ctx.BuildPartnerRig(
-                    depot, PartnerAOffsetsMeters, withTank: false, withContainer: false,
-                    rigVesselType: VesselType.Base);
+                    depot, PartnerAOffsetsMeters, withTank: false, withContainer: false);
                 while (buildDepot.MoveNext()) yield return buildDepot.Current;
 
                 // THE EXPECTED ANSWER, read off the world BEFORE the couple. This is exactly
@@ -809,9 +845,12 @@ namespace Parsek.InGameTests
                 uint depotRootFlightId = depot.Root.flightID;
                 string depotVesselName = depot.Vessel.vesselName;
                 int depotVesselType = (int)depot.Vessel.vesselType;
-                InGameAssert.AreEqual((int)VesselType.Base, depotVesselType,
-                    "the depot rig must be Base-typed BEFORE the couple, or the partner rule " +
-                    "reads NoDepotHalf and this cell measures nothing");
+                InGameAssert.IsTrue(
+                    RouteProofCapture.IsValidCargoOwnerVesselType(depotVesselType),
+                    "the depot rig must be a valid cargo owner before the couple (type=" +
+                    depotVesselType.ToString(IC) + "). NOTE: no Base / Station requirement " +
+                    "remains - P12 deleted the typed-depot rule, and this rig deliberately " +
+                    "carries whatever type the spawn produced");
 
                 // THE DOCK HAPPENS OUTSIDE ANY RECORDING. That is the whole
                 // subject: no onPartCouple window can open, so the origin has
@@ -837,17 +876,21 @@ namespace Parsek.InGameTests
                 while (rec.MoveNext()) yield return rec.Current;
 
                 bool capturedAtStart = ctx.FindFrom(beforeStart,
-                    l => l.Contains("RouteOriginProof captured:"));
+                    l => l.Contains("RouteOriginProof pair captured:"));
                 string outcome = ctx.FirstMatchSuffix(beforeStart, "RouteOriginProof skipped: ")
                     ?? (capturedAtStart ? "captured" : "no-producer-line");
                 InGameAssert.IsTrue(capturedAtStart,
                     "starting a recording on a settled docked pair must capture a RouteOriginProof " +
-                    "(outcome=" + outcome + "). 'no-external-coupling' means the docking-node seam " +
-                    "producer regressed to the retired parent-vessel reading");
+                    "PAIR (outcome=" + outcome + "). 'no-external-coupling' means the docking-node " +
+                    "seam producer regressed to the retired parent-vessel reading");
 
                 // THE UNDOCK: the transport leaves the depot. No window can
                 // complete here - none was ever opened - so this is a plain
-                // Part.Undock, deliberately NOT UndockAndAwaitCompletion.
+                // Part.Undock, deliberately NOT UndockAndAwaitCompletion. It IS, however,
+                // where the origin gets bound (P12): the split reaches ParsekFlight's
+                // CreateSplitBranch, which binds the origin to the half the player did not
+                // keep flying and validates the transport half's pickup.
+                int beforeUndock = ctx.CapturedCount;
                 var depotInfo = new DockedVesselInfo
                 {
                     name = ctx.RunId + "-depot-left-behind",
@@ -861,6 +904,24 @@ namespace Parsek.InGameTests
                     "the depot must be its own vessel again after the undock");
                 if (depot.Vessel == null || depot.Vessel.state == Vessel.State.DEAD)
                     depot.Vessel = depot.Port.vessel;
+
+                // THE BIND LINE, read off PRODUCTION output at the moment it is emitted.
+                string bindLine = ctx.FirstMatchSuffix(beforeUndock, "RouteOriginProof bound at undock: ");
+                InGameAssert.IsNotNull(bindLine,
+                    "the undock must emit 'RouteOriginProof bound at undock:'. Nothing else in " +
+                    "the product names an origin now - a captured PAIR that never binds is a " +
+                    "route silently lost, and this is the only live path through the binder");
+                InGameAssert.IsTrue(
+                    bindLine.Contains("originRoot=" + depotRootFlightId.ToString(IC)),
+                    "the bound origin must be the DEPOT (root flightID " +
+                    depotRootFlightId.ToString(IC) + ") - the half that LEFT - not the " +
+                    "transport the player kept flying. Line: " + bindLine);
+                InGameAssert.IsTrue(bindLine.Contains("pickupValidated=1"),
+                    "the transport leaves this seam carrying LiquidFuel, so the pickup must " +
+                    "validate; pickupValidated=0 makes the proof a non-origin. Line: " + bindLine);
+                ParsekLog.Info("TestRunner",
+                    "StartDockedOriginBind: cell=" + ctx.CellName + " depotRoot=" +
+                    depotRootFlightId.ToString(IC) + " line=" + bindLine);
 
                 // DELIVER ELSEWHERE: a SECOND partner, a different endpoint
                 // vessel from the origin, reached while the same recording runs.
@@ -934,20 +995,27 @@ namespace Parsek.InGameTests
                     InGameAssert.AreEqual(depotRootFlightId, proof.StartDockedOriginRootPartUId,
                         "the persisted origin must be the DEPOT half (root flightID " +
                         depotRootFlightId.ToString(IC) + "), not the transport. A mismatch here " +
-                        "means the producer went back to a dominance-derived reading - the merged " +
+                        "means the bind chose the half the player KEPT flying - the merged " +
                         "vessel in this cell IS the transport, recordedPid=" + mergedPid.ToString(IC));
                     InGameAssert.AreEqual(depotVesselName, proof.StartDockedOriginVesselName,
                         "the proof must carry the depot's PRE-dock vessel name off the docking " +
                         "node's vesselInfo");
-                    InGameAssert.AreEqual((int)VesselType.Base, proof.StartDockedOriginVesselType,
-                        "the proof must carry the depot's PRE-dock vesselType - it is the field " +
-                        "the partner rule selects on");
+                    InGameAssert.AreEqual(depotVesselType, proof.StartDockedOriginVesselType,
+                        "the proof must carry the depot's PRE-dock vesselType. It is INFORMATIONAL " +
+                        "since P12 - nothing decides on it - but it must still be the depot's own");
                     InGameAssert.AreNotEqual(depotRootFlightId, proof.StartDockedTransportRootPartUId,
                         "the transport half must be the OTHER half of the seam; equal roots mean " +
-                        "the selection collapsed both halves onto one identity");
-                    InGameAssert.AreEqual(0u, proof.StartDockedOriginVesselPid,
-                        "the pid slot is 0 by contract at capture - the depot's own Vessel is " +
-                        "destroyed by Part.Couple and the merged pid names the wrong half");
+                        "the bind collapsed both halves onto one identity");
+                    InGameAssert.AreEqual(
+                        (int)StartDockedOriginBindState.BoundAtUndock,
+                        (int)proof.StartDockedOriginBindState,
+                        "the persisted proof must be BOUND: a pair still PairPendingBinding, or " +
+                        "UnboundAtStop, names no origin and route analysis refuses it");
+                    InGameAssert.IsTrue(proof.StartDockedOriginPickupValidated,
+                        "the persisted proof must be pickup-validated, or it is not an origin");
+                    InGameAssert.IsNotNull(proof.StartDockedPair,
+                        "the persisted proof must still carry BOTH captured halves - the pair is " +
+                        "the evidence the bind was made from");
                     InGameAssert.AreEqual("Kerbin", proof.StartDockedOriginBodyName,
                         "the persisted M1 descriptor must carry the body, or a pid-less origin " +
                         "has nothing left to resolve from");
@@ -989,17 +1057,24 @@ namespace Parsek.InGameTests
                     InGameAssert.AreEqual(depotRootFlightId, reloaded.RouteOriginProof.StartDockedOriginRootPartUId,
                         "the RELOADED origin must still be the depot half - a round trip that " +
                         "drops or renumbers the identity is the same defect as never writing it");
+                    InGameAssert.AreEqual(
+                        (int)StartDockedOriginBindState.BoundAtUndock,
+                        (int)reloaded.RouteOriginProof.StartDockedOriginBindState,
+                        "the P12 bind state must survive the codec round trip, or every reloaded " +
+                        "proof reads as an unbound pair and no start-docked route can be built");
+                    InGameAssert.IsTrue(reloaded.RouteOriginProof.StartDockedOriginPickupValidated,
+                        "the pickup validation must survive the codec round trip");
 
                     // The producer's Captured line carries every descriptor field this cell
                     // is here to prove is real, and it is production output.
                     InGameAssert.IsTrue(
-                        ctx.FindFrom(beforeStart, l => l.Contains("RouteOriginProof captured:")
+                        ctx.FindFrom(beforeStart, l => l.Contains("RouteOriginProof pair captured:")
                             && l.Contains("surface=1")),
                         "the start-docked capture must produce a SURFACE-typed origin endpoint on a " +
                         "LANDED docked pair - IsSurfaceOriginSituation admits LANDED and SPLASHED only, " +
                         "so surface=0 here means the descriptor lost the docked pair's situation");
                     InGameAssert.IsTrue(
-                        ctx.FindFrom(beforeStart, l => l.Contains("RouteOriginProof captured:")
+                        ctx.FindFrom(beforeStart, l => l.Contains("RouteOriginProof pair captured:")
                             && l.Contains("partnerBody=Kerbin")),
                         "the M1 endpoint descriptor must carry the body name, or the origin falls back " +
                         "to the PID-only shape and loses its proximity rebuild");
@@ -1076,8 +1151,7 @@ namespace Parsek.InGameTests
 
                 var depot = new PartnerRig("A");
                 IEnumerator buildDepot = ctx.BuildPartnerRig(
-                    depot, PartnerAOffsetsMeters, withTank: false, withContainer: false,
-                    rigVesselType: VesselType.Base);
+                    depot, PartnerAOffsetsMeters, withTank: false, withContainer: false);
                 while (buildDepot.MoveNext()) yield return buildDepot.Current;
 
                 StampStockDockBookkeeping(depot.Port, ctx.TransportPort);
@@ -1109,7 +1183,7 @@ namespace Parsek.InGameTests
                 while (rec.MoveNext()) yield return rec.Current;
 
                 bool capturedAtStart = ctx.FindFrom(beforeStart,
-                    l => l.Contains("RouteOriginProof captured:"));
+                    l => l.Contains("RouteOriginProof pair captured:"));
                 string outcome = ctx.FirstMatchSuffix(beforeStart, "RouteOriginProof skipped: ")
                     ?? (capturedAtStart ? "captured" : "no-producer-line");
 
@@ -1126,7 +1200,12 @@ namespace Parsek.InGameTests
                 InGameAssert.IsFalse(capturedAtStart,
                     "an UNDOCKED partner must leave no live seam: the node keeps its vesselInfo, but " +
                     "its docked partner part is on another vessel now, and IsSettledDockSeam's " +
-                    "partner-resolves conjunct is what must reject it (outcome=" + outcome + ")");
+                    "partner-resolves conjunct is what must reject it (outcome=" + outcome + "). " +
+                    "STILL THE CONTROL AFTER P12: the pair rule widened what is ADMITTED, not " +
+                    "what counts as a live seam");
+                InGameAssert.IsFalse(
+                    ctx.FindFrom(beforeStart, l => l.Contains("RouteOriginProof bound at undock:")),
+                    "nothing may bind an origin when nothing was captured");
                 InGameAssert.AreEqual("no-external-coupling", outcome,
                     "the producer must take the NoExternalCoupling branch, not a different skip");
             }
@@ -1381,8 +1460,7 @@ namespace Parsek.InGameTests
             /// at once). See the class remarks.
             /// </summary>
             internal IEnumerator BuildPartnerRig(
-                PartnerRig rig, double[] offsets, bool withTank, bool withContainer,
-                VesselType rigVesselType = VesselType.Probe)
+                PartnerRig rig, double[] offsets, bool withTank, bool withContainer)
             {
                 uint rootPid = SpawnSinglePartVessel(
                     CommandPartName, RunId + "-p" + rig.Label + "-core", VesselType.Probe,
@@ -1423,22 +1501,13 @@ namespace Parsek.InGameTests
                     while (addBox.MoveNext()) yield return addBox.Current;
                 }
 
-                // THE DECLARED TYPE IS STAMPED LAST, AND THE REASON IS NOT WHAT IT LOOKS
-                // LIKE. Part.Couple ends with `this.vessel.vesselType =
-                // this.vessel.FindDefaultVesselType()`, and that method (decompiled KSP
-                // 1.12.5) starts from the vessel's CURRENT type and only ever RAISES it to a
-                // higher part vesselType - it never lowers one. So a Base stamp would in fact
-                // survive the AddPartToRig couples; what it would NOT survive is the spawn
-                // path, where the type is a ProtoVessel field and the live Vessel is built
-                // afterwards. Stamping here, on the assembled live vessel, is the one place
-                // the value is both settled and assertable. The origin-proof cells need a
-                // DEPOT-typed partner because the start-docked partner rule selects the Base
-                // / Station half of the seam (RouteProofCapture.SelectStartDockedOriginHalf),
-                // and the type is read from the docking node's vesselInfo, which
-                // StampStockDockBookkeeping records from the live vessel just before the
-                // couple.
-                rig.Vessel.vesselType = rigVesselType;
-
+                // NO VESSEL TYPE IS STAMPED (P12). The rig used to declare a Base-typed
+                // partner because the start-docked rule selected the Base / Station half of
+                // the seam. That rule is gone: bases are ordinary vessels, and the origin is
+                // bound at the UNDOCK to the half the player did not keep flying. The rig
+                // therefore leaves whatever type the spawn and the couples produce, which is
+                // ALSO the more honest subject - it is what a stock-built base actually reads
+                // as (no stock part declares Base or Station).
                 InGameAssert.IsTrue(ParsekFlight.IsTrackableVessel(rig.Vessel),
                     "the assembled partner rig must be TRACKABLE before it is ever docked - the " +
                     "undock split is filtered by this exact predicate, and an untrackable half " +

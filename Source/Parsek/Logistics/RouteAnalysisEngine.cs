@@ -1184,19 +1184,37 @@ namespace Parsek.Logistics
         }
 
         /// <summary>
-        /// True when the origin recording carries a captured start-docked origin
-        /// depot proof. The capture-time identity is the depot half's ROOT PART
-        /// UID (a launch-unique part flightID read off the docking-node pair);
-        /// the vessel pid is the bind-later slot and is 0 on every captured
-        /// proof, so EITHER satisfies the gate. Shared with
-        /// <see cref="RouteCreationFormatters.ResolveOriginIdentity"/> and
-        /// <c>RouteBuilder.TryResolveRouteOrigin</c>.
+        /// True when the origin recording carries a BOUND and PICKUP-VALIDATED start-docked
+        /// origin proof. Three conditions, each rejecting a different unproven shape (P12):
+        ///
+        /// <list type="number">
+        /// <item>the proof exists at all;</item>
+        /// <item><c>BindState == BoundAtUndock</c> - an undock actually separated the captured
+        /// pair, so one half is the origin and the other is the transport. A proof still
+        /// <c>PairPendingBinding</c>, or <c>UnboundAtStop</c> (the recording ended while still
+        /// docked), names NO origin: nothing witnessed which half the run left behind. A
+        /// pre-P12 persisted proof also lands here, because its bind state deserializes to the
+        /// 0 default;</item>
+        /// <item><c>PickupValidated</c> - the transport's own manifests witnessed the cargo
+        /// coming aboard, or at minimum leaving the seam aboard the transport (design 19.2.2
+        /// item 2, the "Loaded" provenance). A run that picked nothing up at the origin is not
+        /// supplied by it.</item>
+        /// </list>
+        ///
+        /// <para>The identity is then the origin half's ROOT PART UID (a launch-unique part
+        /// flightID). The vessel pid is a corroborating key stamped at the bind behind the
+        /// launch-guid gate and may legitimately still be 0, so it is NOT part of the gate.</para>
+        ///
+        /// <para>Shared with <see cref="RouteCreationFormatters.ResolveOriginIdentity"/> and
+        /// <c>RouteBuilder.TryResolveRouteOrigin</c>.</para>
         /// </summary>
         internal static bool HasDockedOriginProof(Recording originRec)
         {
-            return originRec?.RouteOriginProof != null
-                && (originRec.RouteOriginProof.StartDockedOriginVesselPid != 0
-                    || originRec.RouteOriginProof.StartDockedOriginRootPartUId != 0);
+            RouteOriginProof proof = originRec?.RouteOriginProof;
+            return proof != null
+                && proof.StartDockedOriginBindState == StartDockedOriginBindState.BoundAtUndock
+                && proof.StartDockedOriginPickupValidated
+                && proof.StartDockedOriginRootPartUId != 0;
         }
 
         /// <summary>

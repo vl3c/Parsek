@@ -1,4 +1,4 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using Xunit;
 
 namespace Parsek.Tests
@@ -50,6 +50,11 @@ namespace Parsek.Tests
                 StartDockedOriginBodyName = "Mun",
                 StartDockedOriginIsSurface = true,
                 StartDockedOriginSituation = (int)Vessel.Situations.LANDED,
+                // BOUND + PICKUP-VALIDATED: the forwarding cells assert the docked-origin
+                // gate, and since P12 that gate needs the undock bind, not just an identity.
+                StartDockedOriginBindState = StartDockedOriginBindState.BoundAtUndock,
+                StartDockedOriginPickupValidated = true,
+                StartDockedOriginPickupKind = OriginPickupKind.Gain,
             };
         }
 

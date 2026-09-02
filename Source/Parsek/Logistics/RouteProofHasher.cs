@@ -151,6 +151,28 @@ namespace Parsek.Logistics
                 {
                     sb.Append("origin.startDockedOriginRootPartUId=").Append(op.StartDockedOriginRootPartUId.ToString(CultureInfo.InvariantCulture)).Append('\n');
                 }
+                // P12 lifecycle: the bind state and the pickup validation ARE part of the
+                // witnessed transfer - together they decide whether this proof names an origin
+                // at all - so unlike the M1 descriptor fields they are hashed. SAME
+                // SPARSE-APPEND DISCIPLINE: a proof still at the PairPendingBinding default
+                // (which includes every pre-P12 recording, whose bind state deserializes to
+                // that default) emits NOTHING, so its bytes stay identical and
+                // RouteStore.RevalidateSources cannot flip it to SourceChanged.
+                if (op.StartDockedOriginBindState != StartDockedOriginBindState.PairPendingBinding)
+                {
+                    sb.Append("origin.bindState=").Append(((int)op.StartDockedOriginBindState).ToString(CultureInfo.InvariantCulture)).Append('\n');
+                    sb.Append("origin.pickupValidated=").Append(op.StartDockedOriginPickupValidated ? "1" : "0").Append('\n');
+                    sb.Append("origin.pickupKind=").Append(((int)op.StartDockedOriginPickupKind).ToString(CultureInfo.InvariantCulture)).Append('\n');
+                }
+                // The captured PAIR's identities, sparse-appended for the same reason. They
+                // are identity, not resolution metadata: a run that started docked to a
+                // different pair of craft is a different route. The halves' transient part
+                // sets and per-half manifests are NOT hashed - they are not persisted at all.
+                if (op.StartDockedPair != null)
+                {
+                    AppendSeamHalf(sb, "origin.pair.halfA", op.StartDockedPair.HalfA);
+                    AppendSeamHalf(sb, "origin.pair.halfB", op.StartDockedPair.HalfB);
+                }
                 AppendResourceManifest(sb, "origin.startTransportRes", op.StartTransportResources);
                 AppendResourceManifest(sb, "origin.endTransportRes", op.EndTransportResources);
                 AppendInventoryItems(sb, "origin.startTransportInv", op.StartTransportInventory);
@@ -220,6 +242,20 @@ namespace Parsek.Logistics
         }
 
         // ---- Canonical-input helpers for ComputeRouteProofHashFromRecording ----
+
+        /// <summary>
+        /// Sparse-appends ONE captured seam half's persisted identity. A null half, or one
+        /// with no root id, emits nothing (the pre-P12 shape).
+        /// </summary>
+        private static void AppendSeamHalf(StringBuilder sb, string prefix, StartDockedSeamHalf half)
+        {
+            if (half == null || half.RootPartUId == 0) return;
+            sb.Append(prefix).Append(".rootPartUId=")
+              .Append(half.RootPartUId.ToString(CultureInfo.InvariantCulture)).Append('\n');
+            sb.Append(prefix).Append(".vesselName=").Append(half.VesselName ?? "").Append('\n');
+            sb.Append(prefix).Append(".vesselType=")
+              .Append(half.VesselType.ToString(CultureInfo.InvariantCulture)).Append('\n');
+        }
 
         private static void AppendUintList(StringBuilder sb, string prefix, List<uint> list)
         {

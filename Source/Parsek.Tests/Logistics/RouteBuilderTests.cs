@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Threading;
@@ -134,8 +134,27 @@ namespace Parsek.Tests.Logistics
                 LaunchSiteName = null,
                 RouteConnectionWindows = new List<RouteConnectionWindow>
                     { MakeCompleteWindow(dockUT: 5100.0, undockUT: 5200.0) },
-                RouteOriginProof = new RouteOriginProof { StartDockedOriginVesselPid = originPid }
+                // A start-docked origin is only an origin once an UNDOCK bound it and the
+                // pickup was witnessed (P12): a captured pair alone is not one.
+                RouteOriginProof = BoundDockedOriginProof(originPid)
             }.WithUtSpan(startUT, endUT);
+        }
+
+        /// <summary>
+        /// A start-docked origin proof in the ONE state that is an origin: an undock bound a
+        /// half and the transport's manifests witnessed the pickup. A bare pid / root with no
+        /// bind is a captured PAIR, which route analysis refuses by design (P12).
+        /// </summary>
+        internal static RouteOriginProof BoundDockedOriginProof(uint originPid)
+        {
+            return new RouteOriginProof
+            {
+                StartDockedOriginVesselPid = originPid,
+                StartDockedOriginRootPartUId = originPid + 1u,
+                StartDockedOriginBindState = StartDockedOriginBindState.BoundAtUndock,
+                StartDockedOriginPickupValidated = true,
+                StartDockedOriginPickupKind = OriginPickupKind.Gain,
+            };
         }
 
         // No-origin source: empty LaunchSiteName, non-Kerbin body, and
@@ -757,7 +776,7 @@ namespace Parsek.Tests.Logistics
                 TreeId = "tree-depot-e2e",
                 TreeOrder = 0,
                 StartBodyName = "Minmus",
-                RouteOriginProof = new RouteOriginProof { StartDockedOriginVesselPid = 7777 },
+                RouteOriginProof = BoundDockedOriginProof(7777u),
                 RouteRunManifest = Manifest(new uint[] { 100, 200 }, 0.0, 0.0)
             }.WithUtSpan(0.0, 100.0);
             solo = new Recording

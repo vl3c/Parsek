@@ -103,28 +103,132 @@ namespace Parsek
         }
     }
 
+    /// <summary>
+    /// One half of the start-docked seam PAIR, as that half's own
+    /// <c>ModuleDockingNode.vesselInfo</c> recorded it, plus the part set that half owns on
+    /// the merged vessel. Both halves are captured; NEITHER is labelled origin or transport
+    /// at capture - the undock binds that (P12).
+    ///
+    /// <para><see cref="RootPartUId"/> / <see cref="VesselName"/> / <see cref="VesselType"/>
+    /// are PERSISTED identity, the type informationally only: nothing decides on a vessel
+    /// type any more. The part set and the start manifests are CAPTURE-TIME WORKING DATA and
+    /// are NOT serialized - they exist to scope the transport half's manifests at the bind,
+    /// which happens in the same session, before the recording is ever written.</para>
+    /// </summary>
+    internal sealed class StartDockedSeamHalf
+    {
+        public uint RootPartUId;
+        public string VesselName;
+        public int VesselType = -1; // (int)VesselType; -1 = unknown. INFORMATIONAL ONLY.
+        // Transient (not serialized): this half's part persistentIds on the merged vessel,
+        // derived by cutting the seam edge in the merged part tree.
+        public List<uint> PartPersistentIds;
+        // Transient (not serialized): this half's own start manifests, so whichever half
+        // turns out to be the transport gets TRANSPORT-SCOPED start manifests at the bind.
+        public Dictionary<string, ResourceAmount> StartResources;
+        public List<InventoryPayloadItem> StartInventory;
+
+        internal StartDockedSeamHalf DeepClone()
+        {
+            return new StartDockedSeamHalf
+            {
+                RootPartUId = RootPartUId,
+                VesselName = VesselName,
+                VesselType = VesselType,
+                PartPersistentIds = PartPersistentIds != null ? new List<uint>(PartPersistentIds) : null,
+                StartResources = RouteProofMetadata.CloneResourceManifest(StartResources),
+                StartInventory = RouteProofMetadata.CloneInventoryPayloadItems(StartInventory)
+            };
+        }
+    }
+
+    /// <summary>
+    /// The settled dock seam captured at recording start, BOTH halves, with the origin
+    /// choice deferred to the undock. Half A is the near half (the node scanned on the
+    /// merged vessel), half B the far half (the docked partner part's node); those labels
+    /// are scan order and carry NO semantics.
+    /// </summary>
+    internal sealed class StartDockedSeamPair
+    {
+        public StartDockedSeamHalf HalfA;
+        public StartDockedSeamHalf HalfB;
+
+        internal StartDockedSeamPair DeepClone()
+        {
+            return new StartDockedSeamPair
+            {
+                HalfA = HalfA?.DeepClone(),
+                HalfB = HalfB?.DeepClone()
+            };
+        }
+    }
+
+    /// <summary>
+    /// Lifecycle of a start-docked origin proof. The ONLY state that names an origin is
+    /// <see cref="BoundAtUndock"/>; every other state is a captured pair with no origin, and
+    /// <c>RouteAnalysisEngine.HasDockedOriginProof</c> refuses it.
+    ///
+    /// <para><see cref="PairPendingBinding"/> is deliberately 0 so a proof recorded before
+    /// P12 (which named an origin by vessel TYPE) deserializes as "not an origin" rather than
+    /// as a bound one, and so the hasher's sparse append emits nothing for it.</para>
+    /// </summary>
+    internal enum StartDockedOriginBindState
+    {
+        /// <summary>Both halves captured, no origin chosen. Not an origin.</summary>
+        PairPendingBinding = 0,
+        /// <summary>An undock split bound the origin to the half the player did not keep flying.</summary>
+        BoundAtUndock = 1,
+        /// <summary>The recording ended while still docked; no undock ever separated the pair.</summary>
+        UnboundAtStop = 2,
+    }
+
+    /// <summary>
+    /// How the pickup was witnessed across the docked span (recording start -> undock), on
+    /// the TRANSPORT half's own manifests. Design 19.2.2 item 2 ("Loaded": a recorded
+    /// connection window in which cargo flowed FROM another vessel ONTO the transport) plus
+    /// its workflow sentence "start the supply run docked to the origin (making it a Loaded
+    /// provenance via the start-docked window)".
+    /// </summary>
+    internal enum OriginPickupKind
+    {
+        /// <summary>No transport-half manifest at the undock: unevaluable, so not validated.</summary>
+        NoUndockManifest = 0,
+        /// <summary>At least one admitted resource rose across the docked span. The strong witness.</summary>
+        Gain = 1,
+        /// <summary>No rise, but the transport leaves the seam carrying admitted cargo.</summary>
+        Carried = 2,
+        /// <summary>The transport leaves the seam with no admitted cargo at all.</summary>
+        None = 3,
+    }
+
     internal sealed class RouteOriginProof
     {
-        // The origin depot's LIVE vessel pid. ZERO on every proof the capture
-        // producer builds: Part.Couple destroys the absorbed half's Vessel so
-        // its pid is unrecoverable, and the surviving half's pid is only usable
-        // behind the launch-guid gate. The field stays as the bind-later slot.
-        // Capture-time identity is StartDockedOriginRootPartUId below.
+        // The origin depot's LIVE vessel pid. ZERO at capture: Part.Couple destroys the
+        // absorbed half's Vessel so its pid is unrecoverable, and the merged pid names
+        // whichever half stock made dominant. The UNDOCK binds it, behind the launch-guid
+        // gate in RouteProofCapture.DecideOriginPidStamp (P12).
         public uint StartDockedOriginVesselPid;
-        // Origin depot identity, read from the docking-node PAIR at capture
-        // (one DockedVesselInfo per half: name / vesselType / rootPartUId - no
-        // pid, no guid). rootPartUId is a KSP part flightID: assigned per launch
-        // and NOT craft-baked, so unlike persistentId it is a launch-unique key.
-        // The half carrying a Base / Station vesselType is the origin; the other
-        // half is the transport. Rule and derivation:
+        // Origin depot identity. ZERO until an undock binds it; at the bind it is the
+        // rootPartUId of the seam half the player did NOT keep flying. rootPartUId is a KSP
+        // part flightID: assigned per launch and NOT craft-baked, so unlike persistentId it
+        // is a launch-unique key. Rule and derivation:
         // docs/dev/research/origin-proof-partner-identity-memo.md.
         public uint StartDockedOriginRootPartUId;
         public string StartDockedOriginVesselName;
-        public int StartDockedOriginVesselType = -1; // (int)VesselType; -1 = unknown
-        // The transport half of the same pair, kept so a reader can see which
-        // half was classified away without re-deriving the selection.
+        public int StartDockedOriginVesselType = -1; // (int)VesselType; -1 = unknown. INFORMATIONAL.
+        // The transport half of the same pair, stamped at the bind so a reader can see which
+        // half kept flying without re-deriving the binding.
         public uint StartDockedTransportRootPartUId;
-        public int StartDockedTransportVesselType = -1; // (int)VesselType; -1 = unknown
+        public int StartDockedTransportVesselType = -1; // (int)VesselType; -1 = unknown. INFORMATIONAL.
+        // BOTH halves as captured at recording start, with no origin chosen. Present from
+        // capture until (and after) the bind; null on a pre-P12 proof.
+        public StartDockedSeamPair StartDockedPair;
+        public StartDockedOriginBindState StartDockedOriginBindState =
+            StartDockedOriginBindState.PairPendingBinding;
+        // The transfer validation stamped at the bind. A proof with PickupValidated == false
+        // is captured and persisted but is NOT an origin (RouteAnalysisEngine gate).
+        public bool StartDockedOriginPickupValidated;
+        public OriginPickupKind StartDockedOriginPickupKind = OriginPickupKind.NoUndockManifest;
         // Origin endpoint descriptor (M1): the docked origin partner's body +
         // body-fixed coordinates + situation at recording start. Captured
         // additively; old proofs simply lack the fields (empty body name,
@@ -151,6 +255,10 @@ namespace Parsek
                 StartDockedOriginVesselType = StartDockedOriginVesselType,
                 StartDockedTransportRootPartUId = StartDockedTransportRootPartUId,
                 StartDockedTransportVesselType = StartDockedTransportVesselType,
+                StartDockedPair = StartDockedPair?.DeepClone(),
+                StartDockedOriginBindState = StartDockedOriginBindState,
+                StartDockedOriginPickupValidated = StartDockedOriginPickupValidated,
+                StartDockedOriginPickupKind = StartDockedOriginPickupKind,
                 StartDockedOriginBodyName = StartDockedOriginBodyName,
                 StartDockedOriginLatitude = StartDockedOriginLatitude,
                 StartDockedOriginLongitude = StartDockedOriginLongitude,

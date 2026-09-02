@@ -10,6 +10,24 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **Supply routes: the game now works out where a delivery's cargo came from by
+  watching you undock, instead of by reading the vessel type you happened to set.**
+  Starting a recording while your ship is docked to something is how you tell Parsek
+  "this run's cargo came from here". Until now that only worked if you had gone into
+  the tracking station and set the other craft's type to Base or Station - and no stock
+  part makes a craft either of those, so an ordinary landed base you built yourself
+  counted for nothing, and a rover refuelling from another rover counted for nothing
+  either. Both of those were silently dropped: no route, no explanation beyond a line
+  in the log. That requirement is gone. Parsek now simply remembers BOTH craft at the
+  moment you start recording, and waits: when you undock and fly away, the one you left
+  behind is the supply origin. It also checks that you actually picked something up -
+  a run that leaves a dock with nothing aboard is not supplied by it, and will not be
+  offered as a route. If you stop the recording while still docked, nothing is claimed
+  at all, because nothing was witnessed. The cargo counted as "what the transport
+  started with" is now the transport's own tanks rather than the whole docked stack,
+  so a start-docked run is no longer costed as if it were carrying the depot's fuel
+  too.
+
 - **Automated testing: a flight can now drive part actions on a scripted timeline, and
   the replay of each is checked family by family.** The test harness could stage,
   throttle and deploy parachutes, but nothing else a player presses - so lights,

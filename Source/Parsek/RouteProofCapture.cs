@@ -34,19 +34,21 @@ namespace Parsek
     }
 
     /// <summary>
-    /// Which half of a settled dock seam is the ORIGIN DEPOT. Explicit values: the names are
-    /// interpolated into the producer's skip lines and asserted by tests.
+    /// Whether a settled dock seam's node PAIR can be captured as a start-docked origin
+    /// candidate at all. Explicit values: the names are interpolated into the producer's
+    /// skip lines and asserted by tests.
+    ///
+    /// <para>THERE IS NO ORIGIN CHOICE HERE (P12). A route candidate is defined by
+    /// TRANSFERS AND DOCKS, not by a vessel type: the transport takes cargo at one docked
+    /// partner and delivers it at another, and bases are ordinary vessels. So capture
+    /// records BOTH halves and defers the choice to the UNDOCK, where the half the player
+    /// did NOT keep flying is the origin (see
+    /// <see cref="RouteProofCapture.ClassifyUndockOriginBinding"/>).</para>
     /// </summary>
-    internal enum OriginHalfSelection
+    internal enum DockSeamPairAdmission
     {
-        /// <summary>The near half (the node scanned on the merged vessel) is the depot.</summary>
-        OriginIsNear,
-        /// <summary>The far half (the docked partner part's node) is the depot.</summary>
-        OriginIsFar,
-        /// <summary>Neither half declares a depot vessel type - no origin can be named.</summary>
-        NoDepotHalf,
-        /// <summary>Both halves are depot-typed - which one the transport is cannot be decided.</summary>
-        BothHalvesDepot,
+        /// <summary>Both halves have a usable identity and can own cargo - capture the pair.</summary>
+        Admitted,
         /// <summary>A half is debris / EVA / a flag / a space object: not a valid cargo owner.</summary>
         InvalidCargoOwner,
         /// <summary>A half carried no <c>vesselInfo</c> or a zero root part id.</summary>
@@ -54,9 +56,10 @@ namespace Parsek
     }
 
     /// <summary>
-    /// Origin-partner candidate used by <see cref="RouteProofCapture.TryResolveStartDockedOriginPartner"/>.
-    /// ONE settled dock seam on the merged vessel, with the ORIGIN half already selected out of
-    /// the seam's node PAIR by <see cref="RouteProofCapture.SelectStartDockedOriginHalf"/>.
+    /// Start-docked seam-pair candidate used by
+    /// <see cref="RouteProofCapture.TryResolveStartDockedSeamPair"/>. ONE settled dock seam on
+    /// the merged vessel, carrying BOTH halves of the seam's node PAIR with NO origin chosen:
+    /// the undock binds that (P12).
     ///
     /// <para>ONE producer builds these (see
     /// <c>FlightRecorder.CaptureStartRouteOriginProofIfDocked</c>): a SETTLED DOCK SEAM
@@ -67,36 +70,38 @@ namespace Parsek
     ///
     /// <para>NO VESSEL PID IS CARRIED, deliberately. <c>Part.Couple</c> destroys the absorbed
     /// half's <c>Vessel</c>, so that half's pid is unrecoverable; and the surviving half's pid
-    /// is the merged vessel's, which names whichever half stock made dominant rather than the
-    /// depot. Identity is <see cref="OriginRootPartUId"/>. Ruling and derivation:
+    /// is the merged vessel's, which names whichever half stock made dominant rather than
+    /// either half in particular. Identity is each half's <c>RootPartUId</c>. Derivation:
     /// <c>docs/dev/research/origin-proof-partner-identity-memo.md</c>.</para>
     ///
     /// <para>The body-fixed descriptor fields are the MERGED pair's, which is exactly right:
     /// while the halves are docked they occupy the same place, so the merged vessel's body,
-    /// coordinates and situation ARE the origin depot's.</para>
+    /// coordinates and situation ARE both halves'.</para>
     /// </summary>
-    internal readonly struct OriginPartnerCandidate
+    internal readonly struct DockSeamPairCandidate
     {
         /// <summary>The seam part on the merged vessel (diagnostic).</summary>
         public readonly uint PartPersistentId;
-        public readonly uint OriginRootPartUId;
-        public readonly string OriginVesselName;
-        public readonly int OriginVesselType;   // (int)VesselType; -1 = unknown
-        public readonly uint TransportRootPartUId;
-        public readonly int TransportVesselType; // (int)VesselType; -1 = unknown
+        /// <summary>The near half: the node scanned on the merged vessel. NOT "the origin".</summary>
+        public readonly DockSeamHalfIdentity Near;
+        /// <summary>The far half: the docked partner part's facing node. NOT "the transport".</summary>
+        public readonly DockSeamHalfIdentity Far;
+        /// <summary>Near half's part persistentIds on the merged vessel; null when unresolvable.</summary>
+        public readonly List<uint> NearPartPersistentIds;
+        /// <summary>Far half's part persistentIds on the merged vessel; null when unresolvable.</summary>
+        public readonly List<uint> FarPartPersistentIds;
         public readonly int MergedVesselSituation; // (int)Vessel.Situations; -1 = unknown
         public readonly string MergedVesselBodyName;
         public readonly double MergedVesselLatitude;
         public readonly double MergedVesselLongitude;
         public readonly double MergedVesselAltitude;
 
-        internal OriginPartnerCandidate(
+        internal DockSeamPairCandidate(
             uint partPersistentId,
-            uint originRootPartUId,
-            string originVesselName,
-            int originVesselType,
-            uint transportRootPartUId,
-            int transportVesselType,
+            DockSeamHalfIdentity near,
+            DockSeamHalfIdentity far,
+            List<uint> nearPartPersistentIds,
+            List<uint> farPartPersistentIds,
             int mergedVesselSituation,
             string mergedVesselBodyName,
             double mergedVesselLatitude,
@@ -104,11 +109,10 @@ namespace Parsek
             double mergedVesselAltitude)
         {
             PartPersistentId = partPersistentId;
-            OriginRootPartUId = originRootPartUId;
-            OriginVesselName = originVesselName;
-            OriginVesselType = originVesselType;
-            TransportRootPartUId = transportRootPartUId;
-            TransportVesselType = transportVesselType;
+            Near = near;
+            Far = far;
+            NearPartPersistentIds = nearPartPersistentIds;
+            FarPartPersistentIds = farPartPersistentIds;
             MergedVesselSituation = mergedVesselSituation;
             MergedVesselBodyName = mergedVesselBodyName;
             MergedVesselLatitude = mergedVesselLatitude;
@@ -118,9 +122,9 @@ namespace Parsek
     }
 
     /// <summary>
-    /// Outcome of the pure start-docked origin-partner resolver. <see cref="Captured"/> is the
-    /// only branch that produces a usable origin identity; all others identify the specific
-    /// reason the recording should NOT carry a RouteOriginProof.
+    /// Outcome of the pure start-docked seam-pair resolver. <see cref="Captured"/> is the
+    /// only branch that produces a usable PAIR; all others identify the specific reason the
+    /// recording should NOT carry a RouteOriginProof.
     /// </summary>
     internal enum OriginProofDetection
     {
@@ -128,10 +132,50 @@ namespace Parsek
         NoExternalCoupling,
         ActiveVesselPrelaunch,
         PartnerPrelaunch,
-        /// <summary>Every candidate carried a zero origin root part id.</summary>
+        /// <summary>Every candidate carried a zero root part id on a half.</summary>
         PartnerPidZero,
-        /// <summary>Two or more seams named DIFFERENT origin depots on one merged vessel.</summary>
+        /// <summary>Two or more seams named DIFFERENT pairs on one merged vessel.</summary>
         PartnerAmbiguous,
+    }
+
+    /// <summary>
+    /// Which half of the captured pair the UNDOCK bound the origin to, or why it could not.
+    /// THE BINDING RULE: the origin is the half the player did NOT keep flying, i.e. the half
+    /// that matches the BACKGROUND side of the split. Only <see cref="BoundToHalfA"/> /
+    /// <see cref="BoundToHalfB"/> produce an origin; everything else leaves the proof
+    /// unbound, and an unbound proof is never forwarded as an origin.
+    /// </summary>
+    internal enum OriginUndockBinding
+    {
+        BoundToHalfA,
+        BoundToHalfB,
+        /// <summary>The proof carries no pending pair (already bound, or pre-P12).</summary>
+        NoPairPending,
+        /// <summary>The active side matched neither captured half.</summary>
+        ActiveHalfUnresolved,
+        /// <summary>The active side still owns parts of BOTH halves - this split did not separate the pair.</summary>
+        BothHalvesActive,
+        /// <summary>Both sides fell inside ONE half: an unrelated seam split, not this pair's.</summary>
+        UnrelatedSeam,
+    }
+
+    /// <summary>
+    /// Whether the origin half's LIVE vessel pid may be stamped onto the proof at the bind.
+    /// The root part id is the identity either way; the pid is a cheaper corroborating key.
+    /// </summary>
+    internal enum OriginPidStampDecision
+    {
+        /// <summary>No live vessel resolved for the origin half - keep the pid slot at 0.</summary>
+        NoLiveVessel,
+        /// <summary>Stamped; the launch guids agree that this is not the recorded launch.</summary>
+        Stamped,
+        /// <summary>Stamped, but a guid was unknown on one side (pid-only fallback).</summary>
+        StampedGuidUnknown,
+        /// <summary>
+        /// REFUSED: the candidate origin pid IS the recorded launch's, and the guids do not
+        /// conclusively differ - stamping it would make the recorded vessel its own origin.
+        /// </summary>
+        RefusedSameLaunch,
     }
 
     internal static class RouteProofCapture
@@ -183,17 +227,11 @@ namespace Parsek
                 && partnerPartResolvesOnSameVessel;
         }
 
-        /// <summary>
-        /// Pure / static. True when a vessel type designates an ORIGIN DEPOT: <c>Base</c> or
-        /// <c>Station</c>. Those are the two types a player assigns to a thing that supplies
-        /// other craft, and they are what the route design doc means by "origin depot vessel"
-        /// (docs/parsek-logistics-supply-routes-design.md section 7).
-        /// </summary>
-        internal static bool IsDepotVesselType(int vesselType)
-        {
-            return vesselType == (int)VesselType.Base
-                || vesselType == (int)VesselType.Station;
-        }
+        // THERE IS NO IsDepotVesselType (P12, deleted). The operator's ruling: there is no
+        // "base" type that matters - bases are ordinary vessels. A route candidate is defined
+        // by TRANSFERS AND DOCKS, so no code decides anything on a VesselType; the type is
+        // carried as an informational / logged / serialized field only. What replaced it is
+        // the pair capture below plus ClassifyUndockOriginBinding.
 
         /// <summary>
         /// Pure / static. True when a vessel type can own cargo at all. The reject set is the
@@ -268,14 +306,17 @@ namespace Parsek
         }
 
         /// <summary>
-        /// THE PARTNER RULE (ROUTE-ORIGIN-PROOF-PARTNER-IDENTITY). Pure / static: given the two
-        /// halves of a settled dock seam as their own nodes recorded them, decide WHICH half is
-        /// the origin depot the transport docked into.
+        /// THE PAIR ADMISSION RULE (P12, replacing the depot-typed selection). Pure / static:
+        /// given the two halves of a settled dock seam as their own nodes recorded them,
+        /// decide whether the PAIR can be captured. It does NOT decide which half is the
+        /// origin - nothing at capture can, and the previous rule's attempt to
+        /// (<c>vesselType == Base || Station</c>) was deleted with
+        /// ROUTE-ORIGIN-PROOF-REQUIRES-A-PLAYER-TYPED-DEPOT.
         ///
-        /// <para>The origin is the DEPOT-TYPED half. Nothing here reads which half stock made
-        /// dominant on the merge, which half keeps the <c>Vessel</c> across <c>Part.Undock</c>,
-        /// or which node stock labelled docker / dockee - the last of those looks like an
-        /// initiator record and is not one, because <c>ModuleDockingNode</c> dispatches it as
+        /// <para>Nothing here reads which half stock made dominant on the merge, which half
+        /// keeps the <c>Vessel</c> across <c>Part.Undock</c>, or which node stock labelled
+        /// docker / dockee - the last of those looks like an initiator record and is not one,
+        /// because <c>ModuleDockingNode</c> dispatches it as
         /// <c>if (GetDominantVessel(base.vessel, otherNode.vessel) == base.vessel)
         /// otherNode.DockToVessel(this)</c>, i.e. the docker is simply the non-dominant half
         /// (decompiled KSP 1.12.5). Full derivation:
@@ -284,68 +325,187 @@ namespace Parsek
         /// Decision contract (in order):
         ///   1. either half missing its info, or a zero root part id -> HalfIdentityMissing
         ///   2. either half not a valid cargo owner                  -> InvalidCargoOwner
-        ///   3. both halves depot-typed                              -> BothHalvesDepot
-        ///   4. near half depot-typed                                -> OriginIsNear
-        ///   5. far half depot-typed                                 -> OriginIsFar
-        ///   6. neither                                              -> NoDepotHalf
+        ///   3. otherwise                                            -> Admitted
         /// </summary>
-        internal static OriginHalfSelection SelectStartDockedOriginHalf(
+        internal static DockSeamPairAdmission ClassifyStartDockedSeamPair(
             DockSeamHalfIdentity near,
             DockSeamHalfIdentity far)
         {
             if (!near.HasInfo || !far.HasInfo || near.RootPartUId == 0 || far.RootPartUId == 0)
-                return OriginHalfSelection.HalfIdentityMissing;
+                return DockSeamPairAdmission.HalfIdentityMissing;
 
             if (!IsValidCargoOwnerVesselType(near.VesselType)
                 || !IsValidCargoOwnerVesselType(far.VesselType))
             {
-                return OriginHalfSelection.InvalidCargoOwner;
+                return DockSeamPairAdmission.InvalidCargoOwner;
             }
 
-            bool nearIsDepot = IsDepotVesselType(near.VesselType);
-            bool farIsDepot = IsDepotVesselType(far.VesselType);
+            // Both halves are the same physical craft: a seam that names one identity twice
+            // cannot be split into an origin and a transport at any later moment.
+            if (near.RootPartUId == far.RootPartUId)
+                return DockSeamPairAdmission.HalfIdentityMissing;
 
-            if (nearIsDepot && farIsDepot)
-                return OriginHalfSelection.BothHalvesDepot;
-            if (nearIsDepot)
-                return OriginHalfSelection.OriginIsNear;
-            if (farIsDepot)
-                return OriginHalfSelection.OriginIsFar;
-            return OriginHalfSelection.NoDepotHalf;
+            return DockSeamPairAdmission.Admitted;
         }
 
         /// <summary>
-        /// Pure resolver: given the active vessel's situation/EVA flag and a list of origin
-        /// partner candidates (settled dock seams whose origin half is already selected),
-        /// decide whether a single valid non-KSC origin depot exists. No KSP dependency;
-        /// logging happens at the call site so callers can attach context (vessel name,
-        /// recording id, etc.).
+        /// One part of the merged vessel reduced to what the seam split reads: its own
+        /// <c>flightID</c>, its <c>persistentId</c>, and the INDEX of its parent in the same
+        /// list (-1 for the root). Lets the split be pinned headlessly - the live version
+        /// walks <c>Vessel.parts</c>, which xUnit cannot construct.
+        /// </summary>
+        internal readonly struct SeamPartRecord
+        {
+            public readonly uint FlightId;
+            public readonly uint PersistentId;
+            public readonly int ParentIndex;
+
+            internal SeamPartRecord(uint flightId, uint persistentId, int parentIndex)
+            {
+                FlightId = flightId;
+                PersistentId = persistentId;
+                ParentIndex = parentIndex;
+            }
+        }
+
+        /// <summary>
+        /// Pure / static. Splits the merged vessel's part set into the two halves of ONE dock
+        /// seam by CUTTING THE SEAM EDGE and taking the two connected components: the
+        /// component containing <paramref name="seamPartFlightId"/> is the near side, the one
+        /// containing <paramref name="partnerPartFlightId"/> is the far side.
         ///
-        /// <para>The identity key is the origin half's ROOT PART UID, not a vessel pid: the
-        /// depot's pid is not knowable at capture (see <see cref="OriginPartnerCandidate"/>),
-        /// and a part <c>flightID</c> is launch-unique where a <c>persistentId</c> is not.</para>
+        /// <para>THIS IS HOW A HALF'S PART SET IS KNOWN WHILE BOTH HALVES ARE ONE VESSEL, and
+        /// it is what makes the transport manifests transport-scoped at the bind
+        /// (ROUTE-ORIGIN-PROOF-TRANSPORT-MANIFESTS-INCLUDE-THE-DEPOT). A settled
+        /// <c>Part.Couple</c> attaches the docked subtree under the seam, so the merged part
+        /// list is ONE tree and the seam is one parent/child edge in it; removing that edge
+        /// yields exactly two components.</para>
+        ///
+        /// <para>FAILS CLOSED. Returns false - and no part sets - when either id is missing,
+        /// when the two named parts are not parent and child of each other (so the "seam" is
+        /// not an edge and the components are not the halves), or when a component walk does
+        /// not account for every part. A wrong part set would silently mis-scope every
+        /// manifest downstream, so "no split" is the only acceptable failure.</para>
+        /// </summary>
+        internal static bool TrySplitPartsAcrossSeam(
+            IReadOnlyList<SeamPartRecord> parts,
+            uint seamPartFlightId,
+            uint partnerPartFlightId,
+            out List<uint> nearSidePartPids,
+            out List<uint> farSidePartPids)
+        {
+            nearSidePartPids = null;
+            farSidePartPids = null;
+            if (parts == null || parts.Count == 0) return false;
+            if (seamPartFlightId == 0 || partnerPartFlightId == 0) return false;
+            if (seamPartFlightId == partnerPartFlightId) return false;
+
+            int seamIndex = -1;
+            int partnerIndex = -1;
+            for (int i = 0; i < parts.Count; i++)
+            {
+                if (parts[i].FlightId == seamPartFlightId) seamIndex = i;
+                else if (parts[i].FlightId == partnerPartFlightId) partnerIndex = i;
+            }
+            if (seamIndex < 0 || partnerIndex < 0) return false;
+
+            // The seam must be an actual parent/child edge, in either direction.
+            bool seamIsChild = parts[seamIndex].ParentIndex == partnerIndex;
+            bool partnerIsChild = parts[partnerIndex].ParentIndex == seamIndex;
+            if (!seamIsChild && !partnerIsChild) return false;
+
+            // Undirected adjacency, minus the seam edge.
+            var adjacency = new List<int>[parts.Count];
+            for (int i = 0; i < parts.Count; i++) adjacency[i] = new List<int>();
+            for (int i = 0; i < parts.Count; i++)
+            {
+                int parent = parts[i].ParentIndex;
+                if (parent < 0 || parent >= parts.Count) continue;
+                if ((i == seamIndex && parent == partnerIndex)
+                    || (i == partnerIndex && parent == seamIndex))
+                {
+                    continue; // the cut
+                }
+                adjacency[i].Add(parent);
+                adjacency[parent].Add(i);
+            }
+
+            List<uint> near = CollectComponentPartPids(parts, adjacency, seamIndex, out int nearCount);
+            List<uint> far = CollectComponentPartPids(parts, adjacency, partnerIndex, out int farCount);
+            if (near == null || far == null) return false;
+            // Every part must land in exactly one component, or the merged list was not one
+            // tree and the two components are not the halves.
+            if (nearCount + farCount != parts.Count) return false;
+
+            nearSidePartPids = near;
+            farSidePartPids = far;
+            return true;
+        }
+
+        private static List<uint> CollectComponentPartPids(
+            IReadOnlyList<SeamPartRecord> parts,
+            List<int>[] adjacency,
+            int startIndex,
+            out int visitedCount)
+        {
+            visitedCount = 0;
+            var seen = new bool[parts.Count];
+            var stack = new Stack<int>();
+            stack.Push(startIndex);
+            seen[startIndex] = true;
+            var pids = new List<uint>();
+            while (stack.Count > 0)
+            {
+                int index = stack.Pop();
+                visitedCount++;
+                uint pid = parts[index].PersistentId;
+                if (pid != 0 && !pids.Contains(pid))
+                    pids.Add(pid);
+                List<int> neighbours = adjacency[index];
+                for (int i = 0; i < neighbours.Count; i++)
+                {
+                    int next = neighbours[i];
+                    if (seen[next]) continue;
+                    seen[next] = true;
+                    stack.Push(next);
+                }
+            }
+            pids.Sort();
+            return pids;
+        }
+
+        /// <summary>
+        /// Pure resolver: given the active vessel's situation/EVA flag and a list of admitted
+        /// seam-pair candidates, decide whether exactly ONE start-docked PAIR exists. No KSP
+        /// dependency; logging happens at the call site so callers can attach context (vessel
+        /// name, recording id, etc.).
+        ///
+        /// <para>The identity key is the PAIR of root part uids, unordered: two seams between
+        /// the same two craft (a two-port dock) are ONE pair, while two DIFFERENT partners on
+        /// one merged stack are ambiguous - neither can be the single origin candidate, and
+        /// which one the transport later leaves is not decidable from the pair alone.</para>
         ///
         /// Decision contract (in order):
         ///   1. activeVesselIsEva == true          -> NoExternalCoupling
         ///   2. activeVesselSituation == PRELAUNCH -> ActiveVesselPrelaunch
         ///   3. empty candidate list               -> NoExternalCoupling
-        ///   4. distinct non-zero, non-PRELAUNCH origin root ids == 1 -> Captured
-        ///      else all origin root ids == 0      -> PartnerPidZero
+        ///   4. distinct non-zero, non-PRELAUNCH pairs == 1 -> Captured (index out)
+        ///      else all halves' root ids == 0     -> PartnerPidZero
         ///      else all valid candidates PRELAUNCH-> PartnerPrelaunch
-        ///      else 2+ distinct valid origins     -> PartnerAmbiguous
+        ///      else 2+ distinct valid pairs       -> PartnerAmbiguous
         ///
         /// <para>The PRELAUNCH-per-candidate branch is retained but is unreachable from the
         /// seam producer: a settled pair is ONE vessel, so a candidate's situation is the
         /// active vessel's, which step 2 already rejected. It stays because the resolver is
         /// pure and a future producer may feed candidates with independent situations.</para>
         /// </summary>
-        internal static OriginProofDetection TryResolveStartDockedOriginPartner(
+        internal static OriginProofDetection TryResolveStartDockedSeamPair(
             int activeVesselSituation,
             bool activeVesselIsEva,
-            IReadOnlyList<OriginPartnerCandidate> candidates,
-            out uint originRootPartUId)
+            IReadOnlyList<DockSeamPairCandidate> candidates,
+            out int chosenCandidateIndex)
         {
-            originRootPartUId = 0;
+            chosenCandidateIndex = -1;
 
             if (activeVesselIsEva)
                 return OriginProofDetection.NoExternalCoupling;
@@ -356,42 +516,44 @@ namespace Parsek
             if (candidates == null || candidates.Count == 0)
                 return OriginProofDetection.NoExternalCoupling;
 
-            // Walk candidates; track whether ANY candidate existed at all, whether ALL of them
-            // had root id 0, whether ALL valid candidates were PRELAUNCH, and the set of
-            // distinct non-zero, non-PRELAUNCH origin root part ids.
             bool sawAnyCandidate = false;
-            bool sawAnyNonZeroRoot = false;
+            bool sawAnyNonZeroRoots = false;
             bool sawAnyNonPrelaunchValid = false;
-            var distinctValidRoots = new List<uint>();
+            // Distinct unordered {rootA, rootB} pairs, and the first candidate index of each.
+            var distinctPairs = new List<string>();
+            var firstIndexOfPair = new List<int>();
 
             for (int i = 0; i < candidates.Count; i++)
             {
-                OriginPartnerCandidate c = candidates[i];
+                DockSeamPairCandidate c = candidates[i];
                 sawAnyCandidate = true;
-                if (c.OriginRootPartUId == 0)
+                if (c.Near.RootPartUId == 0 || c.Far.RootPartUId == 0)
                     continue;
-                sawAnyNonZeroRoot = true;
+                sawAnyNonZeroRoots = true;
                 if (c.MergedVesselSituation == (int)Vessel.Situations.PRELAUNCH)
                     continue;
                 sawAnyNonPrelaunchValid = true;
-                if (!distinctValidRoots.Contains(c.OriginRootPartUId))
-                    distinctValidRoots.Add(c.OriginRootPartUId);
+                string key = FormatUnorderedPairKey(c.Near.RootPartUId, c.Far.RootPartUId);
+                if (!distinctPairs.Contains(key))
+                {
+                    distinctPairs.Add(key);
+                    firstIndexOfPair.Add(i);
+                }
             }
 
             if (!sawAnyCandidate)
                 return OriginProofDetection.NoExternalCoupling;
 
-            if (distinctValidRoots.Count == 1)
+            if (distinctPairs.Count == 1)
             {
-                originRootPartUId = distinctValidRoots[0];
+                chosenCandidateIndex = firstIndexOfPair[0];
                 return OriginProofDetection.Captured;
             }
 
-            if (distinctValidRoots.Count >= 2)
+            if (distinctPairs.Count >= 2)
                 return OriginProofDetection.PartnerAmbiguous;
 
-            // distinctValidRoots.Count == 0: classify why
-            if (!sawAnyNonZeroRoot)
+            if (!sawAnyNonZeroRoots)
                 return OriginProofDetection.PartnerPidZero;
 
             if (!sawAnyNonPrelaunchValid)
@@ -399,6 +561,18 @@ namespace Parsek
 
             // Defensive: theoretically unreachable, but keep a deterministic answer.
             return OriginProofDetection.NoExternalCoupling;
+        }
+
+        /// <summary>
+        /// Order-independent key for one seam pair: the two root part uids, smaller first.
+        /// Two nodes of the same two-port dock produce the same key.
+        /// </summary>
+        internal static string FormatUnorderedPairKey(uint rootA, uint rootB)
+        {
+            uint lo = rootA <= rootB ? rootA : rootB;
+            uint hi = rootA <= rootB ? rootB : rootA;
+            return lo.ToString(CultureInfo.InvariantCulture) + "|"
+                + hi.ToString(CultureInfo.InvariantCulture);
         }
 
         /// <summary>
@@ -422,7 +596,7 @@ namespace Parsek
         internal static void BuildStartRouteOriginProof(
             int activeVesselSituation,
             bool activeVesselIsEva,
-            IReadOnlyList<OriginPartnerCandidate> candidates,
+            IReadOnlyList<DockSeamPairCandidate> candidates,
             int settledDockSeamsScanned,
             ConfigNode snapshot,
             bool isGloopsMode,
@@ -449,70 +623,72 @@ namespace Parsek
             }
 
             int candidateCount = candidates?.Count ?? 0;
-            OriginProofDetection outcome = TryResolveStartDockedOriginPartner(
+            OriginProofDetection outcome = TryResolveStartDockedSeamPair(
                 activeVesselSituation,
                 activeVesselIsEva,
-                candidates ?? new List<OriginPartnerCandidate>(),
-                out uint originRootPartUId);
+                candidates ?? new List<DockSeamPairCandidate>(),
+                out int chosenIndex);
 
             switch (outcome)
             {
                 case OriginProofDetection.Captured:
                 {
-                    var transportPids = VesselSpawner.CollectPartPersistentIds(snapshot);
+                    DockSeamPairCandidate c = candidates[chosenIndex];
+                    // The MERGED part set stays the pre-bind scope: at capture neither half is
+                    // the transport yet, so the pair's own manifest is the only honest
+                    // baseline. The bind REPLACES both with the transport half's own
+                    // (ROUTE-ORIGIN-PROOF-TRANSPORT-MANIFESTS-INCLUDE-THE-DEPOT), and an
+                    // unbound proof is never an origin, so the merged scope is never costed.
+                    var mergedPids = VesselSpawner.CollectPartPersistentIds(snapshot);
                     Dictionary<string, ResourceAmount> startRes =
-                        VesselSpawner.ExtractResourceManifest(snapshot, transportPids);
+                        VesselSpawner.ExtractResourceManifest(snapshot, mergedPids);
                     List<InventoryPayloadItem> startInv =
-                        VesselSpawner.ExtractInventoryPayloadItems(snapshot, transportPids);
+                        VesselSpawner.ExtractInventoryPayloadItems(snapshot, mergedPids);
 
                     proof = new RouteOriginProof
                     {
-                        // The pid slot stays 0 at capture BY CONTRACT: the depot's own
-                        // Vessel is destroyed by Part.Couple and the merged pid names
-                        // whichever half stock made dominant, not the depot. Identity is
-                        // the origin root part flightID resolved above.
+                        // Origin identity slots stay EMPTY at capture: no rule at capture can
+                        // say which half is the depot, and the previous one (vesselType ==
+                        // Base / Station) was deleted with the operator's ruling. The undock
+                        // binds them.
                         StartDockedOriginVesselPid = 0u,
-                        StartDockedOriginRootPartUId = originRootPartUId,
+                        StartDockedOriginRootPartUId = 0u,
+                        StartDockedOriginBindState = StartDockedOriginBindState.PairPendingBinding,
+                        StartDockedPair = new StartDockedSeamPair
+                        {
+                            HalfA = BuildSeamHalf(c.Near, c.NearPartPersistentIds, snapshot),
+                            HalfB = BuildSeamHalf(c.Far, c.FarPartPersistentIds, snapshot),
+                        },
                         StartTransportResources = startRes,
                         StartTransportInventory = startInv,
+                        // The descriptor is the MERGED pair's, which is both halves' while
+                        // docked - so it is already the origin's whichever half binds.
+                        StartDockedOriginBodyName = c.MergedVesselBodyName,
+                        StartDockedOriginLatitude = c.MergedVesselLatitude,
+                        StartDockedOriginLongitude = c.MergedVesselLongitude,
+                        StartDockedOriginAltitude = c.MergedVesselAltitude,
+                        StartDockedOriginSituation = c.MergedVesselSituation,
+                        StartDockedOriginIsSurface = IsSurfaceOriginSituation(c.MergedVesselSituation),
                     };
-                    transportPartPersistentIds = transportPids;
+                    transportPartPersistentIds = mergedPids;
 
-                    // The resolver returns only the origin root id, so recover the matched
-                    // candidate's identity + descriptor by scanning for the first
-                    // non-PRELAUNCH entry with the same origin root (duplicate seams on one
-                    // merged pair share the same origin half, hence identical descriptors).
-                    // Always present on the Captured branch; the guard is defensive.
-                    for (int i = 0; i < candidates.Count; i++)
-                    {
-                        OriginPartnerCandidate c = candidates[i];
-                        if (c.OriginRootPartUId != originRootPartUId)
-                            continue;
-                        if (c.MergedVesselSituation == (int)Vessel.Situations.PRELAUNCH)
-                            continue;
-                        proof.StartDockedOriginVesselName = c.OriginVesselName;
-                        proof.StartDockedOriginVesselType = c.OriginVesselType;
-                        proof.StartDockedTransportRootPartUId = c.TransportRootPartUId;
-                        proof.StartDockedTransportVesselType = c.TransportVesselType;
-                        proof.StartDockedOriginBodyName = c.MergedVesselBodyName;
-                        proof.StartDockedOriginLatitude = c.MergedVesselLatitude;
-                        proof.StartDockedOriginLongitude = c.MergedVesselLongitude;
-                        proof.StartDockedOriginAltitude = c.MergedVesselAltitude;
-                        proof.StartDockedOriginSituation = c.MergedVesselSituation;
-                        proof.StartDockedOriginIsSurface = IsSurfaceOriginSituation(c.MergedVesselSituation);
-                        break;
-                    }
-
+                    StartDockedSeamHalf halfA = proof.StartDockedPair.HalfA;
+                    StartDockedSeamHalf halfB = proof.StartDockedPair.HalfB;
                     ParsekLog.Info("Recorder",
-                        $"RouteOriginProof captured: recId={recordingVesselId} vessel='{vesselContext}' " +
-                        $"partnerPid={proof.StartDockedOriginVesselPid} " +
-                        $"originRoot={originRootPartUId.ToString(CultureInfo.InvariantCulture)} " +
-                        $"originName='{proof.StartDockedOriginVesselName ?? "<none>"}' " +
-                        $"originType={proof.StartDockedOriginVesselType.ToString(CultureInfo.InvariantCulture)} " +
-                        $"transportRoot={proof.StartDockedTransportRootPartUId.ToString(CultureInfo.InvariantCulture)} " +
-                        $"transportType={proof.StartDockedTransportVesselType.ToString(CultureInfo.InvariantCulture)} " +
+                        $"RouteOriginProof pair captured: recId={recordingVesselId} vessel='{vesselContext}' " +
+                        $"halfARoot={halfA.RootPartUId.ToString(CultureInfo.InvariantCulture)} " +
+                        $"halfAName='{halfA.VesselName ?? "<none>"}' " +
+                        $"halfAType={halfA.VesselType.ToString(CultureInfo.InvariantCulture)} " +
+                        $"halfAParts={halfA.PartPersistentIds?.Count ?? 0} " +
+                        $"halfARes={halfA.StartResources?.Count ?? 0} " +
+                        $"halfBRoot={halfB.RootPartUId.ToString(CultureInfo.InvariantCulture)} " +
+                        $"halfBName='{halfB.VesselName ?? "<none>"}' " +
+                        $"halfBType={halfB.VesselType.ToString(CultureInfo.InvariantCulture)} " +
+                        $"halfBParts={halfB.PartPersistentIds?.Count ?? 0} " +
+                        $"halfBRes={halfB.StartResources?.Count ?? 0} " +
+                        $"bindState={proof.StartDockedOriginBindState} " +
                         $"candidates={candidateCount} " +
-                        $"transportParts={transportPids?.Count ?? 0} " +
+                        $"mergedParts={mergedPids?.Count ?? 0} " +
                         $"startRes={startRes?.Count ?? 0} startInv={startInv?.Count ?? 0} " +
                         $"partnerBody={(string.IsNullOrEmpty(proof.StartDockedOriginBodyName) ? "<none>" : proof.StartDockedOriginBodyName)} " +
                         $"partnerSituation={proof.StartDockedOriginSituation.ToString(CultureInfo.InvariantCulture)} " +
@@ -522,27 +698,27 @@ namespace Parsek
                 case OriginProofDetection.NoExternalCoupling:
                     // INFO, NOT VERBOSE, and only on this branch. A recording that STARTED on
                     // a settled docked pair and still captured nothing is the one case a
-                    // player can act on - almost always because neither half is typed Base or
-                    // Station (no stock part declares either type, so an ordinary landed base
-                    // reads Ship / Probe / Lander until the player retypes it in the tracking
-                    // station). It is a one-shot at recording start, i.e. an event, and it is
-                    // silent on the ordinary undocked start.
+                    // player can act on. Since P12 deleted the vessel-type requirement the
+                    // remaining causes are structural: a half whose docking node carried no
+                    // vesselInfo or a zero root id, or a half that is debris / EVA / a flag /
+                    // a space object and cannot own cargo at all. It is a one-shot at
+                    // recording start, i.e. an event, and it is silent on the ordinary
+                    // undocked start.
                     //
-                    // IT KEYS ON THE SCANNED SEAM COUNT, NOT ON candidates.Count, AND THAT
-                    // DISTINCTION IS THE WHOLE BUG THIS BRANCH ONCE HAD. A seam whose halves
-                    // are not depot-typed adds NO candidate (the producer loop skips it), so
-                    // an accepted-list test can never be true on the very case the message
-                    // exists for: every no-depot start arrives here with candidates.Count == 0
-                    // and settledDockSeamsScanned > 0.
+                    // IT KEYS ON THE SCANNED SEAM COUNT, NOT ON candidates.Count. A seam
+                    // rejected by the admission rule adds NO candidate (the producer loop
+                    // skips it), so an accepted-list test can never be true on the very case
+                    // the message exists for: every rejected start arrives here with
+                    // candidates.Count == 0 and settledDockSeamsScanned > 0.
                     if (settledDockSeamsScanned > 0)
                     {
                         ParsekLog.Info("Recorder",
-                            $"RouteOriginProof skipped: no depot half recId={recordingVesselId} " +
+                            $"RouteOriginProof skipped: unusable seam pair recId={recordingVesselId} " +
                             $"vessel='{vesselContext}' seams={settledDockSeamsScanned.ToString(CultureInfo.InvariantCulture)} " +
                             $"candidates={candidateCount} " +
                             $"isEva={activeVesselIsEva} " +
-                            $"(neither docked half is typed Base or Station, so no supply origin " +
-                            $"was recorded; set the depot's type in the tracking station)");
+                            $"(a docked half carried no usable identity or cannot own cargo, " +
+                            $"so no supply origin was recorded)");
                     }
                     else
                     {
@@ -568,24 +744,420 @@ namespace Parsek
                     break;
                 case OriginProofDetection.PartnerAmbiguous:
                 {
-                    var distinctRoots = new List<uint>();
+                    var distinctPairs = new List<string>();
                     if (candidates != null)
                     {
                         for (int i = 0; i < candidates.Count; i++)
                         {
-                            uint root = candidates[i].OriginRootPartUId;
-                            if (root == 0) continue;
-                            if (candidates[i].MergedVesselSituation == (int)Vessel.Situations.PRELAUNCH) continue;
-                            if (!distinctRoots.Contains(root)) distinctRoots.Add(root);
+                            DockSeamPairCandidate amb = candidates[i];
+                            if (amb.Near.RootPartUId == 0 || amb.Far.RootPartUId == 0) continue;
+                            if (amb.MergedVesselSituation == (int)Vessel.Situations.PRELAUNCH) continue;
+                            string key = FormatUnorderedPairKey(amb.Near.RootPartUId, amb.Far.RootPartUId);
+                            if (!distinctPairs.Contains(key)) distinctPairs.Add(key);
                         }
                     }
                     ParsekLog.Warn("Recorder",
                         $"RouteOriginProof skipped: ambiguous partners recId={recordingVesselId} " +
                         $"vessel='{vesselContext}' candidates={candidateCount} " +
-                        $"distinctOriginRoots=[{string.Join(",", distinctRoots)}]");
+                        $"distinctPairs=[{string.Join(",", distinctPairs.ToArray())}]");
                     break;
                 }
             }
+        }
+
+        /// <summary>
+        /// Lifts one captured seam half into its persisted identity plus its transient
+        /// working data: the half's own part set on the merged vessel and the manifests
+        /// scoped to it. A null / empty part set leaves the manifests null, which the bind
+        /// reads as "this half's start manifest is unknown" (the pickup then falls to the
+        /// carried branch rather than inventing a delta).
+        /// </summary>
+        private static StartDockedSeamHalf BuildSeamHalf(
+            DockSeamHalfIdentity identity,
+            List<uint> partPersistentIds,
+            ConfigNode snapshot)
+        {
+            var half = new StartDockedSeamHalf
+            {
+                RootPartUId = identity.RootPartUId,
+                VesselName = identity.VesselName,
+                VesselType = identity.VesselType,
+                PartPersistentIds = partPersistentIds != null && partPersistentIds.Count > 0
+                    ? new List<uint>(partPersistentIds)
+                    : null,
+            };
+            if (half.PartPersistentIds != null && snapshot != null)
+            {
+                half.StartResources =
+                    VesselSpawner.ExtractResourceManifest(snapshot, half.PartPersistentIds);
+                half.StartInventory =
+                    VesselSpawner.ExtractInventoryPayloadItems(snapshot, half.PartPersistentIds);
+            }
+            return half;
+        }
+
+        // ===================================================================
+        // THE UNDOCK BIND (P12). Capture defers the origin choice; this is where it is made.
+        // ===================================================================
+
+        /// <summary>
+        /// THE BINDING RULE, pure / static. At the undock the pair separates into an ACTIVE
+        /// side (the half the player kept flying - the transport) and a BACKGROUND side. The
+        /// ORIGIN IS THE HALF THE PLAYER DID NOT KEEP FLYING, matched by PART SET rather than
+        /// by vessel pid: a <c>persistentId</c> is craft-baked and never proves physical
+        /// identity, while the merged part persistentIds captured per half at recording start
+        /// are exactly the parts each side is made of.
+        ///
+        /// <para>Part-set OVERLAP, not equality: EVA construction or a mid-window decoupler
+        /// can add or drop parts on either side during the docked span, and a strict equality
+        /// test would refuse to bind an otherwise clean run. Overlap with BOTH halves on the
+        /// active side is the one shape that must not bind - it means this split did not
+        /// separate the pair.</para>
+        ///
+        /// Decision contract (in order):
+        ///   1. no pending pair (or a half without a part set)   -> NoPairPending
+        ///   2. the active side overlaps BOTH halves             -> BothHalvesActive
+        ///   3. the active side overlaps NEITHER half            -> ActiveHalfUnresolved
+        ///   4. the background side does not overlap the OTHER half -> UnrelatedSeam
+        ///   5. active overlaps A -> BoundToHalfB; active overlaps B -> BoundToHalfA
+        /// </summary>
+        internal static OriginUndockBinding ClassifyUndockOriginBinding(
+            IReadOnlyList<uint> halfAPartPids,
+            IReadOnlyList<uint> halfBPartPids,
+            IReadOnlyList<uint> activeSidePartPids,
+            IReadOnlyList<uint> backgroundSidePartPids)
+        {
+            if (halfAPartPids == null || halfAPartPids.Count == 0
+                || halfBPartPids == null || halfBPartPids.Count == 0)
+            {
+                return OriginUndockBinding.NoPairPending;
+            }
+            if (activeSidePartPids == null || activeSidePartPids.Count == 0)
+                return OriginUndockBinding.ActiveHalfUnresolved;
+
+            bool activeInA = SetsOverlap(activeSidePartPids, halfAPartPids);
+            bool activeInB = SetsOverlap(activeSidePartPids, halfBPartPids);
+
+            if (activeInA && activeInB)
+                return OriginUndockBinding.BothHalvesActive;
+            if (!activeInA && !activeInB)
+                return OriginUndockBinding.ActiveHalfUnresolved;
+
+            bool backgroundInA = SetsOverlap(backgroundSidePartPids, halfAPartPids);
+            bool backgroundInB = SetsOverlap(backgroundSidePartPids, halfBPartPids);
+
+            if (activeInA)
+            {
+                // The origin half is B; the background side must actually be it.
+                return backgroundInB
+                    ? OriginUndockBinding.BoundToHalfB
+                    : OriginUndockBinding.UnrelatedSeam;
+            }
+            return backgroundInA
+                ? OriginUndockBinding.BoundToHalfA
+                : OriginUndockBinding.UnrelatedSeam;
+        }
+
+        private static bool SetsOverlap(IReadOnlyList<uint> a, IReadOnlyList<uint> b)
+        {
+            if (a == null || b == null || a.Count == 0 || b.Count == 0) return false;
+            var set = new HashSet<uint>(b);
+            for (int i = 0; i < a.Count; i++)
+            {
+                if (set.Contains(a[i])) return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Pure / static. Whether the origin half's LIVE vessel pid may be stamped onto the
+        /// proof at the bind, GUID-GATED through the same identity surface every other
+        /// live-vessel-vs-recording site uses (<see cref="VesselLaunchIdentity"/>).
+        ///
+        /// <para>The one thing this refuses is the self-origin: a candidate pid equal to the
+        /// RECORDED vessel's, whose launch guids do not conclusively differ, is the recorded
+        /// launch itself, and stamping it would make the run its own supply origin. A
+        /// conclusive guid difference clears the same pid (a craft-baked
+        /// <c>persistentId</c> is reused verbatim on every launch of a craft file, so an
+        /// equal pid alone proves nothing). An unknown guid on either side degrades to
+        /// pid-only, which is what every other site here does - and it is safe in this
+        /// direction because the root part id, not the pid, is the identity the resolver
+        /// tries first.</para>
+        /// </summary>
+        internal static OriginPidStampDecision DecideOriginPidStamp(
+            uint originVesselPid,
+            string originVesselGuid,
+            uint recordedVesselPid,
+            string recordedVesselGuid)
+        {
+            if (originVesselPid == 0)
+                return OriginPidStampDecision.NoLiveVessel;
+
+            bool guidKnownBothSides =
+                !string.IsNullOrEmpty(originVesselGuid) && !string.IsNullOrEmpty(recordedVesselGuid);
+
+            if (recordedVesselPid != 0 && originVesselPid == recordedVesselPid)
+            {
+                if (!VesselLaunchIdentity.GuidsConclusivelyDiffer(recordedVesselGuid, originVesselGuid))
+                    return OriginPidStampDecision.RefusedSameLaunch;
+            }
+
+            return guidKnownBothSides
+                ? OriginPidStampDecision.Stamped
+                : OriginPidStampDecision.StampedGuidUnknown;
+        }
+
+        /// <summary>
+        /// THE TRANSFER RULE, pure / static. Classifies how the pickup at the origin was
+        /// witnessed, from the TRANSPORT HALF's own manifests at recording start and at the
+        /// undock.
+        ///
+        /// <para>Design 19.2.2 item 2 defines the "Loaded" provenance as "a recorded
+        /// connection window in which cargo flowed FROM another vessel ONTO the transport",
+        /// and the workflow sentence under it says "start the supply run docked to the origin
+        /// (making it a Loaded provenance via the start-docked window)". The start-docked span
+        /// IS that window, so BOTH readings are admitted and distinguished:</para>
+        /// <list type="bullet">
+        /// <item><see cref="OriginPickupKind.Gain"/> - an admitted resource ROSE across the
+        /// span. This is the doctrine's strong form ("cargo flowed onto the transport") and
+        /// 19.2.1's causal test is satisfied outright.</item>
+        /// <item><see cref="OriginPickupKind.Carried"/> - no rise, but the transport leaves
+        /// carrying admitted cargo. Admitted because while docked the pair is ONE
+        /// <c>Vessel</c> with stock crossfeed between the halves, so cargo aboard the
+        /// transport at the split was physically part of the merged stack the origin is half
+        /// of - which is exactly what the workflow sentence calls a Loaded provenance.</item>
+        /// <item><see cref="OriginPickupKind.None"/> - the transport leaves empty. Nothing was
+        /// picked up, so there is no route.</item>
+        /// </list>
+        ///
+        /// <para>ADMITTED SET: everything except the always-ignored environmental resources
+        /// (ElectricCharge, IntakeAir - <see cref="Logistics.ResourceTransferability.IsAlwaysIgnored"/>).
+        /// Deliberately NOT the full <c>IsRoutableResource</c> definition check: this is a
+        /// REJECTION-direction gate, and that check's undefined-name exclusion is
+        /// admission-direction only (design plan D2), so uninstalling a mod must not be able
+        /// to turn a no-pickup run into a validated one.</para>
+        ///
+        /// <para>A null start manifest is not an error: the gain branch is simply
+        /// unevaluable and the classification falls to carried / none. A null UNDOCK manifest
+        /// is <see cref="OriginPickupKind.NoUndockManifest"/> - nothing was measured, so
+        /// nothing is validated.</para>
+        /// </summary>
+        internal static OriginPickupKind ClassifyOriginPickup(
+            Dictionary<string, ResourceAmount> startTransportResources,
+            Dictionary<string, ResourceAmount> undockTransportResources)
+        {
+            if (undockTransportResources == null)
+                return OriginPickupKind.NoUndockManifest;
+
+            const double epsilon = 1e-6;
+            bool sawCargo = false;
+            foreach (KeyValuePair<string, ResourceAmount> kvp in undockTransportResources)
+            {
+                if (Logistics.ResourceTransferability.IsAlwaysIgnored(kvp.Key)) continue;
+                if (kvp.Value.amount <= epsilon) continue;
+                sawCargo = true;
+
+                if (startTransportResources == null) continue;
+                double startAmount = startTransportResources.TryGetValue(kvp.Key, out ResourceAmount before)
+                    ? before.amount
+                    : 0.0;
+                if (kvp.Value.amount - startAmount > epsilon)
+                    return OriginPickupKind.Gain;
+            }
+
+            // A resource absent from the undock manifest entirely cannot have risen, so the
+            // gain walk above is complete.
+            return sawCargo ? OriginPickupKind.Carried : OriginPickupKind.None;
+        }
+
+        /// <summary>True for the pickup kinds that make a bound proof usable as an origin.</summary>
+        internal static bool IsPickupValidated(OriginPickupKind kind)
+        {
+            return kind == OriginPickupKind.Gain || kind == OriginPickupKind.Carried;
+        }
+
+        /// <summary>
+        /// Binds a pending start-docked seam pair at an UNDOCK: chooses the origin half (the
+        /// one the player did not keep flying), re-scopes the transport manifests to the half
+        /// that kept flying, validates the pickup, and stamps the result onto
+        /// <paramref name="proof"/>. Returns true when an origin was bound.
+        ///
+        /// <para>Operates entirely on the DTO plus <c>ConfigNode</c> snapshots, so the whole
+        /// decision - including the guid gate and the pickup rule - is drivable headlessly;
+        /// the live caller (<c>ParsekFlight.CreateSplitBranch</c>) only supplies the two
+        /// post-split snapshots and the live pids/guids.</para>
+        ///
+        /// <para>A binding that does not resolve leaves the proof PENDING, never
+        /// half-written: an unbound proof carries no origin identity at all and
+        /// <c>RouteAnalysisEngine.HasDockedOriginProof</c> refuses it, so failing to bind
+        /// costs a route and can never cost a wrong debit.</para>
+        /// </summary>
+        internal static bool TryBindStartDockedOriginAtUndock(
+            RouteOriginProof proof,
+            IReadOnlyList<uint> activeSidePartPids,
+            IReadOnlyList<uint> backgroundSidePartPids,
+            ConfigNode activeSideSnapshot,
+            ConfigNode endScopeSnapshot,
+            uint originLiveVesselPid,
+            string originLiveVesselGuid,
+            uint recordedVesselPid,
+            string recordedVesselGuid,
+            double undockUT,
+            string recordingContext)
+        {
+            string context = string.IsNullOrEmpty(recordingContext) ? "<none>" : recordingContext;
+            string utToken = undockUT.ToString("R", CultureInfo.InvariantCulture);
+
+            if (proof == null)
+                return false;
+
+            if (proof.StartDockedOriginBindState != StartDockedOriginBindState.PairPendingBinding
+                || proof.StartDockedPair == null
+                || proof.StartDockedPair.HalfA == null
+                || proof.StartDockedPair.HalfB == null)
+            {
+                ParsekLog.Verbose("Flight",
+                    $"RouteOriginProof bind skipped: recording={context} ut={utToken} " +
+                    $"reason={OriginUndockBinding.NoPairPending} " +
+                    $"bindState={proof.StartDockedOriginBindState}");
+                return false;
+            }
+
+            StartDockedSeamHalf halfA = proof.StartDockedPair.HalfA;
+            StartDockedSeamHalf halfB = proof.StartDockedPair.HalfB;
+            OriginUndockBinding binding = ClassifyUndockOriginBinding(
+                halfA.PartPersistentIds,
+                halfB.PartPersistentIds,
+                activeSidePartPids,
+                backgroundSidePartPids);
+
+            if (binding != OriginUndockBinding.BoundToHalfA
+                && binding != OriginUndockBinding.BoundToHalfB)
+            {
+                ParsekLog.Info("Flight",
+                    $"RouteOriginProof unbound: recording={context} ut={utToken} reason={binding} " +
+                    $"halfAParts={halfA.PartPersistentIds?.Count ?? 0} " +
+                    $"halfBParts={halfB.PartPersistentIds?.Count ?? 0} " +
+                    $"activeParts={activeSidePartPids?.Count ?? 0} " +
+                    $"backgroundParts={backgroundSidePartPids?.Count ?? 0} " +
+                    $"(the proof stays pending and is NOT an origin)");
+                return false;
+            }
+
+            bool originIsA = binding == OriginUndockBinding.BoundToHalfA;
+            StartDockedSeamHalf originHalf = originIsA ? halfA : halfB;
+            StartDockedSeamHalf transportHalf = originIsA ? halfB : halfA;
+
+            // TRANSPORT-SCOPED MANIFESTS (closes
+            // ROUTE-ORIGIN-PROOF-TRANSPORT-MANIFESTS-INCLUDE-THE-DEPOT). The start manifests
+            // become the transport half's own, captured at recording start by cutting the
+            // seam edge in the merged part tree; the end manifests are re-extracted from the
+            // same stop snapshot they always came from, now scoped to the same half, so both
+            // ends of the run are measured on one part set.
+            List<uint> transportPids = transportHalf.PartPersistentIds;
+            if (transportPids != null && transportPids.Count > 0)
+            {
+                proof.StartTransportResources =
+                    RouteProofMetadata.CloneResourceManifest(transportHalf.StartResources);
+                proof.StartTransportInventory =
+                    RouteProofMetadata.CloneInventoryPayloadItems(transportHalf.StartInventory);
+                if (endScopeSnapshot != null)
+                {
+                    proof.EndTransportResources =
+                        VesselSpawner.ExtractResourceManifest(endScopeSnapshot, transportPids);
+                    proof.EndTransportInventory =
+                        VesselSpawner.ExtractInventoryPayloadItems(endScopeSnapshot, transportPids);
+                }
+            }
+
+            // THE PICKUP, measured on the transport half at the undock.
+            Dictionary<string, ResourceAmount> undockTransportResources =
+                (activeSideSnapshot != null && transportPids != null && transportPids.Count > 0)
+                    ? VesselSpawner.ExtractResourceManifest(activeSideSnapshot, transportPids)
+                    : null;
+            OriginPickupKind pickup = ClassifyOriginPickup(
+                proof.StartTransportResources, undockTransportResources);
+            string pickupDelta = FormatRouteResourceDelta(
+                proof.StartTransportResources, undockTransportResources);
+
+            OriginPidStampDecision pidDecision = DecideOriginPidStamp(
+                originLiveVesselPid, originLiveVesselGuid, recordedVesselPid, recordedVesselGuid);
+
+            proof.StartDockedOriginBindState = StartDockedOriginBindState.BoundAtUndock;
+            proof.StartDockedOriginRootPartUId = originHalf.RootPartUId;
+            proof.StartDockedOriginVesselName = originHalf.VesselName;
+            proof.StartDockedOriginVesselType = originHalf.VesselType;
+            proof.StartDockedTransportRootPartUId = transportHalf.RootPartUId;
+            proof.StartDockedTransportVesselType = transportHalf.VesselType;
+            proof.StartDockedOriginVesselPid =
+                (pidDecision == OriginPidStampDecision.Stamped
+                 || pidDecision == OriginPidStampDecision.StampedGuidUnknown)
+                    ? originLiveVesselPid
+                    : 0u;
+            proof.StartDockedOriginPickupKind = pickup;
+            proof.StartDockedOriginPickupValidated = IsPickupValidated(pickup);
+
+            ParsekLog.Info("Flight",
+                $"RouteOriginProof bound at undock: recording={context} ut={utToken} " +
+                $"binding={binding} " +
+                $"originHalf={(originIsA ? "A" : "B")} " +
+                $"originRoot={originHalf.RootPartUId.ToString(CultureInfo.InvariantCulture)} " +
+                $"originName='{originHalf.VesselName ?? "<none>"}' " +
+                $"originType={originHalf.VesselType.ToString(CultureInfo.InvariantCulture)} " +
+                $"originPid={proof.StartDockedOriginVesselPid.ToString(CultureInfo.InvariantCulture)} " +
+                $"guidDecision={pidDecision} " +
+                $"transportRoot={transportHalf.RootPartUId.ToString(CultureInfo.InvariantCulture)} " +
+                $"transportParts={transportPids?.Count ?? 0} " +
+                $"pickup={pickup} pickupValidated={(proof.StartDockedOriginPickupValidated ? "1" : "0")} " +
+                $"pickupDelta=[{pickupDelta}] " +
+                $"startRes={proof.StartTransportResources?.Count ?? 0} " +
+                $"undockRes={undockTransportResources?.Count ?? 0}");
+
+            if (!proof.StartDockedOriginPickupValidated)
+            {
+                ParsekLog.Info("Flight",
+                    $"RouteOriginProof unbound: recording={context} ut={utToken} " +
+                    $"reason=pickup-{pickup} " +
+                    $"originRoot={originHalf.RootPartUId.ToString(CultureInfo.InvariantCulture)} " +
+                    $"(the origin half is bound but nothing was picked up, so the proof is NOT " +
+                    $"an origin for route analysis)");
+            }
+
+            return true;
+        }
+
+        /// <summary>
+        /// Stamps <see cref="StartDockedOriginBindState.UnboundAtStop"/> on a proof whose pair
+        /// never separated, and says so once. Called from the ORDINARY recorder stop only: a
+        /// chain-boundary stop is the first half of a split, and the bind runs immediately
+        /// after it. Returns true when the state changed.
+        ///
+        /// <para>THE RULE: a recording that ends while still docked has witnessed no undock,
+        /// so no half is the origin and no cargo movement was bracketed. The proof is kept
+        /// (the pair is real evidence and the log line is the affordance) but it is never
+        /// forwarded as an origin.</para>
+        /// </summary>
+        internal static bool MarkStartDockedOriginUnboundAtStop(
+            RouteOriginProof proof,
+            string recordingContext)
+        {
+            if (proof == null
+                || proof.StartDockedPair == null
+                || proof.StartDockedOriginBindState != StartDockedOriginBindState.PairPendingBinding)
+            {
+                return false;
+            }
+
+            proof.StartDockedOriginBindState = StartDockedOriginBindState.UnboundAtStop;
+            StartDockedSeamHalf halfA = proof.StartDockedPair.HalfA;
+            StartDockedSeamHalf halfB = proof.StartDockedPair.HalfB;
+            ParsekLog.Info("Recorder",
+                $"RouteOriginProof unbound: recording={(string.IsNullOrEmpty(recordingContext) ? "<none>" : recordingContext)} " +
+                $"reason=stopped-while-docked " +
+                $"halfARoot={(halfA != null ? halfA.RootPartUId.ToString(CultureInfo.InvariantCulture) : "0")} " +
+                $"halfBRoot={(halfB != null ? halfB.RootPartUId.ToString(CultureInfo.InvariantCulture) : "0")} " +
+                $"(the recording ended still docked, so no half is the supply origin)");
+            return true;
         }
 
         /// <summary>
@@ -602,7 +1174,8 @@ namespace Parsek
         internal static void AttachEndManifestsAndForwardToCapture(
             Recording capture,
             RouteOriginProof pendingProof,
-            ICollection<uint> pendingStartPartPersistentIds)
+            ICollection<uint> pendingStartPartPersistentIds,
+            bool stopIsChainBoundary = false)
         {
             if (capture == null || pendingProof == null || pendingStartPartPersistentIds == null)
                 return;
@@ -611,9 +1184,17 @@ namespace Parsek
                 VesselSpawner.ExtractResourceManifest(capture.VesselSnapshot, pendingStartPartPersistentIds);
             pendingProof.EndTransportInventory =
                 VesselSpawner.ExtractInventoryPayloadItems(capture.VesselSnapshot, pendingStartPartPersistentIds);
+            // STOPPED WHILE STILL DOCKED. A chain-boundary stop is the FIRST half of a split
+            // (undock / dock / pid change) and the bind runs immediately after it, so only an
+            // ordinary stop can conclude that the pair never separated. A chain-boundary stop
+            // whose bind then does not resolve simply leaves the proof PENDING, which reads as
+            // "not an origin" through the same gate - the stamp is observability, not the gate.
+            if (!stopIsChainBoundary)
+                MarkStartDockedOriginUnboundAtStop(pendingProof, capture.RecordingId);
             capture.RouteOriginProof = pendingProof;
             ParsekLog.Verbose("Recorder",
                 $"BuildCaptureRecording: forwarded RouteOriginProof partner={pendingProof.StartDockedOriginVesselPid} " +
+                $"bindState={pendingProof.StartDockedOriginBindState} " +
                 $"originRoot={pendingProof.StartDockedOriginRootPartUId.ToString(CultureInfo.InvariantCulture)} " +
                 $"startRes={pendingProof.StartTransportResources?.Count ?? 0} " +
                 $"endRes={pendingProof.EndTransportResources?.Count ?? 0} " +

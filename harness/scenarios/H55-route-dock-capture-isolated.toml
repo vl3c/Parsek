@@ -372,7 +372,10 @@ required  = [
   "DockCapture PASS: cell=drift run=\\S+ windows=1 kind=DockingPort complete=True .* detail=drift-warned-window-complete-part-unmanifested",
   "DockCapture PASS: cell=multi-stop run=\\S+ windows=2 kind=DockingPort complete=True",
   "DockCapture PASS: cell=round-trip run=\\S+ windows=2 kind=DockingPort complete=True deliveryResources=[1-9][0-9]* deliveryInventory=[0-9]+ pickupResources=[1-9][0-9]*",
-  "OriginProofProbe: externalParentParts=[0-9]+ proofCaptured=(True|False) situation=-?[0-9]+ outcome=\\S+ partnerPid=[0-9]+",
+  # P12 appended `bound=`: capture records a PAIR, and only the UNDOCK names an
+  # origin, so proofCaptured alone no longer says whether one exists. The pad lane
+  # reads bound=False (nothing was captured to bind); a landed lane reads True.
+  "OriginProofProbe: externalParentParts=[0-9]+ proofCaptured=(True|False) situation=-?[0-9]+ outcome=\\S+ partnerPid=[0-9]+ bound=(True|False)",
 ]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 
