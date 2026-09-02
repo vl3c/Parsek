@@ -5578,6 +5578,10 @@ def evaluate_cl1_assertions(frames, params: Cl1Params,
 #   TRANSMIT  -> RECOVER   when the CAREER SCIENCE POOL has OBSERVABLY risen by
 #                       at least transmitMinScienceGain over its pre-transmit
 #                       baseline, again debounced.
+#                       An OPTIONAL `preRecoverDwellSeconds` holds the ASK (never
+#                       the gates) until that many game seconds after the LANDING
+#                       frame; at its 0.0 default nothing holds. Block note above
+#                       `sbr_recover_dwell_satisfied`.
 #   RECOVER   -> RECOVERED when the craft is OBSERVED GONE (a vessel_lost frame)
 #                       AND the CAREER FUNDS POOL has risen by at least
 #                       recoverMinFundsGain MEASURED ACROSS THE RECOVERY - a
@@ -5744,6 +5748,82 @@ SBR_ACTION_REEMIT_FRAMES = 20
 SBR_RECOVER_ASK_LIMIT = 3
 
 
+# ---------------------------------------------------------------------------
+# THE PRE-RECOVER DWELL (`preRecoverDwellSeconds`, optional, DEFAULT 0.0).
+#
+# WHAT IT IS. A hold, measured in GAME seconds from the frame the delegated B1
+# leg reached LANDED, before the recovery verb may be EMITTED. At the default of
+# 0.0 the hold is not a hold at all - `sbr_recover_dwell_satisfied` short-circuits
+# to True before it reads anything - so a params set that does not declare the key
+# drives the pre-2026-09-02 machine frame for frame. That compatibility statement
+# is not a claim: `SbrDwellCompatibilityTests` replays a scripted flight through
+# THIS module and through `origin/main`'s copy of it and compares every action,
+# every phase and the terminal.
+#
+# WHY IT EXISTS, and it is a CALIBRATION knob rather than a gate. The recording
+# this mission's flight produces ends at the recovery, and the optimizer's split
+# candidate is the touchdown `SurfaceStationary` section, so the second half of
+# that split is exactly `recoverUT - touchdownSectionUT`.
+# `RecordingOptimizer.CanAutoSplitIgnoringGhostTriggers` refuses a split unless
+# BOTH halves clear 5.0 s, and the mission's NATURAL dwell - the COLLECT and
+# TRANSMIT debounces plus RECOVER's own two Recoverable=YES frames - was measured
+# at 5.34 s, 4.82 s and 5.88 s across three L6 flights on one fixture and (for the
+# last two) one DLL. Margins of +0.34, -0.18 and +0.88 against the floor: the lane
+# yielded one recording or two on the same inputs, so a spec could pin neither
+# side. The dwell makes the tail long enough that the split is CERTAIN, which is
+# the only side of that floor a hold can reach (see the asymmetry note below).
+#
+# THE ASYMMETRY, stated because it is the first question a reader asks. A hold can
+# only make the tail LONGER, so `preRecoverDwellSeconds` can deterministically put
+# a lane ABOVE the floor and can NEVER put one below it: at any value under the
+# natural dwell the hold is already satisfied by the time the phase would have
+# asked anyway, and the recovery happens at its natural time. The NO-SPLIT side of
+# the floor is therefore proven HEADLESSLY, by
+# `RecordingOptimizerTests.CanAutoSplitIgnoringGhostTriggers_L6LandedTail*`, which
+# drives the exact measured magnitudes on both sides of 5.0.
+#
+# ANCHORED ON THE LANDING FRAME, not on RECOVER entry, because that is the anchor
+# a spec author can do arithmetic with: the split boundary is a fixed few seconds
+# after touchdown (a `SurfaceStationary` section opens once the craft has been
+# under 0.1 m/s for 3 s), so `secondHalf ~= dwell - (sectionStartUT - landedUT)`
+# and a spec header can size a margin. Anchoring on RECOVER entry would fold the
+# whole COLLECT + TRANSMIT leg into the uncontrolled offset.
+#
+# FAIL-OPEN, deliberately. An unreadable clock (a non-finite UT on the landing
+# frame or on the current one) satisfies the hold rather than blocking it: this
+# knob exists to move a recording-count pin, and turning a dark UT channel into a
+# `recover-never-completed` FLAKE would throw away a good flight for a
+# calibration. The schema bounds the value well under any sane
+# `recoverTimeoutSeconds` so a declared dwell cannot eat the phase budget either.
+# ---------------------------------------------------------------------------
+
+
+def sbr_recover_dwell_satisfied(dwell_seconds: float,
+                                landed_ut: Optional[float],
+                                now_ut: float) -> bool:
+    """Has the pre-recover hold elapsed? PURE, and the compatibility hinge.
+
+    Returns True - i.e. the machine may ask - when:
+      - the dwell is 0, negative or non-finite (THE DEFAULT: no hold was declared,
+        so this never gates and the machine is the pre-dwell one);
+      - either clock is missing or non-finite (fail-open, see the block note);
+      - or ``now_ut`` has reached ``landed_ut + dwell_seconds``.
+
+    The comparison is `>=`, so a dwell of exactly D is satisfied at exactly
+    ``landed_ut + D``."""
+    try:
+        dwell = float(dwell_seconds)
+    except (TypeError, ValueError):
+        return True
+    if not _is_finite(dwell) or dwell <= 0.0:
+        return True
+    if landed_ut is None or not _is_finite(landed_ut):
+        return True
+    if not _is_finite(now_ut):
+        return True
+    return (float(now_ut) - float(landed_ut)) >= dwell
+
+
 @dataclass(frozen=True)
 class SbrParams:
     """science_bench_recover tuning (spec [driver.missionParams]). Budgets,
@@ -5761,6 +5841,10 @@ class SbrParams:
     transmit_timeout: float
     recover_min_funds: float
     recover_timeout: float
+    # OPTIONAL, default 0.0 = no hold and the pre-dwell machine. See the block
+    # note above `sbr_recover_dwell_satisfied`. Last field with a default so an
+    # existing positional construction of SbrParams cannot break.
+    pre_recover_dwell: float = 0.0
 
 
 def sbr_params_from_dict(params: Dict) -> SbrParams:
@@ -5777,6 +5861,9 @@ def sbr_params_from_dict(params: Dict) -> SbrParams:
         transmit_timeout=float(params.get("transmitTimeoutSeconds", 120.0)),
         recover_min_funds=float(params.get("recoverMinFundsGain", 0.0)),
         recover_timeout=float(params.get("recoverTimeoutSeconds", 120.0)),
+        # ABSENT KEY -> 0.0 -> no hold. The default is the compatibility contract,
+        # so it is spelled here rather than left to the dataclass default alone.
+        pre_recover_dwell=float(params.get("preRecoverDwellSeconds", 0.0)),
     )
 
 
@@ -5797,6 +5884,12 @@ class SbrState:
     # builds it); Optional only so the dataclass has a default.
     flight: Optional[B1State] = None
     phase_entry_ut: float = 0.0
+    # The UT of the frame the delegated leg reached LANDED - the anchor the
+    # pre-recover dwell measures from, and the only field that survives the phase
+    # transitions between the landing and the recovery. None until that frame
+    # lands, or when it carried a non-finite UT, both of which the dwell hinge
+    # treats as "no hold" (fail-open).
+    landed_ut: Optional[float] = None
     # --- OBSERVED evidence, carried for the gates and for every reason string.
     # Last REAL (non-UNREAD) experiment enumeration; None until one lands.
     experiment_count: Optional[int] = None
@@ -5961,7 +6054,7 @@ def _sbr_evidence(state: SbrState) -> str:
     return ("experiments=%s available=%s dataMax=%d scienceBaseline=%s "
             "scienceNow=%s scienceGain=%s fundsBaseline=%s fundsNow=%s "
             "fundsGain=%s fundsPostLoss=%s recoveryCredit=%s recoverAsks=%d "
-            "recoverIssued=%s recoverDeclined=%s"
+            "recoverIssued=%s recoverDeclined=%s preRecoverDwell=%s landedUT=%s"
             % ("UNREAD" if state.experiment_count is None else state.experiment_count,
                "UNREAD" if state.available_count is None else state.available_count,
                state.data_count_max,
@@ -5984,7 +6077,15 @@ def _sbr_evidence(state: SbrState) -> str:
                # never issued, which is a completely different triage from
                # `recoverAsks=0` (never asked) or `recoverIssued=True` (asked,
                # issued, and the world did not follow).
-               state.recover_asks, state.recover_issued, state.recover_declined))
+               state.recover_asks, state.recover_issued, state.recover_declined,
+               # THE DWELL PAIR, reported so a `recover-never-completed` flake on
+               # a dwell-declaring lane names its own hold instead of reading as a
+               # kRPC fault: `recoverAsks=0 preRecoverDwell=12.000` against a
+               # `landedUT` the budget already outlived is a dwell authored longer
+               # than `recoverTimeoutSeconds` - an author error, not a driver one.
+               # Reads `preRecoverDwell=0.000` on every lane that declares none.
+               _fmt_num(state.params.pre_recover_dwell),
+               "UNREAD" if state.landed_ut is None else _fmt_num(state.landed_ut)))
 
 
 def _fmt_num(value: float) -> str:
@@ -6094,7 +6195,13 @@ def sbr_decide(state: SbrState, snapshot: TelemetrySnapshot) -> Tuple[SbrState, 
         # LANDED. Fall THROUGH into COLLECT on this same frame and issue the
         # sweep now: the craft is at rest, its situation is settled, and waiting
         # a poll buys nothing.
+        #
+        # STAMP THE DWELL ANCHOR HERE, on the landing frame itself, because this
+        # is the only frame that knows it. A non-finite UT leaves it None, which
+        # the dwell hinge reads as "no hold" - see the fail-open note there.
         state = _sbr_enter(state, SBR_COLLECT, snapshot.ut)
+        if _is_finite(snapshot.ut):
+            state = replace(state, landed_ut=float(snapshot.ut))
         return (replace(state, action_emits=1, frames_since_emit=0),
                 actions + [Action(ACTION_RUN_SCIENCE_EXPERIMENTS)])
 
@@ -6310,7 +6417,17 @@ def _sbr_recover(state: SbrState, snapshot: TelemetrySnapshot) -> Tuple[SbrState
                              "(kRPC throws on exactly this, and an unhandled throw would "
                              "report MISSION-ERROR instead of this name); %s"
                              % (state.recoverable_no_streak, _sbr_evidence(state)))), []
+        # THE PRE-RECOVER DWELL sits INSIDE the ask condition rather than ahead of
+        # the phase body, and the placement is load-bearing: everything above it
+        # keeps running while the hold is open, so a craft that reads
+        # Recoverable=NO twice during a 12 s dwell still lands on the named
+        # `vessel-not-recoverable` terminal instead of waiting out the hold to
+        # reach an unnamed budget flake. At the default 0.0 the conjunct is a
+        # constant True (the hinge short-circuits before reading a clock), which
+        # is what makes the declared-nothing case the pre-dwell machine.
         if (state.recoverable_yes_streak >= SBR_OBSERVE_DEBOUNCE_K
+                and sbr_recover_dwell_satisfied(params.pre_recover_dwell,
+                                                state.landed_ut, snapshot.ut)
                 and _sbr_may_ask_recover(state)):
             return (replace(state, recover_asks=state.recover_asks + 1,
                             frames_since_ask=0),

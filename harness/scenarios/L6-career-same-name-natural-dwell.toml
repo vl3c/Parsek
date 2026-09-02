@@ -1,0 +1,231 @@
+schema = 1
+id = "L6-career-same-name-natural-dwell"
+# `operator`: the SHORT / NATURAL-DWELL half of the L6 pair, and an A/B CONTROL rather
+# than a second reading of the correlator. NEVER FLOWN UNDER THIS ID. Nothing is armed.
+tier = "operator"
+#
+# ################ WHAT THIS IS, IN ONE PARAGRAPH ################
+# `L6-career-same-name-recover` and this spec are the SAME flight over the SAME fixture,
+# ONE mission param apart: that one declares `preRecoverDwellSeconds = 12.0`, this one
+# declares `0.0` - the default, the machine every L6 and L3 flight before 2026-09-02
+# flew. The pair exists so `RecordingOptimizer`'s 5.0 s both-halves split floor is
+# measured on purpose instead of being straddled by accident.
+#
+# ################ THE FLOOR, AND THE ARITHMETIC ################
+# `RecordingOptimizer.CanAutoSplitIgnoringGhostTriggers` refuses a split unless BOTH
+# halves clear 5.0 s ("Both halves must be longer than 5 seconds"). On this lane the
+# split candidate is the touchdown `SurfaceStationary` section and the recording ENDS
+# when the craft is recovered, so the second half is exactly
+# `recoverUT - touchdownSectionUT`. Three flights of the sibling spec, on this fixture
+# and (for the last two) one DLL, measured that number at:
+#
+#   run `_1328`  touchdown 749.16, recovery 754.5 -> 5.34 s  >= 5.0  SPLIT   -> 4 / 2
+#   run `_1411`  touchdown 747.82, recovery 753.7 -> 5.88 s  >= 5.0  SPLIT   -> 4 / 2
+#   run `_1402`  touchdown 748.98, recovery 753.8 -> 4.82 s  <  5.0  NO SPLIT-> 3 / 1
+#
+# Margins of +0.34, +0.88 and -0.18 s. THE FLOOR IS NOT A DEFECT AND IS NOT CHANGING:
+# it is the HOP GUARD - a rover or lander that touches down and lifts again must not be
+# shredded into fragment recordings - and a player who recovers three seconds after
+# touchdown correctly gets that landed tail folded into the flight. What was
+# uncontrolled was the INPUT, and that is what the pair fixes.
+#
+# ################ FLOWN GREEN 2026-09-02, AND IT LANDED ABOVE THE FLOOR BY 0.70 s #####
+# `2026-09-02_1816`, PASS attempt 1, wall 462 s, mission 343 s, DLL 10ef80c4. This run's
+# own numbers, which are what this lane exists to keep producing:
+#
+#   COLLECT (the LANDED frame)                 ut = 746.88
+#   `SurfaceStationary` section starts         UT = 747.38   (offset 0.50 s)
+#   `Section closed: env=SurfaceStationary ... duration=5.70s`
+#   `SplitAtSection: split 38311eb1... at UT=747.4 (first: 506 pts/3 sections,
+#       second: 2 pts/1 sections)`             -> SPLIT, count = 4
+#   recovery pick                              ut = 753.3
+#
+# **+0.70 s OVER THE FLOOR**, so the natural-dwell band is now FOUR points -
+# 5.34 / 4.82 / 5.88 / **5.70** s - and ONE of the four is still below 5.0. The range
+# pins below are therefore vindicated rather than merely cautious: a `{4, 4}` pin here
+# would have passed this run and red the `_1402` shape, which is the coin flip this pair
+# exists to stop pinning. The subject came back identical to the long lane's
+# (`dropped=2 remaining=2 reason=guid-conclusive-mismatch`, `nameMatches=4 survivors=2
+# guidDropped=2 ... tier=most-recent-ended bracketTie=n/a pick=4f087d0f...`, one
+# `Recovery kerbal XP recorded ... rows=1 deduped=0 noAction=0 kerbals='Sigski Kerman'`
+# - another per-run stand-in), every verifier PASS, analyzer red=0, zero
+# `[Parsek][ERROR]`.
+#
+# THE 0.50 s OFFSET IS THE READING WORTH KEEPING. The sibling's header predicted the
+# landedUT-to-section offset at ~3.4 s (from stock's under-0.1-m/s-for-3-s rule) and
+# BOTH flights measured 0.50 s: the craft is already stationary by the time the mission's
+# own landing gate declares LANDED, so the recorder's stationary clock has already run
+# when the dwell anchor is stamped. That correction makes the sibling's margin +6.84 s
+# rather than +3.6, i.e. wrong in the safe direction.
+#
+# ################ THE PREDICTION (written before the flight; it held) ################
+# This lane reproduces the UNCONTROLLED reading deliberately, so its prediction is a
+# RANGE and that is its whole design:
+#
+#   recordings.count   3 or 4   (the fixture's own two, plus this flight's one or two)
+#   nameMatches        3 or 4   (the same fact, seen by the correlator)
+#   survivors          1 or 2
+#   guidDropped        2        EXACT - the lane's subject, invariant across all three
+#                               flights, and the reason this fixture exists
+#   tier               most-recent-ended, bracketTie=n/a       EXACT
+#   XP row             rows=1 deduped=0 noAction=0             EXACT
+#
+# Which end of the range a given run lands on is a MEASUREMENT of the natural dwell, not
+# a verdict on Parsek. A run outside the range IS a finding: below 3 means the fixture's
+# prior launch did not load, and above 4 means the flight produced more segments than
+# either measured shape. RUN 1 landed at the TOP of the range (count 4, tail 5.70 s), and
+# every EXACT token above came back exactly as written.
+#
+# ################ WHY THIS CANNOT PIN THE NO-SPLIT SIDE EXACTLY ################
+# STATED PLAINLY, because the obvious next question is "why not just set a dwell that
+# lands under 5.0 s?". `preRecoverDwellSeconds` is a HOLD: it can only make the landed
+# tail LONGER. Any value below the natural dwell is already satisfied by the time the
+# RECOVER phase would have asked anyway, so the recovery happens at its natural time and
+# the param changes nothing (driven directly by
+# `SbrPreRecoverDwellTests.test_a_dwell_shorter_than_the_natural_one_changes_nothing`).
+# Nothing else in the mission can make the tail shorter either: the ~5 s natural dwell
+# is COLLECT's and TRANSMIT's two-frame debounces plus RECOVER's own two
+# Recoverable=YES frames, and every one of those is a correctness gate that exists
+# because a commanded verb is not an observed outcome.
+#
+# SO THE NO-SPLIT SIDE IS PINNED HEADLESSLY, deterministically, and at the exact
+# measured magnitudes, by
+# `RecordingOptimizerTests.CanAutoSplitIgnoringGhostTriggers_L6LandedTail*`
+# (`Source/Parsek.Tests/RecordingOptimizerTests.cs`): 4.82 s -> no split, 5.34 s and
+# 5.88 s -> split, exactly 5.0 s -> split (the predicate refuses on `< 5.0`), and the
+# mirror direction - a short FIRST half - refused too. Those cells red under a mutation
+# of the 5.0 constant to 4.0, which was checked rather than assumed. Pinning
+# `count = 3` HERE, on a lane whose dwell straddles the floor, is precisely the bet the
+# pair exists to stop making.
+#
+# ################ WHAT TO CAPTURE, AND WHY IT IS NOT REQUIRED ################
+# The optimizer names the floor in its own words on both sides, and a reading run should
+# harvest whichever landed:
+#
+#   NO-SPLIT side:  `Split summary: rec=<id> evaluated=2 ... splittableButRejected=2`
+#   SPLIT side:     `SplitAtSection: split <id> at UT=<ut> (first: N pts/M sections,
+#                    second: N pts/M sections, ...)`
+#
+# NEITHER is in `required` below, and that is deliberate rather than an omission: on a
+# lane whose dwell is uncontrolled, exactly one of the two fires per run and requiring
+# either would red half the good runs. The sibling spec, whose dwell IS controlled,
+# requires the `SplitAtSection` line as the positive evidence its exact count rests on.
+# Capture these two from the collected KSP.log alongside the touchdown and recovery UTs
+# so the natural dwell keeps being measured every time this lane flies.
+#
+# ################ EVERYTHING ELSE IS THE SIBLING'S ################
+# The fixture rationale (why `career-same-name-pad` exists, what its two identity edits
+# are, why the earned ledger is deliberately not copied), the correlator subject
+# (KERBAL-XP-RECOVERY-PICK-IS-NAME-AND-UT-ONLY stage 2), the `autoMerge` /
+# `verboseLogging` driver reasoning, the kept-and-expected-to-fail `CommitTree` step,
+# the per-run STAND-IN kerbal the XP token regexes, and the reason no
+# `[expectations.ledger]` block is declared are all argued at length in
+# `L6-career-same-name-recover.toml` and are NOT restated here. A second copy of a
+# moving argument is a second thing to leave stale.
+description = "NATURAL-DWELL control (preRecoverDwellSeconds = 0, the default), FLOWN GREEN 2026-09-02 with a 5.70 s landed tail - 0.70 s above the floor: the same science_bench_recover flight over career-same-name-pad that L6-career-same-name-recover flies, one param apart, kept as the uncontrolled reading of the mission's landed dwell against RecordingOptimizer's 5.0 s split floor. Pins the correlator subject (guidDropped=2, the tier, the XP row) as literals and the flight's own segment count as the 3..4 range three flights measured; the sibling's dwell forces the split and pins 4 exactly, and the NO-SPLIT side is pinned headlessly by RecordingOptimizerTests because no mission param can shorten a landed tail."
+instanceProfile = "stock-minimal"
+tags = ["ledger", "L6", "recovery", "correlator", "same-name", "career", "reading-run", "split-floor", "control"]
+
+[fixture]
+# THE SAME FIXTURE AS THE SIBLING, and that is load-bearing: an A/B control that changed
+# the save as well as the param would measure nothing about the param. Rationale for the
+# fixture itself is in `L6-career-same-name-recover.toml`.
+saveTemplate = "fixtures/saves/career-same-name-pad"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind    = "autopilot"
+mission = "science_bench_recover"
+# THE SIBLING'S STEP LIST VERBATIM. An A/B control differs in ONE place only, and that
+# place is `preRecoverDwellSeconds` below.
+steps = [
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent" },    expect = "OK", budget = 300 },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "true" }, expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoMerge",          value = "true" }, expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "verboseLogging",     value = "true" }, expect = "OK" },
+  { phase = "mission",                                                              expect = "MISSION-OK", budget = 1320 },
+  { cmd = "CommitTree",                                                             expect = "OK" },
+  { cmd = "RecordingState",                                                         expect = "OK" },
+  { cmd = "FlushAndQuit",                                                           expect = "OK" },
+]
+
+[driver.missionParams]
+# THE SIBLING'S VALUES VERBATIM (which are L3's flight-leg values verbatim), so the two
+# lanes differ in exactly one number.
+throttle                 = 1.0
+apoapsisWindowMeters     = { min = 6000, max = 30000 }
+chuteArmMaxRateMps       = 30
+chuteFullDeployAltMeters = 2500
+landedSituations         = ["LANDED", "SPLASHED"]
+ascentTimeoutSeconds     = 90
+coastTimeoutSeconds      = 180
+descentTimeoutSeconds    = 360
+collectMinExperiments = 1
+collectTimeoutSeconds = 120
+transmitMinScienceGain = 0.5
+transmitTimeoutSeconds = 120
+recoverMinFundsGain = 1.0
+recoverTimeoutSeconds = 180
+# THE ONE DIFFERENCE, and it is SPELLED OUT rather than left absent. Omitting the key
+# would behave identically (the schema declares it optional and the params builder
+# defaults it to 0.0), but a control whose controlled variable is invisible in the file
+# is a control nobody can read. `0.0` = no hold = the recovery goes out on the frame the
+# RECOVER phase's own debounced Recoverable=YES gate allows, which is what produced the
+# 4.82-5.88 s natural dwell above.
+preRecoverDwellSeconds = 0.0
+
+[dimensionsCovered]
+# The sibling's rule: a reading run claims only what its required tokens back. Nothing
+# new is claimed here - this lane covers the same cells its sibling does, and a control
+# that claimed coverage of its own would double-count one flight's worth of proof.
+D1  = ["auto-record-launch"]
+D14 = ["kerbin", "career", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# THE RANGE THE SIBLING GAVE UP, KEPT HERE ON PURPOSE. 3 or 4: the fixture's own two
+# recordings plus this flight's one (natural dwell under the floor) or two (over it).
+# The floor of 3 still fails a run that recorded nothing and a run where the fixture's
+# prior launch failed to load; the ceiling of 4 still fails a run that produced more
+# segments than either measured shape. What it deliberately does NOT do is claim which
+# side of the split floor the natural dwell landed on - that is the measurement.
+count = { min = 3, max = 4 }
+
+[expectations.logContracts]
+# THE SUBJECT AS LITERALS, THE DWELL-DEPENDENT COUNTS AS CLASSES. `guidDropped=2`, the
+# tier, the tie-break, the zombie/provisional fields and the XP row's shape were
+# IDENTICAL across all three flights of the sibling - including the one whose count
+# differed - so they are literals here. `nameMatches` / `survivors` / `remaining` are
+# two-value classes for exactly one reason: the flight's own segment count is decided by
+# the 5.0 s split floor against a dwell this lane does not control.
+#
+# NOTE WHAT THE CLASSES STILL FORBID: `nameMatches=[34]` with `guidDropped=2` cannot be
+# satisfied by a run where the fixture's prior launch failed to load (that reads 1 or 2),
+# and `survivors=[12]` cannot be satisfied by an empty candidate set. What stays regexed
+# beyond that is only what a run mints fresh - the UT, the recording id, and the
+# per-run generated STAND-IN kerbal's name (see the sibling's header for why the
+# recovered kerbal is not Jebediah).
+required = [
+  "PickRecoveryRecordingId guid filter: vessel='Jumping Flea' rawVessel='#autoLOC_501224' ut=[0-9.]+ dropped=2 remaining=[12] reason=guid-conclusive-mismatch",
+  "PickRecoveryRecordingId: vessel='Jumping Flea' rawVessel='#autoLOC_501224' ut=[0-9.]+ nameMatches=[34] survivors=[12] guidDropped=2 skippedZombieNotCommitted=0 sessionProvisionalAdmitted=False tier=most-recent-ended bracketTie=n/a pick=[0-9a-f]{32}",
+  "Recovery kerbal XP recorded: vessel='Jumping Flea' rawVessel='#autoLOC_501224' ut=[0-9.]+ recordingId=[0-9a-f]{32} rows=1 deduped=0 noAction=0 kerbals='[A-Za-z]+ Kerman'",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  # The XP leg's fail-safe, measured ABSENT on all three sibling flights - including the
+  # one whose landed tail fell BELOW the floor, which is the point worth keeping: the
+  # split outcome moved and the pick was consumed either way.
+  "Recovery kerbal XP refused:",
+]
+
+[runtime]
+budgetSeconds = 2400
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
