@@ -1002,7 +1002,8 @@ class SpecValidationRejectTests(unittest.TestCase):
         # BOTH numbers in opposite directions - the arithmetic signature that tells a
         # promotion from an addition, and that catches a half-done one (a name added to
         # IMPLEMENTED and left in RESERVED moves the first number without the second).
-        self.assertEqual(len(hlib.IMPLEMENTED_SEAM_VERBS), 30)
+        # 31 / 5 after DeleteRecording, an ADDITION (the first number moves alone).
+        self.assertEqual(len(hlib.IMPLEMENTED_SEAM_VERBS), 31)
         self.assertEqual(len(hlib.RESERVED_SEAM_VERBS), 5)
         # Disjointness, asserted rather than assumed: Classify checks Implemented
         # first in the C# mirror, so a leftover reserved row would be invisible.
@@ -1238,6 +1239,34 @@ class SpecValidationRejectTests(unittest.TestCase):
                 self.assertFalse(
                     any(verb in e for e in v.errors),
                     "%s wrongly flagged: %s" % (verb, list(v.errors)))
+
+    def test_delete_recording_verb_is_implemented_additively(self):
+        # ADDITIVE, never a promotion: implemented, not reserved, and the reserved
+        # set is untouched by it (the two counts above pin the arithmetic).
+        self.assertIn("DeleteRecording", hlib.IMPLEMENTED_SEAM_VERBS)
+        self.assertNotIn("DeleteRecording", hlib.RESERVED_SEAM_VERBS)
+        # Single-phase: rides the 60 s default, never the 540 s deferred cap.
+        self.assertNotIn("DeleteRecording", hlib.DEFERRED_SEAM_VERBS)
+        self.assertNotIn("DeleteRecording", hlib.DISPATCH_DEFERRAL_BUDGET_SECONDS)
+        # Both role tables answer for it explicitly (the totality cells enforce the
+        # rows exist; this pins WHICH answer, since a delete is the least reversible
+        # verb after the two rewinds and the seal).
+        self.assertEqual(hlib.TAIL_ROLE_WORLD_MUTATING,
+                         hlib.SEAM_VERB_TAIL_ROLE["DeleteRecording"])
+        self.assertEqual(hlib.POST_MISSION_ROLE_RECORDING,
+                         hlib.SEAM_VERB_POST_MISSION_ROLE["DeleteRecording"])
+
+    def test_delete_recording_step_is_not_rejected(self):
+        # The behavioural half: a spec naming the verb validates. The S0.11 lane is the
+        # first consumer (a KSC-scene delete under living KSC ghosts).
+        def m(s):
+            s.get("expectations", {}).pop("ledger", None)
+            s["driver"]["steps"].insert(
+                1, {"cmd": "DeleteRecording", "args": {"index": "1"}, "expect": "OK"})
+        v = self._reject(m)
+        self.assertFalse(
+            any("DeleteRecording" in e for e in v.errors),
+            "DeleteRecording wrongly flagged: %s" % (list(v.errors),))
 
     def test_logistics_verbs_are_not_two_phase_deferred(self):
         # Both are SINGLE-phase: the seal (plus its persist) and the
@@ -6444,7 +6473,8 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # flight is a reading a human looks at, and what is owed is the FLIGHT.
         "S4.3-refly-discard-with-ghosts.toml":     "tier=operator as a reading run, NOT debt: S4.2's seam cycle with the conclusion flipped to AnswerMergeDialog choice=discard, pinning ReFlyDiscard's per-recording removal line and ParsekFlight's two CommittedRecording* handler lines - PR #1591's never-driven path. Nothing armed; promotion is the reading run",
         "S4.4-refly-quicksave-mid-session.toml":   "tier=operator as a reading run, NOT debt: the deliberate experiment REFLY-BATCH-BASELINE-DISCARDS-LIVE-SESSION asked for (a real quicksave AND quickload from inside the live Re-Fly session, no batch - save alone is GREEN by construction since the verdict token has only load-path emitters), whose GREEN / INVALID / RED readings are pre-registered in the spec. Nothing armed; the reading decides which todo entry owns the finding",
-        "L6-career-same-name-recover.toml":        "tier=operator as a reading run, NOT debt: science_bench_recover flown a SECOND time over career-earned-pad, whose two prior-launch same-name recordings carry a different launch guid, so PickRecoveryRecordingId's stage 1 guid filter is measured live (KERBAL-XP-RECOVERY-PICK-IS-NAME-AND-UT-ONLY stage 2's repro shape); pins the pick line's shape with guidDropped=2 literal and nameMatches / survivors / tier as value classes. Nothing armed; promotion is the reading run",
+        "L6-career-same-name-recover.toml":        "tier=operator as a BLOCKED record, NOT debt: its reading run (2026-09-02) proved the produced-save shortcut cannot reach the recovery correlator - career-earned-pad already banked the launchpad science, so a second science_bench_recover flight transmits for no gain and the mission's structural transmit->recover gate fails it before RECOVER (INVALID(driver), which no expectedFail key can demote). Kept as the record of that finding; not flyable as built, needs a purpose-built two-same-name-launch fixture. Nothing armed",
+        "S0.11-ksc-table-delete.toml":               "tier=operator as a reading run, NOT debt: the first consumer of the DeleteRecording seam verb (AUTOMATION-GAP-KSC-TABLE-DELETE's lane) - V22K's SPACECENTER boot with the loop member's KSC ghost placed, then DeleteRecording index=1 under it, pinning the ParsekKSC host's reindex line, which prints only when a KSC ghost was alive at the delete. Nothing armed; the first flight decides whether the dwell length puts the delete under a placed ghost",
         # tier=operator by the CALIBRATION DISCIPLINE, the whole B18-B26 family's
         # tier, and NOT a debt: a first-flight B lane is operator because its
         # windows are derived rather than measured and the first run is a

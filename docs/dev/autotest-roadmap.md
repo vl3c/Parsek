@@ -2532,8 +2532,32 @@ moved is that no further authoring stands between them and a flight.
    a run is green. NO D10 claim yet, on the CLAIM-IS-NOT-GATE rule: the career
    flavor of `ksc-origin` is earned in the commit that measures the lane green.
 10. **Escrow competition.** Two routes sharing one physical source (D10
-    `multi-origin-escrow`); the reservation/release invariant has unit
-    coverage but no driven lane.
+    `multi-origin-escrow`). **SCOPED 2026-09-02 AND BLOCKED ON THE SYNTHETIC
+    PATH; NO LANE AUTHORED, NO `H60` SPEC EXISTS.** Two corrections to this
+    item's own wording came out of the scoping. FIRST, "no driven lane" was
+    already stale: the in-game cell
+    `Escrow_CompetingRouteSeesReservation_Holds` executes and PASSES on H38,
+    H40 and RVR-1 (skipping only on H39, whose shared source is too large to
+    net), so the GATE and the `source-reserved:` TOKEN are live-proven. What is
+    genuinely uncovered is narrower - the ORCHESTRATOR-driven reserve / hold /
+    release cycle between two routes actually stored in `RouteStore` and
+    ticked, since that cell reserves and gates directly and adds neither route.
+    SECOND, the missing subject is not a fixture problem and "two runs from one
+    base" would not have produced it either: contention is UNREACHABLE on the
+    single-stop path by construction, because reserve and release both sit
+    inside one synchronous `EmitLoopCycle` and `CompareRoutesForTick` lets a
+    route finish its whole cycle before any competitor is processed
+    (`RouteOrchestrator.cs:2500-2506`). Only a MULTI-STOP route holds escrow
+    across the dispatch-to-window gap (`:1407-1412`), and every route-bearing
+    committed fixture carries exactly one `WINDOW` node, so every route the
+    corpus can create is single-stop. The closing move is therefore a C# cell
+    in the `RouteDockCapture` family, built on H55's already-green
+    `DockCapture_TwoPartnersSequential_TwoWindowsOneRecording` (which produces
+    two windows in one tree programmatically), with a spec pinning its tokens
+    afterwards. Full derivation, the three stacked secondary blockers and the
+    two forgeries deliberately not attempted:
+    `docs/dev/todo-and-known-bugs.md` ->
+    `C10-ESCROW-CONTENTION-NEEDS-A-MULTI-STOP-ROUTE`.
 
 ### Tier D - scale and rendering (pair with the render programs' budgets)
 
@@ -2660,15 +2684,24 @@ so the lane must produce its own subject in-run, and naming that subject needed
 the `tree=latest` seam addition that landed with it). H58 IS AUTHORED AND A
 REWIND FIRES IN IT; what it owes is its first flight;
 (c) D11 surface-route map presence over the rover fixture with the map-view
-verbs, authored against the landed-terminal-no-proto pin; (d) C10 escrow
-competition - scope a synthetic two-candidate fixture before assuming a flight;
+verbs, authored against the landed-terminal-no-proto pin; (d) ~~C10 escrow
+competition - scope a synthetic two-candidate fixture before assuming a
+flight~~ SCOPED 2026-09-02, ANSWERED NO: the synthetic fixture cannot reach
+contention and neither can a manual flight, because every route the corpus can
+create is single-stop and a single-stop route never holds escrow past its own
+`EmitLoopCycle` - the next move is a C# `RouteDockCapture` cell, not a fixture
+or a flight (item 10 above; todo
+`C10-ESCROW-CONTENTION-NEEDS-A-MULTI-STOP-ROUTE`);
 (e) the saveparse `route` block promotion. WHAT STILL NEEDS THE OPERATOR AT THE
 CONTROLS: D14 inter-body surface delivery (no targeted landing / rover driving
 in the mission library - the biggest remaining manual subject); D13 surface
 harvest-provenance (a drill ON ORE - check for a landed-on-ore fixture first);
 C9's recovery-credit third (a recorded route flight that ENDS in a KSC recovery
-- possibly seam-drivable with the recover verbs, unscoped); C10 only if the
-synthetic route fails (two runs from one base). B4 is NO LONGER a manual flight.
+- possibly seam-drivable with the recover verbs, unscoped). ~~C10 only if the
+synthetic route fails (two runs from one base).~~ C10 IS NO LONGER AN OPERATOR
+ITEM EITHER, and the reason is worth carrying: two hand-flown runs from one base
+would have produced two SINGLE-STOP routes, which cannot contend for the same
+reason a synthetic pair cannot. B4 is NO LONGER a manual flight.
 
 ## Trust and fail-open risks still outstanding
 

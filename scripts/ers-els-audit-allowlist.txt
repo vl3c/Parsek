@@ -360,3 +360,14 @@ Source/Parsek/TestCommands/ParsekTestCommandAddon.StartLoopPlayback.cs
 # correlation, not a recording-id walk. Documented with a file-level
 # [ERS-exempt] header comment plus an inline note at the read.
 Source/Parsek/TestCommands/ParsekTestCommandAddon.EnterWatchMode.cs
+
+# [ERS-exempt] DeleteRecording seam verb (test-command surface, unreachable
+# without PARSEK_TEST_COMMANDS=1): reads RecordingStore.CommittedRecordings raw
+# because the production entry points it reproduces
+# (RecordingsTableUI.DeleteGhostOnlyRecording -> ParsekFlight.DeleteGhostOnlyRecording
+# / RecordingStore.DeleteRecordingFull) take a COMMITTED-LIST index, and the KSC
+# and flight ghost hosts key their per-index state on that same list, so an
+# ERS-filtered list would re-index the target under the store. Same
+# list-alignment class as EnterWatchMode's exemption above. Documented with a
+# file-level [ERS-exempt] header comment plus an inline note at the read.
+Source/Parsek/TestCommands/ParsekTestCommandAddon.DeleteRecording.cs

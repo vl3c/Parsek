@@ -3937,7 +3937,18 @@ namespace Parsek
         /// <see cref="CommittedRecordingRemoved"/> after the removal; in FLIGHT those carry the
         /// ghost teardown and the index reindex. Crew unreservation stays with the caller.
         /// </summary>
-        internal static void RemoveRecordingAt(int index)
+        /// <param name="pruneFromCommittedTrees">
+        /// When true (the single-delete default: the recordings-table delete via
+        /// <see cref="DeleteRecordingFull"/> / <see cref="ParsekFlight"/>), also prune the
+        /// removed row from the committed tree that owns it, so
+        /// <c>SaveTreeRecordings</c> does not re-materialize its sidecars on the next OnSave
+        /// and resurrect it (DELETE-LEAVES-TREE-MEMBERSHIP). The bulk session sweep
+        /// <see cref="RemoveSessionProvisionalRecordings"/> passes false because it runs its
+        /// OWN fallback-aware <see cref="PruneTaggedRecordingsFromCommittedTrees"/> over the
+        /// whole matched set AFTER the loop - pruning per-item here with a null fallback
+        /// would reset that tree's root / active ids to null before the fallback could apply.
+        /// </param>
+        internal static void RemoveRecordingAt(int index, bool pruneFromCommittedTrees = true)
         {
             if (index < 0 || index >= committedRecordings.Count)
             {
@@ -3964,6 +3975,23 @@ namespace Parsek
                         other.ChainBranch = 0;
                     }
                 }
+            }
+
+            // Prune the row from the committed tree that owns it BEFORE the files go:
+            // SaveTreeRecordings walks tree.Recordings and re-materializes every member's
+            // sidecars, so a row left in its tree comes back on the next OnSave with its
+            // files rewritten and is reloaded into the committed list as if never deleted
+            // (measured on S0.11's first flight: 8 committed recordings saved, 9 in the
+            // tree node, the deleted id's five sidecars re-created at FlushAndQuit). The
+            // helper also scrubs the branch-point endpoint refs and any stale root /
+            // active id, the same repair the Re-Fly session removal runs. Skipped for the
+            // bulk session sweep, which runs its own fallback-aware prune afterwards.
+            if (pruneFromCommittedTrees && !string.IsNullOrEmpty(rec.RecordingId))
+            {
+                int prunedFromTrees = PruneTaggedRecordingsFromCommittedTrees(
+                    new HashSet<string>(StringComparer.Ordinal) { rec.RecordingId }, null);
+                if (prunedFromTrees > 0)
+                    Log($"[Parsek]   Pruned recording id={rec.RecordingId} from {prunedFromTrees} committed tree membership(s)");
             }
 
             DeleteRecordingFiles(rec);
@@ -4046,7 +4074,10 @@ namespace Parsek
                     $"id={rec.RecordingId ?? "<no-id>"} chainId={rec.ChainId ?? "<none>"} " +
                     $"matchedBy={(useSessionMatch ? "session" : "rp")}");
                 CrewReservationManager.UnreserveCrewInSnapshot(rec.VesselSnapshot);
-                RemoveRecordingAt(idx);
+                // pruneFromCommittedTrees:false - the fallback-aware prune over the whole
+                // matched set runs once after the loop (a per-item null-fallback prune here
+                // would reset the tree's root / active ids to null before the fallback).
+                RemoveRecordingAt(idx, pruneFromCommittedTrees: false);
             }
 
             int prunedFromTrees = PruneTaggedRecordingsFromCommittedTrees(
