@@ -182,8 +182,8 @@ tags = ["ingame-batch", "isolated-batch", "logistics", "route", "dock", "origin-
 #
 # The PARTNER side is entirely self-provisioned (`probeCoreOcto2.v2`, `dockingPort2`,
 # `fuelTank` - stock-install properties already proven to resolve on `stock-minimal` by
-# H55 flight 1), so nothing here asks the shared fixture to change, which matters: five
-# committed lanes now boot these exact bytes.
+# H55 flight 1), so nothing here asks the shared fixture to change, which matters: the
+# committed lanes that boot these exact bytes are pinned by RoverRouteSpecFixtureSyncTests.
 #
 # `injectedRecordings = "none"` is REQUIRED rather than chosen: the corpus is carried by
 # the TEMPLATE, so injecting on top would make the pinned count un-attributable.
