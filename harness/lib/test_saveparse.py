@@ -34,6 +34,7 @@ must NEVER read as "zero rows" (parsed=False, and with a block declared the
 evaluator raises a named mismatch).
 """
 
+import importlib.util
 import os
 import re
 import tomllib
@@ -45,6 +46,20 @@ LIB_DIR = os.path.dirname(os.path.abspath(__file__))
 HARNESS_ROOT = os.path.dirname(LIB_DIR)
 FIXTURE_SAVES_DIR = os.path.join(HARNESS_ROOT, "fixtures", "saves")
 SCENARIOS_DIR = os.path.join(HARNESS_ROOT, "scenarios")
+TOOLS_DIR = os.path.join(HARNESS_ROOT, "tools")
+
+# `observed_routes_facets` over a save carrying NO route surface at all. Spelled
+# out rather than derived so a facet KEY that silently disappeared (or arrived)
+# reds here: a fixture map full of `{}` would agree with any shape.
+NO_ROUTES_FACET = {
+    "count": 0, "dormant": 0, "stops": 0, "sourceRefs": 0,
+    "completedCycles": 0, "skippedCycles": 0, "codecRejects": 0, "unparsed": 0,
+    "unknownStatuses": 0,
+    "statuses": {}, "connectionKinds": {},
+    "originBodies": {}, "destinationBodies": {}, "holdKinds": {},
+    "ids": [], "destinationVesselPids": [],
+    "dismissedCandidates": 0, "promptedCandidates": 0,
+}
 
 
 def _read(path):
@@ -2287,11 +2302,16 @@ class CommittedFixtureSweepTests(unittest.TestCase):
         # `orbital supply route DELIVERY test` would delete the operator's
         # hand-played save the first time any scenario staged it.
         #
-        # THE ROUTE - the one thing this fixture exists for, and the one thing
-        # THIS MAP DOES NOT PIN, because `saveparse.py` has no `routes` facet
-        # yet (a todo improvement is filed). It is pinned BUILDER-side instead,
-        # in `build_depot_route_recorded.py::verify_route`, wired into the suite
-        # by `DepotRouteRecordedFixtureDriftTests`:
+        # THE ROUTE - the one thing this fixture exists for. ITS SHAPE IS PINNED
+        # IN THIS MAP as of 2026-09-02 (the `"routes"` key below), read through
+        # `saveparse.observed_routes_facets`; the SAME dict is
+        # `build_depot_route_recorded.ROUTE_FACET_PINS`, so the sweep and the
+        # builder check are two consumers of ONE measurement rather than two
+        # hand-kept copies. The float CLOCKS, the four SOURCE rows' nine
+        # `RevalidateSources` fields and the STOP endpoint's resolution to a live
+        # `Depot` VESSEL node stay builder-side in `verify_route` (wired into the
+        # suite by `DepotRouteRecordedFixtureDriftTests`): a facet should not
+        # carry a fixture's float identity. The full route, for reference:
         #   id                    5420f805fcbb453b8d5928b71393f14b
         #   name                  "Route: Kerbin -> Kerbin" (the real string
         #                         carries U+2192, not an ASCII arrow)
@@ -2404,6 +2424,27 @@ class CommittedFixtureSweepTests(unittest.TestCase):
                              "ef23bb0df71645f4833607864ea2c627",
                              "efb9be7191284013983a9f3662604bc4"],
             "schemaGeneration": 4,
+            # THE CORPUS'S ONLY COMMITTED ROUTE, as the shared facet reads it.
+            # Byte-identical to `build_depot_route_recorded.ROUTE_FACET_PINS`
+            # (asserted below), and identical to what five produced saves of two
+            # scenarios measured off these bytes: V18T runs 2026-08-26_2042 /
+            # _2317 / _2318 and H40 runs 2026-08-28_2253 / _2358 all read
+            # count 1 / statuses {Active: 1} / codecRejects 0 through this same
+            # parser. Neither lane mutates the route, so that agreement is the
+            # determinism statement a `[expectations.routes]` window rests on.
+            "routes": {
+                "count": 1, "dormant": 0, "stops": 1, "sourceRefs": 4,
+                "completedCycles": 1, "skippedCycles": 0,
+                "codecRejects": 0, "unparsed": 0, "unknownStatuses": 0,
+                "statuses": {"Active": 1},
+                "connectionKinds": {"DockingPort": 1},
+                "originBodies": {"Kerbin": 1},
+                "destinationBodies": {"Kerbin": 1},
+                "holdKinds": {},
+                "ids": ["5420f805fcbb453b8d5928b71393f14b"],
+                "destinationVesselPids": ["3620499050"],
+                "dismissedCandidates": 0, "promptedCandidates": 0,
+            },
         },
         # --- THE SUPPLY-ROUTE LANE HOST (RVR-1 / RVR-2 / RVR-3 / H56) -----
         # H56 stages it for a LIVE reason rather than for this payload: its six
@@ -2560,6 +2601,22 @@ class CommittedFixtureSweepTests(unittest.TestCase):
                              "cf8d06fc7bf74e1a82bc70fc79290847",
                              "f2fb77ea5af34870bc08f5a0e9f0d78f"],
             "schemaGeneration": 4,
+            # NO ROUTE, and that ABSENCE is the fixture's contract: it is the
+            # route CANDIDATE host, so `RouteCommand action=create` has
+            # something to do. `promptedCandidates` 1 is Parsek's own record
+            # that it found the dock-merged tree route-ELIGIBLE - the closest
+            # the bytes come to RVR-2's create precondition, and the surface
+            # `build_rover_route_recorded.py::verify_save` now asserts through
+            # this same parser.
+            "routes": {
+                "count": 0, "dormant": 0, "stops": 0, "sourceRefs": 0,
+                "completedCycles": 0, "skippedCycles": 0,
+                "codecRejects": 0, "unparsed": 0, "unknownStatuses": 0,
+                "statuses": {}, "connectionKinds": {},
+                "originBodies": {}, "destinationBodies": {}, "holdKinds": {},
+                "ids": [], "destinationVesselPids": [],
+                "dismissedCandidates": 0, "promptedCandidates": 1,
+            },
         },
         # --- THE SAME PAYLOAD, STAMPED INTO CAREER -----------------------
         # PROVENANCE: NOT A HARVEST. `rover-route-career` is built BY
@@ -2627,6 +2684,22 @@ class CommittedFixtureSweepTests(unittest.TestCase):
                              "cf8d06fc7bf74e1a82bc70fc79290847",
                              "f2fb77ea5af34870bc08f5a0e9f0d78f"],
             "schemaGeneration": 4,
+            # NO ROUTE, and that ABSENCE is the fixture's contract: it is the
+            # route CANDIDATE host, so `RouteCommand action=create` has
+            # something to do. `promptedCandidates` 1 is Parsek's own record
+            # that it found the dock-merged tree route-ELIGIBLE - the closest
+            # the bytes come to RVR-2's create precondition, and the surface
+            # `build_rover_route_recorded.py::verify_save` now asserts through
+            # this same parser.
+            "routes": {
+                "count": 0, "dormant": 0, "stops": 0, "sourceRefs": 0,
+                "completedCycles": 0, "skippedCycles": 0,
+                "codecRejects": 0, "unparsed": 0, "unknownStatuses": 0,
+                "statuses": {}, "connectionKinds": {},
+                "originBodies": {}, "destinationBodies": {}, "holdKinds": {},
+                "ids": [], "destinationVesselPids": [],
+                "dismissedCandidates": 0, "promptedCandidates": 1,
+            },
         },
     }
 
@@ -2708,6 +2781,13 @@ class CommittedFixtureSweepTests(unittest.TestCase):
                                  len(snap.rewind_points), name)
                 self.assertEqual(want["rewind_retirements"],
                                  len(snap.rewind_retirements), name)
+                # THE SUPPLY-ROUTE FACET. An entry WITHOUT a `routes` key
+                # asserts the all-zero shape rather than skipping: a route
+                # leaking into a non-route subject is exactly the drift a
+                # per-fixture opt-in would hide, and every recorded fixture
+                # bar three genuinely carries none.
+                self.assertEqual(want.get("routes", NO_ROUTES_FACET),
+                                 obs["routes"], name)
                 # The sidecars ARE the payload: metadata pointing at nothing
                 # is the failure --keep-parsek exists to prevent.
                 #
@@ -2762,6 +2842,12 @@ class CommittedFixtureSweepTests(unittest.TestCase):
                 self.assertEqual(0, len(snap.tombstones), name)
                 self.assertEqual(0, len(snap.rewind_points), name)
                 self.assertEqual(0, len(snap.rewind_retirements), name)
+                # A PAD / CRAFT fixture must carry NO route surface either. A
+                # spliced-in inert ParsekScenario node has nothing to hold one,
+                # so a non-zero here means the fixture was derived from a save
+                # with route state and the derivation did not strip it.
+                self.assertEqual(NO_ROUTES_FACET,
+                                 saveparse.observed_routes_facets(snap), name)
 
     def test_no_fixture_commits_a_quicksave(self):
         # Was `test_quicksave_sidecars_parse_too`, which asserted that the
@@ -3370,6 +3456,489 @@ class PointsBlockSpecSurfaceTests(unittest.TestCase):
                          r.blocks)
         self.assertEqual((), r.mismatches)
         self.assertFalse(saveparse.gating_armed(exp))
+
+
+# ---------------------------------------------------------------------------
+# The SUPPLY-ROUTE facet ([expectations.routes]).
+# ---------------------------------------------------------------------------
+
+def _routes_sfs(routes_body=""):
+    """A minimal well-formed save whose ParsekScenario carries `routes_body`.
+
+    Written as TEXT rather than assembled from SfsNode objects on purpose: the
+    thing under test is a reading of BYTES the C# writer produces, so a cell that
+    hand-built the node tree would skip the half that has ever been wrong.
+    """
+    return ("GAME\n{\n\tversion = 1.12.5\n\tSCENARIO\n\t{\n"
+            "\t\tname = ParsekScenario\n\t\tscene = 7, 5, 8, 6\n"
+            + routes_body + "\t}\n}\n")
+
+
+# One ROUTE node in the shape `RouteCodec.SerializeInto` writes, trimmed to the
+# keys this facet reads. Structurally copied from the `depot-route-recorded`
+# bytes (ids renamed so a cell cannot accidentally assert about the fixture).
+_ROUTE_NODE = (
+    "\t\t\tROUTE\n"
+    "\t\t\t{\n"
+    "\t\t\t\tid = route-1\n"
+    "\t\t\t\tname = Route: Kerbin -> Mun\n"
+    "\t\t\t\tisKscOrigin = True\n"
+    "\t\t\t\tstatus = Active\n"
+    "\t\t\t\tcompletedCycles = 3\n"
+    "\t\t\t\tskippedCycles = 1\n"
+    "\t\t\t\tbackingMissionTreeId = tree-a\n"
+    "\t\t\t\tdockMemberRecordingId = rec-dock\n"
+    "\t\t\t\tEXCLUDED_INTERVALS\n"
+    "\t\t\t\t{\n"
+    "\t\t\t\t\texcludedInterval = rec-a/seg3\n"
+    "\t\t\t\t}\n"
+    "\t\t\t\tRECORDING_IDS\n"
+    "\t\t\t\t{\n"
+    "\t\t\t\t\tid = rec-a\n"
+    "\t\t\t\t\tid = rec-dock\n"
+    "\t\t\t\t}\n"
+    "\t\t\t\tSOURCE_REFS\n"
+    "\t\t\t\t{\n"
+    "\t\t\t\t\tSOURCE\n"
+    "\t\t\t\t\t{\n"
+    "\t\t\t\t\t\trecordingId = rec-a\n"
+    "\t\t\t\t\t\ttreeId = tree-a\n"
+    "\t\t\t\t\t}\n"
+    "\t\t\t\t\tSOURCE\n"
+    "\t\t\t\t\t{\n"
+    "\t\t\t\t\t\trecordingId = rec-dock\n"
+    "\t\t\t\t\t\ttreeId = tree-a\n"
+    "\t\t\t\t\t}\n"
+    "\t\t\t\t}\n"
+    "\t\t\t\tORIGIN\n"
+    "\t\t\t\t{\n"
+    "\t\t\t\t\tbodyName = Kerbin\n"
+    "\t\t\t\t\tlatitude = 0\n"
+    "\t\t\t\t\tlongitude = 0\n"
+    "\t\t\t\t\taltitude = 0\n"
+    "\t\t\t\t\tisSurface = True\n"
+    "\t\t\t\t}\n"
+    "\t\t\t\tSTOP\n"
+    "\t\t\t\t{\n"
+    "\t\t\t\t\tconnectionKind = DockingPort\n"
+    "\t\t\t\t\tsegmentIndexBefore = 0\n"
+    "\t\t\t\t\tENDPOINT\n"
+    "\t\t\t\t\t{\n"
+    "\t\t\t\t\t\tvesselPersistentId = 4277041026\n"
+    "\t\t\t\t\t\tbodyName = Mun\n"
+    "\t\t\t\t\t\tisSurface = False\n"
+    "\t\t\t\t\t}\n"
+    "\t\t\t\t}\n"
+    "\t\t\t}\n")
+
+_STOP_HEAD = "\t\t\t\tSTOP\n"
+
+
+def _committed(node):
+    return _routes_sfs("\t\tROUTES\n\t\t{\n" + node + "\t\t}\n")
+
+
+ONE_ROUTE_SFS = _committed(_ROUTE_NODE)
+
+
+class RouteParseTests(unittest.TestCase):
+    """The ROUTES-node parse, pinned against RouteStore.SaveRoutesTo +
+    RouteCodec.SerializeInto."""
+
+    def test_a_committed_route_reads_every_modelled_field(self):
+        snap = saveparse.parse_parsek_scenario(ONE_ROUTE_SFS)
+        self.assertTrue(snap.parsed, snap.error)
+        self.assertEqual(1, len(snap.routes))
+        r = snap.routes[0]
+        self.assertEqual("route-1", r.route_id)
+        self.assertEqual("Route: Kerbin -> Mun", r.name)
+        self.assertEqual("Active", r.status)
+        self.assertTrue(r.is_ksc_origin)
+        self.assertEqual(3, r.completed_cycles)
+        self.assertEqual(1, r.skipped_cycles)
+        self.assertEqual("tree-a", r.backing_mission_tree_id)
+        self.assertEqual("rec-dock", r.dock_member_recording_id)
+        self.assertEqual(("rec-a", "rec-dock"), r.recording_ids)
+        self.assertEqual(("rec-a", "rec-dock"), r.source_recording_ids)
+        self.assertEqual(("rec-a/seg3",), r.excluded_intervals)
+        self.assertFalse(r.dormant)
+        self.assertEqual("", r.codec_reject)
+        self.assertEqual("Kerbin", r.origin.body_name)
+        self.assertTrue(r.origin.is_surface)
+        self.assertEqual(1, len(r.stops))
+        self.assertEqual("DockingPort", r.stops[0].connection_kind)
+        self.assertEqual("4277041026", r.stops[0].endpoint.vessel_persistent_id)
+        self.assertEqual("Mun", r.stops[0].endpoint.body_name)
+
+    def test_no_routes_node_is_the_ordinary_no_route_save(self):
+        """RouteStore.SaveRoutesTo writes NOTHING on an empty store, so an absent
+        node is the common path and must not read as a fault."""
+        snap = saveparse.parse_parsek_scenario(_routes_sfs())
+        self.assertTrue(snap.parsed, snap.error)
+        self.assertEqual((), snap.routes)
+        self.assertEqual(NO_ROUTES_FACET, saveparse.observed_routes_facets(snap))
+
+    def test_dormant_routes_are_counted_apart_from_committed_ones(self):
+        """DORMANT_ROUTES is a sparse SIBLING carrying the same ROUTE children.
+        A dormant route cannot dispatch, bind a tree or render (RouteStore hands
+        only CommittedRoutes to every consumer), so folding it into `count` would
+        make every window mean the weaker claim."""
+        text = _routes_sfs("\t\tDORMANT_ROUTES\n\t\t{\n" + _ROUTE_NODE + "\t\t}\n")
+        snap = saveparse.parse_parsek_scenario(text)
+        self.assertEqual((), snap.routes)
+        self.assertEqual(1, len(snap.dormant_routes))
+        self.assertTrue(snap.dormant_routes[0].dormant)
+        facet = saveparse.observed_routes_facets(snap)
+        self.assertEqual(0, facet["count"])
+        self.assertEqual(1, facet["dormant"])
+        # Every other aggregate is committed-only, so the dormant route
+        # contributes nothing to stops / statuses / cycles.
+        self.assertEqual(0, facet["stops"])
+        self.assertEqual({}, facet["statuses"])
+        self.assertEqual(0, facet["completedCycles"])
+
+    def test_an_absent_or_unknown_status_reads_active(self):
+        """RouteCodec.ParseStatusOrWarn maps BOTH to Active. Reading them any
+        other way would invent a state the game never has - `statuses` must say
+        what the GAME will hold, not what the bytes spell."""
+        for spelling in ("", "\t\t\t\tstatus = FutureState\n"):
+            node = _ROUTE_NODE.replace("\t\t\t\tstatus = Active\n", spelling)
+            snap = saveparse.parse_parsek_scenario(_committed(node))
+            with self.subTest(spelling=spelling or "<absent>"):
+                self.assertEqual("Active", snap.routes[0].status)
+                self.assertEqual(
+                    {"Active": 1},
+                    saveparse.observed_routes_facets(snap)["statuses"])
+
+    def test_an_unknown_status_spelling_stays_visible_in_triage(self):
+        """That mapping is game-faithful but LOSSY, so the raw spelling is kept
+        on the row and counted. `RouteStatus` is APPEND-ONLY, so a non-zero
+        `unknownStatuses` means the save was written by a NEWER Parsek than this
+        parser - a version signal, which is why it is NOT a mismatch: redding
+        would fail closed on an additive change that broke nothing."""
+        node = _ROUTE_NODE.replace("status = Active", "status = FutureState")
+        snap = saveparse.parse_parsek_scenario(_committed(node))
+        self.assertEqual("FutureState", snap.routes[0].status_raw)
+        self.assertEqual(
+            1, saveparse.observed_routes_facets(snap)["unknownStatuses"])
+        r = saveparse.evaluate_save_structure({"routes": {"count": 1}}, snap)
+        self.assertEqual((), r.mismatches)
+        # An ABSENT key is not "unknown" - it is the writer's own default path.
+        absent = saveparse.parse_parsek_scenario(_committed(
+            _ROUTE_NODE.replace("\t\t\t\tstatus = Active\n", "")))
+        self.assertIsNone(absent.routes[0].status_raw)
+        self.assertEqual(
+            0, saveparse.observed_routes_facets(absent)["unknownStatuses"])
+
+    def test_a_sparse_endpoint_pid_and_body_bucket_nowhere(self):
+        """Both endpoint keys are sparse on the writer side (pid omitted at 0 -
+        the KSC-origin shape, bodyName omitted when empty), so neither absence is
+        a fault and neither may become an empty-string bucket."""
+        node = (_ROUTE_NODE
+                .replace("\t\t\t\t\t\tvesselPersistentId = 4277041026\n", "")
+                .replace("\t\t\t\t\t\tbodyName = Mun\n", ""))
+        snap = saveparse.parse_parsek_scenario(_committed(node))
+        facet = saveparse.observed_routes_facets(snap)
+        self.assertEqual([], facet["destinationVesselPids"])
+        self.assertEqual({}, facet["destinationBodies"])
+        # ...while the STOP itself still counts, so `stops` stays honest.
+        self.assertEqual(1, facet["stops"])
+        self.assertIsNone(snap.routes[0].stops[0].endpoint.vessel_persistent_id)
+
+    def test_two_routes_aggregate_across_statuses_and_bodies(self):
+        second = (_ROUTE_NODE
+                  .replace("id = route-1", "id = route-2")
+                  .replace("status = Active", "status = SourceChanged")
+                  .replace("bodyName = Mun", "bodyName = Duna")
+                  .replace("vesselPersistentId = 4277041026",
+                           "vesselPersistentId = 1413036399"))
+        snap = saveparse.parse_parsek_scenario(_committed(_ROUTE_NODE + second))
+        facet = saveparse.observed_routes_facets(snap)
+        self.assertEqual(2, facet["count"])
+        self.assertEqual({"Active": 1, "SourceChanged": 1}, facet["statuses"])
+        self.assertEqual({"Kerbin": 2}, facet["originBodies"])
+        self.assertEqual({"Mun": 1, "Duna": 1}, facet["destinationBodies"])
+        self.assertEqual({"DockingPort": 2}, facet["connectionKinds"])
+        self.assertEqual(6, facet["completedCycles"])
+        self.assertEqual(2, facet["skippedCycles"])
+        self.assertEqual(4, facet["sourceRefs"])
+        self.assertEqual(["route-1", "route-2"], facet["ids"])
+        self.assertEqual(["4277041026", "1413036399"],
+                         facet["destinationVesselPids"])
+
+    def test_the_two_sparse_candidate_intent_siblings_are_read(self):
+        text = _routes_sfs(
+            "\t\tDISMISSED_ROUTE_CANDIDATES\n\t\t{\n"
+            "\t\t\ttreeId = tree-x\n\t\t\ttreeId = tree-y\n\t\t}\n"
+            "\t\tPROMPTED_ROUTE_CANDIDATES\n\t\t{\n\t\t\ttreeId = tree-z\n\t\t}\n")
+        snap = saveparse.parse_parsek_scenario(text)
+        self.assertEqual(("tree-x", "tree-y"), snap.dismissed_candidate_tree_ids)
+        self.assertEqual(("tree-z",), snap.prompted_candidate_tree_ids)
+        facet = saveparse.observed_routes_facets(snap)
+        self.assertEqual(2, facet["dismissedCandidates"])
+        self.assertEqual(1, facet["promptedCandidates"])
+
+    def test_an_unreadable_snapshot_yields_no_facets_at_all(self):
+        """ABSENT means "not measured", never zero - the observed_points_facets
+        contract, so a torn save cannot satisfy a `max` window."""
+        self.assertEqual({}, saveparse.observed_routes_facets(None))
+        self.assertEqual(
+            {}, saveparse.observed_routes_facets(
+                saveparse.parse_parsek_scenario("GAME\n{\n")))
+
+    def test_the_sparse_hold_kind_is_measured_not_discarded(self):
+        """MEASURED-ONLY, no spec window - but RECORDED, because the row parses
+        the key and a parsed-then-discarded surface is a doc claim nothing backs
+        (the `rewindRetirements` precedent). Real shape: RVR-4's produced save
+        carries `lastHoldKind = FundsShort` on its one Paused route."""
+        node = _ROUTE_NODE.replace(
+            "\t\t\t\tstatus = Active\n",
+            "\t\t\t\tstatus = Paused\n\t\t\t\tlastHoldKind = FundsShort\n")
+        snap = saveparse.parse_parsek_scenario(_committed(node))
+        self.assertEqual("FundsShort", snap.routes[0].last_hold_kind)
+        self.assertEqual({"FundsShort": 1},
+                         saveparse.observed_routes_facets(snap)["holdKinds"])
+        # A never-held route writes no key at all, so it buckets nowhere.
+        self.assertEqual(
+            {}, saveparse.observed_routes_facets(
+                saveparse.parse_parsek_scenario(ONE_ROUTE_SFS))["holdKinds"])
+
+    def test_the_facet_rides_the_structure_facets_dict(self):
+        """`observed_structure_facets` is what run.py records, so a facet nobody
+        can read off a run JSON would be a doc claim nothing backs."""
+        obs = saveparse.observed_structure_facets(
+            saveparse.parse_parsek_scenario(ONE_ROUTE_SFS))
+        self.assertEqual(1, obs["routes"]["count"])
+
+
+class RouteCodecRejectTests(unittest.TestCase):
+    """`codec_reject` mirrors the two rejects in RouteCodec.DeserializeFrom. A
+    route the LOADER drops is a route the save has already lost, and it is
+    indistinguishable from "no route was ever created" once the game reads the
+    file back."""
+
+    def test_zero_stop_children_is_a_reject(self):
+        node = _ROUTE_NODE[:_ROUTE_NODE.index(_STOP_HEAD)] + "\t\t\t}\n"
+        snap = saveparse.parse_parsek_scenario(_committed(node))
+        self.assertEqual("zero STOP children", snap.routes[0].codec_reject)
+        self.assertEqual(1, saveparse.observed_routes_facets(snap)["codecRejects"])
+
+    def test_a_source_missing_treeid_is_a_reject(self):
+        node = _ROUTE_NODE.replace("\t\t\t\t\t\ttreeId = tree-a\n", "", 1)
+        snap = saveparse.parse_parsek_scenario(_committed(node))
+        self.assertEqual("SOURCE child #0 is missing recordingId or treeId",
+                         snap.routes[0].codec_reject)
+
+    def test_the_source_reject_wins_over_the_stop_reject(self):
+        """C# walks SOURCE_REFS BEFORE the STOP check, so a node failing both
+        reports the SOURCE reason - the same one the game's own Warn prints."""
+        node = _ROUTE_NODE.replace("\t\t\t\t\t\ttreeId = tree-a\n", "", 1)
+        node = node[:node.index(_STOP_HEAD)] + "\t\t\t}\n"
+        snap = saveparse.parse_parsek_scenario(_committed(node))
+        self.assertEqual("SOURCE child #0 is missing recordingId or treeId",
+                         snap.routes[0].codec_reject)
+
+    def test_an_unreadable_cycle_counter_never_reads_as_a_real_zero(self):
+        node = _ROUTE_NODE.replace("completedCycles = 3", "completedCycles = ?")
+        snap = saveparse.parse_parsek_scenario(_committed(node))
+        self.assertIsNone(snap.routes[0].completed_cycles)
+        facet = saveparse.observed_routes_facets(snap)
+        self.assertEqual(1, facet["unparsed"])
+        # The route contributes NOTHING to either sum rather than a false 0.
+        self.assertEqual(0, facet["completedCycles"])
+        self.assertEqual(0, facet["skippedCycles"])
+
+
+class RoutesBlockValidationTests(unittest.TestCase):
+    """The `[expectations.routes]` spec surface, refused PRE-LAUNCH."""
+
+    def test_no_block_is_valid(self):
+        self.assertEqual([], saveparse.validate_routes_expectations(None))
+
+    def test_a_full_block_is_accepted(self):
+        self.assertEqual([], saveparse.validate_routes_expectations({
+            "gating": True,
+            "count": {"min": 1, "max": 1},
+            "dormant": {"max": 0},
+            "stops": 1,
+            "sourceRefs": {"min": 4, "max": 4},
+            "completedCycles": {"min": 1},
+            "skippedCycles": {"max": 0},
+            "statuses": {"Active": {"min": 1, "max": 1}},
+            "connectionKinds": {"DockingPort": 1},
+            "originBodies": {"Kerbin": 1},
+            "destinationBodies": {"Kerbin": 1},
+            "ids": ["5420f805fcbb453b8d5928b71393f14b"],
+            "destinationVesselPids": ["3620499050"],
+        }))
+
+    def test_an_unknown_key_is_refused(self):
+        errs = saveparse.validate_routes_expectations({"escrow": 1})
+        self.assertEqual(1, len(errs))
+        self.assertIn("unknown key(s) ['escrow']", errs[0])
+
+    def test_a_non_bool_gating_is_refused(self):
+        errs = saveparse.validate_routes_expectations(
+            {"gating": "true", "count": 1})
+        self.assertTrue(any("must be a bool" in e for e in errs), errs)
+
+    def test_an_armed_block_with_no_assertion_key_is_refused(self):
+        errs = saveparse.validate_routes_expectations({"gating": True})
+        self.assertTrue(any("gates nothing" in e for e in errs), errs)
+
+    def test_an_armed_min_zero_window_is_refused(self):
+        errs = saveparse.validate_routes_expectations(
+            {"gating": True, "count": {"min": 0}})
+        self.assertTrue(any("can never red" in e for e in errs), errs)
+        # ...and is merely uninformative when the block is a READING.
+        self.assertEqual([], saveparse.validate_routes_expectations(
+            {"count": {"min": 0}}))
+
+    def test_an_unknown_status_or_connection_kind_name_is_refused(self):
+        errs = saveparse.validate_routes_expectations({"statuses": {"Retired": 1}})
+        self.assertTrue(any("unknown name(s) ['Retired']" in e for e in errs), errs)
+        errs = saveparse.validate_routes_expectations(
+            {"connectionKinds": {"Klaw": 1}})
+        self.assertTrue(any("unknown name(s) ['Klaw']" in e for e in errs), errs)
+
+    def test_a_body_group_takes_free_form_names(self):
+        """A body name is not an enum - there is no committed list of every body
+        a modded install can present - so only the WINDOW is checked."""
+        self.assertEqual([], saveparse.validate_routes_expectations(
+            {"originBodies": {"SomeModdedPlanet": {"min": 1}}}))
+        errs = saveparse.validate_routes_expectations(
+            {"originBodies": {"Kerbin": -1}})
+        self.assertTrue(any("must be >= 0" in e for e in errs), errs)
+
+    def test_a_set_key_must_be_a_list_of_non_empty_strings(self):
+        errs = saveparse.validate_routes_expectations({"ids": "route-1"})
+        self.assertTrue(any("must be a list of strings" in e for e in errs), errs)
+        errs = saveparse.validate_routes_expectations({"ids": ["", 3]})
+        self.assertEqual(2, len(errs), errs)
+        # An EMPTY list is a real claim ("the save carries none"), not an empty
+        # window, so it is accepted.
+        self.assertEqual([], saveparse.validate_routes_expectations({"ids": []}))
+
+
+class RoutesBlockEvaluationTests(unittest.TestCase):
+    """The verifier decision over `[expectations.routes]`."""
+
+    def setUp(self):
+        self.snap = saveparse.parse_parsek_scenario(ONE_ROUTE_SFS)
+
+    def test_the_block_is_report_only_until_armed(self):
+        exp = {"routes": {"count": {"min": 9}}}
+        r = saveparse.evaluate_save_structure(exp, self.snap)
+        self.assertEqual(saveparse.STATUS_REPORT, r.status)
+        self.assertFalse(r.gating)
+        self.assertEqual(("routes",), r.blocks)
+        self.assertEqual((), r.armed_blocks)
+        self.assertEqual(("routes.count 1 < min 9",), r.mismatches)
+        self.assertEqual((), r.armed_mismatches)
+
+    def test_arming_makes_it_pass_or_fail(self):
+        exp = {"routes": {"gating": True, "count": {"min": 1, "max": 1},
+                          "statuses": {"Active": 1}}}
+        r = saveparse.evaluate_save_structure(exp, self.snap)
+        self.assertEqual(saveparse.STATUS_PASS, r.status)
+        self.assertEqual(("routes",), r.armed_blocks)
+        exp["routes"]["statuses"] = {"SourceChanged": {"min": 1}}
+        r = saveparse.evaluate_save_structure(exp, self.snap)
+        self.assertEqual(saveparse.STATUS_FAIL, r.status)
+        self.assertEqual(("routes.statuses.SourceChanged 0 < min 1",),
+                         r.armed_mismatches)
+
+    def test_gating_stays_per_block(self):
+        """Arming routes must not promote a declared-but-unarmed rewind block -
+        the adversarial-review finding 3 property, re-asserted for the fourth
+        block rather than assumed to carry over."""
+        exp = {"routes": {"gating": True, "count": 1},
+               "rewind": {"supersedeRows": {"min": 1}}}
+        r = saveparse.evaluate_save_structure(exp, self.snap)
+        self.assertEqual(saveparse.STATUS_PASS, r.status)
+        self.assertEqual(("rewind", "routes"), r.blocks)
+        self.assertEqual(("routes",), r.armed_blocks)
+        self.assertEqual(("rewind.supersedeRows 0 < min 1",), r.mismatches)
+        self.assertEqual((), r.armed_mismatches)
+
+    def test_a_codec_reject_is_a_defined_mismatch_with_no_window_declared(self):
+        node = _ROUTE_NODE[:_ROUTE_NODE.index(_STOP_HEAD)] + "\t\t\t}\n"
+        snap = saveparse.parse_parsek_scenario(_committed(node))
+        r = saveparse.evaluate_save_structure({"routes": {"count": 1}}, snap)
+        self.assertTrue(any("would be DROPPED by RouteCodec" in m
+                            for m in r.mismatches), r.mismatches)
+
+    def test_an_unreadable_cycle_counter_is_a_defined_mismatch(self):
+        node = _ROUTE_NODE.replace("skippedCycles = 1", "skippedCycles = x")
+        snap = saveparse.parse_parsek_scenario(_committed(node))
+        r = saveparse.evaluate_save_structure({"routes": {"count": 1}}, snap)
+        self.assertTrue(any("no readable completedCycles/skippedCycles" in m
+                            for m in r.mismatches), r.mismatches)
+
+    def test_a_set_assertion_compares_membership_not_order(self):
+        second = _ROUTE_NODE.replace("id = route-1", "id = route-2")
+        snap = saveparse.parse_parsek_scenario(_committed(_ROUTE_NODE + second))
+        exp = {"routes": {"gating": True, "ids": ["route-2", "route-1"]}}
+        self.assertEqual(saveparse.STATUS_PASS,
+                         saveparse.evaluate_save_structure(exp, snap).status)
+        exp["routes"]["ids"] = ["route-1", "route-3"]
+        r = saveparse.evaluate_save_structure(exp, snap)
+        self.assertEqual(saveparse.STATUS_FAIL, r.status)
+        self.assertEqual(
+            ("routes.ids ['route-1', 'route-2'] != ['route-1', 'route-3']",),
+            r.armed_mismatches)
+
+    def test_an_unreadable_save_gates_the_routes_block(self):
+        r = saveparse.evaluate_save_structure(
+            {"routes": {"gating": True, "count": 1}}, None)
+        self.assertEqual(saveparse.STATUS_FAIL, r.status)
+        self.assertEqual(("save unreadable: missing persistent.sfs",),
+                         r.armed_mismatches)
+
+    def test_a_declared_assertion_less_block_warns(self):
+        warns = saveparse.save_structure_expectation_warnings({"routes": {}})
+        self.assertEqual(1, len(warns))
+        self.assertIn("expectations.routes", warns[0])
+
+    def test_the_singular_reserved_near_miss_warns(self):
+        """`route` (singular) is still in hlib.RESERVED_EXPECTATION_BLOCKS, so it
+        is recorded SKIPPED and gates nothing. A one-character slip must not look
+        like an armed gate."""
+        self.assertEqual([], saveparse.reserved_route_block_warnings(
+            {"routes": {"count": 1}}))
+        warns = saveparse.reserved_route_block_warnings({"route": {"count": 1}})
+        self.assertEqual(1, len(warns))
+        self.assertIn("[expectations.routes], plural", warns[0])
+
+
+class RouteFacetFixtureAgreementTests(unittest.TestCase):
+    """ONE MEASUREMENT, TWO CONSUMERS. The builder's `ROUTE_FACET_PINS` and this
+    file's `RECORDED_FIXTURES[...]["routes"]` are two spellings of one dict;
+    without this cell they are two things to drift, which is the exact failure
+    moving the pins off builder-side was meant to end."""
+
+    def test_the_builder_and_the_sweep_pin_the_same_route_facet(self):
+        path = os.path.join(TOOLS_DIR, "build_depot_route_recorded.py")
+        spec = importlib.util.spec_from_file_location(
+            "build_depot_route_recorded_facet_check", path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        self.assertEqual(
+            CommittedFixtureSweepTests
+            .RECORDED_FIXTURES["depot-route-recorded"]["routes"],
+            module.ROUTE_FACET_PINS,
+            "the fixture sweep and build_depot_route_recorded.py disagree about "
+            "the committed route - re-derive both from "
+            "saveparse.observed_routes_facets over the fixture bytes")
+
+    def test_the_pinned_facet_is_what_the_parser_reads_off_the_bytes(self):
+        path = os.path.join(FIXTURE_SAVES_DIR, "depot-route-recorded",
+                            "persistent.sfs")
+        snap = saveparse.parse_parsek_scenario(_read(path))
+        self.assertEqual(
+            CommittedFixtureSweepTests
+            .RECORDED_FIXTURES["depot-route-recorded"]["routes"],
+            saveparse.observed_routes_facets(snap))
 
 
 if __name__ == "__main__":  # pragma: no cover

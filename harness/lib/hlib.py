@@ -3614,10 +3614,11 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
         errors.extend(validate_world_roster_expectations(world_block.get("roster")))
 
     # M-C2 (R9) save-parse verifier spec surfaces: [expectations.rewind],
-    # [expectations.recordings.structure] and (gate 12)
-    # [expectations.recordings.points]. Same rationale as the unityExceptions
-    # block above - a malformed window (or a non-bool gating key) must be a
-    # pre-launch rejection, never a block that silently evaluates as a no-op.
+    # [expectations.recordings.structure], (gate 12)
+    # [expectations.recordings.points] and [expectations.routes]. Same rationale
+    # as the unityExceptions block above - a malformed window (or a non-bool
+    # gating key) must be a pre-launch rejection, never a block that silently
+    # evaluates as a no-op.
     if "rewind" in expectations:
         errors.extend(saveparse.validate_rewind_expectations(expectations.get("rewind")))
     recordings_block = expectations.get("recordings")
@@ -3627,10 +3628,18 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
     if isinstance(recordings_block, dict) and saveparse.POINTS_BLOCK in recordings_block:
         errors.extend(saveparse.validate_points_expectations(
             recordings_block.get(saveparse.POINTS_BLOCK)))
+    # The fourth M-C2 block: the ROUTES node. Top-level beside `rewind` because
+    # that is where it lives in the save.
+    if saveparse.ROUTES_BLOCK in expectations:
+        errors.extend(saveparse.validate_routes_expectations(
+            expectations.get(saveparse.ROUTES_BLOCK)))
     # Declared-but-assertion-less UNARMED blocks degrade to an empty report row;
     # WARN like the unityExceptions precedent (armed-and-empty is a hard error
-    # inside the validators above).
+    # inside the validators above). The singular RESERVED `route` near-miss WARNs
+    # too, now that a one-character slip is the difference between a gate and a
+    # SKIPPED row.
     warnings.extend(saveparse.save_structure_expectation_warnings(expectations))
+    warnings.extend(saveparse.reserved_route_block_warnings(expectations))
 
     # M-A7 render-composition verifier spec surface:
     # [expectations.renderComposition]. Same rationale as the two blocks above -
@@ -4113,6 +4122,12 @@ class ExpectationResult:
 # ``[expectations.recordings.points]`` sub-blocks. ``route`` and
 # ``loop`` stay RESERVED: their consumers do not exist yet (no committed spec declares
 # either), and building an evaluator with zero declarers would be unused surface.
+# READ THAT LINE CAREFULLY AFTER 2026-09-02: the save-parse verifier now also owns
+# the PLURAL ``routes`` block (the ROUTES node - route count, statuses, stops,
+# source rows, endpoint identity). The SINGULAR ``route`` here is a DIFFERENT,
+# still-unowned name and stays reserved; it was never the ROUTES-node surface.
+# ``validate_spec`` WARNs on a spec declaring the singular, since a reserved block
+# is recorded SKIPPED and a one-character slip would otherwise gate nothing.
 RESERVED_EXPECTATION_BLOCKS: Tuple[str, ...] = ("route", "loop")
 
 

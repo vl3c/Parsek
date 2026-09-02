@@ -7172,6 +7172,41 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
         self.assertTrue(hlib.validate_spec(spec, reg).ok,
                         "a well-formed points block must validate")
 
+    def test_validate_spec_rejects_malformed_routes_block(self):
+        # The FOURTH M-C2 block reaches validate_spec through the same
+        # delegation as the other three, and it is TOP-LEVEL (a sibling of
+        # `rewind`, not nested under `recordings`) because that is where the
+        # ROUTES node sits in the save.
+        spec = copy.deepcopy(load_spec("S4.1-rewind-merge.toml"))
+        reg = load_registry()
+        spec["expectations"]["routes"] = {"escrow": {"min": 1}}
+        v = hlib.validate_spec(spec, reg)
+        self.assertFalse(v.ok)
+        self.assertTrue(any("expectations.routes" in e for e in v.errors), v.errors)
+        # An ARMED-and-empty routes block is a gate that can never red.
+        spec["expectations"]["routes"] = {"gating": True}
+        v = hlib.validate_spec(spec, reg)
+        self.assertFalse(v.ok)
+        self.assertTrue(any("gates nothing" in e for e in v.errors), v.errors)
+        spec["expectations"]["routes"] = {"count": {"min": 1, "max": 1}}
+        self.assertTrue(hlib.validate_spec(spec, reg).ok,
+                        "a well-formed routes block must validate")
+
+    def test_validate_spec_warns_on_the_singular_reserved_route_block(self):
+        # `route` (singular) is still in RESERVED_EXPECTATION_BLOCKS with no
+        # evaluator, so verifier 7 records it SKIPPED. Now that the PLURAL
+        # `routes` gates, the one-character slip is the difference between a
+        # gate and nothing - a WARNING, not an error, because declaring a
+        # reserved block is exactly what reserved means and stays legal.
+        spec = copy.deepcopy(load_spec("S4.1-rewind-merge.toml"))
+        reg = load_registry()
+        spec["expectations"]["route"] = {"count": 1}
+        v = hlib.validate_spec(spec, reg)
+        self.assertTrue(v.ok, v.errors)
+        self.assertTrue(any("[expectations.routes], plural" in w
+                            for w in v.warnings), v.warnings)
+        self.assertIn("route", hlib.RESERVED_EXPECTATION_BLOCKS)
+
     def test_eva2_declares_the_points_block_unarmed(self):
         # Gate 12 landed REPORT-ONLY on EVA-2 (the scenario whose green
         # `count = {min=2,max=2}` let the empty-recording defect through).
@@ -7576,7 +7611,40 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
                        # clean runs (_0853/_0854, the five-raise set; four
                        # of five ratios to four decimals, fifth 1 ulp; armed run
                        # _0857); control shared with V8's _0830.
-                       "V8F-eve-loop-faithful.toml"}
+                       "V8F-eve-loop-faithful.toml",
+                       # V18T: THE FIRST DECLARER OF THE FOURTH M-C2 BLOCK,
+                       # `[expectations.routes]` (the ROUTES node), armed
+                       # 2026-09-02 in the commit that shipped the facet.
+                       # WINDOWS WRITTEN FROM MEASUREMENT, NOT PREDICTION, and
+                       # from an unusually wide one for a first arming: the new
+                       # parser was run OFFLINE over the produced
+                       # `persistent.sfs` of this spec's own runs
+                       # `2026-08-26_2042` / `_2317` / `_2318` AND over
+                       # H40-logistics-isolated-depot-route's `2026-08-28_2253`
+                       # / `_2358` (same fixture, different lane). All five read
+                       # count 1 / dormant 0 / statuses {Active: 1} /
+                       # sourceRefs 4 / codecRejects 0 / ids
+                       # [5420f805...] byte-identically; neither lane mutates
+                       # the route, so the arming re-pins nothing and moves no
+                       # verdict on the shapes already flown.
+                       # WHAT IS OWED, AND THIS ENTRY IS PROVISIONAL UNTIL IT
+                       # LANDS: no run has yet EVALUATED the block, so the
+                       # armed re-flight and its negative control are both
+                       # outstanding. The five readings are offline reads of
+                       # saves those runs left behind, which is stronger than
+                       # the usual single report-only reading but is NOT the
+                       # armed run. If the re-flight reds, the block reverts to
+                       # report-only (drop `gating`) and this entry comes out -
+                       # widening a window is not the response.
+                       # WHY THIS LANE: it is the only committed spec whose
+                       # subject IS the committed route, its `logContracts`
+                       # already require `RevalidateSources ... routes=1
+                       # transitioned=0` (so the block asserts the same claim
+                       # against the produced BYTES, the falsifiable half a log
+                       # token cannot cover after the last revalidate pass), and
+                       # tier=operator is where the calibration discipline puts
+                       # a first arming.
+                       "V18T-depot-route-ts-arrival.toml"}
 
     def test_no_committed_spec_arms_gating(self):
         armed = []
@@ -7617,6 +7685,37 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
                          set(exp["rewind"]),
                          "a window was added to (or removed from) S4.1's ARMED block; "
                          "every armed window needs its own report-only reading run first")
+
+    def test_v18t_declares_the_routes_block_armed(self):
+        # The FOURTH block's first declarer, armed 2026-09-02. Same shape as the
+        # S4.1 cell above: pin the KEY SET as well as the values, so growing the
+        # armed block is as deliberate as arming it was. The four windows and the
+        # one identity list were each read off five produced saves (this spec's
+        # `2026-08-26_2042` / `_2317` / `_2318` plus H40's `2026-08-28_2253` /
+        # `_2358`); see the allowlist comment for what is still owed.
+        exp = load_spec("V18T-depot-route-ts-arrival.toml")["expectations"]
+        self.assertIn("routes", saveparse.declared_structure_blocks(exp))
+        self.assertIn("routes", saveparse.armed_structure_blocks(exp))
+        self.assertEqual({"gating", "count", "dormant", "statuses",
+                          "sourceRefs", "ids"}, set(exp["routes"]),
+                         "a window was added to (or removed from) V18T's ARMED "
+                         "routes block; every armed window needs its own "
+                         "measurement first")
+        self.assertEqual({"min": 1, "max": 1}, exp["routes"]["count"])
+        self.assertEqual({"max": 0}, exp["routes"]["dormant"])
+        self.assertEqual({"Active": {"min": 1, "max": 1}}, exp["routes"]["statuses"])
+        self.assertEqual({"min": 4, "max": 4}, exp["routes"]["sourceRefs"])
+        # The identity list must name the ONE route the fixture carries, read
+        # from the fixture bytes rather than from a literal that could drift.
+        fixture = os.path.join(
+            HARNESS_ROOT, "fixtures", "saves", "depot-route-recorded",
+            "persistent.sfs")
+        with open(fixture, "r", encoding="utf-8", errors="replace") as fh:
+            snap = saveparse.parse_parsek_scenario(fh.read())
+        self.assertEqual(saveparse.observed_routes_facets(snap)["ids"],
+                         exp["routes"]["ids"],
+                         "V18T's armed `ids` no longer names the committed "
+                         "route in the fixture it stages")
 
 
 class RenderComposeVerifierWiringTests(unittest.TestCase):

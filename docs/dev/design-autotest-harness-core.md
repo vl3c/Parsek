@@ -340,8 +340,12 @@ forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 #   terminalStates / branchPoints (M-C2/R9)                                   -> ACTIVE (verifier 7b, report-only until gating = true)
 # [expectations.recordings.points] total / largest / smallest /
 #   trivialRecordings (gate 12)                                              -> ACTIVE (verifier 7b, report-only until gating = true)
+# [expectations.routes] count / dormant / stops / sourceRefs / cycles /
+#   statuses / connectionKinds / origin+destinationBodies / ids /
+#   destinationVesselPids (M-C2/R9, the ROUTES node)                          -> ACTIVE (verifier 7b, report-only until gating = true)
 # [expectations.loop]   LoopStartUT / LoopEndUT / first-play floor (M-C2)     -> reserved (zero declarers)
-# [expectations.route]  hold-reason strings (M-D1)                            -> reserved (zero declarers)
+# [expectations.route]  hold-reason strings (M-D1)  NOTE: SINGULAR, and a
+#   DIFFERENT name from the plural `routes` block above                       -> reserved (zero declarers; validate_spec WARNs on it)
 
 [runtime]
 budgetSeconds = 600                  # wall-clock; watchdog kills on exceed -> KILLED
@@ -1279,7 +1283,25 @@ retry re-runs only that verifier subprocess, not a fresh KSP boot).
    windows, terminalStates and branchPoints buckets by enum NAME) plus
    `[expectations.recordings.points]` (gate 12: the per-recording `pointCount`
    distribution summarised as total / largest / smallest / trivialRecordings
-   count windows). `trivialRecordings` - how many recordings finalized at <= 1
+   count windows) plus `[expectations.routes]` (2026-09-02: the SUPPLY-ROUTE
+   surface - the `ROUTES` node and its sparse `DORMANT_ROUTES` /
+   `DISMISSED_ROUTE_CANDIDATES` / `PROMPTED_ROUTE_CANDIDATES` siblings -
+   summarised as count / dormant / stops / sourceRefs / completedCycles /
+   skippedCycles windows, `statuses` and `connectionKinds` buckets by enum
+   NAME, free-form `originBodies` / `destinationBodies` buckets, and the two
+   exact-SET identity keys `ids` / `destinationVesselPids`). Every routes
+   aggregate is over the COMMITTED list only: a dormant route reaches no
+   consumer, so folding it in would make each window mean the weaker claim.
+   Two routes facets are DEFINED mismatches for a declared block, the points
+   block's `unparsed` precedent - `codecRejects` (a route
+   `RouteCodec.DeserializeFrom` would DROP on the next load: the save carries
+   the node, the game will not) and `unparsed` (an unreadable dispatch
+   counter). A third, `unknownStatuses`, is NOT a mismatch: `RouteStatus` is
+   append-only, so an unknown spelling means a newer Parsek wrote the save,
+   and the parser buckets it under `Active` exactly as
+   `RouteCodec.ParseStatusOrWarn` will. There is NO escrow facet:
+   `RouteStore.cargoEscrow` is pure RAM and no save carries it.
+   `trivialRecordings` - how many recordings finalized at <= 1
    point, i.e. recorded no trajectory - is the only PER-RECORDING key and the
    one that carries the claim: the three order statistics are AGGREGATES, so a
    `largest` floor alone passes a save where one recording is healthy and every
@@ -1998,6 +2020,12 @@ Recorded so they are not lost; none blocks the v1 seam-driven daily loop.
   `StartLoopPlayback`, is now implemented too (the player-workflow lane's promotion,
   alongside `EnterWatchMode`), so the `loop` block's blocker is no longer the verb -
   it is that no `loop` VERIFIER exists and no committed spec declares the block.
+  UPDATE 2026-09-02: the PLURAL `[expectations.routes]` block ACTIVATED on the
+  same save-parse verifier (the `ROUTES` node; first declarer
+  `V18T-depot-route-ts-arrival`, armed). It is NOT the reserved SINGULAR
+  `[expectations.route]` named above, which was always a hold-reason-string
+  surface and stays reserved with zero declarers; `validate_spec` now WARNs on
+  the singular so a one-character slip cannot look like an armed gate.
 - **Multi-session orchestration (M-C1).** v1 runs one KSP process per scenario
   attempt. Fly-commit-restart-observe cycles (re-fly merges, routes, synodic
   cadence, loop self-overlap) need the multi-session primitive; the result record
