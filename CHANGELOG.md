@@ -188,6 +188,24 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Dev
 
+- Added a build-time check that Parsek never starts a background thread. The
+  game pins the number formatting of its main thread to plain dot decimals, and
+  the earlier decision to leave the ~1400 log formatting sites as they are rests
+  on Parsek only ever running on that thread: the pin does not carry over to any
+  other thread, so a thread started from the mod would write `1,5` instead of
+  `1.5` into the log on a machine set to a comma-decimal language and quietly
+  break the log checks the test harness runs. The new check greps the mod source
+  for the ways a mod like this would plausibly start a thread (`new Thread`,
+  `Task.Run`, `Task.Factory.StartNew`, `new Task`, `ContinueWith`,
+  `ThreadPool.*QueueUserWorkItem`, `Parallel.*`, the two `Timer` types) and
+  fails the test suite on any hit, naming the culture rule to read before
+  adding an exemption. It is a closed token list, not a proof: an `await`
+  continuation is the known way past it, and none exists in the source today. It scans raw source lines, comments
+  included, like the sibling grep gates, and runs on Linux CI through the same
+  managed fallback when PowerShell is absent. Zero hits today; the gate was
+  confirmed to fail on a deliberately injected `Task.Run`. Nothing player-facing
+  changes.
+
 - Recorded why a landed flight sometimes leaves one recording and sometimes two.
   A short stop at the end of a flight is only worth its own recording if it
   lasted at least five seconds; below that it stays part of the flight it
