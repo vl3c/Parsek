@@ -2360,6 +2360,19 @@ gated behind the ROUTE-ORIGIN-PROOF-PRODUCER-UNREACHABLE probe (todo) before any
    is still unexercised. Closing it needs the probe on a LANDED host - the
    committed `rover-route-recorded` fixture is one - which is a follow-up lane,
    and until it runs this item stays gated exactly as written.
+   **THAT FOLLOW-UP LANE IS NOW AUTHORED AND HAS NEVER FLOWN:
+   `harness/scenarios/H56-route-dock-capture-landed.toml`** - the same six
+   `RouteDockCapture` cells H55 flies green, over `rover-route-recorded`, whose
+   active vessel is `sit = LANDED` (situation 1). The PRELAUNCH short-circuit
+   cannot fire there, so the resolver walks candidates for the first time
+   anywhere. Read its probe line and nothing else to settle this item:
+   `outcome=no-external-coupling` with `candidates=0` CONFIRMS
+   ROUTE-ORIGIN-PROOF-PRODUCER-UNREACHABLE and B4 becomes a bug fix plus a
+   capture cell; a `Captured` outcome - or a non-zero count landing on
+   `PartnerPidZero` / `PartnerPrelaunch` / `PartnerAmbiguous` - refutes it and
+   B4 stays a flight as written. The lane's probe token is a VALUE REGEX, not a
+   verdict pin, so a green run proves the line was emitted and settles nothing
+   by itself; a human reads the numbers.
 5. **Ground pickup + mixed direction.** ~~The base loads cargo ONTO the
    transport (pickup manifest), then a both-directions window
    (`mixed-direction`). Same two-rover template, transfers reversed.~~
@@ -2424,6 +2437,19 @@ pad host, not on two landed rovers at distance, so the surface flavors of the
 D10 rows stay unclaimed until a lane measures them. What H55 removes is the
 need to spend a manual flight to see delivery, pickup, mixed direction, drift,
 multi-stop and round-trip AT ALL.
+
+**THE LANDED-HOST LANE NOW EXISTS, AND HAS NEVER FLOWN**
+(`harness/scenarios/H56-route-dock-capture-landed.toml`, authored 2026-09-02).
+It is H55's six cells over `rover-route-recorded` - a 17-part LANDED rover on
+the Runway - with the driver, the batch and every token shape taken from H55
+step for step, so a census delta is attributable to the host alone. It pays
+BOTH halves of what is written above: the probe's non-PRELAUNCH branch settles
+item 4, and the five capture cells are the SURFACE measurement the paragraph
+above says the D10 rows are waiting on. No D10 row is claimed in the spec -
+they are earned in the commit that reads a green census, on the
+CLAIM-IS-NOT-GATE rule. Until that census, this paragraph is unchanged in
+substance: the surface flavors are still unclaimed, and the only thing that
+moved is that no further authoring stands between them and a flight.
 
 ### Tier C - economics (career)
 
@@ -2553,6 +2579,14 @@ multi-stop and round-trip AT ALL.
   5-8 producible without a flight each. Everything Tier B needs beyond it is a
   fixture decision (a two-rover landed host), not new machinery. The honest
   residual, same as H41's: the stock docking FSM is not exercised.
+  **THE SECOND HOST IS NOW WIRED** - `H56-route-dock-capture-landed` (authored
+  2026-09-02, NEVER FLOWN) runs the identical six cells over the committed
+  `rover-route-recorded` fixture, which is the "two-rover landed host" the
+  sentence above calls a fixture decision. No new machinery was needed for it,
+  which is the claim above being cashed: the lane is a spec file plus two
+  registration entries. Both hosts share ONE tally derivation and ONE set of
+  formatters, so a seventh cell moves both members in the same commit and a
+  format drift reds in `dotnet test` rather than on either flight.
 - **Generators** - landed on this branch: `WithRouteConnectionWindow` /
   `WithRouteOriginProof` through the production codec chokepoint,
   `RouteWindowFixtures.SurfaceDeliveryWindow` (rover-flight constants),
@@ -2567,7 +2601,8 @@ sequencing is now ONE clean census of H55 followed by whatever its probe line
 says about item 4. Flight 1 already took half that measurement
 (`externalParentParts=0`, which supports the suspicion) but the pad host is
 PRELAUNCH and the producer short-circuits there, so item 4 now also owes the
-probe a run on a LANDED host before it can be settled either way. Tier C item 9
+probe a run on a LANDED host before it can be settled either way - which is
+lane `H56-route-dock-capture-landed`, authored 2026-09-02 and NEVER FLOWN. Tier C item 9
 has FLOWN TWICE (2026-09-01), measured the costed dispatch AND the funds-short
 hold, and owes one re-fly on its corrected tokens; item 10 is still unauthored.
 The recovery credit is now the only unbought third of item 9, and it needs its
