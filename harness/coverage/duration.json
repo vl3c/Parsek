@@ -1025,6 +1025,16 @@
         "2026-09-02T05:47:53Z": 140.0
       }
     },
+    "H58-route-rewind-to-launch": {
+      "last": 62.0,
+      "lastVsP50": 1.0,
+      "n": 1,
+      "p50": 62.0,
+      "p95": 62.0,
+      "samples": {
+        "2026-09-02T10:21:22Z": 62.0
+      }
+    },
     "H6-route-rewind-timeline": {
       "last": 50.0,
       "lastVsP50": 1.0,

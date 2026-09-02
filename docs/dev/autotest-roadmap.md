@@ -2567,8 +2567,18 @@ moved is that no further authoring stands between them and a flight.
     that pin, not against the orbital route lines V18T covers.
 12. **Route x rewind, flown.** H6 covers the timeline synthetically;
     a rover-route rewind variant makes `route-x-rewind` a flown claim.
-    **LANE AUTHORED 2026-09-02, NEVER FLOWN, AND A REWIND ACTUALLY FIRES IN IT**
-    (`harness/scenarios/H58-route-rewind-to-launch.toml`). The prediction is
+    **DONE 2026-09-02: LIVE-PROVEN, AND `route-x-rewind` IS NOW A FLOWN CLAIM**
+    (`harness/scenarios/H58-route-rewind-to-launch.toml`, run
+    `2026-09-02_1020`, 62 s, PASS attempt 1, re-tiered nightly). The
+    pre-registration was CONFIRMED on every number - `retiredRouteRows=1
+    committedRoutes=1 dormantRoutes=0`, `kept=1 (reconciled=1) dormant=0`,
+    `derivedPaused=1 derivedActive=0 oneShotFlagsCleared=1
+    countersReconstructed=0` - and the produced save read the route back
+    `Paused` from a session the player left Active, with the one-shot flags
+    cleared. H6 keeps `route-x-rewind` as the SYNTHETIC declarer; this is the
+    flown one, and it is the first flight to execute the REAL
+    `HandleRewindOnLoad` go-back scene load that H6's own header names as
+    unreachable there. The prediction is
     written down first, in the spec header and in `autotest-status.md`, and is
     UNCHANGED by the machinery that lets the lane test it: an Active route HOLDS
     across a Rewind-to-Launch - dormant only when the cutoff precedes

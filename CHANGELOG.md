@@ -125,6 +125,12 @@ _(unreleased — entries accumulate here per commit)_
   recording that flight again, and the rewind then refuses because a recording is
   in progress. The script now stops that recording before rewinding, and the
   probe that was supposed to catch a refusal now checks WHICH refusal it got.
+  With that fixed the lane ran green, and the behaviour written down in advance
+  was confirmed exactly: the route stayed, its schedule was wound back to the
+  rewind point, its armed one-shot was dropped, the delivery charge recorded
+  after that point was retired, and a route the player had left running came
+  back paused - because a pause was the last thing the surviving timeline
+  actually recorded.
 
 - The agent instructions now scope the invariant-culture formatting rule to what
   actually needs it. A unit-test run on a comma-locale machine printed

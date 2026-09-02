@@ -6584,23 +6584,6 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         "V21T-mun-minmus-ts-arrival.toml":  "tier=operator by the calibration discipline (derived windows, first run is a calibration reading), NOT debt; AUTHORED 2026-08-23 ahead of its subject, then RE-PINNED 2026-08-24 off the same real bytes (tree id 029afab30803454894b02be12567af81; the single jump moved to 587226, still V21M's third cycle-1 bracket reused so the pair observes the same instant from two scenes). The PENDING_FIXTURE_LANES exemption is RETIRED. The jump REMAINS a calibration seed because the anchor `A` is one, though the seam offset behind it (+267,230.864 s from ut0) is now a byte fact. READING RUN FLOWN AND GREEN 2026-08-24 (`2026-08-24_1642_a2`, PASS attempt 2, `flakedThenPassed`; attempt 1 INVALID on the transient TS-re-entry `LoadGame REJECTED` V17T's attempt 1 also hit, which is what `[retry]` is for): all 54 steps met, all ten required tokens matched, analyzer RED=0. THREE READINGS - `icon-off-orbit` SILENT (strengthening the surviving self-overlap candidate to 3-silent/6-raising), `seam-endpoint-outside-soi` RECURRED report-only against the pre-registered expectation but at a 1.91% hairline ratio rather than V16T's 157x, and the init walk measured `created 1 ghost vessel(s)` rather than zero, which makes that forbid armable by this lane's own stated rule. The jump moved 587226 -> 587223 with V21M's re-derived table, so this lane OWES A RE-FLY at the new value before arming. What is open is the arming pass, not a human review call",
         "H5-invariants-corpus.toml":        "discharged - 'resolving the former PENDING-OPERATOR check'",
         "H6-route-rewind-timeline.toml":    "discharged - 'The former PENDING-OPERATOR ...'",
-        # tier=operator because the FIRST RUN IS A READING against a written
-        # prediction, the same reason the calibration lanes are operator-tier and not
-        # a debt. AUTHORED 2026-09-02, NEVER FLOWN. The lane pre-registers what an
-        # Active supply route should do at a Rewind-to-Launch (hold, not pause and not
-        # retire; dormant only when the cutoff precedes Route.CreatedUT; armed
-        # one-shots cleared unconditionally) and then DRIVES A REAL REWIND to read it,
-        # taking the KEPT branch by construction. It produces its own subject in-run
-        # (StartRecording -> CommitTree, which is what writes the parsek_rw_ quicksave)
-        # because no recorded fixture carries one by harvest policy, and reaches it
-        # through the `tree=latest` seam spelling that shipped in the same commit. What
-        # is open is the flight, not a human review call on this file.
-        "H58-route-rewind-to-launch.toml":
-            "tier=operator because the first run is a READING against a pre-registered "
-            "prediction, not debt; AUTHORED 2026-09-02, NEVER FLOWN. Its product is the "
-            "first flown D12 route-x-rewind reading plus the suite's first driven route "
-            "pause/activate pair. ROUTE-REWIND-TO-LAUNCH-UNREACHABLE-ON-COMMITTED-FIXTURES "
-            "is narrowed to its fixture half; the naming half closed with tree=latest",
         "M1-mission-loop-unit.toml":        "discharged - 'CLOSED by the 2026-07-26 flights'",
         "M2-periodicity-solver.toml":       "discharged - 'CLOSED by the 2026-07-26 flight'",
         # tier=operator because it is a READING RUN, which is the same reason the
