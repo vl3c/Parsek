@@ -16,7 +16,12 @@ namespace Parsek.InGameTests
         private const string Tag = "LedgerGroundTruth";
         private static readonly CultureInfo IC = CultureInfo.InvariantCulture;
 
+        // RecalculateAndPatch writes the live Funding / R&D singletons, and the sibling
+        // ground-truth cell in this batch hard-asserts the seeded pools against a
+        // quicksave; restoring the flight baseline afterwards keeps the pair
+        // order-independent (discovery order is not pinned).
         [InGameTest(Category = "LedgerGroundTruth", Scene = GameScenes.FLIGHT,
+            RestoreBatchFlightBaselineAfterExecution = true,
             Description = "Currency tooltip reconciles with the live bar: after RecalculateAndPatch the funds "
               + "and science tooltips' Total - Reserved equals the value on the stock widget (bar-anchored "
               + "form), or, when the bar is floored at zero under a negative ledger balance, the deficit "
@@ -52,14 +57,17 @@ namespace Parsek.InGameTests
             // describe the same walk.
             LedgerOrchestrator.RecalculateAndPatch();
 
+            // Total and Reserved are parsed back out of the RENDERED tooltip ("N0" /
+            // "F1"), so each carries up to half a display unit of rounding against the
+            // raw bar; the tolerance is one full unit of the format, not half.
             AssertReconciles("funds",
                 funds.GetProjectionCurrentBalance(), funds.GetAvailableFunds(),
                 funds.GetProjectionMinBalance(), Funding.Instance.Funds,
-                CurrencyReservationOverlay.GetFundsTooltip(), tolerance: 0.5);
+                CurrencyReservationOverlay.GetFundsTooltip(), tolerance: 1.0);
             AssertReconciles("science",
                 science.GetProjectionCurrentBalance(), science.GetAvailableScience(),
                 science.GetProjectionMinBalance(), ResearchAndDevelopment.Instance.Science,
-                CurrencyReservationOverlay.GetScienceTooltip(), tolerance: 0.05);
+                CurrencyReservationOverlay.GetScienceTooltip(), tolerance: 0.1);
         }
 
         private static void AssertReconciles(

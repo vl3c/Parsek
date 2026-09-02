@@ -580,9 +580,14 @@ the projected minimum digs deeper than the current hole (the two numbers nest, s
 magnitude is omitted), because nothing is being held back and `Total: 0 / Reserved: 0` was
 reporting the opposite of the truth. LIVE PROOF is authored too:
 `CurrencyTooltipLiveInvariantTest.TooltipsReconcileWithTheLiveBar` (category `LedgerGroundTruth`,
-2026-09-02) recalcs the live career and asserts the rendered tooltips are the ledger derivation of
-the four live inputs and that `Total - Reserved` equals the stock widget's value (or the deficit
-form only under a floored bar); it rides L2 / L4, whose tallies were re-derived to total=3. The
+2026-09-02) recalcs the live career and parses the rendered tooltips BACK to numbers, asserting
+`Total - Reserved` equals the stock widget's value (within one display unit of the format), that
+the deficit form appears only under a floored bar, and that a `Short by` line follows the sign of
+the projected minimum; those parse-back checks are the load-bearing ones (the cell's first
+assertion, that the tooltip equals the pure builder over the same getters, only guards the
+getters against drifting within one statement). It rides L2 / L4, whose tallies were re-derived
+to total=3, and restores the flight baseline after itself because its recalc patches the live
+singletons the sibling ground-truth cell hard-asserts against. The
 bar-floored condition matters: `KspStatePatcher`'s
 "keep what you earned" drawdown guard can hold the bar at a positive live value while the
 ledger runs below zero, and there the tooltip stays bar-anchored (`Total: <bar> / Reserved: 0
@@ -4382,7 +4387,7 @@ If that happens, the fix is at
 `FlightRecorder`'s checkpoint re-emission path, and the test is that a packed section
 never carries a propulsive env.
 
-## KERBAL-XP-RECOVERY-PICK-IS-NAME-AND-UT-ONLY: the recovery correlator matches by vessel NAME plus a UT tier, and the XP row makes a wrong pick irreversible [OPEN - STAGE 1 SHIPPED headless 2026-08-28 (branch `kerbal-xp-guid-filter`), STAGE 2 OUTSTANDING and gated on live proof; filed 2026-08-20 with the correlation fix above. **THE REPRO SHAPE IS NOW AUTHORED: `harness/scenarios/L6-career-same-name-recover.toml` (2026-09-02, never flown)** - `science_bench_recover` flown a second time over `career-earned-pad`, whose pad craft already flew and was recovered once, so the pick's summary line reads `nameMatches=2` and the tier in competition is measured; it is the lane stage 2 should be live-proven on]
+## KERBAL-XP-RECOVERY-PICK-IS-NAME-AND-UT-ONLY: the recovery correlator matches by vessel NAME plus a UT tier, and the XP row makes a wrong pick irreversible [OPEN - STAGE 1 SHIPPED headless 2026-08-28 (branch `kerbal-xp-guid-filter`), STAGE 2 OUTSTANDING and gated on live proof; filed 2026-08-20 with the correlation fix above. **THE REPRO SHAPE IS NOW AUTHORED: `harness/scenarios/L6-career-same-name-recover.toml` (2026-09-02, never flown)** - `science_bench_recover` flown a second time over `career-earned-pad`, whose pad craft already flew and was recovered once and left TWO chained same-name recordings under a DIFFERENT launch guid than the spliced pad vessel carries; the XP leg's pick (which fires after the scene-exit auto-commit, so this flight's own recordings are committed beside them) should therefore read `nameMatches>=3 guidDropped=2 survivors>=1`, i.e. stage 1 resolving the same-name case live, with the tier walk running over this flight's own survivors only; it is the lane stage 2 should be live-proven on]
 
 `LedgerOrchestrator.PickRecoveryRecordingId` matches candidate recordings by vessel NAME
 (`RecoveredVesselIdentity.MatchesName`, raw or localized) and then ranks them by a UT
@@ -4766,7 +4771,7 @@ future reader will look first.
 
 ---
 
-## REFLY-BATCH-BASELINE-DISCARDS-LIVE-SESSION: an in-game batch's baseline restore ends a live Re-Fly session, and the merge dialog never appears [OBSERVED 2026-08-12 by `S4.2-refly-world-preservation` attempt 1 of run `2026-08-11_2111`. REPORT-ONLY - not diagnosed, not fixed. Attempt 2 of the same spec ran clean, so it is INTERMITTENT. **THE DECIDING EXPERIMENT IS NOW AUTHORED: `harness/scenarios/S4.4-refly-quicksave-mid-session.toml` (2026-09-02, never flown)** - S4.2's cycle with a real `SaveGame` in place of the batch; its forbidden `End reason=treeDiscarded` is the verdict token and the spec pre-registers what GREEN / RED / INVALID each mean]
+## REFLY-BATCH-BASELINE-DISCARDS-LIVE-SESSION: an in-game batch's baseline restore ends a live Re-Fly session, and the merge dialog never appears [OBSERVED 2026-08-12 by `S4.2-refly-world-preservation` attempt 1 of run `2026-08-11_2111`. REPORT-ONLY - not diagnosed, not fixed. Attempt 2 of the same spec ran clean, so it is INTERMITTENT. **THE DECIDING EXPERIMENT IS NOW AUTHORED: `harness/scenarios/S4.4-refly-quicksave-mid-session.toml` (2026-09-02, never flown)** - S4.2's cycle with a real `SaveGame name=quicksave` AND a real `LoadGame name=quicksave` from inside the live session in place of the batch (a player's F5 then F9). Save alone could only come back GREEN by construction - `End reason=treeDiscarded` is emitted only from load paths and the dialog's own Discard - so the LOAD half is the experiment: the quickload discard gate, the marker's save/load round trip and `LoadTimeSweep`. A killed session surfaces as INVALID(driver) `seam-timeout` on the merge step (as S4.2 attempt 1 did), with the reading in the log after the second `loadgame start`; the spec pre-registers what GREEN / INVALID / RED each mean]
 
 S4.2's driver note called this out in advance as "the one step of this sequence
 with no committed precedent" - a quicksave taken WHILE a Re-Fly session is live,
