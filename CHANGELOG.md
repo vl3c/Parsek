@@ -119,7 +119,12 @@ _(unreleased — entries accumulate here per commit)_
   before and still wins, and the verb still refuses to guess when nothing was
   said. The lane now performs a real rewind and reads what it did to the route,
   and the same run buys the first automated drive of pausing and re-activating a
-  real supply route, which is the exact history the rewind reads.
+  real supply route, which is the exact history the rewind reads. Its first run
+  found a defect in the test script rather than in the game: committing a flight
+  while its vessel is still the active one makes the game immediately resume
+  recording that flight again, and the rewind then refuses because a recording is
+  in progress. The script now stops that recording before rewinding, and the
+  probe that was supposed to catch a refusal now checks WHICH refusal it got.
 
 - The agent instructions now scope the invariant-culture formatting rule to what
   actually needs it. A unit-test run on a comma-locale machine printed

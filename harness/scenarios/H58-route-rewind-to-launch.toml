@@ -3,7 +3,55 @@ id = "H58-route-rewind-to-launch"
 tier = "operator"
 # =====================================================================================
 # D12 "route x rewind, flown" - THE PRE-REGISTERED LANE, AND A REWIND THAT ACTUALLY
-# FIRES. NEVER FLOWN.
+# FIRES. NO VALID RUN YET.
+#
+# FLIGHT 1, 2026-09-02 (`2026-09-02_1010_..._a2`, attempts=2): INVALID
+# (driver-verdict-mismatch), NOT a PARSEK-FAIL - a DRIVER defect in this file, fixed
+# below. Both invokes were refused by the DISPATCH guard before either reached
+# `ResolveTarget`: `reject id=0016 cmd=InvokeRewindToLaunch reason=recording-active`,
+# same for 0017. Zero `invokerewindtolaunch target resolved` lines, zero
+# `invokerewindtolaunch complete`, zero reconcile lines; the produced save's ROUTES node
+# read `status = Active` with BOTH one-shot flags still True - correct for a run in which
+# no rewind happened, and a clean negative control for P3 by accident.
+#
+# WHAT RE-ARMED THE RECORDER, from the log and not from a guess. `CommitTree` did, 4 ms
+# after answering OK, and the promotion is its own auto-resume rather than anything this
+# file drives:
+#     13:10:56.732 [TestCommands]   committree committed=true
+#     13:10:56.735 [RecordingStore] Armed committed-tree restore attempt for 'B'
+#                                   (id=821b8202..., recordings=1, cutoffs=1,
+#                                    reason=TryTakeCommittedTreeForSpawnedVesselRestore)
+#     13:10:56.736 [Recorder]       Rewind save skipped: tree branch/chain promotion
+#     13:10:56.739 [Recorder]       Recording started: vessel="B", ..., promotion,
+#                                   treeRec=rec[a41fdece|B|tree|-]
+#     13:10:56.739 [Flight]         ResumeCommittedActiveRecording: resumed committed
+#                                   recording 'a41fdece...' on vessel 'B' pid=313889796
+#     13:10:56.902 recv id=0015 RouteCommand (send-once)   <- innocent
+#     13:10:57.149 recv id=0016 InvokeRewindToLaunch       -> reason=recording-active
+# The vessel the recording was taken of is STILL THE ACTIVE VESSEL when the tree commits,
+# so the committed-tree restore path adopts it back and resumes the same recording id in
+# place as a chain promotion. It is the mechanism RVR-2's prologue already documents at
+# SCENE ENTRY; the only new fact is that a driven `CommitTree` triggers it too. Neither
+# the send-once nor anything else between the commit and the invoke touches the recorder.
+#
+# THE FIX IS ONE STEP: `StopRecording` immediately after `CommitTree` (step 15 below).
+# That is what clears `ParsekFlight.HasLiveRecorderForTagging()`, which is BOTH the
+# dispatch guard that refused (`recording-active`) and `CanRewind`'s "Stop recording
+# before rewinding" reason.
+# `DiscardTree` IS DELIBERATELY *NOT* ADDED, and reading the verb is why. RVR-2's prologue
+# pairs the two, but that pairing is only safe when there is nothing to discard:
+# `DiscardTreeImpl` early-returns `nothing=true` on `!flight.HasActiveTree`, and after the
+# auto-resume `HasActiveTree` is TRUE - the resumed COMMITTED tree is the active tree. The
+# verb would then call `AutoDiscardActiveTreeWithMessage` and reap the sidecars of every
+# recording in it, i.e. delete the rewind subject this lane just committed. The prologue's
+# copy is safe because at scene entry the restore has not taken yet (flight 1 measured
+# exactly that: `stoprecording stopped=false idle=true` at 13:10:53.634); here it has.
+# ONE RESIDUAL, stated rather than hidden: `CanRewind` also refuses on `HasPendingTree`
+# ("Merge or discard pending tree first"). A plain `StopRecording` is not expected to
+# populate the pending slot - that slot is the post-revert limbo - but this has not been
+# measured on this path. If it does, the run reds LOUDLY and by name on the
+# `invokerewindtolaunch refused: rewind-gate` forbid rather than reading green, and the
+# answer is then to merge (`AnswerMergeDialog`) rather than to discard.
 #
 # The pre-registration below was written FIRST, before the machinery that lets the lane
 # test it existed, and it is UNCHANGED by that machinery landing. Read it before the
@@ -196,21 +244,32 @@ tier = "operator"
 #   13   StopRecording          -> S0.6's shape: start / stop / commit with essentially no
 #        elapsed game time is an established green sequence, so no spacer steps.
 #   14   CommitTree             -> the third committed tree; `latest` now resolves to it.
-#   15   RouteCommand send-once -> arms `SendOnceArmed` + `PauseAfterCurrentCycle`. AFTER
+#        IT ALSO AUTO-RESUMES A RECORDER on the still-active vessel (flight 1's whole
+#        defect; see the FLIGHT 1 block at the top), which is what step 15 exists for.
+#   15   StopRecording          -> THE FIX. Clears `HasLiveRecorderForTagging`, which is
+#        both the dispatch `recording-active` guard that refused flight 1 and `CanRewind`'s
+#        "Stop recording before rewinding". `stopped=true idle=false` is its ACK; NOT a
+#        no-op here, unlike the prologue's copy. Placed immediately after the commit so no
+#        step runs while a recorder is live.
+#   16   RouteCommand send-once -> arms `SendOnceArmed` + `PauseAfterCurrentCycle`. AFTER
 #        the commit and with NO further TimeJump, so nothing can fire between the arm and
 #        the rewind and P3's `oneShotFlagsCleared=1` is about an arm that is genuinely
 #        still standing.
-#   16   InvokeRewindToLaunch (no arg) -> REJECTED `ambiguous-tree`. A cheap negative
+#   17   InvokeRewindToLaunch (no arg) -> REJECTED `ambiguous-tree`. A cheap negative
 #        control that costs one refusal, and it is not decoration: `committedTrees=3` is
 #        the only assertion in the file that step 14 produced a THIRD tree rather than
 #        updating an existing one, and it proves the keyword did not relax the bare rule.
-#   17   InvokeRewindToLaunch tree=latest -> OK. Two-phase; completion is
+#        FLIGHT 1 PROVED `expect = "REJECTED"` ALONE IS NOT ENOUGH: a refusal for the
+#        WRONG REASON (`recording-active`, never reaching `ResolveTarget`) satisfies the
+#        step verdict and reads met=True. The required `ambiguous-tree` token and the new
+#        `reason=recording-active` forbid are what make this step sharp.
+#   18   InvokeRewindToLaunch tree=latest -> OK. Two-phase; completion is
 #        `!IsRewinding && scene == SPACECENTER && !deferredAdjustmentPending`, all three
 #        halves, so the terminal only arrives once `HandleRewindOnLoad` has reached its
 #        `EndRewind()` tail AND `ApplyRewindResourceAdjustment` has drained.
-#   18   SaveGame -> the produced save carries the POST-rewind ROUTES node, which is what
+#   19   SaveGame -> the produced save carries the POST-rewind ROUTES node, which is what
 #        the P5 routes facet will read (see the TODO below).
-#   19   FlushAndQuit.
+#   20   FlushAndQuit.
 #
 # THE ROUTE IS ADDRESSED BY NAME on every operation, RVR-2's reason verbatim:
 # `TestCommandRouteCommand.ResolveRoute` accepts either spelling and reports `match=`,
@@ -245,6 +304,7 @@ steps = [
   { cmd = "StartRecording",                                                   expect = "OK", budget = 180 },
   { cmd = "StopRecording",                                                    expect = "OK" },
   { cmd = "CommitTree",                                                       expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                    expect = "OK" },
   { cmd = "RouteCommand", args = { action = "send-once", route = "H58 Rover Supply" }, expect = "OK", budget = 120 },
   { cmd = "InvokeRewindToLaunch",                                             expect = "REJECTED", budget = 300 },
   { cmd = "InvokeRewindToLaunch", args = { tree = "latest" },                 expect = "OK", budget = 300 },
@@ -303,9 +363,14 @@ allowedAnomalies = []
 #      TimeJump is at step 10, before the recorder exists), so there is nothing for the
 #      optimizer to split and `CommitTree` commits a single-node tree.
 # 7 would mean the subject split or something re-committed; 5 would mean the subject was
-# never committed and the rewind at step 17 could not have had a target - which the
+# never committed and the rewind at step 18 could not have had a target - which the
 # `Total committed: 6 recordings, 3 trees` token below reads independently, one layer
 # earlier and with the tree count attached.
+# MEASURED 6 ON FLIGHT 1 (`observed.recordings.count = 6`), and the number is UNCHANGED by
+# the step-15 fix: `CommitTree`'s auto-resume RESUMES the same recording id in place
+# (`ResumeCommittedActiveRecording: resumed committed recording 'a41fdece...'`) rather
+# than creating a new one, so the sub-second tail that step 15 now stops is appended to a
+# recording already counted. Nothing in the rewind deletes recordings either.
 count = { min = 6, max = 6 }
 
 [expectations.logContracts]
@@ -368,9 +433,25 @@ count = { min = 6, max = 6 }
 #          run before the first hole. THIS IS THE STEP THAT MAKES THE LANE POSSIBLE and it
 #          is the one with a real alternative outcome: if step 12's start were treated as
 #          a PROMOTION the recorder would print "Rewind save skipped: tree branch/chain
-#          promotion" instead, no quicksave would exist, and step 17 would refuse
-#          `rewind-gate No rewind save available`. Pinning the positive line makes that
-#          failure legible HERE rather than four steps later.
+#          promotion" instead, no quicksave would exist, and the rewind would refuse
+#          `rewind-gate No rewind save available`. Pinning the POSITIVE line makes that
+#          failure legible HERE rather than five steps later.
+#          MEASURED on flight 1: `Captured rewind save at UT 1600.48: vessel "B" in
+#          LANDED (save: parsek_rw_fd00e9)`. The mirror FORBID this file used to carry -
+#          `Rewind save skipped: tree branch/chain promotion` - IS RETIRED, and flight 1
+#          is why: the line fires LEGITIMATELY from `CommitTree`'s own auto-resume, four
+#          milliseconds after the commit and entirely outside step 12, so as a bare
+#          forbid it reds every correct run. Re-derived rather than re-tuned: the fix
+#          added at step 15 STOPS that recorder but cannot prevent the promotion that
+#          already happened, so the line will fire on every green run of this lane from
+#          now on. The positive token is the whole assertion.
+
+# TOKEN 9b THE FIX'S OWN ACK, `stoprecording stopped=true idle=false` (step 15). HONEST
+#          LIMIT: step 13's StopRecording renders the identical string, and `logContracts`
+#          is presence-only and cannot count, so this token does NOT prove step 15 fired -
+#          it only proves that at least one stop found a live recorder. The real gate on
+#          the defect is the `reason=recording-active` FORBID below, which asserts the
+#          absence directly at the moment that matters.
 #
 # TOKEN 10 THE COMMIT, from `RecordingStore`'s commit line. `Total committed: 6 recordings,
 #          3 trees` is one contiguous literal run after the last hole and it is TWO
@@ -382,14 +463,14 @@ count = { min = 6, max = 6 }
 #          after the last hole, the most distinctive literal the method owns. The roadmap's
 #          Send-Once lesson names this token by hand. MEASURED by RVR-2 flight 1.
 #
-# TOKEN 12 THE NEGATIVE CONTROL (step 16). From the target-resolution Warn line,
+# TOKEN 12 THE NEGATIVE CONTROL (step 17). From the target-resolution Warn line,
 #          `$"invokerewindtolaunch refused: {reason} tree={treeArg ?? ""} committedTrees={n}"`;
 #          with the arg omitted the empty hole collapses and the two literal runs meet, so
 #          the line reads `... ambiguous-tree tree= committedTrees=3`. `committedTrees=3`
 #          is THE assertion - the product reading back that a third tree now exists - and
 #          the refusal itself proves the new keyword did NOT relax the bare-call rule.
 #
-# TOKEN 13 THE NEW MACHINERY, MEASURED (step 17). From the applier's resolution line added
+# TOKEN 13 THE NEW MACHINERY, MEASURED (step 18). From the applier's resolution line added
 #          with the `tree=latest` spelling:
 #          `invokerewindtolaunch target resolved tree=<id> resolvedBy=LatestKeyword arg=latest committedTrees=3`.
 #          `resolvedBy=LatestKeyword` is the whole point: the `invoking` line names the
@@ -445,6 +526,7 @@ required  = [
   "LifecycleMarker: route .* type=RoutePaused reason=player-pause ut=",
   "Captured rewind save at UT ",
   "Total committed: 6 recordings, 3 trees",
+  "stoprecording stopped=true idle=false",
   "PauseAfterCurrentCycle=true \\(route will dispatch one cycle when conditions allow, then transition to Paused\\)",
   "invokerewindtolaunch refused: ambiguous-tree tree= committedTrees=3",
   "invokerewindtolaunch target resolved tree=.* resolvedBy=LatestKeyword arg=latest committedTrees=3",
@@ -454,9 +536,16 @@ required  = [
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",
-  # The two ways step 12's subject could fail to be one, each named so a red says which.
-  "Rewind save skipped: tree branch/chain promotion",
-  # And the refusal this lane exists to have stopped seeing.
+  # THE FLIGHT-1 DEFECT, as a gate. Both invokes were refused by the DISPATCH guard
+  # before either reached `ResolveTarget`, and `expect = "REJECTED"` on step 17 read
+  # met=True on that WRONG reason. This forbid is what makes a live recorder at either
+  # invoke impossible to pass off as the ambiguity refusal - it is the sharp half of
+  # step 17's expectation, paired with the required `ambiguous-tree` token.
+  "reject id=[0-9]+ cmd=InvokeRewindToLaunch reason=recording-active",
+  # The gate refusal this lane exists to have stopped seeing: any `rewind-gate` reason
+  # means step 18 never started a rewind. Deliberately the PREFIX, so all four
+  # `CanRewind` reasons red here - including "Merge or discard pending tree first", the
+  # one residual the FLIGHT 1 block names as unmeasured on this path.
   "invokerewindtolaunch refused: rewind-gate",
 ]
 
@@ -468,9 +557,9 @@ forbidden = [
 # the synchronous seal / route / record / commit / save verbs add their own budgets on
 # top. 3600 clears it with headroom.
 #
-# ONLY STEP 17 CAN ACTUALLY BE SLOW. Step 16 refuses synchronously inside Execute
+# ONLY STEP 18 CAN ACTUALLY BE SLOW. Step 17 refuses synchronously inside Execute
 # (`ResolveTarget` runs before anything else), so it never reaches the two-phase decider.
-# Step 17 straddles a whole KSP scene reload into SPACECENTER and then waits on the
+# Step 18 straddles a whole KSP scene reload into SPACECENTER and then waits on the
 # deferred post-load adjustment coroutine (~2 s after the flags clear), which is why its
 # declared budget is the 300 s the verb's own `DeferralBudget` row carries. Comparable
 # lanes land near RVR-2's measured 50 s plus one scene load.
