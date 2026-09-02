@@ -1,4 +1,4 @@
-﻿using System.Collections.Generic;
+using System.Collections.Generic;
 using Parsek;
 using Parsek.Logistics;
 using Parsek.Tests.Generators;

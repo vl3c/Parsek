@@ -22,8 +22,10 @@ _(unreleased — entries accumulate here per commit)_
   moment you start recording, and waits: when you undock and fly away, the one you left
   behind is the supply origin. It also checks that you actually picked something up -
   a run that leaves a dock with nothing aboard is not supplied by it, and will not be
-  offered as a route. If you stop the recording while still docked, nothing is claimed
-  at all, because nothing was witnessed. The cargo counted as "what the transport
+  offered as a route - and "picked something up" means the transport's own cargo went UP
+  while it was docked, not merely that it left with something aboard, so a run that only
+  DELIVERS at a dock can never name that vessel as its supply source. If you stop the
+  recording while still docked, nothing is claimed at all, because nothing was witnessed. The cargo counted as "what the transport
   started with" is now the transport's own tanks rather than the whole docked stack,
   so a start-docked run is no longer costed as if it were carrying the depot's fuel
   too.

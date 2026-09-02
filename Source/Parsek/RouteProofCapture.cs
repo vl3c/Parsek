@@ -913,21 +913,21 @@ namespace Parsek
         /// undock.
         ///
         /// <para>Design 19.2.2 item 2 defines the "Loaded" provenance as "a recorded
-        /// connection window in which cargo flowed FROM another vessel ONTO the transport",
-        /// and the workflow sentence under it says "start the supply run docked to the origin
-        /// (making it a Loaded provenance via the start-docked window)". The start-docked span
-        /// IS that window, so BOTH readings are admitted and distinguished:</para>
+        /// connection window in which cargo FLOWED from another vessel ONTO the transport" -
+        /// a FLOW test - and 19.2.1 makes origin CAUSAL: "what matters is the witnessed event
+        /// that put each unit of cargo on the transport". Three readings, ONE of which
+        /// validates:</para>
         /// <list type="bullet">
         /// <item><see cref="OriginPickupKind.Gain"/> - an admitted resource ROSE across the
-        /// span. This is the doctrine's strong form ("cargo flowed onto the transport") and
-        /// 19.2.1's causal test is satisfied outright.</item>
+        /// span. THE ONLY VALIDATING CLASS: it is the flow the doctrine names.</item>
         /// <item><see cref="OriginPickupKind.Carried"/> - no rise, but the transport leaves
-        /// carrying admitted cargo. Admitted because while docked the pair is ONE
-        /// <c>Vessel</c> with stock crossfeed between the halves, so cargo aboard the
-        /// transport at the split was physically part of the merged stack the origin is half
-        /// of - which is exactly what the workflow sentence calls a Loaded provenance.</item>
-        /// <item><see cref="OriginPickupKind.None"/> - the transport leaves empty. Nothing was
-        /// picked up, so there is no route.</item>
+        /// carrying admitted cargo. OBSERVED, NEVER VALIDATING. Nothing flowed at this seam,
+        /// and admitting it would validate residual anything: a pure DELIVERY undock, where
+        /// the transport cargo went DOWN, still leaves monopropellant or leftover fuel aboard
+        /// and would read as a pickup at the vessel it just delivered to. Kept as a
+        /// classification because it is the discriminator an operator needs in the log
+        /// between "left with nothing" and "left with cargo it already had".</item>
+        /// <item><see cref="OriginPickupKind.None"/> - the transport leaves empty.</item>
         /// </list>
         ///
         /// <para>ADMITTED SET: everything except the always-ignored environmental resources
@@ -970,10 +970,35 @@ namespace Parsek
             return sawCargo ? OriginPickupKind.Carried : OriginPickupKind.None;
         }
 
-        /// <summary>True for the pickup kinds that make a bound proof usable as an origin.</summary>
+        /// <summary>
+        /// The pickup kinds that make a bound proof usable as an origin. ONLY
+        /// <see cref="OriginPickupKind.Gain"/> (ruling, 2026-09-02, adversarial review F2).
+        ///
+        /// <para>WHY NOT <see cref="OriginPickupKind.Carried"/>, which an earlier draft
+        /// admitted. Design 19.2.2 item 2 defines "Loaded" as "a recorded connection window
+        /// in which cargo FLOWED from another vessel ONTO the transport" - a FLOW test - and
+        /// 19.2.1 says origin is CAUSAL: "what matters is the witnessed event that put each
+        /// unit of cargo on the transport". A transport that leaves a seam merely CARRYING
+        /// something witnessed no flow at that seam. Worse, carried validates on residual
+        /// anything: a pure DELIVERY undock, where the transport's cargo went DOWN, still
+        /// leaves monopropellant / leftover fuel / ore aboard and would validate as a pickup.
+        /// The transfer-defined model has one honest test: did the transport half's admitted
+        /// cargo RISE across the docked span.</para>
+        ///
+        /// <para><see cref="OriginPickupKind.Carried"/> is KEPT as an observed classification
+        /// - it is the discriminator in the bind log between "left with nothing" and "left
+        /// with cargo it already had", which is exactly what an operator reading a
+        /// non-validated proof needs to see - but it never validates.</para>
+        ///
+        /// <para>THE CASE THIS DELIBERATELY FAILS CLOSED ON: a run whose inflow happened
+        /// BEFORE the recording started (dock, load, quicksave, reload, start recording,
+        /// undock). Filed as ROUTE-ORIGIN-PROOF-PICKUP-PREDATING-THE-RECORDING with the fix
+        /// shape; not built here because the evidence lives on a DIFFERENT recording in the
+        /// tree and the lookup is neither cheap nor pure at this seam.</para>
+        /// </summary>
         internal static bool IsPickupValidated(OriginPickupKind kind)
         {
-            return kind == OriginPickupKind.Gain || kind == OriginPickupKind.Carried;
+            return kind == OriginPickupKind.Gain;
         }
 
         /// <summary>
@@ -991,6 +1016,10 @@ namespace Parsek
         /// half-written: an unbound proof carries no origin identity at all and
         /// <c>RouteAnalysisEngine.HasDockedOriginProof</c> refuses it, so failing to bind
         /// costs a route and can never cost a wrong debit.</para>
+        ///
+        /// <para>ONLY AN UNDOCK CALLS THIS. Non-undock separations - a joint break, a stack
+        /// or radial decoupler - leave the pair PENDING by design; see the call site's own
+        /// note in <c>ParsekFlight.CreateSplitBranch</c>.</para>
         /// </summary>
         internal static bool TryBindStartDockedOriginAtUndock(
             RouteOriginProof proof,
@@ -1011,17 +1040,35 @@ namespace Parsek
             if (proof == null)
                 return false;
 
-            if (proof.StartDockedOriginBindState != StartDockedOriginBindState.PairPendingBinding
-                || proof.StartDockedPair == null
-                || proof.StartDockedPair.HalfA == null
-                || proof.StartDockedPair.HalfB == null)
+            // WHICH STATES ARE STILL BINDABLE, and why UnboundAtStop is one of them.
+            // ONLY BoundAtUndock is final - that is the write-once rule, and it is what stops
+            // a later DELIVERY undock from moving the origin onto the delivery endpoint.
+            //
+            // UnboundAtStop MUST remain bindable. It is a CONCLUSION drawn at a recorder stop
+            // ("this recording ended while still docked"), and on the live undock path a stop
+            // runs FIRST - OnVesselsUndocking stops the recorder and defers the branch one
+            // frame - so the stop always precedes the split that proves the conclusion wrong.
+            // MEASURED on H57's 2026-09-02 flight: the stop stamped UnboundAtStop, the deep
+            // clone in ApplyCapturedLogisticsMetadataToRecording carried it onto the parent
+            // recording, and the bind one frame later refused with reason=NoPairPending -
+            // every live bind killed by its own observability stamp. Treating the stamp as
+            // advisory rather than terminal is what makes the binder independent of WHICH
+            // stop path fired, instead of resting on every caller threading a flag correctly.
+            bool alreadyBound =
+                proof.StartDockedOriginBindState == StartDockedOriginBindState.BoundAtUndock;
+            bool pairUsable = proof.StartDockedPair != null
+                && proof.StartDockedPair.HalfA != null
+                && proof.StartDockedPair.HalfB != null;
+            if (alreadyBound || !pairUsable)
             {
                 ParsekLog.Verbose("Flight",
                     $"RouteOriginProof bind skipped: recording={context} ut={utToken} " +
-                    $"reason={OriginUndockBinding.NoPairPending} " +
+                    $"reason={(alreadyBound ? "already-bound" : OriginUndockBinding.NoPairPending.ToString())} " +
                     $"bindState={proof.StartDockedOriginBindState}");
                 return false;
             }
+            bool recoveringFromStopStamp =
+                proof.StartDockedOriginBindState == StartDockedOriginBindState.UnboundAtStop;
 
             StartDockedSeamHalf halfA = proof.StartDockedPair.HalfA;
             StartDockedSeamHalf halfB = proof.StartDockedPair.HalfB;
@@ -1100,6 +1147,7 @@ namespace Parsek
             ParsekLog.Info("Flight",
                 $"RouteOriginProof bound at undock: recording={context} ut={utToken} " +
                 $"binding={binding} " +
+                $"recoveredFromStopStamp={(recoveringFromStopStamp ? "1" : "0")} " +
                 $"originHalf={(originIsA ? "A" : "B")} " +
                 $"originRoot={originHalf.RootPartUId.ToString(CultureInfo.InvariantCulture)} " +
                 $"originName='{originHalf.VesselName ?? "<none>"}' " +
@@ -1128,14 +1176,21 @@ namespace Parsek
 
         /// <summary>
         /// Stamps <see cref="StartDockedOriginBindState.UnboundAtStop"/> on a proof whose pair
-        /// never separated, and says so once. Called from the ORDINARY recorder stop only: a
-        /// chain-boundary stop is the first half of a split, and the bind runs immediately
-        /// after it. Returns true when the state changed.
+        /// has not separated, and says so once. Returns true when the state changed.
         ///
         /// <para>THE RULE: a recording that ends while still docked has witnessed no undock,
         /// so no half is the origin and no cargo movement was bracketed. The proof is kept
         /// (the pair is real evidence and the log line is the affordance) but it is never
         /// forwarded as an origin.</para>
+        ///
+        /// <para>THE STAMP IS ADVISORY, NOT TERMINAL, AND THAT IS LOAD-BEARING. It is written
+        /// at a recorder STOP, and on the live undock path a stop runs BEFORE the split
+        /// (OnVesselsUndocking stops the recorder, then defers the branch a frame), so the
+        /// conclusion can be premature. <see cref="TryBindStartDockedOriginAtUndock"/>
+        /// therefore still binds an <c>UnboundAtStop</c> proof; only
+        /// <see cref="StartDockedOriginBindState.BoundAtUndock"/> is final. Callers should
+        /// still pass <c>stopIsChainBoundary</c> correctly - it keeps the misleading line out
+        /// of the log on the normal path - but correctness does not depend on it.</para>
         /// </summary>
         internal static bool MarkStartDockedOriginUnboundAtStop(
             RouteOriginProof proof,

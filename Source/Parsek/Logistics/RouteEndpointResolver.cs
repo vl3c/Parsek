@@ -218,6 +218,14 @@ namespace Parsek.Logistics
 
                 if (step == EndpointResolutionStep.Pid)
                 {
+                    // A CORROBORATING FALLBACK BEHIND THE ROOT-PART STEP, AND NOT GUID-GATED.
+                    // It runs only when the endpoint carries no root id or that root no
+                    // longer resolves. A persistentId is craft-baked, so a bare match here
+                    // can name a DIFFERENT launch of the same craft file - the exact trap
+                    // VesselLaunchIdentity exists for. It is ungated today because a
+                    // RouteEndpoint carries no launch guid to gate against. Filed as
+                    // RESOLVER-PID-STEP-NOT-GUID-GATED; fix shape = persist the bind's guid
+                    // decision on the endpoint and gate this step with it.
                     Vessel byPid = ResolveByPid(endpoint.VesselPersistentId);
                     HashSet<uint> ghostPids = GhostMapPresence.ghostMapVesselPids;
                     if (byPid != null

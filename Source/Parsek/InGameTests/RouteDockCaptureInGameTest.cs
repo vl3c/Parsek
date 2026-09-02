@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Globalization;
@@ -833,10 +833,17 @@ namespace Parsek.InGameTests
                 // and the merged pid names the TRANSPORT. A dominance-derived rule would name
                 // the transport as its own origin here, and the binding rule - the origin is
                 // the half the player did NOT keep flying - names the depot.
+                // THE DEPOT CARRIES A TANK, and that is not decoration. Since the transfer
+                // ruling only a GAIN validates the pickup - the transport half's admitted
+                // cargo must RISE across the docked span - so a depot with nothing to give
+                // would make this cell measure an unvalidated proof and assert nothing about
+                // the shape it exists for.
                 var depot = new PartnerRig("A");
                 IEnumerator buildDepot = ctx.BuildPartnerRig(
-                    depot, PartnerAOffsetsMeters, withTank: false, withContainer: false);
+                    depot, PartnerAOffsetsMeters, withTank: true, withContainer: false);
                 while (buildDepot.MoveNext()) yield return buildDepot.Current;
+                if (depot.Tank == null)
+                    InGameAssert.Skip("depot rig has no tank to supply the pickup");
 
                 // THE EXPECTED ANSWER, read off the world BEFORE the couple. This is exactly
                 // what stock's DockToVessel would stamp into the depot node's vesselInfo, and
@@ -884,6 +891,19 @@ namespace Parsek.InGameTests
                     "PAIR (outcome=" + outcome + "). 'no-external-coupling' means the docking-node " +
                     "seam producer regressed to the retired parent-vessel reading");
 
+                // THE PICKUP, taken WHILE DOCKED and before the undock. This is the flow
+                // design 19.2.2 item 2 calls a Loaded provenance ("cargo FLOWED from another
+                // vessel ONTO the transport"), and it is what the bind's transfer validation
+                // has to witness: the transport half's LiquidFuel must be HIGHER at the
+                // undock than it was at recording start.
+                double pickedUp = ctx.TransferResource(
+                    depot.Tank, ctx.TransportTank, TransferResourceName, RequestedTransferUnits);
+                yield return null;
+                InGameAssert.IsGreaterThan(pickedUp, 0.0,
+                    "the transport must actually TAKE " + TransferResourceName + " from the " +
+                    "depot while docked, or the bind has no pickup to validate and the cell " +
+                    "measures an unvalidated proof");
+
                 // THE UNDOCK: the transport leaves the depot. No window can
                 // complete here - none was ever opened - so this is a plain
                 // Part.Undock, deliberately NOT UndockAndAwaitCompletion. It IS, however,
@@ -916,9 +936,14 @@ namespace Parsek.InGameTests
                     "the bound origin must be the DEPOT (root flightID " +
                     depotRootFlightId.ToString(IC) + ") - the half that LEFT - not the " +
                     "transport the player kept flying. Line: " + bindLine);
+                InGameAssert.IsTrue(bindLine.Contains("pickup=Gain"),
+                    "the transport TOOK LiquidFuel from the depot while docked, so the pickup " +
+                    "must read Gain - the only validating class. 'Carried' here means the " +
+                    "transfer above did not reach the transport half's manifest, and 'None' " +
+                    "means the transport left empty. Line: " + bindLine);
                 InGameAssert.IsTrue(bindLine.Contains("pickupValidated=1"),
-                    "the transport leaves this seam carrying LiquidFuel, so the pickup must " +
-                    "validate; pickupValidated=0 makes the proof a non-origin. Line: " + bindLine);
+                    "a Gain must validate the pickup; pickupValidated=0 makes the proof a " +
+                    "non-origin and no route can be built from it. Line: " + bindLine);
                 ParsekLog.Info("TestRunner",
                     "StartDockedOriginBind: cell=" + ctx.CellName + " depotRoot=" +
                     depotRootFlightId.ToString(IC) + " line=" + bindLine);

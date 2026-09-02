@@ -5644,6 +5644,15 @@ namespace Parsek
             ConfigNode activeSnapshot = VesselSpawner.TryBackupSnapshot(activeVessel);
             ConfigNode bgSnapshot = VesselSpawner.TryBackupSnapshot(backgroundVessel);
 
+            // BOTH ROUTE CONSUMERS BELOW ARE UNDOCK-ONLY, AND THAT IS THE CONTRACT.
+            // A joint break, a stack decoupler or a radial decoupler also reaches
+            // CreateSplitBranch, with a DIFFERENT branchType, and neither completes a route
+            // window nor binds a start-docked origin: the pair stays PENDING and the proof
+            // stays a non-origin. Deliberate, not an oversight - the note under design
+            // 19.2.2's provenance taxonomy says a tanker that DECOUPLES from a base is
+            // witnessable "in principle" but is explicitly out of scope for every milestone,
+            // and the revisit path it names is a separate "separated-with" loading variant
+            // anchored to the controlled-decouple event, NOT a widening of this gate.
             if (branchType == BranchPointType.Undock && parentRec != null)
             {
                 bool routeWindowCompleted = RouteProofCapture.TryCompleteLatestRouteConnectionWindow(

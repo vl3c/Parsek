@@ -827,6 +827,57 @@ a SURFACE depot resolves by identity first and by the M1 descriptor only if the 
 root part is gone. What binding the pid at the undock still buys is a cheaper O(1) lookup
 and a second corroborating key, not the difference between resolving and not.
 
+## ROUTE-ORIGIN-PROOF-PICKUP-PREDATING-THE-RECORDING: a run that loaded its cargo BEFORE the recording started reads no gain and is refused as an origin [FOUND 2026-09-02 by the adversarial review of P12 (F2). OPEN by decision, fail-closed]
+
+The transfer rule validates a start-docked origin only on a `Gain` - the transport half's
+admitted cargo must RISE between recording start and the undock - because that is the FLOW
+design 19.2.2 item 2 calls a Loaded provenance, and 19.2.1's causal test asks for "the
+witnessed event that put each unit of cargo on the transport". The shape that falls outside
+it: dock at the depot, load, quicksave, reload, START THE RECORDING, undock. The inflow is
+real and was witnessed - just not by THIS recording, whose start baseline already includes
+the cargo. It reads `Carried` and is refused.
+
+WHY NOT ADMITTED ANYWAY. Admitting `Carried` was the earlier draft and it is worse: it
+validates residual anything, so a pure DELIVERY undock - transport cargo DOWN, leftover fuel
+and monopropellant still aboard - would name the vessel the run just delivered to as its
+supply origin. That is the exact wrong-debit the design doc's "deducts from recorded origin
+depot, NOT TRANSPORT" line forbids, and it is a wrong debit rather than a missing route.
+Pinned by `Pickup_PureDeliveryUndock_IsNotAPickup`.
+
+THE FIX SHAPE, stated so it is not re-derived. The evidence exists, on a DIFFERENT recording:
+the preceding chained segment (same vessel, prior recording in the same tree) carries the
+`RouteConnectionWindow` that bracketed the load, and a window whose
+`UndockTransportResources` exceed its `DockTransportResources` for an admitted resource IS
+the witnessed inflow. Accepting it would mean, at bind time: walk from the proof's recording
+to its chain predecessor, take the LATEST complete window whose `UndockUT` is at or before
+this recording's start, and admit the pickup when that window shows a transport-side rise.
+NOT BUILT HERE because that lookup is neither cheap nor pure at this seam - the binder is a
+pure function over one proof plus two snapshots, and reaching a sibling recording would drag
+tree traversal and chain resolution into it. Do it as its own pass, with the traversal placed
+on the live side (`ParsekFlight`) and only the DECISION handed to `RouteProofCapture`.
+
+## RESOLVER-PID-STEP-NOT-GUID-GATED: `RouteEndpointResolver`'s pid step matches a bare `persistentId`, which is craft-baked and can name a different launch of the same craft [FOUND 2026-09-02 by the adversarial review of P12 (F3). OPEN, low severity while the root step covers the origin]
+
+`RouteEndpointResolver.TryResolveEndpoint`'s `EndpointResolutionStep.Pid` calls
+`ResolveByPid(endpoint.VesselPersistentId)` and accepts any non-ghost match. A
+`persistentId` is baked into the `.craft` and reused verbatim on every launch of that craft
+(CLAUDE.md's standing rule), so a bare match can name a DIFFERENT launch - the exact trap
+`VesselLaunchIdentity` exists for, and the one every other live-vessel-vs-recording site in
+Parsek is already gated against.
+
+WHY IT IS NOT URGENT: the step is a FALLBACK. `NextEndpointStep` puts ROOT PART first, and a
+start-docked origin always carries a root part `flightID`, which is launch-unique. The pid
+step is reachable only when the endpoint has no root id (a KSC or mid-tree docked origin, or
+a pre-P12 proof) or when the depot's root part no longer resolves - and in that second case
+the vessel it would then match is a same-craft sibling standing where the depot was.
+
+FIX SHAPE: `RouteEndpoint` carries no launch guid, which is why the step cannot be gated
+today. P12's bind already MAKES the decision - `RouteProofCapture.DecideOriginPidStamp`
+compares the origin's live guid against the recorded launch's - so the fix is to persist that
+guid alongside the stamped pid on the endpoint and require
+`!VesselLaunchIdentity.GuidsConclusivelyDiffer` before the pid step accepts a match. That
+touches `RouteEndpoint`, `RouteCodec` and the route hash, so it wants its own pass.
+
 ## ROUTE-ORIGIN-PROOF-BIND-FOLLOWS-FOCUS-NOT-THE-RUN: the undock bind names the origin from which half KEPT FOCUS, which is the wrong half when the player stays with the depot [FOUND 2026-09-02 as the mirror-direction check on the P12 binding. OPEN, low severity, inert on the recording that carries it]
 
 THE RULING is that the origin is the half the player did NOT keep flying, and

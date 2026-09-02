@@ -592,18 +592,36 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void Pickup_Unchanged_ReadsCarried()
+        public void Pickup_Unchanged_ReadsCarried_AndCarriedDoesNotValidate()
         {
-            // The workflow sentence under design 19.2.2 says starting docked at the origin IS
-            // a Loaded provenance: while docked the pair is ONE Vessel with stock crossfeed,
-            // so cargo aboard the transport at the split was part of the merged stack the
-            // origin is half of. Recorded as the WEAKER witness so a reader can tell the two
-            // apart in the log and in the persisted proof.
+            // Carried is OBSERVED, never validating (ruling, adversarial review F2). Design
+            // 19.2.2 item 2 defines Loaded as cargo that FLOWED onto the transport, and
+            // 19.2.1 makes origin causal - "the witnessed event that PUT each unit of cargo
+            // on the transport". A transport that leaves a seam with the same cargo it
+            // arrived with witnessed no flow there. The class is kept because it is the
+            // discriminator in the log between "left with nothing" and "left with cargo it
+            // already had".
             Assert.Equal(
                 OriginPickupKind.Carried,
                 RouteProofCapture.ClassifyOriginPickup(
                     Manifest("LiquidFuel", 40.0),
                     Manifest("LiquidFuel", 40.0)));
+            Assert.False(RouteProofCapture.IsPickupValidated(OriginPickupKind.Carried));
+        }
+
+        [Fact]
+        public void Pickup_PureDeliveryUndock_IsNotAPickup()
+        {
+            // THE CELL THE RULING EXISTS FOR. The transport delivered 126.8 LiquidFuel at
+            // this seam and leaves with residual fuel plus monopropellant aboard. Under the
+            // earlier "carried validates" reading, the vessel it just DELIVERED TO would have
+            // validated as the run's supply origin - the exact wrong-debit shape the design
+            // doc's "deducts from recorded origin depot, NOT TRANSPORT" line forbids.
+            OriginPickupKind kind = RouteProofCapture.ClassifyOriginPickup(
+                Manifest("LiquidFuel", 200.0, "MonoPropellant", 30.0),
+                Manifest("LiquidFuel", 73.2, "MonoPropellant", 30.0));
+            Assert.Equal(OriginPickupKind.Carried, kind);
+            Assert.False(RouteProofCapture.IsPickupValidated(kind));
         }
 
         [Fact]
@@ -648,8 +666,9 @@ namespace Parsek.Tests
         [Fact]
         public void Pickup_MissingStartManifest_CannotReadAGain_FallsToCarried()
         {
-            // No baseline means no delta. The run is still admitted on the carried branch,
-            // which is the honest reading, and the log records the start count as 0.
+            // No baseline means no delta, so the gain branch is unevaluable and the run is
+            // NOT validated - fail-closed, which is the right direction when the evidence
+            // for the flow is missing rather than absent.
             Assert.Equal(
                 OriginPickupKind.Carried,
                 RouteProofCapture.ClassifyOriginPickup(null, Manifest("LiquidFuel", 40.0)));
@@ -664,10 +683,11 @@ namespace Parsek.Tests
             Assert.Equal(
                 OriginPickupKind.NoUndockManifest,
                 RouteProofCapture.ClassifyOriginPickup(Manifest("LiquidFuel", 40.0), null));
+            // GAIN IS THE ONLY VALIDATING CLASS.
             Assert.False(RouteProofCapture.IsPickupValidated(OriginPickupKind.NoUndockManifest));
             Assert.False(RouteProofCapture.IsPickupValidated(OriginPickupKind.None));
+            Assert.False(RouteProofCapture.IsPickupValidated(OriginPickupKind.Carried));
             Assert.True(RouteProofCapture.IsPickupValidated(OriginPickupKind.Gain));
-            Assert.True(RouteProofCapture.IsPickupValidated(OriginPickupKind.Carried));
         }
 
         // ==============================================================
@@ -1011,13 +1031,15 @@ namespace Parsek.Tests
                 proof, RoverCParts, RoverAParts, transportAtUndock, transportAtUndock,
                 831319732u, GuidB, 1461186781u, GuidA, 402.50, "rover-relay"));
 
-            // The half IS bound (the split really did leave rover A behind), but a leg that
-            // only LOST cargo at that seam did not pick anything up there, so it is not a
-            // supply origin. Carried, not Gain - and route analysis still refuses it below
-            // only because the identity would be the delivery endpoint, which is what the
-            // write-once cell that follows actually prevents.
+            // The half IS bound (the split really did leave rover A behind), but the leg
+            // only LOST cargo at that seam, so nothing was picked up there and it is NOT a
+            // supply origin. This is the delivery endpoint: validating it would debit the
+            // vessel the run just delivered to.
             Assert.Equal(5300u, proof.StartDockedOriginRootPartUId);
             Assert.Equal(OriginPickupKind.Carried, proof.StartDockedOriginPickupKind);
+            Assert.False(proof.StartDockedOriginPickupValidated);
+            var rec = new Recording { RecordingId = "r", RouteOriginProof = proof };
+            Assert.False(Parsek.Logistics.RouteAnalysisEngine.HasDockedOriginProof(rec));
         }
 
         [Fact]
@@ -1049,6 +1071,217 @@ namespace Parsek.Tests
         }
 
         // ==============================================================
+        // 8c. THE LIVE STOP-THEN-SPLIT ORDER (adversarial review F1)
+        //
+        // MEASURED: H57's 2026-09-02 flight red because the recorder STOP that
+        // OnVesselsUndocking fires runs BEFORE the deferred split, so the stop concluded
+        // "ended while still docked", the conclusion was deep-cloned onto the parent
+        // recording, and the bind one frame later refused it. The log sequence was
+        //   RouteOriginProof pair captured: ... bindState=PairPendingBinding
+        //   OnVesselsUndocking: ... decision=SplitRecordedStaysActive
+        //   RouteOriginProof unbound: ... reason=stopped-while-docked
+        //   Logistics metadata: RouteOriginProof adopted (write-once) path=Append...
+        //   RouteOriginProof bind skipped: ... reason=NoPairPending bindState=UnboundAtStop
+        // These cells drive that exact ORDER through the same three production helpers the
+        // live path calls, so the fix is pinned against the sequence that broke it rather
+        // than against the flag that was supposed to prevent it.
+        // ==============================================================
+
+        [Fact]
+        public void LivePath_StopThenDeepCloneThenBind_StillBinds()
+        {
+            // THE REGRESSION GATE. Every call here is the production one, in the live order:
+            // the recorder stop forwards the pending proof onto a capture recording, the
+            // split deep-clones it onto the parent through
+            // ParsekFlight.ApplyCapturedLogisticsMetadataToRecording, and CreateSplitBranch
+            // binds THAT clone. It is driven with stopIsChainBoundary FALSE on purpose - the
+            // worst case, and the one the flight measured - so the cell fails if the bind
+            // ever depends on the flag again.
+            RouteOriginProof pending = PendingProof();
+            var capture = new Recording
+            {
+                RecordingId = "capture-1",
+                VesselSnapshot = SnapshotWithResource(110u, "LiquidFuel", 90.0),
+            };
+            RouteProofCapture.AttachEndManifestsAndForwardToCapture(
+                capture, pending, new List<uint> { 110u }, stopIsChainBoundary: false);
+            Assert.Equal(
+                StartDockedOriginBindState.UnboundAtStop,
+                capture.RouteOriginProof.StartDockedOriginBindState);
+
+            var parentRec = new Recording { RecordingId = "parent-1" };
+            ParsekFlight.ApplyCapturedLogisticsMetadataToRecording(parentRec, capture, "split");
+            Assert.NotNull(parentRec.RouteOriginProof);
+            Assert.Equal(
+                StartDockedOriginBindState.UnboundAtStop,
+                parentRec.RouteOriginProof.StartDockedOriginBindState);
+
+            ConfigNode activeSnapshot = SnapshotWithResource(110u, "LiquidFuel", 90.0);
+            Assert.True(RouteProofCapture.TryBindStartDockedOriginAtUndock(
+                parentRec.RouteOriginProof, HalfAParts, HalfBParts,
+                activeSnapshot, activeSnapshot,
+                500u, GuidB, 400u, GuidA, 276.0, parentRec.RecordingId));
+
+            Assert.Equal(
+                StartDockedOriginBindState.BoundAtUndock,
+                parentRec.RouteOriginProof.StartDockedOriginBindState);
+            Assert.Equal(555u, parentRec.RouteOriginProof.StartDockedOriginRootPartUId);
+            Assert.True(parentRec.RouteOriginProof.StartDockedOriginPickupValidated);
+            Assert.True(Parsek.Logistics.RouteAnalysisEngine.HasDockedOriginProof(parentRec));
+            Assert.Contains(logLines, l => l.Contains("RouteOriginProof bound at undock:")
+                && l.Contains("recoveredFromStopStamp=1"));
+        }
+
+        [Fact]
+        public void LivePath_ChainBoundaryStop_LeavesThePairPendingAndBindsCleanly()
+        {
+            // The flag still does its job: a chain-boundary stop must not write the
+            // misleading "stopped while docked" conclusion at all, so the ordinary path binds
+            // with recoveredFromStopStamp=0.
+            RouteOriginProof pending = PendingProof();
+            var capture = new Recording
+            {
+                RecordingId = "capture-2",
+                VesselSnapshot = SnapshotWithResource(110u, "LiquidFuel", 90.0),
+            };
+            RouteProofCapture.AttachEndManifestsAndForwardToCapture(
+                capture, pending, new List<uint> { 110u }, stopIsChainBoundary: true);
+
+            Assert.Equal(
+                StartDockedOriginBindState.PairPendingBinding,
+                capture.RouteOriginProof.StartDockedOriginBindState);
+            Assert.DoesNotContain(logLines, l => l.Contains("reason=stopped-while-docked"));
+
+            ConfigNode activeSnapshot = SnapshotWithResource(110u, "LiquidFuel", 90.0);
+            Assert.True(RouteProofCapture.TryBindStartDockedOriginAtUndock(
+                capture.RouteOriginProof, HalfAParts, HalfBParts,
+                activeSnapshot, activeSnapshot,
+                500u, GuidB, 400u, GuidA, 276.0, "capture-2"));
+            Assert.Contains(logLines, l => l.Contains("RouteOriginProof bound at undock:")
+                && l.Contains("recoveredFromStopStamp=0"));
+        }
+
+        [Fact]
+        public void LivePath_TheUndockDecisionIsTheSplitRecordedStaysActiveBranch()
+        {
+            // Pins WHICH branch the sequence above models. H57's flight logged
+            // recordedPid=313889796 oldPid=313889796 newPid=2934387529 - the recorded vessel
+            // keeps its pid and the depot leaves as the new vessel - and
+            // DeferredUndockBranch then follows the FOCUSED side, which is the recorded one.
+            Assert.Equal(
+                UndockSplitDecision.SplitRecordedStaysActive,
+                SegmentBoundaryLogic.ClassifyUndockSplit(313889796u, 313889796u, 2934387529u));
+        }
+
+        [Fact]
+        public void LivePath_AnOrdinaryStopWhileStillDockedStillEndsAsANonOrigin()
+        {
+            // The other direction of the same relaxation: making UnboundAtStop bindable must
+            // NOT make a genuinely-still-docked recording an origin. Nothing binds it, so it
+            // stays refused.
+            RouteOriginProof pending = PendingProof();
+            var capture = new Recording
+            {
+                RecordingId = "capture-3",
+                VesselSnapshot = SnapshotWithResource(110u, "LiquidFuel", 90.0),
+            };
+            RouteProofCapture.AttachEndManifestsAndForwardToCapture(
+                capture, pending, new List<uint> { 110u }, stopIsChainBoundary: false);
+
+            Assert.Equal(
+                StartDockedOriginBindState.UnboundAtStop,
+                capture.RouteOriginProof.StartDockedOriginBindState);
+            Assert.False(Parsek.Logistics.RouteAnalysisEngine.HasDockedOriginProof(capture));
+            Assert.Contains(logLines, l => l.Contains("RouteOriginProof unbound:")
+                && l.Contains("reason=stopped-while-docked"));
+        }
+
+        // ==============================================================
+        // 8d. IDENTICAL PART SETS (adversarial review F4)
+        //
+        // THE REVIEWER'S PREMISE WAS THAT TWO HALVES FROM THE SAME CRAFT FILE CARRY THE SAME
+        // PART PIDS, so overlap would read BothHalvesActive and never bind. MEASURED AND
+        // REFUTED against a real save with three same-craft-file rovers live at once
+        // (saves/logistics-rover-B/persistent.sfs, 2026-09-02): rover A (22 parts), rover B
+        // (17) and rover C (18) have PAIRWISE DISJOINT part persistentId sets - 0 shared ids
+        // across all three pairs - and distinct vessel pids and guids. That is KSP's own
+        // rule working: a craft-baked persistentId is regenerated on launch when it collides
+        // with a CURRENTLY-LIVE vessel, and two docked halves are by definition both live.
+        //
+        // The shape is therefore not reachable from same-craft launches. It is pinned anyway,
+        // because the refusal is the fail-closed behaviour that matters if it ever IS
+        // reachable (a hand-authored fixture, a future Parsek-spawned copy that bypasses
+        // KSP's dedup, or a save edited by hand).
+        // ==============================================================
+
+        [Fact]
+        public void IdenticalHalfPartSets_RefuseToBind_FailClosed()
+        {
+            var shared = new List<uint> { 110u, 111u };
+            Assert.Equal(
+                OriginUndockBinding.BothHalvesActive,
+                RouteProofCapture.ClassifyUndockOriginBinding(
+                    shared, shared, shared, shared));
+        }
+
+        [Fact]
+        public void IdenticalHalfPartSets_TheWholeBindRefusesAndLeavesNoOrigin()
+        {
+            RouteOriginProof proof = PendingProof();
+            var shared = new List<uint> { 110u, 111u };
+            proof.StartDockedPair.HalfA.PartPersistentIds = new List<uint>(shared);
+            proof.StartDockedPair.HalfB.PartPersistentIds = new List<uint>(shared);
+
+            Assert.False(RouteProofCapture.TryBindStartDockedOriginAtUndock(
+                proof, shared, shared,
+                SnapshotWithResource(110u, "LiquidFuel", 90.0), null,
+                500u, GuidB, 400u, GuidA, 1234.5, "rec-1"));
+
+            Assert.Equal(0u, proof.StartDockedOriginRootPartUId);
+            var rec = new Recording { RecordingId = "r", RouteOriginProof = proof };
+            Assert.False(Parsek.Logistics.RouteAnalysisEngine.HasDockedOriginProof(rec));
+        }
+
+        [Fact]
+        public void RoverRelay_TheThreeSameCraftRoversHaveDisjointPartSets()
+        {
+            // The measurement that refuted the premise, kept as data so the claim in the
+            // memo has a cell behind it. These are the real part persistentIds of the three
+            // same-craft-file rovers, read from the produced save.
+            var roverA = new List<uint>
+            {
+                3590051213u, 700767647u, 3569776550u, 4104863657u, 3611348372u, 3805741184u,
+                2874976564u, 584493636u, 1383402226u, 429354992u, 2646195783u, 669075699u,
+                2503959988u, 4203625539u, 4146836539u, 209085523u, 3040514992u, 2580916810u,
+                575286956u, 1071913422u, 4103138199u, 1219585696u,
+            };
+            var roverB = new List<uint>
+            {
+                2823035582u, 202800680u, 4230224982u, 2478770940u, 2791927569u, 894881109u,
+                2709475368u, 4143210994u, 1200887512u, 1781664479u, 1715808488u, 2354159901u,
+                3687420106u, 2569670107u, 643575962u, 2114703283u, 1373868859u,
+            };
+            var roverC = new List<uint>
+            {
+                1049412091u, 152425893u, 165679706u, 347679225u, 3948580584u, 4233882603u,
+                420012032u, 2980551401u, 4279716197u, 2522475473u, 1757682533u, 2477815453u,
+                1999089396u, 2718407327u, 165949968u, 395515579u, 3830248754u, 410845u,
+            };
+
+            var setB = new HashSet<uint>(roverB);
+            var setC = new HashSet<uint>(roverC);
+            Assert.DoesNotContain(roverA, pid => setB.Contains(pid));
+            Assert.DoesNotContain(roverA, pid => setC.Contains(pid));
+            Assert.DoesNotContain(roverB, pid => setC.Contains(pid));
+
+            // And so the binding reads cleanly on the real relay: C keeps flying, B is left.
+            Assert.Equal(
+                OriginUndockBinding.BoundToHalfB,
+                RouteProofCapture.ClassifyUndockOriginBinding(
+                    roverC, roverB, roverC, roverB));
+        }
+
+        // ==============================================================
         // 9. STOPPED WHILE STILL DOCKED
         // ==============================================================
 
@@ -1068,7 +1301,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void StopWhileDocked_NeverUndoesABind()
+        public void StopWhileDocked_NeverUndoesABind_WriteOnceIsTheOnlyFinalState()
         {
             RouteOriginProof proof = PendingProof();
             ConfigNode activeSnapshot = SnapshotWithResource(110u, "LiquidFuel", 90.0);

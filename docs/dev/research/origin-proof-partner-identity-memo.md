@@ -63,18 +63,25 @@ guid-free by construction: `Part.Undock` resolves
 new `Vessel` on that part, while assigning `vessel.id = Guid.NewGuid()` - so the flightID
 survives the split and a launch-guid match would be actively wrong.
 
-## What this does NOT settle (filed, not invented here)
+## ~~What this does NOT settle (filed, not invented here)~~ - ALL THREE ARE NOW FIXED
 
-- **The typing requirement.** `Vessel.FindDefaultVesselType()` takes the max of the
+The three residues this memo filed were all closed by the P12 amendment below, and the
+bullets are struck rather than deleted so the derivation still reads in order.
+
+- ~~**The typing requirement.**~~ `Vessel.FindDefaultVesselType()` takes the max of the
   vessel's own type and its parts', and no stock part declares `Base`/`Station` (verified
   over `GameData/Squad`: the highest any stock part declares is `Plane`). So an ordinary
   landed base is `Ship`/`Probe`/`Lander` until the player retypes it, and the rule
-  fail-closes to no proof. Filed as ROUTE-ORIGIN-PROOF-REQUIRES-A-PLAYER-TYPED-DEPOT.
-- **F2 residue.** A base that starts a recording with a transport docked to it still
-  records itself as its own origin; removing that needs undock-side routing of the proof
-  to the non-origin half, which is also where the pid binds.
-- **Transport-scoped manifests.** `StartTransportResources` covers the whole merged
-  vessel, so the depot's tanks count as transport cargo.
+  fail-closed to no proof. **FIXED: the requirement is deleted - no code decides on a
+  vessel type any more.** The mechanism note stands as the reason the old rule was
+  unshippable.
+- ~~**F2 residue.**~~ A base that starts a recording with a transport docked to it
+  recorded itself as its own origin. **FIXED by the undock-side binding**, which is the
+  fix shape this bullet named.
+- ~~**Transport-scoped manifests.**~~ `StartTransportResources` covered the whole merged
+  vessel. **FIXED for the origin proof**: the bind re-scopes both ends to the transport
+  half, using the per-half part sets cut out of the merged part tree at capture.
+  `RouteRunCargoManifest` is a separate producer and stays merged-scoped.
 
 ---
 
@@ -109,14 +116,17 @@ deployed-science), which asks whether a thing can own cargo at all, not what its
    `VesselLaunchIdentity`, which refuses a pid equal to the recorded launch's whose guids do not
    conclusively differ; that refusal is the self-origin guard. A recording that ends still docked
    is `UnboundAtStop` and never an origin.
-3. **The pickup is validated.** The TRANSPORT half's manifests at start and at the undock decide:
-   a rise in an admitted resource is `Gain`, otherwise non-empty admitted cargo is `Carried`,
-   otherwise `None`. Only the first two make the proof an origin. Authority: design 19.2.2 item 2
-   ("Loaded" - cargo flowed FROM another vessel ONTO the transport) plus its workflow sentence
-   "start the supply run docked to the origin (making it a Loaded provenance via the start-docked
-   window)"; `Carried` is admitted because while docked the pair is ONE `Vessel` with stock
-   crossfeed, so cargo aboard the transport at the split was part of the merged stack the origin
-   is half of.
+3. **The pickup is validated as a FLOW.** The TRANSPORT half's manifests at start and at the
+   undock decide: a rise in an admitted resource is `Gain`, otherwise non-empty admitted cargo
+   is `Carried`, otherwise `None`. **ONLY `Gain` validates.** Authority: 19.2.2 item 2 defines
+   Loaded as cargo that FLOWED from another vessel ONTO the transport, and 19.2.1 makes origin
+   causal. An earlier draft also admitted `Carried`, on the grounds that a docked pair is one
+   `Vessel` with crossfeed; that was rejected on review because it validates residual anything -
+   a pure DELIVERY undock, where the transport's cargo went DOWN, still leaves fuel and
+   monopropellant aboard and would have named the delivery endpoint as the run's supply origin.
+   `Carried` is kept as an observed classification, for the log only. The case this fails closed
+   on - an inflow that PREDATES the recording (dock, load, quicksave, reload, start, undock) -
+   is filed as ROUTE-ORIGIN-PROOF-PICKUP-PREDATING-THE-RECORDING.
 
 **WHY THE OLD RULE HAD TO GO, measured rather than argued.** A sibling session's rover-relay
 flight (KSP.log 2026-09-02 20:29, DLL from main `96ac15dfb`, three same-craft-file rovers landed
@@ -127,6 +137,27 @@ captured nothing on it. That flight also supplies the binding oracle replayed he
 `StartDockedOriginBindingTests`: at UT 276.00 the half not kept is rover B and the transport delta
 is LiquidFuel +200 (B binds), at UT 402.50 the half not kept is rover A and the delta is -126.8
 (a delivery, and write-once keeps the origin on B).
+
+**WHY PART SETS, AND WHY SAME-CRAFT HALVES DO NOT COLLIDE.** The bind matches the two
+post-split part sets against the two captured halves. A review challenged the premise: if both
+halves come from the same craft file, would they not carry identical part `persistentId`s, so the
+overlap reads `BothHalvesActive` and nothing ever binds? MEASURED AND REFUTED against a real save
+with three same-craft-file rovers live at once (`saves/logistics-rover-B/persistent.sfs`,
+2026-09-02): rover A (22 parts), rover B (17) and rover C (18) have PAIRWISE DISJOINT part id
+sets - zero shared ids across all three pairs - and distinct vessel pids and guids. That is KSP's
+own rule working: a craft-baked `persistentId` is regenerated on launch when it collides with a
+CURRENTLY-LIVE vessel, and two docked halves are by definition both live. The identical-set shape
+is therefore not reachable from same-craft launches; it is pinned anyway
+(`IdenticalHalfPartSets_RefuseToBind_FailClosed`) because the refusal is the right fail-closed
+answer if a hand-authored fixture, a hand-edited save, or a future Parsek-spawned copy that
+bypasses KSP's dedup ever produces it.
+
+**WHY THE STOP STAMP IS ADVISORY.** `UnboundAtStop` is written at a recorder stop, and on the
+live undock path a stop runs BEFORE the split - `OnVesselsUndocking` stops the recorder and defers
+the branch one frame - so the conclusion can be premature. H57's 2026-09-02 flight measured exactly
+that: the stop stamped `UnboundAtStop`, the deep clone carried it onto the parent recording, and
+the bind refused with `reason=NoPairPending`. Only `BoundAtUndock` is final; an `UnboundAtStop`
+proof still binds, and the bind line records `recoveredFromStopStamp=1` when it did.
 
 **WHAT THIS DOES NOT SETTLE.** The binding follows FOCUS. In the mirror shape - the player keeps
 flying the depot and the transport departs into the background - "the half the player did not keep

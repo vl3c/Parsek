@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
@@ -748,7 +748,7 @@ namespace Parsek.Tests
             Assert.Equal(StartDockedOriginBindState.BoundAtUndock,
                 restored.RouteOriginProof.StartDockedOriginBindState);
             Assert.True(restored.RouteOriginProof.StartDockedOriginPickupValidated);
-            Assert.Equal(OriginPickupKind.Carried, restored.RouteOriginProof.StartDockedOriginPickupKind);
+            Assert.Equal(OriginPickupKind.Gain, restored.RouteOriginProof.StartDockedOriginPickupKind);
             Assert.Equal(9002u, restored.RouteOriginProof.StartDockedPair.HalfA.RootPartUId);
             Assert.Equal(9001u, restored.RouteOriginProof.StartDockedPair.HalfB.RootPartUId);
             Assert.Equal(80.0, restored.RouteOriginProof.StartTransportResources["LiquidFuel"].amount);
@@ -933,14 +933,22 @@ namespace Parsek.Tests
         /// <summary>
         /// Drives the UNDOCK bind these cells' assertions assume, with the FAR half as the
         /// origin (the transport - the near half, parts 100/101 - keeps flying).
+        ///
+        /// <para>The undock-side snapshot is authored WITH A PICKUP (LiquidFuel above
+        /// whatever the start snapshot held) because only a GAIN validates: a transport that
+        /// leaves a seam with the cargo it arrived with witnessed no flow there. These cells
+        /// are about forwarding and serialization, so they drive the validated shape; the
+        /// non-validating classes are pinned in StartDockedOriginBindingTests.</para>
         /// </summary>
         private static void BindFarHalfAsOrigin(RouteOriginProof proof, ConfigNode transportSnapshot)
         {
+            ConfigNode pickedUp = MakeVessel(
+                MakePart(100, "transportTank", MakeResource("LiquidFuel", 500.0, 500.0)));
             RouteProofCapture.TryBindStartDockedOriginAtUndock(
                 proof,
                 activeSidePartPids: new List<uint> { 100u, 101u },
                 backgroundSidePartPids: new List<uint> { 200u, 201u },
-                activeSideSnapshot: transportSnapshot,
+                activeSideSnapshot: pickedUp,
                 endScopeSnapshot: null,
                 originLiveVesselPid: 0u,
                 originLiveVesselGuid: null,
