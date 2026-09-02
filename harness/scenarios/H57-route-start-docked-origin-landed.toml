@@ -19,6 +19,17 @@ tier = "nightly"
 #         every verifier green, zero FAILURE SITE lines, `recordings.count=5`. THE PIN
 #         BELOW IS WHOLE OFF THESE BYTES and the id has left
 #         `IsolatedBatchWiringGroupTests.INTERIM_PIN_IDS`.
+#   1103  ARMED RE-FLIGHT ON THE WHOLE PIN. PASS attempt 1, 71 s,
+#         `expectations mismatches=[]`, `total=2 passed=2 failed=0 skipped=0`, both cell
+#         lines and the Forward line matching as pinned, zero FAILURE SITE lines,
+#         `recordings.count=5`, `ROUTE_ORIGIN_PROOF=0` in the produced save.
+#         ITS NEGATIVE CONTROL RAN TOO and is what makes the whole pin worth something:
+#         `H57-NEGCTL-route-start-docked-origin-landed`, authored UNCOMMITTED and identical
+#         to this file except the declared id and ONE required token - the subject cell's
+#         `proofCaptured` flipped True -> False - classified PARSEK-FAIL(expectation) with
+#         EXACTLY ONE unmet token, that one, and ZERO forbidden hits. A pin taken whole off
+#         a single census can otherwise only claim that it MATCHED; this claims that it
+#         DISCRIMINATES.
 #
 # TIER: PROMOTED operator -> nightly in this commit, on the family rule H55 and H56 were
 # held to ("re-tier to nightly in the commit that reads a green census"). The operator
