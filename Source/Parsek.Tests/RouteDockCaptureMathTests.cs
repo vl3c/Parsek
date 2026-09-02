@@ -117,6 +117,52 @@ namespace Parsek.Tests
         }
 
         // -------------------------------------------------------------
+        //  FormatStartDockedOriginLine
+        // -------------------------------------------------------------
+
+        [Fact]
+        public void StartDockedOriginLine_HasTheFixedFieldOrderTheSpecPins()
+        {
+            string line = RouteDockCaptureMath.FormatStartDockedOriginLine(
+                "start-docked", "routedock-start-docked-abcd1234", true, 90210u,
+                "Kerbin", true, 1, 1, "rec=r1;delivered=20.00");
+            Assert.Equal(
+                "StartDockedOrigin: cell=start-docked run=routedock-start-docked-abcd1234 "
+                + "proofCaptured=True originPid=90210 body=Kerbin surface=1 situation=1 "
+                + "windows=1 detail=rec=r1;delivered=20.00",
+                line);
+        }
+
+        [Fact]
+        public void StartDockedOriginLine_NegativeControlShapeStillCarriesEveryField()
+        {
+            // FAILS IF: the negative control's line stops being distinguishable from the
+            // subject's. Both cells emit this shape; only the VALUES differ, which is why
+            // the lane pins `proofCaptured=` per cell rather than pinning the line's
+            // presence.
+            string line = RouteDockCaptureMath.FormatStartDockedOriginLine(
+                "undocked-before-start", "routedock-undocked-before-start-0000ffff", false,
+                0u, null, false, 1, 0, "outcome=no-external-coupling");
+            Assert.Contains("cell=undocked-before-start", line);
+            Assert.Contains("proofCaptured=False", line);
+            Assert.Contains("originPid=0", line);
+            Assert.Contains("body=<none>", line);
+            Assert.Contains("surface=0", line);
+            Assert.Contains("windows=0", line);
+        }
+
+        [Fact]
+        public void StartDockedOriginLine_EmptyRunAndDetailAreNamedRatherThanBlank()
+        {
+            string line = RouteDockCaptureMath.FormatStartDockedOriginLine(
+                "c", null, false, 0u, "", false, -1, 0, "");
+            Assert.Contains("run=<none>", line);
+            Assert.Contains("body=<none>", line);
+            Assert.Contains("detail=<none>", line);
+            Assert.Contains("situation=-1", line);
+        }
+
+        // -------------------------------------------------------------
         //  FormatPassLine
         // -------------------------------------------------------------
 

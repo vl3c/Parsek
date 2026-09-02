@@ -1,4 +1,4 @@
-# In-game test category inventory (all 110 categories)
+# In-game test category inventory (all 111 categories)
 
 Machine-derived from `Source/Parsek` by `hlib.parse_ingame_test_declarations` +
 `hlib.derive_batch_tally`. Do NOT hand-edit the table: re-derive it. The generator
@@ -170,6 +170,7 @@ Two limits of this table, stated so nobody over-reads it:
 | `RouteLifecycle` | 8 | 8 | 8 | 8 | 0 | 8 | RVR-3 (flown once 2026-09-01, `total=6 passed=4 failed=2`; the two failures were CONTRACT DRIFT - see the triage note - and the category is now 8 cells pinning BOTH halves of the armed-pause state machine. Pins `total=8` exactly with `passed=`/`skipped=` interim, `failed=0` asserted, plus a REQUIRED PASS token per resolution cell, and declares no render-composition expectations block, which is what keeps the five crossing cells from self-skipping) | B |
 | `RouteLiveAnchor` | 1 | 1 | 0 | 0 | 0 | 1 | - | B |
 | `RouteRewindTimeline` | 7 | 7 | 7 | 7 | 0 | 1 | H6 | B |
+| `RouteStartDockedOrigin` | 2 | 0 | 0 | 0 | 2 | 2 | H57 (ISOLATED, LIVE-PROVEN 2026-09-02 `2026-09-02_1044` PASS attempt 1, `total=2 passed=2 failed=0 skipped=0` pinned whole, nightly - Tier B item 4, the START-DOCKED origin subject. Two cells that reuse the `RouteDockCapture` rig but dock BEFORE the recorder starts, so their product is the start-time ORIGIN PROOF rather than a route window: the subject docks a partner rig into the active vessel, starts the recording docked, undocks and delivers LiquidFuel to a SECOND partner, then reads the proof back off the captured recording; the negative control undocks BEFORE the start and must capture nothing. Its own category, not a seventh `RouteDockCapture` cell, precisely so H55's and H56's pinned `total=6` does not move. Pins `total=2` exactly with `passed=`/`skipped=` interim and `failed=0` asserted) | A |
 | `SaveLoad` | 4 | 4 | 4 | 4 | 0 | 2 | H51 (flown 2026-08-28, executes 4 of 4) | A |
 | `SceneAndPatch` | 7 | 4 | 3 | 2 | 0 | 4 | H53 (FLIGHT slice, flown 2026-08-28, executes **2 of 7** - two residual skips are DRIVER-state, see below) | B |
 | `SceneExitMerge` | 2 | 0 | 0 | 0 | 2 | 2 | H21 | A |
@@ -204,8 +205,8 @@ Two limits of this table, stated so nobody over-reads it:
 
 ## Triage
 
-Totals, re-derived: **110 categories / 614 declarations**. Buckets **A 34 categories
-(235 declarations)**, **B 76 categories (379 declarations)**, **C 0 categories (0
+Totals, re-derived: **111 categories / 616 declarations**. Buckets **A 35 categories
+(237 declarations)**, **B 76 categories (379 declarations)**, **C 0 categories (0
 declarations)**. The 107th is `AutoMergeCommit` (R4, the AUTOMERGE-ON-BY-DEFAULT
 wave; the 106th is `DisabledHoverEcho`, landed the same week): the plan-§7
 autoMerge=ON scene-exit cell, batch-disabled and restore-backed exactly like the two
@@ -261,7 +262,23 @@ complete. Every rig is now rooted on a `probeCoreOcto2.v2`. THE LESSON GENERALIS
 category and is worth carrying into any future self-provisioned undock subject: an undock
 that produces debris produces no branch at all.
 
-Driven by a committed spec: **46 of 110 categories**, up from 35
+The 111th is `RouteStartDockedOrigin` (H57, 2026-09-02): TWO cells that share the
+`RouteDockCapture` source file and its whole spawn / couple / undock rig, but nothing
+else. Every `RouteDockCapture` cell docks AFTER the recorder is running and its product
+is a route WINDOW; these two dock BEFORE it starts, and their product is the start-time
+ORIGIN PROOF - a different producer on a different code path, whose only in-game evidence
+is what `StartRecording` emits. They are a separate CATEGORY rather than two more cells
+for exactly the reason the family's tally discipline predicts: `RouteDockCapture`'s
+`total=6` is pinned by TWO flown-green specs, and a seventh declaration would red both.
+Bucket **A**: its one committed spec flew GREEN on 2026-09-02 (`2026-09-02_1044`, PASS
+attempt 1, `total=2 passed=2 failed=0 skipped=0` pinned whole) after two red runs that each
+bought something - flight 1 found ROUTE-ORIGIN-PROOF-NEVER-REACHES-A-TREE-RECORDING and
+flight 2 found a rig leftover dereferencing that null read-back. What the pair is FOR is the
+Tier B item-4 subject the roadmap wrote as a manual flight and H56's probe retired -
+ROUTE-ORIGIN-PROOF-PRODUCER-UNREACHABLE, fixed in the same commit as these cells, so
+nothing has ever exercised the fixed producer live.
+
+Driven by a committed spec: **47 of 111 categories**, up from 35
 across six waves - `ReFlyWorldPreservation` via S4.2, `RecordedSignals` via H33,
 `SnapshotBaseline` via H32, and `Logistics` via H34 all landed together in one merge
 (the S1.8 SoiCrossingPlayback wave had taken it to 35 from 34, and 28 and 8 the waves

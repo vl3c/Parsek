@@ -40,6 +40,108 @@ namespace Parsek.Tests
             ParsekLog.SuppressLogging = true;
         }
 
+        // ---------- Settled-dock-seam predicate (the B4 fix) ----------
+        //
+        // ROUTE-ORIGIN-PROOF-PRODUCER-UNREACHABLE: the producer used to build its
+        // candidate list from `p.parent.vessel != v`, which `Part.Couple` makes
+        // unsatisfiable (it reassigns `vessel` across the whole absorbed subtree).
+        // `IsSettledDockSeam` is the replacement reading - the docking node's OWN
+        // docked-partner information, which survives both the couple and save/load.
+        // These cells pin all eight input shapes plus the two false-positive
+        // populations the predicate exists to exclude.
+
+        [Theory]
+        // hasDockedVesselInfo, dockedPartUId, partnerPartResolvesOnSameVessel, expected
+        [InlineData(true, 42u, true, true)]    // settled cross-vessel dock: the ONLY true
+        [InlineData(false, 42u, true, false)]  // no DOCKEDVESSEL: editor-preattached / same-vessel dock
+        [InlineData(true, 0u, true, false)]    // node never recorded a partner part
+        [InlineData(true, 42u, false, false)]  // partner is on ANOTHER vessel: already undocked
+        [InlineData(false, 0u, false, false)]
+        [InlineData(false, 42u, false, false)]
+        [InlineData(false, 0u, true, false)]
+        [InlineData(true, 0u, false, false)]
+        public void IsSettledDockSeam_PinsEveryInputShape(
+            bool hasDockedVesselInfo, uint dockedPartUId, bool partnerResolves, bool expected)
+        {
+            // FAILS IF: any of the three conjuncts stops being load-bearing. Dropping
+            // hasDockedVesselInfo would let an editor-preattached port pair (stock never
+            // creates vesselInfo for one, and DockToSameVessel does not either) forge a
+            // non-KSC origin on any craft built with two ports stuck together; dropping
+            // partnerResolves would let a node that kept a stale vesselInfo after an
+            // undock keep producing a dead seam.
+            Assert.Equal(expected, RouteProofCapture.IsSettledDockSeam(
+                hasDockedVesselInfo, dockedPartUId, partnerResolves));
+        }
+
+        [Fact]
+        public void SettledDockSeamCandidates_MergedVesselDescriptor_CapturesLandedSurfaceOrigin()
+        {
+            // FAILS IF: the seam-derived candidate shape stops reaching Captured. On a
+            // settled dock the two halves are ONE Vessel, so every seam contributes the
+            // SAME descriptor - the merged vessel's pid, situation and body-fixed
+            // coordinates - which is what FlightRecorder.CaptureStartRouteOriginProofIfDocked
+            // now builds. Two seams (a two-port dock) must collapse to one distinct pid
+            // and never read as PartnerAmbiguous.
+            const uint mergedPid = 90210u;
+            var candidates = new List<OriginPartnerCandidate>
+            {
+                new OriginPartnerCandidate(11u, mergedPid, (int)Vessel.Situations.LANDED,
+                    "Kerbin", 0.0055, -74.7, 68.9),
+                new OriginPartnerCandidate(12u, mergedPid, (int)Vessel.Situations.LANDED,
+                    "Kerbin", 0.0055, -74.7, 68.9),
+            };
+
+            RouteProofCapture.BuildStartRouteOriginProof(
+                activeVesselSituation: (int)Vessel.Situations.LANDED,
+                activeVesselIsEva: false,
+                candidates: candidates,
+                snapshot: MakeVessel(MakePart(100, "fuelTank", MakeResource("LiquidFuel", 100.0, 400.0))),
+                isGloopsMode: false,
+                vesselContext: TestVesselContext,
+                recordingVesselId: TestRecordingVesselId,
+                out RouteOriginProof proof,
+                out List<uint> transportPids);
+
+            Assert.NotNull(proof);
+            Assert.Equal(mergedPid, proof.StartDockedOriginVesselPid);
+            Assert.Equal("Kerbin", proof.StartDockedOriginBodyName);
+            Assert.True(proof.StartDockedOriginIsSurface);
+            Assert.Equal((int)Vessel.Situations.LANDED, proof.StartDockedOriginSituation);
+            Assert.NotNull(transportPids);
+            Assert.Contains(logLines, l => l.Contains("RouteOriginProof captured:")
+                && l.Contains("partnerPid=" + mergedPid.ToString(CultureInfo.InvariantCulture))
+                && l.Contains("candidates=2"));
+        }
+
+        [Fact]
+        public void SettledDockSeamCandidates_PrelaunchHost_StillSkipsBeforeWalkingCandidates()
+        {
+            // FAILS IF: the fix weakens the PRELAUNCH short-circuit. A clamped pad vessel
+            // is not a delivery origin, and the seam producer must not change that - it is
+            // the branch H55's pad host takes and the branch the capture cell pins there.
+            var candidates = new List<OriginPartnerCandidate>
+            {
+                new OriginPartnerCandidate(11u, 90210u, (int)Vessel.Situations.PRELAUNCH,
+                    "Kerbin", 0.0, -74.7, 68.9),
+            };
+
+            RouteProofCapture.BuildStartRouteOriginProof(
+                activeVesselSituation: (int)Vessel.Situations.PRELAUNCH,
+                activeVesselIsEva: false,
+                candidates: candidates,
+                snapshot: MakeVessel(MakePart(100, "fuelTank", MakeResource("LiquidFuel", 100.0, 400.0))),
+                isGloopsMode: false,
+                vesselContext: TestVesselContext,
+                recordingVesselId: TestRecordingVesselId,
+                out RouteOriginProof proof,
+                out List<uint> transportPids);
+
+            Assert.Null(proof);
+            Assert.Null(transportPids);
+            Assert.Contains(logLines,
+                l => l.Contains("RouteOriginProof skipped: active vessel PRELAUNCH"));
+        }
+
         // ---------- Pure helper tests ----------
 
         [Fact]

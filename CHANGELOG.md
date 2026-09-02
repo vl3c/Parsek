@@ -10,6 +10,29 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **Test coverage: the start-docked supply-route origin now has an automated subject.**
+  Two new in-game checks fly the shape the roadmap had reserved for a hand-flown
+  mission - a transport that starts docked to a landed base, undocks, and delivers to
+  somewhere else - plus a control that docks and undocks before recording and must
+  record no origin at all. Both pass unattended. Nothing player-facing changes.
+
+- **A supply run that starts already docked to a base now records where it started
+  from.** The start-docked origin proof looked for a part whose parent belonged to a
+  different vessel, which a docked pair never has: KSP merges the two craft into one
+  vessel the moment they couple, so every part's parent reads back as the same vessel
+  and the check found nothing on any real dock, in flight or after a reload. A
+  transport recorded leaving a surface base therefore carried no origin at all, and a
+  route built from it had nowhere to say it came from. The recorder now reads the
+  docking port's own record of what it is docked to, which is the thing that actually
+  survives both the dock and a save/load, and stamps the docked pair's own position
+  and body as the origin. Ports stuck together in the editor, ports docked to their
+  own vessel, and ports that have since undocked are all excluded, so no craft gains
+  an origin it never had. Vessels sitting clamped on the pad are unchanged: a launch
+  is still a launch, not a delivery from a depot. Note that this is the recording half
+  only: the origin is worked out correctly, but it does not yet survive onto the saved
+  recording, so routes built from a start-docked run still have no origin to show. That
+  second half is tracked and not yet done.
+
 - **Restructuring the recordings list mid-session now tells every index-keyed
   consumer.** Merging to the timeline or committing a chain segment runs the same
   merge/split pass that runs at load, and that pass removes merge-absorbed

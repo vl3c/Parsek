@@ -2374,7 +2374,54 @@ gated behind the ROUTE-ORIGIN-PROOF-PRODUCER-UNREACHABLE probe (todo) before any
    verdict pin, so a green run proves the line was emitted and settles nothing
    by itself; a human reads the numbers.
    **SETTLED 2026-09-02 (H56, `2026-09-02_0545`, PASS): on the LANDED host the probe read `situation=1 outcome=no-external-coupling externalParentParts=0` - the producer is dead code on a settled dock. ROUTE-ORIGIN-PROOF-PRODUCER-UNREACHABLE is CONFIRMED; this item is now a BUG FIX plus a `RouteDockCapture` capture cell, and the manual flight is RETIRED.**
+   **FIXED 2026-09-02 (code green, not yet flown).** The producer now builds its
+   candidates from the docking node's own docked-partner information
+   (`RouteProofCapture.IsSettledDockSeam`: a `vesselInfo` created only by a real
+   cross-vessel `DockToVessel`, a non-zero `dockedPartUId`, and a partner part that
+   still resolves on the SAME vessel), with the merged vessel as the origin partner;
+   the old external-parent reading is KEPT alongside it for the unsettled mirror
+   case. The probe cell became the regression gate
+   (`OriginProof_SettledDockCapturesProofFromDockingNode`, same category, same count,
+   same `OriginProofProbe:` token): it asserts `externalParentParts=0` on both hosts,
+   the `active-vessel-PRELAUNCH` skip on H55's pad host, and
+   `proofCaptured=True outcome=captured` on H56's landed host. THE NEXT FLIGHT ON
+   THIS ITEM IS AN H55 + H56 RE-RUN, not a manual subject. The surface flavor of D10
+   `docked-depot-origin` is claimed off H56's post-fix census, and the Tier B item-4
+   subject proper - transport STARTS docked, undocks, delivers elsewhere on a landed
+   host - is now lane `H57-route-start-docked-origin-landed.toml`, authored and never
+   flown.
 5. **Ground pickup + mixed direction.** ~~The base loads cargo ONTO the
+   **THE LANE, AUTHORED 2026-09-02 AND NEVER FLOWN:** two cells in a NEW category
+   `RouteStartDockedOrigin` (a separate category on purpose - `RouteDockCapture`'s
+   `total=6` is pinned by two flown-green specs and a seventh declaration would red
+   both). The subject docks a self-provisioned partner rig into the active vessel
+   with NO recording running, starts the recording docked, undocks, then docks a
+   SECOND rig and delivers LiquidFuel across a real window, and after the stop reads
+   the proof back off the captured recording asserting a real body name and
+   `IsSurface=true`. The negative control docks and UNDOCKS before the start and must
+   capture nothing. ONE CAVEAT, recorded in the spec and the todo entry: the cells
+   couple with a raw `Part.Couple`, which writes no docking-node bookkeeping, so each
+   stamps it from the decompiled `DockToVessel` contract first - half the gate is a
+   stock-contract emulation, and what it buys is the whole LIVE producer path. The
+   non-emulated confirmation is a real player dock and stays unbought.
+   **FLIGHT 1 (`2026-09-02_1005`) PARSEK-FAIL(results), `total=2 passed=1 failed=1`, and
+   the failure is the PRODUCT rather than the lane:** the control passed, the subject red
+   on reading the proof back off a committed recording, and the caller set says the proof
+   never reaches one in always-tree mode
+   (ROUTE-ORIGIN-PROOF-NEVER-REACHES-A-TREE-RECORDING). **SO ITEM 4 IS NOT DONE.** The
+   producer half is fixed and live-confirmed by H56's post-fix probe
+   (`proofCaptured=True outcome=captured`); the persistence half and the partner-pid rule
+   (ROUTE-ORIGIN-PROOF-PARTNER-IDENTITY) are open, and no D10 `docked-depot-origin` row is
+   claimed until both land and H57 flies green.
+   **H57 FLEW GREEN 2026-09-02 (`2026-09-02_1044`, PASS attempt 1, `total=2 passed=2
+   failed=0 skipped=0` pinned whole, promoted to nightly).** The subject and its mirrored
+   negative control both read exactly as derived, so the Tier B item-4 SUBJECT is now
+   produced unattended. **ITEM 4 IS STILL NOT DONE**, and the green census is what makes
+   that precise rather than a hedge: the lane proves the PRODUCER end to end and stops at
+   `CaptureAtStop`, and the produced save's `ROUTE_ORIGIN_PROOF` count was 0 on H56 and
+   H57 alike. D10 `docked-depot-origin` is claimed in the commit that reads a green census
+   off a lane whose subject asserts a PERSISTED proof - after the forwarding fix and the
+   partner-identity ruling - and not before.
    transport (pickup manifest), then a both-directions window
    (`mixed-direction`). Same two-rover template, transfers reversed.~~
    **AUTOMATABLE: `RouteDockCapture` cells authored 2026-09-02, lane H55 never

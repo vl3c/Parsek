@@ -619,21 +619,22 @@ namespace Parsek.InGameTests
         }
 
         // ==================================================================
-        // The origin-proof PROBE (an instrument, not a gate)
+        // The origin-proof CAPTURE CELL (the B4 regression gate)
         // ==================================================================
 
         [InGameTest(Category = "RouteDockCapture", Scene = GameScenes.FLIGHT,
             AllowBatchExecution = false,
             RestoreBatchFlightBaselineAfterExecution = true,
             BatchSkipReason = IsolatedOnlyBatchSkipReason,
-            Description = "INSTRUMENT for ROUTE-ORIGIN-PROOF-PRODUCER-UNREACHABLE (todo, SUSPECTED): couples a " +
-                "spawned dockingPort2 partner into the active vessel, counts the parts satisfying the " +
-                "producer's own predicate (p.parent.vessel != v), then starts a recording on the docked " +
-                "vessel and reads back whether a RouteOriginProof was captured. Logs " +
-                "'OriginProofProbe: externalParentParts=N proofCaptured=<bool> ...' and asserts NO verdict - " +
-                "it PASSES whenever it measured. That measurement is what decides whether roadmap Tier B " +
-                "item 4 is a flight or a bug fix")]
-        public IEnumerator OriginProofProbe_SettledDockLeavesNoExternalParent()
+            Description = "REGRESSION GATE for ROUTE-ORIGIN-PROOF-PRODUCER-UNREACHABLE (CONFIRMED by this " +
+                "cell's own instrument reading on H56, fixed 2026-09-02): couples a spawned dockingPort2 " +
+                "partner into the active vessel, counts the parts satisfying the RETIRED predicate " +
+                "(p.parent.vessel != v) to prove the fix does not depend on it, then starts a recording on " +
+                "the docked vessel and asserts the producer's verdict - proofCaptured=True off the settled " +
+                "dock seam on any non-PRELAUNCH host, and the ActiveVesselPrelaunch skip on a pad host. " +
+                "Still logs the 'OriginProofProbe: externalParentParts=N proofCaptured=<bool> ...' " +
+                "instrument line, whose values both lanes pin as a regex")]
+        public IEnumerator OriginProof_SettledDockCapturesProofFromDockingNode()
         {
             var ctx = new CellContext("origin-probe");
             IEnumerator pre = ctx.Begin();
@@ -654,6 +655,7 @@ namespace Parsek.InGameTests
                 // is exactly when the producer runs.
                 Part partnerPort = rig.Port;
                 uint partnerPid = rig.Vessel != null ? rig.Vessel.persistentId : 0u;
+                StampStockDockBookkeeping(partnerPort, ctx.TransportPort);
                 partnerPort.Couple(ctx.TransportPort);
                 for (int i = 0; i < SettleFrames; i++)
                     yield return null;
@@ -696,16 +698,368 @@ namespace Parsek.InGameTests
                     externalParentParts, proofCaptured, (int)v.situation, outcome, partnerPid);
                 ParsekLog.Info("TestRunner", line);
 
-                // NO VERDICT. The cell passes because it measured; the numbers
-                // in the line above are the product.
                 InGameAssert.IsTrue(ctx.Flight.IsRecording,
-                    "the probe must have actually started a recording, or it measured nothing");
-                InGameAssert.IsTrue(externalParentParts >= 0, "counter sanity");
+                    "the cell must have actually started a recording, or it measured nothing");
+
+                // THE VERDICT. Three assertions, in the order that makes a red name
+                // its own cause.
+                //
+                // (1) The RETIRED predicate must stay dead. Part.Couple reassigns
+                //     vessel across the absorbed subtree, so a settled dock leaves
+                //     zero externally parented parts - measured on both hosts before
+                //     the fix. A non-zero count here would mean the fix is being
+                //     carried by the OLD reading and the seam producer is untested.
+                InGameAssert.AreEqual(0, externalParentParts,
+                    "a settled Part.Couple must leave NO externally parented part - the retired " +
+                    "p.parent.vessel != v reading is what ROUTE-ORIGIN-PROOF-PRODUCER-UNREACHABLE " +
+                    "is about, and the origin proof must not come from it");
+
+                // (2) / (3) The producer's verdict, host-aware. The resolver
+                //     short-circuits on an active PRELAUNCH vessel BEFORE it walks
+                //     candidates (a clamped pad vessel is not a delivery origin), so
+                //     the pad lane's correct answer is the skip and the landed lane's
+                //     is the capture. Both are pinned: a lane cannot pass by
+                //     producing the other host's answer.
+                if (v.situation == Vessel.Situations.PRELAUNCH)
+                {
+                    InGameAssert.IsFalse(proofCaptured,
+                        "a PRELAUNCH active vessel must NOT capture an origin proof (outcome=" +
+                        outcome + ")");
+                    InGameAssert.AreEqual("active-vessel-PRELAUNCH", outcome,
+                        "a PRELAUNCH host must take the ActiveVesselPrelaunch branch, not another skip");
+                }
+                else
+                {
+                    InGameAssert.IsTrue(proofCaptured,
+                        "the settled dock seam must produce a RouteOriginProof on a non-PRELAUNCH " +
+                        "host (situation=" + ((int)v.situation).ToString(IC) + " outcome=" + outcome +
+                        "). 'no-external-coupling' here means the docking-node seam producer " +
+                        "regressed back to the retired parent-vessel reading");
+                    InGameAssert.AreEqual("captured", outcome,
+                        "the producer must report the Captured branch, not a skip");
+                }
             }
             finally
             {
                 ctx.Teardown();
             }
+        }
+
+        // ==================================================================
+        // RouteStartDockedOrigin - Tier B item 4, the START-DOCKED subject
+        //
+        // A DIFFERENT CATEGORY IN THE SAME FILE, on purpose. These two cells
+        // reuse the whole RouteDockCapture rig (CellContext, PartnerRig, the
+        // spawn / couple / undock helpers), which is a private nested type -
+        // moving them to their own file would mean promoting that machinery to
+        // a shared surface for no gain. The CATEGORY is what a batch selects
+        // on, so a separate lane can fly exactly these two without touching
+        // H55 / H56's pinned `RouteDockCapture` tally of 6.
+        //
+        // THE SUBJECT, which is what makes it a different category rather than
+        // two more capture cells: every RouteDockCapture cell docks AFTER the
+        // recorder is already running, so its product is a route WINDOW. These
+        // two dock BEFORE it starts, so their product is the start-time
+        // ORIGIN PROOF - a different producer, on a different code path, whose
+        // only in-game evidence is what StartRecording emits.
+        // ==================================================================
+
+        [InGameTest(Category = "RouteStartDockedOrigin", Scene = GameScenes.FLIGHT,
+            AllowBatchExecution = false,
+            RestoreBatchFlightBaselineAfterExecution = true,
+            BatchSkipReason = IsolatedOnlyBatchSkipReason,
+            Description = "Tier B item 4: assembles a partner rig, docks the ACTIVE vessel to it BEFORE any " +
+                "recording exists, starts the recording docked (the start-docked origin producer's only " +
+                "live entry point), undocks, then docks a SECOND partner and delivers LiquidFuel across " +
+                "that window. Asserts the origin proof was captured at start, survives onto the captured " +
+                "recording with a real-coordinate surface descriptor, and that the later delivery window " +
+                "completed - the whole 'starts docked at a base, undocks, delivers elsewhere' shape")]
+        public IEnumerator StartDockedOrigin_StartsDockedThenUndocksAndDelivers()
+        {
+            var ctx = new CellContext("start-docked");
+            IEnumerator pre = ctx.Begin();
+            while (pre.MoveNext()) yield return pre.Current;
+
+            try
+            {
+                IEnumerator port = ctx.AttachTransportDockPort();
+                while (port.MoveNext()) yield return port.Current;
+
+                // The DEPOT: partner A stands in for the landed base rover.
+                var depot = new PartnerRig("A");
+                IEnumerator buildDepot = ctx.BuildPartnerRig(
+                    depot, PartnerAOffsetsMeters, withTank: false, withContainer: false);
+                while (buildDepot.MoveNext()) yield return buildDepot.Current;
+
+                // THE DOCK HAPPENS OUTSIDE ANY RECORDING. That is the whole
+                // subject: no onPartCouple window can open, so the origin has
+                // to come from the world state StartRecording finds.
+                StampStockDockBookkeeping(depot.Port, ctx.TransportPort);
+                depot.Port.Couple(ctx.TransportPort);
+                for (int i = 0; i < SettleFrames; i++)
+                    yield return null;
+
+                Vessel merged = FlightGlobals.ActiveVessel;
+                InGameAssert.IsNotNull(merged, "the active vessel disappeared during the depot couple");
+                InGameAssert.AreEqual(merged, depot.Port.vessel,
+                    "the depot must be part of the active vessel after Part.Couple - that merge is " +
+                    "exactly why the retired p.parent.vessel != v reading found nothing");
+                InGameAssert.AreNotEqual(Vessel.Situations.PRELAUNCH, merged.situation,
+                    "this cell needs a NON-PRELAUNCH host: the resolver short-circuits on a clamped " +
+                    "pad vessel before it walks candidates, and there would be nothing to measure");
+                uint mergedPid = merged.persistentId;
+                int mergedSituation = (int)merged.situation;
+
+                int beforeStart = ctx.CapturedCount;
+                IEnumerator rec = ctx.StartRecordingAndWait();
+                while (rec.MoveNext()) yield return rec.Current;
+
+                bool capturedAtStart = ctx.FindFrom(beforeStart,
+                    l => l.Contains("RouteOriginProof captured:"));
+                string outcome = ctx.FirstMatchSuffix(beforeStart, "RouteOriginProof skipped: ")
+                    ?? (capturedAtStart ? "captured" : "no-producer-line");
+                InGameAssert.IsTrue(capturedAtStart,
+                    "starting a recording on a settled docked pair must capture a RouteOriginProof " +
+                    "(outcome=" + outcome + "). 'no-external-coupling' means the docking-node seam " +
+                    "producer regressed to the retired parent-vessel reading");
+
+                // THE UNDOCK: the transport leaves the depot. No window can
+                // complete here - none was ever opened - so this is a plain
+                // Part.Undock, deliberately NOT UndockAndAwaitCompletion.
+                var depotInfo = new DockedVesselInfo
+                {
+                    name = ctx.RunId + "-depot-left-behind",
+                    vesselType = VesselType.Probe,
+                    rootPartUId = depot.Root.flightID
+                };
+                depot.Port.Undock(depotInfo);
+                for (int i = 0; i < SettleFrames; i++)
+                    yield return null;
+                InGameAssert.AreNotEqual(merged, depot.Port.vessel,
+                    "the depot must be its own vessel again after the undock");
+                if (depot.Vessel == null || depot.Vessel.state == Vessel.State.DEAD)
+                    depot.Vessel = depot.Port.vessel;
+
+                // DELIVER ELSEWHERE: a SECOND partner, a different endpoint
+                // vessel from the origin, reached while the same recording runs.
+                var destination = new PartnerRig("B");
+                IEnumerator buildDest = ctx.BuildPartnerRig(
+                    destination, PartnerBOffsetsMeters, withTank: true, withContainer: false);
+                while (buildDest.MoveNext()) yield return buildDest.Current;
+                if (destination.Tank == null)
+                    InGameAssert.Skip("destination rig has no tank to receive the delivery");
+                ctx.SetResourceAmountToHalf(destination.Tank, TransferResourceName);
+
+                IEnumerator dock = ctx.CoupleAndAwaitWindow(destination);
+                while (dock.MoveNext()) yield return dock.Current;
+                double delivered = ctx.TransferResource(
+                    ctx.TransportTank, destination.Tank, TransferResourceName, RequestedTransferUnits);
+                yield return null;
+                IEnumerator undock = ctx.UndockAndAwaitCompletion(destination);
+                while (undock.MoveNext()) yield return undock.Current;
+
+                InGameAssert.IsGreaterThan(delivered, 0.0,
+                    "the delivery leg must actually move LiquidFuel, or the window is vacuous");
+                Dictionary<string, double> deliveryManifest =
+                    RouteAnalysisEngine.BuildResourceDeliveryManifest(
+                        ctx.Windows[0], ctx.WindowRecordingId, RouteAnalysisLogMode.Diagnostic);
+                InGameAssert.IsTrue(
+                    deliveryManifest != null && deliveryManifest.ContainsKey(TransferResourceName),
+                    "the destination window must carry a LiquidFuel delivery manifest");
+
+                // EVERY STATEMENT BELOW IS POST-MEASUREMENT AND HAS NO `yield`, so it can
+                // live inside a try/catch. It is wrapped because H57's first two flights
+                // died in exactly this tail with a bare "Object reference not set to an
+                // instance of an object." - the runner records only `ex.Message`, so the
+                // census carried no site at all. Now the located Warn lands immediately
+                // above the runner's FAILED line, and the exception still fails the cell.
+                try
+                {
+                    // THE PROOF'S FIELDS ARE READ OFF THE PRODUCER'S OWN LINE, not off a
+                    // committed recording, and that is a statement about the PRODUCT rather
+                    // than a convenience. Measured by this lane's first flight
+                    // (`2026-09-02_1005`): the start-time proof IS produced and IS attached to
+                    // `FlightRecorder.CaptureAtStop` by `BuildCaptureRecording`, but in
+                    // ALWAYS-TREE mode nothing forwards it onto a tree recording -
+                    // `ParsekFlight.AppendCapturedDataToRecording` omits the field by explicit
+                    // decision, and the one production writer of `Recording.RouteOriginProof`
+                    // (`Recording.ApplyPersistenceArtifactsFrom`, reached from
+                    // `ChainSegmentManager.CommitSegmentCore`) is on the legacy chain-commit
+                    // path. Filed as ROUTE-ORIGIN-PROOF-NEVER-REACHES-A-TREE-RECORDING. This
+                    // cell therefore asserts what the producer emits and NOT what the store
+                    // holds: pinning the read-back today would pin the defect as correct, and
+                    // pinning `proof == null` would pin it as intended.
+                    if (ctx.Flight.IsRecording)
+                        ctx.Flight.StopRecording();
+                    string proofRecordingId;
+                    RouteOriginProof proof = FindOriginProof(ctx.Tree, out proofRecordingId);
+                    ParsekLog.Info("TestRunner",
+                        "StartDockedOriginForward: cell=" + ctx.CellName
+                        + " treeRecordingWithProof=" + (proof != null ? (proofRecordingId ?? "<unnamed>") : "<none>")
+                        + " (REPORT-ONLY, see ROUTE-ORIGIN-PROOF-NEVER-REACHES-A-TREE-RECORDING)");
+
+                    // The producer's Captured line carries every descriptor field this cell
+                    // is here to prove is real, and it is production output.
+                    InGameAssert.IsTrue(
+                        ctx.FindFrom(beforeStart, l => l.Contains("RouteOriginProof captured:")
+                            && l.Contains("surface=1")),
+                        "the start-docked capture must produce a SURFACE-typed origin endpoint on a " +
+                        "LANDED docked pair - IsSurfaceOriginSituation admits LANDED and SPLASHED only, " +
+                        "so surface=0 here means the descriptor lost the docked pair's situation");
+                    InGameAssert.IsTrue(
+                        ctx.FindFrom(beforeStart, l => l.Contains("RouteOriginProof captured:")
+                            && l.Contains("partnerBody=Kerbin")),
+                        "the M1 endpoint descriptor must carry the body name, or the origin falls back " +
+                        "to the PID-only shape and loses its proximity rebuild");
+                    InGameAssert.IsTrue(
+                        ctx.FindFrom(beforeStart, l =>
+                            l.Contains("RouteOriginProof seam scan:")
+                            && l.Contains("externalParentCandidates=0")
+                            && !l.Contains("settledDockSeamCandidates=0")),
+                        "the capture must come from the DOCK SEAM: the retired p.parent.vessel != v " +
+                        "reading must contribute zero and the seam producer must contribute at least one");
+
+                    ParsekLog.Info("TestRunner",
+                        RouteDockCaptureMath.FormatStartDockedOriginLine(
+                            ctx.CellName, ctx.RunId, proofCaptured: true,
+                            originVesselPid: mergedPid,
+                            originBodyName: merged.mainBody != null ? merged.mainBody.bodyName : null,
+                            originIsSurface: RouteProofCapture.IsSurfaceOriginSituation(mergedSituation),
+                            originSituation: mergedSituation,
+                            completeWindows: ctx.Windows.Count,
+                            detail: "recordedPid=" + mergedPid.ToString(IC)
+                                + ";treeProof=" + (proof != null ? "yes" : "no")
+                                + ";delivered=" + delivered.ToString("F2", IC)));
+
+                    ctx.RunAnalysisAndPass(
+                        completeWindows: ctx.Windows.Count,
+                        kind: ctx.Windows[0].TransferKind,
+                        deliveryResources: deliveryManifest.Count,
+                        deliveryInventory: 0,
+                        pickupResources: 0,
+                        pickupInventory: 0,
+                        // THE NRE THAT RED FLIGHTS 1 AND 2 WAS HERE: this argument
+                        // dereferenced the tree-lookup result, which is null by
+                        // construction while ROUTE-ORIGIN-PROOF-NEVER-REACHES-A-TREE-RECORDING
+                        // stands. It survived the reshape as a leftover from the version
+                        // that asserted the read-back. The recorded vessel pid is what the
+                        // producer actually stamped, and it is already in the instrument
+                        // line above.
+                        detail: "recordedPid=" + mergedPid.ToString(IC)
+                            + ";treeProof=" + (proof != null ? "yes" : "no")
+                            + ";delivered=" + delivered.ToString("F2", IC));
+                }
+                catch (Exception tailEx)
+                {
+                    ParsekLog.Warn("TestRunner",
+                        FormatFailureSite("post-measurement-tail", ctx.CellName, tailEx));
+                    throw;
+                }
+            }
+            finally
+            {
+                ctx.Teardown();
+            }
+        }
+
+        [InGameTest(Category = "RouteStartDockedOrigin", Scene = GameScenes.FLIGHT,
+            AllowBatchExecution = false,
+            RestoreBatchFlightBaselineAfterExecution = true,
+            BatchSkipReason = IsolatedOnlyBatchSkipReason,
+            Description = "NEGATIVE CONTROL for the cell above: the same rig docks and then UNDOCKS before " +
+                "the recording starts, so the docking node keeps its vesselInfo but its partner part is no " +
+                "longer on this vessel. Asserts NO origin proof is captured - which is what proves the " +
+                "subject cell's proof comes from a live seam rather than from any craft that ever docked")]
+        public IEnumerator StartDockedOrigin_PartnerUndockedBeforeStart_CapturesNoOriginProof()
+        {
+            var ctx = new CellContext("undocked-before-start");
+            IEnumerator pre = ctx.Begin();
+            while (pre.MoveNext()) yield return pre.Current;
+
+            try
+            {
+                IEnumerator port = ctx.AttachTransportDockPort();
+                while (port.MoveNext()) yield return port.Current;
+
+                var depot = new PartnerRig("A");
+                IEnumerator buildDepot = ctx.BuildPartnerRig(
+                    depot, PartnerAOffsetsMeters, withTank: false, withContainer: false);
+                while (buildDepot.MoveNext()) yield return buildDepot.Current;
+
+                StampStockDockBookkeeping(depot.Port, ctx.TransportPort);
+                depot.Port.Couple(ctx.TransportPort);
+                for (int i = 0; i < SettleFrames; i++)
+                    yield return null;
+
+                Vessel merged = FlightGlobals.ActiveVessel;
+                InGameAssert.IsNotNull(merged, "the active vessel disappeared during the depot couple");
+                InGameAssert.AreEqual(merged, depot.Port.vessel,
+                    "the depot must be part of the active vessel before the undock, or the control " +
+                    "proves nothing");
+
+                depot.Port.Undock(new DockedVesselInfo
+                {
+                    name = ctx.RunId + "-depot-detached",
+                    vesselType = VesselType.Probe,
+                    rootPartUId = depot.Root.flightID
+                });
+                for (int i = 0; i < SettleFrames; i++)
+                    yield return null;
+                InGameAssert.AreNotEqual(merged, depot.Port.vessel,
+                    "the depot must be its own vessel again before the recording starts");
+                if (depot.Vessel == null || depot.Vessel.state == Vessel.State.DEAD)
+                    depot.Vessel = depot.Port.vessel;
+
+                int beforeStart = ctx.CapturedCount;
+                IEnumerator rec = ctx.StartRecordingAndWait();
+                while (rec.MoveNext()) yield return rec.Current;
+
+                bool capturedAtStart = ctx.FindFrom(beforeStart,
+                    l => l.Contains("RouteOriginProof captured:"));
+                string outcome = ctx.FirstMatchSuffix(beforeStart, "RouteOriginProof skipped: ")
+                    ?? (capturedAtStart ? "captured" : "no-producer-line");
+
+                ParsekLog.Info("TestRunner",
+                    RouteDockCaptureMath.FormatStartDockedOriginLine(
+                        ctx.CellName, ctx.RunId, capturedAtStart,
+                        originVesselPid: 0u,
+                        originBodyName: null,
+                        originIsSurface: false,
+                        originSituation: (int)merged.situation,
+                        completeWindows: 0,
+                        detail: "outcome=" + outcome));
+
+                InGameAssert.IsFalse(capturedAtStart,
+                    "an UNDOCKED partner must leave no live seam: the node keeps its vesselInfo, but " +
+                    "its docked partner part is on another vessel now, and IsSettledDockSeam's " +
+                    "partner-resolves conjunct is what must reject it (outcome=" + outcome + ")");
+                InGameAssert.AreEqual("no-external-coupling", outcome,
+                    "the producer must take the NoExternalCoupling branch, not a different skip");
+            }
+            finally
+            {
+                ctx.Teardown();
+            }
+        }
+
+        /// <summary>First recording in <paramref name="tree"/> carrying a
+        /// <see cref="RouteOriginProof"/>, with its id. Scanned rather than read off the
+        /// active id because the cells drive an undock split, so the recording that was
+        /// active at StartRecording is not the one active at the stop.</summary>
+        private static RouteOriginProof FindOriginProof(RecordingTree tree, out string recordingId)
+        {
+            recordingId = null;
+            if (tree == null || tree.Recordings == null)
+                return null;
+            foreach (KeyValuePair<string, Recording> kvp in tree.Recordings)
+            {
+                if (kvp.Value != null && kvp.Value.RouteOriginProof != null)
+                {
+                    recordingId = kvp.Key;
+                    return kvp.Value.RouteOriginProof;
+                }
+            }
+            return null;
         }
 
         // ==================================================================
@@ -743,6 +1097,11 @@ namespace Parsek.InGameTests
             }
 
             internal int CapturedCount => captured.Count;
+
+            /// <summary>The tree the cell's own recording is running in, bound by
+            /// <see cref="StartRecordingAndWait"/>. Read AFTER a stop to inspect what
+            /// <c>BuildCaptureRecording</c> forwarded onto the captured recording.</summary>
+            internal RecordingTree Tree => tree;
 
             internal bool FindFrom(int fromIndex, Predicate<string> predicate)
             {
@@ -1351,7 +1710,41 @@ namespace Parsek.InGameTests
                 if (Flight.IsRecording)
                     Flight.StopRecording();
 
-                RouteAnalysisResult analysis = RouteAnalysisEngine.AnalyzeTree(tree);
+                // RE-DERIVE THE TREE HANDLE. `tree` was bound at StartRecordingAndWait,
+                // and a cell that drives an undock SPLIT with the recorder running can
+                // leave that handle behind: CreateSplitBranch mutates the active tree, and
+                // the stop's finalize can re-point what ParsekFlight considers active. The
+                // window-centric cells split once, at the end, and never notice; the
+                // start-docked subject splits TWICE (the depot leaves before any window
+                // exists), which is where H57's first two flights died with a bare NRE in
+                // this tail. Prefer the live active tree, keep the bound one as fallback,
+                // and NAME the state instead of dereferencing null.
+                RecordingTree analysisTree = Flight.ActiveTreeForSerialization ?? tree;
+                if (analysisTree != null && !ReferenceEquals(analysisTree, tree))
+                {
+                    ParsekLog.Verbose("TestRunner",
+                        "RouteDockCapture analysis tree refreshed: cell=" + CellName +
+                        " bound=" + (tree != null ? (tree.Id ?? "<unnamed>") : "<null>") +
+                        " live=" + (analysisTree.Id ?? "<unnamed>"));
+                    tree = analysisTree;
+                }
+                InGameAssert.IsNotNull(analysisTree,
+                    "no RecordingTree to analyse: the handle bound at StartRecordingAndWait is null " +
+                    "and ParsekFlight has no active tree after the stop (cell=" + CellName + ")");
+
+                RouteAnalysisResult analysis;
+                try
+                {
+                    analysis = RouteAnalysisEngine.AnalyzeTree(analysisTree);
+                }
+                catch (Exception ex)
+                {
+                    // THE RUNNER LOGS ONLY THE MESSAGE, so an exception raised here reaches
+                    // the census as a bare "Object reference not set to an instance of an
+                    // object." with no site. Name the site before rethrowing.
+                    ParsekLog.Warn("TestRunner", FormatFailureSite("AnalyzeTree", CellName, ex));
+                    throw;
+                }
                 InGameAssert.IsNotNull(analysis, "AnalyzeTree returned null");
                 // The cell's OWN construction rules three statuses out: a
                 // completed DockingPort window exists, so proof is present and
@@ -1620,6 +2013,103 @@ namespace Parsek.InGameTests
         {
             AvailablePart info = PartLoader.getPartInfoByName(name);
             return info != null ? info.partPrefab : null;
+        }
+
+        /// <summary>
+        /// Stamps the post-dock bookkeeping stock's <c>ModuleDockingNode.DockToVessel</c>
+        /// writes, on both ends of a port pair that is about to be coupled with a RAW
+        /// <c>Part.Couple</c>. MUST be called BEFORE the couple: <c>vesselInfo</c> records
+        /// each half's PRE-dock vessel identity, which is unrecoverable afterwards.
+        ///
+        /// <para>Why the cells need it. <c>Part.Couple</c> is not the docking FSM - which is
+        /// exactly what the five capture cells want (a port-to-port couple that the real
+        /// <c>onPartCouple</c> classifies with no FSM in the way, and no magnetic acquire to
+        /// drive between two spawned parts 15 m apart). But it leaves the node's own
+        /// docked-partner record empty, and that record is what the start-docked origin
+        /// producer reads (<c>RouteProofCapture.IsSettledDockSeam</c>). A real in-game dock
+        /// always writes it, and it round-trips through the node's DOCKEDVESSEL / dockUId
+        /// save keys, so a cell that skipped this step would be testing a world state the
+        /// game never produces.</para>
+        ///
+        /// <para>The three assignments below are quoted from the decompiled
+        /// <c>DockToVessel</c> (name / vesselType / rootPartUId per half) plus the FSM's own
+        /// <c>dockedPartUId = otherNode.part.flightID</c>. WHAT IS DELIBERATELY NOT WRITTEN:
+        /// <c>otherNode</c> and the FSM state. Assigning <c>otherNode</c> while a node sits
+        /// in <c>Ready</c> arms the acquire / node-distance events, and
+        /// <c>on_nodeDistance</c>'s handler nulls <c>vesselInfo</c> straight back out - so
+        /// stamping it would silently undo the stamp. The producer reads neither.</para>
+        ///
+        /// <para>STANDING CAVEAT, stated rather than buried: the cell writes the two fields
+        /// the predicate reads, so this half of the gate is a stock-contract emulation, not
+        /// an independent measurement. What it still buys is the whole live producer path -
+        /// walk the parts, find the node, resolve the partner ON THIS vessel, build the
+        /// merged-vessel candidate, run the resolver, populate the descriptor and the
+        /// manifests - which no headless test can drive.</para>
+        /// </summary>
+        private static void StampStockDockBookkeeping(Part portA, Part portB)
+        {
+            InGameAssert.IsNotNull(portA, "dock bookkeeping needs a live port A");
+            InGameAssert.IsNotNull(portB, "dock bookkeeping needs a live port B");
+            ModuleDockingNode nodeA = portA.FindModuleImplementing<ModuleDockingNode>();
+            ModuleDockingNode nodeB = portB.FindModuleImplementing<ModuleDockingNode>();
+            InGameAssert.IsNotNull(nodeA, "port A must carry ModuleDockingNode");
+            InGameAssert.IsNotNull(nodeB, "port B must carry ModuleDockingNode");
+            Vessel vesselA = portA.vessel;
+            Vessel vesselB = portB.vessel;
+            InGameAssert.IsNotNull(vesselA, "port A must still be on a live vessel (call BEFORE the couple)");
+            InGameAssert.IsNotNull(vesselB, "port B must still be on a live vessel (call BEFORE the couple)");
+            InGameAssert.AreNotEqual(vesselA, vesselB,
+                "the two halves must still be SEPARATE vessels when the bookkeeping is stamped - " +
+                "a same-vessel pair is DockToSameVessel, which writes no vesselInfo");
+
+            nodeA.vesselInfo = new DockedVesselInfo
+            {
+                name = vesselA.vesselName,
+                vesselType = vesselA.vesselType,
+                rootPartUId = vesselA.rootPart != null ? vesselA.rootPart.flightID : portA.flightID
+            };
+            nodeB.vesselInfo = new DockedVesselInfo
+            {
+                name = vesselB.vesselName,
+                vesselType = vesselB.vesselType,
+                rootPartUId = vesselB.rootPart != null ? vesselB.rootPart.flightID : portB.flightID
+            };
+            nodeA.dockedPartUId = portB.flightID;
+            nodeB.dockedPartUId = portA.flightID;
+
+            ParsekLog.Verbose("TestRunner",
+                "RouteDockCapture dock bookkeeping stamped: aPart=" + portA.flightID.ToString(IC) +
+                " bPart=" + portB.flightID.ToString(IC) +
+                " aVessel='" + vesselA.vesselName + "' bVessel='" + vesselB.vesselName + "'");
+        }
+
+        /// <summary>
+        /// One grep-stable line naming WHERE a cell died. `InGameTestRunner` records only
+        /// `ex.Message`, so a bare NRE reaches the census with no site at all - which is
+        /// exactly what H57's first two flights produced. Emitted at Warn immediately
+        /// before the rethrow, so the located line sits directly above the runner's
+        /// FAILED line in KSP.log.
+        /// </summary>
+        private static string FormatFailureSite(string step, string cell, Exception ex)
+        {
+            string frame = "<no stack>";
+            if (ex != null && !string.IsNullOrEmpty(ex.StackTrace))
+            {
+                string[] frames = ex.StackTrace.Split('\n');
+                for (int i = 0; i < frames.Length; i++)
+                {
+                    string candidate = frames[i].Trim();
+                    if (candidate.Length > 0)
+                    {
+                        frame = candidate;
+                        break;
+                    }
+                }
+            }
+            return "RouteDockCapture FAILURE SITE: cell=" + cell + " step=" + step
+                + " exception=" + (ex != null ? ex.GetType().Name : "<null>")
+                + " message=" + (ex != null ? ex.Message : "<null>")
+                + " frame=" + frame;
         }
 
         private static bool IsProducerClassifiedLine(string line)
