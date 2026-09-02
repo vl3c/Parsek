@@ -3670,7 +3670,7 @@ namespace Parsek
                 case RouteCreationFormatters.RouteOriginKind.Ksc:
                     return "KSC (funds)";
                 case RouteCreationFormatters.RouteOriginKind.Depot:
-                    return "depot pid=" + id.DepotVesselPid.ToString(CultureInfo.InvariantCulture);
+                    return "depot " + RouteCreationFormatters.FormatDepotIdentity(id);
                 case RouteCreationFormatters.RouteOriginKind.Harvest:
                     return "harvested en route";
                 default:

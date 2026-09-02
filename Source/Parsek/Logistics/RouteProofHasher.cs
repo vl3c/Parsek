@@ -139,6 +139,18 @@ namespace Parsek.Logistics
                 // RouteStore.RevalidateSources. Pinned by
                 // RouteProofHashTests.Hash_UnchangedByOriginDescriptorFields.
                 sb.Append("origin.startDockedOriginVesselPid=").Append(op.StartDockedOriginVesselPid.ToString(CultureInfo.InvariantCulture)).Append('\n');
+                // The depot's ROOT PART UID is IDENTITY, not resolution metadata, so unlike
+                // the descriptor fields above it IS hashed: a run whose start-docked origin
+                // is a different physical vessel is a different route. It is also the ONLY
+                // identity a captured proof carries (the pid slot is 0 until an undock binds
+                // it), so leaving it out would hash every docked origin identically.
+                // SPARSE-APPEND, same discipline as the M2 blocks below: a proof recorded
+                // before the partner rule has root id 0 and emits NOTHING, so its bytes stay
+                // identical and RouteStore.RevalidateSources cannot flip it to SourceChanged.
+                if (op.StartDockedOriginRootPartUId != 0)
+                {
+                    sb.Append("origin.startDockedOriginRootPartUId=").Append(op.StartDockedOriginRootPartUId.ToString(CultureInfo.InvariantCulture)).Append('\n');
+                }
                 AppendResourceManifest(sb, "origin.startTransportRes", op.StartTransportResources);
                 AppendResourceManifest(sb, "origin.endTransportRes", op.EndTransportResources);
                 AppendInventoryItems(sb, "origin.startTransportInv", op.StartTransportInventory);

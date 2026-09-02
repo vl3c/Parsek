@@ -601,8 +601,7 @@ namespace Parsek.Logistics
                 };
                 originLabel = "ksc";
             }
-            else if (originRec.RouteOriginProof != null
-                && originRec.RouteOriginProof.StartDockedOriginVesselPid != 0)
+            else if (RouteAnalysisEngine.HasDockedOriginProof(originRec))
             {
                 RouteOriginProof originProof = originRec.RouteOriginProof;
                 if (!string.IsNullOrEmpty(originProof.StartDockedOriginBodyName))
@@ -610,10 +609,13 @@ namespace Parsek.Logistics
                     // M1: the proof carries the origin endpoint descriptor captured at
                     // recording start, so build a real-coordinate endpoint. Surface-base
                     // origins thereby reach RouteEndpointResolver's proximity fallback
-                    // when the depot's pid no longer resolves.
+                    // when the depot's pid no longer resolves - and since the partner rule
+                    // landed, the pid on a captured proof is ALWAYS 0, so the descriptor
+                    // IS the resolution path for a surface depot.
                     origin = new RouteEndpoint
                     {
                         VesselPersistentId = originProof.StartDockedOriginVesselPid,
+                        RootPartUId = originProof.StartDockedOriginRootPartUId,
                         BodyName = originProof.StartDockedOriginBodyName,
                         Latitude = originProof.StartDockedOriginLatitude,
                         Longitude = originProof.StartDockedOriginLongitude,
@@ -629,6 +631,7 @@ namespace Parsek.Logistics
                     origin = new RouteEndpoint
                     {
                         VesselPersistentId = originProof.StartDockedOriginVesselPid,
+                        RootPartUId = originProof.StartDockedOriginRootPartUId,
                         BodyName = originRec.StartBodyName ?? string.Empty,
                         Latitude = 0.0,
                         Longitude = 0.0,
@@ -637,7 +640,8 @@ namespace Parsek.Logistics
                     };
                 }
                 originLabel =
-                    "non-ksc:pid=" + origin.VesselPersistentId.ToString(CultureInfo.InvariantCulture);
+                    "non-ksc:pid=" + origin.VesselPersistentId.ToString(CultureInfo.InvariantCulture)
+                    + ":root=" + originProof.StartDockedOriginRootPartUId.ToString(CultureInfo.InvariantCulture);
             }
             else if (analysis.IsMidTreeDockedOrigin
                 && analysis.OriginConnectionWindow != null

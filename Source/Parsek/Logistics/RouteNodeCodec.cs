@@ -31,6 +31,11 @@ namespace Parsek.Logistics
         {
             if (ep.VesselPersistentId != 0)
                 node.AddValue("vesselPersistentId", ep.VesselPersistentId.ToString(ic));
+            // Sparse, same discipline as the pid above: an endpoint without a known root
+            // part omits the key entirely, so every pre-2026-09-02 route round-trips
+            // byte-identically.
+            if (ep.RootPartUId != 0)
+                node.AddValue("rootPartUId", ep.RootPartUId.ToString(ic));
             if (!string.IsNullOrEmpty(ep.BodyName))
                 node.AddValue("bodyName", ep.BodyName);
             node.AddValue("latitude", ep.Latitude.ToString("R", ic));

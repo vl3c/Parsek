@@ -45,7 +45,11 @@ _(unreleased — entries accumulate here per commit)_
   Two new in-game checks fly the shape the roadmap had reserved for a hand-flown
   mission - a transport that starts docked to a landed base, undocks, and delivers to
   somewhere else - plus a control that docks and undocks before recording and must
-  record no origin at all. Both pass unattended. Nothing player-facing changes.
+  record no origin at all. Both pass unattended, and between them they found the two
+  faults fixed in the entries below: the origin was never saved, and it named the wrong
+  craft. The checks now read the saved origin back and confirm it survives a save and
+  reload, so a future regression fails the run rather than passing quietly. Nothing
+  player-facing changes.
 
 - **A supply run that starts already docked to a base now records where it started
   from.** The start-docked origin proof looked for a part whose parent belonged to a
@@ -59,10 +63,45 @@ _(unreleased — entries accumulate here per commit)_
   and body as the origin. Ports stuck together in the editor, ports docked to their
   own vessel, and ports that have since undocked are all excluded, so no craft gains
   an origin it never had. Vessels sitting clamped on the pad are unchanged: a launch
-  is still a launch, not a delivery from a depot. Note that this is the recording half
-  only: the origin is worked out correctly, but it does not yet survive onto the saved
-  recording, so routes built from a start-docked run still have no origin to show. That
-  second half is tracked and not yet done.
+  is still a launch, not a delivery from a depot. The origin now also SURVIVES onto the
+  saved recording, and it names the right craft - see the two entries directly below.
+
+- **A start-docked supply run now keeps its origin when the recording is saved.** The
+  origin was worked out at the moment recording began and attached to the recorder's
+  own end-of-run copy, and nothing carried it from there onto the recording the
+  timeline actually keeps - so every start-docked run reached the save with no origin,
+  and a route built from one had nowhere to say it came from. The stop now hands the
+  origin across, once: the first stop that has one sets it, and no later stop, undock
+  split or dock merge can overwrite or blank it. A run's origin is where the run began,
+  and it now reads that way on the saved recording and after a reload.
+
+- **The recorded origin is now the DEPOT the transport docked into, not whichever half
+  of the pair KSP happened to keep.** When two craft dock, KSP merges them into one
+  vessel and picks which of the two survives by vessel type, then mass - so the surviving
+  vessel is the base in the ordinary case and the transport in plenty of others, and the
+  recording was naming that survivor as the origin either way. A transport that docked
+  to a lighter probe-class depot recorded ITSELF as its own supply origin. Parsek now
+  reads both docking ports' own record of which craft each of them belonged to before
+  the dock, and names the half marked as a Base or a Station as the origin depot - the
+  answer no longer depends on which half the game kept. A pair with no depot-typed half
+  (two ships meeting in orbit), a pair where both halves are depots, and anything docked
+  to debris, a flag or a kerbal on EVA all record no origin at all rather than guessing,
+  which is the same rule the design already stated for rejecting an unusable origin. The
+  depot is now identified by a part id that is unique to its launch instead of by a
+  vessel id that KSP reuses for every copy of the same craft file, and route dispatch
+  looks the depot up by that part id FIRST, falling back to "nearest vessel to the
+  recorded spot" only when the depot itself cannot be found - without that order a route
+  could have paid itself, by picking the transport parked back at the depot as its own
+  supply source.
+
+  **This needs the depot to be typed as a Base or a Station.** KSP works a vessel's type
+  out from its parts, and no stock part says "Base" or "Station", so a landed base reads
+  as a Ship, Probe or Lander until you set its type yourself in the tracking station -
+  and a supply run starting at an untyped base records no origin. That is deliberate: the
+  alternative is guessing which of two docked craft is the depot, which is how the
+  previous version got it wrong. When it happens the log says so once, at the moment
+  recording starts, naming the number of docked joints it looked at and telling you to set
+  the depot's type in the tracking station. A run that starts undocked stays silent.
 
 - **Restructuring the recordings list mid-session now tells every index-keyed
   consumer.** Merging to the timeline or committing a chain segment runs the same

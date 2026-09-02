@@ -4657,17 +4657,50 @@ namespace Parsek
                 changed = true;
             }
 
-            // Route-window/origin-proof/transfer fields are NOT forwarded here.
-            // FlightRecorder.BuildCaptureRecording DOES populate
-            // capture.RouteOriginProof (RouteProofCapture.
-            // AttachEndManifestsAndForwardToCapture), but that proof reaches
-            // committed recordings via Recording.ApplyPersistenceArtifactsFrom
-            // at chain-commit time; dock route windows are written directly onto
-            // the merged child in CreateMergeBranch. Forwarding them here too
-            // would double up those paths. The M2 run manifest above is the
-            // capture-side producer that DOES route through this helper (the
-            // tree-mode stop flush in FlushRecorderToTreeRecording and
-            // AppendCapturedDataToRecording).
+            // START-DOCKED ORIGIN PROOF: WRITE-ONCE ADOPTION.
+            // FlightRecorder.BuildCaptureRecording attaches the start-time proof to the
+            // CAPTURE recording (RouteProofCapture.AttachEndManifestsAndForwardToCapture).
+            // In always-tree mode that capture is never committed as-is, so before this the
+            // proof died here on every path a flight has ever taken
+            // (ROUTE-ORIGIN-PROOF-NEVER-REACHES-A-TREE-RECORDING, measured by H57's first
+            // flight and corroborated by ROUTE_ORIGIN_PROOF=0 in H56's and H57's produced
+            // saves). The chain-commit route (Recording.ApplyPersistenceArtifactsFrom via
+            // ChainSegmentManager.CommitSegmentCore) is reachable in code but no observed
+            // flight has taken it - zero CommitSegmentCore lines across 394 collected logs.
+            //
+            // WHICH CALL WINS: THE FIRST ONE THAT CARRIES A PROOF. This helper is shared by
+            // the ordinary tree-mode stop flush (FlushRecorderToTreeRecording, the path H57
+            // red on), the undock split and the dock merge (both through
+            // AppendCapturedDataToRecording). The origin is a BIRTH fact of the run, so a
+            // later call must not restate it; and - the reason a bare assignment would be
+            // wrong - FlightRecorder nulls pendingRouteOriginProof at EVERY recorder start,
+            // so a split-then-stop sequence would otherwise blank a real proof back out.
+            // Adopt only into a null slot; never clear, never overwrite.
+            if (source.RouteOriginProof != null && target.RouteOriginProof == null)
+            {
+                target.RouteOriginProof = source.RouteOriginProof.DeepClone();
+                changed = true;
+                ParsekLog.Info("Flight",
+                    $"Logistics metadata: RouteOriginProof adopted (write-once) " +
+                    $"path={sourcePath ?? "<unknown>"} " +
+                    $"target={target.RecordingId ?? "<none>"} source={source.RecordingId ?? "<none>"} " +
+                    $"originRoot={target.RouteOriginProof.StartDockedOriginRootPartUId.ToString(CultureInfo.InvariantCulture)} " +
+                    $"originName='{target.RouteOriginProof.StartDockedOriginVesselName ?? "<none>"}' " +
+                    $"originType={target.RouteOriginProof.StartDockedOriginVesselType.ToString(CultureInfo.InvariantCulture)}");
+            }
+            else if (source.RouteOriginProof != null)
+            {
+                ParsekLog.Verbose("Flight",
+                    $"Logistics metadata: RouteOriginProof NOT adopted (target already carries one) " +
+                    $"path={sourcePath ?? "<unknown>"} " +
+                    $"target={target.RecordingId ?? "<none>"} source={source.RecordingId ?? "<none>"} " +
+                    $"targetOriginRoot={target.RouteOriginProof.StartDockedOriginRootPartUId.ToString(CultureInfo.InvariantCulture)} " +
+                    $"sourceOriginRoot={source.RouteOriginProof.StartDockedOriginRootPartUId.ToString(CultureInfo.InvariantCulture)}");
+            }
+
+            // Route-window / transfer fields are NOT forwarded here: dock route windows are
+            // written directly onto the merged child in CreateMergeBranch, and forwarding
+            // them here too would double up that path.
 
             if (changed)
             {

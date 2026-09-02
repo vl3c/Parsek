@@ -553,5 +553,27 @@ namespace Parsek.Tests.Logistics
 
             Assert.Equal(hashA, hashB);
         }
+
+        // catches: the origin ROOT PART UID silently dropping out of the hash. It is the
+        // ONLY identity a captured start-docked proof carries (the pid slot is 0 until an
+        // undock binds it), so without this cell `if (false)` around the append leaves the
+        // whole suite green and every docked origin hashes identically - two routes from
+        // DIFFERENT depots would then share a proof hash and RouteStore.RevalidateSources
+        // could not tell one had been re-pointed. Deliberately the mirror of
+        // Hash_UnchangedByOriginDescriptorFields: coordinates are resolution metadata and
+        // are excluded, identity is not and is included.
+        [Fact]
+        public void Hash_ChangesWithTheOriginRootPartUId()
+        {
+            Recording recA = RecordingWithProof();
+            recA.RouteOriginProof.StartDockedOriginRootPartUId = 4242u;
+            string hashA = RouteProofHasher.ComputeRouteProofHashFromRecording(recA);
+
+            Recording recB = RecordingWithProof();
+            recB.RouteOriginProof.StartDockedOriginRootPartUId = 8888u;
+            string hashB = RouteProofHasher.ComputeRouteProofHashFromRecording(recB);
+
+            Assert.NotEqual(hashA, hashB);
+        }
     }
 }

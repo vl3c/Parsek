@@ -42,8 +42,17 @@ namespace Parsek.Logistics
             public string BodyName;
             /// <summary>Launch site of the tree root (set only when <see cref="Kind"/> is <c>Ksc</c>).</summary>
             public string LaunchSiteName;
-            /// <summary>Start-docked origin partner pid (set only when <see cref="Kind"/> is <c>Depot</c>).</summary>
+            /// <summary>Start-docked origin partner pid (set only when <see cref="Kind"/> is <c>Depot</c>).
+            /// ZERO on a start-docked proof: the depot's pid is not knowable at capture, so
+            /// <see cref="DepotRootPartUId"/> is the identity there. A MID-TREE docked origin
+            /// resolves from a real dock-time endpoint and does carry a pid.</summary>
             public uint DepotVesselPid;
+            /// <summary>Start-docked origin depot ROOT PART UID (launch-unique part flightID),
+            /// the capture-time identity from the docking-node pair. Zero for a mid-tree
+            /// docked origin, which identifies its depot by pid instead.</summary>
+            public uint DepotRootPartUId;
+            /// <summary>Start-docked origin depot's pre-dock vessel name, for display.</summary>
+            public string DepotVesselName;
         }
 
         /// <summary>
@@ -135,10 +144,29 @@ namespace Parsek.Logistics
             {
                 id.Kind = RouteOriginKind.Depot;
                 id.DepotVesselPid = originRec.RouteOriginProof.StartDockedOriginVesselPid;
+                id.DepotRootPartUId = originRec.RouteOriginProof.StartDockedOriginRootPartUId;
+                id.DepotVesselName = originRec.RouteOriginProof.StartDockedOriginVesselName;
                 return id;
             }
 
             return id;
+        }
+
+        /// <summary>
+        /// Pure. Names a depot origin for display. Prefers the pre-dock vessel NAME the
+        /// docking-node pair recorded, falls back to the root part id (the capture-time
+        /// identity), then to the pid (a mid-tree docked origin carries one and no root id).
+        /// Never returns an empty string, so a dialog line cannot read "depot ()".
+        /// </summary>
+        internal static string FormatDepotIdentity(RouteOriginIdentity origin)
+        {
+            if (!string.IsNullOrEmpty(origin.DepotVesselName))
+                return origin.DepotVesselName;
+            if (origin.DepotRootPartUId != 0)
+                return "root #" + origin.DepotRootPartUId.ToString(IC);
+            if (origin.DepotVesselPid != 0)
+                return "vessel #" + origin.DepotVesselPid.ToString(IC);
+            return "unidentified depot";
         }
 
         /// <summary>
@@ -338,8 +366,8 @@ namespace Parsek.Logistics
                 case RouteOriginKind.Depot:
                     originLabel =
                         (string.IsNullOrEmpty(origin.BodyName) ? "unknown" : origin.BodyName)
-                        + " (vessel #"
-                        + origin.DepotVesselPid.ToString(IC)
+                        + " ("
+                        + FormatDepotIdentity(origin)
                         + ")";
                     break;
                 case RouteOriginKind.Harvest:

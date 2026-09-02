@@ -1185,14 +1185,18 @@ namespace Parsek.Logistics
 
         /// <summary>
         /// True when the origin recording carries a captured start-docked origin
-        /// partner proof (<see cref="Recording.RouteOriginProof"/> with a
-        /// non-zero partner pid). Shared with
-        /// <see cref="RouteCreationFormatters.ResolveOriginIdentity"/>.
+        /// depot proof. The capture-time identity is the depot half's ROOT PART
+        /// UID (a launch-unique part flightID read off the docking-node pair);
+        /// the vessel pid is the bind-later slot and is 0 on every captured
+        /// proof, so EITHER satisfies the gate. Shared with
+        /// <see cref="RouteCreationFormatters.ResolveOriginIdentity"/> and
+        /// <c>RouteBuilder.TryResolveRouteOrigin</c>.
         /// </summary>
         internal static bool HasDockedOriginProof(Recording originRec)
         {
             return originRec?.RouteOriginProof != null
-                && originRec.RouteOriginProof.StartDockedOriginVesselPid != 0;
+                && (originRec.RouteOriginProof.StartDockedOriginVesselPid != 0
+                    || originRec.RouteOriginProof.StartDockedOriginRootPartUId != 0);
         }
 
         /// <summary>
