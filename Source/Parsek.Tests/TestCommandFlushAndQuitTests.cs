@@ -81,6 +81,7 @@ namespace Parsek.Tests
         [InlineData("SaveGame", true)]
         [InlineData("MissionMark", false)]
         [InlineData("InvokeRewind", true)]
+        [InlineData("DeleteRecording", true)]
         [InlineData("RecordingState", false)]
         [InlineData("ExportRenderManifest", false)]
         [InlineData("FlushAndQuit", false)]

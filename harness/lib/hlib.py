@@ -282,6 +282,20 @@ IMPLEMENTED_SEAM_VERBS: Tuple[str, ...] = (
     # neither joins DEFERRED_SEAM_VERBS and both ride the 60 s default budget - which
     # bounds only their game-not-loaded dispatch defer.
     "SealSlot", "RouteCommand",
+    # DeleteRecording. ADDITIVE (30 -> 31 implemented, reserved unchanged at 5): the
+    # reserved envelope never carried a recording-deletion verb. It is the Recordings
+    # table's per-row delete driven by committed-list `index=`, routed exactly as the
+    # table routes it: ParsekFlight.DeleteGhostOnlyRecording for a ghost-only row in
+    # FLIGHT, ParsekFlight.DeleteRecording (behind its CanDeleteRecording guard) for any
+    # other row in FLIGHT, RecordingStore.DeleteRecordingFull everywhere else - the KSC
+    # branch included. Deliberately WIDER than the table's "X" button on one axis - any
+    # committed row, not only ghost-only ones - because the removal seam it exists to
+    # drive live is a mid-list removal under living ghosts
+    # (AUTOMATION-GAP-KSC-TABLE-DELETE), which needs a row with ghosts ABOVE it, and the
+    # only rows that button offers (Gloops recordings) are appended last. SINGLE-PHASE
+    # (a synchronous list mutation whose Removing / Removed notifications fan out
+    # inside the call, verified by read-back), so it rides the 60 s default budget.
+    "DeleteRecording",
 )
 
 # The M-A7 export verb, named once. Referenced by the verb/block coupling rule in
@@ -759,6 +773,10 @@ SEAM_VERB_TAIL_ROLE: Dict[str, str] = {
     #     unmet tail exists to stop firing.
     "SealSlot": TAIL_ROLE_WORLD_MUTATING,
     "RouteCommand": TAIL_ROLE_WORLD_MUTATING,
+    # DeleteRecording destroys durable recorded data (the row, its sidecar files, its
+    # chain siblings' linkage) - DiscardTree's exact reasoning: driving it on an unmet
+    # run would delete the forensics the collect-logs snapshot exists to preserve.
+    "DeleteRecording": TAIL_ROLE_WORLD_MUTATING,
 }
 
 # ---------------------------------------------------------------------------
@@ -889,6 +907,10 @@ SEAM_VERB_POST_MISSION_ROLE: Dict[str, str] = {
     # Both are WORLD-MUTATING on the tail axis; the two axes disagree by design.
     "SealSlot": POST_MISSION_ROLE_RECORDING,
     "RouteCommand": POST_MISSION_ROLE_RECORDING,
+    # DeleteRecording is `recording`: its OK means "the committed row is gone and the
+    # index-keyed hosts were told", a read-back of PARSEK's own store - a claim about a
+    # feature under test, never about a kerbal's physical in-world state.
+    "DeleteRecording": POST_MISSION_ROLE_RECORDING,
 }
 
 

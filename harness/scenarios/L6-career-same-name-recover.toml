@@ -1,8 +1,33 @@
 schema = 1
 id = "L6-career-same-name-recover"
-# `operator` for its first flight: a READING RUN whose whole purpose is to put the
-# recovery correlator's UT tiers IN COMPETITION for the first time in the suite, and to
-# read which tier the driven career actually lands on. Nothing here is armed.
+# `operator`: a READING RUN whose whole purpose is to put the recovery correlator's UT
+# tiers IN COMPETITION for the first time in the suite. Nothing here is armed.
+#
+# BLOCKED - THIS LANE CANNOT REACH ITS SUBJECT ON THIS FIXTURE, measured by reading run 1
+# (`2026-09-02_1137`, INVALID(driver) MISSION-ASSERT-FAIL `transmit-credited-no-science`).
+# The idea was to reuse `career-earned-pad` (L3's PRODUCED save, which already carries the
+# pad craft's TWO chained recordings) so a second `science_bench_recover` flight would give
+# the recovery correlator two same-name candidates. The flight FLEW (landed, collected 2
+# experiments, recorded `e321be21...`), but TRANSMIT credited ZERO career science and the
+# mission's structural transmit->recover gate failed the flight BEFORE recovery - the very
+# phase the correlator fires in. THE CAUSE IS INTRINSIC TO REUSING A PRODUCED SAVE: L3
+# already banked that launchpad biome's science, so a second identical flight transmits for
+# no gain, and `_sbr_transmit` needs a strictly positive pool rise (the schema forbids a
+# floor below 0.001, so no param value passes a gain of exactly 0.0). The RECOVERY
+# correlator - the FUNDS and XP legs, which is what stage 2 needs - is never reached.
+#
+# WHAT CLOSING IT ACTUALLY NEEDS (recorded so the next author does not re-derive it): either
+# a recover mission WITHOUT a transmit-science gate (none exists in the library today), or a
+# fixture carrying two same-name launches whose flight science is NOT already banked - which
+# is a purpose-built fixture, the exact thing this lane tried to avoid. The `science_bench_
+# recover` + produced-save shortcut does not work for the recovery-correlator repro. The
+# lane is kept as the RECORD of that finding; KERBAL-XP-RECOVERY-PICK-IS-NAME-AND-UT-ONLY
+# stage 2 stays gated on live proof, now with the blocker named. DO NOT FLY AS BUILT: it
+# reads INVALID(driver) every time (a mission that cannot reach RECOVER), and no
+# `[expectedFail]` key can demote that - the harness demotes PARSEK-FAIL signatures only,
+# never a driver-INVALID - so `bugId` is deliberately left empty. It stays `operator`
+# (run on request only, never by a scheduled tier) until the purpose-built fixture
+# exists, at which point the mission params are re-derived off that fixture's bytes.
 tier = "operator"
 #
 # WHAT THIS SPEC IS FOR. KERBAL-XP-RECOVERY-PICK-IS-NAME-AND-UT-ONLY (todo, stage 2
@@ -92,11 +117,11 @@ steps = [
 ]
 
 [driver.missionParams]
-# L3's values verbatim: the craft is the same pad craft (career-earned-pad is L3's
-# produced save with that craft spliced back onto the pad), so the flight leg's windows
-# and the career leg's floors transfer. If the first flight reads an INVALID on the
-# flight leg, the splice differs from the craft L3 flew and the params need re-sizing
-# against the fixture's own bytes - a driver reading, never a PARSEK-FAIL.
+# L3's flight-leg values verbatim: the craft is the same pad craft (career-earned-pad is
+# L3's produced save with that craft spliced back onto the pad), so the ascent windows
+# and the chute arming transfer. ONE value DEPARTS from L3, and it is the driver reading
+# this lane's header pre-authorized ("the params need re-sizing against the fixture's own
+# bytes - a driver reading, never a PARSEK-FAIL").
 throttle                 = 1.0
 apoapsisWindowMeters     = { min = 6000, max = 30000 }
 chuteArmMaxRateMps       = 30
@@ -107,6 +132,15 @@ coastTimeoutSeconds      = 180
 descentTimeoutSeconds    = 360
 collectMinExperiments = 1
 collectTimeoutSeconds = 120
+# transmitMinScienceGain = 0.5 (L3's), kept - but SEE THE HEADER'S "BLOCKED" NOTE: reading
+# run 1 (`2026-09-02_1137`, INVALID(driver) MISSION-ASSERT-FAIL `transmit-credited-no-
+# science`) proved this lane CANNOT reach RECOVER on this fixture. The flight landed and
+# collected 2 experiments, but TRANSMIT credited ZERO new science because career-earned-pad
+# is L3's PRODUCED save and L3 already banked that launchpad biome's science, so a second
+# identical flight transmits for no gain. The mission's transmit->recover gate is
+# structural (`_sbr_transmit`: `gain >= transmit_min_science` for two frames) and the
+# schema forbids a floor below 0.001, so no param value passes a gain of exactly 0.0. The
+# RECOVERY correlator this lane exists to read - the FUNDS and XP legs - is never reached.
 transmitMinScienceGain = 0.5
 transmitTimeoutSeconds = 120
 recoverMinFundsGain = 1.0
