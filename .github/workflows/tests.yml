@@ -38,6 +38,19 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+          # FULL HISTORY, and one committed test cell depends on it.
+          # `SbrDwellCompatibilityTests` proves the recover mission's optional
+          # `preRecoverDwellSeconds` left `L3-career-science-recover`'s pinned
+          # timeline untouched by REPLAYING both machines - the committed one and
+          # the one `git show 96ac15dfb:harness/missions/lib/mlib.py` produces -
+          # over one scripted flight. `actions/checkout` defaults to depth 1, so
+          # that sha would not resolve and the class would SELF-SKIP on every CI
+          # run: the claim would read green while proving nothing. This repo
+          # refuses that shape elsewhere (the pwsh grep-audit gates fall back to a
+          # managed scan rather than skip), so it is refused here too. The cost is
+          # one full clone of a small repo. Only THIS checkout is deepened; the
+          # ksp-refs one below wants its tip only.
+          fetch-depth: 0
 
       # Private KSP/Unity/mod reference DLLs (see the ksp-refs README).
       # Authenticated via a read-only deploy key stored as a repo secret;

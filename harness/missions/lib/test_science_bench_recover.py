@@ -980,6 +980,11 @@ class SbrPreRecoverDwellTests(unittest.TestCase):
 
 _BASELINE_MODULE_NAME = "_mlib_baseline"
 
+# The commit that introduced `preRecoverDwellSeconds`. Named so the pinned
+# baseline sha can be CHECKED against its own stated rationale (the parent of
+# this commit) instead of being taken on trust from a comment.
+_DWELL_COMMIT_SHA = "77f7faf65"
+
 
 class SbrDwellCompatibilityTests(unittest.TestCase):
     """THE CROSS-VERSION REPLAY: with no dwell declared, this module's SBR machine
@@ -997,15 +1002,41 @@ class SbrDwellCompatibilityTests(unittest.TestCase):
     empty declaration keeps the prior graph) with the baseline read from git
     instead of restated by hand.
 
-    SELF-SKIPS, with a stated reason, when the baseline ref is not present - a
-    shallow CI clone or a worktree with no `origin` remote. The suite that matters
-    for this claim is the one an operator runs before a flight, and that tree has
-    the ref."""
+    THE BASELINE IS A FIXED SHA, NOT A MOVING REF, AND THAT COST A RED MAIN TO
+    LEARN. The first revision read `origin/main`. The moment the dwell PR MERGED,
+    `origin/main`'s mlib carried the dwell, the mutation guard below fired exactly
+    as designed - "the baseline ALREADY has the dwell, so this class proves
+    nothing" - and every open PR's required `tests` check went red. THE GUARD WAS
+    RIGHT AND THE REF WAS WRONG: a comparison against "whatever main is now"
+    decays into a comparison of a change with itself on the day it lands. What
+    this class actually claims is about ONE fixed pair of bytes, so it names them.
 
-    # Tried in order. `origin/main` first because a session worktree's local
-    # `main` can be behind; a tree with neither self-skips rather than passing
-    # vacuously.
-    BASELINE_REFS = ("origin/main", "main")
+    SELF-SKIPS, with a stated reason, when the pinned sha is unreachable - a
+    contributor's shallow clone, or a checkout whose history was truncated. A SKIP
+    IN CI IS A BUG, NOT AN EXPECTED STATE: `.github/workflows/tests.yml` sets
+    `fetch-depth: 0` on the repo checkout precisely so this cell RUNS there.
+    `actions/checkout` defaults to depth 1, which would have made this class skip
+    silently on every CI run - the fail-open shape this repo refuses elsewhere
+    (the pwsh grep-audit gates fall back to a managed scan rather than skip). If
+    you are reading a skip reason from a CI log, restore that setting rather than
+    accepting the skip."""
+
+    # THE PINNED PRE-DWELL BASELINE. `96ac15dfb` is the same commit twice over,
+    # which is why it is the right anchor rather than merely a working one:
+    #   - it is the tip `l6-dwell-variants` branched from, so it is the tree L3's
+    #     promoted `nightly` pins were measured against; and
+    #   - it is EXACTLY the parent of `77f7faf65`, the commit that introduced
+    #     `preRecoverDwellSeconds` (`git rev-parse 77f7faf65^`), so it is the last
+    #     state of `mlib.py` with no dwell in it at all.
+    # Its mlib contains zero occurrences of `sbr_recover_dwell_satisfied`, which
+    # the mutation guard below re-checks on every run rather than trusting this
+    # comment.
+    #
+    # MOVING IT IS A DELIBERATE ACT. Advancing this sha re-bases what "unchanged"
+    # means; it is only correct alongside a fresh set of L3 measurements taken at
+    # the new sha. Never advance it just to make the cell pass.
+    BASELINE_SHA = "96ac15dfb"
+    BASELINE_REFS = (BASELINE_SHA,)
 
     @classmethod
     def setUpClass(cls):
@@ -1054,8 +1085,12 @@ class SbrDwellCompatibilityTests(unittest.TestCase):
                 return None, "git is not runnable here (%r)" % (exc,)
             if proc.returncode == 0 and proc.stdout:
                 return proc.stdout.decode("utf-8"), ref
-        return None, ("no baseline mlib: none of %s resolves in this tree (a shallow "
-                      "clone or a checkout with no origin remote)"
+        return None, ("no baseline mlib: %s does not resolve in this tree, so the "
+                      "pre-dwell comparison cannot be made. Expected causes: a "
+                      "shallow clone, or a checkout whose history was truncated. NOT "
+                      "an expected state in CI - tests.yml pins fetch-depth: 0 so "
+                      "this cell runs there; a skip in a CI log means that setting "
+                      "was lost, not that the claim is unprovable"
                       % (", ".join(cls.BASELINE_REFS),))
 
     def setUp(self):
@@ -1131,14 +1166,51 @@ class SbrDwellCompatibilityTests(unittest.TestCase):
         self.assertEqual([], [r for r in head_rows if not r.get("met")], head_rows)
 
     def test_the_baseline_module_really_is_the_pre_dwell_one(self):
-        # THE MUTATION GUARD on this whole class: if `origin/main` already carried
-        # the dwell, the replay above would be comparing the change against
-        # itself and would pass no matter what. It reds here instead, telling the
-        # reader to re-point BASELINE_REFS at the pre-dwell commit.
+        # THE MUTATION GUARD on this whole class: a baseline that already carried
+        # the dwell would make the replay above compare the change against itself
+        # and pass no matter what. It reds here instead.
+        #
+        # THIS IS NOT HYPOTHETICAL - IT FIRED ON A REAL MAIN. While BASELINE_REFS
+        # read `origin/main`, merging the dwell PR made the baseline post-dwell
+        # within minutes and this assertion red every open PR's required check.
+        # That is the guard working; the fix was to pin a sha, not to soften the
+        # guard. Against a pinned sha it now guards the one remaining way to make
+        # this class vacuous: somebody advancing BASELINE_SHA past the dwell.
         self.assertFalse(hasattr(self.baseline, "sbr_recover_dwell_satisfied"),
                          "the baseline at %s ALREADY has the dwell, so this class "
-                         "proves nothing - re-point BASELINE_REFS" % (self.ref,))
+                         "proves nothing. Do NOT advance BASELINE_SHA to make a "
+                         "failure go away - it must stay at a PRE-dwell commit "
+                         "(see the constant's own note)" % (self.ref,))
         self.assertTrue(hasattr(mlib, "sbr_recover_dwell_satisfied"))
+
+    def test_the_baseline_is_a_FIXED_sha_and_never_a_moving_ref(self):
+        # THE REGRESSION THIS INCIDENT ACTUALLY WAS. The class above can be made
+        # vacuous two ways: advance the sha (guarded above), or go back to naming
+        # a BRANCH, which re-arms the exact failure mode - `origin/main` was
+        # correct right up until the change under test merged into it, and then it
+        # red every open PR. A branch or tag name must never appear here again.
+        for ref in self.BASELINE_REFS:
+            self.assertRegex(ref, r"^[0-9a-f]{7,40}$",
+                             "BASELINE_REFS must hold FIXED commit sha(s); %r is a "
+                             "movable name, and a moving baseline compares the "
+                             "change under test against itself the day it lands"
+                             % (ref,))
+        # And the pinned sha is the one the constant's note describes: the parent
+        # of the commit that introduced the dwell. READ FROM GIT rather than
+        # restated, so a re-pin cannot quietly disagree with its own rationale.
+        proc = subprocess.run(
+            ["git", "rev-parse", "--short", "%s^" % (_DWELL_COMMIT_SHA,)],
+            cwd=_REPO_ROOT, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        if proc.returncode != 0:                                 # pragma: no cover
+            self.skipTest("the dwell commit %s does not resolve in this tree "
+                          "(shallow clone); the sha-shape check above still ran"
+                          % (_DWELL_COMMIT_SHA,))
+        parent = proc.stdout.decode().strip()
+        self.assertTrue(parent.startswith(self.BASELINE_SHA)
+                        or self.BASELINE_SHA.startswith(parent),
+                        "BASELINE_SHA is %s but the parent of the dwell commit %s "
+                        "is %s - the pin and its stated rationale disagree"
+                        % (self.BASELINE_SHA, _DWELL_COMMIT_SHA, parent))
 
 
 # The scripted L3 flight the cross-version replay drives: B1's proven pad-hop

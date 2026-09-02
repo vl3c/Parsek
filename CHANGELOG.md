@@ -10,7 +10,6 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
-<<<<<<< HEAD
 - **Automated testing: three new checks now watch the between-planets supply route
   the map fix restored, and they have been proved able to fail.** They load the new
   saved campaign, open the map, and read the game's own record of which kind of route
@@ -58,16 +57,16 @@ _(unreleased — entries accumulate here per commit)_
   is: where it starts and where it stops. Any two of its known endpoint bodies
   disagreeing means between-bodies - taken in origin-then-stops order, so a route whose
   origin body was never resolved (which happens for a route that starts docked to
-  something recorded without one) still reads correctly off its stops, and those routes draw their launch and arrival paths at the two ends
+  something recorded without one) still reads correctly off its stops, and those
+  routes draw their launch and arrival paths at the two ends
   while the recorded interplanetary coast between them stays with the mission ghost that
   re-aims it each launch window (unchanged, deliberate). A route that declares one body
   at both ends but whose recorded path wanders off it is still declined as malformed -
   that is the case the check was for, and it now also catches a route whose starting
-  place was never recorded but whose destination sits on a body its path never visits. Same-body routes are unaffected. Saves are
+  place was never recorded but whose destination sits on a body its path never
+  visits. Same-body routes are unaffected. Saves are
   unaffected: the stored number is still written and read exactly as before, so no save
   or fixture changes shape; it is simply no longer what the map believes.
-
-=======
 - **Automated testing: a test case that recovers a landed craft now waits a fixed moment
   before doing it, so it always produces the same number of recordings.** Nothing in the
   game changed. Parsek deliberately refuses to cut a flight in two when either piece
@@ -85,8 +84,11 @@ _(unreleased — entries accumulate here per commit)_
   apart - while the copy left on the original timing came in at 5.7 seconds, less than a
   second from the line, which is what that copy is there to keep showing. A deliberately
   broken version of the waiting test was also flown, and it failed on exactly the one
-  thing that was broken in it and nothing else.
->>>>>>> origin/main
+  thing that was broken in it and nothing else. The check that the change left the
+  other affected test alone compares against a fixed past version of the code, named
+  by its exact commit, rather than against whatever the latest code happens to be -
+  the first attempt used "latest", which stopped comparing anything the moment the
+  change itself landed.
 
 - **Automated testing: a flight can now drive part actions on a scripted timeline, and
   the replay of each is checked family by family.** The test harness could stage,
