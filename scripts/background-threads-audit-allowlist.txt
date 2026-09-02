@@ -1,6 +1,7 @@
 # Background-thread grep gate (scripts/grep-audit-background-threads.ps1).
 # Files listed here are permitted to start a thread (new Thread / Task.Run /
-# Task.Factory.StartNew / ThreadPool.*QueueUserWorkItem / Parallel.* /
+# Task.Factory.StartNew / new Task + Start / ContinueWith /
+# ThreadPool.*QueueUserWorkItem / Parallel.* /
 # System.Threading.Timer / System.Timers.Timer / new Timer).
 #
 # The list is EMPTY by design: Parsek runs entirely on KSP's main thread, and

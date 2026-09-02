@@ -25,7 +25,8 @@ namespace Parsek.Tests
     /// <para><b>Background threads</b>: runs
     /// <c>scripts/grep-audit-background-threads.ps1</c> and asserts exit 0, i.e.
     /// any thread-start site (<c>new Thread</c>, <c>Task.Run</c>,
-    /// <c>Task.Factory.StartNew</c>, <c>ThreadPool.*QueueUserWorkItem</c>,
+    /// <c>Task.Factory.StartNew</c>, <c>new Task</c> / <c>ContinueWith</c>,
+    /// <c>ThreadPool.*QueueUserWorkItem</c>,
     /// <c>Parallel.*</c>, <c>System.Threading.Timer</c> / <c>System.Timers.Timer</c>)
     /// in <c>Source/Parsek</c> outside the (empty) allowlist is a build break.
     /// KSP pins <c>CultureInfo.CreateSpecificCulture("en")</c> on the MAIN thread
@@ -178,6 +179,8 @@ namespace Parsek.Tests
                 "new Thread(",
                 "Task.Run(",
                 "Task.Factory.StartNew(",
+                "new Task(",
+                ".ContinueWith(",
                 "ThreadPool.QueueUserWorkItem(",
                 "ThreadPool.UnsafeQueueUserWorkItem(",
                 "Parallel.",

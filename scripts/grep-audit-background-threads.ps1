@@ -83,6 +83,8 @@ $patterns = @(
     'new Thread(',
     'Task.Run(',
     'Task.Factory.StartNew(',
+    'new Task(',
+    '.ContinueWith(',
     'ThreadPool.QueueUserWorkItem(',
     'ThreadPool.UnsafeQueueUserWorkItem(',
     'Parallel.',

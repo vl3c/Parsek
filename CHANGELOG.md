@@ -195,10 +195,12 @@ _(unreleased — entries accumulate here per commit)_
   other thread, so a thread started from the mod would write `1,5` instead of
   `1.5` into the log on a machine set to a comma-decimal language and quietly
   break the log checks the test harness runs. The new check greps the mod source
-  for every way .NET can start a thread (`new Thread`, `Task.Run`,
-  `Task.Factory.StartNew`, `ThreadPool.*QueueUserWorkItem`, `Parallel.*`, the
-  two `Timer` types) and fails the test suite on any hit, naming the culture
-  rule to read before adding an exemption. It scans raw source lines, comments
+  for the ways a mod like this would plausibly start a thread (`new Thread`,
+  `Task.Run`, `Task.Factory.StartNew`, `new Task`, `ContinueWith`,
+  `ThreadPool.*QueueUserWorkItem`, `Parallel.*`, the two `Timer` types) and
+  fails the test suite on any hit, naming the culture rule to read before
+  adding an exemption. It is a closed token list, not a proof: an `await`
+  continuation is the known way past it, and none exists in the source today. It scans raw source lines, comments
   included, like the sibling grep gates, and runs on Linux CI through the same
   managed fallback when PowerShell is absent. Zero hits today; the gate was
   confirmed to fail on a deliberately injected `Task.Run`. Nothing player-facing
