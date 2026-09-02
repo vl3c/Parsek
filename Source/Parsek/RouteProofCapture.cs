@@ -1,64 +1,126 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
 
 namespace Parsek
 {
     /// <summary>
+    /// Identity of ONE half of a settled dock seam, exactly as that half's own
+    /// <c>ModuleDockingNode.vesselInfo</c> (<c>DockedVesselInfo</c>) carries it: the half's
+    /// PRE-dock vessel name, vessel type and root part <c>flightID</c>. Decompiled
+    /// (KSP 1.12.5) <c>ModuleDockingNode.DockToVessel</c> writes a <c>DockedVesselInfo</c> on
+    /// BOTH nodes, each describing ITS OWN half, and the record round-trips through the
+    /// node's <c>DOCKEDVESSEL</c> save node. There is NO vessel pid and NO launch guid in it.
+    ///
+    /// <para><see cref="RootPartUId"/> is a KSP part <c>flightID</c>: assigned per launch and
+    /// NOT baked into the <c>.craft</c>, so unlike <c>persistentId</c> it is a launch-unique
+    /// key and needs no guid gate to be trusted as an identity.</para>
+    /// </summary>
+    internal readonly struct DockSeamHalfIdentity
+    {
+        /// <summary>False when that side's node carried no <c>vesselInfo</c> at all.</summary>
+        public readonly bool HasInfo;
+        public readonly string VesselName;
+        public readonly int VesselType; // (int)VesselType; -1 = unknown
+        public readonly uint RootPartUId;
+
+        internal DockSeamHalfIdentity(bool hasInfo, string vesselName, int vesselType, uint rootPartUId)
+        {
+            HasInfo = hasInfo;
+            VesselName = vesselName;
+            VesselType = vesselType;
+            RootPartUId = rootPartUId;
+        }
+    }
+
+    /// <summary>
+    /// Which half of a settled dock seam is the ORIGIN DEPOT. Explicit values: the names are
+    /// interpolated into the producer's skip lines and asserted by tests.
+    /// </summary>
+    internal enum OriginHalfSelection
+    {
+        /// <summary>The near half (the node scanned on the merged vessel) is the depot.</summary>
+        OriginIsNear,
+        /// <summary>The far half (the docked partner part's node) is the depot.</summary>
+        OriginIsFar,
+        /// <summary>Neither half declares a depot vessel type - no origin can be named.</summary>
+        NoDepotHalf,
+        /// <summary>Both halves are depot-typed - which one the transport is cannot be decided.</summary>
+        BothHalvesDepot,
+        /// <summary>A half is debris / EVA / a flag / a space object: not a valid cargo owner.</summary>
+        InvalidCargoOwner,
+        /// <summary>A half carried no <c>vesselInfo</c> or a zero root part id.</summary>
+        HalfIdentityMissing,
+    }
+
+    /// <summary>
     /// Origin-partner candidate used by <see cref="RouteProofCapture.TryResolveStartDockedOriginPartner"/>.
-    /// Represents one part on the active vessel that evidences a coupling to an origin at
-    /// recording-start time, with the origin vessel's identity + endpoint descriptor attached.
+    /// ONE settled dock seam on the merged vessel, with the ORIGIN half already selected out of
+    /// the seam's node PAIR by <see cref="RouteProofCapture.SelectStartDockedOriginHalf"/>.
     ///
     /// <para>ONE producer builds these (see
     /// <c>FlightRecorder.CaptureStartRouteOriginProofIfDocked</c>): a SETTLED DOCK SEAM
-    /// (<see cref="RouteProofCapture.IsSettledDockSeam"/>). The docked pair is one merged
-    /// <c>Vessel</c>, so the origin descriptor fields carry the MERGED vessel's own pid,
-    /// situation and body-fixed coordinates. The pre-2026-09-02 reading (a part whose
-    /// <c>part.parent</c> still belongs to a different vessel) is COUNTED but no longer
+    /// (<see cref="RouteProofCapture.IsSettledDockSeam"/>). The pre-2026-09-02 reading (a part
+    /// whose <c>part.parent</c> still belongs to a different vessel) is COUNTED but no longer
     /// emits: it produced zero candidates on both hosts that have measured it, and no
     /// mechanism is claimed for when it could be non-zero.</para>
     ///
-    /// <para>The PID carried in <see cref="ParentVesselPersistentId"/> is the merged
-    /// vessel's, which is the half that keeps the <c>Vessel</c> across <c>Part.Undock</c>.
-    /// That is correct for the canonical depot-dominant shape and not in general - see
-    /// ROUTE-ORIGIN-PROOF-PARTNER-IDENTITY in <c>docs/dev/todo-and-known-bugs.md</c>.</para>
+    /// <para>NO VESSEL PID IS CARRIED, deliberately. <c>Part.Couple</c> destroys the absorbed
+    /// half's <c>Vessel</c>, so that half's pid is unrecoverable; and the surviving half's pid
+    /// is the merged vessel's, which names whichever half stock made dominant rather than the
+    /// depot. Identity is <see cref="OriginRootPartUId"/>. Ruling and derivation:
+    /// <c>docs/dev/research/origin-proof-partner-identity-memo.md</c>.</para>
+    ///
+    /// <para>The body-fixed descriptor fields are the MERGED pair's, which is exactly right:
+    /// while the halves are docked they occupy the same place, so the merged vessel's body,
+    /// coordinates and situation ARE the origin depot's.</para>
     /// </summary>
     internal readonly struct OriginPartnerCandidate
     {
+        /// <summary>The seam part on the merged vessel (diagnostic).</summary>
         public readonly uint PartPersistentId;
-        public readonly uint ParentVesselPersistentId;
-        public readonly int ParentVesselSituation; // (int)Vessel.Situations; -1 = unknown
-        // Origin endpoint descriptor (M1): the parent vessel's body + body-fixed
-        // coordinates at recording start, so RouteBuilder can build a surface-typed
-        // origin endpoint that gets the same proximity rebuild fallback destinations have.
-        public readonly string ParentVesselBodyName;
-        public readonly double ParentVesselLatitude;
-        public readonly double ParentVesselLongitude;
-        public readonly double ParentVesselAltitude;
+        public readonly uint OriginRootPartUId;
+        public readonly string OriginVesselName;
+        public readonly int OriginVesselType;   // (int)VesselType; -1 = unknown
+        public readonly uint TransportRootPartUId;
+        public readonly int TransportVesselType; // (int)VesselType; -1 = unknown
+        public readonly int MergedVesselSituation; // (int)Vessel.Situations; -1 = unknown
+        public readonly string MergedVesselBodyName;
+        public readonly double MergedVesselLatitude;
+        public readonly double MergedVesselLongitude;
+        public readonly double MergedVesselAltitude;
 
         internal OriginPartnerCandidate(
             uint partPersistentId,
-            uint parentVesselPersistentId,
-            int parentVesselSituation,
-            string parentVesselBodyName,
-            double parentVesselLatitude,
-            double parentVesselLongitude,
-            double parentVesselAltitude)
+            uint originRootPartUId,
+            string originVesselName,
+            int originVesselType,
+            uint transportRootPartUId,
+            int transportVesselType,
+            int mergedVesselSituation,
+            string mergedVesselBodyName,
+            double mergedVesselLatitude,
+            double mergedVesselLongitude,
+            double mergedVesselAltitude)
         {
             PartPersistentId = partPersistentId;
-            ParentVesselPersistentId = parentVesselPersistentId;
-            ParentVesselSituation = parentVesselSituation;
-            ParentVesselBodyName = parentVesselBodyName;
-            ParentVesselLatitude = parentVesselLatitude;
-            ParentVesselLongitude = parentVesselLongitude;
-            ParentVesselAltitude = parentVesselAltitude;
+            OriginRootPartUId = originRootPartUId;
+            OriginVesselName = originVesselName;
+            OriginVesselType = originVesselType;
+            TransportRootPartUId = transportRootPartUId;
+            TransportVesselType = transportVesselType;
+            MergedVesselSituation = mergedVesselSituation;
+            MergedVesselBodyName = mergedVesselBodyName;
+            MergedVesselLatitude = mergedVesselLatitude;
+            MergedVesselLongitude = mergedVesselLongitude;
+            MergedVesselAltitude = mergedVesselAltitude;
         }
     }
 
     /// <summary>
     /// Outcome of the pure start-docked origin-partner resolver. <see cref="Captured"/> is the
-    /// only branch that produces a usable partner PID; all others identify the specific reason
-    /// the recording should NOT carry a RouteOriginProof.
+    /// only branch that produces a usable origin identity; all others identify the specific
+    /// reason the recording should NOT carry a RouteOriginProof.
     /// </summary>
     internal enum OriginProofDetection
     {
@@ -66,7 +128,9 @@ namespace Parsek
         NoExternalCoupling,
         ActiveVesselPrelaunch,
         PartnerPrelaunch,
+        /// <summary>Every candidate carried a zero origin root part id.</summary>
         PartnerPidZero,
+        /// <summary>Two or more seams named DIFFERENT origin depots on one merged vessel.</summary>
         PartnerAmbiguous,
     }
 
@@ -120,27 +184,122 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Pure / static. True when a vessel type designates an ORIGIN DEPOT: <c>Base</c> or
+        /// <c>Station</c>. Those are the two types a player assigns to a thing that supplies
+        /// other craft, and they are what the route design doc means by "origin depot vessel"
+        /// (docs/parsek-logistics-supply-routes-design.md section 7).
+        /// </summary>
+        internal static bool IsDepotVesselType(int vesselType)
+        {
+            return vesselType == (int)VesselType.Base
+                || vesselType == (int)VesselType.Station;
+        }
+
+        /// <summary>
+        /// Pure / static. True when a vessel type can own cargo at all. The reject set is the
+        /// design doc's own: "the start-docked vessel is a ghost/EVA/debris/invalid cargo
+        /// owner -> route analysis rejects the candidate" (section 7). Anything that is not a
+        /// craft type - <c>Debris</c>, <c>SpaceObject</c>, <c>Unknown</c>, <c>EVA</c>,
+        /// <c>Flag</c>, the deployed-science and dropped-part types, and any unknown (-1) -
+        /// fails.
+        /// </summary>
+        internal static bool IsValidCargoOwnerVesselType(int vesselType)
+        {
+            switch (vesselType)
+            {
+                case (int)VesselType.Probe:
+                case (int)VesselType.Relay:
+                case (int)VesselType.Rover:
+                case (int)VesselType.Lander:
+                case (int)VesselType.Ship:
+                case (int)VesselType.Plane:
+                case (int)VesselType.Station:
+                case (int)VesselType.Base:
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        /// <summary>
+        /// THE PARTNER RULE (ROUTE-ORIGIN-PROOF-PARTNER-IDENTITY). Pure / static: given the two
+        /// halves of a settled dock seam as their own nodes recorded them, decide WHICH half is
+        /// the origin depot the transport docked into.
+        ///
+        /// <para>The origin is the DEPOT-TYPED half. Nothing here reads which half stock made
+        /// dominant on the merge, which half keeps the <c>Vessel</c> across <c>Part.Undock</c>,
+        /// or which node stock labelled docker / dockee - the last of those looks like an
+        /// initiator record and is not one, because <c>ModuleDockingNode</c> dispatches it as
+        /// <c>if (GetDominantVessel(base.vessel, otherNode.vessel) == base.vessel)
+        /// otherNode.DockToVessel(this)</c>, i.e. the docker is simply the non-dominant half
+        /// (decompiled KSP 1.12.5). Full derivation:
+        /// <c>docs/dev/research/origin-proof-partner-identity-memo.md</c>.</para>
+        ///
+        /// Decision contract (in order):
+        ///   1. either half missing its info, or a zero root part id -> HalfIdentityMissing
+        ///   2. either half not a valid cargo owner                  -> InvalidCargoOwner
+        ///   3. both halves depot-typed                              -> BothHalvesDepot
+        ///   4. near half depot-typed                                -> OriginIsNear
+        ///   5. far half depot-typed                                 -> OriginIsFar
+        ///   6. neither                                              -> NoDepotHalf
+        /// </summary>
+        internal static OriginHalfSelection SelectStartDockedOriginHalf(
+            DockSeamHalfIdentity near,
+            DockSeamHalfIdentity far)
+        {
+            if (!near.HasInfo || !far.HasInfo || near.RootPartUId == 0 || far.RootPartUId == 0)
+                return OriginHalfSelection.HalfIdentityMissing;
+
+            if (!IsValidCargoOwnerVesselType(near.VesselType)
+                || !IsValidCargoOwnerVesselType(far.VesselType))
+            {
+                return OriginHalfSelection.InvalidCargoOwner;
+            }
+
+            bool nearIsDepot = IsDepotVesselType(near.VesselType);
+            bool farIsDepot = IsDepotVesselType(far.VesselType);
+
+            if (nearIsDepot && farIsDepot)
+                return OriginHalfSelection.BothHalvesDepot;
+            if (nearIsDepot)
+                return OriginHalfSelection.OriginIsNear;
+            if (farIsDepot)
+                return OriginHalfSelection.OriginIsFar;
+            return OriginHalfSelection.NoDepotHalf;
+        }
+
+        /// <summary>
         /// Pure resolver: given the active vessel's situation/EVA flag and a list of origin
-        /// partner candidates (settled dock seams, plus any part still externally parented),
-        /// decide whether a single valid non-KSC origin partner exists. No KSP dependency; logging happens at the
-        /// call site so callers can attach context (vessel name, recording id, etc.).
+        /// partner candidates (settled dock seams whose origin half is already selected),
+        /// decide whether a single valid non-KSC origin depot exists. No KSP dependency;
+        /// logging happens at the call site so callers can attach context (vessel name,
+        /// recording id, etc.).
+        ///
+        /// <para>The identity key is the origin half's ROOT PART UID, not a vessel pid: the
+        /// depot's pid is not knowable at capture (see <see cref="OriginPartnerCandidate"/>),
+        /// and a part <c>flightID</c> is launch-unique where a <c>persistentId</c> is not.</para>
         ///
         /// Decision contract (in order):
         ///   1. activeVesselIsEva == true          -> NoExternalCoupling
         ///   2. activeVesselSituation == PRELAUNCH -> ActiveVesselPrelaunch
         ///   3. empty candidate list               -> NoExternalCoupling
-        ///   4. distinct non-zero, non-PRELAUNCH partners == 1 -> Captured
-        ///      else all partner pids == 0         -> PartnerPidZero
+        ///   4. distinct non-zero, non-PRELAUNCH origin root ids == 1 -> Captured
+        ///      else all origin root ids == 0      -> PartnerPidZero
         ///      else all valid candidates PRELAUNCH-> PartnerPrelaunch
-        ///      else 2+ distinct valid partners    -> PartnerAmbiguous
+        ///      else 2+ distinct valid origins     -> PartnerAmbiguous
+        ///
+        /// <para>The PRELAUNCH-per-candidate branch is retained but is unreachable from the
+        /// seam producer: a settled pair is ONE vessel, so a candidate's situation is the
+        /// active vessel's, which step 2 already rejected. It stays because the resolver is
+        /// pure and a future producer may feed candidates with independent situations.</para>
         /// </summary>
         internal static OriginProofDetection TryResolveStartDockedOriginPartner(
             int activeVesselSituation,
             bool activeVesselIsEva,
-            IReadOnlyList<OriginPartnerCandidate> externallyParentedParts,
-            out uint partnerVesselPid)
+            IReadOnlyList<OriginPartnerCandidate> candidates,
+            out uint originRootPartUId)
         {
-            partnerVesselPid = 0;
+            originRootPartUId = 0;
 
             if (activeVesselIsEva)
                 return OriginProofDetection.NoExternalCoupling;
@@ -148,45 +307,45 @@ namespace Parsek
             if (activeVesselSituation == (int)Vessel.Situations.PRELAUNCH)
                 return OriginProofDetection.ActiveVesselPrelaunch;
 
-            if (externallyParentedParts == null || externallyParentedParts.Count == 0)
+            if (candidates == null || candidates.Count == 0)
                 return OriginProofDetection.NoExternalCoupling;
 
             // Walk candidates; track whether ANY candidate existed at all, whether ALL of them
-            // had pid==0, whether ALL valid (pid!=0) candidates were PRELAUNCH, and the set of
-            // distinct non-zero, non-PRELAUNCH partner pids.
+            // had root id 0, whether ALL valid candidates were PRELAUNCH, and the set of
+            // distinct non-zero, non-PRELAUNCH origin root part ids.
             bool sawAnyCandidate = false;
-            bool sawAnyNonZeroPid = false;
+            bool sawAnyNonZeroRoot = false;
             bool sawAnyNonPrelaunchValid = false;
-            var distinctValidPids = new List<uint>();
+            var distinctValidRoots = new List<uint>();
 
-            for (int i = 0; i < externallyParentedParts.Count; i++)
+            for (int i = 0; i < candidates.Count; i++)
             {
-                OriginPartnerCandidate c = externallyParentedParts[i];
+                OriginPartnerCandidate c = candidates[i];
                 sawAnyCandidate = true;
-                if (c.ParentVesselPersistentId == 0)
+                if (c.OriginRootPartUId == 0)
                     continue;
-                sawAnyNonZeroPid = true;
-                if (c.ParentVesselSituation == (int)Vessel.Situations.PRELAUNCH)
+                sawAnyNonZeroRoot = true;
+                if (c.MergedVesselSituation == (int)Vessel.Situations.PRELAUNCH)
                     continue;
                 sawAnyNonPrelaunchValid = true;
-                if (!distinctValidPids.Contains(c.ParentVesselPersistentId))
-                    distinctValidPids.Add(c.ParentVesselPersistentId);
+                if (!distinctValidRoots.Contains(c.OriginRootPartUId))
+                    distinctValidRoots.Add(c.OriginRootPartUId);
             }
 
             if (!sawAnyCandidate)
                 return OriginProofDetection.NoExternalCoupling;
 
-            if (distinctValidPids.Count == 1)
+            if (distinctValidRoots.Count == 1)
             {
-                partnerVesselPid = distinctValidPids[0];
+                originRootPartUId = distinctValidRoots[0];
                 return OriginProofDetection.Captured;
             }
 
-            if (distinctValidPids.Count >= 2)
+            if (distinctValidRoots.Count >= 2)
                 return OriginProofDetection.PartnerAmbiguous;
 
-            // distinctValidPids.Count == 0: classify why
-            if (!sawAnyNonZeroPid)
+            // distinctValidRoots.Count == 0: classify why
+            if (!sawAnyNonZeroRoot)
                 return OriginProofDetection.PartnerPidZero;
 
             if (!sawAnyNonPrelaunchValid)
@@ -247,7 +406,7 @@ namespace Parsek
                 activeVesselSituation,
                 activeVesselIsEva,
                 candidates ?? new List<OriginPartnerCandidate>(),
-                out uint partnerPid);
+                out uint originRootPartUId);
 
             switch (outcome)
             {
@@ -261,36 +420,51 @@ namespace Parsek
 
                     proof = new RouteOriginProof
                     {
-                        StartDockedOriginVesselPid = partnerPid,
+                        // The pid slot stays 0 at capture BY CONTRACT: the depot's own
+                        // Vessel is destroyed by Part.Couple and the merged pid names
+                        // whichever half stock made dominant, not the depot. Identity is
+                        // the origin root part flightID resolved above.
+                        StartDockedOriginVesselPid = 0u,
+                        StartDockedOriginRootPartUId = originRootPartUId,
                         StartTransportResources = startRes,
                         StartTransportInventory = startInv,
                     };
                     transportPartPersistentIds = transportPids;
 
-                    // The resolver returns only the partner pid, so recover the matched
-                    // candidate's origin descriptor by scanning for the first non-PRELAUNCH
-                    // entry with the same parent pid (duplicates share one parent vessel,
-                    // hence identical descriptors). Always present on the Captured branch;
-                    // the guard is defensive.
+                    // The resolver returns only the origin root id, so recover the matched
+                    // candidate's identity + descriptor by scanning for the first
+                    // non-PRELAUNCH entry with the same origin root (duplicate seams on one
+                    // merged pair share the same origin half, hence identical descriptors).
+                    // Always present on the Captured branch; the guard is defensive.
                     for (int i = 0; i < candidates.Count; i++)
                     {
                         OriginPartnerCandidate c = candidates[i];
-                        if (c.ParentVesselPersistentId != partnerPid)
+                        if (c.OriginRootPartUId != originRootPartUId)
                             continue;
-                        if (c.ParentVesselSituation == (int)Vessel.Situations.PRELAUNCH)
+                        if (c.MergedVesselSituation == (int)Vessel.Situations.PRELAUNCH)
                             continue;
-                        proof.StartDockedOriginBodyName = c.ParentVesselBodyName;
-                        proof.StartDockedOriginLatitude = c.ParentVesselLatitude;
-                        proof.StartDockedOriginLongitude = c.ParentVesselLongitude;
-                        proof.StartDockedOriginAltitude = c.ParentVesselAltitude;
-                        proof.StartDockedOriginSituation = c.ParentVesselSituation;
-                        proof.StartDockedOriginIsSurface = IsSurfaceOriginSituation(c.ParentVesselSituation);
+                        proof.StartDockedOriginVesselName = c.OriginVesselName;
+                        proof.StartDockedOriginVesselType = c.OriginVesselType;
+                        proof.StartDockedTransportRootPartUId = c.TransportRootPartUId;
+                        proof.StartDockedTransportVesselType = c.TransportVesselType;
+                        proof.StartDockedOriginBodyName = c.MergedVesselBodyName;
+                        proof.StartDockedOriginLatitude = c.MergedVesselLatitude;
+                        proof.StartDockedOriginLongitude = c.MergedVesselLongitude;
+                        proof.StartDockedOriginAltitude = c.MergedVesselAltitude;
+                        proof.StartDockedOriginSituation = c.MergedVesselSituation;
+                        proof.StartDockedOriginIsSurface = IsSurfaceOriginSituation(c.MergedVesselSituation);
                         break;
                     }
 
                     ParsekLog.Info("Recorder",
                         $"RouteOriginProof captured: recId={recordingVesselId} vessel='{vesselContext}' " +
-                        $"partnerPid={partnerPid} candidates={candidateCount} " +
+                        $"partnerPid={proof.StartDockedOriginVesselPid} " +
+                        $"originRoot={originRootPartUId.ToString(CultureInfo.InvariantCulture)} " +
+                        $"originName='{proof.StartDockedOriginVesselName ?? "<none>"}' " +
+                        $"originType={proof.StartDockedOriginVesselType.ToString(CultureInfo.InvariantCulture)} " +
+                        $"transportRoot={proof.StartDockedTransportRootPartUId.ToString(CultureInfo.InvariantCulture)} " +
+                        $"transportType={proof.StartDockedTransportVesselType.ToString(CultureInfo.InvariantCulture)} " +
+                        $"candidates={candidateCount} " +
                         $"transportParts={transportPids?.Count ?? 0} " +
                         $"startRes={startRes?.Count ?? 0} startInv={startInv?.Count ?? 0} " +
                         $"partnerBody={(string.IsNullOrEmpty(proof.StartDockedOriginBodyName) ? "<none>" : proof.StartDockedOriginBodyName)} " +
@@ -315,26 +489,26 @@ namespace Parsek
                     break;
                 case OriginProofDetection.PartnerPidZero:
                     ParsekLog.Warn("Recorder",
-                        $"RouteOriginProof skipped: partner pid=0 recId={recordingVesselId} " +
+                        $"RouteOriginProof skipped: partner root=0 recId={recordingVesselId} " +
                         $"vessel='{vesselContext}' candidates={candidateCount}");
                     break;
                 case OriginProofDetection.PartnerAmbiguous:
                 {
-                    var distinctPids = new List<uint>();
+                    var distinctRoots = new List<uint>();
                     if (candidates != null)
                     {
                         for (int i = 0; i < candidates.Count; i++)
                         {
-                            uint pid = candidates[i].ParentVesselPersistentId;
-                            if (pid == 0) continue;
-                            if (candidates[i].ParentVesselSituation == (int)Vessel.Situations.PRELAUNCH) continue;
-                            if (!distinctPids.Contains(pid)) distinctPids.Add(pid);
+                            uint root = candidates[i].OriginRootPartUId;
+                            if (root == 0) continue;
+                            if (candidates[i].MergedVesselSituation == (int)Vessel.Situations.PRELAUNCH) continue;
+                            if (!distinctRoots.Contains(root)) distinctRoots.Add(root);
                         }
                     }
                     ParsekLog.Warn("Recorder",
                         $"RouteOriginProof skipped: ambiguous partners recId={recordingVesselId} " +
                         $"vessel='{vesselContext}' candidates={candidateCount} " +
-                        $"distinctPartnerPids=[{string.Join(",", distinctPids)}]");
+                        $"distinctOriginRoots=[{string.Join(",", distinctRoots)}]");
                     break;
                 }
             }
@@ -366,6 +540,7 @@ namespace Parsek
             capture.RouteOriginProof = pendingProof;
             ParsekLog.Verbose("Recorder",
                 $"BuildCaptureRecording: forwarded RouteOriginProof partner={pendingProof.StartDockedOriginVesselPid} " +
+                $"originRoot={pendingProof.StartDockedOriginRootPartUId.ToString(CultureInfo.InvariantCulture)} " +
                 $"startRes={pendingProof.StartTransportResources?.Count ?? 0} " +
                 $"endRes={pendingProof.EndTransportResources?.Count ?? 0} " +
                 $"startInv={pendingProof.StartTransportInventory?.Count ?? 0} " +

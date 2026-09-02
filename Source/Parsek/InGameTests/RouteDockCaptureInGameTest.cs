@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Globalization;
@@ -645,9 +645,13 @@ namespace Parsek.InGameTests
                 IEnumerator port = ctx.AttachTransportDockPort();
                 while (port.MoveNext()) yield return port.Current;
 
+                // A DEPOT-TYPED partner: the start-docked partner rule names the Base /
+                // Station half of the seam as the origin, so a Probe-typed partner would read
+                // NoDepotHalf and capture nothing.
                 var rig = new PartnerRig("A");
                 IEnumerator build = ctx.BuildPartnerRig(
-                    rig, PartnerAOffsetsMeters, withTank: false, withContainer: false);
+                    rig, PartnerAOffsetsMeters, withTank: false, withContainer: false,
+                    rigVesselType: VesselType.Base);
                 while (build.MoveNext()) yield return build.Current;
 
                 // The dock itself, OUTSIDE any recording: this probe is about
@@ -785,11 +789,29 @@ namespace Parsek.InGameTests
                 IEnumerator port = ctx.AttachTransportDockPort();
                 while (port.MoveNext()) yield return port.Current;
 
-                // The DEPOT: partner A stands in for the landed base rover.
+                // The DEPOT: partner A stands in for the landed base, and is TYPED as one.
+                // The type is the whole subject here - the partner rule reads the two halves'
+                // pre-dock vesselType off the docking-node pair and names the Base / Station
+                // half the origin, INDEPENDENT of which half stock made dominant. This cell
+                // couples the depot INTO the transport, so the depot is the child that leaves
+                // and the merged pid names the TRANSPORT; a dominance-derived rule would name
+                // the transport as its own origin here.
                 var depot = new PartnerRig("A");
                 IEnumerator buildDepot = ctx.BuildPartnerRig(
-                    depot, PartnerAOffsetsMeters, withTank: false, withContainer: false);
+                    depot, PartnerAOffsetsMeters, withTank: false, withContainer: false,
+                    rigVesselType: VesselType.Base);
                 while (buildDepot.MoveNext()) yield return buildDepot.Current;
+
+                // THE EXPECTED ANSWER, read off the world BEFORE the couple. This is exactly
+                // what stock's DockToVessel would stamp into the depot node's vesselInfo, and
+                // it is unrecoverable after Part.Couple destroys the depot's Vessel - which is
+                // the same reason StampStockDockBookkeeping has to run first.
+                uint depotRootFlightId = depot.Root.flightID;
+                string depotVesselName = depot.Vessel.vesselName;
+                int depotVesselType = (int)depot.Vessel.vesselType;
+                InGameAssert.AreEqual((int)VesselType.Base, depotVesselType,
+                    "the depot rig must be Base-typed BEFORE the couple, or the partner rule " +
+                    "reads NoDepotHalf and this cell measures nothing");
 
                 // THE DOCK HAPPENS OUTSIDE ANY RECORDING. That is the whole
                 // subject: no onPartCouple window can open, so the origin has
@@ -875,20 +897,14 @@ namespace Parsek.InGameTests
                 // above the runner's FAILED line, and the exception still fails the cell.
                 try
                 {
-                    // THE PROOF'S FIELDS ARE READ OFF THE PRODUCER'S OWN LINE, not off a
-                    // committed recording, and that is a statement about the PRODUCT rather
-                    // than a convenience. Measured by this lane's first flight
-                    // (`2026-09-02_1005`): the start-time proof IS produced and IS attached to
-                    // `FlightRecorder.CaptureAtStop` by `BuildCaptureRecording`, but in
-                    // ALWAYS-TREE mode nothing forwards it onto a tree recording -
-                    // `ParsekFlight.AppendCapturedDataToRecording` omits the field by explicit
-                    // decision, and the one production writer of `Recording.RouteOriginProof`
-                    // (`Recording.ApplyPersistenceArtifactsFrom`, reached from
-                    // `ChainSegmentManager.CommitSegmentCore`) is on the legacy chain-commit
-                    // path. Filed as ROUTE-ORIGIN-PROOF-NEVER-REACHES-A-TREE-RECORDING. This
-                    // cell therefore asserts what the producer emits and NOT what the store
-                    // holds: pinning the read-back today would pin the defect as correct, and
-                    // pinning `proof == null` would pin it as intended.
+                    // THE READ-BACK IS ASSERTED AGAIN. Flights 1 and 2 of this lane red on
+                    // exactly this and the finding was real
+                    // (ROUTE-ORIGIN-PROOF-NEVER-REACHES-A-TREE-RECORDING: the start-time proof
+                    // was attached to FlightRecorder.CaptureAtStop and nothing forwarded it
+                    // onto a tree recording in always-tree mode). The write-once adoption in
+                    // ParsekFlight.ApplyCapturedLogisticsMetadataToRecording closes it, and
+                    // this cell is the only live proof that the ORDINARY stop flush - not just
+                    // the split and the merge - reaches it.
                     if (ctx.Flight.IsRecording)
                         ctx.Flight.StopRecording();
                     string proofRecordingId;
@@ -896,7 +912,47 @@ namespace Parsek.InGameTests
                     ParsekLog.Info("TestRunner",
                         "StartDockedOriginForward: cell=" + ctx.CellName
                         + " treeRecordingWithProof=" + (proof != null ? (proofRecordingId ?? "<unnamed>") : "<none>")
-                        + " (REPORT-ONLY, see ROUTE-ORIGIN-PROOF-NEVER-REACHES-A-TREE-RECORDING)");
+                        + " expectedOriginRoot=" + depotRootFlightId.ToString(IC)
+                        + " expectedOriginName='" + depotVesselName + "'"
+                        + " actualOriginRoot=" + (proof != null ? proof.StartDockedOriginRootPartUId.ToString(IC) : "<none>")
+                        + " actualOriginName='" + (proof != null ? (proof.StartDockedOriginVesselName ?? "<null>") : "<none>") + "'"
+                        + " actualOriginType=" + (proof != null ? proof.StartDockedOriginVesselType.ToString(IC) : "<none>"));
+
+                    InGameAssert.IsNotNull(proof,
+                        "the start-docked origin proof must reach a TREE recording. Null here is " +
+                        "ROUTE-ORIGIN-PROOF-NEVER-REACHES-A-TREE-RECORDING regressing: the proof is " +
+                        "attached to FlightRecorder.CaptureAtStop and only the write-once adoption " +
+                        "in ParsekFlight.ApplyCapturedLogisticsMetadataToRecording carries it across " +
+                        "the tree-mode stop flush");
+
+                    // THE PARTNER RULE, LIVE. The rig coupled the DEPOT into the transport, so
+                    // the depot is the child that LEAVES and the merged pid names the
+                    // transport. The proof must still name the depot - that is the whole
+                    // content of the ruling, and no headless test can drive the live
+                    // ModuleDockingNode pair the selection reads.
+                    InGameAssert.AreEqual(depotRootFlightId, proof.StartDockedOriginRootPartUId,
+                        "the persisted origin must be the DEPOT half (root flightID " +
+                        depotRootFlightId.ToString(IC) + "), not the transport. A mismatch here " +
+                        "means the producer went back to a dominance-derived reading - the merged " +
+                        "vessel in this cell IS the transport, recordedPid=" + mergedPid.ToString(IC));
+                    InGameAssert.AreEqual(depotVesselName, proof.StartDockedOriginVesselName,
+                        "the proof must carry the depot's PRE-dock vessel name off the docking " +
+                        "node's vesselInfo");
+                    InGameAssert.AreEqual((int)VesselType.Base, proof.StartDockedOriginVesselType,
+                        "the proof must carry the depot's PRE-dock vesselType - it is the field " +
+                        "the partner rule selects on");
+                    InGameAssert.AreNotEqual(depotRootFlightId, proof.StartDockedTransportRootPartUId,
+                        "the transport half must be the OTHER half of the seam; equal roots mean " +
+                        "the selection collapsed both halves onto one identity");
+                    InGameAssert.AreEqual(0u, proof.StartDockedOriginVesselPid,
+                        "the pid slot is 0 by contract at capture - the depot's own Vessel is " +
+                        "destroyed by Part.Couple and the merged pid names the wrong half");
+                    InGameAssert.AreEqual("Kerbin", proof.StartDockedOriginBodyName,
+                        "the persisted M1 descriptor must carry the body, or a pid-less origin " +
+                        "has nothing left to resolve from");
+                    InGameAssert.IsTrue(proof.StartDockedOriginIsSurface,
+                        "a LANDED docked pair must persist a SURFACE-typed origin, which is what " +
+                        "gives the pid-less endpoint RouteEndpointResolver's proximity fallback");
 
                     // The producer's Captured line carries every descriptor field this cell
                     // is here to prove is real, and it is production output.
@@ -929,6 +985,8 @@ namespace Parsek.InGameTests
                             completeWindows: ctx.Windows.Count,
                             detail: "recordedPid=" + mergedPid.ToString(IC)
                                 + ";treeProof=" + (proof != null ? "yes" : "no")
+                                + ";originRoot=" + proof.StartDockedOriginRootPartUId.ToString(IC)
+                                + ";depotRoot=" + depotRootFlightId.ToString(IC)
                                 + ";delivered=" + delivered.ToString("F2", IC)));
 
                     ctx.RunAnalysisAndPass(
@@ -939,14 +997,13 @@ namespace Parsek.InGameTests
                         pickupResources: 0,
                         pickupInventory: 0,
                         // THE NRE THAT RED FLIGHTS 1 AND 2 WAS HERE: this argument
-                        // dereferenced the tree-lookup result, which is null by
-                        // construction while ROUTE-ORIGIN-PROOF-NEVER-REACHES-A-TREE-RECORDING
-                        // stands. It survived the reshape as a leftover from the version
-                        // that asserted the read-back. The recorded vessel pid is what the
-                        // producer actually stamped, and it is already in the instrument
-                        // line above.
+                        // dereferenced the tree-lookup result, which was null by construction
+                        // while ROUTE-ORIGIN-PROOF-NEVER-REACHES-A-TREE-RECORDING stood. The
+                        // proof is now asserted non-null ABOVE, so the dereference is guarded
+                        // by a named assertion rather than by luck.
                         detail: "recordedPid=" + mergedPid.ToString(IC)
                             + ";treeProof=" + (proof != null ? "yes" : "no")
+                            + ";originRoot=" + proof.StartDockedOriginRootPartUId.ToString(IC)
                             + ";delivered=" + delivered.ToString("F2", IC));
                 }
                 catch (Exception tailEx)
@@ -983,7 +1040,8 @@ namespace Parsek.InGameTests
 
                 var depot = new PartnerRig("A");
                 IEnumerator buildDepot = ctx.BuildPartnerRig(
-                    depot, PartnerAOffsetsMeters, withTank: false, withContainer: false);
+                    depot, PartnerAOffsetsMeters, withTank: false, withContainer: false,
+                    rigVesselType: VesselType.Base);
                 while (buildDepot.MoveNext()) yield return buildDepot.Current;
 
                 StampStockDockBookkeeping(depot.Port, ctx.TransportPort);
@@ -1284,7 +1342,8 @@ namespace Parsek.InGameTests
             /// at once). See the class remarks.
             /// </summary>
             internal IEnumerator BuildPartnerRig(
-                PartnerRig rig, double[] offsets, bool withTank, bool withContainer)
+                PartnerRig rig, double[] offsets, bool withTank, bool withContainer,
+                VesselType rigVesselType = VesselType.Probe)
             {
                 uint rootPid = SpawnSinglePartVessel(
                     CommandPartName, RunId + "-p" + rig.Label + "-core", VesselType.Probe,
@@ -1325,6 +1384,16 @@ namespace Parsek.InGameTests
                     while (addBox.MoveNext()) yield return addBox.Current;
                 }
 
+                // THE DECLARED TYPE IS STAMPED LAST, ON PURPOSE. Part.Couple ends with
+                // `this.vessel.vesselType = this.vessel.FindDefaultVesselType()` (decompiled
+                // KSP 1.12.5), so a type assigned at spawn is recomputed away by every
+                // AddPartToRig couple. The origin-proof cells need a DEPOT-typed partner
+                // because the start-docked partner rule selects the Base / Station half of
+                // the seam - see RouteProofCapture.SelectStartDockedOriginHalf - and the type
+                // is read from the docking node's vesselInfo, which StampStockDockBookkeeping
+                // records from the live vessel just before the couple.
+                rig.Vessel.vesselType = rigVesselType;
+
                 InGameAssert.IsTrue(ParsekFlight.IsTrackableVessel(rig.Vessel),
                     "the assembled partner rig must be TRACKABLE before it is ever docked - the " +
                     "undock split is filtered by this exact predicate, and an untrackable half " +
@@ -1332,7 +1401,7 @@ namespace Parsek.InGameTests
                 ParsekLog.Info("TestRunner",
                     "RouteDockCapture partner rig " + rig.Label + " built: pid=" +
                     rig.Vessel.persistentId.ToString(IC) + " parts=" + rig.Vessel.parts.Count.ToString(IC) +
-                    " root=" + CommandPartName + " trackable=True");
+                    " root=" + CommandPartName + " type=" + rig.Vessel.vesselType + " trackable=True");
             }
 
             /// <summary>Pre-recording couple of one extra part onto the partner

@@ -1,4 +1,4 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using UnityEngine;
 using Xunit;
 
@@ -294,9 +294,11 @@ namespace Parsek.Tests
         [Fact]
         public void LogisticsMetadata_RouteFieldsOnSourceAreIgnored()
         {
-            // Guard against the dead-branch reintroduction: even if a Recording somehow
-            // carries route-window / origin-proof / transfer fields, the manifest-copy
-            // helper must not forward them. Route metadata flows through CreateMergeBranch.
+            // Guard against the dead-branch reintroduction for the WINDOW and TRANSFER
+            // fields: those flow through CreateMergeBranch and must not be duplicated here.
+            // The ORIGIN PROOF is deliberately NOT in that set any more - forwarding it is
+            // the fix for ROUTE-ORIGIN-PROOF-NEVER-REACHES-A-TREE-RECORDING, and its
+            // write-once contract is pinned in RouteOriginProofForwardingTests.
             var target = new Recording();
             var source = new Recording
             {
@@ -320,8 +322,9 @@ namespace Parsek.Tests
 
             Assert.Equal(0u, target.TransferTargetVesselPid);
             Assert.Equal(RouteConnectionKind.None, target.TransferKind);
-            Assert.Null(target.RouteOriginProof);
             Assert.Null(target.RouteConnectionWindows);
+            Assert.NotNull(target.RouteOriginProof);
+            Assert.Equal(789u, target.RouteOriginProof.StartDockedOriginVesselPid);
         }
 
         [Fact]

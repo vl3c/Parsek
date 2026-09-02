@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
 
@@ -328,6 +328,7 @@ namespace Parsek
         {
             return proof != null
                 && (proof.StartDockedOriginVesselPid != 0
+                    || proof.StartDockedOriginRootPartUId != 0
                     || HasEntries(proof.StartTransportResources)
                     || HasEntries(proof.EndTransportResources)
                     || HasEntries(proof.StartTransportInventory)
@@ -350,11 +351,27 @@ namespace Parsek
             if (proof.StartDockedOriginVesselPid != 0)
                 node.AddValue("startDockedOriginVesselPid", proof.StartDockedOriginVesselPid.ToString(ic));
 
+            // Origin depot identity read off the docking-node PAIR. rootPartUId is the
+            // capture-time key - the pid slot is 0 on every captured proof, see
+            // RouteOriginProof - so it gates the rest of the identity block.
+            if (proof.StartDockedOriginRootPartUId != 0)
+            {
+                node.AddValue("startDockedOriginRootPartUId", proof.StartDockedOriginRootPartUId.ToString(ic));
+                if (!string.IsNullOrEmpty(proof.StartDockedOriginVesselName))
+                    node.AddValue("startDockedOriginVesselName", proof.StartDockedOriginVesselName);
+                if (proof.StartDockedOriginVesselType >= 0)
+                    node.AddValue("startDockedOriginVesselType", proof.StartDockedOriginVesselType.ToString(ic));
+                if (proof.StartDockedTransportRootPartUId != 0)
+                    node.AddValue("startDockedTransportRootPartUId", proof.StartDockedTransportRootPartUId.ToString(ic));
+                if (proof.StartDockedTransportVesselType >= 0)
+                    node.AddValue("startDockedTransportVesselType", proof.StartDockedTransportVesselType.ToString(ic));
+            }
+
             // Origin endpoint descriptor (M1): additive + sparse, written only when
             // a partner pid exists AND the body name was captured. Old proofs without
             // the descriptor read back with defaults (empty body, zero coords,
             // situation -1).
-            if (proof.StartDockedOriginVesselPid != 0
+            if ((proof.StartDockedOriginVesselPid != 0 || proof.StartDockedOriginRootPartUId != 0)
                 && !string.IsNullOrEmpty(proof.StartDockedOriginBodyName))
             {
                 node.AddValue("startDockedOriginBodyName", proof.StartDockedOriginBodyName);
@@ -382,6 +399,28 @@ namespace Parsek
                 && uint.TryParse(originPidStr, NumberStyles.Integer, ic, out uint originPid))
             {
                 proof.StartDockedOriginVesselPid = originPid;
+            }
+
+            if (uint.TryParse(node.GetValue("startDockedOriginRootPartUId"),
+                    NumberStyles.Integer, ic, out uint originRoot))
+            {
+                proof.StartDockedOriginRootPartUId = originRoot;
+            }
+            proof.StartDockedOriginVesselName = node.GetValue("startDockedOriginVesselName");
+            if (int.TryParse(node.GetValue("startDockedOriginVesselType"),
+                    NumberStyles.Integer, ic, out int originType))
+            {
+                proof.StartDockedOriginVesselType = originType;
+            }
+            if (uint.TryParse(node.GetValue("startDockedTransportRootPartUId"),
+                    NumberStyles.Integer, ic, out uint transportRoot))
+            {
+                proof.StartDockedTransportRootPartUId = transportRoot;
+            }
+            if (int.TryParse(node.GetValue("startDockedTransportVesselType"),
+                    NumberStyles.Integer, ic, out int transportType))
+            {
+                proof.StartDockedTransportVesselType = transportType;
             }
 
             // Origin endpoint descriptor (M1): absent values keep the field defaults

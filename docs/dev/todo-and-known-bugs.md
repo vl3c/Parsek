@@ -589,123 +589,135 @@ and that must not red); the arithmetic it produces is pinned instead. If a futur
 fixture is built by construction from a sandbox harvest, expect the same line and expect
 its live pools to be the seeded values rather than the ledger's totals.
 
-## ROUTE-ORIGIN-PROOF-NEVER-REACHES-A-TREE-RECORDING: the start-docked proof is produced and attached to `CaptureAtStop`, and in always-tree mode nothing forwards it onto a `Recording` [FOUND 2026-09-02 by lane H57's first flight (`2026-09-02_1005`), which red on exactly this. OPEN, product defect, blocks the whole start-docked origin feature]
+## ~~ROUTE-ORIGIN-PROOF-NEVER-REACHES-A-TREE-RECORDING: the start-docked proof is produced and attached to `CaptureAtStop`, and in always-tree mode nothing forwards it onto a `Recording`~~ [FOUND 2026-09-02 by lane H57's first flight (`2026-09-02_1005`), which red on exactly this. FIXED 2026-09-02, code green, NOT YET FLOWN]
 
-**What the flight measured.** H57's subject cell started a recording on a settled docked
-pair, the producer fired (`RouteOriginProof captured: ... partnerBody=Kerbin surface=1`),
-the cell then stopped the recording and found NO recording in the tree carrying a
-`RouteOriginProof`.
+**FIXED 2026-09-02 as a write-once adoption in
+`ParsekFlight.ApplyCapturedLogisticsMetadataToRecording`.** That placement is the whole
+fix shape and an earlier draft of this entry got it wrong: the metadata helper has TWO
+callers, and `ParsekFlight.FlushRecorderToTreeRecording` calls it DIRECTLY - that is the
+ordinary tree-mode stop, and the path H57 red on - while
+`AppendCapturedDataToRecording` reaches it and is how the undock split and the merge get
+there. An adoption written into `AppendCapturedDataToRecording` would have fixed the
+split and the merge and MISSED the ordinary stop flush entirely.
 
-**The caller set, re-derived rather than read off comments, and corrected once already.**
-`Recording.RouteOriginProof` has exactly two writers in `Source/Parsek`:
-`Recording.ApplyPersistenceArtifactsFrom` (`Recording.cs:912`) and
-`Recording.CloneWithPersistenceArtifacts` (`Recording.cs:1023`).
+**The write-once rule, and why a bare assignment would have been wrong.** ADOPT ONLY INTO
+A NULL SLOT: the FIRST call carrying a proof wins, and no later call clears or overwrites
+it. Two independent reasons, both pinned in `RouteOriginProofForwardingTests`. (a)
+`FlightRecorder` nulls `pendingRouteOriginProof` at EVERY recorder start
+(`FlightRecorder.cs`), so a split-then-stop sequence hands the helper a proof-less source
+after a real proof already landed - a bare assignment would blank it back out. (b) The
+origin is a BIRTH fact of the run, so a later recorder start that happened to be docked
+somewhere else must not rewrite it. The adopted value is a `DeepClone`, not the capture's
+instance: the capture recording is transient and its manifests are re-extracted per stop.
 
-THE OMISSION LIVES IN `ParsekFlight.ApplyCapturedLogisticsMetadataToRecording`
-(`ParsekFlight.cs:4551`), NOT in `AppendCapturedDataToRecording`. That distinction is the
-whole fix shape and an earlier draft of this entry got it wrong. The metadata helper has
-TWO callers: `ParsekFlight.FlushRecorderToTreeRecording` calls it DIRECTLY
-(`ParsekFlight.cs:3898`) - that is the ordinary tree-mode stop, and the path H57 red on -
-and `AppendCapturedDataToRecording` (`ParsekFlight.cs:4518`) reaches it at
-`ParsekFlight.cs:4538`, which is how the undock split (`ParsekFlight.cs:5580`) and the
-merge (`ParsekFlight.cs:6302`) get there. An adoption written into
-`AppendCapturedDataToRecording` would therefore fix the split and the merge and MISS the
-ordinary stop flush entirely. The `RouteOriginProof` omission is a deliberate no-op inside
-the metadata helper with its rationale at `ParsekFlight.cs:4659-4670` ("that proof reaches
-committed recordings via `Recording.ApplyPersistenceArtifactsFrom` at chain-commit time").
+**What is no longer claimed.** The chain-commit route
+(`Recording.ApplyPersistenceArtifactsFrom` via `ChainSegmentManager.CommitSegmentCore`)
+is still reachable in code and still unobserved - zero `CommitSegmentCore` lines across
+394 collected `KSP.log`s - and it is no longer the only writer, so it is no longer
+load-bearing for this feature.
 
-**What the chain-commit path actually is, stated without overclaiming.**
-`ChainSegmentManager.CommitSegmentCore` (`ChainSegmentManager.cs:658`) is the only
-production caller of `ApplyPersistenceArtifactsFrom` in the recording pipeline, and it is
-REACHABLE IN CODE, not dead: `CommitChainSegment` (`ParsekFlight.cs:1381`, `:12515`),
-`CommitDockUndockSegment` (`:12397`, `:12407`, `:12418`, `:12431`),
-`CommitVesselSwitchTermination` (`:11600`) and `CommitBoundarySplit` (`:11610`) are called
-from ungated handlers, and only the dock/undock branch carries a legacy label. What is true
-is narrower and measured: NO OBSERVED FLIGHT REACHES IT - zero `CommitSegmentCore` lines
-across all 394 collected `KSP.log`s in `../logs`. So IF a chain commit does run, a
-`RouteOriginProof` IS persisted, and it carries the merged-vessel pid, which means the
-ROUTE-ORIGIN-PROOF-PARTNER-IDENTITY semantics below are LIVE on that path and not merely
-hypothetical.
+**Still to measure.** The produced-save `ROUTE_ORIGIN_PROOF` node count was 0 on both
+H56 and H57 of 2026-09-02. H57 must be re-flown and that count read from the bytes; the
+lane's subject cell now ASSERTS the read-back (`treeProof=yes`) instead of reporting it.
 
-**So the producer half is fixed and the consumer half is not reached.** The proof is built
-(`RouteProofCapture.BuildStartRouteOriginProof`), held in `FlightRecorder.pendingRouteOriginProof`
-between the start and the stop, and attached to `FlightRecorder.CaptureAtStop` by
-`BuildCaptureRecording` (`FlightRecorder.cs:7947`). It dies there on every path any flight
-has ever taken. CORROBORATED IN THE PRODUCED SAVES: the H56 and H57 runs of 2026-09-02 both
-report a `ROUTE_ORIGIN_PROOF` node count of 0, H56's despite its probe reading
-`proofCaptured=True outcome=captured`.
+## ~~ROUTE-ORIGIN-PROOF-PARTNER-IDENTITY: the start-docked proof stamps the MERGED vessel's own pid as the origin partner, which is right only when the depot is the dominant half~~ [FOUND 2026-09-02 by the adversarial review of the producer fix (F1/F2). RULED AND BUILT 2026-09-02, code green, NOT YET FLOWN]
 
-**Why this is NOT a one-line forward, and why it was left open rather than patched.** The
-adoption has to go into `ApplyCapturedLogisticsMetadataToRecording` (`ParsekFlight.cs:4551`)
-to cover the ordinary stop flush, and that helper is shared by the stop flush, the undock
-split and the merge - so it changes tree metadata semantics for EVERY recording, not just
-start-docked ones. It needs write-once semantics of its own: `pendingRouteOriginProof` is
-nulled at every recorder restart (`FlightRecorder.cs:7030`), so a split-then-stop sequence
-would otherwise overwrite a real proof with null. And it cannot be settled independently of
-ROUTE-ORIGIN-PROOF-PARTNER-IDENTITY below - forwarding a pid whose meaning is disputed just
-persists the dispute, and the chain-commit path already would if it ever ran. Fix shape: one
-write-once adoption in `ApplyCapturedLogisticsMetadataToRecording` (adopt when
-`target.RouteOriginProof == null`), with a unit test for the null-source-does-not-clobber
-case, taken together with the partner rule.
+**THE RULING: the origin is the DEPOT-TYPED half of the seam.** Decision memo with the
+full derivation: `docs/dev/research/origin-proof-partner-identity-memo.md`. The two
+halves' pre-dock identities come off the docking-node PAIR (each node's own
+`DockedVesselInfo`: name / vesselType / rootPartUId, no pid, no guid), and
+`RouteProofCapture.SelectStartDockedOriginHalf` picks the half typed `Base` or `Station`.
+Neither half depot-typed, both depot-typed, or either half not a valid cargo owner
+(`Debris` / `SpaceObject` / `Unknown` / `EVA` / `Flag` / deployed-science) produces NO
+proof - the reject set is the route design doc's own sentence (section 7).
 
-## ROUTE-ORIGIN-PROOF-PARTNER-IDENTITY: the start-docked proof stamps the MERGED vessel's own pid as the origin partner, which is right only when the depot is the dominant half [FOUND 2026-09-02 by the adversarial review of the producer fix (F1/F2). OPEN, needs a design ruling before any further code]
+**The design authority the previous wave could not find exists.** It is
+`docs/parsek-logistics-supply-routes-design.md` (the archived
+`done/logistics-origin-ownership-proposal.md` names it as its successor). Section 7 asks
+the recorder for the "connected origin vessel PID, connection kind, ORIGIN PART PID SET",
+and test-intent line 1314 states "deducts from recorded ORIGIN DEPOT, NOT TRANSPORT". The
+ruling is that doc's rule, not a new one.
 
-**F1.** `FlightRecorder.CaptureStartRouteOriginProofIfDocked` stamps
-`v.persistentId` into the seam candidate, so the producer can only ever emit
-`partnerPid == RecordingVesselId`. That pid is the pid of the half that KEEPS the merged
-`Vessel` across `Part.Undock` (the undocking subtree gets a fresh `Vessel`; the remainder
-keeps the original), and which half that is comes from stock's own
-`Vessel.GetDominantVessel` - vesselType priority, then mass - through
-`ModuleDockingNode.DockToVessel`'s `base.part.Couple(node.part)` and `Undock`'s
-`otherNode.part.parent == part` dispatch. For the canonical supply shape (a
-`VesselType.Base` depot, a Rover/Ship transport) the depot is dominant, keeps the pid, and
-the reading is correct. It is NOT correct in general, and it is NOT what the fix's own
-in-game gate produces: H57's subject cell couples the depot INTO the transport with a raw
-`Part.Couple`, so the depot is the child and LEAVES, and the recorded pid names the
-transport. The cell no longer asserts pid identity (2026-09-02 follow-up); it reports the
-recorded pid and pins the descriptor fields instead.
+**Two readings the decompile ruled out, so they are not rediscovered.** (1) DOMINANCE:
+`Part.Couple` keeps the target side's root, so `v.rootPart.flightID` names the half that
+stayed, and `Vessel.GetDominantVessel` picks by vesselType, then mass, then a `Vessel.id`
+compare. It is wrong on H57's shape by construction. (2) DOCKER / DOCKEE: it looks like an
+initiator record and is not one - `ModuleDockingNode` dispatches
+`if (GetDominantVessel(base.vessel, otherNode.vessel) == base.vessel)
+otherNode.DockToVessel(this)`, so the docker is simply the non-dominant half. Dominance
+under another name.
 
-**What the docking node can actually supply.** `DockedVesselInfo` carries `name`,
-`vesselType` and `rootPartUId` (a PART flightID) of each half's PRE-dock vessel, and NO
-vessel pid at all - decompiled, not assumed. So the partner's vessel pid is genuinely
-unresolvable at capture time. The codebase already knows part pids are the identity that
-survives an undock: `RouteConnectionWindow.EndpointPartPersistentIds` is asserted on
-exactly that ground by the round-trip cell.
+**F1 is closed: no pid is stamped at capture at all.** `StartDockedOriginVesselPid` is 0
+on every captured proof and stays as the bind-later slot. The absorbed half's `Vessel` is
+destroyed by `Part.Couple` so its pid is unrecoverable, and the surviving half's pid is
+only usable behind the launch-guid gate. Identity is `StartDockedOriginRootPartUId`, a
+part `flightID` - assigned per launch, NOT baked into the `.craft`, so unlike
+`persistentId` it needs no guid gate to be trusted. The consumer gate
+(`RouteAnalysisEngine.HasDockedOriginProof`, shared by `RouteBuilder` and
+`RouteCreationFormatters`) admits either key. NO BARE PID MATCH SHIPS.
 
-**F2, the same ruling from the other side.** `IsSettledDockSeam` is SYMMETRIC, so a station
-or a base that starts a recording while something is docked to it now gets a
-`RouteOriginProof` naming itself, which flips `RouteAnalysisEngine`'s non-KSC origin gate
-for a vessel that is not a transport at all. There is no route design doc in `docs/dev` to
-cite a rule from (`docs/dev/done/logistics-origin-ownership-proposal.md` is the archived
-source, and its start-docked bullet is the one this wave already corrected), so the rule
-has to be WRITTEN before it can be cited.
+**Schema: no generation bump, and the reason is measured, not assumed.** The fields are
+additive to the optional `ROUTE_ORIGIN_PROOF` node, and the old pid-only shape has NEVER
+been persisted by anything - zero `ROUTE_ORIGIN_PROOF` nodes across every committed
+fixture and both produced saves of 2026-09-02, because the forwarding defect above meant
+no proof ever reached a recording. There is no on-disk population to migrate, so the
+field set simply changes; `CurrentRecordingSchemaGeneration` stays 4. The hasher appends
+the root id SPARSELY (nothing emitted when it is 0), so every existing recording keeps its
+byte-stable fingerprint and `RouteStore.RevalidateSources` cannot flip an existing route
+to `SourceChanged`.
 
-**And the semantics are LIVE, not hypothetical.** `ChainSegmentManager.CommitSegmentCore`
-is reachable from ungated handlers (see the entry above for the five call sites); no
-observed flight has taken it - zero `CommitSegmentCore` lines across 394 collected logs -
-but if one does, `Recording.ApplyPersistenceArtifactsFrom` persists a `RouteOriginProof`
-carrying the merged-vessel pid onto a committed recording, and `RouteBuilder` then resolves
-a non-KSC origin from it. So this is a ruling about behaviour that can already ship, not
-about a branch that cannot run.
+**F2 is NARROWED, NOT CLOSED.** A base or station that starts a recording while something
+is docked to it still gets a proof naming ITSELF: at capture there is no way to tell "the
+recorded vessel is the transport" from "the recorded vessel is the depot". The type rule
+replaces "whichever half won dominance" with "the depot half", which is at least a
+correct NAME, and the residue is filed as
+ROUTE-ORIGIN-PROOF-SELF-ORIGIN-ON-A-DEPOT-SIDE-START below.
 
-**The ruling that is needed, stated as the choice.** Either (a) the origin partner is the
-half that STAYS, in which case `v.persistentId` is right by construction and the depot-side
-start is a real false positive that needs an exclusion rule and a test; or (b) the origin
-partner is the OTHER half of the seam, in which case the proof must carry that half's
-pre-dock `name` + `rootPartUId` (new fields, schema generation bump) and the pid is bound
-later, by the undock or by the existing M1 proximity rebuild. Nothing further should be
-built on the current producer until this is decided.
+**F3 stands unchanged.** The seam predicate's third conjunct
+(`TryFindPartByFlightIdOnVessel`) still has no headless pin - the helper takes a live
+`Vessel`. Its only pin is H57's negative-control cell, which passed on flight 1.
 
-**F3, recorded so it is not rediscovered.** The live wiring of the seam predicate's third
-conjunct (`TryFindPartByFlightIdOnVessel(v, node.dockedPartUId) != null`,
-`FlightRecorder.cs`) has NO headless pin: the helper takes a live `Vessel`, which xUnit
-cannot construct, so mutating that argument to a constant `true` leaves the suite green.
-The pure predicate itself is `[Theory]`-pinned over all eight input shapes. The ONLY pin on
-the live wiring is H57's negative-control cell
-(`StartDockedOrigin_PartnerUndockedBeforeStart_CapturesNoOriginProof`), which docks and
-undocks before the recorder starts and must read `outcome=no-external-coupling` - and that
-cell PASSED on H57's first flight, so the conjunct is live-proven even though the lane as a
-whole red. H57 must be green before this work merges.
+## ROUTE-ORIGIN-PROOF-SELF-ORIGIN-ON-A-DEPOT-SIDE-START: a base or station that starts a recording with a transport docked to it records ITSELF as its supply origin [FOUND 2026-09-02 as the F2 residue of the partner ruling. OPEN, low severity, needs undock-side routing]
+
+The partner rule names the depot-typed half of the seam. When the RECORDED vessel IS the
+depot (the player starts a recording on their base while a tanker is docked to it), the
+proof names the base as its own origin. At capture the two cases are indistinguishable:
+both look like "one merged vessel with a depot half and a transport half".
+
+WHY IT IS LOW SEVERITY RATHER THAN URGENT: a base that never moves produces no delivery
+window elsewhere, so `RouteBuilder` builds no route from it and the wrong proof is inert.
+The real cost is the MIRROR of it, and that is the part worth building: in the canonical
+shape (a `Base` depot is dominant, so the DEPOT keeps the merged `Vessel` and the
+transport is the undock-split child) the origin proof rides the recording that continues
+as the BASE, and the transport's delivery run is a separate branch recording with no
+origin at all.
+
+FIX SHAPE, stated so it is not re-derived: at the undock, route the proof to whichever
+side is NOT the origin half (`StartDockedOriginRootPartUId` says which side that is), and
+drop it from the origin's own recording. That resolves both directions at once - H57's
+shape keeps the proof on the parent because the origin is the child, and the canonical
+shape hands it to the child because the origin is the parent. It also gives the natural
+moment to bind `StartDockedOriginVesselPid`: at `OnVesselsUndocking` both live vessels and
+their launch guids exist, and the origin half is matched by part `flightID`, not by pid.
+Until then an ORBITAL depot origin resolves nowhere (`RouteEndpointResolver` has only the
+pid path for a non-surface endpoint); a SURFACE depot resolves through the M1 descriptor's
+proximity fallback, which is the shipping shape and what H57 flies.
+
+## ROUTE-ORIGIN-PROOF-TRANSPORT-MANIFESTS-INCLUDE-THE-DEPOT: the start-docked proof's transport manifests are scoped to the whole merged vessel [FOUND 2026-09-02 while building the partner rule. OPEN, wrong-quantity risk on a start-docked route]
+
+`RouteProofCapture.BuildStartRouteOriginProof` scopes `StartTransportResources` /
+`StartTransportInventory` with `VesselSpawner.CollectPartPersistentIds(snapshot)` over the
+WHOLE merged vessel, so on a start-docked run the DEPOT's own tanks are counted as
+transport cargo at the start of the run. The design doc asks for "transport-scoped
+start/end manifests" (section 7) and means the transport half.
+
+The partner rule now makes the fix possible for the first time: the proof carries
+`StartDockedTransportRootPartUId`, so the transport half's part subtree is identifiable at
+capture (walk the merged part tree from the seam). Not built here because it changes the
+manifest quantities every start-docked route is costed from, and the same scoping question
+applies to `RouteRunCargoManifest`, which is a separate producer with its own
+write-once/void lifecycle. Do it as one deliberate pass over both, with the
+delta-vs-today measured, not as a side effect of the identity change.
 
 ## ~~ROUTE-ORIGIN-PROOF-PRODUCER-UNREACHABLE (CONFIRMED 2026-09-02): the start-docked `RouteOriginProof` producer keys on a part-parent condition that a settled dock can never satisfy, so no live recording has ever carried a proof~~ [FOUND BY READING 2026-09-01 while scoping which route flights can be automated, CORROBORATED by the 2026-08-30 rover flight log. CONFIRMED live 2026-09-02 by the H56 probe. FIXED 2026-09-02, code green, NOT YET FLOWN]
 
@@ -731,10 +743,15 @@ because it is the instrument that proves a captured proof came from the seam and
 the retired rule, and two committed lanes pin `externalParentCandidates=0`
 (`RouteOriginProof seam scan: settledDockSeamCandidates=N externalParentCandidates=M ...`).
 The PRELAUNCH short-circuit is untouched: a clamped pad vessel is still not a delivery
-origin. TWO THINGS THIS ENTRY DOES NOT CLOSE, both filed above:
-ROUTE-ORIGIN-PROOF-NEVER-REACHES-A-TREE-RECORDING (the proof dies on `CaptureAtStop` in
-always-tree mode) and ROUTE-ORIGIN-PROOF-PARTNER-IDENTITY (the partner-pid rule and the
-depot-side-start false positive). The feature is not usable end to end until both land.
+origin. TWO THINGS THIS ENTRY DID NOT CLOSE, both filed above and BOTH SINCE BUILT
+(2026-09-02, not yet flown): ROUTE-ORIGIN-PROOF-NEVER-REACHES-A-TREE-RECORDING (the proof
+died on `CaptureAtStop` in always-tree mode; now a write-once adoption in
+`ParsekFlight.ApplyCapturedLogisticsMetadataToRecording`) and
+ROUTE-ORIGIN-PROOF-PARTNER-IDENTITY (now the depot-typed half of the docking-node pair,
+with no pid stamped at capture). ONE SENTENCE ABOVE IS NOW STALE AND IS CORRECTED HERE
+RATHER THAN REWRITTEN: "the origin partner IS the merged vessel: the candidate carries
+`v.persistentId`" was the pre-ruling reading. The candidate now carries the ORIGIN HALF's
+`rootPartUId` and no pid at all.
 
 The instrument became the gate. `OriginProofProbe_SettledDockLeavesNoExternalParent` was
 renamed `OriginProof_SettledDockCapturesProofFromDockingNode` (same category, same cell id
