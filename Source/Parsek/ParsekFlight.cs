@@ -5669,10 +5669,11 @@ namespace Parsek
 
                 // THE START-DOCKED ORIGIN BIND (P12). The recording started on a settled
                 // docked pair; capture recorded BOTH halves and deferred the origin choice to
-                // here, where the split has actually happened. The ORIGIN is the half the
-                // player did NOT keep flying - the background side - and the transport is the
-                // active side, which is also what re-scopes the proof's transport manifests
-                // off the merged pair.
+                // here, where the split has actually happened. The TRANSPORT is the half the
+                // RUN was flying - named by the connection window that witnessed the dock, or
+                // by which half's cargo rose across the docked span, with the focused side as
+                // the last resort - and the origin is the other half. Ordering matters: the
+                // window above is completed FIRST, so the binder can read it.
                 //
                 // THE PROOF WAS ADOPTED ONTO parentRec above by AppendCapturedDataToRecording
                 // (write-once), so this binds the copy that will actually be persisted.
@@ -5799,10 +5800,15 @@ namespace Parsek
         /// binding rule, the guid gate, the manifest re-scoping and the pickup validation, and
         /// is therefore drivable headlessly.
         ///
-        /// <para>WHICH HALF IS WHICH: the recorder follows the FOCUSED vessel across a split
-        /// (see <see cref="DeferredUndockBranch"/>), so the active side is the half this run
-        /// continues on - the transport - and the background side is the origin. That is the
-        /// ruling, and it is stated relative to the RUN rather than to any vessel type.</para>
+        /// <para>WHICH HALF IS WHICH is NOT decided here and no longer follows focus. The
+        /// recorder does follow the FOCUSED vessel across a split (see
+        /// <see cref="DeferredUndockBranch"/>), but focus is only a proxy for "which half the
+        /// run is flying" and it is wrong whenever the merge made the PARTNER dominant - the
+        /// operator's 2026-09-03 relay, where rover C took fuel off rover B and KSP held focus
+        /// on B, so the binder named C its own origin. This method now supplies BOTH sides'
+        /// snapshots, part sets and live identities plus the recording's connection windows,
+        /// and <see cref="RouteProofCapture.ResolveTransportHalfAtUndock"/> picks the transport
+        /// from the run's ACTIONS with focus as the last resort.</para>
         /// </summary>
         private void TryBindStartDockedOriginOnUndock(
             Recording parentRec,
@@ -5820,9 +5826,13 @@ namespace Parsek
             List<uint> activePids = VesselSpawner.CollectPartPersistentIds(activeSnapshot);
             List<uint> backgroundPids = VesselSpawner.CollectPartPersistentIds(bgSnapshot);
 
-            uint originLivePid = backgroundVessel != null ? backgroundVessel.persistentId : 0u;
-            string originLiveGuid = (backgroundVessel != null && backgroundVessel.id != Guid.Empty)
+            uint backgroundLivePid = backgroundVessel != null ? backgroundVessel.persistentId : 0u;
+            string backgroundLiveGuid = (backgroundVessel != null && backgroundVessel.id != Guid.Empty)
                 ? backgroundVessel.id.ToString("N")
+                : null;
+            uint activeLivePid = activeVessel != null ? activeVessel.persistentId : 0u;
+            string activeLiveGuid = (activeVessel != null && activeVessel.id != Guid.Empty)
+                ? activeVessel.id.ToString("N")
                 : null;
 
             bool bound = RouteProofCapture.TryBindStartDockedOriginAtUndock(
@@ -5831,12 +5841,16 @@ namespace Parsek
                 backgroundPids,
                 activeSnapshot,
                 parentRec.VesselSnapshot,
-                originLivePid,
-                originLiveGuid,
+                backgroundLivePid,
+                backgroundLiveGuid,
                 parentRec.VesselPersistentId,
                 parentRec.RecordedVesselGuid,
                 branchUT,
-                parentRecordingId);
+                parentRecordingId,
+                backgroundSideSnapshot: bgSnapshot,
+                recordingConnectionWindows: parentRec.RouteConnectionWindows,
+                activeSideLiveVesselPid: activeLivePid,
+                activeSideLiveVesselGuid: activeLiveGuid);
 
             if (bound)
                 parentRec.MarkFilesDirty();

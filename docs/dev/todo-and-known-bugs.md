@@ -1496,6 +1496,14 @@ the preceding chained segment (same vessel, prior recording in the same tree) ca
 the witnessed inflow. Accepting it would mean, at bind time: walk from the proof's recording
 to its chain predecessor, take the LATEST complete window whose `UndockUT` is at or before
 this recording's start, and admit the pickup when that window shows a transport-side rise.
+STILL OPEN AFTER THE 2026-09-03 BINDER FIX, and the fix does not touch it. That package added
+two ACTION-derived signals for choosing the transport HALF (the witnessed dock window, then the
+docked-span gain), but the PICKUP VALIDATION is unchanged: it is still a `Gain` measured between
+this recording's own start baseline and the undock, so a load that happened before the recorder
+existed still reads `Carried` and still refuses. If anything the new bind gate sharpens the
+boundary rather than blurring it - on a WITNESSED dock a non-gain now writes nothing at all,
+while the start-docked family (which is exactly this shape) keeps the unvalidated stamp.
+
 NOT BUILT HERE because that lookup is neither cheap nor pure at this seam - the binder is a
 pure function over one proof plus two snapshots, and reaching a sibling recording would drag
 tree traversal and chain resolution into it. Do it as its own pass, with the traversal placed
@@ -1523,32 +1531,74 @@ guid alongside the stamped pid on the endpoint and require
 `!VesselLaunchIdentity.GuidsConclusivelyDiffer` before the pid step accepts a match. That
 touches `RouteEndpoint`, `RouteCodec` and the route hash, so it wants its own pass.
 
-## ROUTE-ORIGIN-PROOF-BIND-FOLLOWS-FOCUS-NOT-THE-RUN: the undock bind names the origin from which half KEPT FOCUS, which is the wrong half when the player stays with the depot [FOUND 2026-09-02 as the mirror-direction check on the P12 binding. OPEN, low severity, inert on the recording that carries it]
+## ~~ROUTE-ORIGIN-PROOF-BIND-FOLLOWS-FOCUS-NOT-THE-RUN: the undock bind names the origin from which half KEPT FOCUS, and binds delivery partners as origins~~ [FOUND 2026-09-02 as the mirror-direction check on the P12 binding; MEASURED LIVE 2026-09-03 on `logs/2026-09-03_0026_rover-c`, which promoted it from "low severity, inert" to "both predicted failure modes fired on one flight". FIXED 2026-09-03]
 
-THE RULING is that the origin is the half the player did NOT keep flying, and
-`RouteProofCapture.ClassifyUndockOriginBinding` implements exactly that: the ACTIVE side of the
-split is the transport, the BACKGROUND side is the origin. That is self-consistent because the
-recorder FOLLOWS the focused vessel across a split (`ParsekFlight.DeferredUndockBranch`: "the
-recorder follows the focused side"), so the active half is the half this RUN continues on.
+**THE MIRROR-DIRECTION PREDICTION CAME TRUE, and a second defect came with it.** The
+operator's hand-flown relay drove rover C to rover B, docked, TOOK 154.4 LiquidFuel plus three
+inventory items off B, undocked, drove to lander A, docked, GAVE A 200 LiquidFuel and undocked.
+Under the ruling that is exactly one route: source B, destination A. The binder wrote both of
+these lines instead (verbatim from the collected `KSP.log`):
 
-THE MIRROR DIRECTION, walked as the rule requires: the player is controlling their landed base and
-undocks a tanker from it. Focus stays on the base, so the base is the "active" half and the
-TANKER is bound as the origin - backwards. Two reasons it is low severity rather than urgent:
+```
+Route window delta: window=dock-155.8200000000059-target-90564594 targetPid=90564594
+  transportDelta=[LiquidFuel=+154.4] endpointDelta=[LiquidFuel=-154.4]
+RouteOriginProof bound at undock: recording=39ac117a8a8b4d61b1296983e7d538a8 ut=212.54
+  binding=BoundToHalfB ... originHalf=B originRoot=3466447829 originName='C' originType=3
+  originPid=612987736 ... transportRoot=549109006 transportParts=16 pickup=Carried
+  pickupValidated=0 pickupDelta=[LiquidFuel=-154.4;inv:-3]
 
-- On the recording that carries the proof it is INERT. That recording is the base's, a base that
-  never moves produces no delivery window elsewhere, so `RouteBuilder` builds no route from it and
-  the wrong binding is never read.
-- The pickup validation is a second filter: the base half rarely gains cargo across the docked
-  span it just supplied.
+Route window delta: window=dock-274.18000000004059-target-2123618197 targetPid=2123618197
+  transportDelta=[LiquidFuel=-200.0] endpointDelta=[LiquidFuel=+200.0]
+RouteOriginProof bound at undock: recording=b9df0ee00fd84831a0d9619b4e34fc97 ut=335.32
+  ... originHalf=B originRoot=701791207 originName='A' originType=3 ... pickup=Carried
+  pickupValidated=0 pickupDelta=[LiquidFuel=-200.0;inv:-4]
+```
 
-WHAT WOULD ACTUALLY FIX IT, stated so it is not re-derived: the discriminator has to be "which
-half is the RUN" rather than "which half has focus", and the honest source for that is the same
-pickup direction the transfer rule already computes - the half whose cargo went UP across the
-docked span is the one that took delivery. Today that reading is used only to validate; using it
-to CHOOSE would need the depot half's own undock manifest as well (the bind currently extracts
-only the transport side's), and a tie-break for the `Carried` case where neither side moved. Not
-built here because it changes which vessel a route debits, which is exactly the class of change
-that wants its own deliberate pass.
+HOP 1 IS THE INVERSION. Rover B was the dominant half of the merge (the merged vessel kept B's
+pid 90564594) and KSP still held focus on B one frame after the split, so the binder called B
+the transport and stamped rover C - the vessel that had just taken the fuel - as its own supply
+origin. It then measured the pickup on the WRONG half, off the active snapshot, and read
+`Carried`.
+
+HOP 2 IS THE DELIVERY PARTNER. The halves are right this time, but lander A is the vessel C had
+just delivered 200 LiquidFuel to, and the binder stamped it as C's origin on a window where the
+transport only LOST cargo. A vessel the transport gave cargo TO is a destination, never an
+origin.
+
+**THE FIX, in three parts.** (1) `RouteProofCapture.ResolveTransportHalfAtUndock` takes the
+transport half from the WITNESSED DOCK WINDOW when one exists - the window is built at the dock
+from the recording's own pre-couple part set, so it names the transport from the run rather than
+from the camera, and it is already right on both hops. Focus stays the fallback for the
+start-docked family (no window can exist there, and the recorder genuinely does follow focus
+across a split), with the docked-span cargo flow as a CROSS-CHECK: a flow that corroborates
+focus is recorded in the signal, a flow that CONTRADICTS it logs a
+`RouteOriginProof transport half overridden: ... resolved=refused` Warn naming both halves and
+refuses the bind. **The cross-check deliberately does not REVERSE the halves**, and that is the
+mirror-direction check on this fix: "the half that gained is the transport" is false on a
+DELIVERY, where the endpoint gains - a start-docked run handing fuel to its depot and leaving
+would be stamped as its own origin, the same inversion coming back through the other door.
+Shape refusals from `ClassifyUndockOriginBinding` (`BothHalvesActive` and friends) are never
+overruled - they are statements about the split, not identity guesses.
+(2) `RouteProofCapture.ClassifyOriginBindGate` refuses to write anything when the recording
+WITNESSED the dock and the transport gained nothing
+(`RouteOriginProof bind skipped: ... reason=SkipDeliveryWindow`), or when the flow contradicts
+focus with no window to arbitrate (`reason=SkipFlowContradictsFocus`); the start-docked family
+otherwise keeps its unvalidated `Carried` stamp exactly as before. (3) Write-once now means
+FIRST **VALID** BIND WINS - an unvalidated stamp is observability, not an origin, and must not
+lock the slot against a real pickup at a later seam.
+Two supporting corrections ride along: the transport half's undock manifest is read from
+whichever post-split snapshot actually HOLDS it (the pre-fix code always read the active one,
+which is why hop 1 measured nothing), and the origin's live pid follows the origin half rather
+than the background side. Read side: `RouteAnalysisEngine.IsSelfOriginProof` refuses a persisted
+proof whose origin root equals its transport root, since recordings are never migrated and those
+bytes stay on disk.
+
+WHAT THE DEFECT COST THIS FLIGHT: nothing, once #1620 landed. The C tree is rooted on a KSC
+launch, so `IsUndockedStartOrigin` is false and neither wrong proof is ever consulted - the
+headless oracle `RoverRelayCOracleTests`, which runs the production engine over the operator's
+own committed `RECORDING_TREE` bytes, reads Eligible with two stops (source B, destination A).
+The defect is that the bytes were wrong and would have been load-bearing on any tree that did
+NOT root at KSC.
 
 ## HARNESS-SUITE-REWRITES-TRACKED-DURATION-JSON: running the harness `lib` suite dirties the committed `harness/coverage/duration.json` [FOUND 2026-09-02 while running the suites for the origin-proof wave. OPEN, NOT FIXED BY DECISION - filed so the dirty file is recognised rather than investigated]
 

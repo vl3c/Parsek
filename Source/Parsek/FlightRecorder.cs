@@ -7061,7 +7061,7 @@ namespace Parsek
             // node carries the OTHER half's. NEITHER half is chosen here. There is no "base"
             // type that matters - bases are ordinary vessels, and a route candidate is defined
             // by transfers and docks - so the origin is bound at the UNDOCK, to the half the
-            // player did NOT keep flying. Nothing here reads which half stock made dominant on
+            // RUN was not flying. Nothing here reads which half stock made dominant on
             // the merge either: `v.persistentId` and `v.rootPart` are deliberately NOT identity
             // inputs, because the merged pid names whichever half won `Vessel.GetDominantVessel`
             // (vesselType, then mass, then a guid compare). Derivation:
