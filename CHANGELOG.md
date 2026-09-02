@@ -118,6 +118,14 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Dev
 
+- Corrected the automated-testing record for the rover supply-route test batch.
+  The batch flew twice on one day - once before and once after a fix to the test
+  save it uses - and passed on the second run with the same result as the first,
+  which is what proved the fix changed none of the tests. The lane's own notes,
+  its machine-readable status tag and the programme summary in the status
+  document all still described it as flown once and awaiting a re-run. They now
+  say what happened. Nothing player-facing changes and no test moved.
+
 - Corrected the automated-testing record for the watch-mode distance probe.
   The lane that measures how far away a replayed flight can be before the game
   refuses to follow it with the camera had flown and passed, but its own notes
