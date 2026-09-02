@@ -2565,10 +2565,35 @@ moved is that no further authoring stands between them and a flight.
     loop has NO map/TS proto (flight-mesh only; KSC host works in-window).
     A `route-map-lines` lane for a SURFACE route must be authored against
     that pin, not against the orbital route lines V18T covers.~~
-    **LANE AUTHORED 2026-09-02, NEVER FLOWN, AND IT IS A CENSUS RATHER THAN A
-    CLAIM** - `harness/scenarios/H59-surface-route-map-lines.toml` over
-    `rover-route-recorded`. Every required token is structural or a VALUE REGEX,
-    so the flight's product is a reading a human acts on and nothing is armed.
+    **CENSUS FLOWN, READ AND ARMED 2026-09-02** -
+    `harness/scenarios/H59-surface-route-map-lines.toml` over `rover-route-recorded`,
+    run `2026-09-02_0947`, PASS attempt 1, wall 99 s, every verifier green.
+    **THE ANSWER IS OUTCOME A, AND RICHER THAN EITHER PRE-REGISTERED OUTCOME: a
+    surface route's path is on the FLIGHT MAP CONTINUOUSLY, and TWO PRODUCERS TAKE
+    TURNS DRAWING IT.** Thirteen `Route line draw:` lines split 2 pre-create /
+    2 drawn (`routesDrawn=1 legsDrawn=1 skippedOwned=0 malformed=0 other=0`) /
+    9 handed off (`skippedOwned=1`, with `Polyline frame: scene=FLIGHT drawn=1` in
+    the same window), plus one
+    `Route line build: route=de65a95d members=2 groups=1 legs=1 transferDropped=0`.
+    IT DOES NOT CONTRADICT THE LANDED PIN: the member still gets no proto, and what
+    the census adds is that proto presence and route-overview presence are
+    INDEPENDENT. THE PRE-REGISTRATION EARNED ITS KEEP - its warning that
+    `skippedOwned=1` is NOT an absence is the half that carried the result, since a
+    naive read of nine-of-thirteen lines says "no route line" and the truth is that
+    the ghost had the leg. The lane is now ARMED on 18 required / 6 forbidden
+    tokens (both draw shapes pinned AS A PAIR, so neither producer can quietly stop
+    drawing), and what it owes is the ARMED RE-FLIGHT plus the negative control.
+    TWO BY-PRODUCTS worth carrying: `RC-OWN-DRAW-HALF-IS-MAP-GATED` is now measured
+    on a surface-route subject and NARROWED accordingly (the publish half proven
+    through the route renderer's own `skippedOwned` counter, which reads the same
+    `drewNonOrbitalLegRecordings` set the manifest hook is fed from); and the
+    manifest's route counters read 0 for a reason that is not about routes, filed
+    as RENDER-MANIFEST-VERB-EXPORT-IN-A-SECOND-SCENE-CLOBBERS-THE-FIRST-SCENE-
+    ACCUMULATION, which is why `[expectations.renderComposition]` stays bare and
+    V18T's armed window was NOT copied.
+    THE AUTHORING RECORD FOLLOWS, kept because it is what the census was judged
+    against. Every required token was structural or a VALUE REGEX, so the flight's
+    product was a reading a human acts on and nothing was armed.
     WHAT THE PIN LEAVES OPEN IS THE SUBJECT, and it is worth stating because the
     obvious reading of the pin is wrong: `LANDED-TERMINAL-LOOP-HAS-NO-MAP-PRESENCE-
     OUTSIDE-THE-FLIGHT-SCENE` is about PROTO-DRIVEN presence for a loop MEMBER,
@@ -2595,6 +2620,11 @@ moved is that no further authoring stands between them and a flight.
     token off a green census, exactly as V18T earned the orbital flavor, and a
     census that reads the not-drawn outcome earns no row and re-words this item
     instead. FLIGHT OWED; nothing else is.
+    **SETTLED ON THAT LAST POINT: the census read the DRAWN outcome, so the row is
+    earned rather than re-worded - but it is a NEW registry value,
+    D10 `route-map-lines-surface` (added per the growth rule), not a second claim on
+    V18T's `route-map-lines`, and it is CLAIMED CONDITIONAL on the armed re-flight
+    because the census's own tokens were value regexes and therefore gated nothing.**
 12. **Route x rewind, flown.** H6 covers the timeline synthetically;
     a rover-route rewind variant makes `route-x-rewind` a flown claim.
 13. **Harvest-provenance, surface.** An ISRU drill rover feeding the route

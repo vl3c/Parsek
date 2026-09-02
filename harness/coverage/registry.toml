@@ -132,11 +132,38 @@ values = ["rewind-to-launch", "fast-forward", "rewind-to-separation", "refly-gat
           "reconciliation-bundle", "world-preservation"]
 
 [D10]  # logistics / routes
+# "route-map-lines-surface" (added 2026-09-02 with H59-surface-route-map-lines, per the
+# growth rule): a SAME-BODY SURFACE route's overview line observed in the FLIGHT MAP with
+# the map view driven open. DISTINCT from "route-map-lines" (V18T's, and V18T keeps it) on
+# the three axes that matter here, in the shape the D1 pair
+# commit-in-foreign-soi / commit-landed-foreign-body established - a different code path,
+# a different render surface, a different measured behaviour:
+#   * DIFFERENT GATE. V18T observes in the TRACKING STATION, and its own header records
+#     why that was chosen: `RouteTrajectoryLineRenderer.DrawAll`'s call site is a
+#     map-camera onPreCull hook whose guard chain carries no `MapView.MapIsEnabled`, so
+#     "the tracking station draws route lines with no `EnterMapView` verb while the FLIGHT
+#     prelude draws none at all". The flight-map observation therefore exercises a slot no
+#     lane could reach before the `EnterMapView` seam verb shipped (2026-08-26).
+#   * DIFFERENT GEOMETRY. V18T's subject is a Kerbin-ORBIT depot route; this cell is the
+#     body-fixed non-orbital surface leg of a Runway-to-Runway rover transport, built
+#     through `BuildRouteMemberLegs` with `transferDropped=0` and drawn with
+#     `requireConicAnchor:false`.
+#   * DIFFERENT MEASURED BEHAVIOUR, and this is the one that makes it an atom rather than
+#     a re-claim: in the flight scene the route overview and the per-cycle GHOST polyline
+#     compete for the same member's leg, so ownership ALTERNATES
+#     (`IsRenderingNonOrbitalLeg` -> `skippedOwned`). V18T measured `routeLegDefers = 0`;
+#     H59 measured nine deferred frames against two drawn ones. A TS observation
+#     structurally cannot produce that reading.
+# CLAIMED CONDITIONAL ON THE ARMED RE-FLIGHT: the census run (`2026-09-02_0947`) was green
+# but its tokens were value regexes, so the green did not GATE the behaviour. H59's tokens
+# are armed as of this commit and the re-flight is what converts the claim into a gate;
+# until it lands, read this cell as "measured once, gate unproven" - the status row says so.
 values = ["candidate-detection", "ksc-origin", "docked-depot-origin", "dock-producer",
           "claw-producer", "delivery", "pickup", "mixed-direction", "resource-cargo",
           "inventory-cargo", "harvest-provenance", "multi-stop", "multi-origin-escrow",
           "round-trip-pair", "inter-body-nth-window", "dispatch-cadence", "hold-reasons",
-          "destination-full-gate", "route-map-lines", "route-x-rewind"]
+          "destination-full-gate", "route-map-lines", "route-map-lines-surface",
+          "route-x-rewind"]
 
 [D11]  # missions / periodicity / re-aim
 values = ["default-mission", "leg-trim", "whole-mission-loop", "self-overlap", "clone",

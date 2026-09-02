@@ -95,22 +95,31 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Dev
 
-- The automated-testing suite gained a lane that asks whether a supply route to a
-  surface base is visible on the map at all. It is deliberately a CENSUS: the
-  scenario opens the map view in flight over the committed rover-route save,
-  creates and activates a route on it, and requires only that the renderers it
-  points at actually ran - the numbers they print are left unpinned, because two
-  outcomes are plausible and no flight has ever measured which one happens. Either
-  the route's static overview line is drawn (its path is on the map even though the
-  ghost itself is flight-mesh only), or it is not, and three different counters on
-  the same log line say which reason applied. The measured pin the lane is written
-  against says a landed-terminal loop gets no map or tracking-station presence, but
-  that pin is about the ghost's own map object, and a route's overview line is drawn
-  by a different producer that never consults one - so the pin does not answer the
-  question and the reading run does. The lane is also the first anywhere to drive the
-  map-view seam verb, which is what makes the polyline renderer's map-gated half
-  observable on a surface subject for the first time. Nothing is armed; the pinning
-  pass follows the first reading.
+- **A supply route to a surface base does show its path on the map, and two
+  different renderers take turns drawing it.** That was an open question - the one
+  measured fact nearby says a landed replay gets no map object of its own outside
+  the flight scene, which is still true, but a route's overview path is drawn by a
+  different producer that never looks at one. A new test lane opened the map view in
+  flight over the committed rover-route save, created and activated a route, and
+  watched: on some frames the static route overview draws the path, and on the rest
+  the replaying ghost has that leg and the overview stands aside, so the path is
+  never absent. The lane was written as a census - it pre-registered both possible
+  answers and pinned neither, and it was careful to say in advance that "the
+  overview stood aside" must not be misread as "nothing was drawn", which is exactly
+  the trap the numbers set: read naively, nine of thirteen frames look like an empty
+  map. It is now pinned to what it measured, including both halves of the handoff
+  together, so neither renderer can quietly stop drawing without the lane noticing.
+
+- The lane is also the first anywhere to drive the map-view seam verb, which made
+  the map-gated half of the ghost trajectory renderer observable on a surface
+  subject for the first time. It published ownership exactly as the orbital case
+  did, so a standing note about that half being unmeasurable is narrowed to the one
+  thing still unmeasured - a manifest counter, not the behaviour.
+
+- Noted, not fixed: the render-composition manifest is per-scene by design, and a
+  lane that observes in flight and then exports from another scene reads zeroes for
+  everything the flight scene measured. The lane above reads its numbers from the
+  log instead.
 
 - The harness's H-series batch-wiring family now decides membership from the
   scenario itself instead of from its id. The check read "an H-numbered scenario
