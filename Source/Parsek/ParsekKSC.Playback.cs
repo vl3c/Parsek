@@ -345,8 +345,9 @@ namespace Parsek
             return true;
         }
 
-        // Log-line number formatting must not follow the OS culture (a comma-locale
-        // machine printed targetUT=150,00, which no harness regex expects).
+        // The unit test that reads these lines runs under the OS culture (a ro-RO
+        // host printed targetUT=150,00); KSP's own "en" pin covers the game, not
+        // the test host, so this one site formats invariantly.
         private static string FormatUt(double value)
         {
             return value.ToString("F2", System.Globalization.CultureInfo.InvariantCulture);

@@ -98,13 +98,14 @@ _(unreleased — entries accumulate here per commit)_
 - The agent instructions now scope the invariant-culture formatting rule to what
   actually needs it. A unit-test run on a comma-locale machine printed
   `targetUT=150,00` from a log line, and the standing rule read as if every one of
-  the ~1300 `{x:F1}` interpolations inside log calls had to be converted. The audit
+  the ~1400 culture-sensitive format sites inside log calls had to be converted. The audit
   established that KSP pins the game's main thread to the `en` culture at startup
   (`HighLogic.Awake` in the decompiled 1.12.5 assembly), that Parsek runs no other
   threads, that every collected flight log on that same machine prints dot decimals,
   and that two harness log-contract regexes already pin dot decimals and fly green.
   So in-game log lines are correct as written; only serialization and strings a unit
-  test reads need per-site invariant formatting. No code changed.
+  test reads need per-site invariant formatting. Three source comments that gave the
+  old reason now give the right one; no behavior changed.
 
 - The automated-testing suite gained its first surface supply-route subject, and with
   it the harvest three existing lanes had been asking for by name. Two of the suite's
