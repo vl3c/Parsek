@@ -978,7 +978,8 @@ namespace Parsek
         /// <summary>
         /// Outcome of <see cref="ResolveTransportHalfAtUndock"/>: the binding to use, which
         /// evidence produced it, and how that evidence relates to the focus reading (the live
-        /// caller Warns on both disagreement flags, naming both halves).
+        /// caller logs both disagreement flags naming both halves: Info when the window
+        /// settled it, Warn when nothing did and the bind is refused).
         /// </summary>
         internal sealed class SeamTransportHalfDecision
         {
@@ -1564,12 +1565,17 @@ namespace Parsek
                 // operator has to be able to see which vessel the camera was on and which one
                 // the cargo says was taking delivery - whether the window settled it
                 // (OverrodeActiveSide) or nothing did (FlowContradictsFocus, refused below).
+                // LEVEL FOLLOWS THE OUTCOME: a window override is a designed, correct result -
+                // the merge made the partner dominant, which KSP decides by vessel type and
+                // mass, so it is ordinary on any pickup from a heavier depot - and a Warn there
+                // would put an ordinary pickup on the WRN surface the log validator reads. Only
+                // the unarbitrated disagreement, which refuses the bind, is a Warn.
                 bool activeSaidOriginIsA = activeSideBinding == OriginUndockBinding.BoundToHalfA;
                 StartDockedSeamHalf focusTransport = activeSaidOriginIsA ? halfB : halfA;
                 StartDockedSeamHalf cargoTransport = halfDecision.FlowContradictsFocus
                     ? (activeSaidOriginIsA ? halfA : halfB)
                     : transportHalf;
-                ParsekLog.Warn("Flight",
+                string overriddenLine =
                     $"RouteOriginProof transport half overridden: recording={context} ut={utToken} " +
                     $"signal={halfDecision.Signal} " +
                     $"resolved={(halfDecision.FlowContradictsFocus ? "refused" : "run")} " +
@@ -1577,7 +1583,11 @@ namespace Parsek
                     $"focusTransportName='{focusTransport.VesselName ?? "<none>"}' " +
                     $"runTransportRoot={cargoTransport.RootPartUId.ToString(CultureInfo.InvariantCulture)} " +
                     $"runTransportName='{cargoTransport.VesselName ?? "<none>"}' " +
-                    $"(the half KSP gave focus to is not the half the cargo says took delivery)");
+                    $"(the half KSP gave focus to is not the half the cargo says took delivery)";
+                if (halfDecision.FlowContradictsFocus)
+                    ParsekLog.Warn("Flight", overriddenLine);
+                else
+                    ParsekLog.Info("Flight", overriddenLine);
             }
 
             // TRANSPORT-SCOPED MANIFESTS (closes

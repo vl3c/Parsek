@@ -2202,7 +2202,9 @@ namespace Parsek.Tests
             Assert.True(Parsek.Logistics.RouteAnalysisEngine.HasDockedOriginProof(rec));
             Assert.False(Parsek.Logistics.RouteAnalysisEngine.IsSelfOriginProof(proof));
 
-            Assert.Contains(logLines, l => l.Contains("[WARN]")
+            // INFO, not WARN: the window settling the half is a designed, correct outcome on
+            // any pickup from a heavier depot, and must not land on the WRN surface.
+            Assert.Contains(logLines, l => l.Contains("[INFO]")
                 && l.Contains("RouteOriginProof transport half overridden:")
                 && l.Contains("signal=WitnessedDockWindow")
                 && l.Contains("focusTransportRoot=549109006")

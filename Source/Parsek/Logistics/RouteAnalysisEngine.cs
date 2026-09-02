@@ -1238,13 +1238,17 @@ namespace Parsek.Logistics
         /// Both roots are launch-unique part flightIDs, so equality here is not a craft-baked
         /// persistentId coincidence - it is one vessel on both sides of the seam.
         ///
-        /// <para>WHY IT EXISTS EVEN THOUGH THE BINDER NO LONGER WRITES ONE. The operator's
-        /// 2026-09-03 relay save carries two proofs written by the pre-fix binder, one of them
-        /// self-origin (<c>originRoot=3466447829</c> naming rover C, whose transport root is
-        /// that same 3466447829). Recordings are never migrated - the schema contract is one
-        /// current format - so those bytes stay on disk and have to be refused at the READ,
-        /// not only at the write. A self-origin proof cannot be repaired here either: nothing
-        /// in it says which half was actually the depot. It simply is not a proof, and a run
+        /// <para>WHY IT EXISTS EVEN THOUGH THE BINDER NEVER WRITES ONE. The binder stamps the two
+        /// roots from the two DIFFERENT halves of one seam, so a self-origin cannot come out of
+        /// it, and the operator's 2026-09-03 relay save does not carry one either: its hop-1
+        /// proof is INVERTED (<c>originRoot=3466447829</c> rover C, <c>transportRoot=549109006</c>
+        /// rover B) and is refused by <c>pickupValidated=0</c>, which the oracle
+        /// <c>RoverRelayCOracleTests</c> pins. This guard is the read-side floor under that:
+        /// recordings are never migrated - the schema contract is one current format - so a
+        /// proof written by any earlier or foreign producer stays on disk as written and has
+        /// to be refused at the READ, not only at the write. A self-origin proof cannot be
+        /// repaired here either: nothing in it says which half was actually the depot. It
+        /// simply is not a proof, and a run
         /// that needs one falls to <see cref="RouteAnalysisStatus.UndockedStartOrigin"/>
         /// exactly as if the bind had never happened - which under the operator ruling is the
         /// honest answer, since no vessel is ever its own origin.</para>
