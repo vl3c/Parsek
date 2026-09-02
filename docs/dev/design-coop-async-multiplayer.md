@@ -4,7 +4,7 @@
 
 *Parsek is a KSP1 mod for time-rewind mission recording. Players fly missions, commit recordings to a timeline, rewind to earlier points, and see previously recorded missions play back as ghost vessels alongside new ones. This document specifies how multiple players, each in their own KSP instance, share one cooperative career: one KSC, one pooled economy, one timeline, exchanged asynchronously through a file-sharing folder (Dropbox, Google Drive, or any service of the players' choice).*
 
-**Status:** DESIGN v4 (pre-implementation; interview complete 2026-09-01; adversarial review + code verification folded in 2026-09-01; player-perspective edge-case pass, spawn-ownership reconciliation, and implementation task breakdown added 2026-09-01; 2026-09-02: full control of foreign vessels (Fly/Switch-To/Recover as claims via a foreign-continuation route, replacing the earlier Fly block), trajectory-aware tip-advance predicate, attribution shown only with 2+ registered players - see `docs/dev/plans/coop-async-multiplayer-tasks.md`)
+**Status:** DESIGN v5 (pre-implementation; interview complete 2026-09-01; adversarial review + code verification folded in 2026-09-01; player-perspective edge-case pass, spawn-ownership reconciliation, and implementation task breakdown added 2026-09-01; 2026-09-02: full control of foreign vessels (Fly/Switch-To/Recover as claims via a foreign-continuation route, replacing the earlier Fly block), trajectory-aware tip-advance predicate, attribution shown only with 2+ registered players; 2026-09-02 gameplay stress test (14 multi-player sessions): own continuations and recoveries of exported terminals are claims too, covering-link acceptance + fit clause (c), pending-claim masking, orphaned coupling dependents salvaged not deleted, UT-gated live blocks for foreign tech/hires, seq allocation from the folder, deterministic campaign stand-ins, rescue carve-out, route endpoint re-check, shared reservation attribution - see `docs/dev/plans/coop-async-multiplayer-tasks.md`)
 **Version:** v1 (roadmap Phase 14)
 **Out of scope:** competitive play and per-player economies (Phase 15, `docs/roadmap.md`), real-time synchronization (permanently out per roadmap), Gloops extraction (decoupled from this feature; see section 10), contract pooling (v2; see 7.11 and section 10), excise-and-stitch conflict salvage (v1.1 upgrade; see 7.9 Case 2).
 **Related docs:** `docs/parsek-architecture.md`, `docs/parsek-game-actions-and-resources-recorder-design.md`, `docs/parsek-timeline-design.md`, `docs/parsek-rewind-to-separation-design.md`, `docs/dev/design-mission-crosstree-dock.md`, `docs/dev/dock-undock-recording-structure.md`, `docs/roadmap.md` (Phase 14).
@@ -132,7 +132,7 @@ If Bogdan's fuel run had happened before Ana's lab flight on the timeline AND ag
 | Packet | One append-only contribution: an envelope file plus a payload directory, exported by one player, carrying committed trees/recordings, ledger actions, game-state events, crew attributes, tip claims, and retirement records. |
 | Checkpoint | A founder-written full-state snapshot plus a per-player seq high-water map. Checkpoint 0 is the campaign snapshot. Joiners bootstrap from the latest checkpoint; packets at or below every mark of a checkpoint are prunable. |
 | Foreign (data/recording/vessel) | Owned by another player. Loaded locally as a full citizen but fenced read-only (owner-authoritative surfaces). |
-| Canonical chain / tip | Per physical vessel: the owner's committed topology (the leaf owning the terminal) extended by the structural continuations the arbitration fold selects. The tip is the last link. Derived purely from exchanged data; local spawn stamps play no role. |
+| Canonical chain / tip | Per physical vessel: the owner's committed topology AS OF THE TERMINAL RECORDING'S FIRST EXPORT (checkpoint or packet), extended only by the tip-advancing continuations the arbitration fold accepts - the owner's own later continuations and recoveries included (they are claims like anyone else's, 7.7). The tip is the last link. Derived purely from exchanged data; local spawn stamps play no role. |
 | Consuming interaction | An interaction that takes over a vessel's state: taking control (Fly/Switch-To), dock, claw (non-EVA), board, EVA construction on it, recovery. Flying nearby or targeting is not consuming (verified: no store mutation occurs). |
 | Tip-advancing vs transient | A consuming interaction ADVANCES the tip when it leaves the target with a different part tree, crew, or trajectory (orbit / landed position beyond tolerance) than it found; it is TRANSIENT (a visit) when it leaves all three as it found them. Resources and inventory never decide this. |
 | Foreign continuation | A new local tree, owned by the controlling player, whose root recording continues a foreign recording's spawned vessel (cross-tree link `ContinuesForeignRecordingId`). The route Fly/Switch-To on a foreign spawn takes instead of the tree-replacing restore path. |
@@ -407,6 +407,10 @@ existing `SaveStagingList`/`LoadStagingList` remove-then-re-add pattern
 - All exchange files are KSP ConfigNode text (same tooling, diffable, additive).
   Payload sidecars are byte-copies of the owner's local sidecars (`.prec` may be
   BinaryV0; the envelope's PAYLOAD hashes gate integrity).
+- **Seq allocation is folder-derived at EVERY export:** `seq = max(local
+  lastSeq, own player.cfg lastSeq, highest seq in own packets/) + 1`, never
+  the local save alone. A crash between the envelope write and the next local
+  save otherwise re-uses a seq (edge case 50).
 - **Packet completeness protocol:** the payload directory is written first, the
   envelope last. Sync services deliver files in arbitrary order; an importer
   ignores any payload directory without its envelope, and an envelope whose
@@ -490,10 +494,15 @@ TREES fragments are complete per-tree states. The importer replaces stored
 topology for a tree id when a higher-seq packet from the SAME owner carries it
 (fence-exempt per 6.4); a tree fragment whose owner differs from the packet's
 subtree owner is refused. Recording CONTENT is immutable once exported: a
-packet never re-carries an already-exported recording's payload, only new
-recordings plus the updated tree topology. Content changes are only ever
-expressed as retirements plus NEW recording ids (this is how salvage truncation
-ships: 7.9).
+packet never NEEDS to re-carry an already-exported recording's payload, only
+new recordings plus the updated tree topology; an importer that does see a
+known recording id again accepts it idempotently (payload skipped, topology
+applied, Verbose line) - a crash after the envelope write can legitimately
+re-export (edge case 50). Content changes are only ever expressed as
+retirements plus NEW recording ids (this is how salvage truncation ships:
+7.9), with one derived exception: a recording's terminal becoming Recovered
+is DERIVED from the winning Recover claim (7.7), never a stored mutation of
+exported content.
 
 ---
 
@@ -521,7 +530,16 @@ the standing no-new-UI-surfaces directive - no new windows or popups):
   with each member's last-known game clock (from the latest packet's
   `exporterUT`), the shared balance including debt depth ("shared funds: 0
   displayed, 12,000 in debt"), last merge time, pending export/import counts,
-  pending-arbitration count, and the missing-parts summary.
+  pending-arbitration count, the missing-parts summary, and a "recent
+  verdicts (last merge)" text block listing each fold verdict, credit shift,
+  and debt event of the last merge - a 300-packet catch-up merge produces one
+  batched ScreenMessage, and this block is where the detail survives (edge
+  case 44).
+- **Validate also compares part manifests:** every packet already carries a
+  PART_MANIFEST and `campaign.cfg` records the founder's `GameData` folder
+  list (informational); Validate and Join report "Dana's packets use 3 parts
+  you lack: ..." up front, and the hint text carries the shared-infrastructure
+  rule ("stations others must dock to: stock parts only", edge case 37).
 - **Relinking**: editing the shared-folder path on an already-linked save is
   accepted only if the target folder's `campaign.cfg` carries the SAME
   campaignId as the save's link (a moved Dropbox folder); a different
@@ -624,13 +642,16 @@ Three triggers:
    export, so mission renames propagate (importers apply them to the
    read-only foreign mission name).
 
-Steps: write payload dir, then envelope (seq = lastSeq+1), then rewrite own
-`player.cfg` (safe-write with retry). Mark exported recordings/actions
-`Exported = true`. Export failure (folder offline, disk full) is non-blocking:
-the commit stands locally, the packet is queued and retried on every merge
-tick, with a settings-visible "N packets pending export" note and a Warn. The
-arbitration timestamp is stamped when the envelope is actually written (share
-order means what it says).
+Steps: write payload dir, then envelope (seq per 6.3: folder-derived max + 1),
+then rewrite own `player.cfg` (safe-write with retry). Mark exported
+recordings/actions `Exported = true`. Export failure (folder offline, disk
+full) is non-blocking: the commit stands locally, the packet is queued and
+retried on every merge tick, with a settings-visible "N packets pending
+export; their claims will be timestamped when the folder returns" note and a
+Warn. The arbitration timestamp is stamped when the envelope is actually
+written (share order means what it says); the `[PacketExport]` Info line for
+a queued packet names the original commit time so a lost photo-finish is
+explainable from the log (edge case 54).
 
 ### 7.5 Import (the merge)
 
@@ -655,8 +676,14 @@ and the UT-sorted walk, and claims/retirements with unknown referents pend):
    auto-group with the owner's `AutoGeneratedRootGroupName` honored
    (display-name uniquified locally on collision, owner's canonical name
    preserved), mission seeded read-only, `MilestoneStore` registration from
-   the packet's EVENTS bundle (so `TechResearchPatch`/`KerbalHirePatch` live
-   blocks and stock-UI overlays see foreign unlocks/hires), and latch each
+   the packet's EVENTS bundle carrying each event's UT (so
+   `TechResearchPatch`/`KerbalHirePatch` live blocks and stock-UI overlays
+   see foreign unlocks/hires - but a live block honors a FOREIGN
+   registration only when its UT <= the local current UT; a peer's unlock
+   in your future must not stop you researching the node now, and your
+   earlier-UT research then becomes the effective charged row under
+   once-ever dedup with the peer's later row refunded and a credit-shift
+   notice; edge case 49), and latch each
    imported recording in `PlaybackScopeTracker` as already-replayed (without
    this, peer history entirely in the local past is suppressed as
    historical-never-replayed and neither plays nor spawns).
@@ -719,19 +746,43 @@ re-derivation (the third call site of `EvaluateAndApplyGhostChains`).
 **Crew.** Foreign kerbals materialize at import (7.5 step 4): visible in the
 roster and the Kerbals window, owner-tagged, dismissal-blocked, reservation
 derived normally from UT=0. The assignment gate: a player may crew missions
-only with kerbals they own or that are unclaimed. A kerbal's owner is a DERIVED
-fact: the owner of the earliest-shared packet (by the 6.5 arbitration key)
-containing a committed recording with that kerbal aboard. The starting four
-(Jebediah, Bill, Bob, Valentina) are contested like anyone else. Because the
-gate is evaluated locally pre-merge, two players can legitimately launch the
-same kerbal before syncing; the fold then resolves ownership by share order,
-and the LOSING recordings receive a derived crew substitution: a
-deterministically named stand-in (existing stand-in machinery; name derived
-from recordingId + seat so every machine generates the same one) replaces the
-kerbal in the derived reservation/display state, and the row is flagged
-"crew conflict: Jebediah is on Ana's roster". The loser's stored recording
-bytes are not touched (the substitution is derived state); their future
-missions must use owned/unclaimed crew.
+only with kerbals they own or that are unclaimed. The gate runs at crew
+ASSIGNMENT time (the VAB/SPH crew panel and the launch-pad crew dialog,
+through the existing `CrewDialogFilter` patch), never at commit and never at
+an in-flight board event. **Rescue carve-out:** a kerbal taken aboard from a
+foreign spawned vessel in flight (EVA and Board from a vessel the local player
+did not launch) is exempt; the rescuing recording's crew row is attributed to
+the rescuer, ownership stays with the original owner, and the kerbal's
+reservation bounds at the rescuer's recovery UT (edge case 48). A kerbal's
+owner is a DERIVED fact: the owner of the earliest-shared packet (by the 6.5
+arbitration key) containing a committed recording with that kerbal aboard;
+checkpoint 0 counts as the earliest share, so a founder who flew the starting
+four before creating the campaign owns them, and joiners hire (edge case 51).
+Because the gate is evaluated locally pre-merge, two players can legitimately
+launch the same kerbal before syncing; the fold then resolves ownership by
+share order, and the LOSING recordings receive a derived crew substitution: a
+deterministically named stand-in replaces the kerbal in the derived
+reservation/display state, and the row is flagged "crew conflict: Jebediah is
+on Ana's roster". The loser's stored recording bytes are not touched (the
+substitution is derived state); their future missions must use
+owned/unclaimed crew.
+
+**Stand-ins converge.** Under a campaign link every stand-in name (the
+ordinary reservation stand-ins the existing machinery mints while a kerbal is
+away, and the conflict substitutions above) derives deterministically from
+(campaignId, slot-owner name, chain depth) instead of KSP's random naming, and
+the CREW block carries `standInFor` + `chainDepth` so an importer places the
+kerbal in the SAME chain slot rather than materializing an unrelated kerbal.
+Without this, one machine retires "Hanley" as a reclaimed stand-in while
+another treats him as a normal active kerbal (edge case 52).
+
+**Roster cap.** KSP's Astronaut Complex cap counts every roster kerbal; with
+four members' crews materialized, level 1 is full after one hire. The hire
+gate (`KerbalHirePatch`, which already wraps `HireRecruit`) computes the cap
+over OWN plus UNCLAIMED crew only, and materialized foreign crew who are
+Aboard a foreign vessel materialize as `Assigned`. Settings and the user
+guide still recommend the pooled Astronaut Complex upgrade early (edge case
+51).
 
 ### 7.7 Foreign vessel spawning and interaction
 
@@ -762,13 +813,36 @@ stamps land locally (exempt state). Two additions:
     exit, in-flight re-switch): no claim, nothing exported. Otherwise the
     commit exports the tree plus a `Control` tip claim whose window is
     [take-control UT, release UT].
-  - **Recover from the Tracking Station / KSC.** Same behavior as recovering
-    your own spawned committed vessel today (recovery funds and crew return
-    as the recoverer's ledger rows; the local instance despawns), plus a
-    `Recover` tip claim in the next flush packet so the fold ends the
-    vessel's canonical chain as Recovered on every machine. Recover is always
-    tip-advancing. (Plan-time verification item: how own-vessel TS recovery
-    marks the recording's terminal today; the foreign path mirrors it.)
+  - **Recover from the Tracking Station / KSC (own or foreign).** The player
+    experience is today's: recovery funds and crew return as the
+    recoverer's ledger rows and the local instance despawns. The DATA
+    differs once the vessel's terminal recording is `Exported`: today own
+    recovery mutates the recording's stored terminal to Recovered
+    (`ParsekScenario.OnVesselRecovered` -> `UpdateRecordingsForTerminalEvent`)
+    and appends a `FundsEarning(Recovery)` tagged to it; under a campaign
+    link the terminal is NOT mutated (exported content is frozen, 6.6).
+    Instead the recovery emits a `Recover` tip claim in the next flush
+    packet - for the OWNER too - and "terminal = Recovered at UT x" is a
+    DERIVED fact from the winning claim on every machine. Recover is always
+    tip-advancing. Recovery earnings for a spawned committed vessel are
+    once-ever by target recording id: the winning claimant's row is
+    effective, a losing recoverer's row is masked by the fold (edge case
+    48). Recovery of a NOT-yet-exported own vessel keeps today's stored
+    mutation (nothing to converge yet).
+  - **Own continuation of an exported terminal.** When the owner
+    Fly/Switch-To's their OWN spawned vessel whose terminal recording is
+    `Exported`, the restore path runs as today (deep-clone, continue,
+    replace the own tree at commit - the fence allows it, it is own data),
+    but the commit ALSO derives a `Control` claim (target = that terminal
+    recording, window = [take-control UT, release UT]) exactly as a foreign
+    continuation would. Own claims contend by the same key. Without this,
+    the owner's topology would make their continuation canonical by
+    definition and silently overrule an earlier-shared peer claim (edge case
+    47). A losing own continuation is truncated with the 7.9 procedure
+    applied inside the owner's tree: the pre-continuation leaf is the
+    surviving head (it already carries its terminal and snapshot; no new id
+    is needed), the continuation segments retire, and the retirement packet
+    withdraws the claim.
   - **Terminate from the Tracking Station.** Same as for own spawned
     committed vessels today: the local instance is deleted, the spawn-death
     check re-spawns it up to `MaxSpawnDeathCycles`, then marks it abandoned
@@ -817,7 +891,12 @@ heals when they converge).
 The fold:
 
 1. Order all claims by `(claimRealTime, ownerPlayerId)` (6.5) into ONE global
-   sequence (not per-target buckets: chains of claims interact).
+   sequence (not per-target buckets: chains of claims interact). Claims are
+   keyed by `continuationRecordingId` (Recover claims by target id +
+   claimant): when several claims share a key (a re-export after a crash,
+   edge case 50), only the earliest by arbitration key enters the sequence;
+   the rest are dropped with a Verbose line, never treated as new
+   contenders.
 2. Skip claims that are WITHDRAWN: a claim is withdrawn when ANY retirement
    (Truncation naming it explicitly, or a Supersede / RewindRetire / Discard
    whose retired ids include the claim's continuation recording - e.g. the
@@ -827,9 +906,14 @@ The fold:
    replaying the full log reaches the same state as every incumbent).
 3. For each remaining claim in order:
    - If its target recording id is unknown locally: PENDING (excluded,
-     retried next merge).
-   - Determine the target vessel's canonical chain as built so far. If the
-     claim's target is the current canonical tip and the fit predicate (7.9)
+     retried next merge). A pending claim's continuation chain is derived-
+     masked exactly like a rejected one until the claim resolves (it neither
+     plays nor spawns; its row reads "pending arbitration"), so no fourth
+     player can dock to undecided infrastructure and cascade into a
+     deterministic loss (edge case 29).
+   - Determine the canonical link COVERING the claim's window start s (the
+     chain link whose interval contains s; the chain as built so far in this
+     fold). If the claim's target is that link and the fit predicate (7.9)
      passes: the claim is ACCEPTED. Tip-advancing claims (the target left
      with a different part tree, crew, or trajectory; every Control claim
      that moved the vessel; every Recover claim) advance the tip: their
@@ -838,11 +922,14 @@ The fold:
      as a VisitAnnotation and do NOT advance the tip (a fuel run leaves the
      tip unchanged, so later fuel runs against the same tip id are ordinary
      accepted visits, not conflicts).
-   - Otherwise (target not on the canonical chain, or fit fails): the claim
+   - Otherwise (target is not the covering link, or fit fails): the claim
      is REJECTED and enters the salvage ladder, classified against the
      canonical state covering its window. This includes claims targeting a
      continuation that itself lost (the A->B->C cascade: C's target B is off
-     the canonical chain, so C rejects deterministically).
+     the canonical chain, so C rejects deterministically). A losing Recover
+     claim additionally masks its claimant's recovery earning row (7.7):
+     the fold's ledger mask is a set of recording ids PLUS a set of action
+     ids.
 4. Derived masks: every rejected, non-withdrawn claim's continuation chain
    (docked-window recording + descendants) and every accepted non-structural
    claim's target-side post-undock recording (the demoted station-side leaf)
@@ -916,11 +1003,16 @@ the point.
 (a) [s,e] intersects no canonical continuation or accepted-visit window of the
 target, AND (b) the target's canonical part tree, crew, and trajectory at UT
 s (walking the canonical chain) equal, within tolerance, the target state the
-claimant's recording captured at entry. Resources and inventory are exempt
-from (b) (accepted slack). A window after a tip-advancing canonical
-continuation therefore never fits unless the claimant started from that
-continuation's exit state; a window after only transient canonical visits
-fits.
+claimant's recording captured at entry, AND (c) for a TIP-ADVANCING claim, no
+already-accepted tip-advancing continuation (or Recover) of the target starts
+after s. Transient claims are exempt from (c). Resources and inventory are
+exempt from (b) (accepted slack). Clause (c) is what keeps share order
+primary: a later-shared claim that happened EARLIER in UT than an accepted
+structural link cannot splice itself in front of it and rewrite the state
+that link was recorded against (edge case 47); it rejects and salvages like
+any other loss. A window after a tip-advancing canonical continuation never
+fits unless the claimant started from that continuation's exit state; a
+window after only transient canonical visits fits.
 
 - **Case 1 - splice (transient visit).** The interaction left the target as
   found (part trees, net crew, and trajectory identical at exit vs entry,
@@ -1002,14 +1094,30 @@ of previously exported data. Importers append the supersede rows (the
 append-only supersede walk and ERS filtering then hide the retired data
 everywhere - see the section 5 row on the `EffectiveState` cross-tree TODO,
 whose proposed halt is rejected), tombstone the associated ledger rows per the
-existing eligibility rules, feed withdrawals into the fold, and orphan-flag
-any LOCAL recordings that depended on a retired tip (accepted visits, claims,
-dock links): kept, visible, `OrphanedByRetiredRecordingId` set, marked
-"depends on a superseded mission (Ana re-flew Harbor)", their ledger effects
-tombstoned - the route-revalidation pattern (`MissingSourceRecording`)
-generalized. Retired foreign recordings' files are NOT deleted locally
-(history stays browsable; disk cost accepted for v1; checkpoints bound the
-shared-folder cost).
+existing eligibility rules, feed withdrawals into the fold, and handle any
+LOCAL recordings that depended on a retired tip in two ways:
+
+- **Transient dependents** (accepted visits, dock links with no structural
+  effect): kept, visible, `OrphanedByRetiredRecordingId` set, marked
+  "depends on a superseded mission (Ana re-flew Harbor)", their ledger
+  effects tombstoned - the route-revalidation pattern
+  (`MissingSourceRecording`) generalized.
+- **Coupling dependents** (a Dock/Board/Claw continuation that left a module
+  attached, or a Control continuation): the dependent's own vessel would
+  otherwise exist NOWHERE (it lives only inside a merged recording that can
+  never spawn), which is deletion of recorded state by another route
+  (principle 6). So the dependent's owner's machine runs the 7.9 truncation
+  procedure at the coupling boundary: the pre-coupling segment survives
+  under a new head id with a recomputed terminal and the dock-time snapshot,
+  parked at its pre-coupling state; the docked-window and post-undock
+  recordings retire; the truncation retirement ships. The orphan flag stays
+  on the retired ids for history. The player keeps the lab they paid for,
+  in orbit where the old station was, and can redock it to the new tip
+  (edge case 46).
+
+Retired foreign recordings' files are NOT deleted locally (history stays
+browsable; disk cost accepted for v1; checkpoints bound the shared-folder
+cost).
 
 ### 7.11 The economy contract
 
@@ -1044,6 +1152,18 @@ Policies:
   behavior); future earnings fill the hole before money shows again. A one-shot
   warning at merge names the colliding spends and the depth of the debt. No
   purchase is ever retroactively cancelled (paradox avoidance).
+- **Shared reservation, attributed.** This is the existing single-player
+  reservation design, not a new rule, but across free-running clocks it
+  bites: `availableFunds` (and science) at your UT is the MINIMUM projected
+  balance through EVERY member's committed future rows, so a member far
+  ahead in UT who has spent down the pool pins the budget of members behind.
+  The stock currency overlay's "Reserved" line names the largest future
+  spender and UT ("reserved: 120,000 by Ana at Y2 D250"), the Settings
+  member list repeats it, and the join notice (edge case 31) explains it.
+  Not a defect: the money IS committed; the fix is attribution.
+- **Recovery earnings are once-ever per recovered vessel** (7.7): the
+  winning Recover claimant's row is effective, any other recoverer's row is
+  fold-masked.
 - **Earlier UT wins credit.** Milestone/first races across players resolve by
   the existing once-ever UT-order walk - identical to how retroactive commits
   shift credit today. Deep-warping ahead cannot lock in a first; credit (never
@@ -1061,7 +1181,12 @@ Policies:
   own-owned vessels in v1: a foreign spawn is not a valid endpoint (route
   cargo math would mutate a peer's vessel per cycle with no recording, no
   claim, and no arbitration), refused at route creation with the owner
-  named.
+  named - and RE-CHECKED after every fold: a route whose origin or stop
+  endpoint resolves to a vessel whose canonical tip is now foreign-owned (a
+  peer took control of your depot and moved it) pauses with a new
+  `RouteStatus.EndpointForeign` (binds the tree, ghost-driving off),
+  revalidated each merge, resuming only when the endpoint's tip returns to
+  the owner through the owner's own accepted continuation (edge case 53).
 
 ### 7.12 Timeline and attribution
 
@@ -1160,9 +1285,12 @@ bootstrap cost and the folder's growth.
 12. **Stale local spawn after a tip advance arrives.** The old tip's spawned
     vessel exists locally; the winner's continuation retires it. If unloaded:
     despawned immediately (no recovery ledger rows). If loaded/nearby:
-    deferred to scene change (7.5). If the local player meanwhile committed an
-    interaction with the stale spawn, that is itself a tip claim and resolves
-    through the fold - no special case.
+    deferred to scene change (7.5). If the retiring instance is COUPLED to
+    the player's active vessel (the tanker is still docked to it), retirement
+    defers until they separate, never at scene change (a despawn would take
+    the active vessel's docked partner out from under it). If the local
+    player meanwhile committed an interaction with the stale spawn, that is
+    itself a tip claim and resolves through the fold - no special case.
 13. **Import arrives mid-flight.** Walk runs, patch defers (existing
     machinery, lands at the next trigger); world-affecting applications defer
     per 7.5. The recorder never observes a mid-flight world edit.
@@ -1237,7 +1365,10 @@ bootstrap cost and the folder's growth.
 29. **Claim arrives before its target recording.** Carol's claim targets
     Bogdan's continuation while Bogdan's packet is still syncing. The claim
     pends (excluded from the fold, journaled), retried each merge; Carol's
-    machine shows her interaction as "pending arbitration" rather than won.
+    machine shows her interaction as "pending arbitration" rather than won,
+    and her continuation chain is derived-masked on every machine until it
+    resolves (7.8 step 3): it does not play and does not spawn, so Dana
+    cannot dock to an undecided continuation and inherit its fate.
 30. **Baseline capture after import.** A post-merge local baseline snapshots
     live state that includes foreign effects; under the campaign link it is
     never used for merged-facet patching (7.5 pinning), so a later foreign
@@ -1248,9 +1379,15 @@ Player-perspective cases (a session walked as a player, not a developer):
 31. **"The sky is empty after I joined."** A joiner's clock starts at the
     checkpoint's UT; every mission peers flew after that is in the joiner's
     FUTURE, so ghosts are dormant and nothing has spawned yet. By design
-    (free-running UTs). Settings shows each member's clock so the joiner
-    knows how far to warp; the timeline shows the future entries dimmed
-    beyond the NOW divider.
+    (free-running UTs). Also: available funds may read 0 (the shared
+    reservation projects through every member's future spends, 7.11), the
+    starting four are the founder's, and the hire button may be grey (roster
+    cap, 7.6). One join-time ScreenMessage + Settings text explains all of
+    it: "Your clock is at the checkpoint (Y1 D12); members are up to 400
+    days ahead; funds, tech, and crew reflect the campaign at YOUR clock.
+    Use the timeline's Warp to time to catch up." Settings shows each
+    member's clock so the joiner knows how far; the timeline shows the future
+    entries dimmed beyond the NOW divider.
 32. **"I clicked Terminate on Ana's old probe in the Tracking Station."**
     Same as terminating your own spawned committed vessel today: the local
     instance goes, the spawn-death check re-spawns it a few times, then it
@@ -1297,9 +1434,13 @@ Player-perspective cases (a session walked as a player, not a developer):
     state, marked with the missing part names in the Recordings Manager row
     and the Settings summary. You can see it and target it but not dock to
     it (ghosts are inert), which is deliberate: a real stale instance would
-    invite interactions whose claims can never fit the true tip. Install the
-    mod (or ask Ana to detach the module and share) and the next merge
-    spawns it real again.
+    invite interactions whose claims can never fit the true tip. This locks
+    out the OWNER too: if Dana docks a modded hab to Ana's Harbor, Ana cannot
+    dock to her own station until she installs the pack or Dana undocks the
+    hab and shares - which is why Validate/Join report part-set differences
+    up front and the hint text says shared stations should use stock parts
+    (7.1). Install the mod (or ask the modder to detach and share) and the
+    next merge spawns it real again.
 38. **"My Dropbox moved to another drive."** Relink via the Settings path
     field; accepted only if the campaignId matches (7.1).
 39. **"Someone deleted the shared folder."** Every member's local save still
@@ -1319,10 +1460,14 @@ Player-perspective cases (a session walked as a player, not a developer):
     the fold orders them; one splices or advances, the other truncates (v1)
     or stitches (v1.1). Both players see the verdict on screen and in the
     Recordings Manager.
-43. **"Can I loop Ana's mission in my game?"** Not in v1: loop config is
-    owner-authoritative (6.4), so a foreign mission plays with the owner's
-    loop settings only. Watch mode on foreign ghosts works (read-only).
-    Local view preferences on foreign missions are deferred item D10.
+43. **"Can I loop Ana's mission in my game?"** Not in v1, and neither does
+    Ana's own loop setting reach you: mission-level loop settings live in
+    each save's `MissionStore` and no packet block carries them, while the
+    recording-level loop fields do ride the TREES fragment but are IGNORED
+    for foreign recordings. Foreign missions play their real run once and
+    never loop locally (also the soft-cap reason: four members' loops would
+    multiply ghosts). Watch mode on foreign ghosts works (read-only). Local
+    view preferences on foreign missions are deferred item D10.
 44. **"I was away for three months."** Incumbents import every packet above
     their journal (checkpoints only shortcut JOINERS), so the catch-up merge
     is long: chunked hashing keeps the game responsive, notifications batch
@@ -1333,6 +1478,74 @@ Player-perspective cases (a session walked as a player, not a developer):
     retirement tombstones it and the kerbal returns to the roster on every
     machine (existing rewind semantics carried cross-machine by the
     retirement record).
+
+Stress-test cases (fourteen imagined multi-player sessions, 2026-09-02):
+
+46. **"Ana re-flew Harbor's launch; my lab was docked to the old Harbor."**
+    Bogdan's accepted lab continuation depended on the retired core. It is a
+    coupling dependent, so 7.10 salvages rather than orphan-flags: on
+    Bogdan's machine the lab's pre-dock segment survives under a new head id
+    (recomputed Orbiting terminal, dock-time snapshot), parked where the old
+    station was; the docked window and post-undock recordings retire and
+    ship as a truncation. His lab still exists, he still paid for it once,
+    and he can redock it to Ana's new Harbor. Carol's fuel visit to the old
+    station is a transient dependent: flagged and harmless.
+47. **"I reboosted my own station; Bogdan had already moved it and shared
+    first."** Ana's own continuation of her exported Harbor derives a
+    `Control` claim (7.7) and loses to Bogdan's earlier-shared one; her
+    continuation segments retire inside her own tree (the pre-continuation
+    leaf is the head), the retirement withdraws her claim, and her local
+    Harbor reverts to Bogdan's tip. Symmetric: Carol's truss docked EARLIER
+    in UT than Bogdan's lab but shared LATER loses under fit clause (c),
+    because the lab was recorded against a truss-less core; she parks and
+    redocks. Both are told on screen which claim won and why (share order).
+48. **"Ana recovered my capsule from her Tracking Station; I recovered it
+    too, unsynced."** Two `Recover` claims on one target; the earlier-shared
+    one wins; the other's recovery earning is fold-masked so the pool gains
+    the capsule once; the stored terminal is never mutated on either machine
+    (Recovered is derived). The rescue variant: Ana Switch-To's Bogdan's
+    fuel-less lander, EVAs Bob, boards him into her ship, recovers. The crew
+    gate does not fire at board (7.6 rescue carve-out); the lander's Control
+    claim is crew-changing and tip-advancing; Bob's reservation bounds at
+    Ana's recovery UT; Bob is back on everyone's roster, still Bogdan's.
+49. **"Ana unlocked Advanced Rocketry at Y2 D10; I'm at Y1 D40 and R&D says
+    it's already committed."** The live research block honors a foreign
+    registration only once your clock reaches its UT (7.5 step 2). You
+    research it now at Y1 D40; your earlier-UT row is the effective charged
+    one, Ana's is refunded at the next merge with a credit-shift notice; the
+    node is unlocked from Y1 D40 on for everyone.
+50. **KSP crashes two seconds after the envelope is written.** The packet is
+    in the folder, `player.cfg` says seq 14, the local save still says 13
+    and `Exported=false`. Next launch: seq derives from the folder (6.3), so
+    the re-export is 000015; it re-carries known recording ids (accepted
+    idempotently, 6.6) and the SAME claim under the same
+    `continuationRecordingId` (only the earliest copy contends, 7.8 step 1).
+    Nothing is refused, nothing self-masks.
+51. **Four players, Astronaut Complex level 1.** Everyone's crews
+    materialize into everyone's roster; the stock cap would be full after
+    one hire. The hire gate counts own plus unclaimed crew only (7.6), and
+    the starting four belong to the founder (checkpoint 0 is the earliest
+    share), so joiners hire from day one. Upgrade the Astronaut Complex early
+    (pooled cost); Settings says so.
+52. **"My stand-in Hanley is retired on my machine and a normal kerbal on
+    Carol's."** Prevented by deterministic campaign stand-in naming plus the
+    CREW block's `standInFor`/`chainDepth` (7.6): every machine mints the
+    same name into the same chain slot, so reclaim/retire converge.
+53. **"Carol took control of my fuel depot and reboosted it; my route kept
+    running."** After the fold, the depot's canonical tip is Carol's; the
+    route re-check (7.11) pauses the route as `EndpointForeign` and names
+    her; it resumes when Bogdan's own accepted continuation makes the tip
+    his again.
+54. **"My Dropbox was unmounted Monday; I committed first and still lost."**
+    The export queued; its envelope was written Wednesday; the arbitration
+    timestamp is Wednesday (share order means share order). Acceptable v1
+    limitation: the queued-export Warn and Settings text say so in advance,
+    and the export log line carries the original commit time so the outcome
+    is explainable.
+55. **"After three months away the merge told me 14 verdicts in one
+    message."** The batched ScreenMessage is a summary; the Settings "recent
+    verdicts (last merge)" block (7.1) and the per-row flags carry the
+    detail.
 
 ---
 
@@ -1575,6 +1788,36 @@ every merge, every fold verdict, and why.
 - **ShowOwnerAttributionPredicate** - false for no campaign and for one
   registered id; true at two distinct ids; stays true when a member's
   manifest later disappears.
+- **OwnContinuationDerivesClaim** - the restore path on an Exported own
+  terminal exports a Control claim; on a never-exported terminal it does
+  not.
+- **FitClauseCKeepsShareOrder** - a later-shared, earlier-UT structural
+  claim against a link with an accepted later structural continuation
+  rejects; the same claim marked transient passes.
+- **CoveringLinkAcceptance** - a transient visit whose window start falls
+  inside the core link is accepted even though the current tip is a later
+  continuation (the worked example's Case 1).
+- **PendingClaimMasksContinuation** - a claim with an unknown target masks
+  its continuation from ERS and the spawn gate; resolution lifts the mask.
+- **DuplicateClaimKeyKeepsEarliest** - two claims sharing
+  `continuationRecordingId` contend once, by the earliest key.
+- **RecoverOnceEverByTargetRecording** - two Recover claims on one target:
+  one effective recovery earning, the other's action id in the fold mask;
+  no stored terminal mutation on an Exported recording.
+- **ForeignFutureTechDoesNotBlockLocalResearch** - a foreign tech
+  registration with UT > current UT does not block `TechResearchPatch`;
+  with UT <= current UT it does.
+- **OrphanedCouplingDependentIsSalvagedNotFlagged** - a retirement that
+  removes the target of a structural dependent produces the truncation
+  (new head, retirements), not a bare orphan flag; a transient dependent
+  gets the flag.
+- **CampaignStandInNamesConverge** - two machine contexts mint the same
+  stand-in name for the same slot and depth.
+- **HireCapCountsOwnAndUnclaimedOnly** - materialized foreign crew do not
+  consume the local Astronaut Complex cap.
+- **RouteEndpointRecheckAfterFold** - a fold that moves an endpoint's tip
+  to a foreign owner pauses the route `EndpointForeign`; the owner's
+  accepted continuation resumes it.
 
 ### 15.2 Integration tests (synthetic fixtures)
 

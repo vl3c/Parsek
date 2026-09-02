@@ -98,6 +98,12 @@ Items identified during design (2026-09-01 interview, adversarial reviews, code 
 **Revisit when:** The measured walk time at 3,000 recordings exceeds its budget.
 **Status:** Open - measure first.
 
+### D18. Per-member checkpoints
+**What:** Let any member write `checkpoints/<playerId>/<n>/` (single-writer preserved) so a campaign whose founder left can still bound joiner bootstrap cost.
+**Why deferred:** v1 checkpoints are founder-only and manual; a departed founder means bootstrap cost grows without bound (edge case 19). Rare in v1.
+**Revisit when:** A founder actually leaves an active campaign, or v1.1.
+**Status:** Open.
+
 ### D17. Full `SpawnOwnershipResolver`
 **What:** Replace the emergent leaf-owns-spawn rule with one pure per-vessel resolver consumed by every spawn host.
 **Why deferred:** The 13-step spawn gate is pinned by ~112 test call sites asserting reason strings plus a cross-predicate drift guard; several host-specific conditions are scene capabilities, not ownership. The fold's needs are met by a structured-result overload, coded early rejects, a stamp clear/re-point API, and routing the leaf spawner through the gate (pre-refactor C1-C3).
