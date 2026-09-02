@@ -190,8 +190,17 @@ THE GUARD HOLDS against this input - nothing is added and nothing is clipped, so
 the current producer does not re-create the shape and the bytes predate it. The
 alternative hypothesis (a remaining hole opened by a later splitter re-cutting a
 promoted envelope, `RecordingOptimizer.SplitAtUT` being the place to look) is not
-supported by this input; it is not disproved in general, and the cell's comment
-says so rather than overclaiming.
+supported by this input; it is not disproved in general.
+
+AND ONE THING THE MEASUREMENT EXPLICITLY DOES NOT EXCLUDE: multi-pass accumulation
+WITHIN ONE SESSION. The probe ran the bridge ONCE over sidecars as they sit on
+disk. The live path calls it repeatedly across a session - after a split, at a
+persist, on an optimizer pass - each time against a section list the previous call
+may have changed, and the guard is evaluated per candidate against the list AT THAT
+MOMENT. A sequence in which a coarse envelope is promoted, then re-cut, then
+re-promoted against the re-cut list is not reachable by re-running the pass over a
+finished save and is therefore untested by this evidence. Anyone reopening this
+should drive the SEQUENCE, not the snapshot.
 
 **AND THE PRODUCER DOES NOT REPAIR IT EITHER, which is the half that decides the
 remedy.** With the empty-shell reconcile armed the bridge DOES act - it removes

@@ -109,7 +109,8 @@ id = "B32-interbody-route-scope"
 # =====================================================================================
 # 6. WHAT IS PINNED AS A REGEX AND WHY (never-flown discipline)
 #
-# NEVER FLOWN. Every count in the route-line build/draw lines is a CLASS, not a literal:
+# AUTHORED BEFORE THE FIRST FLIGHT, and the counts below have since been tightened off it
+# (see the re-pin block). What stays a CLASS is the ROUTE IDS:
 # `members=`, `groups=`, `legs=` and `transferDropped=` depend on how the leg builder
 # splits these particular recordings, which no committed reading has measured. The
 # ROUTE IDS are regexed as `[0-9a-f]{8}` (`RouteIds.Short`'s own shape) even though this
@@ -183,7 +184,7 @@ id = "B32-interbody-route-scope"
 #
 # =====================================================================================
 tier = "operator"
-description = "AUTHORED 2026-09-02, NEVER FLOWN. THE FIRST LANE ANYWHERE THAT CAN READ `ClassifyRouteScope = InterBody`, and it exists because the product change on branch `interbody-scope-fix` made that verdict reachable at all: `ClassifyRouteScope` used to read `Route.DispatchWindowPeriod` as the scope authority while `RouteBuilder` hard-coded it to 0.0, so every real Kerbin -> Duna route classified `MalformedMixedBodies`, had its line SKIPPED, and left `FilterLegsToEndpointBodies` unreachable (todo ROUTE-INTERBODY-SCOPE-NEVER-REACHABLE). Scope is now derived from the ENDPOINT bodies through `IsInterBodyByEndpoints`, and this lane reads the verdict out of the new per-build log line. Subject: the `interbody-route-recorded` harvest of the operator's own hand-played campaign, carrying TWO committed routes that are both inter-body under the new rule - `Route: KSC -> Duna` (Active, origin Kerbin / stop Duna, DockingPort dock+undock, completedCycles 0) and `Route: KSC -> Mun` (Paused) - and BOTH still carrying `dispatchWindowPeriod = 0`, which is exactly why both drew nothing before. The map is opened in FLIGHT as a HARD precondition rather than as scene-setting: `RouteTrajectoryLineRenderer.DrawAll`'s only call site is a map-camera onPreCull hook (`GhostTrajectoryPolylineRenderer.cs:3942-3952`), so a FLIGHT lane with the map closed runs no route pass and reads none of these tokens. NO TimeJump and NO dispatch is attempted, deliberately: the Duna route's 8.53 Ms transit against an 87.6 Ms save clock, its `loopAnchorUT = -1` and its per-tick `ReaimWindows` basis make the dispatch anchor uncomputable from the committed bytes, which is V18T section 2's unresolvable-anchor situation at ~400x the span - and the overview line draws STATICALLY, so the scope reading needs no clock motion. The falsifier is carried in the spec rather than left to a later control: `Route line draw: .* malformed=[1-9]` and `scope=MalformedMixedBodies` are FORBIDDEN. The FIRST is precisely what this subject emitted before the fix, on every drawn frame; the SECOND could not have been emitted then because the `Route scope:` line did not exist - it is the same claim restated on the new line, so a future regression that keeps the line but flips the verdict reds too. Counts are regexed and route ids are classed `[0-9a-f]{8}` (the H59 `2026-09-02_1017` lesson); the body names, `scope=InterBody`, `basis=Endpoints` and `routes=2 transitioned=0` carry the claim. `[expectations.routes]` is declared REPORT-ONLY with the measured shape. Nothing is armed, so `[dimensionsCovered]` claims nothing."
+description = "FLOWN 2026-09-02, ARMED-DISCIPLINE COMPLETE: reading run `2026-09-02_18xx` (route tokens read from the KSP.log; the run itself classified `PARSEK-FAIL(analyzer)` on the fixture's own pre-existing INV2 double-cover, since repaired), pins tightened off it, armed re-flight PASS attempt 1, and a negative control `B32X-interbody-scope-negative-control` (uncommitted) that red `PARSEK-FAIL(expectation)` on exactly the seeded `scope=SameBody` token with zero forbids and a green analyzer. THE FIRST LANE ANYWHERE THAT HAS READ `ClassifyRouteScope = InterBody`, and it exists because the product change on branch `interbody-scope-fix` made that verdict reachable at all: `ClassifyRouteScope` used to read `Route.DispatchWindowPeriod` as the scope authority while `RouteBuilder` hard-coded it to 0.0, so every real Kerbin -> Duna route classified `MalformedMixedBodies`, had its line SKIPPED, and left `FilterLegsToEndpointBodies` unreachable (todo ROUTE-INTERBODY-SCOPE-NEVER-REACHABLE). Scope is now derived from the ENDPOINT bodies through `IsInterBodyByEndpoints`, and this lane reads the verdict out of the new per-build log line. MEASURED, identical on all three lanes and on both runs: `Route scope: route=71a983a1 origin=Kerbin destination=Duna scope=InterBody basis=Endpoints` and the same for `8f644e71 ... destination=Mun`; `Route line build: ... members=4 groups=3 legs=3 transferDropped=0` twice; `Route line draw: enabled=True routesDrawn=2 legsDrawn=6 skippedOwned=0 malformed=0 other=0`. Subject: the `interbody-route-recorded` harvest of the operator's own hand-played campaign, carrying TWO committed routes that are both inter-body under the new rule - `Route: KSC -> Duna` (Active, DockingPort dock+undock, completedCycles 0) and `Route: KSC -> Mun` (Paused) - and BOTH still carrying `dispatchWindowPeriod = 0`, which is exactly why both drew nothing before. The map is opened in FLIGHT as a HARD precondition rather than as scene-setting: `RouteTrajectoryLineRenderer.DrawAll`'s only call site is a map-camera onPreCull hook (`GhostTrajectoryPolylineRenderer.cs:3942-3952`), so a FLIGHT lane with the map closed runs no route pass and reads none of these tokens. NO TimeJump and NO dispatch is attempted, deliberately: the Duna route's 8.53 Ms transit against an 87.6 Ms save clock, its `loopAnchorUT = -1` and its per-tick `ReaimWindows` basis make the dispatch anchor uncomputable from the committed bytes, and the overview line draws STATICALLY so the scope reading needs no clock motion. The falsifier is carried in the spec rather than left to a later control: `Route line draw: .* malformed=[1-9]` and `scope=MalformedMixedBodies` are FORBIDDEN. The FIRST is precisely what this subject emitted before the fix, on every drawn frame; the SECOND could not have been emitted then because the `Route scope:` line did not exist - it is the same claim restated on the new line, so a future regression that keeps the line but flips the verdict reds too. Route ids stay classed `[0-9a-f]{8}` (the H59 `2026-09-02_1017` lesson); the body names, `scope=InterBody`, `basis=Endpoints` and `routes=2 transitioned=0` carry the claim. `[expectations.routes]` is REPORT-ONLY with the measured shape; the arming pass is still owed and is a separate operator decision."
 instanceProfile = "stock-minimal"
 tags = ["B32", "route", "logistics", "inter-body", "kerbin", "duna", "depot", "dock",
         "map-render", "route-map-lines", "scene-map", "first-contact"]
@@ -258,12 +259,23 @@ steps = [
   { cmd = "FlushAndQuit",                                                    expect = "OK" },
 ]
 
+[dimensionsCovered]
+# CLAIMED 2026-09-02 off the armed re-flight + control, per CLAIM-IS-NOT-GATE. The gating
+# tokens are the two required `scope=InterBody basis=Endpoints` lines, and the negative
+# control demonstrated they fire. `scene-map` is gated by the required entermapview /
+# exitmapview echoes (the map pass is this lane's precondition, not scene-setting);
+# `kerbin` and `duna` by the body names inside the gated scope tokens; `sandbox` by the
+# fixture (Mode = SANDBOX), the basis V18T claims it on.
+D10 = ["route-map-lines-inter-body"]
+D14 = ["kerbin", "duna", "scene-map", "sandbox"]
+
 [expectations]
-# A BRACKET, NOT A PIN, and empty on purpose: NEVER FLOWN. The S1.4 rule is that a token
-# is re-added WITH the flight that shows it, and pre-tolerating an anomaly on a first
-# flight destroys the only thing worth having - the count it fires at. This subject takes
-# no TimeJump, so it does not carry the `icon-off-orbit` exposure the V14T/V15T/V16T
-# family measured on their post-jump proto-creation frames.
+# EMPTY, AND THAT IS NOW A MEASUREMENT RATHER THAN A POSTURE: two runs took the
+# sweep fully armed and neither raised a single anomaly, so there is nothing to
+# tolerate. The S1.4 rule is that a token is re-added WITH the flight that shows
+# it, and no flight has shown one.
+# This subject takes no TimeJump, so it never carried the `icon-off-orbit` exposure the
+# V14T/V15T/V16T family measured on their post-jump proto-creation frames.
 allowedAnomalies = []
 
 [expectations.recordings]
@@ -349,13 +361,11 @@ forbidden = [
 ]
 
 [expectations.routes]
-# M-C2 save-parse, DECLARED REPORT-ONLY: `gating` IS DELIBERATELY OMITTED. NEVER FLOWN,
-# and arming is a per-scenario operator decision taken only after a report-only reading
-# run whose facets match the declared windows (`ARMED_ALLOWLIST` /
-# `test_no_committed_spec_arms_gating`). The windows below are written from the COMMITTED
-# BYTES, read offline through `saveparse.observed_routes_facets` over the fixture's own
-# persistent.sfs - not predicted - but what a RUN leaves behind is a different
-# measurement, and that is what a reading run is for.
+# M-C2 save-parse, DECLARED REPORT-ONLY: `gating` IS DELIBERATELY OMITTED. The
+# windows below were written from the fixture's committed bytes and are now
+# CORROBORATED by two runs' produced saves, but arming stays a separate operator
+# decision taken deliberately (`ARMED_ALLOWLIST` /
+# `test_no_committed_spec_arms_gating`), not a side effect of a lane going green,
 #
 # WHAT THE WINDOWS SAY, and why each is the fixture's property rather than a claim about
 # the run: two committed routes, none dormant, one stop each, eight SOURCE_REF rows, no

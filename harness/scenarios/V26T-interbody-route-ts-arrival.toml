@@ -165,7 +165,7 @@ id = "V26T-interbody-route-ts-arrival"
 #
 # =====================================================================================
 tier = "operator"
-description = "AUTHORED 2026-09-02, NEVER FLOWN. V18T's tracking-station grammar re-flown on an INTER-BODY subject: boot the `interbody-route-recorded` harvest into the TRACKSTATION and read what the TS host composes for two supply routes whose endpoints sit on different bodies. It is a SEPARATE lane from V26M's FLIGHT half for two structural reasons: the HOST differs (`ParsekTrackingStation` + `GhostMapPresence.BuildStartupTrackingStationLoopUnits`, a one-shot startup create over a union a route enters through `SelectGhostDrivingBackingMissions` -> `RouteBackingMission.BuildMission`, which is the question this lane asks and V26M cannot), and the MANIFEST IS PER SCENE - `RenderCompositionRecorder` resets on scene switch while the export verb writes unconditionally to one path, so a FLIGHT-observe / TS-export lane reads zeroes for everything FLIGHT measured (todo RENDER-MANIFEST-VERB-EXPORT-IN-A-SECOND-SCENE-CLOBBERS-THE-FIRST-SCENE-ACCUMULATION, measured by H59's `2026-09-02_0947`). NO `EnterMapView` verb is driven, on V18T's measured fact: `DrawAll`'s only call site carries no `MapView.MapIsEnabled` in its guard chain (`GhostTrajectoryPolylineRenderer.cs:3942-3952`), so the TS planetarium camera drives the route pass directly. NO TimeJump either, unlike V18T, and the arithmetic is why: the Duna route's 8.53 Ms transit against an 87.6 Ms save clock, `loopAnchorUT = -1` (never activated into a cycle) and a per-tick `ReaimWindows` basis that is never persisted make the dock instant uncomputable from the committed bytes - V18T's own unresolvable-anchor situation at ~400x the span - and the overview line draws STATICALLY, so the scope reading needs no clock motion. THE FALSIFIER: both routes must classify `scope=InterBody basis=Endpoints` (the PAUSED one too, which is the point - scope is a property of the endpoints, not of dispatch state), `routes=2 transitioned=0`, the two R12 trackstation route tokens and the TS host's own `created N ghost vessel(s)`; and `Route line draw: .* malformed=[1-9]` plus `scope=MalformedMixedBodies` are FORBIDDEN - the first being exactly what this subject emitted before the 2026-09-02 scope fix, the second being that same claim restated on the `Route scope:` line, which did not exist before it. V18T's two front-door tokens (`ghostDriving=[1-9]`, `routeMissions=[1-9]`) are DELIBERATELY NOT REQUIRED here and the reading run owes an answer: V18T's subject is an Active route with a real `loopAnchorUT` that has driven cycles, this one's has neither, so whether a never-dispatched route enters the GhostDriving selection is unmeasured - and if it does not, that is a finding for the todo rather than a red. V18T's `skippedByStatus=[1-9]` forbid is also dropped, because this subject carries TWO routes with one deliberately Paused, so a skip count of 1 is the expected reading. `[expectations.renderComposition]` is DECLARED BARE and `[expectations.routes]` REPORT-ONLY. Nothing armed, so `[dimensionsCovered]` claims nothing."
+description = "FLOWN 2026-09-02, ARMED-DISCIPLINE COMPLETE: reading run `2026-09-02_18xx` (route tokens read from the KSP.log; the run itself classified `PARSEK-FAIL(analyzer)` on the fixture's own pre-existing INV2 double-cover, since repaired), pins tightened off it, armed re-flight PASS attempt 1, and a negative control `B32X-interbody-scope-negative-control` (uncommitted) that red `PARSEK-FAIL(expectation)` on exactly the seeded `scope=SameBody` token with zero forbids and a green analyzer. V18T's tracking-station grammar re-flown on an INTER-BODY subject: the `interbody-route-recorded` harvest booted into the TRACKSTATION, reading what the TS host composes for two supply routes whose endpoints sit on different bodies. A SEPARATE lane from V26M's FLIGHT half for two structural reasons: the HOST differs (`ParsekTrackingStation` + `GhostMapPresence.BuildStartupTrackingStationLoopUnits`, the one-shot startup union a route enters through `SelectGhostDrivingBackingMissions` -> `RouteBackingMission.BuildMission`), and the MANIFEST IS PER SCENE, so two scenes means two lanes each exporting where they observed. NO `EnterMapView` verb is driven, on V18T's measured fact that `DrawAll`'s guard chain carries no `MapView.MapIsEnabled`; no TimeJump either, for B32's arithmetic. THE OPEN QUESTION THIS LANE WAS AUTHORED NOT TO PREJUDGE IS ANSWERED: `ghostDriving=1` printed once and `routeMissions=1` four times, so a never-dispatched route (`loopAnchorUT = -1`, `completedCycles = 0`) DOES enter the GhostDriving selection and DOES reach the TS host union - dispatch history is not a precondition for a route driving a tracking-station ghost - and both tokens are REQUIRED from the armed re-flight onward. V18T's `skippedByStatus=[1-9]` forbid stays dropped: this subject carries TWO routes with one deliberately Paused, so a skip count of 1 is the expected reading. Manifest: `routeLineBuilds=2` (twice V18T's measured 1, on twice the routes), `unevaluable=7`, findings EMPTY at every level; the block stays BARE pending a second matching reading. The route lines are byte-identical to the FLIGHT-map lane's, which is the fact that keeps the two surfaces ONE coverage cell rather than two. `[expectations.routes]` REPORT-ONLY, same carried control as B32."
 instanceProfile = "stock-minimal"
 tags = ["V26", "route", "logistics", "inter-body", "tracking-station", "kerbin", "duna",
         "depot", "dock", "render-composition", "rc-route", "map-render"]
@@ -240,11 +240,21 @@ steps = [
   { cmd = "FlushAndQuit",                                                    expect = "OK" },
 ]
 
+[dimensionsCovered]
+# `scene-ts` replaces `scene-map`: gated by the two R12 trackstation route tokens plus
+# the TS host's own `created N ghost vessel(s)`, the same three V14T and V18T claim it
+# on. The D10 cell is SHARED with B32 / V26M rather than split by surface, because the
+# route readings came back byte-identical on both - see the registry note.
+D10 = ["route-map-lines-inter-body"]
+D14 = ["kerbin", "duna", "scene-ts", "sandbox"]
+
 [expectations]
-# EMPTY ON PURPOSE: NEVER FLOWN, and the S1.4 rule is that a token is re-added WITH the
-# flight that shows it. This lane takes no TimeJump, so it does not carry the post-jump
-# `icon-off-orbit` exposure the V14T/V15T/V16T family measured - but a TS boot over 20
-# vessels and four committed trees is its own unmeasured surface (section 3).
+# EMPTY, AND THAT IS NOW A MEASUREMENT RATHER THAN A POSTURE: two runs took the
+# sweep fully armed and neither raised a single anomaly, so there is nothing to
+# tolerate. The S1.4 rule is that a token is re-added WITH the flight that shows
+# it, and no flight has shown one.
+# A TS boot over 20 vessels and four committed trees was its own unmeasured surface at
+# authoring time (section 3); the two runs settled it clean.
 allowedAnomalies = []
 
 [expectations.recordings]
@@ -323,14 +333,13 @@ forbidden = [
 # `routeCoDrawViolations = { max = 0 }`, once a second reading matches.
 
 [expectations.routes]
-# M-C2 save-parse, DECLARED REPORT-ONLY: `gating` IS DELIBERATELY OMITTED. NEVER FLOWN,
-# and arming is a per-scenario operator decision taken only after a report-only reading
-# run whose facets match the declared windows (`ARMED_ALLOWLIST` /
-# `test_no_committed_spec_arms_gating`). The windows are read offline out of the fixture's
-# own persistent.sfs through `saveparse.observed_routes_facets` - not predicted - but what
-# a RUN leaves behind is a different measurement, and this lane's run additionally takes a
-# `SaveGame` and a second `LoadGame`, so its produced save has been through a full
-# write/read cycle that the offline read has not.
+# M-C2 save-parse, DECLARED REPORT-ONLY: `gating` IS DELIBERATELY OMITTED. The
+# windows below were written from the fixture's committed bytes and are now
+# CORROBORATED by two runs' produced saves, but arming stays a separate operator
+# decision taken deliberately (`ARMED_ALLOWLIST` /
+# `test_no_committed_spec_arms_gating`), not a side effect of a lane going green,
+# and this lane's run additionally takes a `SaveGame` and a second `LoadGame`, so its
+# produced save went through a full write/read cycle the offline read did not.
 #
 # `originBodies` and `destinationBodies` naming DIFFERENT bodies is the inter-body claim
 # in the save-structure vocabulary: that pair is what `ClassifyRouteScope` reads.

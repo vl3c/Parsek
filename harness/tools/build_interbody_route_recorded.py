@@ -259,7 +259,8 @@ INV2_REPAIRS = (
     ("cc8ec5e4c95a42c697120751599de426", 42, 40),
 )
 
-# TEN sections in total, and the dedupe found MORE than the three INV2 rows
+# TWELVE sections in total across FOUR recordings, and the dedupe found MORE than
+# the three INV2 rows
 # named - which is the predicate doing its job rather than a surprise. Measured
 # drops, by byte size, which is what distinguishes the two shapes:
 #
@@ -480,6 +481,21 @@ def verify_prec(fixture_dir: str) -> List[str]:
                 "%s carries redundant section(s) %r but is NOT in INV2_REPAIRS - "
                 "add it (with its before/after counts) and re-run the builder"
                 % (rec_id, droppable))
+        # AND THE OVERLAP SWEEP, which is NOT implied by the one above. The
+        # containment dedupe only sees a section fully covered by another; a
+        # PARTIAL overlap - two sections crossing without either containing the
+        # other - is exactly what `inv2.repair_prec` refuses to touch, so it
+        # would leave `find_redundant_sections` empty while INV2 still reds the
+        # lane. Checking both is the only way --check can promise what its name
+        # says on a re-harvest.
+        still = overlapping_pairs(sections)
+        if still:
+            problems.append(
+                "%s carries interior TrackSection overlap(s) %r and is NOT in "
+                "INV2_REPAIRS - if the containment dedupe cannot clear them they "
+                "are PARTIAL overlaps, which this repair deliberately does not "
+                "touch: investigate rather than widen the table"
+                % (rec_id, still))
     return problems
 
 

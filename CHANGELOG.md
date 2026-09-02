@@ -10,21 +10,24 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
-- **Automated testing: three new checks will watch the between-planets supply route
-  the map fix restored.** They load the new saved campaign, open the map, and read
-  the game's own log line saying which kind of route it decided each one is and why -
-  one in the flight map, one taking a full picture of everything the map composed,
-  one in the tracking station. None of them has been run yet, so none of them can
-  fail a build; they are written to be read once and then tightened. Each carries the
-  exact wrong answer the map used to give as a forbidden line, so if the fix is ever
-  undone the checks say so themselves instead of quietly drawing nothing. They have
-  now been run once each: the map drew both of the saved campaign's between-planets
-  routes correctly, and the checks were tightened to the exact numbers that run
-  measured. The run also turned up a separate, older problem in the saved campaign
-  itself - a handful of recorded orbit stretches stored twice over the same span of
-  time, which the recording checker rightly refuses. Those exact duplicates are
-  trimmed out of the test copy (nothing is rewritten, and what the recordings cover
-  is unchanged), and the underlying recorder question is written up separately.
+- **Automated testing: three new checks now watch the between-planets supply route
+  the map fix restored, and they have been proved able to fail.** They load the new
+  saved campaign, open the map, and read the game's own record of which kind of route
+  it decided each one is and why - one in the flight map, one taking a full picture of
+  everything the map composed, one in the tracking station. All three pass unattended,
+  and the map drew both of the saved campaign's between-planets routes correctly. Each
+  carries the exact wrong answer the map used to give as a forbidden line, so if the fix
+  is ever undone the checks say so themselves instead of quietly drawing nothing - and a
+  deliberately broken copy of one was run to confirm that machinery works: it reported
+  exactly the single wrong answer it had been given, and nothing else. The first run
+  also turned up a separate, older problem in the saved campaign itself: a handful of
+  recorded orbit stretches stored twice over the same span of time, which the recording
+  checker rightly refuses. Those exact duplicates are trimmed out of the test copy
+  (nothing is rewritten, and what the recordings cover is unchanged), and the underlying
+  recorder question is written up separately rather than swept away. One thing these
+  checks do NOT yet prove: the deliberate gap where the interplanetary coast is left out
+  of the drawn line. On this particular route there was nothing to leave out, so that
+  part is still waiting on a different saved flight.
 
 
 - **Automated testing: the suite now has a saved campaign carrying a supply route
@@ -58,7 +61,8 @@ _(unreleased — entries accumulate here per commit)_
   while the recorded interplanetary coast between them stays with the mission ghost that
   re-aims it each launch window (unchanged, deliberate). A route that declares one body
   at both ends but whose recorded path wanders off it is still declined as malformed -
-  that is the case the check was for. Same-body routes are unaffected. Saves are
+  that is the case the check was for, and it now also catches a route whose starting
+  place was never recorded but whose destination sits on a body its path never visits. Same-body routes are unaffected. Saves are
   unaffected: the stored number is still written and read exactly as before, so no save
   or fixture changes shape; it is simply no longer what the map believes.
 

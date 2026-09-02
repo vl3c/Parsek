@@ -283,6 +283,36 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void Scope_OriginEmptyOneStopBody_MembersElsewhere_Malformed()
+        {
+            // THE SEED RULE'S NEW STRICTER DECLINE, and the one behaviour change the F1 fix
+            // makes in the MALFORMED direction rather than the InterBody one. Origin body
+            // empty, ONE stop naming Kerbin, every member on Mun. Under the origin-only seed
+            // no endpoint body was readable, so this fell to the member-body consistency read
+            // - where all members agree on Mun - and classified SameBody, drawing a route
+            // whose declared endpoint is on a body its recorded path never visits. The shared
+            // seed takes the stop's Kerbin as the reference, so the members now disagree with
+            // the route's own declared endpoint and the line is DECLINED. Stricter, and
+            // correct: a same-body draw here would paint the Mun path under a Kerbin label.
+            Assert.Equal(RouteTrajectoryLineRenderer.RouteLineScope.MalformedMixedBodies,
+                RouteTrajectoryLineRenderer.ClassifyRouteScope(
+                    "", new List<string> { "Kerbin" },
+                    new List<string> { "Mun", "Mun" },
+                    out RouteTrajectoryLineRenderer.RouteScopeBasis basis));
+            Assert.Equal(RouteTrajectoryLineRenderer.RouteScopeBasis.Endpoints, basis);
+
+            // With NO endpoint body anywhere the shipped v1 read still applies and the same
+            // members are consistent - so the decline above is the ENDPOINTS talking, not a
+            // blanket tightening of the member check.
+            Assert.Equal(RouteTrajectoryLineRenderer.RouteLineScope.SameBody,
+                RouteTrajectoryLineRenderer.ClassifyRouteScope(
+                    "", new List<string> { null },
+                    new List<string> { "Mun", "Mun" },
+                    out RouteTrajectoryLineRenderer.RouteScopeBasis noneBasis));
+            Assert.Equal(RouteTrajectoryLineRenderer.RouteScopeBasis.MemberBodies, noneBasis);
+        }
+
+        [Fact]
         public void Scope_MissingEndpointBodies_FallsBackToMemberBodies()
         {
             // Endpoints unreadable -> shipped v1 behaviour, basis MemberBodies.

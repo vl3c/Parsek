@@ -2026,37 +2026,52 @@ endpoint `Duna`, `status = Active`, `completedCycles = 0`, dock + undock window
 `transferKind = DockingPort`, zero `mergeState` overrides anywhere in the save = every
 recording Immutable), so it is B32's harvest source.
 
-**THE THREE LANES ARE AUTHORED, 2026-09-02, ALL NEVER FLOWN.**
-`B32-interbody-route-scope` (FLIGHT, map opened as a HARD precondition because
-`DrawAll`'s only call site is a map-camera onPreCull hook; reads the new
-`Route scope: ... scope=InterBody basis=Endpoints` line for BOTH committed routes and
-declares `[expectations.routes]` report-only), `V26M-interbody-route-map-lines` (the
-map-open/close PAIR this entry says V26M owes, `[expectations.renderComposition]`
-DECLARED BARE, one scene only so the per-scene manifest clobber cannot fire) and
-`V26T-interbody-route-ts-arrival` (V18T's TS grammar on the new subject). NONE takes a
-TimeJump and none attempts a dispatch: the Duna route's 8.53 Ms transit against an 87.6
-Ms save clock, its `loopAnchorUT = -1` and its never-persisted `ReaimWindows` basis make
-the dispatch anchor uncomputable from the committed bytes, and the overview line draws
-STATICALLY so the scope reading needs no clock motion. A phase-positioned reading is owed
-to a later round off a MEASURED anchor.
+**THE THREE LANES FLEW 2026-09-02 AND THE ARMED DISCIPLINE IS COMPLETE.**
+`B32-interbody-route-scope` (FLIGHT, map opened as a HARD precondition),
+`V26M-interbody-route-map-lines` (the map-open/close PAIR this entry says V26M owes, with
+the manifest census) and `V26T-interbody-route-ts-arrival` (V18T's TS grammar on the new
+subject) all PASS attempt 1 on the re-flight, 61 / 62 / 59 s. The reading run first
+classified `PARSEK-FAIL(analyzer)` on the fixture's OWN pre-existing INV2 double-cover
+residue - not the product - which was repaired at build time (twelve contained sections
+across four recordings, coverage union invariant; the producer question is filed as
+INTERBODY-SAVE-CARRIES-INV2-DOUBLE-COVER); pins were tightened off that run's log and the
+re-flight read them byte-identically. A negative control seeded `scope=SameBody` and red
+`PARSEK-FAIL(expectation)` on exactly that token with zero forbids.
 
-TWO CORRECTIONS TO THIS ENTRY'S OWN ASSUMPTIONS, from the harvest rather than argued.
-(1) The save carries TWO cross-body routes, not one: the Paused sibling is
+WHAT G10 NOW HAS. `ClassifyRouteScope = InterBody` HAS BEEN READ LIVE, twice, on both
+routes of the subject and on both surfaces:
+`Route scope: route=71a983a1 origin=Kerbin destination=Duna scope=InterBody basis=Endpoints`.
+The re-aimed route ghost renders, the manifest carries the first `scope = InterBody`
+per-unit `ROUTE` node and the suite's first `flexible-soi` seam on a route lane
+(`seamKinds={flexible-soi: 2, rigid: 15}`), and RC-ROUTE's per-unit accounting has now
+evaluated against non-vacuous inter-body data. New coverage value
+`route-map-lines-inter-body`, one cell across all three lanes because the flight-map and
+tracking-station readings were byte-identical.
+
+WHAT G10 STILL DOES NOT HAVE, and this entry must not be read as closed.
+**`FilterLegsToEndpointBodies` HAS STILL NEVER DROPPED A LEG ON A DRIVEN RUN.** Both
+`ROUTE_LINE_BUILD` records read `transferLegsDropped=0`. The filter RUNS now - that was
+half the product fix, and it is a real change from "sits behind an unreachable branch" -
+but this subject gave it nothing to drop: `groups=3` out of `members=4` means the transfer
+member `5ca48c99` contributed no drawable leg at all, because it carries no
+`startBodyName` and its heliocentric coast is recorded as `OrbitSegment`s, which
+`BuildLegsForRecording` never emits as a polyline leg. The ratified transfer GAP is
+therefore real on this subject but visible only as an ABSENCE, which is a weaker reading
+than a measured drop. CLOSING IT NEEDS A DIFFERENT SUBJECT: one whose transfer stretch was
+recorded in the PHYSICS frame (a mid-course correction burn body-fixed to the Sun), which
+no committed fixture carries. Also still open: `DispatchWindowPeriod != 0` synodic cadence
+is unmeasured and now unmeasurable by design (the field is informational since the scope
+fix), and no dispatch has been driven on an inter-body route - the anchor is uncomputable
+from the committed bytes and needs a measured one.
+
+TWO CORRECTIONS TO THIS ENTRY'S OWN ASSUMPTIONS, from the harvest and the flights rather
+than argued. (1) The save carries TWO cross-body routes, not one: the Paused sibling is
 `Route: KSC -> Mun`, also inter-body under the endpoint rule, so every lane pins
-`routes=2` and V18T's `skippedByStatus=[1-9]` forbid does NOT transfer (a skip count of 1
-is the expected reading when one of two routes is Paused). (2) The Duna route has
-`loopAnchorUT = -1` and has never run a cycle, so V18T's front-door tokens
-(`ghostDriving=[1-9]`, `routeMissions=[1-9]`) are DELIBERATELY not required on V26T - and
-if a never-dispatched route turns out not to enter the GhostDriving selection at all,
-that is a finding for the todo rather than a red.
-
-WHAT THE READING RUNS OWE BACK, so the arming pass is mechanical: the per-unit `ROUTE`
-node's `scope` and `transferLegsDropped` (the headline - on a SameBody subject the
-endpoint-leg filter does not run at all, so the ratified transfer-leg DROP has never been
-evaluated against non-vacuous data), `routeLineBuilds` on a TWO-route subject, the
-`unevaluable` reason census in a FLIGHT regime, and the seam-kind census. V26M's header
-names BOTH outcomes it is prepared to read for the drop, so the run measures rather than
-confirms.
+`routes=2` and V18T's `skippedByStatus=[1-9]` forbid does NOT transfer. (2) The Duna route
+has `loopAnchorUT = -1` and has never run a cycle, so V26T deliberately did not require
+V18T's front-door tokens - and the run ANSWERED it: `ghostDriving=1` and `routeMissions=1`
+both printed, so dispatch history is not a precondition for a route driving a
+tracking-station ghost. Both tokens are required from the re-flight onward.
 
 **THE OPERATOR SAVE SPECIFICATION for B32** (write it once, fly it by hand; the
 seam cannot create this and no driven lane can either, because route candidacy is

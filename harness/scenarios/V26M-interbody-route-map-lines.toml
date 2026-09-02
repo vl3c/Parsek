@@ -99,7 +99,7 @@ id = "V26M-interbody-route-map-lines"
 # CLAIM-IS-NOT-GATE, and on a reading run the list is short for that reason. The tokens
 # below are the ANTI-VACUITY floor - the map pass ran, both routes were classified
 # InterBody, both were built, at least one was drawn - and nothing else. Every count in
-# the build line is left unpinned (never flown), route ids are classed `[0-9a-f]{8}`
+# the build line has since been tightened off run 1, route ids stay classed `[0-9a-f]{8}`
 # rather than pinned as literals (the H59 `2026-09-02_1017` arming defect), and the two
 # skip-counter FORBIDS carry the pre-fix reading as a control the lane brings with it.
 #
@@ -161,7 +161,7 @@ id = "V26M-interbody-route-map-lines"
 #
 # =====================================================================================
 tier = "operator"
-description = "AUTHORED 2026-09-02, NEVER FLOWN. THE RENDER-COMPOSITION HALF OF G10 and the first non-SameBody reading of the M-A7 route surfaces: drive the flight-map OPEN/CLOSE pair over the `interbody-route-recorded` harvest and take a manifest CENSUS of what an INTER-BODY route's overview line composed. B32 is the LOG reading of the same subject (what the classifier decided, and on what authority); this lane asks what the RENDERER BUILT, which only the manifest answers. THE HEADLINE UNKNOWN IS `transferLegsDropped`, and the spec is authored to survive BOTH readings rather than predicting one: OUTCOME A is a non-zero drop - the recorded members carry a Sun-frame non-orbital leg, `ResolveEndpointBodies` resolves Kerbin != Duna, and `FilterLegsToEndpointBodies` (which now RUNS, that being half the 2026-09-02 product fix) drops it, the suite's first non-zero reading of that census; OUTCOME B is zero, honestly, because the transfer member `5ca48c99` carries no startBodyName and may be entirely ORBITAL - a heliocentric coast recorded as OrbitSegments emits no polyline leg to drop - or because the documented ROUND-TRIP STAND-DOWN fires when the clipped legs resolve earliest-body == latest-body. Which one it is IS the measurement, so `[expectations.renderComposition]` is DECLARED BARE and nothing about the drop is required or forbidden. The map-open PAIR is the lane's own obligation (the G10 entry names it) and it is a HARD precondition rather than scene-setting: `DrawAll`'s only call site is a map-camera onPreCull hook (`GhostTrajectoryPolylineRenderer.cs:3942-3952`) and in FLIGHT that camera renders only while the map is open. The export placement is PINNED by `test_every_declarer_exports_immediately_before_teardown` to the step immediately before `FlushAndQuit`, so it sits after `ExitMapView` - which costs nothing, because the recorder resets on a SCENE SWITCH and not on a map toggle, and every facet this lane names is an accumulated count rather than a live one; and the lane stays in ONE scene on purpose, because `RENDER-MANIFEST-VERB-EXPORT-IN-A-SECOND-SCENE-CLOBBERS-THE-FIRST-SCENE-ACCUMULATION` (measured by H59's `2026-09-02_0947`) makes a FLIGHT-observe / elsewhere-export lane read zeroes for everything FLIGHT measured. The subject carries TWO routes, both inter-body, so the census counts two builds where V18T's counts one. Anti-vacuity is the map pass running, both routes classifying `scope=InterBody basis=Endpoints`, both building, and at least one drawing; the pre-fix reading (`malformed=[1-9]`, `scope=MalformedMixedBodies`) is FORBIDDEN as a control carried in the spec. Counts are regexed and route ids classed `[0-9a-f]{8}` (the H59 `2026-09-02_1017` lesson). Nothing armed, so `[dimensionsCovered]` claims nothing."
+description = "FLOWN 2026-09-02, ARMED-DISCIPLINE COMPLETE: reading run `2026-09-02_18xx` (route tokens read from the KSP.log; the run itself classified `PARSEK-FAIL(analyzer)` on the fixture's own pre-existing INV2 double-cover, since repaired), pins tightened off it, armed re-flight PASS attempt 1, and a negative control `B32X-interbody-scope-negative-control` (uncommitted) that red `PARSEK-FAIL(expectation)` on exactly the seeded `scope=SameBody` token with zero forbids and a green analyzer. THE RENDER-COMPOSITION HALF OF G10 and the first non-SameBody reading of the M-A7 route surfaces: the flight-map OPEN/CLOSE pair over the `interbody-route-recorded` harvest with a manifest CENSUS of what an INTER-BODY route's overview line composed. B32 is the LOG reading of the same subject; this lane asks what the RENDERER BUILT, which only the manifest answers. THE HEADLINE UNKNOWN WAS `transferLegsDropped`, the spec was authored to survive both readings, and THE MEASUREMENT IS OUTCOME B: `transferLegsDropped=0` on both `ROUTE_LINE_BUILD` records. `groups=3` out of `members=4` says why - the transfer member `5ca48c99` carries no `startBodyName` and its heliocentric coast is recorded as OrbitSegments, which `BuildLegsForRecording` never emits as a polyline leg, so there was no third-body leg to drop. THE ENDPOINT-LEG FILTER NOW RUNS (that was half the product fix) BUT HAS STILL NEVER DROPPED A LEG ON A DRIVEN RUN, so G10's gap of that name REMAINS OPEN after this lane and needs a subject whose transfer stretch was recorded in the PHYSICS frame; the ratified transfer gap is real here but visible only as an absence, which is a weaker reading and is recorded as such rather than dressed up. Manifest reading: `routeLineBuilds=2`, `routeCoDrawViolations=0`, `seamKinds={flexible-soi: 2, rigid: 15}` - the FIRST `flexible-soi` seam any route lane has measured - two INFO `RC-QUAL` raises, `unevaluable=1066`, and a per-unit `ROUTE` node reading `scope=InterBody dispatchWindowPeriod=0`, the first `InterBody` scope any manifest has carried, beside the stored period the fix demoted. `[expectations.renderComposition]` STAYS BARE: `unevaluable=1066` against V18T's ceiling of 10 is the clearest argument there is against copying a sibling's window, and a second matching reading is owed before any of it is armed. The map-open PAIR is this lane's own obligation (the G10 entry names it) and a hard precondition, not scene-setting. The export placement is PINNED to the step immediately before `FlushAndQuit` and therefore sits after `ExitMapView`, which costs nothing: the recorder resets on a SCENE SWITCH, not on a map toggle, and every facet named is an accumulated count. ONE SCENE ONLY, because RENDER-MANIFEST-VERB-EXPORT-IN-A-SECOND-SCENE-CLOBBERS-THE-FIRST-SCENE-ACCUMULATION makes a FLIGHT-observe / elsewhere-export lane read zeroes for everything FLIGHT measured. Same carried control as B32."
 instanceProfile = "stock-minimal"
 tags = ["V26", "route", "logistics", "inter-body", "kerbin", "duna", "map-render",
         "scene-map", "render-composition", "rc-route", "route-map-lines"]
@@ -261,13 +261,21 @@ steps = [
   { cmd = "FlushAndQuit",                                                    expect = "OK" },
 ]
 
+[dimensionsCovered]
+# Same basis as B32 - identical gated tokens on the same surface. DELIBERATELY NOT
+# CLAIMED: any renderComposition cell, because that block is still BARE and gates
+# nothing, which is exactly the condition H35 CLAIM-IS-NOT-GATE names.
+D10 = ["route-map-lines-inter-body"]
+D14 = ["kerbin", "duna", "scene-map", "sandbox"]
+
 [expectations]
-# EMPTY ON PURPOSE: NEVER FLOWN. The S1.4 rule is that a token is re-added WITH the flight
-# that shows it; pre-tolerating an anomaly on a first flight destroys the count it fires
-# at. This lane takes no TimeJump, so it does not carry the post-jump `icon-off-orbit`
-# exposure the V14T/V15T/V16T family measured, but it DOES open the map on a scene holding
-# 20 vessels and several ghosts, which is an unmeasured `line-blink` / `icon-jump` surface.
-# The reading run is what settles it.
+# EMPTY, AND THAT IS NOW A MEASUREMENT RATHER THAN A POSTURE: two runs took the
+# sweep fully armed and neither raised a single anomaly, so there is nothing to
+# tolerate. The S1.4 rule is that a token is re-added WITH the flight that shows
+# it, and no flight has shown one.
+# It opens the map on a scene holding 20 vessels and several ghosts - the
+# `line-blink` / `icon-jump` surface that was unmeasured at authoring time - and the two
+# runs settled it clean.
 allowedAnomalies = []
 
 [expectations.recordings]
@@ -376,12 +384,11 @@ forbidden = [
 # `requireSeamKinds = [rigid, flexible-soi]`.
 
 [expectations.routes]
-# M-C2 save-parse, DECLARED REPORT-ONLY: `gating` IS DELIBERATELY OMITTED. NEVER FLOWN,
-# and arming is a per-scenario operator decision taken only after a report-only reading
-# run whose facets match the declared windows (`ARMED_ALLOWLIST` /
-# `test_no_committed_spec_arms_gating`). The windows are read offline out of the fixture's
-# own persistent.sfs through `saveparse.observed_routes_facets` - not predicted - but what
-# a RUN leaves behind is a different measurement, which is what a reading run is for.
+# M-C2 save-parse, DECLARED REPORT-ONLY: `gating` IS DELIBERATELY OMITTED. The
+# windows below were written from the fixture's committed bytes and are now
+# CORROBORATED by two runs' produced saves, but arming stays a separate operator
+# decision taken deliberately (`ARMED_ALLOWLIST` /
+# `test_no_committed_spec_arms_gating`), not a side effect of a lane going green,
 #
 # `originBodies` and `destinationBodies` naming DIFFERENT bodies is the inter-body claim
 # expressed in the save-structure vocabulary: that pair is what `ClassifyRouteScope`
