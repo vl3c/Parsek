@@ -1054,6 +1054,88 @@ ACTION_RUN_SCIENCE_EXPERIMENTS = "run_science_experiments"  # value = None
 ACTION_TRANSMIT_SCIENCE = "transmit_science"               # value = None
 ACTION_RECOVER_VESSEL = "recover_vessel"                   # value = None
 
+# ------------------------------------------------------------------------------
+# THE PART-SWEEP ACTIONS (GS-6). One per RECORDABLE PART-EVENT FAMILY that kRPC
+# 0.5.4 can drive, so a scripted timeline can fire each family deliberately and
+# the ghost REPLAY of that firing can be gated per family in the log.
+#
+# SURFACE VERIFIED against the installed client source rather than the online
+# docs (`.venv/Lib/site-packages/krpc/services/spacecenter.py`, __version__
+# '0.5.4'): `Control` carries `lights` / `gear` / `brakes` / `rcs` / `sas`
+# properties and `toggle_action_group(int)` / `set_action_group(int, bool)` /
+# `activate_next_stage()`; the per-part classes carry `SolarPanel.deployed`,
+# `Antenna.deployed`, `Radiator.deployed`, `CargoBay.open`,
+# `ResourceConverter.start()` / `.stop()`, `ResourceHarvester.active`,
+# `Parachute.arm()` / `.deploy()` / `.cut()` and `Light.active` / `.blink` /
+# `.blink_rate`. Nothing below is a guess about the client.
+#
+# EVERY ONE IS COMMANDED, NEVER OBSERVED, and that is deliberate rather than
+# lazy. A sweep step's job is to make the RECORDER see a state change; whether
+# the ghost then RENDERS it is the question the whole lane exists to ask, and the
+# answer lives in the applier's own `[GhostPartEvents] apply family=...` lines
+# that the SPEC reads. A machine gate on "the panel is now deployed" would assert
+# the LIVE part, not the replay, and a mission that failed on it would discard
+# the evidence the spec is there to read (the mission-vs-Parsek orthogonality
+# rule: a mission that did not fly is driver-INVALID, never PARSEK-FAIL).
+#
+# EVERY PER-PART LOOP IS try/except PER PART, on the ACTION_DEPLOY_CHUTE
+# precedent: a craft carrying one non-deployable panel among five deployable ones
+# must not lose the other four to a single raise, and a modded part that throws on
+# a stock setter must not abort the frame.
+#
+# WHAT HAS NO kRPC PATH, so the family cannot be swept and must be measured as
+# ABSENT rather than driven (see todo GS6-FAMILIES-WITHOUT-A-KRPC-DRIVER):
+# DeployableBroken and the ThermalAnimation trio are PHYSICS OUTCOMES (overspeed
+# break, reentry heating) with no verb at all; InventoryPartPlaced /
+# InventoryPartRemoved need EVA construction mode; the Robotic trio is Breaking
+# Ground DLC and the stock-minimal instance carries no robotic part.
+# ------------------------------------------------------------------------------
+
+# control.lights = (value != 0). Fires Parsek LightOn / LightOff for every
+# ModuleLight on the craft (the stock Lights action group, "U").
+ACTION_SET_LIGHTS = "set_lights"                           # value = 1.0 on / 0.0 off
+# control.gear = (value != 0). Fires GearDeployed / GearRetracted for landing
+# gear AND landing legs (both are ModuleDeployablePart on the Gear group, "G").
+ACTION_SET_GEAR = "set_gear"                               # value = 1.0 down / 0.0 up
+# control.brakes = (value != 0). Carried for completeness of the stock group set;
+# brakes drive no Parsek part-event family of their own, so a sweep that only
+# wants event families does not need it.
+ACTION_SET_BRAKES = "set_brakes"                           # value = 1.0 on / 0.0 off
+# control.toggle_action_group(int(value)). THE GENERAL ESCAPE HATCH: any part
+# action a craft's designer bound to custom group 1-10. Used when a family has no
+# dedicated kRPC class (or when one craft wires several families to one key).
+ACTION_TOGGLE_ACTION_GROUP = "toggle_action_group"         # value = group index 1-10
+# Every SolarPanel / Antenna / Radiator on the craft -> `.deployed = (value != 0)`.
+# ONE action for the three because Parsek records all three through the SAME
+# family pair (DeployableExtended / DeployableRetracted, ModuleDeployablePart),
+# so splitting them would imply a distinction the recorded events do not carry.
+# `deployable` is checked first: a static OX-STAT panel raises on the setter.
+ACTION_SET_DEPLOYABLES = "set_deployables"                 # value = 1.0 out / 0.0 in
+# Every CargoBay -> `.open = (value != 0)`. CargoBayOpened / CargoBayClosed.
+ACTION_SET_CARGO_BAYS = "set_cargo_bays"                   # value = 1.0 open / 0.0 shut
+# Every ResourceConverter -> start()/stop(), every ResourceHarvester ->
+# `.active`. ConverterActivated / ConverterDeactivated. A converter with no input
+# resource still ACTIVATES the module, which is what the recorder reads, so a
+# pad-bound sweep needs no ore.
+ACTION_SET_CONVERTERS = "set_converters"                   # value = 1.0 on / 0.0 off
+# Every Parachute -> arm(). Distinct from ACTION_DEPLOY_CHUTE (deploy()): arming
+# is the state a chute sits in through an ascent, and it is what a two-phase
+# descent needs before the semi-deploy is due.
+ACTION_ARM_CHUTES = "arm_chutes"                           # value = None
+# Every DEPLOYED parachute -> cut(). ParachuteCut, the one D7 cell no committed
+# lane has ever reached. kRPC raises on a chute that is not deployed, so the
+# runner reads `.state` first and cuts only what is actually out.
+ACTION_CUT_CHUTES = "cut_chutes"                           # value = None
+# Every Engine on the craft -> `.active = (value != 0)`. EngineIgnited /
+# EngineShutdown WITHOUT commanding thrust through `control.throttle`, which is the
+# only way to fire an engine family on a part the ascent's staging never activates:
+# a stack-only engine mounted on a spare node (the GS-6 sweep craft's Spark, whose
+# whole purpose is to put an EFFECTS-node engine in the recording beside the legacy
+# `fx_*` ones) has no stage of its own that the profile presses. `Engine.active` is
+# on the kRPC 0.5.4 Engine class (verified in the installed client source); the
+# module ACTIVATING is what the recorder reads, so no propellant need flow.
+ACTION_SET_ENGINES_ACTIVE = "set_engines_active"            # value = 1.0 on / 0.0 off
+
 # THE ACTIONS THAT NEED NO ACTIVE VESSEL, and the SINGLE authority on which those
 # are. `KrpcMissionControl.perform` resolves `sc.active_vessel` for the whole
 # dispatch chain, and that read RAISES whenever the game is not in FLIGHT
@@ -16997,6 +17079,26 @@ def wall_budget_block(now: float, deadline: Optional[float],
 # Keyed by mission name. A mission ABSENT from this table declares nothing and its
 # result JSON is byte-identical to before.
 MISSION_HANDOFF_CONTRACTS: Dict[str, Dict] = {
+    # kx_rewind_watch declares the SAME axis of gap science_bench_recover does, and
+    # GS-6 is what made it worth writing down. The mission flies, commits, rewinds
+    # and drives the watch; it reads NOTHING about ghosts, and the PART-SWEEP phase
+    # in particular is COMMANDED-ONLY - every step is issued and none is read back,
+    # deliberately, because whether the ghost REPLAYS a recorded part event is the
+    # spec's question and a mission that failed on a part's behaviour would discard
+    # the evidence the spec exists to read.
+    #
+    # A green MISSION-OK on this mission therefore says the flight flew and the
+    # sequence was driven. It says NOTHING about whether any part-event family
+    # reached the ghost - that claim belongs entirely to the scenario's
+    # `[expectations.logContracts]` applier tokens
+    # (`[GhostPartEvents] apply family=... applied=[1-9]`) and to
+    # `[expectations.ghostLifecycle]`. Declaring it stops the misreading this table
+    # was created for: "MISSION-OK, so the sweep worked".
+    "kx_rewind_watch": {
+        "terminal": "DONE",
+        "unverifiedByMission": ["ghostPartEventReplay", "ghostRenderLifecycle"],
+        "verifiedBy": ["logContracts", "ghostLifecycle"],
+    },
     "eva4_atmo_chute": {
         "terminal": EVA4_EVA_WINDOW,
         "unverifiedByMission": ["kerbalSurvival"],
@@ -20215,6 +20317,13 @@ KXRW_BOOSTER_STAGE = "BOOSTER-STAGE"
 KXRW_CORE_CUT = "CORE-CUT"
 KXRW_CORE_DISCARD = "CORE-DISCARD"
 KXRW_COAST = "COAST"
+# GS-6. The scripted PART-EVENT TIMELINE, and the ONE phase this machine gained
+# for it. Entered only when a spec declares `partSweepSteps`; with an empty list
+# (every pre-GS-6 spec, GS-4 included) COAST still goes STRAIGHT to TREE-STATE and
+# not one frame of behaviour moves. That is the whole compatibility argument, and
+# it is a phase-graph property rather than a promise - `kxrw_coast_next_phase`
+# below is the single place it is decided.
+KXRW_PART_SWEEP = "PART-SWEEP"
 KXRW_TREE_STATE = "TREE-STATE"
 KXRW_COMMIT = "COMMIT"
 KXRW_STOP = "STOP"
@@ -20232,7 +20341,8 @@ KXRW_DONE = "DONE"
 
 KXRW_PHASES: Tuple[str, ...] = (
     KXRW_ROLLOUT, KXRW_PRELAUNCH, KXRW_ASCENT, KXRW_BOOSTER_CUT, KXRW_BOOSTER_STAGE,
-    KXRW_CORE_CUT, KXRW_CORE_DISCARD, KXRW_COAST, KXRW_TREE_STATE, KXRW_COMMIT,
+    KXRW_CORE_CUT, KXRW_CORE_DISCARD, KXRW_COAST, KXRW_PART_SWEEP,
+    KXRW_TREE_STATE, KXRW_COMMIT,
     KXRW_STOP, KXRW_RECORDER_IDLE, KXRW_REWIND, KXRW_SPACECENTER,
     KXRW_AUTORECORD_OFF, KXRW_WATCHER_LAUNCH, KXRW_WATCHER_READY, KXRW_MAP_VIEW,
     KXRW_MAP_EXIT, KXRW_WATCH, KXRW_PLAYBACK_WAIT, KXRW_DONE)
@@ -20241,7 +20351,7 @@ KXRW_PHASES: Tuple[str, ...] = (
 # the frozen-telemetry (vessel-destroyed) detector runs.
 KXRW_FLIGHT_PHASES: Tuple[str, ...] = (
     KXRW_ASCENT, KXRW_BOOSTER_CUT, KXRW_BOOSTER_STAGE, KXRW_CORE_CUT,
-    KXRW_CORE_DISCARD, KXRW_COAST)
+    KXRW_CORE_DISCARD, KXRW_COAST, KXRW_PART_SWEEP)
 
 # The phases in which a `vessel_lost` snapshot is the EXPECTED reading rather
 # than a loss. From the frame InvokeRewindToLaunch is commanded (the scene tears
@@ -20454,6 +20564,111 @@ def kxrw_watch_seam_args(tree_id: str) -> Tuple[Tuple[str, str], ...]:
     return (("tree", tree),) if tree else ()
 
 
+# ------------------------------------------------------------------------------
+# GS-6 PART SWEEP: the step vocabulary and its action mapping.
+#
+# A spec writes a LIST OF STEP NAMES and the machine fires one per settle window,
+# in order, during the recorded flight. The vocabulary is CLOSED and validated:
+# an unknown name is a spec error the schema rejects, never a silent no-op, which
+# is the one failure mode that would make a green sweep prove nothing.
+#
+# WHAT A STEP IS FOR: each fires one Parsek part-event FAMILY on the live craft so
+# the recorder captures it, so the ghost REPLAY of it can be gated per family
+# through the applier's `[GhostPartEvents] apply family=... applied=N` lines. The
+# mission asserts NONE of that (mission-vs-Parsek orthogonality); it only drives.
+#
+# ORDER IS THE SPEC'S BUSINESS, not the machine's, and the machine deliberately
+# does not reorder or de-duplicate: a lane that wants gear DOWN then UP writes
+# both, and a lane that wants a family fired twice gets it fired twice. The one
+# thing the machine owns is the SETTLE GAP between steps, because two part actions
+# in one physics frame can coalesce into a single recorded event and the sweep
+# would then under-count families through no fault of the applier.
+# ------------------------------------------------------------------------------
+
+KXRW_SWEEP_STEP_ACTIONS: Dict[str, Action] = {
+    # Gear / legs (control.gear). GearDeployed / GearRetracted.
+    "gear-down":        Action(ACTION_SET_GEAR, value=1.0),
+    "gear-up":          Action(ACTION_SET_GEAR, value=0.0),
+    # Lights (control.lights). LightOn / LightOff.
+    "lights-on":        Action(ACTION_SET_LIGHTS, value=1.0),
+    "lights-off":       Action(ACTION_SET_LIGHTS, value=0.0),
+    # Solar panels + antennas + radiators. DeployableExtended / DeployableRetracted.
+    "deployables-out":  Action(ACTION_SET_DEPLOYABLES, value=1.0),
+    "deployables-in":   Action(ACTION_SET_DEPLOYABLES, value=0.0),
+    # Cargo / service bays. CargoBayOpened / CargoBayClosed.
+    "bays-open":        Action(ACTION_SET_CARGO_BAYS, value=1.0),
+    "bays-close":       Action(ACTION_SET_CARGO_BAYS, value=0.0),
+    # ISRU / drills. ConverterActivated / ConverterDeactivated.
+    "converters-on":    Action(ACTION_SET_CONVERTERS, value=1.0),
+    "converters-off":   Action(ACTION_SET_CONVERTERS, value=0.0),
+    # RCS. RCSActivated / RCSStopped (the THROTTLE member needs live translation
+    # input, which no sweep step commands - see the D7 note in the GS-6 spec).
+    "rcs-on":           Action(ACTION_SET_RCS, value=1.0),
+    "rcs-off":          Action(ACTION_SET_RCS, value=0.0),
+    # Chutes. arm -> deploy -> cut is the full two-phase-plus-cut sequence, and
+    # `chutes-cut` is the only route any committed lane has to D7 `chute-cut`.
+    "chutes-arm":       Action(ACTION_ARM_CHUTES),
+    "chutes-deploy":    Action(ACTION_DEPLOY_CHUTE),
+    "chutes-cut":       Action(ACTION_CUT_CHUTES),
+    # Brakes: no Parsek family of its own, carried so a craft that binds a part
+    # action to the Brakes group can still reach it.
+    # Engines by MODULE ACTIVATION rather than by throttle: the only route to an
+    # engine family on a part the staging plan never activates.
+    "engines-on":       Action(ACTION_SET_ENGINES_ACTIVE, value=1.0),
+    "engines-off":      Action(ACTION_SET_ENGINES_ACTIVE, value=0.0),
+    "brakes-on":        Action(ACTION_SET_BRAKES, value=1.0),
+    "brakes-off":       Action(ACTION_SET_BRAKES, value=0.0),
+    # Engines, on the ALREADY-COASTING stack: throttle up then straight back down.
+    # EngineIgnited / EngineThrottle / EngineShutdown on a stage the ascent left
+    # unlit. A lane that does NOT want its coast perturbed simply omits both.
+    "throttle-up":      Action(ACTION_SET_THROTTLE, value=0.25),
+    "throttle-zero":    Action(ACTION_CUT_THROTTLE, value=0.0),
+    # The escape hatch: any part action a craft binds to a custom group 1-10.
+    "ag1":  Action(ACTION_TOGGLE_ACTION_GROUP, value=1.0),
+    "ag2":  Action(ACTION_TOGGLE_ACTION_GROUP, value=2.0),
+    "ag3":  Action(ACTION_TOGGLE_ACTION_GROUP, value=3.0),
+    "ag4":  Action(ACTION_TOGGLE_ACTION_GROUP, value=4.0),
+    "ag5":  Action(ACTION_TOGGLE_ACTION_GROUP, value=5.0),
+    "ag6":  Action(ACTION_TOGGLE_ACTION_GROUP, value=6.0),
+    "ag7":  Action(ACTION_TOGGLE_ACTION_GROUP, value=7.0),
+    "ag8":  Action(ACTION_TOGGLE_ACTION_GROUP, value=8.0),
+    "ag9":  Action(ACTION_TOGGLE_ACTION_GROUP, value=9.0),
+    "ag10": Action(ACTION_TOGGLE_ACTION_GROUP, value=10.0),
+}
+
+KXRW_SWEEP_STEP_NAMES: Tuple[str, ...] = tuple(sorted(KXRW_SWEEP_STEP_ACTIONS))
+
+
+def kxrw_sweep_steps_valid(steps: Sequence[str]) -> Tuple[str, ...]:
+    """The UNKNOWN step names in ``steps``, in order, or ``()`` when every one is
+    in the closed vocabulary.
+
+    Returned rather than raised so the caller decides severity. THIS IS THE LAST
+    of three gates, not the first, and the ordering is the point: hlib enforces the
+    schema's closed `values` vocabulary at ADMIT (before a KSP process starts), a
+    committed-spec cell in `test_hlib.SweepStepVocabularyTests` walks every spec at
+    suite time, and this is the machine's own fail-closed backstop for a params dict
+    that reached it unvalidated. Before 2026-09-02 this WAS the only gate, and it
+    runs after the ascent - so a typo burned a whole flight and then flaked, which
+    the retry policy would fly again."""
+    return tuple(str(s) for s in (steps or ()) if str(s) not in KXRW_SWEEP_STEP_ACTIONS)
+
+
+def kxrw_sweep_action_for_step(step: str) -> Optional[Action]:
+    """The one Action a sweep step name fires, or None for an unknown name."""
+    return KXRW_SWEEP_STEP_ACTIONS.get(str(step or ""))
+
+
+def kxrw_coast_next_phase(sweep_steps: Sequence[str]) -> str:
+    """THE COMPATIBILITY HINGE, as one pure function: what COAST advances to.
+
+    With NO declared sweep steps the answer is TREE-STATE - byte-identically the
+    pre-GS-6 graph, so every spec written before this phase existed (GS-4 included)
+    runs the exact sequence it always ran and its phase-count documentation stays
+    true. Only a spec that asks for a sweep gets one."""
+    return KXRW_PART_SWEEP if tuple(sweep_steps or ()) else KXRW_TREE_STATE
+
+
 def kxrw_throttle_is_zero(throttle: float, epsilon: float) -> bool:
     """OBSERVED-zero throttle: a FINITE readback at or below ``epsilon``.
 
@@ -20550,6 +20765,18 @@ class KxrwParams:
     # deliberately never presses istg=1) before the seam bridge runs, so the
     # recorder authors real post-separation coverage on both halves.
     coast_seconds: float = 20.0
+    # GS-6 PART SWEEP. An EMPTY tuple is the default and it is load-bearing: it
+    # keeps COAST advancing straight to TREE-STATE, so every spec authored before
+    # this feature existed runs the identical phase graph.
+    part_sweep_steps: Tuple[str, ...] = ()
+    # Frames held between two sweep steps. NOT a tuning knob: two part actions
+    # inside one physics frame can coalesce into a single recorded event, which
+    # would under-count families in the replay through no fault of the applier.
+    part_sweep_settle_frames: int = 6
+    # SILENCE bound for the whole sweep, in frames (the post-rewind frame-budget
+    # discipline applied forward): steps are COMMANDED, nothing is read back, so
+    # this only catches a machine that stopped advancing at all.
+    part_sweep_frames: int = 600
     # Hard bound on the WHOLE pre-commit flight, measured from the launch click.
     flight_max_seconds: float = 420.0
 
@@ -20664,6 +20891,9 @@ def kxrw_params_from_dict(params: Dict) -> KxrwParams:
         core_discard_max_flight_seconds=float(
             params.get("coreDiscardMaxFlightSeconds", 200.0)),
         coast_seconds=float(params.get("coastSeconds", 20.0)),
+        part_sweep_steps=tuple(str(x) for x in (params.get("partSweepSteps") or ())),
+        part_sweep_settle_frames=int(params.get("partSweepSettleFrames", 6)),
+        part_sweep_frames=int(params.get("partSweepFrames", 600)),
         flight_max_seconds=float(params.get("flightMaxSeconds", 420.0)),
         stage_cut_frames=int(params.get("stageCutFrames", 40)),
         tree_frames=int(params.get("treeStateFrames", 40)),
@@ -20746,6 +20976,10 @@ class KxrwState:
 
     # --- the seam bridge ----------------------------------------------------
     tree_probe: int = 0
+    # GS-6: index of the NEXT sweep step to fire, and the frame the last one went
+    # out on. Both stay at their defaults on every non-sweep lane.
+    sweep_index: int = 0
+    sweep_last_frame: int = -1
     tree_id: str = ""
     commit_result: str = ""
     stop_result: str = ""
@@ -21254,12 +21488,65 @@ def kxrw_decide(state: KxrwState,
 
     # ---- COAST: let the recorder author post-separation coverage -----------
     if state.phase == KXRW_COAST:
-        if _is_finite(snapshot.ut) \
-                and (snapshot.ut - state.phase_entry_ut) >= p.coast_seconds:
+        if _is_finite(snapshot.ut)                 and (snapshot.ut - state.phase_entry_ut) >= p.coast_seconds:
+            # GS-6: the ONE branch this phase gained. With no declared sweep the
+            # answer is TREE-STATE and the emitted action list is the same single
+            # RecordingState probe it always was - see kxrw_coast_next_phase.
+            if kxrw_coast_next_phase(p.part_sweep_steps) == KXRW_PART_SWEEP:
+                unknown = kxrw_sweep_steps_valid(p.part_sweep_steps)
+                if unknown:
+                    # FAIL CLOSED on a typo rather than sweeping a shorter list
+                    # than the spec asked for: a silently-skipped step is a family
+                    # that never fires, and the lane would then read as "the
+                    # applier never logged it" - blaming the product for a spec
+                    # error. The schema rejects this first; this is the second
+                    # gate, for a params dict that reached the machine unvalidated.
+                    return _kxrw_flake(
+                        state,
+                        "phase %s: partSweepSteps carries %d unknown step name(s) "
+                        "%s - the vocabulary is %s"
+                        % (KXRW_COAST, len(unknown), ",".join(unknown),
+                           ",".join(KXRW_SWEEP_STEP_NAMES))), []
+                return (_kxrw_enter(replace(state, sweep_index=0,
+                                            sweep_last_frame=-1),
+                                    KXRW_PART_SWEEP, snapshot.ut),
+                        [])
             return (_kxrw_enter(replace(state, tree_probe=0), KXRW_TREE_STATE,
                                 snapshot.ut),
                     [_kxrw_seam_action("RecordingState", kxrw_tree_probe_tag(0))])
         return state, []
+
+    # ---- PART-SWEEP (GS-6): the scripted part-event timeline ---------------
+    #
+    # One step per settle window, in the spec's own order, on the still-recording
+    # craft. COMMANDED ONLY: nothing here is read back and nothing here can fail
+    # the mission on a part's behaviour, because whether the ghost REPLAYS the
+    # event is the question the SPEC's `[GhostPartEvents] apply family=...` tokens
+    # answer, and a mission that failed here would discard that evidence.
+    if state.phase == KXRW_PART_SWEEP:
+        steps = tuple(p.part_sweep_steps)
+        settle = max(1, int(p.part_sweep_settle_frames))
+        if state.sweep_index >= len(steps):
+            return (_kxrw_enter(replace(state, tree_probe=0), KXRW_TREE_STATE,
+                                snapshot.ut),
+                    [_kxrw_seam_action("RecordingState", kxrw_tree_probe_tag(0))])
+        if state.phase_frames > p.part_sweep_frames:
+            return _kxrw_flake(
+                state,
+                "phase %s: the sweep stalled at step %d of %d ('%s') after %d "
+                "frames. Steps are commanded, not read back, so this bounds a "
+                "machine that stopped advancing rather than a part that refused"
+                % (KXRW_PART_SWEEP, state.sweep_index + 1, len(steps),
+                   steps[state.sweep_index], p.part_sweep_frames)), []
+        # The settle gap: two part actions in ONE physics frame can coalesce into a
+        # single recorded event, which would under-count families in the replay.
+        if (state.sweep_last_frame >= 0
+                and (state.phase_frames - state.sweep_last_frame) < settle):
+            return state, []
+        action = kxrw_sweep_action_for_step(steps[state.sweep_index])
+        st = replace(state, sweep_index=state.sweep_index + 1,
+                     sweep_last_frame=state.phase_frames)
+        return st, ([action] if action is not None else [])
 
     # ---- TREE-STATE: learn the tree id the rewind will address -------------
     if state.phase == KXRW_TREE_STATE:

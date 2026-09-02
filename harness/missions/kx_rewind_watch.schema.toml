@@ -254,6 +254,82 @@ required = false
 type = "number"
 min = 0.0
 
+# ---- the GS-6 part-event sweep (OPTIONAL; omitted = the pre-GS-6 lane) --------
+#
+# THE SCRIPTED TIMELINE. `partSweepSteps` is an ordered list of step NAMES from
+# the closed vocabulary in `mlib.KXRW_SWEEP_STEP_ACTIONS`; the machine fires one
+# per settle window during the COAST-to-COMMIT window, on the craft that is still
+# RECORDING, so each Parsek part-event family lands in the recording and its ghost
+# REPLAY can be gated per family through the applier's
+# `[GhostPartEvents] apply family=... applied=N` lines.
+#
+# OMITTING THE KEY IS THE PRE-GS-6 LANE, exactly. An empty list keeps COAST
+# advancing straight to TREE-STATE (`mlib.kxrw_coast_next_phase`), so GS-4 and
+# every other consumer runs the identical 22-phase graph it always ran; PART-SWEEP
+# is the 23rd phase and is entered only on request.
+#
+# THE VOCABULARY, and what each step is FOR (Parsek family in brackets):
+#   gear-down / gear-up            [GearDeployed / GearRetracted]
+#   lights-on / lights-off         [LightOn / LightOff]
+#   deployables-out / -in          [DeployableExtended / DeployableRetracted]
+#                                  (solar panels AND antennas AND radiators - one
+#                                   step because Parsek records all three through
+#                                   the same family pair)
+#   bays-open / bays-close         [CargoBayOpened / CargoBayClosed]
+#   converters-on / -off           [ConverterActivated / ConverterDeactivated]
+#   rcs-on / rcs-off               [RCSActivated / RCSStopped]
+#   chutes-arm / -deploy / -cut    [ParachuteSemiDeployed / ParachuteDeployed /
+#                                   ParachuteCut]
+#   throttle-up / throttle-zero    [EngineIgnited / EngineThrottle / EngineShutdown]
+#   engines-on / engines-off       [EngineIgnited / EngineShutdown] by MODULE
+#                                  ACTIVATION (kRPC Engine.active) rather than by
+#                                  throttle - the only route to an engine the
+#                                  staging plan never activates
+#   brakes-on / brakes-off         (no Parsek family; for craft that bind a part
+#                                   action to the Brakes group)
+#   ag1 .. ag10                    the escape hatch: any part action the craft's
+#                                  designer bound to a custom action group
+#
+# AN UNKNOWN NAME IS REJECTED, not skipped, in THREE places, and the first of them
+# is the one that matters: `values` below is a CLOSED VOCABULARY hlib enforces at
+# ADMIT, before a KSP process starts. Until 2026-09-02 it was only the machine's
+# own COAST entry gate - which runs AFTER the ascent, so a typo burned a whole
+# flight and then failed closed as an autopilot flake the retry policy would fly
+# again. The third is a committed-spec cell in test_hlib that walks every spec's
+# partSweepSteps against mlib's vocabulary and also pins `values` below EQUAL to
+# it, so the two copies cannot drift. A silently-dropped step is a family that
+# never fires, and the lane would then read as "the applier never logged it" -
+# blaming the product for a spec typo.
+#
+# NOTHING HERE IS ASSERTED BY THE MISSION. Steps are COMMANDED; no readback gates
+# any of them, and no sweep step can fail the mission. Whether the ghost replays
+# the event is the SPEC's question (mission-vs-Parsek orthogonality: a mission
+# that did not fly is driver-INVALID, never PARSEK-FAIL).
+[params.partSweepSteps]
+required = false
+type = "list"
+# PINNED EQUAL to mlib.KXRW_SWEEP_STEP_NAMES by SweepStepVocabularyTests; edit
+# there and here together or the cell reds.
+values = ["ag1", "ag10", "ag2", "ag3", "ag4", "ag5", "ag6", "ag7", "ag8", "ag9", "bays-close", "bays-open", "brakes-off", "brakes-on", "chutes-arm", "chutes-cut", "chutes-deploy", "converters-off", "converters-on", "deployables-in", "deployables-out", "engines-off", "engines-on", "gear-down", "gear-up", "lights-off", "lights-on", "rcs-off", "rcs-on", "throttle-up", "throttle-zero"]
+
+# Frames held between two sweep steps. NOT a tuning knob: two part actions issued
+# inside one physics frame can coalesce into a single recorded event, which would
+# under-count families in the replay through no fault of the applier.
+[params.partSweepSettleFrames]
+required = false
+type = "int"
+min = 1
+max = 500
+
+# SILENCE bound for the whole sweep, in FRAMES (the post-rewind frame-budget
+# discipline applied forward). Steps are commanded and never read back, so this
+# bounds a machine that stopped advancing, never a part that refused.
+[params.partSweepFrames]
+required = false
+type = "int"
+min = 1
+max = 100000
+
 # ---- FRAME budgets ------------------------------------------------------------
 #
 # FRAMES, not game seconds, and the reason is structural: Rewind-to-Launch puts

@@ -1,0 +1,443 @@
+schema = 1
+id = "GS-6-part-event-applier-sweep"
+# =====================================================================================
+# THE PART-EVENT APPLIER SWEEP: fire part-event families on a SCRIPTED TIMELINE during
+# a recorded flight, then WATCH the replay and gate, PER FAMILY, that the applier
+# actually applied them to the ghost.
+#
+# Roadmap Tier A item 1 (`docs/dev/autotest-roadmap.md`, "The ghost-replay coverage
+# program"), v1. GS-4 is the template this derives from and every mechanism below is
+# GS-4's, unchanged: staged Kerbal X ascent -> commit -> `InvokeRewindToLaunch` ->
+# Jumping Flea on the pad -> map open/close -> WATCH -> playback to completion, with
+# the armed `ghostLifecycle` evaluator holding every spawned mesh to a destroy. The
+# ONE thing this lane adds to the flight is the PART-SWEEP phase, and the one thing it
+# adds to the contract is the applier's own per-family lines.
+#
+# WHY IT EXISTS. Until 2026-09-02 `GhostPlaybackLogic.ApplyPartEvents` emitted a single
+# aggregate line per call and every per-family handler emitted nothing, so no
+# log-reading lane could tell "the recorded event moved the ghost" from "the handler
+# early-returned because the ghost carries nothing for that pid"
+# (todo PART-EVENT-APPLIER-IS-UNLOGGED, fixed in PR #1608). The instrument now exists:
+#
+#     [Parsek][VERBOSE][GhostPartEvents] apply family=<PartEventType member>
+#         surface=<token> rec=<int> pid=<uint> applied=<int> skipped=<int> reason=<token>
+#
+# CLAIM-IS-NOT-GATE says an instrument claims nothing until a lane FLIES and pins a
+# required token. This is that lane.
+#
+# =====================================================================================
+# 1. THE SWEEP, AND WHY IT IS SHORTER THAN THE ROADMAP ENTRY ASKS FOR
+# -------------------------------------------------------------------------------------
+# The roadmap entry names a purpose-built craft firing chutes, gear, lights, panels,
+# fairing, shroud, cargo bays and decoupler destruction. v1 fires what the COMMITTED
+# CRAFT can fire, and the distinction that matters for the follow-up is that the gap is
+# CRAFT-SHAPED, NOT DRIVER-SHAPED.
+#
+# THE DRIVER EXISTS FOR ALL OF THEM. kRPC 0.5.4 was read from the installed client
+# source (`.venv/Lib/site-packages/krpc/services/spacecenter.py`, __version__ '0.5.4'),
+# not from the online docs: `Control` carries `lights` / `gear` / `brakes` / `rcs` and
+# `toggle_action_group(int)`, and the per-part classes carry `SolarPanel.deployed`,
+# `Antenna.deployed`, `Radiator.deployed`, `CargoBay.open`, `ResourceConverter.start()`
+# / `.stop()`, `ResourceHarvester.active`, and `Parachute.arm()` / `.deploy()` /
+# `.cut()`. Every one is now wired as an `mlib` action and a `partSweepSteps` step name
+# (`mlib.KXRW_SWEEP_STEP_ACTIONS`, schema block `partSweepSteps`).
+#
+# WHAT THE COMMITTED `fixtures/ships/Kerbal X.craft` ACTUALLY CARRIES, counted off the
+# file rather than assumed (and it is NOT the stock Kerbal X - it is the operator's
+# docking variant, which is why this list is derived here):
+#
+#     RCSBlock.v2 x8 + rcsTankRadialLong x4  -> RCS                          SWEPT
+#     mediumDishAntenna x1                   -> DeployableExtended/Retracted SWEPT
+#     liquidEngine2 x7 + liquidEngineMainsail.v2 x1 -> Engine*        SWEPT + ascent
+#     Decoupler.2 x2 + radialDecoupler1 x6   -> Decoupled / Destroyed  ascent staging
+#     solarPanels5 x4                        -> OX-STAT, STATIC: `deployable` reads
+#                                               false and the runner SKIPS it, which is
+#                                               correct and not a miss
+#     ladder1 x2 + telescopicLadderBay x1    -> Parsek records ladders through the
+#                                               deployable family, but kRPC exposes no
+#                                               Ladder class and stock does not bind
+#                                               them to an action group: NOT swept
+#     dockingPort2 x1                        -> Docked/Undocked, out of scope here
+#
+# ABSENT FROM THE CRAFT, therefore ABSENT FROM THIS LANE, and each is a PART the craft
+# does not carry rather than a verb the harness lacks: parachutes (chute-two-phase,
+# chute-cut), landing gear/legs (gear), lights, cargo/service bays, procedural fairings,
+# ISRU/drills (converters), and any EFFECTS-node engine (engine-fx-effects - every
+# engine aboard is a legacy `fx_*` part, so only engine-fx-legacy is reachable).
+# Filed as `GS6-SWEEP-CRAFT-LACKS-SEVEN-FAMILIES`; the fix is one purpose-built craft,
+# and the roadmap entry's own craft note already specifies its engine mix.
+#
+# FAMILIES WITH NO kRPC PATH AT ALL, which a craft cannot fix: DeployableBroken and the
+# ThermalAnimation trio are PHYSICS OUTCOMES (overspeed break, reentry heating) with no
+# verb; InventoryPartPlaced / InventoryPartRemoved need EVA construction mode; the
+# Robotic trio is Breaking Ground DLC and `stock-minimal` carries no robotic part.
+# Filed as `GS6-FAMILIES-WITHOUT-A-KRPC-DRIVER`.
+#
+# =====================================================================================
+# 2. THE TIMELINE, and why it sits where it does
+# -------------------------------------------------------------------------------------
+# PART-SWEEP is the 23rd phase of `kx_rewind_watch` and runs between COAST and
+# TREE-STATE: the craft is post-separation, still RECORDING, and the recorder is
+# authoring coverage on both halves of the split. Steps fire one per
+# `partSweepSettleFrames` window, in the order written below.
+#
+# THE SETTLE GAP IS NOT A TUNING KNOB. Two part actions issued inside one physics frame
+# can coalesce into a single recorded event, which would under-count families in the
+# replay through no fault of the applier - the lane would then read as a product defect.
+#
+# NOTHING IN THE SWEEP IS ASSERTED BY THE MISSION. Every step is COMMANDED, nothing is
+# read back, and no step can fail the mission: whether the ghost REPLAYS the event is
+# this spec's question, and a mission that failed on a part's behaviour would discard
+# the very evidence the tokens below read. That is the harness README's
+# mission-vs-Parsek orthogonality rule (a mission that did not fly is driver-INVALID,
+# never PARSEK-FAIL).
+#
+# THE ORDER: out-and-back on each family, so BOTH members of each pair are recorded and
+# both can be gated. `throttle-up` runs at 0.25 on the coasting top stack whose Poodle
+# the ascent deliberately never lit, and `throttle-zero` puts it straight back - the
+# pair is what makes EngineIgnited / EngineThrottle / EngineShutdown fire on a stage the
+# ascent did not already exercise.
+#
+# =====================================================================================
+# 3. WHAT THE TWO REFUTATION LESSONS COST, applied here rather than re-learned
+# -------------------------------------------------------------------------------------
+# (a) THE LOADED CORPUS IS NOT THE ON-DISK CORPUS (W1's round-1 refutation): the
+#     load-time optimizer splits committed flights into chain members, so `rec=` in an
+#     applier line is a RUNTIME committed-list index and no static value may be pinned
+#     for it. Every applier regex below therefore matches `rec=[0-9]+` and NEVER a
+#     literal index - the same discipline W1's `camera-live member` tokens landed on.
+# (b) WATCH ENTRY RACES THE FIRST SPAWN FRAME (GS-4's reading run): the machine's
+#     hold-then-retry loop (`watchEntryLeadSeconds` / `watchEntryRetryFrames`) already
+#     owns this and is inherited unchanged. This lane adds no watch logic.
+#
+# THE THIRD LESSON, SHOWCASE-LOOPFLAG-STRIPPED-AT-LOAD, is why this lane enters its
+# playback window by REWIND rather than by loop repetition.
+# `SanitizeNonLoopableLoopPlayback` strips `LoopPlayback` from any recording failing
+# `IsLoopableRecording`, so a lane that waited for a second loop cycle would wait
+# forever. Rewind-to-Launch puts the clock at launchUT-15 s and the machine walks it
+# forward across the whole recorded span exactly once - which is all a one-shot window
+# can give, and all this lane needs.
+#
+# SHOWCASE-COLORCHANGER-APPLY-UNOBSERVABLE BECOMES MEASURABLE IN REVISION 2, and the
+# correction is worth stating because revision 1's header said the opposite. That
+# claim ("this lane carries no light part, so the grep belongs on S1.9's next
+# flight") was true of revision 1 and is FALSE now, for a reason found by reading the
+# craft rather than by adding a part: `Squad/Parts/Command/Mk1-3Pod/mk1-3.cfg:85`
+# carries a `ModuleColorChanger` with `toggleName = Toggle Lights` - a Pattern-A
+# CABIN LIGHT - and this craft's top stack has always been built on `mk1-3pod`. So
+# `lights-on` / `lights-off` drive BOTH light surfaces: `surface=light` (the two
+# spotLight1 lamps revision 2 adds) and `surface=colorchanger` (the pod's own cabin
+# light, aboard since revision 1).
+#
+# OBSERVE, DO NOT PIN. The reading run should capture
+# `family=LightOn surface=colorchanger ... reason=<token>` and read it as:
+# `applied=[1-9]` the emissive toggled; `no-cabin-light-entry` entries exist for the
+# pid but none is a cabin light; `no-info-for-part` Pattern-A discovery resolved
+# NOTHING for the pid - the render gap S1.9 could not distinguish. Nothing is
+# required on it: this is the first flight that can ask the question, and pinning an
+# answer before measuring one is exactly what the todo warns against.
+#
+# =====================================================================================
+# 4. STATUS: TWO READING RUNS FLOWN, and the second one's lesson is the one to read
+# first.
+#
+# RUN 1, `2026-09-02_1420` (revision 1, the stock committed Kerbal X): PASS attempt
+# 1, wall 412 s, expectations mismatches=0. 55 applier lines, every one
+# `reason=applied` bar the OX-STAT panels. This is where the nine base tokens below
+# were measured and where D7 `shroud` was found (the HeatShield2's jettisonable
+# shroud, which this spec had been authored saying was not claimable here).
+#
+# RUN 2, `2026-09-02_1505` (revision 2, the `Kerbal X Sweep` craft):
+# PARSEK-FAIL(expectations), 7 mismatches, MISSION-OK through DONE. SIX of the
+# seven were this spec's own fault - the vessel-name tokens still said
+# `vessel=Kerbal X` while the new craft reads `Kerbal X Sweep` / `... Sweep Debris`
+# / `... Sweep Probe`. Fixed below, and ANCHORED: every name token now ends in
+# ` reason=` or is a full Sweep spelling, so the bare `Kerbal X` form can never
+# prefix-match a Sweep line. The seventh was `family=Destroyed`, which is
+# RUN-VARIABLE (whether staging debris is destroyed inside the recorded span
+# depends on the flight) - demoted from required to OBSERVED.
+#
+# AND RUN 2 FOUND A LANE DEFECT THAT MIMICKED A PRODUCT GAP PERFECTLY. Gear*,
+# Converter* and FairingJettisoned produced ZERO lines. The tempting reading was
+# "the recorder does not capture these modules". The recorder's own census refuted
+# it in one line group - `Visual coverage [Gear] 0: <none>`, `[Fairing] 0`,
+# `[Parachute] 0`, `[Light] 1: telescopicLadderBay` - because ALL TEN appended
+# parts were silently DROPPED by KSP at craft load: the builder emitted correct
+# `srfN` / `attN` on every child but no `link =` on the HOST, and ShipConstruct
+# builds the tree from the parent's links. Fixed in
+# `harness/tools/build_kerbal_x_sweep_craft.py`; filed as
+# `~~GS6-SWEEP-CRAFT-PARTS-DROPPED-AT-LOAD~~`. The standing lesson: a
+# "family X never fired" reading checks `Visual coverage [X]` BEFORE blaming
+# capture.
+#
+# WHAT RUN 2 DID MEASURE, on the parts that were genuinely aboard: EngineIgnited 4
+# pairs, EngineShutdown 15 pairs, ShroudJettisoned 10, Decoupled 6,
+# DeployableExtended 4 (two applied pids plus the OX-STAT skip), DeployableRetracted
+# 2 (both applied - now required), RCS 9/9. The OX-STAT skip repeated exactly:
+# `pid=1114565348 applied=0 skipped=4 reason=no-resolved-visual`.
+#
+# THE LIGHT SURFACES, OBSERVED and deliberately NOT pinned, because both readings
+# are about a craft whose lamps were being dropped at load and must be re-taken:
+#   apply family=LightOn surface=light        pid=57152010 applied=1 skipped=2 reason=no-info-for-part
+#   apply family=LightOn surface=colorchanger pid=57152010 applied=0 skipped=3 reason=no-family-state
+# The colour-changer reading is the sharpest result of the whole lane so far:
+# `no-family-state` means the ghost carries NO colour-changer dictionary at all,
+# even though pid 57152010 is the `mk1-3pod` whose cfg gives it a Pattern-A cabin
+# light. Filed as `GS6-GHOST-HAS-NO-COLORCHANGER-STATE`, and it is the answer
+# SHOWCASE-COLORCHANGER-APPLY-UNOBSERVABLE was waiting for: neither of that
+# entry's two hypotheses, but a third - the surface is never built for a flight
+# ghost, so discovery is never asked.
+#
+# ghostLifecycle STAYS REPORT-ONLY. Both runs measured spawned=8 / spawnLines=8 /
+# destroyLines=8 / unbalanced=0, which is GS-4's census twice over and would
+# ordinarily justify arming. It is NOT armed because the craft that produces the
+# census is CHANGING: revision 2's ten extra parts can plausibly shed differently,
+# and arming a window now would arm it against a shape that has not flown. The next
+# green reading on the FIXED craft is the arming trigger, and if the census moves
+# the window is re-pinned rather than widened.
+#
+# OWED: the re-fly of the fixed craft, whose job is a census of the five families
+# that have never once been measured - Gear*, Converter*, FairingJettisoned,
+# LightOn/Off on real lamps, and EngineIgnited on the EFFECTS-node Ant.
+tier = "operator"
+description = "Part-event applier sweep: a scripted part-event timeline (RCS, deployable antenna, engine throttle) fired during a recorded Kerbal X flight, committed, Rewound-to-Launch and WATCHED, with the applier's per-family [GhostPartEvents] apply lines gated per family against the replay."
+instanceProfile = "stock-minimal"
+tags = ["GS6", "part-events", "ghost-render", "applier", "rewind-to-launch", "watch-mode", "ghost-lifecycle"]
+
+[fixture]
+# gs1-two-stage-pad, exactly as GS-4 uses it: the pad-scene sandbox world with the
+# inert SCENARIO node (the CL-1 trap), `Kerbal X` arriving through the shared-ships
+# overlay and `Jumping Flea.craft` committed physically for the watcher. NO fixture
+# change is made by this lane - the sweep is a params list, not a new world.
+saveTemplate       = "fixtures/saves/gs1-two-stage-pad"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind    = "autopilot"
+mission = "kx_rewind_watch"
+
+# `steps` MUST stay in the [driver] table, ABOVE the [driver.missionParams] header.
+#
+# IDENTICAL TO GS-4's PRELUDE, and deliberately so: this lane changes the mission's
+# PARAMS, not its wiring. `verboseLogging=true` carries extra weight here - the applier
+# lines are VERBOSE (`ParsekLog.Verbose`, subsystem `GhostPartEvents`), so without this
+# step every applier token below is unmatchable. `ghostRenderTracing=true` is still the
+# load-bearing render step for the MeshSpawned/MeshDestroyed pairs and the
+# ghostLifecycle floor.
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" },      expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "true" },   expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoMerge", value = "true" },            expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" },       expect = "OK" },
+  { cmd = "SetSetting", args = { name = "ghostRenderTracing", value = "true" },   expect = "OK" },
+  { phase = "mission",                                                            expect = "MISSION-OK", budget = 1700 },
+  { cmd = "FlushAndQuit",                                                         expect = "OK" },
+]
+
+[driver.missionParams]
+# REVISION 2: the derivative sweep craft, committed physically in this fixture
+# (single-consumer rule). GS-4 keeps the untouched `Kerbal X`. The staging plan is
+# inherited verbatim, so boosterStageCount and the istg 2 discard gate do not move.
+craftName        = "Kerbal X Sweep"
+rolloutExpectedVesselName = "Kerbal X Sweep"
+launchSite       = "LaunchPad"
+watcherCraftName = "Jumping Flea"
+# THE SCRIPTED TIMELINE. Out-and-back on each family so BOTH members of each recorded
+# pair exist to be gated. Names are the closed `mlib.KXRW_SWEEP_STEP_ACTIONS`
+# vocabulary; an unknown name is rejected by the schema and again by the machine's own
+# COAST gate, never silently skipped.
+partSweepSteps = [
+  "lights-on",
+  "gear-down",
+  "converters-on",
+  "engines-on",
+  "deployables-out",
+  "rcs-on",
+  "throttle-up",
+  "throttle-zero",
+  "rcs-off",
+  "deployables-in",
+  "engines-off",
+  "converters-off",
+  "gear-up",
+  "lights-off",
+  "chutes-arm",
+]
+# 12 frames at the machine's 0.5 s poll is ~6 s between steps: comfortably more than one
+# physics frame (the coalescing risk the gap exists for) and cheap against the coast.
+partSweepSettleFrames = 12
+# The whole sweep's SILENCE bound: 6 steps x 12 frames = 72 nominal; 600 is the stall
+# backstop, not a target.
+partSweepFrames = 600
+# The sweep runs AFTER the coast budget is spent, so this only has to leave the recorder
+# authoring real post-separation coverage before the timeline starts.
+coastSeconds = 25.0
+
+[dimensionsCovered]
+# CLAIM-IS-NOT-GATE. Every value is backed by a REQUIRED token in this spec's own
+# logContracts, and NOTHING is claimed for a family the craft cannot fire.
+#
+# `auto-record-launch` <- "Auto-record started (..."
+D1 = ["auto-record-launch"]
+# `controlled-decoupled-child` <- the fueled-core discard, exactly as GS-4.
+D5 = ["controlled-decoupled-child"]
+# `basic-playback` / `mesh-lifecycle-derender` <- the MeshSpawned/MeshDestroyed tokens
+#   plus the armed ghostLifecycle declaration.
+D6 = ["basic-playback", "mesh-lifecycle-derender"]
+# THE NEW GROUND, and the whole point of the lane. Each is backed by an applier
+# `family=<Enum> ... applied=[1-9]` required token below.
+#   `decouple-stage-destroy`    <- family=Decoupled surface=visibility
+#   `engine-fx-legacy`          <- family=EngineIgnited surface=engine-fx (every engine
+#                                  aboard is a legacy `fx_*` part)
+#   `panels-antennas-radiators` <- family=DeployableExtended surface=deployable, driven
+#                                  by the sweep's mediumDishAntenna step
+#   `rcs`                       <- family=RCSActivated surface=rcs-fx
+# NOT claimed, because the craft carries no such part: `chute-two-phase`, `chute-cut`,
+# `shroud`, `fairing`, `gear`, `bays`, `lights`, `engine-fx-effects`.
+# REVISION 2 CLAIMS NOTHING NEW YET. `gear`, `lights`, `fairing`, `converters` and
+# `engine-fx-effects` are all now FIREABLE (the craft carries the parts, the sweep
+# fires them), but CLAIM-IS-NOT-GATE: each needs a required token backed by a
+# measured line, and revision 2 has not flown. They are added here only after the
+# revision-2 reading run, exactly as `shroud` was added after revision 1's.
+#   `gear`    <- family=GearDeployed / GearRetracted surface=deployable, MEASURED on
+#               run `2026-09-02_1524` (three landingLeg1, applied=3 each way).
+#   `lights`  <- family=LightOn / LightOff surface=light, applied=3 each way on the
+#               two spotLight1 lamps plus the ladder bay's light.
+#   `fairing` <- family=FairingJettisoned surface=fairing, applied=1, the istg=3
+#               jettison the ascent's third booster-pair drop fires.
+# NOT claimed even though it was measured: `engine-fx-effects`. The Ant's ignition
+# IS in the log - the recorder's `Part event: EngineIgnited 'microEngine.v2'
+# pid=900501233` is a REQUIRED token below - but the APPLIER cannot prove the replay
+# of it in isolation: an applier line's `pid=` is the tally's REPRESENTATIVE (the
+# first applied pid of a family+surface batch), not an enumeration, so no regex can
+# say "the EFFECTS engine specifically rendered". CLAIM-IS-NOT-GATE, so it is not
+# claimed. Closing it needs either a per-pid applier line or a craft whose ONLY
+# engine is an EFFECTS one.
+# NOT claimed, no registry value exists: the landing legs' ModuleWheelSuspension
+# drives the ROBOTIC family (RoboticMotionStarted/Stopped/PositionSample, applied=3),
+# a family this sweep never planned to fire. It is REQUIRED below as evidence and
+# noted here, but D7 has no robotics value and inventing one under a re-pin is the
+# growth rule's job, not a token pass.
+D7 = ["decouple-stage-destroy", "engine-fx-legacy", "panels-antennas-radiators", "rcs", "shroud", "gear", "lights", "fairing"]
+D9 = ["rewind-to-launch"]
+D14 = ["kerbin", "sandbox", "scene-flight", "scene-ksc", "scene-map"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# GS-4 measured 8 twice on this craft and profile (parent + 6 booster debris + the
+# controlled-decoupled core child). The sweep adds part EVENTS, not recordings, so the
+# census should not move - but this lane has never flown, so it is a FLOOR here rather
+# than GS-4's exact pin, and the reading run re-pins it.
+count = { min = 8 }
+
+[expectations.logContracts]
+# GROUPS 1-5 are GS-4's, verbatim and for the same reasons; group 6 is this lane's own.
+#
+# GROUP 6 - THE APPLIER, PER FAMILY. The producer, transcribed from source rather than
+# from a pasted log line (`Source/Parsek/GhostPartEventApplyLog.cs` FormatLine +
+# `GhostPlaybackLogic.ApplyPartEvents`):
+#
+#     [Parsek][VERBOSE][GhostPartEvents] apply family=<PartEventType member>
+#         surface=<token> rec=<int> pid=<uint> applied=<int> skipped=<int> reason=<token>
+#
+# THREE PROPERTIES DRIVE EVERY REGEX BELOW:
+#   1. `family` is the ENUM MEMBER NAME verbatim, so a family is pinned BY NAME and a
+#      renamed member breaks this spec loudly instead of silently.
+#   2. `rec` is a RUNTIME committed-list index. The load-time optimizer splits flights
+#      into chain members (W1's refutation), so no literal index may be pinned:
+#      `rec=[0-9]+`, always.
+#   3. `applied=[1-9]` is the whole assertion. `applied=0` is a line the applier still
+#      writes - with a `reason=` naming the skip class - so a regex that matched the
+#      family alone would pass on a ghost that rendered NOTHING. The digit class is
+#      what makes the token a gate rather than a presence check.
+#
+# THE FOUR REQUIRED FAMILIES are the ones this craft and profile MUST fire:
+#   Decoupled          - four splits on the ascent; the handler is unconditional, so a
+#                        missing token here means the applier itself did not run.
+#   EngineIgnited      - the sweep's throttle-up on the unlit top stage.
+#   RCSActivated       - the sweep's rcs-on.
+#   DeployableExtended - the sweep's deployables-out (the mediumDishAntenna).
+#
+# EVERYTHING ELSE IS OBSERVED, NOT REQUIRED, on this first flight: the matching
+# retract/stop/shutdown members, the `engine-audio` surface, and every `reason=` token.
+# A never-flown lane pins what it is sure of and reads the rest.
+required  = ["Auto-record started \\((?:PRELAUNCH|LANDED|first staging on pad)",
+             "Recording started",
+             "Controllable split children: \\[[0-9]+,[0-9]+\\]",
+             "ProcessBreakupEvent: controlled child created: pid=[0-9]+",
+             "Committed tree '.+' \\([1-9][0-9]* recordings\\)",
+             "Rewind-to-Launch initiated to UT",
+             "invokerewindtolaunch complete rec=",
+             "entermapview ok mapOpen=true",
+             "exitmapview ok mapOpen=false",
+             "enterwatchmode complete: index=",
+             "phase=MeshSpawned [^\\r\\n]*vessel=Kerbal X Sweep reason=ghost-created",
+             "phase=MeshSpawned [^\\r\\n]*vessel=Kerbal X Sweep Probe reason=ghost-created",
+             "phase=MeshSpawned [^\\r\\n]*vessel=Kerbal X Sweep Debris",
+             "phase=MeshDestroyed [^\\r\\n]*vessel=Kerbal X Sweep reason=(?:watch hold expired|playback completed|auto-followed)",
+             "phase=MeshDestroyed [^\\r\\n]*vessel=Kerbal X Sweep Probe reason=",
+             "phase=MeshDestroyed [^\\r\\n]*vessel=Kerbal X Sweep Debris",
+             "\\[GhostPartEvents\\] apply family=Decoupled surface=visibility rec=[0-9]+ pid=[0-9]+ applied=[1-9]",
+             "\\[GhostPartEvents\\] apply family=EngineIgnited surface=engine-fx rec=[0-9]+ pid=[0-9]+ applied=[1-9]",
+             "\\[GhostPartEvents\\] apply family=EngineIgnited surface=engine-audio rec=[0-9]+ pid=[0-9]+ applied=[1-9]",
+             "\\[GhostPartEvents\\] apply family=EngineShutdown surface=engine-fx rec=[0-9]+ pid=[0-9]+ applied=[1-9]",
+             "\\[GhostPartEvents\\] apply family=RCSActivated surface=rcs-fx rec=[0-9]+ pid=[0-9]+ applied=[1-9]",
+             "\\[GhostPartEvents\\] apply family=RCSStopped surface=rcs-fx rec=[0-9]+ pid=[0-9]+ applied=[1-9]",
+             "\\[GhostPartEvents\\] apply family=ShroudJettisoned surface=jettison-panel rec=[0-9]+ pid=[0-9]+ applied=[1-9]",
+             "\\[GhostPartEvents\\] apply family=DeployableExtended surface=deployable rec=[0-9]+ pid=[0-9]+ applied=[1-9]",
+             "\\[GhostPartEvents\\] apply family=DeployableRetracted surface=deployable rec=[0-9]+ pid=[0-9]+ applied=[1-9]",
+             "\\[GhostPartEvents\\] apply family=GearDeployed surface=deployable rec=[0-9]+ pid=[0-9]+ applied=[1-9]",
+             "\\[GhostPartEvents\\] apply family=GearRetracted surface=deployable rec=[0-9]+ pid=[0-9]+ applied=[1-9]",
+             "\\[GhostPartEvents\\] apply family=FairingJettisoned surface=fairing rec=[0-9]+ pid=[0-9]+ applied=[1-9]",
+             "\\[GhostPartEvents\\] apply family=LightOn surface=light rec=[0-9]+ pid=[0-9]+ applied=[1-9]",
+             "\\[GhostPartEvents\\] apply family=LightOff surface=light rec=[0-9]+ pid=[0-9]+ applied=[1-9]",
+             "\\[GhostPartEvents\\] apply family=RoboticMotionStarted surface=robotic rec=[0-9]+ pid=[0-9]+ applied=[1-9]",
+             "\\[GhostPartEvents\\] apply family=RoboticMotionStopped surface=robotic rec=[0-9]+ pid=[0-9]+ applied=[1-9]",
+             "Part event: EngineIgnited 'microEngine.v2' pid=[0-9]+"]
+# The suite-wide ERROR pattern; it also covers the seam verbs' own failure terminals.
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+# REPORT-ONLY (gating=false), and that is the DISCIPLINE rather than a doubt about the
+# number. The window is inherited from GS-4, which measured spawned=8 / destroyLines=8 /
+# unbalanced=0 on four flights of this same craft and profile, and the sweep adds part
+# EVENTS, not ghosts - so the census is expected to repeat. But arming is a per-scenario
+# operator decision taken only AFTER a report-only reading run whose facets match the
+# declared window, and this lane has never flown. Arming rides the standard three-run
+# pass (reading -> armed re-flight -> negative control) through GHOSTLIFE_ARMED_SPECS in
+# harness/lib/test_hlib.py, and `test_no_committed_spec_arms_ghost_lifecycle_gating`
+# reds if this is armed before the roster records those flights.
+[expectations.ghostLifecycle]
+# ARMED 2026-09-02. THREE reading runs on this lane measured the IDENTICAL census -
+# `2026-09-02_1420` (revision 1), `2026-09-02_1505` (revision 2, red on spec-side
+# name tokens) and `2026-09-02_1524` (revision 3, PASS 25/25) - all spawned=8
+# spawnLines=8 destroyLines=8 unbalanced=0 malformed=0, which is also GS-4's own
+# four-flight census on the craft this one derives from. Run `2026-09-02_1524` is
+# the reading run of the FINAL shape, which is what the earlier "stays
+# report-only" note was waiting for: the craft is no longer changing.
+# Roster: GHOSTLIFE_ARMED_SPECS in harness/lib/test_hlib.py.
+gating = true
+spawned = { min = 8 }
+requireBalanced = true
+
+# REPORT-ONLY: no Re-Fly machinery may have run. Rewind-to-Launch builds neither
+# supersede rows nor tombstones ("this is NOT a Re-Fly").
+[expectations.rewind]
+supersedeRows = { max = 0 }
+tombstones    = { max = 0 }
+
+[runtime]
+# GS-4's 2400 plus the sweep: 6 steps x 12 frames at the 0.5 s poll is ~36 s of extra
+# flight, and the recorded span grows by the same, which the playback wait then spends
+# again in REAL time (this lane warps nowhere). ~75 s of real cost, rounded up.
+budgetSeconds = 2760
+
+[retry]
+policy = "once"
+
+[expectedFail]
+# EMPTY, deliberately: an expectedFail key would demote the exact per-family render gap
+# this lane exists to find.
+bugId = ""

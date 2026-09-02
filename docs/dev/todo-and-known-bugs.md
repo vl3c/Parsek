@@ -1384,6 +1384,378 @@ Full contract: `docs/dev/design-map-ts-render-tracer.md` Appendix A,
 `Source/Parsek.Tests/GhostPartEventApplyLogTests.cs` (25 cells: grammar, tally,
 per-family outcome per drivable skip class, InvariantCulture under `de-DE`).
 
+## GS6-DEPLOYABLE-NO-RESOLVED-VISUAL-solarPanels5: the recorder seeds a DeployableExtended for every OX-STAT panel, and the ghost can never render one, so four recorded events are skipped on every replay of any craft carrying them [MEASURED 2026-09-02 on `GS-6-part-event-applier-sweep` reading run `2026-09-02_1420` (PASS attempt 1). D7 GHOST-VISUAL OBSERVATION, REPORT-ONLY - NOT a lane defect and NOT obviously a product defect; it is the first thing the new applier instrument found, and it is filed rather than fixed]
+
+THE LINES, verbatim from the collected `KSP.log`:
+
+```
+17600 [Parsek][VERBOSE][GhostPartEvents] apply family=DeployableExtended
+      surface=deployable rec=0 pid=1114565348 applied=0 skipped=4
+      reason=no-resolved-visual
+19138 (the identical line again, the second applier call in the window)
+44998 [Parsek][VERBOSE][GhostPartEvents] apply family=DeployableExtended
+      surface=deployable rec=0 pid=1170199082 applied=1 skipped=0 reason=applied
+```
+
+THE TWO PARTS, resolved off `harness/fixtures/ships/Kerbal X.craft` by
+`persistentId` rather than guessed:
+
+  pid 1170199082 = `mediumDishAntenna`  -> APPLIED. This is the part the sweep's
+                   `deployables-out` step actually targeted, and it rendered.
+  pid 1114565348 = `solarPanels5`       -> the OX-STAT flat panel. SKIPPED.
+
+`skipped=4` on ONE pid line is the tally working as designed, not four events on
+one panel: the craft carries FOUR OX-STAT panels and the tally aggregates a
+family+surface batch into one line, reporting the FIRST skipped pid as the
+representative. The log names all four at build time:
+
+```
+12311 Visual coverage [Deployable] 5: mediumDishAntenna[pid=1170199082](state=RETRACTED),
+      solarPanels5[pid=1114565348](state=EXTENDED), solarPanels5[pid=3971329454](state=EXTENDED),
+      solarPanels5[pid=3459117514](state=EXTENDED), solarPanels5[pid=3544179155](state=EXTENDED)
+```
+
+THE MECHANISM, end to end, all from the same log:
+
+  1. RECORDER. `12281 Seeded already-extended deployable: 'solarPanels5'
+     pid=1114565348` then `12286 Seed event: DeployableExtended pid=1114565348`.
+     The OX-STAT reads EXTENDED (it is permanently deployed), so the seeder emits
+     a DeployableExtended for it exactly as it would for a real panel.
+  2. GHOST BUILD. The part IS built - `17539/17540 cloned 1 MeshRenderers` - and
+     the builder even resolves a break subtree (`17543 break subtree 'suncatcher'
+     resolved from pivotName (stock OnStart default)`).
+  3. APPLY. `ClassifyDeployableApply` returns `no-resolved-visual`: a
+     `DeployableGhostInfo` exists for the pid but carries no POSE TRANSFORMS,
+     because an OX-STAT has no deploy animation and therefore no stowed/deployed
+     pair to interpolate between.
+
+WHY THIS IS FILED AND NOT FIXED. Every step above is defensible on its own and
+the rendering is CORRECT - a static panel has no motion to replay, so nothing is
+visually wrong on any ghost. What the instrument exposes is that the pipeline
+carries four events per replay that can never do anything, on every craft with an
+OX-STAT (which is most of them). The product question is which end should change:
+
+  (a) the RECORDER's `PartStateSeeder` could skip a deployable whose module has no
+      animation, which would remove the events at the source; or
+  (b) the GHOST BUILDER could decline to create a `DeployableGhostInfo` for a part
+      with no pose transforms, which would move the reason from
+      `no-resolved-visual` to `no-info-for-part` without removing the events; or
+  (c) nothing changes and this is simply what a static panel looks like through
+      the new instrument.
+
+That is a product decision with a real recording-size argument behind it (the
+Visual & recording design principle: "if a visual detail isn't noticeable at
+playback speed, don't record it"), and not one a test lane should take. NOTHING IN
+GS-6 PINS THIS: the spec's `DeployableExtended` token requires `applied=[1-9]`,
+which the mediumDishAntenna line satisfies, so whichever way the decision goes the
+lane keeps working.
+
+## ~~GS6-SWEEP-CRAFT-LACKS-SEVEN-FAMILIES~~: the committed `Kerbal X.craft` carries no chute, gear, light, bay, fairing, converter or EFFECTS-node engine, so GS-6 v1 sweeps four part-event families instead of eleven [FOUND BY READING 2026-09-02 while authoring `GS-6-part-event-applier-sweep`, off the craft file's own part census. CRAFT PROPERTY, REPORT-ONLY - never a Parsek defect and never a harness-driver gap]
+
+THE DISTINCTION THAT MATTERS, because it decides what the fix is: this is a CRAFT
+gap, not a DRIVER gap. kRPC 0.5.4 exposes a verb for every one of these families
+(read off the installed client source, `.venv/Lib/site-packages/krpc/services/
+spacecenter.py`, `__version__ '0.5.4'`), and all of them are now wired as `mlib`
+actions and `partSweepSteps` step names:
+
+  lights        `Control.lights`                     -> LightOn / LightOff
+  gear / legs   `Control.gear`                       -> GearDeployed / GearRetracted
+  bays          `CargoBay.open`                      -> CargoBayOpened / Closed
+  panels etc    `SolarPanel|Antenna|Radiator.deployed` -> DeployableExtended / Retracted
+  converters    `ResourceConverter.start()/.stop()`  -> ConverterActivated / Deactivated
+  chutes        `Parachute.arm()/.deploy()/.cut()`   -> the chute trio INCLUDING CUT
+  any of them   `Control.toggle_action_group(1..10)` -> whatever the craft binds
+
+WHAT THE COMMITTED CRAFT ACTUALLY CARRIES (and it is NOT the stock Kerbal X - it is
+the operator's docking variant): `RCSBlock.v2` x8, `mediumDishAntenna` x1,
+`liquidEngine2` x7 + `liquidEngineMainsail.v2` x1, `Decoupler.2` x2 +
+`radialDecoupler1` x6, `solarPanels5` x4 (OX-STAT, STATIC - `deployable` reads false
+and the runner correctly skips it), `ladder1` x2 + `telescopicLadderBay` x1 (Parsek
+records ladders through the deployable family, but kRPC exposes no Ladder class and
+stock binds them to no action group), `dockingPort2` x1. No parachute, no landing
+leg, no light, no cargo bay, no fairing, no ISRU, and every engine aboard is a legacy
+`fx_*` part.
+
+SO GS-6 v1 CLAIMS FOUR D7 CELLS (`decouple-stage-destroy`, `engine-fx-legacy`,
+`panels-antennas-radiators`, `rcs`) and cannot claim `chute-two-phase`, `chute-cut`,
+`shroud`, `fairing`, `gear`, `bays`, `lights` or `engine-fx-effects`.
+
+**FIXED 2026-09-02 by the `Kerbal X Sweep` derivative craft** (built by
+construction, `harness/tools/build_kerbal_x_sweep_craft.py`), and measured on run
+`2026-09-02_1524` + the armed re-flight: `GearDeployed`/`GearRetracted` applied=3
+each way, `FairingJettisoned` applied=1, `LightOn`/`LightOff surface=light`
+applied=3 each way, and the legs' `ModuleWheelSuspension` firing the ROBOTIC
+family applied=3 (unplanned - the craft delivered a family the sweep never asked
+for). D7 gained `gear`, `lights` and `fairing`.
+
+THREE OF THE SEVEN REMAIN, each for its own reason and each with its own entry:
+`bays` (no liftable ServiceBay tail -
+`GS6-CARGOBAY-NEEDS-A-HARVESTED-SERVICEBAY-TAIL`), the chute trio (aboard and
+armed, but the profile never re-enters -
+`GS6-CHUTE-TWO-PHASE-NEEDS-A-DESCENT-VARIANT`), and `engine-fx-effects` (the Ant
+is aboard and its ignition IS recorded, but an applier line's `pid=` is the
+tally's representative rather than an enumeration, so the replay cannot be proved
+per-pid - see the GS-6 spec header).
+
+THE FIX IS ONE PURPOSE-BUILT CRAFT, and the roadmap entry (Tier A item 1) already
+specifies the hard part of it: legacy vs EFFECTS engine FX needs BOTH populations
+aboard, and stock's only EFFECTS liquid engines are the Ant / Spark / Twitch v2 family
+(`microEngine_v2`, `liquidEngineMini_v2`, `liquidEngine24-77_v2` - verified by grepping
+`^	EFFECTS` across `GameData/Squad/Parts`, where the stock LV-T45 / Mainsail / LV-909
+/ RT-10 all carry legacy `fx_*` instead). NOT authored here, and the reason is
+recorded rather than hidden: `harness/tools/build_gs1_craft.py` establishes that a
+by-construction craft lifts every PART tail BYTE-FOR-BYTE out of a stock craft KSP
+itself wrote, precisely so no MODULE block is invented and no module-index mismatch
+can be authored in - and no stock VAB craft carries a light, a service bay, an ISRU or
+a Spark, so their tails would have to be invented. That is the piece of work, and it
+wants its own lane.
+
+## ~~GS6-SWEEP-CRAFT-PARTS-DROPPED-AT-LOAD~~: every part appended to the revision-2 sweep craft was silently discarded by KSP because its PARENT carried no `link =` line, so three families read as silent that were never actually aboard [MEASURED 2026-09-02 on run `2026-09-02_1505` (PARSEK-FAIL(expectations), 7 mismatches). LANE DEFECT, FIXED THE SAME DAY - not a product gap, and worth writing down because it MIMICS one perfectly]
+
+THE SYMPTOM was three families with ZERO applier lines - Gear*, Converter* and
+FairingJettisoned - on a craft whose `.craft` file plainly contained a
+`landingLeg1` x3, a `FuelCell` and a `fairingSize1`. Read as a product gap
+("the recorder does not capture module Y") that would have been a wrong filing.
+
+THE RECORDER'S OWN CENSUS refuted it in one line group, and it is the first thing
+to grep on any future "family X never fired" reading:
+
+```
+12376 Visual coverage [Parachute] 0: <none>
+12378 Visual coverage [Deployable] 5: mediumDishAntenna, solarPanels5 x4
+12382 Visual coverage [Light] 1: telescopicLadderBay[pid=2225231708]
+12383 Visual coverage [Gear] 0: <none>
+12384 Visual coverage [CargoBay] 0: <none>
+12385 Visual coverage [Fairing] 0: <none>
+```
+
+Not one appended part is there. The recorder was not failing to CAPTURE them; they
+were not on the vessel. The `.craft` had them, the KSP.log's only mentions of
+`parachuteRadial` / `spotLight1` are part-database and texture loads, and the
+flight carried none.
+
+THE CAUSE: `ShipConstruct` builds the part TREE from each parent's own `link =`
+lines. `build_kerbal_x_sweep_craft.py` emitted correct `srfN` / `attN` on every
+CHILD but never added the matching `link =` to the HOST, so KSP discarded all ten
+- with no warning and no error, which is exactly why the symptom looked like a
+recorder gap.
+
+FIXED in the builder (`_add_links`, inserting the link lines where KSP writes them:
+after `modSize`, before the first `attN` / `srfN`). Verified on the regenerated
+craft: `Rockomax16.BW` gains 9 child links, `dockingPort2` gains 1, no dangling
+link, and `--check` re-derives the committed bytes.
+
+THE LESSON, which outlives this lane: a hand-authored .craft can be structurally
+invalid in a way that produces NO error and looks precisely like a missing product
+feature. Any future "family X never fired" reading checks the recorder's
+`Visual coverage [X]` census FIRST, before blaming capture.
+
+## GS6-GHOST-HAS-NO-CONVERTER-LOOP-STATE: a ghost built from a craft carrying a fuel cell has no converter-loop state at all, so every ConverterActivated/Deactivated apply is skipped `no-family-state` [MEASURED 2026-09-02 on the armed run `2026-09-02_1524` (PASS 25/25). D7 GHOST-VISUAL FINDING, REPORT-ONLY - the exact sibling of GS6-GHOST-HAS-NO-COLORCHANGER-STATE below]
+
+THE LINES, both directions of the family:
+
+```
+apply family=ConverterActivated   surface=converter-loop rec=0 pid=900501096 applied=0 skipped=1 reason=no-family-state
+apply family=ConverterDeactivated surface=converter-loop rec=0 pid=900501096 applied=0 skipped=1 reason=no-family-state
+```
+
+THE PART WAS THERE AND THE VERB REACHED IT. pid 900501096 is the `FuelCell` the
+revision-3 sweep craft carries, and the mission's own arm logged
+`set active=True on 1 converter process(es)` (and `False on 1` on the way back),
+so kRPC found the converter, started it, and the recorder emitted the events. The
+skip is entirely on the GHOST side.
+
+`no-family-state` is the strongest of the reason classes: not "no entry for this
+part", but the ghost carries NO `synthesizedMotionInfos.converterLoops` COLLECTION
+AT ALL. So an ISRU or drill replayed as a ghost cannot animate its running loop,
+which is the S7 feature's whole visible output.
+
+WHY IT IS FILED AND NOT FIXED: whether a flight ghost should build converter-loop
+state is the same product question as the colour-changer one below, and the two
+should be answered together - both are "the ghost's builder does not populate this
+surface for a flight ghost", both were invisible before the applier instrument
+existed, and both are REPORT-ONLY here (the lane pins nothing on either).
+
+## GS6-LIGHT-EVENTS-OUTNUMBER-THE-GHOSTS-LIGHT-INFOS: two of five light events per toggle land on parts the ghost has no `LightGhostInfo` for [MEASURED 2026-09-02 on run `2026-09-02_1524`. OBSERVATION, REPORT-ONLY - folded here rather than filed separately because it is the same builder question as the two above]
+
+```
+apply family=LightOn  surface=light rec=0 pid=57152010 applied=3 skipped=2 reason=no-info-for-part
+apply family=LightOff surface=light rec=0 pid=57152010 applied=3 skipped=2 reason=no-info-for-part
+```
+
+FIVE light events per toggle, THREE applied. The recorder's census names exactly
+three Unity-Light parts - `Visual coverage [Light] 3: telescopicLadderBay
+[pid=2225231708], spotLight1[pid=900500822], spotLight1[pid=900500959]` - and
+those three are the three that applied, so the LAMPS render correctly and the
+lane's `lights` claim is sound.
+
+The two skipped are events whose target has no `LightGhostInfo`. The tally's
+representative pid is 57152010, the `mk1-3pod`, whose light is a Pattern-A
+COLOUR CHANGER rather than a Unity Light - so it can never have a light info, and
+its own surface is the one reporting `no-family-state` below. The reading is
+therefore consistent rather than alarming; it is recorded so the `skipped=2` is
+not mistaken for a lamp failing to render on a later run.
+
+## GS6-GHOST-HAS-NO-COLORCHANGER-STATE: a ghost built from a craft whose pod carries a Pattern-A cabin light has no colour-changer state at all, so every LightOn/LightOff colour-changer apply is skipped `no-family-state` - and this is the SHOWCASE-COLORCHANGER-APPLY-UNOBSERVABLE answer [MEASURED 2026-09-02 on run `2026-09-02_1505`. D7 GHOST-VISUAL FINDING, REPORT-ONLY - filed, not fixed]
+
+THE LINES, verbatim, both directions of the family:
+
+```
+apply family=LightOn  surface=colorchanger rec=0 pid=57152010 applied=0 skipped=3 reason=no-family-state
+apply family=LightOff surface=colorchanger rec=0 pid=57152010 applied=0 skipped=3 reason=no-family-state
+```
+
+`no-family-state` is the strongest of the four colour-changer reason classes: it
+does not mean "no entry for this part" (`no-info-for-part`) or "entries exist but
+none is a cabin light" (`no-cabin-light-entry`) - it means the ghost carries NO
+`colorChangerInfos` DICTIONARY AT ALL. pid 57152010 is `mk1-3pod`, and
+`Squad/Parts/Command/Mk1-3Pod/mk1-3.cfg:85` gives it a `ModuleColorChanger` with
+`toggleName = Toggle Lights`, so the live part does have a Pattern-A cabin light.
+
+THIS SETTLES SHOWCASE-COLORCHANGER-APPLY-UNOBSERVABLE'S OPEN QUESTION, at least for
+this population. That entry asked whether S1.9's 25 silent colour-changer rows were
+(a) a render gap - Pattern-A discovery resolving nothing - or (b) parts that
+genuinely carry no cabin light. The answer here is neither of those two: the ghost
+never gets a colour-changer surface built for it in the first place, so the
+question "did discovery resolve anything?" never gets asked. Whether the builder
+should populate `colorChangerInfos` for a flight ghost (it evidently does for the
+showcase ghosts, since S1.9 measured the dictionary present) is the product
+question, and it is not one a test lane should answer.
+
+CONFIRMED 2026-09-02 ON REAL LAMPS ABOARD, run `2026-09-02_1524` (PASS 25/25):
+`apply family=LightOn surface=colorchanger rec=0 pid=57152010 applied=0
+skipped=5 reason=no-family-state` (LightOff mirrors it). The first reading was
+taken while the craft's two `spotLight1` lamps were still being dropped at load,
+so it could not distinguish "no colour changer" from "no light parts at all".
+This run had three working Unity lights aboard - all three APPLIED on the
+`surface=light` row - and the colour-changer row still reads `no-family-state`
+with the skip count risen from 3 to 5. The finding is therefore INDEPENDENT of
+the lamps: the ghost has no colour-changer dictionary, full stop.
+
+RELATED, ON THE OTHER LIGHT SURFACE, the first run:
+
+```
+apply family=LightOn  surface=light rec=0 pid=57152010 applied=1 skipped=2 reason=no-info-for-part
+apply family=LightOff surface=light rec=0 pid=57152010 applied=1 skipped=2 reason=no-info-for-part
+```
+
+Three light events, ONE applied. The recorder's `Visual coverage [Light] 1:
+telescopicLadderBay` says why: the ghost's only Unity `Light` is the ladder bay's,
+so the pod and the second light-event target have no `LightGhostInfo`. Note this
+reading was taken while the two `spotLight1` lamps were still being dropped at load
+(the entry above), so it must be RE-TAKEN on the fixed craft before anything is
+concluded about lamps specifically.
+
+## GS6-CARGOBAY-NEEDS-A-HARVESTED-SERVICEBAY-TAIL: the GS-6 sweep craft cannot carry a cargo bay, so D7 `bays` stays unreachable until a `ServiceBay.125.v2` tail is harvested from a live VAB session [FOUND BY READING 2026-09-02 while building the revision-2 craft. CRAFT-AUTHORING CONSTRAINT, REPORT-ONLY - not a product defect, not a driver gap]
+
+THE DRIVER IS NOT THE PROBLEM: kRPC 0.5.4 exposes `CargoBay.open`, and it is wired
+as `mlib.ACTION_SET_CARGO_BAYS` with `bays-open` / `bays-close` step names. The
+moment a craft carries a bay, the sweep fires it.
+
+TWO CONSTRAINTS MEET, and neither alone would block it:
+
+  1. THE BYTE-LIFT RULE. `harness/tools/build_gs1_craft.py` (and now
+     `build_kerbal_x_sweep_craft.py`) lifts every PART tail BYTE-FOR-BYTE out of a
+     craft KSP itself wrote, so that no MODULE block is invented and no
+     module-index mismatch can be authored in. A tail therefore has to EXIST
+     somewhere before a part can be used.
+  2. THE 0.625 m NODE. The GS-6 craft's surviving top stack has exactly ONE free
+     stack node - `dockingPort2`'s top, a Clamp-O-Tron Jr - and revision 2 spends
+     it on the fairing base. Everything else must be surface-attachable, and no
+     cargo or service bay is.
+
+WHAT WAS CHECKED, so nobody re-checks it:
+
+  - `ServiceBay.125.v2` and `ServiceBay.250.v2` appear in NO stock craft under
+     `Ships/VAB` or `Ships/SPH`, and `GameData/Squad/Ships` contains no craft
+     carrying one either (grepped for `^	part = ServiceBay`; no hits).
+  - The only bay tails that exist anywhere are SPACEPLANE fuselage sections -
+     `mk2CargoBayS` (Learstar A1), `mk3CargoBayS` / `mk3CargoBayM` (Stearwing
+     A300, Mallard), `mk3CargoBayL` (Dynawing). All are Mk2/Mk3 profile, all are
+     stack-only, and hanging one off a 0.625 m Clamp-O-Tron Jr would need a chain
+     of adapters authored blind - which is precisely the risk the byte-lift rule
+     exists to avoid.
+
+THE FIX IS ONE HARVEST, not a design: open the VAB once, place a
+`ServiceBay.125.v2` on a 1.25 m stack, save the craft, and lift its tail into
+`build_kerbal_x_sweep_craft.py`'s TAILS table alongside the other six. The bay then
+goes INTO the 1.25 m section of the stack (it is a structural section, not a
+nose part), which also sidesteps the 0.625 m node entirely. Until then D7 `bays`
+is UNCOVERED by every lane, and GS-6 says so rather than implying it was missed.
+
+## GS6-CHUTE-TWO-PHASE-NEEDS-A-DESCENT-VARIANT: the sweep craft carries parachutes and the harness has arm/deploy/cut verbs, but `kx_rewind_watch` commits at the top of a sub-orbital coast and never re-enters, so D7 `chute-two-phase` and `chute-cut` stay unreachable [FOUND BY READING 2026-09-02 while preparing the GS-6 revision-2 craft. MISSION-SHAPE NOTE, REPORT-ONLY - not a defect in the product, the craft or the driver]
+
+WHAT IS ALREADY IN PLACE: `Parachute.arm()` / `.deploy()` / `.cut()` are all on the
+kRPC 0.5.4 `Parachute` class and all three are wired as `mlib` actions and
+`partSweepSteps` step names (`chutes-arm`, `chutes-deploy`, `chutes-cut`), and the
+revision-2 craft carries two `parachuteRadial` canopies. Nothing is missing on
+either side.
+
+WHAT BLOCKS IT IS THE PROFILE, not the parts. `kx_rewind_watch` discards the fueled
+core at apoapsis, coasts `coastSeconds`, runs PART-SWEEP and COMMITS - all above the
+atmosphere and all on the way UP. At that point:
+
+  - `Parachute.deploy()` only ARMS the canopy (state ACTIVE). Stock
+    `ModuleParachute` semi-deploys on dynamic pressure, so no
+    ParachuteSemiDeployed and no ParachuteDeployed is ever recorded.
+  - `chutes-cut` is therefore a no-op by construction, and the runner's cut arm
+    reads `.state` first and logs `cut 0 deployed parachute(s)` rather than
+    raising - which is the honest reading, not a silent pass.
+
+So revision 2 fires `chutes-arm` (harmless, and it proves the verb reached the
+part) and PINS NOTHING on the chute trio; the three families are recorded as
+ABSENT BY DESIGN in the spec header rather than left looking unmeasured.
+
+WHAT A DESCENT VARIANT WOULD NEED, written down so the next author does not
+re-derive it. This is a MISSION change and is deliberately out of the GS-6
+package:
+
+  1. A LOWER APOAPSIS. `coreDiscardApoapsisMeters` currently lets the stack coast
+     well clear of the atmosphere; a variant wants the discard low enough that the
+     remaining stack is on a re-entry trajectory rather than a long coast.
+  2. A DESCENT PHASE between COAST/PART-SWEEP and TREE-STATE, gating on altitude
+     falling through an atmospheric band rather than on the coast timer - the one
+     genuinely new phase, and the reason this is not a params-only change.
+  3. THE SWEEP SPLIT IN TWO: the pressure-independent families (lights, gear, bay,
+     converter, deployables, RCS, engines) stay in the existing high sweep, and
+     only `chutes-arm` -> `chutes-deploy` -> `chutes-cut` move into the descent
+     window, spaced so the semi-deploy has time to land before the cut.
+  4. A COMMIT GATED ON TOUCHDOWN (or on the cut) instead of on the coast timer, so
+     the recorded span actually contains the chute events the lane is there for.
+  5. A LONGER BUDGET: the recorded span grows by the whole descent, and the
+     playback wait spends it again in REAL time because this lane warps nowhere.
+
+RISK WORTH NAMING UP FRONT: a re-entering stack with two radial canopies is a
+LANDING, so the variant also inherits GS-1's touchdown-survival arithmetic (crash
+tolerances, descent mass under canopy count) - and if it does not survive, the
+terminal state changes from SubOrbital to Destroyed and the lane's own
+`[expectations.recordings.structure]` moves with it.
+
+## GS6-FAMILIES-WITHOUT-A-KRPC-DRIVER: five part-event families cannot be fired from a scripted timeline at all, so no sweep craft will ever reach them [FOUND BY READING 2026-09-02 against the installed kRPC 0.5.4 client surface. SCOPE NOTE, REPORT-ONLY - not a defect in anything]
+
+Unlike GS6-SWEEP-CRAFT-LACKS-SEVEN-FAMILIES above, these are NOT fixed by a better
+craft:
+
+  DeployableBroken        a PHYSICS OUTCOME (a panel snapped by overspeed). kRPC
+                          exposes `SolarPanel.state` to READ it and nothing to cause
+                          it; a lane would have to fly a deliberate overspeed deploy.
+  ThermalAnimationHot     also physics outcomes (reentry / engine heating). Reachable
+  ThermalAnimationMedium  by a B4-shaped REENTRY profile rather than by a verb - which
+  ThermalAnimationCold    is roadmap Tier A item 3's lane, not a sweep step.
+  InventoryPartPlaced     needs EVA CONSTRUCTION mode. kRPC 0.5.4 has no inventory or
+  InventoryPartRemoved    construction API at all.
+  RoboticMotionStarted    Breaking Ground DLC. The `stock-minimal` instance carries no
+  RoboticPositionSample   robotic part, and the kRPC `InfernalRobotics` service is a
+  RoboticMotionStopped    different mod entirely.
+  Docked / Undocked       drivable (BDOCK-1 does it) but they are CHAIN-BOUNDARY
+                          events rather than ghost-pose events, and the applier's
+                          default arm reports them `unhandled-event-type` BY DESIGN.
+  Eva*                    the six EVA members belong to an EVA lane, not a craft sweep.
+
+Recorded so a future sweep author does not spend a flight discovering it, and so the
+D7 cells above are read as OUT OF SCOPE for the sweep family rather than as UNCOVERED
+work someone forgot.
+
 ## FIXTURE-DUNA-PARK-PROBE-CANNOT-RETURN-TO-KERBIN: the DD1 probe every committed Duna-parked fixture carries is ~550 m/s short of a Kerbin return, so the reserved `B29-duna-kerbin-return` lane could not be flown as specified [MEASURED 2026-08-26 off `fixtures/saves/duna-park-probe/persistent.sfs` while opening B29's Phase-0 door. FIXTURE PROPERTY, REPORT-ONLY - never a Parsek defect and never a spec defect; it blocked one lane's PRODUCTION, not any product question. ROUTED AROUND the same day by re-scoping B29 to depart Jool; see the second entry below]
 
 THE ARITHMETIC, derived from the fixture's own bytes rather than from a delta-v map:

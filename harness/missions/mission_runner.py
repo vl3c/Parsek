@@ -1248,6 +1248,113 @@ class KrpcMissionControl(MissionControl):
                     p.deploy()
                 except Exception:
                     pass
+        elif kind == mlib.ACTION_SET_LIGHTS:
+            control.lights = bool(action.value)
+        elif kind == mlib.ACTION_SET_GEAR:
+            control.gear = bool(action.value)
+        elif kind == mlib.ACTION_SET_BRAKES:
+            control.brakes = bool(action.value)
+        elif kind == mlib.ACTION_TOGGLE_ACTION_GROUP:
+            control.toggle_action_group(int(action.value))
+        elif kind == mlib.ACTION_SET_DEPLOYABLES:
+            # GS-6 part sweep. The three ModuleDeployablePart populations Parsek
+            # records through ONE family pair, driven through one action. Each part
+            # is guarded separately (the ACTION_DEPLOY_CHUTE precedent): a static
+            # OX-STAT panel raises on the `deployed` setter, and losing the rest of
+            # the craft's panels to that raise would silently halve the sweep.
+            # `deployable` is READ first where the class exposes it, so the common
+            # static-panel case is skipped rather than caught.
+            want = bool(action.value)
+            counts = {"panel": 0, "antenna": 0, "radiator": 0}
+            for label, parts in (("panel", v.parts.solar_panels),
+                                 ("antenna", v.parts.antennas),
+                                 ("radiator", v.parts.radiators)):
+                for p in parts:
+                    try:
+                        if not p.deployable:
+                            continue
+                        p.deployed = want
+                        counts[label] += 1
+                    except Exception:
+                        continue
+            _stdout_sink(mlib.format_mission_log_line(
+                "Info", "Sweep",
+                "set deployed=%s on %d panel(s), %d antenna(s), %d radiator(s)"
+                % (want, counts["panel"], counts["antenna"], counts["radiator"])))
+        elif kind == mlib.ACTION_SET_CARGO_BAYS:
+            want = bool(action.value)
+            set_count = 0
+            for p in v.parts.cargo_bays:
+                try:
+                    p.open = want
+                    set_count += 1
+                except Exception:
+                    continue
+            _stdout_sink(mlib.format_mission_log_line(
+                "Info", "Sweep", "set open=%s on %d cargo bay(s)" % (want, set_count)))
+        elif kind == mlib.ACTION_SET_CONVERTERS:
+            # ResourceConverter is START/STOP (a converter is a LIST of processes,
+            # each with its own index), ResourceHarvester is a plain `active` flag.
+            # Both land on the same Parsek family pair, so both ride this action.
+            want = bool(action.value)
+            set_count = 0
+            for p in v.parts.resource_converters:
+                for idx in range(int(getattr(p, "count", 0) or 0)):
+                    try:
+                        p.start(idx) if want else p.stop(idx)
+                        set_count += 1
+                    except Exception:
+                        continue
+            for p in v.parts.resource_harvesters:
+                try:
+                    p.active = want
+                    set_count += 1
+                except Exception:
+                    continue
+            _stdout_sink(mlib.format_mission_log_line(
+                "Info", "Sweep", "set active=%s on %d converter process(es)"
+                % (want, set_count)))
+        elif kind == mlib.ACTION_SET_ENGINES_ACTIVE:
+            # Per-engine, guarded per part on the ACTION_DEPLOY_CHUTE precedent: an
+            # engine that cannot be shut down (an SRB) raises on the setter and must
+            # not cost the rest of the craft its command.
+            want = bool(action.value)
+            set_count = 0
+            for p in v.parts.engines:
+                try:
+                    p.active = want
+                    set_count += 1
+                except Exception:
+                    continue
+            _stdout_sink(mlib.format_mission_log_line(
+                "Info", "Sweep", "set active=%s on %d engine(s)" % (want, set_count)))
+        elif kind == mlib.ACTION_ARM_CHUTES:
+            arm_count = 0
+            for p in v.parts.parachutes:
+                try:
+                    p.arm()
+                    arm_count += 1
+                except Exception:
+                    continue
+            _stdout_sink(mlib.format_mission_log_line(
+                "Info", "Sweep", "armed %d parachute(s)" % arm_count))
+        elif kind == mlib.ACTION_CUT_CHUTES:
+            # kRPC RAISES on a chute that is not out, so the STATE is read first and
+            # only a deployed canopy is cut. The count is logged either way: "cut 0"
+            # is the reading that says the timeline fired the cut before the chutes
+            # were open, which is a timeline bug and must not look like a success.
+            cut_count = 0
+            for p in v.parts.parachutes:
+                try:
+                    state = str(p.state)
+                    if "DEPLOY" not in state.upper():
+                        continue
+                    p.cut()
+                    cut_count += 1
+                except Exception:
+                    continue
+            _stdout_sink(mlib.format_mission_log_line(
+                "Info", "Sweep", "cut %d deployed parachute(s)" % cut_count))
         elif kind == mlib.ACTION_SET_CHUTE_DEPLOY_ALTITUDE:
             # Raise the stock full-deploy altitude on every parachute (kRPC
             # Parachute.DeployAltitude, the stock PAW tweakable). EVA-4 does this in the

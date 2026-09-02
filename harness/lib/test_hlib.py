@@ -6781,6 +6781,11 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # ARMING pass (three-run discipline, GHOSTLIFE_ARMED_SPECS) and the
         # ordinary cadence PROMOTION call - the GS-1/GS-2/GS-3 shape exactly.
         "GS-4-kerbalx-rewind-watch.toml":   "FLOWN GREEN 2026-08-27 (2145 reading, 2204 green, both attempt 1); operator tier is now the arming + PROMOTION call, not debt",
+        # tier=operator by PROMOTION POLICY on a NEVER-FLOWN lane, the GS-1 shape
+        # exactly: GS-6 is authored and registered but has not flown, so it cannot
+        # sit on a cadence. Its debt is the READING RUN, carried by the
+        # `pending-flight` tag and its own status row - not an operator-REVIEW debt.
+        "GS-6-part-event-applier-sweep.toml": "FLOWN GREEN 2026-09-02 (four runs: 1420/1505/1524 readings + the armed re-flight, plus two negative controls); operator tier is now the cadence PROMOTION call, not debt",
         # The FIFTH forge, same mechanism again: it stamps gs2-orbital-stack by
         # flying the live-proven forge_lko ascent with the new parkAttached=true,
         # which skips the SEPARATE phase so the stack is parked ATTACHED. Its
@@ -8953,6 +8958,86 @@ class RenderComposeVerifierWiringTests(unittest.TestCase):
                              "FlushAndQuit, got %s" % (name, cmds[-2:]))
 
 
+class SweepStepVocabularyTests(unittest.TestCase):
+    """The GS-6 part-sweep step vocabulary, pinned across the THREE places it now
+    lives, and a committed-spec walk over every declared timeline.
+
+    THE NEAR-MISS THIS EXISTS FOR, measured rather than imagined: `partSweepSteps`
+    members used to be validated ONLY by the phase machine's COAST gate
+    (`mlib.kxrw_sweep_steps_valid`), which runs after the whole ascent. A single
+    typo passed admission, burned a flight to the top of the coast, failed closed
+    as an autopilot flake - and the retry policy would then fly it AGAIN. The fix
+    is the schema's `values` list, enforced by hlib at ADMIT; these cells keep that
+    list honest.
+
+    This cell reads OUTSIDE `harness/lib` (into `harness/missions`), which is the
+    established shape for the four other cross-tree cells in this file."""
+
+    @staticmethod
+    def _mlib():
+        # Imported by PATH rather than by package, because harness/missions/lib is a
+        # separate unittest discovery root; the same shape the other cross-tree cells
+        # in this file use.
+        import importlib
+        path = os.path.join(HARNESS_ROOT, "missions", "lib")
+        if path not in sys.path:
+            sys.path.insert(0, path)
+        return importlib.import_module("mlib")
+
+    @staticmethod
+    def _schema_values():
+        path = os.path.join(HARNESS_ROOT, "missions", "kx_rewind_watch.schema.toml")
+        with open(path, "rb") as fh:
+            return tomllib.load(fh)["params"]["partSweepSteps"].get("values")
+
+    def test_the_schema_vocabulary_equals_the_machines_own(self):
+        # TWO COPIES, PINNED EQUAL. The schema list is what hlib enforces at admit;
+        # mlib's dict is what the machine actually dispatches. A name in one and not
+        # the other is either a step that admits and then flakes, or a step the
+        # machine can run that no spec is allowed to ask for.
+        mlib = self._mlib()
+        self.assertEqual(sorted(mlib.KXRW_SWEEP_STEP_NAMES),
+                         sorted(self._schema_values()))
+        self.assertEqual(set(mlib.KXRW_SWEEP_STEP_ACTIONS),
+                         set(mlib.KXRW_SWEEP_STEP_NAMES))
+
+    def test_every_committed_spec_declares_only_known_sweep_steps(self):
+        # The committed-corpus walk. A typo in ANY spec reds here, in the suite,
+        # rather than on the pad.
+        mlib = self._mlib()
+        known = set(mlib.KXRW_SWEEP_STEP_NAMES)
+        checked = 0
+        for name in sorted(os.listdir(SCENARIOS_DIR)):
+            if not name.endswith(".toml"):
+                continue
+            with open(os.path.join(SCENARIOS_DIR, name), "rb") as fh:
+                spec = tomllib.load(fh)
+            steps = (spec.get("driver", {}) or {}).get("missionParams", {})                        .get("partSweepSteps")
+            if steps is None:
+                continue
+            checked += 1
+            unknown = [s for s in steps if s not in known]
+            self.assertEqual([], unknown,
+                             "%s declares unknown sweep step(s) %s" % (name, unknown))
+        self.assertGreaterEqual(checked, 1, "no committed spec declares partSweepSteps")
+
+    def test_hlib_rejects_an_unknown_member_at_admit(self):
+        # The admission check itself, driven directly: this is the gate that turns a
+        # typo from a burned flight into a refused spec.
+        decl = {"type": "list", "values": ["gear-down", "lights-on"]}
+        self.assertEqual([], hlib._check_param_type("partSweepSteps",
+                                                    ["gear-down"], decl))
+        errs = hlib._check_param_type("partSweepSteps",
+                                      ["gear-down", "gear-DOWN"], decl)
+        self.assertEqual(1, len(errs), errs)
+        self.assertIn("gear-DOWN", errs[0])
+        self.assertIn("allowed:", errs[0])
+        # A list param with NO `values` is unchanged - every pre-existing list
+        # declaration keeps its type-only check.
+        self.assertEqual([], hlib._check_param_type("x", ["anything"],
+                                                    {"type": "list"}))
+
+
 class GhostLifecycleVerifierWiringTests(unittest.TestCase):
     """The ghost-lifecycle verifier's hlib-side wiring: spec-surface validation
     routes through ``hlib.validate_spec``, the gating flag classifies its own
@@ -8991,6 +9076,29 @@ class GhostLifecycleVerifierWiringTests(unittest.TestCase):
         # NEGATIVE CONTROL: `2026-08-28_1550` - temporary spawned={min 9} red
         # PARSEK-FAIL(ghost-lifecycle) on exactly that window, then reverted.
         "GS-4-kerbalx-rewind-watch.toml",
+        # ARMED 2026-09-02, three-run discipline discharged ON ONE LANE'S OWN
+        # FLIGHTS rather than borrowed: `2026-09-02_1420` (revision 1),
+        # `2026-09-02_1505` (revision 2 - red on spec-side vessel-name tokens, not
+        # on this block) and `2026-09-02_1524` (revision 3, PASS 25/25) each
+        # measured spawned=8 spawnLines=8 destroyLines=8 unbalanced=0 malformed=0.
+        # THE READING RUN OF THE FINAL SHAPE is `2026-09-02_1524`: the sweep craft
+        # stopped changing with revision 3, which is what the spec's earlier
+        # "stays report-only while the craft grows" note was waiting on. The census
+        # is also GS-4's own, four flights over, on the craft this one derives from.
+        # ARMED RE-FLIGHT: `2026-09-02_1553` - PASS attempt 1, 547 s, expectations
+        # 33/33, ghostLifecycle `status=PASS gating=True armed=['ghostLifecycle']
+        # spawned=8/8/8 unbalanced=0 mismatches=0` with the gate LIVE.
+        # NEGATIVE CONTROL for THIS block: the uncommitted
+        # `GS-6-negctl-ghostlife-spawned-nine` spec (scratchpad, never committed)
+        # sets `spawned = { min = 9 }` against a census that measures 8 on every
+        # run - the GS-4 / S1.9 control shape exactly - and flew
+        # PARSEK-FAIL(ghost-lifecycle) `mismatches=1` = `ghostLifecycle.spawned
+        # 8 < min 9`, with all 33 logContract tokens still met. So the window
+        # gates, and it gates on ITSELF rather than on some coupled token.
+        # SECOND CONTROL, for the logContract half: `GS-6-negctl-gear-applied-zero`
+        # (also uncommitted) flips one required applier token to a line the run
+        # never emits and flew PARSEK-FAIL(expectations) with exactly one unmet.
+        "GS-6-part-event-applier-sweep.toml",
         # ARMED 2026-08-28, same-day discipline on the injected part-showcase
         # census: reading runs `2026-08-28_2010` (red only on the since-cut
         # colour-changer token; census 243/243/0) and `2026-08-28_2014` (green,
@@ -9135,6 +9243,18 @@ class GhostLifecycleVerifierWiringTests(unittest.TestCase):
         #     GHOSTLIFE_ARMED_SPECS above) follows the standard three-run
         #     discipline as its own pass.
         "GS-4-kerbalx-rewind-watch.toml",
+        # [D] THE THIRD DECLARER, and the first whose subject is the PART-EVENT
+        #     APPLIER rather than the mesh census: GS-6 re-flies GS-4's craft and
+        #     profile with a scripted part-event timeline inserted (the PART-SWEEP
+        #     phase) and gates the applier's per-family
+        #     `[GhostPartEvents] apply family=... applied=N` lines. It declares the
+        #     block for the SAME reason GS-4 does - the derender balance a regex
+        #     cannot state - and INHERITS GS-4's measured window (spawned=8,
+        #     destroyLines=8, unbalanced=0 on four flights of the same craft), since
+        #     part events add no ghosts. REPORT-ONLY until its own reading run:
+        #     arming is a per-scenario operator decision and this lane has never
+        #     flown.
+        "GS-6-part-event-applier-sweep.toml",
         # [D] THE SECOND DECLARER, and the first whose census IS the point rather
         #     than a balance check: the synthetic PART SHOWCASE corpus (243
         #     ghost-only, one-part recordings standing in front of the KSC pad,
