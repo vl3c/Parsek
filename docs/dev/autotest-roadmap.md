@@ -2636,9 +2636,19 @@ gated behind the ROUTE-ORIGIN-PROOF-PRODUCER-UNREACHABLE probe (todo) before any
    `Vessel.Initialize` - so a re-dock of the same craft legitimately reports a
    different target vessel pid, and any future route lane comparing vessel pids
    across an undock is comparing the wrong thing.
-15. **Rover relay, untyped depot - the REFUSING direction, and the first
-    committed bytes that hold it.** Added 2026-09-02, after the operator's second
-    hand-flown surface session (`logistics-rover-B`): three identical 16-part
+15. **The rover relays - a two-hop surface supply run, and the two committed
+    fixtures that now hold its ADMISSION.** Added 2026-09-02 as the REFUSING
+    direction of route candidacy; **INVERTED 2026-09-03, when both refusal reasons
+    closed.** The item keeps its number and its lane ids (`RVR-5`, `RVR-6`, and
+    `RVR-7` added on the flip); what it measures is the opposite of what it was
+    authored to measure, and the refusal material is kept below verbatim because
+    the bytes are unchanged and are still the only committed record of the old
+    behaviour. THE RULING THAT FRAMES IT (operator, 2026-09-03): **route
+    candidates come from the ACTIONS - dock, take fuel or cargo FROM, undock, dock
+    elsewhere, transfer TO, undock = a valid route.** Neither the vessel TYPE of a
+    docked half nor the presence, absence or correctness of a persisted origin
+    proof is a candidacy precondition; the WINDOWS are. Added after the operator's
+    second hand-flown surface session (`logistics-rover-B`): three identical 16-part
     rovers A, B and C on the KSC shore, all LANDED, one `ModuleCommand` + one
     `dockingPort2` each, no grapple. C drove to B, docked at UT 218.22, loaded
     +200 LiquidFuel (B 200 -> 0), undocked at UT 276.00, drove ~780 m to A,
@@ -2675,29 +2685,123 @@ gated behind the ROUTE-ORIGIN-PROOF-PRODUCER-UNREACHABLE probe (todo) before any
     + variant + per-resource fill bucket; module state ignored entirely), so the
     transit-added `canComm` no longer touches the key and the station's move is
     witnessed. Proven headless over these exact fixture bytes by
-    `Source/Parsek.Tests/Logistics/InventoryPayloadKindKeyTests.cs`. Consequence
-    for `RVR-5`: its `status=MixedPickupDelivery` token, its
-    `reason=candidate-ineligible` token and the create step's own
-    `expect = "REJECTED"` are now UNMEASURED - the first flight either fails the
-    NEXT gate with a different status or admits outright. They were deliberately
-    NOT re-pinned (re-pinning without flying invents a measurement); the spec
-    carries a warning block and the todo entry names the re-measurement as the
-    open follow-up.
-    The two reasons are INDEPENDENT: fixing only one still produces no route.
-    **LANDED AS `harness/fixtures/saves/rover-relay-recorded` PLUS TWO NEVER-FLOWN
-    LANES.** `RVR-5-rover-relay-eligibility` drives `SealSlot` (which answers the
-    idempotent no-op `total=7 sealed=0 alreadySealed=True`, so the refusal is
+    `Source/Parsek.Tests/Logistics/InventoryPayloadKindKeyTests.cs`.
+    **UPDATE 2026-09-03: reason (1) IS CLOSED TOO, so nothing refuses this relay
+    any more.** PR #1618 moved the origin binding to the UNDOCK and off the depot
+    type; the analysis-side follow-up derives the ORIGIN from the PICKUP WINDOW -
+    the vessel the transport took cargo FROM - and ignores a bound proof that
+    disagrees with it. So a relay with ZERO proofs is admissible, which discharges
+    the standing todo ROUTE-ORIGIN-PROOF-REQUIRES-A-PLAYER-TYPED-DEPOT for this
+    purpose. `RVR-5` IS RE-PINNED POSITIVE in the same commit: the create step
+    expects OK, `routecommand create gate ... eligible=True status=Eligible
+    alreadyPromoted=False refusal=None` is ONE contiguous required token, the
+    create ACK is required, `routecommand rejected` is the FORBID, and
+    `[expectations.routes] count` moves from `{0, 0}` to `{1, 1}` (report-only).
+    **THOSE PINS ARE DERIVED FROM THE RULING, NOT MEASURED** - the lane has never
+    flown in either shape - and the gate token is the instrument that names which
+    gate moved if the first flight disagrees.
+    **LANDED AS TWO COMMITTED FIXTURES AND THREE LANES, ONE OF WHICH IS
+    LIVE-PROVEN.**
+    `harness/fixtures/saves/rover-relay-recorded` is the ZERO-PROOF half and
+    `harness/fixtures/saves/rover-relay-c-recorded` (added 2026-09-03) is the
+    WRONG-PROOF half; together they say the admission does not depend on a proof
+    being present, absent OR correct.
+    `RVR-5-rover-relay-eligibility` drives `SealSlot` (which answers the idempotent
+    no-op `total=7 sealed=0 alreadySealed=True`, so the create verdict is
     attributable to the ANALYSIS rather than to a cheaper gate) then
-    `RouteCommand action=create` expecting `REJECTED` with
-    `refusal=CandidateIneligible status=MixedPickupDelivery`, and forbids the
-    create ACK as its vacuity guard. It doubles as the hash defect's REGRESSION
-    INSTRUMENT: those two pins must be re-measured when the hash is fixed, and the
-    fixture must not be cleaned up instead - these are the only committed bytes
-    the defect has. `RVR-6-rover-relay-logistics-host` is RVR-1's isolated
-    `Logistics` batch over the same bytes: the fourth recorded host and the first
-    THREE-TREE, NINE-RECORDING, TWO-WINDOW forest any isolated batch has booted,
-    with both windows TARGET-branch and cross-tree-partnered where
-    `rover-route-recorded` holds that property once.
+    `RouteCommand action=create` expecting **OK**, and forbids `routecommand
+    rejected` as its vacuity guard. It drives NO cycle, and that is measured: its
+    fixture's save was written after the relay ran, so the source rover B is
+    drained to LiquidFuel 0/400 against the window's 200 pickup manifest and the
+    all-or-nothing `RouteOriginCargoCheck.HasRequired` would block a dispatch.
+    **`RVR-6-rover-relay-logistics-host` IS LIVE-PROVEN** (run `2026-09-02_2234`,
+    PASS attempt 1, wall 189 s, every verifier PASS, analyzer red=0, on the fixed
+    build - automation DLL sha256 `2f9309f5e3487257` = main + PR #1621). It is
+    RVR-1's isolated `Logistics` batch over the ZERO-PROOF bytes: the fourth
+    recorded host and the first THREE-TREE, NINE-RECORDING, TWO-WINDOW forest any
+    isolated batch has booted, with both windows TARGET-branch and
+    cross-tree-partnered where `rover-route-recorded` holds that property once.
+    ITS CENSUS BOUGHT ONE READING WORTH THE FLIGHT: `total=47 passed=38 failed=0
+    skipped=9` where RVR-1 measured 39/8 on the other recorded rover host - ONE
+    MORE run-time skip, on a host that differs in exactly the ways the spec header
+    predicted. Which cell moved is not recorded by the tally and is not claimed;
+    both required cell tokens matched, so it is neither of them. The interim debt
+    is discharged in full - pin replaced whole, `skipped=9` declared in
+    `MEASURED_SKIPPED`, the id out of `INTERIM_PIN_IDS` (now EMPTY),
+    `recordings.count` replaced with the measured exact 9, which also says the
+    load-time optimizer split does not happen on this corpus and that 38
+    interleaved quickloads destroyed nothing.
+    **`RVR-7-rover-relay-c-dispatch` IS THE DISPATCH-SHAPED PROOF AND THE ONLY
+    LANE THAT EXERCISES THE ORIGIN OVERRIDE.** Its fixture is the operator's SECOND
+    relay (`logistics-rover-c`, flown 2026-09-02, collected into
+    `logs/2026-09-03_0026_rover-c/`; C loads +154.4 LiquidFuel and 3 items FROM B
+    at dock UT 155.82 / undock 212.54, delivers 200 LiquidFuel and 4 items TO A at
+    dock 274.18 / undock 335.32, saved at UT 410.40), and it carries TWO PERSISTED
+    `ROUTE_ORIGIN_PROOF` NODES THAT BOTH NAME THE WRONG ORIGIN - written by the
+    #1618 undock binder before the analysis learned to read the pickup window.
+    Verbatim from its own KSP.log (lines 22361 / 25769): hop 1, the PICKUP at B,
+    bound `originName='C' originPid=612987736` - the TRANSPORT ITSELF - with B's
+    root part in the transport slot, the halves exactly inverted; hop 2, a pure
+    DELIVERY with no source at all, bound `originName='A' originPid=4280917262` -
+    the DESTINATION. Both record `pickup=Carried pickupValidated=0`. Every other
+    route fixture carries ZERO proof nodes, so these are the only bytes on which an
+    analysis that TRUSTS a bound proof and one that DERIVES the origin from the
+    pickup window give visibly different answers. The lane is RVR-2's thirteen-step
+    shape with `SealSlot ... total=8`, the create expecting OK, two send-once arms
+    with a TimeJump after each, `SaveGame` and `FlushAndQuit`.
+    **ITS FIXTURE IS STAGED AT START-OF-CYCLE, AND THAT IS WHAT MAKES IT A DISPATCH
+    LANE AT ALL.** A route REPLAYS a recorded run against the CURRENT live
+    endpoints, and the save was written AFTER the relay finished: as harvested B
+    held 45.6/400 LiquidFuel against its own window's 154.4 pickup manifest and A
+    was at 400/400 with 6 of 6 inventory slots occupied, so both step 6
+    (`RouteOriginCargoCheck.HasRequired`) and step 8
+    (`RouteDestinationCapacityCheck.HasCapacityForAllStops`) of
+    `RouteDispatchEvaluator.CheckEligibility` were false - both all-or-nothing -
+    and every driven cycle BLOCKED emitting nothing. **THE OPERATOR RULING
+    (2026-09-03) IS THAT THIS IS A LEGITIMATE FIXTURE EDIT**, on the
+    `build_rover_route_recorded.py` step-3 precedent (which strips the `STOREDPART`
+    nodes a hand-driven Send Once had already delivered into ITS endpoint, and
+    which RVR-2 flight 1 was lost for want of). `build_rover_relay_c_recorded.py`
+    step 3 restores each PHYSICAL endpoint, in FLIGHTSTATE only, to the state ITS
+    OWN WINDOW recorded at ITS dock - B from window 0's `DOCK_ENDPOINT_*`, A from
+    window 1's - so both read 200/400 with three of six slots, with the
+    `STOREDPART` bytes LIFTED VERBATIM out of the window snapshots. No number is
+    invented, the Parsek payload is untouched (the windows are the repair's own
+    input), and the transport C is left exactly as saved because the pickup writer
+    removes from the SOURCE and the delivery writer stores into the DESTINATION.
+    THE PLACEMENT IS THE HALF WORTH RECORDING: the window records a `slotIndex` but
+    not which of the two containers, and rover A holds a station at slot 1 in BOTH,
+    so a slot-index-only rule picks the WRONG one; the layout is derived by inner
+    `PART persistentId` on A, corroborated by what is left on C and by B's own
+    surviving kit.
+    **SO THE LANE PINS THE WHOLE CYCLE**: the pickup at B (`Origin debit: ...
+    origin=B ... requested=154.39... path=loaded` plus `Inventory remove (loaded):
+    ... removed=1`), the delivery at A (`Delivery write: ... dest=A ...
+    requested=200 written=200 ... path=loaded` plus `Inventory store: ... dest=A
+    ... path=loaded`) and `cycle=cycle-0 FIRED full cycle
+    (dispatch+debit+delivered)`, and it FORBIDS both hold tokens - `BLOCKED
+    kind=OriginLacksCargo` and `BLOCKED kind=DestinationFull` - so a regression to
+    the spent state reds explicitly and names which end regressed. It drives ONE
+    send-once, not RVR-2's two: after cycle 0 the endpoints are spent again exactly
+    as the operator left them, so a second cycle would block and a two-cycle driver
+    would make the spec contradict its own forbids. The one-cycle arithmetic is
+    gated in `harness/lib`.
+    **TWO AUTHORING TRAPS THE WAVE ESTABLISHED.** `RemoveInventory(part=...,
+    kind=...)` is NOT the inventory-pickup success line: it lives in
+    `LiveInventoryPickupWriter.RemoveOne`'s CATCH block and fires only when the
+    removal THREW, so requiring it reds every correct run and passes only on an
+    exception - the success line is `Inventory remove (loaded): ... removed=1`, and
+    a `harness/lib` cell now keeps the catch-block string out of the required list
+    permanently. And `PickupDebit plan:` is deliberately not required: it belongs
+    to the per-window pickup path only, so requiring it would gate the route's
+    SHAPE, which the census is meant to read rather than assume; `Origin debit:`
+    prints on both shapes because both construct `LiveOriginDebitWriters`.
+    **ONE READING CORRECTED ON BOTH FIXTURES**: "the endpoint cannot resolve,
+    because `Part.Undock` re-pidded it" is true of the PID STEP only.
+    `RouteEndpointResolver` walks RootPart -> Pid -> SurfaceProximity, and the
+    proximity step is bounded by `SurfaceProximityRadiusMeters = 500` against the
+    window's own recorded `ENDPOINT_AT_DOCK` - which every landed rover on both
+    fixtures is within metres of.
     **THE AUTHORING FACT THE WAVE ESTABLISHED FOR THE WHOLE PROGRAM:
     `DeriveCandidates` is NOT a load-time pass.** Its only callers are
     `RouteRunPrompt` (post-TREE-COMMIT) and `LogisticsWindowUI` (window-open, ~1
@@ -2706,17 +2810,18 @@ gated behind the ROUTE-ORIGIN-PROOF-PRODUCER-UNREACHABLE probe (todo) before any
     lines that produce none. A driven headless run prints NONE, so a lane that
     requires one reds a correct run - pin the create verb's own synchronous
     `routecommand create gate` line instead.
-    **THE OPERATOR FOLLOW-UP, which neither lane takes, AND THE OBVIOUS VERSION OF
-    IT DOES NOT WORK.** Re-flying the same three rovers with B (and/or A) typed
-    Base in the tracking station BEFORE the dock closes reason 1 at the producer.
-    It does NOT close reason 2: the re-hash is a defect in the hash, not in how
-    the cargo was moved, so a typed-depot re-fly that moves ANY re-hashing cargo
-    part is refused again with the same `mixedPickup=1`. Until the hash defect has
-    a design call, a re-fly aimed at the suite's first route-carrying MULTI-HOP
-    relay fixture must move NO stored inventory and transfer resources only - or
-    move only cargo whose modules write nothing computed in `OnSave` (`evaChute`
-    and `evaScienceKit` both survived the move on this very flight, which is the
-    cheapest available evidence of which parts are safe).
+    **THE OPERATOR FOLLOW-UP AS IT STOOD BEFORE THE FLIP, kept because the reasoning
+    is what the two fixes discharge.** It read: re-flying the same three rovers
+    with B (and/or A) typed Base in the tracking station BEFORE the dock closes
+    reason 1 at the producer, but does NOT close reason 2, so a typed-depot re-fly
+    that moves ANY re-hashing cargo part is refused again with the same
+    `mixedPickup=1`; a re-fly aimed at a route-carrying multi-hop relay fixture
+    must move NO stored inventory and transfer resources only. **NEITHER
+    CONSTRAINT SURVIVES.** Kind matching (PR #1620) makes any cargo safe to move,
+    and the pickup-window origin derivation makes the depot type irrelevant, so the
+    only thing a follow-up re-fly is still FOR is the SPENT-ENDPOINT problem above:
+    a relay save written before the delivery lands, so a driven cycle has somewhere
+    to put the cargo.
 
 **H55 GREEN 2026-09-01 (run 2, `2026-09-01_2229`, 6/6, re-tiered nightly): B5, B6, B7 and B8 are MEASURED on a driven run - the only Tier B item still owing anything is B4, gated on the probe reading on a LANDED host.**
 
@@ -3076,14 +3181,17 @@ D10 rows, which H56 owes and this item never did.
 - ~~**saveparse `route` expectation block** - `routes` is a RESERVED block
   name today (IMPROVEMENT-SAVEPARSE-NO-ROUTES-FACET).~~ **LANDED 2026-09-02
   (PR #1603): `[expectations.routes]` parses the ParsekScenario `ROUTES` node and
-  is live surface, not reserved.** Four committed specs declare one - H58, H59,
-  V18T and RVR-5 - all REPORT-ONLY, per the standing protocol that a block is
+  is live surface, not reserved.** FIVE committed specs declare one - H58, H59,
+  V18T, RVR-5 and RVR-7 (2026-09-03) - all REPORT-ONLY, per the standing protocol
+  that a block is
   armed only after a report-only READING run whose facets match the declared
   windows. What it does NOT reach is the `ROUTE_CONNECTION_WINDOWS` node on a
   RECORDING: that is a different surface written by a different codec
   (`RouteProofCodec`, not `RouteCodec`), so window pins stay builder-side in
-  `build_rover_route_recorded.py` / `build_rover_relay_recorded.py` and should
-  stay there.
+  `build_rover_route_recorded.py` / `build_rover_relay_recorded.py` /
+  `build_rover_relay_c_recorded.py` and should stay there. The same is true of the
+  `ROUTE_ORIGIN_PROOF` node, which no facet reads either: `rover-relay-c-recorded`
+  ships two of them naming the WRONG origin, and they are pinned builder-side.
 - ~~**Fixture: `logistics-rover-a` harvest** (RVR-1/2 host).~~ **LANDED
   2026-08-30 as `harness/fixtures/saves/rover-route-recorded`** - named for the
   LANE and never for the source save, because `run.py::stage_fixture` rmtree's
@@ -3203,7 +3311,7 @@ Remaining fail-open surfaces, ranked:
    AND ARMED on its one declarer - S4.1's asserts stopped being comments and became
    a gate that has been watched both pass and fail. CLOSED FURTHER 2026-09-02 (PR
    #1603): the route family shipped as `[expectations.routes]`, which parses the
-   `ROUTES` node and has four committed declarers (H58, H59, V18T, RVR-5), all
+   `ROUTES` node and has five committed declarers (H58, H59, V18T, RVR-5, RVR-7), all
    REPORT-ONLY pending their reading runs. `loop` alone stays reserved BY CHOICE (the constant
    `hlib.RESERVED_EXPECTATION_BLOCKS` still lists the singular `route` too, as a retired
    spelling kept so a spec cannot declare it by mistake):

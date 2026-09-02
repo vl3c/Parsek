@@ -2924,11 +2924,15 @@ class CommittedFixtureSweepTests(unittest.TestCase):
         #     OTHER direction from the sibling's: the two route windows name
         #     target pids 2123618197 and 831319732 (the ORIGIN recordings'), but
         #     the LIVE rovers B and A carry 35783242 and 1625259141 because
-        #     `Part.Undock` re-pids the separated half. So
-        #     `RouteEndpointResolver.TryResolveEndpoint`, which resolves by
-        #     `FlightGlobals.FindVessel(pid)`, would find no live endpoint at
-        #     all - a third, independent reason this is a refusal host and not a
-        #     delivery host.
+        #     `Part.Undock` re-pids the separated half.
+        #     CORRECTED 2026-09-03: this used to conclude that
+        #     `RouteEndpointResolver.TryResolveEndpoint` "would find no live
+        #     endpoint at all", and named that a third reason the fixture cannot
+        #     host a delivery. STRUCK. The resolver walks RootPart -> Pid ->
+        #     SurfaceProximity, and the proximity step is bounded by
+        #     `SurfaceProximityRadiusMeters = 500` against the window's own
+        #     recorded `ENDPOINT_AT_DOCK` - which these landed rovers are within
+        #     metres of. Only the PID step misses.
         #   TWO route windows, BOTH TARGET-branch, each with its target pid
         #     carried by a recording in a DIFFERENT committed tree. The sibling
         #     holds that property once; this fixture holds it twice, which is
@@ -2982,6 +2986,140 @@ class CommittedFixtureSweepTests(unittest.TestCase):
             # `candidate-ineligible` to `candidate-dismissed` while every other
             # facet still read correct. Both are asserted by
             # `build_rover_relay_recorded.py::verify_no_route_state` as well.
+            "routes": {
+                "count": 0, "dormant": 0, "stops": 0, "sourceRefs": 0,
+                "completedCycles": 0, "skippedCycles": 0,
+                "codecRejects": 0, "unparsed": 0, "unknownStatuses": 0,
+                "unknownConnectionKinds": 0,
+                "statuses": {}, "connectionKinds": {},
+                "originBodies": {}, "destinationBodies": {}, "holdKinds": {},
+                "ids": [], "destinationVesselPids": [],
+                "dismissedCandidates": 0, "promptedCandidates": 0,
+            },
+        },
+        # --- THE WRONG-PROOF RELAY HOST (RVR-7) --------------------------
+        # PROVENANCE: the operator's SECOND hand-flown relay, the SANDBOX save
+        # `logistics-rover-c`, flown 2026-09-02 and collected into the umbrella
+        # `logs/2026-09-03_0026_rover-c/`. Harvested from a scratch COPY with
+        # `--keep-parsek --expect-situation ORBITING` (never `--force`) and
+        # finished by `harness/tools/build_rover_relay_c_recorded.py`. Same
+        # provenance class as `rover-relay-recorded`.
+        #
+        # WHAT IT IS: three identical 16-part rovers named A, B and C on the KSC
+        # shore, all LANDED, each with one `probeStackSmall`, two
+        # `ConformalStorageUnit` containers of three slots and one `dockingPort2`.
+        # C drove to B, docked at UT 155.82, loaded +154.4 LiquidFuel
+        # (B 200 -> 45.6) plus three stored items, undocked at UT 212.54, drove to
+        # A, docked at UT 274.18, unloaded 200 LiquidFuel (A 200 -> 400) plus four
+        # items, undocked at UT 335.32 and drove off. Saved at UT 410.40 from the
+        # SPACE CENTER.
+        #
+        # WHY IT EXISTS ALONGSIDE `rover-relay-recorded`, WHICH IT OTHERWISE
+        # RESEMBLES: it is the only committed save in the corpus that carries
+        # PERSISTED `ROUTE_ORIGIN_PROOF` NODES, and BOTH NAME THE WRONG ORIGIN.
+        # Written by the 2026-09-02 undock binder (PR #1618) before the analysis
+        # learned to derive the origin from the PICKUP WINDOW, and quoted verbatim
+        # in the builder header from the source flight's own KSP.log:
+        #   hop 1 (the PICKUP at B) bound `originName='C' originPid=612987736` -
+        #     the TRANSPORT ITSELF - and put B's root part in the transport slot,
+        #     the two halves exactly inverted;
+        #   hop 2 (a pure DELIVERY, with no source at all) bound
+        #     `originName='A' originPid=4280917262` - the DESTINATION.
+        # Both record `pickup=Carried pickupValidated=0`. Every other route fixture
+        # carries ZERO proof nodes, so these bytes are the ONLY subject on which an
+        # analysis can be shown to IGNORE a bound proof. `saveparse.py` has no
+        # origin-proof facet, so the two nodes are pinned builder-side by
+        # `verify_wrong_origin_proofs` and wired in by
+        # `RoverRelayCRecordedFixtureDriftTests`.
+        #
+        # OTHER MEASURED BYTES:
+        #   save clock (FLIGHTSTATE UT) 410.3999999999167, Mode SANDBOX, 9 VESSEL
+        #     nodes of which 3 are real (`C` 612987736 Probe LANDED - the active
+        #     vessel after the builder's re-point - plus `B` 90564594 Rover and `A`
+        #     4280917262 Probe, all LANDED, all 16 parts) and 6 are stock asteroids
+        #     kept verbatim.
+        #   THE ACTIVE VESSEL IS A BUILDER EDIT. The source was saved from the
+        #     SPACE CENTER, so KSP left `activeVessel = 0` pointing at
+        #     `Ast. RQL-681`; that save BOOTS (IsLoadedGameFocusable accepts it)
+        #     straight into solar orbit with every rover unloaded. Step 1 of the
+        #     builder re-points to index 5.
+        #   THE HOP-1 IDENTITY SWAP. KSP resolved the hop-1 merged vessel to B's
+        #     identity, so the dock member `39ac117a` carries B's pid AND B's
+        #     `recordedVesselGuid`. Consequences: window 0 is INITIATOR-branch
+        #     where BOTH of the sibling's windows are TARGET-branch (only window 1
+        #     is TARGET-branch here), the origin binder inverted the halves at hop
+        #     1, and the relay tree's ROOT `8604fbc7` carries no `_vessel.craft` -
+        #     the same dock-merge-parent shape as the sibling's `31e84302`, but
+        #     invisible to the guid correlator in `CommittedFixtureMirrorTests`,
+        #     which grew a third exemption for it.
+        #   THE PID SPLIT ACROSS THE UNDOCKS. Window 1 names target pid 2123618197
+        #     (rover A as its own launch recorded it) while the LIVE A carries
+        #     4280917262. Unlike the sibling that does NOT strand the endpoint:
+        #     `RouteEndpointResolver` falls back to a great-circle proximity search
+        #     bounded by `SurfaceProximityRadiusMeters = 500` and the live A sits
+        #     ~9 m from the window's recorded `ENDPOINT_AT_DOCK`.
+        #   THE FIXTURE IS STAGED AT START-OF-CYCLE, and this is a BUILDER EDIT to
+        #     FLIGHTSTATE, not the harvested state. As harvested the endpoints were
+        #     SPENT (B LiquidFuel 45.6 / 400 against its own window's 154.4 pickup
+        #     manifest, A 400 / 400 with 6 of 6 inventory slots occupied), so both
+        #     all-or-nothing eligibility gates were false and every driven cycle
+        #     blocked emitting nothing. Builder step 3 restores each PHYSICAL
+        #     endpoint to the state ITS OWN window recorded at ITS dock - B from
+        #     window 0's `DOCK_ENDPOINT_*`, A from window 1's - so both now read
+        #     LiquidFuel 200 / 400 with three of six slots occupied, with the
+        #     STOREDPART bytes LIFTED VERBATIM from the window snapshots (inner
+        #     `persistentId` included, which is how the placement is audited: rover
+        #     A holds a station at slot 1 in BOTH containers and only the pid says
+        #     which was the original). The transport C is UNTOUCHED at 154.4 / 400.
+        #     Precedent: `build_rover_route_recorded.py` step 3, which strips the
+        #     `STOREDPART` nodes a hand-driven Send Once had already delivered into
+        #     ITS endpoint. NONE OF THE FACETS BELOW MOVES - the repair edits
+        #     FLIGHTSTATE and every facet here reads ParsekScenario.
+        #   `terminalStates` SUMS TO 7, NOT 10: the two dock members and the first
+        #     segment of rover A's post-undock chain carry no `terminalState`.
+        #   `branchPoints` is the same Dock 2 / Undock 2 ALTERNATION as the
+        #     sibling's, and carries no `JointBreak` and no `Launch`.
+        #   `minAuthoritativeSidecars` is 39 = 10 x .prec + 10 x .pann +
+        #     9 x _vessel.craft + 10 x _ghost.craft.
+        #   pointCount total 769 over the 10 recordings (largest 153, smallest 1).
+        #   The three rovers sit 313 m (A-C), 731 m (A-B) and 1041 m (B-C) apart:
+        #     far outside the ~200 m dock range, well inside physics range.
+        #
+        # WHAT THE FIXTURE DOES NOT CARRY: `Parsek/Saves` (FIVE `parsek_rw_*` plus
+        # a `parsek_career_start`, pruned by the harvest with BOTH `rewindSave`
+        # hints cleared), `Ships/` (the collected save carried none, and this is a
+        # RECORDED subject that launches nothing), and the `.craft.txt` snapshot
+        # mirrors.
+        "rover-relay-c-recorded": {
+            "trees": 3, "committedTrees": 3, "recordings": 10,
+            "supersedes": 0, "tombstones": 0, "rewind_points": 0,
+            "rewind_retirements": 0,
+            "terminalStates": {"Landed": 5, "Docked": 2},
+            "branchPoints": {"Dock": 2, "Undock": 2},
+            "minAuthoritativeSidecars": 39,
+            "recordingIds": ["2ce8804f5f5b4bfdb4e9483cf827c593",
+                             "39ac117a8a8b4d61b1296983e7d538a8",
+                             "4a31577192894f9ab7390db3f00bfc35",
+                             "4a61a530e8784a2c9322f00d18ab422f",
+                             "5c8476924adb4a1d8bf0215034b69e78",
+                             "8604fbc77d54482eae83424b7e401954",
+                             "9fed706a8b85498e9f20a06aa80c3464",
+                             "a597f168e5d24e4f94f0803f80246832",
+                             "b9df0ee00fd84831a0d9619b4e34fc97",
+                             "ec4bf428ea0048adbeaede46aa2f6b49"],
+            "schemaGeneration": 4,
+            # EVERY ROUTE COUNT ZERO, exactly as the sibling. The DLL that wrote
+            # these bytes is the one that bound the two wrong proofs and had not
+            # yet learned to derive the origin from the pickup window, so it never
+            # offered the relay tree as a candidate. A `promptedCandidates` row
+            # appearing after a re-harvest would mean the save came from a
+            # different build and the fixture is no longer the override's subject;
+            # a `dismissedCandidates` row would make a create answer
+            # `candidate-dismissed` while every other facet still read correct.
+            # Both are asserted by
+            # `build_rover_relay_c_recorded.py::verify_no_route_state` as well.
+            # NOTE what this facet CANNOT see and what therefore lives
+            # builder-side: the two `ROUTE_ORIGIN_PROOF` nodes themselves.
             "routes": {
                 "count": 0, "dormant": 0, "stops": 0, "sourceRefs": 0,
                 "completedCycles": 0, "skippedCycles": 0,

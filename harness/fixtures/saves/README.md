@@ -500,10 +500,11 @@ omission: the pin and the prose sit in the same place, so a re-harvest that move
 shape reds against the paragraph describing it. Do not restate a recorded fixture's shape
 here; a second copy of a moving list is a second thing to leave stale.
 
-THREE ENTRIES SIT HERE ANYWAY, each for its own reason. `rover-route-recorded` and
-`rover-relay-recorded` are POINTERS worth keeping, because the naming rule they rest on
-can destroy an operator's own save if it is ever forgotten - and because the relay's
-reason to exist is two fail-closed REFUSALS that no structural facet can express.
+FOUR ENTRIES SIT HERE ANYWAY, each for its own reason. `rover-route-recorded`,
+`rover-relay-recorded` and `rover-relay-c-recorded` are POINTERS worth keeping, because
+the naming rule they rest on can destroy an operator's own save if it is ever forgotten -
+and because the two relays' reasons to exist are things no structural facet can express
+(one carries ZERO origin proofs, the other TWO that name the WRONG origin).
 `rover-route-career` is not a harvest at all - it is file-constructed from two committed
 inputs, exactly like everything above this section - so it belongs to this file's scope
 even though its payload is recorded. No entry restates a shape `RECORDED_FIXTURES`
@@ -556,7 +557,11 @@ reds in `harness/lib` rather than on a flight.
 
 ### rover-relay-recorded (GAME Mode = SANDBOX, 3 real vessels + 3 asteroids)
 
-The UNTYPED-DEPOT RELAY host (RVR-5 / RVR-6), landed 2026-09-02. Harvested from a scratch
+The ZERO-PROOF RELAY host (RVR-5 / RVR-6), landed 2026-09-02. **READ THE 2026-09-03
+UPDATE AT THE END OF THIS SECTION FIRST**: the two fail-closed refusals described below
+are both CLOSED, and RVR-5 now pins the ADMISSION of this relay rather than its refusal.
+The refusal material is kept verbatim because these bytes are unchanged and the two
+producer readings are still the only committed record of what the old behaviour was. Harvested from a scratch
 COPY of the operator's hand-flown `logistics-rover-B` save (flown 2026-09-02, collected
 into the umbrella `logs/2026-09-02_2041/`), finished by
 `harness/tools/build_rover_relay_recorded.py`, shape pinned in `RECORDED_FIXTURES` and
@@ -628,6 +633,172 @@ a future re-harvest could silently lose:
 
 All four are asserted by the builder's `--check`, so a re-harvest that lost any of them
 reds in `harness/lib` rather than on a flight.
+
+**UPDATE 2026-09-03 - BOTH REFUSALS ARE CLOSED AND RVR-5 IS NOW A POSITIVE LANE.** Reason
+2 was fixed by PR #1620, which rules stored inventory cargo GENERIC and matches it BY KIND
+(part name + variant + per-resource fill bucket; module state ignored entirely), so stock's
+transit-added `canComm` no longer touches the key - proven headless over these exact bytes
+by `Source/Parsek.Tests/Logistics/InventoryPayloadKindKeyTests.cs`. Reason 1 was closed by
+PR #1618, which moved the origin binding to the undock and off the depot type, plus the
+analysis-side follow-up that derives the ORIGIN from the PICKUP WINDOW - the vessel the
+transport took cargo FROM. Both serve the operator ruling of 2026-09-03: **route candidates
+come from the ACTIONS - dock, take fuel or cargo FROM, undock, dock elsewhere, transfer TO,
+undock = a valid route.** THE FIXTURE IS UNCHANGED; only what the analysis does with it
+moved, and the builder still pins the whole gain/loss walk and both hash constants. Its
+role is now the ZERO-PROOF half of a pair with `rover-relay-c-recorded` below.
+
+ONE FURTHER FACT WORTH RECORDING HERE, because the section above states the opposite and
+it cost a reading to settle: `RECORDED_FIXTURES` says a route driven over these bytes would
+find no live endpoint, since `Part.Undock` re-pidded rovers B and A away from the pids the
+windows name. That is true of the PID STEP only. `RouteEndpointResolver` walks RootPart ->
+Pid -> SurfaceProximity, and the proximity step is bounded by
+`RouteOrchestrator.SurfaceProximityRadiusMeters = 500` against the window's own recorded
+`ENDPOINT_AT_DOCK` coordinates, which every one of these landed rovers is within metres of.
+Treat "the endpoint cannot resolve" as unverified on both relay fixtures.
+
+### rover-relay-c-recorded (GAME Mode = SANDBOX, 3 real vessels + 6 asteroids)
+
+The WRONG-PROOF RELAY host (`RVR-7-rover-relay-c-dispatch`), landed 2026-09-03. Harvested
+from a scratch COPY of the operator's hand-flown `logistics-rover-c` save (flown
+2026-09-02, collected into the umbrella `logs/2026-09-03_0026_rover-c/`), finished by
+`harness/tools/build_rover_relay_c_recorded.py`, shape pinned in `RECORDED_FIXTURES` and
+wired into the suite by `harness/lib/test_build_rover_relay_c_recorded.py`.
+
+**IT IS NAMED FOR THE LANE AND NEVER FOR THE SOURCE SAVE**, the same safety rule both
+siblings state: `run.py::stage_fixture` rmtree's the same-named save inside the automation
+instance, so a fixture called `logistics-rover-c` would DELETE the operator's hand-played
+save the first time any scenario staged it.
+
+The flight: three identical 16-part rovers named A, B and C on the KSC shore, all LANDED on
+Kerbin, each with one `probeStackSmall`, two `ConformalStorageUnit` containers of three
+slots, and one `dockingPort2`; no grapple. C drove to B, docked at UT 155.82, LOADED +154.4
+LiquidFuel (B 200 -> 45.6) and three stored items, undocked at UT 212.54, drove to A, docked
+at UT 274.18, UNLOADED 200 LiquidFuel (A 200 -> 400) and four items, undocked at UT 335.32
+and drove off. Saved at UT 410.40 from the SPACE CENTER. The three rovers sit **313 m apart
+(A-C), 731 m (A-B) and 1041 m (B-C)** - far outside the ~200 m docking range, so the relay is
+a genuine drive, and well inside physics range of each other, so a route driven over these
+bytes would take `path=loaded`.
+
+**WHY IT EXISTS: IT CARRIES TWO PERSISTED `ROUTE_ORIGIN_PROOF` NODES AND BOTH NAME THE
+WRONG ORIGIN.** Every other route fixture in the corpus carries ZERO
+(`rover-route-recorded` skips on the KSC-site start, `rover-relay-recorded` on the untyped
+depot), so these are the only committed bytes on which an analysis can be shown to IGNORE a
+bound proof and derive the origin from the pickup window instead. The two lines the
+2026-09-02 undock binder wrote, quoted VERBATIM from the source flight's KSP.log (lines
+22361 and 25769):
+
+```
+RouteOriginProof bound at undock: recording=39ac117a8a8b4d61b1296983e7d538a8
+    ut=212.54000000003492 binding=BoundToHalfB recoveredFromStopStamp=0 originHalf=B
+    originRoot=3466447829 originName='C' originType=3 originPid=612987736
+    guidDecision=Stamped transportRoot=549109006 transportParts=16 pickup=Carried
+    pickupValidated=0 pickupDelta=[LiquidFuel=-154.4;inv:-3] startRes=1 undockRes=1
+    startInv=3 undockInv=1
+
+RouteOriginProof bound at undock: recording=b9df0ee00fd84831a0d9619b4e34fc97
+    ut=335.319999999985 binding=BoundToHalfB recoveredFromStopStamp=0 originHalf=B
+    originRoot=701791207 originName='A' originType=3 originPid=4280917262
+    guidDecision=Stamped transportRoot=3466447829 transportParts=16 pickup=Carried
+    pickupValidated=0 pickupDelta=[LiquidFuel=-200.0;inv:-4] startRes=1 undockRes=1
+    startInv=4 undockInv=3
+```
+
+Read the two `originName=` values against what actually happened:
+
+- **Hop 1 (dock at B) is the PICKUP** - C took +154.4 LiquidFuel and 3 items out of B, so
+  the correct origin is **B**. The binder bound **C**, the TRANSPORT ITSELF, and named B as
+  the transport (`transportRoot=549109006` is B's root part). The two halves are exactly
+  inverted.
+- **Hop 2 (dock at A) is the DELIVERY** - it has no pickup and therefore no origin at all.
+  The binder bound **A**, the DESTINATION.
+
+Both say `pickup=Carried pickupValidated=0`: the binder recorded that it never validated
+the pickup and simply bound the half it could see at the undock. **DO NOT "REPAIR" THE
+PROOFS** - stripping or correcting them turns this fixture into a second, slightly
+different copy of `rover-relay-recorded` and retires the only subject the override has. The
+builder's `verify_wrong_origin_proofs` reds if either proof ever becomes correct.
+
+Four more facts belong in a human-readable place:
+
+- **THE HOP-1 IDENTITY SWAP, and it is what makes this fixture structurally different
+  rather than a re-flight.** When C docked to B, KSP resolved the COMBINED vessel to
+  **B's** identity: the dock-member recording `39ac117a` carries B's `persistentId` AND B's
+  `recordedVesselGuid`. Three consequences. (a) **Window 0 is INITIATOR-branch** - its
+  `transferTargetPid` equals the carrying recording's pid - where BOTH of
+  `rover-relay-recorded`'s windows are TARGET-branch; only window 1 is TARGET-branch here,
+  so do not carry the sibling's "two target-branch windows" claim across. (b) It is the
+  mechanism behind wrong proof 1: `binding=BoundToHalfB` picked C, because half B of that
+  seam IS C once the merged vessel took B's name. (c) The relay tree's ROOT `8604fbc7`
+  carries no `_vessel.craft`, the same dock-merge-parent shape as the sibling's `31e84302`
+  - and **neither operator source carried one, or a `_vessel.craft.txt`, before any harvest
+  ran** (checked in both). The sibling passes `CommittedFixtureMirrorTests` only because
+  its merged vessel kept C's guid; here the guid correlator cannot see the identical
+  situation, so that cell grew a third, dock-merge-parent exemption in the same commit as
+  this fixture.
+- **THE FLOW DIRECTIONS ARE WHAT THE PROOFS CONTRADICT, and they close in BOTH
+  dimensions.** Window 0's transport GAINS (+154.4 LiquidFuel; station, chute and kit each
+  +1 by kind) against B losing the same, and window 1's transport LOSES (-200 LiquidFuel;
+  -1 / -1 / -2 by kind) against A gaining the same. A window whose transport gains is a
+  pickup and its endpoint is the SOURCE; one whose transport loses is a delivery and its
+  endpoint is the DESTINATION. That derivation - source B, destination A, ONE route - is
+  computed from the bytes by the builder's `verify_flow_directions`, not restated.
+- **IT IS STAGED AT START-OF-CYCLE, AND THAT IS A BUILDER EDIT.** As harvested the save
+  was written AFTER the relay ran, so the endpoints had already absorbed it: B held
+  LiquidFuel 45.6/400 against the window's own 154.4 pickup manifest, and A **400/400 with
+  6 of 6 inventory slots occupied**. `RouteOriginCargoCheck.HasRequired` (eligibility step
+  6) and `RouteDestinationCapacityCheck.HasCapacityForAllStops` (step 8) are both
+  all-or-nothing and both were false, so every driven cycle BLOCKED and emitted nothing. A
+  route REPLAYS a recorded run against the CURRENT live endpoints, so the subject a
+  dispatch lane wants is the state at the start of the NEXT cycle - and step 3 of the
+  builder produces it WITHOUT inventing a number, by restoring each PHYSICAL endpoint to
+  the state ITS OWN WINDOW recorded at ITS dock:
+
+  | vessel | restored from | LiquidFuel | inventory |
+  |---|---|---|---|
+  | B (pid 90564594) | window 0's `DOCK_ENDPOINT_*` | 200 / 400 | station, chute, kit x2 |
+  | A (pid 4280917262) | window 1's `DOCK_ENDPOINT_*` | 200 / 400 | station, chute, kit x2 |
+  | C (pid 612987736) | **untouched** | 154.4 / 400 | as the relay left it |
+
+  The `STOREDPART` bytes are **lifted verbatim** out of the window snapshots, inner
+  `persistentId` included, and only FLIGHTSTATE is touched - no recording, no window, no
+  branch point, no origin proof, since the windows are the repair's own input. C is left
+  alone because a dispatch never reads the transport's hold: the pickup writer removes
+  from the SOURCE and the delivery writer stores into the DESTINATION.
+  **The precedent is `build_rover_route_recorded.py` step 3**, which strips the two
+  `STOREDPART` nodes a hand-driven Send Once had already delivered into ITS endpoint -
+  same class of edit, same reason, and RVR-2 flight 1 is the flight that was lost to not
+  having it.
+  **WHERE THE PARTS GO WAS THE HARD HALF.** The window records a `slotIndex` but not which
+  of the two containers, and rover A holds a station at slot 1 in BOTH - so a
+  slot-index-only rule picks the wrong one. The placement table is derived by inner `PART
+  persistentId` on A (the window's three pids appear at container 0 slot 0, container 1
+  slot 0 and container 1 slot 1), corroborated by what is left on C and by B's own
+  surviving kit. The two stations even differ in size, 165 lines against 166: the
+  delivered one went through a live `StoreCargoPartAtSlot` and picked up
+  `ModuleGroundExpControl.OnSave`'s `canComm`.
+  **What the repair does NOT buy is a second cycle.** After cycle 0 the endpoints are
+  spent again exactly as the operator left them, which is why RVR-7 drives ONE send-once
+  where RVR-2 drives two - and why it can FORBID both hold tokens.
+- **Its `activeVessel` is a BUILDER EDIT.** The source was saved from the SPACE CENTER, so
+  KSP left `activeVessel = 0` pointing at `Ast. RQL-681`, a stock asteroid in solar orbit.
+  That save BOOTS - `IsLoadedGameFocusable` accepts it - straight into deep space with all
+  three rovers unloaded and every live-vessel `Logistics` guard skipping. The builder
+  re-points it to index 5, rover `C`, LANDED (type `Probe`, not the sibling's `Rover`). **A
+  re-harvest must repeat that re-point**, and the harvest's `--expect-situation ORBITING`
+  is armed against the SOURCE for exactly this reason - passing `LANDED` would fail the
+  gate on a healthy source. The six asteroids are KEPT verbatim, on the siblings'
+  precedent. **NEVER PASS `--force` to the harvest**: the situation gate is the only thing
+  between a clobbered source and a silently wrong fixture.
+
+All of the above is asserted by the builder's `--check`, so a re-harvest that lost any of
+it reds in `harness/lib` rather than on a flight. The repair's own post-conditions are
+re-derived from the windows rather than from constants, and one of them exists because the
+first draft got it wrong in a way every count still passed: a lifted `STOREDPART` carries a
+nested `PART` whose modules write their own `stagingEnabled` at a deeper indent, a
+prefix-only depth test anchored on one of those, and the `inventory` CSV was spliced into
+the middle of a stored part. The gate is now structural - the CSV must equal the
+slot-ascending part names of the container's own `STOREDPART`s, and be absent entirely when
+the container is empty - and it was mutation-tested.
 
 ### rover-route-career (GAME Mode = CAREER, the SAME 3 real vessels + 8 asteroids)
 

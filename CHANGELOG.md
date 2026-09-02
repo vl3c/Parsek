@@ -31,29 +31,44 @@ _(unreleased — entries accumulate here per commit)_
   refusal silent, and the message shown to the player no longer claims that inventory
   items are one-of-a-kind.
 
-- **Test coverage: a supply relay that the game correctly REFUSES to turn into a
-  route now has a saved subject and two automated lanes.** Everything the automated
-  tests had ever checked about supply routes was a route that worked; nothing checked
-  the cases where Parsek is supposed to say no. A hand-flown session was saved as a new
-  test subject: three identical rovers parked along the KSC shore, one of which drives
-  to the second, takes on fuel, drives on to the third and hands some over. It looks
-  from the outside exactly like a supply run that should be offered as a route, and it
-  is not offered - for two separate and entirely correct reasons. Neither depot rover
-  was ever marked as a Base or a Station in the tracking station, so the game recorded
-  no supply origin for either dock; and while docked the player carried one stored part
-  across from the second rover, which the game failed to recognise as the same part on
-  the far side and so treated as cargo that had appeared from nowhere. **The second of
-  those is a real bug**, now written up separately: KSP itself adds a computed value to
-  a part while it is being handed over, and Parsek's fingerprint for "is this the same
-  item" includes that value, so a part that was genuinely passed from one craft to the
-  other stops matching itself. Nothing about how the player moved it was wrong - the
-  message the game shows in that case is misleading, and the fix needs a decision that
-  has not been taken yet. One new lane drives the "create a route from this" action and
-  requires it to be refused, with the refusal naming that second reason exactly, so it
-  doubles as the check that will notice when the bug is fixed; a second lane runs the
-  whole supply test suite on top of the same save, which is the largest and most
-  complicated saved history any of those tests has ever run against. Nothing
-  player-facing changes.
+- **Test coverage: two hand-flown supply relays are now saved test subjects, and the
+  lanes over them check that the game ACCEPTS both.** Everything the automated tests
+  had ever checked about supply routes was a single hop from one craft to another; a
+  relay - drive to a second craft, take fuel and cargo on board, drive to a third and
+  hand some over - had no saved subject at all. Two hand-flown sessions now provide
+  one each: three identical rovers parked along the KSC shore, the middle one doing the
+  driving. **These entries replace what this file said a day earlier, and the change is
+  worth stating rather than quietly editing.** When the first relay was saved, the game
+  refused to offer it as a route for two reasons, and both have since been fixed: no
+  depot rover had been marked as a Base or a Station in the tracking station, so no
+  supply origin was recorded for either dock; and a stored part carried across while
+  docked stopped matching itself on the far side. Stored cargo is now counted by kind
+  (the entry above), and where a delivery's cargo came from is now worked out from the
+  pickup itself rather than from the vessel's type - so both relays are ordinary supply
+  work and the lanes over them require the route to be created, not refused.
+  **The second saved relay earns its place by being wrong in a way nothing else is.**
+  It was flown while the game was still writing down where cargo came from at the
+  moment of undocking, and it wrote both of its notes down incorrectly: at the pickup it
+  named the delivery rover itself as the source, and at the delivery it named the
+  receiving rover. Every other saved subject has no such note at all, so this is the
+  only one that can show the game correctly IGNORING a note that disagrees with what
+  actually happened and working the answer out from the pickup instead. The note is
+  deliberately left wrong; a check reads it and complains if anyone "fixes" it.
+  Three lanes now run over the two relays: one creates a route from each, and one runs
+  the whole supply test suite on top of the first, which is the largest and most
+  complicated saved history any of those tests has ever run against.
+  **The second relay is also the first test that drives a relay all the way through a
+  delivery.** Both sessions were saved AFTER the relay had finished, which left the rover
+  that gave fuel away nearly empty and the rover that received it full to the brim with no
+  free cargo slot - so a route over either had nowhere to take cargo from or put it. The
+  second save is now prepared at the START of the next round instead: the two rovers at
+  the ends are put back to exactly the fuel and cargo that same session recorded them
+  holding at each hand-over, read out of its own record rather than set to a number anyone
+  chose, and the rover that did the driving is left alone. With that, one full round runs:
+  it takes 154.4 fuel and three items from the first rover and hands 200 fuel and four
+  items to the second. The test refuses to pass if either end runs short, so if the
+  preparation is ever lost it says which end failed rather than quietly checking nothing.
+  Nothing player-facing changes.
 - **Supply routes: the game now works out where a delivery's cargo came from by
 - **Automated testing: three new checks now watch the between-planets supply route
   the map fix restored, and they have been proved able to fail.** They load the new

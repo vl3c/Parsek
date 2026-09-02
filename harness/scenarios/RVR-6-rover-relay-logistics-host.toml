@@ -134,7 +134,7 @@ tier = "nightly"
 description = "AUTHORED 2026-09-02, NEVER FLOWN. The isolated Logistics batch (46 admitted cells, 38 of them restore-after-run) over rover-relay-recorded - the FOURTH recorded host and the first THREE-TREE, NINE-RECORDING, TWO-WINDOW forest any isolated batch has booted. What it adds over H39/H40/RVR-1, whose attribute-level tally it shares exactly (total=47): TWO target-branch route windows with cross-tree partners rather than one, so every RouteProof walk has more than one subject for the first time; three committed trees rather than one or two; a committed corpus that is INELIGIBLE as it stands (RVR-5's subject - one designed refusal, plus the OPEN identity-hash defect LOGISTICS-INVENTORY-IDENTITY-HASH-BREAKS-ON-A-LIVE-CARGO-MOVE), so a Logistics cell that assumes the corpus is promotable has a host that refutes it; a drained partner vessel at LiquidFuel 0/400; and two other real rovers inside physics range at 336 m and 983 m. The SECOND product is the anti-data-loss floor: this is the largest committed corpus any isolated batch has subjected to 38 interleaved quickloads, and the count row is the only instrument pointed at it (the H39 census-2 lesson, which is how QUICKLOAD-OVER-COMMITTED-RESTORE-OVERLAP-DELETES-TREE-ON-SAVE was found). total=47 is attribute-exact and failed=0 is a literal; the split is INTERIM until the first census, and the interim pin's WHICH-CELLS gap is discharged by two REQUIRED cell tokens - RouteProof_ActiveAsTargetDockWindow_HasEndpointProof and RouteProof_CrossTreeCommittedPartner_HasEndpointProof, both of which RVR-1 measured PASSING on the only other target-branch host."
 instanceProfile = "stock-minimal"
 tags = ["ingame-batch", "isolated-batch", "logistics", "route-proof", "recorded-fixture",
-        "RVR-6", "pending-flight"]
+        "RVR-6"]
 
 [fixture]
 # KNOWN DAMAGED BYTES SHIPPED ON PURPOSE: the two undock background children
@@ -246,12 +246,28 @@ allowedAnomalies = []
 #
 # The first census measures it and the window is replaced with an exact pin in that
 # commit, in the same edit that replaces the tally and drops the id from INTERIM_PIN_IDS.
-count = { min = 9, max = 11 }
+# MEASURED EXACT 2026-09-02 (`2026-09-01`-era window {9, 11} replaced): the census read
+# `observed.recordings.count = 9`, so the load-time optimizer split H35 / H39 / H40 all
+# measure on their hosts does NOT happen on this corpus - the same property RVR-1 and
+# RVR-2 measured independently on `rover-route-recorded`. Below 9 means destroyed
+# sidecars; above it means a split this corpus has now been shown not to take.
+count = { min = 9, max = 9 }
 
 [expectations.logContracts]
-# NEVER FLOWN. `total=` is attribute-derived and source-synced; `passed=` and `skipped=`
-# are the interim halves and the id is declared in
-# `IsolatedBatchWiringGroupTests.INTERIM_PIN_IDS`.
+# **LIVE-PROVEN 2026-09-02 (run `2026-09-02_2234`, PASS attempt 1, wall 189 s, every
+# verifier PASS, analyzer red=0).** The tally is now MEASURED AND WHOLE -
+# `total=47 passed=38 failed=0 skipped=9` - so the id has LEFT
+# `IsolatedBatchWiringGroupTests.INTERIM_PIN_IDS` and its measured split is declared
+# in `MEASURED_SKIPPED`. `total=` remains attribute-derived and source-synced.
+#
+# THE SPLIT IS 38/9 WHERE RVR-1 MEASURED 39/8 on `rover-route-recorded`, i.e. ONE MORE
+# SKIP on this host. That is the interesting half of the census and it is exactly what
+# an interim `passed=` could not have told anyone: the two hosts differ in the ways the
+# header below predicts (three committed trees rather than two, two route windows
+# rather than one, a drained partner vessel, and two other real rovers inside physics
+# range at 336 m and 983 m), and one run-time `InGameAssert.Skip` guard reads those
+# differently here. WHICH cell moved is NOT recorded by the tally and is not claimed:
+# the two REQUIRED cell tokens below both matched, so it is neither of them.
 #
 # DERIVED, NOT GUESSED. The commands, so the next reader re-runs them rather than trusting
 # this block:
@@ -269,23 +285,24 @@ count = { min = 9, max = 11 }
 #    `allTests.Count(Status != NotRun)` over the single batch, so it counts FILTERED tests
 #    too.
 #
-#  - THE INTERIM `passed=` SPELLING IS `(?:9|[1-9][0-9]+)`, NOT the plain `[1-9][0-9]*`,
-#    and the difference is the load-bearing part. The ORDINARY (non-isolated) path's
-#    executable ceiling for this category is 8, so a plain floor of 1 would ACCEPT
-#    `passed=8` - the exact line a run that silently lost the `isolated` arg prints. H38
-#    and RVR-1 both used this spelling while interim, and
-#    `test_each_pin_rejects_both_the_vacuous_and_the_non_isolated_line` is what enforces
-#    it.
+#  - `passed=38` IS NOW A MEASURED LITERAL. While interim it was spelled
+#    `(?:9|[1-9][0-9]+)` rather than the plain `[1-9][0-9]*`, because the ORDINARY
+#    (non-isolated) path's executable ceiling for this category is 8 and a plain floor
+#    of 1 would have ACCEPTED `passed=8` - the exact line a run that silently lost the
+#    `isolated` arg prints. A literal 38 is strictly stronger than that guard, and
+#    `test_each_pin_rejects_both_the_vacuous_and_the_non_isolated_line` still enforces
+#    the property.
 #
 #  - `failed=0` IS PINNED AS A LITERAL EVEN THOUGH THE SPLIT IS INTERIM. A reading run may
 #    legitimately discover a SKIP; a cell that FAILS is a finding either way, and H38's
 #    run 1 is the worked example - it red on `failed=2` and produced one product defect
 #    plus two test defects.
 #
-#  - `skipped=[0-9]+` is the interim half. The attribute FLOOR is 1 (the SPACECENTER cell
-#    `InterBodyRoute_RealBuilder_ClassifiesReaimWindows_AndModuloFires`, which H34 owns);
-#    run-time guards can only push it higher. RVR-1 measured 8 on the closest relative and
-#    the header's cell-by-cell reading is a HYPOTHESIS written to be refuted, not a pin.
+#  - `skipped=9` IS MEASURED, and it sits EIGHT above the attribute floor of 1 (the
+#    SPACECENTER cell `InterBodyRoute_RealBuilder_ClassifiesReaimWindows_AndModuloFires`,
+#    which H34 owns). Run-time `InGameAssert.Skip` guards can only push it higher, never
+#    lower, which is why the value is declared in `MEASURED_SKIPPED` rather than derived.
+#    RVR-1 measured 8 on the closest relative; the extra skip is this host's own.
 #
 # THE BASELINE-SLOT LITERAL IS 38, not 47 and not 46: the runner logs
 # `ordered.Count(t => t.RestoreBatchFlightBaselineAfterExecution)` over the ADMITTED batch
@@ -327,7 +344,7 @@ required  = [
   "loadgame complete scene=FLIGHT save=.* game-loaded=true expected=Flight",
   "runtests start category=Logistics isolated=true",
   "Using batch baseline slot .* for 38 restore-after-run test\\(s\\)",
-  "BATCH_COMPLETE v1 total=47 passed=(?:9|[1-9][0-9]+) failed=0 skipped=[0-9]+ category=Logistics scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=47 passed=38 failed=0 skipped=9 category=Logistics scene=FLIGHT",
   "PASSED: LogisticsRouteProofRuntimeTests\\.RouteProof_ActiveAsTargetDockWindow_HasEndpointProof",
   "PASSED: LogisticsRouteProofRuntimeTests\\.RouteProof_CrossTreeCommittedPartner_HasEndpointProof",
   "flushandquit: save suppressed \\(batch baseline already restored\\)",

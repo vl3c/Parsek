@@ -1,0 +1,76 @@
+version = 0
+recordingSchemaGeneration = 4
+GAME_ACTION
+{
+	ut = 0
+	type = 21
+	actionId = act_c7a17a09136f4e7f9f9e8865a8251845
+	initialScience = 0
+}
+GAME_ACTION
+{
+	ut = 0
+	type = 22
+	actionId = act_f3daf98cc43043c596566cdb16b0dc24
+	initialReputation = 0
+}
+GAME_ACTION
+{
+	ut = 6.1199999999999575
+	type = 4
+	actionId = act_399a94140ca445b8941cad5042a14c90
+	recordingId = 2ce8804f5f5b4bfdb4e9483cf827c593
+	seq = 1
+	milestoneId = RecordsDistance
+	milestoneFundsAwarded = 4800
+	milestoneRepAwarded = 0
+	milestoneSciAwarded = 0
+}
+GAME_ACTION
+{
+	ut = 17.739999999999711
+	type = 4
+	actionId = act_d18c72a8693b42a4a1195ff62b57f609
+	recordingId = 2ce8804f5f5b4bfdb4e9483cf827c593
+	seq = 2
+	milestoneId = RecordsSpeed
+	milestoneFundsAwarded = 4800
+	milestoneRepAwarded = 0
+	milestoneSciAwarded = 0
+}
+GAME_ACTION
+{
+	ut = 155.8200000000059
+	type = 4
+	actionId = act_5ebaa81275a64e91989bfa70611ac098
+	recordingId = 8604fbc77d54482eae83424b7e401954
+	seq = 1
+	milestoneId = Kerbin/BaseConstruction
+	milestoneFundsAwarded = 5400
+	milestoneRepAwarded = 1
+	milestoneSciAwarded = 0
+}
+GAME_ACTION
+{
+	ut = 155.8200000000059
+	type = 4
+	actionId = act_8c9f82fca4474f71b45d309cbb110e21
+	recordingId = 8604fbc77d54482eae83424b7e401954
+	seq = 2
+	milestoneId = Kerbin/Docking
+	milestoneFundsAwarded = 2400
+	milestoneRepAwarded = 0
+	milestoneSciAwarded = 0
+}
+GAME_ACTION
+{
+	ut = 212.54000000003492
+	type = 4
+	actionId = act_57699c616bbc4adb89fa75b6d204d3f1
+	recordingId = 9fed706a8b85498e9f20a06aa80c3464
+	seq = 1
+	milestoneId = Kerbin/Landing
+	milestoneFundsAwarded = 800
+	milestoneRepAwarded = 0
+	milestoneSciAwarded = 0
+}

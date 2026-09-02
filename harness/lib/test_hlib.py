@@ -4310,8 +4310,19 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
     # pair is `raw=11 netted=5` then `raw=5 netted=5`, which is the reserve/release
     # pre-image identity measured live.
     #
-    # NON-EMPTY AGAIN 2026-09-02 for `RVR-6-rover-relay-logistics-host`, authored the
-    # same day and never flown. It is interim for EXACTLY the reason H39, H40 and RVR-1
+    # EMPTY AGAIN 2026-09-03. `RVR-6-rover-relay-logistics-host` FLEW ITS CENSUS on
+    # 2026-09-02 (run `2026-09-02_2234`, PASS attempt 1, wall 189 s, every verifier PASS,
+    # analyzer red=0) and its pin is now whole at `total=47 passed=38 failed=0
+    # skipped=9`, with the measured split declared in `MEASURED_SKIPPED`. THE READING
+    # THE CENSUS BOUGHT: 38/9 where RVR-1 measured 39/8 on `rover-route-recorded`, i.e.
+    # ONE MORE run-time skip on this host - exactly the thing an interim `passed=` could
+    # not have said, and the reason the interim class exists at all. Which cell moved is
+    # not recorded by the tally and is not claimed; both REQUIRED cell tokens matched, so
+    # it is neither of those. The `recordings.count` window was replaced with the
+    # measured exact 9 in the same commit. The paragraph below is KEPT as the record of
+    # what it owed and why.
+    #
+    # WHILE IT WAS INTERIM: authored 2026-09-02, never flown. It is interim for EXACTLY the reason H39, H40 and RVR-1
     # were: the split turns on what a RECORDED CORPUS and a LIVE CRAFT happen to contain,
     # and no attribute settles a run-time `InGameAssert.Skip`. `total=47` is
     # attribute-exact (shared with six siblings, so a 48th Logistics declaration moves all
@@ -4347,7 +4358,7 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
     # replaced whole, a MEASURED_SKIPPED entry is added if the run-time guards push
     # `skipped` above the attribute floor of 1, the `recordings.count` window is replaced
     # with an exact pin, and the id LEAVES this set in the same commit.
-    INTERIM_PIN_IDS = {"RVR-6-rover-relay-logistics-host"}
+    INTERIM_PIN_IDS = set()
 
     # id -> measured `skipped=` for members whose RUN-TIME InGameAssert.Skip guards
     # push the split above the attribute-derived floor. The attributes give a FLOOR
@@ -4424,6 +4435,27 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
         # this fixture exists to carry). What is NOT here, for the first time on any
         # recorded host: the active-as-target and cross-tree partner cells - both PASS.
         "RVR-1-rover-route-proof": 8,
+        # RVR-6 (`rover-relay-recorded`): 1 attribute-forced + 8 run-time. MEASURED off
+        # its census `2026-09-02_2234` (PASS attempt 1, wall 189 s, every verifier PASS,
+        # analyzer red=0), which read `BATCH_COMPLETE v1 total=47 passed=38 failed=0
+        # skipped=9 category=Logistics scene=FLIGHT`.
+        #
+        # ONE MORE SKIP THAN RVR-1's 8 ON THE OTHER RECORDED ROVER HOST, and that
+        # difference IS the census's product - it is precisely what an interim `passed=`
+        # could not have said, and the reason the interim class exists. WHICH cell moved
+        # is NOT recorded by the tally and is deliberately not claimed here: the runner's
+        # `BATCH_COMPLETE` line carries counts, not names, and inferring a name from a
+        # count is the guess this table exists to forbid. What IS known is what it is
+        # NOT: both of the spec's REQUIRED cell tokens
+        # (`RouteProof_ActiveAsTargetDockWindow_HasEndpointProof` and
+        # `RouteProof_CrossTreeCommittedPartner_HasEndpointProof`) matched on the same
+        # run, so the extra skip is neither of them. The spec header's cell-by-cell
+        # hypothesis named `Escrow_CompetingRouteSeesReservation_Holds` as the cell whose
+        # band this host could move (it skips on H39's 645.42 LF source and passes on H38
+        # / H40, and this host carries a partner drained to LiquidFuel 0/400); that
+        # remains a hypothesis, and closing it needs the run's own `SKIPPED:` roster
+        # rather than this number.
+        "RVR-6-rover-relay-logistics-host": 9,
     }
 
     @classmethod
@@ -15345,10 +15377,10 @@ class CommittedFixtureMirrorTests(unittest.TestCase):
     asserts BOTH halves, so a later sweep cannot quietly take the cited surface
     with it.
 
-    TWO EXEMPTIONS, and both are facts about what Parsek WRITES rather than
+    THREE EXEMPTIONS, and all three are facts about what Parsek WRITES rather than
     concessions. `RecordingSidecarStore.SaveRecordingFiles` writes a
     `_vessel.craft` only when the recording carries a `VesselSnapshot`, and there
-    are two shapes where it legitimately does not:
+    are three shapes where it legitimately does not:
 
       * a chain CONTINUATION recording (`chainIndex > 0`) is the same physical
         vessel as its chain head and reuses the head's snapshot. See
@@ -15356,9 +15388,15 @@ class CommittedFixtureMirrorTests(unittest.TestCase):
       * a SAME-LAUNCH sibling: a recording of a vessel some other recording in
         the same fixture already snapshotted, correlated by
         `recordedVesselGuid`. See `_same_launch_recordings_without_own_snapshot`.
+      * a DOCK-MERGE PARENT: a recording whose vessel was consumed by a dock
+        merge, which ends at the seam with no snapshot of its own. See
+        `_dock_merge_parents_without_own_snapshot`, added 2026-09-03 with
+        `rover-relay-c-recorded`, where the guid correlator above cannot see a
+        shape the sibling fixture only passes by luck of which half won the merged
+        vessel's identity.
 
-    Both are unioned in `_stems_exempt_from_vessel_snapshot`, and both are
-    narrow in the same way: the exemption exists only when the snapshot the
+    All three are unioned in `_stems_exempt_from_vessel_snapshot`, and all three
+    are narrow in the same way: the exemption exists only when the snapshot the
     pruned mirror would be rebuilt from IS committed somewhere in that fixture."""
 
     SNAPSHOT_MIRROR_SUFFIXES = ("_vessel.craft.txt", "_ghost.craft.txt")
@@ -15412,9 +15450,10 @@ class CommittedFixtureMirrorTests(unittest.TestCase):
                                  re.MULTILINE)
 
     def _stems_exempt_from_vessel_snapshot(self, committed):
-        """The union of the two legitimate shapes; see the class docstring."""
+        """The union of the three legitimate shapes; see the class docstring."""
         return (self._chain_continuations_without_own_snapshot(committed)
-                | self._same_launch_recordings_without_own_snapshot(committed))
+                | self._same_launch_recordings_without_own_snapshot(committed)
+                | self._dock_merge_parents_without_own_snapshot(committed))
 
     def _chain_continuations_without_own_snapshot(self, committed):
         """Stems a missing `_vessel.craft` is LEGITIMATE for.
@@ -15521,6 +15560,69 @@ class CommittedFixtureMirrorTests(unittest.TestCase):
                 for rid in rids:
                     if (prefix + rid + "_vessel.craft") not in committed:
                         exempt.add(prefix + rid)
+        return exempt
+
+    _BRANCH_POINT_BLOCK_RE = re.compile(r"\n\t{3}BRANCH_POINT\n")
+    _MERGE_CAUSE_RE = re.compile(r"^\s*mergeCause = (\S+)\s*$", re.MULTILINE)
+    _PARENT_ID_RE = re.compile(r"^\s*parentId = (\S+)\s*$", re.MULTILINE)
+    _CHILD_ID_RE = re.compile(r"^\s*childId = (\S+)\s*$", re.MULTILINE)
+
+    def _dock_merge_parents_without_own_snapshot(self, committed):
+        """Stems a missing `_vessel.craft` is legitimate for, shape THREE.
+
+        A recording whose vessel is CONSUMED BY A DOCK MERGE ends at the seam and
+        is persisted with no `VesselSnapshot`, so
+        `RecordingSidecarStore.SaveRecordingFiles` writes it a `_ghost.craft` and
+        no vessel snapshot. NOTHING IS PRUNED IN THIS SHAPE, which is the whole
+        argument: the `_vessel.craft.txt` mirror this cell exists to protect never
+        existed either, so the "mirrors are safe to drop only because the binaries
+        are here" trade does not apply to it.
+
+        MEASURED IN BOTH OPERATORS' OWN SOURCE SAVES, before any harvest ran:
+        `rover-relay-recorded`'s `31e84302...` and `rover-relay-c-recorded`'s
+        `8604fbc7...` are the same shape - rover C's launch, ending at the relay's
+        first dock - and NEITHER carries a `_vessel.craft` OR a `_vessel.craft.txt`
+        on disk in the collected save.
+
+        WHY THE SHAPE-TWO GUID CORRELATOR DOES NOT COVER IT, which is what forced a
+        third rule rather than a widening of the second. The sibling passes today
+        only by luck of identity: KSP resolved ITS hop-1 merged vessel to the
+        TRANSPORT's identity, so the dock member inherited C's
+        `recordedVesselGuid` and looked like a same-launch sibling. On
+        `rover-relay-c-recorded` KSP resolved the merged vessel to the OTHER half's
+        identity instead, so the dock member carries rover B's guid and the
+        correlator sees no sibling at all - for a physically identical situation.
+        Correlating across a dock seam by guid is therefore not possible; the
+        TOPOLOGY is what says these two recordings are the same vessel.
+
+        NARROW IN THE SAME WAY AS THE OTHER TWO: the exemption requires the
+        recording to be the `parentId` of a `mergeCause = DOCK` BRANCH_POINT whose
+        `childId` recording DOES carry a committed `_vessel.craft` in the same
+        fixture. A fixture that lost the dock member's snapshot too still reds."""
+        exempt = set()
+        for name in sorted(os.listdir(FIXTURE_SAVES_DIR)):
+            sfs = os.path.join(FIXTURE_SAVES_DIR, name, "persistent.sfs")
+            if not os.path.isfile(sfs):
+                continue
+            with open(sfs, encoding="utf-8", errors="replace") as fh:
+                text = fh.read()
+            prefix = "%s/Parsek/Recordings/" % name
+            for block in self._BRANCH_POINT_BLOCK_RE.split(text)[1:]:
+                # Scope each block to its own node body: the split leaves the rest
+                # of the file trailing, so read only up to the closing brace.
+                body = block.split("\n\t\t\t}", 1)[0]
+                cause = self._MERGE_CAUSE_RE.search(body)
+                if cause is None or cause.group(1) != "DOCK":
+                    continue
+                parent = self._PARENT_ID_RE.search(body)
+                children = self._CHILD_ID_RE.findall(body)
+                if parent is None or not children:
+                    continue
+                if (prefix + parent.group(1) + "_vessel.craft") in committed:
+                    continue
+                if any((prefix + child + "_vessel.craft") in committed
+                       for child in children):
+                    exempt.add(prefix + parent.group(1))
         return exempt
 
     def test_every_committed_trajectory_keeps_its_readable_mirror(self):

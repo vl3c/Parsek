@@ -509,11 +509,18 @@ SOURCE_ACTIVE_VESSEL_NAME = "Ast. UYX-230"
 # two ENDPOINT recordings name pids 2123618197 (B) and 831319732 (A), but the LIVE
 # rovers B and A carry 35783242 and 1625259141: `Part.Undock` re-pids the
 # separated half, so the live vessel is not the pid its own recorded window names.
-# `RouteEndpointResolver.TryResolveEndpoint` resolves by
-# `FlightGlobals.FindVessel(pid)`, so a route driven over these bytes would find
-# NO live endpoint at all - which is a third, independent reason this fixture is
-# a refusal host and not a delivery host. Nothing in either lane depends on it;
-# it is stated so a future lane does not assume otherwise.
+#
+# CORRECTED 2026-09-03. This comment used to conclude "so a route driven over these
+# bytes would find NO live endpoint at all", and named that as a third, independent
+# reason the fixture could not host a delivery. THAT CONCLUSION IS WRONG and is
+# struck. `RouteEndpointResolver.TryResolveEndpoint` does not resolve by pid alone:
+# `NextEndpointStep` walks RootPart -> Pid -> SurfaceProximity, and the proximity
+# step is a great-circle search bounded by
+# `RouteOrchestrator.SurfaceProximityRadiusMeters = 500` against the window's own
+# recorded `ENDPOINT_AT_DOCK` coordinates - which every one of these LANDED rovers
+# is within metres of. Only the PID step misses. Nothing in either lane ever
+# depended on the claim; it is corrected rather than deleted so the next reader
+# does not re-derive it from the pid split alone.
 REQUIRED_VESSELS = (
     (ACTIVE_VESSEL_NAME, ACTIVE_VESSEL_PID, "Rover", "LANDED",
      "ebb4fcf9704e4f79ba8a46f004f4f5c3"),
