@@ -160,10 +160,13 @@ values = ["rewind-to-launch", "fast-forward", "rewind-to-separation", "refly-gat
 #     so what carries this cell is V18T's zero DEFERRALS against H59's nine observed
 #     HANDOFFS, read from different surfaces. A TS observation structurally cannot produce
 #     the handoff reading on either surface.
-# CLAIMED CONDITIONAL ON THE ARMED RE-FLIGHT: the census run (`2026-09-02_0947`) was green
-# but its tokens were value regexes, so the green did not GATE the behaviour. H59's tokens
-# are armed as of this commit and the re-flight is what converts the claim into a gate;
-# until it lands, read this cell as "measured once, gate unproven" - the status row says so.
+# CLAIMED UNCONDITIONALLY, and the three-run discipline is what earns it: census
+# `2026-09-02_0947` PASS (value regexes, gating nothing), armed attempt 1 `_1017` red on one
+# token that was an authoring defect in the spec (a run-local route id pinned as a literal),
+# armed re-flight `_1038` PASS attempt 1 with the tokens as literals, and a negative control
+# red on exactly the headline token with zero forbids. Three runs generated three DIFFERENT
+# route ids and produced an IDENTICAL render reading, so the behaviour behind this cell is
+# repeatable and its gate is proven able to fire.
 values = ["candidate-detection", "ksc-origin", "docked-depot-origin", "dock-producer",
           "claw-producer", "delivery", "pickup", "mixed-direction", "resource-cargo",
           "inventory-cargo", "harvest-provenance", "multi-stop", "multi-origin-escrow",

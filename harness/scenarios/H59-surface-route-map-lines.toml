@@ -451,9 +451,30 @@ id = "H59-surface-route-map-lines"
 #     own shape) and every doc and comment quoting the literal was swept. Both logs were
 #     then replayed against the whole contract - 18/18 required met and 0/6 forbids
 #     tripped on `2026-09-02_0947` AND on `2026-09-02_1017`.
-#     OWED FROM HERE: the ARMED RE-FLIGHT on the corrected token set, then the negative
-#     control - which was correctly HELD UNRUN while it carried the same stale literal,
-#     because it would then have red on TWO tokens and stopped being a control.
+#
+#   **ARMED RE-FLIGHT** - `2026-09-02_1038`, **PASS attempt 1**, wall 90 s,
+#     `expectations` mismatches=0 on the corrected 18 required / 6 forbidden tokens.
+#     ITS ROUTE ID IS `ec9c0743`, THE THIRD DISTINCT ONE ACROSS THREE RUNS
+#     (`de65a95d` / `b4380253` / `ec9c0743`), which is the character-class pin doing
+#     exactly the job the literal could not. THE RENDER READING IS IDENTICAL IN ALL
+#     THREE RUNS - the same two `routesDrawn=1 legsDrawn=1 skippedOwned=0` frames, the
+#     same nine `skippedOwned=1` frames, six `KSC SURFACE playback resolved`,
+#     `recordings.count = 5` - so this lane measures a REPEATABLE property rather than
+#     one reading, and that repetition is what the D10 claim rests on.
+#     saveParse read `status=REPORT gating=False blocks=- ... routes=1
+#     routeStatuses={'Active': 1} routeCodecRejects=0 mismatches=0`. NOTE `blocks=-`:
+#     the `[expectations.routes]` block below was added AFTER this run, so this run is
+#     NOT that block's reading run and may not be cited as one.
+#
+#   **NEGATIVE CONTROL** - run beside `_1038` from an uncommitted copy of this file
+#     with required token 11 flipped to a post-create frame that neither drew nor
+#     deferred. **PARSEK-FAIL(expectation) with EXACTLY ONE unmet token and ZERO
+#     forbids tripped**, then reverted. One token is the whole criterion: a control
+#     that reds on two has changed something structural and is not a control.
+#
+#   **THE THREE-RUN DISCIPLINE IS COMPLETE** (reading -> armed re-flight -> negative
+#     control). What this lane still owes is unrelated to it: a report-only reading
+#     run for the `[expectations.routes]` block, which no flight has evaluated.
 # =====================================================================================
 tier = "operator"
 description = "**CENSUS FLOWN, READ AND ARMED 2026-09-02: run `2026-09-02_0947`, PASS attempt 1, wall 99 s, every verifier green (anomalySweep `hits=[]`, analyzer PASS, saveParse REPORT `mismatches=0`, recordings 5 against the pinned 5). OUTCOME A IS MEASURED AND IT CAME BACK RICHER THAN EITHER PRE-REGISTERED OUTCOME.** The thirteen `Route line draw:` lines: two pre-create frames at `routesDrawn=0 cache=0`, then frame 5310 `routesDrawn=1 legsDrawn=1 skippedOwned=0 malformed=0 other=0 deact=0 cache=1`, then nine frames (5426..6383) at `routesDrawn=0 legsDrawn=0 skippedOwned=1`, then frame 6502 back to `routesDrawn=1 legsDrawn=1`. **THE ANSWER TO D11: a surface route's path IS on the flight map, and BOTH producers draw it** - the static overview when the ghost is not on that leg, and the ghost when it is (`skippedOwned=1` with `Polyline frame: scene=FLIGHT drawn=1 ... hidden=0` in the same window). Said precisely, because the loose version overclaims: the first drawn frame and all nine handoff frames fall inside the map-open window (12:48:23.415 to 12:48:44.007), while the second drawn frame is 140 ms AFTER `exitmapview` - the route-draw slot gates on the planetarium camera and the scene, not on `MapView.MapIsEnabled` - so what the run establishes is CO-PRESENCE of both producers with the handoff observed map-open, not a strict alternation inside one window. Outcome B never happened and its two diagnoses stayed at zero on all thirteen frames, so `malformed=[1-9]` and `other=[1-9]` are FORBIDS now rather than possibilities. The pre-registration's warning that `skippedOwned=1` is NOT an absence is the half that carried the result: read naively, nine of thirteen lines say no route line, and the correct reading is that the ghost had the leg. **IT DOES NOT CONTRADICT THE LANDED PIN** `LANDED-TERMINAL-LOOP-HAS-NO-MAP-PRESENCE-OUTSIDE-THE-FLIGHT-SCENE`: that pin is about proto-driven presence for a loop MEMBER and the member still gets no proto; what the census adds is that proto presence and route-overview presence are INDEPENDENT, exactly as the producer split predicted (`RouteTrajectoryLineRenderer.DrawAll` walks `RouteStore.CommittedRoutes` from its own cache and consults no proto, no `GhostMapPresence` entry and no terminal state, and publishes no ownership by design). **THE TWO DRAW LINES ARE PINNED AS A PAIR AND THAT IS THE POINT**: requiring only the `routesDrawn=1` line would pass on a run where the ghost never drew, requiring only the `skippedOwned=1` line would pass on a run where the overview never drew, and together they assert CO-PRESENCE - not order, and not map-openness, which tokens 8, 9 and 13 carry. **RC-OWN-DRAW-HALF-IS-MAP-GATED IS MEASURED ON A SURFACE-ROUTE SUBJECT, ON A SECOND INSTRUMENT THAN THIS LANE EXPECTED.** The log half landed as designed (four `Polyline frame: scene=FLIGHT drawn=1` summaries, where that debt's own evidence rule is that ZERO summaries means every map-gated LateUpdate bailed early). The PUBLISH half is proven by the route-draw line rather than by the manifest: `skippedOwned` increments only when `GhostTrajectoryPolylineRenderer.IsRenderingNonOrbitalLeg` returns true, and that method's whole body is a read of `drewNonOrbitalLegRecordings` - the SAME set `RenderCompositionRecorder.NoteOwnershipPublish` is fed from, on the same epilogue - so nine `skippedOwned=1` frames are nine frames on which the publish surface ran AND was populated with this route's member. V6M closed that debt on a MUN ORBIT subject with the qualifier written into the entry; the qualifier is now discharged for this class too, on log evidence. **THE KSC POSE PIN IS ARMED, and the epoch determinism is argued rather than assumed**: every input to the phase is a literal (committed fixture, one `TimeJump ut=1600`, a `SaveGame` right after it), the exported PLAN UNIT gives `spanStartUT` 468.50 / `spanEndUT` 513.54 against `cadenceSeconds=50` so the out-of-window dead zone is 4.96 s per cycle, the measured KSC dwell is 10.274 s of wall clock (`ParsekKSC initialized` 12:48:47.550 -> `exportrendermanifest ok` 12:48:57.824) for a 2.07x margin, and - the load-bearing half - THE DWELL IS POLL-BOUND RATHER THAN MACHINE-BOUND: `run.py`'s fixed `POLL_INTERVAL_SECONDS = 0.25` x 40 ticks is a 10 s floor no matter how fast the machine is (0.257 s/tick measured), so a faster machine cannot shrink it and a slower one only lengthens it. A future red on that token ALONE is an epoch reading and the fix is a longer dwell, never unpinning. The two `KSC point skipped` / `KSC segment skipped` negatives are forbidden, V22K's reason verbatim. **WHAT IS DELIBERATELY NOT ARMED: `[expectations.renderComposition]`, which stays BARE.** Its route counters read `routeLineBuilds=0 routeLegDefers=0 routeCoDrawViolations=0 ownershipChanges=0` while the log shows one build and nine handoffs, and both are correct: the recorder Resets on `OnGameSceneSwitchRequested` (per-scene BY DESIGN), the file has ONE fixed path, and a VERB export is never routed through the anti-clobber guard - so this lane's SPACECENTER export overwrote the FLIGHT manifest the scene-exit auto-flush had already written. The exported file proves it (`scene = SPACECENTER`, one PLAN UNIT `host = KSC`, one CLOCK_EVENT, zero route records). A `routeLineBuilds = { min = 1 }` window would therefore be STRUCTURALLY UNSATISFIABLE on this lane's own step list - the V17M mistake in a fourth costume - and the three log-side instruments carry those facts instead. Filed as RENDER-MANIFEST-VERB-EXPORT-IN-A-SECOND-SCENE-CLOBBERS-THE-FIRST-SCENE-ACCUMULATION (REPORT-ONLY, out of package). **ONE AUTHORING JUDGEMENT WAS CONFIRMED RATHER THAN LUCKY**: V18T's vacuity forbid `SelectGhostDrivingBackingMissions: .*skippedByStatus=[1-9]` was deliberately not copied because this lane CREATES then ACTIVATES, so its route is genuinely Paused for a window; the log carries `ghostDriving=0 skippedByStatus=1 skippedNull=0 totalRoutes=1` exactly once, and copying that forbid would have red the run. The route is created rather than loaded because the fixture carries no `ROUTES` node (the property RVR-2 exploits) and a created route is `Paused`, which is not GhostDriving. Jump UT 1600 is RVR-2's, measured forward on these exact bytes on 2026-09-01. No dispatch token is required or forbidden - those are RVR-2's assertions. `allowedAnomalies = []` held with zero hits. **ARMED ATTEMPT 1 (`2026-09-02_1017`) red PARSEK-FAIL(expectation) on EXACTLY ONE token, zero forbids, and it was an ARMING DEFECT IN THIS FILE rather than a product finding**: the build line had been pinned at the census run's `route=de65a95d` while that run emitted `route=b4380253`, because the route is CREATED by step 9 and its id is generated per run. EVERYTHING ELSE REPRODUCED IDENTICALLY - the same 2 pre-create / 2 drawn / 9 handed-off split, six KSC pose lines, five Polyline summaries, recordings 5 - which turns the census from one reading into a repeatable measurement and corroborates the KSC epoch argument by repeat rather than by argument. The id is now the character class `[0-9a-f]{8}` (`RouteIds.Short`'s own shape); the one id still pinned as a literal is the TREE, which the fixture ships. Both logs replay 18/18 required met and 0/6 forbids tripped. OWED: the ARMED RE-FLIGHT on the corrected set and then the negative control; the D10 `route-map-lines-surface` flavor is claimed CONDITIONAL on that re-flight."
@@ -1061,6 +1082,102 @@ forbidden = [
 # The RVR-2 note above stands as written: the run's one CLOCK_EVENT is a `cycle-rollover`,
 # not a `route-dock-crossing`, so the predicted difference did not materialise on this
 # epoch - recorded rather than quietly dropped.
+
+[expectations.routes]
+# THE M-C2 SUPPLY-ROUTE BLOCK (`harness/lib/saveparse.py`, shipped 2026-09-02 by
+# PR #1603). **REPORT-ONLY: `gating` IS DELIBERATELY OMITTED**, per the standing
+# report-only-first protocol every save-parse block is held to - arming is a
+# per-scenario operator decision taken only after a report-only READING RUN whose
+# facets match the windows below. V18T is the facet's first and only armed
+# declarer, and it earned that off FIVE offline reads plus an armed re-flight and
+# a negative control; this lane has none of that yet.
+#
+# WHY THE BLOCK IS WORTH DECLARING HERE AT ALL. This is the only committed lane
+# that CREATES its route rather than loading one, so its produced save is the only
+# place the create -> activate -> one-dispatch chain is visible as BYTES. The log
+# contracts above assert that chain from lines the run printed; this block will
+# assert the state those lines left behind. A route that flipped status after the
+# last log line, or one the next load would DROP, is invisible to a token and
+# visible here.
+#
+# **NEVER EVALUATED ON A RUN. NOT ONE FLIGHT HAS READ THIS BLOCK.** It was added
+# AFTER the armed re-flight `2026-09-02_1038`, whose saveParse row reads
+# `status=REPORT gating=False blocks=-` - `blocks=-` being the proof: at run time
+# this lane declared no save-structure block at all, so 1038 is NOT this block's
+# reading run and must never be cited as one. What the windows below rest on is
+# (a) the log evidence listed next, and (b) ONE OFFLINE READ, described honestly
+# below. Arming requires this block's OWN report-only reading run - a flight that
+# declares it and comes back with the facets in its result JSON.
+#
+# **THE OFFLINE READ, and what it is worth.** An
+# `saveparse.observed_routes_facets` call over the automation instance's
+# `saves/rover-route-recorded/persistent.sfs`, taken while it carried
+# `name = H59 Surface Route` with `id = ec9c0743...` - the route id run 1038
+# generated, so those bytes ARE that run's output - returned:
+#     count 1 / dormant 0 / statuses {Active: 1} / originBodies {Kerbin: 1} /
+#     destinationBodies {Kerbin: 1} - every declared window, exact - plus
+#     stops 1 / sourceRefs 2 / completedCycles 1 /
+#     connectionKinds {DockingPort: 1} / codecRejects 0 / unparsed 0.
+# THAT IS CORROBORATION OF A DERIVATION, NOT A MEASUREMENT OF RECORD, and it is
+# why the block stays report-only rather than being armed on the spot. The
+# automation instance is shared and a sibling run over the same `saveTemplate`
+# re-stages that path within seconds (CLAUDE.md, "the produced-save clobber
+# race"): the same file was observed at three different sizes and mtimes inside
+# four minutes, and one of those reads returned `count 0 promptedCandidates 1` -
+# the staged fixture rather than any run's output. A window may not be armed on
+# bytes that cannot be re-read on demand, and a facet that never travelled through
+# the verifier chain has not been tested end to end.
+#
+# WHAT THE LOGS DO ESTABLISH, identically on BOTH runs (`2026-09-02_0947` and
+# `2026-09-02_1017`), which is what makes these windows a derivation rather than a
+# guess:
+#   * exactly one route is created - `routecommand complete action=create ...
+#     status=Paused` fires once, over a fixture whose committed bytes carry NO
+#     `ROUTES` node at all (the property RVR-2 exists to exploit);
+#   * it is then activated - `... action=activate ... statusBefore=Paused
+#     status=Active`;
+#   * `SelectGhostDrivingBackingMissions: ghostDriving=1 ... totalRoutes=1` says
+#     the store holds exactly that one and it is in a GhostDriving status;
+#   * ONE dispatch fires and COMPLETES, with no hold and no pause:
+#     `DispatchDebit: route <id> cycle=cycle-0 ut=1600 cost=0 careerKsc=0` then
+#     `LoopRoute: route <id> cycle=cycle-0 FIRED full cycle
+#     (dispatch+debit+delivered) at ut=1600; snapped lastObserved=11
+#     completedCycles=1`, and every later tick reads `no dock crossing`. There is
+#     no `BLOCKED kind=`, no `ArmedPause:` and no `LifecycleMarker: ...
+#     type=RoutePaused` anywhere in either log.
+#     THAT LAST POINT IS WHY `Active` IS THE PREDICTED STATUS AND NOT `Paused`:
+#     this lane never arms send-once, so nothing can consume a pause, and the
+#     cycle completed rather than holding. RVR-2's `blocked-then-paused` ending
+#     over the same fixture comes from ITS send-once arm and does not transfer.
+#   * the route is Kerbin-to-Kerbin by construction - both endpoints are Runway
+#     rovers in a Kerbin-rooted fixture, and `RouteTrajectoryLineRenderer` classed
+#     it `SameBody` (a `MalformedMixedBodies` reading would have incremented the
+#     `malformed` counter that is FORBIDDEN above, and read 0 on all 13 frames).
+#
+# TWO READINGS ARE PRE-REGISTERED so the first report-only run is diagnosed rather
+# than re-argued, since a derived window is a hypothesis until a save is read:
+#   (A) EXPECTED - every window below matches, and the arming pass follows.
+#   (B) `statuses.Active` reads 0 with `count` still 1. That would mean the status
+#       moved after the last route line either run printed - the candidates are a
+#       load-time optimizer merge flipping it to `SourceChanged` (which
+#       `RevalidateSources ... transitioned=0` argues against at the SPACECENTER
+#       boot) or an `EndpointLost` on the reload. It is a REPORT here by
+#       construction, and the correct response is to re-pin off the bytes, not to
+#       widen the window.
+# `completedCycles` / `skippedCycles` / `stops` / `sourceRefs` /
+# `connectionKinds` / `ids` / `destinationVesselPids` are deliberately NOT declared:
+# the first two are dispatch counters this lane's single TimeJump could legitimately
+# move, `sourceRefs` is a fixture property RVR-4 already measured at 2, and the route
+# ID IS RUN-LOCAL - pinning one here would repeat the exact mistake that red armed
+# attempt 1 (see the flight ledger).
+count = { min = 1, max = 1 }
+# NO REWIND ANYWHERE IN THIS LANE, so a dormant route would be a
+# reclassification nothing asked for (`RouteRewindClassifier` moves a route to
+# `DORMANT_ROUTES` only when its CreatedUT is after a rewind cutoff).
+dormant = { max = 0 }
+statuses = { Active = { min = 1, max = 1 } }
+originBodies = { Kerbin = { min = 1, max = 1 } }
+destinationBodies = { Kerbin = { min = 1, max = 1 } }
 
 [runtime]
 # Budget arithmetic (M-A5 S8): run.py gives EVERY deferred seam verb

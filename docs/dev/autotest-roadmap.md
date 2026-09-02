@@ -2624,11 +2624,14 @@ moved is that no further authoring stands between them and a flight.
     token off a green census, exactly as V18T earned the orbital flavor, and a
     census that reads the not-drawn outcome earns no row and re-words this item
     instead. FLIGHT OWED; nothing else is.
-    **SETTLED ON THAT LAST POINT: the census read the DRAWN outcome, so the row is
-    earned rather than re-worded - but it is a NEW registry value,
-    D10 `route-map-lines-surface` (added per the growth rule), not a second claim on
-    V18T's `route-map-lines`, and it is CLAIMED CONDITIONAL on the armed re-flight
-    because the census's own tokens were value regexes and therefore gated nothing.**
+    **SETTLED: the census read the DRAWN outcome, so the row is earned rather than
+    re-worded - a NEW registry value, D10 `route-map-lines-surface` (added per the
+    growth rule), not a second claim on V18T's `route-map-lines`. CLAIMED
+    UNCONDITIONALLY as of the armed re-flight `2026-09-02_1038` (PASS attempt 1)
+    plus a negative control that red on exactly the headline token. THE ITEM IS
+    CLOSED; the lane's only remaining debt is a report-only reading run for its
+    `[expectations.routes]` block, which was added after the last flight and which
+    no run has evaluated.**
 12. **Route x rewind, flown.** H6 covers the timeline synthetically;
     a rover-route rewind variant makes `route-x-rewind` a flown claim.
 13. **Harvest-provenance, surface.** An ISRU drill rover feeding the route

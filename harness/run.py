@@ -2528,10 +2528,16 @@ def run_verifiers(spec: Dict, instance_dir: str, run_save_name: str,
         # first window can read it straight off a green run's console output
         # instead of digging the number out of results/<runId>.json.
         points_obs = ((sp.observed.get("recordings") or {}).get("points") or {})
+        # The SUPPLY-ROUTE facets ride the same line for the same reason: a route
+        # lane sizing its first window reads them off the console instead of
+        # digging in results/<runId>.json, and `routeCodecRejects` is the one
+        # number that says the save carries a route the game will DROP on load.
+        routes_obs = (sp.observed.get("routes") or {})
         logger.info("Verify", "verify saveParse status=%s gating=%s blocks=%s armed=%s "
                               "scenarioFound=%s supersedeRows=%s tombstones=%s "
                               "rewindPoints=%s pointsTotal=%s pointsLargest=%s "
-                              "pointsSmallest=%s pointsUnparsed=%s mismatches=%d"
+                              "pointsSmallest=%s pointsUnparsed=%s routes=%s "
+                              "routeStatuses=%s routeCodecRejects=%s mismatches=%d"
                     % (sp.status, sp.gating, list(sp.blocks) or "-",
                        list(sp.armed_blocks) or "-", sp.scenario_found,
                        rewind_obs.get("supersedeRows", "-"),
@@ -2540,7 +2546,10 @@ def run_verifiers(spec: Dict, instance_dir: str, run_save_name: str,
                        points_obs.get("total", "-"),
                        points_obs.get("largest", "-"),
                        points_obs.get("smallest", "-"),
-                       points_obs.get("unparsed", "-"), len(sp.mismatches)))
+                       points_obs.get("unparsed", "-"),
+                       routes_obs.get("count", "-"),
+                       routes_obs.get("statuses", "-"),
+                       routes_obs.get("codecRejects", "-"), len(sp.mismatches)))
         report_only = [m for m in sp.mismatches if m not in sp.armed_mismatches]
         if report_only:
             logger.warn("Verify", "saveParse recorded %d report-only mismatch(es) "

@@ -95,6 +95,31 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Dev
 
+- The autotest harness's save-structure verifier now reads SUPPLY ROUTES out of a
+  produced save. `harness/lib/saveparse.py` parsed recording trees, supersede rows,
+  tombstones and rewind points but not the `ROUTES` node, so the one committed
+  route in the fixture corpus was pinned inside its own builder script rather than
+  in the shared facet, and no scenario could express a window over route state at
+  all. It now parses `ROUTES` and its three sparse siblings (`DORMANT_ROUTES` and
+  the two candidate-intent lists), with the node shape taken from the C# writers,
+  and exposes a fourth expectation block, `[expectations.routes]`: route count,
+  dormant count, stops, source rows, the two dispatch counters, statuses and
+  connection kinds bucketed by enum name, origin and destination bodies, and
+  exact-set route-id / endpoint-pid identity. Report-only unless a scenario opts
+  in, like the three blocks before it. Two readings are hard mismatches whenever
+  the block is declared: a route the game would DROP on the next load (zero stops,
+  or a source row missing its ids) and an unreadable dispatch counter - a save
+  that has already lost a route must not read as a save that never had one. There
+  is no escrow facet because escrow is never serialized. The depot-route fixture's
+  route pin moved onto the shared facet, the rover-route fixture's no-route and
+  candidate assertions now read through the same parser, and the tracking-station
+  route lane arms the block on windows measured from five produced saves of two
+  scenarios - confirmed by an armed flight that passed with the block gating and
+  by a negative control that red on exactly the predicted mismatch. Statuses and
+  connection kinds are bucketed the way the game's own loader reads them, not the
+  way the bytes spell them, so a window always names a value the game will hold;
+  the raw spellings are counted separately rather than silently collapsed.
+
 - **A supply route to a surface base does show its path on the map, and two
   different renderers both draw it.** That was an open question - the one
   measured fact nearby says a landed replay gets no map object of its own outside
@@ -120,6 +145,15 @@ _(unreleased — entries accumulate here per commit)_
   lane that observes in flight and then exports from another scene reads zeroes for
   everything the flight scene measured. The lane above reads its numbers from the
   log instead.
+
+- The lane flew three times and measured the same thing every time. The middle run
+  found a mistake in the test rather than in the product - it had pinned the id of
+  the route it creates, and that id is generated fresh on each run - which is worth
+  recording because the three runs then produced three different ids and an
+  otherwise identical reading, which is what makes the result a repeatable
+  measurement instead of one observation. A deliberately broken copy of the lane was
+  also run once and failed on exactly the one thing it was broken in, so the check
+  is known to be able to fail.
 
 - The harness's H-series batch-wiring family now decides membership from the
   scenario itself instead of from its id. The check read "an H-numbered scenario
