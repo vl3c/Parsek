@@ -366,6 +366,13 @@ required  = [
   # would have missed - is pinned headlessly instead, by
   # RouteOriginProofForwardingTests.StopFlush_ForwardsTheProofOntoTheTreeRecording.
   "Logistics metadata: RouteOriginProof adopted \\(write-once\\) path=(FlushRecorderToTreeRecording|AppendCapturedDataToRecording) target=\\S+ source=\\S+ originRoot=[1-9][0-9]* originName='[^']+' originType=10",
+  # WHAT THIS LANE DOES NOT PIN: the endpoint RESOLUTION step order (root-part, then pid,
+  # then surface proximity). Nothing in either cell dispatches a route, so no
+  # `Endpoint resolved:` line is emitted at all - measured on the armed run
+  # 2026-09-02_1428, zero occurrences. That order is pinned HEADLESSLY ONLY, by
+  # RouteEndpointStepOrderTests, whose cells red when the order is mutated. Do not read a
+  # green census here as evidence about it.
+  #
   # (A) THE PERSISTENCE EVIDENCE, driven IN-CELL because the produced save cannot carry it -
   # see the header. SaveRecordingInto / LoadRecordingFrom is the pair ParsekScenario.OnSave
   # and OnLoad drive for every tree recording, so node=present plus a reloaded origin root

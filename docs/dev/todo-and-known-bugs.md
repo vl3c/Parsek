@@ -696,6 +696,15 @@ the `StartDockedOriginPersist:` line the spec pins), and headlessly by
 `RouteOriginProofForwardingTests.ForwardedProof_SurvivesTheTreeRecordCodec_TheScenarioSaveLoadPath`
 plus its absent-case mirror.
 
+**CLOSED BY THE ARMED FLIGHT `2026-09-02_1428`** (on `0da76844e`, DLL sha256
+`dd412234...`): PASS attempt 1, `mismatches=[]`, `total=2 passed=2 failed=0 skipped=0`,
+zero FAILURE SITE lines, and the in-cell round trip reading
+`StartDockedOriginPersist: node=present reloadedOriginRoot=1038792482
+reloadedOriginType=10 depotRoot=1038792482` with the subject line at `treeProof=yes`.
+Its negative control (`H57-NEGCTL-P6-treeproof-no`, one token flipped to `treeProof=no`)
+classified PARSEK-FAIL(expectation) with exactly one unmet token and zero forbids, so the
+pin discriminates rather than passing on any log.
+
 **One follow-up finding from the same flight, recorded because it looked like a defect
 and is not.** The adoption fired on `path=AppendCapturedDataToRecording`, not on the stop
 flush. The subject cell UNDOCKS the depot while the recording runs, so the undock split
@@ -757,6 +766,15 @@ recorded vessel is the transport" from "the recorded vessel is the depot". The t
 replaces "whichever half won dominance" with "the depot half", which is at least a
 correct NAME, and the residue is filed as
 ROUTE-ORIGIN-PROOF-SELF-ORIGIN-ON-A-DEPOT-SIDE-START below.
+
+**LIVE-PROVEN BY THE ARMED FLIGHT `2026-09-02_1428`.** The subject cell is a
+DOMINANCE-INDEPENDENCE proof by construction: its rig couples the depot INTO the
+transport, so the depot is the child that LEAVES and the merged vessel pid is the
+TRANSPORT's (313889796), and the cell asserts the persisted origin root equals the depot
+root - `originRoot=1038792482 depotRoot=1038792482`, with `originType=10` (Base) and
+`transportType=5` (Rover). Under the old rule that cell would have recorded the transport
+as its own supply origin. Both seam-pair lines appear (`selection=OriginIsFar` and
+`OriginIsNear`), which is the two halves being read as a PAIR rather than one node twice.
 
 **F3 stands unchanged.** The seam predicate's third conjunct
 (`TryFindPartByFlightIdOnVessel`) still has no headless pin - the helper takes a live

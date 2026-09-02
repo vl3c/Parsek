@@ -2566,9 +2566,39 @@ BOTH halves of what is written above: the probe's non-PRELAUNCH branch settles
 item 4, and the five capture cells are the SURFACE measurement the paragraph
 above says the D10 rows are waiting on. No D10 row is claimed in the spec -
 they are earned in the commit that reads a green census, on the
-CLAIM-IS-NOT-GATE rule. Until that census, this paragraph is unchanged in
-substance: the surface flavors are still unclaimed, and the only thing that
-moved is that no further authoring stands between them and a flight.
+CLAIM-IS-NOT-GATE rule.
+
+**TIER B ITEM 4 IS CLOSED, 2026-09-02, AND IT COST NO MANUAL FLIGHT.** The
+sequence the two paragraphs above predicted ran to its end: H56's probe on the
+LANDED host measured `outcome=no-external-coupling` and CONFIRMED
+ROUTE-ORIGIN-PROOF-PRODUCER-UNREACHABLE, which turned item 4 from a hand-flown
+subject into a bug fix plus cells; the producer was rebuilt on the docking
+node's own docked-partner record; lane `H57-route-start-docked-origin-landed`
+was authored as the subject and then measured TWO further product defects that
+no reading could have settled - the proof never reached a `Recording` in
+always-tree mode, and the origin partner was whichever half stock made dominant
+rather than the depot. Both are fixed, and the armed census
+`2026-09-02_1428` (PASS, `total=2 passed=2 failed=0 skipped=0`, zero FAILURE
+SITE lines) plus its negative control `H57-NEGCTL-P6-treeproof-no`
+(PARSEK-FAIL(expectation), exactly one unmet token, zero forbids) close the
+item. D10 `docked-depot-origin` is claimed off that census in the same commit.
+
+TWO RESIDUES ARE NAMED RATHER THAN QUIETLY CARRIED, both filed in
+`docs/dev/todo-and-known-bugs.md`. (a) THE DEPOT MUST BE PLAYER-TYPED:
+`Vessel.FindDefaultVesselType()` only ever RAISES a vessel's type to a part's,
+and no stock part declares `Base` or `Station`, so an ordinary landed base reads
+`Ship` / `Probe` / `Lander` and the rule FAIL-CLOSES to no proof until the player
+sets the type in the tracking station - announced once at recording start
+(ROUTE-ORIGIN-PROOF-REQUIRES-A-PLAYER-TYPED-DEPOT, with the four rejected
+alternatives recorded). (b) DEPOT-SIDE SELF-ORIGIN: a base that starts a
+recording with a transport docked to it still records ITSELF as its origin,
+because at capture the two cases are indistinguishable; removing it needs
+undock-side routing of the proof to the non-origin half, which is also where the
+depot's pid would bind (ROUTE-ORIGIN-PROOF-SELF-ORIGIN-ON-A-DEPOT-SIDE-START).
+Neither blocks the item: the first is a stated requirement with a discoverable
+message, the second is inert until a depot-side recording is also a route
+source. What remains unchanged in substance is the SURFACE flavors of the other
+D10 rows, which H56 owes and this item never did.
 
 ### Tier C - economics (career)
 

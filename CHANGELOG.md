@@ -45,7 +45,11 @@ _(unreleased — entries accumulate here per commit)_
   Two new in-game checks fly the shape the roadmap had reserved for a hand-flown
   mission - a transport that starts docked to a landed base, undocks, and delivers to
   somewhere else - plus a control that docks and undocks before recording and must
-  record no origin at all. Both pass unattended. Nothing player-facing changes.
+  record no origin at all. Both pass unattended, and between them they found the two
+  faults fixed in the entries below: the origin was never saved, and it named the wrong
+  craft. The checks now read the saved origin back and confirm it survives a save and
+  reload, so a future regression fails the run rather than passing quietly. Nothing
+  player-facing changes.
 
 - **A supply run that starts already docked to a base now records where it started
   from.** The start-docked origin proof looked for a part whose parent belonged to a
