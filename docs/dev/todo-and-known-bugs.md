@@ -1533,6 +1533,52 @@ invalid in a way that produces NO error and looks precisely like a missing produ
 feature. Any future "family X never fired" reading checks the recorder's
 `Visual coverage [X]` census FIRST, before blaming capture.
 
+## GS6-GHOST-HAS-NO-CONVERTER-LOOP-STATE: a ghost built from a craft carrying a fuel cell has no converter-loop state at all, so every ConverterActivated/Deactivated apply is skipped `no-family-state` [MEASURED 2026-09-02 on the armed run `2026-09-02_1524` (PASS 25/25). D7 GHOST-VISUAL FINDING, REPORT-ONLY - the exact sibling of GS6-GHOST-HAS-NO-COLORCHANGER-STATE below]
+
+THE LINES, both directions of the family:
+
+```
+apply family=ConverterActivated   surface=converter-loop rec=0 pid=900501096 applied=0 skipped=1 reason=no-family-state
+apply family=ConverterDeactivated surface=converter-loop rec=0 pid=900501096 applied=0 skipped=1 reason=no-family-state
+```
+
+THE PART WAS THERE AND THE VERB REACHED IT. pid 900501096 is the `FuelCell` the
+revision-3 sweep craft carries, and the mission's own arm logged
+`set active=True on 1 converter process(es)` (and `False on 1` on the way back),
+so kRPC found the converter, started it, and the recorder emitted the events. The
+skip is entirely on the GHOST side.
+
+`no-family-state` is the strongest of the reason classes: not "no entry for this
+part", but the ghost carries NO `synthesizedMotionInfos.converterLoops` COLLECTION
+AT ALL. So an ISRU or drill replayed as a ghost cannot animate its running loop,
+which is the S7 feature's whole visible output.
+
+WHY IT IS FILED AND NOT FIXED: whether a flight ghost should build converter-loop
+state is the same product question as the colour-changer one below, and the two
+should be answered together - both are "the ghost's builder does not populate this
+surface for a flight ghost", both were invisible before the applier instrument
+existed, and both are REPORT-ONLY here (the lane pins nothing on either).
+
+## GS6-LIGHT-EVENTS-OUTNUMBER-THE-GHOSTS-LIGHT-INFOS: two of five light events per toggle land on parts the ghost has no `LightGhostInfo` for [MEASURED 2026-09-02 on run `2026-09-02_1524`. OBSERVATION, REPORT-ONLY - folded here rather than filed separately because it is the same builder question as the two above]
+
+```
+apply family=LightOn  surface=light rec=0 pid=57152010 applied=3 skipped=2 reason=no-info-for-part
+apply family=LightOff surface=light rec=0 pid=57152010 applied=3 skipped=2 reason=no-info-for-part
+```
+
+FIVE light events per toggle, THREE applied. The recorder's census names exactly
+three Unity-Light parts - `Visual coverage [Light] 3: telescopicLadderBay
+[pid=2225231708], spotLight1[pid=900500822], spotLight1[pid=900500959]` - and
+those three are the three that applied, so the LAMPS render correctly and the
+lane's `lights` claim is sound.
+
+The two skipped are events whose target has no `LightGhostInfo`. The tally's
+representative pid is 57152010, the `mk1-3pod`, whose light is a Pattern-A
+COLOUR CHANGER rather than a Unity Light - so it can never have a light info, and
+its own surface is the one reporting `no-family-state` below. The reading is
+therefore consistent rather than alarming; it is recorded so the `skipped=2` is
+not mistaken for a lamp failing to render on a later run.
+
 ## GS6-GHOST-HAS-NO-COLORCHANGER-STATE: a ghost built from a craft whose pod carries a Pattern-A cabin light has no colour-changer state at all, so every LightOn/LightOff colour-changer apply is skipped `no-family-state` - and this is the SHOWCASE-COLORCHANGER-APPLY-UNOBSERVABLE answer [MEASURED 2026-09-02 on run `2026-09-02_1505`. D7 GHOST-VISUAL FINDING, REPORT-ONLY - filed, not fixed]
 
 THE LINES, verbatim, both directions of the family:
@@ -1559,7 +1605,17 @@ should populate `colorChangerInfos` for a flight ghost (it evidently does for th
 showcase ghosts, since S1.9 measured the dictionary present) is the product
 question, and it is not one a test lane should answer.
 
-RELATED, ON THE OTHER LIGHT SURFACE, same run:
+CONFIRMED 2026-09-02 ON REAL LAMPS ABOARD, run `2026-09-02_1524` (PASS 25/25):
+`apply family=LightOn surface=colorchanger rec=0 pid=57152010 applied=0
+skipped=5 reason=no-family-state` (LightOff mirrors it). The first reading was
+taken while the craft's two `spotLight1` lamps were still being dropped at load,
+so it could not distinguish "no colour changer" from "no light parts at all".
+This run had three working Unity lights aboard - all three APPLIED on the
+`surface=light` row - and the colour-changer row still reads `no-family-state`
+with the skip count risen from 3 to 5. The finding is therefore INDEPENDENT of
+the lamps: the ghost has no colour-changer dictionary, full stop.
+
+RELATED, ON THE OTHER LIGHT SURFACE, the first run:
 
 ```
 apply family=LightOn  surface=light rec=0 pid=57152010 applied=1 skipped=2 reason=no-info-for-part

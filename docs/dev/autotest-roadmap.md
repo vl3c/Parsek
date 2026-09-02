@@ -2186,7 +2186,14 @@ first spawn frame (hold-then-retry, never a single eager ask).
    entry in CLAUDE.md). The in-game H37 category tests part-event fidelity
    headlessly; this is its flown-replay sibling and claims the D7 cells H37
    cannot (CLAIM-IS-NOT-GATE: each cell needs its replay-side token).
-   **AUTHORED AND FLOWN GREEN 2026-09-02 as `GS-6-part-event-applier-sweep`
+   **DONE 2026-09-02: `GS-6-part-event-applier-sweep` is FLOWN GREEN AND ARMED**
+   (three runs; `2026-09-02_1524` PASS 25/25 on the final `Kerbal X Sweep` craft,
+   ghostLifecycle armed on a 3x spawned=8/8/8 census, negative control replayed).
+   EIGHT D7 cells now gate from applier text - decouple-stage-destroy,
+   engine-fx-legacy, panels-antennas-radiators, rcs, shroud, gear, lights, fairing.
+   Still open: `chute-two-phase`/`chute-cut` (needs a descent variant), `bays`
+   (needs a harvested ServiceBay tail), `engine-fx-effects` (measured but not
+   provable per-pid from an applier line). Originally authored as
    (reading run `2026-09-02_1420`, PASS attempt 1; 55 applier lines, nine required
    tokens re-pinned from the bytes, D7 `shroud` measured as a bonus and one real
    finding - `GS6-DEPLOYABLE-NO-RESOLVED-VISUAL-solarPanels5`). Revision 1 is

@@ -19,9 +19,10 @@ _(unreleased — entries accumulate here per commit)_
   written order with a settle gap between steps, and a new test case flies a rocket,
   fires part actions while it records, rewinds to the launch and watches its own
   replay - failing if a family that was recorded does not come back on the ghost.
-  Nothing player-facing changes. The test case has now flown once, green, and found
-  its first real thing: four flat solar panels that record a "deployed" event the
-  ghost can never show, because a panel with no moving part has no pose to replay.
+  Nothing player-facing changes. The test case has now flown green three times and
+  found three real things: four flat solar panels that record a "deployed" event the
+  ghost can never show, a cabin light whose ghost has no colour state to change, and
+  a fuel cell whose ghost has nothing to spin.
 
 
 - **Test coverage: two supply routes competing for the same depot are now checked

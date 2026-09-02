@@ -8996,6 +8996,19 @@ class GhostLifecycleVerifierWiringTests(unittest.TestCase):
         # NEGATIVE CONTROL: `2026-08-28_1550` - temporary spawned={min 9} red
         # PARSEK-FAIL(ghost-lifecycle) on exactly that window, then reverted.
         "GS-4-kerbalx-rewind-watch.toml",
+        # ARMED 2026-09-02, three-run discipline discharged ON ONE LANE'S OWN
+        # FLIGHTS rather than borrowed: `2026-09-02_1420` (revision 1),
+        # `2026-09-02_1505` (revision 2 - red on spec-side vessel-name tokens, not
+        # on this block) and `2026-09-02_1524` (revision 3, PASS 25/25) each
+        # measured spawned=8 spawnLines=8 destroyLines=8 unbalanced=0 malformed=0.
+        # THE READING RUN OF THE FINAL SHAPE is `2026-09-02_1524`: the sweep craft
+        # stopped changing with revision 3, which is what the spec's earlier
+        # "stays report-only while the craft grows" note was waiting on. The census
+        # is also GS-4's own, four flights over, on the craft this one derives from.
+        # NEGATIVE CONTROL: the uncommitted `GS-6-negctl-gear-applied-zero` spec
+        # (scratchpad, never committed) flips one required token to a line the run
+        # never emits and replays to exactly one unmet, zero forbids.
+        "GS-6-part-event-applier-sweep.toml",
         # ARMED 2026-08-28, same-day discipline on the injected part-showcase
         # census: reading runs `2026-08-28_2010` (red only on the since-cut
         # colour-changer token; census 243/243/0) and `2026-08-28_2014` (green,

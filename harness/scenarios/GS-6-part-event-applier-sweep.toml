@@ -300,7 +300,26 @@ D6 = ["basic-playback", "mesh-lifecycle-derender"]
 # fires them), but CLAIM-IS-NOT-GATE: each needs a required token backed by a
 # measured line, and revision 2 has not flown. They are added here only after the
 # revision-2 reading run, exactly as `shroud` was added after revision 1's.
-D7 = ["decouple-stage-destroy", "engine-fx-legacy", "panels-antennas-radiators", "rcs", "shroud"]
+#   `gear`    <- family=GearDeployed / GearRetracted surface=deployable, MEASURED on
+#               run `2026-09-02_1524` (three landingLeg1, applied=3 each way).
+#   `lights`  <- family=LightOn / LightOff surface=light, applied=3 each way on the
+#               two spotLight1 lamps plus the ladder bay's light.
+#   `fairing` <- family=FairingJettisoned surface=fairing, applied=1, the istg=3
+#               jettison the ascent's third booster-pair drop fires.
+# NOT claimed even though it was measured: `engine-fx-effects`. The Ant's ignition
+# IS in the log - the recorder's `Part event: EngineIgnited 'microEngine.v2'
+# pid=900501233` is a REQUIRED token below - but the APPLIER cannot prove the replay
+# of it in isolation: an applier line's `pid=` is the tally's REPRESENTATIVE (the
+# first applied pid of a family+surface batch), not an enumeration, so no regex can
+# say "the EFFECTS engine specifically rendered". CLAIM-IS-NOT-GATE, so it is not
+# claimed. Closing it needs either a per-pid applier line or a craft whose ONLY
+# engine is an EFFECTS one.
+# NOT claimed, no registry value exists: the landing legs' ModuleWheelSuspension
+# drives the ROBOTIC family (RoboticMotionStarted/Stopped/PositionSample, applied=3),
+# a family this sweep never planned to fire. It is REQUIRED below as evidence and
+# noted here, but D7 has no robotics value and inventing one under a re-pin is the
+# growth rule's job, not a token pass.
+D7 = ["decouple-stage-destroy", "engine-fx-legacy", "panels-antennas-radiators", "rcs", "shroud", "gear", "lights", "fairing"]
 D9 = ["rewind-to-launch"]
 D14 = ["kerbin", "sandbox", "scene-flight", "scene-ksc", "scene-map"]
 
@@ -369,7 +388,15 @@ required  = ["Auto-record started \\((?:PRELAUNCH|LANDED|first staging on pad)",
              "\\[GhostPartEvents\\] apply family=RCSStopped surface=rcs-fx rec=[0-9]+ pid=[0-9]+ applied=[1-9]",
              "\\[GhostPartEvents\\] apply family=ShroudJettisoned surface=jettison-panel rec=[0-9]+ pid=[0-9]+ applied=[1-9]",
              "\\[GhostPartEvents\\] apply family=DeployableExtended surface=deployable rec=[0-9]+ pid=[0-9]+ applied=[1-9]",
-             "\\[GhostPartEvents\\] apply family=DeployableRetracted surface=deployable rec=[0-9]+ pid=[0-9]+ applied=[1-9]"]
+             "\\[GhostPartEvents\\] apply family=DeployableRetracted surface=deployable rec=[0-9]+ pid=[0-9]+ applied=[1-9]",
+             "\\[GhostPartEvents\\] apply family=GearDeployed surface=deployable rec=[0-9]+ pid=[0-9]+ applied=[1-9]",
+             "\\[GhostPartEvents\\] apply family=GearRetracted surface=deployable rec=[0-9]+ pid=[0-9]+ applied=[1-9]",
+             "\\[GhostPartEvents\\] apply family=FairingJettisoned surface=fairing rec=[0-9]+ pid=[0-9]+ applied=[1-9]",
+             "\\[GhostPartEvents\\] apply family=LightOn surface=light rec=[0-9]+ pid=[0-9]+ applied=[1-9]",
+             "\\[GhostPartEvents\\] apply family=LightOff surface=light rec=[0-9]+ pid=[0-9]+ applied=[1-9]",
+             "\\[GhostPartEvents\\] apply family=RoboticMotionStarted surface=robotic rec=[0-9]+ pid=[0-9]+ applied=[1-9]",
+             "\\[GhostPartEvents\\] apply family=RoboticMotionStopped surface=robotic rec=[0-9]+ pid=[0-9]+ applied=[1-9]",
+             "Part event: EngineIgnited 'microEngine.v2' pid=[0-9]+"]
 # The suite-wide ERROR pattern; it also covers the seam verbs' own failure terminals.
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 
@@ -383,7 +410,15 @@ forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 # harness/lib/test_hlib.py, and `test_no_committed_spec_arms_ghost_lifecycle_gating`
 # reds if this is armed before the roster records those flights.
 [expectations.ghostLifecycle]
-gating = false
+# ARMED 2026-09-02. THREE reading runs on this lane measured the IDENTICAL census -
+# `2026-09-02_1420` (revision 1), `2026-09-02_1505` (revision 2, red on spec-side
+# name tokens) and `2026-09-02_1524` (revision 3, PASS 25/25) - all spawned=8
+# spawnLines=8 destroyLines=8 unbalanced=0 malformed=0, which is also GS-4's own
+# four-flight census on the craft this one derives from. Run `2026-09-02_1524` is
+# the reading run of the FINAL shape, which is what the earlier "stays
+# report-only" note was waiting for: the craft is no longer changing.
+# Roster: GHOSTLIFE_ARMED_SPECS in harness/lib/test_hlib.py.
+gating = true
 spawned = { min = 8 }
 requireBalanced = true
 
