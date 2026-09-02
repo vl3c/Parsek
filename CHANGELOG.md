@@ -133,6 +133,23 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Dev
 
+- Wrote down why a supply route between two different planets cannot yet be
+  proven by an automated run, and found a real problem in the process. A route
+  decides whether it is a same-planet or a between-planets route by looking at a
+  stored transfer-window length, and nothing in the mod ever fills that value in:
+  it is written as zero every time a route is created. A route whose stops are on
+  two different planets therefore reads as inconsistent rather than as a
+  between-planets route, and its line is left undrawn on the map. Confirmed
+  against a real Kerbin-to-Duna route in an existing save. The delivery timing
+  itself is worked out by a different, healthy path, so scheduling is unaffected;
+  the map line is the part that suffers. No fix in this change, which is
+  documentation only: the problem, the two candidate fixes, and the exact flight
+  someone has to fly by hand to produce a test subject are all written up
+  (`docs/dev/research/g10-interbody-route-feasibility.md`, and the G10 entry in
+  the automated-testing roadmap). Also recorded: none of the committed test saves
+  contains a between-planets delivery at all, so no existing fixture could have
+  stood in for that flight.
+
 - Added an automated-testing lane for the supply-route-across-a-rewind question,
   plus the one piece of test-harness plumbing it turned out to need.
   The lane writes down first, before any run, what an active supply route should
