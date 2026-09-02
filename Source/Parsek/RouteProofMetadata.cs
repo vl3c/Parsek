@@ -189,7 +189,7 @@ namespace Parsek
     {
         /// <summary>Both halves captured, no origin chosen. Not an origin.</summary>
         PairPendingBinding = 0,
-        /// <summary>An undock split bound the origin to the half the player did not keep flying.</summary>
+        /// <summary>An undock split bound the origin to the half the run was NOT flying.</summary>
         BoundAtUndock = 1,
         /// <summary>The recording ended while still docked; no undock ever separated the pair.</summary>
         UnboundAtStop = 2,
@@ -222,7 +222,7 @@ namespace Parsek
         // gate in RouteProofCapture.DecideOriginPidStamp (P12).
         public uint StartDockedOriginVesselPid;
         // Origin depot identity. ZERO until an undock binds it; at the bind it is the
-        // rootPartUId of the seam half the player did NOT keep flying. rootPartUId is a KSP
+        // rootPartUId of the seam half the RUN was not flying. rootPartUId is a KSP
         // part flightID: assigned per launch and NOT craft-baked, so unlike persistentId it
         // is a launch-unique key. Rule and derivation:
         // docs/dev/research/origin-proof-partner-identity-memo.md.
@@ -230,7 +230,9 @@ namespace Parsek
         public string StartDockedOriginVesselName;
         public int StartDockedOriginVesselType = -1; // (int)VesselType; -1 = unknown. INFORMATIONAL.
         // The transport half of the same pair, stamped at the bind so a reader can see which
-        // half kept flying without re-deriving the binding.
+        // half the run was flying without re-deriving the binding. Equal to
+        // StartDockedOriginRootPartUId means a SELF-ORIGIN, which
+        // RouteAnalysisEngine.IsSelfOriginProof refuses at the read.
         public uint StartDockedTransportRootPartUId;
         public int StartDockedTransportVesselType = -1; // (int)VesselType; -1 = unknown. INFORMATIONAL.
         // BOTH halves as captured at recording start, with no origin chosen. Present from
