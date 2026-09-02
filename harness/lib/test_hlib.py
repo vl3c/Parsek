@@ -3513,20 +3513,65 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
     # into the wrong family or fall between them.
     GROUP_ID_RE = re.compile(r"^H(?:[7-9]|[1-9][0-9]+)-")
 
+    # H-series ids that are NOT batch-wiring lanes at all, each with its reason.
+    # The id pattern above encodes an assumption the H-series carried until
+    # 2026-09-02 - that every two-digit H spec drives one [InGameTest] category -
+    # and H58 is the first committed member that does not: it is a pure
+    # step-sequence route lane with ZERO RunTests steps, so it has no category, no
+    # tally to pin, and nothing for this class's other cells to assert.
+    #
+    # THIS IS AN ALLOWLIST, NOT A PREDICATE, on purpose. Excluding "any H spec with
+    # no RunTests step" would silently drop a genuine batch member the day someone
+    # deleted its RunTests line - the exact silent-hole shape the set-equality cell
+    # exists to close. Naming ids costs an edit here, in the same commit, with the
+    # reason written down; and test_the_non_batch_exclusions_really_drive_no_batch
+    # below re-derives the claim from disk, so a wrong entry cannot hide a batch lane.
+    NON_BATCH_MEMBERS = {
+        "H58-route-rewind-to-launch":
+            "pure step-sequence route lane (seal + create + activate/pause/activate + "
+            "send-once, then two REJECTED InvokeRewindToLaunch negative controls); "
+            "drives no [InGameTest] category, so there is no tally to pin",
+    }
+
     @classmethod
     def setUpClass(cls):
         cls.decls = load_ingame_test_declarations()
         cls.specs = {}
         cls.on_disk = set()
+        cls.non_batch_specs = {}
         for name in sorted(os.listdir(SCENARIOS_DIR)):
             if not name.endswith(".toml"):
                 continue
             spec = load_spec(name)
             sid = spec.get("id") or ""
-            if cls.GROUP_ID_RE.match(sid) and not hlib.spec_batch_isolated(spec):
+            if sid in cls.NON_BATCH_MEMBERS:
+                cls.non_batch_specs[sid] = spec
+            elif cls.GROUP_ID_RE.match(sid) and not hlib.spec_batch_isolated(spec):
                 cls.on_disk.add(sid)
             if sid in cls.GROUP:
                 cls.specs[sid] = spec
+
+    def test_the_non_batch_exclusions_really_drive_no_batch(self):
+        """The exclusion above is only honest while each named spec genuinely runs
+        no batch. Re-derived from the committed bytes rather than trusted: an entry
+        that acquired a RunTests step would be a batch lane hiding outside the
+        set-equality cell, which is worse than the drift the exclusion prevents.
+        Also asserts every named id is actually on disk, so a stale entry (a
+        renamed or deleted spec) reds instead of lingering inert."""
+        self.assertEqual(sorted(self.NON_BATCH_MEMBERS), sorted(self.non_batch_specs),
+                         "NON_BATCH_MEMBERS names an id that is not committed on disk "
+                         "(renamed or deleted?); drop the entry in the same commit")
+        for sid, spec in sorted(self.non_batch_specs.items()):
+            with self.subTest(spec=sid):
+                steps = (spec.get("driver", {}) or {}).get("steps", []) or []
+                batches = [s for s in steps if (s or {}).get("cmd") == "RunTests"]
+                self.assertEqual(
+                    [], batches,
+                    "%s is excluded from the H-series batch-wiring group as a "
+                    "non-batch lane, but it drives %d RunTests step(s): either drop "
+                    "the exclusion and add it to GROUP (with its category, total and "
+                    "scene, plus the doc rows), or drop the batch"
+                    % (sid, len(batches)))
 
     def test_the_group_table_is_not_empty(self):
         # ANTI-VACUITY FLOOR, and the reason it exists is this PR's own thesis.
@@ -6509,6 +6554,26 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         "V21T-mun-minmus-ts-arrival.toml":  "tier=operator by the calibration discipline (derived windows, first run is a calibration reading), NOT debt; AUTHORED 2026-08-23 ahead of its subject, then RE-PINNED 2026-08-24 off the same real bytes (tree id 029afab30803454894b02be12567af81; the single jump moved to 587226, still V21M's third cycle-1 bracket reused so the pair observes the same instant from two scenes). The PENDING_FIXTURE_LANES exemption is RETIRED. The jump REMAINS a calibration seed because the anchor `A` is one, though the seam offset behind it (+267,230.864 s from ut0) is now a byte fact. READING RUN FLOWN AND GREEN 2026-08-24 (`2026-08-24_1642_a2`, PASS attempt 2, `flakedThenPassed`; attempt 1 INVALID on the transient TS-re-entry `LoadGame REJECTED` V17T's attempt 1 also hit, which is what `[retry]` is for): all 54 steps met, all ten required tokens matched, analyzer RED=0. THREE READINGS - `icon-off-orbit` SILENT (strengthening the surviving self-overlap candidate to 3-silent/6-raising), `seam-endpoint-outside-soi` RECURRED report-only against the pre-registered expectation but at a 1.91% hairline ratio rather than V16T's 157x, and the init walk measured `created 1 ghost vessel(s)` rather than zero, which makes that forbid armable by this lane's own stated rule. The jump moved 587226 -> 587223 with V21M's re-derived table, so this lane OWES A RE-FLY at the new value before arming. What is open is the arming pass, not a human review call",
         "H5-invariants-corpus.toml":        "discharged - 'resolving the former PENDING-OPERATOR check'",
         "H6-route-rewind-timeline.toml":    "discharged - 'The former PENDING-OPERATOR ...'",
+        # tier=operator because the FIRST RUN IS A CENSUS, the same reason the
+        # calibration lanes are operator-tier and not a debt. AUTHORED 2026-09-02,
+        # NEVER FLOWN. The lane pre-registers what an Active supply route should do
+        # at a Rewind-to-Launch (hold, not pause and not retire; dormant only when
+        # the cutoff precedes Route.CreatedUT; armed one-shots cleared
+        # unconditionally) and then measures the TWO reasons that prediction cannot
+        # be tested on any committed fixture today - no recorded fixture carries a
+        # launch quicksave (harvest policy, gated by build_rover_route_recorded.py),
+        # and a subject produced in-session cannot be NAMED by a static spec because
+        # the auto-select refuses `ambiguous-tree` over the fixture's two committed
+        # trees. Both are `expect = "REJECTED"` negative controls in the GS-3 shape.
+        # What is open is a seam-verb decision (a `tree=` spelling a spec can write),
+        # not a human review call on this file.
+        "H58-route-rewind-to-launch.toml":
+            "tier=operator because the first run is an instrument CENSUS, not debt; "
+            "AUTHORED 2026-09-02, NEVER FLOWN. Its product is the suite's first "
+            "driven route pause/activate pair plus two REJECTED negative controls "
+            "pinning why Rewind-to-Launch cannot reach a committed fixture "
+            "(ROUTE-REWIND-TO-LAUNCH-UNREACHABLE-ON-COMMITTED-FIXTURES). D12 stays "
+            "H6's synthetic claim until an unblock lands",
         "M1-mission-loop-unit.toml":        "discharged - 'CLOSED by the 2026-07-26 flights'",
         "M2-periodicity-solver.toml":       "discharged - 'CLOSED by the 2026-07-26 flight'",
         # tier=operator because it is a READING RUN, which is the same reason the

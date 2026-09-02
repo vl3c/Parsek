@@ -2543,6 +2543,36 @@ moved is that no further authoring stands between them and a flight.
     that pin, not against the orbital route lines V18T covers.
 12. **Route x rewind, flown.** H6 covers the timeline synthetically;
     a rover-route rewind variant makes `route-x-rewind` a flown claim.
+    **LANE AUTHORED 2026-09-02 AS A PRE-REGISTRATION + CENSUS, NEVER FLOWN**
+    (`harness/scenarios/H58-route-rewind-to-launch.toml`), and the authoring
+    MEASURED that the obvious shape does not exist. The prediction is written
+    down first, in the spec header and in `autotest-status.md`: an Active route
+    HOLDS across a Rewind-to-Launch - dormant only when the cutoff precedes
+    `Route.CreatedUT`, otherwise kept with cursors reset, pause state re-derived
+    from the kept PLAYER lifecycle rows, counters reconstructed, and the armed
+    one-shots cleared unconditionally - cited to the design doc's lines 905 /
+    909 / 1030. **THE TWO BLOCKERS, both now spec-pinned as `expect =
+    "REJECTED"` negative controls rather than argued in prose.** (1) NO
+    COMMITTED RECORDED FIXTURE CAN BE A REWIND-TO-LAUNCH SUBJECT: `CanRewind`
+    needs a `rewindSave` on the tree root and every recorded fixture carries it
+    EMPTY by harvest policy, gated in both directions by
+    `build_rover_route_recorded.py` with INV9's dangling-hint WARN as the stated
+    rationale - so "the rover fixture is committed" was true and irrelevant.
+    (2) A SUBJECT PRODUCED IN-SESSION CANNOT BE NAMED: `StartRecording` ->
+    `CommitTree` does produce a rewindable tree (`CaptureRewindSave` writes the
+    `parsek_rw_*` quicksave at every non-promotion start), but
+    `ResolveTarget` auto-selects only over exactly one committed tree, the rover
+    host ships two, and `tree=` takes a runtime `Guid` no static spec can write
+    (`${runSave}` is the harness's only substitution). GS-4 escapes solely
+    because its host has zero committed trees. Filed as
+    ROUTE-REWIND-TO-LAUNCH-UNREACHABLE-ON-COMMITTED-FIXTURES. THE RECOMMENDED
+    UNBLOCK IS THE SMALLEST: a `tree=` spelling a spec can write (`latest`, or a
+    `RecordingTree.TreeName` match) - pure addition to `ResolveTarget`, no
+    fixture and no policy moves, and it turns H58 into a flown D12 lane by
+    replacing two steps with one. What H58 buys in the meantime is real: the
+    suite's FIRST driven route pause/activate pair (the exact player-intent rows
+    `DeriveTimelineStatus` reads at every rewind, never produced by a driven run
+    before), each pinned as a verb-ACK + ledger-marker pair.
 13. **Harvest-provenance, surface.** An ISRU drill rover feeding the route
     (D10 `harvest-provenance` surface flavor; the orbital flavor has
     coverage via the depot-drill lanes).
@@ -2618,7 +2648,12 @@ unamended here too.
 RVR-1/2/3/4, H55, H56. What can be built NEXT WITHOUT a manual flight, in
 order: (a) the B4 producer fix + capture cell (todo
 ROUTE-ORIGIN-PROOF-PRODUCER-UNREACHABLE, now CONFIRMED); (b) D12 route x rewind
-flown - `InvokeRewindToLaunch` is implemented and the rover fixture is committed;
+flown - CORRECTED 2026-09-02: "`InvokeRewindToLaunch` is implemented and the
+rover fixture is committed" is true and NOT sufficient, and H58's authoring is
+what measured why (see item 12: no committed fixture carries a launch quicksave,
+and an in-session subject cannot be named by a static spec). The lane is
+authored and the census is ready to fly; the flown claim itself waits on a
+`tree=` spelling a spec can write;
 (c) D11 surface-route map presence over the rover fixture with the map-view
 verbs, authored against the landed-terminal-no-proto pin; (d) C10 escrow
 competition - scope a synthetic two-candidate fixture before assuming a flight;

@@ -95,6 +95,27 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Dev
 
+- Added an automated-testing lane for the supply-route-across-a-rewind question,
+  and the authoring of it found that the obvious way to ask it does not exist.
+  The lane writes down first, before any run, what an active supply route should
+  do when the player rewinds a flight back to its launch: it holds. A route
+  created after the point being rewound to goes dormant and reappears, paused,
+  when the replayed timeline reaches its creation moment again; one created
+  before that point stays, with its cycle schedule reset, its paused-or-running
+  state re-derived from the pause and resume entries the timeline kept, its cycle
+  counters rebuilt, and any armed one-shot ("send one run", "pause after this
+  run") dropped, because an arm carries no timestamp and cannot be placed on
+  either side of the rewind. Route charges and deliveries recorded after the
+  rewind point are retired. That prediction cannot be measured against any
+  committed test save today, for two reasons the lane now proves on a real run
+  rather than asserting on paper: recorded test saves deliberately ship without
+  the launch quicksave a rewind reloads, and a flight recorded during the run
+  itself produces a rewindable subject the test script has no way to name,
+  because the game refuses to guess which of several flights to unwind. Both
+  refusals are pinned as deliberate negative controls. The same run buys the
+  first automated drive of pausing and re-activating a real supply route, which
+  is the exact history the rewind reads.
+
 - The agent instructions now scope the invariant-culture formatting rule to what
   actually needs it. A unit-test run on a comma-locale machine printed
   `targetUT=150,00` from a log line, and the standing rule read as if every one of
