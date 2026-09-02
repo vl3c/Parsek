@@ -1314,6 +1314,20 @@ class KrpcMissionControl(MissionControl):
             _stdout_sink(mlib.format_mission_log_line(
                 "Info", "Sweep", "set active=%s on %d converter process(es)"
                 % (want, set_count)))
+        elif kind == mlib.ACTION_SET_ENGINES_ACTIVE:
+            # Per-engine, guarded per part on the ACTION_DEPLOY_CHUTE precedent: an
+            # engine that cannot be shut down (an SRB) raises on the setter and must
+            # not cost the rest of the craft its command.
+            want = bool(action.value)
+            set_count = 0
+            for p in v.parts.engines:
+                try:
+                    p.active = want
+                    set_count += 1
+                except Exception:
+                    continue
+            _stdout_sink(mlib.format_mission_log_line(
+                "Info", "Sweep", "set active=%s on %d engine(s)" % (want, set_count)))
         elif kind == mlib.ACTION_ARM_CHUTES:
             arm_count = 0
             for p in v.parts.parachutes:

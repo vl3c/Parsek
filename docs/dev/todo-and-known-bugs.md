@@ -1247,6 +1247,72 @@ Full contract: `docs/dev/design-map-ts-render-tracer.md` Appendix A,
 `Source/Parsek.Tests/GhostPartEventApplyLogTests.cs` (25 cells: grammar, tally,
 per-family outcome per drivable skip class, InvariantCulture under `de-DE`).
 
+## GS6-DEPLOYABLE-NO-RESOLVED-VISUAL-solarPanels5: the recorder seeds a DeployableExtended for every OX-STAT panel, and the ghost can never render one, so four recorded events are skipped on every replay of any craft carrying them [MEASURED 2026-09-02 on `GS-6-part-event-applier-sweep` reading run `2026-09-02_1420` (PASS attempt 1). D7 GHOST-VISUAL OBSERVATION, REPORT-ONLY - NOT a lane defect and NOT obviously a product defect; it is the first thing the new applier instrument found, and it is filed rather than fixed]
+
+THE LINES, verbatim from the collected `KSP.log`:
+
+```
+17600 [Parsek][VERBOSE][GhostPartEvents] apply family=DeployableExtended
+      surface=deployable rec=0 pid=1114565348 applied=0 skipped=4
+      reason=no-resolved-visual
+19138 (the identical line again, the second applier call in the window)
+44998 [Parsek][VERBOSE][GhostPartEvents] apply family=DeployableExtended
+      surface=deployable rec=0 pid=1170199082 applied=1 skipped=0 reason=applied
+```
+
+THE TWO PARTS, resolved off `harness/fixtures/ships/Kerbal X.craft` by
+`persistentId` rather than guessed:
+
+  pid 1170199082 = `mediumDishAntenna`  -> APPLIED. This is the part the sweep's
+                   `deployables-out` step actually targeted, and it rendered.
+  pid 1114565348 = `solarPanels5`       -> the OX-STAT flat panel. SKIPPED.
+
+`skipped=4` on ONE pid line is the tally working as designed, not four events on
+one panel: the craft carries FOUR OX-STAT panels and the tally aggregates a
+family+surface batch into one line, reporting the FIRST skipped pid as the
+representative. The log names all four at build time:
+
+```
+12311 Visual coverage [Deployable] 5: mediumDishAntenna[pid=1170199082](state=RETRACTED),
+      solarPanels5[pid=1114565348](state=EXTENDED), solarPanels5[pid=3971329454](state=EXTENDED),
+      solarPanels5[pid=3459117514](state=EXTENDED), solarPanels5[pid=3544179155](state=EXTENDED)
+```
+
+THE MECHANISM, end to end, all from the same log:
+
+  1. RECORDER. `12281 Seeded already-extended deployable: 'solarPanels5'
+     pid=1114565348` then `12286 Seed event: DeployableExtended pid=1114565348`.
+     The OX-STAT reads EXTENDED (it is permanently deployed), so the seeder emits
+     a DeployableExtended for it exactly as it would for a real panel.
+  2. GHOST BUILD. The part IS built - `17539/17540 cloned 1 MeshRenderers` - and
+     the builder even resolves a break subtree (`17543 break subtree 'suncatcher'
+     resolved from pivotName (stock OnStart default)`).
+  3. APPLY. `ClassifyDeployableApply` returns `no-resolved-visual`: a
+     `DeployableGhostInfo` exists for the pid but carries no POSE TRANSFORMS,
+     because an OX-STAT has no deploy animation and therefore no stowed/deployed
+     pair to interpolate between.
+
+WHY THIS IS FILED AND NOT FIXED. Every step above is defensible on its own and
+the rendering is CORRECT - a static panel has no motion to replay, so nothing is
+visually wrong on any ghost. What the instrument exposes is that the pipeline
+carries four events per replay that can never do anything, on every craft with an
+OX-STAT (which is most of them). The product question is which end should change:
+
+  (a) the RECORDER's `PartStateSeeder` could skip a deployable whose module has no
+      animation, which would remove the events at the source; or
+  (b) the GHOST BUILDER could decline to create a `DeployableGhostInfo` for a part
+      with no pose transforms, which would move the reason from
+      `no-resolved-visual` to `no-info-for-part` without removing the events; or
+  (c) nothing changes and this is simply what a static panel looks like through
+      the new instrument.
+
+That is a product decision with a real recording-size argument behind it (the
+Visual & recording design principle: "if a visual detail isn't noticeable at
+playback speed, don't record it"), and not one a test lane should take. NOTHING IN
+GS-6 PINS THIS: the spec's `DeployableExtended` token requires `applied=[1-9]`,
+which the mediumDishAntenna line satisfies, so whichever way the decision goes the
+lane keeps working.
+
 ## GS6-SWEEP-CRAFT-LACKS-SEVEN-FAMILIES: the committed `Kerbal X.craft` carries no chute, gear, light, bay, fairing, converter or EFFECTS-node engine, so GS-6 v1 sweeps four part-event families instead of eleven [FOUND BY READING 2026-09-02 while authoring `GS-6-part-event-applier-sweep`, off the craft file's own part census. CRAFT PROPERTY, REPORT-ONLY - never a Parsek defect and never a harness-driver gap]
 
 THE DISTINCTION THAT MATTERS, because it decides what the fix is: this is a CRAFT
@@ -1289,6 +1355,54 @@ itself wrote, precisely so no MODULE block is invented and no module-index misma
 can be authored in - and no stock VAB craft carries a light, a service bay, an ISRU or
 a Spark, so their tails would have to be invented. That is the piece of work, and it
 wants its own lane.
+
+## GS6-CHUTE-TWO-PHASE-NEEDS-A-DESCENT-VARIANT: the sweep craft carries parachutes and the harness has arm/deploy/cut verbs, but `kx_rewind_watch` commits at the top of a sub-orbital coast and never re-enters, so D7 `chute-two-phase` and `chute-cut` stay unreachable [FOUND BY READING 2026-09-02 while preparing the GS-6 revision-2 craft. MISSION-SHAPE NOTE, REPORT-ONLY - not a defect in the product, the craft or the driver]
+
+WHAT IS ALREADY IN PLACE: `Parachute.arm()` / `.deploy()` / `.cut()` are all on the
+kRPC 0.5.4 `Parachute` class and all three are wired as `mlib` actions and
+`partSweepSteps` step names (`chutes-arm`, `chutes-deploy`, `chutes-cut`), and the
+revision-2 craft carries two `parachuteRadial` canopies. Nothing is missing on
+either side.
+
+WHAT BLOCKS IT IS THE PROFILE, not the parts. `kx_rewind_watch` discards the fueled
+core at apoapsis, coasts `coastSeconds`, runs PART-SWEEP and COMMITS - all above the
+atmosphere and all on the way UP. At that point:
+
+  - `Parachute.deploy()` only ARMS the canopy (state ACTIVE). Stock
+    `ModuleParachute` semi-deploys on dynamic pressure, so no
+    ParachuteSemiDeployed and no ParachuteDeployed is ever recorded.
+  - `chutes-cut` is therefore a no-op by construction, and the runner's cut arm
+    reads `.state` first and logs `cut 0 deployed parachute(s)` rather than
+    raising - which is the honest reading, not a silent pass.
+
+So revision 2 fires `chutes-arm` (harmless, and it proves the verb reached the
+part) and PINS NOTHING on the chute trio; the three families are recorded as
+ABSENT BY DESIGN in the spec header rather than left looking unmeasured.
+
+WHAT A DESCENT VARIANT WOULD NEED, written down so the next author does not
+re-derive it. This is a MISSION change and is deliberately out of the GS-6
+package:
+
+  1. A LOWER APOAPSIS. `coreDiscardApoapsisMeters` currently lets the stack coast
+     well clear of the atmosphere; a variant wants the discard low enough that the
+     remaining stack is on a re-entry trajectory rather than a long coast.
+  2. A DESCENT PHASE between COAST/PART-SWEEP and TREE-STATE, gating on altitude
+     falling through an atmospheric band rather than on the coast timer - the one
+     genuinely new phase, and the reason this is not a params-only change.
+  3. THE SWEEP SPLIT IN TWO: the pressure-independent families (lights, gear, bay,
+     converter, deployables, RCS, engines) stay in the existing high sweep, and
+     only `chutes-arm` -> `chutes-deploy` -> `chutes-cut` move into the descent
+     window, spaced so the semi-deploy has time to land before the cut.
+  4. A COMMIT GATED ON TOUCHDOWN (or on the cut) instead of on the coast timer, so
+     the recorded span actually contains the chute events the lane is there for.
+  5. A LONGER BUDGET: the recorded span grows by the whole descent, and the
+     playback wait spends it again in REAL time because this lane warps nowhere.
+
+RISK WORTH NAMING UP FRONT: a re-entering stack with two radial canopies is a
+LANDING, so the variant also inherits GS-1's touchdown-survival arithmetic (crash
+tolerances, descent mass under canopy count) - and if it does not survive, the
+terminal state changes from SubOrbital to Destroyed and the lane's own
+`[expectations.recordings.structure]` moves with it.
 
 ## GS6-FAMILIES-WITHOUT-A-KRPC-DRIVER: five part-event families cannot be fired from a scripted timeline at all, so no sweep craft will ever reach them [FOUND BY READING 2026-09-02 against the installed kRPC 0.5.4 client surface. SCOPE NOTE, REPORT-ONLY - not a defect in anything]
 

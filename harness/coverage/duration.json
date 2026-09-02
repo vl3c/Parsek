@@ -491,6 +491,16 @@
         "2026-08-28T15:49:58Z": 353.0
       }
     },
+    "GS-6-part-event-applier-sweep": {
+      "last": 412.0,
+      "lastVsP50": 1.0,
+      "n": 1,
+      "p50": 412.0,
+      "p95": 412.0,
+      "samples": {
+        "2026-09-02T14:27:09Z": 412.0
+      }
+    },
     "H10-finalize-backfill": {
       "last": 56.0,
       "lastVsP50": 1.0,

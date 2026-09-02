@@ -2186,8 +2186,11 @@ first spawn frame (hold-then-retry, never a single eager ask).
    entry in CLAUDE.md). The in-game H37 category tests part-event fidelity
    headlessly; this is its flown-replay sibling and claims the D7 cells H37
    cannot (CLAIM-IS-NOT-GATE: each cell needs its replay-side token).
-   **AUTHORED 2026-09-02 as `GS-6-part-event-applier-sweep`, NEVER FLOWN, and
-   v1 is SHORTER than this entry asks for in a way worth recording.** The
+   **AUTHORED AND FLOWN GREEN 2026-09-02 as `GS-6-part-event-applier-sweep`
+   (reading run `2026-09-02_1420`, PASS attempt 1; 55 applier lines, nine required
+   tokens re-pinned from the bytes, D7 `shroud` measured as a bonus and one real
+   finding - `GS6-DEPLOYABLE-NO-RESOLVED-VISUAL-solarPanels5`). Revision 1 is
+   SHORTER than this entry asks for in a way worth recording.** The
    replay-side token now exists: PR #1608 gave the applier one grep-stable line
    per family per ghost surface (`[GhostPartEvents] apply family=<enum member>
    surface=<token> rec= pid= applied= skipped= reason=`). The lane is GS-4's

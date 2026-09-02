@@ -1126,6 +1126,15 @@ ACTION_ARM_CHUTES = "arm_chutes"                           # value = None
 # lane has ever reached. kRPC raises on a chute that is not deployed, so the
 # runner reads `.state` first and cuts only what is actually out.
 ACTION_CUT_CHUTES = "cut_chutes"                           # value = None
+# Every Engine on the craft -> `.active = (value != 0)`. EngineIgnited /
+# EngineShutdown WITHOUT commanding thrust through `control.throttle`, which is the
+# only way to fire an engine family on a part the ascent's staging never activates:
+# a stack-only engine mounted on a spare node (the GS-6 sweep craft's Spark, whose
+# whole purpose is to put an EFFECTS-node engine in the recording beside the legacy
+# `fx_*` ones) has no stage of its own that the profile presses. `Engine.active` is
+# on the kRPC 0.5.4 Engine class (verified in the installed client source); the
+# module ACTIVATING is what the recorder reads, so no propellant need flow.
+ACTION_SET_ENGINES_ACTIVE = "set_engines_active"            # value = 1.0 on / 0.0 off
 
 # THE ACTIONS THAT NEED NO ACTIVE VESSEL, and the SINGLE authority on which those
 # are. `KrpcMissionControl.perform` resolves `sc.active_vessel` for the whole
@@ -20583,6 +20592,10 @@ KXRW_SWEEP_STEP_ACTIONS: Dict[str, Action] = {
     "chutes-cut":       Action(ACTION_CUT_CHUTES),
     # Brakes: no Parsek family of its own, carried so a craft that binds a part
     # action to the Brakes group can still reach it.
+    # Engines by MODULE ACTIVATION rather than by throttle: the only route to an
+    # engine family on a part the staging plan never activates.
+    "engines-on":       Action(ACTION_SET_ENGINES_ACTIVE, value=1.0),
+    "engines-off":      Action(ACTION_SET_ENGINES_ACTIVE, value=0.0),
     "brakes-on":        Action(ACTION_SET_BRAKES, value=1.0),
     "brakes-off":       Action(ACTION_SET_BRAKES, value=0.0),
     # Engines, on the ALREADY-COASTING stack: throttle up then straight back down.
