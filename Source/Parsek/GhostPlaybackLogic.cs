@@ -1798,55 +1798,91 @@ namespace Parsek
             bool needsReentryMeshRebuild = false;
             bool audioPowerTouched = false;
             HashSet<uint> placedTargetPartIds = null;
+            // P8 step 1: allocated lazily on the first CONSUMED event, so the common
+            // frame (cursor already caught up, loop body never entered) pays nothing.
+            GhostPartEventApplyTally tally = null;
 
             while (evtIdx < rec.PartEvents.Count && rec.PartEvents[evtIdx].ut <= currentUT)
             {
                 var evt = rec.PartEvents[evtIdx];
+                if (tally == null) tally = new GhostPartEventApplyTally();
                 switch (evt.eventType)
                 {
                     case PartEventType.Decoupled:
-                        ApplyDecoupledPartEvent(
-                            state,
-                            ghost,
-                            logicalPartIds,
-                            tree,
-                            evt,
-                            allowTransientEffects,
-                            ref visibilityChanged,
-                            ref needsReentryMeshRebuild);
+                        tally.Record(
+                            evt.eventType,
+                            GhostPartEventSurface.Visibility,
+                            evt.partPersistentId,
+                            ApplyDecoupledPartEvent(
+                                state,
+                                ghost,
+                                logicalPartIds,
+                                tree,
+                                evt,
+                                allowTransientEffects,
+                                ref visibilityChanged,
+                                ref needsReentryMeshRebuild));
                         break;
                     case PartEventType.Destroyed:
-                        ApplyDestroyedPartEvent(
-                            state,
-                            ghost,
-                            logicalPartIds,
-                            evt,
-                            allowTransientEffects,
-                            ref visibilityChanged,
-                            ref needsReentryMeshRebuild);
+                        tally.Record(
+                            evt.eventType,
+                            GhostPartEventSurface.Visibility,
+                            evt.partPersistentId,
+                            ApplyDestroyedPartEvent(
+                                state,
+                                ghost,
+                                logicalPartIds,
+                                evt,
+                                allowTransientEffects,
+                                ref visibilityChanged,
+                                ref needsReentryMeshRebuild));
                         break;
                     case PartEventType.ParachuteCut:
-                        ApplyParachuteCutEvent(state, evt.partPersistentId);
+                        tally.Record(
+                            evt.eventType,
+                            GhostPartEventSurface.Parachute,
+                            evt.partPersistentId,
+                            ApplyParachuteCutEvent(state, evt.partPersistentId));
                         break;
                     case PartEventType.ParachuteRepacked:
-                        ApplyParachuteRepackedEvent(state, evt.partPersistentId);
+                        tally.Record(
+                            evt.eventType,
+                            GhostPartEventSurface.Parachute,
+                            evt.partPersistentId,
+                            ApplyParachuteRepackedEvent(state, evt.partPersistentId));
                         break;
                     case PartEventType.ShroudJettisoned:
-                        ApplyJettisonPanelState(state, evt, jettisoned: true);
+                        tally.Record(
+                            evt.eventType,
+                            GhostPartEventSurface.JettisonPanel,
+                            evt.partPersistentId,
+                            ApplyJettisonPanelStateWithOutcome(state, evt, jettisoned: true));
                         break;
                     case PartEventType.ParachuteDestroyed:
-                        ApplyParachuteDestroyedEvent(
-                            state,
-                            ghost,
-                            logicalPartIds,
+                        tally.Record(
+                            evt.eventType,
+                            GhostPartEventSurface.Visibility,
                             evt.partPersistentId,
-                            ref visibilityChanged);
+                            ApplyParachuteDestroyedEvent(
+                                state,
+                                ghost,
+                                logicalPartIds,
+                                evt.partPersistentId,
+                                ref visibilityChanged));
                         break;
                     case PartEventType.ParachuteSemiDeployed:
-                        ApplyParachuteSemiDeployedEvent(state, evt.partPersistentId);
+                        tally.Record(
+                            evt.eventType,
+                            GhostPartEventSurface.Parachute,
+                            evt.partPersistentId,
+                            ApplyParachuteSemiDeployedEvent(state, evt.partPersistentId));
                         break;
                     case PartEventType.ParachuteDeployed:
-                        ApplyParachuteDeployedEvent(state, ghost, evt.partPersistentId);
+                        tally.Record(
+                            evt.eventType,
+                            GhostPartEventSurface.Parachute,
+                            evt.partPersistentId,
+                            ApplyParachuteDeployedEvent(state, ghost, evt.partPersistentId));
                         break;
                     case PartEventType.EngineIgnited:
                         // Use at least a minimum emission on ignition (#165) — older
@@ -1854,47 +1890,64 @@ namespace Parsek
                         // the recording-side fix. The 0.01 floor ensures plume visibility
                         // for backward compatibility. New recordings skip zero-throttle
                         // engine seeds entirely (PartStateSeeder.EmitEngineSeedEvents).
-                        SetEngineEmission(state, evt, System.Math.Max(evt.value, 0.01f));
-                        if (SetEngineAudio(
-                                state,
-                                evt,
-                                System.Math.Max(evt.value, 0.01f),
-                                enforcePlaybackCap: false))
-                            audioPowerTouched = true;
+                        RecordEngineEvent(
+                            tally, state, evt, System.Math.Max(evt.value, 0.01f),
+                            ref audioPowerTouched);
                         break;
                     case PartEventType.EngineShutdown:
-                        SetEngineEmission(state, evt, 0f);
-                        if (SetEngineAudio(state, evt, 0f, enforcePlaybackCap: false))
-                            audioPowerTouched = true;
+                        RecordEngineEvent(tally, state, evt, 0f, ref audioPowerTouched);
                         break;
                     case PartEventType.EngineThrottle:
-                        SetEngineEmission(state, evt, evt.value);
-                        if (SetEngineAudio(state, evt, evt.value, enforcePlaybackCap: false))
-                            audioPowerTouched = true;
+                        RecordEngineEvent(tally, state, evt, evt.value, ref audioPowerTouched);
                         break;
                     // S2: the four deployable-family event pairs take the ANIMATED path
                     // (immediate: false). Every BASELINE caller keeps the snap overload; the
                     // distinction is "the recording says this moved now" vs "put the ghost into
                     // the state it spawned in".
                     case PartEventType.DeployableExtended:
-                        ApplyDeployableState(state, evt, deployed: true, immediate: false);
+                        tally.Record(
+                            evt.eventType,
+                            GhostPartEventSurface.Deployable,
+                            evt.partPersistentId,
+                            ApplyDeployableStateWithOutcome(
+                                state, evt, deployed: true, immediate: false));
                         break;
                     case PartEventType.DeployableRetracted:
-                        ApplyDeployableState(state, evt, deployed: false, immediate: false);
+                        tally.Record(
+                            evt.eventType,
+                            GhostPartEventSurface.Deployable,
+                            evt.partPersistentId,
+                            ApplyDeployableStateWithOutcome(
+                                state, evt, deployed: false, immediate: false));
                         break;
                     // S6: a break is a SNAP, never an animation. The panel is gone in the frame it
                     // broke (stock flings the subtree off as debris), so there is no pose to
                     // interpolate toward and no `immediate` distinction to make.
                     case PartEventType.DeployableBroken:
-                        ApplyDeployableBrokenState(state, evt.partPersistentId, broken: true);
+                        tally.Record(
+                            evt.eventType,
+                            GhostPartEventSurface.Deployable,
+                            evt.partPersistentId,
+                            ApplyDeployableBrokenStateWithOutcome(
+                                state, evt.partPersistentId, broken: true));
                         break;
                     // S7: evt.ut is the loop's phase origin, which is what makes a scrubbed or
                     // looping replay land on the SAME pose for the same recorded moment.
                     case PartEventType.ConverterActivated:
-                        ApplyConverterLoopState(state, evt.partPersistentId, active: true, activeSinceUT: evt.ut);
+                        tally.Record(
+                            evt.eventType,
+                            GhostPartEventSurface.ConverterLoop,
+                            evt.partPersistentId,
+                            ApplyConverterLoopStateWithOutcome(
+                                state, evt.partPersistentId, active: true, activeSinceUT: evt.ut));
                         break;
                     case PartEventType.ConverterDeactivated:
-                        ApplyConverterLoopState(state, evt.partPersistentId, active: false, activeSinceUT: evt.ut);
+                        tally.Record(
+                            evt.eventType,
+                            GhostPartEventSurface.ConverterLoop,
+                            evt.partPersistentId,
+                            ApplyConverterLoopStateWithOutcome(
+                                state, evt.partPersistentId, active: false, activeSinceUT: evt.ut));
                         break;
                     // S4: all six EVA members share one applier so the plume gate lives in one
                     // place. The RAGDOLL pair is recorded and applied but renders no POSE - it
@@ -1905,83 +1958,156 @@ namespace Parsek
                     case PartEventType.EvaJetpackThrustStopped:
                     case PartEventType.EvaRagdollStarted:
                     case PartEventType.EvaRagdollEnded:
-                        ApplyEvaState(state, evt.eventType);
+                        tally.Record(
+                            evt.eventType,
+                            GhostPartEventSurface.Eva,
+                            evt.partPersistentId,
+                            ApplyEvaStateWithOutcome(state, evt.eventType));
                         break;
                     case PartEventType.ThermalAnimationHot:
-                        ApplyHeatState(state, evt, HeatLevel.Hot);
+                        tally.Record(
+                            evt.eventType,
+                            GhostPartEventSurface.Heat,
+                            evt.partPersistentId,
+                            ApplyHeatStateWithOutcome(state, evt, HeatLevel.Hot));
                         break;
                     case PartEventType.ThermalAnimationMedium:
-                        ApplyHeatState(state, evt, HeatLevel.Medium);
+                        tally.Record(
+                            evt.eventType,
+                            GhostPartEventSurface.Heat,
+                            evt.partPersistentId,
+                            ApplyHeatStateWithOutcome(state, evt, HeatLevel.Medium));
                         break;
                     case PartEventType.ThermalAnimationCold:
-                        ApplyHeatState(state, evt, HeatLevel.Cold);
+                        tally.Record(
+                            evt.eventType,
+                            GhostPartEventSurface.Heat,
+                            evt.partPersistentId,
+                            ApplyHeatStateWithOutcome(state, evt, HeatLevel.Cold));
                         break;
                     case PartEventType.LightOn:
-                        ApplyLightPowerEvent(state, evt.partPersistentId, true);
+                        RecordLightPowerEvent(tally, state, evt, on: true);
                         break;
                     case PartEventType.LightOff:
-                        ApplyLightPowerEvent(state, evt.partPersistentId, false);
+                        RecordLightPowerEvent(tally, state, evt, on: false);
                         break;
                     case PartEventType.LightBlinkEnabled:
-                        ApplyLightBlinkModeEvent(state, evt.partPersistentId, enabled: true, evt.value);
+                        tally.Record(
+                            evt.eventType,
+                            GhostPartEventSurface.BlinkState,
+                            evt.partPersistentId,
+                            ApplyLightBlinkModeEventWithOutcome(
+                                state, evt.partPersistentId, enabled: true, evt.value));
                         break;
                     case PartEventType.LightBlinkDisabled:
-                        ApplyLightBlinkModeEvent(state, evt.partPersistentId, enabled: false, evt.value);
+                        tally.Record(
+                            evt.eventType,
+                            GhostPartEventSurface.BlinkState,
+                            evt.partPersistentId,
+                            ApplyLightBlinkModeEventWithOutcome(
+                                state, evt.partPersistentId, enabled: false, evt.value));
                         break;
                     case PartEventType.LightBlinkRate:
-                        ApplyLightBlinkRateEvent(state, evt.partPersistentId, evt.value);
+                        tally.Record(
+                            evt.eventType,
+                            GhostPartEventSurface.BlinkState,
+                            evt.partPersistentId,
+                            ApplyLightBlinkRateEventWithOutcome(
+                                state, evt.partPersistentId, evt.value));
                         break;
                     case PartEventType.GearDeployed:
-                        ApplyDeployableState(state, evt, deployed: true, immediate: false);
+                        tally.Record(
+                            evt.eventType,
+                            GhostPartEventSurface.Deployable,
+                            evt.partPersistentId,
+                            ApplyDeployableStateWithOutcome(
+                                state, evt, deployed: true, immediate: false));
                         break;
                     case PartEventType.GearRetracted:
-                        ApplyDeployableState(state, evt, deployed: false, immediate: false);
+                        tally.Record(
+                            evt.eventType,
+                            GhostPartEventSurface.Deployable,
+                            evt.partPersistentId,
+                            ApplyDeployableStateWithOutcome(
+                                state, evt, deployed: false, immediate: false));
                         break;
                     case PartEventType.CargoBayOpened:
-                        ApplyCargoBayState(state, evt, open: true, immediate: false);
+                        RecordCargoBayEvent(tally, state, evt, open: true);
                         break;
                     case PartEventType.CargoBayClosed:
-                        ApplyCargoBayState(state, evt, open: false, immediate: false);
+                        RecordCargoBayEvent(tally, state, evt, open: false);
                         break;
                     case PartEventType.FairingJettisoned:
-                        if (state.fairingInfos != null)
-                        {
-                            FairingGhostInfo fInfo;
-                            if (state.fairingInfos.TryGetValue(evt.partPersistentId, out fInfo)
-                                && fInfo.fairingMeshObject != null)
-                            {
-                                fInfo.fairingMeshObject.SetActive(false);
-                            }
-                        }
+                        tally.Record(
+                            evt.eventType,
+                            GhostPartEventSurface.Fairing,
+                            evt.partPersistentId,
+                            ApplyFairingJettisonedState(state, evt.partPersistentId));
                         break;
                     case PartEventType.RCSActivated:
-                        SetRcsEmission(state, evt, evt.value);
+                        tally.Record(
+                            evt.eventType,
+                            GhostPartEventSurface.RcsFx,
+                            evt.partPersistentId,
+                            SetRcsEmissionWithOutcome(state, evt, evt.value));
                         break;
                     case PartEventType.RCSStopped:
-                        SetRcsEmission(state, evt, 0f);
+                        tally.Record(
+                            evt.eventType,
+                            GhostPartEventSurface.RcsFx,
+                            evt.partPersistentId,
+                            SetRcsEmissionWithOutcome(state, evt, 0f));
                         break;
                     case PartEventType.RCSThrottle:
-                        SetRcsEmission(state, evt, evt.value);
+                        tally.Record(
+                            evt.eventType,
+                            GhostPartEventSurface.RcsFx,
+                            evt.partPersistentId,
+                            SetRcsEmissionWithOutcome(state, evt, evt.value));
                         break;
                     case PartEventType.RoboticMotionStarted:
                     case PartEventType.RoboticPositionSample:
                     case PartEventType.RoboticMotionStopped:
-                        ApplyRoboticEvent(state, evt, currentUT);
+                        tally.Record(
+                            evt.eventType,
+                            GhostPartEventSurface.Robotic,
+                            evt.partPersistentId,
+                            ApplyRoboticEvent(state, evt, currentUT));
                         break;
                     case PartEventType.InventoryPartPlaced:
-                        ApplyInventoryPartPlacedEvent(
-                            state,
-                            logicalPartIds,
+                        tally.Record(
+                            evt.eventType,
+                            GhostPartEventSurface.Inventory,
                             evt.partPersistentId,
-                            ref placedTargetPartIds,
-                            ref visibilityChanged);
+                            ApplyInventoryPartPlacedEvent(
+                                state,
+                                logicalPartIds,
+                                evt.partPersistentId,
+                                ref placedTargetPartIds,
+                                ref visibilityChanged));
                         break;
                     case PartEventType.InventoryPartRemoved:
-                        ApplyInventoryPartRemovedEvent(
-                            state,
-                            logicalPartIds,
+                        tally.Record(
+                            evt.eventType,
+                            GhostPartEventSurface.Inventory,
                             evt.partPersistentId,
-                            ref visibilityChanged);
+                            ApplyInventoryPartRemovedEvent(
+                                state,
+                                logicalPartIds,
+                                evt.partPersistentId,
+                                ref visibilityChanged));
+                        break;
+                    default:
+                        // Docked / Undocked are chain-segment boundary markers with no ghost
+                        // pose, and an older build reading a NEWER sidecar can materialise an
+                        // undefined member here (the binary reader raw-casts). Both land in
+                        // this arm; naming them in the log is the whole point of the
+                        // unhandled-event-type reason class.
+                        tally.Record(
+                            evt.eventType,
+                            GhostPartEventSurface.Visibility,
+                            evt.partPersistentId,
+                            GhostPartEventOutcome.UnhandledEventType);
                         break;
                 }
                 evtIdx++;
@@ -1994,6 +2120,9 @@ namespace Parsek
             if (appliedCount > 0)
                 ParsekLog.VerboseRateLimited("Flight", $"part-events-{recIdx}",
                     $"Applied {appliedCount} part events for ghost #{recIdx} (evtIdx now {evtIdx})");
+            // P8 step 1: the per-family breakdown the aggregate line above cannot carry.
+            // One rate-limited line per (recording, family, surface) actually touched.
+            if (tally != null) tally.Flush(recIdx);
             if (visibilityChanged)
             {
                 if (RefreshCompoundPartVisibility(state))
@@ -2030,7 +2159,124 @@ namespace Parsek
             UpdateActiveDeployables(state, currentUT);
         }
 
-        private static void ApplyDecoupledPartEvent(
+        /// <summary>
+        /// P8 step 1: the engine arms drive TWO surfaces (particle FX and the ghost's
+        /// looped audio) and the audio half already had its own boolean, which the
+        /// switch consumed for the playback-cap enforcement and then threw away. Both
+        /// are tallied so a silent-but-visible plume (or the reverse) is readable.
+        /// </summary>
+        private static void RecordEngineEvent(
+            GhostPartEventApplyTally tally,
+            GhostPlaybackState state,
+            PartEvent evt,
+            float power,
+            ref bool audioPowerTouched)
+        {
+            tally.Record(
+                evt.eventType,
+                GhostPartEventSurface.EngineFx,
+                evt.partPersistentId,
+                SetEngineEmissionWithOutcome(state, evt, power));
+
+            // The classifier mirrors SetEngineAudio's only two declining paths, so the
+            // recorded outcome and the boolean below cannot disagree - it is there to
+            // name WHICH of the two, which the boolean cannot.
+            GhostPartEventOutcome audioOutcome = ClassifyEngineAudioApply(state, evt);
+            if (SetEngineAudio(state, evt, power, enforcePlaybackCap: false))
+                audioPowerTouched = true;
+            tally.Record(
+                evt.eventType,
+                GhostPartEventSurface.EngineAudio,
+                evt.partPersistentId,
+                audioOutcome);
+        }
+
+        /// <summary>
+        /// P8 step 1: a light event's two independent surfaces, tallied separately.
+        /// See <see cref="ApplyLightPowerEventWithOutcomes"/> for why one boolean for
+        /// the pair was the thing that made the colour-changer half unmeasurable.
+        /// </summary>
+        private static void RecordLightPowerEvent(
+            GhostPartEventApplyTally tally,
+            GhostPlaybackState state,
+            PartEvent evt,
+            bool on)
+        {
+            ApplyLightPowerEventWithOutcomes(
+                state,
+                evt.partPersistentId,
+                on,
+                out GhostPartEventOutcome lightOutcome,
+                out GhostPartEventOutcome colorChangerOutcome);
+            tally.Record(
+                evt.eventType, GhostPartEventSurface.Light, evt.partPersistentId, lightOutcome);
+            tally.Record(
+                evt.eventType, GhostPartEventSurface.ColorChanger, evt.partPersistentId,
+                colorChangerOutcome);
+        }
+
+        /// <summary>
+        /// P8 step 1: the cargo-bay CASCADE. The jettison arm is tallied only when the
+        /// cascade actually reached it, so a bay whose doors animated does not also
+        /// report a phantom jettison skip.
+        /// </summary>
+        private static void RecordCargoBayEvent(
+            GhostPartEventApplyTally tally,
+            GhostPlaybackState state,
+            PartEvent evt,
+            bool open)
+        {
+            ApplyCargoBayStateWithOutcomes(
+                state,
+                evt,
+                open,
+                immediate: false,
+                out GhostPartEventOutcome deployableOutcome,
+                out GhostPartEventOutcome jettisonOutcome,
+                out bool jettisonArmReached);
+            tally.Record(
+                evt.eventType, GhostPartEventSurface.Deployable, evt.partPersistentId,
+                deployableOutcome);
+            if (jettisonArmReached)
+                tally.Record(
+                    evt.eventType, GhostPartEventSurface.JettisonPanel, evt.partPersistentId,
+                    jettisonOutcome);
+        }
+
+        /// <summary>
+        /// P8 step 1: the FairingJettisoned arm, lifted out of the switch so its three
+        /// distinct early-outs become named reason classes instead of one silent
+        /// nested-if fall-through.
+        /// </summary>
+        internal static GhostPartEventOutcome ApplyFairingJettisonedState(
+            GhostPlaybackState state, uint partPersistentId)
+        {
+            GhostPartEventOutcome precondition = ClassifyFairingJettisonApply(state, partPersistentId);
+            if (precondition != GhostPartEventOutcome.Applied) return precondition;
+
+            state.fairingInfos[partPersistentId].fairingMeshObject.SetActive(false);
+            return GhostPartEventOutcome.Applied;
+        }
+
+        /// <summary>P8 step 1 precondition classifier (pure).</summary>
+        internal static GhostPartEventOutcome ClassifyFairingJettisonApply(
+            GhostPlaybackState state, uint partPersistentId)
+        {
+            if (state.fairingInfos == null) return GhostPartEventOutcome.NoFamilyState;
+            FairingGhostInfo fInfo;
+            if (!state.fairingInfos.TryGetValue(partPersistentId, out fInfo) || fInfo == null)
+                return GhostPartEventOutcome.NoInfoForPart;
+            if (fInfo.fairingMeshObject == null)
+                return GhostPartEventOutcome.NoResolvedVisual;
+            return GhostPartEventOutcome.Applied;
+        }
+
+        /// <summary>
+        /// P8 step 1: unconditional - the subtree is hidden and dropped from logical
+        /// presence on every path - so Applied on the VISIBILITY surface is always the
+        /// honest report. There is no ghost lookup here that can miss.
+        /// </summary>
+        private static GhostPartEventOutcome ApplyDecoupledPartEvent(
             GhostPlaybackState state,
             GameObject ghost,
             HashSet<uint> logicalPartIds,
@@ -2062,6 +2308,7 @@ namespace Parsek
             }
             visibilityChanged = true;
             needsReentryMeshRebuild = true;
+            return GhostPartEventOutcome.Applied;
         }
 
         /// <summary>
@@ -2126,7 +2373,11 @@ namespace Parsek
                     5.0);
         }
 
-        private static void ApplyDestroyedPartEvent(
+        /// <summary>
+        /// P8 step 1: unconditional, like the decouple sibling - Applied on the
+        /// VISIBILITY surface.
+        /// </summary>
+        private static GhostPartEventOutcome ApplyDestroyedPartEvent(
             GhostPlaybackState state,
             GameObject ghost,
             HashSet<uint> logicalPartIds,
@@ -2151,6 +2402,7 @@ namespace Parsek
             RemovePartSubtreeFromLogicalPresence(logicalPartIds, evt.partPersistentId, null);
             visibilityChanged = true;
             needsReentryMeshRebuild = true;
+            return GhostPartEventOutcome.Applied;
         }
 
         /// <summary>
@@ -2306,24 +2558,30 @@ namespace Parsek
         /// a pack whose snapshot says SEMIDEPLOYED must render half-open at spawn, not
         /// stowed. No-ops unless the build sampled a semi-deployed pose for this pack.
         /// </summary>
-        private static void ApplyParachuteSemiDeployedEvent(
+        private static GhostPartEventOutcome ApplyParachuteSemiDeployedEvent(
             GhostPlaybackState state,
             uint partPersistentId)
         {
-            if (state?.parachuteInfos == null) return;
+            if (state?.parachuteInfos == null) return GhostPartEventOutcome.NoFamilyState;
 
             ParachuteGhostInfo semiInfo;
             if (!state.parachuteInfos.TryGetValue(partPersistentId, out semiInfo)
-                || semiInfo == null
-                || semiInfo.canopyTransform == null
-                || !semiInfo.semiDeployedSampled)
-                return;
+                || semiInfo == null)
+                return GhostPartEventOutcome.NoInfoForPart;
+            if (semiInfo.canopyTransform == null)
+                return GhostPartEventOutcome.NoResolvedVisual;
+            // The semi-deployed (drogue) pose is optional at build time; a pack whose
+            // prefab exposed no streamer stage has nothing to interpolate toward, which
+            // is a BUILD fact and not an apply failure.
+            if (!semiInfo.semiDeployedSampled)
+                return GhostPartEventOutcome.PoseNotSampled;
 
             semiInfo.canopyTransform.localScale = semiInfo.semiDeployedCanopyScale;
             semiInfo.canopyTransform.localPosition = semiInfo.semiDeployedCanopyPos;
             semiInfo.canopyTransform.localRotation = semiInfo.semiDeployedCanopyRot;
             if (semiInfo.capTransform != null)
                 semiInfo.capTransform.gameObject.SetActive(false);
+            return GhostPartEventOutcome.Applied;
         }
 
         /// <summary>
@@ -2358,25 +2616,39 @@ namespace Parsek
             }
         }
 
-        private static void ApplyParachuteCutEvent(
+        private static GhostPartEventOutcome ApplyParachuteCutEvent(
             GhostPlaybackState state,
             uint partPersistentId)
         {
+            GhostPartEventOutcome outcome = GhostPartEventOutcome.NoFamilyState;
             if (state.parachuteInfos != null)
             {
                 ParachuteGhostInfo cutInfo;
-                if (state.parachuteInfos.TryGetValue(partPersistentId, out cutInfo))
+                if (!state.parachuteInfos.TryGetValue(partPersistentId, out cutInfo))
                 {
+                    outcome = GhostPartEventOutcome.NoInfoForPart;
+                }
+                else
+                {
+                    bool touched = false;
                     if (cutInfo.canopyTransform != null)
+                    {
                         cutInfo.canopyTransform.localScale = Vector3.zero;
+                        touched = true;
+                    }
                     if (cutInfo.capTransform != null &&
                         TryResolveParachuteCapActive(PartEventType.ParachuteCut, out bool cutCapActive))
                     {
                         cutInfo.capTransform.gameObject.SetActive(cutCapActive);
+                        touched = true;
                     }
+                    outcome = touched
+                        ? GhostPartEventOutcome.Applied
+                        : GhostPartEventOutcome.NoResolvedVisual;
                 }
             }
             DestroyFakeCanopy(state, partPersistentId);
+            return outcome;
         }
 
         /// <summary>
@@ -2394,32 +2666,50 @@ namespace Parsek
         /// this is safe whether the preceding cut already removed it or the repack arrives without
         /// one (the ordinary real-canopy path).
         /// </summary>
-        private static void ApplyParachuteRepackedEvent(
+        private static GhostPartEventOutcome ApplyParachuteRepackedEvent(
             GhostPlaybackState state,
             uint partPersistentId)
         {
+            GhostPartEventOutcome outcome = GhostPartEventOutcome.NoFamilyState;
             if (state.parachuteInfos != null)
             {
                 ParachuteGhostInfo repackInfo;
-                if (state.parachuteInfos.TryGetValue(partPersistentId, out repackInfo))
+                if (!state.parachuteInfos.TryGetValue(partPersistentId, out repackInfo))
                 {
+                    outcome = GhostPartEventOutcome.NoInfoForPart;
+                }
+                else
+                {
+                    bool touched = false;
                     if (repackInfo.canopyTransform != null)
                     {
                         repackInfo.canopyTransform.localScale = repackInfo.stowedCanopyScale;
                         repackInfo.canopyTransform.localPosition = repackInfo.stowedCanopyPos;
                         repackInfo.canopyTransform.localRotation = repackInfo.stowedCanopyRot;
+                        touched = true;
                     }
                     if (repackInfo.capTransform != null &&
                         TryResolveParachuteCapActive(PartEventType.ParachuteRepacked, out bool repackCapActive))
                     {
                         repackInfo.capTransform.gameObject.SetActive(repackCapActive);
+                        touched = true;
                     }
+                    outcome = touched
+                        ? GhostPartEventOutcome.Applied
+                        : GhostPartEventOutcome.NoResolvedVisual;
                 }
             }
             DestroyFakeCanopy(state, partPersistentId);
+            return outcome;
         }
 
-        private static void ApplyParachuteDestroyedEvent(
+        /// <summary>
+        /// P8 step 1: unconditional, so it reports Applied on the VISIBILITY surface -
+        /// the part is hidden and dropped from logical presence whatever the ghost
+        /// carried for it. The canopy cleanup above is best-effort tidying of a visual
+        /// that is about to be hidden anyway, not the outcome.
+        /// </summary>
+        private static GhostPartEventOutcome ApplyParachuteDestroyedEvent(
             GhostPlaybackState state,
             GameObject ghost,
             HashSet<uint> logicalPartIds,
@@ -2440,9 +2730,15 @@ namespace Parsek
             HideGhostPart(ghost, partPersistentId);
             RemovePartSubtreeFromLogicalPresence(logicalPartIds, partPersistentId, null);
             visibilityChanged = true;
+            return GhostPartEventOutcome.Applied;
         }
 
-        private static void ApplyInventoryPartPlacedEvent(
+        /// <summary>
+        /// P8 step 1: unconditional (the ghost part is activated and joins logical
+        /// presence whatever else the ghost carries), so Applied on the INVENTORY
+        /// surface is always the honest report.
+        /// </summary>
+        private static GhostPartEventOutcome ApplyInventoryPartPlacedEvent(
             GhostPlaybackState state,
             HashSet<uint> logicalPartIds,
             uint partPersistentId,
@@ -2456,9 +2752,10 @@ namespace Parsek
                 placedTargetPartIds = new HashSet<uint>();
             placedTargetPartIds.Add(partPersistentId);
             visibilityChanged = true;
+            return GhostPartEventOutcome.Applied;
         }
 
-        private static void ApplyInventoryPartRemovedEvent(
+        private static GhostPartEventOutcome ApplyInventoryPartRemovedEvent(
             GhostPlaybackState state,
             HashSet<uint> logicalPartIds,
             uint partPersistentId,
@@ -2467,6 +2764,7 @@ namespace Parsek
             SetGhostPartActive(state, partPersistentId, false);
             RemovePartSubtreeFromLogicalPresence(logicalPartIds, partPersistentId, null);
             visibilityChanged = true;
+            return GhostPartEventOutcome.Applied;
         }
 
         /// <summary>
@@ -2780,7 +3078,13 @@ namespace Parsek
         /// Applies a ParachuteDeployed event: sets the real canopy to deployed pose if available,
         /// otherwise creates a fake canopy sphere as fallback. Hides the cap in both cases.
         /// </summary>
-        private static void ApplyParachuteDeployedEvent(GhostPlaybackState state, GameObject ghost, uint partPersistentId)
+        /// <summary>
+        /// P8 step 1: this family has a FALLBACK rather than a skip - a pack whose ghost
+        /// carries no canopy transform gets a fabricated sphere canopy - so the only
+        /// non-applied outcome is "neither the real canopy nor the fake one resolved".
+        /// </summary>
+        private static GhostPartEventOutcome ApplyParachuteDeployedEvent(
+            GhostPlaybackState state, GameObject ghost, uint partPersistentId)
         {
             bool usedRealCanopy = false;
 
@@ -2804,8 +3108,12 @@ namespace Parsek
                 if (canopy != null)
                 {
                     TrackFakeCanopy(state, partPersistentId, canopy);
+                    return GhostPartEventOutcome.Applied;
                 }
+                return GhostPartEventOutcome.NoResolvedVisual;
             }
+
+            return GhostPartEventOutcome.Applied;
         }
 
         internal static void TrackFakeCanopy(GhostPlaybackState state, uint partPid, GameObject canopy)
@@ -2893,11 +3201,54 @@ namespace Parsek
 
         internal static void SetEngineEmission(GhostPlaybackState state, PartEvent evt, float power)
         {
-            if (state.engineInfos == null) return;
+            SetEngineEmissionWithOutcome(state, evt, power);
+        }
+
+        /// <summary>
+        /// P8 step 1: the real body, reporting WHICH early-return it took so
+        /// <see cref="ApplyPartEvents"/> can name the skip class. The historical void
+        /// signature above is a thin wrapper, so no existing caller changed and there
+        /// is no second copy of these guards to drift out of step.
+        ///
+        /// "Applied" here means the ghost's engine info for this (pid, moduleIndex)
+        /// took the new power. Whether any PARTICLE moved is a separate, already-logged
+        /// fact (`FX magnitude (engine) pid=...`) and is deliberately not folded in:
+        /// that line is suppressed when nothing scaled, so a reader who wants emitter
+        /// proof reads it, and a reader who wants "the event reached a live engine
+        /// info" reads this one.
+        /// </summary>
+        /// <summary>
+        /// P8 step 1: the applier's guards, as a PURE function. Two reasons the split is
+        /// this shape rather than a bool inside the handler:
+        ///
+        /// 1. It is the SAME code path - the handler's early return IS this call, so
+        ///    there is no second copy of a predicate to drift (the standing house rule
+        ///    about re-deriving scope rather than duplicating it).
+        /// 2. It is the only shape that is testable at all. A method whose BODY names a
+        ///    Unity ECall (a Transform / GameObject / Light write) cannot even be JIT'd
+        ///    under xUnit - it throws `SecurityException: ECall methods must be packaged
+        ///    into a system module` before the first guard runs - so a guard living
+        ///    inside such a body is unreachable from a headless test. A classifier that
+        ///    only reads managed dictionaries JITs and runs.
+        /// </summary>
+        internal static GhostPartEventOutcome ClassifyEngineEmissionApply(
+            GhostPlaybackState state, PartEvent evt)
+        {
+            if (state.engineInfos == null) return GhostPartEventOutcome.NoFamilyState;
+            ulong key = FlightRecorder.EncodeEngineKey(evt.partPersistentId, evt.moduleIndex);
+            return state.engineInfos.ContainsKey(key)
+                ? GhostPartEventOutcome.Applied
+                : GhostPartEventOutcome.NoInfoForPart;
+        }
+
+        internal static GhostPartEventOutcome SetEngineEmissionWithOutcome(
+            GhostPlaybackState state, PartEvent evt, float power)
+        {
+            GhostPartEventOutcome precondition = ClassifyEngineEmissionApply(state, evt);
+            if (precondition != GhostPartEventOutcome.Applied) return precondition;
 
             ulong key = FlightRecorder.EncodeEngineKey(evt.partPersistentId, evt.moduleIndex);
-            EngineGhostInfo info;
-            if (!state.engineInfos.TryGetValue(key, out info)) return;
+            EngineGhostInfo info = state.engineInfos[key];
 
             info.currentPower = power;
 
@@ -2942,6 +3293,8 @@ namespace Parsek
                 }
 
             }
+
+            return GhostPartEventOutcome.Applied;
         }
 
         /// <summary>
@@ -3177,6 +3530,22 @@ namespace Parsek
         /// Set engine audio volume/pitch from recorded throttle power.
         /// Called alongside SetEngineEmission for EngineIgnited/Throttle/Shutdown events.
         /// </summary>
+        /// <summary>
+        /// P8 step 1 precondition classifier (pure). Mirrors this method's only two
+        /// `return false` paths exactly - a missing audio dictionary and a missing entry
+        /// for the engine key - so the family line can name which, rather than folding
+        /// both into a bare boolean. Everything past those two guards returns true.
+        /// </summary>
+        internal static GhostPartEventOutcome ClassifyEngineAudioApply(
+            GhostPlaybackState state, PartEvent evt)
+        {
+            if (state.audioInfos == null) return GhostPartEventOutcome.NoFamilyState;
+            ulong key = FlightRecorder.EncodeEngineKey(evt.partPersistentId, evt.moduleIndex);
+            return state.audioInfos.ContainsKey(key)
+                ? GhostPartEventOutcome.Applied
+                : GhostPartEventOutcome.NoInfoForPart;
+        }
+
         internal static bool SetEngineAudio(
             GhostPlaybackState state,
             PartEvent evt,
@@ -4040,11 +4409,34 @@ namespace Parsek
 
         internal static void SetRcsEmission(GhostPlaybackState state, PartEvent evt, float power)
         {
-            if (state.rcsInfos == null) return;
+            SetRcsEmissionWithOutcome(state, evt, power);
+        }
+
+        /// <summary>
+        /// P8 step 1: the RCS mirror of <see cref="SetEngineEmissionWithOutcome"/>.
+        /// Same wrapper shape, same meaning of "applied" (the ghost's RCS info for this
+        /// engine key took the new power; emitter movement is the separate
+        /// `FX magnitude (rcs) pid=...` line).
+        /// </summary>
+        /// <summary>P8 step 1: the RCS sibling of <see cref="ClassifyEngineEmissionApply"/>.</summary>
+        internal static GhostPartEventOutcome ClassifyRcsEmissionApply(
+            GhostPlaybackState state, PartEvent evt)
+        {
+            if (state.rcsInfos == null) return GhostPartEventOutcome.NoFamilyState;
+            ulong key = FlightRecorder.EncodeEngineKey(evt.partPersistentId, evt.moduleIndex);
+            return state.rcsInfos.ContainsKey(key)
+                ? GhostPartEventOutcome.Applied
+                : GhostPartEventOutcome.NoInfoForPart;
+        }
+
+        internal static GhostPartEventOutcome SetRcsEmissionWithOutcome(
+            GhostPlaybackState state, PartEvent evt, float power)
+        {
+            GhostPartEventOutcome precondition = ClassifyRcsEmissionApply(state, evt);
+            if (precondition != GhostPartEventOutcome.Applied) return precondition;
 
             ulong key = FlightRecorder.EncodeEngineKey(evt.partPersistentId, evt.moduleIndex);
-            RcsGhostInfo info;
-            if (!state.rcsInfos.TryGetValue(key, out info)) return;
+            RcsGhostInfo info = state.rcsInfos[key];
 
             info.currentPower = power;
 
@@ -4110,6 +4502,7 @@ namespace Parsek
                 if (renderer != null && renderer.enabled) enabledRenderers++;
             }
 
+            return GhostPartEventOutcome.Applied;
         }
 
         #region S1 — plume magnitude (ratio of captured baseline)
@@ -4898,15 +5291,15 @@ namespace Parsek
             }
         }
 
-        private static void ApplyRoboticEvent(
+        private static GhostPartEventOutcome ApplyRoboticEvent(
             GhostPlaybackState state, PartEvent evt, double currentUT)
         {
             if (state == null || state.roboticInfos == null)
-                return;
+                return GhostPartEventOutcome.NoFamilyState;
 
             ulong key = FlightRecorder.EncodeEngineKey(evt.partPersistentId, evt.moduleIndex);
             if (!state.roboticInfos.TryGetValue(key, out RoboticGhostInfo info) || info == null)
-                return;
+                return GhostPartEventOutcome.NoInfoForPart;
 
             // Old recordings still carry RoboticMotion* events for wheel MOTOR modules, whose value
             // was an unsigned percent-of-max-torque. Ignore them entirely rather than using them as
@@ -4939,7 +5332,7 @@ namespace Parsek
                     $"value={evt.value.ToString("F3", CultureInfo.InvariantCulture)}; " +
                     $"the visual is derived from ghost ground motion",
                     60.0);
-                return;
+                return GhostPartEventOutcome.LegacyEventIgnored;
             }
 
             info.currentValue = evt.value;
@@ -4956,6 +5349,8 @@ namespace Parsek
                 info.active = evt.eventType != PartEventType.RoboticMotionStopped;
                 info.lastUpdateUT = currentUT;
             }
+
+            return GhostPartEventOutcome.Applied;
         }
 
         /// <param name="trackSections">
@@ -5714,10 +6109,29 @@ namespace Parsek
         internal static bool ApplyConverterLoopState(
             GhostPlaybackState state, uint partPersistentId, bool active, double activeSinceUT)
         {
-            var synth = state?.synthesizedMotionInfos;
-            if (synth?.converterLoops == null) return false;
+            GhostPartEventOutcome outcome = ApplyConverterLoopStateWithOutcome(
+                state, partPersistentId, active, activeSinceUT);
+            // Historical contract preserved exactly: the bool was true whenever a loop
+            // for this pid was REACHED, including the deliberate ignore of a duplicate
+            // activation. The outcome enum is what splits those two apart.
+            return outcome == GhostPartEventOutcome.Applied
+                || outcome == GhostPartEventOutcome.AlreadyInState;
+        }
 
-            bool applied = false;
+        /// <summary>
+        /// P8 step 1 outcome-reporting core. Reports AlreadyInState when every loop
+        /// matched for this pid was already active and the duplicate-activation ignore
+        /// fired - the one case where "the handler ran and changed nothing" is
+        /// deliberate rather than a resolution failure.
+        /// </summary>
+        internal static GhostPartEventOutcome ApplyConverterLoopStateWithOutcome(
+            GhostPlaybackState state, uint partPersistentId, bool active, double activeSinceUT)
+        {
+            var synth = state?.synthesizedMotionInfos;
+            if (synth?.converterLoops == null) return GhostPartEventOutcome.NoFamilyState;
+
+            bool matched = false;
+            bool changed = false;
             for (int i = 0; i < synth.converterLoops.Count; i++)
             {
                 ConverterLoopGhostInfo loop = synth.converterLoops[i];
@@ -5726,14 +6140,18 @@ namespace Parsek
                 // Re-arming an ALREADY-active loop would restart it from phase 0 and produce a
                 // visible hitch. A duplicate ConverterActivated (a snapshot seed followed by a
                 // start-UT seed for the same part) is exactly that case, so it is ignored.
-                if (active && loop.active) { applied = true; continue; }
+                if (active && loop.active) { matched = true; continue; }
 
                 loop.active = active;
                 if (active) loop.activeSinceUT = activeSinceUT;
-                applied = true;
+                matched = true;
+                changed = true;
             }
 
-            return applied;
+            if (!matched) return GhostPartEventOutcome.NoInfoForPart;
+            return changed
+                ? GhostPartEventOutcome.Applied
+                : GhostPartEventOutcome.AlreadyInState;
         }
 
         /// <summary>
@@ -5764,8 +6182,20 @@ namespace Parsek
         /// </summary>
         internal static void ApplyEvaState(GhostPlaybackState state, PartEventType type)
         {
-            if (!TryUpdateEvaFlags(state, type)) return;
+            ApplyEvaStateWithOutcome(state, type);
+        }
+
+        /// <summary>
+        /// P8 step 1 outcome-reporting core. The only non-apply here is an event type
+        /// the flag reducer does not model (a null state, or a member routed to this
+        /// arm by mistake), which is exactly UnhandledEventType.
+        /// </summary>
+        internal static GhostPartEventOutcome ApplyEvaStateWithOutcome(
+            GhostPlaybackState state, PartEventType type)
+        {
+            if (!TryUpdateEvaFlags(state, type)) return GhostPartEventOutcome.UnhandledEventType;
             ReconcileEvaJetpackPlume(state);
+            return GhostPartEventOutcome.Applied;
         }
 
         /// <summary>
@@ -6443,11 +6873,32 @@ namespace Parsek
         #region Heat / Reentry
 
         internal static bool ApplyHeatState(GhostPlaybackState state, PartEvent evt, HeatLevel level)
-        {
-            if (state == null || state.heatInfos == null) return false;
+            => ApplyHeatStateWithOutcome(state, evt, level) == GhostPartEventOutcome.Applied;
 
-            if (!state.heatInfos.TryGetValue(evt.partPersistentId, out HeatGhostInfo info) || info == null)
-                return false;
+        /// <summary>
+        /// P8 step 1 outcome-reporting core. This family already had per-apply evidence
+        /// (`Part pid=N: applied heat level ...`), which is KEPT: it names the level,
+        /// which the family line does not, and existing readers pin it.
+        /// </summary>
+        /// <summary>P8 step 1 precondition classifier (pure).</summary>
+        internal static GhostPartEventOutcome ClassifyHeatApply(
+            GhostPlaybackState state, uint partPersistentId)
+        {
+            if (state == null || state.heatInfos == null) return GhostPartEventOutcome.NoFamilyState;
+            if (!state.heatInfos.TryGetValue(partPersistentId, out HeatGhostInfo info) || info == null)
+                return GhostPartEventOutcome.NoInfoForPart;
+            if (info.transforms == null && info.materialStates == null)
+                return GhostPartEventOutcome.NoResolvedVisual;
+            return GhostPartEventOutcome.Applied;
+        }
+
+        internal static GhostPartEventOutcome ApplyHeatStateWithOutcome(
+            GhostPlaybackState state, PartEvent evt, HeatLevel level)
+        {
+            GhostPartEventOutcome precondition = ClassifyHeatApply(state, evt.partPersistentId);
+            if (precondition != GhostPartEventOutcome.Applied) return precondition;
+
+            HeatGhostInfo info = state.heatInfos[evt.partPersistentId];
 
             bool applied = false;
 
@@ -6518,7 +6969,9 @@ namespace Parsek
                 ParsekLog.VerboseRateLimited("Flight", $"heat-{evt.partPersistentId}",
                     $"Part pid={evt.partPersistentId}: applied heat level {level}", 5.0);
 
-            return applied;
+            return applied
+                ? GhostPartEventOutcome.Applied
+                : GhostPartEventOutcome.NoResolvedVisual;
         }
 
         internal static void ResetReentryFx(GhostPlaybackState state, int recIdx)
@@ -6758,19 +7211,44 @@ namespace Parsek
         /// </summary>
         internal static bool ApplyDeployableBrokenState(
             GhostPlaybackState state, uint partPersistentId, bool broken)
-        {
-            if (state?.deployableInfos == null) return false;
+            => ApplyDeployableBrokenStateWithOutcome(state, partPersistentId, broken)
+                == GhostPartEventOutcome.Applied;
 
+        /// <summary>
+        /// P8 step 1 outcome-reporting core; the bool wrapper above is unchanged in
+        /// behaviour (it was already "an info existed for the pid").
+        /// </summary>
+        /// <summary>
+        /// P8 step 1 precondition classifier (pure; see <see cref="ClassifyEngineEmissionApply"/>
+        /// for why every family has one). Applied whenever an info exists for the pid,
+        /// with or without a resolvable break transform - the STATE flag is set either
+        /// way, which is this handler's documented contract.
+        /// </summary>
+        internal static GhostPartEventOutcome ClassifyDeployableBrokenApply(
+            GhostPlaybackState state, uint partPersistentId)
+        {
+            if (state?.deployableInfos == null) return GhostPartEventOutcome.NoFamilyState;
             DeployableGhostInfo info;
             if (!state.deployableInfos.TryGetValue(partPersistentId, out info) || info == null)
-                return false;
+                return GhostPartEventOutcome.NoInfoForPart;
+            return GhostPartEventOutcome.Applied;
+        }
+
+        internal static GhostPartEventOutcome ApplyDeployableBrokenStateWithOutcome(
+            GhostPlaybackState state, uint partPersistentId, bool broken)
+        {
+            GhostPartEventOutcome precondition =
+                ClassifyDeployableBrokenApply(state, partPersistentId);
+            if (precondition != GhostPartEventOutcome.Applied) return precondition;
+
+            DeployableGhostInfo info = state.deployableInfos[partPersistentId];
 
             info.breakSubtreeHidden = broken;
 
             if (info.breakSubtreeRoot != null)
                 info.breakSubtreeRoot.gameObject.SetActive(!broken);
 
-            return true;
+            return GhostPartEventOutcome.Applied;
         }
 
         /// <summary>
@@ -6780,12 +7258,38 @@ namespace Parsek
         /// </summary>
         internal static bool ApplyDeployableState(
             GhostPlaybackState state, PartEvent evt, bool deployed, bool immediate)
-        {
-            if (state.deployableInfos == null) return false;
+            => ApplyDeployableStateWithOutcome(state, evt, deployed, immediate)
+                == GhostPartEventOutcome.Applied;
 
+        /// <summary>
+        /// P8 step 1 outcome-reporting core. Every historical `return false` keeps its
+        /// exact condition and gains a named reason class; every historical `return
+        /// true` maps to Applied, so the bool wrapper above is behaviourally identical.
+        /// </summary>
+        /// <summary>
+        /// P8 step 1 precondition classifier (pure). Applied here means only "the ghost
+        /// has a pose-carrying deployable info for this part"; whether the pose write
+        /// itself reached a live transform is decided inside the handler.
+        /// </summary>
+        internal static GhostPartEventOutcome ClassifyDeployableApply(
+            GhostPlaybackState state, uint partPersistentId)
+        {
+            if (state.deployableInfos == null) return GhostPartEventOutcome.NoFamilyState;
             DeployableGhostInfo info;
-            if (!state.deployableInfos.TryGetValue(evt.partPersistentId, out info)) return false;
-            if (info?.transforms == null) return false;
+            if (!state.deployableInfos.TryGetValue(partPersistentId, out info))
+                return GhostPartEventOutcome.NoInfoForPart;
+            if (info?.transforms == null) return GhostPartEventOutcome.NoResolvedVisual;
+            return GhostPartEventOutcome.Applied;
+        }
+
+        internal static GhostPartEventOutcome ApplyDeployableStateWithOutcome(
+            GhostPlaybackState state, PartEvent evt, bool deployed, bool immediate)
+        {
+            GhostPartEventOutcome precondition =
+                ClassifyDeployableApply(state, evt.partPersistentId);
+            if (precondition != GhostPartEventOutcome.Applied) return precondition;
+
+            DeployableGhostInfo info = state.deployableInfos[evt.partPersistentId];
 
             // S6: ANY extend/retract opinion on a panel currently rendered broken un-hides it
             // first. The recorder emits DeployableRetracted on a repair precisely so this fires,
@@ -6814,7 +7318,9 @@ namespace Parsek
                 bool snapped = ApplyDeployableFraction(info, target);
                 if (snapped)
                     state.activeDeployableTransitions?.Remove(info);
-                return snapped;
+                return snapped
+                    ? GhostPartEventOutcome.Applied
+                    : GhostPartEventOutcome.NoResolvedVisual;
             }
 
             // Already there and not mid-clip: nothing to animate, and re-arming would restart a
@@ -6822,7 +7328,14 @@ namespace Parsek
             if (!info.transitionActive && Math.Abs(info.deployFraction - target) <= 1e-4f)
             {
                 info.currentDeployed = deployed;
-                return info.transforms.Count > 0;
+                // Historically `return info.transforms.Count > 0`, preserved exactly: a
+                // pose-carrying info already at the target counts as APPLIED (the ghost
+                // is in the state the event asks for), and a pose-less one is a
+                // resolution failure. That keeps the cargo-bay cascade below falling
+                // through to jettison panels on precisely the same condition as before.
+                return info.transforms.Count > 0
+                    ? GhostPartEventOutcome.Applied
+                    : GhostPartEventOutcome.NoResolvedVisual;
             }
 
             // A REVERSAL MID-CLIP must start from where the old transition had reached AT THIS
@@ -6850,7 +7363,9 @@ namespace Parsek
 
             // Apply the first frame straight away so a transition that starts on a frame where
             // UpdateActiveDeployables already ran is not a frame late.
-            return ApplyDeployableFraction(info, startFraction);
+            return ApplyDeployableFraction(info, startFraction)
+                ? GhostPartEventOutcome.Applied
+                : GhostPartEventOutcome.NoResolvedVisual;
         }
 
         /// <summary>
@@ -6874,15 +7389,73 @@ namespace Parsek
             return ApplyJettisonPanelState(state, evt, jettisoned: open);
         }
 
-        internal static bool ApplyJettisonPanelState(GhostPlaybackState state, PartEvent evt, bool jettisoned)
+        /// <summary>
+        /// P8 step 1: the cascade reported as its TWO arms rather than one boolean.
+        /// Which arm a bay took is the fact a reader cannot recover from the old
+        /// aggregate line, and it is the difference between "the doors animated" and
+        /// "a jettison panel was hidden".
+        /// </summary>
+        internal static void ApplyCargoBayStateWithOutcomes(
+            GhostPlaybackState state,
+            PartEvent evt,
+            bool open,
+            bool immediate,
+            out GhostPartEventOutcome deployableOutcome,
+            out GhostPartEventOutcome jettisonOutcome,
+            out bool jettisonArmReached)
         {
-            if (state.jettisonInfos == null) return false;
+            deployableOutcome = ApplyDeployableStateWithOutcome(
+                state, evt, deployed: open, immediate: immediate);
+            if (deployableOutcome == GhostPartEventOutcome.Applied)
+            {
+                jettisonOutcome = GhostPartEventOutcome.Applied;
+                jettisonArmReached = false;
+                return;
+            }
 
+            jettisonArmReached = true;
+            // The classifier is consulted here as well as inside the writer - the SAME
+            // function, so no predicate is duplicated - because it lets the cascade's
+            // arm choice be driven headlessly up to the point where a live Transform is
+            // genuinely required. Cost is one dictionary lookup on a bay event.
+            jettisonOutcome = ClassifyJettisonPanelApply(state, evt.partPersistentId);
+            if (jettisonOutcome == GhostPartEventOutcome.Applied)
+                jettisonOutcome = ApplyJettisonPanelStateWithOutcome(state, evt, jettisoned: open);
+        }
+
+        internal static bool ApplyJettisonPanelState(GhostPlaybackState state, PartEvent evt, bool jettisoned)
+            => ApplyJettisonPanelStateWithOutcome(state, evt, jettisoned)
+                == GhostPartEventOutcome.Applied;
+
+        /// <summary>
+        /// P8 step 1 outcome-reporting core. The historical single `return false` guard
+        /// covered three distinct facts (no jettison dictionary, no entry for the pid,
+        /// an entry with an empty transform list); they are separated here because the
+        /// third is a ghost-BUILD result and the first two are not.
+        /// </summary>
+        /// <summary>P8 step 1 precondition classifier (pure).</summary>
+        internal static GhostPartEventOutcome ClassifyJettisonPanelApply(
+            GhostPlaybackState state, uint partPersistentId)
+        {
+            if (state.jettisonInfos == null) return GhostPartEventOutcome.NoFamilyState;
             JettisonGhostInfo jetInfo;
-            if (!state.jettisonInfos.TryGetValue(evt.partPersistentId, out jetInfo) ||
-                jetInfo.jettisonTransforms == null ||
-                jetInfo.jettisonTransforms.Count == 0)
-                return false;
+            if (!state.jettisonInfos.TryGetValue(partPersistentId, out jetInfo))
+                return GhostPartEventOutcome.NoInfoForPart;
+            if (jetInfo == null
+                || jetInfo.jettisonTransforms == null
+                || jetInfo.jettisonTransforms.Count == 0)
+                return GhostPartEventOutcome.NoResolvedVisual;
+            return GhostPartEventOutcome.Applied;
+        }
+
+        internal static GhostPartEventOutcome ApplyJettisonPanelStateWithOutcome(
+            GhostPlaybackState state, PartEvent evt, bool jettisoned)
+        {
+            GhostPartEventOutcome precondition =
+                ClassifyJettisonPanelApply(state, evt.partPersistentId);
+            if (precondition != GhostPartEventOutcome.Applied) return precondition;
+
+            JettisonGhostInfo jetInfo = state.jettisonInfos[evt.partPersistentId];
 
             bool applied = false;
             for (int i = 0; i < jetInfo.jettisonTransforms.Count; i++)
@@ -6893,7 +7466,9 @@ namespace Parsek
                 applied = true;
             }
 
-            return applied;
+            return applied
+                ? GhostPartEventOutcome.Applied
+                : GhostPartEventOutcome.NoResolvedVisual;
         }
 
         #endregion
@@ -6918,31 +7493,99 @@ namespace Parsek
 
         internal static void ApplyLightPowerEvent(GhostPlaybackState state, uint partPersistentId, bool on)
         {
-            if (state == null) return;
+            ApplyLightPowerEventWithOutcomes(state, partPersistentId, on, out _, out _);
+        }
+
+        /// <summary>
+        /// P8 step 1: a light event drives TWO independent ghost surfaces - Unity
+        /// <c>Light</c> components and Pattern-A colour-changer emissive materials - and
+        /// a part can carry either, both or neither. Reporting one boolean for the pair
+        /// is what made SHOWCASE-COLORCHANGER-APPLY-UNOBSERVABLE unanswerable: a row
+        /// that toggled a Light but resolved no cabin-light material was
+        /// indistinguishable from one that toggled both. Both outcomes come out
+        /// separately here and are logged as separate `surface=` lines.
+        ///
+        /// The ON-while-blinking case is NOT a failure: the visual write belongs to
+        /// UpdateBlinkingLights, which runs every frame off the playback flag this
+        /// event just set. It reports DeferredToDriver on both surfaces.
+        /// </summary>
+        internal static void ApplyLightPowerEventWithOutcomes(
+            GhostPlaybackState state,
+            uint partPersistentId,
+            bool on,
+            out GhostPartEventOutcome lightOutcome,
+            out GhostPartEventOutcome colorChangerOutcome)
+        {
+            if (state == null)
+            {
+                lightOutcome = GhostPartEventOutcome.NoFamilyState;
+                colorChangerOutcome = GhostPartEventOutcome.NoFamilyState;
+                return;
+            }
+
             LightPlaybackState playbackState = GetOrCreateLightPlaybackState(state, partPersistentId);
             playbackState.isOn = on;
             if (!on)
-                SetLightState(state, partPersistentId, false);
+            {
+                SetLightStateWithOutcomes(
+                    state, partPersistentId, false, out lightOutcome, out colorChangerOutcome);
+            }
             else if (!playbackState.blinkEnabled)
-                SetLightState(state, partPersistentId, true);
+            {
+                SetLightStateWithOutcomes(
+                    state, partPersistentId, true, out lightOutcome, out colorChangerOutcome);
+            }
+            else
+            {
+                lightOutcome = GhostPartEventOutcome.DeferredToDriver;
+                colorChangerOutcome = GhostPartEventOutcome.DeferredToDriver;
+            }
         }
 
         internal static void ApplyLightBlinkModeEvent(
             GhostPlaybackState state, uint partPersistentId, bool enabled, float blinkRateHz)
         {
-            if (state == null) return;
+            ApplyLightBlinkModeEventWithOutcome(state, partPersistentId, enabled, blinkRateHz);
+        }
+
+        /// <summary>
+        /// P8 step 1 outcome-reporting core. A blink event writes PLAYBACK STATE only -
+        /// the visual is UpdateBlinkingLights' job every frame - so a successful write
+        /// reports on the `blink-state` surface, never on `light`. Reporting it as
+        /// Applied on the light surface would claim a lamp changed when none did.
+        /// </summary>
+        internal static GhostPartEventOutcome ApplyLightBlinkModeEventWithOutcome(
+            GhostPlaybackState state, uint partPersistentId, bool enabled, float blinkRateHz)
+        {
+            if (state == null) return GhostPartEventOutcome.NoFamilyState;
             LightPlaybackState playbackState = GetOrCreateLightPlaybackState(state, partPersistentId);
             playbackState.blinkEnabled = enabled;
             if (blinkRateHz > 0f)
                 playbackState.blinkRateHz = blinkRateHz;
+            return GhostPartEventOutcome.Applied;
         }
 
         internal static void ApplyLightBlinkRateEvent(GhostPlaybackState state, uint partPersistentId, float blinkRateHz)
         {
-            if (state == null) return;
+            ApplyLightBlinkRateEventWithOutcome(state, partPersistentId, blinkRateHz);
+        }
+
+        /// <summary>
+        /// P8 step 1 outcome-reporting core. A non-positive rate is DISCARDED by the
+        /// handler (the recorder can emit a zero on a module whose rate field was not
+        /// readable), so it reports AlreadyInState rather than claiming a write.
+        /// </summary>
+        internal static GhostPartEventOutcome ApplyLightBlinkRateEventWithOutcome(
+            GhostPlaybackState state, uint partPersistentId, float blinkRateHz)
+        {
+            if (state == null) return GhostPartEventOutcome.NoFamilyState;
             LightPlaybackState playbackState = GetOrCreateLightPlaybackState(state, partPersistentId);
             if (blinkRateHz > 0f)
+            {
                 playbackState.blinkRateHz = blinkRateHz;
+                return GhostPartEventOutcome.Applied;
+            }
+            return GhostPartEventOutcome.AlreadyInState;
         }
 
         internal static void UpdateBlinkingLights(GhostPlaybackState state, double currentUT)
@@ -6972,31 +7615,86 @@ namespace Parsek
 
         internal static void SetLightState(GhostPlaybackState state, uint partPersistentId, bool on)
         {
+            SetLightStateWithOutcomes(state, partPersistentId, on, out _, out _);
+        }
+
+        /// <summary>
+        /// P8 step 1 outcome-reporting core for the two light surfaces. The per-frame
+        /// blink driver keeps calling the void wrapper: those writes are a DRIVER pass,
+        /// not an event apply, and tallying them would flood the family line with
+        /// counts that no recorded event produced.
+        /// </summary>
+        internal static void SetLightStateWithOutcomes(
+            GhostPlaybackState state,
+            uint partPersistentId,
+            bool on,
+            out GhostPartEventOutcome lightOutcome,
+            out GhostPartEventOutcome colorChangerOutcome)
+        {
             // Toggle Unity Light components (existing behavior)
-            if (state.lightInfos != null)
+            lightOutcome = ClassifyUnityLightApply(state, partPersistentId);
+            if (lightOutcome == GhostPartEventOutcome.Applied)
             {
-                LightGhostInfo info;
-                if (state.lightInfos.TryGetValue(partPersistentId, out info))
+                LightGhostInfo info = state.lightInfos[partPersistentId];
+                for (int i = 0; i < info.lights.Count; i++)
                 {
-                    for (int i = 0; i < info.lights.Count; i++)
-                    {
-                        if (info.lights[i] != null)
-                            info.lights[i].enabled = on;
-                    }
+                    if (info.lights[i] != null)
+                        info.lights[i].enabled = on;
                 }
             }
 
             // Toggle ColorChanger emissive materials (Pattern A: cabin lights)
-            ApplyColorChangerLightState(state, partPersistentId, on);
+            colorChangerOutcome = ApplyColorChangerLightStateWithOutcome(state, partPersistentId, on);
+        }
+
+        /// <summary>
+        /// P8 step 1 precondition classifier for the Unity-Light half of a light event
+        /// (pure). Applied means at least one non-null <c>Light</c> is present to write.
+        /// </summary>
+        internal static GhostPartEventOutcome ClassifyUnityLightApply(
+            GhostPlaybackState state, uint partPersistentId)
+        {
+            if (state.lightInfos == null) return GhostPartEventOutcome.NoFamilyState;
+            LightGhostInfo info;
+            if (!state.lightInfos.TryGetValue(partPersistentId, out info) || info == null
+                || info.lights == null)
+                return GhostPartEventOutcome.NoInfoForPart;
+            for (int i = 0; i < info.lights.Count; i++)
+            {
+                if (info.lights[i] != null) return GhostPartEventOutcome.Applied;
+            }
+            return GhostPartEventOutcome.NoResolvedVisual;
         }
 
         internal static void ApplyColorChangerLightState(GhostPlaybackState state, uint partPersistentId, bool on)
         {
-            if (state.colorChangerInfos == null) return;
+            ApplyColorChangerLightStateWithOutcome(state, partPersistentId, on);
+        }
 
-            List<ColorChangerGhostInfo> infos;
-            if (!state.colorChangerInfos.TryGetValue(partPersistentId, out infos)) return;
+        /// <summary>
+        /// P8 step 1 outcome-reporting core. The three not-applied cases are distinct
+        /// facts about the GHOST BUILD, and telling them apart is the whole point of
+        /// SHOWCASE-COLORCHANGER-APPLY-UNOBSERVABLE:
+        /// <list type="bullet">
+        /// <item><description><c>no-family-state</c>: the ghost has no colour-changer
+        /// dictionary at all (nothing on the craft uses ModuleColorChanger).</description></item>
+        /// <item><description><c>no-info-for-part</c>: the dictionary exists but Pattern-A
+        /// discovery resolved NOTHING for this part.</description></item>
+        /// <item><description><c>no-cabin-light-entry</c>: entries exist for the part but
+        /// none is a cabin light, so a light event has nothing here to toggle - the part
+        /// genuinely carries only Pattern-B (reentry char) colour changers.</description></item>
+        /// <item><description><c>no-resolved-visual</c>: a cabin-light entry exists but
+        /// every material in it resolved to null.</description></item>
+        /// </list>
+        /// </summary>
+        internal static GhostPartEventOutcome ApplyColorChangerLightStateWithOutcome(
+            GhostPlaybackState state, uint partPersistentId, bool on)
+        {
+            GhostPartEventOutcome precondition =
+                ClassifyColorChangerLightApply(state, partPersistentId);
+            if (precondition != GhostPartEventOutcome.Applied) return precondition;
 
+            List<ColorChangerGhostInfo> infos = state.colorChangerInfos[partPersistentId];
             for (int c = 0; c < infos.Count; c++)
             {
                 var ccInfo = infos[c];
@@ -7015,6 +7713,55 @@ namespace Parsek
                 ParsekLog.VerboseRateLimited("Flight", $"cc-light-{partPersistentId}",
                     $"Part pid={partPersistentId}: applied color changer cabin light state={on}");
             }
+
+            return GhostPartEventOutcome.Applied;
+        }
+
+        /// <summary>
+        /// P8 step 1 precondition classifier (pure). The three not-applied cases are
+        /// distinct facts about the GHOST BUILD, and telling them apart is what closes
+        /// SHOWCASE-COLORCHANGER-APPLY-UNOBSERVABLE:
+        /// <list type="bullet">
+        /// <item><description><c>no-family-state</c>: the ghost has no colour-changer
+        /// dictionary at all (nothing on the craft uses ModuleColorChanger).</description></item>
+        /// <item><description><c>no-info-for-part</c>: the dictionary exists but Pattern-A
+        /// discovery resolved NOTHING for this part - hypothesis (a) in the S1.9
+        /// reading, a genuine ghost-render gap.</description></item>
+        /// <item><description><c>no-cabin-light-entry</c>: entries exist for the part but
+        /// none is a cabin light, so a light event has nothing here to toggle -
+        /// hypothesis (b), the part genuinely carries only Pattern-B (reentry char)
+        /// colour changers.</description></item>
+        /// <item><description><c>no-resolved-visual</c>: a cabin-light entry exists but
+        /// every material in it resolved to null.</description></item>
+        /// </list>
+        /// </summary>
+        internal static GhostPartEventOutcome ClassifyColorChangerLightApply(
+            GhostPlaybackState state, uint partPersistentId)
+        {
+            if (state.colorChangerInfos == null) return GhostPartEventOutcome.NoFamilyState;
+
+            List<ColorChangerGhostInfo> infos;
+            if (!state.colorChangerInfos.TryGetValue(partPersistentId, out infos) || infos == null)
+                return GhostPartEventOutcome.NoInfoForPart;
+
+            bool sawCabinLight = false;
+            for (int c = 0; c < infos.Count; c++)
+            {
+                var ccInfo = infos[c];
+                if (ccInfo == null || !ccInfo.isCabinLight) continue;
+
+                sawCabinLight = true;
+                if (ccInfo.materials == null) continue;
+                for (int i = 0; i < ccInfo.materials.Count; i++)
+                {
+                    if (ccInfo.materials[i].material != null)
+                        return GhostPartEventOutcome.Applied;
+                }
+            }
+
+            return sawCabinLight
+                ? GhostPartEventOutcome.NoResolvedVisual
+                : GhostPartEventOutcome.NoCabinLightEntry;
         }
 
         /// <summary>
