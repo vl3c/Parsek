@@ -9880,8 +9880,8 @@ namespace Parsek
                         currentTrackSection.bodyFixedFrames.Count - shadowTrimIdx);
             }
 
-            // Locale-safe formatting (comma-locale machines would otherwise write "27 266,0"
-            // which breaks downstream log parsers).
+            // Invariant formatting keeps this line identical under a test host's OS
+            // culture; KSP pins the game's own thread to en (see .claude/CLAUDE.md).
             var ic = System.Globalization.CultureInfo.InvariantCulture;
             ParsekLog.Warn("Recorder",
                 $"Time regression detected: UT went from {lastRecordedUT.ToString("F1", ic)} to " +

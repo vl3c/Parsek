@@ -210,8 +210,8 @@ namespace Parsek.InGameTests
             onCaptured(float.NaN);
         }
 
-        // InvariantCulture: a comma-locale machine would otherwise write "12,5px" into the
-        // log and the assertion message.
+        // Invariant formatting keeps the assertion message identical under any host
+        // culture; in-game the thread is already en-pinned by KSP (see .claude/CLAUDE.md).
         private static string Px(float value)
         {
             return value.ToString("F1", CultureInfo.InvariantCulture) + "px";
