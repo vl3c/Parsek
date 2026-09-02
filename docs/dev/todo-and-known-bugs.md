@@ -1078,6 +1078,31 @@ either a logged skip reason in the applier (the PART-EVENT-APPLIER-IS-UNLOGGED
 fix shape) or a manual eyeball of a colour-changer row mid-window. S1.9
 deliberately does NOT pin the token (its header records the measurement).
 
+**NARROWED 2026-09-02 (P8 step 1): the INSTRUMENT now exists; the MEASUREMENT is
+still owed.** `ApplyColorChangerLightStateWithOutcome` no longer returns silently -
+its precondition classifier separates the four ways a cabin light can fail to
+toggle, and each surfaces as its own reason token on the `family=LightOn` /
+`family=LightOff` line at `surface=colorchanger`:
+
+  `no-family-state`      the ghost has no colour-changer dictionary at all
+  `no-info-for-part`     the dictionary exists but Pattern-A discovery resolved
+                         NOTHING for this pid -> hypothesis (a), a real render gap
+  `no-cabin-light-entry` entries exist but none is a cabin light -> hypothesis (b),
+                         the part genuinely carries only Pattern-B (reentry char)
+  `no-resolved-visual`   a cabin-light entry exists but every material is null
+
+So (a) and (b) are now distinguishable from the log text alone, which is exactly
+what this entry said was missing. What is NOT yet done, and is why this stays open:
+nothing has FLOWN with the new line, so which token the 25 showcase colour-changer
+rows actually produce is still unmeasured. That reading is a GS-6 (step 2) job, and
+it is a one-token grep on the next flight that renders the showcase.
+
+One related change landed with the instrument: the pre-existing
+`Part pid=N: applied color changer cabin light state=<bool>` line now fires only
+when a live material was actually written. It previously fired for a cabin-light
+entry with zero live materials - claiming an apply that had not happened - so a
+reading that found it present was weaker evidence than it looked.
+
 ## SHOWCASE-LOOPFLAG-STRIPPED-AT-LOAD: every part-showcase recording is authored `WithLoopPlayback(true)` and every one has that flag CLEARED on load, so the standing part exhibition does not actually loop in game [MEASURED 2026-08-28 by `S1.9-part-showcase-render` reading run 1 (`2026-08-28_1945`), which red for an unrelated timing reason and turned this up in the same log. REPORT-ONLY, NO product change proposed, NO mechanism blamed - the sanitizer is doing exactly what it was written to do]
 
 The line, verbatim from the collected log:
@@ -1116,7 +1141,7 @@ WHY IT MATTERS, and why it is filed rather than fixed here:
    pins the sanitizer line as a REQUIRED token, so if this ever changes the lane reds
    and names it instead of silently changing meaning.
 
-## PART-EVENT-APPLIER-IS-UNLOGGED: the ghost part-event applier writes no per-family log line, so no automated test can distinguish "the recorded event was applied to the ghost" from "the event was silently skipped" for most part families [FOUND BY READING 2026-08-28 while authoring `S1.9-part-showcase-render`, from the source alone - NOT measured on a flight. OBSERVABILITY GAP, REPORT-ONLY. No product change made: this is the hot path under 243 simultaneous ghosts and the fix is a product decision, not a test-lane one]
+## ~~PART-EVENT-APPLIER-IS-UNLOGGED~~: the ghost part-event applier wrote no per-family log line, so no automated test could distinguish "the recorded event was applied to the ghost" from "the event was silently skipped" for most part families [FOUND BY READING 2026-08-28 while authoring `S1.9-part-showcase-render`, from the source alone - NOT measured on a flight. OBSERVABILITY GAP, REPORT-ONLY. No product change made: this is the hot path under 243 simultaneous ghosts and the fix is a product decision, not a test-lane one]
 
 `GhostPlaybackLogic.ApplyPartEvents` is the sole apply path for flight, KSC and
 flight-preview ghosts, and it emits exactly ONE aggregate line per call -
@@ -1151,6 +1176,76 @@ per-part-per-family key - the shape `Part pid=N: applied heat level ...` already
 or a per-family counter folded into the existing aggregate line
 (`Applied N part events ... [lights=2 deployables=1 bays=1]`), which costs one line per
 ghost per interval rather than one per event.
+
+**FIXED 2026-09-02 (P8 step 1, branch `part-event-applier-log`), taking the
+per-interval counter shape this entry described.** Product code only; the GS-6 lane
+that consumes the lines is step 2 and is NOT part of this. `Source/Parsek/
+GhostPartEventApplyLog.cs` holds the outcome vocabulary and the tally;
+`ApplyPartEvents` accumulates one entry per consumed event and flushes ONE
+`VerboseRateLimited` line per (recording, family, surface) after the loop:
+
+```
+[Parsek][VERBOSE][GhostPartEvents] apply family=<PartEventType member> surface=<token>
+    rec=<int> pid=<uint> applied=<int> skipped=<int> reason=<token>
+```
+
+`family` is the enum MEMBER NAME verbatim so a spec pins it by name. `surface` is the
+ghost sub-surface the counters describe, from a closed set (`visibility`, `parachute`,
+`engine-fx`, `engine-audio`, `rcs-fx`, `deployable`, `jettison-panel`, `fairing`,
+`heat`, `light`, `colorchanger`, `blink-state`, `converter-loop`, `eva`, `robotic`,
+`inventory`) - a second surface exists exactly where a family drives two independent
+things (a light event writes Unity `Light` components AND Pattern-A colour-changer
+materials; an engine event writes FX and audio) or CASCADES (a cargo bay tries the
+animated deployable, then jettison panels). `reason` is also closed: `applied`,
+`already-in-state`, `deferred-to-driver`, `legacy-event-ignored`, `no-family-state`,
+`no-info-for-part`, `no-cabin-light-entry`, `no-resolved-visual`, `pose-not-sampled`,
+`unhandled-event-type`. Only `applied` counts toward `applied=`, so "nothing moved"
+cannot hide inside the applied count. `pid` is the first SKIPPED pid when there was any
+skip, else the first applied one. Every token is whitespace-free, so a parser splits on
+whitespace.
+
+Verbatim, from passing test captures:
+
+```
+apply family=LightOn surface=colorchanger rec=12 pid=7 applied=0 skipped=1 reason=no-cabin-light-entry
+apply family=GearDeployed surface=deployable rec=5 pid=7 applied=1 skipped=0 reason=applied
+apply family=CargoBayOpened surface=deployable rec=3 pid=11 applied=1 skipped=2 reason=no-resolved-visual
+apply family=ConverterActivated surface=converter-loop rec=6 pid=1 applied=0 skipped=1 reason=already-in-state
+apply family=EvaJetpackDeployed surface=eva rec=0 pid=5 applied=0 skipped=1 reason=unhandled-event-type
+```
+
+HOW THE FLOOD RISK IS HANDLED: the tally is allocated LAZILY on the first CONSUMED
+event, so the overwhelmingly common frame (cursor already caught up, loop body never
+entered) allocates nothing and logs nothing. Rate limiting is then PER FAMILY rather
+than uniform: only `EngineThrottle`, `RCSThrottle` and `RoboticPositionSample` - the
+three the recorder samples continuously, whose line count is unbounded in the flight
+length - flush through `VerboseRateLimited` at 15 s keyed per (recording, family,
+surface). Every other family flushes as plain `Verbose`, one line per occurrence,
+because it is bounded and event-driven and an occurrence is already one AGGREGATED line
+per applier call. A uniform limiter was tried first and was wrong: it suppressed a SKIP
+that landed within 15 s of an APPLY on the same key, leaving the thing the instrument
+exists to surface as a `suppressed=N` counter on a later line.
+
+HOW DRIFT IS PREVENTED: each family's preconditions live in an internal
+`Classify*Apply` PURE function that the handler itself calls, so the classifier IS the
+early return and there is no second copy of a guard. That shape is also forced by a
+measured constraint worth writing down: SOME Unity writes make their whole enclosing
+method un-JIT-able under xUnit - `SecurityException: ECall methods must be packaged
+into a system module` on ENTRY, before any branch runs - so a guard inside such a body
+is untestable by construction, whichever branch it would take. The boundary is narrower
+than "any Unity write" and was MEASURED: the `GameObject.SetActive` / `Light.enabled`
+shape throws, while plain Transform property writes do not (`ApplyHeatStateWithOutcome`
+and `ApplyDeployableStateWithOutcome` run headlessly). The split is applied uniformly
+anyway, so coverage does not vanish the day a handler gains a SetActive. Historical
+signatures
+(`SetEngineEmission`, `ApplyDeployableState`, `ApplyHeatState`,
+`ApplyConverterLoopState`, ...) are kept as wrappers over `*WithOutcome` cores, so no
+existing caller changed.
+
+Full contract: `docs/dev/design-map-ts-render-tracer.md` Appendix A,
+"`GhostPartEventApplyLog.cs`". Headless guards:
+`Source/Parsek.Tests/GhostPartEventApplyLogTests.cs` (25 cells: grammar, tally,
+per-family outcome per drivable skip class, InvariantCulture under `de-DE`).
 
 ## FIXTURE-DUNA-PARK-PROBE-CANNOT-RETURN-TO-KERBIN: the DD1 probe every committed Duna-parked fixture carries is ~550 m/s short of a Kerbin return, so the reserved `B29-duna-kerbin-return` lane could not be flown as specified [MEASURED 2026-08-26 off `fixtures/saves/duna-park-probe/persistent.sfs` while opening B29's Phase-0 door. FIXTURE PROPERTY, REPORT-ONLY - never a Parsek defect and never a spec defect; it blocked one lane's PRODUCTION, not any product question. ROUTED AROUND the same day by re-scoping B29 to depart Jool; see the second entry below]
 
