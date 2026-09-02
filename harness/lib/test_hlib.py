@@ -3895,6 +3895,24 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
         # `DeferredUndockBranch` returned before `CreateSplitBranch`. Rigs re-rooted on a
         # probe core; the split stays INTERIM until the re-fly (see INTERIM_PIN_IDS).
         "H55-route-dock-capture-isolated": ("RouteDockCapture", 6),
+        # THE SAME SIX CELLS ON A SECOND HOST, and the first time this family has
+        # carried two members of one category. H55 flies them over the PRELAUNCH pad
+        # rig `logi-cargo-pad`; H56 flies them over `rover-route-recorded`, whose
+        # active vessel is a 17-part LANDED rover. The derivation is ATTRIBUTE-level
+        # and therefore the identical `("RouteDockCapture", 6)` - a seventh cell moves
+        # BOTH members in the same commit - and only the host differs, which is the
+        # point: any census delta is attributable to the host alone.
+        # WHY A SECOND MEMBER IS NOT A DUPLICATE GATE. Two things H55 structurally
+        # cannot buy. (1) The origin-proof PROBE's non-PRELAUNCH branch:
+        # `RouteProofCapture.TryResolveStartDockedOriginPartner` short-circuits on
+        # `ActiveVesselPrelaunch` BEFORE walking candidates, so on the pad host the
+        # producer's verdict is bookkeeping and ROUTE-ORIGIN-PROOF-PRODUCER-UNREACHABLE
+        # stays SUSPECTED; a LANDED host walks the candidates for the first time
+        # anywhere and settles roadmap Tier B item 4 either way. (2) The SURFACE flavor
+        # of the five capture cells, which the roadmap records as unclaimed until a lane
+        # measures them on landed rovers. AUTHORED 2026-09-02, NEVER FLOWN, so the
+        # split is INTERIM (see INTERIM_PIN_IDS).
+        "H56-route-dock-capture-landed": ("RouteDockCapture", 6),
         # THE THIRD RECORDED `Logistics` HOST, and the first that can pay the debt
         # H39's and H40's rosters both name as unpayable by existing bytes. Its
         # fixture `rover-route-recorded` is the harvest H39's roster asked for in so
@@ -3912,7 +3930,6 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
         # PRELAUNCH short-circuit (ROUTE-ORIGIN-PROOF-PRODUCER-UNREACHABLE). Same wholly
         # batch-disabled category as H55, so the ordinary ceiling is zero and the tally
         # discriminates on the `passed=` floor; the split is INTERIM until the first census.
-        "RVR-5-origin-proof-probe-landed": ("RouteDockCapture", 6),
     }
 
     # Members whose category is only PARTLY batch-disabled, i.e. the ordinary path
@@ -4129,10 +4146,36 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
     # REQUIRED list is the longest in the family.
     # AND BACK TO ZERO ON 2026-09-02: H55 flew twice the same day and PASSED run 2
     # (`2026-09-01_2229`, total=6 passed=6 failed=0 skipped=0), pinned whole.
-    # AND TO ONE THE SAME DAY: RVR-5 runs H55's six cells on a host they have never run
-    # on (a landed rover), whose split only a census can measure. The obligation above
-    # applies verbatim.
-    INTERIM_PIN_IDS = {"RVR-5-origin-proof-probe-landed"}
+    #
+    # AND BACK TO ONE ON 2026-09-02 for `H56-route-dock-capture-landed`, the SECOND
+    # host for the same six `RouteDockCapture` cells - authored the same day H55 went
+    # green, and NEVER FLOWN. Its `total=6` is attribute-exact (shared with H55, so a
+    # seventh cell reds both) and its `failed=0` is a literal; the split is a regex
+    # class because it turns on what a LANDED 17-part rover carrying a recorded corpus
+    # does to guards no attribute can see - the four `PartLoader` prefab checks, the
+    # spawn / settle waits for up to four vessels per cell, and above all
+    # `MoveOneStoredCargoItem`'s search for a QUANTITY-1 stored cargo item with a
+    # resolvable payload identity hash on the transport side. H55 measured `skipped=0`
+    # on ITS host, which is a prediction about this one and not a pin: the pad rig's
+    # inventory is authored by `build_logi_craft.py`, the rover's is harvested.
+    #
+    # WHAT THIS MEMBER OWES, and it is the ordinary obligation: the first census
+    # measures the split, the spec's pin is replaced whole, a MEASURED_SKIPPED entry is
+    # added if the run-time guards push `skipped` above the attribute floor of 0, and
+    # the id LEAVES this set in the same commit.
+    #
+    # WHAT DEFENDS IT MEANWHILE. Unusually for an interim member, the tally is NOT the
+    # weak part: `RouteDockCapture` is WHOLLY batch-disabled, so the ordinary path's
+    # executable ceiling is ZERO and the plain `passed=[1-9][0-9]*` spelling already
+    # rejects every line the ordinary path could print - which is what
+    # test_an_interim_pin_still_rejects_the_ordinary_paths_executable_ceiling sweeps
+    # (one iteration, passed=0, the vacuous line). What an interim `passed=` genuinely
+    # fails to say is WHICH cells passed, and that duty is discharged by the SIX
+    # REQUIRED cell tokens the spec pins, one per cell - H55's flight 1 is the worked
+    # example, since its `passed=1` was the probe and none of the five subjects.
+    # AND BACK TO ZERO ON 2026-09-02: H56 PASSED attempt 1 (`2026-09-02_0545`,
+    # total=6 passed=6 failed=0 skipped=0), pinned whole.
+    INTERIM_PIN_IDS = set()
 
     # id -> measured `skipped=` for members whose RUN-TIME InGameAssert.Skip guards
     # push the split above the attribute-derived floor. The attributes give a FLOOR
@@ -6357,7 +6400,6 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         "S4.3-refly-discard-with-ghosts.toml":     "tier=operator as a reading run, NOT debt: S4.2's seam cycle with the conclusion flipped to AnswerMergeDialog choice=discard, pinning ReFlyDiscard's per-recording removal line and ParsekFlight's two CommittedRecording* handler lines - PR #1591's never-driven path. Nothing armed; promotion is the reading run",
         "S4.4-refly-quicksave-mid-session.toml":   "tier=operator as a reading run, NOT debt: the deliberate experiment REFLY-BATCH-BASELINE-DISCARDS-LIVE-SESSION asked for (a real quicksave AND quickload from inside the live Re-Fly session, no batch - save alone is GREEN by construction since the verdict token has only load-path emitters), whose GREEN / INVALID / RED readings are pre-registered in the spec. Nothing armed; the reading decides which todo entry owns the finding",
         "L6-career-same-name-recover.toml":        "tier=operator as a reading run, NOT debt: science_bench_recover flown a SECOND time over career-earned-pad, whose two prior-launch same-name recordings carry a different launch guid, so PickRecoveryRecordingId's stage 1 guid filter is measured live (KERBAL-XP-RECOVERY-PICK-IS-NAME-AND-UT-ONLY stage 2's repro shape); pins the pick line's shape with guidDropped=2 literal and nameMatches / survivors / tier as value classes. Nothing armed; promotion is the reading run",
-        "RVR-5-origin-proof-probe-landed.toml":    "tier=operator as a reading run with an INTERIM tally, NOT debt: H55's six RouteDockCapture cells over the LANDED rover-route-recorded host so the origin-proof probe measures the producer's candidate walk past its PRELAUNCH short-circuit (ROUTE-ORIGIN-PROOF-PRODUCER-UNREACHABLE); situation=1 pinned literal. Nothing armed; the first census measures the split and the id leaves INTERIM_PIN_IDS in the same commit",
         # tier=operator by the CALIBRATION DISCIPLINE, the whole B18-B26 family's
         # tier, and NOT a debt: a first-flight B lane is operator because its
         # windows are derived rather than measured and the first run is a
