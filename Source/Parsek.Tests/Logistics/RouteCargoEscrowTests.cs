@@ -114,6 +114,27 @@ namespace Parsek.Tests.Logistics
             }
         }
 
+        // catches: a removed ZERO CLAMP. The invariance cell above is clamp-BLIND by
+        // algebra - both sides of its identity reduce to `s0 - m`, so they agree whether
+        // or not the floor is applied, and deleting the clamp from
+        // RoutePickupSourceGate.NettedAvailable leaves it green. The clamp is real
+        // behaviour: LiveRouteRuntimeEnvironment's reader must never hand the gate a
+        // NEGATIVE availability (a reservation larger than the tank), because
+        // RoutePickupSourceGate.Evaluate compares it against a positive need and a
+        // negative would only deepen an already-failing comparison while making the
+        // logged `netted=` value nonsense. Pinned directly, at both the strictly-negative
+        // case and the exact zero boundary.
+        [Fact]
+        public void NettedAvailable_FloorsAtZero_WhenOthersReservedMoreThanIsStored()
+        {
+            // Strictly negative before the clamp: 3 stored, 10 held by others.
+            Assert.Equal(0.0, RoutePickupSourceGate.NettedAvailable(3.0, 10.0));
+            // Exactly zero - the boundary the `> 0.0` test decides.
+            Assert.Equal(0.0, RoutePickupSourceGate.NettedAvailable(10.0, 10.0));
+            // And the unclamped side is untouched: a positive remainder passes through.
+            Assert.Equal(2.0, RoutePickupSourceGate.NettedAvailable(12.0, 10.0));
+        }
+
         // catches: the same identity re-stated as the OBSERVABLE consequence the
         // C10 lane pins - across the holder's window the competitor's hold CAUSE
         // flips escrow -> physical while its availability does not move. A change

@@ -1,6 +1,45 @@
 schema = 1
 id = "H60-route-escrow-contention"
-tier = "operator"
+tier = "nightly"
+# =====================================================================================
+# TIER C ITEM 10 - TWO ROUTES COMPETING FOR ONE PHYSICAL SOURCE.
+# *** FLOWN AND READ 2026-09-02. PINNED WHOLE OFF THE RUN'S OWN BYTES. ***
+#
+# `2026-09-02_1314_H60-route-escrow-contention`, **PASS attempt 1, wall 79 s**, on
+# 74438379a (deployed DLL cf7539eb..., markers verified). `BATCH_COMPLETE v1 total=2
+# passed=2 failed=0 skipped=0` - the [12,18) band guard did NOT fire, so `logi-cargo-pad`
+# took the fixture SPAWN path and the 15-unit cap bound, exactly as the authoring header
+# predicted. `saveParse routes=0 pointsTotal=0`: both cells tore their synthetic trees
+# back down, which is the campaign-isolation half of the `recordings count = 0` row.
+#
+# THE MEASUREMENT, AND IT IS THE INVARIANT ITSELF RATHER THAN A TALLY. Cell 1 read
+# `stored=15 heldAcrossGap=6 nettedDuringHold=5 rawAfterDebit=5`, and the two
+# `short-cause` lines either side of the holder's window read
+# `raw=11 netted=5 reservingRouteId=escrowA- reservedByRoute=6` then
+# `raw=5 netted=5 reservingRouteId=<none> reservedByRoute=0`. Those four numbers ARE the
+# pre-image identity, live: while the holder held, the competitor could rely on 5 of the
+# 11 physically present; after the holder took its 6, the competitor could rely on 5 of
+# the 5 physically present. THE NUMBER DID NOT MOVE - only the CAUSE did, `escrow` ->
+# `physical`. The escrow withheld exactly what the debit took: not more (no over-block)
+# and not less (no double-claim). A competitor that became ELIGIBLE across that release
+# would be a double-claim defect, and one still short by more than 6 would be an
+# over-block; the pinned pair rejects both.
+#
+# Cell 2 read `stored=15 freedByRemoval=6 pickedUpByB=8` with exactly ONE
+# `DropRouteEscrow routeId=escrowA- droppedPids=1 droppedResourceEntries=1` - the holder
+# removed mid-cycle freed its 6 WITHOUT debiting them, and the competitor then took its
+# full 8 from a source still holding 11. That is the only shape in which a release makes
+# a competitor eligible, and it is now measured rather than argued.
+#
+# WHAT THE RUN DOES NOT BUY: the armed re-flight on this whole pin, and its negative
+# control. Until those are taken, "PASS" means the tokens matched a log, not that they
+# would have rejected a different one. D10 `multi-origin-escrow` is claimed off the ARMED
+# run - see the `[dimensionsCovered]` block for the exact row and condition.
+# =====================================================================================
+#
+# ORIGINAL AUTHORING HEADER FOLLOWS, KEPT INTACT AS THE RECORD OF WHAT WAS PREDICTED
+# BEFORE THE FLIGHT.
+#
 # =====================================================================================
 # TIER C ITEM 10 - TWO ROUTES COMPETING FOR ONE PHYSICAL SOURCE.
 # AUTHORED 2026-09-02. NEVER FLOWN. THE FIRST RUN IS A READING RUN.
@@ -111,34 +150,62 @@ tier = "operator"
 # EVIDENCE STANDING: AUTHORED, INTERIM, NEVER FLOWN.
 # -------------------------------------------------------------------------------------
 #
-# `total=2` is ATTRIBUTE-EXACT (two `[InGameTest(Category = "RouteEscrowContention")]`
-# declarations, both `Scene = FLIGHT`, both `AllowBatchExecution = false` +
+# EVIDENCE STANDING AS OF 2026-09-02: PINNED WHOLE off census `_1314`. `total=2` is
+# ATTRIBUTE-EXACT (two `[InGameTest(Category = "RouteEscrowContention")]` declarations,
+# both `Scene = FLIGHT`, both `AllowBatchExecution = false` +
 # `RestoreBatchFlightBaselineAfterExecution = true`), source-synced by
-# `CommittedBatchTallySourceSyncTests`. `failed=0` is a literal. `passed=` and `skipped=`
-# are regex classes until the first census measures the split, and the id is registered
-# in `IsolatedBatchWiringGroupTests.INTERIM_PIN_IDS` until then.
+# `CommittedBatchTallySourceSyncTests`; `passed=2 failed=0 skipped=0` are now LITERALS and
+# the id has LEFT `IsolatedBatchWiringGroupTests.INTERIM_PIN_IDS`. The category is WHOLLY
+# batch-disabled, so the ORDINARY path's executable ceiling is zero and the tally
+# discriminates at a margin of two.
 #
-# WHAT DEFENDS THE INTERIM SPLIT. The category is WHOLLY batch-disabled, so the ORDINARY
-# path's executable ceiling is zero and `passed=[1-9][0-9]*` already rejects every line
-# the ordinary path could print. What an interim `passed=` cannot say is WHICH cell
-# passed, and that duty is discharged by the EIGHT phase tokens below - every one of them
-# a PRODUCTION line from `[Route]`, not a test echo, except the two `EscrowContention:`
-# summaries which name the cell and its four phase outcomes in one grep-stable line.
+# WHAT THE WHOLE TALLY STILL CANNOT SAY is WHICH cell passed and with what numbers, and
+# that duty is discharged by the phase tokens below - every one a PRODUCTION line from
+# `[Route]`, not a test echo, except the two `EscrowContention:` summaries which name the
+# cell and its four phase outcomes plus the measured invariant in one grep-stable line.
 #
 # WHAT IS PINNED AS A LITERAL AND WHY IT IS SAFE TO. The route short ids: the cells build
 # their ids with the EXACTLY-8-character prefixes `escrowA-` / `escrowB-`, which is
 # `RouteIds.Short`'s truncation width, so the short id in every production line is the
 # stable literal rather than per-run noise - and that is what lets the M6 hold token be
-# pinned to the HOLDER specifically. Everything genuinely per-run is a class: vessel pids
-# `[0-9]+`, the batch baseline slot `.*`, and every resource amount, because the band is
-# [12, 18) and only the RESIDUAL (6, route A's un-fired window) is fixed by construction.
+# pinned to the HOLDER specifically.
 #
-# D10 `multi-origin-escrow` IS NOT CLAIMED HERE. The registry value already belongs to
-# H38 and H40 off their whole tallies. This lane's claim - the ORCHESTRATOR-driven
-# contention between two STORED routes - is a strictly narrower thing than the value
-# names, and an unflown lane claims no dimension at all. `[dimensionsCovered]` therefore
-# stays EMPTY on authoring; the first green census is the moment to decide whether the
-# row moves here, and the decision needs the measured tokens in hand.
+# THE RESOURCE AMOUNTS, and the authoring header said they would stay classes. The census
+# changed that, and the reason each is safe is DIFFERENT, so they are listed one by one:
+#   * `heldAcrossGap=6`, `freedByRemoval=6`, `reservedByRoute=6` - route A's un-fired
+#     window, the cell literal `WindowAmountA1`. Fixed by construction; a change to it is
+#     a source change in the same repo.
+#   * `pickedUpByB=8` - the cell literal `NeedB`. Same argument.
+#   * `stored=15` - the cell literal `SourceTargetStored`, passed to the fixture as
+#     `capStoredLf`, which shapes the SPAWNED copy's tank to exactly that. It is
+#     therefore a cell literal ROUTED THROUGH the fixture, and pinning it asserts one
+#     extra thing deliberately: that the SPAWN path was taken. That is the property the
+#     authoring header called out as the lane's only self-skip risk, so gating it is the
+#     point rather than a side effect. A host that hands back a REUSED unloaded vessel
+#     reds here instead of silently reading a different band position.
+#   * `raw=11 netted=5` then `raw=5 netted=5`, and `nettedDuringHold=5 rawAfterDebit=5` -
+#     all four derive as `stored - 4` and `stored - 10` from the two cell literals above,
+#     so they move only when the source literals or the fixture cap move. They are the
+#     INVARIANCE EVIDENCE: `netted` while held == `raw` after the debit, on the same
+#     source, with the cause flipped. Pinning them is what makes this lane gate the
+#     pre-image identity rather than merely observe a hold.
+# Genuinely per-run and therefore still classes: vessel pids `[0-9]+` (the census read
+# 1592478814 and 3515272469 for the two cells), the batch baseline slot `.*`, and the
+# source vessel's NAME inside the M6 token (`[^:]*`; the census read `Logi Cargo Rig`,
+# but that is a fixture-craft property and a re-harvest must not red this lane for it -
+# the load-bearing segments are the pid, the resource and the HOLDER's route name).
+#
+# D10 `multi-origin-escrow` IS STILL NOT CLAIMED, and the condition is now exact rather
+# than deferred. The registry value already belongs to H38 and H40 off their whole
+# tallies, so a claim here has to be worth more than a duplicate - and it is, but only
+# once the gate is PROVEN ABLE TO FIRE. The census made the tokens literal; it did not
+# show that they would reject a different log. The claim is therefore conditional on the
+# ARMED RE-FLIGHT plus its NEGATIVE CONTROL (the V2/B17/V4 three-run discipline H57
+# followed): re-fly on this whole pin, then fly an uncommitted control identical except
+# one required token flipped to a line the run never emits, and require it to classify
+# PARSEK-FAIL(expectation) with EXACTLY ONE unmet token and ZERO forbidden hits. The
+# exact row to add in the commit that reads those two runs green is spelled out in the
+# `[dimensionsCovered]` block below so it cannot drift into a broader claim.
 # =====================================================================================
 description = "AUTHORED 2026-09-02, NEVER FLOWN. Roadmap Tier C item 10: TWO STORED routes competing for ONE physical source, driven through the production RouteOrchestrator.Tick over the logi-cargo-pad rig. The isolated RouteEscrowContention batch - two self-provisioning cells that spawn a shared unloaded LiquidFuel source capped into the [12,18) band, put a MULTI-STOP holder route A (two pickup windows on that one source, summing to 10) and a single-stop competitor route B (needing 8) into RouteStore at DispatchPriority 0 and 1, and tick them. Cell 1 (phases 1-3): A's dispatch RESERVES the summed manifest (ReserveCycleEscrow reservedSources=1), fires only its first window, and the still-held second window blocks B on its OWN crossing with the M6 token source-reserved:<pid>:<name>:<routeA-name> and short-cause=escrow; then A's second window fires, releasing the hold and PHYSICALLY DEBITING the same amount in the same instant, so B stays blocked on UNCHANGED numbers with the cause flipped to physical. That flip is the reserve/release PRE-IMAGE invariant driven live - the escrow withholds exactly what the debit takes, no double-claim and no over-block - and it is why the todo's original 'B becomes eligible after ReleaseWindowEscrow' assertion was refuted and replaced. Cell 2 (phases 1-2 then 4): the only shape in which a release DOES free a competitor - RouteStore.RemoveRoute on the holder mid-cycle drops the reservation without debiting anything, and B is eligible on its next crossing and physically picks the cargo up. total=2 is attribute-exact and failed=0 is a literal; passed=/skipped= are regex classes until the first census, and the eight phase tokens (six production [Route] lines plus the two per-cell EscrowContention summaries) carry the per-cell obligation the interim split cannot"
 instanceProfile = "stock-minimal"
@@ -160,9 +227,29 @@ steps = [
   { cmd = "FlushAndQuit",                                                     expect = "OK" },
 ]
 
-# EMPTY BY DECISION, NOT BY OMISSION - see the header. D10 `multi-origin-escrow` is
-# already claimed by H38 / H40, and an unflown lane claims no dimension; whether the row
-# moves here is decided off the first green census.
+# EMPTY BY DECISION, NOT BY OMISSION - see the header. The census `_1314` is green and
+# the pin is whole, but the gate is not yet PROVEN ABLE TO FIRE, and a dimension claim on
+# an unproven gate is exactly the CLAIM-IS-NOT-GATE mistake.
+#
+# THE CONDITION, STATED SO IT CANNOT DRIFT. Add
+#
+#     D10 = ["multi-origin-escrow"]
+#
+# and nothing else, in the commit that reads BOTH of these green:
+#   (a) the ARMED RE-FLIGHT of this spec on the whole pin above (`passed=2 failed=0
+#       skipped=0` literal, both `EscrowContention:` summaries with their numeric
+#       invariants, the escrow->physical `raw=`/`netted=` pair);
+#   (b) its NEGATIVE CONTROL - an uncommitted copy with a distinct declared id and ONE
+#       required token flipped to a line the run never emits - classifying
+#       PARSEK-FAIL(expectation) with EXACTLY ONE unmet token and ZERO forbidden hits.
+#
+# The row is `multi-origin-escrow` and NOT `multi-stop`, `hold-reasons` or
+# `dispatch-cadence`: the multi-stop route here is the INSTRUMENT that opens the
+# dispatch-to-window gap, not the subject, and the hold this lane gates is one specific
+# reason (`OriginLacksCargo` via escrow) rather than the hold vocabulary. H38 and H40
+# already carry `multi-origin-escrow` off their whole tallies; what this lane adds under
+# the same value is the ORCHESTRATOR-driven form - two routes actually stored and ticked,
+# with the reservation produced by a real dispatch - which their cell cannot reach.
 [dimensionsCovered]
 
 [expectations]
@@ -185,35 +272,47 @@ required  = [
   # Emitted ONLY by PrepareBatchFlightRestoreExecution, so it proves the isolated path
   # independently of the tally. Literal 2 = both cells carry the restore flag.
   "Using batch baseline slot .* for 2 restore-after-run test\\(s\\)",
-  # INTERIM: total exact, failed literal, the split a regex class until the first census.
-  "BATCH_COMPLETE v1 total=2 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=RouteEscrowContention scene=FLIGHT",
+  # PINNED WHOLE off census `_1314`: total attribute-exact, the split all literals.
+  "BATCH_COMPLETE v1 total=2 passed=2 failed=0 skipped=0 category=RouteEscrowContention scene=FLIGHT",
 
   # ---- PHASE 1, reserved. The production dispatch-time reserve, naming ONE summed
-  #      source (both of A's pickup windows resolve to the same live pid) ----
-  "ReserveCycleEscrow: route escrowA- cycle=cycle-0 context=dispatch reservedSources=1 reservedResourceEntries=1",
+  #      source (both of A's pickup windows resolve to the same live pid). `ut=1560` is
+  #      the cell literal Tick1UT - the tick chosen to land between A's two docks ----
+  "ReserveCycleEscrow: route escrowA- cycle=cycle-0 context=dispatch reservedSources=1 reservedResourceEntries=1 at ut=1560",
 
   # ---- PHASE 2, blocked (escrow-caused). B's OWN crossing, carrying the M6 hold token
   #      whose final segment is the HOLDER's player-visible name (route A is stored, so
-  #      TryGetReservingRoute resolves the Name rather than the short-id fallback) ----
-  "LoopRoute: route escrowB- cycle=cycle-0 BLOCKED kind=OriginLacksCargo reason=source-reserved:[0-9]+:[^:]*:LiquidFuel:Parsek Escrow Holder In-Game",
-  # The classification line: raw covers B's need, only the netted availability does not,
-  # and the residual is route A's un-fired window (6 by construction - the ONLY resource
-  # amount in this spec that is not a class, because the band leaves the others free).
-  "PickupSourcesHaveCargo: route escrowB- short-cause=escrow pid=[0-9]+ resource=LiquidFuel raw=[0-9.]+ netted=[0-9.]+ reservingRouteId=escrowA- reservedByRoute=6(?![0-9.])",
+  #      TryGetReservingRoute resolves the Name rather than the short-id fallback). The
+  #      pattern STOPS at `shortfall=0`: the next character in the production line is an
+  #      em dash, which is the product's own existing text and is left alone rather than
+  #      matched. The source vessel name stays `[^:]*` (census read `Logi Cargo Rig`) so
+  #      a fixture re-harvest cannot red this lane for an unrelated reason ----
+  "LoopRoute: route escrowB- cycle=cycle-0 BLOCKED kind=OriginLacksCargo reason=source-reserved:[0-9]+:[^:]*:LiquidFuel:Parsek Escrow Holder In-Game shortfall=0",
+  # HALF ONE OF THE INVARIANCE EVIDENCE: raw 11 covers B's need of 8, netted 5 does not,
+  # and the difference is exactly route A's un-fired window (6). Every number here is a
+  # cell literal or derives from one - see the header's per-amount justification.
+  "PickupSourcesHaveCargo: route escrowB- short-cause=escrow pid=[0-9]+ resource=LiquidFuel raw=11 netted=5 reservingRouteId=escrowA- reservedByRoute=6(?![0-9.])",
 
   # ---- PHASE 3, the cause flip. A's second window releases AND debits in one instant ----
   "ReleaseWindowEscrow: route escrowA- cycle=cycle-0 pid=[0-9]+ releasedResourceEntries=1 context=window-debit",
-  # Same competitor, same source, nothing reserved any more - and now raw does not cover,
-  # so the cause is PHYSICAL. This pair of lines IS the pre-image invariant.
-  "PickupSourcesHaveCargo: route escrowB- short-cause=physical pid=[0-9]+ resource=LiquidFuel raw=[0-9.]+ netted=[0-9.]+ reservingRouteId=<none> reservedByRoute=0",
+  # HALF TWO, AND THE PAIR IS THE WHOLE POINT OF THE LANE: same competitor, same source,
+  # nothing reserved any more - and `raw=5` now EQUALS the `netted=5` of the line above.
+  # The competitor's availability did not move across the release; only the cause did.
+  # A `raw` above 5 here would be an over-block (the escrow withheld more than the debit
+  # took); a `netted` above 5 on the line above would be a double-claim.
+  "PickupSourcesHaveCargo: route escrowB- short-cause=physical pid=[0-9]+ resource=LiquidFuel raw=5 netted=5 reservingRouteId=<none> reservedByRoute=0(?![0-9.])",
 
   # ---- PHASE 4, the no-cargo release. Removing the holder mid-cycle drops the whole
-  #      reservation; one pid, one resource entry - the residual window's hold ----
+  #      reservation; one pid, one resource entry - the residual window's hold. The
+  #      census emitted this EXACTLY ONCE across both cells, which is itself the
+  #      statement that cell 1 never took this path ----
   "DropRouteEscrow routeId=escrowA- droppedPids=1 droppedResourceEntries=1",
 
-  # ---- per-cell summaries: the four phase outcomes in one grep-stable line each ----
-  "EscrowContention: cell=hold-then-cause-flip reserved=1 blocked=1 causeAfterWindow=physical eligibleAfterRouteRemoval=0",
-  "EscrowContention: cell=removal-releases-hold reserved=1 blocked=1 causeAfterWindow=escrow eligibleAfterRouteRemoval=1",
+  # ---- per-cell summaries: the four phase outcomes AND the measured invariant in one
+  #      grep-stable line each. `sourcePid` is per-run (census read 1592478814 /
+  #      3515272469); every amount is pinned - see the header ----
+  "EscrowContention: cell=hold-then-cause-flip reserved=1 blocked=1 causeAfterWindow=physical eligibleAfterRouteRemoval=0 routeA=escrowA- routeB=escrowB- sourcePid=[0-9]+ stored=15 heldAcrossGap=6 nettedDuringHold=5 rawAfterDebit=5",
+  "EscrowContention: cell=removal-releases-hold reserved=1 blocked=1 causeAfterWindow=escrow eligibleAfterRouteRemoval=1 routeA=escrowA- routeB=escrowB- sourcePid=[0-9]+ stored=15 freedByRemoval=6 pickedUpByB=8",
 
   # The batch reverted from its own baseline, so the quit must not re-save over it.
   "flushandquit: save suppressed \\(batch baseline already restored\\)",

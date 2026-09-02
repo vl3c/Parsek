@@ -4281,7 +4281,16 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
     # WHAT THIS MEMBER OWES: the first census measures the split, the spec's pin is
     # replaced whole, a MEASURED_SKIPPED entry is added if the band guard pushes `skipped`
     # above the attribute floor of 0, and the id LEAVES this set in the same commit.
-    INTERIM_PIN_IDS = {"H60-route-escrow-contention"}
+    #
+    # BACK TO ZERO ON 2026-09-02: H60 flew its census (`2026-09-02_1314`, PASS attempt 1,
+    # wall 79 s, `total=2 passed=2 failed=0 skipped=0`) and its pin is now whole. The band
+    # guard did NOT fire - `logi-cargo-pad` took the fixture SPAWN path and the 15-unit cap
+    # bound - so `skipped=0` sits exactly on the attribute floor and NO `MEASURED_SKIPPED`
+    # entry is owed. The re-pin also made the resource amounts literals rather than
+    # classes; the justification for each is in the spec's own header, and the load-bearing
+    # pair is `raw=11 netted=5` then `raw=5 netted=5`, which is the reserve/release
+    # pre-image identity measured live.
+    INTERIM_PIN_IDS = set()
 
     # id -> measured `skipped=` for members whose RUN-TIME InGameAssert.Skip guards
     # push the split above the attribute-derived floor. The attributes give a FLOOR
@@ -6523,8 +6532,6 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
     # each classified by hand. A NEW one reds
     # `test_every_untagged_candidate_is_classified` until someone decides.
     REVIEWED_UNTAGGED = {
-        # ROADMAP TIER C ITEM 10, 2026-09-02, the same reading-run shape.
-        "H60-route-escrow-contention.toml":        "tier=operator as a reading run, NOT debt: the closing lane for C10-ESCROW-CONTENTION-NEEDS-A-MULTI-STOP-ROUTE, gating the new RouteEscrowContention category - two STORED routes on ONE physical source driven through the production RouteOrchestrator.Tick, which is the surface the existing hand-reserved Escrow_CompetingRouteSeesReservation_Holds cell does not reach. total= is attribute-exact and failed=0 is a literal, but passed=/skipped= are regex classes until the first census measures whether logi-cargo-pad takes the fixture SPAWN path (the [12,18) LF band the phases need binds only there), so the id sits in INTERIM_PIN_IDS and the first flight is a reading. Nothing armed; what is owed is the FLIGHT, and D10 multi-origin-escrow is deliberately NOT claimed until it has flown",
         # THE D11 CENSUS LANE, 2026-09-02, same reading-run shape as the four below.
         "H59-surface-route-map-lines.toml":        "tier=operator as a CENSUS reading run, NOT debt: roadmap Tier D item 11 (registry dimension D10) asks for a route-map-lines lane on a SURFACE route authored against the measured landed pin LANDED-TERMINAL-LOOP-HAS-NO-MAP-PRESENCE-OUTSIDE-THE-FLIGHT-SCENE rather than against V18T's orbital pins. Every token is structural or a VALUE REGEX and the two plausible outcomes (a surface route's overview line drawn, routesDrawn=1 legsDrawn>=1; or not drawn, with other= / malformed= / skippedOwned= discriminating WHY) are pre-registered in the spec header, so the flight's product is a census a human reads. It is also the first committed lane to drive EnterMapView on a route or a landed subject, which is what makes `Polyline frame:` (RC-OWN-DRAW-HALF-IS-MAP-GATED's own evidence rule) a required instrument token here. Nothing armed; what is owed is the FLIGHT, not a human review call",
         # THE FOUR 2026-09-02 READING-RUN LANES, authored so every live-gated todo entry

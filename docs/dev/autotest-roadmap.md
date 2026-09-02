@@ -2579,13 +2579,22 @@ moved is that no further authoring stands between them and a flight.
    a run is green. NO D10 claim yet, on the CLAIM-IS-NOT-GATE rule: the career
    flavor of `ksc-origin` is earned in the commit that measures the lane green.
 10. **Escrow competition.** Two routes sharing one physical source (D10
-    `multi-origin-escrow`). **BUILT 2026-09-02: the in-game category
-    `RouteEscrowContention` (2 cells) plus
+    `multi-origin-escrow`). **BUILT AND LIVE-PROVEN 2026-09-02: the in-game
+    category `RouteEscrowContention` (2 cells) plus
     `harness/scenarios/H60-route-escrow-contention.toml` over `logi-cargo-pad`.
-    AUTHORED, NEVER FLOWN - the first run is a reading run, and D10
-    `multi-origin-escrow` is deliberately NOT claimed until it is green (the
-    value already belongs to H38 / H40 off their whole tallies, and this lane's
-    claim is the narrower ORCHESTRATOR-driven one).**
+    Census `2026-09-02_1314`, PASS attempt 1, wall 79 s, `total=2 passed=2
+    failed=0 skipped=0` PINNED WHOLE, tier nightly.** THE MEASUREMENT IS THE
+    INVARIANT: `raw=11 netted=5` while the holder held, then `raw=5 netted=5`
+    after it debited - the competitor's availability did not move across the
+    release, only the CAUSE did (`escrow` -> `physical`), so the escrow withheld
+    exactly what the debit took (no over-block, no double-claim). Cell 2 read
+    `freedByRemoval=6 pickedUpByB=8`: the holder removed mid-cycle freed its
+    reservation WITHOUT debiting, and the competitor took its full 8. **D10
+    `multi-origin-escrow` is STILL NOT CLAIMED**, on an exact condition rather
+    than a deferral: the census made the tokens literal but did not show they
+    would reject a different log, so the row is added in the commit that reads
+    the ARMED RE-FLIGHT and its NEGATIVE CONTROL green (the control is authored
+    and replay-verified: exactly one unmet token, zero forbids).
     **THE SCOPING'S SECOND HALF WAS REFUTED BY THE BUILD'S OWN DERIVATION, and
     that is the item's most useful residue.** The scoping prescribed asserting
     `ReleaseWindowEscrow` and "a subsequently eligible B after A's later window
