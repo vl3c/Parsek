@@ -21,7 +21,10 @@ _(unreleased — entries accumulate here per commit)_
   could never be trusted to check the number. The test now holds twelve seconds before
   recovering, which puts it clearly on one side of the line, a second copy of the test
   keeps the original timing so the difference stays measurable, and the other side of the
-  line is checked directly in the unit tests at the exact timings that were observed.
+  line is checked directly in the unit tests at the exact timings that were observed. All
+  three affected tests have since been run: both copies passed, and the one that was left
+  at the original timing landed less than a second from the line again, which is what the
+  second copy is there to keep showing.
 
 - **Automated testing: a flight can now drive part actions on a scripted timeline, and
   the replay of each is checked family by family.** The test harness could stage,

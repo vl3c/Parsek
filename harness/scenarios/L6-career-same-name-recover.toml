@@ -52,13 +52,46 @@ id = "L6-career-same-name-recover"
 # mission param can produce it on demand, and pinning `count = 3` on a lane whose
 # dwell straddles the floor is the bet this pair exists to stop making.
 #
-# **NEVER FLOWN WITH THE DWELL DECLARED.** Every token below was measured on the
-# 0.0-dwell machine; what the dwell changes is WHICH of the two already-measured
-# shapes comes back, not the shapes themselves. The exact pins are `_1328`'s and
-# `_1411`'s own numbers (both of which cleared the floor), not new predictions - but
-# reading run 4 is owed before this lane is called deterministic, and a divergence in
-# the count is a DWELL reading (compare against the sibling's range), never a
-# correlator finding.
+# **FLOWN GREEN ON THE FIRST RUN WITH THE DWELL DECLARED** (`2026-09-02_1806`, PASS
+# attempt 1, wall 485 s, mission 355 s, DLL 10ef80c4). Every exact pin above was a
+# PREDICTION off the two pre-dwell flights that cleared the floor, and every one MATCHED:
+# count=4, `nameMatches=4 survivors=2 guidDropped=2 ... tier=most-recent-ended
+# bracketTie=n/a pick=fbbea6a1...`, `Recovery kerbal XP recorded ... rows=1 deduped=0
+# noAction=0 kerbals='Chaduki Kerman'`, and the split's own line:
+#
+#   SplitAtSection: split 0d4e6e70... at UT=748.9 (first: 512 pts/3 sections,
+#       second: 4 pts/1 sections, flatSync=track-sections/track-sections)
+#
+# THE REALIZED SECOND HALF IS **11.84 s**, NOT THE ~8.6 s PREDICTED ABOVE, AND THE
+# ARITHMETIC ABOVE IS LEFT STANDING WITH THIS CORRECTION RATHER THAN QUIETLY RE-FITTED.
+# The prediction's only free term was the landedUT-to-section offset, which it put at
+# ~3.4 s on the reasoning that a `SurfaceStationary` section opens only after the craft
+# has been under 0.1 m/s for 3 s. MEASURED, that offset is **0.50 s**: the mission's
+# COLLECT (i.e. the B1 leg's LANDED frame) is at ut=748.44 and the section starts at
+# UT=748.94. THE ASSUMPTION WAS BACKWARDS - the craft is already stationary by the time
+# the mission's own landing gate declares LANDED, so the recorder's stationary clock has
+# ALREADY run when the dwell anchor is stamped, and the offset is a poll gap rather than
+# a settle wait. It is a MEASUREMENT TWICE OVER, not one run's luck: the natural-dwell
+# sibling measured the same 0.50 s (746.88 -> 747.38) on its own flight the same evening.
+#
+# SO THE MARGIN IS **+6.84 s** OVER THE 5.0 FLOOR, not +3.6, and the pessimistic bound in
+# the block above is conservative in the safe direction. `Section closed:
+# env=SurfaceStationary ... duration=11.84s` is the tail this lane now authors, and it
+# carried 4 points where the ~5.5 s tails carried 2 - which is exactly why the
+# `SplitAtSection` token regexes its point and section counts instead of pinning them.
+#
+# THE DWELL IS PROVEN CAUSAL BY THE PAIR, not just plausible: landed-frame-to-RECOVERED
+# measured 13.24 s here (748.44 -> 761.68) against 7.10 s on the dwell-0 sibling and
+# 7.12 s on L3, a +6.13 s shift that is exactly 12.0 minus the natural ask time.
+#
+# A NEGATIVE CONTROL exists and is deliberately UNCOMMITTED: the same spec with one token
+# flipped to `nameMatches=3` - the value run `_1402` produced when its tail fell below the
+# floor - replays against this run's own KSP.log at EXACTLY one unmet and zero forbids, so
+# the exact pin gates on ITSELF rather than riding a coupled token.
+#
+# WHAT IS STILL OWED IS THE ARMED RUN, not another reading: the tier note's twice-green
+# rule is unmet at one green flight. A divergence in the count is still a DWELL reading
+# (compare against the sibling's range), never a correlator finding.
 # ####################################################################################
 #
 # UNBLOCKED 2026-09-02 BY A PURPOSE-BUILT FIXTURE. (HISTORY from here down; reading run 2

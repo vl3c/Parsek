@@ -29,7 +29,36 @@ tier = "operator"
 # touchdown correctly gets that landed tail folded into the flight. What was
 # uncontrolled was the INPUT, and that is what the pair fixes.
 #
-# ################ THE PREDICTION ################
+# ################ FLOWN GREEN 2026-09-02, AND IT LANDED ABOVE THE FLOOR BY 0.70 s #####
+# `2026-09-02_1816`, PASS attempt 1, wall 462 s, mission 343 s, DLL 10ef80c4. This run's
+# own numbers, which are what this lane exists to keep producing:
+#
+#   COLLECT (the LANDED frame)                 ut = 746.88
+#   `SurfaceStationary` section starts         UT = 747.38   (offset 0.50 s)
+#   `Section closed: env=SurfaceStationary ... duration=5.70s`
+#   `SplitAtSection: split 38311eb1... at UT=747.4 (first: 506 pts/3 sections,
+#       second: 2 pts/1 sections)`             -> SPLIT, count = 4
+#   recovery pick                              ut = 753.3
+#
+# **+0.70 s OVER THE FLOOR**, so the natural-dwell band is now FOUR points -
+# 5.34 / 4.82 / 5.88 / **5.70** s - and ONE of the four is still below 5.0. The range
+# pins below are therefore vindicated rather than merely cautious: a `{4, 4}` pin here
+# would have passed this run and red the `_1402` shape, which is the coin flip this pair
+# exists to stop pinning. The subject came back identical to the long lane's
+# (`dropped=2 remaining=2 reason=guid-conclusive-mismatch`, `nameMatches=4 survivors=2
+# guidDropped=2 ... tier=most-recent-ended bracketTie=n/a pick=4f087d0f...`, one
+# `Recovery kerbal XP recorded ... rows=1 deduped=0 noAction=0 kerbals='Sigski Kerman'`
+# - another per-run stand-in), every verifier PASS, analyzer red=0, zero
+# `[Parsek][ERROR]`.
+#
+# THE 0.50 s OFFSET IS THE READING WORTH KEEPING. The sibling's header predicted the
+# landedUT-to-section offset at ~3.4 s (from stock's under-0.1-m/s-for-3-s rule) and
+# BOTH flights measured 0.50 s: the craft is already stationary by the time the mission's
+# own landing gate declares LANDED, so the recorder's stationary clock has already run
+# when the dwell anchor is stamped. That correction makes the sibling's margin +6.84 s
+# rather than +3.6, i.e. wrong in the safe direction.
+#
+# ################ THE PREDICTION (written before the flight; it held) ################
 # This lane reproduces the UNCONTROLLED reading deliberately, so its prediction is a
 # RANGE and that is its whole design:
 #
@@ -44,7 +73,8 @@ tier = "operator"
 # Which end of the range a given run lands on is a MEASUREMENT of the natural dwell, not
 # a verdict on Parsek. A run outside the range IS a finding: below 3 means the fixture's
 # prior launch did not load, and above 4 means the flight produced more segments than
-# either measured shape.
+# either measured shape. RUN 1 landed at the TOP of the range (count 4, tail 5.70 s), and
+# every EXACT token above came back exactly as written.
 #
 # ################ WHY THIS CANNOT PIN THE NO-SPLIT SIDE EXACTLY ################
 # STATED PLAINLY, because the obvious next question is "why not just set a dwell that
@@ -92,7 +122,7 @@ tier = "operator"
 # `[expectations.ledger]` block is declared are all argued at length in
 # `L6-career-same-name-recover.toml` and are NOT restated here. A second copy of a
 # moving argument is a second thing to leave stale.
-description = "NATURAL-DWELL control (preRecoverDwellSeconds = 0, the default), NEVER FLOWN under this id: the same science_bench_recover flight over career-same-name-pad that L6-career-same-name-recover flies, one param apart, kept as the uncontrolled reading of the mission's landed dwell against RecordingOptimizer's 5.0 s split floor. Pins the correlator subject (guidDropped=2, the tier, the XP row) as literals and the flight's own segment count as the 3..4 range three flights measured; the sibling's dwell forces the split and pins 4 exactly, and the NO-SPLIT side is pinned headlessly by RecordingOptimizerTests because no mission param can shorten a landed tail."
+description = "NATURAL-DWELL control (preRecoverDwellSeconds = 0, the default), FLOWN GREEN 2026-09-02 with a 5.70 s landed tail - 0.70 s above the floor: the same science_bench_recover flight over career-same-name-pad that L6-career-same-name-recover flies, one param apart, kept as the uncontrolled reading of the mission's landed dwell against RecordingOptimizer's 5.0 s split floor. Pins the correlator subject (guidDropped=2, the tier, the XP row) as literals and the flight's own segment count as the 3..4 range three flights measured; the sibling's dwell forces the split and pins 4 exactly, and the NO-SPLIT side is pinned headlessly by RecordingOptimizerTests because no mission param can shorten a landed tail."
 instanceProfile = "stock-minimal"
 tags = ["ledger", "L6", "recovery", "correlator", "same-name", "career", "reading-run", "split-floor", "control"]
 
