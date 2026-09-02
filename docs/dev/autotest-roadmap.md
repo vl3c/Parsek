@@ -1986,6 +1986,77 @@ Sequencing: behind nothing technically (the M-A7 instrument and the V18T
 grammar both exist); ahead of G8's multi-route co-residency, which wants this
 lane's subject class as one of its co-residents.
 
+**BLOCKED AS OF 2026-09-02 ON A PRODUCT CHANGE, not on a subject** (feasibility
+walk: `docs/dev/research/g10-interbody-route-feasibility.md`; the "behind nothing
+technically" sentence above is superseded and kept only so the correction is
+legible). `ClassifyRouteScope` reads `Route.DispatchWindowPeriod` as the
+authoritative scope flag, and `RouteBuilder.cs:486` hard-codes
+`DispatchWindowPeriod = 0.0`. That is the ONLY assignment in `Source/Parsek/`
+outside `RouteCodec`'s parse and two hand-built in-game-test synthetics, so NO
+production path can mint a route whose scope classifies `InterBody`. A route
+whose members span Kerbin and Duna classifies `MalformedMixedBodies` instead and
+`ClassifyRouteLineSkip` skips its line, and `FilterLegsToEndpointBodies` - the
+ratified transfer-leg DROP this entry is built around - sits behind the same
+`DispatchWindowPeriod != 0.0` branch and is unreachable too. Verified against the
+operator's own data, not argued: the plain `orbital supply route` save's
+`name = Route: KSC -> Duna` (`persistent.sfs:4358`, `status = Active`,
+`reaimWindowBasisEngaged = True`) carries `dispatchWindowPeriod = 0`. So the
+save this entry assumed exists is the MALFORMED case; harvesting it as B32 today
+pins `malformed=1` and nothing G10 wants. Fix first
+(ROUTE-INTERBODY-SCOPE-NEVER-REACHABLE in `todo-and-known-bugs.md`), then
+harvest, then author the lanes. Nothing else about the entry changes: the render
+gap it names is real and gets WIDER once the fix lands, since the malformed skip
+is currently hiding it.
+
+**THE OPERATOR SAVE SPECIFICATION for B32** (write it once, fly it by hand; the
+seam cannot create this and no driven lane can either, because route candidacy is
+seal-gated and the create gate refuses `candidate-ineligible MissingRouteProof`
+over every committed fixture - the four that carry a `ROUTE_CONNECTION_WINDOW`
+are Kerbin-only, and `duna-park-recorded` / `duna-one-recorded` carry none at
+all). Fly it in a SANDBOX save with `autoRecordOnLaunch` on, one save, one
+continuous campaign:
+
+1. **Put a depot at Duna FIRST.** Launch a depot craft from the KSC pad, transfer
+   to Duna, capture, and leave it in a stable Duna orbit (any altitude; a
+   circular park is easiest to redock with). It must carry a docking port and
+   spare capacity in a routable resource (LiquidFuel + Oxidizer is the shape
+   `depot-route-recorded` uses), and it must have a `ModuleCommand` part so it is
+   a vessel rather than debris. Let its recording finish and merge.
+2. **Launch the transport from the KSC pad**, in the SAME save, as a fresh
+   launch. KSC origin is what clears the M1 workflow gate
+   (`RouteAnalysisStatus.UndockedStartOrigin`); do NOT start the transport
+   already in orbit or already docked to something.
+3. **Carry cargo.** The transport must launch with more LiquidFuel/Oxidizer than
+   it burns, so the arrival dock can transfer a positive delivery manifest to the
+   depot. Nothing may be harvested en route (that switches the analysis onto the
+   harvest-origin path and changes the subject).
+4. **Transfer to Duna and DOCK to the depot** with a docking port (a claw works
+   but stamps `Grapple`, a different `RouteConnectionKind` reading). While
+   docked, **transfer resources FROM the transport TO the depot** through the
+   stock transfer UI. That is the delivery manifest; without a transfer the
+   window analyses `NoDeliveryManifest`.
+5. **UNDOCK** and let the transport fly clear. Dock and undock must BOTH be
+   recorded in one continuous session - that pair is the
+   `ROUTE_CONNECTION_WINDOW` (`dockUT` / `undockUT` /
+   `transferKind = DockingPort`).
+6. **Conclude the tree** (return and recover, or end the flight cleanly) and let
+   it commit. Then **seal it**: every recording in the tree must reach
+   `MergeState.Immutable`, else the create gate answers `tree-not-sealed`.
+7. **Create the route** from the Logistics window's "Create Route" over that
+   tree, name it, and leave it `Active` with `pauseAfterCurrentCycle` unset. Do
+   not run a cycle; a fresh route with `completedCycles = 0` is the cleaner
+   subject.
+8. **Do not delete anything afterwards** - not the ascent debris, not the
+   decoupled stages, not the depot. The route's `CREATION_TREE_RECORDINGS`
+   snapshot and the member-body collection both read the whole tree.
+
+What the seam then does over the harvested save: `LoadGame` -> `SetSetting
+showRouteLines=true` -> `EnterMapView` (V26M) or a TRACKSTATION boot (V26T) ->
+`TimeJump` into the route's dispatch window -> the `renderCompose` manifest step.
+What B32's builder asserts is the predicate in the feasibility memo; its last
+clause (`dispatchWindowPeriod != 0.0`) is the one the product fix has to make
+true, and until it does the harvest reads `MalformedMixedBodies`.
+
 **Cross-cutting instrument, not a gap: M-A7, the render composition manifest +
 verifier** (design authority `design-autotest-render-composition.md`; indexed
 as V8 of the visual program in `design-testing-unified.md` section 6 and in

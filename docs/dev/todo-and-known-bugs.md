@@ -15,6 +15,63 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ROUTE-INTERBODY-SCOPE-NEVER-REACHABLE: `Route.DispatchWindowPeriod` is the authoritative scope flag and NOTHING in production ever sets it non-zero, so every inter-body route classifies `MalformedMixedBodies` and draws no line [FOUND 2026-09-02 by the G10 P10 feasibility walk (branch `interbody-route-lane`). DEFECT, no fix in this branch - it is a product change and this branch is spec/docs-only]
+
+**The contract.** `RouteTrajectoryLineRenderer.ClassifyRouteScope`
+(`Source/Parsek/Display/RouteTrajectoryLineRenderer.cs:139`) says
+`Route.DispatchWindowPeriod` is "the authoritative flag (0 = same-body, the
+synodic period for inter-body)", and `Route.cs:142` repeats it ("0 for same-body,
+synodic period for inter-body"). The v7 archive records the design intent
+verbatim: "inter-body routes draw, period-0-with-mixed-bodies routes stay
+declined (skip reason renamed `NotSameBody` -> `MalformedMixedBodies`)".
+
+**The defect.** `RouteBuilder.cs:486` writes `DispatchWindowPeriod = 0.0` and
+that is the ONLY assignment anywhere in `Source/Parsek/`. A repo-wide grep for
+`WindowPeriod` over `Source/` returns, besides it: the field declaration
+(`Route.cs:143`), the codec's write/read pair (`RouteCodec.cs:97` / `:311`), the
+renderer's five reads, the manifest recorder's reads, and two HAND-BUILT
+synthetics inside `InGameTests/RouteLineDrawInGameTest.cs` (`:242` sets
+`5000000.0`, `:293` sets `0.0`) plus the xUnit fixtures. No production site
+computes or stores a synodic period onto a route.
+
+**Consequences, all currently live:**
+
+- `ClassifyRouteScope` can only return `SameBody` or `MalformedMixedBodies` for
+  any route a player or the seam can create. `InterBody` is dead from creation.
+- A real Kerbin -> Duna route has mixed member bodies at period 0, so it
+  classifies `MalformedMixedBodies`, and `ClassifyRouteLineSkip`
+  (`:161`) skips its route line entirely. The player sees NO route line for the
+  one route shape the feature is advertised for.
+- `FilterLegsToEndpointBodies` (the ratified transfer-leg DROP) is inside
+  `if (route.DispatchWindowPeriod != 0.0)` at `:245`, so it never runs.
+- The route-signature hash's inter-body terms (`:369-372`) never contribute.
+
+**Confirmed against live operator data, not argued.**
+`Kerbal Space Program/saves/orbital supply route/persistent.sfs:4358` is a real
+`name = Route: KSC -> Duna`, `status = Active`, `isKscOrigin = True`,
+`reaimWindowBasisEngaged = True`, and line 4367 reads `dispatchWindowPeriod = 0`.
+Its members are {Kerbin, <transfer>, Duna, Duna}.
+
+**NOT the same mechanism as the re-aim window basis, which is healthy.**
+`RouteWindowBasis` (`RouteLoopClock.cs:59-83`) is DERIVED per tick from the loop
+unit and never reads the period, which is why `reaimWindowBasisEngaged = True`
+coexists with period 0 and why `H34-logistics-inter-body` can gate
+`basis=ReaimWindows` today. This entry is about the RENDER scope flag only.
+
+**Fix shape (two options, unranked - needs a design call).** (a) Have
+`RouteBuilder` populate the synodic period on a cross-parent build, from the same
+`ReaimWindowSchedule` the loop unit already derives, so the persisted field
+matches its documented contract. (b) Retire the field as the scope source and
+classify scope from member bodies plus the derived re-aim basis, keeping the
+period only as a codec-compatible legacy value. Either way the codec is
+append-safe (the value already round-trips) and existing period-0 routes keep
+their `SameBody` reading whenever their members agree on one body.
+
+**Blocks G10** (`autotest-roadmap.md`): B32 / V26M / V26T cannot read an
+`InterBody` scope until this lands, and an operator harvest flown today would pin
+the malformed reading instead. Walk:
+`docs/dev/research/g10-interbody-route-feasibility.md`.
+
 ## RENDER-MANIFEST-VERB-EXPORT-IN-A-SECOND-SCENE-CLOBBERS-THE-FIRST-SCENE-ACCUMULATION: a lane that observes in FLIGHT and then exports the manifest from another scene reads zeroes for everything the FLIGHT scene measured [MEASURED 2026-09-02 by the H59 census run `2026-09-02_0947` (PASS). REPORT-ONLY, NO FIX PROPOSED: the per-scene partition is deliberate and the verb's unconditional write is deliberate; what is undocumented is the CONSEQUENCE for a multi-scene lane, and what is unresolved is a placement rule that forces exactly that shape]
 
 **What was measured.** `H59-surface-route-map-lines` drives its observation in FLIGHT with
@@ -1675,6 +1732,39 @@ regime (synodic rather than 0) and is the likely home of the
 `MalformedMixedBodies` classification, which no fixture exercises. Nobody has
 opened it beyond the ranking pass. It is NOT part of B27 and should get its own
 subject id when someone takes it.
+
+**OPENED AND READ 2026-09-02** (branch `interbody-route-lane`, the G10 P10
+feasibility pass; full walk in
+`docs/dev/research/g10-interbody-route-feasibility.md`). The half of the guess
+above about `MalformedMixedBodies` is CONFIRMED; the half about the
+`dispatchWindowPeriod` regime is WRONG and the correction is the finding.
+
+Measured off `Kerbal Space Program/saves/orbital supply route/persistent.sfs`:
+
+- line 4358 `ROUTE` - `name = Route: KSC -> Duna`, `isKscOrigin = True`,
+  `status = Active`, `pauseAfterCurrentCycle = True`, `completedCycles = 0`,
+  `transitDuration = dispatchInterval = 8527534.1813754588`,
+  `recordedDockUT = 72353218.8197432`, `reaimWindowBasisEngaged = True`,
+  backing tree `3daf0cff...`, 13 `CREATION_TREE_RECORDINGS`, 4 `RECORDING_IDS`;
+- line 4224 `ROUTE` - the `Paused` sibling, backing tree `02382fcd...`,
+  `dispatchInterval = 85354.0697399592`;
+- **BOTH carry `dispatchWindowPeriod = 0`** (lines 4367 and 4233).
+
+The Active route's four members resolve to bodies {Kerbin (`d23e453b`, launch,
+`launchSiteName = Launch Pad`), none (`5ca48c99`, the transfer - no
+`startBodyName`, `parentAnchorRecordingId = d23e453b`), Duna (`3700f40e`), Duna
+(`caa6190c`, the depot dock)}. Mixed member bodies at period 0 is exactly
+`ClassifyRouteScope = MalformedMixedBodies`, so this save's route draws NO line
+today (`ClassifyRouteLineSkip` -> `MalformedMixedBodies`).
+
+It is not a "synodic rather than 0" regime and never could be: nothing in
+`Source/Parsek/` writes a non-zero `DispatchWindowPeriod` - see
+ROUTE-INTERBODY-SCOPE-NEVER-REACHABLE below. So this save is a fine subject for
+the MALFORMED reading and a bad one for G10's `InterBody` reading; the roadmap
+G10 entry now carries the operator save specification that WOULD produce the
+latter once the product fix lands. If someone wants the malformed reading pinned
+before then, it is a legitimate standalone harvest (a fixture nothing exercises
+today) and needs its own subject id, not B32's.
 
 ## M-A7-SEAM-ENDPOINT-SKIP-REASON-CENSUS: `seam-endpoint-skipped` dominates every renderCompose unevaluable count and DOUBLED between two flights of the same lane with no explanation on record [FOUND 2026-08-25 reading the V14M reading-vs-armed facets (53 vs 106 skips) and the s15 free-play manifest (512 at the cap). IMPROVEMENT, REPORT-ONLY]
 
