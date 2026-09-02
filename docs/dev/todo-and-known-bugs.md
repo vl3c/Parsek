@@ -721,9 +721,30 @@ shape keeps the proof on the parent because the origin is the child, and the can
 shape hands it to the child because the origin is the parent. It also gives the natural
 moment to bind `StartDockedOriginVesselPid`: at `OnVesselsUndocking` both live vessels and
 their launch guids exist, and the origin half is matched by part `flightID`, not by pid.
-Until then an ORBITAL depot origin resolves nowhere (`RouteEndpointResolver` has only the
-pid path for a non-surface endpoint); a SURFACE depot resolves through the M1 descriptor's
-proximity fallback, which is the shipping shape and what H57 flies.
+SINCE THE ROOT-PART RESOLUTION STEP LANDED this is no longer a resolution blocker in
+either shape: `RouteEndpointResolver` tries the depot's ROOT PART ID first (ahead of pid,
+ahead of proximity - the order lives in the pure `NextEndpointStep`), so an ORBITAL depot
+resolves by identity even though the surface-proximity fallback can never run for it, and
+a SURFACE depot resolves by identity first and by the M1 descriptor only if the depot's
+root part is gone. What binding the pid at the undock still buys is a cheaper O(1) lookup
+and a second corroborating key, not the difference between resolving and not.
+
+## HARNESS-SUITE-REWRITES-TRACKED-DURATION-JSON: running the harness `lib` suite dirties the committed `harness/coverage/duration.json` [FOUND 2026-09-02 while running the suites for the origin-proof wave. OPEN, NOT FIXED BY DECISION - filed so the dirty file is recognised rather than investigated]
+
+`cd harness && python -m unittest discover -s lib -q` leaves
+`harness/coverage/duration.json` MODIFIED in `git status` every time. The writer is
+`DurationLedgerIoTests` in `harness/lib/test_run_smoke.py` (~:2857), whose whole subject is
+the COMMITTED duration ledger's I/O contract - it exercises the real read/merge/write path
+against the real `run.COVERAGE_DIR` (`duration.json` at `:2892`) rather than a temp copy,
+deliberately, because the contract it pins is that a full ledger is never REPLACED by a
+partial one and that is a property of the on-disk file.
+
+NOT FIXED HERE, and the reason is the rule about not repairing what you are only passing
+through: redirecting the cell at a temp dir would change what it measures, and the file is
+a few hundred bytes of committed history whose churn is harmless. WHAT TO DO WHEN YOU SEE
+IT: `git checkout -- harness/coverage/duration.json` before staging, and do NOT include it
+in an unrelated commit - a diff that silently carries a rewritten ledger makes the real
+change harder to read and can clobber a genuine sample another branch added.
 
 ## ROUTE-ORIGIN-PROOF-REQUIRES-A-PLAYER-TYPED-DEPOT: the depot-typed partner rule captures nothing unless the player has set the base's vessel type to Base or Station [FOUND 2026-09-02 by the adversarial review of the partner ruling (F2). OPEN by decision, fail-closed, announced at Info]
 
@@ -753,11 +774,24 @@ recoverable, a route debiting the wrong vessel is neither.
 
 **What ships to make it discoverable.** The `NoDepotHalf` outcome is announced at INFO
 (not Verbose) whenever a recording STARTS on a settled docked pair and still captures
-nothing - `RouteOriginProof skipped: no depot half ... (neither docked half is typed Base
-or Station, so no supply origin was recorded; set the depot's type in the tracking
-station)`. It is a one-shot at recording start, i.e. an EVENT, and it stays silent on the
-ordinary undocked start (`candidates=0`), so it does not become a standing complaint. No
-new UI surface: the log line is the whole affordance, per the house rule.
+nothing - `RouteOriginProof skipped: no depot half recId=N vessel='X' seams=2
+candidates=0 isEva=False (neither docked half is typed Base or Station, so no supply
+origin was recorded; set the depot's type in the tracking station)`. It is a one-shot at
+recording start, i.e. an EVENT, and it stays silent on the ordinary undocked start, so it
+does not become a standing complaint. No new UI surface: the log line is the whole
+affordance, per the house rule.
+
+THE ANNOUNCEMENT KEYS ON `seams=` (SCANNED settled dock seams), NOT ON `candidates=`
+(ACCEPTED origin candidates), and the distinction is load-bearing rather than cosmetic. A
+seam whose halves are not depot-typed adds NO candidate - the producer loop `continue`s
+past it - so on exactly the case this message exists for the accepted list is EMPTY. An
+earlier draft keyed on `candidates.Count > 0`, which made the line unreachable: it could
+only have fired when a proof was capturable, i.e. when it was not needed. The scanned
+count is threaded into `RouteProofCapture.BuildStartRouteOriginProof` as
+`settledDockSeamsScanned` for this reason, and
+`OriginHalfSelectionTests.NoDepotHalf_AnnouncesAtInfo_KeyedOnSCANNEDSeamsNotAcceptedCandidates`
+drives it through the log sink. The PRELAUNCH short-circuit still wins over it (a clamped
+pad vessel gets no retype advice, because it is not a delivery origin at all).
 
 **If this proves to bite real players**, the revisit is a route-creation REJECTION REASON
 rather than a producer change: `RouteAnalysisStatus` already carries workflow guidance

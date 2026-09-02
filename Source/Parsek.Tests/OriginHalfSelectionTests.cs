@@ -16,8 +16,25 @@ namespace Parsek.Tests
     /// A dominance-derived rule is wrong on exactly one of those two, which is why the rule is
     /// depot-TYPED. Derivation: docs/dev/research/origin-proof-partner-identity-memo.md.</para>
     /// </summary>
-    public class OriginHalfSelectionTests
+    [Collection("Sequential")]
+    public class OriginHalfSelectionTests : System.IDisposable
     {
+        private readonly List<string> logLines = new List<string>();
+
+        public OriginHalfSelectionTests()
+        {
+            ParsekLog.ResetTestOverrides();
+            ParsekLog.SuppressLogging = false;
+            ParsekLog.VerboseOverrideForTesting = true;
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+        }
+
+        public void Dispose()
+        {
+            ParsekLog.ResetTestOverrides();
+            ParsekLog.SuppressLogging = true;
+        }
+
         private static DockSeamHalfIdentity Half(VesselType type, uint root = 10u, string name = "half")
         {
             return new DockSeamHalfIdentity(true, name, (int)type, root);
@@ -237,6 +254,94 @@ namespace Parsek.Tests
                 OriginProofDetection.PartnerAmbiguous,
                 RouteProofCapture.TryResolveStartDockedOriginPartner(
                     (int)Vessel.Situations.LANDED, false, candidates, out _));
+        }
+
+        // ---------- the no-depot announcement (the case the rule fail-closes on) ----------
+
+        private static ConfigNode Snapshot()
+        {
+            var vessel = new ConfigNode("VESSEL");
+            var part = new ConfigNode("PART");
+            part.AddValue("persistentId", "100");
+            part.AddValue("name", "fuelTank");
+            vessel.AddNode(part);
+            return vessel;
+        }
+
+        [Fact]
+        public void NoDepotHalf_AnnouncesAtInfo_KeyedOnSCANNEDSeamsNotAcceptedCandidates()
+        {
+            // THE BUG THIS CELL EXISTS FOR. A seam whose halves are not depot-typed adds NO
+            // candidate - the producer loop skips it - so the accepted list is EMPTY on
+            // exactly the case the message is written for. Keying the announcement on
+            // candidates.Count therefore made it unreachable: it could only ever have fired
+            // when a proof was capturable, which is when it is not needed. The scanned seam
+            // count is the input that distinguishes "started docked and found no depot" from
+            // "started undocked".
+            RouteProofCapture.BuildStartRouteOriginProof(
+                activeVesselSituation: (int)Vessel.Situations.LANDED,
+                activeVesselIsEva: false,
+                candidates: new List<OriginPartnerCandidate>(),
+                settledDockSeamsScanned: 2,
+                snapshot: Snapshot(),
+                isGloopsMode: false,
+                vesselContext: "<test>",
+                recordingVesselId: 7u,
+                out RouteOriginProof proof,
+                out List<uint> _);
+
+            Assert.Null(proof);
+            Assert.Contains(logLines, l => l.Contains("[INFO]")
+                && l.Contains("RouteOriginProof skipped: no depot half")
+                && l.Contains("seams=2")
+                && l.Contains("candidates=0")
+                && l.Contains("set the depot's type in the tracking station"));
+        }
+
+        [Fact]
+        public void NoSeamsAtAll_StaysQuiet_TheOrdinaryUndockedStart()
+        {
+            // FAILS IF: the announcement becomes a standing complaint. Every ordinary
+            // recording start is an undocked one; an Info line on each would be noise, and
+            // the house rule is that a one-shot announces an EVENT, not a condition.
+            RouteProofCapture.BuildStartRouteOriginProof(
+                activeVesselSituation: (int)Vessel.Situations.LANDED,
+                activeVesselIsEva: false,
+                candidates: new List<OriginPartnerCandidate>(),
+                settledDockSeamsScanned: 0,
+                snapshot: Snapshot(),
+                isGloopsMode: false,
+                vesselContext: "<test>",
+                recordingVesselId: 7u,
+                out RouteOriginProof proof,
+                out List<uint> _);
+
+            Assert.Null(proof);
+            Assert.DoesNotContain(logLines, l => l.Contains("no depot half"));
+            Assert.Contains(logLines, l => l.Contains("RouteOriginProof skipped: no external coupling"));
+        }
+
+        [Fact]
+        public void PrelaunchHost_TakesItsOwnSkip_EvenWithSeamsScanned()
+        {
+            // The PRELAUNCH short-circuit runs BEFORE the candidate walk, so a clamped pad
+            // vessel must not gain the depot-typing advice: it is not a delivery origin at
+            // all, and telling the player to retype something would be wrong guidance.
+            RouteProofCapture.BuildStartRouteOriginProof(
+                activeVesselSituation: (int)Vessel.Situations.PRELAUNCH,
+                activeVesselIsEva: false,
+                candidates: new List<OriginPartnerCandidate>(),
+                settledDockSeamsScanned: 2,
+                snapshot: Snapshot(),
+                isGloopsMode: false,
+                vesselContext: "<test>",
+                recordingVesselId: 7u,
+                out RouteOriginProof proof,
+                out List<uint> _);
+
+            Assert.Null(proof);
+            Assert.DoesNotContain(logLines, l => l.Contains("no depot half"));
+            Assert.Contains(logLines, l => l.Contains("RouteOriginProof skipped: active vessel PRELAUNCH"));
         }
 
         // ---------- the far-half lookup on a multi-port partner (fail closed) ----------

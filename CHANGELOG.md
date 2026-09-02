@@ -64,8 +64,9 @@ _(unreleased — entries accumulate here per commit)_
   as a Ship, Probe or Lander until you set its type yourself in the tracking station -
   and a supply run starting at an untyped base records no origin. That is deliberate: the
   alternative is guessing which of two docked craft is the depot, which is how the
-  previous version got it wrong. When it happens the log says so in one line at recording
-  start, naming the fix.
+  previous version got it wrong. When it happens the log says so once, at the moment
+  recording starts, naming the number of docked joints it looked at and telling you to set
+  the depot's type in the tracking station. A run that starts undocked stays silent.
 
 - **Restructuring the recordings list mid-session now tells every index-keyed
   consumer.** Merging to the timeline or committing a chain segment runs the same

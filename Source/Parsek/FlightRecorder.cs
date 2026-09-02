@@ -7163,6 +7163,7 @@ namespace Parsek
                 activeVesselSituation: (int)v.situation,
                 activeVesselIsEva: v.isEVA,
                 candidates: candidates,
+                settledDockSeamsScanned: settledDockSeamCandidates,
                 snapshot: lastGoodVesselSnapshot,
                 isGloopsMode: false, // already handled above; helper still defensively re-checks
                 vesselContext: v.vesselName,

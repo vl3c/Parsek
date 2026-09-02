@@ -423,6 +423,7 @@ namespace Parsek
             int activeVesselSituation,
             bool activeVesselIsEva,
             IReadOnlyList<OriginPartnerCandidate> candidates,
+            int settledDockSeamsScanned,
             ConfigNode snapshot,
             bool isGloopsMode,
             string vesselContext,
@@ -525,12 +526,20 @@ namespace Parsek
                     // Station (no stock part declares either type, so an ordinary landed base
                     // reads Ship / Probe / Lander until the player retypes it in the tracking
                     // station). It is a one-shot at recording start, i.e. an event, and it is
-                    // silent on the ordinary undocked start where candidates=0.
-                    if (candidateCount > 0)
+                    // silent on the ordinary undocked start.
+                    //
+                    // IT KEYS ON THE SCANNED SEAM COUNT, NOT ON candidates.Count, AND THAT
+                    // DISTINCTION IS THE WHOLE BUG THIS BRANCH ONCE HAD. A seam whose halves
+                    // are not depot-typed adds NO candidate (the producer loop skips it), so
+                    // an accepted-list test can never be true on the very case the message
+                    // exists for: every no-depot start arrives here with candidates.Count == 0
+                    // and settledDockSeamsScanned > 0.
+                    if (settledDockSeamsScanned > 0)
                     {
                         ParsekLog.Info("Recorder",
                             $"RouteOriginProof skipped: no depot half recId={recordingVesselId} " +
-                            $"vessel='{vesselContext}' candidates={candidateCount} " +
+                            $"vessel='{vesselContext}' seams={settledDockSeamsScanned.ToString(CultureInfo.InvariantCulture)} " +
+                            $"candidates={candidateCount} " +
                             $"isEva={activeVesselIsEva} " +
                             $"(neither docked half is typed Base or Station, so no supply origin " +
                             $"was recorded; set the depot's type in the tracking station)");

@@ -24,6 +24,82 @@ namespace Parsek.Logistics
         /// before invoking the pure helper; tests construct records directly.
         /// </summary>
         /// <summary>
+        /// One step of endpoint resolution, in the order they are attempted.
+        /// <see cref="EndpointResolutionStep.None"/> means "no step left to try".
+        /// </summary>
+        internal enum EndpointResolutionStep
+        {
+            None = 0,
+            RootPart = 1,
+            Pid = 2,
+            SurfaceProximity = 3,
+        }
+
+        /// <summary>
+        /// THE STEP ORDER, and the ONLY place it exists. Pure / static: given the step just
+        /// attempted and which inputs the endpoint carries, returns the next step to try.
+        /// <see cref="TryResolveEndpoint"/> drives itself from this and holds no ordering of
+        /// its own, so a reordering here changes production behaviour AND reds
+        /// <c>RouteEndpointStepOrderTests</c> - which is the point: an order expressed as the
+        /// sequence of if-blocks in the caller could be swapped with the whole suite green.
+        ///
+        /// <para>WHY ROOT-PART IS FIRST. A start-docked origin carries NO pid (the depot's
+        /// own <c>Vessel</c> is destroyed by <c>Part.Couple</c> at the dock), so if proximity
+        /// ran first the origin would resolve to whatever surface vessel is nearest the
+        /// recorded coordinates - routinely the TRANSPORT parked back at the depot, i.e. a
+        /// route paying itself. Identity must beat position, and a known identity must beat a
+        /// pid too, because a <c>persistentId</c> is craft-baked and can name a different
+        /// launch of the same craft file where a part <c>flightID</c> cannot.</para>
+        /// </summary>
+        internal static EndpointResolutionStep NextEndpointStep(
+            EndpointResolutionStep previous,
+            bool rootIdKnown,
+            bool pidKnown,
+            bool proximityEligible)
+        {
+            if (previous == EndpointResolutionStep.None && rootIdKnown)
+                return EndpointResolutionStep.RootPart;
+            if (previous <= EndpointResolutionStep.RootPart && pidKnown)
+                return EndpointResolutionStep.Pid;
+            if (previous <= EndpointResolutionStep.Pid && proximityEligible)
+                return EndpointResolutionStep.SurfaceProximity;
+            return EndpointResolutionStep.None;
+        }
+
+        /// <summary>
+        /// Pure whole-resolution walk over <see cref="NextEndpointStep"/>: given which inputs
+        /// exist and which steps WOULD match, returns the step that actually wins (or
+        /// <see cref="EndpointResolutionStep.None"/>). Exists so the ORDER can be pinned
+        /// headlessly against the same function production drives - no live
+        /// <c>FlightGlobals</c>, no <c>Vessel</c>.
+        /// </summary>
+        internal static EndpointResolutionStep ResolveEndpointStepPure(
+            bool rootIdKnown, bool rootMatches,
+            bool pidKnown, bool pidMatches,
+            bool proximityEligible, bool proximityMatches)
+        {
+            EndpointResolutionStep step = EndpointResolutionStep.None;
+            while (true)
+            {
+                step = NextEndpointStep(step, rootIdKnown, pidKnown, proximityEligible);
+                switch (step)
+                {
+                    case EndpointResolutionStep.RootPart:
+                        if (rootMatches) return step;
+                        break;
+                    case EndpointResolutionStep.Pid:
+                        if (pidMatches) return step;
+                        break;
+                    case EndpointResolutionStep.SurfaceProximity:
+                        if (proximityMatches) return step;
+                        break;
+                    default:
+                        return EndpointResolutionStep.None;
+                }
+            }
+        }
+
+        /// <summary>
         /// Minimal POCO for the ROOT-PART identity step. Deliberately unfiltered by body
         /// or situation: a root-part id names one physical vessel wherever it is, so an
         /// orbital depot resolves through this step even though it can never reach the
@@ -84,54 +160,80 @@ namespace Parsek.Logistics
             vessel = null;
             reason = string.Empty;
 
-            // 1. ROOT PART ID: the identity step.
-            if (endpoint.RootPartUId != 0u)
-            {
-                List<RootIdVesselSnapshot> rootSnapshots =
-                    BuildRootIdSnapshots(FlightGlobals.Vessels);
-                if (TryRootPartMatchPure(
-                        endpoint.RootPartUId,
-                        rootSnapshots,
-                        GhostMapPresence.ghostMapVesselPids,
-                        out Vessel byRoot,
-                        out uint rootPickedPid,
-                        out string rootReason))
-                {
-                    vessel = byRoot;
-                    ParsekLog.Verbose("Logistics",
-                        "Endpoint resolved: step=root-part rootPartUId="
-                        + endpoint.RootPartUId.ToString(CultureInfo.InvariantCulture)
-                        + " pid=" + rootPickedPid.ToString(CultureInfo.InvariantCulture));
-                    return true;
-                }
-                ParsekLog.Verbose("Logistics",
-                    "Endpoint root-part step missed: rootPartUId="
-                    + endpoint.RootPartUId.ToString(CultureInfo.InvariantCulture)
-                    + " reason=" + rootReason
-                    + " candidates=" + rootSnapshots.Count.ToString(CultureInfo.InvariantCulture));
-            }
-
-            // 2. O(1) PID lookup (same wrapper GhostMapPresence uses).
-            if (endpoint.VesselPersistentId != 0u)
-            {
-                Vessel byPid = ResolveByPid(endpoint.VesselPersistentId);
-                HashSet<uint> ghostPids = GhostMapPresence.ghostMapVesselPids;
-                if (byPid != null
-                    && (ghostPids == null || !ghostPids.Contains(byPid.persistentId)))
-                {
-                    vessel = byPid;
-                    ParsekLog.Verbose("Logistics",
-                        "Endpoint resolved: step=pid pid="
-                        + endpoint.VesselPersistentId.ToString(CultureInfo.InvariantCulture));
-                    return true;
-                }
-            }
-
-            // 3. Surface proximity fallback.
-            if (endpoint.IsSurface
+            // THE ORDER IS NOT WRITTEN HERE. Every "which step next" decision comes from the
+            // pure NextEndpointStep, so this method cannot be silently reordered: the blocks
+            // below are dispatched BY step rather than arranged in an order of their own.
+            bool rootIdKnown = endpoint.RootPartUId != 0u;
+            bool pidKnown = endpoint.VesselPersistentId != 0u;
+            bool proximityEligible = endpoint.IsSurface
                 && !string.IsNullOrEmpty(endpoint.BodyName)
-                && FlightGlobals.Vessels != null)
+                && FlightGlobals.Vessels != null;
+
+            EndpointResolutionStep step = EndpointResolutionStep.None;
+            while ((step = NextEndpointStep(step, rootIdKnown, pidKnown, proximityEligible))
+                   != EndpointResolutionStep.None)
             {
+                if (step == EndpointResolutionStep.RootPart)
+                {
+                    List<RootIdVesselSnapshot> rootSnapshots =
+                        BuildRootIdSnapshots(FlightGlobals.Vessels);
+                    if (TryRootPartMatchPure(
+                            endpoint.RootPartUId,
+                            rootSnapshots,
+                            GhostMapPresence.ghostMapVesselPids,
+                            out Vessel byRoot,
+                            out uint rootPickedPid,
+                            out uint rootCollidingPid,
+                            out string rootReason))
+                    {
+                        vessel = byRoot;
+                        // AMBIGUITY IS ANNOUNCED ON THE SUCCESS PATH. Two live vessels sharing
+                        // one root flightID is impossible in a healthy save, and taking the
+                        // first SILENTLY would let a route debit an arbitrary one of them
+                        // forever with no trace. Both ids are named, so the log identifies the
+                        // pair rather than only complaining that a pair exists.
+                        if (rootReason == "root-match-ambiguous")
+                        {
+                            ParsekLog.Warn("Logistics",
+                                "Endpoint root-part match AMBIGUOUS: rootPartUId="
+                                + endpoint.RootPartUId.ToString(CultureInfo.InvariantCulture)
+                                + " pickedPid=" + rootPickedPid.ToString(CultureInfo.InvariantCulture)
+                                + " collidingPid=" + rootCollidingPid.ToString(CultureInfo.InvariantCulture)
+                                + " - two vessels report the same root part flightID; taking the first");
+                        }
+                        ParsekLog.Verbose("Logistics",
+                            "Endpoint resolved: step=root-part rootPartUId="
+                            + endpoint.RootPartUId.ToString(CultureInfo.InvariantCulture)
+                            + " pid=" + rootPickedPid.ToString(CultureInfo.InvariantCulture)
+                            + " reason=" + (string.IsNullOrEmpty(rootReason) ? "-" : rootReason));
+                        return true;
+                    }
+                    ParsekLog.Verbose("Logistics",
+                        "Endpoint root-part step missed: rootPartUId="
+                        + endpoint.RootPartUId.ToString(CultureInfo.InvariantCulture)
+                        + " reason=" + rootReason
+                        + " candidates=" + rootSnapshots.Count.ToString(CultureInfo.InvariantCulture));
+                    continue;
+                }
+
+                if (step == EndpointResolutionStep.Pid)
+                {
+                    Vessel byPid = ResolveByPid(endpoint.VesselPersistentId);
+                    HashSet<uint> ghostPids = GhostMapPresence.ghostMapVesselPids;
+                    if (byPid != null
+                        && (ghostPids == null || !ghostPids.Contains(byPid.persistentId)))
+                    {
+                        vessel = byPid;
+                        ParsekLog.Verbose("Logistics",
+                            "Endpoint resolved: step=pid pid="
+                            + endpoint.VesselPersistentId.ToString(CultureInfo.InvariantCulture));
+                        return true;
+                    }
+                    continue;
+                }
+
+                // EndpointResolutionStep.SurfaceProximity - the last step, so it returns
+                // either way.
                 CelestialBody body = ResolveBodyByName(endpoint.BodyName);
                 if (body == null)
                 {
@@ -255,10 +357,12 @@ namespace Parsek.Logistics
             HashSet<uint> excludePids,
             out Vessel vessel,
             out uint pickedPid,
+            out uint collidingPid,
             out string reason)
         {
             vessel = null;
             pickedPid = 0u;
+            collidingPid = 0u;
             reason = string.Empty;
 
             if (rootPartUId == 0u)
@@ -274,12 +378,14 @@ namespace Parsek.Logistics
 
             int found = 0;
             int firstIdx = -1;
+            int secondIdx = -1;
             for (int i = 0; i < snapshots.Count; i++)
             {
                 if (snapshots[i].RootPartFlightId != rootPartUId) continue;
                 if (excludePids != null && excludePids.Contains(snapshots[i].PersistentId)) continue;
                 found++;
                 if (firstIdx < 0) firstIdx = i;
+                else if (secondIdx < 0) secondIdx = i;
             }
 
             if (firstIdx < 0)
@@ -290,7 +396,11 @@ namespace Parsek.Logistics
 
             vessel = snapshots[firstIdx].Vessel;
             pickedPid = snapshots[firstIdx].PersistentId;
-            reason = found > 1 ? "root-match-ambiguous" : string.Empty;
+            if (found > 1)
+            {
+                collidingPid = snapshots[secondIdx].PersistentId;
+                reason = "root-match-ambiguous";
+            }
             return true;
         }
 

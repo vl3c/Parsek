@@ -47,7 +47,7 @@ namespace Parsek.Tests.Logistics
             };
 
             Assert.True(RouteEndpointResolver.TryRootPartMatchPure(
-                4242u, snapshots, null, out _, out uint pickedPid, out string reason));
+                4242u, snapshots, null, out _, out uint pickedPid, out _, out string reason));
             Assert.Equal(222u, pickedPid);
             Assert.Equal(string.Empty, reason);
         }
@@ -67,7 +67,7 @@ namespace Parsek.Tests.Logistics
             };
 
             Assert.True(RouteEndpointResolver.TryRootPartMatchPure(
-                4242u, snapshots, null, out _, out uint pickedPid, out _));
+                4242u, snapshots, null, out _, out uint pickedPid, out _, out _));
             Assert.Equal(222u, pickedPid);
         }
 
@@ -83,7 +83,7 @@ namespace Parsek.Tests.Logistics
             };
 
             Assert.False(RouteEndpointResolver.TryRootPartMatchPure(
-                4242u, snapshots, null, out Vessel vessel, out uint pickedPid, out string reason));
+                4242u, snapshots, null, out Vessel vessel, out uint pickedPid, out _, out string reason));
             Assert.Null(vessel);
             Assert.Equal(0u, pickedPid);
             Assert.Equal("no-root-match", reason);
@@ -102,7 +102,7 @@ namespace Parsek.Tests.Logistics
             };
 
             Assert.False(RouteEndpointResolver.TryRootPartMatchPure(
-                0u, snapshots, null, out _, out _, out string reason));
+                0u, snapshots, null, out _, out _, out _, out string reason));
             Assert.Equal("root-id-unknown", reason);
         }
 
@@ -118,7 +118,7 @@ namespace Parsek.Tests.Logistics
 
             Assert.False(RouteEndpointResolver.TryRootPartMatchPure(
                 4242u, snapshots, new HashSet<uint> { 222u },
-                out _, out _, out string reason));
+                out _, out _, out _, out string reason));
             Assert.Equal("no-root-match", reason);
         }
 
@@ -134,8 +134,13 @@ namespace Parsek.Tests.Logistics
             };
 
             Assert.True(RouteEndpointResolver.TryRootPartMatchPure(
-                4242u, snapshots, null, out _, out uint pickedPid, out string reason));
+                4242u, snapshots, null, out _, out uint pickedPid,
+                out uint collidingPid, out string reason));
             Assert.Equal(222u, pickedPid);
+            // BOTH ids come back so the production Warn can name the pair rather than only
+            // reporting that a pair exists - a route silently debiting an arbitrary one of
+            // two colliding vessels forever is the failure this is here to make visible.
+            Assert.Equal(333u, collidingPid);
             Assert.Equal("root-match-ambiguous", reason);
         }
 
@@ -144,11 +149,11 @@ namespace Parsek.Tests.Logistics
         {
             Assert.False(RouteEndpointResolver.TryRootPartMatchPure(
                 4242u, new List<RouteEndpointResolver.RootIdVesselSnapshot>(), null,
-                out _, out _, out string emptyReason));
+                out _, out _, out _, out string emptyReason));
             Assert.Equal("no-root-candidate", emptyReason);
 
             Assert.False(RouteEndpointResolver.TryRootPartMatchPure(
-                4242u, null, null, out _, out _, out string nullReason));
+                4242u, null, null, out _, out _, out _, out string nullReason));
             Assert.Equal("no-root-candidate", nullReason);
         }
 
