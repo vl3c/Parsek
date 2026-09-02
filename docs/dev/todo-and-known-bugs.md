@@ -15,7 +15,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## ROUTE-INTERBODY-SCOPE-NEVER-REACHABLE: `Route.DispatchWindowPeriod` is the authoritative scope flag and NOTHING in production ever sets it non-zero, so every inter-body route classifies `MalformedMixedBodies` and draws no line [FOUND 2026-09-02 by the G10 P10 feasibility walk (branch `interbody-route-lane`). DEFECT, no fix in this branch - it is a product change and this branch is spec/docs-only]
+## ~~ROUTE-INTERBODY-SCOPE-NEVER-REACHABLE: `Route.DispatchWindowPeriod` is the authoritative scope flag and NOTHING in production ever sets it non-zero, so every inter-body route classifies `MalformedMixedBodies` and draws no line~~ [FOUND 2026-09-02 by the G10 P10 feasibility walk (branch `interbody-route-lane`). FIXED 2026-09-02 on branch `interbody-scope-fix`]
 
 **The contract.** `RouteTrajectoryLineRenderer.ClassifyRouteScope`
 (`Source/Parsek/Display/RouteTrajectoryLineRenderer.cs:139`) says
@@ -58,19 +58,52 @@ unit and never reads the period, which is why `reaimWindowBasisEngaged = True`
 coexists with period 0 and why `H34-logistics-inter-body` can gate
 `basis=ReaimWindows` today. This entry is about the RENDER scope flag only.
 
-**Fix shape (two options, unranked - needs a design call).** (a) Have
-`RouteBuilder` populate the synodic period on a cross-parent build, from the same
-`ReaimWindowSchedule` the loop unit already derives, so the persisted field
-matches its documented contract. (b) Retire the field as the scope source and
-classify scope from member bodies plus the derived re-aim basis, keeping the
-period only as a codec-compatible legacy value. Either way the codec is
-append-safe (the value already round-trips) and existing period-0 routes keep
-their `SameBody` reading whenever their members agree on one body.
+**FIXED: the operator's design ruling took option (b), sharpened.** A supply route
+rides the looped-mission infrastructure: the journey and its cadence are the LOOP's
+business (`RouteLoopClock.DeriveWindowBasis`, derived per tick and deliberately never
+persisted), and the route only adds the resource transfer. So the scope is not something
+to COMPUTE at route creation - it is read off what defines it, the pair of places the
+route connects.
 
-**Blocks G10** (`autotest-roadmap.md`): B32 / V26M / V26T cannot read an
-`InterBody` scope until this lands, and an operator harvest flown today would pin
-the malformed reading instead. Walk:
-`docs/dev/research/g10-interbody-route-feasibility.md`.
+**The rule as built** (`RouteTrajectoryLineRenderer.IsInterBodyByEndpoints` /
+`ClassifyRouteScope`), top-down, with the authority named in the log:
+
+1. `Route.Origin.BodyName` known and some `Route.Stops[].Endpoint.BodyName` known and
+   DIFFERENT -> `InterBody`, basis `Endpoints`. Members are expected to span bodies here,
+   so no member cross-check runs, and a THIRD body among the members is the ratified
+   transfer gap (`FilterLegsToEndpointBodies` drops it), not a malformation.
+2. Origin known and every known stop body EQUAL to it -> a declared same-body route,
+   basis `Endpoints`. Its members must agree with that body; one on another body means
+   the recorded path leaves the pair the route declares and drawing it whole would paint
+   a cross-body chord -> `MalformedMixedBodies` (design doc section 17 "Map view
+   integration"). That is the ONLY meaning `MalformedMixedBodies` now carries, plus:
+3. No readable endpoint bodies (default-constructed origin, or no stop carrying a body)
+   -> the shipped v1 member-body consistency read, basis `MemberBodies`: all agree ->
+   `SameBody`, they disagree -> `MalformedMixedBodies`. With no endpoints there is no
+   authority saying WHICH two bodies are the endpoints, so the safe reading is the
+   shipped decline, not a guessed inter-body draw.
+
+`FilterLegsToEndpointBodies` now runs behind that same predicate rather than
+`DispatchWindowPeriod != 0.0`, so "the filter ran" and "the scope classified InterBody"
+are one decision. The route-line cache signature folds the endpoint bodies (the scope
+authority) so a scope flip invalidates the cached line the way the period fold used to.
+
+**`Route.DispatchWindowPeriod` is KEPT and DEMOTED to informational, NOT deleted.** The
+codec still writes and reads it unconditionally, so every committed save and fixture
+keeps its `dispatchWindowPeriod = 0` line and ROUTE nodes round-trip byte-identically:
+**there is NO schema bump.** It is still reported into the M-A7 manifest's route record
+so a reading run can see what a save carries. Nothing in the logistics runtime ever read
+it. Pinned by `RouteCodecTests.Serialize_InterBodyRoute_StillWritesTheZeroPeriodLine_NoSchemaMove`
+and the pre-existing `Serialize_PreM5Route_ByteIdenticalBaseline`.
+
+Observability: one line per route-line BUILD,
+`Route scope: route=<8hex> origin=<body> destination=<body> scope=<...> basis=<...>`
+([RouteLine], Verbose, rate-limited 5 s per route id).
+
+**Unblocks G10** (`autotest-roadmap.md`): B32 / V26M / V26T can now read an `InterBody`
+scope. Walk: `docs/dev/research/g10-interbody-route-feasibility.md` (its blocker 1 is
+now historical; blocker 2, that no COMMITTED fixture carries an inter-body dock, is
+answered by the B32 harvest of the operator's `orbital supply route` save).
 
 ## RENDER-MANIFEST-VERB-EXPORT-IN-A-SECOND-SCENE-CLOBBERS-THE-FIRST-SCENE-ACCUMULATION: a lane that observes in FLIGHT and then exports the manifest from another scene reads zeroes for everything the FLIGHT scene measured [MEASURED 2026-09-02 by the H59 census run `2026-09-02_0947` (PASS). REPORT-ONLY, NO FIX PROPOSED: the per-scene partition is deliberate and the verb's unconditional write is deliberate; what is undocumented is the CONSEQUENCE for a multi-scene lane, and what is unresolved is a placement rule that forces exactly that shape]
 

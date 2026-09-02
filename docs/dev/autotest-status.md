@@ -4090,8 +4090,9 @@ six publish or compare numbers the runner already measured.
     half on a recording that crosses NO seam; forensics on
     RECORDER-SUSPECTED-DOUBLE-EMIT-AT-SOI-SEAM in todo-and-known-bugs.md.
 
-16. G10's INTER-BODY ROUTE SCOPE IS UNREACHABLE FROM CREATION, so B32 / V26M /
-    V26T cannot be authored (2026-09-02, branch `interbody-route-lane`).
+16. ~~G10's INTER-BODY ROUTE SCOPE IS UNREACHABLE FROM CREATION, so B32 / V26M /
+    V26T cannot be authored~~ FIXED 2026-09-02 on branch `interbody-scope-fix`
+    (found 2026-09-02, branch `interbody-route-lane`).
     `ClassifyRouteScope` reads `Route.DispatchWindowPeriod` as the authoritative
     scope flag; `RouteBuilder.cs:486` hard-codes it to `0.0` and no other
     production site in `Source/Parsek/` ever assigns it. A route whose members
@@ -4111,9 +4112,19 @@ six publish or compare numbers the runner already measured.
     save specification that WOULD produce the subject is written into the G10
     entry in `autotest-roadmap.md`; the defect is
     ROUTE-INTERBODY-SCOPE-NEVER-REACHABLE in todo-and-known-bugs.md; the full
-    gate walk is `docs/dev/research/g10-interbody-route-feasibility.md`. NO
-    scenario ids are consumed - `B32` / `V26M` / `V26T` stay reserved and
-    unauthored.
+    gate walk is `docs/dev/research/g10-interbody-route-feasibility.md`.
+    RESOLVED: `ClassifyRouteScope` now derives scope from the route's ENDPOINT
+    bodies (`Route.Origin.BodyName` vs the `Route.Stops[].Endpoint.BodyName`
+    set) through the single predicate `IsInterBodyByEndpoints`, which the
+    endpoint-leg filter gates on too; `DispatchWindowPeriod` is kept, still
+    written and read by the codec (NO schema move), and demoted to
+    informational. `MalformedMixedBodies` keeps the genuinely inconsistent case:
+    a route declaring one body at both endpoints whose members visit another, or
+    a route with no readable endpoint bodies whose members disagree. Blocker 2
+    (no committed fixture carries an inter-body dock) is answered by the B32
+    HARVEST of the operator's `orbital supply route` save, whose
+    `Route: KSC -> Duna` satisfies every step of the roadmap's 8-step
+    specification. `B32` / `V26M` / `V26T` are now authorable.
 
 ## Operator items outstanding
 

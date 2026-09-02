@@ -10,6 +10,24 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **Map view: a supply route that runs between two bodies now draws its line again.**
+  A route from the KSC to a depot in Duna orbit drew NOTHING on the flight map or in
+  the Tracking Station - no launch path, no arrival path - while a route that stayed on
+  one body drew normally. The renderer decided which of the two a route was by reading a
+  stored "dispatch window period" number, and nothing that creates a route has ever
+  written anything but zero into it, so every between-bodies route was read as a
+  same-body route whose recorded path inexplicably visits two planets, classified
+  malformed, and skipped. It now decides from the thing that actually says what a route
+  is: where it starts and where it stops. Origin body different from a stop body means
+  between-bodies, and those routes draw their launch and arrival paths at the two ends
+  while the recorded interplanetary coast between them stays with the mission ghost that
+  re-aims it each launch window (unchanged, deliberate). A route that declares one body
+  at both ends but whose recorded path wanders off it is still declined as malformed -
+  that is the case the check was for. Same-body routes are unaffected. Saves are
+  unaffected: the stored number is still written and read exactly as before, so no save
+  or fixture changes shape; it is simply no longer what the map believes.
+
+
 - **Automated testing: a flight can now drive part actions on a scripted timeline, and
   the replay of each is checked family by family.** The test harness could stage,
   throttle and deploy parachutes, but nothing else a player presses - so lights,

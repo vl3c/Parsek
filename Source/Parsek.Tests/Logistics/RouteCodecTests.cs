@@ -471,6 +471,43 @@ namespace Parsek.Tests.Logistics
             Assert.True(windowedBack.ReaimWindowBasisEngaged);
         }
 
+        // catches (ROUTE-INTERBODY-SCOPE-NEVER-REACHABLE): the scope fix moved the
+        // render authority off Route.DispatchWindowPeriod onto the endpoint bodies
+        // WITHOUT touching the wire. An INTER-BODY route (origin Kerbin, stop Duna)
+        // must still serialize the same `dispatchWindowPeriod = 0` line every
+        // committed save and fixture already carries, and round-trip it. No schema
+        // bump, no new key, no dropped key.
+        [Fact]
+        public void Serialize_InterBodyRoute_StillWritesTheZeroPeriodLine_NoSchemaMove()
+        {
+            Route route = BuildLeanSingleStopRoute("interbody-scope-wire");
+            route.Stops[0].Endpoint = new RouteEndpoint
+            {
+                VesselPersistentId = route.Stops[0].Endpoint.VesselPersistentId,
+                BodyName = "Duna",
+                Latitude = route.Stops[0].Endpoint.Latitude,
+                Longitude = route.Stops[0].Endpoint.Longitude,
+                Altitude = route.Stops[0].Endpoint.Altitude,
+                IsSurface = route.Stops[0].Endpoint.IsSurface,
+            };
+            Assert.Equal(0.0, route.DispatchWindowPeriod);
+
+            var node = new ConfigNode("ROUTE");
+            route.SerializeInto(node);
+            string text = node.ToString().Replace("\r\n", "\n");
+
+            Assert.Contains("dispatchWindowPeriod = 0", text);
+            Assert.Single(
+                System.Text.RegularExpressions.Regex.Matches(text, "dispatchWindowPeriod"));
+            Assert.Contains("bodyName = Duna", text);
+
+            Route back = Route.DeserializeFrom(node);
+            Assert.NotNull(back);
+            Assert.Equal(0.0, back.DispatchWindowPeriod);
+            Assert.Equal("Kerbin", back.Origin.BodyName);
+            Assert.Equal("Duna", back.Stops[0].Endpoint.BodyName);
+        }
+
         // catches (M5, the behavior-identical-off byte pin): a route left at
         // EVERY M5 default must serialize byte-identically to the pre-M5
         // baseline (the same known-good string Serialize_SingleStop_

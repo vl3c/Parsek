@@ -1986,7 +1986,7 @@ Sequencing: behind nothing technically (the M-A7 instrument and the V18T
 grammar both exist); ahead of G8's multi-route co-residency, which wants this
 lane's subject class as one of its co-residents.
 
-**BLOCKED AS OF 2026-09-02 ON A PRODUCT CHANGE, not on a subject** (feasibility
+**WAS BLOCKED 2026-09-02 ON A PRODUCT CHANGE, not on a subject; UNBLOCKED THE SAME DAY by branch `interbody-scope-fix` - see the closing paragraph of this block** (feasibility
 walk: `docs/dev/research/g10-interbody-route-feasibility.md`; the "behind nothing
 technically" sentence above is superseded and kept only so the correction is
 legible). `ClassifyRouteScope` reads `Route.DispatchWindowPeriod` as the
@@ -2007,6 +2007,24 @@ pins `malformed=1` and nothing G10 wants. Fix first
 harvest, then author the lanes. Nothing else about the entry changes: the render
 gap it names is real and gets WIDER once the fix lands, since the malformed skip
 is currently hiding it.
+
+**UNBLOCKED 2026-09-02 (branch `interbody-scope-fix`).** `ClassifyRouteScope` now
+derives scope from the route's ENDPOINT bodies - `Route.Origin.BodyName` against the
+`Route.Stops[].Endpoint.BodyName` set - through one predicate,
+`RouteTrajectoryLineRenderer.IsInterBodyByEndpoints`, which the endpoint-leg filter
+gates on as well, so `FilterLegsToEndpointBodies` runs for an inter-body route.
+`Route.DispatchWindowPeriod` is kept and demoted to informational: the codec still
+writes and reads it, every committed save and fixture keeps its
+`dispatchWindowPeriod = 0` line, and there is NO schema bump. `MalformedMixedBodies`
+survives for the genuinely inconsistent case (a route declaring one body at both
+endpoints whose members visit another, or a route with no readable endpoint bodies
+whose members disagree). Each route-line build logs
+`Route scope: route=<8hex> origin=<body> destination=<body> scope=<...> basis=<...>`,
+which is the token the lanes read. The operator's `orbital supply route` save satisfies
+every step of the 8-step specification below (verified read-only: origin `Kerbin`, stop
+endpoint `Duna`, `status = Active`, `completedCycles = 0`, dock + undock window
+`transferKind = DockingPort`, zero `mergeState` overrides anywhere in the save = every
+recording Immutable), so it is B32's harvest source.
 
 **THE OPERATOR SAVE SPECIFICATION for B32** (write it once, fly it by hand; the
 seam cannot create this and no driven lane can either, because route candidacy is

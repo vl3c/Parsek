@@ -376,7 +376,7 @@ internal class Route
     public double TransitDuration;       // seconds (= total chain duration)
     public double DispatchInterval;      // seconds between cycle starts
     public double DispatchWindowEpochUT; // original flight start UT; anchors inter-body synodic phase
-    public double DispatchWindowPeriod;  // 0 for same-body, synodic period for inter-body
+    public double DispatchWindowPeriod;  // INFORMATIONAL ONLY since 2026-09-02 (see 'Route render scope' below); always 0 in practice
     public double NextDispatchUT;        // UT of next scheduled dispatch
     public double? CurrentCycleStartUT;  // UT when the in-transit cycle began; null when idle
     public double? NextEligibilityCheckUT; // retry backoff for resource/funds waits; null when not waiting
@@ -760,7 +760,7 @@ Walk the committed tree's source path chronologically:
 - **DeliveryOffsetSeconds** = per-stop serialized scheduler offset from cycle start to the delivery boundary; live recording duration changes never move this boundary
 - **DispatchInterval** = TransitDuration (default; player can increase). For inter-body routes: defaults to synodic period of origin and destination bodies.
 - **DispatchWindowEpochUT** = first recording StartUT; inter-body repeats stay phase-aligned to this UT
-- **DispatchWindowPeriod** = 0 for same-body routes, synodic period for inter-body routes
+- **DispatchWindowPeriod** = INFORMATIONAL ONLY. Documented as "0 for same-body, synodic period for inter-body" and read as the render's scope flag, but `RouteBuilder` has always hard-coded 0.0 and no other production site assigns it, so the contract was never true of a real save. Render scope is derived from the endpoints instead (see "Route render scope" under section 17); the field is kept, still written and read by the codec (no schema move), and nothing in the logistics runtime reads it
 - **RecordingIds** = ordered route source path recording IDs, derived from the committed tree
 - **SourceRefs** = immutable source recording fingerprints used to detect deletion, optimizer rewrites, and superseded recordings after route creation
 
@@ -987,7 +987,7 @@ Handles cross-system routes: Mun→Laythe walks up to Kerbin/Jool orbiting Sun, 
 ### 8.2 Dispatch interval rules
 
 - **Same-body routes:** Player-set interval. Minimum = recording duration.
-- **Inter-body routes:** Default = synodic period, phase-anchored to the original Supply Run start UT (`DispatchWindowEpochUT`). `NextDispatchUT` is always the smallest `DispatchWindowEpochUT + n * DispatchWindowPeriod` that is >= current UT and also respects the player's minimum interval.
+- **Inter-body routes:** Default = synodic period, phase-anchored to the original Supply Run start UT (`DispatchWindowEpochUT`). `NextDispatchUT` is always the smallest `DispatchWindowEpochUT + n * DispatchWindowPeriod` that is >= current UT and also respects the player's minimum interval. NOT BUILT THIS WAY: M5 activated inter-body dispatch through the loop clock's re-aim window basis (`RouteLoopClock`, section 0.9), not through this arithmetic, and `DispatchWindowPeriod` is never written non-zero. This bullet is retained design intent, superseded by section 0.9.
 - **Player interval override:** Player can increase the minimum spacing between dispatches, but v1 does not shift the transfer-window phase. A later advanced override may allow phase shifting explicitly.
 - **Gravity assist routes:** Two-body synodic approximation (intermediate flybys not tracked). Player can fine-tune by increasing minimum spacing, not by changing the phase anchor in v1.
 
@@ -1330,7 +1330,7 @@ The roadmap defers assembly extraction to the future standalone ghost-playback b
 - Same body → 0. *Catches: division by zero.*
 - Origin or destination is the Sun → 0. *Catches: missing guard without breaking Sun-parent planets.*
 - Equal periods → 0. *Catches: T1==T2 division.*
-- Inter-body route after pause/load -> next dispatch stays aligned to DispatchWindowEpochUT + n * DispatchWindowPeriod. *Catches: phase drift.*
+- Inter-body route after pause/load -> next dispatch stays aligned to the loop clock's re-aim window basis (the as-built mechanism; the original `DispatchWindowEpochUT + n * DispatchWindowPeriod` arithmetic was never built - see section 0.9). *Catches: phase drift.*
 - Player interval override -> increases minimum spacing without shifting phase. *Catches: window override misinterpreted as free phase shift.*
 
 **KSC cost**
@@ -1413,8 +1413,59 @@ The prioritized sequence of these items into a path from v0 to feature-complete 
 - **Non-KSC undocked-start origins (RETIRED):** v1 non-KSC routes require the Supply Run to start docked to a real origin depot. The deferred "prove origin ownership for an undocked start" item is retired by the provenance doctrine (section 19.2.2): an undocked start with unwitnessed cargo is an incoherent route shape, resolved by a workflow rejection reason (start docked to the origin, record the mining, or launch from KSC), not by a prover. `docs/dev/logistics-origin-ownership-proposal.md` is superseded; its origin-debit primitive analysis is absorbed into milestone M1 (19.4).
 - **KSC cost tuning:** v1 charges stock-realistic funds for source vessel parts plus used/delivered resources and inventory. The Logistics UI DISPLAYS a recovery-aware net per-run cost (net = gross launch cost minus the actual distance-scaled recovery credits summed over the source tree), shown in Career for KSC-origin routes only. The per-cycle CHARGE now reconciles to this displayed net via a deferred recovery credit (`docs/dev/done/plans/logistics-recovery-credit.md`): the gross launch cost is fronted at dispatch (the dispatch debit and the `KscFundsAvailable` gate stay on gross, so you still front the full build cost), and a `RouteRecoveryCredited` ledger row credits the recovered amount back one dispatch interval later, at the next dock crossing, keyed on the prior dispatched cycle. FundsModule processes the gross debit as a spending and the credit as an earning, so both are reversed through the recalc cutoff walk (rewind) and the tombstone path (re-fly). In steady state the per-cycle net equals the displayed net; the credit is a constant deferred amount, an approximation of each run's physical recovery-landing UT (precise per-run landing with cycle overlap, plan OQ1, was CLOSED won't-build by maintainer decision 2026-07-07 - the constant deferred credit is the ratified permanent behavior; see 19.4 M6).
 - **Force dispatch now (RESOLVED via Send Once; no separate action):** the shipped "Send Once" button (`RouteOrchestrator.TrySendOneCycleNow`) already provides manual dispatch: it brings `NextDispatchUT` down to the current UT to skip the interval wait, but the per-cycle gates (funds, resources, endpoint, loop-clock dock phase, and any future orbital-alignment / transfer-window check) STILL apply, so it delivers at the next valid dock crossing / transfer window, not on click. A literal "fire immediately" that bypassed alignment would deliver with no ghost at the recorded dock (violating 0.9 DEL-2) or outside the synodic window, so it is intentionally NOT provided.
-- **Map view integration:** Route lines on the map. SHIPPED (2026-07-06, branch `logistics-m6-map-route-lines`, milestone M6): each committed SAME-BODY route draws its backing recorded legs (launch -> dock) as a persistent line on the flight map and the Tracking Station via a new `RouteTrajectoryLineRenderer` that rides the existing `GhostTrajectoryPolylineRenderer` machinery (reuses the pure leg builder + the `TryDrawLeg` draw helper, same stock-orbit style), behind the `showRouteLines` setting (default on). Reads route + recording data through existing accessors only (no `Route`/`RouteStore` fields added); draws in an independent map-camera onPreCull slot and skips any backing recording the per-cycle ghost polyline is drawing this frame (`IsRenderingNonOrbitalLeg`) so it never double-draws the ghost's own trajectory. FOLLOW-UP STATUS: inter-body route lines SHIPPED 2026-07-07 (branch `claude/logistics-interbody-route-lines-7phdtw`, stacked on M5 PR #1238; in-game playtest pending): an inter-body route (`DispatchWindowPeriod` != 0) draws its recorded non-orbital legs at the route's ENDPOINT bodies only (launch/ascent at the origin, approach/descent at the destination, still dock-clipped), resolved by the pure `ResolveEndpointBodies`/`FilterLegsToEndpointBodies` across all members; legs recorded in the TRANSFER frame (mid-course burns body-fixed to e.g. the Sun) are dropped because the M5 re-aim pipeline replaces the recorded transfer per launch window, so the transfer render stays with the backing mission's ghost (no static duplicate). A round-trip recording (origin resolves == destination, no dock clip cutting the return) stands the filter down and keeps every leg rather than dropping the far-body arc. The cache signature additionally folds the inter-body window schedule (period, epoch, cadence); same-body behavior is byte-identical. STILL DEFERRED: the static orbital-coast overview (parking/coast arc) is drawn head-gated by the stock conic today, so route lines draw the recorded non-orbital legs only.
+- **Map view integration:** Route lines on the map. SHIPPED (2026-07-06, branch `logistics-m6-map-route-lines`, milestone M6): each committed SAME-BODY route draws its backing recorded legs (launch -> dock) as a persistent line on the flight map and the Tracking Station via a new `RouteTrajectoryLineRenderer` that rides the existing `GhostTrajectoryPolylineRenderer` machinery (reuses the pure leg builder + the `TryDrawLeg` draw helper, same stock-orbit style), behind the `showRouteLines` setting (default on). Reads route + recording data through existing accessors only (no `Route`/`RouteStore` fields added); draws in an independent map-camera onPreCull slot and skips any backing recording the per-cycle ghost polyline is drawing this frame (`IsRenderingNonOrbitalLeg`) so it never double-draws the ghost's own trajectory. FOLLOW-UP STATUS: inter-body route lines SHIPPED 2026-07-07 (branch `claude/logistics-interbody-route-lines-7phdtw`, stacked on M5 PR #1238; in-game playtest pending): an inter-body route (origin body != stop body since the 2026-09-02 scope revision below; `DispatchWindowPeriod` != 0 as originally shipped, which no production route ever was) draws its recorded non-orbital legs at the route's ENDPOINT bodies only (launch/ascent at the origin, approach/descent at the destination, still dock-clipped), resolved by the pure `ResolveEndpointBodies`/`FilterLegsToEndpointBodies` across all members; legs recorded in the TRANSFER frame (mid-course burns body-fixed to e.g. the Sun) are dropped because the M5 re-aim pipeline replaces the recorded transfer per launch window, so the transfer render stays with the backing mission's ghost (no static duplicate). A round-trip recording (origin resolves == destination, no dock clip cutting the return) stands the filter down and keeps every leg rather than dropping the far-body arc. The cache signature additionally folds the inter-body window schedule (period, epoch, cadence), and since the scope revision every route also folds its endpoint bodies; same-body behavior is otherwise unchanged. STILL DEFERRED: the static orbital-coast overview (parking/coast arc) is drawn head-gated by the stock conic today, so route lines draw the recorded non-orbital legs only.
 - **Dispatch priority for competing routes:** v0 as implemented processes routes in `RouteStore` commit-list order in `RouteOrchestrator.Tick` (the FIFO-by-`NextDispatchUT` wording in 10.12/10.13 was the v0.5 design intent, not the shipped behavior). Player-set priority is milestone M1 (19.4).
+
+#### Route render scope (the InterBody / SameBody / MalformedMixedBodies rule) - REVISED 2026-09-02
+
+`RouteTrajectoryLineRenderer.ClassifyRouteScope` decides which of the two draw shapes
+above a committed route gets. Until 2026-09-02 it read `Route.DispatchWindowPeriod` as
+the authoritative flag, and NOTHING in production ever wrote that field non-zero
+(`RouteBuilder` hard-codes 0.0), so `InterBody` was unreachable from creation: a real
+Kerbin -> Duna route classified `MalformedMixedBodies`, its line was skipped entirely,
+and `FilterLegsToEndpointBodies` - the ratified transfer-leg drop - sat behind the same
+branch and never ran (todo ROUTE-INTERBODY-SCOPE-NEVER-REACHABLE; walk in
+`docs/dev/research/g10-interbody-route-feasibility.md`).
+
+THE RULE NOW. Scope is derived from what defines it - the pair of places the route
+connects - because a supply route rides the looped-mission infrastructure: the journey
+and its cadence are the LOOP's business (`RouteLoopClock.DeriveWindowBasis`, derived per
+tick from the resolved loop unit and deliberately never persisted; see section 0.9), and
+the route only adds the resource transfer. There is nothing for the route to compute at
+creation time.
+
+1. `Route.Origin.BodyName` known and some `Route.Stops[].Endpoint.BodyName` known and
+   DIFFERENT -> **InterBody** (basis `Endpoints`). This is the one predicate,
+   `IsInterBodyByEndpoints`, and the endpoint-leg filter gates on the SAME function, so
+   "the filter ran" and "the scope classified InterBody" cannot disagree. Members are
+   EXPECTED to span bodies here, so no member cross-check applies; a THIRD body among
+   the members is the ratified transfer gap that `FilterLegsToEndpointBodies` drops, not
+   a malformation.
+2. Origin known and every known stop body EQUAL to it -> a declared same-body route
+   (basis `Endpoints`). Its members must agree with that body: a member on another body
+   means the recorded path leaves the pair the route declares, and drawing it whole
+   would paint a cross-body chord -> **MalformedMixedBodies**. That is the whole meaning
+   of the malformed reading, plus case 3.
+3. No readable endpoint bodies (a default-constructed origin, or no stop carrying a
+   body) -> the shipped v1 member-body consistency read (basis `MemberBodies`): all
+   known member bodies agree, or none are known -> **SameBody**; they disagree ->
+   **MalformedMixedBodies**. With no endpoints there is no authority saying WHICH two
+   bodies are the endpoints, so the safe reading is the shipped decline rather than a
+   guessed inter-body draw.
+
+The per-route-build log line names its own authority so a reader never has to guess
+which branch answered:
+
+    [Parsek][VERBOSE][RouteLine] Route scope: route=<8hex> origin=<body> destination=<body> scope=<...> basis=<...>
+
+`DispatchWindowPeriod` is KEPT and demoted to informational: the codec still writes and
+reads it unconditionally, every committed save and fixture keeps its
+`dispatchWindowPeriod = 0` line, ROUTE nodes round-trip byte-identically, and there is
+NO schema bump. It is still reported into the M-A7 render-composition manifest's route
+record so a reading run can see what a save carries. The route-line cache signature now
+folds the endpoint bodies (the scope authority) so a scope flip invalidates the cached
+line the way the period fold used to; an inter-body route additionally folds its window
+schedule, and a same-body route folds no schedule field.
 
 ### 17.1 Supporting systems required for future work
 

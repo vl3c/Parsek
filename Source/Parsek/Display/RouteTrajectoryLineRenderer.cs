@@ -37,9 +37,9 @@ namespace Parsek.Display
     /// </para>
     ///
     /// <para>
-    /// SCOPE: same-body routes (<see cref="Route.DispatchWindowPeriod"/> == 0) draw their full
+    /// SCOPE: same-body routes (origin body == every stop body) draw their full
     /// recorded non-orbital legs, byte-identical to the shipped M6 v1. INTER-BODY routes
-    /// (<see cref="Route.DispatchWindowPeriod"/> != 0, milestone M5) draw the recorded non-orbital
+    /// (origin body != some stop body, milestone M5) draw the recorded non-orbital
     /// legs at the route's ENDPOINT bodies only — launch/ascent legs at the origin body,
     /// approach/descent legs at the destination body, still clipped to
     /// <see cref="Route.RecordedDockUT"/>. The transfer between them is deliberately NOT drawn
@@ -109,15 +109,32 @@ namespace Parsek.Display
         /// <summary>Drawable-scope classification of a committed route.</summary>
         internal enum RouteLineScope
         {
-            /// <summary>Period 0 with consistent member bodies: draw all recorded non-orbital legs.</summary>
+            /// <summary>Endpoints agree on one body (and the members agree with them): draw all
+            /// recorded non-orbital legs.</summary>
             SameBody = 0,
 
-            /// <summary>Non-zero synodic period (M5): draw the endpoint-body legs only.</summary>
+            /// <summary>Origin body != some stop body (M5): draw the endpoint-body legs only.</summary>
             InterBody = 1,
 
-            /// <summary>Period 0 but members on mixed bodies: malformed, declined rather than
-            /// drawing a cross-body chord.</summary>
+            /// <summary>Declared same-body endpoints (or no readable endpoints) but members on
+            /// mixed bodies: malformed, declined rather than drawing a cross-body chord.</summary>
             MalformedMixedBodies = 2,
+        }
+
+        /// <summary>
+        /// Which authority settled a <see cref="RouteLineScope"/>. Logged with the classification so
+        /// a reader can tell a route classified from its own declared endpoints from one that fell
+        /// back to the member-body consistency read.
+        /// </summary>
+        internal enum RouteScopeBasis
+        {
+            /// <summary>The route's own endpoints answered it: <see cref="Route.Origin"/>'s body
+            /// against the bodies of <see cref="Route.Stops"/>' endpoints.</summary>
+            Endpoints = 0,
+
+            /// <summary>No readable endpoint bodies (a default-constructed origin, or no stop
+            /// carrying a body), so the shipped v1 member-body consistency read decided.</summary>
+            MemberBodies = 1,
         }
 
         // ------------------------------------------------------------------
@@ -130,32 +147,161 @@ namespace Parsek.Display
             => settings == null ? DefaultShowRouteLines : settings.showRouteLines;
 
         /// <summary>
-        /// Classifies a route's render scope. <see cref="Route.DispatchWindowPeriod"/> is the
-        /// authoritative flag (0 = same-body, the synodic period for inter-body). A same-body
-        /// route's resolved member bodies must all agree when supplied — a period of 0 with mixed
-        /// bodies is malformed. An inter-body route's members are EXPECTED to span bodies, so no
-        /// consistency check applies there.
+        /// THE inter-body predicate, and the ONLY expression of it: a route is inter-body when its
+        /// ORIGIN endpoint's body is known and at least one STOP endpoint's body is known and
+        /// DIFFERENT. Endpoint-only by construction (no member walk), so the build-time
+        /// endpoint-body filter and <see cref="ClassifyRouteScope"/> gate on the same function
+        /// rather than restating the test — they cannot disagree about one route.
+        ///
+        /// <para>WHY THE ENDPOINTS AND NOT <see cref="Route.DispatchWindowPeriod"/>. The period was
+        /// the shipped scope flag, and NOTHING in production ever set it non-zero
+        /// (<c>RouteBuilder</c> hard-coded 0.0), so <see cref="RouteLineScope.InterBody"/> was
+        /// unreachable from creation and every real Kerbin -&gt; Duna route classified
+        /// <see cref="RouteLineScope.MalformedMixedBodies"/> and drew no line at all
+        /// (ROUTE-INTERBODY-SCOPE-NEVER-REACHABLE). Scope is now derived from what actually defines
+        /// it. A supply route rides the looped-mission infrastructure: the journey and its cadence
+        /// are the LOOP's business (the per-tick <c>RouteWindowBasis</c> in
+        /// <c>RouteLoopClock.DeriveWindowBasis</c>, which never read the period either and is
+        /// deliberately never persisted), and the route only adds the resource transfer. What makes
+        /// a route inter-body for the RENDER is therefore the pair of places it connects, which the
+        /// route carries first-hand and every production path fills in.</para>
+        /// </summary>
+        internal static bool IsInterBodyByEndpoints(
+            string originBodyName, IReadOnlyList<string> stopBodyNames)
+        {
+            if (string.IsNullOrEmpty(originBodyName) || stopBodyNames == null) return false;
+            for (int i = 0; i < stopBodyNames.Count; i++)
+            {
+                string stop = stopBodyNames[i];
+                if (string.IsNullOrEmpty(stop)) continue;
+                if (!string.Equals(originBodyName, stop, StringComparison.Ordinal)) return true;
+            }
+            return false;
+        }
+
+        /// <summary>Live overload of <see cref="IsInterBodyByEndpoints(string, IReadOnlyList{string})"/>
+        /// reading the route's own <see cref="Route.Origin"/> / <see cref="Route.Stops"/>.</summary>
+        internal static bool IsInterBodyByEndpoints(Route route)
+            => route != null
+               && IsInterBodyByEndpoints(route.Origin.BodyName, CollectStopBodies(route));
+
+        /// <summary>
+        /// Classifies a route's render scope from its ENDPOINT bodies, with the member bodies as a
+        /// cross-check. The rule, top-down:
+        ///
+        /// <list type="number">
+        /// <item>ORIGIN body known and some STOP body known and different -&gt;
+        /// <see cref="RouteLineScope.InterBody"/> (<see cref="RouteScopeBasis.Endpoints"/>). The
+        /// members are EXPECTED to span bodies here — the transfer-frame member is the whole point —
+        /// so no consistency check applies, and a THIRD body among the members is the ratified
+        /// transfer gap, not a malformation: <see cref="FilterLegsToEndpointBodies"/> drops it.</item>
+        /// <item>ORIGIN body known and every known STOP body EQUAL to it -&gt; a declared same-body
+        /// route (<see cref="RouteScopeBasis.Endpoints"/>). Its members must agree with that body;
+        /// a member on another body means the recorded path leaves the pair the route declares, and
+        /// drawing it whole would paint a cross-body chord — that is
+        /// <see cref="RouteLineScope.MalformedMixedBodies"/> (design doc §17 "Map view
+        /// integration"). Otherwise <see cref="RouteLineScope.SameBody"/>.</item>
+        /// <item>No readable endpoint bodies (a default-constructed origin, or no stop carrying a
+        /// body) -&gt; the shipped v1 member-body consistency read
+        /// (<see cref="RouteScopeBasis.MemberBodies"/>): all known member bodies agree (or none are
+        /// known) -&gt; <see cref="RouteLineScope.SameBody"/>, they disagree -&gt;
+        /// <see cref="RouteLineScope.MalformedMixedBodies"/>. With no endpoints there is no
+        /// authority saying WHICH two bodies are the endpoints, so the safe reading is the shipped
+        /// decline rather than a guessed inter-body draw.</item>
+        /// </list>
         /// </summary>
         internal static RouteLineScope ClassifyRouteScope(
-            double dispatchWindowPeriod, IReadOnlyList<string> memberBodies)
+            string originBodyName, IReadOnlyList<string> stopBodyNames,
+            IReadOnlyList<string> memberBodies, out RouteScopeBasis basis)
         {
-            if (dispatchWindowPeriod != 0.0) return RouteLineScope.InterBody;
+            if (IsInterBodyByEndpoints(originBodyName, stopBodyNames))
+            {
+                basis = RouteScopeBasis.Endpoints;
+                return RouteLineScope.InterBody;
+            }
+
+            bool endpointsReadable =
+                !string.IsNullOrEmpty(originBodyName) && HasKnownBody(stopBodyNames);
+            basis = endpointsReadable ? RouteScopeBasis.Endpoints : RouteScopeBasis.MemberBodies;
+
+            // Declared same-body: the endpoint body is the reference every member must match.
+            // No endpoints: the first known member body becomes the reference (shipped v1).
+            string reference = endpointsReadable ? originBodyName : null;
             if (memberBodies == null || memberBodies.Count == 0) return RouteLineScope.SameBody;
-            string first = null;
             for (int i = 0; i < memberBodies.Count; i++)
             {
                 string b = memberBodies[i];
                 if (string.IsNullOrEmpty(b)) continue;
-                if (first == null) first = b;
-                else if (!string.Equals(first, b, StringComparison.Ordinal))
+                if (reference == null) reference = b;
+                else if (!string.Equals(reference, b, StringComparison.Ordinal))
                     return RouteLineScope.MalformedMixedBodies;
             }
             return RouteLineScope.SameBody;
         }
 
+        /// <summary>Basis-free overload of
+        /// <see cref="ClassifyRouteScope(string, IReadOnlyList{string}, IReadOnlyList{string}, out RouteScopeBasis)"/>.</summary>
+        internal static RouteLineScope ClassifyRouteScope(
+            string originBodyName, IReadOnlyList<string> stopBodyNames,
+            IReadOnlyList<string> memberBodies)
+            => ClassifyRouteScope(originBodyName, stopBodyNames, memberBodies, out _);
+
+        /// <summary>Live overload reading the route's own endpoints.</summary>
+        internal static RouteLineScope ClassifyRouteScope(
+            Route route, IReadOnlyList<string> memberBodies, out RouteScopeBasis basis)
+        {
+            if (route == null)
+            {
+                basis = RouteScopeBasis.MemberBodies;
+                return RouteLineScope.SameBody;
+            }
+            return ClassifyRouteScope(
+                route.Origin.BodyName, CollectStopBodies(route), memberBodies, out basis);
+        }
+
+        /// <summary>Live basis-free overload.</summary>
+        internal static RouteLineScope ClassifyRouteScope(
+            Route route, IReadOnlyList<string> memberBodies)
+            => ClassifyRouteScope(route, memberBodies, out _);
+
+        /// <summary>Ordered stop-endpoint body names; null when the route declares no stops.</summary>
+        internal static List<string> CollectStopBodies(Route route)
+        {
+            if (route?.Stops == null || route.Stops.Count == 0) return null;
+            var bodies = new List<string>(route.Stops.Count);
+            for (int i = 0; i < route.Stops.Count; i++)
+            {
+                RouteStop stop = route.Stops[i];
+                if (stop == null) continue;
+                bodies.Add(stop.Endpoint.BodyName);
+            }
+            return bodies;
+        }
+
+        private static bool HasKnownBody(IReadOnlyList<string> bodies)
+        {
+            if (bodies == null) return false;
+            for (int i = 0; i < bodies.Count; i++)
+                if (!string.IsNullOrEmpty(bodies[i])) return true;
+            return false;
+        }
+
+        /// <summary>The route's destination label for logs: the LAST known stop body, or
+        /// <c>&lt;none&gt;</c>.</summary>
+        internal static string DestinationBodyLabel(IReadOnlyList<string> stopBodyNames)
+        {
+            if (stopBodyNames == null) return "<none>";
+            for (int i = stopBodyNames.Count - 1; i >= 0; i--)
+                if (!string.IsNullOrEmpty(stopBodyNames[i])) return stopBodyNames[i];
+            return "<none>";
+        }
+
         /// <summary>True when a route classifies <see cref="RouteLineScope.SameBody"/>.</summary>
-        internal static bool IsSameBodyRoute(double dispatchWindowPeriod, IReadOnlyList<string> memberBodies)
-            => ClassifyRouteScope(dispatchWindowPeriod, memberBodies) == RouteLineScope.SameBody;
+        internal static bool IsSameBodyRoute(
+            string originBodyName, IReadOnlyList<string> stopBodyNames,
+            IReadOnlyList<string> memberBodies)
+            => ClassifyRouteScope(originBodyName, stopBodyNames, memberBodies)
+               == RouteLineScope.SameBody;
 
         /// <summary>Pure skip classification for a candidate route line.</summary>
         internal static RouteLineSkipReason ClassifyRouteLineSkip(
@@ -191,7 +337,7 @@ namespace Parsek.Display
         /// lat/lon/alt extraction, same downsample cap, same RELATIVE-frame handling) so route
         /// lines render identically to ghost trajectory lines. Members that do not resolve, or that
         /// contribute no drawable leg, are dropped. For an INTER-BODY route
-        /// (<see cref="Route.DispatchWindowPeriod"/> != 0) the endpoint-body filter then drops
+        /// (<see cref="IsInterBodyByEndpoints(Route)"/>) the endpoint-body filter then drops
         /// every leg not on the route's origin or destination body
         /// (<see cref="FilterLegsToEndpointBodies"/>; <paramref name="transferLegsDropped"/>
         /// reports the count) — same-body routes are never filtered. READ-ONLY over the route +
@@ -241,8 +387,10 @@ namespace Parsek.Display
             }
 
             // Inter-body scope: keep only the endpoint-body legs (origin + destination); the
-            // recorded transfer-frame legs are stale geometry under the M5 re-aim pipeline.
-            if (route.DispatchWindowPeriod != 0.0)
+            // recorded transfer-frame legs are stale geometry under the M5 re-aim pipeline. Gated
+            // on the SAME endpoint predicate ClassifyRouteScope's InterBody branch uses, so "the
+            // filter ran" and "the scope classified InterBody" are one decision, not two.
+            if (IsInterBodyByEndpoints(route))
             {
                 transferLegsDropped = FilterLegsToEndpointBodies(groups);
                 totalLegs -= transferLegsDropped;
@@ -298,6 +446,13 @@ namespace Parsek.Display
         /// non-orbital ExoPropulsive samples at the destination before the dock.
         /// Groups left empty are removed. Returns the dropped leg count. Build-time only (legs
         /// carry no VectorLines yet).
+        ///
+        /// <para>Deliberate split of duties: the route's DECLARED endpoints gate whether this runs
+        /// (<see cref="IsInterBodyByEndpoints(Route)"/>), the LEGS resolve which bodies to keep. The
+        /// legs are what actually gets drawn, and a member whose stop endpoint body is unset still
+        /// contributes drawable geometry; when the two disagree (a round trip whose legs resolve
+        /// origin == destination) the stand-down above keeps everything, which is the documented
+        /// lesser error.</para>
         /// </summary>
         internal static int FilterLegsToEndpointBodies(List<RouteMemberLegs> groups)
         {
@@ -343,11 +498,13 @@ namespace Parsek.Display
         /// <summary>
         /// Content signature that gates a route-line rebuild. Folds the ordered recording ids, each
         /// resolvable member's polyline content hash (so an optimizer re-cut or supersede rebuild
-        /// invalidates the cached line), and the dock-clip UT. An INTER-BODY route additionally
-        /// folds its window schedule (synodic period, window epoch, cadence multiplier) so a
-        /// schedule change rebuilds the line; a scope flip (period 0 &lt;-&gt; non-zero) invalidates
-        /// through the period fold, and a SAME-BODY route's signature computation is byte-identical
-        /// to the shipped v1 (period 0 folds nothing). Pure and stable across a save round-trip.
+        /// invalidates the cached line), the dock-clip UT, and the ENDPOINT bodies (origin + every
+        /// stop) — the scope authority, so a scope flip invalidates the cached line the way the
+        /// period fold used to. An INTER-BODY route additionally folds its window schedule (the now
+        /// informational period, window epoch, cadence multiplier) so a schedule change rebuilds
+        /// the line; a SAME-BODY route folds no schedule field, so its computation is unchanged
+        /// from the shipped v1 apart from the endpoint-body fold every route now carries. Pure and
+        /// stable across a save round-trip.
         /// </summary>
         internal static long ComputeRouteSignature(Route route, Func<string, Recording> resolve)
         {
@@ -366,7 +523,12 @@ namespace Parsek.Display
                     }
                 }
                 h ^= BitConverter.DoubleToInt64Bits(route.RecordedDockUT);
-                if (route.DispatchWindowPeriod != 0.0)
+                h = MixString(h, route.Origin.BodyName);
+                List<string> stopBodies = CollectStopBodies(route);
+                if (stopBodies != null)
+                    for (int i = 0; i < stopBodies.Count; i++)
+                        h = MixString(h, stopBodies[i]);
+                if (IsInterBodyByEndpoints(route.Origin.BodyName, stopBodies))
                 {
                     h = (h ^ BitConverter.DoubleToInt64Bits(route.DispatchWindowPeriod)) * 1099511628211L;
                     h = (h ^ BitConverter.DoubleToInt64Bits(route.DispatchWindowEpochUT)) * 1099511628211L;
@@ -497,17 +659,23 @@ namespace Parsek.Display
             => RecordingStore.TryFindCommittedRecordingById(recordingId);
 
         /// <summary>
-        /// THE single owner of the route-scope expression. Same-body routes get a defensive member-body
-        /// consistency cross-check (period 0 with mixed bodies is malformed); inter-body routes are
-        /// expected to span bodies, so the per-frame member-body collection is skipped entirely
-        /// (<see cref="ClassifyRouteScope"/> ignores it for a non-zero period). Both the draw pass and
-        /// the render-composition build capture call this rather than restating it, so the two can
-        /// never classify one route two different ways.
+        /// THE single owner of the route-scope expression. Non-inter-body routes get the member-body
+        /// consistency cross-check (a declared same-body route with a member on another body is
+        /// malformed); inter-body routes are expected to span bodies, so the per-frame member-body
+        /// collection is skipped entirely (<see cref="ClassifyRouteScope"/> ignores it once the
+        /// endpoints answer InterBody). Both the draw pass and the render-composition build capture
+        /// call this rather than restating it, so the two can never classify one route two different
+        /// ways.
         /// </summary>
         private static RouteLineScope ResolveScope(Route route, RouteLineSet set)
+            => ResolveScope(route, set, out _);
+
+        private static RouteLineScope ResolveScope(
+            Route route, RouteLineSet set, out RouteScopeBasis basis)
             => ClassifyRouteScope(
-                route.DispatchWindowPeriod,
-                route.DispatchWindowPeriod == 0.0 ? CollectMemberBodies(set) : null);
+                route,
+                IsInterBodyByEndpoints(route) ? null : CollectMemberBodies(set),
+                out basis);
 
         private static List<string> CollectMemberBodies(RouteLineSet set)
         {
@@ -539,15 +707,32 @@ namespace Parsek.Display
             var set = new RouteLineSet { groups = groups.ToArray(), signature = sig };
             routeCache[route.Id] = set;
             BuildInvocationCountForTesting++;
+
+            // The scope decision, logged once per BUILD (signature-gated above, so a steady route
+            // logs it once). The line names its own authority so a reader never has to guess which
+            // branch of ClassifyRouteScope answered: basis=Endpoints means the route's own
+            // origin/stop bodies decided, basis=MemberBodies means no endpoint body was readable
+            // and the member-consistency fallback did.
+            RouteLineScope loggedScope = ResolveScope(route, set, out RouteScopeBasis loggedBasis);
+            ParsekLog.VerboseRateLimited(Tag, "route-scope." + route.Id,
+                string.Format(CultureInfo.InvariantCulture,
+                    "Route scope: route={0} origin={1} destination={2} scope={3} basis={4}",
+                    RouteIds.Short(route.Id),
+                    string.IsNullOrEmpty(route.Origin.BodyName) ? "<none>" : route.Origin.BodyName,
+                    DestinationBodyLabel(CollectStopBodies(route)),
+                    loggedScope, loggedBasis),
+                5.0);
+
             // M-A7 render-composition ROUTE-LINE capture (capture point 5): signature-gated, so this
-            // fires only on an actual rebuild. The WHOLE hook sits behind the arm gate - the scope
-            // resolution walks every member's recording to collect body names, which is real work the
-            // unarmed path must not do just to build an argument nothing reads.
+            // fires only on an actual rebuild, and it reuses the scope the log line above already
+            // resolved (one resolution per build, not two). DispatchWindowPeriod is still reported
+            // into the manifest record verbatim - it is informational now, but the M-A7 schema keeps
+            // the field so a reading run can still see what a save carries.
             if (Parsek.MapRender.RenderCompositionRecorder.IsEnabled)
             {
                 Parsek.MapRender.RenderCompositionRecorder.NoteRouteLineBuild(
                     route.Id, sig, route.RecordedDockUT, route.DispatchWindowPeriod,
-                    (int)ResolveScope(route, set),
+                    (int)loggedScope,
                     resolvable, set.groups.Length, totalLegs, transferDropped);
             }
             ParsekLog.VerboseRateLimited(Tag, "route-build." + route.Id,
