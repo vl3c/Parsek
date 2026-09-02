@@ -568,6 +568,38 @@ namespace Parsek.Logistics
         }
 
         /// <summary>
+        /// M4b Phase B2 escrow NET, extracted as a pure function so the identity it
+        /// obeys is testable headlessly. The amount a route may rely on for one
+        /// (pid, resource) = live stored MINUS the sum held by OTHER routes, floored
+        /// at zero (a reservation larger than the tank never yields a negative
+        /// availability). <see cref="LiveRouteRuntimeEnvironment"/>'s netted reader is
+        /// exactly this call.
+        ///
+        /// <para><b>The pre-image identity this exists to pin.</b> A cycle's reserve is
+        /// the SUMMED pickup manifest <c>M</c> over one source's windows, and each
+        /// window's release is that window's own manifest, fired together with a
+        /// physical debit of the SAME manifest (<c>RouteOrchestrator.EmitPickupHalf</c>).
+        /// So for any split of <c>M</c> into a fired part <c>f</c> and an unfired part
+        /// <c>M - f</c>, <c>NettedAvailable(S0 - f, M - f) == NettedAvailable(S0 - M, 0)</c>:
+        /// a competitor's availability is INVARIANT from the holding route's dispatch
+        /// through its cycle completion. The escrow is an exact pre-image of the debit -
+        /// it cannot double-claim (a competitor never sees cargo the holder will take)
+        /// and it cannot over-block (it never withholds more than the holder takes).
+        /// The visible consequence is that a competitor's hold CAUSE flips
+        /// <c>escrow</c> -&gt; <c>physical</c> across the holder's window on unchanged
+        /// numbers, and that a competitor cannot become eligible from the release
+        /// itself - only from a release that takes no cargo (route removal, endpoint
+        /// loss, scene-change clear). Guarded by
+        /// <c>RouteCargoEscrowTests.NettedAvailable_*</c> and driven live by the
+        /// <c>RouteEscrowContention</c> in-game category.</para>
+        /// </summary>
+        internal static double NettedAvailable(double rawStored, double reservedByOthers)
+        {
+            double available = rawStored - reservedByOthers;
+            return available > 0.0 ? available : 0.0;
+        }
+
+        /// <summary>
         /// M6 escrow-hold legibility: the <c>OriginLacksCargo</c> detail token for
         /// an ESCROW-caused pickup-source short, consumed by
         /// <see cref="Parsek.LogisticsHoldPresentation"/>. Shape:
