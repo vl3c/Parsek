@@ -4168,7 +4168,9 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
     # fails to say is WHICH cells passed, and that duty is discharged by the SIX
     # REQUIRED cell tokens the spec pins, one per cell - H55's flight 1 is the worked
     # example, since its `passed=1` was the probe and none of the five subjects.
-    INTERIM_PIN_IDS = {"H56-route-dock-capture-landed"}
+    # AND BACK TO ZERO ON 2026-09-02: H56 PASSED attempt 1 (`2026-09-02_0545`,
+    # total=6 passed=6 failed=0 skipped=0), pinned whole.
+    INTERIM_PIN_IDS = set()
 
     # id -> measured `skipped=` for members whose RUN-TIME InGameAssert.Skip guards
     # push the split above the attribute-derived floor. The attributes give a FLOOR

@@ -438,7 +438,9 @@ and that must not red); the arithmetic it produces is pinned instead. If a futur
 fixture is built by construction from a sandbox harvest, expect the same line and expect
 its live pools to be the seeded values rather than the ledger's totals.
 
-## ROUTE-ORIGIN-PROOF-PRODUCER-UNREACHABLE (SUSPECTED): the start-docked `RouteOriginProof` producer keys on a part-parent condition that a settled dock can never satisfy, so no live recording has ever carried a proof [FOUND BY READING 2026-09-01 while scoping which route flights can be automated, CORROBORATED by the 2026-08-30 rover flight log. SUSPECTED, not yet probed live - REPORT-ONLY until the probe cell below runs]
+## ROUTE-ORIGIN-PROOF-PRODUCER-UNREACHABLE (CONFIRMED 2026-09-02): the start-docked `RouteOriginProof` producer keys on a part-parent condition that a settled dock can never satisfy, so no live recording has ever carried a proof [FOUND BY READING 2026-09-01 while scoping which route flights can be automated, CORROBORATED by the 2026-08-30 rover flight log. SUSPECTED, not yet probed live - REPORT-ONLY until the probe cell below runs]
+
+**CONFIRMED 2026-09-02 by lane H56 (`2026-09-02_0545`), the probe on a LANDED host:** `OriginProofProbe: externalParentParts=0 proofCaptured=False situation=1 outcome=no-external-coupling partnerPid=2507516556` - the resolver reached its candidate walk (no PRELAUNCH short-circuit) after a settled `Part.Couple` and found ZERO externally-parented parts, and every recording start on the docked vessel logged `RouteOriginProof skipped: no external coupling ... candidates=0`. The producer is dead code on a settled dock. OPEN DEFECT: fix per the shape above (derive the partner from the docking node's own docked-partner information at recording start), pin with a self-provisioning capture cell in `RouteDockCapture`, and un-skip `RouteOriginProof_StartedDockedToNonKsc_ProducerLandsProof` on that lane. The roadmap's manual B4 flight is retired.
 
 **The condition.** `FlightRecorder.CaptureStartRouteOriginProofIfDocked` builds its partner
 candidates from parts where `p.parent.vessel != null && p.parent.vessel != v`

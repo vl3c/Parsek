@@ -2373,6 +2373,7 @@ gated behind the ROUTE-ORIGIN-PROOF-PRODUCER-UNREACHABLE probe (todo) before any
    B4 stays a flight as written. The lane's probe token is a VALUE REGEX, not a
    verdict pin, so a green run proves the line was emitted and settles nothing
    by itself; a human reads the numbers.
+   **SETTLED 2026-09-02 (H56, `2026-09-02_0545`, PASS): on the LANDED host the probe read `situation=1 outcome=no-external-coupling externalParentParts=0` - the producer is dead code on a settled dock. ROUTE-ORIGIN-PROOF-PRODUCER-UNREACHABLE is CONFIRMED; this item is now a BUG FIX plus a `RouteDockCapture` capture cell, and the manual flight is RETIRED.**
 5. **Ground pickup + mixed direction.** ~~The base loads cargo ONTO the
    transport (pickup manifest), then a both-directions window
    (`mixed-direction`). Same two-rover template, transfers reversed.~~
@@ -2612,6 +2613,22 @@ Tier D items ride along whenever their sibling program
 (loop-render / ghost-replay) is already paying the flight cost. The standing
 verdict - the nightly lane does not grow until the basics are gated - stands
 unamended here too.
+
+**HAND-OFF, 2026-09-02 (end of the rover-route sessions).** Green and nightly:
+RVR-1/2/3/4, H55, H56. What can be built NEXT WITHOUT a manual flight, in
+order: (a) the B4 producer fix + capture cell (todo
+ROUTE-ORIGIN-PROOF-PRODUCER-UNREACHABLE, now CONFIRMED); (b) D12 route x rewind
+flown - `InvokeRewindToLaunch` is implemented and the rover fixture is committed;
+(c) D11 surface-route map presence over the rover fixture with the map-view
+verbs, authored against the landed-terminal-no-proto pin; (d) C10 escrow
+competition - scope a synthetic two-candidate fixture before assuming a flight;
+(e) the saveparse `route` block promotion. WHAT STILL NEEDS THE OPERATOR AT THE
+CONTROLS: D14 inter-body surface delivery (no targeted landing / rover driving
+in the mission library - the biggest remaining manual subject); D13 surface
+harvest-provenance (a drill ON ORE - check for a landed-on-ore fixture first);
+C9's recovery-credit third (a recorded route flight that ENDS in a KSC recovery
+- possibly seam-drivable with the recover verbs, unscoped); C10 only if the
+synthetic route fails (two runs from one base). B4 is NO LONGER a manual flight.
 
 ## Trust and fail-open risks still outstanding
 
