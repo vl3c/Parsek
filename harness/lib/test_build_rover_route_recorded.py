@@ -48,6 +48,7 @@ from __future__ import annotations
 
 import importlib.util
 import os
+import tomllib
 import unittest
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
@@ -258,10 +259,14 @@ class RoverRouteSpecFixtureSyncTests(unittest.TestCase):
     """The spec-to-fixture pairing, which nothing else checks and which costs a
     live flight to get wrong (the `CL-1-pod-impact` lesson).
 
-    Deliberately a TEXT check over the committed spec files rather than a TOML
-    parse: the ids the specs must carry are the fixture's own constants, and a
-    substring scan cannot be fooled by a spec that parses but names a different
-    tree."""
+    Two instruments, deliberately. The forward cells are a TEXT check over the
+    committed spec files rather than a TOML parse: the ids the specs must carry
+    are the fixture's own constants, and a substring scan cannot be fooled by a
+    spec that parses but names a different tree. The reverse cell (which specs
+    on disk stage this fixture) PARSES `fixture.saveTemplate` instead: spec
+    headers quote key lines verbatim, so a text scan would count a header that
+    merely discusses the staging line as a consumer, and the wrong fix (adding
+    that spec to SPECS) would then be green in both directions."""
 
     # Every committed spec that stages this fixture. `H56` is the odd one out and is
     # listed anyway: it reads NONE of the recorded corpus (its six `RouteDockCapture`
@@ -269,11 +274,19 @@ class RoverRouteSpecFixtureSyncTests(unittest.TestCase):
     # LIVE properties of the active vessel - a LANDED 17-part rover rather than a
     # PRELAUNCH pad rig, which is what drives the origin-proof probe's non-PRELAUNCH
     # branch. A spec that stages the fixture for a live reason still breaks if the
-    # fixture is renamed, which is exactly what this class exists to catch.
+    # fixture is renamed, which is exactly what this class exists to catch. `H57`
+    # boots it for the same live reason; `H58` and `H59` read the committed corpus
+    # itself. All three are held to the same pairing.
     SPECS = ("RVR-1-rover-route-proof.toml",
              "RVR-2-rover-route-create.toml",
              "RVR-3-route-lifecycle.toml",
-             "H56-route-dock-capture-landed.toml")
+             "H56-route-dock-capture-landed.toml",
+             "H57-route-start-docked-origin-landed.toml",
+             "H58-route-rewind-to-launch.toml",
+             "H59-surface-route-map-lines.toml")
+
+    FIXTURE_PATH = "fixtures/saves/rover-route-recorded"
+    FIXTURE_LITERAL = '"%s"' % FIXTURE_PATH
 
     @classmethod
     def setUpClass(cls):
@@ -283,11 +296,31 @@ class RoverRouteSpecFixtureSyncTests(unittest.TestCase):
             path = os.path.join(SCENARIOS_DIR, name)
             with open(path, "r", encoding="utf-8") as fh:
                 cls.text[name] = fh.read()
+        # The reverse direction: every committed spec whose PARSED staging key
+        # names this fixture, whether SPECS lists it or not.
+        cls.on_disk = []
+        for name in sorted(os.listdir(SCENARIOS_DIR)):
+            if not name.endswith(".toml"):
+                continue
+            with open(os.path.join(SCENARIOS_DIR, name), "rb") as fh:
+                spec = tomllib.load(fh)
+            staged = (spec.get("fixture", {}) or {}).get("saveTemplate")
+            if staged == cls.FIXTURE_PATH:
+                cls.on_disk.append(name)
 
     def test_every_consumer_spec_stages_this_fixture(self):
         for name in self.SPECS:
-            self.assertIn('"fixtures/saves/rover-route-recorded"',
-                          self.text[name], name)
+            self.assertIn(self.FIXTURE_LITERAL, self.text[name], name)
+
+    def test_specs_is_exactly_the_consumers_on_disk(self):
+        # SET EQUALITY against what is on disk, not the one-way check above: this
+        # fires both when a listed member is removed/renamed AND when a new spec
+        # stages the fixture without being added here.
+        self.assertEqual(sorted(self.on_disk), sorted(self.SPECS),
+                         "the committed specs staging rover-route-recorded differ "
+                         "from SPECS in this test. A spec here but not on disk was "
+                         "removed or renamed; a spec on disk but not here is new and "
+                         "must be added to SPECS in the same commit")
 
     def test_rvr2_names_the_transport_tree_id_verbatim(self):
         """The SealSlot and create steps address the tree by id. A spec naming
