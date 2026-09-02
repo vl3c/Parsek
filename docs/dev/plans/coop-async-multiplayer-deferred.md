@@ -19,10 +19,10 @@ Items identified during design (2026-09-01 interview, adversarial reviews, code 
 **Status:** Open.
 
 ### D3. Cross-player Fly/Switch-To continuation
-**What:** Allow the Fly/Switch-To restore path on a peer's vessel, i.e. deep-clone-and-replace of a foreign tree exported back as a cross-player continuation.
-**Why deferred:** Requires committed-tree replacement of foreign-owned trees and bidirectional merge; coupling-based control (board/dock) already covers the gameplay need as a structural claim.
-**Revisit when:** v2; only if boarding proves insufficient for shared-station play.
-**Status:** Open.
+**What:** Taking control of a peer's spawned vessel via Fly/Switch-To.
+**Why deferred:** It is not: the maintainer ruled on 2026-09-02 that in co-op any player controls any vessel as if their own. v1 implements it through a foreign-continuation route (a new local tree linked to the foreign recording), never through the tree-replacing restore path, which stays own-tree only (design 7.7, task M4.11).
+**Revisit when:** -
+**Status:** Closed - in scope for v1 (design v4).
 
 ### D4. Applying visit resource deltas to canonical chains
 **What:** Make a spliced visit's fuel/inventory withdrawal visible on the target's canonical state.
@@ -98,8 +98,20 @@ Items identified during design (2026-09-01 interview, adversarial reviews, code 
 **Revisit when:** The measured walk time at 3,000 recordings exceeds its budget.
 **Status:** Open - measure first.
 
+### D18. Per-member checkpoints
+**What:** Let any member write `checkpoints/<playerId>/<n>/` (single-writer preserved) so a campaign whose founder left can still bound joiner bootstrap cost.
+**Why deferred:** v1 checkpoints are founder-only and manual; a departed founder means bootstrap cost grows without bound (edge case 19). Rare in v1.
+**Revisit when:** A founder actually leaves an active campaign, or v1.1.
+**Status:** Open.
+
+### D17. Full `SpawnOwnershipResolver`
+**What:** Replace the emergent leaf-owns-spawn rule with one pure per-vessel resolver consumed by every spawn host.
+**Why deferred:** The 13-step spawn gate is pinned by ~112 test call sites asserting reason strings plus a cross-predicate drift guard; several host-specific conditions are scene capabilities, not ownership. The fold's needs are met by a structured-result overload, coded early rejects, a stamp clear/re-point API, and routing the leaf spawner through the gate (pre-refactor C1-C3).
+**Revisit when:** After M4 ships, if the ladder proves inadequate.
+**Status:** Open - rejected for v1.
+
 ### D16. Schema-generation bump to 5
 **What:** Bump `CurrentRecordingSchemaGeneration` at the exchange layer's birth instead of shipping additive null-defaulted fields on generation 4.
-**Why deferred:** Decision point recorded in design section 11; the packet gate enforces cross-player compatibility either way.
-**Revisit when:** Kickoff step 0.3 (must be decided before M2.1).
-**Status:** Open - decision pending.
+**Why deferred:** It is not: decided 2026-09-02 to bump to 5 (not public yet, no backward-compatibility need); fixture saves are re-stamped in task M2.1.
+**Revisit when:** -
+**Status:** Closed - decided (bump to 5, design section 11).
