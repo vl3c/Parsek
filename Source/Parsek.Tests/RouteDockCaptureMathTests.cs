@@ -95,7 +95,21 @@ namespace Parsek.Tests
                 0, false, 1, "no-external-coupling", 4242u);
             Assert.Equal(
                 "OriginProofProbe: externalParentParts=0 proofCaptured=False situation=1 "
-                + "outcome=no-external-coupling partnerPid=4242",
+                + "outcome=no-external-coupling partnerPid=4242 bound=False",
+                line);
+        }
+
+        [Fact]
+        public void ProbeLine_BoundTokenIsAppended_SoThePreP12PrefixIsUnchanged()
+        {
+            // P12: proofCaptured now means "a PAIR was captured", which no longer implies an
+            // origin exists - the undock binds that. The bound= token carries the second half
+            // and is APPENDED, so a spec regex only has to grow at the end.
+            string line = RouteDockCaptureMath.FormatOriginProofProbeLine(
+                0, true, 1, "captured", 4242u, bound: true);
+            Assert.Equal(
+                "OriginProofProbe: externalParentParts=0 proofCaptured=True situation=1 "
+                + "outcome=captured partnerPid=4242 bound=True",
                 line);
         }
 

@@ -80,14 +80,20 @@ namespace Parsek.InGameTests
             bool proofCaptured,
             int activeVesselSituation,
             string producerOutcome,
-            uint partnerPid)
+            uint partnerPid,
+            bool bound = false)
         {
+            // `bound=` is the P12 half. The capture only records a PAIR now, so
+            // proofCaptured alone no longer says whether an ORIGIN exists - the undock
+            // binds that. The token is APPENDED so the pre-P12 prefix of the line is
+            // unchanged and the spec regexes only have to grow at the end.
             return "OriginProofProbe: externalParentParts="
                 + externalParentParts.ToString(IC)
                 + " proofCaptured=" + (proofCaptured ? "True" : "False")
                 + " situation=" + activeVesselSituation.ToString(IC)
                 + " outcome=" + (string.IsNullOrEmpty(producerOutcome) ? "<none>" : producerOutcome)
-                + " partnerPid=" + partnerPid.ToString(IC);
+                + " partnerPid=" + partnerPid.ToString(IC)
+                + " bound=" + (bound ? "True" : "False");
         }
 
         /// <summary>

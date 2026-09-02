@@ -7,6 +7,9 @@ namespace Parsek
     internal static class RouteProofCodec
     {
         private const string RouteOriginProofNode = "ROUTE_ORIGIN_PROOF";
+        private const string StartDockedPairNode = "START_DOCKED_PAIR";
+        private const string StartDockedPairHalfANode = "HALF_A";
+        private const string StartDockedPairHalfBNode = "HALF_B";
         private const string RouteConnectionWindowsNode = "ROUTE_CONNECTION_WINDOWS";
         private const string RouteRunManifestNode = "ROUTE_RUN_MANIFEST";
         private const string RouteHarvestWindowsNode = "ROUTE_HARVEST_WINDOWS";
@@ -329,6 +332,12 @@ namespace Parsek
             return proof != null
                 && (proof.StartDockedOriginVesselPid != 0
                     || proof.StartDockedOriginRootPartUId != 0
+                    // P12: a proof can be a captured PAIR with no origin chosen yet. It still
+                    // has to persist - the pair is the evidence, and the bind state is what
+                    // tells a reader why it is not an origin.
+                    || (proof.StartDockedPair != null
+                        && ((proof.StartDockedPair.HalfA != null && proof.StartDockedPair.HalfA.RootPartUId != 0)
+                            || (proof.StartDockedPair.HalfB != null && proof.StartDockedPair.HalfB.RootPartUId != 0)))
                     || HasEntries(proof.StartTransportResources)
                     || HasEntries(proof.EndTransportResources)
                     || HasEntries(proof.StartTransportInventory)
@@ -365,6 +374,29 @@ namespace Parsek
                     node.AddValue("startDockedTransportRootPartUId", proof.StartDockedTransportRootPartUId.ToString(ic));
                 if (proof.StartDockedTransportVesselType >= 0)
                     node.AddValue("startDockedTransportVesselType", proof.StartDockedTransportVesselType.ToString(ic));
+            }
+
+            // P12 LIFECYCLE + PAIR, additive and sparse (no schema generation bump).
+            // The bind state gates the pickup fields, and the whole block is written only
+            // when it is not the pre-P12 default, so an old-shape proof round-trips
+            // byte-identically. THE PAIR'S TRANSIENT WORKING DATA (each half's part-pid set
+            // and start manifests) IS DELIBERATELY NOT WRITTEN: it exists only to scope the
+            // transport manifests at the bind, which happens in the same session, before the
+            // recording is ever saved. A reloaded pending pair therefore cannot bind, which
+            // is exactly right - a recording that is closed can no longer witness an undock.
+            if (proof.StartDockedOriginBindState != StartDockedOriginBindState.PairPendingBinding)
+            {
+                node.AddValue("startDockedOriginBindState", proof.StartDockedOriginBindState.ToString());
+                node.AddValue("startDockedOriginPickupValidated", proof.StartDockedOriginPickupValidated.ToString());
+                node.AddValue("startDockedOriginPickupKind", proof.StartDockedOriginPickupKind.ToString());
+            }
+            if (proof.StartDockedPair != null)
+            {
+                var pairNode = new ConfigNode(StartDockedPairNode);
+                bool wroteAny = SerializeSeamHalf(pairNode, StartDockedPairHalfANode, proof.StartDockedPair.HalfA);
+                wroteAny |= SerializeSeamHalf(pairNode, StartDockedPairHalfBNode, proof.StartDockedPair.HalfB);
+                if (wroteAny)
+                    node.AddNode(pairNode);
             }
 
             // Origin endpoint descriptor (M1): additive + sparse, written only when
@@ -423,6 +455,35 @@ namespace Parsek
                 proof.StartDockedTransportVesselType = transportType;
             }
 
+            // P12: absent keys keep the defaults - PairPendingBinding / not validated - so a
+            // pre-P12 proof reads back as "captured but not an origin", which is what it is
+            // now that a vessel type no longer names one.
+            string bindStateStr = node.GetValue("startDockedOriginBindState");
+            if (!string.IsNullOrEmpty(bindStateStr)
+                && Enum.IsDefined(typeof(StartDockedOriginBindState), bindStateStr))
+            {
+                proof.StartDockedOriginBindState =
+                    (StartDockedOriginBindState)Enum.Parse(typeof(StartDockedOriginBindState), bindStateStr);
+            }
+            string pickupValidatedStr = node.GetValue("startDockedOriginPickupValidated");
+            if (pickupValidatedStr != null && bool.TryParse(pickupValidatedStr, out bool pickupValidated))
+                proof.StartDockedOriginPickupValidated = pickupValidated;
+            string pickupKindStr = node.GetValue("startDockedOriginPickupKind");
+            if (!string.IsNullOrEmpty(pickupKindStr)
+                && Enum.IsDefined(typeof(OriginPickupKind), pickupKindStr))
+            {
+                proof.StartDockedOriginPickupKind =
+                    (OriginPickupKind)Enum.Parse(typeof(OriginPickupKind), pickupKindStr);
+            }
+            ConfigNode pairNodeIn = node.GetNode(StartDockedPairNode);
+            if (pairNodeIn != null)
+            {
+                StartDockedSeamHalf halfA = DeserializeSeamHalf(pairNodeIn.GetNode(StartDockedPairHalfANode));
+                StartDockedSeamHalf halfB = DeserializeSeamHalf(pairNodeIn.GetNode(StartDockedPairHalfBNode));
+                if (halfA != null || halfB != null)
+                    proof.StartDockedPair = new StartDockedSeamPair { HalfA = halfA, HalfB = halfB };
+            }
+
             // Origin endpoint descriptor (M1): absent values keep the field defaults
             // (empty body name, zero coords, IsSurface false, situation -1) so
             // old-shape proofs read back unchanged.
@@ -452,6 +513,44 @@ namespace Parsek
             proof.StartTransportInventory = DeserializeInventoryPayloadItems(node, "START_TRANSPORT_INVENTORY");
             proof.EndTransportInventory = DeserializeInventoryPayloadItems(node, "END_TRANSPORT_INVENTORY");
             return proof;
+        }
+
+        /// <summary>
+        /// Writes ONE seam half's persisted identity (root part uid + name + informational
+        /// vessel type). The half's part-pid set and start manifests are capture-time working
+        /// data and are deliberately not persisted - see the call site. Returns false (and
+        /// adds nothing) for a half without a usable root id.
+        /// </summary>
+        private static bool SerializeSeamHalf(ConfigNode parent, string nodeName, StartDockedSeamHalf half)
+        {
+            if (half == null || half.RootPartUId == 0) return false;
+            var ic = CultureInfo.InvariantCulture;
+            ConfigNode node = parent.AddNode(nodeName);
+            node.AddValue("rootPartUId", half.RootPartUId.ToString(ic));
+            if (!string.IsNullOrEmpty(half.VesselName))
+                node.AddValue("vesselName", half.VesselName);
+            if (half.VesselType >= 0)
+                node.AddValue("vesselType", half.VesselType.ToString(ic));
+            return true;
+        }
+
+        private static StartDockedSeamHalf DeserializeSeamHalf(ConfigNode node)
+        {
+            if (node == null) return null;
+            var ic = CultureInfo.InvariantCulture;
+            if (!uint.TryParse(node.GetValue("rootPartUId"), NumberStyles.Integer, ic, out uint rootPartUId)
+                || rootPartUId == 0)
+            {
+                return null;
+            }
+            var half = new StartDockedSeamHalf
+            {
+                RootPartUId = rootPartUId,
+                VesselName = node.GetValue("vesselName"),
+            };
+            if (int.TryParse(node.GetValue("vesselType"), NumberStyles.Integer, ic, out int vesselType))
+                half.VesselType = vesselType;
+            return half;
         }
 
         private static void SerializeConnectionWindow(ConfigNode node, RouteConnectionWindow window)

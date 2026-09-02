@@ -8,8 +8,11 @@ namespace Parsek.Tests
 {
     /// <summary>
     /// Tests for the RouteOriginProof producer split across three layers:
-    ///   1. Pure helper <see cref="RouteProofCapture.TryResolveStartDockedOriginPartner"/>
-    ///      — decision contract under every input combination.
+    ///   1. Pure helper <see cref="RouteProofCapture.TryResolveStartDockedSeamPair"/>
+    ///      — decision contract under every input combination. Since P12 the resolver
+    ///      answers "is there exactly ONE start-docked PAIR here?", not "which half is the
+    ///      depot?" - the origin is bound at the undock, and that rule lives in
+    ///      <c>StartDockedOriginBindingTests</c>.
     ///   2. Producer log-assertion tests against <see cref="RouteProofCapture.BuildStartRouteOriginProof"/>
     ///      — verify the log line for each branch (Info on Captured, Warn on degenerate
     ///      states, Verbose on benign rejections).
@@ -83,7 +86,7 @@ namespace Parsek.Tests
             // now builds. Two seams (a two-port dock) must collapse to one distinct pid
             // and never read as PartnerAmbiguous.
             const uint mergedPid = 90210u;
-            var candidates = new List<OriginPartnerCandidate>
+            var candidates = new List<DockSeamPairCandidate>
             {
                 Candidate(11u, mergedPid, (int)Vessel.Situations.LANDED,
                     "Kerbin", 0.0055, -74.7, 68.9),
@@ -104,16 +107,19 @@ namespace Parsek.Tests
                 out List<uint> transportPids);
 
             Assert.NotNull(proof);
-            // The pid slot is 0 BY CONTRACT on a captured proof; identity is the origin
-            // half's root part id, which the candidate factory sets to mergedPid here.
+            // NO ORIGIN AT CAPTURE (P12): both identity slots stay empty until an undock
+            // separates the pair. What the capture holds is the PAIR, plus the merged
+            // descriptor, which is both halves' while they are docked.
             Assert.Equal(0u, proof.StartDockedOriginVesselPid);
-            Assert.Equal(mergedPid, proof.StartDockedOriginRootPartUId);
+            Assert.Equal(0u, proof.StartDockedOriginRootPartUId);
+            Assert.Equal(StartDockedOriginBindState.PairPendingBinding, proof.StartDockedOriginBindState);
+            Assert.Equal(mergedPid, proof.StartDockedPair.HalfB.RootPartUId);
             Assert.Equal("Kerbin", proof.StartDockedOriginBodyName);
             Assert.True(proof.StartDockedOriginIsSurface);
             Assert.Equal((int)Vessel.Situations.LANDED, proof.StartDockedOriginSituation);
             Assert.NotNull(transportPids);
-            Assert.Contains(logLines, l => l.Contains("RouteOriginProof captured:")
-                && l.Contains("originRoot=" + mergedPid.ToString(CultureInfo.InvariantCulture))
+            Assert.Contains(logLines, l => l.Contains("RouteOriginProof pair captured:")
+                && l.Contains("halfBRoot=" + mergedPid.ToString(CultureInfo.InvariantCulture))
                 && l.Contains("candidates=2"));
         }
 
@@ -123,7 +129,7 @@ namespace Parsek.Tests
             // FAILS IF: the fix weakens the PRELAUNCH short-circuit. A clamped pad vessel
             // is not a delivery origin, and the seam producer must not change that - it is
             // the branch H55's pad host takes and the branch the capture cell pins there.
-            var candidates = new List<OriginPartnerCandidate>
+            var candidates = new List<DockSeamPairCandidate>
             {
                 Candidate(11u, 90210u, (int)Vessel.Situations.PRELAUNCH,
                     "Kerbin", 0.0, -74.7, 68.9),
@@ -154,7 +160,7 @@ namespace Parsek.Tests
         {
             // FAILS IF: the resolver does not normalize a single distinct valid partner
             // to Captured, or fails to surface the partner pid in the out parameter.
-            var candidates = new List<OriginPartnerCandidate>
+            var candidates = new List<DockSeamPairCandidate>
             {
                 Candidate(partPersistentId: 100,
                     originRootPartUId: 9001,
@@ -165,7 +171,7 @@ namespace Parsek.Tests
                     mergedVesselAltitude: 0.0),
             };
 
-            OriginProofDetection outcome = RouteProofCapture.TryResolveStartDockedOriginPartner(
+            OriginProofDetection outcome = ResolvePair(
                 activeVesselSituation: (int)Vessel.Situations.ORBITING,
                 activeVesselIsEva: false,
                 candidates: candidates,
@@ -180,10 +186,10 @@ namespace Parsek.Tests
         {
             // FAILS IF: an empty candidate list is treated as a degenerate state rather
             // than the common "vessel started uncoupled" case.
-            OriginProofDetection outcome = RouteProofCapture.TryResolveStartDockedOriginPartner(
+            OriginProofDetection outcome = ResolvePair(
                 activeVesselSituation: (int)Vessel.Situations.ORBITING,
                 activeVesselIsEva: false,
-                candidates: new List<OriginPartnerCandidate>(),
+                candidates: new List<DockSeamPairCandidate>(),
                 out uint originRoot);
 
             Assert.Equal(OriginProofDetection.NoExternalCoupling, outcome);
@@ -195,13 +201,13 @@ namespace Parsek.Tests
         {
             // FAILS IF: PRELAUNCH of the active vessel is not classified before walking
             // candidates, allowing a tower or launchpad clamp to slip through as a partner.
-            var candidates = new List<OriginPartnerCandidate>
+            var candidates = new List<DockSeamPairCandidate>
             {
                 Candidate(100, 9001, (int)Vessel.Situations.ORBITING,
                     null, 0.0, 0.0, 0.0),
             };
 
-            OriginProofDetection outcome = RouteProofCapture.TryResolveStartDockedOriginPartner(
+            OriginProofDetection outcome = ResolvePair(
                 activeVesselSituation: (int)Vessel.Situations.PRELAUNCH,
                 activeVesselIsEva: false,
                 candidates: candidates,
@@ -216,13 +222,13 @@ namespace Parsek.Tests
         {
             // FAILS IF: an EVA kerbal grabbing onto a ladder or part is recognized as
             // a docked origin rather than rejected as "no external coupling".
-            var candidates = new List<OriginPartnerCandidate>
+            var candidates = new List<DockSeamPairCandidate>
             {
                 Candidate(100, 9001, (int)Vessel.Situations.ORBITING,
                     null, 0.0, 0.0, 0.0),
             };
 
-            OriginProofDetection outcome = RouteProofCapture.TryResolveStartDockedOriginPartner(
+            OriginProofDetection outcome = ResolvePair(
                 activeVesselSituation: (int)Vessel.Situations.ORBITING,
                 activeVesselIsEva: true,
                 candidates: candidates,
@@ -237,7 +243,7 @@ namespace Parsek.Tests
         {
             // FAILS IF: a partner pid of 0 (KSP not yet assigning persistentId) is
             // silently captured as a valid origin instead of flagged.
-            var candidates = new List<OriginPartnerCandidate>
+            var candidates = new List<DockSeamPairCandidate>
             {
                 Candidate(100, 0, (int)Vessel.Situations.ORBITING,
                     null, 0.0, 0.0, 0.0),
@@ -245,7 +251,7 @@ namespace Parsek.Tests
                     null, 0.0, 0.0, 0.0),
             };
 
-            OriginProofDetection outcome = RouteProofCapture.TryResolveStartDockedOriginPartner(
+            OriginProofDetection outcome = ResolvePair(
                 activeVesselSituation: (int)Vessel.Situations.ORBITING,
                 activeVesselIsEva: false,
                 candidates: candidates,
@@ -260,7 +266,7 @@ namespace Parsek.Tests
         {
             // FAILS IF: a partner still on the launchpad (PRELAUNCH) is treated as a
             // depot rather than as a non-route-relevant clamp.
-            var candidates = new List<OriginPartnerCandidate>
+            var candidates = new List<DockSeamPairCandidate>
             {
                 Candidate(100, 9001, (int)Vessel.Situations.PRELAUNCH,
                     null, 0.0, 0.0, 0.0),
@@ -268,7 +274,7 @@ namespace Parsek.Tests
                     null, 0.0, 0.0, 0.0),
             };
 
-            OriginProofDetection outcome = RouteProofCapture.TryResolveStartDockedOriginPartner(
+            OriginProofDetection outcome = ResolvePair(
                 activeVesselSituation: (int)Vessel.Situations.ORBITING,
                 activeVesselIsEva: false,
                 candidates: candidates,
@@ -283,7 +289,7 @@ namespace Parsek.Tests
         {
             // FAILS IF: two distinct depot partners coupled at start are reduced to
             // an arbitrary single pid instead of flagged ambiguous.
-            var candidates = new List<OriginPartnerCandidate>
+            var candidates = new List<DockSeamPairCandidate>
             {
                 Candidate(100, 9001, (int)Vessel.Situations.ORBITING,
                     null, 0.0, 0.0, 0.0),
@@ -291,7 +297,7 @@ namespace Parsek.Tests
                     null, 0.0, 0.0, 0.0),
             };
 
-            OriginProofDetection outcome = RouteProofCapture.TryResolveStartDockedOriginPartner(
+            OriginProofDetection outcome = ResolvePair(
                 activeVesselSituation: (int)Vessel.Situations.ORBITING,
                 activeVesselIsEva: false,
                 candidates: candidates,
@@ -307,7 +313,7 @@ namespace Parsek.Tests
             // FAILS IF: a PRELAUNCH candidate is counted as a distinct valid partner,
             // poisoning the single-valid-partner check when the real depot is the
             // only orbiting parent.
-            var candidates = new List<OriginPartnerCandidate>
+            var candidates = new List<DockSeamPairCandidate>
             {
                 Candidate(100, 9001, (int)Vessel.Situations.ORBITING,
                     null, 0.0, 0.0, 0.0),
@@ -315,7 +321,7 @@ namespace Parsek.Tests
                     null, 0.0, 0.0, 0.0),
             };
 
-            OriginProofDetection outcome = RouteProofCapture.TryResolveStartDockedOriginPartner(
+            OriginProofDetection outcome = ResolvePair(
                 activeVesselSituation: (int)Vessel.Situations.ORBITING,
                 activeVesselIsEva: false,
                 candidates: candidates,
@@ -334,7 +340,7 @@ namespace Parsek.Tests
             // including the partner pid (player-visible in KSP.log).
             ConfigNode snapshot = MakeVessel(MakePart(100, "fuelTank",
                 MakeResource("LiquidFuel", 80.0, 100.0)));
-            var candidates = new List<OriginPartnerCandidate>
+            var candidates = new List<DockSeamPairCandidate>
             {
                 Candidate(100, 9001, (int)Vessel.Situations.ORBITING,
                     null, 0.0, 0.0, 0.0),
@@ -354,8 +360,8 @@ namespace Parsek.Tests
 
             Assert.Contains(logLines, l => l.Contains("[INFO]")
                 && l.Contains("[Recorder]")
-                && l.Contains("RouteOriginProof captured")
-                && l.Contains("originRoot=9001"));
+                && l.Contains("RouteOriginProof pair captured")
+                && l.Contains("halfBRoot=9001"));
         }
 
         [Fact]
@@ -367,7 +373,7 @@ namespace Parsek.Tests
             RouteProofCapture.BuildStartRouteOriginProof(
                 activeVesselSituation: (int)Vessel.Situations.ORBITING,
                 activeVesselIsEva: false,
-                candidates: new List<OriginPartnerCandidate>(),
+                candidates: new List<DockSeamPairCandidate>(),
                 settledDockSeamsScanned: 0,
                 snapshot: snapshot,
                 isGloopsMode: false,
@@ -386,7 +392,7 @@ namespace Parsek.Tests
             // FAILS IF: a PRELAUNCH active vessel does not log the specific PRELAUNCH
             // branch label (and instead falls through to a generic skip).
             ConfigNode snapshot = MakeVessel(MakePart(100, "fuelTank"));
-            var candidates = new List<OriginPartnerCandidate>
+            var candidates = new List<DockSeamPairCandidate>
             {
                 Candidate(100, 9001, (int)Vessel.Situations.ORBITING,
                     null, 0.0, 0.0, 0.0),
@@ -414,7 +420,7 @@ namespace Parsek.Tests
             // FAILS IF: a launchpad clamp / pre-launch parent vessel is not reported
             // through the dedicated partner PRELAUNCH branch.
             ConfigNode snapshot = MakeVessel(MakePart(100, "fuelTank"));
-            var candidates = new List<OriginPartnerCandidate>
+            var candidates = new List<DockSeamPairCandidate>
             {
                 Candidate(100, 9001, (int)Vessel.Situations.PRELAUNCH,
                     null, 0.0, 0.0, 0.0),
@@ -442,7 +448,7 @@ namespace Parsek.Tests
             // FAILS IF: a partner pid of 0 is treated as a benign Verbose case rather
             // than the Warn-worthy degenerate state it represents.
             ConfigNode snapshot = MakeVessel(MakePart(100, "fuelTank"));
-            var candidates = new List<OriginPartnerCandidate>
+            var candidates = new List<DockSeamPairCandidate>
             {
                 Candidate(100, 0, (int)Vessel.Situations.ORBITING,
                     null, 0.0, 0.0, 0.0),
@@ -471,7 +477,7 @@ namespace Parsek.Tests
             // FAILS IF: two distinct valid partners are not flagged at Warn level OR
             // the log does not include both candidate pids for diagnostics.
             ConfigNode snapshot = MakeVessel(MakePart(100, "fuelTank"));
-            var candidates = new List<OriginPartnerCandidate>
+            var candidates = new List<DockSeamPairCandidate>
             {
                 Candidate(100, 9001, (int)Vessel.Situations.ORBITING,
                     null, 0.0, 0.0, 0.0),
@@ -494,6 +500,7 @@ namespace Parsek.Tests
             Assert.Contains(logLines, l => l.Contains("[WARN]")
                 && l.Contains("[Recorder]")
                 && l.Contains("ambiguous partners")
+                && l.Contains("distinctPairs=")
                 && l.Contains("9001")
                 && l.Contains("9002"));
         }
@@ -504,7 +511,7 @@ namespace Parsek.Tests
             // FAILS IF: gloops-mode recordings (ghost-only) attempt to capture an origin
             // proof or fail to log the gloops-skip branch.
             ConfigNode snapshot = MakeVessel(MakePart(100, "fuelTank"));
-            var candidates = new List<OriginPartnerCandidate>
+            var candidates = new List<DockSeamPairCandidate>
             {
                 Candidate(100, 9001, (int)Vessel.Situations.ORBITING,
                     null, 0.0, 0.0, 0.0),
@@ -532,7 +539,7 @@ namespace Parsek.Tests
         {
             // FAILS IF: missing lastGoodVesselSnapshot does not Warn-log a skip and
             // instead crashes inside the manifest extractor.
-            var candidates = new List<OriginPartnerCandidate>
+            var candidates = new List<DockSeamPairCandidate>
             {
                 Candidate(100, 9001, (int)Vessel.Situations.ORBITING,
                     null, 0.0, 0.0, 0.0),
@@ -568,7 +575,7 @@ namespace Parsek.Tests
                 MakePart(100, "transportTank", MakeResource("LiquidFuel", 80.0, 100.0)),
                 MakePart(101, "transportInv",
                     MakeInventoryModule(MakeStoredPart("evaJetpack", "white", 1))));
-            var candidates = new List<OriginPartnerCandidate>
+            var candidates = new List<DockSeamPairCandidate>
             {
                 Candidate(100, 9001, (int)Vessel.Situations.ORBITING,
                     null, 0.0, 0.0, 0.0),
@@ -587,7 +594,11 @@ namespace Parsek.Tests
                 out List<uint> transportPartPids);
 
             Assert.NotNull(proof);
-            Assert.Equal(9001u, proof.StartDockedOriginRootPartUId);
+            // Pre-bind the manifests are the MERGED pair's, which is the only honest
+            // baseline while both halves are one vessel; the bind re-scopes them to the
+            // transport half. The identity slots are empty until then.
+            Assert.Equal(0u, proof.StartDockedOriginRootPartUId);
+            Assert.Equal(9001u, proof.StartDockedPair.HalfB.RootPartUId);
             Assert.NotNull(proof.StartTransportResources);
             Assert.Equal(80.0, proof.StartTransportResources["LiquidFuel"].amount);
             Assert.NotNull(proof.StartTransportInventory);
@@ -616,7 +627,7 @@ namespace Parsek.Tests
             RouteProofCapture.BuildStartRouteOriginProof(
                 activeVesselSituation: (int)Vessel.Situations.ORBITING,
                 activeVesselIsEva: false,
-                candidates: new List<OriginPartnerCandidate>(),
+                candidates: new List<DockSeamPairCandidate>(),
                 settledDockSeamsScanned: 0,
                 snapshot: snapshot,
                 isGloopsMode: false,
@@ -637,7 +648,7 @@ namespace Parsek.Tests
             // or fail to populate at all when the proof exists.
             ConfigNode startSnapshot = MakeVessel(
                 MakePart(100, "transportTank", MakeResource("LiquidFuel", 80.0, 100.0)));
-            var candidates = new List<OriginPartnerCandidate>
+            var candidates = new List<DockSeamPairCandidate>
             {
                 Candidate(100, 9001, (int)Vessel.Situations.ORBITING,
                     null, 0.0, 0.0, 0.0),
@@ -666,7 +677,11 @@ namespace Parsek.Tests
                 VesselSnapshot = endSnapshot,
             };
 
-            RouteProofCapture.AttachEndManifestsAndForwardToCapture(capture, proof, transportPartPids);
+            // THE BIND runs at the undock, BEFORE the stop flush forwards the proof, and it
+            // is what re-scopes the manifests to the transport half.
+            BindFarHalfAsOrigin(proof, startSnapshot);
+            RouteProofCapture.AttachEndManifestsAndForwardToCapture(
+                capture, proof, transportPartPids, stopIsChainBoundary: false);
 
             Assert.NotNull(capture.RouteOriginProof);
             Assert.Equal(9001u, capture.RouteOriginProof.StartDockedOriginRootPartUId);
@@ -687,7 +702,7 @@ namespace Parsek.Tests
                 MakePart(100, "transportTank", MakeResource("LiquidFuel", 80.0, 100.0)),
                 MakePart(101, "transportInv",
                     MakeInventoryModule(MakeStoredPart("evaJetpack", "white", 1))));
-            var candidates = new List<OriginPartnerCandidate>
+            var candidates = new List<DockSeamPairCandidate>
             {
                 Candidate(100, 9001, (int)Vessel.Situations.ORBITING,
                     null, 0.0, 0.0, 0.0),
@@ -713,7 +728,9 @@ namespace Parsek.Tests
                 RecordingId = Guid.NewGuid().ToString("N"),
                 VesselSnapshot = endSnapshot,
             };
-            RouteProofCapture.AttachEndManifestsAndForwardToCapture(capture, proof, transportPartPids);
+            BindFarHalfAsOrigin(proof, startSnapshot);
+            RouteProofCapture.AttachEndManifestsAndForwardToCapture(
+                capture, proof, transportPartPids, stopIsChainBoundary: false);
 
             var node = new ConfigNode("ROOT");
             RouteProofCodec.SerializeRouteProofMetadata(node, capture);
@@ -727,6 +744,13 @@ namespace Parsek.Tests
             Assert.Equal((int)VesselType.Base, restored.RouteOriginProof.StartDockedOriginVesselType);
             Assert.Equal(9002u, restored.RouteOriginProof.StartDockedTransportRootPartUId);
             Assert.Equal((int)VesselType.Ship, restored.RouteOriginProof.StartDockedTransportVesselType);
+            // The P12 lifecycle survives the round trip, and so does the captured PAIR.
+            Assert.Equal(StartDockedOriginBindState.BoundAtUndock,
+                restored.RouteOriginProof.StartDockedOriginBindState);
+            Assert.True(restored.RouteOriginProof.StartDockedOriginPickupValidated);
+            Assert.Equal(OriginPickupKind.Gain, restored.RouteOriginProof.StartDockedOriginPickupKind);
+            Assert.Equal(9002u, restored.RouteOriginProof.StartDockedPair.HalfA.RootPartUId);
+            Assert.Equal(9001u, restored.RouteOriginProof.StartDockedPair.HalfB.RootPartUId);
             Assert.Equal(80.0, restored.RouteOriginProof.StartTransportResources["LiquidFuel"].amount);
             Assert.Equal(25.0, restored.RouteOriginProof.EndTransportResources["LiquidFuel"].amount);
             Assert.Single(restored.RouteOriginProof.StartTransportInventory);
@@ -759,7 +783,7 @@ namespace Parsek.Tests
             // or the extended captured log line drops the descriptor fields.
             ConfigNode snapshot = MakeVessel(MakePart(100, "fuelTank",
                 MakeResource("LiquidFuel", 80.0, 100.0)));
-            var candidates = new List<OriginPartnerCandidate>
+            var candidates = new List<DockSeamPairCandidate>
             {
                 Candidate(100, 9001, (int)Vessel.Situations.LANDED,
                     "Minmus", -0.55, 78.25, 2412.5),
@@ -778,7 +802,7 @@ namespace Parsek.Tests
                 out List<uint> _);
 
             Assert.NotNull(proof);
-            Assert.Equal(9001u, proof.StartDockedOriginRootPartUId);
+            Assert.Equal(9001u, proof.StartDockedPair.HalfB.RootPartUId);
             Assert.Equal("Minmus", proof.StartDockedOriginBodyName);
             Assert.Equal(-0.55, proof.StartDockedOriginLatitude);
             Assert.Equal(78.25, proof.StartDockedOriginLongitude);
@@ -788,7 +812,7 @@ namespace Parsek.Tests
 
             Assert.Contains(logLines, l => l.Contains("[INFO]")
                 && l.Contains("[Recorder]")
-                && l.Contains("RouteOriginProof captured")
+                && l.Contains("RouteOriginProof pair captured")
                 && l.Contains("partnerBody=Minmus")
                 && l.Contains($"partnerSituation={(int)Vessel.Situations.LANDED}")
                 && l.Contains("surface=1"));
@@ -801,7 +825,7 @@ namespace Parsek.Tests
             // descriptor: the origin endpoint would then never reach the surface
             // proximity rebuild fallback in RouteEndpointResolver.
             ConfigNode snapshot = MakeVessel(MakePart(100, "fuelTank"));
-            var candidates = new List<OriginPartnerCandidate>
+            var candidates = new List<DockSeamPairCandidate>
             {
                 Candidate(100, 9001, (int)Vessel.Situations.LANDED,
                     "Mun", 12.0, -45.0, 612.0),
@@ -830,7 +854,7 @@ namespace Parsek.Tests
             // origin, which would route a destroyed-station pid through the surface
             // proximity fallback and debit whatever vessel happens to sit nearby.
             ConfigNode snapshot = MakeVessel(MakePart(100, "fuelTank"));
-            var candidates = new List<OriginPartnerCandidate>
+            var candidates = new List<DockSeamPairCandidate>
             {
                 Candidate(100, 9001, (int)Vessel.Situations.ORBITING,
                     "Mun", 0.0, 0.0, 150000.0),
@@ -857,16 +881,17 @@ namespace Parsek.Tests
         // ---------- candidate factory ----------
 
         /// <summary>
-        /// Builds one already-selected origin candidate the way the live producer does after
-        /// <see cref="RouteProofCapture.SelectStartDockedOriginHalf"/> has run: the second
-        /// argument is the ORIGIN half's root part id (the launch-unique identity key), and
-        /// the two halves carry the canonical supply typing - a Base depot docked to a Ship
-        /// transport. The situation and coordinates are the MERGED pair's, which is what the
+        /// Builds one settled-seam PAIR candidate the way the live producer does. The second
+        /// argument is the FAR half's root part id - the half these cells then drive the
+        /// undock bind onto, i.e. the eventual origin. NEITHER half is privileged at capture:
+        /// the types below are informational (a Base and a Ship only because that is the
+        /// familiar shape), and nothing in the producer reads them beyond the cargo-owner
+        /// guard. The situation and coordinates are the MERGED pair's, which is what the
         /// producer reads off the live vessel, because docked halves share a location.
-        /// The half-selection rule itself is pinned separately in
-        /// <c>OriginHalfSelectionTests</c>.
+        /// The pair and binding rules themselves are pinned in
+        /// <c>StartDockedOriginBindingTests</c>.
         /// </summary>
-        private static OriginPartnerCandidate Candidate(
+        private static DockSeamPairCandidate Candidate(
             uint partPersistentId,
             uint originRootPartUId,
             int mergedVesselSituation,
@@ -875,18 +900,62 @@ namespace Parsek.Tests
             double mergedVesselLongitude,
             double mergedVesselAltitude)
         {
-            return new OriginPartnerCandidate(
+            return new DockSeamPairCandidate(
                 partPersistentId,
-                originRootPartUId,
-                "TestDepot",
-                (int)VesselType.Base,
-                originRootPartUId + 1u,
-                (int)VesselType.Ship,
+                new DockSeamHalfIdentity(true, "TestTransport", (int)VesselType.Ship, originRootPartUId + 1u),
+                new DockSeamHalfIdentity(true, "TestDepot", (int)VesselType.Base, originRootPartUId),
+                new List<uint> { 100u, 101u },
+                new List<uint> { 200u, 201u },
                 mergedVesselSituation,
                 mergedVesselBodyName,
                 mergedVesselLatitude,
                 mergedVesselLongitude,
                 mergedVesselAltitude);
+        }
+
+        /// <summary>
+        /// Test shim over <see cref="RouteProofCapture.TryResolveStartDockedSeamPair"/> that
+        /// re-expresses the chosen candidate index as the FAR half's root id, which is what
+        /// these cells were written against. The resolver itself no longer names an origin.
+        /// </summary>
+        private static OriginProofDetection ResolvePair(
+            int activeVesselSituation,
+            bool activeVesselIsEva,
+            List<DockSeamPairCandidate> candidates,
+            out uint originRoot)
+        {
+            OriginProofDetection outcome = RouteProofCapture.TryResolveStartDockedSeamPair(
+                activeVesselSituation, activeVesselIsEva, candidates, out int chosenIndex);
+            originRoot = chosenIndex >= 0 ? candidates[chosenIndex].Far.RootPartUId : 0u;
+            return outcome;
+        }
+
+        /// <summary>
+        /// Drives the UNDOCK bind these cells' assertions assume, with the FAR half as the
+        /// origin (the transport - the near half, parts 100/101 - keeps flying).
+        ///
+        /// <para>The undock-side snapshot is authored WITH A PICKUP (LiquidFuel above
+        /// whatever the start snapshot held) because only a GAIN validates: a transport that
+        /// leaves a seam with the cargo it arrived with witnessed no flow there. These cells
+        /// are about forwarding and serialization, so they drive the validated shape; the
+        /// non-validating classes are pinned in StartDockedOriginBindingTests.</para>
+        /// </summary>
+        private static void BindFarHalfAsOrigin(RouteOriginProof proof, ConfigNode transportSnapshot)
+        {
+            ConfigNode pickedUp = MakeVessel(
+                MakePart(100, "transportTank", MakeResource("LiquidFuel", 500.0, 500.0)));
+            RouteProofCapture.TryBindStartDockedOriginAtUndock(
+                proof,
+                activeSidePartPids: new List<uint> { 100u, 101u },
+                backgroundSidePartPids: new List<uint> { 200u, 201u },
+                activeSideSnapshot: pickedUp,
+                endScopeSnapshot: null,
+                originLiveVesselPid: 0u,
+                originLiveVesselGuid: null,
+                recordedVesselPid: 0u,
+                recordedVesselGuid: null,
+                undockUT: 100.0,
+                recordingContext: "<test>");
         }
 
         // ---------- ConfigNode helpers (mirror RouteProofCaptureTests) ----------

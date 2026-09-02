@@ -7049,26 +7049,32 @@ namespace Parsek
                 return;
             }
 
-            var candidates = new List<OriginPartnerCandidate>();
+            var candidates = new List<DockSeamPairCandidate>();
+            List<RouteProofCapture.SeamPartRecord> seamPartRecords = BuildSeamPartRecords(v);
 
-            // THE ONLY CANDIDATE PRODUCER: settled dock seams. Every seam on the merged
-            // vessel names the SAME origin half, so the resolver collapses them to one
-            // distinct origin root and can never read PartnerAmbiguous on a single pair.
+            // THE ONLY CANDIDATE PRODUCER: settled dock seams. Every seam between the SAME
+            // two craft (a two-port dock) collapses to one unordered pair in the resolver, so
+            // a single docked pair can never read PartnerAmbiguous.
             //
-            // THE PARTNER RULE (settled 2026-09-02). Each seam is read as a PAIR: the node
-            // on this part carries its OWN half's pre-dock identity in `vesselInfo`, and the
-            // docked partner part's node carries the OTHER half's. `RouteProofCapture.
-            // SelectStartDockedOriginHalf` picks the DEPOT-typed half as the origin. Nothing
-            // here reads which half stock made dominant on the merge - `v.persistentId` and
-            // `v.rootPart` are deliberately NOT identity inputs, because the merged pid names
-            // whichever half won `Vessel.GetDominantVessel` (vesselType, then mass, then a
-            // guid compare) and that is the transport whenever the depot is the lighter or
-            // lower-typed half. Derivation and the ruling it implements:
+            // THE PAIR RULE (P12). Each seam is read as a PAIR: the node on this part carries
+            // its OWN half's pre-dock identity in `vesselInfo`, and the docked partner part's
+            // node carries the OTHER half's. NEITHER half is chosen here. There is no "base"
+            // type that matters - bases are ordinary vessels, and a route candidate is defined
+            // by transfers and docks - so the origin is bound at the UNDOCK, to the half the
+            // player did NOT keep flying. Nothing here reads which half stock made dominant on
+            // the merge either: `v.persistentId` and `v.rootPart` are deliberately NOT identity
+            // inputs, because the merged pid names whichever half won `Vessel.GetDominantVessel`
+            // (vesselType, then mass, then a guid compare). Derivation:
             // docs/dev/research/origin-proof-partner-identity-memo.md.
+            //
+            // Each seam ALSO carries its two halves' part sets, derived by cutting the seam
+            // edge in the merged part tree - that is how a half's parts are knowable while both
+            // halves are one Vessel, and it is what makes the transport manifests
+            // transport-scoped once the bind picks a half.
             //
             // The body-fixed descriptor still comes off the merged vessel, and correctly so:
             // while the halves are docked they are in the same place, so the merged vessel's
-            // body / coordinates / situation ARE the depot's.
+            // body / coordinates / situation ARE both halves'.
             int settledDockSeamCandidates = 0;
             for (int i = 0; i < v.parts.Count; i++)
             {
@@ -7097,8 +7103,20 @@ namespace Parsek
                 DockSeamHalfIdentity near = BuildSeamHalfIdentity(seamNode);
                 DockSeamHalfIdentity far = BuildSeamHalfIdentity(
                     FindDockingNodeFacingPart(partnerPart, p.flightID));
-                OriginHalfSelection selection =
-                    RouteProofCapture.SelectStartDockedOriginHalf(near, far);
+                DockSeamPairAdmission admission =
+                    RouteProofCapture.ClassifyStartDockedSeamPair(near, far);
+
+                // Cut the seam edge to get each half's own part set on the merged vessel.
+                // Fail-closed: an unsplittable seam yields null sets, which the resolver still
+                // accepts as a pair (the identity is intact) but the bind then reads as
+                // NoPairPending - no wrong scope is ever invented.
+                bool split = RouteProofCapture.TrySplitPartsAcrossSeam(
+                    seamPartRecords,
+                    p.flightID,
+                    partnerPart != null ? partnerPart.flightID : 0u,
+                    out List<uint> nearSidePids,
+                    out List<uint> farSidePids);
+
                 ParsekLog.Verbose("Recorder",
                     $"RouteOriginProof seam pair: recId={RecordingVesselId} " +
                     $"seamPart={p.flightID.ToString(CultureInfo.InvariantCulture)} " +
@@ -7106,23 +7124,17 @@ namespace Parsek
                     $"nearRoot={near.RootPartUId.ToString(CultureInfo.InvariantCulture)} " +
                     $"farName='{far.VesselName ?? "<none>"}' farType={far.VesselType.ToString(CultureInfo.InvariantCulture)} " +
                     $"farRoot={far.RootPartUId.ToString(CultureInfo.InvariantCulture)} " +
-                    $"selection={selection}");
-                if (selection != OriginHalfSelection.OriginIsNear
-                    && selection != OriginHalfSelection.OriginIsFar)
-                {
+                    $"admission={admission} split={(split ? "1" : "0")} " +
+                    $"nearParts={nearSidePids?.Count ?? 0} farParts={farSidePids?.Count ?? 0}");
+                if (admission != DockSeamPairAdmission.Admitted)
                     continue;
-                }
 
-                bool originIsNear = selection == OriginHalfSelection.OriginIsNear;
-                DockSeamHalfIdentity originHalf = originIsNear ? near : far;
-                DockSeamHalfIdentity transportHalf = originIsNear ? far : near;
-                candidates.Add(new OriginPartnerCandidate(
+                candidates.Add(new DockSeamPairCandidate(
                     p.persistentId,
-                    originHalf.RootPartUId,
-                    originHalf.VesselName,
-                    originHalf.VesselType,
-                    transportHalf.RootPartUId,
-                    transportHalf.VesselType,
+                    near,
+                    far,
+                    nearSidePids,
+                    farSidePids,
                     (int)v.situation,
                     v.mainBody != null ? v.mainBody.bodyName : null,
                     v.latitude,
@@ -7236,6 +7248,41 @@ namespace Parsek
         /// <see cref="DockSeamHalfIdentity"/> the partner rule reads. A null node or a node
         /// without <c>vesselInfo</c> becomes the not-present identity.
         /// </summary>
+        /// <summary>
+        /// Reduces the merged vessel's live part list to the pure
+        /// <see cref="RouteProofCapture.SeamPartRecord"/> shape the seam splitter reads:
+        /// flightID, persistentId, and the INDEX of each part's parent in the same list
+        /// (-1 when the parent is absent, i.e. the root). Index-based so the decision stays
+        /// headless - xUnit cannot construct a <c>Part</c>.
+        /// </summary>
+        private static List<RouteProofCapture.SeamPartRecord> BuildSeamPartRecords(Vessel v)
+        {
+            if (v == null || v.parts == null) return null;
+            var indexByPart = new Dictionary<Part, int>(v.parts.Count);
+            for (int i = 0; i < v.parts.Count; i++)
+            {
+                Part p = v.parts[i];
+                if (p != null && !indexByPart.ContainsKey(p))
+                    indexByPart[p] = i;
+            }
+            var records = new List<RouteProofCapture.SeamPartRecord>(v.parts.Count);
+            for (int i = 0; i < v.parts.Count; i++)
+            {
+                Part p = v.parts[i];
+                if (p == null)
+                {
+                    records.Add(new RouteProofCapture.SeamPartRecord(0u, 0u, -1));
+                    continue;
+                }
+                int parentIndex = -1;
+                if (p.parent != null && indexByPart.TryGetValue(p.parent, out int found))
+                    parentIndex = found;
+                records.Add(new RouteProofCapture.SeamPartRecord(
+                    p.flightID, p.persistentId, parentIndex));
+            }
+            return records;
+        }
+
         private static DockSeamHalfIdentity BuildSeamHalfIdentity(ModuleDockingNode node)
         {
             DockedVesselInfo info = node != null ? node.vesselInfo : null;
@@ -7967,7 +8014,8 @@ namespace Parsek
             string vesselName,
             bool isDestroyed,
             Vessel snapshotVessel = null,
-            ConfigNode destroyedFallbackSnapshot = null)
+            ConfigNode destroyedFallbackSnapshot = null,
+            bool stopIsChainBoundary = false)
         {
             var capture = new Recording
             {
@@ -8037,7 +8085,8 @@ namespace Parsek
             RouteProofCapture.AttachEndManifestsAndForwardToCapture(
                 capture,
                 pendingRouteOriginProof,
-                pendingRouteOriginProofStartPartPids);
+                pendingRouteOriginProofStartPartPids,
+                stopIsChainBoundary);
             // M2 run manifest (plan D3 rule 4): complete the END half from the
             // capture snapshot scoped to the START pid set - this is the only
             // path that completes a manifest (active stops: StopRecording,
@@ -8339,7 +8388,8 @@ namespace Parsek
                 FlightGlobals.ActiveVessel != null
                     ? FlightGlobals.ActiveVessel.vesselName
                     : "Unknown Vessel",
-                VesselDestroyedDuringRecording);
+                VesselDestroyedDuringRecording,
+                stopIsChainBoundary: true);
 
             double duration = Recording.Count > 0
                 ? Recording[Recording.Count - 1].ut - Recording[0].ut
@@ -8853,10 +8903,14 @@ namespace Parsek
             // 4. Existing CaptureAtStop + IsRecording=false block
             Vessel recordedVessel = FindVesselByPid(RecordingVesselId);
 
+            // A vessel-switch / pid-change stop is a CHAIN BOUNDARY too: the pair may be
+            // separating right now (the dock/undock pid change), so it must not conclude
+            // "stopped while docked".
             CaptureAtStop = BuildCaptureRecording(
                 recordedVessel != null ? recordedVessel.vesselName : v.vesselName,
                 VesselDestroyedDuringRecording || recordedVessel == null,
-                recordedVessel);
+                recordedVessel,
+                stopIsChainBoundary: true);
 
             Patches.PhysicsFramePatch.ActiveRecorder = null;
             UnsubscribePartEvents();
