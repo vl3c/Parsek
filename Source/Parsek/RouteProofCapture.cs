@@ -944,30 +944,131 @@ namespace Parsek
         /// </summary>
         internal static OriginPickupKind ClassifyOriginPickup(
             Dictionary<string, ResourceAmount> startTransportResources,
-            Dictionary<string, ResourceAmount> undockTransportResources)
+            Dictionary<string, ResourceAmount> undockTransportResources,
+            List<InventoryPayloadItem> startTransportInventory = null,
+            List<InventoryPayloadItem> undockTransportInventory = null)
         {
-            if (undockTransportResources == null)
+            bool haveResources = undockTransportResources != null;
+            bool haveInventory = undockTransportInventory != null;
+            if (!haveResources && !haveInventory)
                 return OriginPickupKind.NoUndockManifest;
 
             const double epsilon = 1e-6;
             bool sawCargo = false;
-            foreach (KeyValuePair<string, ResourceAmount> kvp in undockTransportResources)
-            {
-                if (Logistics.ResourceTransferability.IsAlwaysIgnored(kvp.Key)) continue;
-                if (kvp.Value.amount <= epsilon) continue;
-                sawCargo = true;
 
-                if (startTransportResources == null) continue;
-                double startAmount = startTransportResources.TryGetValue(kvp.Key, out ResourceAmount before)
-                    ? before.amount
-                    : 0.0;
-                if (kvp.Value.amount - startAmount > epsilon)
-                    return OriginPickupKind.Gain;
+            if (haveResources)
+            {
+                foreach (KeyValuePair<string, ResourceAmount> kvp in undockTransportResources)
+                {
+                    if (Logistics.ResourceTransferability.IsAlwaysIgnored(kvp.Key)) continue;
+                    if (kvp.Value.amount <= epsilon) continue;
+                    sawCargo = true;
+
+                    if (startTransportResources == null) continue;
+                    double startAmount = startTransportResources.TryGetValue(kvp.Key, out ResourceAmount before)
+                        ? before.amount
+                        : 0.0;
+                    if (kvp.Value.amount - startAmount > epsilon)
+                        return OriginPickupKind.Gain;
+                }
             }
 
-            // A resource absent from the undock manifest entirely cannot have risen, so the
-            // gain walk above is complete.
+            // INVENTORY COUNTS EXACTLY LIKE A RESOURCE (operator ruling, 2026-09-02): a route
+            // candidate comes from ACTIONS - "docked, took fuel OR CARGO from it, undocked".
+            // A transport that leaves a seam carrying a container it did not arrive with has
+            // been loaded just as surely as one that leaves with more fuel, and the relay
+            // oracle's first window moved both at once (+200 LiquidFuel AND a
+            // DeployedCentralStation plus an evaChute).
+            if (haveInventory)
+            {
+                Dictionary<string, int> startCounts = SumInventoryQuantities(startTransportInventory);
+                foreach (KeyValuePair<string, int> kvp in SumInventoryQuantities(undockTransportInventory))
+                {
+                    if (kvp.Value <= 0) continue;
+                    sawCargo = true;
+                    startCounts.TryGetValue(kvp.Key, out int before);
+                    if (kvp.Value > before)
+                        return OriginPickupKind.Gain;
+                }
+            }
+
+            // A resource or item absent from the undock manifest entirely cannot have risen,
+            // so the two walks above are complete.
             return sawCargo ? OriginPickupKind.Carried : OriginPickupKind.None;
+        }
+
+        /// <summary>
+        /// Pure / static. Total quantity per inventory IDENTITY hash. Items with no identity
+        /// are ignored: they cannot be matched across the two snapshots, so counting them
+        /// could only invent a delta.
+        /// </summary>
+        internal static Dictionary<string, int> SumInventoryQuantities(
+            List<InventoryPayloadItem> items)
+        {
+            var totals = new Dictionary<string, int>();
+            if (items == null) return totals;
+            for (int i = 0; i < items.Count; i++)
+            {
+                InventoryPayloadItem item = items[i];
+                if (item == null || string.IsNullOrEmpty(item.IdentityHash)) continue;
+                totals.TryGetValue(item.IdentityHash, out int running);
+                totals[item.IdentityHash] = running + item.Quantity;
+            }
+            return totals;
+        }
+
+        /// <summary>
+        /// Pure / static. The bind line's <c>pickupDelta=[...]</c> payload: the per-resource
+        /// net change across the docked span followed by the net inventory ITEM count, e.g.
+        /// <c>LiquidFuel=+200.0;inv:+2</c>.
+        ///
+        /// <para>WHITESPACE-FREE and <c>;</c>-separated, deliberately: the token is pinned by
+        /// scenario regexes, and a space-separated payload cannot be pinned as one field. It
+        /// is a SEPARATE formatter from <see cref="FormatRouteResourceDelta"/> (which keeps
+        /// its space-separated shape for the route-window delta line) so neither consumer
+        /// perturbs the other; a single-resource payload renders identically in both.</para>
+        ///
+        /// <para>The <c>inv:</c> term is emitted only when either side carried inventory at
+        /// all, so a resource-only run's token is unchanged from before inventory was read.</para>
+        /// </summary>
+        internal static string FormatOriginPickupDelta(
+            Dictionary<string, ResourceAmount> startTransportResources,
+            Dictionary<string, ResourceAmount> undockTransportResources,
+            List<InventoryPayloadItem> startTransportInventory,
+            List<InventoryPayloadItem> undockTransportInventory)
+        {
+            var parts = new List<string>();
+            Dictionary<string, double> delta =
+                ResourceManifest.ComputeResourceDelta(startTransportResources, undockTransportResources);
+            if (delta != null && delta.Count > 0)
+            {
+                var keys = new List<string>(delta.Keys);
+                keys.Sort(StringComparer.Ordinal);
+                for (int i = 0; i < keys.Count; i++)
+                {
+                    double d = delta[keys[i]];
+                    parts.Add(string.Format(CultureInfo.InvariantCulture, "{0}={1}{2:F1}",
+                        keys[i], d >= 0 ? "+" : string.Empty, d));
+                }
+            }
+
+            bool anyInventory =
+                (startTransportInventory != null && startTransportInventory.Count > 0)
+                || (undockTransportInventory != null && undockTransportInventory.Count > 0);
+            if (anyInventory)
+            {
+                int before = 0;
+                foreach (KeyValuePair<string, int> kvp in SumInventoryQuantities(startTransportInventory))
+                    before += kvp.Value;
+                int after = 0;
+                foreach (KeyValuePair<string, int> kvp in SumInventoryQuantities(undockTransportInventory))
+                    after += kvp.Value;
+                int net = after - before;
+                parts.Add(string.Format(CultureInfo.InvariantCulture, "inv:{0}{1}",
+                    net >= 0 ? "+" : string.Empty, net));
+            }
+
+            return parts.Count == 0 ? "(none)" : string.Join(";", parts.ToArray());
         }
 
         /// <summary>
@@ -1117,15 +1218,23 @@ namespace Parsek
                 }
             }
 
-            // THE PICKUP, measured on the transport half at the undock.
-            Dictionary<string, ResourceAmount> undockTransportResources =
-                (activeSideSnapshot != null && transportPids != null && transportPids.Count > 0)
-                    ? VesselSpawner.ExtractResourceManifest(activeSideSnapshot, transportPids)
-                    : null;
+            // THE PICKUP, measured on the transport half at the undock - BOTH cargo kinds,
+            // each scoped to the same seam-derived transport part set, so a run that took on
+            // a cargo container rather than fuel is witnessed identically (operator ruling).
+            bool canMeasure = activeSideSnapshot != null
+                && transportPids != null && transportPids.Count > 0;
+            Dictionary<string, ResourceAmount> undockTransportResources = canMeasure
+                ? VesselSpawner.ExtractResourceManifest(activeSideSnapshot, transportPids)
+                : null;
+            List<InventoryPayloadItem> undockTransportInventory = canMeasure
+                ? VesselSpawner.ExtractInventoryPayloadItems(activeSideSnapshot, transportPids)
+                : null;
             OriginPickupKind pickup = ClassifyOriginPickup(
-                proof.StartTransportResources, undockTransportResources);
-            string pickupDelta = FormatRouteResourceDelta(
-                proof.StartTransportResources, undockTransportResources);
+                proof.StartTransportResources, undockTransportResources,
+                proof.StartTransportInventory, undockTransportInventory);
+            string pickupDelta = FormatOriginPickupDelta(
+                proof.StartTransportResources, undockTransportResources,
+                proof.StartTransportInventory, undockTransportInventory);
 
             OriginPidStampDecision pidDecision = DecideOriginPidStamp(
                 originLiveVesselPid, originLiveVesselGuid, recordedVesselPid, recordedVesselGuid);
@@ -1159,7 +1268,9 @@ namespace Parsek
                 $"pickup={pickup} pickupValidated={(proof.StartDockedOriginPickupValidated ? "1" : "0")} " +
                 $"pickupDelta=[{pickupDelta}] " +
                 $"startRes={proof.StartTransportResources?.Count ?? 0} " +
-                $"undockRes={undockTransportResources?.Count ?? 0}");
+                $"undockRes={undockTransportResources?.Count ?? 0} " +
+                $"startInv={proof.StartTransportInventory?.Count ?? 0} " +
+                $"undockInv={undockTransportInventory?.Count ?? 0}");
 
             if (!proof.StartDockedOriginPickupValidated)
             {

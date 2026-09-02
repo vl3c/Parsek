@@ -691,6 +691,174 @@ namespace Parsek.Tests
         }
 
         // ==============================================================
+        // 6b. INVENTORY IS CARGO TOO (operator ruling, 2026-09-02)
+        //
+        // "Docked, took fuel OR CARGO from it, undocked, went to a second vessel, docked,
+        // transferred TO it, undocked." A transport that leaves a seam carrying a container
+        // it did not arrive with has been loaded exactly as surely as one that leaves with
+        // more fuel, so an inventory gain validates identically to a resource gain.
+        // ==============================================================
+
+        private static List<InventoryPayloadItem> Inv(params object[] pairs)
+        {
+            var items = new List<InventoryPayloadItem>();
+            for (int i = 0; i < pairs.Length; i += 2)
+            {
+                items.Add(new InventoryPayloadItem
+                {
+                    IdentityHash = (string)pairs[i],
+                    PartName = (string)pairs[i],
+                    Quantity = System.Convert.ToInt32(pairs[i + 1]),
+                    SlotsTaken = 1,
+                });
+            }
+            return items;
+        }
+
+        [Fact]
+        public void Pickup_RelayWindow1_ResourceAndInventoryBothRose_ReadsGain()
+        {
+            // THE RELAY ORACLE'S FIRST WINDOW, as measured: +200 LiquidFuel AND a
+            // DeployedCentralStation plus an evaChute onto the transport.
+            OriginPickupKind kind = RouteProofCapture.ClassifyOriginPickup(
+                Manifest("LiquidFuel", 0.0),
+                Manifest("LiquidFuel", 200.0),
+                Inv(),
+                Inv("DeployedCentralStation", 1, "evaChute", 1));
+            Assert.Equal(OriginPickupKind.Gain, kind);
+            Assert.True(RouteProofCapture.IsPickupValidated(kind));
+        }
+
+        [Fact]
+        public void Pickup_InventoryOnlyGain_WithZeroResourceDelta_ReadsGain()
+        {
+            // THE CELL THE RULING EXISTS FOR. Before inventory was read this run was
+            // Carried - and therefore not an origin - even though a container physically
+            // came aboard at that seam.
+            OriginPickupKind kind = RouteProofCapture.ClassifyOriginPickup(
+                Manifest("LiquidFuel", 40.0),
+                Manifest("LiquidFuel", 40.0),
+                Inv("evaChute", 1),
+                Inv("evaChute", 1, "DeployedCentralStation", 1));
+            Assert.Equal(OriginPickupKind.Gain, kind);
+            Assert.True(RouteProofCapture.IsPickupValidated(kind));
+        }
+
+        [Fact]
+        public void Pickup_InventoryLostButResourceGained_ReadsGain()
+        {
+            // A run that DROPS a container at the depot and takes fuel is still a pickup:
+            // the two kinds are independent witnesses, and either rising is a flow onto the
+            // transport. Checked in this direction as well as the mirror below so the guard
+            // cannot be satisfied by an accidental AND.
+            OriginPickupKind kind = RouteProofCapture.ClassifyOriginPickup(
+                Manifest("LiquidFuel", 10.0),
+                Manifest("LiquidFuel", 210.0),
+                Inv("DeployedCentralStation", 2),
+                Inv("DeployedCentralStation", 1));
+            Assert.Equal(OriginPickupKind.Gain, kind);
+        }
+
+        [Fact]
+        public void Pickup_ResourceLostButInventoryGained_ReadsGain()
+        {
+            OriginPickupKind kind = RouteProofCapture.ClassifyOriginPickup(
+                Manifest("LiquidFuel", 210.0),
+                Manifest("LiquidFuel", 10.0),
+                Inv("DeployedCentralStation", 1),
+                Inv("DeployedCentralStation", 2));
+            Assert.Equal(OriginPickupKind.Gain, kind);
+        }
+
+        [Fact]
+        public void Pickup_BothKindsWentDown_IsNotValidated()
+        {
+            // The delivery seam, now with cargo in it: fuel down AND a container handed over.
+            // Residual anything must not validate.
+            OriginPickupKind kind = RouteProofCapture.ClassifyOriginPickup(
+                Manifest("LiquidFuel", 200.0),
+                Manifest("LiquidFuel", 73.2),
+                Inv("DeployedCentralStation", 2),
+                Inv("DeployedCentralStation", 1));
+            Assert.Equal(OriginPickupKind.Carried, kind);
+            Assert.False(RouteProofCapture.IsPickupValidated(kind));
+        }
+
+        [Fact]
+        public void Pickup_InventoryOnlyTransport_LeavesEmpty_ReadsNone()
+        {
+            Assert.Equal(
+                OriginPickupKind.None,
+                RouteProofCapture.ClassifyOriginPickup(
+                    null, Manifest(), Inv("evaChute", 1), Inv()));
+        }
+
+        [Fact]
+        public void Pickup_ItemsWithNoIdentityCannotInventADelta()
+        {
+            // An item with no identity hash cannot be matched across the two snapshots, so
+            // counting it could only manufacture a gain out of a re-listing.
+            var anonymous = new List<InventoryPayloadItem>
+            {
+                new InventoryPayloadItem { IdentityHash = null, PartName = "x", Quantity = 5 },
+            };
+            Assert.Equal(
+                OriginPickupKind.None,
+                RouteProofCapture.ClassifyOriginPickup(null, Manifest(), null, anonymous));
+        }
+
+        [Fact]
+        public void PickupDelta_GrammarIsWhitespaceFree_AndCarriesBothKinds()
+        {
+            // The token is pinned by scenario regexes as ONE field, so it must not contain a
+            // space. Resource terms first, ordinal-sorted; the inv: term only when either
+            // side carried inventory at all, so a resource-only run's token is unchanged.
+            Assert.Equal(
+                "LiquidFuel=+200.0;inv:+2",
+                RouteProofCapture.FormatOriginPickupDelta(
+                    Manifest("LiquidFuel", 0.0), Manifest("LiquidFuel", 200.0),
+                    Inv(), Inv("DeployedCentralStation", 1, "evaChute", 1)));
+            Assert.Equal(
+                "LiquidFuel=+20.0",
+                RouteProofCapture.FormatOriginPickupDelta(
+                    Manifest("LiquidFuel", 0.0), Manifest("LiquidFuel", 20.0), null, null));
+            Assert.Equal(
+                "inv:-1",
+                RouteProofCapture.FormatOriginPickupDelta(
+                    null, null, Inv("evaChute", 2), Inv("evaChute", 1)));
+            Assert.Equal(
+                "(none)",
+                RouteProofCapture.FormatOriginPickupDelta(null, null, null, null));
+            Assert.DoesNotContain(" ", RouteProofCapture.FormatOriginPickupDelta(
+                Manifest("LiquidFuel", 0.0, "Ore", 0.0),
+                Manifest("LiquidFuel", 200.0, "Ore", 5.0),
+                Inv(), Inv("evaChute", 1)));
+        }
+
+        [Fact]
+        public void Bind_InventoryOnlyPickup_ValidatesThroughTheWholeBinder()
+        {
+            // End to end: the binder must EXTRACT the transport half's inventory from the
+            // undock snapshot, not only its resources. A binder that reads resources alone
+            // reds here with pickup=Carried.
+            RouteOriginProof proof = PendingProof();
+            proof.StartDockedPair.HalfA.StartResources = Manifest("LiquidFuel", 40.0);
+            proof.StartDockedPair.HalfA.StartInventory = Inv();
+
+            ConfigNode withContainer = SnapshotWithInventory(110u, "LiquidFuel", 40.0, "evaChute");
+            Assert.True(RouteProofCapture.TryBindStartDockedOriginAtUndock(
+                proof, HalfAParts, HalfBParts, withContainer, withContainer,
+                500u, GuidB, 400u, GuidA, 1234.5, "rec-inv"));
+
+            Assert.Equal(OriginPickupKind.Gain, proof.StartDockedOriginPickupKind);
+            Assert.True(proof.StartDockedOriginPickupValidated);
+            Assert.Contains(logLines, l => l.Contains("RouteOriginProof bound at undock:")
+                && l.Contains("pickup=Gain")
+                && l.Contains("inv:+1")
+                && l.Contains("undockInv=1"));
+        }
+
+        // ==============================================================
         // 7. THE GUID GATE on the origin pid stamp
         // ==============================================================
 
@@ -782,6 +950,22 @@ namespace Parsek.Tests
                 // The merged-pair baseline the capture wrote; the bind must REPLACE it.
                 StartTransportResources = Manifest("LiquidFuel", 810.0),
             };
+        }
+
+        /// <summary>A transport-half snapshot carrying a resource AND one stored inventory
+        /// part, so the binder's inventory extraction is exercised on a real ConfigNode.</summary>
+        private static ConfigNode SnapshotWithInventory(
+            uint partPid, string resource, double amount, string storedPartName)
+        {
+            ConfigNode vessel = SnapshotWithResource(partPid, resource, amount);
+            ConfigNode part = vessel.GetNodes("PART")[0];
+            ConfigNode module = part.AddNode("MODULE");
+            module.AddValue("name", "ModuleInventoryPart");
+            module.AddValue("InventorySlots", "4");
+            ConfigNode stored = module.AddNode("STOREDPARTS").AddNode("STOREDPART");
+            stored.AddValue("partName", storedPartName);
+            stored.AddValue("quantity", "1");
+            return vessel;
         }
 
         private static ConfigNode SnapshotWithResource(uint partPid, string resource, double amount)

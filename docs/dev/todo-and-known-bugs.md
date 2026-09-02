@@ -15,6 +15,54 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## L3-CREWREPORT-BIOME-PIN-DEPENDS-ON-LANDING-SITE: `L3-career-science-recover` pins a science subject id whose BIOME the flight rolls for, so a perfectly good run reds on where the capsule stopped [FOUND 2026-09-02 by the L3 confirmation flight `2026-09-02_1824` (PARSEK-FAIL(expectation), one unmet). HARNESS/LANE AUTHORING, not a product defect. OPEN - the spec is deliberately NOT edited by the branch that found it (`l6-dwell-variants`, whose scope is the recover-dwell param); the PARSEK-FAIL stands as filed]
+
+**What was measured.** `L3-career-science-recover` flew a confirmation run for the new
+`preRecoverDwellSeconds` default and came back PARSEK-FAIL(expectation) with EXACTLY one
+unmet token:
+
+    logContracts.required not matched:
+      Science subject captured: crewReport@KerbinSrfLandedLaunchPad.*reason='VesselRecovery'
+
+The log carries the line, at the other biome:
+
+    Science subject captured: crewReport@KerbinSrfLandedShores amount=3.0 total=3.0
+        reason='VesselRecovery' ut=345.7 tag='21eb7811...' directLedger=False
+
+`recordings.count=2` as pinned, every other verifier PASS, and the other two subject pins
+(`mysteryGoo@KerbinSrfLandedLaunchPad`, `recovery@KerbinFlew`) both fired.
+
+**Root cause: the biome is a landing-site roll, and the craft rolls across a boundary.**
+The Jumping Flea's pad hop lands back beside the pad, on the LaunchPad/Shores boundary, and
+it is still MOVING after touchdown (`Section started: env=SurfaceMobile ... at UT=342.30`).
+A science subject's id is stamped where the experiment is taken, so which biome a given
+experiment carries depends on where the capsule happened to be at that instant. THE
+DECISIVE EVIDENCE IS INSIDE THE ONE RUN: `crewReport` read `Shores` and `mysteryGoo` read
+`LaunchPad` two seconds apart on the same craft. The prior recovery run
+(`2026-08-19_2220`) had both at `LaunchPad`, which is why the pin was written that way and
+why it has held until now.
+
+**What is NOT wrong with the pin.** The `reason='VesselRecovery'` half - the half it was
+written to catch, against CAREER-TRANSMIT-SCIENCE-EMITS-NO-CORROBORATING-EVENT, where the
+2026-08-19 reading run read `reason=''` - PASSED. Only the biome half of the subject id is
+fragile. Any fix must keep the reason half literal.
+
+**Fix (harness side), two options, neither attempted here:**
+1. **Accept the landed biome CLASS.** Widen the pin to
+   `crewReport@KerbinSrfLanded[A-Za-z]+.*reason='VesselRecovery'`. Cheap, keeps the
+   load-bearing half literal, and still fails a subject captured in flight
+   (`KerbinFlying...`) or with the wrong reason. Loses the (never load-bearing) claim about
+   which biome.
+2. **Assert the biome from the mission's own landing telemetry.** The mission already
+   observes the landed situation; having it report the landed biome would let the lane
+   pin the subject id against what the flight actually did rather than against a prior
+   run's luck. Strictly better, and strictly more work: it needs a new telemetry channel,
+   a schema key and its own reading run.
+
+Option 1 is the proportionate one unless a lane appears that genuinely needs the biome.
+Whoever takes it re-flies L3 once to confirm, and updates this entry and the L3 status row
+in the same commit.
+
 ## ROUTE-INTERBODY-SCOPE-NEVER-REACHABLE: `Route.DispatchWindowPeriod` is the authoritative scope flag and NOTHING in production ever sets it non-zero, so every inter-body route classifies `MalformedMixedBodies` and draws no line [FOUND 2026-09-02 by the G10 P10 feasibility walk (branch `interbody-route-lane`). DEFECT, no fix in this branch - it is a product change and this branch is spec/docs-only]
 
 **The contract.** `RouteTrajectoryLineRenderer.ClassifyRouteScope`
@@ -962,7 +1010,7 @@ IT: `git checkout -- harness/coverage/duration.json` before staging, and do NOT 
 in an unrelated commit - a diff that silently carries a rewritten ledger makes the real
 change harder to read and can clobber a genuine sample another branch added.
 
-## ~~ROUTE-ORIGIN-PROOF-REQUIRES-A-PLAYER-TYPED-DEPOT: the depot-typed partner rule captures nothing unless the player has set the base's vessel type to Base or Station~~ [FOUND 2026-09-02 by the adversarial review of the partner ruling (F2). THE REQUIREMENT IS DELETED 2026-09-02 by the P12 operator ruling, code green, NOT YET FLOWN]
+## ~~ROUTE-ORIGIN-PROOF-REQUIRES-A-PLAYER-TYPED-DEPOT: the depot-typed partner rule captures nothing unless the player has set the base's vessel type to Base or Station~~ [FOUND 2026-09-02 by the adversarial review of the partner ruling (F2). SUPERSEDED 2026-09-02 by this package - the rule that created the requirement no longer exists. LIVE-PROVEN by H57 (2026-09-02_1907), whose depot binds as the origin with originType=3/Probe]
 
 **NOT FIXED - THE REQUIREMENT ITSELF IS GONE, and with it the rule that created it.** The
 operator's ruling: there is no "base" type that matters, bases are ordinary vessels, and a route
@@ -5666,7 +5714,7 @@ If that happens, the fix is at
 `FlightRecorder`'s checkpoint re-emission path, and the test is that a packed section
 never carries a propulsive env.
 
-## L6-RECOVER-DWELL-STRADDLES-SPLIT-FLOOR: the recover mission lands within a second of the optimizer's 5 s split floor, so a flight yields one recording or two [OPEN, harness/lane authoring - NOT a product defect. Filed 2026-09-02 off three L6 flights on one fixture and (for the last two) one DLL]
+## ~~L6-RECOVER-DWELL-STRADDLES-SPLIT-FLOOR: the recover mission lands within a second of the optimizer's 5 s split floor, so a flight yields one recording or two~~ [FILED 2026-09-02 off three L6 flights on one fixture and (for the last two) one DLL. HARNESS/LANE AUTHORING, never a product defect. **CLOSED 2026-09-02 (branch `l6-dwell-variants`) BY MEASURING BOTH SIDES OF THE FLOOR ON PURPOSE**: an optional `preRecoverDwellSeconds` mission param, an L6 pair one param apart, and a headless pin of the sub-floor side that no flight can produce. **FULLY DISCHARGED THE SAME DAY**: both lanes flew green, the long one twice, with a flown negative control that reds on exactly the seeded token; see the resolution at the end]
 
 **What was measured.** `L6-career-same-name-recover` flew three times on
 `career-same-name-pad`: `2026-09-02_1328` (PASS, 4 committed / 2 survivors),
@@ -5703,14 +5751,104 @@ provisional or unflushed when the pick ran.
 2-point landed tail is not worth its own recording - and it fires identically for identical
 inputs. What is uncontrolled is the input.
 
-**Fix (harness side):** give `science_bench_recover` a dwell between the landed/collect
-phases and `recover_vessel` that clears 5.0 s with margin (a `recoverSettleSeconds`-shaped
-param; the schema has no such knob today and `settle_frames=0` on the RECOVERED terminal is
-correct for its own reason - the craft is gone by then, so the settle belongs BEFORE the
-recover call). The shell is shared with `L3-career-science-recover`, so the change needs its
-own reading run on both lanes; it is not bundled into the L6 re-pin. Until then L6 pins
-`nameMatches=[34] survivors=[12]` and `recordings.count = {min 3, max 4}`, which every
-flight so far satisfies, and the lane's own subject (`guidDropped=2`) stays a literal.
+**Fix (harness side), SHIPPED 2026-09-02 on branch `l6-dwell-variants`.** The fix this
+entry asked for - a dwell between the landed/collect phases and `recover_vessel` that
+clears 5.0 s with margin - landed as `preRecoverDwellSeconds`, an OPTIONAL
+`science_bench_recover` param defaulting to 0.0. What it does: hold the recovery ASK (never
+any gate) until that many game seconds after the frame the flight leg reached LANDED.
+`mlib.sbr_recover_dwell_satisfied` is the pure hinge, pinned in both directions and
+fail-open on an unreadable clock; the schema declares it optional with a closed 0.0-120.0
+range enforced at ADMIT.
+
+### RESOLUTION: the floor stays, and BOTH sides of it are now measured deliberately
+
+**THE FLOOR IS NOT A DEFECT AND IS NOT CHANGING.** The 5 s both-halves rule is the HOP
+GUARD: a rover or lander that touches down and lifts again must not be shredded into
+fragment recordings. Recovering three seconds after touchdown is a legitimate player
+action whose landed tail correctly folds into the flight. What was uncontrolled was the
+INPUT, and that is what changed.
+
+**THE ASYMMETRY THAT SHAPED THE ANSWER.** A hold can only make the landed tail LONGER. Any
+dwell BELOW the natural one is already satisfied by the time the RECOVER phase would have
+asked, so no value of this param can put a lane below the floor - and nothing else in the
+mission can either, because the ~5 s natural dwell is COLLECT's and TRANSMIT's two-frame
+debounces plus RECOVER's own two `Recoverable=YES` frames, every one of them a
+commanded-vs-observed correctness gate. So the two sides are measured in two different
+places, on purpose:
+
+| side | where | how |
+|---|---|---|
+| SPLIT (above 5.0 s) | `L6-career-same-name-recover`, LIVE | `preRecoverDwellSeconds = 12.0`; `secondHalf ~= 12.0 - (sectionStartUT - landedUT)` = ~8.6 s typical, 7.5 s pessimistic, so `recordings.count`, `nameMatches=4`, `survivors=2` and `remaining=2` are EXACT again, with `SplitAtSection` required as the split's positive evidence |
+| natural (either side) | `L6-career-same-name-natural-dwell`, LIVE | `preRecoverDwellSeconds = 0.0`, the same fixture and step list one param apart. KEEPS `count = {min 3, max 4}` and the `[34]`/`[12]` classes as the A/B control, and requires NEITHER optimizer line, because exactly one of `SplitAtSection` / `Split summary ... splittableButRejected=` fires per run on an uncontrolled dwell |
+| NO-SPLIT (below 5.0 s) | `RecordingOptimizerTests.CanAutoSplitIgnoringGhostTriggers_L6LandedTail*`, HEADLESS | the measured magnitudes driven directly: 4.82 s -> no split, 5.34 s and 5.88 s -> split, exactly 5.0 s -> split (the predicate refuses on `< 5.0`), plus the mirror direction (a short FIRST half, also refused). All four red under a mutation of the 5.0 constant to 4.0, checked rather than assumed |
+
+**THE SHARED-SHELL RISK THIS ENTRY NAMED IS DISCHARGED THE WAY IT ASKED.**
+`L3-career-science-recover` is UNTOUCHED - no spec change, no param declared, its
+`recordings.count = {2, 2}` and its five career-leg tokens still pinned on the machine
+that measured them. Its byte-identity at the default is not asserted, it is REPLAYED:
+`SbrDwellCompatibilityTests` reads `origin/main:harness/missions/lib/mlib.py` via
+`git show`, drives L3's own committed `missionParams` (read from the spec, not copied)
+through BOTH modules over one scripted flight, and compares every emitted action, every
+phase, the terminal and the assertion rows. It carries its own mutation guard - the cell
+reds if the baseline ref ALREADY has the dwell, which would make the comparison vacuous -
+and self-skips with a stated reason where the ref is unreachable (a shallow CI clone).
+Defaulting the param to 12.0 as a probe made it red at frame 13.
+
+**ALL THREE READING RUNS FLEW THE SAME EVENING (2026-09-02, DLL 10ef80c4).**
+
+| run | verdict | what it measured |
+|---|---|---|
+| `2026-09-02_1806` L6 long-dwell | PASS attempt 1, 485 s | count=4 and EVERY exact pin matched. `SplitAtSection: split 0d4e6e70... at UT=748.9 (first: 512 pts/3 sections, second: 4 pts/1 sections)`; `nameMatches=4 survivors=2 guidDropped=2 ... pick=fbbea6a1...`; XP `rows=1 ... kerbals='Chaduki Kerman'`. Realized second half **11.84 s** |
+| `2026-09-02_1816` natural-dwell | PASS attempt 1, 462 s | count=4 with a **5.70 s** tail - 0.70 s ABOVE the floor. Same subject tokens, XP `'Sigski Kerman'`. The natural band is now four points: 5.34 / 4.82 / 5.88 / 5.70, one of four still below 5.0 |
+| `2026-09-02_1824` L3 | PARSEK-FAIL(expectation), 458 s | ONE unmet, and it is NOT the dwell - see L3-CREWREPORT-BIOME-PIN-DEPENDS-ON-LANDING-SITE. `recordings.count=2` as pinned, every other verifier PASS |
+
+**THE PREDICTED MARGIN WAS WRONG IN THE SAFE DIRECTION, AND THE CORRECTION IS THE
+INTERESTING PART.** The spec predicted a second half of ~8.6 s from an assumed 3.4 s
+landedUT-to-`SurfaceStationary`-section offset (stock opens that section only after the
+craft has been under 0.1 m/s for 3 s). The offset MEASURED **0.50 s**, on both flights
+independently (748.44 -> 748.94 and 746.88 -> 747.38). The assumption was backwards: the
+craft is already stationary by the time the mission's own B1 leg declares LANDED, so the
+recorder's stationary clock has already run when the dwell anchor is stamped, and the
+offset is a poll gap rather than a settle wait. Realized margin over the floor: **+6.84 s**,
+not +3.6.
+
+**THE DWELL IS PROVEN CAUSAL BY THE PAIR RATHER THAN ARGUED.** Landed-frame-to-RECOVERED
+measured 13.24 s on the long lane against 7.10 s on the dwell-0 control and 7.12 s on L3 -
+a +6.13 s shift that is exactly 12.0 minus the natural ask time. And the default is proven
+INERT on both sides: headlessly by `SbrDwellCompatibilityTests` (L3's own committed params
+replayed through `origin/main`'s mlib and this branch's), and live by L3's own recorder
+markers against the prior recovery run `2026-08-19_2220` - `Section started:
+env=SurfaceMobile ... at UT=347.38` / pick `ut=347.5` THEN versus `UT=347.54` / `ut=347.7`
+NOW, i.e. 0.16-0.20 s apart across a 14-day, different-DLL gap. A dwell that had
+accidentally engaged would have moved that by ~12 s.
+
+**ONE NOTE ON THE EVIDENCE STRING**: no `preRecoverDwell=` / `landedUT=` field appears in
+any of the three logs, and that is correct - `_sbr_evidence` is built only for a FAILURE or
+FLAKE reason, and all three runs were MISSION-OK.
+
+**THE ARMED RUN AND ITS CONTROL FLEW THE SAME EVENING, AND THAT CLOSES THIS ENTRY.**
+
+| run | verdict | what it measured |
+|---|---|---|
+| `2026-09-02_1847` L6 long-dwell, ARMED | PASS attempt 1, 463 s, DLL 43a84abb | mismatches=0, count=4. `SplitAtSection: split fc5c190c... at UT=747.9 (first: 508 pts/3 sections, second: 4 pts/1 sections)`; `TrackSection closed: env=SurfaceStationary ... frames=4 ... duration=11.66s`; `nameMatches=4 survivors=2 guidDropped=2 ... pick=ded60f81...`; XP `rows=1 ... kerbals='Karen Kerman'` |
+| `2026-09-02_1856` negative control | PARSEK-FAIL(expectation) | id `L6-negctl-long-dwell-namematches-three` (UNCOMMITTED): the same spec with ONE token flipped to `nameMatches=3`, reading EXACTLY the seeded unmet and zero forbids, with count=4 and every other token still passing underneath it |
+
+**TWO GREENS ON THE EXACT PINS PLUS A FLOWN, DISCRIMINATING CONTROL** is the armed
+discipline, and it is met. What remains on that lane is the ordinary operator -> nightly
+promotion call, which is a human decision rather than missing evidence.
+
+**THE SPREAD IS THE WHOLE RESULT.** The two dwell-declaring flights authored landed tails
+of 11.84 s and 11.66 s - a 0.18 s spread - where the UNCONTROLLED dwell's four-point band
+spans 4.82-5.88 s ACROSS the 5.0 floor. The landedUT-to-section offset is now a three-point
+measurement (0.50 / 0.50 / 0.56 s), so the 3.4 s this branch's arithmetic assumed is
+refuted by every flight that has ever measured it - wrong, and wrong in the safe direction,
+leaving realized margins of +6.84 s and +6.66 s rather than the predicted +3.6 s.
+
+**CLOSED BY THREE THINGS TOGETHER**, none of which is sufficient alone: the two lane
+variants (the dwell forces the split and pins exactly; the control keeps the uncontrolled
+reading ranged), the four `RecordingOptimizerTests.CanAutoSplitIgnoringGhostTriggers_*`
+cells that pin the sub-floor side no flight can produce, and
+`SbrDwellCompatibilityTests`, which keeps the default provably inert for L3.
 
 ## KERBAL-XP-RECOVERY-PICK-IS-NAME-AND-UT-ONLY: the recovery correlator matches by vessel NAME plus a UT tier, and the XP row makes a wrong pick irreversible [OPEN - **STAGE 1 LIVE-PROVEN 2026-09-02**, shipped headless 2026-08-28 (branch `kerbal-xp-guid-filter`), STAGE 2 OUTSTANDING but NO LONGER GATE-BLOCKED; filed 2026-08-20 with the correlation fix above. **A REPRO LANE WAS AUTHORED AND FLOWN, AND FOUND THE PRODUCED-SAVE SHORTCUT CANNOT REACH THE CORRELATOR: `harness/scenarios/L6-career-same-name-recover.toml`, reading run 1 `2026-09-02_1137` (INVALID(driver) MISSION-ASSERT-FAIL).** The idea was `science_bench_recover` flown a second time over `career-earned-pad` (L3's produced save, which already carries the pad craft's TWO chained same-name recordings under a different launch guid), so the recovery correlator would see two same-name candidates and stage 1's guid filter would resolve them live (expected `nameMatches>=3 guidDropped=2 survivors>=1`). The flight FLEW - landed, collected 2 experiments, recorded a third same-name recording - but TRANSMIT credited ZERO career science because L3 already banked that launchpad biome's science, so the mission's structural transmit->recover gate (`_sbr_transmit` needs a strictly positive pool rise; the schema forbids a floor below 0.001) failed the flight BEFORE recovery, the phase the correlator fires in. **THE BANKED-SCIENCE CONFLICT IS INTRINSIC TO REUSING A PRODUCED SAVE**, so this shortcut does not work. Closing stage 2 needs either a recover mission with NO transmit-science gate (none in the library today) or a purpose-built fixture carrying two same-name launches whose flight science is un-banked. **UNBLOCKED 2026-09-02 BY THE PURPOSE-BUILT FIXTURE** `harness/fixtures/saves/career-same-name-pad`: `harness/tools/build_career_same_name_pad.py` splices `C2CareerPostFix`'s RECORDING_TREE (the two chained same-name recordings, launch guid `f77e4207...`) into `career-science-pad`, the PRE-FLIGHT save L3 actually flies - two moments of one timeline, which is why those recordings' `preLaunchFunds = 500000` / `preLaunchScience = 100` are that host's live pools. The career therefore carries the prior launch with ZERO banked `Science` subjects, so the same mission transmits exactly as it does for L3; the host vessel's `pid` is re-stamped to `9b3c71e4...` so the filter has two conclusive mismatches to drop, while its craft-baked `persistentId` is deliberately left colliding at `2905720181` - the trap this entry names. The earned ledger is NOT copied (its rows credit the science the fixture must leave un-banked, and the recalc engine patches state from the ledger). Gated by `CareerSameNamePadFixtureDriftTests`. L6 now stages that fixture; its expected shape came back EXACTLY on reading run 2 (`2026-09-02_1328`, PASS attempt 1, 470 s): four identical pairs of `PickRecoveryRecordingId guid filter: ... dropped=2 remaining=2 reason=guid-conclusive-mismatch` + `PickRecoveryRecordingId: ... nameMatches=4 survivors=2 guidDropped=2 ... tier=most-recent-ended bracketTie=n/a pick=0d74e88c...`, with `Recovery kerbal XP recorded: ... rows=1 deduped=0 noAction=0` PRESENT (its first observation anywhere) and no refused line. **THE LIVE-PROOF GATE STAGE 2 WAS BLOCKED ON IS THEREFORE DISCHARGED**: the filter is proven active, dropping exactly the two prior-launch candidates, over every leg that picked, without disturbing a correct pick - and re-proven on two further flights the same day (`2026-09-02_1402` and `2026-09-02_1411`), which measured `guidDropped=2` identically while the flight's OWN recording count moved (see L6-RECOVER-DWELL-STRADDLES-SPLIT-FLOOR: an optimizer split floor against the mission's landed dwell, not a correlator behaviour). Stage 2 (the XP-leg `ambiguous-recovery-recording` refusal) is still NOT implemented - it is now merely unwritten rather than ungated]
 

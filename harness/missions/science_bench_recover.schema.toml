@@ -215,3 +215,41 @@ max = 10000000.0
 required = true
 type = "number"
 min = 10.0
+
+# OPTIONAL. Game seconds to hold in RECOVER, measured from the frame the flight
+# leg reached LANDED, before the recovery verb may be EMITTED. Absent or 0.0 =
+# no hold, which is the machine every lane flew before 2026-09-02.
+#
+# WHAT IT IS FOR, and it is a CALIBRATION knob rather than a gate. The recording a
+# flight of this mission produces ENDS at the recovery, and the optimizer's split
+# candidate is the touchdown `SurfaceStationary` section, so the second half of
+# that split is exactly `recoverUT - touchdownSectionUT`.
+# `RecordingOptimizer.CanAutoSplitIgnoringGhostTriggers` refuses a split unless
+# BOTH halves clear 5.0 s. The mission's NATURAL dwell - the COLLECT and TRANSMIT
+# debounces plus RECOVER's own two Recoverable=YES frames - measured 5.34 s,
+# 4.82 s and 5.88 s across three `L6-career-same-name-recover` flights on one
+# fixture and (for the last two) one DLL: margins of +0.34, -0.18 and +0.88, so
+# the same inputs produced one recording or two and a spec could pin neither side.
+# A lane that wants an EXACT `recordings.count` declares a dwell that clears the
+# floor with margin; a lane that wants the uncontrolled natural reading declares
+# 0.0 (or nothing) and pins a range.
+#
+# IT CAN ONLY LENGTHEN THE TAIL. A value BELOW the natural dwell changes nothing
+# at all - the hold is already satisfied by the time the phase would have asked -
+# so this knob reaches the SPLIT side of the floor deterministically and can never
+# reach the NO-SPLIT side. That side is proven headlessly instead, by
+# `RecordingOptimizerTests.CanAutoSplitIgnoringGhostTriggers_L6LandedTail*`.
+#
+# SIZE IT WELL UNDER `recoverTimeoutSeconds`. The hold runs INSIDE the RECOVER
+# phase and its budget, so a dwell at or above that budget can only ever produce a
+# `recover-never-completed` FLAKE. The 120.0 ceiling here is a schema guardrail
+# against a typo'd 1200, not a recommendation: the max is deliberately equal to
+# the schema's own MINIMUM legal `recoverTimeoutSeconds` of 10.0 times twelve, so
+# a spec can still author an illegal PAIR - the flake's reason string reports
+# `preRecoverDwell=` and `landedUT=` so that author error names itself rather than
+# reading as a kRPC fault.
+[params.preRecoverDwellSeconds]
+required = false
+type = "number"
+min = 0.0
+max = 120.0

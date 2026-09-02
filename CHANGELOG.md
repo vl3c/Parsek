@@ -22,15 +22,37 @@ _(unreleased — entries accumulate here per commit)_
   moment you start recording, and waits: when you undock and fly away, the one you left
   behind is the supply origin. It also checks that you actually picked something up -
   a run that leaves a dock with nothing aboard is not supplied by it, and will not be
-  offered as a route - and "picked something up" means the transport's own cargo went UP
+  offered as a route - and "picked something up" counts CARGO CONTAINERS as well as fuel,
+  so a run that collects a supply container rather than propellant is witnessed the same
+  way. It means the transport's own cargo went UP
   while it was docked, not merely that it left with something aboard, so a run that only
   DELIVERS at a dock can never name that vessel as its supply source. If you stop the
-  recording while still docked, nothing is claimed at all, because nothing was witnessed. The cargo counted as "what the transport
-  started with" is now the transport's own tanks rather than the whole docked stack,
+  recording while still docked, nothing is claimed at all, because nothing was
+  witnessed. The cargo counted as "what the transport started with" is now the
+  transport's own tanks rather than the whole docked stack,
   so a start-docked run is no longer costed as if it were carrying the depot's fuel
   too. Proven in a real flight: a transport that starts docked to an untyped rover-built
   depot, takes on fuel, undocks and delivers elsewhere now records that depot as its
   supply origin - the case that recorded nothing at all before.
+
+- **Automated testing: a test case that recovers a landed craft now waits a fixed moment
+  before doing it, so it always produces the same number of recordings.** Nothing in the
+  game changed. Parsek deliberately refuses to cut a flight in two when either piece
+  would be shorter than five seconds - that is what stops a rover that touches down and
+  lifts off again from being shredded into a pile of tiny recordings, and a craft
+  recovered three seconds after landing correctly keeps that last moment as part of its
+  flight. One automated test happened to recover its craft right on that five-second
+  line, so the same test produced two recordings on one run and one on the next, and it
+  could never be trusted to check the number. The test now holds twelve seconds before
+  recovering, which puts it clearly on one side of the line, a second copy of the test
+  keeps the original timing so the difference stays measurable, and the other side of the
+  line is checked directly in the unit tests at the exact timings that were observed. The
+  tests have since been run five times between them. The one that now waits produced the
+  same result twice, from landed stretches of 11.8 and 11.7 seconds - a tenth of a second
+  apart - while the copy left on the original timing came in at 5.7 seconds, less than a
+  second from the line, which is what that copy is there to keep showing. A deliberately
+  broken version of the waiting test was also flown, and it failed on exactly the one
+  thing that was broken in it and nothing else.
 
 - **Automated testing: a flight can now drive part actions on a scripted timeline, and
   the replay of each is checked family by family.** The test harness could stage,
