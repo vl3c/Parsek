@@ -827,6 +827,46 @@ a SURFACE depot resolves by identity first and by the M1 descriptor only if the 
 root part is gone. What binding the pid at the undock still buys is a cheaper O(1) lookup
 and a second corroborating key, not the difference between resolving and not.
 
+## ROUTE-WINDOW-SCAFFOLDING-COUPLE-WARNS-TWICE-ON-H57: a one-part docking-port couple opens a route window it can never populate, and the guard Warns [FOUND 2026-09-02 by the P12 item-7 census. OPEN, cosmetic, PRE-EXISTING and NOT a P12 regression]
+
+H57's collected log carries, twice:
+
+```
+[Parsek][WARN][Flight] Route window dock capture failed: docked snapshot does not contain
+transport/endpoint part PID sets targetPid=... transportParts=17 endpointParts=1
+```
+
+immediately followed by `Route proof dock window capture skipped: ... endpointParts=1`.
+
+**PRE-EXISTING, established by grep rather than by argument.** The identical message, the
+identical count (exactly 2) and the identical shape (`transportParts=17 endpointParts=1`)
+appear in EVERY H57 log taken before P12 existed - `2026-09-02_1307`, `_1328`, `_1406`,
+`_1622`, `_1731` - all of which predate the tank-bearing depot rig and none of which carry a
+single `RouteOriginProof pair captured:` or `bound at undock:` line. The one H57 run with
+ZERO occurrences (`2026-09-02_1833`) is not a counter-example: it is `PARSEK-FAIL(results)`
+and emitted no `Route proof dock window capture` line of any kind, so it never reached the
+code. The tank on the depot changed the DELIVERY manifest, not this.
+
+**RIG ARTEFACT, not a product gap.** `endpointParts=1` names a ONE-PART vessel: the bare
+`dockingPort2` that `CellContext.AttachTransportDockPort` spawns and couples onto the active
+vessel as scaffolding, before any cargo rig exists. It has no `ModuleCommand`, no tank and no
+inventory - it is not a cargo endpoint and never could be one - but a couple is a couple, so
+`ParsekFlight`'s dock handler opens a route window for it and
+`RouteProofCapture.BuildDockRouteConnectionWindow` then refuses to build one because the
+docked snapshot does not carry both pid sets. THE GUARD IS DOING ITS JOB: it fails closed,
+writes no window, and the run is unaffected - H57 passed all 17 tokens with these two lines
+present. The same rig already produces the sibling `is not trackable (debris)` line at
+teardown for the same reason, and the H57 spec header documents that one as legitimate.
+
+**NOT FIXED, and the product must not be changed for it.** Suppressing the Warn would blind
+the same guard on a REAL mismatch, which is the case it exists for (a genuine endpoint whose
+snapshot lost its parts is a wrong-quantity risk). The honest fixes are both rig-side and
+neither is worth a flight on its own: have `AttachTransportDockPort` couple its port BEFORE
+any recording exists (it already does on some paths), or give the scaffolding port a
+`forbidden`-token exemption in the lane rather than a product change. Revisit only if the
+pair ever appears on a lane whose endpoint IS a real cargo vessel - that would be a genuine
+product finding and a different entry.
+
 ## ROUTE-ORIGIN-PROOF-PICKUP-PREDATING-THE-RECORDING: a run that loaded its cargo BEFORE the recording started reads no gain and is refused as an origin [FOUND 2026-09-02 by the adversarial review of P12 (F2). OPEN by decision, fail-closed]
 
 The transfer rule validates a start-docked origin only on a `Gain` - the transport half's

@@ -28,7 +28,9 @@ _(unreleased — entries accumulate here per commit)_
   recording while still docked, nothing is claimed at all, because nothing was witnessed. The cargo counted as "what the transport
   started with" is now the transport's own tanks rather than the whole docked stack,
   so a start-docked run is no longer costed as if it were carrying the depot's fuel
-  too.
+  too. Proven in a real flight: a transport that starts docked to an untyped rover-built
+  depot, takes on fuel, undocks and delivers elsewhere now records that depot as its
+  supply origin - the case that recorded nothing at all before.
 
 - **Automated testing: a flight can now drive part actions on a scripted timeline, and
   the replay of each is checked family by family.** The test harness could stage,
