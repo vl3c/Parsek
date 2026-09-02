@@ -1,11 +1,36 @@
 schema = 1
 id = "S4.4-refly-quicksave-mid-session"
-# `operator` for its first flight: this is THE DELIBERATE EXPERIMENT the todo entry
-# REFLY-BATCH-BASELINE-DISCARDS-LIVE-SESSION asked for and nobody ran - a real quicksave
-# AND quickload taken WHILE a Re-Fly session is live, OUTSIDE any in-game batch. Its
-# verdict decides whether that entry is a product bug or a harness-isolation artefact,
-# so the first flight is a reading a human has to look at.
+# `operator` for its first flight: this WAS the deliberate experiment the todo entry
+# REFLY-BATCH-BASELINE-DISCARDS-LIVE-SESSION asked for - a real quicksave AND quickload
+# taken WHILE a Re-Fly session is live, OUTSIDE any in-game batch. READING RUN 1
+# (`2026-09-02_1118`) established that the seam CANNOT drive the F9 half, and the lane is
+# now the record of WHY: it asserts the guard-block and concludes the session by merge.
 tier = "operator"
+#
+# WHAT RUN 1 MEASURED, and it re-shaped this lane. The SaveGame worked (a live-session
+# persist is inert - the save-only draft's GREEN-by-construction reading, now confirmed),
+# but the second LoadGame (the F9 half) was REJECTED at dispatch:
+#     [Parsek][WARN][TestCommands] reject id=0005 cmd=LoadGame reason=recording-active
+# THE READING: after InvokeRewind restores the pre-rewind world, a recorder is LIVE (the
+# restored flight RESUMES recording; autoRecordOnLaunch=false does not stop a resumed
+# one), and the seam's LoadGame carries a `recording-active` guard (TestCommandDispatcher)
+# so a seam reload never silently discards a live recorder. A player's F9 quickload does
+# NOT pass through that guard - stock GamePersistence.LoadGame rebuilds the scene and the
+# recorder with it - so the seam cannot reproduce F9-mid-refly without either stopping the
+# recorder first (which changes the experiment: the session must stay live across the
+# load) or a guard-bypass the seam deliberately does not offer. This is a HARNESS
+# LIMITATION, not a product finding: it says nothing about whether a real F9 ends the
+# session, which is the open question the todo entry still holds - now with the note that
+# its deciding experiment needs a MANUAL F5/F9 playtest or a new seam affordance.
+#
+# WHAT THIS LANE NOW ASSERTS (all GREEN-able through the seam): (1) the mid-session
+# SaveGame is accepted and inert - the save half does NOT end the session; (2) the
+# seam's LoadGame REFUSES `recording-active` mid-refly (`expect = "REJECTED"` makes that
+# the PASS condition, and the reject log line is pinned as well - the GS-3 shape); (3)
+# the session, untouched by the rejected reload, still concludes cleanly by merge with
+# S4.2's three conclusion tokens. `End reason=treeDiscarded` stays forbidden as a live
+# negative: nothing on this step list should end the session, and if the merge somehow
+# discarded the tree instead of concluding it, that reds.
 #
 # THE QUESTION. S4.2's attempt 1 (run `2026-08-11_2111`) lost its live Re-Fly session
 # ~1.2 s after the in-game batch started: `[ReFlySession] End reason=treeDiscarded` fired
@@ -17,62 +42,42 @@ tier = "operator"
 # ends it - which would make the entry a product bug - or only the batch's own
 # save-scoped preparation does, which is harness isolation (R7's family).
 #
-# WHY SAVE AND LOAD, NOT SAVE ALONE. The first draft of this spec drove only a `SaveGame`
-# and forbade `End reason=treeDiscarded`. That token has ONE emitter
-# (`TreeDiscardPurge.ClearMarkerIfScopedToTree`, reached only through
-# `RecordingStore.DiscardPendingTree`), and every production caller of that is a LOAD
-# path (`DiscardStashedOnQuickload`, the revert cleanup, the initial-load stale-tree
-# sweep) or the merge dialog's own Discard; `SaveGameImpl` is `GamePersistence.SaveGame`
-# and nothing else. So a save-only lane could only ever come back GREEN, by
-# construction, and would have measured nothing. The half with product surface is the
-# LOAD: the quickload classifier (`ShouldRunQuickloadDiscard`, which is meant to be
-# gated OFF by `IsReFlySessionActiveForQuickloadDiscard`), the marker's OnSave/OnLoad
-# round trip, `LoadTimeSweep`'s six-field marker validation and its zombie-provisional
-# discard, and the Limbo pending-tree carrier. The in-game cell `F5MidReFlyResume`
-# covers the sweep step only, by SIMULATING it (its own header says a real F5+F9 inside
-# a batch is destructive), so a real save-then-reload of a live session has never been
-# driven anywhere.
+# THE SAVE HALF IS INERT BY CONSTRUCTION, and run 1 confirmed it. `End reason=treeDiscarded`
+# has ONE emitter (`TreeDiscardPurge.ClearMarkerIfScopedToTree`, reached only through
+# `RecordingStore.DiscardPendingTree`), and every production caller of that is a LOAD path
+# (`DiscardStashedOnQuickload`, the revert cleanup, the initial-load stale-tree sweep) or
+# the merge dialog's own Discard; `SaveGameImpl` is `GamePersistence.SaveGame` and nothing
+# else. So the SaveGame step could never end the session, and it did not.
 #
-# THE EXPERIMENT. S4.2's seam cycle with the batch REPLACED by a quicksave + quickload:
-# LoadGame -> InvokeRewind -> SaveGame name=quicksave (a real in-process
-# GamePersistence.SaveGame of the live session, the file a player's F5 writes) ->
-# LoadGame name=quicksave (a real GamePersistence.LoadGame of that file from INSIDE the
-# session, the act a player's F9 performs; the seam's LoadGame is AnyScene and rejects
-# only on a LIVE RECORDER, which a Re-Fly provisional that has flown nothing does not
-# have - S4.2's `outcome=unbound-refly-provisional` reading) -> AnswerMergeDialog merge.
-# No RunTests, so nothing prepares save-scoped state and nothing reverts a baseline.
-# S1.9 is the committed precedent for a second LoadGame mid-run.
+# THE LOAD HALF IS WHERE THE PRODUCT SURFACE IS - the quickload classifier
+# (`ShouldRunQuickloadDiscard`, meant to be gated OFF by
+# `IsReFlySessionActiveForQuickloadDiscard`), the marker's OnSave/OnLoad round trip,
+# `LoadTimeSweep`'s marker validation - and it is exactly the half the seam cannot reach:
+# the `recording-active` dispatch guard refuses the reload before any of it runs (run 1's
+# measurement above). The in-game cell `F5MidReFlyResume` SIMULATES the sweep step
+# directly for the same reason - its own header says a real F5+F9 is destructive - so no
+# harness path drives a real reload of a live session, and this lane records that
+# boundary rather than pretending past it.
 #
-# WHAT EACH OUTCOME MEANS, pre-registered so the reading is not made up afterwards:
-#   - GREEN (the reload token present, the three conclusion tokens present,
-#     `End reason=treeDiscarded` absent): a real F5+F9 does NOT end the session. The
-#     S4.2 race is HARNESS-ONLY, owned by the batch baseline path, and the todo entry is
-#     re-headed under R7-SESSION-BATCH-ISOLATION.
-#   - INVALID(driver) `seam-timeout` on AnswerMergeDialog deferring `no-refly-dialog`
-#     AFTER the second `loadgame complete`: the reload ended the session. This is how a
-#     killed session manifests (S4.2 attempt 1 classified exactly so), NOT as a red on
-#     the forbidden token, because the verifier chain never runs on a driver-INVALID; the
-#     reading is then the log between the second `loadgame start` and the timeout -
-#     `End reason=treeDiscarded` (the quickload discard ran despite the session), or
-#     `Marker invalid field=` / `Zombie discarded rec=` naming the session's provisional
-#     (the sweep retired it). Any of those is a PRODUCT BUG (a player's F5/F9 mid-Re-Fly
-#     discards the attempt) and the entry is its head; file the token, never re-run it
-#     away.
-#   - INVALID(driver) reject on the second LoadGame (`recording-active`): the provisional
-#     HAD a recorder bound, which contradicts the unbound-provisional reading and is
-#     itself a finding for REFLY-CONCLUSION-SKIPS-APPENDRELATIONS; the experiment then
-#     needs a different reload trigger, not a relaxed contract.
-#   - RED on a conclusion token with the reload token present and the merge step OK: the
-#     session survived but concluded by a route other than S4.2's - a reading to record
-#     against `ReFlyConclusionRouteTests`, since the restored provisional may differ from
-#     the never-persisted one (S4.2's own caveat: "unflown" and "trajectory-less" are not
-#     the same predicate).
+# THE LANE AS FLOWN. LoadGame -> InvokeRewind -> SaveGame name=quicksave (accepted,
+# inert) -> LoadGame name=quicksave (REJECTED recording-active, the asserted finding) ->
+# AnswerMergeDialog merge (the session, untouched by the refused reload, concludes with
+# S4.2's three tokens). S1.9 is the committed precedent for a second LoadGame mid-run;
+# GS-3 is the precedent for an `expect = "REJECTED"` step pinned as a finding.
+#
+# WHAT A RED WOULD MEAN NOW, pre-registered:
+#   - the reload OK instead of REJECTED: the recorder was not live after the rewind
+#     (contradicts run 1) - re-read whether a resumed recorder still tags, and the F9
+#     experiment may then be seam-drivable after all.
+#   - `End reason=treeDiscarded` present: the merge discarded the tree instead of
+#     concluding it - a product finding on the conclusion route, not on the save/load.
+#   - a conclusion token missing: the session did not conclude cleanly by merge - a
+#     reading against `ReFlyConclusionRouteTests`.
 #
 # THE CONCLUSION TOKENS are S4.2's three, verbatim: the conclusion route of a session
 # that flew nothing between rewind and merge is `retired-empty-provisional` ->
-# `refused-unflown-provisional` -> `concluded-no-supersede`. A session that survived the
-# reload concludes that way; one that did not never reaches any of them.
-description = "Reading run: InvokeRewind a crashed-booster slot, take a real in-process quicksave WHILE the Re-Fly session is live, reload that quicksave from inside the session (a player's F5 then F9, no in-game batch), then merge - the deliberate experiment that decides whether a mid-session save/load ends the session (product bug) or only the batch baseline path does (harness isolation), per REFLY-BATCH-BASELINE-DISCARDS-LIVE-SESSION."
+# `refused-unflown-provisional` -> `concluded-no-supersede`.
+description = "Records the seam boundary REFLY-BATCH-BASELINE-DISCARDS-LIVE-SESSION runs into: InvokeRewind a crashed-booster slot, take an inert mid-session SaveGame, then a reload that the seam REFUSES `recording-active` (a resumed recorder is live after the rewind; a player's F9 bypasses that guard, the seam does not), and conclude by merge. The F9-mid-refly question the entry holds needs a manual playtest or a new seam affordance; run 1 (2026-09-02) measured the block."
 instanceProfile = "stock-minimal"
 tags = ["rewind", "refly", "quicksave", "quickload", "session-isolation", "S4.4", "D9", "reading-run"]
 
@@ -85,27 +90,27 @@ craft              = []
 
 [driver]
 kind = "seam"
-# THE ORDERING IS THE EXPERIMENT: SaveGame and the second LoadGame must sit AFTER
-# InvokeRewind (the session is live) and BEFORE AnswerMergeDialog (the session is still
-# meant to be live). The slot is `quicksave` on both because that is the file F5 writes
-# and F9 reads; the seam's SaveGame persists the CURRENT game to whatever name it is
-# given, and its LoadGame routes by the loaded flightState (an active vessel, so FLIGHT -
-# the same Focusable route the first step takes). FlushAndQuit still writes `persistent`,
-# so the produced save the verifiers read is the post-merge world as in S4.2.
+# THE ORDERING: SaveGame and the reload sit AFTER InvokeRewind (the session is live) and
+# BEFORE AnswerMergeDialog (the session must still be live to conclude). The SaveGame is
+# accepted and inert; the reload is REJECTED `recording-active` (run 1's finding), which
+# `expect = "REJECTED"` makes the PASS condition - the session is unchanged by it, so the
+# merge then concludes it. The reload's `budget` is dropped to the default: a dispatch
+# reject is immediate, not a two-phase wait. FlushAndQuit writes `persistent`, so the
+# produced save the verifiers read is the post-merge world as in S4.2.
 steps = [
   { cmd = "LoadGame",          args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 240 },
   { cmd = "SetSetting",        args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
   { cmd = "InvokeRewind",      args = { rp = "rp_wp_root", slot = "1" },            expect = "OK", budget = 300 },
   { cmd = "SaveGame",          args = { name = "quicksave" },                       expect = "OK" },
-  { cmd = "LoadGame",          args = { save = "${runSave}", name = "quicksave" },  expect = "OK", budget = 240 },
+  { cmd = "LoadGame",          args = { save = "${runSave}", name = "quicksave" },  expect = "REJECTED" },
   { cmd = "AnswerMergeDialog", args = { choice = "merge" },                         expect = "OK", budget = 120 },
   { cmd = "RecordingState",                                                         expect = "OK" },
   { cmd = "FlushAndQuit",                                                           expect = "OK" },
 ]
 
 [dimensionsCovered]
-# S4.1's seam half, claimed as such. The mid-session save/load has no D9 value; whether
-# it deserves one is what the reading run decides.
+# S4.1's seam half, claimed as such. The mid-session save/load reached no new D9 value:
+# the reload was guard-blocked, so nothing new about the rewind machinery was exercised.
 D9  = ["rewind-to-separation", "refly-gate", "reconciliation-bundle", "read-back-guard"]
 D14 = ["sandbox", "scene-flight"]
 
@@ -121,33 +126,31 @@ required  = [
   "Re-Fly \\(Rewind-to-Separation\\) StartInvoke", "Invocation complete",
   "ConsumePostLoad: restoring bundle with route-retire cutoffUT=",
   "Restored: recs=.* pendingScience=",
-  # THE RELOAD TOKEN: the seam's own start line for the second LoadGame. Only that
-  # step loads `quicksave`, and only it starts from FLIGHT (the first LoadGame starts
-  # from the menu scene the harness boots into), so the line is unique to the reload
-  # that happened INSIDE the live session.
-  "loadgame start save=\\S* name=quicksave scene=FLIGHT",
+  # THE FINDING, PINNED AS A LOG TOKEN AS WELL AS the step's `expect = "REJECTED"` (the
+  # GS-3 shape): the seam's LoadGame refuses the reload because a recorder is live after
+  # the rewind. The reject fires at DISPATCH, before any `loadgame start`, so this line -
+  # not a `loadgame start ... name=quicksave` - is what a green run carries.
+  "reject id=\\S+ cmd=LoadGame reason=recording-active",
   "outcome=retired-empty-provisional",
   "AppendRelations outcome=refused-unflown-provisional",
   "outcome=concluded-no-supersede",
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",
-  # THE VERDICT TOKEN. This is the line S4.2's attempt 1 measured inside the batch
-  # baseline path. On this lane its only reachable emitters are the reload's quickload
-  # discard and the initial-load stale-tree sweep, both of which the live session is
-  # meant to gate off. A killed session usually surfaces as the driver-INVALID above
-  # rather than here; the forbid still reds a run whose merge somehow completed after
-  # the discard.
+  # THE SESSION-END TOKEN, kept as a live negative: nothing on this step list should end
+  # the session (the reload was refused, so its quickload-discard path never ran). If the
+  # merge discarded the tree instead of concluding it, this reds - a conclusion-route
+  # finding, not a save/load one.
   "End reason=treeDiscarded",
   "not found in committed list after tree commit",
   "Marker invalid field=ActiveReFlyRecordingId",
 ]
 
 [runtime]
-# S4.2's arithmetic with SaveGame (default 60) and a second LoadGame in place of
-# RunTests: LoadGame 660 + SetSetting 60 + InvokeRewind 660 + SaveGame 60 + LoadGame 660
-# + AnswerMergeDialog 120 + RecordingState 60 + FlushAndQuit 60 = 2340; +120 margin.
-budgetSeconds = 2460
+# S4.2's arithmetic with the reload now a dispatch reject (default 60, no two-phase wait):
+# LoadGame 660 + SetSetting 60 + InvokeRewind 660 + SaveGame 60 + LoadGame 60 +
+# AnswerMergeDialog 120 + RecordingState 60 + FlushAndQuit 60 = 1740; +120 margin.
+budgetSeconds = 1860
 
 [retry]
 policy = "once"

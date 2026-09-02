@@ -28,14 +28,40 @@ tier = "operator"
 # Debris` row; the pins accept either (W1's lesson: the load-time pass may split the
 # parent, so a name pinned off the raw sfs order is a bet).
 #
-# THE DWELL SPLIT. Ten `RecordingState` ticks before the delete so `ParsekKSC` has
-# placed the loop member's ghost (V22K's forty-tick dwell measured the placement; the
-# ticks are single dispatches, well inside the landed sliver), then the delete, then
-# thirty more so the scene keeps rendering AFTER the removal under the shifted indices.
-# The subject line - `KSC ghost state reindexed after committed removal at #1` - is
-# printed by `ShiftKscIndexKeyedState` ONLY when `kscGhosts.Count + kscOverlapGhosts.Count
-# > 0` at the delete, so a green run cannot mean "nothing was rendered and the shift was
-# a no-op".
+# THE DWELL SPLIT, RE-DERIVED OFF RUN 1. Twenty `RecordingState` ticks before the
+# delete, then thirty more so the scene keeps rendering AFTER the removal under the
+# shifted indices. The subject line - `KSC ghost state reindexed after committed removal
+# at #1` - is printed by `ShiftKscIndexKeyedState` ONLY when `kscGhosts.Count +
+# kscOverlapGhosts.Count > 0` at the delete, so a green run cannot mean "nothing was
+# rendered and the shift was a no-op".
+#
+# RUN 1 (`2026-09-02_0813`, PARSEK-FAIL on that one line, wall 83 s) MEASURED THE KSC
+# GHOST LIFECYCLE THIS LANE SITS INSIDE, and it is not what the first draft assumed:
+#   11:14:24.5  ParsekKSC initialized, 9 committed recordings, 9 eligible; looping=0
+#   11:14:24.5  KSC SURFACE playback resolved: recording=rec[8e53c6df|Kerbal X|tree|2]
+#               ut=1274.68  (the loop member's LANDED TAIL, resumed at the jump epoch,
+#               ~1 s from its own end)
+#   11:14:26.4  Ghost #2 destroyed                    (the tail finished)
+#   11:14:27.4  deleterecording start index=1 ... committed=9 -> complete committedAfter=8
+#   11:14:27.4  KSC SURFACE playback resolved for rec[28b6e543] targetUT=66 and
+#               rec[8e53c6df] targetUT=911  (the global auto queue RESTARTED the chain
+#               from its ascent, 12 ms after the delete, and kept rendering to the quit)
+# The first draft's ten-tick delete (~3 s after the KSC init) landed in the ONE-SECOND
+# GAP between the tail's end and the queue's restart, so no ghost was alive and the
+# reindex line stayed silent - the pre-registered dwell-length reading, not a defect.
+# The restarted ascent ghosts then lived until FlushAndQuit (~9 s later, `Ghost #0
+# destroyed` is the teardown), so a delete at twenty ticks (~6 s) sits inside them.
+# Ticks measured at ~0.3 s each. The load-time optimizer had split the parent into
+# THREE chain segments (28b6e543 / a387136a / 8e53c6df), so index 1 was the middle
+# `Kerbal X` segment, not a debris row - the `Kerbal X( Debris)?` class held.
+#
+# RUN 1 ALSO FOUND A PRODUCT DEFECT THE VERB'S WIDENING EXPOSED
+# (DELETE-LEAVES-TREE-MEMBERSHIP, todo): the store removed the row from the flat list
+# (OnSave wrote 8), but the committed RECORDING_TREE still held the member, so the
+# FlushAndQuit save re-wrote all five of its sidecars (mtime 11:14:35, eight seconds
+# after `DeleteRecordingFiles` had removed them) and saveParse read 9 recordings. Fixed
+# in the same branch: `RemoveRecordingAt` now prunes the row from its committed tree.
+# The report-only `recordings = 8` pin below is what proves the fix on the re-fly.
 #
 # WHAT THE READING DECIDES, pre-registered:
 #   - GREEN: the verb works at the KSC, the store removed the row, the host shifted its
@@ -81,7 +107,19 @@ steps = [
   { cmd = "StopRecording",                                                   expect = "OK" },
   { cmd = "DiscardTree",                                                     expect = "OK" },
   { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent", scene = "spacecenter" }, expect = "OK", budget = 300 },
-  # DWELL 1: ten ticks for ParsekKSC to place the loop member's ghost.
+  # DWELL 1: twenty ticks (~6 s) - past the loop member's landed tail and the
+  # one-second inter-cycle gap run 1 measured, into the auto queue's restarted ascent
+  # ghosts, which live until the quit.
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
   { cmd = "RecordingState",                                                  expect = "OK" },
   { cmd = "RecordingState",                                                  expect = "OK" },
   { cmd = "RecordingState",                                                  expect = "OK" },
@@ -177,8 +215,8 @@ forbidden = [
 
 [expectations.recordings.structure]
 # REPORT-ONLY (declaring is not arming). V22K measured 9 recordings in the produced
-# save; one delete should leave 8. The first flight reads whether that holds through
-# the load-time optimizer pass and the FlushAndQuit persist.
+# save; one delete should leave 8. Run 1 read 9: the tree still held the deleted member
+# (DELETE-LEAVES-TREE-MEMBERSHIP, fixed on this branch). The re-fly reads the fix.
 trees          = { min = 1, max = 2 }
 committedTrees = { min = 1, max = 1 }
 recordings     = { min = 8, max = 8 }
