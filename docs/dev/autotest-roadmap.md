@@ -2413,6 +2413,15 @@ gated behind the ROUTE-ORIGIN-PROOF-PRODUCER-UNREACHABLE probe (todo) before any
    (`proofCaptured=True outcome=captured`); the persistence half and the partner-pid rule
    (ROUTE-ORIGIN-PROOF-PARTNER-IDENTITY) are open, and no D10 `docked-depot-origin` row is
    claimed until both land and H57 flies green.
+   **H57 FLEW GREEN 2026-09-02 (`2026-09-02_1044`, PASS attempt 1, `total=2 passed=2
+   failed=0 skipped=0` pinned whole, promoted to nightly).** The subject and its mirrored
+   negative control both read exactly as derived, so the Tier B item-4 SUBJECT is now
+   produced unattended. **ITEM 4 IS STILL NOT DONE**, and the green census is what makes
+   that precise rather than a hedge: the lane proves the PRODUCER end to end and stops at
+   `CaptureAtStop`, and the produced save's `ROUTE_ORIGIN_PROOF` count was 0 on H56 and
+   H57 alike. D10 `docked-depot-origin` is claimed in the commit that reads a green census
+   off a lane whose subject asserts a PERSISTED proof - after the forwarding fix and the
+   partner-identity ruling - and not before.
    transport (pickup manifest), then a both-directions window
    (`mixed-direction`). Same two-rover template, transfers reversed.~~
    **AUTOMATABLE: `RouteDockCapture` cells authored 2026-09-02, lane H55 never

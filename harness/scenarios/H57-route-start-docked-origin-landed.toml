@@ -1,6 +1,50 @@
 schema = 1
 id = "H57-route-start-docked-origin-landed"
-tier = "operator"
+tier = "nightly"
+# =====================================================================================
+# FLIGHT LEDGER. THREE ATTEMPTS, AND THE FIRST TWO EACH BOUGHT SOMETHING.
+#   1005  PARSEK-FAIL(results) `total=2 passed=1 failed=1`. The control passed; the
+#         subject red asserting the proof back off a committed recording. THAT IS A
+#         PRODUCT FINDING, not a lane defect: the proof is produced and attached to
+#         `FlightRecorder.CaptureAtStop`, and in always-tree mode nothing forwards it onto
+#         a `Recording` (ROUTE-ORIGIN-PROOF-NEVER-REACHES-A-TREE-RECORDING). The cell was
+#         reshaped to assert the producer's own output and REPORT what the tree holds.
+#   1027  PARSEK-FAIL(results) again, `passed=1 failed=1`, with both instrument lines
+#         emitted exactly as predicted and then a bare NRE with no site - `InGameTestRunner`
+#         records only `ex.Message`. The site was a RIG LEFTOVER: the `RunAnalysisAndPass`
+#         `detail:` argument still dereferenced the null tree lookup. Fixed, plus two
+#         hardenings so a next failure names itself (a `RouteDockCapture FAILURE SITE:`
+#         Warn carrying type / message / first stack frame, and a re-derived tree handle).
+#   1044  PASS attempt 1, 77 s, `BATCH_COMPLETE v1 total=2 passed=2 failed=0 skipped=0`,
+#         every verifier green, zero FAILURE SITE lines, `recordings.count=5`. THE PIN
+#         BELOW IS WHOLE OFF THESE BYTES and the id has left
+#         `IsolatedBatchWiringGroupTests.INTERIM_PIN_IDS`.
+#
+# TIER: PROMOTED operator -> nightly in this commit, on the family rule H55 and H56 were
+# held to ("re-tier to nightly in the commit that reads a green census"). The operator
+# carve-out exists for a lane whose first run needs a human to read it; that is discharged.
+#
+# WHAT THE GREEN RUN DOES **NOT** BUY, and it is why no D10 row is claimed below: the
+# lane proves the PRODUCER end to end and nothing past it. `ROUTE_ORIGIN_PROOF` node count
+# in the produced save was 0 on this run and on H56's, which is the forwarding defect seen
+# from the save side.
+#
+# TWO CROSS-RUN FACTS THAT SHAPED THE PINS, measured rather than assumed:
+#   * `partnerPid=` on the probe / captured line is RUN-LOCAL - five distinct values across
+#     the flights of this wave - so it is NEVER a literal anywhere in this file.
+#   * `originPid` / `recordedPid` read 313889796 on both flights that emitted them, and
+#     that value IS fixture-stable: it is vessel B's `persistentId` in the committed bytes
+#     (`harness/fixtures/saves/rover-route-recorded/persistent.sfs:3809`), restaged verbatim
+#     every run. IT IS STILL REGEXED, deliberately. Pinning it would make the token an
+#     assertion about the FIXTURE's bytes rather than about the behaviour, and a re-harvest
+#     would red this lane for a reason that has nothing to do with the origin producer. The
+#     load-bearing half is that the pid is NON-ZERO, which `[1-9][0-9]*` says exactly.
+#
+# THE FORWARD TOKEN ACCEPTS EITHER VALUE ON PURPOSE. `treeRecordingWithProof=<none>` is the
+# EXPECTED reading while ROUTE-ORIGIN-PROOF-NEVER-REACHES-A-TREE-RECORDING stands, and a
+# recording id there is what the fix will produce. Pinning `<none>` would pin the defect as
+# correct; pinning an id would red every run until the fix lands. The same reasoning governs
+# `treeProof=(yes|no)` inside the subject's own line.
 # =====================================================================================
 # TIER B ITEM 4, AND THE FIRST LANE ANYWHERE THAT DRIVES THE START-DOCKED ORIGIN
 # PRODUCER TO ITS Captured BRANCH. AUTHORED 2026-09-02, NEVER FLOWN.
@@ -274,15 +318,15 @@ required  = [
   "loadgame complete scene=FLIGHT save=.* game-loaded=true expected=Flight",
   "runtests start category=RouteStartDockedOrigin isolated=true",
   "Using batch baseline slot .* for 2 restore-after-run test\\(s\\)",
-  "BATCH_COMPLETE v1 total=2 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=RouteStartDockedOrigin scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=2 passed=2 failed=0 skipped=0 category=RouteStartDockedOrigin scene=FLIGHT",
   "RouteOriginProof seam scan: settledDockSeamCandidates=[1-9][0-9]* externalParentCandidates=0",
-  "RouteOriginProof captured: recId=[0-9]+ vessel='.*' partnerPid=[1-9][0-9]* candidates=[1-9][0-9]* transportParts=[1-9][0-9]* startRes=[0-9]+ startInv=[0-9]+ partnerBody=\\S+ partnerSituation=-?[0-9]+ surface=1",
+  "RouteOriginProof captured: recId=[0-9]+ vessel='.*' partnerPid=[1-9][0-9]* candidates=2 transportParts=[1-9][0-9]* startRes=[0-9]+ startInv=[0-9]+ partnerBody=Kerbin partnerSituation=1 surface=1",
   "OnPartCouple producer classified: kind=DockingPort fromPart=dockingPort2 toPart=dockingPort2 involvesEva=False",
   "Route proof dock window captured: child=\\S+ window=\\S+ targetPid=[0-9]+ kind=DockingPort",
-  "StartDockedOrigin: cell=start-docked run=\\S+ proofCaptured=True originPid=[1-9][0-9]* body=Kerbin surface=1 situation=-?[0-9]+ windows=1 detail=recordedPid=[1-9][0-9]*;treeProof=\\S+",
+  "StartDockedOrigin: cell=start-docked run=routedock-start-docked-[0-9a-f]{8} proofCaptured=True originPid=[1-9][0-9]* body=Kerbin surface=1 situation=1 windows=1 detail=recordedPid=[1-9][0-9]*;treeProof=(yes|no);delivered=[0-9]+\\.[0-9]{2}",
   "StartDockedOriginForward: cell=start-docked treeRecordingWithProof=\\S+",
-  "StartDockedOrigin: cell=undocked-before-start run=\\S+ proofCaptured=False originPid=0 body=<none> surface=0 situation=-?[0-9]+ windows=0 detail=outcome=no-external-coupling",
-  "DockCapture PASS: cell=start-docked run=\\S+ windows=1 kind=DockingPort complete=True deliveryResources=[1-9][0-9]*",
+  "StartDockedOrigin: cell=undocked-before-start run=routedock-undocked-before-start-[0-9a-f]{8} proofCaptured=False originPid=0 body=<none> surface=0 situation=1 windows=0 detail=outcome=no-external-coupling",
+  "DockCapture PASS: cell=start-docked run=routedock-start-docked-[0-9a-f]{8} windows=1 kind=DockingPort complete=True deliveryResources=1 deliveryInventory=0 pickupResources=0 pickupInventory=0",
   "flushandquit: save suppressed \\(batch baseline already restored\\)",
 ]
 # MIRRORS the family's, and nothing more. Deliberately NO `forbidden` token for the

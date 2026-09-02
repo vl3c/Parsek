@@ -4217,7 +4217,10 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
     # NON-EMPTY AGAIN 2026-09-02: H57 is authored and has never flown. Its obligation
     # is the standing one - the first flight measures the split, the spec's pin is
     # replaced whole, and the id leaves this set in the same commit.
-    INTERIM_PIN_IDS = {"H57-route-start-docked-origin-landed"}
+    # BACK TO ZERO ON 2026-09-02: H57 flew green on its third attempt
+    # (`2026-09-02_1044`, PASS attempt 1, total=2 passed=2 failed=0 skipped=0) and
+    # its pin is now whole.
+    INTERIM_PIN_IDS = set()
 
     # id -> measured `skipped=` for members whose RUN-TIME InGameAssert.Skip guards
     # push the split above the attribute-derived floor. The attributes give a FLOOR
@@ -6454,7 +6457,6 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         "S4.4-refly-quicksave-mid-session.toml":   "tier=operator as a reading run, NOT debt: the deliberate experiment REFLY-BATCH-BASELINE-DISCARDS-LIVE-SESSION asked for (a real quicksave AND quickload from inside the live Re-Fly session, no batch - save alone is GREEN by construction since the verdict token has only load-path emitters), whose GREEN / INVALID / RED readings are pre-registered in the spec. Nothing armed; the reading decides which todo entry owns the finding",
         "L6-career-same-name-recover.toml":        "tier=operator as a BLOCKED record, NOT debt: its reading run (2026-09-02) proved the produced-save shortcut cannot reach the recovery correlator - career-earned-pad already banked the launchpad science, so a second science_bench_recover flight transmits for no gain and the mission's structural transmit->recover gate fails it before RECOVER (INVALID(driver), which no expectedFail key can demote). Kept as the record of that finding; not flyable as built, needs a purpose-built two-same-name-launch fixture. Nothing armed",
         "S0.11-ksc-table-delete.toml":               "tier=operator as a reading run, NOT debt: the first consumer of the DeleteRecording seam verb (AUTOMATION-GAP-KSC-TABLE-DELETE's lane) - V22K's SPACECENTER boot with the loop member's KSC ghost placed, then DeleteRecording index=1 under it, pinning the ParsekKSC host's reindex line, which prints only when a KSC ghost was alive at the delete. Nothing armed; the first flight decides whether the dwell length puts the delete under a placed ghost",
-        "H57-route-start-docked-origin-landed.toml": "tier=operator as a reading run, NOT debt: the Tier B item-4 subject, and the first lane anywhere that can reach the start-docked origin producer Captured branch (the fix shipped in the same commit as its cells, so nothing has ever exercised it live). Its two cells pin token SHAPES plus one mirrored pair of verdicts - subject proofCaptured=True, negative control proofCaptured=False - and the passed= / skipped= split is a regex class until the first census, so what is owed is the FLIGHT and the re-pin, not a human call. Registered in IsolatedBatchWiringGroupTests.INTERIM_PIN_IDS to carry that obligation",
         # tier=operator by the CALIBRATION DISCIPLINE, the whole B18-B26 family's
         # tier, and NOT a debt: a first-flight B lane is operator because its
         # windows are derived rather than measured and the first run is a
