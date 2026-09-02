@@ -68,16 +68,25 @@ route connects.
 **The rule as built** (`RouteTrajectoryLineRenderer.IsInterBodyByEndpoints` /
 `ClassifyRouteScope`), top-down, with the authority named in the log:
 
-1. `Route.Origin.BodyName` known and some `Route.Stops[].Endpoint.BodyName` known and
-   DIFFERENT -> `InterBody`, basis `Endpoints`. Members are expected to span bodies here,
+1. Two KNOWN endpoint bodies disagree, taking them in `[origin, stop0, stop1, ...]`
+   order -> `InterBody`, basis `Endpoints`. The FIRST known one seeds the reference
+   (`ResolveEndpointReferenceBody`), so the origin is NOT privileged: `RouteBuilder`'s
+   pre-descriptor docked-origin branch writes `BodyName = StartBodyName ?? string.Empty`
+   and an empty `StartBodyName` is real (the committed `interbody-route-recorded`
+   fixture's transfer member carries none), so an origin-only seed sent such a route to
+   the member-body fallback and back to `MalformedMixedBodies` - the same failure,
+   narrowed. The seed is SHARED with the same-body branch below, which is the mirror
+   direction: whatever can establish that endpoints disagree must also establish what
+   they agree ON. Members are expected to span bodies here,
    so no member cross-check runs, and a THIRD body among the members is the ratified
    transfer gap (`FilterLegsToEndpointBodies` drops it), not a malformation.
-2. Origin known and every known stop body EQUAL to it -> a declared same-body route,
-   basis `Endpoints`. Its members must agree with that body; one on another body means
+2. At least one endpoint body known and every other known one EQUAL to it -> a declared
+   same-body route, basis `Endpoints`, with that reference body the one the members
+   must match. Its members must agree with that body; one on another body means
    the recorded path leaves the pair the route declares and drawing it whole would paint
    a cross-body chord -> `MalformedMixedBodies` (design doc section 17 "Map view
    integration"). That is the ONLY meaning `MalformedMixedBodies` now carries, plus:
-3. No readable endpoint bodies (default-constructed origin, or no stop carrying a body)
+3. NO readable endpoint body anywhere (default-constructed origin AND no stop carrying one)
    -> the shipped v1 member-body consistency read, basis `MemberBodies`: all agree ->
    `SameBody`, they disagree -> `MalformedMixedBodies`. With no endpoints there is no
    authority saying WHICH two bodies are the endpoints, so the safe reading is the

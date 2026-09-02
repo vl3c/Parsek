@@ -264,9 +264,11 @@ required  = [
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",
-  # THE CARRIED CONTROL: both of these are exactly what this subject emitted on every
-  # drawn frame before the 2026-09-02 scope fix. A regression to the
-  # period-as-scope-flag contract reds here rather than passing quietly with nothing drawn.
+  # THE CARRIED CONTROL, and the two halves are NOT the same kind of claim.
+  # `malformed=[1-9]` is literally what this subject emitted on every drawn frame before the
+  # 2026-09-02 scope fix. `scope=MalformedMixedBodies` could NOT have been emitted then -
+  # the `Route scope:` line is new in the same change - so it restates the claim on the new
+  # line, catching a regression that keeps the line and flips the verdict.
   "Route line draw: .* malformed=[1-9]",
   "scope=MalformedMixedBodies",
   # `other` is `NoBackingRecordings` (zero drawable groups) - a different way for the lane

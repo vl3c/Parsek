@@ -104,25 +104,55 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void IsInterBodyByEndpoints_RequiresBothSidesKnownAndDifferent()
+        public void IsInterBodyByEndpoints_ComparesEveryKnownEndpointAgainstTheFirst()
         {
             Assert.True(RouteTrajectoryLineRenderer.IsInterBodyByEndpoints(
                 "Kerbin", new List<string> { "Duna" }));
-            // Origin unknown -> cannot answer.
+            // ONE known endpoint cannot disagree with anything.
             Assert.False(RouteTrajectoryLineRenderer.IsInterBodyByEndpoints(
                 null, new List<string> { "Duna" }));
             Assert.False(RouteTrajectoryLineRenderer.IsInterBodyByEndpoints(
                 "", new List<string> { "Duna" }));
-            // No stop, or no stop carrying a body -> cannot answer.
             Assert.False(RouteTrajectoryLineRenderer.IsInterBodyByEndpoints("Kerbin", null));
             Assert.False(RouteTrajectoryLineRenderer.IsInterBodyByEndpoints(
                 "Kerbin", new List<string> { null, "" }));
             // Same body -> not inter-body.
             Assert.False(RouteTrajectoryLineRenderer.IsInterBodyByEndpoints(
                 "Kerbin", new List<string> { "Kerbin" }));
-            // Multi-stop: ANY stop off the origin body makes it inter-body.
+            // Multi-stop: ANY stop off the reference body makes it inter-body.
             Assert.True(RouteTrajectoryLineRenderer.IsInterBodyByEndpoints(
                 "Kerbin", new List<string> { "Kerbin", "Mun" }));
+            // THE ORIGIN IS NOT PRIVILEGED. An empty origin body is REAL - RouteBuilder's
+            // pre-descriptor docked-origin branch writes `StartBodyName ?? string.Empty` and the
+            // committed interbody-route-recorded fixture's transfer member carries no
+            // StartBodyName - so seeding the reference from the origin ALONE sent a genuinely
+            // cross-body route to the member-body fallback, where mixed members read
+            // MalformedMixedBodies and the line was skipped. The first KNOWN endpoint seeds it.
+            Assert.True(RouteTrajectoryLineRenderer.IsInterBodyByEndpoints(
+                null, new List<string> { "Kerbin", "Duna" }));
+            Assert.True(RouteTrajectoryLineRenderer.IsInterBodyByEndpoints(
+                "", new List<string> { null, "Kerbin", "Duna" }));
+            // ...and the mirror direction: an empty origin with stops that AGREE is not
+            // inter-body, so the widened seed cannot manufacture a cross-body reading.
+            Assert.False(RouteTrajectoryLineRenderer.IsInterBodyByEndpoints(
+                null, new List<string> { "Kerbin", "Kerbin" }));
+        }
+
+        [Fact]
+        public void ResolveEndpointReferenceBody_TakesTheFirstKnownInOriginThenStopOrder()
+        {
+            Assert.Equal("Kerbin", RouteTrajectoryLineRenderer.ResolveEndpointReferenceBody(
+                "Kerbin", new List<string> { "Duna" }));
+            // Origin unknown -> the first known STOP seeds it.
+            Assert.Equal("Duna", RouteTrajectoryLineRenderer.ResolveEndpointReferenceBody(
+                null, new List<string> { null, "Duna", "Ike" }));
+            Assert.Equal("Duna", RouteTrajectoryLineRenderer.ResolveEndpointReferenceBody(
+                "", new List<string> { "", "Duna" }));
+            // Nothing known anywhere -> null, which is what routes the classifier to the
+            // member-body fallback and makes the basis say MemberBodies.
+            Assert.Null(RouteTrajectoryLineRenderer.ResolveEndpointReferenceBody(null, null));
+            Assert.Null(RouteTrajectoryLineRenderer.ResolveEndpointReferenceBody(
+                "", new List<string> { null, "" }));
         }
 
         [Fact]
@@ -198,6 +228,61 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void Scope_OriginBodyEmptyTwoDistinctStopBodies_InterBody()
+        {
+            // THE F1 REGRESSION SHAPE. `RouteBuilder.cs`'s pre-descriptor docked-origin branch
+            // writes `BodyName = originRec.StartBodyName ?? string.Empty`, so an empty origin body
+            // is reachable from production. Before the reference seed was widened this route fell
+            // to the member-body fallback and its mixed members read MalformedMixedBodies - the
+            // line was skipped, which is the SAME failure the scope change removed, narrowed to
+            // routes whose origin body never resolved.
+            Assert.Equal(RouteTrajectoryLineRenderer.RouteLineScope.InterBody,
+                RouteTrajectoryLineRenderer.ClassifyRouteScope(
+                    "", new List<string> { "Kerbin", "Duna" },
+                    new List<string> { "Kerbin", null, "Duna" },
+                    out RouteTrajectoryLineRenderer.RouteScopeBasis basis));
+            Assert.Equal(RouteTrajectoryLineRenderer.RouteScopeBasis.Endpoints, basis);
+
+            // The Route overload reads the same shape off Origin/Stops.
+            var route = new Route
+            {
+                Id = "r-empty-origin",
+                Origin = new RouteEndpoint { BodyName = "" },
+                Stops =
+                {
+                    new RouteStop { Endpoint = new RouteEndpoint { BodyName = "Kerbin" } },
+                    new RouteStop { Endpoint = new RouteEndpoint { BodyName = "Duna" } },
+                },
+            };
+            Assert.True(RouteTrajectoryLineRenderer.IsInterBodyByEndpoints(route));
+            Assert.Equal(RouteTrajectoryLineRenderer.RouteLineScope.InterBody,
+                RouteTrajectoryLineRenderer.ClassifyRouteScope(route, null));
+        }
+
+        [Fact]
+        public void Scope_OriginBodyEmptyAllStopsOneBody_SameBody_BasisEndpoints()
+        {
+            // THE MIRROR DIRECTION of the cell above, and the reason the seed is SHARED: whatever
+            // can establish "these endpoints disagree" must also establish "these endpoints agree,
+            // and here is on what". An empty origin with stops that all name Kerbin is a declared
+            // SAME-BODY route on the ENDPOINTS' authority, so a member on another body is still
+            // malformed rather than silently tolerated by a MemberBodies fallback.
+            Assert.Equal(RouteTrajectoryLineRenderer.RouteLineScope.SameBody,
+                RouteTrajectoryLineRenderer.ClassifyRouteScope(
+                    "", new List<string> { "Kerbin", "Kerbin" },
+                    new List<string> { "Kerbin", null, "Kerbin" },
+                    out RouteTrajectoryLineRenderer.RouteScopeBasis basis));
+            Assert.Equal(RouteTrajectoryLineRenderer.RouteScopeBasis.Endpoints, basis);
+
+            Assert.Equal(RouteTrajectoryLineRenderer.RouteLineScope.MalformedMixedBodies,
+                RouteTrajectoryLineRenderer.ClassifyRouteScope(
+                    null, new List<string> { "Kerbin" },
+                    new List<string> { "Kerbin", "Mun" },
+                    out RouteTrajectoryLineRenderer.RouteScopeBasis mixedBasis));
+            Assert.Equal(RouteTrajectoryLineRenderer.RouteScopeBasis.Endpoints, mixedBasis);
+        }
+
+        [Fact]
         public void Scope_MissingEndpointBodies_FallsBackToMemberBodies()
         {
             // Endpoints unreadable -> shipped v1 behaviour, basis MemberBodies.
@@ -213,12 +298,15 @@ namespace Parsek.Tests
                     out RouteTrajectoryLineRenderer.RouteScopeBasis mixedBasis));
             Assert.Equal(RouteTrajectoryLineRenderer.RouteScopeBasis.MemberBodies, mixedBasis);
 
-            // An origin body with NO readable stop body is equally unreadable.
+            // An origin body with NO readable stop body is NOT unreadable: one known endpoint is
+            // enough to say which body the route declares, so the members are checked against it
+            // and the basis is Endpoints. Only a route with NO known endpoint body anywhere falls
+            // to the member-body read.
             Assert.Equal(RouteTrajectoryLineRenderer.RouteLineScope.MalformedMixedBodies,
                 RouteTrajectoryLineRenderer.ClassifyRouteScope(
                     "Kerbin", new List<string> { null }, new List<string> { "Kerbin", "Duna" },
                     out RouteTrajectoryLineRenderer.RouteScopeBasis noStopBasis));
-            Assert.Equal(RouteTrajectoryLineRenderer.RouteScopeBasis.MemberBodies, noStopBasis);
+            Assert.Equal(RouteTrajectoryLineRenderer.RouteScopeBasis.Endpoints, noStopBasis);
         }
 
         [Fact]

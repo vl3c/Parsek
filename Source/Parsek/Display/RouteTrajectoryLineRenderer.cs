@@ -147,11 +147,26 @@ namespace Parsek.Display
             => settings == null ? DefaultShowRouteLines : settings.showRouteLines;
 
         /// <summary>
-        /// THE inter-body predicate, and the ONLY expression of it: a route is inter-body when its
-        /// ORIGIN endpoint's body is known and at least one STOP endpoint's body is known and
-        /// DIFFERENT. Endpoint-only by construction (no member walk), so the build-time
-        /// endpoint-body filter and <see cref="ClassifyRouteScope"/> gate on the same function
-        /// rather than restating the test — they cannot disagree about one route.
+        /// THE inter-body predicate, and the ONLY expression of it: a route is inter-body when two
+        /// of its KNOWN endpoint bodies disagree, taking them in order as
+        /// <c>[origin, stop0, stop1, ...]</c>. The FIRST known one seeds the reference
+        /// (<see cref="ResolveEndpointReferenceBody"/>) and every later known one is compared
+        /// against it, so the origin is not privileged: a route whose ORIGIN body is empty but
+        /// whose stops name two different bodies is still inter-body. Endpoint-only by construction
+        /// (no member walk), so the build-time endpoint-body filter and
+        /// <see cref="ClassifyRouteScope"/> gate on the same function rather than restating the
+        /// test - they cannot disagree about one route.
+        ///
+        /// <para>THE ORIGIN IS NOT ALWAYS KNOWN, and an empty one must not collapse the reading.
+        /// <c>RouteBuilder</c>'s pre-descriptor docked-origin branch writes
+        /// <c>BodyName = originRec.StartBodyName ?? string.Empty</c>, and an empty
+        /// <c>StartBodyName</c> is real rather than hypothetical - the committed
+        /// <c>interbody-route-recorded</c> fixture's transfer member carries none. Seeding the
+        /// reference from the ORIGIN ALONE therefore sent such a route to the member-body fallback,
+        /// where mixed member bodies read <see cref="RouteLineScope.MalformedMixedBodies"/> and the
+        /// line was skipped: the same failure this change removed, narrowed to routes whose origin
+        /// body never resolved. The mirror direction holds too - the same seed is what lets stops
+        /// alone establish a SAME-BODY reference in <see cref="ClassifyRouteScope"/>.</para>
         ///
         /// <para>WHY THE ENDPOINTS AND NOT <see cref="Route.DispatchWindowPeriod"/>. The period was
         /// the shipped scope flag, and NOTHING in production ever set it non-zero
@@ -169,14 +184,35 @@ namespace Parsek.Display
         internal static bool IsInterBodyByEndpoints(
             string originBodyName, IReadOnlyList<string> stopBodyNames)
         {
-            if (string.IsNullOrEmpty(originBodyName) || stopBodyNames == null) return false;
+            string reference = string.IsNullOrEmpty(originBodyName) ? null : originBodyName;
+            if (stopBodyNames == null) return false;
             for (int i = 0; i < stopBodyNames.Count; i++)
             {
                 string stop = stopBodyNames[i];
                 if (string.IsNullOrEmpty(stop)) continue;
-                if (!string.Equals(originBodyName, stop, StringComparison.Ordinal)) return true;
+                if (reference == null) { reference = stop; continue; }
+                if (!string.Equals(reference, stop, StringComparison.Ordinal)) return true;
             }
             return false;
+        }
+
+        /// <summary>
+        /// The first KNOWN endpoint body in <c>[origin, stop0, stop1, ...]</c> order, or null when
+        /// no endpoint carries one. THE SINGLE SEED both endpoint readings use:
+        /// <see cref="IsInterBodyByEndpoints(string, IReadOnlyList{string})"/> compares every later
+        /// known endpoint against it, and <see cref="ClassifyRouteScope"/> makes it the body every
+        /// MEMBER must match on the same-body branch. Sharing it is what keeps the two directions
+        /// symmetric: whatever can establish "these endpoints disagree" must also be able to
+        /// establish "these endpoints agree, and here is on what".
+        /// </summary>
+        internal static string ResolveEndpointReferenceBody(
+            string originBodyName, IReadOnlyList<string> stopBodyNames)
+        {
+            if (!string.IsNullOrEmpty(originBodyName)) return originBodyName;
+            if (stopBodyNames == null) return null;
+            for (int i = 0; i < stopBodyNames.Count; i++)
+                if (!string.IsNullOrEmpty(stopBodyNames[i])) return stopBodyNames[i];
+            return null;
         }
 
         /// <summary>Live overload of <see cref="IsInterBodyByEndpoints(string, IReadOnlyList{string})"/>
@@ -190,23 +226,25 @@ namespace Parsek.Display
         /// cross-check. The rule, top-down:
         ///
         /// <list type="number">
-        /// <item>ORIGIN body known and some STOP body known and different -&gt;
+        /// <item>Two KNOWN endpoint bodies disagree -&gt;
         /// <see cref="RouteLineScope.InterBody"/> (<see cref="RouteScopeBasis.Endpoints"/>). The
-        /// members are EXPECTED to span bodies here — the transfer-frame member is the whole point —
+        /// members are EXPECTED to span bodies here - the transfer-frame member is the whole point -
         /// so no consistency check applies, and a THIRD body among the members is the ratified
         /// transfer gap, not a malformation: <see cref="FilterLegsToEndpointBodies"/> drops it.</item>
-        /// <item>ORIGIN body known and every known STOP body EQUAL to it -&gt; a declared same-body
-        /// route (<see cref="RouteScopeBasis.Endpoints"/>). Its members must agree with that body;
-        /// a member on another body means the recorded path leaves the pair the route declares, and
-        /// drawing it whole would paint a cross-body chord — that is
-        /// <see cref="RouteLineScope.MalformedMixedBodies"/> (design doc §17 "Map view
-        /// integration"). Otherwise <see cref="RouteLineScope.SameBody"/>.</item>
-        /// <item>No readable endpoint bodies (a default-constructed origin, or no stop carrying a
-        /// body) -&gt; the shipped v1 member-body consistency read
+        /// <item>At least one endpoint body known and every other known one EQUAL to it -&gt; a
+        /// declared same-body route (<see cref="RouteScopeBasis.Endpoints"/>). That reference body
+        /// (<see cref="ResolveEndpointReferenceBody"/> - the ORIGIN when it is known, otherwise the
+        /// first known STOP) is what the members must agree with; a member on another body means
+        /// the recorded path leaves the place the route declares, and drawing it whole would paint
+        /// a cross-body chord - that is <see cref="RouteLineScope.MalformedMixedBodies"/> (design
+        /// doc section 17 "Map view integration"). Otherwise
+        /// <see cref="RouteLineScope.SameBody"/>.</item>
+        /// <item>NO readable endpoint body at all (a default-constructed origin AND no stop
+        /// carrying one) -&gt; the shipped v1 member-body consistency read
         /// (<see cref="RouteScopeBasis.MemberBodies"/>): all known member bodies agree (or none are
         /// known) -&gt; <see cref="RouteLineScope.SameBody"/>, they disagree -&gt;
         /// <see cref="RouteLineScope.MalformedMixedBodies"/>. With no endpoints there is no
-        /// authority saying WHICH two bodies are the endpoints, so the safe reading is the shipped
+        /// authority saying WHICH bodies the route connects, so the safe reading is the shipped
         /// decline rather than a guessed inter-body draw.</item>
         /// </list>
         /// </summary>
@@ -220,13 +258,14 @@ namespace Parsek.Display
                 return RouteLineScope.InterBody;
             }
 
-            bool endpointsReadable =
-                !string.IsNullOrEmpty(originBodyName) && HasKnownBody(stopBodyNames);
-            basis = endpointsReadable ? RouteScopeBasis.Endpoints : RouteScopeBasis.MemberBodies;
+            // Declared same-body: the FIRST KNOWN endpoint body (origin, else the first stop that
+            // carries one) is the reference every member must match - the same seed the inter-body
+            // predicate above compares against, so the two directions cannot disagree about which
+            // body a route declares. No endpoint body at all: the first known MEMBER body becomes
+            // the reference instead (shipped v1), and the basis says so.
+            string reference = ResolveEndpointReferenceBody(originBodyName, stopBodyNames);
+            basis = reference != null ? RouteScopeBasis.Endpoints : RouteScopeBasis.MemberBodies;
 
-            // Declared same-body: the endpoint body is the reference every member must match.
-            // No endpoints: the first known member body becomes the reference (shipped v1).
-            string reference = endpointsReadable ? originBodyName : null;
             if (memberBodies == null || memberBodies.Count == 0) return RouteLineScope.SameBody;
             for (int i = 0; i < memberBodies.Count; i++)
             {
@@ -276,14 +315,6 @@ namespace Parsek.Display
                 bodies.Add(stop.Endpoint.BodyName);
             }
             return bodies;
-        }
-
-        private static bool HasKnownBody(IReadOnlyList<string> bodies)
-        {
-            if (bodies == null) return false;
-            for (int i = 0; i < bodies.Count; i++)
-                if (!string.IsNullOrEmpty(bodies[i])) return true;
-            return false;
         }
 
         /// <summary>The route's destination label for logs: the LAST known stop body, or
@@ -499,7 +530,7 @@ namespace Parsek.Display
         /// Content signature that gates a route-line rebuild. Folds the ordered recording ids, each
         /// resolvable member's polyline content hash (so an optimizer re-cut or supersede rebuild
         /// invalidates the cached line), the dock-clip UT, and the ENDPOINT bodies (origin + every
-        /// stop) — the scope authority, so a scope flip invalidates the cached line the way the
+        /// stop) - the scope authority, so a scope flip invalidates the cached line the way the
         /// period fold used to. An INTER-BODY route additionally folds its window schedule (the now
         /// informational period, window epoch, cadence multiplier) so a schedule change rebuilds
         /// the line; a SAME-BODY route folds no schedule field, so its computation is unchanged

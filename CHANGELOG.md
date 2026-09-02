@@ -44,8 +44,10 @@ _(unreleased — entries accumulate here per commit)_
   written anything but zero into it, so every between-bodies route was read as a
   same-body route whose recorded path inexplicably visits two planets, classified
   malformed, and skipped. It now decides from the thing that actually says what a route
-  is: where it starts and where it stops. Origin body different from a stop body means
-  between-bodies, and those routes draw their launch and arrival paths at the two ends
+  is: where it starts and where it stops. Any two of its known endpoint bodies
+  disagreeing means between-bodies - taken in origin-then-stops order, so a route whose
+  origin body was never resolved (which happens for a route that starts docked to
+  something recorded without one) still reads correctly off its stops, and those routes draw their launch and arrival paths at the two ends
   while the recorded interplanetary coast between them stays with the mission ghost that
   re-aims it each launch window (unchanged, deliberate). A route that declares one body
   at both ends but whose recorded path wanders off it is still declined as malformed -
