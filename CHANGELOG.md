@@ -27,7 +27,11 @@ _(unreleased — entries accumulate here per commit)_
   apart - while the copy left on the original timing came in at 5.7 seconds, less than a
   second from the line, which is what that copy is there to keep showing. A deliberately
   broken version of the waiting test was also flown, and it failed on exactly the one
-  thing that was broken in it and nothing else.
+  thing that was broken in it and nothing else. The check that the change left the
+  other affected test alone compares against a fixed past version of the code, named
+  by its exact commit, rather than against whatever the latest code happens to be -
+  the first attempt used "latest", which stopped comparing anything the moment the
+  change itself landed.
 
 - **Automated testing: a flight can now drive part actions on a scripted timeline, and
   the replay of each is checked family by family.** The test harness could stage,
