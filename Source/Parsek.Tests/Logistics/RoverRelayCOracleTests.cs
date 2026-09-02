@@ -185,6 +185,14 @@ namespace Parsek.Tests.Logistics
 
         // catches: the pre-fix binder's two wrong proofs being trusted by the read side.
         // The fixture is the ONLY committed copy of what the defect actually wrote.
+        //
+        // THIS RUNS FROM PERSISTED DATA ALONE. The proofs reach these assertions through the
+        // production load path - ConfigNode.Load -> RecordingTree.Load -> RouteProofCodec -
+        // and every predicate below is pure over the resulting DTOs, with no live vessel, no
+        // recorder and no session state. That is the contract the harness fixture
+        // `rover-relay-c-recorded` (harvested from this same save in a sibling worktree) will
+        // rely on: it ships these two WRONG proofs on purpose, and nothing in the analysis may
+        // need a live bind to refuse them.
         [Fact]
         public void ThePersistedProofsAreTheOnesTheDefectWroteAndBothAreRefused()
         {
@@ -215,6 +223,15 @@ namespace Parsek.Tests.Logistics
             Assert.False(hop2.StartDockedOriginPickupValidated);
             Assert.False(RouteAnalysisEngine.HasDockedOriginProof(
                 tree.Recordings[DeliveryRecordingId]));
+
+            // NEITHER refusal needs live state: both predicates are pure over the DTOs the
+            // codec produced, so a fixture that ships these bytes refuses them at load.
+            Assert.False(RouteAnalysisEngine.IsSelfOriginProof(hop1));
+            Assert.False(RouteAnalysisEngine.IsSelfOriginProof(hop2));
+            Assert.False(RouteAnalysisEngine.HasDockedOriginProof(
+                new Recording { RecordingId = "detached", RouteOriginProof = hop1 }));
+            Assert.False(RouteAnalysisEngine.HasDockedOriginProof(
+                new Recording { RecordingId = "detached", RouteOriginProof = hop2 }));
 
             // AND THE RELAY DERIVES ANYWAY, because the tree ROOT is a KSC launch: the
             // undocked-start gate never consults these proofs. That is why the two wrong
