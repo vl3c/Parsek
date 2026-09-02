@@ -2569,12 +2569,16 @@ moved is that no further authoring stands between them and a flight.
     `harness/scenarios/H59-surface-route-map-lines.toml` over `rover-route-recorded`,
     run `2026-09-02_0947`, PASS attempt 1, wall 99 s, every verifier green.
     **THE ANSWER IS OUTCOME A, AND RICHER THAN EITHER PRE-REGISTERED OUTCOME: a
-    surface route's path is on the FLIGHT MAP CONTINUOUSLY, and TWO PRODUCERS TAKE
-    TURNS DRAWING IT.** Thirteen `Route line draw:` lines split 2 pre-create /
+    surface route's path IS on the FLIGHT MAP, and BOTH producers draw it** - the
+    static overview and the per-cycle ghost, with the handoff observed map-open.
+    (Precisely: the second drawn frame lands 140 ms after `exitmapview`, because
+    the route-draw slot gates on the planetarium camera and the scene rather than
+    on `MapView.MapIsEnabled`, so the measured claim is CO-PRESENCE rather than a
+    strict alternation inside one window.) Thirteen `Route line draw:` lines split 2 pre-create /
     2 drawn (`routesDrawn=1 legsDrawn=1 skippedOwned=0 malformed=0 other=0`) /
     9 handed off (`skippedOwned=1`, with `Polyline frame: scene=FLIGHT drawn=1` in
     the same window), plus one
-    `Route line build: route=de65a95d members=2 groups=1 legs=1 transferDropped=0`.
+    `Route line build: route=<run-local 8-hex> members=2 groups=1 legs=1 transferDropped=0`.
     IT DOES NOT CONTRADICT THE LANDED PIN: the member still gets no proto, and what
     the census adds is that proto presence and route-overview presence are
     INDEPENDENT. THE PRE-REGISTRATION EARNED ITS KEEP - its warning that

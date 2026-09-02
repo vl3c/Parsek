@@ -96,7 +96,7 @@ _(unreleased — entries accumulate here per commit)_
 ### Dev
 
 - **A supply route to a surface base does show its path on the map, and two
-  different renderers take turns drawing it.** That was an open question - the one
+  different renderers both draw it.** That was an open question - the one
   measured fact nearby says a landed replay gets no map object of its own outside
   the flight scene, which is still true, but a route's overview path is drawn by a
   different producer that never looks at one. A new test lane opened the map view in

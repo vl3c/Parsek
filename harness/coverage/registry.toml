@@ -150,10 +150,16 @@ values = ["rewind-to-launch", "fast-forward", "rewind-to-separation", "refly-gat
 #     `requireConicAnchor:false`.
 #   * DIFFERENT MEASURED BEHAVIOUR, and this is the one that makes it an atom rather than
 #     a re-claim: in the flight scene the route overview and the per-cycle GHOST polyline
-#     compete for the same member's leg, so ownership ALTERNATES
-#     (`IsRenderingNonOrbitalLeg` -> `skippedOwned`). V18T measured `routeLegDefers = 0`;
-#     H59 measured nine deferred frames against two drawn ones. A TS observation
-#     structurally cannot produce that reading.
+#     compete for the same member's leg, so the overview STANDS DOWN when the ghost holds
+#     it (`IsRenderingNonOrbitalLeg` -> `skippedOwned`). V18T measured the MANIFEST facet
+#     `routeLegDefers = 0`; H59 measured nine LOG-SIDE `skippedOwned=1` frames against two
+#     drawn ones. THE TWO NUMBERS COME FROM DIFFERENT INSTRUMENTS and must not be reported
+#     as one: H59's own manifest facet also reads 0, because its manifest was exported in
+#     SPACECENTER after a scene switch that Resets the recorder (see
+#     RENDER-MANIFEST-VERB-EXPORT-IN-A-SECOND-SCENE-CLOBBERS-THE-FIRST-SCENE-ACCUMULATION),
+#     so what carries this cell is V18T's zero DEFERRALS against H59's nine observed
+#     HANDOFFS, read from different surfaces. A TS observation structurally cannot produce
+#     the handoff reading on either surface.
 # CLAIMED CONDITIONAL ON THE ARMED RE-FLIGHT: the census run (`2026-09-02_0947`) was green
 # but its tokens were value regexes, so the green did not GATE the behaviour. H59's tokens
 # are armed as of this commit and the re-flight is what converts the claim into a gate;

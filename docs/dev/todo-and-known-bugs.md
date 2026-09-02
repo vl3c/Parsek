@@ -20,7 +20,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 **What was measured.** `H59-surface-route-map-lines` drives its observation in FLIGHT with
 the map open, then does `SaveGame` -> `LoadGame scene=spacecenter` -> dwell ->
 `ExportRenderManifest` -> `FlushAndQuit`. Its KSP.log carries ONE
-`Route line build: route=de65a95d members=2 groups=1 legs=1 transferDropped=0` and NINE
+`Route line build: route=<run-local 8-hex> members=2 groups=1 legs=1 transferDropped=0` and NINE
 `Route line draw: ... skippedOwned=1` frames (the ghost-ownership handoff), plus two
 `routesDrawn=1 legsDrawn=1` frames. The manifest the run exported reports
 
@@ -31,6 +31,17 @@ and the file itself (`parsek-render-manifest.txt` in the run's `_shots` folder) 
 `scene = SPACECENTER`, exactly one `PLAN` `UNIT` with `host = KSC`, one `CLOCK_EVENT`, and
 no `ROUTE_LINE_BUILD` / `ROUTE_LEG_DEFER` / `OWNERSHIP_CHANGE` record at all. Both readings
 are correct; nothing is lying.
+
+**SAME ROOT CAUSE AS `M-A7-ONE-MANIFEST-PER-PROCESS` (above), AND THIS ENTRY IS THE
+SECOND FACE OF IT RATHER THAN A NEW DEFECT.** That entry states the shared half - two rich
+scenes in one KSP session end as last-flush-wins, because there is one fixed output path
+and the auto-flush clobber guard only protects a dwell-bearing manifest from a DWELL-FREE
+later flush - and proposes the remedy shape (a per-scene partition suffix, or an
+append-partition inside one file). It scopes itself as "fine for harness lanes (one scene,
+one export)", and WHAT IS NEW HERE IS EXACTLY THAT SCOPING FAILING ONCE A LANE HAS TWO
+SCENES: a harness lane's export is a VERB, the verb bypasses the guard unconditionally by
+design, and the declarer placement rule forces it into the last scene. The older entry's
+remedy would close both, and neither should be closed without the other.
 
 **The mechanism, read from source rather than inferred.** Three deliberate decisions
 compose into the loss:
@@ -1462,6 +1473,17 @@ session keeps only the second manifest. A per-scene partition suffix
 preserve both; the harness reader would take the newest/richest. Deliberately not
 built until a session actually needs it.
 
+**A HARNESS LANE NOW NEEDS IT (2026-09-02), AND THE "fine for harness lanes" SCOPING ABOVE
+NO LONGER HOLDS.** `H59-surface-route-map-lines` observes in FLIGHT and exports from
+SPACECENTER, so its manifest reported `routeLineBuilds=0 ownershipChanges=0` against a log
+carrying one route-line build and nine ownership handoffs. Same root cause - one fixed
+path, last-flush-wins - and what the harness case adds is that the export is a VERB, which
+bypasses the clobber guard unconditionally by design, and that the declarer placement rule
+(`test_every_declarer_exports_immediately_before_teardown`) forces that verb into the LAST
+scene. Filed with the harness detail as
+RENDER-MANIFEST-VERB-EXPORT-IN-A-SECOND-SCENE-CLOBBERS-THE-FIRST-SCENE-ACCUMULATION; the
+per-scene partition proposed above would close both, and neither should be closed alone.
+
 ## ~~COLLECT-LOGS-SAVE-COPY-IS-ANALYZER-INCOMPLETE: `scripts/collect-logs.py` copies `Parsek/Recordings` but not `Parsek/Saves` or `Parsek/GameState`, so an analyzer run over a COLLECTED save always WARNs INV9 (missing rewind saves) and loses the GameState sidecars a fixture harvest needs~~ [FOUND 2026-08-25: the s15 collection WARNed INV9 on four recordings whose rewind saves exist in the live save, and the duna-one-recorded harvest had to reach into the separately-collected `parsek/` dir for GameState. TOOLING IMPROVEMENT. FIXED 2026-09-02]
 
 **Fix (2026-09-02).** The save-copy leg now copies EVERY `Parsek/<dir>` subdirectory of the
@@ -2293,8 +2315,10 @@ DEFERRALS TAKEN IN PHASES 1-2, each of which a lane author must know.
   same epilogue, as that file's `:451-463` comment states. NINE
   `Route line draw: ... skippedOwned=1` frames are therefore nine frames on which
   the publish surface ran AND held this route's member, against two frames at
-  `routesDrawn=1 legsDrawn=1 skippedOwned=0` where it did not - a clean alternation
-  rather than a one-sided reading.
+  `routesDrawn=1 legsDrawn=1 skippedOwned=0` where it did not - both producers present
+  rather than a one-sided reading. (Not an ordering claim: the second of those two frames
+  falls 140 ms after `exitmapview`, since the route-draw slot is not `MapView`-gated. Every
+  handoff frame IS inside the map-open window, which is what this entry needs.)
   **WHAT IS STILL UNMEASURED IS THE MANIFEST FACET ON THIS CLASS, NOT THE
   BEHAVIOUR.** H59's `ownershipChanges` read 0, and that is NOT an ownership
   finding: its manifest was exported in SPACECENTER after a scene switch that
