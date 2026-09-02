@@ -865,3 +865,94 @@ sites in `GhostOrbitLinePatch`. Source-gated by `LineBlinkWindowExitExemptionTes
   flagged - RewindReadbackGuard semantics). Monotonic `recalcSeq` stamped on every line so
   one recalc burst is grep-sliceable.
 - Formatters SELF-CONTAINED (do not refactor a shared formatter out of the render tracers).
+
+### `GhostPartEventApplyLog.cs` (flight-scene applier family lines, P8 step 1, 2026-09-02)
+
+The third sibling in this family, and the one that is NOT behind a tracer setting: it
+rides the ordinary `verboseLogging` gate, because it answers "did the recorded event
+reach the ghost?", which is a question every flight log should be able to answer.
+Closes todo PART-EVENT-APPLIER-IS-UNLOGGED, where `GhostPlaybackLogic.ApplyPartEvents`
+emitted ONE aggregate line per call (`Applied N part events for ghost #N`) and every
+per-family handler emitted nothing, so six D7 registry cells were unclaimable by any
+log-reading lane.
+
+THE LINE, one per (recording, family, surface) actually touched, flushed after the
+consume loop:
+
+```
+[Parsek][VERBOSE][GhostPartEvents] apply family=<PartEventType member> surface=<token>
+    rec=<int> pid=<uint> applied=<int> skipped=<int> reason=<token>
+```
+
+- `family` is the `PartEventType` MEMBER NAME verbatim, so a spec pins a family by
+  name and a renamed member breaks the spec loudly rather than silently.
+- `surface` is the ghost sub-surface the counters describe, from a closed vocabulary
+  (`visibility`, `parachute`, `engine-fx`, `engine-audio`, `rcs-fx`, `deployable`,
+  `jettison-panel`, `fairing`, `heat`, `light`, `colorchanger`, `blink-state`,
+  `converter-loop`, `eva`, `robotic`, `inventory`). Two surfaces exist where a family
+  drives two independent things (a light event writes Unity `Light` components AND
+  Pattern-A colour-changer materials; an engine event writes FX and audio) or where a
+  family CASCADES (a cargo bay tries the animated deployable, then jettison panels).
+  Reporting one boolean for such a pair is exactly what made
+  SHOWCASE-COLORCHANGER-APPLY-UNOBSERVABLE unanswerable.
+- `reason` is from a closed vocabulary too: `applied` (no skips), `already-in-state`,
+  `deferred-to-driver`, `legacy-event-ignored`, `no-family-state`, `no-info-for-part`,
+  `no-cabin-light-entry`, `no-resolved-visual`, `pose-not-sampled`,
+  `unhandled-event-type`. Only `applied` counts toward `applied=`; the two deliberate
+  no-ops are SKIPS with their own reason, so "nothing moved" can never hide inside the
+  applied count.
+- `pid` is the representative part: the first pid that SKIPPED when there was any skip,
+  otherwise the first that applied. A skip is what a reader hunts, so it wins the slot.
+- Every token is whitespace-free by construction, so a harness parser splits on
+  whitespace - it does not need `ghostlife.py`'s free-text-tail cut.
+
+CONTRACTS THAT MUST NOT DRIFT:
+
+- **The precondition classifiers ARE the handlers' early returns.** Each family has an
+  internal `Classify*Apply` pure function that the handler CALLS; there is no second
+  copy of a guard. Two reasons: the standing rule against duplicating a predicate, and
+  a measured testability constraint. Some Unity writes make their whole enclosing
+  method un-JIT-able under xUnit - it throws `SecurityException: ECall methods must be
+  packaged into a system module` on ENTRY, before any branch runs - so a guard inside
+  such a body is unreachable from a headless test whichever branch it would take.
+  MEASURED, not assumed, and the boundary is narrower than "any Unity write": the
+  `GameObject.SetActive` / `Light.enabled` shape throws, while plain Transform property
+  writes do NOT - `ApplyHeatStateWithOutcome` and `ApplyDeployableStateWithOutcome`
+  both run headlessly. The classifier split is applied uniformly anyway, because the
+  boundary is a property of the JIT rather than of the family and a handler that gains
+  a `SetActive` later would otherwise silently lose its test coverage.
+- **The historical signatures are wrappers.** `SetEngineEmission`, `ApplyDeployableState`,
+  `ApplyHeatState`, `ApplyConverterLoopState` and the rest keep their void/bool
+  signatures and delegate to a `*WithOutcome` core, so no existing caller changed. The
+  converter wrapper deliberately maps BOTH `Applied` and `AlreadyInState` back to true,
+  which is its historical contract ("a loop was reached").
+- **The rate-limit policy is PER FAMILY, not uniform.** `IsPerFrameFamily` names the
+  only three rate-limited families - `EngineThrottle`, `RCSThrottle` and
+  `RoboticPositionSample`, the ones the recorder samples continuously rather than on a
+  state change, whose line count is unbounded in the flight length. Those flush through
+  `VerboseRateLimited` at 15 s keyed per (recording, family, surface). EVERY OTHER
+  FAMILY flushes as plain `Verbose`, one line per occurrence, because it is bounded and
+  event-driven (a stage fires once, a bay opens once, a chute cuts once) and an
+  occurrence is already one AGGREGATED line per `ApplyPartEvents` call. A UNIFORM 15 s
+  limiter was measurably wrong and is the thing not to reintroduce: a batch that applied
+  pid A at t=0 and SKIPPED pid B at t=5 suppressed the second line outright, so the skip
+  the instrument exists to surface survived only as a `suppressed=N` counter on some
+  later emission. Guarded by `ABoundedFamilysSecondOccurrenceIsNotSuppressed_TheSkipMustSurvive`
+  and its per-frame mirror.
+- **Cost.** The tally is allocated LAZILY on the first CONSUMED event, so a ghost whose
+  event cursor is caught up (the overwhelmingly common frame) pays nothing at all.
+- **`UpdateBlinkingLights` must stay on the CLASSIFY-FREE driver path.** It calls
+  `SetLightState` once per blinking light per ghost per frame, and that cost multiplies
+  across every ghost in the scene. `SetLightState` therefore calls the two writers
+  (`WriteUnityLightState` / `WriteColorChangerLightState`) DIRECTLY; only
+  `SetLightStateWithOutcomes`, reached from a recorded light event, runs the light
+  classifier and the nested colour-changer scan (a per-part list walk with a
+  per-material walk inside it). Routing the driver through the outcome variant would
+  run both every frame only to discard the answer, and would also tally driver writes
+  that no recorded event produced. One write loop per surface serves both paths.
+- One behaviour note, deliberate: the pre-existing `Part pid=N: applied color changer
+  cabin light state=<bool>` line now fires only when a live material was actually
+  written (it previously fired for a cabin-light entry with zero live materials). It
+  claimed an apply that had not happened.
+
+Headless guards: `Source/Parsek.Tests/GhostPartEventApplyLogTests.cs`.
