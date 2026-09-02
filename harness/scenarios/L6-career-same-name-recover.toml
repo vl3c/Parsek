@@ -1,0 +1,147 @@
+schema = 1
+id = "L6-career-same-name-recover"
+# `operator` for its first flight: a READING RUN whose whole purpose is to put the
+# recovery correlator's UT tiers IN COMPETITION for the first time in the suite, and to
+# read which tier the driven career actually lands on. Nothing here is armed.
+tier = "operator"
+#
+# WHAT THIS SPEC IS FOR. KERBAL-XP-RECOVERY-PICK-IS-NAME-AND-UT-ONLY (todo, stage 2
+# outstanding) records that `LedgerOrchestrator.PickRecoveryRecordingId` matches
+# candidates by vessel NAME and ranks them by a UT tier (bracketing, else
+# most-recent-ended, else global-latest), and that "every committed career fixture flies
+# one launch of one craft name, so the tiers are never in competition. A repro needs two
+# launches of the same craft name with a recovery of the second - which is also the shape
+# the eventual fix should be live-proven on." This lane is that shape.
+#
+# HOW IT GETS TWO SAME-NAME LAUNCHES WITHOUT A NEW FIXTURE. `career-earned-pad` is the
+# save L3-career-science-recover PRODUCED (run `2026-08-19_2130`): a career that already
+# EARNED flight science and RECOVERED the pad craft once, with the SAME craft spliced
+# back onto the pad in PRELAUNCH so a FLIGHT-scene lane can boot into it (that splice is
+# what L4 flies against). Flying `science_bench_recover` over it again is therefore the
+# second launch of the same craft name, ending in the second recovery.
+#
+# THE FIXTURE'S OWN BYTES, read before pinning anything (the first draft of this spec
+# pinned `nameMatches=2` off the assumption of ONE prior recording and would never have
+# matched):
+#   - the prior launch left TWO chained recordings, both `vesselName = Jumping Flea`,
+#     both `recordedVesselGuid = f77e4207...` (L3's optimizer split its one flight in
+#     two; `test_career_earned_pad.py` gates exactly 2 `.prec`, L4 pins count 2/2);
+#   - the spliced pad VESSEL carries `pid = 3d90c5b1...`, a DIFFERENT launch guid, and
+#     that guid is what this flight records and what the recovery hands the correlator.
+#
+# WHEN THE PICK RUNS, AND WHAT IT THEREFORE SEES. The XP leg
+# (`GameStateRecorder` ExperienceGained -> `TryRecordRecoveryKerbalExperience`) fires in
+# SPACECENTER milliseconds AFTER the FLIGHT->SPACECENTER auto-commit has closed this
+# flight's tree (measured, per that method's own doc comment), so by then this flight's
+# recording(s) are in the committed list beside the fixture's two. The pick's pass 1
+# name-matches all of them (2 + this flight's, which the optimizer may split as it did
+# L3's); pass 2 - the STAGE 1 guid filter - drops the fixture's two on a conclusive guid
+# mismatch and leaves this flight's own as survivors; the tier walk then runs over the
+# survivors only. The funds leg pairs at commit time through the terminal-state path and
+# does not pick; the science leg picks per subject and may or may not carry the guid.
+#
+# WHAT IT READS. The pick's own summary line (Verbose, hence verboseLogging=true):
+#     PickRecoveryRecordingId: <identity> ut=<ut> nameMatches=N survivors=N guidDropped=N
+#         ... tier=<bracketing|most-recent-ended|global-latest> bracketTie=<...> pick=<id>
+# The load-bearing token is `guidDropped=2` with `nameMatches>=3` and `survivors>=1`:
+# it is the STAGE 1 filter resolving the same-name case LIVE, for the first time anywhere
+# in the suite - the fixture's two prior-launch recordings name-match and are dropped by
+# guid before any tier can see them. That is exactly the question stage 2 leaves open
+# (is stage 1 sufficient on a real second launch, or do the tiers still have to
+# decide?). Whichever tier the survivors then land on is the reading; the spec pins the
+# SHAPE, never a verdict, on the same instrument-not-gate rule as H55's origin-proof
+# probe. The second required token is L3's own `Recovery kerbal XP recorded` line with
+# the recordingId as a value class: it proves the pick was CONSUMED (a row was written
+# under the picked id), so the pick line is not merely a diagnostic that fired.
+#
+# WHAT A RED WOULD MEAN. No line with `guidDropped=2`: either the recovery handed the
+# correlator no guid (`guid filter ... reason=live-launch-guid-unknown` on every leg - a
+# seam reading, the filter was inert) or the fixture's recordings did not name-match (a
+# fixture fact to record). `Recovery kerbal XP refused: ... reason=no-recovery-recording`
+# with the tree committed: the pick returned null with survivors present, the product
+# finding. A pick line whose `survivors=0` cannot exist - that branch logs nothing - so
+# an absent line with the XP row refused reads as "both dropped and nothing of this flight
+# was committed yet", a timing reading against the doc comment quoted above.
+description = "Reading run: fly science_bench_recover a SECOND time over career-earned-pad (the save L3 produced, whose pad craft already flew and was recovered once, leaving two same-name recordings under a different launch guid), so the recovery correlator's stage 1 guid filter and its UT-tier pick are measured live on a real second launch for the first time (KERBAL-XP-RECOVERY-PICK-IS-NAME-AND-UT-ONLY stage 2's repro shape)."
+instanceProfile = "stock-minimal"
+tags = ["ledger", "L6", "recovery", "correlator", "same-name", "career", "reading-run"]
+
+[fixture]
+saveTemplate = "fixtures/saves/career-earned-pad"
+# LOAD-BEARING: the fixture's OWN two recordings are the first launch the correlator must
+# compete against; an injection preset would add synthetic candidates and blur the read.
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind    = "autopilot"
+mission = "science_bench_recover"
+# L3's driver verbatim (its (1) autoMerge ON and (2) CommitTree kept-and-expected-to-fail
+# reasoning transfers unchanged: the recovery destroys the vessel, the tree stashes as
+# pending, and the FLIGHT -> SPACECENTER exit auto-commits it), plus verboseLogging=true
+# because the pick line this lane reads is Verbose.
+steps = [
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent" },    expect = "OK", budget = 300 },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "true" }, expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoMerge",          value = "true" }, expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "verboseLogging",     value = "true" }, expect = "OK" },
+  { phase = "mission",                                                              expect = "MISSION-OK", budget = 1320 },
+  { cmd = "CommitTree",                                                             expect = "OK" },
+  { cmd = "RecordingState",                                                         expect = "OK" },
+  { cmd = "FlushAndQuit",                                                           expect = "OK" },
+]
+
+[driver.missionParams]
+# L3's values verbatim: the craft is the same pad craft (career-earned-pad is L3's
+# produced save with that craft spliced back onto the pad), so the flight leg's windows
+# and the career leg's floors transfer. If the first flight reads an INVALID on the
+# flight leg, the splice differs from the craft L3 flew and the params need re-sizing
+# against the fixture's own bytes - a driver reading, never a PARSEK-FAIL.
+throttle                 = 1.0
+apoapsisWindowMeters     = { min = 6000, max = 30000 }
+chuteArmMaxRateMps       = 30
+chuteFullDeployAltMeters = 2500
+landedSituations         = ["LANDED", "SPLASHED"]
+ascentTimeoutSeconds     = 90
+coastTimeoutSeconds      = 180
+descentTimeoutSeconds    = 360
+collectMinExperiments = 1
+collectTimeoutSeconds = 120
+transmitMinScienceGain = 0.5
+transmitTimeoutSeconds = 120
+recoverMinFundsGain = 1.0
+recoverTimeoutSeconds = 180
+
+[dimensionsCovered]
+# Conservative on L3's rule: a reading run claims only what its required tokens back.
+D1  = ["auto-record-launch"]
+D14 = ["kerbin", "career", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# The fixture's two recordings plus at least this flight's one. No ceiling: the
+# scene-exit optimizer may split the new recording (L3 measured that on its own flight).
+count = { min = 3 }
+
+[expectations.logContracts]
+required = [
+  # The XP leg's pick: the fixture's two prior-launch recordings name-match and are
+  # dropped by guid (guidDropped=2 literal - the one fact this lane exists to measure);
+  # this flight's own recording(s) survive and the tier walk runs over them alone.
+  "PickRecoveryRecordingId: .* nameMatches=[3-9] survivors=[1-9] guidDropped=2 .* tier=(bracketing|most-recent-ended|global-latest) bracketTie=\\S+ pick=",
+  # L3's own token with the id as a value class: the pick was consumed by a row.
+  "Recovery kerbal XP recorded: vessel='Jumping Flea'.*recordingId=\\S+ rows=[1-9]",
+]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+[runtime]
+# L3's budget: the mission leg dominates.
+budgetSeconds = 2400
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

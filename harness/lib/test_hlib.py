@@ -3925,6 +3925,11 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
         # ATTRIBUTE-level and therefore the same 47 as its three siblings; only the
         # split differs, and that split is INTERIM (see INTERIM_PIN_IDS).
         "RVR-1-rover-route-proof": ("Logistics", 47),
+        # H55's six RouteDockCapture cells over RVR-1's LANDED host, authored 2026-09-02 and
+        # never flown: the lane that moves H55's origin-proof probe past the producer's
+        # PRELAUNCH short-circuit (ROUTE-ORIGIN-PROOF-PRODUCER-UNREACHABLE). Same wholly
+        # batch-disabled category as H55, so the ordinary ceiling is zero and the tally
+        # discriminates on the `passed=` floor; the split is INTERIM until the first census.
     }
 
     # Members whose category is only PARTLY batch-disabled, i.e. the ordinary path
@@ -6387,6 +6392,14 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
     # each classified by hand. A NEW one reds
     # `test_every_untagged_candidate_is_classified` until someone decides.
     REVIEWED_UNTAGGED = {
+        # THE FOUR 2026-09-02 READING-RUN LANES, authored so every live-gated todo entry
+        # has a driver instead of a "needs a flight" note. All four are tier=operator on
+        # the calibration-discipline shape and NOT debt: each pins token SHAPES rather
+        # than verdicts and pre-registers what GREEN / RED / INVALID mean, so the first
+        # flight is a reading a human looks at, and what is owed is the FLIGHT.
+        "S4.3-refly-discard-with-ghosts.toml":     "tier=operator as a reading run, NOT debt: S4.2's seam cycle with the conclusion flipped to AnswerMergeDialog choice=discard, pinning ReFlyDiscard's per-recording removal line and ParsekFlight's two CommittedRecording* handler lines - PR #1591's never-driven path. Nothing armed; promotion is the reading run",
+        "S4.4-refly-quicksave-mid-session.toml":   "tier=operator as a reading run, NOT debt: the deliberate experiment REFLY-BATCH-BASELINE-DISCARDS-LIVE-SESSION asked for (a real quicksave AND quickload from inside the live Re-Fly session, no batch - save alone is GREEN by construction since the verdict token has only load-path emitters), whose GREEN / INVALID / RED readings are pre-registered in the spec. Nothing armed; the reading decides which todo entry owns the finding",
+        "L6-career-same-name-recover.toml":        "tier=operator as a reading run, NOT debt: science_bench_recover flown a SECOND time over career-earned-pad, whose two prior-launch same-name recordings carry a different launch guid, so PickRecoveryRecordingId's stage 1 guid filter is measured live (KERBAL-XP-RECOVERY-PICK-IS-NAME-AND-UT-ONLY stage 2's repro shape); pins the pick line's shape with guidDropped=2 literal and nameMatches / survivors / tier as value classes. Nothing armed; promotion is the reading run",
         # tier=operator by the CALIBRATION DISCIPLINE, the whole B18-B26 family's
         # tier, and NOT a debt: a first-flight B lane is operator because its
         # windows are derived rather than measured and the first run is a

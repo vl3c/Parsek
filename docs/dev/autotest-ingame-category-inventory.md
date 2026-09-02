@@ -49,9 +49,9 @@ re-derive and gate. When the two disagree, read the table and fix the heading.
   |---|---|---|
   | `AllowBatchExecution = false` + `RestoreBatchFlightBaselineAfterExecution = true` | 68 | Yes, on an ISOLATED batch (R5) |
   | `AllowBatchExecution = false`, no restore flag | 3 (all `Periodicity`) | No - genuinely manual-only |
-  | `RestoreBatchFlightBaselineAfterExecution = true` with `AllowBatchExecution` left true | 4 (`Contracts` 2, `TestCommands` 1, `LedgerGroundTruth` 1) | Yes, on EITHER path - not counted in this column |
+  | `RestoreBatchFlightBaselineAfterExecution = true` with `AllowBatchExecution` left true | 5 (`Contracts` 2, `TestCommands` 1, `LedgerGroundTruth` 2) | Yes, on EITHER path - not counted in this column |
 
-  Those last 4 are worth knowing about because they look like they should
+  Those last 5 are worth knowing about because they look like they should
   discriminate between the two paths and do not: both filters admit them, and both
   prime and restore the baseline for them, so their tallies are identical either
   way. The one place the paths differ for them is degraded - when no flight baseline
@@ -123,7 +123,7 @@ Two limits of this table, stated so nobody over-reads it:
 | `KSP` | 6 | 6 | 4 | 4 | 0 | 0 | H13 | A |
 | `KspApiSanity` | 5 | 5 | 3 | 3 | 0 | 3 | H24 | A |
 | `Ledger` | 4 | 0 | 4 | 0 | 0 | 4 | H48 (flown 2026-08-28, executes 4 of 4) | A |
-| `LedgerGroundTruth` | 2 | 2 | 0 | 0 | 0 | 1 | L2 | B |
+| `LedgerGroundTruth` | 3 | 3 | 0 | 0 | 0 | 3 | L2, L4 (the third cell, `CurrencyTooltipLiveInvariantTest`, was added 2026-09-02 and both lanes' tallies were RE-DERIVED to total=3 ahead of a flight; all three members self-skip - career-only, singleton and live-tree guards) | B |
 | `LocalizedName` | 3 | 3 | 3 | 3 | 0 | 0 | H29 | A |
 | `LogContracts` | 10 | 10 | 8 | 8 | 0 | 2 | H26 | A |
 | `Logistics` | 47 | 8 | 2 | 1 | 38 | 46 | H34 (SPACECENTER slice), H35 (FLIGHT ordinary slice), H38 (FLIGHT ISOLATED on a built pad rig, flown 2026-08-28, executes 39), H39 + H40 (the same ISOLATED slice on RECORDED hosts, both flown 2026-08-28, executing 34 and 35), RVR-1 (the same ISOLATED slice on the TARGET-BRANCH recorded host `rover-route-recorded`, authored 2026-08-30, NEVER FLOWN - predicted to convert the two dock-window cells H39/H40 both measured as unpayable by existing bytes, at the cost of the initiator cell they pin). Union across the five FLOWN slices: 42 of 47 | B |
@@ -204,8 +204,8 @@ Two limits of this table, stated so nobody over-reads it:
 
 ## Triage
 
-Totals, re-derived: **110 categories / 613 declarations**. Buckets **A 34 categories
-(235 declarations)**, **B 76 categories (378 declarations)**, **C 0 categories (0
+Totals, re-derived: **110 categories / 614 declarations**. Buckets **A 34 categories
+(235 declarations)**, **B 76 categories (379 declarations)**, **C 0 categories (0
 declarations)**. The 107th is `AutoMergeCommit` (R4, the AUTOMERGE-ON-BY-DEFAULT
 wave; the 106th is `DisabledHoverEcho`, landed the same week): the plan-§7
 autoMerge=ON scene-exit cell, batch-disabled and restore-backed exactly like the two

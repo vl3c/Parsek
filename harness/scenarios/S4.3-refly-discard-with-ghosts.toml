@@ -1,0 +1,124 @@
+schema = 1
+id = "S4.3-refly-discard-with-ghosts"
+# `operator` for its first flight: this is a READING RUN of a path no lane has ever
+# driven (a Re-Fly attempt DISCARDED from the merge dialog while the flight scene is
+# populated), and the tally-free contract below is written from source, not from a
+# measurement. Promotion to nightly is the reading run's job, on S4.2's argument
+# (LoadGame is the flight-entry verb; a ~2-boot seam run is not EXPENSIVE).
+tier = "operator"
+#
+# WHAT THIS SPEC IS FOR. PR #1591 (COMMITTED-LIST-SILENT-REMOVERS, 2026-09-02) routed
+# every committed-list removal through RecordingStore.RemoveCommittedAtWithNotifications,
+# so a Re-Fly DISCARD - MergeDialog.ReFlyDiscard's RemoveCommittedAttemptRecordings loop,
+# which removes the attempt's recordings from the flat list one by one - now raises
+# CommittedRecordingRemoving / Removed for each, and ParsekFlight's handlers tear the
+# slot's ghost down and shift every index-keyed store (engine ghost slots, held ghosts,
+# map presence, watch index, continuation indices). That behaviour is CORRECT BY
+# CONSTRUCTION and PINNED HEADLESSLY (CommittedListNotificationTests), and it has NEVER
+# BEEN DRIVEN LIVE: the todo entry for the fix says so in as many words, and names this
+# exact sequence - "the first Re-Fly discard with ghosts alive" - as the thing to look
+# at. This lane is that look.
+#
+# THE SHAPE IS S4.2's SEAM CYCLE WITH THE ANSWER FLIPPED. Same gloops-airshow FLIGHT-entry
+# LoadGame, same injected world-preservation rewindable tree under `rp_wp_root`, same
+# InvokeRewind of the crashed-booster slot; the conclusion is `AnswerMergeDialog
+# choice=discard` instead of `merge`. The injected corpus is what makes the flight scene
+# POPULATED: the root ascent, the surviving upper stage and the booster are all
+# committed recordings the ghost engine can hold slots for while the session is open.
+#
+# WHAT THE PINS SAY, and what each rests on:
+#   - the four re-fly milestones are S4.1/S4.2's, verbatim (StartInvoke, Invocation
+#     complete, ConsumePostLoad restore, the restore summary);
+#   - `Removed Re-Fly attempt rec=` is ReFlyDiscard's own per-recording Info line, the
+#     producer side of the notification, and `End reason=discardReFlyAttemptFromMergeDialog`
+#     is the session-end token the discard route emits (both pre-existing, grep-stable);
+#   - `Committed recording #N (...) removing - destroying its ghost state` and
+#     `Committed recording #N removed - reindexed engine, held, map, watch and chain state`
+#     are ParsekFlight's two handler lines (Verbose - hence `SetSetting verboseLogging=true`
+#     ahead of the rewind). Their PRESENCE is the proof that the notification seam reached
+#     the FLIGHT controller on a discard at all; their COUNT is not pinned, because how
+#     many recordings a discard removes depends on what the attempt contained, and a
+#     first flight measures that rather than predicts it.
+#   - `forbidden` carries the two failure signatures the fix could produce and nothing
+#     else could: a `subscriber threw` Error (a handler that could not cope with the state
+#     the discard left) and any `[Parsek][ERROR]` at all.
+#
+# WHAT A RED WOULD MEAN. A missing handler line with the ReFlyDiscard line present means
+# the discard removed recordings through a path that does NOT route through the primitive
+# (a silent remover the PR #1591 review missed). A `subscriber threw` means the handler
+# hit a state (e.g. a watched ghost among the removed slots) the headless cells do not
+# model. Either is a product finding for todo-and-known-bugs.md, not a contract to relax.
+description = "Reading run: InvokeRewind a crashed-booster slot on the world-preservation fixture, then DISCARD the attempt from the merge dialog while the flight scene holds ghost slots for the injected corpus, pinning ReFlyDiscard's per-recording removal line and ParsekFlight's Removing / Removed handler lines (PR #1591's never-driven path)."
+instanceProfile = "stock-minimal"
+tags = ["rewind", "refly", "discard", "committed-list-notifications", "S4.3", "D9", "reading-run"]
+
+[fixture]
+# S4.2's fixture verbatim, for S4.2's two reasons: it loads into FLIGHT (activeVessel=1
+# over two VESSEL nodes, the Focusable route) and the injected preset carries a
+# multi-recording rewindable tree, so the flight scene has committed recordings to hold
+# ghost slots for while the session is open.
+saveTemplate       = "fixtures/saves/gloops-airshow"
+injectedRecordings = "refly-world-preservation"
+craft              = []
+
+[driver]
+kind = "seam"
+# autoRecordOnLaunch OFF pins determinism (InvokeRewind is REJECTED outright while a
+# recorder is live). verboseLogging ON because the two handler lines this lane exists to
+# read are Verbose. The discard answer concludes the session in FLIGHT (the pre-transition
+# dialog), so the removals run with ParsekFlight alive and subscribed - which is the whole
+# point; RecordingState afterwards is a read-only probe of what the discard left.
+steps = [
+  { cmd = "LoadGame",          args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 240 },
+  { cmd = "SetSetting",        args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",        args = { name = "verboseLogging",     value = "true" },  expect = "OK" },
+  { cmd = "InvokeRewind",      args = { rp = "rp_wp_root", slot = "1" },            expect = "OK", budget = 300 },
+  { cmd = "AnswerMergeDialog", args = { choice = "discard" },                       expect = "OK", budget = 120 },
+  { cmd = "RecordingState",                                                         expect = "OK" },
+  { cmd = "FlushAndQuit",                                                           expect = "OK" },
+]
+
+[dimensionsCovered]
+# The seam half is S4.1's and is claimed as such (a real Rewind-to-Separation past the
+# five-precondition gate, bundle captured and read back). The DISCARD conclusion has no
+# D9 value of its own today and this reading run claims none for it: a value for
+# "attempt discarded from the merge dialog" is worth adding in the commit that reads a
+# green off a real run, not before.
+D9  = ["rewind-to-separation", "refly-gate", "reconciliation-bundle", "read-back-guard"]
+D14 = ["sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# The discard removes the ATTEMPT's recordings and leaves the injected corpus standing;
+# a discard that emptied the store would sink below 1. No ceiling: how many recordings
+# the attempt carried at discard time is what the first flight measures.
+count = { min = 1 }
+
+[expectations.logContracts]
+required  = [
+  "Re-Fly \\(Rewind-to-Separation\\) StartInvoke", "Invocation complete",
+  "ConsumePostLoad: restoring bundle with route-retire cutoffUT=",
+  "Restored: recs=.* pendingScience=",
+  "Removed Re-Fly attempt rec=",
+  "End reason=discardReFlyAttemptFromMergeDialog",
+  "Committed recording #[0-9]+ \\(.*\\) removing - destroying its ghost state",
+  "Committed recording #[0-9]+ removed - reindexed engine, held, map, watch and chain state",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "subscriber threw",
+]
+
+[runtime]
+# S4.2's arithmetic minus the RunTests row: LoadGame 660 + SetSetting 60 x2 +
+# InvokeRewind 660 + AnswerMergeDialog 120 + RecordingState 60 + FlushAndQuit 60 = 1680;
+# +120 margin.
+budgetSeconds = 1800
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

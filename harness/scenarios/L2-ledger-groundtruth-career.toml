@@ -253,7 +253,13 @@ count = { min = 0, max = 0 }
 # a different one gets it REPLACED with the measured text plus the run id, and the
 # facet count re-derived deliberately - never nudged toward what was expected.
 # ################################################################
-required  = ["BATCH_COMPLETE v1 total=2 passed=1 failed=0 skipped=1 category=LedgerGroundTruth scene=FLIGHT",
+# RE-DERIVED 2026-09-02, NOT MEASURED: a third LedgerGroundTruth declaration was added
+# (`CurrencyTooltipLiveInvariantTest.TooltipsReconcileWithTheLiveBar`, FLIGHT,
+# batch-allowed, career-only guards this fixture satisfies), so total=3; its pass is
+# predicted (the tooltip is a pure derivation of the same inputs the patch wrote), the
+# existing skip stays. The first flight after this replaces the prediction with the
+# measured line, per the RE-PIN CONTRACT above.
+required  = ["BATCH_COMPLETE v1 total=3 passed=2 failed=0 skipped=1 category=LedgerGroundTruth scene=FLIGHT",
              "result: hardFailures=0 reportOnly=0 facetsCompared=7 strict=False"]
 # The cell reports every facet at Warn (report.Format()), never at Error, so a
 # Parsek ERROR line here is a genuine defect signal and not the diff talking.
