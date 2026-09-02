@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Globalization;
 
@@ -219,6 +219,52 @@ namespace Parsek
                 default:
                     return false;
             }
+        }
+
+        /// <summary>
+        /// One docking node on the partner part, reduced to the two fields the far-half
+        /// lookup reads. Lets the multi-port decision be pinned headlessly - the live
+        /// version takes a <c>Part</c>, which xUnit cannot construct.
+        /// </summary>
+        internal readonly struct SeamNodeRecord
+        {
+            public readonly bool HasVesselInfo;
+            public readonly uint DockedPartUId;
+
+            internal SeamNodeRecord(bool hasVesselInfo, uint dockedPartUId)
+            {
+                HasVesselInfo = hasVesselInfo;
+                DockedPartUId = dockedPartUId;
+            }
+        }
+
+        /// <summary>
+        /// Pure / static. Index of the node on the partner part that points BACK at the
+        /// seam part (<paramref name="facingFlightId"/>), or -1.
+        ///
+        /// <para>FAILS CLOSED, and that is the whole content of the helper. A part can
+        /// carry several <c>ModuleDockingNode</c>s (multi-port adapters, shielded ports),
+        /// so "the first node that has a <c>vesselInfo</c>" is, on such a part, ANOTHER
+        /// seam's far half - and handing that to
+        /// <see cref="SelectStartDockedOriginHalf"/> would let a third vessel's identity be
+        /// selected as the depot. Only a node whose <c>dockedPartUId</c> names our own part
+        /// describes THIS seam. -1 becomes HalfIdentityMissing and the seam contributes no
+        /// candidate: for this producer "no proof" is always the right failure, and "a
+        /// proof about the wrong craft" never is.</para>
+        /// </summary>
+        internal static int SelectFacingSeamNodeIndex(
+            IReadOnlyList<SeamNodeRecord> partnerNodes,
+            uint facingFlightId)
+        {
+            if (partnerNodes == null || facingFlightId == 0)
+                return -1;
+            for (int i = 0; i < partnerNodes.Count; i++)
+            {
+                if (!partnerNodes[i].HasVesselInfo) continue;
+                if (partnerNodes[i].DockedPartUId != facingFlightId) continue;
+                return i;
+            }
+            return -1;
         }
 
         /// <summary>
@@ -473,9 +519,28 @@ namespace Parsek
                     break;
                 }
                 case OriginProofDetection.NoExternalCoupling:
-                    ParsekLog.Verbose("Recorder",
-                        $"RouteOriginProof skipped: no external coupling recId={recordingVesselId} " +
-                        $"vessel='{vesselContext}' candidates={candidateCount} isEva={activeVesselIsEva}");
+                    // INFO, NOT VERBOSE, and only on this branch. A recording that STARTED on
+                    // a settled docked pair and still captured nothing is the one case a
+                    // player can act on - almost always because neither half is typed Base or
+                    // Station (no stock part declares either type, so an ordinary landed base
+                    // reads Ship / Probe / Lander until the player retypes it in the tracking
+                    // station). It is a one-shot at recording start, i.e. an event, and it is
+                    // silent on the ordinary undocked start where candidates=0.
+                    if (candidateCount > 0)
+                    {
+                        ParsekLog.Info("Recorder",
+                            $"RouteOriginProof skipped: no depot half recId={recordingVesselId} " +
+                            $"vessel='{vesselContext}' candidates={candidateCount} " +
+                            $"isEva={activeVesselIsEva} " +
+                            $"(neither docked half is typed Base or Station, so no supply origin " +
+                            $"was recorded; set the depot's type in the tracking station)");
+                    }
+                    else
+                    {
+                        ParsekLog.Verbose("Recorder",
+                            $"RouteOriginProof skipped: no external coupling recId={recordingVesselId} " +
+                            $"vessel='{vesselContext}' candidates={candidateCount} isEva={activeVesselIsEva}");
+                    }
                     break;
                 case OriginProofDetection.ActiveVesselPrelaunch:
                     ParsekLog.Verbose("Recorder",

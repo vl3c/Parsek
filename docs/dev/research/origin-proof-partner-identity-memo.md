@@ -4,100 +4,74 @@ Written 2026-09-02 for package P6, against the operator ruling: *the origin part
 the vessel the transport docked INTO, identified from the docking-node PAIR at capture
 time, independent of which half KSP made dominant on merge.*
 
-**Verdict: SOUND, and implementable as one pure rule over the node pair.** The rule is
-DEPOT-TYPED SELECTION: the origin is the half whose pre-dock `DockedVesselInfo.vesselType`
-is `Base` or `Station`; the other half is the transport. Ties (both depot-typed, neither
-depot-typed) and invalid cargo owners produce NO proof.
+**Verdict: SOUND.** The rule is DEPOT-TYPED SELECTION: the origin is the half whose
+pre-dock `DockedVesselInfo.vesselType` is `Base` or `Station`; the other half is the
+transport. Both depot-typed, neither depot-typed, or an invalid cargo owner on either
+side produces NO proof.
 
-## (a) What the design docs say
+## The design authority the previous wave could not find
 
-The previous wave found only `docs/dev/design-logistics-claw-producer.md` and the archived
-`docs/dev/done/logistics-origin-ownership-proposal.md`, and concluded "there is no route
-design doc to cite a rule from". That is wrong: the authority is
-`docs/parsek-logistics-supply-routes-design.md` (the archived proposal names it as its own
-successor, section 19.2.2 / 19.4 M1). It carries two binding sentences:
+`docs/parsek-logistics-supply-routes-design.md` (the archived
+`done/logistics-origin-ownership-proposal.md` names it as its successor). Section 7 asks
+the recorder for the "connected origin vessel PID, connection kind, ORIGIN PART PID SET,
+and transport-scoped start/end manifests", and rejects a start-docked vessel that is a
+"ghost/EVA/debris/invalid cargo owner"; test-intent line 1314 states "deducts from
+recorded ORIGIN DEPOT, NOT TRANSPORT". The ruling is that doc's rule, not a new one, and
+the old producer's `v.persistentId` violated line 1314 directly.
 
-- Section 7 (line 762): "The recorder must capture the connected ORIGIN VESSEL PID,
-  connection kind, ORIGIN PART PID SET, and transport-scoped start/end manifests ... If the
-  run starts undocked away from KSC, or the start-docked vessel is a ghost/EVA/debris/
-  invalid cargo owner, route analysis rejects the candidate."
-- Test-intent line 1314: "Non-KSC start-docked origin -> deducts from recorded ORIGIN
-  DEPOT, NOT TRANSPORT or arbitrary nearby vessel. Catches: wrong debit identity."
+## What the docking-node pair carries (decompiled, KSP 1.12.5)
 
-So the doc already rules that origin != transport, already sanctions a PART-level origin
-identity, and already lists the reject set (debris / EVA / invalid cargo owner). Today's
-producer stamps `v.persistentId`, which on H57's shape names the transport - a direct
-violation of line 1314. The ruling is the doc's rule, not a new one.
-
-## (b) How the existing identity surfaces identify a partner
-
-`DockEventGraph.ResolveMergePartner` (the dock-partner-stamp work) resolves a merge partner
-from a STAMPED PID plus a launch GUID gate (`MissionCrossTreeDock.FindClaimedRecording`,
-`VesselLaunchIdentity.GuidsConclusivelyDiffer`), with explicit `UnstampedZero` /
-`GuidRejected` statuses. `VesselLaunchIdentity` is binding: `persistentId` is craft-baked,
-so a bare pid match is never an identity match. That surface needs a pid to work, and the
-node pair has none (below), so it cannot be the capture-time answer - it is the BINDING
-surface for later, once a live pid exists.
-
-## (c) What the docking-node pair actually carries (re-verified by decompile)
-
-`DockedVesselInfo` = `{ string name; uint rootPartUId; VesselType vesselType; }`. No pid, no
-guid. It round-trips through `DOCKEDVESSEL` (`vesselName` / `rootUId` / `vesselType`), so it
-survives save/load. `ModuleDockingNode.DockToVessel` writes `vesselInfo` on BOTH nodes, each
-carrying ITS OWN half's pre-dock identity (`vesselInfo.name = base.vessel.vesselName` on the
-caller's node, `node.vesselInfo.name = node.vessel.vesselName` on the partner's) - confirmed,
-and corroborated by `Part.Undock(newVesselInfo)` restoring `vessel.vesselType =
-newVesselInfo.vesselType` on the departing half. So the PAIR carries both halves' identities;
-one node alone carries only its own.
+`DockedVesselInfo` = `{ name, rootPartUId, vesselType }`. No pid, no guid. It round-trips
+through `DOCKEDVESSEL`. `ModuleDockingNode.DockToVessel` writes one on BOTH nodes, each
+describing ITS OWN half (`vesselInfo.name = base.vessel.vesselName` on the caller's node,
+`node.vesselInfo.name = node.vessel.vesselName` on the partner's), corroborated by
+`Part.Undock(newVesselInfo)` restoring `vessel.vesselType = newVesselInfo.vesselType` on
+the departing half. So the PAIR carries both halves; one node alone carries only its own.
 
 Two readings are ruled out by the same decompile:
 
-- **Dominance.** `Part.Couple` keeps the target side's root, so `v.rootPart.flightID` names
-  the half that STAYED. `Vessel.GetDominantVessel` picks by `vesselType` first, then mass,
-  then a `Vessel.id` comparison. The ruling forbids using it, and it is wrong on H57 anyway.
+- **Dominance.** `Part.Couple` keeps the target side's root, so `v.rootPart.flightID`
+  names the half that STAYED; `Vessel.GetDominantVessel` picks by `vesselType`, then mass,
+  then a `Vessel.id` compare. The ruling forbids it and it is wrong on H57's shape anyway.
 - **Docker / dockee.** It looks like an initiator record and is not one:
-  `ModuleDockingNode` dispatches `if (GetDominantVessel(base.vessel, otherNode.vessel) ==
-  base.vessel) { otherNode.DockToVessel(this); }` - the docker is simply the NON-dominant
-  half. It is dominance under another name and adds no information.
+  `if (GetDominantVessel(base.vessel, otherNode.vessel) == base.vessel) {
+  otherNode.DockToVessel(this); }` - the docker is simply the non-dominant half.
 
-That leaves `name`, `rootPartUId`, `vesselType` per half. Only `vesselType` is a semantic
-discriminator, and it is exactly the depot designation the design doc's "origin depot" means.
+That leaves `name`, `rootPartUId`, `vesselType`. Only `vesselType` is a semantic
+discriminator, and it is exactly the depot designation the doc means.
 
-## (d) The rule, stated concretely
+## The rule, and the identity it forces
 
-At recording start on the already-merged vessel `v`, for each settled dock seam
-(`RouteProofCapture.IsSettledDockSeam`, unchanged) resolve the partner part and read BOTH
-nodes' `vesselInfo`. Then:
+At recording start, for each settled dock seam (`IsSettledDockSeam`, unchanged) read BOTH
+nodes' `vesselInfo`, then: reject if either half is outside the valid-cargo-owner set
+(`Debris`, `SpaceObject`, `Unknown`, `EVA`, `Flag`, deployed-science); exactly one half
+`Base`/`Station` -> that half is the origin; both or neither -> ambiguous, no proof.
 
-1. Reject the seam if either half's type is not a valid cargo owner (`Debris`, `SpaceObject`,
-   `Unknown`, `EVA`, `Flag`, deployed-science types) - the doc's reject set.
-2. Exactly one half is `Base` or `Station` -> THAT half is the origin, the other is the
-   transport. Both, or neither -> ambiguous, no proof.
+**Identity: the origin half's `rootPartUId`** (a part `flightID` - assigned per launch,
+never baked into the `.craft`, so launch-unique where a `persistentId` is not), plus
+`name` and `vesselType`, alongside the M1 descriptor (body + body-fixed coords +
+situation, which are the docked pair's and therefore both halves').
 
-WHICH HALF IS THE TRANSPORT is therefore answered by type, not by `v.rootPart`, not by which
-half will remain after undock, and not by the controlling half - none of which is knowable or
-correct at capture. On H57's rig the depot is the CHILD (raw `Part.Couple` puts it there) and
-the rule still names it, which is what makes the cell a dominance-independence proof.
-
-**Identity fields the proof must carry:** the origin half's `rootPartUId` (a `flightID`, which
-unlike `persistentId` is assigned per launch and is NOT craft-baked, so it is a launch-unique
-key), plus `name` and `vesselType`, alongside the existing M1 endpoint descriptor (body +
-body-fixed coords + situation, which are the DOCKED PAIR's and therefore both halves').
-
-**The pid is NOT stamped at capture.** The absorbed half's `Vessel` is destroyed by
-`Part.Couple`, so its pid is genuinely unrecoverable; and the surviving half's pid is only
-usable through the guid gate. `StartDockedOriginVesselPid` stays on the proof as the
-bind-later slot and is `0` on every captured proof. Surface origins resolve through
-`RouteEndpointResolver`'s proximity fallback off the descriptor; binding the pid at the undock
-(where both live vessels and their guids exist, matched by `rootPartUId`) is filed as
-follow-up work, not built here.
+**No pid is stamped at capture.** The absorbed half's `Vessel` is destroyed by
+`Part.Couple`; the survivor's pid names whichever half won dominance.
+`StartDockedOriginVesselPid` stays 0 as the bind-later slot. Resolution therefore leads
+with a ROOT-PART step in `RouteEndpointResolver` (identity first, proximity only as
+fallback) - without it a pid-less origin resolves to whatever surface vessel is nearest
+the recorded coordinates, routinely the transport parked back at the depot. The step is
+guid-free by construction: `Part.Undock` resolves
+`this.vessel[newVesselInfo.rootPartUId]`, calls `SetHierarchyRoot` on it and builds the
+new `Vessel` on that part, while assigning `vessel.id = Guid.NewGuid()` - so the flightID
+survives the split and a launch-guid match would be actively wrong.
 
 ## What this does NOT settle (filed, not invented here)
 
-- **F2 residue.** A base or station that starts a recording with a transport docked to it
-  still gets a proof naming ITSELF as origin. The type rule narrows it (the proof now names
-  the base half rather than "whichever half won dominance") but does not remove it; removing
-  it needs undock-side routing of the proof to the NON-origin half.
-- **Transport-scoped manifests.** `StartTransportResources` is scoped to the whole merged
-  vessel, so the depot's own tanks currently count as transport cargo.
-- **Orbital origins** resolve nowhere until the pid is bound at undock.
+- **The typing requirement.** `Vessel.FindDefaultVesselType()` takes the max of the
+  vessel's own type and its parts', and no stock part declares `Base`/`Station` (verified
+  over `GameData/Squad`: the highest any stock part declares is `Plane`). So an ordinary
+  landed base is `Ship`/`Probe`/`Lander` until the player retypes it, and the rule
+  fail-closes to no proof. Filed as ROUTE-ORIGIN-PROOF-REQUIRES-A-PLAYER-TYPED-DEPOT.
+- **F2 residue.** A base that starts a recording with a transport docked to it still
+  records itself as its own origin; removing that needs undock-side routing of the proof
+  to the non-origin half, which is also where the pid binds.
+- **Transport-scoped manifests.** `StartTransportResources` covers the whole merged
+  vessel, so the depot's tanks count as transport cargo.

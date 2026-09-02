@@ -181,6 +181,51 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ForwardedProof_SurvivesTheTreeRecordCodec_TheScenarioSaveLoadPath()
+        {
+            // POST-CHANGE CHECKLIST ITEM 1, and the instrument H57 could not be:
+            // RecordingTreeRecordCodec.SaveRecordingInto / LoadRecordingFrom is the exact
+            // pair ParsekScenario.OnSave / OnLoad drives for every tree recording (the
+            // analyzer's INV-10 round-trip rule names the same pair). H57's cells run with
+            // RestoreBatchFlightBaselineAfterExecution, so their world is reverted before
+            // the produced save is written and the save can NEVER show the node - this cell
+            // is where the save/load round trip is actually proven.
+            var target = new Recording { RecordingId = "tree-rec" };
+            var source = new Recording { RecordingId = "capture", RouteOriginProof = Proof(4242u) };
+            ParsekFlight.ApplyCapturedLogisticsMetadataToRecording(target, source, "stop");
+
+            var node = new ConfigNode("RECORDING");
+            RecordingTreeRecordCodec.SaveRecordingInto(node, target);
+            var loaded = new Recording { RecordingId = "tree-rec" };
+            RecordingTreeRecordCodec.LoadRecordingFrom(node, loaded);
+
+            Assert.NotNull(loaded.RouteOriginProof);
+            Assert.Equal(4242u, loaded.RouteOriginProof.StartDockedOriginRootPartUId);
+            Assert.Equal("Mun Depot", loaded.RouteOriginProof.StartDockedOriginVesselName);
+            Assert.Equal((int)VesselType.Base, loaded.RouteOriginProof.StartDockedOriginVesselType);
+            Assert.Equal(4243u, loaded.RouteOriginProof.StartDockedTransportRootPartUId);
+            Assert.Equal((int)VesselType.Ship, loaded.RouteOriginProof.StartDockedTransportVesselType);
+            Assert.Equal("Mun", loaded.RouteOriginProof.StartDockedOriginBodyName);
+            Assert.True(loaded.RouteOriginProof.StartDockedOriginIsSurface);
+            Assert.True(Parsek.Logistics.RouteAnalysisEngine.HasDockedOriginProof(loaded));
+        }
+
+        [Fact]
+        public void ARecordingWithNoProof_RoundTripsWithNoProofNode()
+        {
+            // The absent case through the same pair: a recording that never had an origin
+            // must not gain one, and the ROUTE_ORIGIN_PROOF node must simply not be written.
+            var rec = new Recording { RecordingId = "no-proof" };
+            var node = new ConfigNode("RECORDING");
+            RecordingTreeRecordCodec.SaveRecordingInto(node, rec);
+            Assert.False(node.HasNode("ROUTE_ORIGIN_PROOF"));
+
+            var loaded = new Recording { RecordingId = "no-proof" };
+            RecordingTreeRecordCodec.LoadRecordingFrom(node, loaded);
+            Assert.Null(loaded.RouteOriginProof);
+        }
+
+        [Fact]
         public void PidLessProof_StillPassesTheDockedOriginGate()
         {
             // FAILS IF: the consumer gate keeps keying on the pid. Every captured proof now

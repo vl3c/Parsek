@@ -14,6 +14,12 @@ namespace Parsek
     internal struct RouteEndpoint
     {
         public uint VesselPersistentId;
+        // The endpoint vessel's ROOT PART flightID, when known. Launch-unique and not
+        // craft-baked, so it identifies a physical vessel where a persistentId cannot.
+        // Set for a start-docked origin (where no pid is knowable at capture); zero for
+        // KSC origins, dock-window endpoints and pre-2026-09-02 routes, which keep the
+        // pid + proximity resolution they always had.
+        public uint RootPartUId;
         public string BodyName;
         public double Latitude;
         public double Longitude;

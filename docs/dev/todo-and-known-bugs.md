@@ -616,9 +616,31 @@ is still reachable in code and still unobserved - zero `CommitSegmentCore` lines
 394 collected `KSP.log`s - and it is no longer the only writer, so it is no longer
 load-bearing for this feature.
 
-**Still to measure.** The produced-save `ROUTE_ORIGIN_PROOF` node count was 0 on both
-H56 and H57 of 2026-09-02. H57 must be re-flown and that count read from the bytes; the
-lane's subject cell now ASSERTS the read-back (`treeProof=yes`) instead of reporting it.
+**MEASURED 2026-09-02 by flight 5 (`2026-09-02_1320`), and one instrument was retired
+by it.** The batch went green (`total=2 passed=2 failed=0 skipped=0`), the subject read
+`treeProof=yes` with `originRoot=1595569818` equal to `depotRoot`, and the adoption line
+fired. The produced save STILL reported `ROUTE_ORIGIN_PROOF=0` - and that is campaign
+isolation, not a serialization gap: neither of the cell's recording ids
+(`25e83d83...`, `13955b8c...`) appears anywhere in the produced save, which carries
+exactly the five staged fixture recordings and their sidecars. Both cells declare
+`RestoreBatchFlightBaselineAfterExecution`, so the batch teardown reverts persistent.sfs
+to its batch-start bytes and the run ends on `flushandquit: save suppressed (batch
+baseline already restored)`, a token the lane has always pinned. A proof count taken from
+that save reads 0 whatever the product does. THE SAVE/LOAD CLAIM IS NOW PROVEN WHERE IT
+CAN BE: in-cell through `RecordingTreeRecordCodec.SaveRecordingInto` / `LoadRecordingFrom`
+(the pair `ParsekScenario.OnSave` / `OnLoad` drive for every tree recording, emitted as
+the `StartDockedOriginPersist:` line the spec pins), and headlessly by
+`RouteOriginProofForwardingTests.ForwardedProof_SurvivesTheTreeRecordCodec_TheScenarioSaveLoadPath`
+plus its absent-case mirror.
+
+**One follow-up finding from the same flight, recorded because it looked like a defect
+and is not.** The adoption fired on `path=AppendCapturedDataToRecording`, not on the stop
+flush. The subject cell UNDOCKS the depot while the recording runs, so the undock split
+reaches the shared helper BEFORE the stop flush does and the write-once rule (first call
+carrying a proof wins) hands it the adoption. Both callers are the fix; the lane's token
+is an alternation over the two, and the ORDINARY stop-flush entry point - the one an
+adoption written only into `AppendCapturedDataToRecording` would have missed - is pinned
+headlessly instead.
 
 ## ~~ROUTE-ORIGIN-PROOF-PARTNER-IDENTITY: the start-docked proof stamps the MERGED vessel's own pid as the origin partner, which is right only when the depot is the dominant half~~ [FOUND 2026-09-02 by the adversarial review of the producer fix (F1/F2). RULED AND BUILT 2026-09-02, code green, NOT YET FLOWN]
 
@@ -702,6 +724,46 @@ their launch guids exist, and the origin half is matched by part `flightID`, not
 Until then an ORBITAL depot origin resolves nowhere (`RouteEndpointResolver` has only the
 pid path for a non-surface endpoint); a SURFACE depot resolves through the M1 descriptor's
 proximity fallback, which is the shipping shape and what H57 flies.
+
+## ROUTE-ORIGIN-PROOF-REQUIRES-A-PLAYER-TYPED-DEPOT: the depot-typed partner rule captures nothing unless the player has set the base's vessel type to Base or Station [FOUND 2026-09-02 by the adversarial review of the partner ruling (F2). OPEN by decision, fail-closed, announced at Info]
+
+**The mechanism, decompiled and then measured.** `Vessel.FindDefaultVesselType()` starts
+from the vessel's own `vesselType` and only RAISES it to a higher part `vesselType` - it
+never lowers one. `Part.Couple` calls it on every couple. And NO STOCK PART DECLARES
+`Base` OR `Station`: a scan of `GameData/Squad` returns `Lander`, `Plane`, `Probe`,
+`Relay`, `Rover`, `Ship`, `SpaceObject` and nothing above `Plane`. So a vessel is
+`Base`/`Station` ONLY because a player set it in the tracking station (or through
+`vesselNaming`). An ordinary landed base assembled from stock parts reads `Ship` /
+`Probe` / `Lander`, both halves of the seam are non-depot, the rule reads `NoDepotHalf`
+and NO PROOF IS CAPTURED. The mirror shape also exists: a `Station`-typed tug docking
+into a `Base` reads `BothHalvesDepot` and likewise captures nothing.
+
+**Why this is accepted rather than fixed.** Alternatives considered and rejected:
+(a) FALL BACK TO DOMINANCE when neither half is depot-typed - that is the reading
+ROUTE-ORIGIN-PROOF-PARTNER-IDENTITY just removed, and it is wrong exactly when it
+matters (it names the transport whenever the depot is the lighter or lower-typed half);
+(b) INFER THE DEPOT FROM MASS OR PART COUNT - a tanker is routinely heavier than the
+depot it fills, so this is a guess dressed as a rule and it fails silently; (c) INFER IT
+FROM WHICH HALF LEAVES AT UNDOCK - not knowable at capture, and the capture has to be
+complete before the undock because the run may never undock; (d) TREAT `Lander` /
+`Rover` AS DEPOT TYPES - collapses the transport and the depot into one class for the
+canonical rover-supplies-rover shape, which is the shape the roadmap is aimed at.
+Fail-closed with a stated requirement beats any of them: a missing route is visible and
+recoverable, a route debiting the wrong vessel is neither.
+
+**What ships to make it discoverable.** The `NoDepotHalf` outcome is announced at INFO
+(not Verbose) whenever a recording STARTS on a settled docked pair and still captures
+nothing - `RouteOriginProof skipped: no depot half ... (neither docked half is typed Base
+or Station, so no supply origin was recorded; set the depot's type in the tracking
+station)`. It is a one-shot at recording start, i.e. an EVENT, and it stays silent on the
+ordinary undocked start (`candidates=0`), so it does not become a standing complaint. No
+new UI surface: the log line is the whole affordance, per the house rule.
+
+**If this proves to bite real players**, the revisit is a route-creation REJECTION REASON
+rather than a producer change: `RouteAnalysisStatus` already carries workflow guidance
+into the Logistics window's near-miss list (that is how the undocked-start rule ships), so
+"the origin base is not typed as a Base or Station" belongs there, in player language, at
+the moment the player is trying to make the route.
 
 ## ROUTE-ORIGIN-PROOF-TRANSPORT-MANIFESTS-INCLUDE-THE-DEPOT: the start-docked proof's transport manifests are scoped to the whole merged vessel [FOUND 2026-09-02 while building the partner rule. OPEN, wrong-quantity risk on a start-docked route]
 

@@ -239,6 +239,61 @@ namespace Parsek.Tests
                     (int)Vessel.Situations.LANDED, false, candidates, out _));
         }
 
+        // ---------- the far-half lookup on a multi-port partner (fail closed) ----------
+
+        private static RouteProofCapture.SeamNodeRecord Node(bool hasInfo, uint dockedPartUId)
+        {
+            return new RouteProofCapture.SeamNodeRecord(hasInfo, dockedPartUId);
+        }
+
+        [Fact]
+        public void FacingSeamNode_PicksTheNodeThatNamesOurPart_NotTheFirstOne()
+        {
+            // THE MULTI-PORT CASE. An adapter carrying two docked ports has a node for
+            // ANOTHER seam sitting earlier in the module list. Taking the first node with a
+            // vesselInfo would hand the origin rule a THIRD vessel's identity, which it
+            // would then happily classify as the depot.
+            var nodes = new List<RouteProofCapture.SeamNodeRecord>
+            {
+                Node(true, 777u),   // another seam's far half
+                Node(true, 4242u),  // ours
+            };
+            Assert.Equal(1, RouteProofCapture.SelectFacingSeamNodeIndex(nodes, 4242u));
+        }
+
+        [Fact]
+        public void FacingSeamNode_NoNodeNamesUs_FailsClosed()
+        {
+            // FAILS IF: the fall-open comes back. -1 becomes HalfIdentityMissing and the
+            // seam contributes no candidate - "no proof" is the right failure here, "a proof
+            // about the wrong craft" never is.
+            var nodes = new List<RouteProofCapture.SeamNodeRecord>
+            {
+                Node(true, 777u),
+                Node(true, 888u),
+            };
+            Assert.Equal(-1, RouteProofCapture.SelectFacingSeamNodeIndex(nodes, 4242u));
+        }
+
+        [Fact]
+        public void FacingSeamNode_NodeWithoutVesselInfoIsNotAFarHalf()
+        {
+            // A node with no vesselInfo has no identity to contribute even when its
+            // dockedPartUId happens to name us (a stale id survives an undock).
+            var nodes = new List<RouteProofCapture.SeamNodeRecord> { Node(false, 4242u) };
+            Assert.Equal(-1, RouteProofCapture.SelectFacingSeamNodeIndex(nodes, 4242u));
+        }
+
+        [Fact]
+        public void FacingSeamNode_ZeroFacingIdAndEmptyListNeverMatch()
+        {
+            var nodes = new List<RouteProofCapture.SeamNodeRecord> { Node(true, 0u) };
+            Assert.Equal(-1, RouteProofCapture.SelectFacingSeamNodeIndex(nodes, 0u));
+            Assert.Equal(-1, RouteProofCapture.SelectFacingSeamNodeIndex(
+                new List<RouteProofCapture.SeamNodeRecord>(), 4242u));
+            Assert.Equal(-1, RouteProofCapture.SelectFacingSeamNodeIndex(null, 4242u));
+        }
+
         [Fact]
         public void Resolver_AllZeroRoots_ReadsPartnerPidZero()
         {

@@ -615,6 +615,7 @@ namespace Parsek.Logistics
                     origin = new RouteEndpoint
                     {
                         VesselPersistentId = originProof.StartDockedOriginVesselPid,
+                        RootPartUId = originProof.StartDockedOriginRootPartUId,
                         BodyName = originProof.StartDockedOriginBodyName,
                         Latitude = originProof.StartDockedOriginLatitude,
                         Longitude = originProof.StartDockedOriginLongitude,
@@ -630,6 +631,7 @@ namespace Parsek.Logistics
                     origin = new RouteEndpoint
                     {
                         VesselPersistentId = originProof.StartDockedOriginVesselPid,
+                        RootPartUId = originProof.StartDockedOriginRootPartUId,
                         BodyName = originRec.StartBodyName ?? string.Empty,
                         Latitude = 0.0,
                         Longitude = 0.0,

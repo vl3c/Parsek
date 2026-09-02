@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Globalization;
@@ -908,7 +908,8 @@ namespace Parsek.InGameTests
                     if (ctx.Flight.IsRecording)
                         ctx.Flight.StopRecording();
                     string proofRecordingId;
-                    RouteOriginProof proof = FindOriginProof(ctx.Tree, out proofRecordingId);
+                    Recording proofRecording;
+                    RouteOriginProof proof = FindOriginProof(ctx.Tree, out proofRecordingId, out proofRecording);
                     ParsekLog.Info("TestRunner",
                         "StartDockedOriginForward: cell=" + ctx.CellName
                         + " treeRecordingWithProof=" + (proof != null ? (proofRecordingId ?? "<unnamed>") : "<none>")
@@ -953,6 +954,41 @@ namespace Parsek.InGameTests
                     InGameAssert.IsTrue(proof.StartDockedOriginIsSurface,
                         "a LANDED docked pair must persist a SURFACE-typed origin, which is what " +
                         "gives the pid-less endpoint RouteEndpointResolver's proximity fallback");
+
+                    // THE SAVE/LOAD ROUND TRIP, DRIVEN IN-CELL, AND WHY IT HAS TO BE.
+                    // `RecordingTreeRecordCodec.SaveRecordingInto` / `LoadRecordingFrom` is
+                    // the exact pair `ParsekScenario.OnSave` / `OnLoad` drives for every tree
+                    // recording. It is run HERE, on the live recording this cell just made,
+                    // because the produced save can never carry the answer: these cells
+                    // declare `RestoreBatchFlightBaselineAfterExecution`, so the batch
+                    // teardown reverts persistent.sfs to its batch-start bytes and the run
+                    // ends on `flushandquit: save suppressed (batch baseline already
+                    // restored)` - a token this lane already pins. Measured on the
+                    // 2026-09-02_1622 collection: neither of this cell's recording ids
+                    // appears anywhere in the produced save, which carries exactly the five
+                    // staged fixture recordings. A `ROUTE_ORIGIN_PROOF` count taken from
+                    // that save is therefore an instrument that reads 0 whatever the
+                    // product does.
+                    var roundTripNode = new ConfigNode("RECORDING");
+                    RecordingTreeRecordCodec.SaveRecordingInto(roundTripNode, proofRecording);
+                    var reloaded = new Recording { RecordingId = proofRecordingId };
+                    RecordingTreeRecordCodec.LoadRecordingFrom(roundTripNode, reloaded);
+                    ParsekLog.Info("TestRunner",
+                        "StartDockedOriginPersist: cell=" + ctx.CellName
+                        + " node=" + (roundTripNode.HasNode("ROUTE_ORIGIN_PROOF") ? "present" : "absent")
+                        + " reloadedOriginRoot=" + (reloaded.RouteOriginProof != null
+                            ? reloaded.RouteOriginProof.StartDockedOriginRootPartUId.ToString(IC) : "<none>")
+                        + " reloadedOriginType=" + (reloaded.RouteOriginProof != null
+                            ? reloaded.RouteOriginProof.StartDockedOriginVesselType.ToString(IC) : "<none>")
+                        + " depotRoot=" + depotRootFlightId.ToString(IC));
+                    InGameAssert.IsTrue(roundTripNode.HasNode("ROUTE_ORIGIN_PROOF"),
+                        "the tree recording must SERIALIZE a ROUTE_ORIGIN_PROOF node through the " +
+                        "same codec ParsekScenario.OnSave uses, or the proof is in memory only");
+                    InGameAssert.IsNotNull(reloaded.RouteOriginProof,
+                        "the proof must survive a real OnSave/OnLoad codec round trip");
+                    InGameAssert.AreEqual(depotRootFlightId, reloaded.RouteOriginProof.StartDockedOriginRootPartUId,
+                        "the RELOADED origin must still be the depot half - a round trip that " +
+                        "drops or renumbers the identity is the same defect as never writing it");
 
                     // The producer's Captured line carries every descriptor field this cell
                     // is here to prove is real, and it is production output.
@@ -1104,9 +1140,11 @@ namespace Parsek.InGameTests
         /// <see cref="RouteOriginProof"/>, with its id. Scanned rather than read off the
         /// active id because the cells drive an undock split, so the recording that was
         /// active at StartRecording is not the one active at the stop.</summary>
-        private static RouteOriginProof FindOriginProof(RecordingTree tree, out string recordingId)
+        private static RouteOriginProof FindOriginProof(
+            RecordingTree tree, out string recordingId, out Recording recording)
         {
             recordingId = null;
+            recording = null;
             if (tree == null || tree.Recordings == null)
                 return null;
             foreach (KeyValuePair<string, Recording> kvp in tree.Recordings)
@@ -1114,6 +1152,7 @@ namespace Parsek.InGameTests
                 if (kvp.Value != null && kvp.Value.RouteOriginProof != null)
                 {
                     recordingId = kvp.Key;
+                    recording = kvp.Value;
                     return kvp.Value.RouteOriginProof;
                 }
             }
@@ -1384,14 +1423,20 @@ namespace Parsek.InGameTests
                     while (addBox.MoveNext()) yield return addBox.Current;
                 }
 
-                // THE DECLARED TYPE IS STAMPED LAST, ON PURPOSE. Part.Couple ends with
-                // `this.vessel.vesselType = this.vessel.FindDefaultVesselType()` (decompiled
-                // KSP 1.12.5), so a type assigned at spawn is recomputed away by every
-                // AddPartToRig couple. The origin-proof cells need a DEPOT-typed partner
-                // because the start-docked partner rule selects the Base / Station half of
-                // the seam - see RouteProofCapture.SelectStartDockedOriginHalf - and the type
-                // is read from the docking node's vesselInfo, which StampStockDockBookkeeping
-                // records from the live vessel just before the couple.
+                // THE DECLARED TYPE IS STAMPED LAST, AND THE REASON IS NOT WHAT IT LOOKS
+                // LIKE. Part.Couple ends with `this.vessel.vesselType =
+                // this.vessel.FindDefaultVesselType()`, and that method (decompiled KSP
+                // 1.12.5) starts from the vessel's CURRENT type and only ever RAISES it to a
+                // higher part vesselType - it never lowers one. So a Base stamp would in fact
+                // survive the AddPartToRig couples; what it would NOT survive is the spawn
+                // path, where the type is a ProtoVessel field and the live Vessel is built
+                // afterwards. Stamping here, on the assembled live vessel, is the one place
+                // the value is both settled and assertable. The origin-proof cells need a
+                // DEPOT-typed partner because the start-docked partner rule selects the Base
+                // / Station half of the seam (RouteProofCapture.SelectStartDockedOriginHalf),
+                // and the type is read from the docking node's vesselInfo, which
+                // StampStockDockBookkeeping records from the live vessel just before the
+                // couple.
                 rig.Vessel.vesselType = rigVesselType;
 
                 InGameAssert.IsTrue(ParsekFlight.IsTrackableVessel(rig.Vessel),

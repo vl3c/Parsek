@@ -53,7 +53,19 @@ _(unreleased — entries accumulate here per commit)_
   to debris, a flag or a kerbal on EVA all record no origin at all rather than guessing,
   which is the same rule the design already stated for rejecting an unusable origin. The
   depot is now identified by a part id that is unique to its launch instead of by a
-  vessel id that KSP reuses for every copy of the same craft file.
+  vessel id that KSP reuses for every copy of the same craft file, and route dispatch
+  looks the depot up by that part id FIRST, falling back to "nearest vessel to the
+  recorded spot" only when the depot itself cannot be found - without that order a route
+  could have paid itself, by picking the transport parked back at the depot as its own
+  supply source.
+
+  **This needs the depot to be typed as a Base or a Station.** KSP works a vessel's type
+  out from its parts, and no stock part says "Base" or "Station", so a landed base reads
+  as a Ship, Probe or Lander until you set its type yourself in the tracking station -
+  and a supply run starting at an untyped base records no origin. That is deliberate: the
+  alternative is guessing which of two docked craft is the depot, which is how the
+  previous version got it wrong. When it happens the log says so in one line at recording
+  start, naming the fix.
 
 - **Restructuring the recordings list mid-session now tells every index-keyed
   consumer.** Merging to the timeline or committing a chain segment runs the same

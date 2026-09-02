@@ -516,6 +516,14 @@ namespace Parsek.Logistics
         private static void SerializeEndpoint(ConfigNode node, RouteEndpoint ep, CultureInfo ic)
             => RouteNodeCodec.SerializeEndpoint(node, ep, ic);
 
+        /// <summary>
+        /// Test seam over <see cref="DeserializeEndpoint"/>: the endpoint reader is private
+        /// and its two callers both sit inside a whole-route parse, so this is the only way
+        /// to pin the endpoint's own round trip without building a full ROUTE node.
+        /// </summary>
+        internal static RouteEndpoint DeserializeEndpointForTesting(ConfigNode node)
+            => DeserializeEndpoint(node, NumberStyles.Float, CultureInfo.InvariantCulture);
+
         private static RouteEndpoint DeserializeEndpoint(
             ConfigNode node, NumberStyles inv, CultureInfo ic)
         {
@@ -532,6 +540,13 @@ namespace Parsek.Logistics
                 && uint.TryParse(pidStr, NumberStyles.Integer, ic, out uint pid))
             {
                 ep.VesselPersistentId = pid;
+            }
+
+            string rootStr = node.GetValue("rootPartUId");
+            if (rootStr != null
+                && uint.TryParse(rootStr, NumberStyles.Integer, ic, out uint rootUid))
+            {
+                ep.RootPartUId = rootUid;
             }
 
             string isSurfaceStr = node.GetValue("isSurface");

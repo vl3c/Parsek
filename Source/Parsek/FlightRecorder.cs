@@ -7194,28 +7194,40 @@ namespace Parsek
         /// <summary>
         /// The docking node on <paramref name="partnerPart"/> that points BACK at the seam
         /// part (<paramref name="facingFlightId"/>). A part can carry several
-        /// <c>ModuleDockingNode</c>s (multi-port adapters), and only the one whose
-        /// <c>dockedPartUId</c> names our side of the seam describes THIS seam's far half.
-        /// Falls back to the first node carrying a <c>vesselInfo</c> when no node names us,
-        /// which covers a single-port part whose bookkeeping is one-sided. Returns null when
-        /// nothing resolves; <see cref="RouteProofCapture.SelectStartDockedOriginHalf"/> then
-        /// reads HalfIdentityMissing and the seam contributes no candidate.
+        /// <c>ModuleDockingNode</c>s (multi-port adapters, and the stock shielded ports),
+        /// and only the one whose <c>dockedPartUId</c> names our side of the seam describes
+        /// THIS seam's far half.
+        ///
+        /// <para>NO FALL-OPEN. An earlier draft returned the first node carrying any
+        /// <c>vesselInfo</c> when none named us; on a multi-port adapter that node is
+        /// ANOTHER seam's far half, so the origin rule would have been handed a third
+        /// vessel's identity and could have named it the depot. Returning null instead makes
+        /// <see cref="RouteProofCapture.SelectStartDockedOriginHalf"/> read
+        /// HalfIdentityMissing and the seam contribute no candidate - fail closed, which for
+        /// this producer means "no proof", never "a proof about the wrong craft".</para>
         /// </summary>
         private static ModuleDockingNode FindDockingNodeFacingPart(Part partnerPart, uint facingFlightId)
         {
             if (partnerPart == null || partnerPart.Modules == null)
                 return null;
-            ModuleDockingNode fallback = null;
+
+            // Collect the docking nodes in module order, then let the pure selector decide.
+            // The live half here is only the module walk; the DECISION - including the
+            // fail-closed answer on a multi-port adapter - is pinned by
+            // RouteProofCapture.SelectFacingSeamNodeIndex's own tests.
+            var nodes = new List<ModuleDockingNode>();
+            var records = new List<RouteProofCapture.SeamNodeRecord>();
             for (int m = 0; m < partnerPart.Modules.Count; m++)
             {
                 ModuleDockingNode node = partnerPart.Modules[m] as ModuleDockingNode;
-                if (node == null || node.vesselInfo == null) continue;
-                if (node.dockedPartUId == facingFlightId)
-                    return node;
-                if (fallback == null)
-                    fallback = node;
+                if (node == null) continue;
+                nodes.Add(node);
+                records.Add(new RouteProofCapture.SeamNodeRecord(
+                    node.vesselInfo != null, node.dockedPartUId));
             }
-            return fallback;
+
+            int index = RouteProofCapture.SelectFacingSeamNodeIndex(records, facingFlightId);
+            return index >= 0 ? nodes[index] : null;
         }
 
         /// <summary>
