@@ -29,6 +29,19 @@ namespace Parsek
 
     internal sealed class InventoryPayloadItem
     {
+        /// <summary>
+        /// The stored part's KIND key, not a per-instance fingerprint (operator
+        /// ruling 2026-09-02: parts inside an inventory are generic cargo; identity
+        /// matters only while a part is PART OF A VESSEL). Computed by
+        /// <see cref="VesselSpawner.ComputeInventoryPayloadKindKey"/> from part
+        /// name + variant + per-resource fill bucket, and by nothing else - module
+        /// state is ignored entirely. The FIELD NAME and its serialized key
+        /// (<c>identityHash</c> in RouteProofCodec / RouteCodec / GameAction) are
+        /// unchanged from the pre-ruling contract so no persisted format moved and
+        /// no schema generation was bumped; the codecs recompute this value from
+        /// each item's STOREDPART snapshot on load instead
+        /// (<see cref="VesselSpawner.NormalizeLoadedInventoryPayloadItems"/>).
+        /// </summary>
         public string IdentityHash;
         public string PartName;
         public string VariantName;

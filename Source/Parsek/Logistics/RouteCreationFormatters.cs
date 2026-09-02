@@ -276,7 +276,7 @@ namespace Parsek.Logistics
                 case RouteAnalysisStatus.NoDeliveryManifest:
                     return "No delivery payload detected - check that cargo actually moved from transport to destination.";
                 case RouteAnalysisStatus.MixedPickupDelivery:
-                    return "Unwitnessed inventory gain detected - the transport gained a stored part that the destination did not give it. Inventory is non-fungible, so only a stored part that visibly moved from the destination onto the transport can be picked up. Re-record so the picked-up part is the same one the destination held.";
+                    return "Unwitnessed inventory gain detected - the transport gained a stored part that the destination did not give it. Stored cargo is counted by kind (part, variant and how full it is), so only a kind the destination visibly gave up can be picked up. Re-record so the picked-up part comes from the destination.";
                 case RouteAnalysisStatus.MissingEndpointProof:
                     return "Endpoint vessel could not be identified at dock time.";
                 case RouteAnalysisStatus.UndockedStartOrigin:

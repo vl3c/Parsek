@@ -244,8 +244,9 @@ namespace Parsek.Tests
 
         // M3 Phase 5 (plan D7 / OQ3): an UNWITNESSED transport inventory gain -
         // the transport gains a container the endpoint did NOT lose - fails
-        // closed window-locally (inventory is non-fungible, no harvest
-        // provenance). The window rejects MixedPickupDelivery.
+        // closed window-locally (stored cargo has no harvest provenance). The
+        // witness is per KIND since the 2026-09-02 ruling; the gain here is of a
+        // kind the endpoint never gave up. The window rejects MixedPickupDelivery.
         [Fact]
         public void AnalyzeRecording_UnwitnessedInventoryGain_RejectsWindowLocal()
         {
@@ -269,6 +270,42 @@ namespace Parsek.Tests
 
             Assert.False(result.IsEligible);
             Assert.Equal(RouteAnalysisStatus.MixedPickupDelivery, result.Status);
+        }
+
+        // catches: the refusal going SILENT again. The `Diag` naming the failing
+        // identity is log-mode-gated and was ABSENT from the operator's KSP.log on
+        // 2026-09-02, so a route that would never create looked like nothing at
+        // all. The reason must reach the log at INFO regardless of log mode, and
+        // must name the part rather than only the digest.
+        [Fact]
+        public void AnalyzeRecording_UnwitnessedInventoryGain_LogsTheReasonAtInfo()
+        {
+            RouteConnectionWindow window = BuildDeliveryWindow();
+            window.WindowId = "phantom-window";
+            InventoryPayloadItem phantom = Payload("phantom-container", "smallCargoContainer", 1, slotsTaken: 1);
+            window.DockTransportInventory = null;
+            window.UndockTransportInventory = new List<InventoryPayloadItem> { phantom.DeepClone() };
+            window.DockEndpointInventory = null;
+            window.UndockEndpointInventory = null;
+            Recording rec = new Recording
+            {
+                RecordingId = "phantom-inventory-log",
+                StartBodyName = "Kerbin",
+                LaunchSiteName = "LaunchPad",
+                RouteConnectionWindows = new List<RouteConnectionWindow> { window }
+            };
+
+            // Quiet is the mode the ~1 Hz Logistics window and DeriveCandidates
+            // use - the exact path whose silence cost the session.
+            RouteAnalysisEngine.AnalyzeRecording(rec, RouteAnalysisLogMode.Quiet);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[INFO]") &&
+                l.Contains("[Route]") &&
+                l.Contains("RouteAnalysis reject reason: unwitnessed inventory gain") &&
+                l.Contains("window=phantom-window") &&
+                l.Contains("part=smallCargoContainer") &&
+                l.Contains("unwitnessed=1"));
         }
 
         [Fact]

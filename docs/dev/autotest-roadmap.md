@@ -2670,6 +2670,19 @@ gated behind the ROUTE-ORIGIN-PROOF-PRODUCER-UNREACHABLE probe (todo) before any
     write nothing computed. Filed as
     LOGISTICS-INVENTORY-IDENTITY-HASH-BREAKS-ON-A-LIVE-CARGO-MOVE (OPEN, needs a
     design call); the class is wider than one part.
+    **UPDATE 2026-09-02 (branch `inventory-kind-matching`): reason (2) IS CLOSED.**
+    The operator ruled that stored cargo is GENERIC and matched BY KIND (part name
+    + variant + per-resource fill bucket; module state ignored entirely), so the
+    transit-added `canComm` no longer touches the key and the station's move is
+    witnessed. Proven headless over these exact fixture bytes by
+    `Source/Parsek.Tests/Logistics/InventoryPayloadKindKeyTests.cs`. Consequence
+    for `RVR-5`: its `status=MixedPickupDelivery` token, its
+    `reason=candidate-ineligible` token and the create step's own
+    `expect = "REJECTED"` are now UNMEASURED - the first flight either fails the
+    NEXT gate with a different status or admits outright. They were deliberately
+    NOT re-pinned (re-pinning without flying invents a measurement); the spec
+    carries a warning block and the todo entry names the re-measurement as the
+    open follow-up.
     The two reasons are INDEPENDENT: fixing only one still produces no route.
     **LANDED AS `harness/fixtures/saves/rover-relay-recorded` PLUS TWO NEVER-FLOWN
     LANES.** `RVR-5-rover-relay-eligibility` drives `SealSlot` (which answers the

@@ -1759,7 +1759,21 @@ namespace Parsek.Tests.Logistics
             Assert.Equal(a.Count, b.Count);
             for (int i = 0; i < a.Count; i++)
             {
-                Assert.Equal(a[i].IdentityHash, b[i].IdentityHash);
+                // 2026-09-02 kind ruling: a loaded item that carries a STOREDPART
+                // snapshot has its KIND key RECOMPUTED at load (the self-heal), so
+                // compare the DECODED side against the key its own snapshot
+                // derives rather than against an authored placeholder string. An
+                // item with no snapshot keeps whatever the codec persisted.
+                if (b[i].StoredPartSnapshot != null)
+                {
+                    Assert.Equal(
+                        VesselSpawner.ComputeInventoryPayloadKindKey(b[i].StoredPartSnapshot),
+                        b[i].IdentityHash);
+                }
+                else
+                {
+                    Assert.Equal(a[i].IdentityHash, b[i].IdentityHash);
+                }
                 Assert.Equal(a[i].PartName, b[i].PartName);
                 Assert.Equal(a[i].VariantName, b[i].VariantName);
                 Assert.Equal(a[i].Quantity, b[i].Quantity);

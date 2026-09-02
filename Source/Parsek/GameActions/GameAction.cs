@@ -750,7 +750,7 @@ namespace Parsek
 
         /// <summary>
         /// M3 picked-up stored-part inventory payloads (Phase 5, design D7),
-        /// keyed by exact <see cref="InventoryPayloadItem.IdentityHash"/>. On a
+        /// keyed by <see cref="InventoryPayloadItem.IdentityHash"/> (the KIND key). On a
         /// <see cref="GameActionType.RouteCargoPickedUp"/> row this is the ACTUAL
         /// inventory removed from the per-window pickup endpoint (identity intact,
         /// the removed quantity), the inventory analogue of
@@ -2059,7 +2059,11 @@ namespace Parsek
                 items.Add(item);
             }
 
-            return items.Count == 0 ? null : items;
+            // Self-heal: the persisted identityHash is the KIND key (2026-09-02
+            // ruling). A ledger row written before the ruling holds the old
+            // per-instance fingerprint, so recompute it from each item's own
+            // STOREDPART snapshot instead of carrying a migration path.
+            return VesselSpawner.NormalizeLoadedInventoryPayloadItems(items, nodeName);
         }
 
         // ---- Parse helpers ----

@@ -810,7 +810,11 @@ namespace Parsek
                 items.Add(item);
             }
 
-            return items.Count > 0 ? items : null;
+            // Self-heal: the persisted identityHash is the KIND key (2026-09-02
+            // ruling). A save written before the ruling holds the old per-instance
+            // fingerprint, so recompute it from each item's own STOREDPART
+            // snapshot instead of carrying a migration path.
+            return VesselSpawner.NormalizeLoadedInventoryPayloadItems(items, nodeName);
         }
 
         private static ConfigNode DeserializeStoredPartSnapshot(ConfigNode snapshotNode)

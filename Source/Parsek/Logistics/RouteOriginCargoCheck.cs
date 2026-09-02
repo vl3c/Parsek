@@ -89,8 +89,9 @@ namespace Parsek.Logistics
         /// presence gate, the inventory analogue of <see cref="HasRequired"/>.
         /// True when <paramref name="storedCounter"/> reports at least the
         /// witnessed quantity for EVERY positive-quantity item in
-        /// <paramref name="inventoryManifest"/> (matched by exact
-        /// <see cref="InventoryPayloadItem.IdentityHash"/>). On failure,
+        /// <paramref name="inventoryManifest"/> (matched by
+        /// <see cref="InventoryPayloadItem.IdentityHash"/>, the KIND key - any
+        /// stored part of the required kind counts, 2026-09-02 ruling). On failure,
         /// <paramref name="lackingIdentity"/> names the FIRST short identity in
         /// ordinal hash order (deterministic) and <paramref name="shortQuantity"/>
         /// carries <c>required - stored</c>. A null/empty manifest passes

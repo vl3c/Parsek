@@ -293,6 +293,45 @@ namespace Parsek.Tests
             Assert.Contains("suppressed=1", logLines[1]);
         }
 
+        // catches: InfoRateLimited emitting at the wrong level, ignoring the
+        // interval (the route-analysis refusal producer runs on a ~1 Hz poll, so
+        // an unthrottled Info would bury the log), losing the suppressed count, or
+        // sharing throttle state with the WARN variant under the same key.
+        [Fact]
+        public void InfoRateLimited_EmitsAtInfoAndRespectsIntervalIndependentlyOfWarn()
+        {
+            double now = 7000.0;
+            ParsekLog.ClockOverrideForTesting = () => now;
+
+            ParsekLog.InfoRateLimited("Test", "refusal", "reject reason", 60.0);
+            Assert.Single(logLines);
+            Assert.Contains("[INFO]", logLines[0]);
+            Assert.Contains("reject reason", logLines[0]);
+
+            // Inside the interval: suppressed.
+            now = 7030.0;
+            ParsekLog.InfoRateLimited("Test", "refusal", "reject reason", 60.0);
+            Assert.Single(logLines);
+
+            // The WARN variant keys separately, so it is NOT throttled by the INFO
+            // entry that already exists under the same subsystem + key.
+            ParsekLog.WarnRateLimited("Test", "refusal", "warn line", 60.0);
+            Assert.Equal(2, logLines.Count);
+            Assert.Contains("[WARN]", logLines[1]);
+
+            // Past the interval: emits again, carrying the suppressed count.
+            now = 7061.0;
+            ParsekLog.InfoRateLimited("Test", "refusal", "reject reason", 60.0);
+            Assert.Equal(3, logLines.Count);
+            Assert.Contains("[INFO]", logLines[2]);
+            Assert.Contains("suppressed=1", logLines[2]);
+
+            // A DIFFERENT key is a different condition and prints at once.
+            ParsekLog.InfoRateLimited("Test", "other-refusal", "another reason", 60.0);
+            Assert.Equal(4, logLines.Count);
+            Assert.Contains("another reason", logLines[3]);
+        }
+
         #endregion
 
         #region Recording Growth Rate Logging

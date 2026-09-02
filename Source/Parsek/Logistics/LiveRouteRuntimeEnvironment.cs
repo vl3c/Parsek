@@ -31,8 +31,8 @@ namespace Parsek.Logistics
     ///     origin holds the route in <c>WaitingForResources</c> naming the
     ///     first short resource. Inventory payloads are ALSO gated as of M3
     ///     Phase 5 (design D7 carve-out lift): a non-KSC route with a non-empty
-    ///     <c>InventoryCostManifest</c> gates all-or-nothing by exact
-    ///     <c>IdentityHash</c> via <see cref="RouteOriginCargoCheck.HasRequiredInventory"/>
+    ///     <c>InventoryCostManifest</c> gates all-or-nothing by
+    ///     <c>IdentityHash</c> (the KIND key) via <see cref="RouteOriginCargoCheck.HasRequiredInventory"/>
     ///     + <see cref="LiveInventoryPickupWriter.CountStored"/>, holding with an
     ///     <c>inventory:&lt;hash&gt;</c> short token (the retired
     ///     <c>inventory-origin-debit-unsupported</c> deferral is gone - the origin
@@ -211,7 +211,7 @@ namespace Parsek.Logistics
             // payloads by identity from the origin-dispatch path (ApplyOriginDebit
             // inventory half), so an origin inventory cost is debitable, not
             // deferred. Gate it all-or-nothing against the recorded
-            // InventoryCostManifest by exact IdentityHash, reusing the SAME
+            // InventoryCostManifest by IdentityHash (the KIND key), reusing the SAME
             // per-vessel loaded-gate capture as the resource gate so the count and
             // the eventual removal read the same loaded/unloaded branch. A
             // null/empty InventoryCostManifest (the common case, including every
