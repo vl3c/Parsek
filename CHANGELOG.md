@@ -95,6 +95,29 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Dev
 
+- The automated-testing suite gained a lane that asks whether a supply route to a
+  surface base is visible on the map at all. It is deliberately a CENSUS: the
+  scenario opens the map view in flight over the committed rover-route save,
+  creates and activates a route on it, and requires only that the renderers it
+  points at actually ran - the numbers they print are left unpinned, because two
+  outcomes are plausible and no flight has ever measured which one happens. Either
+  the route's static overview line is drawn (its path is on the map even though the
+  ghost itself is flight-mesh only), or it is not, and three different counters on
+  the same log line say which reason applied. The measured pin the lane is written
+  against says a landed-terminal loop gets no map or tracking-station presence, but
+  that pin is about the ghost's own map object, and a route's overview line is drawn
+  by a different producer that never consults one - so the pin does not answer the
+  question and the reading run does. The lane is also the first anywhere to drive the
+  map-view seam verb, which is what makes the polyline renderer's map-gated half
+  observable on a surface subject for the first time. Nothing is armed; the pinning
+  pass follows the first reading.
+
+- The harness's H-series batch-wiring family now decides membership from the
+  scenario itself instead of from its id. The check read "an H-numbered scenario
+  drives an in-game test batch", which was true of all 43 members and is false for
+  the render-census lane above, so a scenario with no batch would have been pulled
+  into a family whose every assertion is about a batch's category and tally.
+
 - The agent instructions now scope the invariant-culture formatting rule to what
   actually needs it. A unit-test run on a comma-locale machine printed
   `targetUT=150,00` from a log line, and the standing rule read as if every one of

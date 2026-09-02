@@ -2537,10 +2537,40 @@ moved is that no further authoring stands between them and a flight.
 
 ### Tier D - scale and rendering (pair with the render programs' budgets)
 
-11. **Surface-route map presence.** Measured pin exists: a landed-terminal
+11. **Surface-route map presence.** ~~Measured pin exists: a landed-terminal
     loop has NO map/TS proto (flight-mesh only; KSC host works in-window).
     A `route-map-lines` lane for a SURFACE route must be authored against
-    that pin, not against the orbital route lines V18T covers.
+    that pin, not against the orbital route lines V18T covers.~~
+    **LANE AUTHORED 2026-09-02, NEVER FLOWN, AND IT IS A CENSUS RATHER THAN A
+    CLAIM** - `harness/scenarios/H59-surface-route-map-lines.toml` over
+    `rover-route-recorded`. Every required token is structural or a VALUE REGEX,
+    so the flight's product is a reading a human acts on and nothing is armed.
+    WHAT THE PIN LEAVES OPEN IS THE SUBJECT, and it is worth stating because the
+    obvious reading of the pin is wrong: `LANDED-TERMINAL-LOOP-HAS-NO-MAP-PRESENCE-
+    OUTSIDE-THE-FLIGHT-SCENE` is about PROTO-DRIVEN presence for a loop MEMBER,
+    while a route's OVERVIEW LINE is a different producer -
+    `RouteTrajectoryLineRenderer.DrawAll` walks `RouteStore.CommittedRoutes` from
+    its own cache, consults no proto, no `GhostMapPresence` entry and no terminal
+    state, and publishes no ownership by design. So a landed subject having no
+    proto does not decide whether its ROUTE draws a line. TWO OUTCOMES ARE
+    PRE-REGISTERED in the spec header, both read off the one line `DrawAll` emits
+    unconditionally (`Route line draw: enabled=True routesDrawn=R legsDrawn=L
+    skippedOwned=S malformed=M other=O`): the route DRAWS (`routesDrawn=1`,
+    `legsDrawn>=1`, `other=0`, `routeLineBuilds >= 1` in the manifest), or it does
+    NOT, with `other=1` / `malformed=1` / `skippedOwned=1` naming three different
+    reasons - and `skippedOwned=1` is not an absence at all, it is the per-cycle
+    ghost owning the leg that frame. The line being ABSENT is an instrument red,
+    not an outcome, so it is a required token. THE LANE ALSO PAYS
+    `RC-OWN-DRAW-HALF-IS-MAP-GATED` A SECOND TIME: it is the first committed lane
+    to drive `EnterMapView` on a route or a landed subject, so `Polyline frame:` -
+    that debt's own evidence line, absent whenever the map-gated LateUpdate bails -
+    is pinned as an instrument and `ownershipChanges` is captured report-only
+    (V6M closed the debt on a MUN ORBIT subject and its closure text carries the
+    qualifier). The KSC half is V22K's pattern, structural tokens only. NO D10 /
+    D11 claim: the SURFACE flavor of `route-map-lines` is earned by an armed gating
+    token off a green census, exactly as V18T earned the orbital flavor, and a
+    census that reads the not-drawn outcome earns no row and re-words this item
+    instead. FLIGHT OWED; nothing else is.
 12. **Route x rewind, flown.** H6 covers the timeline synthetically;
     a rover-route rewind variant makes `route-x-rewind` a flown claim.
 13. **Harvest-provenance, surface.** An ISRU drill rover feeding the route
