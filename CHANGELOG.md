@@ -118,6 +118,19 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Dev
 
+- Built the test save the recovery-credit check needed, and pointed its test
+  lane at it. When a craft is recovered, Parsek has to decide which recorded
+  flight the recovery belongs to, and it now uses the launch identity to throw
+  out recordings of earlier flights of the same craft. Proving that on a real
+  run needs a career that has already flown one craft, kept the recordings, and
+  not yet spent the science - because the test mission only reaches the recovery
+  step if its transmission earns something. No existing save was in that state:
+  the one with the recordings had already banked the science, which is what the
+  first attempt at this measured. The new save is assembled from two moments of
+  the same career - the recordings from after the flight, the career from before
+  it - and is built and checked by script, so it cannot quietly drift. Test-only;
+  nothing player-facing changes.
+
 - Corrected the automated-testing record for the rover supply-route test batch.
   The batch flew twice on one day - once before and once after a fix to the test
   save it uses - and passed on the second run with the same result as the first,

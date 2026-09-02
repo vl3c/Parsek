@@ -1856,6 +1856,50 @@ class CommittedFixtureSweepTests(unittest.TestCase):
         # same pair `L3-career-science-recover` pins as `recordings.count = 2` and
         # the same pair the ledger's recovery credit resolves through. A different
         # number means the fixture was re-derived from something else.
+        # --- THE SAME-NAME RELAUNCH SUBJECT (THE RECOVERY CORRELATOR) ----
+        # PROVENANCE: derived BY CONSTRUCTION by
+        # `harness/tools/build_career_same_name_pad.py`, which splices
+        # `C2CareerPostFix`'s RECORDING_TREE (the two chained `Jumping Flea`
+        # recordings, `recordedVesselGuid = f77e4207...`) into the PRE-FLIGHT
+        # career `career-science-pad` - the save that produced them. The two
+        # halves are two moments of ONE timeline, which is why the recordings'
+        # `preLaunchFunds = 500000` / `preLaunchScience = 100` are the host's own
+        # live pools. Byte-identity with a fresh rebuild is gated by
+        # `CareerSameNamePadFixtureDriftTests` in
+        # `harness/lib/test_career_same_name_pad.py`.
+        #
+        # WHY IT EXISTS AND WHY IT IS NOT `career-earned-pad`, measured rather
+        # than argued: `L6-career-same-name-recover` reading run 1
+        # (`2026-09-02_1137`) flew the recover mission over `career-earned-pad`
+        # and never reached recovery - that save is L3's PRODUCED one, so the
+        # launchpad-biome science is already banked at cap and TRANSMIT credited
+        # 0.0, failing the mission's structural transmit -> recover gate. The
+        # banked-science conflict is intrinsic to reusing a produced save. THIS
+        # fixture carries the same two same-name recordings with NO banked
+        # `Science` subject and the seed pools, so a second launch of the same
+        # craft can earn, transmit and be recovered.
+        #
+        # THE 1/1/2 TOPOLOGY IS THE SAME CONTRACT `career-earned-pad` states -
+        # the same spliced pair, so a different number means the derivation read
+        # a different tree. What differs is the LIVE launch identity: the host
+        # vessel's `pid` is re-stamped away from those recordings'
+        # `recordedVesselGuid` (so the guid filter has two conclusive mismatches
+        # to drop) while its craft-baked `persistentId` is deliberately LEFT
+        # colliding, which is the trap the correlator has to survive.
+        "career-same-name-pad": {
+            "trees": 1, "committedTrees": 1, "recordings": 2,
+            "supersedes": 0, "tombstones": 0, "rewind_points": 0,
+            "rewind_retirements": 0,
+            "terminalStates": {"Landed": 1},
+            "branchPoints": {},
+            # 8 = two recordings x (.prec + .pann + _vessel.craft +
+            # _ghost.craft); the `.prec.txt` mirrors are committed but excluded
+            # from this floor by the `.txt` filter.
+            "minAuthoritativeSidecars": 8,
+            "recordingIds": ["1d611e7533a64508ae6f3b305a51615e",
+                             "5436a7e8840b4c5885afcbaedc9dc037"],
+            "schemaGeneration": 4,
+        },
         "career-earned-pad": {
             "trees": 1, "committedTrees": 1, "recordings": 2,
             "supersedes": 0, "tombstones": 0, "rewind_points": 0,

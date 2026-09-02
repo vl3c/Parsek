@@ -3,31 +3,38 @@ id = "L6-career-same-name-recover"
 # `operator`: a READING RUN whose whole purpose is to put the recovery correlator's UT
 # tiers IN COMPETITION for the first time in the suite. Nothing here is armed.
 #
-# BLOCKED - THIS LANE CANNOT REACH ITS SUBJECT ON THIS FIXTURE, measured by reading run 1
-# (`2026-09-02_1137`, INVALID(driver) MISSION-ASSERT-FAIL `transmit-credited-no-science`).
-# The idea was to reuse `career-earned-pad` (L3's PRODUCED save, which already carries the
-# pad craft's TWO chained recordings) so a second `science_bench_recover` flight would give
-# the recovery correlator two same-name candidates. The flight FLEW (landed, collected 2
-# experiments, recorded `e321be21...`), but TRANSMIT credited ZERO career science and the
-# mission's structural transmit->recover gate failed the flight BEFORE recovery - the very
-# phase the correlator fires in. THE CAUSE IS INTRINSIC TO REUSING A PRODUCED SAVE: L3
-# already banked that launchpad biome's science, so a second identical flight transmits for
-# no gain, and `_sbr_transmit` needs a strictly positive pool rise (the schema forbids a
-# floor below 0.001, so no param value passes a gain of exactly 0.0). The RECOVERY
-# correlator - the FUNDS and XP legs, which is what stage 2 needs - is never reached.
+# UNBLOCKED 2026-09-02 BY A PURPOSE-BUILT FIXTURE; READING RUN 2 IS OWED. Round 1 flew
+# (`2026-09-02_1137`, INVALID(driver) MISSION-ASSERT-FAIL `transmit-credited-no-science`)
+# over `career-earned-pad` - L3's PRODUCED save, which already carries the pad craft's TWO
+# chained recordings - on the idea that a second `science_bench_recover` flight would hand
+# the recovery correlator two same-name candidates for free. The flight FLEW (landed,
+# collected 2 experiments, recorded `e321be21...`), but TRANSMIT credited ZERO career
+# science and the mission's structural transmit->recover gate failed BEFORE recovery, the
+# very phase the correlator fires in. THE CAUSE IS INTRINSIC TO REUSING A PRODUCED SAVE:
+# L3 already banked that launchpad biome to its cap, so a second identical flight
+# transmits for no gain, and `_sbr_transmit` needs a strictly positive pool rise (the
+# schema forbids a floor below 0.001, so no param value passes a gain of exactly 0.0).
 #
-# WHAT CLOSING IT ACTUALLY NEEDS (recorded so the next author does not re-derive it): either
-# a recover mission WITHOUT a transmit-science gate (none exists in the library today), or a
-# fixture carrying two same-name launches whose flight science is NOT already banked - which
-# is a purpose-built fixture, the exact thing this lane tried to avoid. The `science_bench_
-# recover` + produced-save shortcut does not work for the recovery-correlator repro. The
-# lane is kept as the RECORD of that finding; KERBAL-XP-RECOVERY-PICK-IS-NAME-AND-UT-ONLY
-# stage 2 stays gated on live proof, now with the blocker named. DO NOT FLY AS BUILT: it
-# reads INVALID(driver) every time (a mission that cannot reach RECOVER), and no
-# `[expectedFail]` key can demote that - the harness demotes PARSEK-FAIL signatures only,
-# never a driver-INVALID - so `bugId` is deliberately left empty. It stays `operator`
-# (run on request only, never by a scheduled tier) until the purpose-built fixture
-# exists, at which point the mission params are re-derived off that fixture's bytes.
+# THE FIX IS THE FIXTURE, NOT THE MISSION. `career-same-name-pad` takes the RECORDINGS
+# from the produced save and the CAREER from the PRE-FLIGHT one:
+# `harness/tools/build_career_same_name_pad.py` splices `C2CareerPostFix`'s
+# RECORDING_TREE (the two chained `Jumping Flea` recordings) into `career-science-pad`,
+# the save L3 actually flew to produce them. The two halves are two moments of ONE
+# timeline, which is why those recordings' `preLaunchFunds = 500000` /
+# `preLaunchScience = 100` ARE that host's live pools. The result is a career that has
+# flown this craft before and banked NOTHING - a state no single produced save can be in
+# - so the same mission that could not transmit over `career-earned-pad` transmits here
+# exactly as it does for L3. The earned ledger is deliberately NOT copied: its rows
+# credit the science this fixture must leave un-banked, and the recalculation engine
+# patches KSP state from the ledger. Byte-identity with a fresh rebuild, the
+# un-banked-science post-condition and both identity post-conditions are gated by
+# `CareerSameNamePadFixtureDriftTests` in `harness/lib/test_career_same_name_pad.py`.
+#
+# STILL `operator`, run on request only, and NOTHING IS ARMED: the tokens below are a
+# PREDICTION re-derived off the new fixture's bytes and have never been measured. The
+# first reading run on this fixture either matches them or refutes them, and a refutation
+# about the fixture's own bytes is a fixture reading, never a PARSEK-FAIL - which is why
+# `[expectedFail] bugId` stays empty.
 tier = "operator"
 #
 # WHAT THIS SPEC IS FOR. KERBAL-XP-RECOVERY-PICK-IS-NAME-AND-UT-ONLY (todo, stage 2
@@ -38,12 +45,13 @@ tier = "operator"
 # launches of the same craft name with a recovery of the second - which is also the shape
 # the eventual fix should be live-proven on." This lane is that shape.
 #
-# HOW IT GETS TWO SAME-NAME LAUNCHES WITHOUT A NEW FIXTURE. `career-earned-pad` is the
-# save L3-career-science-recover PRODUCED (run `2026-08-19_2130`): a career that already
-# EARNED flight science and RECOVERED the pad craft once, with the SAME craft spliced
-# back onto the pad in PRELAUNCH so a FLIGHT-scene lane can boot into it (that splice is
-# what L4 flies against). Flying `science_bench_recover` over it again is therefore the
-# second launch of the same craft name, ending in the second recovery.
+# HOW IT GETS TWO SAME-NAME LAUNCHES. `career-same-name-pad` carries the two chained
+# `Jumping Flea` recordings of a PRIOR launch (via `C2CareerPostFix`, the committed copy
+# of what L3's run produced) on top of the pre-flight career that produced them, with the
+# same craft sitting on the pad in PRELAUNCH so a FLIGHT-scene lane can boot into it.
+# Flying `science_bench_recover` over it is therefore the SECOND launch of the same craft
+# name, ending in the second recovery - with the first launch's science still unspent,
+# which is the only reason the mission can reach RECOVER at all.
 #
 # THE FIXTURE'S OWN BYTES, read before pinning anything (the first draft of this spec
 # pinned `nameMatches=2` off the assumption of ONE prior recording and would never have
@@ -51,8 +59,14 @@ tier = "operator"
 #   - the prior launch left TWO chained recordings, both `vesselName = Jumping Flea`,
 #     both `recordedVesselGuid = f77e4207...` (L3's optimizer split its one flight in
 #     two; `test_career_earned_pad.py` gates exactly 2 `.prec`, L4 pins count 2/2);
-#   - the spliced pad VESSEL carries `pid = 3d90c5b1...`, a DIFFERENT launch guid, and
-#     that guid is what this flight records and what the recovery hands the correlator.
+#   - the pad VESSEL's `pid` is re-stamped to `9b3c71e4...`, a DIFFERENT launch guid, and
+#     that guid is what this flight records and what the recovery hands the correlator;
+#   - its craft-baked `persistentId` is DELIBERATELY left colliding at `2905720181`, the
+#     same value both recordings carry, so the fixture is a repro of the trap the todo
+#     entry names (a pid match is not a launch match) rather than a case a pid-only
+#     correlator could not have got wrong either;
+#   - the career banks ZERO `Science` subjects and sits at the seed pools (funds 500000,
+#     science 100), which is the post-condition round 1's red bought.
 #
 # WHEN THE PICK RUNS, AND WHAT IT THEREFORE SEES. The XP leg
 # (`GameStateRecorder` ExperienceGained -> `TryRecordRecoveryKerbalExperience`) fires in
@@ -87,12 +101,12 @@ tier = "operator"
 # finding. A pick line whose `survivors=0` cannot exist - that branch logs nothing - so
 # an absent line with the XP row refused reads as "both dropped and nothing of this flight
 # was committed yet", a timing reading against the doc comment quoted above.
-description = "Reading run: fly science_bench_recover a SECOND time over career-earned-pad (the save L3 produced, whose pad craft already flew and was recovered once, leaving two same-name recordings under a different launch guid), so the recovery correlator's stage 1 guid filter and its UT-tier pick are measured live on a real second launch for the first time (KERBAL-XP-RECOVERY-PICK-IS-NAME-AND-UT-ONLY stage 2's repro shape)."
+description = "Reading run, NEVER FLOWN ON THIS FIXTURE: fly science_bench_recover over career-same-name-pad, the purpose-built career that carries two same-name recordings of a PRIOR launch (different launch guid, same craft-baked persistentId) with its flight science still UN-BANKED, so the recovery correlator's stage 1 guid filter and its UT-tier pick are measured live on a real second launch for the first time (KERBAL-XP-RECOVERY-PICK-IS-NAME-AND-UT-ONLY stage 2's repro shape). Round 1 flew the same mission over career-earned-pad and measured why a PRODUCED save cannot host this: its launchpad biome is already banked, so TRANSMIT credited 0.0 and the mission never reached RECOVER."
 instanceProfile = "stock-minimal"
 tags = ["ledger", "L6", "recovery", "correlator", "same-name", "career", "reading-run"]
 
 [fixture]
-saveTemplate = "fixtures/saves/career-earned-pad"
+saveTemplate = "fixtures/saves/career-same-name-pad"
 # LOAD-BEARING: the fixture's OWN two recordings are the first launch the correlator must
 # compete against; an injection preset would add synthetic candidates and blur the read.
 injectedRecordings = "none"
@@ -117,9 +131,10 @@ steps = [
 ]
 
 [driver.missionParams]
-# L3's flight-leg values verbatim: the craft is the same pad craft (career-earned-pad is
-# L3's produced save with that craft spliced back onto the pad), so the ascent windows
-# and the chute arming transfer. ONE value DEPARTS from L3, and it is the driver reading
+# L3's flight-leg values verbatim, and now literally L3's own subject: the career half of
+# `career-same-name-pad` IS `career-science-pad`, the save L3 flies, so the ascent
+# windows, the chute arming and the transmit floor transfer unchanged rather than by
+# analogy. ONE value DEPARTS from L3, and it is the driver reading
 # this lane's header pre-authorized ("the params need re-sizing against the fixture's own
 # bytes - a driver reading, never a PARSEK-FAIL").
 throttle                 = 1.0
