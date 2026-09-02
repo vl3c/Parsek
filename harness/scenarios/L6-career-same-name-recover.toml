@@ -30,13 +30,55 @@ id = "L6-career-same-name-recover"
 # un-banked-science post-condition and both identity post-conditions are gated by
 # `CareerSameNamePadFixtureDriftTests` in `harness/lib/test_career_same_name_pad.py`.
 #
+# THREE FLIGHTS, AND THE THIRD EXPLAINED THE ONE PIN THAT WAS TOO TIGHT.
+# READING RUN 2 (`2026-09-02_1328`) PASS, the ARMED re-flight (`2026-09-02_1402`, DLL
+# 2e679bd7) PARSEK-FAIL(expectations) on THREE count pins, and the NEGATIVE CONTROL
+# (`2026-09-02_1411`, same fixture, same DLL, back to back) PASS on everything except its
+# own deliberately flipped token. All three were MISSION-OK with every mission assertion
+# met, and all three measured the lane's SUBJECT identically: `guidDropped=2`,
+# `reason=guid-conclusive-mismatch`, `tier=most-recent-ended bracketTie=n/a`,
+# `skippedZombieNotCommitted=0 sessionProvisionalAdmitted=False`, and one
+# `Recovery kerbal XP recorded ... rows=1 deduped=0 noAction=0`.
+#
+# WHAT MOVED, AND IT IS NOT NONDETERMINISM IN PARSEK. Only the count of THIS FLIGHT's own
+# recordings moved (4/2, then 3/1, then 4/2), and the cause is arithmetic:
+# `RecordingOptimizer.CanAutoSplitIgnoringGhostTriggers` refuses a split unless BOTH halves
+# exceed **5.0 s** ("Both halves must be longer than 5 seconds"). The boundary in question
+# is the touchdown `SurfaceStationary` section, and the recording ends when the craft is
+# recovered, so the second half is exactly `recoverUT - touchdownSectionUT`:
+#
+#   run `_1328`  touchdown 749.16, recovery 754.5 -> 5.34 s  >= 5.0  SPLIT   -> 4 / 2
+#   run `_1411`  touchdown 747.82, recovery 753.7 -> 5.88 s  >= 5.0  SPLIT   -> 4 / 2
+#   run `_1402`  touchdown 748.98, recovery 753.8 -> 4.82 s  <  5.0  NO SPLIT-> 3 / 1
+#
+# and `_1402`'s own log says so in its own words: `Split summary: rec=aa5a0caa...
+# evaluated=2 ... splittableButRejected=2`, against `_1411`'s `SplitAtSection: split
+# 320f644a... at UT=747.8 (first: 505 pts/3 sections, second: 2 pts/1 sections)`. THE
+# MISSION'S LANDED DWELL SITS ON THAT KNIFE-EDGE: measured margins +0.34 s, +0.88 s and
+# **-0.18 s**. The rule is deterministic and correct (a 3 s tail is not worth its own
+# recording); what is not controlled is the input.
+#
+# IT IS ALSO NOT A COMMIT RACE, and that was checked rather than assumed: all three runs
+# report `skippedZombieNotCommitted=0 sessionProvisionalAdmitted=False`, and in both
+# splitting runs the split, both halves' sidecar writes and the `Committed recording ...
+# actions added to ledger` line all precede the first `PickRecoveryRecordingId` inside the
+# same millisecond batch. Nothing was provisional or unflushed when the pick ran.
+#
+# THE PINS BELOW ARE THEREFORE CUT TO WHAT ALL THREE FLIGHTS AGREE ON - the subject - and
+# the flight's own segment count is a RANGE with this paragraph as its reason. Getting the
+# exact 4/2 back is a MISSION-side change (a dwell between touchdown and `recover_vessel`
+# that clears 5.0 s with margin), filed as L6-RECOVER-DWELL-STRADDLES-SPLIT-FLOOR in
+# `docs/dev/todo-and-known-bugs.md`; it is not attempted here because
+# `science_bench_recover` is shared with L3 and a shell change needs its own reading run.
+#
 # READING RUN 2 (`2026-09-02_1328`, wall 470 s, mission 347 s, DLL 7b9e4d19, NO C# change)
 # FLEW **PASS ON ATTEMPT 1**: MISSION-OK across PRELAUNCH..RECOVERED, expectations
 # mismatches=0, analyzer red=0, zero `[Parsek][ERROR]`, and the fixture reached the
 # recovery phase round 1 could not. **EVERY TOKEN BELOW IS NOW MEASURED AND PINNED WHOLE**,
 # and the predicted `nameMatches=4 survivors=2 guidDropped=2` came back exactly, so the
-# arithmetic in this header is confirmed rather than merely plausible. Verbatim, FOUR
-# IDENTICAL PAIRS at one UT:
+# arithmetic in this header is confirmed rather than merely plausible - though see the
+# three-flight ledger above for the one pin that was too tight. Verbatim from that run,
+# FOUR IDENTICAL PAIRS at one UT:
 #
 #   PickRecoveryRecordingId guid filter: vessel='Jumping Flea'
 #       rawVessel='#autoLOC_501224' ut=754.5 dropped=2 remaining=2
@@ -231,29 +273,39 @@ D14 = ["kerbin", "career", "scene-flight"]
 allowedAnomalies = []
 
 [expectations.recordings]
-# MEASURED 4 on run `2026-09-02_1328` and PINNED WHOLE: the fixture's two plus this
-# flight's own chained pair (`OnSave: saving 4 committed recordings`), corroborated
-# independently by the pick line's own `nameMatches=4` - every committed recording on this
-# save name-matches, so the two numbers cannot drift apart silently. The authored ceiling
-# was open because L3's flight split; this one produced the same 2, and a different count
-# is a reading rather than a pass.
-count = { min = 4, max = 4 }
+# MEASURED ACROSS THREE FLIGHTS: 4, then 3, then 4. The FLOOR is the fixture's own two
+# plus at least one recording of this flight; the CEILING is those two plus the flight's
+# split pair. Which of the two the run produces is decided by
+# `CanAutoSplitIgnoringGhostTriggers`'s 5.0 s half-duration floor against the mission's
+# landed dwell (header, three-flight ledger), so a `{4, 4}` pin - which run `_1328`
+# justified and run `_1402` then red on - is a pin on the mission's timing jitter, not on
+# Parsek. It stays a window until the dwell is controlled; the window's own floor still
+# fails a run that recorded nothing.
+count = { min = 3, max = 4 }
 
 [expectations.logContracts]
-# RE-PINNED WHOLE off reading run `2026-09-02_1328`. The three counts that were regexed
-# ranges while they were predictions (`nameMatches`, `survivors`, the tier) are LITERALS
-# now; what stays regexed is only what the run mints fresh (the UT, the recording id and
-# the stand-in kerbal's name).
+# RE-CUT 2026-09-02 ACROSS THREE FLIGHTS to what all of them agree on. `guidDropped=2` -
+# THE SUBJECT - is a literal, and so are the tier, the tie-break, the zombie/provisional
+# fields and the XP row's shape: those never moved. `nameMatches` and `survivors` (and the
+# filter line's `remaining`) are two-value classes because the flight's OWN segment count
+# is decided by the optimizer's 5.0 s split floor against the mission's landed dwell, which
+# the lane does not control - see the three-flight ledger in the header. Note what the
+# ranges still forbid: `nameMatches=[34]` with `guidDropped=2` cannot be satisfied by a run
+# where the fixture's prior launch failed to load (that reads 1 or 2), and `survivors=[12]`
+# cannot be satisfied by an empty candidate set. What stays regexed beyond that is only
+# what a run mints fresh (the UT, the recording id, the stand-in kerbal's name).
 required = [
   # THE FILTER ITSELF, and it was not pinned before because it had never been seen. This
   # is the line that says the drop HAPPENED and why - a pick line alone cannot tell a
   # filter that dropped two from one that never ran.
-  "PickRecoveryRecordingId guid filter: vessel='Jumping Flea' rawVessel='#autoLOC_501224' ut=[0-9.]+ dropped=2 remaining=2 reason=guid-conclusive-mismatch",
-  # THE PICK, MEASURED WHOLE: the fixture's two prior-launch recordings name-match and are
-  # dropped by guid, this flight's own chained pair survives, and the tier walk runs over
-  # the survivors alone - landing on `most-recent-ended`, the weakest tier and the one the
-  # todo entry says a driven career recovery reaches.
-  "PickRecoveryRecordingId: vessel='Jumping Flea' rawVessel='#autoLOC_501224' ut=[0-9.]+ nameMatches=4 survivors=2 guidDropped=2 skippedZombieNotCommitted=0 sessionProvisionalAdmitted=False tier=most-recent-ended bracketTie=n/a pick=[0-9a-f]{32}",
+  "PickRecoveryRecordingId guid filter: vessel='Jumping Flea' rawVessel='#autoLOC_501224' ut=[0-9.]+ dropped=2 remaining=[12] reason=guid-conclusive-mismatch",
+  # THE PICK. The fixture's two prior-launch recordings name-match and are dropped by guid
+  # - `guidDropped=2` is the literal this lane exists for - and the tier walk runs over
+  # THIS flight's survivors alone, landing on `most-recent-ended`, the weakest tier and the
+  # one the todo entry says a driven career recovery reaches. `nameMatches` / `survivors`
+  # are `[34]` / `[12]` because the flight yields one recording or two depending on whether
+  # its landed tail cleared the optimizer's 5.0 s split floor.
+  "PickRecoveryRecordingId: vessel='Jumping Flea' rawVessel='#autoLOC_501224' ut=[0-9.]+ nameMatches=[34] survivors=[12] guidDropped=2 skippedZombieNotCommitted=0 sessionProvisionalAdmitted=False tier=most-recent-ended bracketTie=n/a pick=[0-9a-f]{32}",
   # THE XP ROW: the pick was CONSUMED. `rows=1 deduped=0 noAction=0` is the measured shape;
   # the kerbal is a per-run generated STAND-IN (see the header), so only its Kerman suffix
   # is pinned.

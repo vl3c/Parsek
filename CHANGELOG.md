@@ -133,6 +133,16 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Dev
 
+- Recorded why a landed flight sometimes leaves one recording and sometimes two.
+  A short stop at the end of a flight is only worth its own recording if it
+  lasted at least five seconds; below that it stays part of the flight it
+  belongs to. Three test runs of the same mission landed on either side of that
+  line - the craft was recovered 5.3, 5.9 and 4.8 seconds after touching down -
+  so the same flight produced two recordings twice and one recording once. The
+  behaviour is deliberate and unchanged; the test that was counting on two has
+  been corrected to accept either, and the timing itself is written up as a
+  test-side thing to fix. Nothing player-facing changes.
+
 - Proved on a real flight that a recovery is credited to the right flight.
   When a craft is recovered, Parsek picks which recorded flight the recovery
   belongs to; since August it throws out recordings of earlier flights of the
