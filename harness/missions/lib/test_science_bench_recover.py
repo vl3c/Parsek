@@ -25,15 +25,19 @@ runs from `harness/` with `missions/lib` as the root, and `missions/` is
 prepended so `import mission_runner` / `import science_bench_recover` resolve.
 """
 
+import dataclasses
 import math
 import os
+import subprocess
 import sys
 import tomllib
+import types
 import unittest
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _MISSIONS = os.path.dirname(_HERE)                       # harness/missions
 _HARNESS = os.path.dirname(_MISSIONS)                    # harness/
+_REPO_ROOT = os.path.dirname(_HARNESS)                   # the repo checkout
 if _MISSIONS not in sys.path:
     sys.path.insert(0, _MISSIONS)
 if os.path.join(_HARNESS, "lib") not in sys.path:
@@ -828,6 +832,431 @@ class SbrRecoverTests(unittest.TestCase):
         self.assertIn("issued=False", state.flake_reason)
 
 
+class SbrPreRecoverDwellTests(unittest.TestCase):
+    """The OPT-IN pre-recover hold (`preRecoverDwellSeconds`, default 0.0).
+
+    WHY IT EXISTS, in one line: the recording a flight of this mission produces
+    ENDS at the recovery, the optimizer's split candidate is the touchdown
+    `SurfaceStationary` section, and `CanAutoSplitIgnoringGhostTriggers` refuses a
+    split unless both halves clear 5.0 s - which the mission's NATURAL dwell
+    straddled at 5.34 / 4.82 / 5.88 s across three L6 flights. The knob buys a
+    deterministic count pin on the SPLIT side; the NO-SPLIT side is unreachable
+    from here by construction (a hold cannot shorten a tail) and is pinned in C#.
+
+    Both directions of the hinge, both directions of the machine, and the
+    fail-open cases. The compatibility statement - the default drives the
+    pre-dwell machine frame for frame - is the sibling class below, which replays
+    against `origin/main` rather than asserting it here."""
+
+    def test_the_hinge_is_pinned_in_both_directions(self):
+        # THE DEFAULT never gates: 0.0 short-circuits before it reads a clock, so
+        # even a nonsense pair of UTs answers True.
+        self.assertTrue(mlib.sbr_recover_dwell_satisfied(0.0, 100.0, 0.0))
+        self.assertTrue(mlib.sbr_recover_dwell_satisfied(0.0, None, float("nan")))
+        # A DECLARED hold gates on the elapsed game time since the LANDING frame.
+        self.assertFalse(mlib.sbr_recover_dwell_satisfied(12.0, 100.0, 111.9))
+        self.assertTrue(mlib.sbr_recover_dwell_satisfied(12.0, 100.0, 112.0))
+        self.assertTrue(mlib.sbr_recover_dwell_satisfied(12.0, 100.0, 999.0))
+        # `>=`, so exactly landed+D satisfies it (the line above at 112.0).
+        self.assertFalse(mlib.sbr_recover_dwell_satisfied(12.0, 100.0, 100.0))
+
+    def test_the_hinge_fails_OPEN_on_a_clock_it_cannot_read(self):
+        # A dark UT channel must not turn a calibration knob into a phase-budget
+        # flake: this hold exists to move a recordings.count pin, and a flight
+        # that lost its clock has bigger problems that OTHER gates already name.
+        self.assertTrue(mlib.sbr_recover_dwell_satisfied(12.0, None, 500.0))
+        self.assertTrue(mlib.sbr_recover_dwell_satisfied(12.0, float("nan"), 500.0))
+        self.assertTrue(mlib.sbr_recover_dwell_satisfied(12.0, 100.0, float("nan")))
+        self.assertTrue(mlib.sbr_recover_dwell_satisfied(12.0, 100.0, float("inf")))
+        # And a nonsense dwell is read as "no hold" rather than as an infinite one.
+        self.assertTrue(mlib.sbr_recover_dwell_satisfied(float("nan"), 100.0, 100.0))
+        self.assertTrue(mlib.sbr_recover_dwell_satisfied(-5.0, 100.0, 100.0))
+        self.assertTrue(mlib.sbr_recover_dwell_satisfied("x", 100.0, 100.0))
+
+    def test_the_landing_frame_stamps_the_anchor_the_hold_measures_from(self):
+        state, _ = flown()
+        self.assertEqual(7.0, state.landed_ut)   # LANDED_FRAME's own ut
+        # And it SURVIVES the two phase transitions between the landing and the
+        # recovery - which is the whole reason it is a state field rather than
+        # phase_entry_ut, which each _sbr_enter overwrites.
+        state = in_recover()
+        self.assertEqual(7.0, state.landed_ut)
+        self.assertEqual(11.0, state.phase_entry_ut)
+
+    def test_a_declared_hold_withholds_the_ask_until_it_elapses(self):
+        # Landed at 7.0, dwell 12 -> nothing may go out before 19.0, however many
+        # debounced Recoverable=YES frames land in between.
+        state = in_recover(preRecoverDwellSeconds=12.0)
+        state, acts = drive_actions(
+            state, *[sci(ut=t, situation="LANDED",
+                         vessel_recoverable=mlib.RECOVERABLE_YES)
+                     for t in (12.0, 13.0, 14.0, 18.9)])
+        self.assertEqual([], acts, "the hold let a verb out early")
+        self.assertEqual(0, state.recover_asks)
+        self.assertEqual(mlib.SBR_RECOVER, state.phase)
+        # The debounce is NOT re-armed by the hold: the streak has been standing
+        # for four frames, so the first eligible frame asks at once.
+        state, acts = drive_actions(state, sci(ut=19.0, situation="LANDED",
+                                               vessel_recoverable=mlib.RECOVERABLE_YES))
+        self.assertEqual([mlib.ACTION_RECOVER_VESSEL], [a.kind for a in acts])
+        self.assertEqual(1, state.recover_asks)
+
+    def test_the_default_asks_at_exactly_the_frame_it_always_did(self):
+        # THE COMPATIBILITY CASE, as a direct A/B on one scripted run: the same
+        # frames, once with no key declared and once with 0.0 spelled out.
+        for over in ({}, {"preRecoverDwellSeconds": 0.0}):
+            state = in_recover(**over)
+            state, acts = drive_actions(
+                state, sci(ut=12.0, situation="LANDED",
+                           vessel_recoverable=mlib.RECOVERABLE_YES))
+            self.assertEqual([], acts, over)          # one frame is not a debounce
+            state, acts = drive_actions(
+                state, sci(ut=13.0, situation="LANDED",
+                           vessel_recoverable=mlib.RECOVERABLE_YES))
+            self.assertEqual([mlib.ACTION_RECOVER_VESSEL], [a.kind for a in acts], over)
+
+    def test_a_dwell_shorter_than_the_natural_one_changes_nothing(self):
+        # THE ASYMMETRY, driven rather than asserted in prose: RECOVER is entered
+        # at 11.0 (4 s after the landing) and the debounce completes at 13.0, so a
+        # 3 s dwell is ALREADY satisfied and the ask goes out at its natural frame.
+        # This is why no value of this param can put a lane BELOW the split floor.
+        state = in_recover(preRecoverDwellSeconds=3.0)
+        state, acts = drive_actions(
+            state, *[sci(ut=t, situation="LANDED",
+                         vessel_recoverable=mlib.RECOVERABLE_YES)
+                     for t in (12.0, 13.0)])
+        self.assertEqual([mlib.ACTION_RECOVER_VESSEL], [a.kind for a in acts])
+
+    def test_the_hold_does_not_suppress_the_named_unrecoverable_terminal(self):
+        # PLACEMENT PROOF. The dwell conjunct sits INSIDE the ask condition, so
+        # everything above it keeps running while the hold is open. A craft that
+        # reads NO twice during a 12 s hold is condemned by name at once instead
+        # of waiting the hold out to reach an unnamed budget flake.
+        state = in_recover(preRecoverDwellSeconds=12.0)
+        state = drive(state,
+                      sci(ut=12.0, situation="LANDED",
+                          vessel_recoverable=mlib.RECOVERABLE_NO),
+                      sci(ut=13.0, situation="LANDED",
+                          vessel_recoverable=mlib.RECOVERABLE_NO))
+        self.assertTrue(state.done)
+        self.assertEqual(mlib.MISSION_ASSERT_FAIL, state.verdict)
+        self.assertIn("vessel-not-recoverable", state.loss_reason)
+
+    def test_a_hold_longer_than_the_budget_names_itself_in_the_flake(self):
+        # An AUTHOR error (dwell >= recoverTimeoutSeconds) is legal TOML, so the
+        # reason string has to make it self-diagnosing: `recoverAsks=0` with a
+        # standing `preRecoverDwell=` is a hold that outlived its own phase, not a
+        # kRPC fault, and the two triages are nothing alike.
+        state = in_recover(preRecoverDwellSeconds=60.0, recoverTimeoutSeconds=10)
+        state = drive(state, *[sci(ut=12.0 + i * 5, situation="LANDED",
+                                   vessel_recoverable=mlib.RECOVERABLE_YES)
+                               for i in range(4)])
+        self.assertTrue(state.done)
+        self.assertEqual(mlib.MISSION_FLAKE, state.verdict)
+        self.assertIn("recover-never-completed", state.flake_reason)
+        self.assertIn("preRecoverDwell=60.000", state.flake_reason)
+        self.assertIn("landedUT=7.000", state.flake_reason)
+
+    def test_a_lane_that_declares_no_dwell_reports_a_zero_not_a_blank(self):
+        state = in_recover(recoverTimeoutSeconds=10)
+        state = drive(state, *[sci(ut=12.0 + i * 5, situation="LANDED",
+                                   vessel_recoverable=mlib.RECOVERABLE_UNREAD)
+                               for i in range(5)])
+        self.assertIn("preRecoverDwell=0.000", state.flake_reason)
+
+    def test_a_held_flight_still_reaches_the_success_terminal(self):
+        # END TO END with the hold declared: the terminal, the credit and the
+        # assertion rows are the ones a 0.0 lane produces, just later.
+        state = in_recover(preRecoverDwellSeconds=12.0)
+        state = drive(state, *[sci(ut=t, situation="LANDED",
+                                   vessel_recoverable=mlib.RECOVERABLE_YES)
+                               for t in (12.0, 15.0, 19.0)])
+        self.assertTrue(state.recover_asks >= 1)
+        state = drive(state, lost(20.0, career_funds=6000.0))
+        self.assertEqual(mlib.SBR_RECOVERED, state.phase)
+        self.assertTrue(state.done)
+        self.assertIsNone(state.verdict)
+
+
+_BASELINE_MODULE_NAME = "_mlib_baseline"
+
+# The commit that introduced `preRecoverDwellSeconds`. Named so the pinned
+# baseline sha can be CHECKED against its own stated rationale (the parent of
+# this commit) instead of being taken on trust from a comment.
+_DWELL_COMMIT_SHA = "77f7faf65"
+
+
+class SbrDwellCompatibilityTests(unittest.TestCase):
+    """THE CROSS-VERSION REPLAY: with no dwell declared, this module's SBR machine
+    must be `origin/main`'s, frame for frame.
+
+    WHY A REPLAY RATHER THAN AN ASSERTION. `L3-career-science-recover` shares this
+    mission with the L6 lanes and is a PINNED, promoted `nightly` spec: its
+    `recordings.count = {2, 2}` and its five career-leg logContract tokens were
+    measured on the pre-dwell machine. A local cell that says "the default is
+    unchanged" is only as good as the frames the author happened to script. This
+    one drives BOTH modules - the committed one and the one `git show
+    origin/main:harness/missions/lib/mlib.py` produces - over the same scripted
+    L3 flight and compares every emitted action, every phase and the terminal. It
+    is the GS-6 `partSweepSteps` compatibility discipline (an opt-in phase whose
+    empty declaration keeps the prior graph) with the baseline read from git
+    instead of restated by hand.
+
+    THE BASELINE IS A FIXED SHA, NOT A MOVING REF, AND THAT COST A RED MAIN TO
+    LEARN. The first revision read `origin/main`. The moment the dwell PR MERGED,
+    `origin/main`'s mlib carried the dwell, the mutation guard below fired exactly
+    as designed - "the baseline ALREADY has the dwell, so this class proves
+    nothing" - and every open PR's required `tests` check went red. THE GUARD WAS
+    RIGHT AND THE REF WAS WRONG: a comparison against "whatever main is now"
+    decays into a comparison of a change with itself on the day it lands. What
+    this class actually claims is about ONE fixed pair of bytes, so it names them.
+
+    SELF-SKIPS, with a stated reason, when the pinned sha is unreachable - a
+    contributor's shallow clone, or a checkout whose history was truncated. A SKIP
+    IN CI IS A BUG, NOT AN EXPECTED STATE: `.github/workflows/tests.yml` sets
+    `fetch-depth: 0` on the repo checkout precisely so this cell RUNS there.
+    `actions/checkout` defaults to depth 1, which would have made this class skip
+    silently on every CI run - the fail-open shape this repo refuses elsewhere
+    (the pwsh grep-audit gates fall back to a managed scan rather than skip). If
+    you are reading a skip reason from a CI log, restore that setting rather than
+    accepting the skip."""
+
+    # THE PINNED PRE-DWELL BASELINE. `96ac15dfb` is the same commit twice over,
+    # which is why it is the right anchor rather than merely a working one:
+    #   - it is the tip `l6-dwell-variants` branched from, so it is the tree L3's
+    #     promoted `nightly` pins were measured against; and
+    #   - it is EXACTLY the parent of `77f7faf65`, the commit that introduced
+    #     `preRecoverDwellSeconds` (`git rev-parse 77f7faf65^`), so it is the last
+    #     state of `mlib.py` with no dwell in it at all.
+    # Its mlib contains zero occurrences of `sbr_recover_dwell_satisfied`, which
+    # the mutation guard below re-checks on every run rather than trusting this
+    # comment.
+    #
+    # MOVING IT IS A DELIBERATE ACT. Advancing this sha re-bases what "unchanged"
+    # means; it is only correct alongside a fresh set of L3 measurements taken at
+    # the new sha. Never advance it just to make the cell pass.
+    BASELINE_SHA = "96ac15dfb"
+    BASELINE_REFS = (BASELINE_SHA,)
+
+    @classmethod
+    def setUpClass(cls):
+        cls.baseline = None
+        cls.skip_reason = None
+        source, ref = cls._read_baseline_source()
+        if source is None:
+            cls.skip_reason = ref            # carries the reason when source is None
+            return
+        cls.ref = ref
+        module = types.ModuleType(_BASELINE_MODULE_NAME)
+        module.__file__ = "<%s:harness/missions/lib/mlib.py>" % (ref,)
+        # REGISTERED BEFORE THE EXEC, and it is not optional: `@dataclass` resolves
+        # a class's own module out of `sys.modules[cls.__module__]` to spot a
+        # KW_ONLY sentinel, so an unregistered module blows up on mlib's first
+        # dataclass with a bare `AttributeError: 'NoneType' object has no
+        # attribute '__dict__'` that says nothing about the real cause.
+        sys.modules[_BASELINE_MODULE_NAME] = module
+        try:
+            exec(compile(source, module.__file__, "exec"), module.__dict__)
+        except Exception as exc:                                 # pragma: no cover
+            sys.modules.pop(_BASELINE_MODULE_NAME, None)
+            cls.skip_reason = "baseline mlib at %s did not import: %r" % (ref, exc)
+            return
+        if not hasattr(module, "sbr_decide"):                    # pragma: no cover
+            sys.modules.pop(_BASELINE_MODULE_NAME, None)
+            cls.skip_reason = "baseline mlib at %s has no sbr_decide" % (ref,)
+            return
+        cls.baseline = module
+
+    @classmethod
+    def tearDownClass(cls):
+        # Do not leave a second whole copy of mlib in the interpreter's module
+        # table for every sibling suite discovery runs after this one.
+        sys.modules.pop(_BASELINE_MODULE_NAME, None)
+
+    @classmethod
+    def _read_baseline_source(cls):
+        """(source, ref) on success; (None, reason) when no baseline is reachable."""
+        for ref in cls.BASELINE_REFS:
+            try:
+                proc = subprocess.run(
+                    ["git", "show", "%s:harness/missions/lib/mlib.py" % (ref,)],
+                    cwd=_REPO_ROOT, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            except OSError as exc:                               # pragma: no cover
+                return None, "git is not runnable here (%r)" % (exc,)
+            if proc.returncode == 0 and proc.stdout:
+                return proc.stdout.decode("utf-8"), ref
+        return None, ("no baseline mlib: %s does not resolve in this tree, so the "
+                      "pre-dwell comparison cannot be made. Expected causes: a "
+                      "shallow clone, or a checkout whose history was truncated. NOT "
+                      "an expected state in CI - tests.yml pins fetch-depth: 0 so "
+                      "this cell runs there; a skip in a CI log means that setting "
+                      "was lost, not that the claim is unprovable"
+                      % (", ".join(cls.BASELINE_REFS),))
+
+    def setUp(self):
+        if self.baseline is None:
+            self.skipTest(self.skip_reason)
+
+    @staticmethod
+    def _snapshot(module, fields):
+        """Build a TelemetrySnapshot of THAT module's own class from a field dict,
+        dropping any key the version does not declare (so an unrelated channel
+        added on one side does not read as a behaviour change)."""
+        declared = {f.name for f in dataclasses.fields(module.TelemetrySnapshot)}
+        return module.TelemetrySnapshot(**{k: v for k, v in fields.items()
+                                           if k in declared})
+
+    @staticmethod
+    def _action_shape(module_a, module_b, action):
+        """An action as a comparable tuple over the fields BOTH versions declare."""
+        common = sorted({f.name for f in dataclasses.fields(module_a.Action)}
+                        & {f.name for f in dataclasses.fields(module_b.Action)})
+        return tuple((name, getattr(action, name, None)) for name in common)
+
+    def _replay(self, module, param_dict, script):
+        """Drive one module's SBR machine over the script; return the per-frame
+        trace a comparison can be made on."""
+        state = module.sbr_initial_state(module.sbr_params_from_dict(param_dict))
+        trace = []
+        for fields in script:
+            state, actions = module.sbr_decide(
+                state, self._snapshot(module, fields))
+            trace.append((state.phase, state.done, state.verdict,
+                          state.loss_reason, state.flake_reason,
+                          tuple(self._action_shape(mlib, self.baseline, a)
+                                for a in actions)))
+        return state, trace
+
+    def test_L3s_committed_params_replay_identically_against_the_baseline(self):
+        # L3's OWN missionParams, read from the committed spec rather than copied,
+        # so a future edit to that spec re-aims this cell instead of staling it.
+        with open(os.path.join(_HARNESS, "scenarios",
+                               "L3-career-science-recover.toml"), "rb") as fh:
+            l3 = tomllib.load(fh)["driver"]["missionParams"]
+        self.assertNotIn("preRecoverDwellSeconds", l3,
+                         "L3 must stay on the default; its pins were measured there")
+
+        head_state, head_trace = self._replay(mlib, l3, DWELL_REPLAY_SCRIPT)
+        base_state, base_trace = self._replay(self.baseline, l3, DWELL_REPLAY_SCRIPT)
+
+        self.assertEqual(len(base_trace), len(head_trace))
+        for i, (base, head) in enumerate(zip(base_trace, head_trace)):
+            self.assertEqual(base, head,
+                             "frame %d (ut=%s) diverges from %s"
+                             % (i, DWELL_REPLAY_SCRIPT[i].get("ut"), self.ref))
+        # And the end state agrees on everything the harness reads downstream.
+        self.assertEqual(base_state.phases_reached, head_state.phases_reached)
+        self.assertEqual(base_state.skip_settle_tail, head_state.skip_settle_tail)
+        # The script is a REAL flight, not a stub that agrees trivially.
+        self.assertEqual(mlib.SBR_RECOVERED, head_state.phase)
+        self.assertTrue(head_state.done)
+        self.assertIsNone(head_state.verdict)
+
+    def test_the_assertion_rows_are_the_baselines_too(self):
+        with open(os.path.join(_HARNESS, "scenarios",
+                               "L3-career-science-recover.toml"), "rb") as fh:
+            l3 = tomllib.load(fh)["driver"]["missionParams"]
+        head_state, _ = self._replay(mlib, l3, DWELL_REPLAY_SCRIPT)
+        base_state, _ = self._replay(self.baseline, l3, DWELL_REPLAY_SCRIPT)
+        head_rows = [r.to_dict() for r in mlib.evaluate_sbr_assertions(
+            [], mlib.sbr_params_from_dict(l3), head_state)]
+        base_rows = [r.to_dict() for r in self.baseline.evaluate_sbr_assertions(
+            [], self.baseline.sbr_params_from_dict(l3), base_state)]
+        self.assertEqual(base_rows, head_rows)
+        self.assertEqual([], [r for r in head_rows if not r.get("met")], head_rows)
+
+    def test_the_baseline_module_really_is_the_pre_dwell_one(self):
+        # THE MUTATION GUARD on this whole class: a baseline that already carried
+        # the dwell would make the replay above compare the change against itself
+        # and pass no matter what. It reds here instead.
+        #
+        # THIS IS NOT HYPOTHETICAL - IT FIRED ON A REAL MAIN. While BASELINE_REFS
+        # read `origin/main`, merging the dwell PR made the baseline post-dwell
+        # within minutes and this assertion red every open PR's required check.
+        # That is the guard working; the fix was to pin a sha, not to soften the
+        # guard. Against a pinned sha it now guards the one remaining way to make
+        # this class vacuous: somebody advancing BASELINE_SHA past the dwell.
+        self.assertFalse(hasattr(self.baseline, "sbr_recover_dwell_satisfied"),
+                         "the baseline at %s ALREADY has the dwell, so this class "
+                         "proves nothing. Do NOT advance BASELINE_SHA to make a "
+                         "failure go away - it must stay at a PRE-dwell commit "
+                         "(see the constant's own note)" % (self.ref,))
+        self.assertTrue(hasattr(mlib, "sbr_recover_dwell_satisfied"))
+
+    def test_the_baseline_is_a_FIXED_sha_and_never_a_moving_ref(self):
+        # THE REGRESSION THIS INCIDENT ACTUALLY WAS. The class above can be made
+        # vacuous two ways: advance the sha (guarded above), or go back to naming
+        # a BRANCH, which re-arms the exact failure mode - `origin/main` was
+        # correct right up until the change under test merged into it, and then it
+        # red every open PR. A branch or tag name must never appear here again.
+        for ref in self.BASELINE_REFS:
+            self.assertRegex(ref, r"^[0-9a-f]{7,40}$",
+                             "BASELINE_REFS must hold FIXED commit sha(s); %r is a "
+                             "movable name, and a moving baseline compares the "
+                             "change under test against itself the day it lands"
+                             % (ref,))
+        # And the pinned sha is the one the constant's note describes: the parent
+        # of the commit that introduced the dwell. READ FROM GIT rather than
+        # restated, so a re-pin cannot quietly disagree with its own rationale.
+        proc = subprocess.run(
+            ["git", "rev-parse", "--short", "%s^" % (_DWELL_COMMIT_SHA,)],
+            cwd=_REPO_ROOT, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        if proc.returncode != 0:                                 # pragma: no cover
+            self.skipTest("the dwell commit %s does not resolve in this tree "
+                          "(shallow clone); the sha-shape check above still ran"
+                          % (_DWELL_COMMIT_SHA,))
+        parent = proc.stdout.decode().strip()
+        self.assertTrue(parent.startswith(self.BASELINE_SHA)
+                        or self.BASELINE_SHA.startswith(parent),
+                        "BASELINE_SHA is %s but the parent of the dwell commit %s "
+                        "is %s - the pin and its stated rationale disagree"
+                        % (self.BASELINE_SHA, _DWELL_COMMIT_SHA, parent))
+
+
+# The scripted L3 flight the cross-version replay drives: B1's proven pad-hop
+# shape (fuel burn -> apex -> arm -> canopy -> landed) followed by the career
+# tail, as PLAIN FIELD DICTS so each module can build its own TelemetrySnapshot
+# class from them. Sized against L3's committed params (apoapsis inside
+# 6000-30000, one experiment holding data, a science gain over the 0.5 floor, a
+# recovery credit over the 1.0 floor).
+def _rf(**kw):
+    base = dict(science_experiment_count=2, science_data_count=0,
+                science_available_count=2, vessel_recoverable=mlib.RECOVERABLE_YES,
+                career_funds=1000.0, career_science=10.0)
+    base.update(kw)
+    return base
+
+
+DWELL_REPLAY_SCRIPT = [
+    _rf(ut=0.0, stage_solid_fuel=1.0, apoapsis=14000, situation="PRE_LAUNCH"),
+    _rf(ut=1.0, stage_solid_fuel=0.5, apoapsis=14000, situation="FLYING"),
+    _rf(ut=2.0, stage_solid_fuel=0.0, apoapsis=14000, situation="FLYING"),
+    _rf(ut=3.0, vertical_speed=5.0, apoapsis=14000, situation="FLYING"),
+    _rf(ut=4.0, vertical_speed=-5.0, apoapsis=14000, situation="FLYING"),
+    _rf(ut=5.0, altitude=5000, apoapsis=14000, situation="FLYING",
+        craft_chute_state=mlib.CHUTE_STATE_SEMI_DEPLOYED),
+    _rf(ut=6.0, altitude=2000, apoapsis=14000, situation="FLYING",
+        craft_chute_state=mlib.CHUTE_STATE_DEPLOYED),
+    _rf(ut=7.0, altitude=100, apoapsis=14000, situation="LANDED",
+        craft_chute_state=mlib.CHUTE_STATE_DEPLOYED),
+    # COLLECT: two debounced frames holding data.
+    _rf(ut=8.0, situation="LANDED", science_data_count=2),
+    _rf(ut=9.0, situation="LANDED", science_data_count=2),
+    # TRANSMIT: two debounced frames of a credited pool.
+    _rf(ut=10.0, situation="LANDED", career_science=25.0),
+    _rf(ut=11.0, situation="LANDED", career_science=25.0),
+    # RECOVER: two debounced Recoverable=YES frames, then the ask goes out. The
+    # credited science pool STAYS at 25.0 from here on - stock does not take it
+    # back, and a frame that dropped it to the pre-transmit reading would leave
+    # `scienceTransmittedObserved` unmet on a flight that really transmitted.
+    _rf(ut=12.0, situation="LANDED", career_science=25.0),
+    _rf(ut=13.0, situation="LANDED", career_science=25.0),
+    # The recovery: the craft is gone and the funds pool has followed.
+    _rf(ut=14.0, vessel_lost=True, career_funds=6000.0, career_science=25.0,
+        recover_request_result=mlib.RECOVER_REQUEST_ISSUED),
+]
+
+
 class SbrVesselLossTests(unittest.TestCase):
     """A vessel loss means opposite things either side of the recovery."""
 
@@ -1608,6 +2037,38 @@ class SchemaSyncTests(unittest.TestCase):
     def test_the_flight_params_are_built_from_the_same_dict(self):
         built = mlib.sbr_params_from_dict(PARAMS)
         self.assertEqual(mlib.b1_params_from_dict(PARAMS), built.flight)
+
+    def test_the_dwell_is_declared_OPTIONAL_and_that_is_the_contract(self):
+        # REQUIRED would break every committed spec that flies this mission at
+        # ADMIT, and worse, it would make "no dwell" unspellable - which is the
+        # state L3's pinned measurements were taken in.
+        decl = self.params["preRecoverDwellSeconds"]
+        self.assertFalse(decl["required"])
+        self.assertEqual("number", decl["type"])
+        self.assertEqual(0.0, decl["min"])
+        self.assertEqual(120.0, decl["max"])
+
+    def test_the_dwell_range_is_CLOSED_at_admit_in_both_directions(self):
+        import hlib
+        decl = self.params["preRecoverDwellSeconds"]
+        self.assertEqual([], hlib._check_param_type("preRecoverDwellSeconds", 0.0, decl))
+        self.assertEqual([], hlib._check_param_type("preRecoverDwellSeconds", 12.0, decl))
+        for bad in (-1.0, 120.1, 1200):
+            self.assertNotEqual(
+                [], hlib._check_param_type("preRecoverDwellSeconds", bad, decl),
+                "a %r dwell must die at ADMIT, before a KSP process starts" % (bad,))
+        # A dwell-carrying params set still validates whole.
+        self.assertEqual([], hlib._validate_mission_params(
+            params(preRecoverDwellSeconds=12.0), self.schema))
+
+    def test_the_dwell_is_read_by_the_params_builder_and_defaults_to_no_hold(self):
+        # The declared-key-does-nothing shape, checked for this key specifically:
+        # it is the only OPTIONAL career key, so the required-key loop above
+        # cannot cover it.
+        self.assertEqual(0.0, mlib.sbr_params_from_dict({}).pre_recover_dwell)
+        self.assertEqual(0.0, mlib.sbr_params_from_dict(PARAMS).pre_recover_dwell)
+        self.assertEqual(12.0, mlib.sbr_params_from_dict(
+            params(preRecoverDwellSeconds=12.0)).pre_recover_dwell)
 
 
 _CAREER_FIELDS = {

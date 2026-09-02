@@ -1035,6 +1035,38 @@ an expected pool value. Only KSP can author what a subject or a recovery is wort
 authoring one here would re-make the mistake `harness/fixtures/saves/README.md`
 records (a ledger that agrees with a stale spec proves nothing).
 
+**One AMENDMENT, 2026-09-02: `preRecoverDwellSeconds` (optional, default 0.0).** The
+only tuning value on this mission that is NOT a floor on an observation, and it is not
+one because it gates nothing the mission concludes from - it holds the recovery ASK
+until N game seconds after the LANDING frame, and every terminal above is the same
+observation it always was. It exists because the RECORDING a flight of this mission
+produces ENDS at the recovery, the optimizer's split candidate is the touchdown
+`SurfaceStationary` section, and `RecordingOptimizer.CanAutoSplitIgnoringGhostTriggers`
+refuses a split unless both halves clear 5.0 s - a floor the mission's natural dwell
+straddled at 5.34 / 4.82 / 5.88 s across three flights of one spec, making the flight's
+own recording count unpinnable. THE KNOB IS ASYMMETRIC BY CONSTRUCTION: a hold can only
+LENGTHEN the tail, so a value below the natural dwell changes nothing and the sub-floor
+side of that boundary is unreachable from any spec. That side is pinned headlessly
+instead (`RecordingOptimizerTests.CanAutoSplitIgnoringGhostTriggers_L6LandedTail*`).
+The default is the compatibility contract for every lane that flew before it -
+`L3-career-science-recover`'s promoted `nightly` pins were measured there - and it is
+REPLAYED rather than asserted: `SbrDwellCompatibilityTests` drives L3's own committed
+params through this module and through the copy of it at a PINNED PRE-DWELL COMMIT
+(`96ac15dfb`, the parent of the commit that introduced the param) and compares every
+action, phase, terminal and assertion row, with a mutation guard that reds if the
+baseline already carries the dwell.
+
+THE BASELINE IS A FIXED SHA AND NOT A BRANCH, which cost a red `main` to learn: the
+first revision read `origin/main`, so the day the param merged the baseline became
+post-dwell, the mutation guard fired correctly and every open PR's required check went
+red. A comparison against "whatever main is now" decays into a comparison of a change
+with itself. Advancing that sha is a deliberate act, only correct alongside a fresh set
+of L3 measurements taken at the new sha, and a companion cell refuses any BASELINE_REFS
+entry that is not sha-shaped so a branch name cannot come back. `tests.yml` checks out
+at `fetch-depth: 0` so the sha resolves in CI and the class RUNS there rather than
+self-skipping - a skip in a CI log means that setting was lost, not that the claim is
+unprovable.
+
 Verdict semantics, and the split is the CL-1 split exactly - a wrong OUTCOME is
 not retryable, a broken CHANNEL is:
 

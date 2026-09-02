@@ -21,6 +21,14 @@ What SBR adds is strictly the tail that begins at B1's LANDED terminal:
 COLLECT -> TRANSMIT -> RECOVER -> RECOVERED. The `missionParams` for the flight
 half are the SAME KEYS `b1_pad_hop` declares, for the same reason.
 
+ONE OPTIONAL KNOB ON THAT TAIL, `preRecoverDwellSeconds` (default 0.0 = absent =
+no hold): game seconds to wait after the LANDING frame before the recovery verb
+may be EMITTED. It moves nothing the mission GATES on - every terminal is the
+same observation it always was - and exists so a scenario can put the landed tail
+of the recording the flight produces deterministically above `RecordingOptimizer`'s
+5.0 s split floor, which the natural dwell straddles. Block note above
+`mlib.sbr_recover_dwell_satisfied`.
+
 WHAT MAKES THE THREE NEW VERBS HONEST. All three are the exact
 commanded-vs-observed shape that produced the B11 executor, the B-DOCK docking-AP
 and the EVA-4 ladder defects. `Experiment.Run()` succeeds on a module whose
