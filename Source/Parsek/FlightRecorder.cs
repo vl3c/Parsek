@@ -7103,8 +7103,10 @@ namespace Parsek
             // reading that could see an unsettled coupling", which was a hypothesis with no
             // measurement and no decompile behind it. The COUNT is kept because it is the
             // instrument: it is what proves a captured proof came from the dock seam and not
-            // from this rule, and two committed lanes pin `externalParentCandidates=0` in
-            // their required tokens.
+            // from this rule. ONE committed lane pins `externalParentCandidates=0` off THIS
+            // line - H57. H55 and H56 pin the in-game cell's own `externalParentParts=0`,
+            // which is a separate count taken by `RouteDockCaptureMath.IsExternallyParentedPart`
+            // over the live part list, not this scan.
             int externalParentCandidates = 0;
             for (int i = 0; i < v.parts.Count; i++)
             {

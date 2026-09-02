@@ -459,35 +459,57 @@ pair, the producer fired (`RouteOriginProof captured: ... partnerBody=Kerbin sur
 the cell then stopped the recording and found NO recording in the tree carrying a
 `RouteOriginProof`.
 
-**The caller set, re-derived rather than read off comments.** `Recording.RouteOriginProof`
-has exactly two writers in `Source/Parsek`: `Recording.ApplyPersistenceArtifactsFrom`
-(`Recording.cs:912`) and `Recording.CloneWithPersistenceArtifacts` (`Recording.cs:1023`).
-The only production caller of the first in the recording pipeline is
-`ChainSegmentManager.CommitSegmentCore` (`ChainSegmentManager.cs:658`), reached from
-`CommitChainSegment` / `CommitDockUndockSegment` - the LEGACY chain-commit path. The
-always-tree paths do not touch the field: `ParsekFlight.FlushRecorderToTreeRecording`
-(`ParsekFlight.cs:3898`) and the undock split (`ParsekFlight.cs:5580`) both go through
-`ParsekFlight.AppendCapturedDataToRecording`, which omits it BY EXPLICIT DECISION with the
-rationale written at `ParsekFlight.cs:4661-4672` ("that proof reaches committed recordings
-via `Recording.ApplyPersistenceArtifactsFrom` at chain-commit time"). That rationale is
-stale for always-tree mode, which is the shipping mode.
+**The caller set, re-derived rather than read off comments, and corrected once already.**
+`Recording.RouteOriginProof` has exactly two writers in `Source/Parsek`:
+`Recording.ApplyPersistenceArtifactsFrom` (`Recording.cs:912`) and
+`Recording.CloneWithPersistenceArtifacts` (`Recording.cs:1023`).
 
-**So the producer half is fixed and the consumer half is unreachable.** The proof is built
+THE OMISSION LIVES IN `ParsekFlight.ApplyCapturedLogisticsMetadataToRecording`
+(`ParsekFlight.cs:4551`), NOT in `AppendCapturedDataToRecording`. That distinction is the
+whole fix shape and an earlier draft of this entry got it wrong. The metadata helper has
+TWO callers: `ParsekFlight.FlushRecorderToTreeRecording` calls it DIRECTLY
+(`ParsekFlight.cs:3898`) - that is the ordinary tree-mode stop, and the path H57 red on -
+and `AppendCapturedDataToRecording` (`ParsekFlight.cs:4518`) reaches it at
+`ParsekFlight.cs:4538`, which is how the undock split (`ParsekFlight.cs:5580`) and the
+merge (`ParsekFlight.cs:6302`) get there. An adoption written into
+`AppendCapturedDataToRecording` would therefore fix the split and the merge and MISS the
+ordinary stop flush entirely. The `RouteOriginProof` omission is a deliberate no-op inside
+the metadata helper with its rationale at `ParsekFlight.cs:4659-4670` ("that proof reaches
+committed recordings via `Recording.ApplyPersistenceArtifactsFrom` at chain-commit time").
+
+**What the chain-commit path actually is, stated without overclaiming.**
+`ChainSegmentManager.CommitSegmentCore` (`ChainSegmentManager.cs:658`) is the only
+production caller of `ApplyPersistenceArtifactsFrom` in the recording pipeline, and it is
+REACHABLE IN CODE, not dead: `CommitChainSegment` (`ParsekFlight.cs:1381`, `:12515`),
+`CommitDockUndockSegment` (`:12397`, `:12407`, `:12418`, `:12431`),
+`CommitVesselSwitchTermination` (`:11600`) and `CommitBoundarySplit` (`:11610`) are called
+from ungated handlers, and only the dock/undock branch carries a legacy label. What is true
+is narrower and measured: NO OBSERVED FLIGHT REACHES IT - zero `CommitSegmentCore` lines
+across all 394 collected `KSP.log`s in `../logs`. So IF a chain commit does run, a
+`RouteOriginProof` IS persisted, and it carries the merged-vessel pid, which means the
+ROUTE-ORIGIN-PROOF-PARTNER-IDENTITY semantics below are LIVE on that path and not merely
+hypothetical.
+
+**So the producer half is fixed and the consumer half is not reached.** The proof is built
 (`RouteProofCapture.BuildStartRouteOriginProof`), held in `FlightRecorder.pendingRouteOriginProof`
 between the start and the stop, and attached to `FlightRecorder.CaptureAtStop` by
-`BuildCaptureRecording` (`FlightRecorder.cs:7927`). It dies there.
+`BuildCaptureRecording` (`FlightRecorder.cs:7947`). It dies there on every path any flight
+has ever taken. CORROBORATED IN THE PRODUCED SAVES: the H56 and H57 runs of 2026-09-02 both
+report a `ROUTE_ORIGIN_PROOF` node count of 0, H56's despite its probe reading
+`proofCaptured=True outcome=captured`.
 
 **Why this is NOT a one-line forward, and why it was left open rather than patched.** The
-obvious edit - adopt `RouteOriginProof` in `AppendCapturedDataToRecording` - lands in a
-helper shared by the stop flush, the undock split (`ParsekFlight.cs:5580`) and the merge
-path (`ParsekFlight.cs:6302`), so it changes tree metadata semantics for every recording,
-not just start-docked ones, and it needs write-once semantics of its own (the field is
-nulled at every recorder restart, so a split-then-stop sequence would otherwise overwrite a
-real proof with null). It also cannot be settled independently of
-ROUTE-ORIGIN-PROOF-PARTNER-IDENTITY below: forwarding a pid whose meaning is disputed just
-persists the dispute. Fix shape: one write-once adoption in
-`AppendCapturedDataToRecording` (adopt when `target.RouteOriginProof == null`), with a unit
-test for the null-source-does-not-clobber case, taken together with the partner rule.
+adoption has to go into `ApplyCapturedLogisticsMetadataToRecording` (`ParsekFlight.cs:4551`)
+to cover the ordinary stop flush, and that helper is shared by the stop flush, the undock
+split and the merge - so it changes tree metadata semantics for EVERY recording, not just
+start-docked ones. It needs write-once semantics of its own: `pendingRouteOriginProof` is
+nulled at every recorder restart (`FlightRecorder.cs:7030`), so a split-then-stop sequence
+would otherwise overwrite a real proof with null. And it cannot be settled independently of
+ROUTE-ORIGIN-PROOF-PARTNER-IDENTITY below - forwarding a pid whose meaning is disputed just
+persists the dispute, and the chain-commit path already would if it ever ran. Fix shape: one
+write-once adoption in `ApplyCapturedLogisticsMetadataToRecording` (adopt when
+`target.RouteOriginProof == null`), with a unit test for the null-source-does-not-clobber
+case, taken together with the partner rule.
 
 ## ROUTE-ORIGIN-PROOF-PARTNER-IDENTITY: the start-docked proof stamps the MERGED vessel's own pid as the origin partner, which is right only when the depot is the dominant half [FOUND 2026-09-02 by the adversarial review of the producer fix (F1/F2). OPEN, needs a design ruling before any further code]
 
@@ -520,6 +542,14 @@ for a vessel that is not a transport at all. There is no route design doc in `do
 cite a rule from (`docs/dev/done/logistics-origin-ownership-proposal.md` is the archived
 source, and its start-docked bullet is the one this wave already corrected), so the rule
 has to be WRITTEN before it can be cited.
+
+**And the semantics are LIVE, not hypothetical.** `ChainSegmentManager.CommitSegmentCore`
+is reachable from ungated handlers (see the entry above for the five call sites); no
+observed flight has taken it - zero `CommitSegmentCore` lines across 394 collected logs -
+but if one does, `Recording.ApplyPersistenceArtifactsFrom` persists a `RouteOriginProof`
+carrying the merged-vessel pid onto a committed recording, and `RouteBuilder` then resolves
+a non-KSC origin from it. So this is a ruling about behaviour that can already ship, not
+about a branch that cannot run.
 
 **The ruling that is needed, stated as the choice.** Either (a) the origin partner is the
 half that STAYS, in which case `v.persistentId` is right by construction and the depot-side

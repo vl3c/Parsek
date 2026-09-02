@@ -867,71 +867,94 @@ namespace Parsek.InGameTests
                     deliveryManifest != null && deliveryManifest.ContainsKey(TransferResourceName),
                     "the destination window must carry a LiquidFuel delivery manifest");
 
-                // THE PROOF'S FIELDS ARE READ OFF THE PRODUCER'S OWN LINE, not off a
-                // committed recording, and that is a statement about the PRODUCT rather
-                // than a convenience. Measured by this lane's first flight
-                // (`2026-09-02_1005`): the start-time proof IS produced and IS attached to
-                // `FlightRecorder.CaptureAtStop` by `BuildCaptureRecording`, but in
-                // ALWAYS-TREE mode nothing forwards it onto a tree recording -
-                // `ParsekFlight.AppendCapturedDataToRecording` omits the field by explicit
-                // decision, and the one production writer of `Recording.RouteOriginProof`
-                // (`Recording.ApplyPersistenceArtifactsFrom`, reached from
-                // `ChainSegmentManager.CommitSegmentCore`) is on the legacy chain-commit
-                // path. Filed as ROUTE-ORIGIN-PROOF-NEVER-REACHES-A-TREE-RECORDING. This
-                // cell therefore asserts what the producer emits and NOT what the store
-                // holds: pinning the read-back today would pin the defect as correct, and
-                // pinning `proof == null` would pin it as intended.
-                if (ctx.Flight.IsRecording)
-                    ctx.Flight.StopRecording();
-                string proofRecordingId;
-                RouteOriginProof proof = FindOriginProof(ctx.Tree, out proofRecordingId);
-                ParsekLog.Info("TestRunner",
-                    "StartDockedOriginForward: cell=" + ctx.CellName
-                    + " treeRecordingWithProof=" + (proof != null ? (proofRecordingId ?? "<unnamed>") : "<none>")
-                    + " (REPORT-ONLY, see ROUTE-ORIGIN-PROOF-NEVER-REACHES-A-TREE-RECORDING)");
+                // EVERY STATEMENT BELOW IS POST-MEASUREMENT AND HAS NO `yield`, so it can
+                // live inside a try/catch. It is wrapped because H57's first two flights
+                // died in exactly this tail with a bare "Object reference not set to an
+                // instance of an object." - the runner records only `ex.Message`, so the
+                // census carried no site at all. Now the located Warn lands immediately
+                // above the runner's FAILED line, and the exception still fails the cell.
+                try
+                {
+                    // THE PROOF'S FIELDS ARE READ OFF THE PRODUCER'S OWN LINE, not off a
+                    // committed recording, and that is a statement about the PRODUCT rather
+                    // than a convenience. Measured by this lane's first flight
+                    // (`2026-09-02_1005`): the start-time proof IS produced and IS attached to
+                    // `FlightRecorder.CaptureAtStop` by `BuildCaptureRecording`, but in
+                    // ALWAYS-TREE mode nothing forwards it onto a tree recording -
+                    // `ParsekFlight.AppendCapturedDataToRecording` omits the field by explicit
+                    // decision, and the one production writer of `Recording.RouteOriginProof`
+                    // (`Recording.ApplyPersistenceArtifactsFrom`, reached from
+                    // `ChainSegmentManager.CommitSegmentCore`) is on the legacy chain-commit
+                    // path. Filed as ROUTE-ORIGIN-PROOF-NEVER-REACHES-A-TREE-RECORDING. This
+                    // cell therefore asserts what the producer emits and NOT what the store
+                    // holds: pinning the read-back today would pin the defect as correct, and
+                    // pinning `proof == null` would pin it as intended.
+                    if (ctx.Flight.IsRecording)
+                        ctx.Flight.StopRecording();
+                    string proofRecordingId;
+                    RouteOriginProof proof = FindOriginProof(ctx.Tree, out proofRecordingId);
+                    ParsekLog.Info("TestRunner",
+                        "StartDockedOriginForward: cell=" + ctx.CellName
+                        + " treeRecordingWithProof=" + (proof != null ? (proofRecordingId ?? "<unnamed>") : "<none>")
+                        + " (REPORT-ONLY, see ROUTE-ORIGIN-PROOF-NEVER-REACHES-A-TREE-RECORDING)");
 
-                // The producer's Captured line carries every descriptor field this cell
-                // is here to prove is real, and it is production output.
-                InGameAssert.IsTrue(
-                    ctx.FindFrom(beforeStart, l => l.Contains("RouteOriginProof captured:")
-                        && l.Contains("surface=1")),
-                    "the start-docked capture must produce a SURFACE-typed origin endpoint on a " +
-                    "LANDED docked pair - IsSurfaceOriginSituation admits LANDED and SPLASHED only, " +
-                    "so surface=0 here means the descriptor lost the docked pair's situation");
-                InGameAssert.IsTrue(
-                    ctx.FindFrom(beforeStart, l => l.Contains("RouteOriginProof captured:")
-                        && l.Contains("partnerBody=Kerbin")),
-                    "the M1 endpoint descriptor must carry the body name, or the origin falls back " +
-                    "to the PID-only shape and loses its proximity rebuild");
-                InGameAssert.IsTrue(
-                    ctx.FindFrom(beforeStart, l =>
-                        l.Contains("RouteOriginProof seam scan:")
-                        && l.Contains("externalParentCandidates=0")
-                        && !l.Contains("settledDockSeamCandidates=0")),
-                    "the capture must come from the DOCK SEAM: the retired p.parent.vessel != v " +
-                    "reading must contribute zero and the seam producer must contribute at least one");
+                    // The producer's Captured line carries every descriptor field this cell
+                    // is here to prove is real, and it is production output.
+                    InGameAssert.IsTrue(
+                        ctx.FindFrom(beforeStart, l => l.Contains("RouteOriginProof captured:")
+                            && l.Contains("surface=1")),
+                        "the start-docked capture must produce a SURFACE-typed origin endpoint on a " +
+                        "LANDED docked pair - IsSurfaceOriginSituation admits LANDED and SPLASHED only, " +
+                        "so surface=0 here means the descriptor lost the docked pair's situation");
+                    InGameAssert.IsTrue(
+                        ctx.FindFrom(beforeStart, l => l.Contains("RouteOriginProof captured:")
+                            && l.Contains("partnerBody=Kerbin")),
+                        "the M1 endpoint descriptor must carry the body name, or the origin falls back " +
+                        "to the PID-only shape and loses its proximity rebuild");
+                    InGameAssert.IsTrue(
+                        ctx.FindFrom(beforeStart, l =>
+                            l.Contains("RouteOriginProof seam scan:")
+                            && l.Contains("externalParentCandidates=0")
+                            && !l.Contains("settledDockSeamCandidates=0")),
+                        "the capture must come from the DOCK SEAM: the retired p.parent.vessel != v " +
+                        "reading must contribute zero and the seam producer must contribute at least one");
 
-                ParsekLog.Info("TestRunner",
-                    RouteDockCaptureMath.FormatStartDockedOriginLine(
-                        ctx.CellName, ctx.RunId, proofCaptured: true,
-                        originVesselPid: mergedPid,
-                        originBodyName: merged.mainBody != null ? merged.mainBody.bodyName : null,
-                        originIsSurface: RouteProofCapture.IsSurfaceOriginSituation(mergedSituation),
-                        originSituation: mergedSituation,
+                    ParsekLog.Info("TestRunner",
+                        RouteDockCaptureMath.FormatStartDockedOriginLine(
+                            ctx.CellName, ctx.RunId, proofCaptured: true,
+                            originVesselPid: mergedPid,
+                            originBodyName: merged.mainBody != null ? merged.mainBody.bodyName : null,
+                            originIsSurface: RouteProofCapture.IsSurfaceOriginSituation(mergedSituation),
+                            originSituation: mergedSituation,
+                            completeWindows: ctx.Windows.Count,
+                            detail: "recordedPid=" + mergedPid.ToString(IC)
+                                + ";treeProof=" + (proof != null ? "yes" : "no")
+                                + ";delivered=" + delivered.ToString("F2", IC)));
+
+                    ctx.RunAnalysisAndPass(
                         completeWindows: ctx.Windows.Count,
+                        kind: ctx.Windows[0].TransferKind,
+                        deliveryResources: deliveryManifest.Count,
+                        deliveryInventory: 0,
+                        pickupResources: 0,
+                        pickupInventory: 0,
+                        // THE NRE THAT RED FLIGHTS 1 AND 2 WAS HERE: this argument
+                        // dereferenced the tree-lookup result, which is null by
+                        // construction while ROUTE-ORIGIN-PROOF-NEVER-REACHES-A-TREE-RECORDING
+                        // stands. It survived the reshape as a leftover from the version
+                        // that asserted the read-back. The recorded vessel pid is what the
+                        // producer actually stamped, and it is already in the instrument
+                        // line above.
                         detail: "recordedPid=" + mergedPid.ToString(IC)
                             + ";treeProof=" + (proof != null ? "yes" : "no")
-                            + ";delivered=" + delivered.ToString("F2", IC)));
-
-                ctx.RunAnalysisAndPass(
-                    completeWindows: ctx.Windows.Count,
-                    kind: ctx.Windows[0].TransferKind,
-                    deliveryResources: deliveryManifest.Count,
-                    deliveryInventory: 0,
-                    pickupResources: 0,
-                    pickupInventory: 0,
-                    detail: "originPid=" + proof.StartDockedOriginVesselPid.ToString(IC)
-                        + ";delivered=" + delivered.ToString("F2", IC));
+                            + ";delivered=" + delivered.ToString("F2", IC));
+                }
+                catch (Exception tailEx)
+                {
+                    ParsekLog.Warn("TestRunner",
+                        FormatFailureSite("post-measurement-tail", ctx.CellName, tailEx));
+                    throw;
+                }
             }
             finally
             {
@@ -1687,7 +1710,41 @@ namespace Parsek.InGameTests
                 if (Flight.IsRecording)
                     Flight.StopRecording();
 
-                RouteAnalysisResult analysis = RouteAnalysisEngine.AnalyzeTree(tree);
+                // RE-DERIVE THE TREE HANDLE. `tree` was bound at StartRecordingAndWait,
+                // and a cell that drives an undock SPLIT with the recorder running can
+                // leave that handle behind: CreateSplitBranch mutates the active tree, and
+                // the stop's finalize can re-point what ParsekFlight considers active. The
+                // window-centric cells split once, at the end, and never notice; the
+                // start-docked subject splits TWICE (the depot leaves before any window
+                // exists), which is where H57's first two flights died with a bare NRE in
+                // this tail. Prefer the live active tree, keep the bound one as fallback,
+                // and NAME the state instead of dereferencing null.
+                RecordingTree analysisTree = Flight.ActiveTreeForSerialization ?? tree;
+                if (analysisTree != null && !ReferenceEquals(analysisTree, tree))
+                {
+                    ParsekLog.Verbose("TestRunner",
+                        "RouteDockCapture analysis tree refreshed: cell=" + CellName +
+                        " bound=" + (tree != null ? (tree.Id ?? "<unnamed>") : "<null>") +
+                        " live=" + (analysisTree.Id ?? "<unnamed>"));
+                    tree = analysisTree;
+                }
+                InGameAssert.IsNotNull(analysisTree,
+                    "no RecordingTree to analyse: the handle bound at StartRecordingAndWait is null " +
+                    "and ParsekFlight has no active tree after the stop (cell=" + CellName + ")");
+
+                RouteAnalysisResult analysis;
+                try
+                {
+                    analysis = RouteAnalysisEngine.AnalyzeTree(analysisTree);
+                }
+                catch (Exception ex)
+                {
+                    // THE RUNNER LOGS ONLY THE MESSAGE, so an exception raised here reaches
+                    // the census as a bare "Object reference not set to an instance of an
+                    // object." with no site. Name the site before rethrowing.
+                    ParsekLog.Warn("TestRunner", FormatFailureSite("AnalyzeTree", CellName, ex));
+                    throw;
+                }
                 InGameAssert.IsNotNull(analysis, "AnalyzeTree returned null");
                 // The cell's OWN construction rules three statuses out: a
                 // completed DockingPort window exists, so proof is present and
@@ -2024,6 +2081,35 @@ namespace Parsek.InGameTests
                 "RouteDockCapture dock bookkeeping stamped: aPart=" + portA.flightID.ToString(IC) +
                 " bPart=" + portB.flightID.ToString(IC) +
                 " aVessel='" + vesselA.vesselName + "' bVessel='" + vesselB.vesselName + "'");
+        }
+
+        /// <summary>
+        /// One grep-stable line naming WHERE a cell died. `InGameTestRunner` records only
+        /// `ex.Message`, so a bare NRE reaches the census with no site at all - which is
+        /// exactly what H57's first two flights produced. Emitted at Warn immediately
+        /// before the rethrow, so the located line sits directly above the runner's
+        /// FAILED line in KSP.log.
+        /// </summary>
+        private static string FormatFailureSite(string step, string cell, Exception ex)
+        {
+            string frame = "<no stack>";
+            if (ex != null && !string.IsNullOrEmpty(ex.StackTrace))
+            {
+                string[] frames = ex.StackTrace.Split('\n');
+                for (int i = 0; i < frames.Length; i++)
+                {
+                    string candidate = frames[i].Trim();
+                    if (candidate.Length > 0)
+                    {
+                        frame = candidate;
+                        break;
+                    }
+                }
+            }
+            return "RouteDockCapture FAILURE SITE: cell=" + cell + " step=" + step
+                + " exception=" + (ex != null ? ex.GetType().Name : "<null>")
+                + " message=" + (ex != null ? ex.Message : "<null>")
+                + " frame=" + frame;
         }
 
         private static bool IsProducerClassifiedLine(string line)
