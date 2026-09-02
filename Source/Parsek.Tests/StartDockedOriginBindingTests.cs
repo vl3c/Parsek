@@ -794,6 +794,59 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void Pickup_NullStartInventory_CannotReadAnInventoryGain()
+        {
+            // F9, THE FAIL-OPEN THIS CELL EXISTS FOR. SumInventoryQuantities(null) is an
+            // EMPTY dict, not a missing one, so a walk without an explicit null-start guard
+            // compares every undock item against a fabricated before=0 and calls it a Gain -
+            // validating an origin on a run whose baseline was never captured. It mirrors the
+            // resource branch's own null-start guard exactly.
+            //
+            // REACHABLE, not theoretical: BuildSeamHalf leaves BOTH half manifests null when
+            // the recorder has no start snapshot, and the bind clones those nulls onto the
+            // proof.
+            Assert.Equal(
+                OriginPickupKind.Carried,
+                RouteProofCapture.ClassifyOriginPickup(null, null, null, Inv("evaChute", 1)));
+            // ... and the same with resources present but the inventory baseline missing.
+            Assert.Equal(
+                OriginPickupKind.Carried,
+                RouteProofCapture.ClassifyOriginPickup(
+                    Manifest("LiquidFuel", 40.0), Manifest("LiquidFuel", 40.0),
+                    null, Inv("DeployedCentralStation", 3)));
+            // An EMPTY (non-null) start inventory is a real baseline and DOES yield a gain -
+            // that is the discrimination the guard must not destroy, and it is why
+            // BuildSeamHalf records an explicit empty list for a half it actually measured
+            // (VesselSpawner.ExtractInventoryPayloadItems returns null BOTH for "found no
+            // items" and for "nothing to look at", so the producer has to say which).
+            Assert.Equal(
+                OriginPickupKind.Gain,
+                RouteProofCapture.ClassifyOriginPickup(null, null, Inv(), Inv("evaChute", 1)));
+        }
+
+        [Fact]
+        public void Bind_WithNoStartManifestsAtAll_DoesNotValidate()
+        {
+            // The same fail-open driven through the whole binder: a pair captured with no
+            // start snapshot carries null manifests on both halves, and the transport then
+            // undocks carrying cargo. Nothing was measured at the start, so nothing is
+            // witnessed and the proof must not become an origin.
+            RouteOriginProof proof = PendingProof();
+            proof.StartDockedPair.HalfA.StartResources = null;
+            proof.StartDockedPair.HalfA.StartInventory = null;
+
+            ConfigNode loaded = SnapshotWithInventory(110u, "LiquidFuel", 40.0, "evaChute");
+            Assert.True(RouteProofCapture.TryBindStartDockedOriginAtUndock(
+                proof, HalfAParts, HalfBParts, loaded, loaded,
+                500u, GuidB, 400u, GuidA, 1234.5, "rec-nobaseline"));
+
+            Assert.Equal(OriginPickupKind.Carried, proof.StartDockedOriginPickupKind);
+            Assert.False(proof.StartDockedOriginPickupValidated);
+            var rec = new Recording { RecordingId = "r", RouteOriginProof = proof };
+            Assert.False(Parsek.Logistics.RouteAnalysisEngine.HasDockedOriginProof(rec));
+        }
+
+        [Fact]
         public void Pickup_ItemsWithNoIdentityCannotInventADelta()
         {
             // An item with no identity hash cannot be matched across the two snapshots, so
@@ -856,6 +909,109 @@ namespace Parsek.Tests
                 && l.Contains("pickup=Gain")
                 && l.Contains("inv:+1")
                 && l.Contains("undockInv=1"));
+        }
+
+        // ==============================================================
+        // 6c. THE HALF-SCOPED INVENTORY BASELINE, at the PRODUCER (F10)
+        //
+        // BuildSeamHalf extracts each half's start manifests from the MERGED snapshot scoped
+        // to that half's own seam-derived part set. If the scoping were dropped, both halves
+        // would carry the merged stack's inventory and a depot-side container would sit in
+        // the transport's start baseline - which silently CANCELS a real pickup (the item is
+        // already "there" at the start, so the undock shows no rise).
+        // ==============================================================
+
+        /// <summary>Merged two-half snapshot: transport parts 100/101, depot parts 200/201,
+        /// with a stored part on whichever side the caller names.</summary>
+        private static ConfigNode MergedSnapshotWithStoredPartOn(uint ownerPartPid, string storedPartName)
+        {
+            var vessel = new ConfigNode("VESSEL");
+            foreach (uint pid in new uint[] { 100u, 101u, 200u, 201u })
+            {
+                var part = vessel.AddNode("PART");
+                part.AddValue("name", "tank");
+                part.AddValue("persistentId",
+                    pid.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                var res = part.AddNode("RESOURCE");
+                res.AddValue("name", "LiquidFuel");
+                res.AddValue("amount", "10");
+                res.AddValue("maxAmount", "100");
+                if (pid != ownerPartPid) continue;
+                var module = part.AddNode("MODULE");
+                module.AddValue("name", "ModuleInventoryPart");
+                module.AddValue("InventorySlots", "4");
+                var stored = module.AddNode("STOREDPARTS").AddNode("STOREDPART");
+                stored.AddValue("partName", storedPartName);
+                stored.AddValue("quantity", "1");
+            }
+            return vessel;
+        }
+
+        private static DockSeamPairCandidate TwoHalfCandidate()
+        {
+            return new DockSeamPairCandidate(
+                11u,
+                Half(VesselType.Rover, 100u, "transport"),
+                Half(VesselType.Rover, 200u, "depot"),
+                new List<uint> { 100u, 101u },
+                new List<uint> { 200u, 201u },
+                (int)Vessel.Situations.LANDED, "Kerbin", 0.1, -74.7, 68.9);
+        }
+
+        [Fact]
+        public void Producer_StartInventoryBaselineIsHalfScoped_TheDepotsCargoIsNotTheTransports()
+        {
+            // The container sits on a DEPOT part (200). It must appear in half B's start
+            // inventory and NOT in half A's.
+            RouteProofCapture.BuildStartRouteOriginProof(
+                (int)Vessel.Situations.LANDED, false,
+                new List<DockSeamPairCandidate> { TwoHalfCandidate() }, 1,
+                MergedSnapshotWithStoredPartOn(200u, "DeployedCentralStation"),
+                false, "<test>", 7u,
+                out RouteOriginProof proof, out _);
+
+            Assert.NotNull(proof);
+            StartDockedSeamHalf transportHalf = proof.StartDockedPair.HalfA;
+            StartDockedSeamHalf depotHalf = proof.StartDockedPair.HalfB;
+            Assert.True(transportHalf.StartInventory == null || transportHalf.StartInventory.Count == 0,
+                "the depot's container must NOT be in the transport half's start baseline");
+            Assert.Single(depotHalf.StartInventory);
+            Assert.Equal("DeployedCentralStation", depotHalf.StartInventory[0].PartName);
+            // Resources are half-scoped by the same split: 2 parts x 10 units per half.
+            Assert.Equal(20.0, transportHalf.StartResources["LiquidFuel"].amount, 6);
+            Assert.Equal(20.0, depotHalf.StartResources["LiquidFuel"].amount, 6);
+        }
+
+        [Fact]
+        public void Producer_TheDepotsCargoInTheMergedStackCannotCancelARealPickup()
+        {
+            // THE CONSEQUENCE, end to end. The depot holds a container at recording start;
+            // the transport takes ONE of its own at the seam. A merged-scope baseline would
+            // have the item already present at the start and read no gain.
+            RouteProofCapture.BuildStartRouteOriginProof(
+                (int)Vessel.Situations.LANDED, false,
+                new List<DockSeamPairCandidate> { TwoHalfCandidate() }, 1,
+                MergedSnapshotWithStoredPartOn(200u, "DeployedCentralStation"),
+                false, "<test>", 7u,
+                out RouteOriginProof proof, out _);
+
+            // The transport half (100/101) leaves carrying that same item kind.
+            ConfigNode transportAtUndock =
+                SnapshotWithInventory(100u, "LiquidFuel", 20.0, "DeployedCentralStation");
+            Assert.True(RouteProofCapture.TryBindStartDockedOriginAtUndock(
+                proof,
+                new List<uint> { 100u, 101u }, new List<uint> { 200u, 201u },
+                transportAtUndock, transportAtUndock,
+                500u, GuidB, 400u, GuidA, 1234.5, "rec-scope"));
+
+            Assert.Equal(200u, proof.StartDockedOriginRootPartUId);
+            Assert.Equal(OriginPickupKind.Gain, proof.StartDockedOriginPickupKind);
+            Assert.True(proof.StartDockedOriginPickupValidated);
+            // END manifests are re-extracted at the bind on the SAME half scope, so the
+            // depot's own container never enters the transport's end inventory either.
+            Assert.Single(proof.EndTransportInventory);
+            Assert.Equal("DeployedCentralStation", proof.EndTransportInventory[0].PartName);
+            Assert.Equal(20.0, proof.EndTransportResources["LiquidFuel"].amount, 6);
         }
 
         // ==============================================================

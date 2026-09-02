@@ -790,8 +790,16 @@ namespace Parsek
             {
                 half.StartResources =
                     VesselSpawner.ExtractResourceManifest(snapshot, half.PartPersistentIds);
+                // MEASURED-AND-EMPTY IS NOT THE SAME AS NEVER-MEASURED, and the extractor
+                // cannot say which it means: ExtractInventoryPayloadItems returns null both
+                // when it found no items and when there was nothing to look at. The pickup
+                // rule needs the distinction - a null baseline must not yield a gain (it has
+                // nothing to compare against), while a half that really carried no items at
+                // the start MUST let a container arriving later read as one. This half was
+                // measured, so its baseline is explicit even when it is empty.
                 half.StartInventory =
-                    VesselSpawner.ExtractInventoryPayloadItems(snapshot, half.PartPersistentIds);
+                    VesselSpawner.ExtractInventoryPayloadItems(snapshot, half.PartPersistentIds)
+                    ?? new List<InventoryPayloadItem>();
             }
             return half;
         }
@@ -986,6 +994,15 @@ namespace Parsek
                 {
                     if (kvp.Value <= 0) continue;
                     sawCargo = true;
+
+                    // MIRRORS THE RESOURCE BRANCH ABOVE, and the omission was a fail-open.
+                    // SumInventoryQuantities(null) is an EMPTY dict, not a missing one, so
+                    // without this guard every item at the undock compared against a
+                    // fabricated before=0 and read as a Gain. That is reachable: BuildSeamHalf
+                    // leaves BOTH half manifests null when the recorder has no start snapshot,
+                    // and the bind clones those nulls onto the proof. No baseline means no
+                    // delta can be computed, so the item can only count as carried.
+                    if (startTransportInventory == null) continue;
                     startCounts.TryGetValue(kvp.Key, out int before);
                     if (kvp.Value > before)
                         return OriginPickupKind.Gain;
@@ -1229,12 +1246,21 @@ namespace Parsek
             List<InventoryPayloadItem> undockTransportInventory = canMeasure
                 ? VesselSpawner.ExtractInventoryPayloadItems(activeSideSnapshot, transportPids)
                 : null;
+            // CLASSIFY AGAINST THE HALF'S OWN BASELINE, not the persisted field. The two
+            // differ in exactly one way that matters: the half records an explicit empty list
+            // when it was measured and found nothing, whereas the persisted field keeps the
+            // codec's null-for-empty convention, and a null there would read as "no baseline"
+            // and refuse a real pickup.
+            List<InventoryPayloadItem> startInventoryBaseline =
+                (transportPids != null && transportPids.Count > 0)
+                    ? transportHalf.StartInventory
+                    : proof.StartTransportInventory;
             OriginPickupKind pickup = ClassifyOriginPickup(
                 proof.StartTransportResources, undockTransportResources,
-                proof.StartTransportInventory, undockTransportInventory);
+                startInventoryBaseline, undockTransportInventory);
             string pickupDelta = FormatOriginPickupDelta(
                 proof.StartTransportResources, undockTransportResources,
-                proof.StartTransportInventory, undockTransportInventory);
+                startInventoryBaseline, undockTransportInventory);
 
             OriginPidStampDecision pidDecision = DecideOriginPidStamp(
                 originLiveVesselPid, originLiveVesselGuid, recordedVesselPid, recordedVesselGuid);
