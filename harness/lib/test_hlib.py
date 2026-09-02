@@ -7657,15 +7657,26 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
                        # [5420f805...] byte-identically; neither lane mutates
                        # the route, so the arming re-pins nothing and moves no
                        # verdict on the shapes already flown.
-                       # WHAT IS OWED, AND THIS ENTRY IS PROVISIONAL UNTIL IT
-                       # LANDS: no run has yet EVALUATED the block, so the
-                       # armed re-flight and its negative control are both
-                       # outstanding. The five readings are offline reads of
-                       # saves those runs left behind, which is stronger than
-                       # the usual single report-only reading but is NOT the
-                       # armed run. If the re-flight reds, the block reverts to
-                       # report-only (drop `gating`) and this entry comes out -
-                       # widening a window is not the response.
+                       # DISCIPLINE COMPLETE 2026-09-02, the same day the facet
+                       # shipped. The five readings above are offline reads of
+                       # saves those runs left behind - stronger than the usual
+                       # single report-only reading, but not the armed run - so
+                       # the workflow closed on top of them: armed re-flight
+                       # `2026-09-02_1013` PASS attempt 1 (wall 69 s) with
+                       # `saveParse status=PASS gating=True blocks=['routes']
+                       # armed=['routes'] ... routes=1
+                       # routeStatuses={'Active': 1} routeCodecRejects=0
+                       # mismatches=0`, and its OWN negative control
+                       # `2026-09-02_1014` PARSEK-FAIL(save-structure) with the
+                       # mismatch list exactly
+                       # ["routes.statuses.SourceChanged 0 < min 1"], reverted
+                       # immediately. WHY ITS OWN CONTROL RATHER THAN THE
+                       # FAMILY'S SHARED ONE: every armed lane before this
+                       # inverted `rewind.supersedeRows`, which re-proves the
+                       # shared evaluator; this block has a parse, a
+                       # normalisation and a bucketing step of its own between
+                       # the bytes and that evaluator, so only an inversion of a
+                       # `routes` window proves them.
                        # WHY THIS LANE: it is the only committed spec whose
                        # subject IS the committed route, its `logContracts`
                        # already require `RevalidateSources ... routes=1

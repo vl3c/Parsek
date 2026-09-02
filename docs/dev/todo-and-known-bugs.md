@@ -1368,14 +1368,19 @@ prompted-candidate assertions route through the same parser; its
 `ROUTE_CONNECTION_WINDOWS` pins stay builder-side (a RECORDING-level surface
 written by `RouteProofCodec`, which this facet does not and should not reach).
 
-ARMED, PROVISIONALLY, on `V18T-depot-route-ts-arrival` (tier=operator):
+ARMED AND LIVE-PROVEN on `V18T-depot-route-ts-arrival` (tier=operator):
 `count {1,1}` / `dormant {max 0}` / `statuses {Active {1,1}}` /
-`sourceRefs {4,4}` / `ids [5420f805...]`, every window read OFFLINE by the new
-parser from five produced saves of two scenarios over the same fixture (V18T
-runs `2026-08-26_2042` / `_2317` / `_2318`, H40 runs `2026-08-28_2253` /
-`_2358`), all byte-identical. NO RUN HAS EVALUATED THE BLOCK YET: the armed
-re-flight and its negative control are outstanding, and if the re-flight reds
-the block reverts to report-only rather than having a window widened.
+`sourceRefs {4,4}` / `ids [5420f805...]`. Windows written from five OFFLINE
+reads of produced saves across two scenarios over the same fixture (V18T runs
+`2026-08-26_2042` / `_2317` / `_2318`, H40 runs `2026-08-28_2253` / `_2358`,
+all byte-identical), then the three-run workflow closed the same day: armed
+re-flight `2026-09-02_1013` PASS attempt 1 (69 s, `saveParse status=PASS
+gating=True armedBlocks=['routes'] ... routes=1 routeStatuses={'Active': 1}
+routeCodecRejects=0 mismatches=0`), negative control `2026-09-02_1014`
+`PARSEK-FAIL(save-structure)` on exactly
+`["routes.statuses.SourceChanged 0 < min 1"]`, reverted. The control inverts
+this block's OWN window rather than the shared `rewind.supersedeRows` minimum,
+so the routes path is proven end to end rather than the evaluator re-proven.
 
 ## SUBJECT-CANDIDATE-INTERPLANETARY-ROUTE: the operator's plain `orbital supply route` save carries a Kerbin -> Duna route that may be the MalformedMixedBodies case, and nothing has looked [OPENED 2026-08-26 while ranking route sources. TODO, not a defect]
 

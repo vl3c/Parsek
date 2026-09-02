@@ -113,8 +113,12 @@ _(unreleased — entries accumulate here per commit)_
   is no escrow facet because escrow is never serialized. The depot-route fixture's
   route pin moved onto the shared facet, the rover-route fixture's no-route and
   candidate assertions now read through the same parser, and the tracking-station
-  route lane declares the block armed on windows measured from five produced saves
-  of two scenarios - provisional until an armed flight confirms it.
+  route lane arms the block on windows measured from five produced saves of two
+  scenarios - confirmed by an armed flight that passed with the block gating and
+  by a negative control that red on exactly the predicted mismatch. Statuses and
+  connection kinds are bucketed the way the game's own loader reads them, not the
+  way the bytes spell them, so a window always names a value the game will hold;
+  the raw spellings are counted separately rather than silently collapsed.
 
 - The agent instructions now scope the invariant-culture formatting rule to what
   actually needs it. A unit-test run on a comma-locale machine printed

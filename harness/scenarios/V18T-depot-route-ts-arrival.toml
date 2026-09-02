@@ -653,11 +653,22 @@ requireSeamKinds = ["rigid"]
 # route, so the agreement across two scenarios and five runs is this block's
 # determinism statement.
 #
-# PROVISIONAL UNTIL THE ARMED RUN IS GREEN. The five measurements are offline
-# reads of saves those runs produced, which is stronger than the usual single
-# report-only reading - but no run has yet EVALUATED this block. If the armed
-# re-flight reds, the correct response is to revert this block to report-only
-# (drop `gating`) and read the facets, not to widen a window.
+# ARMING LEDGER, DISCHARGED 2026-09-02 the same day the facet shipped. The five
+# measurements above are offline reads of saves those runs produced, which is
+# stronger than the usual single report-only reading; the three-run workflow then
+# closed on top of them:
+#   armed re-flight   2026-09-02_1013  PASS attempt 1, wall 69 s, block GATING -
+#                     `saveParse status=PASS gating=True blocks=['routes']
+#                     armed=['routes'] ... routes=1 routeStatuses={'Active': 1}
+#                     routeCodecRejects=0 mismatches=0`
+#   negative control  2026-09-02_1014  PARSEK-FAIL(save-structure), mismatches
+#                     exactly ["routes.statuses.SourceChanged 0 < min 1"], from a
+#                     temporary `statuses = { SourceChanged = { min = 1 } }` that
+#                     was reverted immediately (the committed block is the armed
+#                     one). The inversion is THIS block's own headline window, not
+#                     the shared `rewind.supersedeRows` evaluator minimum every
+#                     earlier lane reused, so what it proves is the routes path end
+#                     to end rather than the evaluator a second time.
 gating = true
 # ANTI-VACUITY. The fixture ships exactly one committed route; a lane that
 # rendered a route overview line for a route the save no longer carries is the

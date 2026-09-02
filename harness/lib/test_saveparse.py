@@ -54,7 +54,7 @@ TOOLS_DIR = os.path.join(HARNESS_ROOT, "tools")
 NO_ROUTES_FACET = {
     "count": 0, "dormant": 0, "stops": 0, "sourceRefs": 0,
     "completedCycles": 0, "skippedCycles": 0, "codecRejects": 0, "unparsed": 0,
-    "unknownStatuses": 0,
+    "unknownStatuses": 0, "unknownConnectionKinds": 0,
     "statuses": {}, "connectionKinds": {},
     "originBodies": {}, "destinationBodies": {}, "holdKinds": {},
     "ids": [], "destinationVesselPids": [],
@@ -2436,6 +2436,7 @@ class CommittedFixtureSweepTests(unittest.TestCase):
                 "count": 1, "dormant": 0, "stops": 1, "sourceRefs": 4,
                 "completedCycles": 1, "skippedCycles": 0,
                 "codecRejects": 0, "unparsed": 0, "unknownStatuses": 0,
+                "unknownConnectionKinds": 0,
                 "statuses": {"Active": 1},
                 "connectionKinds": {"DockingPort": 1},
                 "originBodies": {"Kerbin": 1},
@@ -2612,6 +2613,7 @@ class CommittedFixtureSweepTests(unittest.TestCase):
                 "count": 0, "dormant": 0, "stops": 0, "sourceRefs": 0,
                 "completedCycles": 0, "skippedCycles": 0,
                 "codecRejects": 0, "unparsed": 0, "unknownStatuses": 0,
+                "unknownConnectionKinds": 0,
                 "statuses": {}, "connectionKinds": {},
                 "originBodies": {}, "destinationBodies": {}, "holdKinds": {},
                 "ids": [], "destinationVesselPids": [],
@@ -2695,6 +2697,7 @@ class CommittedFixtureSweepTests(unittest.TestCase):
                 "count": 0, "dormant": 0, "stops": 0, "sourceRefs": 0,
                 "completedCycles": 0, "skippedCycles": 0,
                 "codecRejects": 0, "unparsed": 0, "unknownStatuses": 0,
+                "unknownConnectionKinds": 0,
                 "statuses": {}, "connectionKinds": {},
                 "originBodies": {}, "destinationBodies": {}, "holdKinds": {},
                 "ids": [], "destinationVesselPids": [],
@@ -3685,6 +3688,51 @@ class RouteParseTests(unittest.TestCase):
         self.assertEqual(
             {}, saveparse.observed_routes_facets(
                 saveparse.parse_parsek_scenario("GAME\n{\n")))
+
+    def test_a_connection_kind_is_normalised_the_way_the_loader_reads_it(self):
+        """`RouteNodeCodec.ParseConnectionKind` tries a NUMERIC spelling FIRST and
+        maps anything unrecognised to the `Unknown` member, so the facet must
+        bucket what the loader HOLDS, not what the bytes spell. Bucketing the raw
+        value would put a `"1"` key in `connectionKinds` on a save the game reads
+        as `DockingPort`, and no whitelisted window could ever name it."""
+        cases = [
+            # (raw spelling, bucket, counts as an unknown collapse)
+            ("DockingPort", "DockingPort", False),   # the ordinary written form
+            ("1", "DockingPort", False),             # the numeric spelling C# accepts
+            ("0", "None", False),
+            ("4", "Unknown", False),                 # Unknown's own ordinal - defined
+            ("Unknown", "Unknown", False),           # ...and its own name
+            ("Klaw", "Unknown", True),               # collapsed: not a member
+            ("99", "Unknown", True),                 # collapsed: out of range
+        ]
+        for raw, bucket, collapsed in cases:
+            node = _ROUTE_NODE.replace("connectionKind = DockingPort",
+                                       "connectionKind = " + raw)
+            snap = saveparse.parse_parsek_scenario(_committed(node))
+            facet = saveparse.observed_routes_facets(snap)
+            with self.subTest(raw=raw):
+                self.assertEqual(raw, snap.routes[0].stops[0].connection_kind_raw)
+                self.assertEqual(bucket, snap.routes[0].stops[0].connection_kind)
+                self.assertEqual({bucket: 1}, facet["connectionKinds"])
+                self.assertEqual(1 if collapsed else 0,
+                                 facet["unknownConnectionKinds"])
+                # Every bucket is a name the whitelist accepts, which is the
+                # property that makes the normalisation worth doing.
+                self.assertEqual([], saveparse.validate_routes_expectations(
+                    {"connectionKinds": {bucket: 1}}))
+
+    def test_an_absent_connection_kind_is_the_none_default_not_a_collapse(self):
+        """The writer never omits the key, so an absent one is a hand-mutated
+        save - it reads as the `None` member (C#'s first branch) and is NOT an
+        unknown spelling."""
+        node = _ROUTE_NODE.replace(
+            "\t\t\t\t\tconnectionKind = DockingPort\n", "")
+        snap = saveparse.parse_parsek_scenario(_committed(node))
+        self.assertIsNone(snap.routes[0].stops[0].connection_kind_raw)
+        self.assertEqual("None", snap.routes[0].stops[0].connection_kind)
+        facet = saveparse.observed_routes_facets(snap)
+        self.assertEqual({"None": 1}, facet["connectionKinds"])
+        self.assertEqual(0, facet["unknownConnectionKinds"])
 
     def test_the_sparse_hold_kind_is_measured_not_discarded(self):
         """MEASURED-ONLY, no spec window - but RECORDED, because the row parses

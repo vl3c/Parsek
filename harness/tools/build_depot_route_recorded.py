@@ -334,6 +334,7 @@ ROUTE_FACET_PINS = {
     "codecRejects": 0,
     "unparsed": 0,
     "unknownStatuses": 0,
+    "unknownConnectionKinds": 0,
     "statuses": {"Active": 1},
     "connectionKinds": {ROUTE_STOP_CONNECTION_KIND: 1},
     "originBodies": {ROUTE_ORIGIN_BODY: 1},

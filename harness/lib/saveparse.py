@@ -323,13 +323,73 @@ ROUTE_STATUS_NAMES: Tuple[str, ...] = (
 ROUTE_STATUS_DEFAULT = "Active"
 
 # RouteConnectionKind (Source/Parsek/RouteProofMetadata.cs) - written as a NAME
-# by `RouteCodec.SerializeStop`. `RouteNodeCodec.ParseConnectionKind` accepts a
-# numeric spelling too and maps an unknown string to `Unknown`, which is why
-# `Unknown` is a legal bucket rather than a parse fault.
+# by `RouteCodec.SerializeStop`. In ORDINAL order: the numeric spelling the
+# loader also accepts is an INDEX into this tuple, so it must not be reordered.
 ROUTE_CONNECTION_KIND_NAMES: Tuple[str, ...] = (
     "None", "DockingPort", "Grapple", "StockCrossfeed", "Unknown",
 )
 ROUTE_CONNECTION_KIND_DEFAULT = "None"
+ROUTE_CONNECTION_KIND_UNKNOWN = "Unknown"
+
+
+def route_connection_kind_name(raw: Optional[str]) -> str:
+    """Normalise a raw ``connectionKind`` the way the GAME loads it.
+
+    Mirrors ``RouteNodeCodec.ParseConnectionKind``
+    (Source/Parsek/Logistics/RouteNodeCodec.cs) branch for branch, because the
+    facet must bucket what the loader will HOLD, not what the bytes spell -
+    the same rule ``RouteRow.status`` follows for ``ParseStatusOrWarn``:
+
+      1. null / empty -> ``None`` (the writer never omits the key, so this is a
+         hand-mutated save);
+      2. an integer that is a DEFINED ordinal -> that member. The C# tries the
+         numeric spelling FIRST, so reading ``connectionKinds = {"1": 1}`` off a
+         save the game reads as ``DockingPort`` would put a bucket in the facet
+         that no whitelisted window could ever name;
+      3. a DEFINED member name -> itself (the ordinary path, what
+         ``SerializeStop`` writes);
+      4. anything else -> ``Unknown``, a real enum member rather than a parse
+         fault. Counted separately as ``unknownConnectionKinds`` so the collapse
+         is visible instead of silent.
+
+    An out-of-range integer takes branch 4, matching ``Enum.IsDefined`` failing
+    the numeric parse and ``Enum.TryParse`` then failing on the same text.
+    """
+    if raw is None:
+        return ROUTE_CONNECTION_KIND_DEFAULT
+    text = raw.strip()
+    if not text:
+        return ROUTE_CONNECTION_KIND_DEFAULT
+    try:
+        ordinal = int(text)
+    except ValueError:
+        pass
+    else:
+        if 0 <= ordinal < len(ROUTE_CONNECTION_KIND_NAMES):
+            return ROUTE_CONNECTION_KIND_NAMES[ordinal]
+        return ROUTE_CONNECTION_KIND_UNKNOWN
+    if text in ROUTE_CONNECTION_KIND_NAMES:
+        return text
+    return ROUTE_CONNECTION_KIND_UNKNOWN
+
+
+def _is_recognised_connection_kind(raw: Optional[str]) -> bool:
+    """True when ``raw`` names a RouteConnectionKind member OUTRIGHT - as a
+    defined ordinal or a defined name - so the loader resolves it rather than
+    collapsing it. An ABSENT key is recognised (it is the writer's own None
+    default path), and so are the literal ``Unknown`` and its ordinal ``4``:
+    what ``unknownConnectionKinds`` counts is a value that HAD to be
+    collapsed, never one that legitimately reads as the Unknown member."""
+    if raw is None:
+        return True
+    text = raw.strip()
+    if not text:
+        return True
+    try:
+        ordinal = int(text)
+    except ValueError:
+        return text in ROUTE_CONNECTION_KIND_NAMES
+    return 0 <= ordinal < len(ROUTE_CONNECTION_KIND_NAMES)
 
 
 def terminal_state_name(value: Optional[int]) -> Optional[str]:
@@ -452,7 +512,12 @@ class RouteEndpointRow:
 
 @dataclass(frozen=True)
 class RouteStopRow:
-    connection_kind: str                 # absent => ROUTE_CONNECTION_KIND_DEFAULT
+    # NORMALISED through `route_connection_kind_name` (the loader's own rule:
+    # absent -> None, a defined ordinal -> its member, a defined name -> itself,
+    # anything else -> Unknown). `connection_kind_raw` keeps what the BYTES said
+    # (None = the key was absent), the `RouteRow.status` / `status_raw` pairing.
+    connection_kind: str
+    connection_kind_raw: Optional[str]
     endpoint: Optional[RouteEndpointRow]  # None = no ENDPOINT child (hand-mutated save)
 
 
@@ -602,8 +667,10 @@ def _parse_route(node: SfsNode, dormant: bool) -> RouteRow:
     excluded = node.first("EXCLUDED_INTERVALS")
     stops: List[RouteStopRow] = []
     for stop in node.nodes_named("STOP"):
+        kind_raw = stop.value("connectionKind")
         stops.append(RouteStopRow(
-            connection_kind=stop.value("connectionKind") or ROUTE_CONNECTION_KIND_DEFAULT,
+            connection_kind=route_connection_kind_name(kind_raw),
+            connection_kind_raw=kind_raw,
             endpoint=_parse_route_endpoint(stop.first("ENDPOINT"))))
     status_raw = node.value("status")
     return RouteRow(
@@ -934,11 +1001,21 @@ def observed_routes_facets(snapshot: Optional[ParsekSaveSnapshot]) -> Dict[str, 
 
     - ``count``            - ``ROUTE`` children under ``ROUTES``.
     - ``dormant``          - ``ROUTE`` children under ``DORMANT_ROUTES``.
+      A NODE COUNT, not the set the loader will hold: `LoadDormantRoutesFrom`
+      runs after the committed list is filled and DROPS a dormant entry whose
+      id collides with a committed route (Warn, committed wins), and the codec
+      rejects below apply to a dormant node exactly as they do to a committed
+      one. So `dormant` says what the SAVE carries; the number the game ends up
+      with can be lower. `count` carries the same caveat through
+      ``codecRejects``, which is why that counter is a defined mismatch.
     - ``stops``            - ``STOP`` children summed over the committed routes.
     - ``sourceRefs``       - ``SOURCE`` rows summed over the committed routes.
     - ``completedCycles`` / ``skippedCycles`` - the two dispatch counters summed.
     - ``statuses``         - ``RouteStatus`` NAME -> count.
-    - ``connectionKinds``  - ``RouteConnectionKind`` NAME -> count, over STOPs.
+    - ``connectionKinds``  - ``RouteConnectionKind`` NAME -> count, over STOPs,
+      NORMALISED through ``route_connection_kind_name`` (the loader's own
+      rule, which also accepts a numeric spelling), so a bucket is always a
+      name a whitelisted window can pin.
     - ``originBodies`` / ``destinationBodies`` - ``bodyName`` -> count, from the
       ``ORIGIN`` node and from each ``STOP``'s ``ENDPOINT``.
     - ``ids``              - committed route ids, file order.
@@ -968,13 +1045,19 @@ def observed_routes_facets(snapshot: Optional[ParsekSaveSnapshot]) -> Dict[str, 
       unconditionally, so this fires only on a hand-mutated save - and a missing
       counter must never deflate a sum into a smaller real number.
 
-    ``unknownStatuses`` is a THIRD counter and deliberately NOT a mismatch:
+    ``unknownStatuses`` and ``unknownConnectionKinds`` are two more counters and
+    deliberately NOT mismatches:
     routes carrying a ``status`` spelling this parser does not know, which
     ``statuses`` has already bucketed under ``Active`` the way the game's own
     ``ParseStatusOrWarn`` will. ``RouteStatus`` is an APPEND-ONLY enum, so a
     non-zero here means the save was written by a newer Parsek than this
     harness - a version signal for triage, not a defect. Redding on it would
     fail closed on an additive change that broke nothing.
+    ``unknownConnectionKinds`` is its exact sibling for ``connectionKind``:
+    STOPs whose raw value the loader had to COLLAPSE to the ``Unknown``
+    member (neither a defined ordinal nor a defined name), which
+    ``connectionKinds`` has already bucketed under ``Unknown``. A literal
+    ``Unknown`` and its ordinal ``4`` resolve outright and count as neither.
 
     WHICH KEY TO PIN. ``count`` is the anti-vacuity floor every route lane wants
     (a lane whose fixture route silently failed to load renders a dark map and
@@ -1003,6 +1086,7 @@ def observed_routes_facets(snapshot: Optional[ParsekSaveSnapshot]) -> Dict[str, 
     skipped = 0
     unparsed = 0
     unknown_statuses = 0
+    unknown_connection_kinds = 0
     for route in committed:
         statuses[route.status] = statuses.get(route.status, 0) + 1
         if route.status_raw is not None and route.status_raw not in ROUTE_STATUS_NAMES:
@@ -1026,6 +1110,12 @@ def observed_routes_facets(snapshot: Optional[ParsekSaveSnapshot]) -> Dict[str, 
                 origin_bodies.get(route.origin.body_name, 0) + 1)
         for stop in route.stops:
             kinds[stop.connection_kind] = kinds.get(stop.connection_kind, 0) + 1
+            # A raw spelling the loader had to COLLAPSE to `Unknown`. An
+            # absent key is not unknown (it is the None default), and the
+            # literal "Unknown" or its ordinal "4" are DEFINED members that
+            # resolve to themselves - only an unrecognised value counts.
+            if not _is_recognised_connection_kind(stop.connection_kind_raw):
+                unknown_connection_kinds += 1
             if stop.endpoint is None:
                 continue
             if stop.endpoint.body_name:
@@ -1043,6 +1133,7 @@ def observed_routes_facets(snapshot: Optional[ParsekSaveSnapshot]) -> Dict[str, 
         "codecRejects": sum(1 for r in committed if r.codec_reject),
         "unparsed": unparsed,
         "unknownStatuses": unknown_statuses,
+        "unknownConnectionKinds": unknown_connection_kinds,
         "statuses": statuses,
         "connectionKinds": kinds,
         "originBodies": origin_bodies,
