@@ -281,15 +281,25 @@ min = 0.0
 #   chutes-arm / -deploy / -cut    [ParachuteSemiDeployed / ParachuteDeployed /
 #                                   ParachuteCut]
 #   throttle-up / throttle-zero    [EngineIgnited / EngineThrottle / EngineShutdown]
+#   engines-on / engines-off       [EngineIgnited / EngineShutdown] by MODULE
+#                                  ACTIVATION (kRPC Engine.active) rather than by
+#                                  throttle - the only route to an engine the
+#                                  staging plan never activates
 #   brakes-on / brakes-off         (no Parsek family; for craft that bind a part
 #                                   action to the Brakes group)
 #   ag1 .. ag10                    the escape hatch: any part action the craft's
 #                                  designer bound to a custom action group
 #
-# AN UNKNOWN NAME IS REJECTED, not skipped, in two places: this schema's own
-# validation and the machine's COAST entry gate. A silently-dropped step is a
-# family that never fires, and the lane would then read as "the applier never
-# logged it" - blaming the product for a spec typo.
+# AN UNKNOWN NAME IS REJECTED, not skipped, in THREE places, and the first of them
+# is the one that matters: `values` below is a CLOSED VOCABULARY hlib enforces at
+# ADMIT, before a KSP process starts. Until 2026-09-02 it was only the machine's
+# own COAST entry gate - which runs AFTER the ascent, so a typo burned a whole
+# flight and then failed closed as an autopilot flake the retry policy would fly
+# again. The third is a committed-spec cell in test_hlib that walks every spec's
+# partSweepSteps against mlib's vocabulary and also pins `values` below EQUAL to
+# it, so the two copies cannot drift. A silently-dropped step is a family that
+# never fires, and the lane would then read as "the applier never logged it" -
+# blaming the product for a spec typo.
 #
 # NOTHING HERE IS ASSERTED BY THE MISSION. Steps are COMMANDED; no readback gates
 # any of them, and no sweep step can fail the mission. Whether the ghost replays
@@ -298,6 +308,9 @@ min = 0.0
 [params.partSweepSteps]
 required = false
 type = "list"
+# PINNED EQUAL to mlib.KXRW_SWEEP_STEP_NAMES by SweepStepVocabularyTests; edit
+# there and here together or the cell reds.
+values = ["ag1", "ag10", "ag2", "ag3", "ag4", "ag5", "ag6", "ag7", "ag8", "ag9", "bays-close", "bays-open", "brakes-off", "brakes-on", "chutes-arm", "chutes-cut", "chutes-deploy", "converters-off", "converters-on", "deployables-in", "deployables-out", "engines-off", "engines-on", "gear-down", "gear-up", "lights-off", "lights-on", "rcs-off", "rcs-on", "throttle-up", "throttle-zero"]
 
 # Frames held between two sweep steps. NOT a tuning knob: two part actions issued
 # inside one physics frame can coalesce into a single recorded event, which would

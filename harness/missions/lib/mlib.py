@@ -17079,6 +17079,26 @@ def wall_budget_block(now: float, deadline: Optional[float],
 # Keyed by mission name. A mission ABSENT from this table declares nothing and its
 # result JSON is byte-identical to before.
 MISSION_HANDOFF_CONTRACTS: Dict[str, Dict] = {
+    # kx_rewind_watch declares the SAME axis of gap science_bench_recover does, and
+    # GS-6 is what made it worth writing down. The mission flies, commits, rewinds
+    # and drives the watch; it reads NOTHING about ghosts, and the PART-SWEEP phase
+    # in particular is COMMANDED-ONLY - every step is issued and none is read back,
+    # deliberately, because whether the ghost REPLAYS a recorded part event is the
+    # spec's question and a mission that failed on a part's behaviour would discard
+    # the evidence the spec exists to read.
+    #
+    # A green MISSION-OK on this mission therefore says the flight flew and the
+    # sequence was driven. It says NOTHING about whether any part-event family
+    # reached the ghost - that claim belongs entirely to the scenario's
+    # `[expectations.logContracts]` applier tokens
+    # (`[GhostPartEvents] apply family=... applied=[1-9]`) and to
+    # `[expectations.ghostLifecycle]`. Declaring it stops the misreading this table
+    # was created for: "MISSION-OK, so the sweep worked".
+    "kx_rewind_watch": {
+        "terminal": "DONE",
+        "unverifiedByMission": ["ghostPartEventReplay", "ghostRenderLifecycle"],
+        "verifiedBy": ["logContracts", "ghostLifecycle"],
+    },
     "eva4_atmo_chute": {
         "terminal": EVA4_EVA_WINDOW,
         "unverifiedByMission": ["kerbalSurvival"],
@@ -20623,10 +20643,14 @@ def kxrw_sweep_steps_valid(steps: Sequence[str]) -> Tuple[str, ...]:
     """The UNKNOWN step names in ``steps``, in order, or ``()`` when every one is
     in the closed vocabulary.
 
-    Returned rather than raised so the caller decides severity: the schema
-    validator reds the SPEC (the right place - a typo is an authoring error), and
-    the machine's own entry gate fails closed on the same reading rather than
-    silently sweeping a shorter list than the spec asked for."""
+    Returned rather than raised so the caller decides severity. THIS IS THE LAST
+    of three gates, not the first, and the ordering is the point: hlib enforces the
+    schema's closed `values` vocabulary at ADMIT (before a KSP process starts), a
+    committed-spec cell in `test_hlib.SweepStepVocabularyTests` walks every spec at
+    suite time, and this is the machine's own fail-closed backstop for a params dict
+    that reached it unvalidated. Before 2026-09-02 this WAS the only gate, and it
+    runs after the ascent - so a typo burned a whole flight and then flaked, which
+    the retry policy would fly again."""
     return tuple(str(s) for s in (steps or ()) if str(s) not in KXRW_SWEEP_STEP_ACTIONS)
 
 
@@ -21516,7 +21540,8 @@ def kxrw_decide(state: KxrwState,
                    steps[state.sweep_index], p.part_sweep_frames)), []
         # The settle gap: two part actions in ONE physics frame can coalesce into a
         # single recorded event, which would under-count families in the replay.
-        if state.sweep_last_frame >= 0                 and (state.phase_frames - state.sweep_last_frame) < settle:
+        if (state.sweep_last_frame >= 0
+                and (state.phase_frames - state.sweep_last_frame) < settle):
             return state, []
         action = kxrw_sweep_action_for_step(steps[state.sweep_index])
         st = replace(state, sweep_index=state.sweep_index + 1,

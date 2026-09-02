@@ -2965,8 +2965,9 @@ MISSION_PARAM_TYPES = ("float", "int", "number", "window", "list", "string", "bo
 def _check_param_type(name: str, value, decl: Dict) -> List[str]:
     """Type/range check one declared missionParam value against its schema entry
     (pure). ``decl`` is the mission schema's per-param table
-    ``{"type": "<t>", "min": <num?>, "max": <num?>}``; only the declared facets are
-    enforced. bool is rejected where a number is declared (Python ``bool`` is an
+    ``{"type": "<t>", "min": <num?>, "max": <num?>, "values": [<str>...]}``; only the
+    declared facets are enforced, and ``values`` is honoured for ``list`` only (a
+    closed vocabulary, checked at ADMIT - see the list arm). bool is rejected where a number is declared (Python ``bool`` is an
     ``int`` subclass, so an unguarded numeric check would silently accept True/False
     as 1/0). The declared ``type`` must be one of ``MISSION_PARAM_TYPES``; an unknown
     spelling rejects the DECLARATION rather than falling through unchecked."""
@@ -2998,6 +2999,22 @@ def _check_param_type(name: str, value, decl: Dict) -> List[str]:
     elif ptype == "list":
         if not isinstance(value, (list, tuple)):
             errs.append("missionParams.%s: expected a list, got %r" % (name, value))
+        elif isinstance(decl.get("values"), (list, tuple)) and decl["values"]:
+            # OPTIONAL CLOSED VOCABULARY for a list param, checked at ADMIT.
+            #
+            # WHY IT EXISTS, from a measured near-miss: `partSweepSteps` members were
+            # validated only by the phase machine's own COAST gate, which runs AFTER
+            # the ascent. A single typo therefore passed admission, burned a whole
+            # flight to the top of the coast, and only then failed closed as an
+            # autopilot flake - which the retry policy would then fly AGAIN. A
+            # closed-vocabulary list is exactly the kind of spec error that must die
+            # at admission, before a KSP process is started.
+            allowed = [str(v) for v in decl["values"]]
+            bad = [str(v) for v in value if str(v) not in allowed]
+            if bad:
+                errs.append(
+                    "missionParams.%s: unknown value(s) %s; allowed: %s"
+                    % (name, ",".join(bad), ",".join(allowed)))
     elif ptype == "string":
         if not isinstance(value, str):
             errs.append("missionParams.%s: expected a string, got %r" % (name, value))

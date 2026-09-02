@@ -1960,10 +1960,31 @@ class CraftAndSchemaSyncTests(unittest.TestCase):
         rows = spec.evaluate([], {}, moved)
         self.assertEqual(8, len(rows))
 
-    def test_the_lane_is_not_a_handoff_mission(self):
-        """It terminates on exactly the outcome it certifies, so it declares no
-        handoff contract (every mission but EVA-4 is absent)."""
-        self.assertNotIn("kx_rewind_watch", mlib.MISSION_HANDOFF_CONTRACTS)
+    def test_the_lane_declares_the_science_bench_axis_of_handoff(self):
+        """It DOES declare a handoff contract, and the reversal is deliberate.
+
+        This cell used to assert the opposite - "it terminates on exactly the
+        outcome it certifies, so it declares no handoff contract". That reasoning
+        is the EVA-4 AXIS: a mission that stops mid-flight and whose world outcome
+        happens later. On that axis the old assertion was right and still is; this
+        mission does terminate on its own outcome.
+
+        `science_bench_recover` then established a SECOND axis for this table: a
+        mission that terminates on its own outcome but has NO VIEW of the product
+        claim the flight exists to produce. GS-6 made that axis load-bearing here.
+        The PART-SWEEP phase is COMMANDED-ONLY by design - every step is issued and
+        none is read back, because whether the ghost REPLAYS a recorded part event
+        is the SPEC's question and a mission that failed on a part's behaviour would
+        discard the evidence the spec exists to read. So a green MISSION-OK says the
+        flight flew and the sequence was driven, and says nothing whatever about
+        whether any family reached the ghost.
+
+        Declaring it stops the exact misreading the table was created for:
+        "MISSION-OK, so the sweep worked"."""
+        contract = mlib.MISSION_HANDOFF_CONTRACTS.get("kx_rewind_watch")
+        self.assertIsNotNone(contract, "kx_rewind_watch must declare its contract")
+        self.assertIn("ghostPartEventReplay", contract["unverifiedByMission"])
+        self.assertIn("logContracts", contract["verifiedBy"])
 
 
 if __name__ == "__main__":

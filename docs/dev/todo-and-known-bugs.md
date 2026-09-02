@@ -1450,7 +1450,7 @@ GS-6 PINS THIS: the spec's `DeployableExtended` token requires `applied=[1-9]`,
 which the mediumDishAntenna line satisfies, so whichever way the decision goes the
 lane keeps working.
 
-## GS6-SWEEP-CRAFT-LACKS-SEVEN-FAMILIES: the committed `Kerbal X.craft` carries no chute, gear, light, bay, fairing, converter or EFFECTS-node engine, so GS-6 v1 sweeps four part-event families instead of eleven [FOUND BY READING 2026-09-02 while authoring `GS-6-part-event-applier-sweep`, off the craft file's own part census. CRAFT PROPERTY, REPORT-ONLY - never a Parsek defect and never a harness-driver gap]
+## ~~GS6-SWEEP-CRAFT-LACKS-SEVEN-FAMILIES~~: the committed `Kerbal X.craft` carries no chute, gear, light, bay, fairing, converter or EFFECTS-node engine, so GS-6 v1 sweeps four part-event families instead of eleven [FOUND BY READING 2026-09-02 while authoring `GS-6-part-event-applier-sweep`, off the craft file's own part census. CRAFT PROPERTY, REPORT-ONLY - never a Parsek defect and never a harness-driver gap]
 
 THE DISTINCTION THAT MATTERS, because it decides what the fix is: this is a CRAFT
 gap, not a DRIVER gap. kRPC 0.5.4 exposes a verb for every one of these families
@@ -1479,6 +1479,23 @@ leg, no light, no cargo bay, no fairing, no ISRU, and every engine aboard is a l
 SO GS-6 v1 CLAIMS FOUR D7 CELLS (`decouple-stage-destroy`, `engine-fx-legacy`,
 `panels-antennas-radiators`, `rcs`) and cannot claim `chute-two-phase`, `chute-cut`,
 `shroud`, `fairing`, `gear`, `bays`, `lights` or `engine-fx-effects`.
+
+**FIXED 2026-09-02 by the `Kerbal X Sweep` derivative craft** (built by
+construction, `harness/tools/build_kerbal_x_sweep_craft.py`), and measured on run
+`2026-09-02_1524` + the armed re-flight: `GearDeployed`/`GearRetracted` applied=3
+each way, `FairingJettisoned` applied=1, `LightOn`/`LightOff surface=light`
+applied=3 each way, and the legs' `ModuleWheelSuspension` firing the ROBOTIC
+family applied=3 (unplanned - the craft delivered a family the sweep never asked
+for). D7 gained `gear`, `lights` and `fairing`.
+
+THREE OF THE SEVEN REMAIN, each for its own reason and each with its own entry:
+`bays` (no liftable ServiceBay tail -
+`GS6-CARGOBAY-NEEDS-A-HARVESTED-SERVICEBAY-TAIL`), the chute trio (aboard and
+armed, but the profile never re-enters -
+`GS6-CHUTE-TWO-PHASE-NEEDS-A-DESCENT-VARIANT`), and `engine-fx-effects` (the Ant
+is aboard and its ignition IS recorded, but an applier line's `pid=` is the
+tally's representative rather than an enumeration, so the replay cannot be proved
+per-pid - see the GS-6 spec header).
 
 THE FIX IS ONE PURPOSE-BUILT CRAFT, and the roadmap entry (Tier A item 1) already
 specifies the hard part of it: legacy vs EFFECTS engine FX needs BOTH populations

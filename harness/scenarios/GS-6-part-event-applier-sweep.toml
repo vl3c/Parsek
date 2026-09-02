@@ -202,7 +202,7 @@ id = "GS-6-part-event-applier-sweep"
 tier = "operator"
 description = "Part-event applier sweep: a scripted part-event timeline (RCS, deployable antenna, engine throttle) fired during a recorded Kerbal X flight, committed, Rewound-to-Launch and WATCHED, with the applier's per-family [GhostPartEvents] apply lines gated per family against the replay."
 instanceProfile = "stock-minimal"
-tags = ["GS6", "part-events", "ghost-render", "applier", "rewind-to-launch", "watch-mode", "ghost-lifecycle", "pending-flight"]
+tags = ["GS6", "part-events", "ghost-render", "applier", "rewind-to-launch", "watch-mode", "ghost-lifecycle"]
 
 [fixture]
 # gs1-two-stage-pad, exactly as GS-4 uses it: the pad-scene sandbox world with the
