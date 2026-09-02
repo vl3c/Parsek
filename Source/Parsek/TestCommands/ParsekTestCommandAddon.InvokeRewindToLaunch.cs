@@ -31,6 +31,11 @@ namespace Parsek.TestCommands
     /// resolved the way the UI resolves it: hand the tree's ROOT recording to
     /// <c>InitiateRewind</c>, which runs <c>GetRewindRecording</c> itself (a branch
     /// recording resolves to the root that captured the quicksave).
+    /// <c>tree=latest</c> (the one non-id spelling) names the MOST RECENTLY COMMITTED
+    /// tree, which is what lets a step-sequence lane rewind a subject it produced in the
+    /// same run - a fresh tree's id is a runtime <c>Guid</c> no static spec can write.
+    /// The id path is unchanged and still wins; the bare no-arg call still refuses over
+    /// several trees. Contract on <c>TestCommandRewindToLaunch.ResolveTarget</c>.
     /// </para>
     ///
     /// <para>
@@ -100,6 +105,17 @@ namespace Parsek.TestCommands
                 SetExecResult("REJECTED", null, target.RefusalReason);
                 return;
             }
+
+            // WHICH RULE PICKED THE TREE, on its own line. The `invoking` line below names
+            // the tree and the root recording but not how they were chosen, and an
+            // explicit-id rewind and a `tree=latest` rewind that land on the same tree are
+            // the same outcome and very different evidence - on a `latest` run this line
+            // plus `committedTrees=` is the only proof the lane rewound the tree it had
+            // just committed rather than one the fixture shipped.
+            ParsekLog.Info(Tag,
+                $"invokerewindtolaunch target resolved tree={target.TreeId} " +
+                $"resolvedBy={target.Resolution} arg={treeArg ?? string.Empty} " +
+                $"committedTrees={treeIds.Count.ToString(CultureInfo.InvariantCulture)}");
 
             // The tree's ROOT recording is what the UI hands InitiateRewind; the owner walk
             // (GetRewindRecording) happens inside the product call. A tree whose root cannot

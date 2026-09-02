@@ -15,6 +15,89 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## RENDER-MANIFEST-VERB-EXPORT-IN-A-SECOND-SCENE-CLOBBERS-THE-FIRST-SCENE-ACCUMULATION: a lane that observes in FLIGHT and then exports the manifest from another scene reads zeroes for everything the FLIGHT scene measured [MEASURED 2026-09-02 by the H59 census run `2026-09-02_0947` (PASS). REPORT-ONLY, NO FIX PROPOSED: the per-scene partition is deliberate and the verb's unconditional write is deliberate; what is undocumented is the CONSEQUENCE for a multi-scene lane, and what is unresolved is a placement rule that forces exactly that shape]
+
+**What was measured.** `H59-surface-route-map-lines` drives its observation in FLIGHT with
+the map open, then does `SaveGame` -> `LoadGame scene=spacecenter` -> dwell ->
+`ExportRenderManifest` -> `FlushAndQuit`. Its KSP.log carries ONE
+`Route line build: route=<run-local 8-hex> members=2 groups=1 legs=1 transferDropped=0` and NINE
+`Route line draw: ... skippedOwned=1` frames (the ghost-ownership handoff), plus two
+`routesDrawn=1 legsDrawn=1` frames. The manifest the run exported reports
+
+    routeLineBuilds=0 routeLegDefers=0 routeCoDrawViolations=0 ownershipChanges=0
+    planUnits=1 scene=SPACECENTER exportReason=verb unevaluable=3 parsed=true
+
+and the file itself (`parsek-render-manifest.txt` in the run's `_shots` folder) has
+`scene = SPACECENTER`, exactly one `PLAN` `UNIT` with `host = KSC`, one `CLOCK_EVENT`, and
+no `ROUTE_LINE_BUILD` / `ROUTE_LEG_DEFER` / `OWNERSHIP_CHANGE` record at all. Both readings
+are correct; nothing is lying.
+
+**SAME ROOT CAUSE AS `M-A7-ONE-MANIFEST-PER-PROCESS` (above), AND THIS ENTRY IS THE
+SECOND FACE OF IT RATHER THAN A NEW DEFECT.** That entry states the shared half - two rich
+scenes in one KSP session end as last-flush-wins, because there is one fixed output path
+and the auto-flush clobber guard only protects a dwell-bearing manifest from a DWELL-FREE
+later flush - and proposes the remedy shape (a per-scene partition suffix, or an
+append-partition inside one file). It scopes itself as "fine for harness lanes (one scene,
+one export)", and WHAT IS NEW HERE IS EXACTLY THAT SCOPING FAILING ONCE A LANE HAS TWO
+SCENES: a harness lane's export is a VERB, the verb bypasses the guard unconditionally by
+design, and the declarer placement rule forces it into the last scene. The older entry's
+remedy would close both, and neither should be closed without the other.
+
+**The mechanism, read from source rather than inferred.** Three deliberate decisions
+compose into the loss:
+
+1. **The accumulation is PER SCENE.** `RenderCompositionRecorder` subscribes
+   `OnGameSceneSwitchRequested`, whose body is `TryAutoFlush(ReasonSceneExit); Reset();`
+   (`Source/Parsek/MapRender/RenderCompositionRecorder.cs:396-400`). `OnGameStateLoad`
+   Resets too, with its own stated reason (a manifest spanning a save load would mix
+   recording-id namespaces). So the FLIGHT records are flushed at the switch and then
+   dropped from memory - by design, and correctly.
+2. **The output is ONE FIXED PATH.** Every export overwrites the previous one; the file
+   lives in the KSP root and `collect-logs` picks up whatever is there at the end.
+3. **A VERB export is never routed through the anti-clobber guard.** `ShouldSkipAutoFlush`
+   exists precisely to stop a later, emptier flush from clobbering a populated manifest,
+   and its own docstring ends "The VERB export is never routed through here; an explicit
+   export always writes" (`:1663`). So the SPACECENTER `ExportRenderManifest` overwrote
+   the populated FLIGHT manifest that step 1's auto-flush had already written.
+
+**Why a lane cannot simply move the export earlier.** `test_every_declarer_exports_
+immediately_before_teardown` (`harness/lib/test_hlib.py`) pins the last two commands of
+every declarer as `[ExportRenderManifest, FlushAndQuit]`, and its reason is sound in the
+single-scene case it was written for: an export taken earlier silently drops whatever the
+lane observed after it. On a MULTI-SCENE lane that same rule forces the export into the
+LAST scene, which is the one scene whose accumulation is guaranteed not to contain the
+earlier scenes' observations. The rule and the recorder lifecycle are each right and their
+composition is not, which is why this is filed as an entry rather than fixed in passing.
+
+**What it does NOT mean.** The behaviour is not lost, only the manifest facet is. H59's
+census measured every one of those facts from the KSP.log instead - the build line, both
+draw-line shapes, and `Polyline frame: scene=FLIGHT drawn=1` - and those are what the lane
+arms on. The ownership PUBLISH half is likewise measurable without the manifest:
+`RouteTrajectoryLineRenderer`'s `skippedOwned` counter increments only when
+`GhostTrajectoryPolylineRenderer.IsRenderingNonOrbitalLeg` returns true, and that method's
+whole body is a read of `drewNonOrbitalLegRecordings`
+(`GhostTrajectoryPolylineRenderer.cs:443-448`), the same set `NoteOwnershipPublish` is fed
+from on the same epilogue.
+
+**What it costs.** (a) Any multi-scene declarer's render-composition block is limited to
+the last scene, so a `routeLineBuilds` / `ownershipChanges` window on such a lane would be
+STRUCTURALLY UNSATISFIABLE - H59's authoring-time arming candidate
+(`routeLineBuilds = { min = 1 }`, V18T's armed shape) is withdrawn for exactly this
+reason, and a future author who copies V18T's block onto a two-scene lane would ship a
+guaranteed red with a measured-looking justification. (b)
+`docs/dev/design-autotest-render-composition.md` names the scene-exit flush (its M-A7
+Phase 1 line, "flush on scene exit when env-armed") and does NOT state the multi-scene
+consequence, so the design authority currently reads as if a manifest were per-run.
+
+**Options if it is ever taken up, none chosen here.** (i) Document only: add the
+consequence to the design doc and a one-line warning to the declarer roster, and let
+multi-scene lanes keep reading the log. (ii) Per-scene output paths (`parsek-render-
+manifest-FLIGHT.txt` and so on), which changes what `collect-logs` and `rendercompose`
+consume - a real schema decision, not a rename. (iii) Route the verb export through the
+same new-observation guard as the auto flush, which would make an H59-shaped lane export
+its FLIGHT manifest and quietly stop measuring its KSC scene instead - trading one silent
+loss for another, and probably the worst of the three.
+
 ## ~~LOG-FORMAT-CULTURE-SWEEP: ~1400 `:F` format specifiers inside `ParsekLog.*` calls looked culture-broken after a comma-locale unit-test run printed `targetUT=150,00`~~ [FOUND 2026-09-02 during the PR #1594 KSC log-key fix. CLOSED 2026-09-02 by evidence: no runtime defect, no code change]
 
 **What was suspected.** CLAUDE.md said "InvariantCulture everywhere", the unit-test host on this ro-RO machine rendered a `{targetUT:F2}` log line as `targetUT=150,00`, and a tokenizing scan of `Source/Parsek` (every `:F0`..`:F6` / `:E` / `:N` specifier inside a `ParsekLog.*` call span, multi-line calls included) counted 1412 such sites across 112 files (638 `F1`, 264 `F0`, 214 `F2`, 171 `F3`, 82 `F4`, 24 `F5`, 18 `F6`, 1 `E2`; `ParsekFlight.cs` 138, `GhostMapPresence.cs` 92, `RuntimeTests.cs` 90, `VesselSpawner.cs` 72, `BackgroundRecorder.cs` 67), plus 661 more in strings built outside a log call (2073 in the tree). 813 of the 1412 already sit inside a `string.Format(CultureInfo.InvariantCulture, ...)` (the `ic` / `IC` / `Inv` locals are all that constant), so the population that would actually have been converted is about 600, not the whole count; still a 100-file mechanical diff.
@@ -38,6 +121,26 @@ When referencing prior item numbers from source comments or plans, consult the r
 **What.** `RecordingStore.RemoveCommittedInternal` / `RemoveCommittedById` / `RemoveChainRecordings` / `RemoveCommittedTreeById` bump `StateVersion` but raise no `CommittedRecording*` notification. Their production FLIGHT callers are `MergeDialog.ReFlyDiscard.cs` (discarding a re-fly session removes several recordings mid-list), `RewindInvoker`, `LoadTimeSweep` (OnLoad, harmless), `RecordingTreeSplitter.RollBackInMemory` (exception path) and `ParsekScenario` tree replacement. After any of those runs with ghosts alive, every engine / held / map / watch / continuation slot above the removal points one recording off - the same shape OPTIMIZER-PASS-STALE-INDEX-CACHES fixed for the optimizer, the splitter's insert and the delete paths. Also: `ParsekKSC` (`kscGhosts` / `kscOverlapGhosts`) and the tracking station subscribe to nothing, so the pass running there mid-session (deferred merge dialog outside FLIGHT, reachable only with the harness-pinned `autoMerge=false`) shifts under them; `PruneOrphanedIndexKeys` drops only keys `>= Count` with no id check. And `RecordingsTableUI`'s other index-keyed cross-frame state (`pendingDeleteGhostOnlyIndex`, the rename index, the per-row log-dedup dicts) captures an index in one OnGUI frame and applies it the next; a restructure between the two frames (an EVA-exit chain commit) applies it to the neighbour.
 
 **Fix (2026-09-02).** One primitive, `RecordingStore.RemoveCommittedAtWithNotifications`, is now the only way a recording leaves the flat list: `RemoveRecordingAt`, `RemoveCommittedInternal`, `RemoveCommittedById`, `RemoveChainRecordings` and (through `RemoveCommittedInternal`) `RemoveCommittedTreeById` all route through it, so Removing / Removed + the `StateVersion` bump cannot be forgotten by the next helper. `ClearCommittedInternal` removes top-down through the same primitive: the Opus review of PR #1591 found its second production caller, `ReconciliationBundle.Restore`, reached from `RewindInvoker`'s failed-quicksave-load rollback in FLIGHT with ghosts alive and no scene change, where a silent wipe + re-add left every ghost slot keyed against the rebuilt list. `ParsekKSC` subscribes in `Start` (tears down the removed slot's ghost + overlap set on Removing, shifts `kscGhosts` / `kscOverlapGhosts` / the logged sets / the cadence log on Removed and Inserted through the pure `ShiftKscIndexKeyedState`; launch schedules and the unit-selection log are cleared because the next frame rebuilds them), which also fixes the Space Center table delete that used to leave every ghost above the deleted row playing its neighbour's trajectory. `ParsekTrackingStation` subscribes for the static map-presence stores it drives plus its `atmosCachedIndices` hint table. `RecordingsTableUI` captures the pending ghost-only delete, the open rename and the double-click candidate by `RecordingId` (`RecordingStore.IndexOfRecordingId` resolves on consume; a vanished id is Warn-logged and dropped) and starts its four per-row change-log dedup dicts over on every sort rebuild. Pinned by `CommittedListNotificationTests` (each helper raises at the matched index with the right pre/post counts, chain removal iterates descending, tree removal raises per member, the KSC shift in both directions). The Re-Fly discard / rewind / rollback flows now get ghost-teardown-per-removal from the FLIGHT handlers by construction; that behavior has still not been driven on a live flight. THE LOOK IS NOW A LANE: `harness/scenarios/S4.3-refly-discard-with-ghosts.toml` (authored 2026-09-02, never flown) drives exactly that sequence and pins ReFlyDiscard's per-recording removal line plus both `[Flight]` handler lines.
+
+## ROUTE-REWIND-TO-LAUNCH-UNREACHABLE-ON-COMMITTED-FIXTURES: no committed recorded fixture carries a launch quicksave, so a Rewind-to-Launch lane can never take one as its SUBJECT [OPENED 2026-09-02 while authoring `H58-route-rewind-to-launch`. HARNESS / FIXTURE POLICY, not a product defect. **NARROWED THE SAME DAY**: this entry originally named TWO blockers; blocker 2 (naming an in-session subject) is CLOSED by the `tree=latest` seam addition that shipped with H58. What remains is blocker 1, below, and it is a deliberate harvest policy rather than a bug]
+
+**What.** The roadmap's Tier D item 12 and its 2026-09-02 hand-off both read "D12 route x rewind flown - `InvokeRewindToLaunch` is implemented and the rover fixture is committed". Both facts are true and together they were not sufficient. Two independent blockers were read off source and committed bytes; the SECOND is now closed and is kept here because the reasoning is what justifies the fix:
+
+1. **No committed recorded fixture can be a Rewind-to-Launch SUBJECT.** `RecordingStore.CanRewind` resolves the rewind owner through `GetRewindRecording`, which needs a non-empty `Recording.RewindSaveFileName` on the recording itself or on its tree ROOT; with neither it returns null and `CanRewindPreFileCheck` refuses `"No rewind save available"`. Every recorded fixture under `harness/fixtures/saves/` carries `rewindSave = ` EMPTY - seventeen saves, one line each - and `rover-route-recorded`'s tree B root (`cf8d06fc...`) carries no `rewindSave` key at all. That is POLICY, not decay: `harvest_bdock_station.py` prunes `Parsek/Saves` and clears the hint, and `build_rover_route_recorded.py` gates the absence in both directions (`FORBIDDEN_DIR_NAMES` contains `"Saves"`; `verify_tree` reds on "a rewindSave = parsek_rw_* hint survived", with the rationale "INV9's dangling-hint WARN depends on it"). So the fixture cannot be quietly repaired - the repair is a policy change with an analyzer rule behind it.
+
+2. **[CLOSED 2026-09-02] A subject produced IN-SESSION cannot be named by a static spec.** `FlightRecorder.CaptureRewindSave` does write a `parsek_rw_*` quicksave at every non-promotion recording start, so `StartRecording` -> `CommitTree` inside a driven run produces a committed tree whose root IS rewindable. But `TestCommandRewindToLaunch.ResolveTarget` auto-selects only when exactly ONE committed tree exists and otherwise answers `ambiguous-tree` rather than guessing (deliberate: "the operation is irreversible in the same breath"). The rover host ships TWO committed trees, so the fresh one makes three; and the `tree=` arg that exists to resolve exactly this takes an ID, while a freshly committed tree's id is a runtime `Guid`. The harness has ONE spec-side substitution, `${runSave}` (`hlib.RUN_SAVE_TOKEN`), and no step can consume a prior step's payload. GS-4 escapes this only because its host fixture has ZERO committed trees, so its mission's own launch leaves exactly one and the auto-select fires. **CLOSED by (U1) below, shipped 2026-09-02**: `InvokeRewindToLaunch tree=latest` names the most recently committed tree - last in the append-ordered `RecordingStore.CommittedTrees`, which is exactly the tree a `StartRecording` -> `CommitTree` pair just added. Contract and rationale: `docs/dev/design-autotest-command-seam.md` -> `#### D12/A2`; pure decision in `TestCommandRewindToLaunch.ResolveTarget` with the id path untouched and the bare no-arg `ambiguous-tree` refusal deliberately unchanged.
+
+**Why it matters.** H6 covers the route-rewind timeline synthetically and says so in its own header: NOT reachable there are "the REAL HandleRewindOnLoad go-back scene load and RewindInvoker.ConsumePostLoad". `ParsekScenario.HandleRewindOnLoad` is where the go-back seam retires post-cutoff free-standing route rows (`Ledger.RetireFutureRouteActionsAtRewind`) and runs the shared `RouteRewindClassifier.ReconcileStoreAtRewind` over the live `RouteStore` - and the rewind branch RETURNS EARLY before `RouteStore.LoadRoutesFrom(node)`, so the in-memory store IS the pre-rewind capture and routes created after the quicksave point genuinely reach the dormant classifier. None of that has ever run in a driven flight.
+
+**Three candidate unblocks, ranked.**
+
+- **(U1, TAKEN 2026-09-02)** A `tree=` spelling a static spec can write. `tree=latest` shipped: pure addition to `ResolveTarget`, matched ordinal-ignore-case, tested only AFTER the exact-id scan so the Guid path is untouched and still wins; `no-committed-tree` (not `unknown-tree`) on an empty save, because an empty save is a world-state fact and blaming the argument for it sends a lane author hunting a typo; and the bare no-arg call still refuses `ambiguous-tree`, since "the operator did not say" and "the operator said: the newest one" are different intents. The applier logs `invokerewindtolaunch target resolved tree=<id> resolvedBy=<ExplicitId|LatestKeyword|AutoSingle> arg=<raw> committedTrees=<n>`, which on a `latest` run is the only proof the lane rewound the tree it just committed rather than one the fixture shipped. xUnit: `TestCommandRewindToLaunchTests` (latest-of-N, single, empty/null, case, id-still-wins over a tree literally named `latest`, the ambiguity rule unrelaxed and no other near-miss word accepted, and a resolution reported on every selecting path). `H58-route-rewind-to-launch` is restructured around it and a rewind now fires in it.
+- **(U2)** A route-carrying fixture that DOES ship a launch quicksave (a `ScenarioWriter.BuildRewindPointQuicksave` analogue for the plain `parsek_rw_*` save, plus the `rewindSave` hint on the tree root). Contradicts the harvest policy and the INV9 rationale above, so it is a decision rather than a build.
+- **(U3)** A MISSION-driven lane on a zero-committed-tree host that launches, commits, creates the route over its own fresh tree, then rewinds under the existing auto-select. A GS-4 derivative; the most faithful to a real player session and the most expensive.
+
+**Where it stands.** `harness/scenarios/H58-route-rewind-to-launch.toml` (authored 2026-09-02, NEVER FLOWN, tier operator) pre-registers the predicted behaviour with its doc citations and now DRIVES A REAL REWIND: it produces its own subject in-run (`StartRecording` -> `CommitTree`, the route around blocker 1) and rewinds it through `tree=latest`, keeping the bare no-arg `ambiguous-tree` refusal as a live negative control whose `committedTrees=3` reading is the only assertion that the commit produced a third tree. The same run buys the suite's first DRIVEN route pause/activate pair - the lifecycle-row surface `RouteRewindClassifier.DeriveTimelineStatus` reads at every rewind - and the first `OnLoad: go-back route reconcile` line any flight has printed.
+
+**What remains open, and it is only blocker 1.** A route-READING rewind lane - one that must rewind a fixture's OWN committed flight rather than a subject it manufactured - still has no subject, and would need (U2). Nothing needs that today: H58's manufactured subject is a legitimate Rewind-to-Launch (a real non-promotion recording with a real launch quicksave), and its "launch" being 15 s old is a property of the lane, not of the mechanism. Revisit if a lane ever needs to rewind a HARVESTED flight.
 
 ## C10-ESCROW-CONTENTION-NEEDS-A-MULTI-STOP-ROUTE: the roadmap's C10 "two routes sharing one physical source" lane cannot be built from any committed fixture, because escrow contention is unreachable on the SINGLE-STOP path by construction [SCOPED 2026-09-02 while authoring the C10 lane as scenario id H60. HARNESS SCOPING FINDING, not a defect - no product change proposed. BLOCKED on the synthetic path; the shape a real lane needs is recorded below, and it is NOT a manual flight]
 
@@ -1591,6 +1694,17 @@ session keeps only the second manifest. A per-scene partition suffix
 preserve both; the harness reader would take the newest/richest. Deliberately not
 built until a session actually needs it.
 
+**A HARNESS LANE NOW NEEDS IT (2026-09-02), AND THE "fine for harness lanes" SCOPING ABOVE
+NO LONGER HOLDS.** `H59-surface-route-map-lines` observes in FLIGHT and exports from
+SPACECENTER, so its manifest reported `routeLineBuilds=0 ownershipChanges=0` against a log
+carrying one route-line build and nine ownership handoffs. Same root cause - one fixed
+path, last-flush-wins - and what the harness case adds is that the export is a VERB, which
+bypasses the clobber guard unconditionally by design, and that the declarer placement rule
+(`test_every_declarer_exports_immediately_before_teardown`) forces that verb into the LAST
+scene. Filed with the harness detail as
+RENDER-MANIFEST-VERB-EXPORT-IN-A-SECOND-SCENE-CLOBBERS-THE-FIRST-SCENE-ACCUMULATION; the
+per-scene partition proposed above would close both, and neither should be closed alone.
+
 ## ~~COLLECT-LOGS-SAVE-COPY-IS-ANALYZER-INCOMPLETE: `scripts/collect-logs.py` copies `Parsek/Recordings` but not `Parsek/Saves` or `Parsek/GameState`, so an analyzer run over a COLLECTED save always WARNs INV9 (missing rewind saves) and loses the GameState sidecars a fixture harvest needs~~ [FOUND 2026-08-25: the s15 collection WARNed INV9 on four recordings whose rewind saves exist in the live save, and the duna-one-recorded harvest had to reach into the separately-collected `parsek/` dir for GameState. TOOLING IMPROVEMENT. FIXED 2026-09-02]
 
 **Fix (2026-09-02).** The save-copy leg now copies EVERY `Parsek/<dir>` subdirectory of the
@@ -2402,6 +2516,46 @@ DEFERRALS TAKEN IN PHASES 1-2, each of which a lane author must know.
   remains for V6M is ARMING (windows off the pair `2026-08-25_2056` +
   `2026-08-26_1745`, then the armed re-flight and the negative control), which is
   a scenario-ledger item and not this entry's.
+  **THE QUALIFIER IS NOW DISCHARGED ON A SECOND CLASS TOO (2026-09-02), AND THE
+  ENTRY IS NARROWED RATHER THAN REOPENED.** The closure above is scoped by its own
+  words - "ON A LANE THAT OPENS THE MAP AND PUBLISHES" - and V6M is a MUN ORBIT
+  subject, so every other class stayed unmeasured. `H59-surface-route-map-lines`'s
+  census (`2026-09-02_0947`, PASS attempt 1) measured it on a SURFACE SUPPLY-ROUTE
+  subject in the FLIGHT map, the first lane to open the map on either a route or a
+  landed host. Both halves landed:
+  the DRAW half directly - four `Polyline frame: scene=FLIGHT drawn=1 warp=1x
+  suppressed=0 hidden=0` summaries, where this entry's own evidence rule is that
+  ZERO summaries means every LateUpdate bailed early;
+  and the PUBLISH half through an instrument this entry did not anticipate - the
+  route renderer's own skip counter. `RouteTrajectoryLineRenderer.DrawAll`
+  increments `skippedOwned` only when
+  `GhostTrajectoryPolylineRenderer.IsRenderingNonOrbitalLeg(memberRecordingId)`
+  returns true, and that method's whole body is a read of
+  `drewNonOrbitalLegRecordings` (`GhostTrajectoryPolylineRenderer.cs:443-448`) -
+  THE SAME SET `RenderCompositionRecorder.NoteOwnershipPublish` is fed from, on the
+  same epilogue, as that file's `:451-463` comment states. NINE
+  `Route line draw: ... skippedOwned=1` frames are therefore nine frames on which
+  the publish surface ran AND held this route's member, against two frames at
+  `routesDrawn=1 legsDrawn=1 skippedOwned=0` where it did not - both producers present
+  rather than a one-sided reading. (Not an ordering claim: the second of those two frames
+  falls 140 ms after `exitmapview`, since the route-draw slot is not `MapView`-gated. Every
+  handoff frame IS inside the map-open window, which is what this entry needs.)
+  **WHAT IS STILL UNMEASURED IS THE MANIFEST FACET ON THIS CLASS, NOT THE
+  BEHAVIOUR.** H59's `ownershipChanges` read 0, and that is NOT an ownership
+  finding: its manifest was exported in SPACECENTER after a scene switch that
+  Resets the recorder, so the FLIGHT accumulation was not in the exported file at
+  all - see
+  RENDER-MANIFEST-VERB-EXPORT-IN-A-SECOND-SCENE-CLOBBERS-THE-FIRST-SCENE-ACCUMULATION.
+  A reader of that run's results JSON must not take `ownershipChanges = 0` for the
+  `ownership-publish-surface-never-ran` shape this entry originally diagnosed; the
+  two look identical in the facet and are told apart by the log, which is why H59
+  arms on log tokens and leaves its render-composition block bare.
+  **CONFIRMED ACROSS THREE RUNS (2026-09-02).** `_0947`, `_1017` and the armed
+  re-flight `_1038` read the same two drawn frames and the same nine
+  `skippedOwned=1` handoff frames, on three DIFFERENT generated route ids, so the
+  publish-surface evidence above is a repeatable measurement rather than a single
+  reading. `_1038` PASSED with those tokens armed as literals, and a negative
+  control red on exactly the headline draw token.
 - **`RC-SEAM` blamed the LAST boundary of a warped-over transition. VERIFIER
   MISREAD, NOT A RENDERER DEFECT. FIXED 2026-08-26** [found by diagnosing V25M's
   reading run `2026-08-26_1744`, which red

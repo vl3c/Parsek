@@ -2608,12 +2608,124 @@ moved is that no further authoring stands between them and a flight.
 
 ### Tier D - scale and rendering (pair with the render programs' budgets)
 
-11. **Surface-route map presence.** Measured pin exists: a landed-terminal
+11. **Surface-route map presence.** ~~Measured pin exists: a landed-terminal
     loop has NO map/TS proto (flight-mesh only; KSC host works in-window).
     A `route-map-lines` lane for a SURFACE route must be authored against
-    that pin, not against the orbital route lines V18T covers.
+    that pin, not against the orbital route lines V18T covers.~~
+    **CENSUS FLOWN, READ AND ARMED 2026-09-02** -
+    `harness/scenarios/H59-surface-route-map-lines.toml` over `rover-route-recorded`,
+    run `2026-09-02_0947`, PASS attempt 1, wall 99 s, every verifier green.
+    **THE ANSWER IS OUTCOME A, AND RICHER THAN EITHER PRE-REGISTERED OUTCOME: a
+    surface route's path IS on the FLIGHT MAP, and BOTH producers draw it** - the
+    static overview and the per-cycle ghost, with the handoff observed map-open.
+    (Precisely: the second drawn frame lands 140 ms after `exitmapview`, because
+    the route-draw slot gates on the planetarium camera and the scene rather than
+    on `MapView.MapIsEnabled`, so the measured claim is CO-PRESENCE rather than a
+    strict alternation inside one window.) Thirteen `Route line draw:` lines split 2 pre-create /
+    2 drawn (`routesDrawn=1 legsDrawn=1 skippedOwned=0 malformed=0 other=0`) /
+    9 handed off (`skippedOwned=1`, with `Polyline frame: scene=FLIGHT drawn=1` in
+    the same window), plus one
+    `Route line build: route=<run-local 8-hex> members=2 groups=1 legs=1 transferDropped=0`.
+    IT DOES NOT CONTRADICT THE LANDED PIN: the member still gets no proto, and what
+    the census adds is that proto presence and route-overview presence are
+    INDEPENDENT. THE PRE-REGISTRATION EARNED ITS KEEP - its warning that
+    `skippedOwned=1` is NOT an absence is the half that carried the result, since a
+    naive read of nine-of-thirteen lines says "no route line" and the truth is that
+    the ghost had the leg. The lane is now ARMED on 18 required / 6 forbidden
+    tokens (both draw shapes pinned AS A PAIR, so neither producer can quietly stop
+    drawing), and what it owes is the ARMED RE-FLIGHT plus the negative control.
+    TWO BY-PRODUCTS worth carrying: `RC-OWN-DRAW-HALF-IS-MAP-GATED` is now measured
+    on a surface-route subject and NARROWED accordingly (the publish half proven
+    through the route renderer's own `skippedOwned` counter, which reads the same
+    `drewNonOrbitalLegRecordings` set the manifest hook is fed from); and the
+    manifest's route counters read 0 for a reason that is not about routes, filed
+    as RENDER-MANIFEST-VERB-EXPORT-IN-A-SECOND-SCENE-CLOBBERS-THE-FIRST-SCENE-
+    ACCUMULATION, which is why `[expectations.renderComposition]` stays bare and
+    V18T's armed window was NOT copied.
+    THE AUTHORING RECORD FOLLOWS, kept because it is what the census was judged
+    against. Every required token was structural or a VALUE REGEX, so the flight's
+    product was a reading a human acts on and nothing was armed.
+    WHAT THE PIN LEAVES OPEN IS THE SUBJECT, and it is worth stating because the
+    obvious reading of the pin is wrong: `LANDED-TERMINAL-LOOP-HAS-NO-MAP-PRESENCE-
+    OUTSIDE-THE-FLIGHT-SCENE` is about PROTO-DRIVEN presence for a loop MEMBER,
+    while a route's OVERVIEW LINE is a different producer -
+    `RouteTrajectoryLineRenderer.DrawAll` walks `RouteStore.CommittedRoutes` from
+    its own cache, consults no proto, no `GhostMapPresence` entry and no terminal
+    state, and publishes no ownership by design. So a landed subject having no
+    proto does not decide whether its ROUTE draws a line. TWO OUTCOMES ARE
+    PRE-REGISTERED in the spec header, both read off the one line `DrawAll` emits
+    unconditionally (`Route line draw: enabled=True routesDrawn=R legsDrawn=L
+    skippedOwned=S malformed=M other=O`): the route DRAWS (`routesDrawn=1`,
+    `legsDrawn>=1`, `other=0`, `routeLineBuilds >= 1` in the manifest), or it does
+    NOT, with `other=1` / `malformed=1` / `skippedOwned=1` naming three different
+    reasons - and `skippedOwned=1` is not an absence at all, it is the per-cycle
+    ghost owning the leg that frame. The line being ABSENT is an instrument red,
+    not an outcome, so it is a required token. THE LANE ALSO PAYS
+    `RC-OWN-DRAW-HALF-IS-MAP-GATED` A SECOND TIME: it is the first committed lane
+    to drive `EnterMapView` on a route or a landed subject, so `Polyline frame:` -
+    that debt's own evidence line, absent whenever the map-gated LateUpdate bails -
+    is pinned as an instrument and `ownershipChanges` is captured report-only
+    (V6M closed the debt on a MUN ORBIT subject and its closure text carries the
+    qualifier). The KSC half is V22K's pattern, structural tokens only. NO D10 /
+    D11 claim: the SURFACE flavor of `route-map-lines` is earned by an armed gating
+    token off a green census, exactly as V18T earned the orbital flavor, and a
+    census that reads the not-drawn outcome earns no row and re-words this item
+    instead. FLIGHT OWED; nothing else is.
+    **SETTLED: the census read the DRAWN outcome, so the row is earned rather than
+    re-worded - a NEW registry value, D10 `route-map-lines-surface` (added per the
+    growth rule), not a second claim on V18T's `route-map-lines`. CLAIMED
+    UNCONDITIONALLY as of the armed re-flight `2026-09-02_1038` (PASS attempt 1)
+    plus a negative control that red on exactly the headline token. THE ITEM IS
+    CLOSED; the lane's only remaining debt is a report-only reading run for its
+    `[expectations.routes]` block, which was added after the last flight and which
+    no run has evaluated.**
 12. **Route x rewind, flown.** H6 covers the timeline synthetically;
     a rover-route rewind variant makes `route-x-rewind` a flown claim.
+    **DONE 2026-09-02: LIVE-PROVEN, AND `route-x-rewind` IS NOW A FLOWN CLAIM**
+    (`harness/scenarios/H58-route-rewind-to-launch.toml`, run
+    `2026-09-02_1020`, 62 s, PASS attempt 1, re-tiered nightly). The
+    pre-registration was CONFIRMED on every number - `retiredRouteRows=1
+    committedRoutes=1 dormantRoutes=0`, `kept=1 (reconciled=1) dormant=0`,
+    `derivedPaused=1 derivedActive=0 oneShotFlagsCleared=1
+    countersReconstructed=0` - and the produced save read the route back
+    `Paused` from a session the player left Active, with the one-shot flags
+    cleared. H6 keeps `route-x-rewind` as the SYNTHETIC declarer; this is the
+    flown one, and it is the first flight to execute the REAL
+    `HandleRewindOnLoad` go-back scene load that H6's own header names as
+    unreachable there. The prediction is
+    written down first, in the spec header and in `autotest-status.md`, and is
+    UNCHANGED by the machinery that lets the lane test it: an Active route HOLDS
+    across a Rewind-to-Launch - dormant only when the cutoff precedes
+    `Route.CreatedUT`, otherwise kept with cursors reset, pause state re-derived
+    from the kept PLAYER lifecycle rows, counters reconstructed, and the armed
+    one-shots cleared unconditionally - cited to the design doc's lines 905 /
+    909 / 1030. The lane takes the KEPT branch by construction (the route is
+    created ~600 s below the cutoff, with `RewindToLaunchLeadTimeSeconds = 15.0`
+    doing the arithmetic), and its TimeJump is taken while the route is PAUSED
+    because RVR-2 measured that a jump past several loop periods fires a cycle.
+    **THE AUTHORING MEASURED TWO BLOCKERS AND CLOSED THE SECOND ONE.** (1) NO
+    COMMITTED RECORDED FIXTURE CAN BE A REWIND-TO-LAUNCH SUBJECT: `CanRewind`
+    needs a `rewindSave` on the tree root and every recorded fixture carries it
+    EMPTY by harvest policy, gated in both directions by
+    `build_rover_route_recorded.py` with INV9's dangling-hint WARN as the stated
+    rationale - so "the rover fixture is committed" was true and irrelevant, and
+    THIS HALF STILL STANDS. The lane routes around it by producing its own
+    subject in-run: `CaptureRewindSave` writes the `parsek_rw_*` quicksave at
+    every non-promotion recording start, so `StartRecording` -> `CommitTree`
+    yields a rewindable tree. (2) NAMING that tree was the other half - a
+    runtime `Guid`, and `${runSave}` is the harness's only substitution, so the
+    auto-select refused `ambiguous-tree` over the host's two committed trees.
+    CLOSED 2026-09-02 by the seam addition `InvokeRewindToLaunch tree=latest`
+    (contract: `design-autotest-command-seam.md` -> `#### D12/A2`): the most
+    recently committed tree, id path untouched and still winning, bare no-arg
+    call still refusing - which H58 keeps as a live negative control reading
+    `committedTrees=3`. Filed as
+    ROUTE-REWIND-TO-LAUNCH-UNREACHABLE-ON-COMMITTED-FIXTURES, now narrowed to
+    blocker 1. What the lane also buys: the suite's FIRST driven route
+    pause/activate pair (the exact player-intent rows `DeriveTimelineStatus`
+    reads at every rewind, never produced by a driven run before), and the first
+    `OnLoad: go-back route reconcile` line any flight has ever printed - the
+    seam H6's own header names as unreachable there.
 13. **Harvest-provenance, surface.** An ISRU drill rover feeding the route
     (D10 `harvest-provenance` surface flavor; the orbital flavor has
     coverage via the depot-drill lanes).
@@ -2689,7 +2801,12 @@ unamended here too.
 RVR-1/2/3/4, H55, H56. What can be built NEXT WITHOUT a manual flight, in
 order: (a) the B4 producer fix + capture cell (todo
 ROUTE-ORIGIN-PROOF-PRODUCER-UNREACHABLE, now CONFIRMED); (b) D12 route x rewind
-flown - `InvokeRewindToLaunch` is implemented and the rover fixture is committed;
+flown - CORRECTED 2026-09-02: "`InvokeRewindToLaunch` is implemented and the
+rover fixture is committed" is true and NOT sufficient, and H58's authoring is
+what measured why (see item 12: no committed fixture carries a launch quicksave,
+so the lane must produce its own subject in-run, and naming that subject needed
+the `tree=latest` seam addition that landed with it). H58 IS AUTHORED AND A
+REWIND FIRES IN IT; what it owes is its first flight;
 (c) D11 surface-route map presence over the rover fixture with the map-view
 verbs, authored against the landed-terminal-no-proto pin; (d) ~~C10 escrow
 competition - scope a synthetic two-candidate fixture before assuming a

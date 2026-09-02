@@ -3552,7 +3552,30 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
                 continue
             spec = load_spec(name)
             sid = spec.get("id") or ""
-            if cls.GROUP_ID_RE.match(sid) and not hlib.spec_batch_isolated(spec):
+            # THE THIRD CONDITION IS NEW (2026-09-02) AND IT CORRECTS AN ASSUMPTION,
+            # not a bug in any committed spec. The predicate above reads "an H-series
+            # id that is not isolated", which silently encoded "every H-numbered spec
+            # drives an in-game batch" - true of all 43 members and of the isolated
+            # family, and FALSE from `H59-surface-route-map-lines` on: H59 is an
+            # H-numbered RENDER-CENSUS lane whose driver is route verbs, a map-view
+            # pair and dwells, with no `RunTests` step at all. Admitting it would put a
+            # spec with no batch into a family every one of whose cells asserts about a
+            # batch's category, tally and baseline slot, and the first failure would
+            # read as a missing doc row rather than as a mis-classified lane.
+            # DERIVED FROM THE SPEC, never from an id exclusion list, for the same
+            # reason the isolated/ordinary partition is: a member must not be able to
+            # drift into the wrong family or fall between the two.
+            # `[driver.autorun]` counts too, for the same reason `spec_batch_isolated`
+            # reads it: no committed spec uses that shape today, but a lane that ever
+            # did would still be driving a batch and must not fall out of the family
+            # through the back door.
+            _driver = spec.get("driver", {}) or {}
+            drives_batch = (
+                any((step or {}).get("cmd") == "RunTests"
+                    for step in (_driver.get("steps", []) or []))
+                or isinstance(_driver.get("autorun"), dict))
+            if (cls.GROUP_ID_RE.match(sid) and drives_batch
+                    and not hlib.spec_batch_isolated(spec)):
                 cls.on_disk.add(sid)
             if sid in cls.GROUP:
                 cls.specs[sid] = spec
@@ -6448,6 +6471,8 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
     # each classified by hand. A NEW one reds
     # `test_every_untagged_candidate_is_classified` until someone decides.
     REVIEWED_UNTAGGED = {
+        # THE D11 CENSUS LANE, 2026-09-02, same reading-run shape as the four below.
+        "H59-surface-route-map-lines.toml":        "tier=operator as a CENSUS reading run, NOT debt: roadmap Tier D item 11 (registry dimension D10) asks for a route-map-lines lane on a SURFACE route authored against the measured landed pin LANDED-TERMINAL-LOOP-HAS-NO-MAP-PRESENCE-OUTSIDE-THE-FLIGHT-SCENE rather than against V18T's orbital pins. Every token is structural or a VALUE REGEX and the two plausible outcomes (a surface route's overview line drawn, routesDrawn=1 legsDrawn>=1; or not drawn, with other= / malformed= / skippedOwned= discriminating WHY) are pre-registered in the spec header, so the flight's product is a census a human reads. It is also the first committed lane to drive EnterMapView on a route or a landed subject, which is what makes `Polyline frame:` (RC-OWN-DRAW-HALF-IS-MAP-GATED's own evidence rule) a required instrument token here. Nothing armed; what is owed is the FLIGHT, not a human review call",
         # THE FOUR 2026-09-02 READING-RUN LANES, authored so every live-gated todo entry
         # has a driver instead of a "needs a flight" note. All four are tier=operator on
         # the calibration-discipline shape and NOT debt: each pins token SHAPES rather
@@ -8505,7 +8530,24 @@ class RenderComposeVerifierWiringTests(unittest.TestCase):
     # their own lens-calibration rounds measured is flight-mesh only (no map / TS proto
     # in the terminal sliver). A thin ownership half on those two is the expected
     # reading.
-    RENDERCOMPOSE_DECLARER_SPECS = {"V14M-ike-player-loop.toml",
+    RENDERCOMPOSE_DECLARER_SPECS = {# -- 2026-09-02, the D11 surface-route map-presence
+                                    # census. DECLARED BARE, NEVER FLOWN. The first
+                                    # manifest ever taken on (a) a SURFACE supply route
+                                    # and (b) a FLIGHT scene with the map deliberately
+                                    # OPEN, which is what makes the two route facets and
+                                    # `ownershipChanges` mean something new here:
+                                    # `routeLineBuilds` has exactly one non-zero reading
+                                    # in the whole suite (V18T, a Kerbin-ORBIT depot
+                                    # route, measured in the TRACKING STATION), and V6M
+                                    # closed RC-OWN-DRAW-HALF-IS-MAP-GATED on a MUN ORBIT
+                                    # subject with the qualifier "on a lane that opens the
+                                    # map AND publishes" written into the entry. Neither
+                                    # result transfers to a landed route subject, so both
+                                    # are captured report-only and the arming candidate
+                                    # (`routeLineBuilds = { min = 1 }`) is earned off this
+                                    # lane's own readings rather than copied from V18T.
+                                    "H59-surface-route-map-lines.toml",
+                                    "V14M-ike-player-loop.toml",
                                     "V8-eve-player-loop.toml",
                                     "V24W-duna-one-warp-stair.toml",
                                     "V6M-mun-player-loop.toml",

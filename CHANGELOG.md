@@ -118,6 +118,41 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Dev
 
+- Added an automated-testing lane for the supply-route-across-a-rewind question,
+  plus the one piece of test-harness plumbing it turned out to need.
+  The lane writes down first, before any run, what an active supply route should
+  do when the player rewinds a flight back to its launch: it holds. A route
+  created after the point being rewound to goes dormant and reappears, paused,
+  when the replayed timeline reaches its creation moment again; one created
+  before that point stays, with its cycle schedule reset, its paused-or-running
+  state re-derived from the pause and resume entries the timeline kept, its cycle
+  counters rebuilt, and any armed one-shot ("send one run", "pause after this
+  run") dropped, because an arm carries no timestamp and cannot be placed on
+  either side of the rewind. Route charges and deliveries recorded after the
+  rewind point are retired. Two things stood in the way of ever measuring that,
+  and the lane now proves both on a real run rather than asserting them on paper.
+  Recorded test saves deliberately ship without the launch quicksave a rewind
+  reloads, so no stored flight can be the thing rewound - the lane records its own
+  flight during the run instead. That flight then had no name the test script
+  could write down in advance, because the game refuses to guess which of several
+  flights to unwind. The second of those is now fixed: the test-command rewind verb accepts "the most
+  recently committed flight" as a target, which lets a test record its own
+  flight and then rewind it. Naming a flight outright still works exactly as
+  before and still wins, and the verb still refuses to guess when nothing was
+  said. The lane now performs a real rewind and reads what it did to the route,
+  and the same run buys the first automated drive of pausing and re-activating a
+  real supply route, which is the exact history the rewind reads. Its first run
+  found a defect in the test script rather than in the game: committing a flight
+  while its vessel is still the active one makes the game immediately resume
+  recording that flight again, and the rewind then refuses because a recording is
+  in progress. The script now stops that recording before rewinding, and the
+  probe that was supposed to catch a refusal now checks WHICH refusal it got.
+  With that fixed the lane ran green, and the behaviour written down in advance
+  was confirmed exactly: the route stayed, its schedule was wound back to the
+  rewind point, its armed one-shot was dropped, the delivery charge recorded
+  after that point was retired, and a route the player had left running came
+  back paused - because a pause was the last thing the surviving timeline
+  actually recorded.
 - The autotest harness's save-structure verifier now reads SUPPLY ROUTES out of a
   produced save. `harness/lib/saveparse.py` parsed recording trees, supersede rows,
   tombstones and rewind points but not the `ROUTES` node, so the one committed
@@ -142,6 +177,47 @@ _(unreleased — entries accumulate here per commit)_
   connection kinds are bucketed the way the game's own loader reads them, not the
   way the bytes spell them, so a window always names a value the game will hold;
   the raw spellings are counted separately rather than silently collapsed.
+
+- **A supply route to a surface base does show its path on the map, and two
+  different renderers both draw it.** That was an open question - the one
+  measured fact nearby says a landed replay gets no map object of its own outside
+  the flight scene, which is still true, but a route's overview path is drawn by a
+  different producer that never looks at one. A new test lane opened the map view in
+  flight over the committed rover-route save, created and activated a route, and
+  watched: on some frames the static route overview draws the path, and on the rest
+  the replaying ghost has that leg and the overview stands aside, so the path is
+  never absent. The lane was written as a census - it pre-registered both possible
+  answers and pinned neither, and it was careful to say in advance that "the
+  overview stood aside" must not be misread as "nothing was drawn", which is exactly
+  the trap the numbers set: read naively, nine of thirteen frames look like an empty
+  map. It is now pinned to what it measured, including both halves of the handoff
+  together, so neither renderer can quietly stop drawing without the lane noticing.
+
+- The lane is also the first anywhere to drive the map-view seam verb, which made
+  the map-gated half of the ghost trajectory renderer observable on a surface
+  subject for the first time. It published ownership exactly as the orbital case
+  did, so a standing note about that half being unmeasurable is narrowed to the one
+  thing still unmeasured - a manifest counter, not the behaviour.
+
+- Noted, not fixed: the render-composition manifest is per-scene by design, and a
+  lane that observes in flight and then exports from another scene reads zeroes for
+  everything the flight scene measured. The lane above reads its numbers from the
+  log instead.
+
+- The lane flew three times and measured the same thing every time. The middle run
+  found a mistake in the test rather than in the product - it had pinned the id of
+  the route it creates, and that id is generated fresh on each run - which is worth
+  recording because the three runs then produced three different ids and an
+  otherwise identical reading, which is what makes the result a repeatable
+  measurement instead of one observation. A deliberately broken copy of the lane was
+  also run once and failed on exactly the one thing it was broken in, so the check
+  is known to be able to fail.
+
+- The harness's H-series batch-wiring family now decides membership from the
+  scenario itself instead of from its id. The check read "an H-numbered scenario
+  drives an in-game test batch", which was true of all 43 members and is false for
+  the render-census lane above, so a scenario with no batch would have been pulled
+  into a family whose every assertion is about a batch's category and tally.
 
 - The agent instructions now scope the invariant-culture formatting rule to what
   actually needs it. A unit-test run on a comma-locale machine printed

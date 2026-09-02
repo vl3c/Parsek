@@ -535,6 +535,59 @@ journal, verdicts) is designed once and the later commands slot in without a for
 >
 > Full contract below (`#### DeleteRecording`).
 
+> Update (`InvokeRewindToLaunch tree=latest`, 2026-09-02): ONE optional ARGUMENT VALUE,
+> no new verb and no table movement (still 31 implemented / 5 reserved). Additive under
+> the "readers ignore unknown keys" clause; every existing spec is byte-unaffected.
+> Contract below (`#### D12/A2`).
+
+#### D12/A2 - `InvokeRewindToLaunch tree=latest`
+
+**Contract.** The `tree=` argument gains exactly one non-id spelling. `tree=latest`
+(matched ORDINAL-IGNORE-CASE, so `latest` or `LATEST`) selects the MOST RECENTLY COMMITTED
+tree - last in `RecordingStore.CommittedTrees`, which is append-ordered on commit, so
+last-in-list is the definition rather than an approximation. With no committed tree it
+answers `REJECTED no-committed-tree` (the world-state verdict the bare call gives for the
+same world), never `unknown-tree`, which would blame the argument for an empty save.
+Everything else is unchanged: an explicit id still resolves by ordinal-exact match, an
+unknown id is still `unknown-tree`, and the BARE no-arg call still refuses
+`ambiguous-tree` over several committed trees.
+
+**Two ordering guarantees, both tested.** (1) The id path is untouched: the keyword is
+tested only AFTER the exact-id scan fails, so a committed tree literally named `latest`
+would still be selected BY ID (`ResolveTarget_ExplicitIdStillWins_EvenForATreeNamedLatest`).
+Real ids are 32-hex `Guid` "N" strings, so the collision is unreachable in practice and
+the ordering makes it harmless anyway. (2) The keyword does NOT relax the ambiguity rule
+(`ResolveTarget_TheKeywordDoesNotRelaxTheAmbiguityRule`): "the operator did not say" and
+"the operator said: the newest one" are different intents, and only the second is an
+explicit choice. No other near-miss word is accepted - `newest`, `last`, `active`, `first`
+all stay `unknown-tree`.
+
+**Why it exists, and it is a MEASURED wall rather than a convenience.** Rewind-to-Launch
+needs a subject carrying a launch quicksave: `RecordingStore.CanRewind` resolves the owner
+through `GetRewindRecording`, which wants a non-empty `Recording.RewindSaveFileName` on the
+recording or its tree ROOT. Every committed recorded fixture ships that field EMPTY by
+harvest policy (`harvest_bdock_station.py` prunes `Parsek/Saves` and clears the hint;
+`build_rover_route_recorded.py` gates the absence in both directions, with INV9's
+dangling-hint WARN as the rationale), so NO committed fixture can ever be the subject. The
+one remaining road is for a lane to produce its own subject in-run - `StartRecording` ->
+`CommitTree`, which does write the quicksave (`FlightRecorder.CaptureRewindSave` runs at
+every non-promotion recording start) - and that road was closed too: a fresh tree's id is a
+runtime `Guid`, the harness has exactly one spec-side substitution (`${runSave}`, and no
+step can consume a prior step's payload), and on any host that already carries committed
+trees the auto-select then refuses `ambiguous-tree`. GS-4 escapes only because its host
+fixture has ZERO committed trees, so its mission's own launch leaves exactly one. This
+keyword is that gap and nothing else; it is what makes `H58-route-rewind-to-launch` a lane
+in which a rewind actually fires. See ROUTE-REWIND-TO-LAUNCH-UNREACHABLE-ON-COMMITTED-FIXTURES.
+
+**Observability.** The applier logs the choice on its own line before the gate:
+`invokerewindtolaunch target resolved tree=<id> resolvedBy=<ExplicitId|LatestKeyword|AutoSingle> arg=<raw> committedTrees=<n>`.
+The `invoking` line names the tree and root recording but not the RULE, and on a `latest`
+run this line plus `committedTrees=` is the only proof the lane rewound the tree it had
+just committed rather than one the fixture shipped. Pure decision in
+`TestCommandRewindToLaunch.ResolveTarget` (keyword const `LatestTreeKeyword`, resolution
+enum `RewindToLaunchTargetResolution`), xUnit-covered in
+`TestCommandRewindToLaunchTests.cs`.
+
 #### R12/A1 - `LoadGame scene=<spacecenter|trackstation>`
 
 **Contract.** `LoadGame` gains one optional argument. ABSENT is the pre-R12 contract
