@@ -1757,5 +1757,594 @@ namespace Parsek.Tests
                 new List<RouteProofCapture.SeamNodeRecord>(), 4242u));
             Assert.Equal(-1, RouteProofCapture.SelectFacingSeamNodeIndex(null, 4242u));
         }
+
+        // ==============================================================
+        // 11. THE 2026-09-03 RELAY, and the two ways the binder got it wrong
+        //
+        // MEASURED on logs/2026-09-03_0026_rover-c (KSP.log, DLL carrying #1618 but not
+        // #1620). Rover C launched from the Runway with 200 LiquidFuel, drove to rover B,
+        // docked at UT 155.82 and TOOK 154.4 LiquidFuel plus three inventory items off B,
+        // undocked at UT 212.54, drove to lander A, docked at UT 274.18, GAVE A 200
+        // LiquidFuel and undocked at UT 335.32. Under the operator ruling that is one supply
+        // route: source B, destination A. The session produced ZERO routes, and the binder
+        // wrote both of these lines:
+        //
+        //   HOP 1  Route window delta: window=dock-155.82...-target-90564594
+        //          transportDelta=[LiquidFuel=+154.4] endpointDelta=[LiquidFuel=-154.4]
+        //          RouteOriginProof bound at undock: ... binding=BoundToHalfB
+        //          originRoot=3466447829 originName='C' ... transportRoot=549109006
+        //     -> the halves are INVERTED. B was the dominant half of the merge, KSP kept
+        //        focus on B one frame after the split, and the binder therefore called B the
+        //        transport and stamped C - the actual transport - as its own supply origin.
+        //
+        //   HOP 2  Route window delta: ... transportDelta=[LiquidFuel=-200.0]
+        //          endpointDelta=[LiquidFuel=+200.0]
+        //          RouteOriginProof bound at undock: ... originRoot=701791207 originName='A'
+        //          ... pickup=Carried pickupValidated=0
+        //     -> the halves are right and the SEAM is wrong: A is the vessel C had just
+        //        delivered to, and a delivery partner is never an origin.
+        //
+        // Root part uids and vessel pids below are the real ones from that log.
+        // ==============================================================
+
+        // Rover B (the depot / source), root part flightID 549109006, live pid 90564594.
+        private static readonly List<uint> RelayBParts = new List<uint> { 6200u, 6201u };
+        // Rover C (the transport), root part flightID 3466447829, live pid 612987736.
+        private static readonly List<uint> RelayCParts = new List<uint> { 6100u, 6101u };
+        // Lander A (the destination), root part flightID 701791207, live pid 4280917262.
+        private static readonly List<uint> RelayAParts = new List<uint> { 6300u, 6301u };
+
+        private const uint RelayBRoot = 549109006u;
+        private const uint RelayCRoot = 3466447829u;
+        private const uint RelayARoot = 701791207u;
+
+        /// <summary>
+        /// The pair as capture recorded it on the operator's hop-1 recording: half A is the
+        /// SCAN-ORDER near half, which on that flight was rover B (the merged vessel's own
+        /// name), and half B is rover C. Those labels carry no semantics - which is exactly
+        /// what the defect exploited.
+        /// </summary>
+        private static RouteOriginProof RelayHop1PendingProof()
+        {
+            return new RouteOriginProof
+            {
+                StartDockedOriginBindState = StartDockedOriginBindState.PairPendingBinding,
+                StartDockedPair = new StartDockedSeamPair
+                {
+                    HalfA = new StartDockedSeamHalf
+                    {
+                        RootPartUId = RelayBRoot,
+                        VesselName = "B",
+                        VesselType = (int)VesselType.Rover,
+                        PartPersistentIds = new List<uint>(RelayBParts),
+                        StartResources = Manifest("LiquidFuel", 400.0),
+                    },
+                    HalfB = new StartDockedSeamHalf
+                    {
+                        RootPartUId = RelayCRoot,
+                        VesselName = "C",
+                        VesselType = (int)VesselType.Rover,
+                        PartPersistentIds = new List<uint>(RelayCParts),
+                        StartResources = Manifest("LiquidFuel", 200.0),
+                    },
+                },
+            };
+        }
+
+        private static RouteOriginProof RelayHop2PendingProof()
+        {
+            return new RouteOriginProof
+            {
+                StartDockedOriginBindState = StartDockedOriginBindState.PairPendingBinding,
+                StartDockedPair = new StartDockedSeamPair
+                {
+                    HalfA = new StartDockedSeamHalf
+                    {
+                        RootPartUId = RelayCRoot,
+                        VesselName = "C",
+                        VesselType = (int)VesselType.Rover,
+                        PartPersistentIds = new List<uint>(RelayCParts),
+                        StartResources = Manifest("LiquidFuel", 354.4),
+                    },
+                    HalfB = new StartDockedSeamHalf
+                    {
+                        RootPartUId = RelayARoot,
+                        VesselName = "A",
+                        VesselType = (int)VesselType.Lander,
+                        PartPersistentIds = new List<uint>(RelayAParts),
+                        StartResources = Manifest("LiquidFuel", 0.0),
+                    },
+                },
+            };
+        }
+
+        private static RouteConnectionWindow Window(
+            string id, List<uint> transportParts, List<uint> endpointParts)
+        {
+            return new RouteConnectionWindow
+            {
+                WindowId = id,
+                TransferKind = RouteConnectionKind.DockingPort,
+                TransportPartPersistentIds = new List<uint>(transportParts),
+                EndpointPartPersistentIds = new List<uint>(endpointParts),
+            };
+        }
+
+        // --- the pure decisions -------------------------------------------
+
+        [Fact]
+        public void WindowNamesHalfAsTransport_NeedsBothSidesToStraddleThePair()
+        {
+            RouteConnectionWindow w = Window("dock-155.82-target-90564594", RelayCParts, RelayBParts);
+
+            Assert.True(RouteProofCapture.WindowNamesHalfAsTransport(w, RelayCParts, RelayBParts));
+            // The mirror direction must NOT also match, or the window names no direction.
+            Assert.False(RouteProofCapture.WindowNamesHalfAsTransport(w, RelayBParts, RelayCParts));
+            // A window about a THIRD vessel straddles nothing here.
+            Assert.False(RouteProofCapture.WindowNamesHalfAsTransport(
+                Window("other", RelayCParts, RelayAParts), RelayCParts, RelayBParts));
+            Assert.False(RouteProofCapture.WindowNamesHalfAsTransport(null, RelayCParts, RelayBParts));
+        }
+
+        [Fact]
+        public void WitnessedDockScan_NoWindowsIsNotAWitnessedDock()
+        {
+            // THE START-DOCKED FAMILY. The recording opened already coupled, so no window
+            // could exist for this seam - which is the fact the bind gate keys on.
+            Assert.False(RouteProofCapture.TryResolveWitnessedDockTransportHalf(
+                null, RelayCParts, RelayBParts, out bool a, out bool b));
+            Assert.False(a);
+            Assert.False(b);
+
+            Assert.False(RouteProofCapture.TryResolveWitnessedDockTransportHalf(
+                new List<RouteConnectionWindow> { Window("unrelated", RelayAParts, RelayAParts) },
+                RelayCParts, RelayBParts, out a, out b));
+        }
+
+        [Fact]
+        public void WitnessedDockScan_ContradictingWindowsWitnessTheDockButNameNoDirection()
+        {
+            // A dock, an undock and a RE-dock of the same pair the other way round on one
+            // recording. The dock is still witnessed (the gate must close), but the direction
+            // is ambiguous and the resolver must fall through rather than pick one.
+            var windows = new List<RouteConnectionWindow>
+            {
+                Window("w1", RelayCParts, RelayBParts),
+                Window("w2", RelayBParts, RelayCParts),
+            };
+            Assert.True(RouteProofCapture.TryResolveWitnessedDockTransportHalf(
+                windows, RelayCParts, RelayBParts,
+                out bool halfAIsTransport, out bool halfBIsTransport));
+            Assert.True(halfAIsTransport);
+            Assert.True(halfBIsTransport);
+
+            RouteProofCapture.SeamTransportHalfDecision decision =
+                RouteProofCapture.ResolveTransportHalfAtUndock(
+                    OriginUndockBinding.BoundToHalfB,
+                    windowNamesHalfATransport: true, windowNamesHalfBTransport: true,
+                    halfAGained: false, halfBGained: false);
+            Assert.Equal(OriginUndockBinding.BoundToHalfB, decision.Binding);
+            Assert.Equal(
+                RouteProofCapture.SeamTransportHalfSignal.PostSplitActiveSide, decision.Signal);
+            Assert.False(decision.OverrodeActiveSide);
+        }
+
+        [Fact]
+        public void ResolveTransportHalf_TheWindowOutranksFocus()
+        {
+            // HOP 1, as pure inputs. Focus said half A (rover B) was the transport, so the
+            // pre-fix answer was BoundToHalfB - rover C, the transport itself. The window
+            // says half B is the transport, so the origin is half A.
+            RouteProofCapture.SeamTransportHalfDecision decision =
+                RouteProofCapture.ResolveTransportHalfAtUndock(
+                    OriginUndockBinding.BoundToHalfB,
+                    windowNamesHalfATransport: false, windowNamesHalfBTransport: true,
+                    halfAGained: false, halfBGained: true);
+
+            Assert.Equal(OriginUndockBinding.BoundToHalfA, decision.Binding);
+            Assert.Equal(
+                RouteProofCapture.SeamTransportHalfSignal.WitnessedDockWindow, decision.Signal);
+            Assert.True(decision.OverrodeActiveSide);
+        }
+
+        [Fact]
+        public void ResolveTransportHalf_TheWindowOutranksTheGainToo()
+        {
+            // THE ASYMMETRY THE FIX MUST NOT COMMIT: on a DELIVERY window the ENDPOINT gains,
+            // so "the half that gained is the transport" would name the run its own origin
+            // all over again. The window wins, and the delivery is then refused by the gate.
+            RouteProofCapture.SeamTransportHalfDecision decision =
+                RouteProofCapture.ResolveTransportHalfAtUndock(
+                    OriginUndockBinding.BoundToHalfB,
+                    windowNamesHalfATransport: true, windowNamesHalfBTransport: false,
+                    halfAGained: false, halfBGained: true);
+
+            Assert.Equal(OriginUndockBinding.BoundToHalfB, decision.Binding);
+            Assert.Equal(
+                RouteProofCapture.SeamTransportHalfSignal.WitnessedDockWindow, decision.Signal);
+            Assert.False(decision.OverrodeActiveSide);
+        }
+
+        [Fact]
+        public void ResolveTransportHalf_NoWindow_TheGainOnlyCorroboratesFocus()
+        {
+            // THE START-DOCKED FAMILY, flow AGREEING with focus. BoundToHalfB means focus
+            // called half B the transport, and half B is the half that gained: corroboration,
+            // recorded in the signal, no change to the binding.
+            RouteProofCapture.SeamTransportHalfDecision decision =
+                RouteProofCapture.ResolveTransportHalfAtUndock(
+                    OriginUndockBinding.BoundToHalfA,
+                    windowNamesHalfATransport: false, windowNamesHalfBTransport: false,
+                    halfAGained: false, halfBGained: true);
+
+            Assert.Equal(OriginUndockBinding.BoundToHalfA, decision.Binding);
+            Assert.Equal(
+                RouteProofCapture.SeamTransportHalfSignal.DockedSpanGain, decision.Signal);
+            Assert.False(decision.OverrodeActiveSide);
+            Assert.False(decision.FlowContradictsFocus);
+        }
+
+        [Fact]
+        public void ResolveTransportHalf_NoWindow_AContradictingFlowRefusesRatherThanReversing()
+        {
+            // THE ASYMMETRY THIS PACKAGE MUST NOT COMMIT, in its most dangerous form. Focus
+            // says half B is the transport (BoundToHalfA = origin is A), the cargo says half A
+            // gained. Reversing on the cargo would name the RUN as its own origin whenever a
+            // start-docked transport DELIVERS to its depot and drives off - the same inversion
+            // this package removes, coming back through the other door. And in the no-window
+            // case focus is not a mere proxy: the recorder follows the focused vessel across a
+            // split, so the active half IS the half this recording continues on. Two signals
+            // disagree, neither arbitrates, so the binding stays put and the bind is refused.
+            RouteProofCapture.SeamTransportHalfDecision decision =
+                RouteProofCapture.ResolveTransportHalfAtUndock(
+                    OriginUndockBinding.BoundToHalfA,
+                    windowNamesHalfATransport: false, windowNamesHalfBTransport: false,
+                    halfAGained: true, halfBGained: false);
+
+            Assert.Equal(OriginUndockBinding.BoundToHalfA, decision.Binding);
+            Assert.Equal(
+                RouteProofCapture.SeamTransportHalfSignal.DockedSpanGainContradictsFocus,
+                decision.Signal);
+            Assert.False(decision.OverrodeActiveSide);
+            Assert.True(decision.FlowContradictsFocus);
+
+            // And the gate refuses it, whatever the transport half's own pickup reads.
+            Assert.Equal(
+                RouteProofCapture.OriginBindGate.SkipFlowContradictsFocus,
+                RouteProofCapture.ClassifyOriginBindGate(
+                    OriginPickupKind.Carried, false, flowContradictsFocus: true));
+            Assert.Equal(
+                RouteProofCapture.OriginBindGate.SkipFlowContradictsFocus,
+                RouteProofCapture.ClassifyOriginBindGate(
+                    OriginPickupKind.None, true, flowContradictsFocus: true));
+        }
+
+        [Fact]
+        public void StartDockedDeliveryToTheDepot_BindsNothingRatherThanNamingTheRunItsOwnOrigin()
+        {
+            // THE SAME CASE END TO END, and the reason the cross-check refuses instead of
+            // reversing. The recording opens docked at a depot, the transport hands the depot
+            // 200 LiquidFuel and undocks. Half A is the transport (focus keeps it, and the
+            // recorder follows focus); half B, the depot, is the half that GAINED. A binder
+            // that took "the half that gained is the transport" literally would stamp the
+            // transport as the origin of its own run.
+            var proof = new RouteOriginProof
+            {
+                StartDockedOriginBindState = StartDockedOriginBindState.PairPendingBinding,
+                StartDockedPair = new StartDockedSeamPair
+                {
+                    HalfA = new StartDockedSeamHalf
+                    {
+                        RootPartUId = RelayCRoot,
+                        VesselName = "transport",
+                        VesselType = (int)VesselType.Rover,
+                        PartPersistentIds = new List<uint>(RelayCParts),
+                        StartResources = Manifest("LiquidFuel", 354.4),
+                    },
+                    HalfB = new StartDockedSeamHalf
+                    {
+                        RootPartUId = RelayBRoot,
+                        VesselName = "depot",
+                        VesselType = (int)VesselType.Rover,
+                        PartPersistentIds = new List<uint>(RelayBParts),
+                        StartResources = Manifest("LiquidFuel", 0.0),
+                    },
+                },
+            };
+
+            Assert.False(RouteProofCapture.TryBindStartDockedOriginAtUndock(
+                proof, RelayCParts, RelayBParts,
+                SnapshotWithResource(6100u, "LiquidFuel", 154.4), null,
+                originLiveVesselPid: 90564594u, originLiveVesselGuid: GuidB,
+                recordedVesselPid: 612987736u, recordedVesselGuid: GuidA,
+                undockUT: 900.0, recordingContext: "start-docked-delivery",
+                backgroundSideSnapshot: SnapshotWithResource(6200u, "LiquidFuel", 200.0)));
+
+            Assert.Equal(
+                StartDockedOriginBindState.PairPendingBinding, proof.StartDockedOriginBindState);
+            Assert.Equal(0u, proof.StartDockedOriginRootPartUId);
+            Assert.Contains(logLines, l => l.Contains("[WARN]")
+                && l.Contains("RouteOriginProof transport half overridden:")
+                && l.Contains("resolved=refused")
+                && l.Contains("focusTransportRoot=3466447829")
+                && l.Contains("runTransportRoot=549109006"));
+            Assert.Contains(logLines, l => l.Contains("RouteOriginProof bind skipped:")
+                && l.Contains("reason=SkipFlowContradictsFocus")
+                && l.Contains("dockWitnessed=0"));
+        }
+
+        [Fact]
+        public void ResolveTransportHalf_NothingMoved_FallsBackToFocus()
+        {
+            // A pure re-dock: neither half's cargo moved, no window. Focus is the last
+            // resort, and the gate then binds nothing that could be an origin.
+            RouteProofCapture.SeamTransportHalfDecision decision =
+                RouteProofCapture.ResolveTransportHalfAtUndock(
+                    OriginUndockBinding.BoundToHalfA, false, false, false, false);
+
+            Assert.Equal(OriginUndockBinding.BoundToHalfA, decision.Binding);
+            Assert.Equal(
+                RouteProofCapture.SeamTransportHalfSignal.PostSplitActiveSide, decision.Signal);
+            Assert.False(decision.OverrodeActiveSide);
+        }
+
+        [Fact]
+        public void ResolveTransportHalf_AShapeRefusalIsNeverOverruledByCargo()
+        {
+            // FAIL CLOSED. These are statements about the SPLIT - the same-craft
+            // identical-part-set case (BothHalvesActive) among them - and no cargo delta can
+            // make an unseparated pair separate. A window AND a gain both point at half B in
+            // every iteration here and must still change nothing.
+            var refusals = new List<OriginUndockBinding>
+            {
+                OriginUndockBinding.BothHalvesActive,
+                OriginUndockBinding.ActiveHalfUnresolved,
+                OriginUndockBinding.UnrelatedSeam,
+                OriginUndockBinding.NoPairPending,
+            };
+            foreach (OriginUndockBinding refusal in refusals)
+            {
+                RouteProofCapture.SeamTransportHalfDecision decision =
+                    RouteProofCapture.ResolveTransportHalfAtUndock(
+                        refusal,
+                        windowNamesHalfATransport: false, windowNamesHalfBTransport: true,
+                        halfAGained: false, halfBGained: true);
+
+                Assert.Equal(refusal, decision.Binding);
+                Assert.False(decision.OverrodeActiveSide);
+            }
+        }
+
+        [Fact]
+        public void ClassifyOriginBindGate_WitnessedDockIsTheDiscriminator()
+        {
+            // A Gain always binds. Without a witnessed dock the pre-fix Carried stamp stays
+            // (it is observability, never an origin). WITH a witnessed dock, the absence of a
+            // gain is positive evidence the partner supplied nothing.
+            AssertGate(OriginPickupKind.Gain, true, RouteProofCapture.OriginBindGate.BindGain);
+            AssertGate(OriginPickupKind.Gain, false, RouteProofCapture.OriginBindGate.BindGain);
+            AssertGate(OriginPickupKind.Carried, false,
+                RouteProofCapture.OriginBindGate.BindStartDockedCarried);
+            AssertGate(OriginPickupKind.None, false,
+                RouteProofCapture.OriginBindGate.BindStartDockedCarried);
+            AssertGate(OriginPickupKind.NoUndockManifest, false,
+                RouteProofCapture.OriginBindGate.BindStartDockedCarried);
+            AssertGate(OriginPickupKind.Carried, true,
+                RouteProofCapture.OriginBindGate.SkipDeliveryWindow);
+            AssertGate(OriginPickupKind.None, true,
+                RouteProofCapture.OriginBindGate.SkipDeliveryWindow);
+            AssertGate(OriginPickupKind.NoUndockManifest, true,
+                RouteProofCapture.OriginBindGate.SkipNoUndockManifest);
+
+            // A Gain outranks the contradiction flag, and the two cannot co-occur in
+            // production: a contradiction means the measured half is the one that did NOT gain.
+            Assert.Equal(
+                RouteProofCapture.OriginBindGate.BindGain,
+                RouteProofCapture.ClassifyOriginBindGate(
+                    OriginPickupKind.Gain, false, flowContradictsFocus: true));
+        }
+
+        private static void AssertGate(
+            OriginPickupKind pickup, bool dockWitnessed, RouteProofCapture.OriginBindGate expected)
+        {
+            Assert.Equal(expected, RouteProofCapture.ClassifyOriginBindGate(pickup, dockWitnessed));
+            Assert.Equal(
+                expected == RouteProofCapture.OriginBindGate.SkipDeliveryWindow
+                    || expected == RouteProofCapture.OriginBindGate.SkipNoUndockManifest,
+                RouteProofCapture.IsBindRefusal(expected));
+        }
+
+        // --- the two hops, end to end through the orchestrator -------------
+
+        [Fact]
+        public void RelayHop1_FocusHeldTheDepot_TheWindowStillNamesRoverBAsTheOrigin()
+        {
+            // THE DEFECT ITSELF. Focus is on rover B (half A) after the split, so
+            // ClassifyUndockOriginBinding alone answers BoundToHalfB - rover C, the
+            // transport, as its own origin, which is the line the operator's log carries.
+            RouteOriginProof proof = RelayHop1PendingProof();
+            Assert.Equal(
+                OriginUndockBinding.BoundToHalfB,
+                RouteProofCapture.ClassifyUndockOriginBinding(
+                    RelayBParts, RelayCParts, RelayBParts, RelayCParts));
+
+            // Rover B keeps focus and ends with LESS fuel; rover C is backgrounded and ends
+            // with MORE (200 -> 354.4, the measured +154.4).
+            ConfigNode roverBAtUndock = SnapshotWithResource(6200u, "LiquidFuel", 245.6);
+            ConfigNode roverCAtUndock = SnapshotWithResource(6100u, "LiquidFuel", 354.4);
+
+            bool bound = RouteProofCapture.TryBindStartDockedOriginAtUndock(
+                proof, RelayBParts, RelayCParts,
+                roverBAtUndock, null,
+                originLiveVesselPid: 612987736u, originLiveVesselGuid: GuidB,
+                recordedVesselPid: 90564594u, recordedVesselGuid: GuidA,
+                undockUT: 212.54, recordingContext: "39ac117a8a8b4d61b1296983e7d538a8",
+                backgroundSideSnapshot: roverCAtUndock,
+                recordingConnectionWindows: new List<RouteConnectionWindow>
+                {
+                    Window("dock-155.8200000000059-target-90564594", RelayCParts, RelayBParts)
+                },
+                activeSideLiveVesselPid: 90564594u,
+                activeSideLiveVesselGuid: GuidA);
+
+            Assert.True(bound);
+            Assert.Equal(RelayBRoot, proof.StartDockedOriginRootPartUId);
+            Assert.Equal("B", proof.StartDockedOriginVesselName);
+            Assert.Equal(RelayCRoot, proof.StartDockedTransportRootPartUId);
+            Assert.Equal(OriginPickupKind.Gain, proof.StartDockedOriginPickupKind);
+            Assert.True(proof.StartDockedOriginPickupValidated);
+            // The transport's start manifest must be ROVER C's 200, not rover B's 400 - the
+            // pickup was measured on the BACKGROUNDED half, which the pre-fix binder could
+            // not even read (it only ever extracted from the active snapshot).
+            Assert.Equal(200.0, proof.StartTransportResources["LiquidFuel"].amount, 6);
+
+            var rec = new Recording { RecordingId = "r", RouteOriginProof = proof };
+            Assert.True(Parsek.Logistics.RouteAnalysisEngine.HasDockedOriginProof(rec));
+            Assert.False(Parsek.Logistics.RouteAnalysisEngine.IsSelfOriginProof(proof));
+
+            Assert.Contains(logLines, l => l.Contains("[WARN]")
+                && l.Contains("RouteOriginProof transport half overridden:")
+                && l.Contains("signal=WitnessedDockWindow")
+                && l.Contains("focusTransportRoot=549109006")
+                && l.Contains("runTransportRoot=3466447829"));
+            Assert.Contains(logLines, l => l.Contains("RouteOriginProof bound at undock:")
+                && l.Contains("originRoot=549109006")
+                && l.Contains("transportSignal=WitnessedDockWindow")
+                && l.Contains("dockWitnessed=1")
+                && l.Contains("gate=BindGain"));
+        }
+
+        [Fact]
+        public void RelayHop2_TheDeliveryPartnerIsNotAnOriginAndNothingIsWritten()
+        {
+            // THE SECOND DEFECT. The halves are right this time - rover C keeps flying,
+            // lander A is left behind - but C only LOST cargo at this seam. A is the
+            // destination, and the recording witnessed the dock, so nothing may be written.
+            RouteOriginProof proof = RelayHop2PendingProof();
+            ConfigNode roverCAtUndock = SnapshotWithResource(6100u, "LiquidFuel", 154.4);
+            ConfigNode landerAAtUndock = SnapshotWithResource(6300u, "LiquidFuel", 200.0);
+
+            bool bound = RouteProofCapture.TryBindStartDockedOriginAtUndock(
+                proof, RelayCParts, RelayAParts,
+                roverCAtUndock, null,
+                originLiveVesselPid: 4280917262u, originLiveVesselGuid: GuidB,
+                recordedVesselPid: 612987736u, recordedVesselGuid: GuidA,
+                undockUT: 335.32, recordingContext: "b9df0ee00fd84831a0d9619b4e34fc97",
+                backgroundSideSnapshot: landerAAtUndock,
+                recordingConnectionWindows: new List<RouteConnectionWindow>
+                {
+                    Window("dock-274.18000000004059-target-2123618197", RelayCParts, RelayAParts)
+                },
+                activeSideLiveVesselPid: 612987736u,
+                activeSideLiveVesselGuid: GuidA);
+
+            Assert.False(bound);
+            // NOT HALF-WRITTEN: the proof is exactly as capture left it.
+            Assert.Equal(
+                StartDockedOriginBindState.PairPendingBinding, proof.StartDockedOriginBindState);
+            Assert.Equal(0u, proof.StartDockedOriginRootPartUId);
+            Assert.Equal(0u, proof.StartDockedTransportRootPartUId);
+            Assert.Null(proof.StartDockedOriginVesselName);
+            Assert.False(proof.StartDockedOriginPickupValidated);
+
+            Assert.Contains(logLines, l => l.Contains("[INFO]")
+                && l.Contains("RouteOriginProof bind skipped:")
+                && l.Contains("reason=SkipDeliveryWindow")
+                && l.Contains("candidateOriginRoot=701791207")
+                && l.Contains("dockWitnessed=1"));
+        }
+
+        [Fact]
+        public void RelayHop2Shape_WithNoWitnessedDock_KeepsThePreFixCarriedStamp()
+        {
+            // THE MIRROR THE FIX MUST NOT BREAK. Same delivery direction, but the recording
+            // opened ALREADY docked (the start-docked family - H55/H56's probe rig and H57's
+            // depot leg): no window exists, the load predates the recorder, and the
+            // unvalidated Carried stamp is kept exactly as it was.
+            RouteOriginProof proof = RelayHop2PendingProof();
+            ConfigNode roverCAtUndock = SnapshotWithResource(6100u, "LiquidFuel", 154.4);
+
+            Assert.True(RouteProofCapture.TryBindStartDockedOriginAtUndock(
+                proof, RelayCParts, RelayAParts, roverCAtUndock, null,
+                4280917262u, GuidB, 612987736u, GuidA, 335.32, "b9df0ee0"));
+
+            Assert.Equal(StartDockedOriginBindState.BoundAtUndock, proof.StartDockedOriginBindState);
+            Assert.Equal(RelayARoot, proof.StartDockedOriginRootPartUId);
+            Assert.Equal(OriginPickupKind.Carried, proof.StartDockedOriginPickupKind);
+            Assert.False(proof.StartDockedOriginPickupValidated);
+
+            var rec = new Recording { RecordingId = "r", RouteOriginProof = proof };
+            Assert.False(Parsek.Logistics.RouteAnalysisEngine.HasDockedOriginProof(rec));
+        }
+
+        [Fact]
+        public void WriteOnce_AnUnvalidatedStampDoesNotLockTheSlotAgainstARealPickup()
+        {
+            // FIRST **VALID** BIND WINS. An unvalidated Carried stamp is an observation, not
+            // an origin, so letting it hold the write-once slot would trade a wrong answer
+            // for a missing one.
+            RouteOriginProof proof = RelayHop2PendingProof();
+            Assert.True(RouteProofCapture.TryBindStartDockedOriginAtUndock(
+                proof, RelayCParts, RelayAParts,
+                SnapshotWithResource(6100u, "LiquidFuel", 154.4), null,
+                4280917262u, GuidB, 612987736u, GuidA, 335.32, "rec"));
+            Assert.False(proof.StartDockedOriginPickupValidated);
+            Assert.Equal(RelayARoot, proof.StartDockedOriginRootPartUId);
+
+            // A later seam on the same recording DOES witness a gain: 354.4 -> 500.0 on the
+            // transport half. It must be allowed to land.
+            proof.StartDockedPair.HalfB.RootPartUId = RelayBRoot;
+            proof.StartDockedPair.HalfB.VesselName = "B";
+            Assert.True(RouteProofCapture.TryBindStartDockedOriginAtUndock(
+                proof, RelayCParts, RelayAParts,
+                SnapshotWithResource(6100u, "LiquidFuel", 500.0), null,
+                90564594u, GuidB, 612987736u, GuidA, 600.0, "rec"));
+            Assert.Equal(RelayBRoot, proof.StartDockedOriginRootPartUId);
+            Assert.Equal(OriginPickupKind.Gain, proof.StartDockedOriginPickupKind);
+            Assert.True(proof.StartDockedOriginPickupValidated);
+
+            // And a VALIDATED bind is still final.
+            Assert.False(RouteProofCapture.TryBindStartDockedOriginAtUndock(
+                proof, RelayCParts, RelayAParts,
+                SnapshotWithResource(6100u, "LiquidFuel", 900.0), null,
+                4280917262u, GuidB, 612987736u, GuidA, 700.0, "rec"));
+            Assert.Equal(RelayBRoot, proof.StartDockedOriginRootPartUId);
+        }
+
+        [Fact]
+        public void SelfOriginProof_IsRefusedAtTheRead_BecauseTheBytesAreAlreadyOnDisk()
+        {
+            // THE READ-SIDE HALF. The operator's save carries a proof whose origin root IS
+            // its transport root (rover C on both sides). Recordings are never migrated, so
+            // the analysis has to refuse it rather than trust the bind that wrote it.
+            var selfOrigin = new RouteOriginProof
+            {
+                StartDockedOriginBindState = StartDockedOriginBindState.BoundAtUndock,
+                StartDockedOriginPickupValidated = true,
+                StartDockedOriginRootPartUId = RelayCRoot,
+                StartDockedTransportRootPartUId = RelayCRoot,
+                StartDockedOriginVesselName = "C",
+            };
+            Assert.True(Parsek.Logistics.RouteAnalysisEngine.IsSelfOriginProof(selfOrigin));
+            Assert.False(Parsek.Logistics.RouteAnalysisEngine.HasDockedOriginProof(
+                new Recording { RecordingId = "r", RouteOriginProof = selfOrigin }));
+
+            // A genuine two-vessel proof is untouched by the guard.
+            var genuine = new RouteOriginProof
+            {
+                StartDockedOriginBindState = StartDockedOriginBindState.BoundAtUndock,
+                StartDockedOriginPickupValidated = true,
+                StartDockedOriginRootPartUId = RelayBRoot,
+                StartDockedTransportRootPartUId = RelayCRoot,
+            };
+            Assert.False(Parsek.Logistics.RouteAnalysisEngine.IsSelfOriginProof(genuine));
+            Assert.True(Parsek.Logistics.RouteAnalysisEngine.HasDockedOriginProof(
+                new Recording { RecordingId = "r", RouteOriginProof = genuine }));
+
+            // A transport root that was never stamped (0) is not "self", or every pre-P12
+            // proof would read as one.
+            Assert.False(Parsek.Logistics.RouteAnalysisEngine.IsSelfOriginProof(
+                new RouteOriginProof { StartDockedOriginRootPartUId = 0u }));
+        }
     }
 }

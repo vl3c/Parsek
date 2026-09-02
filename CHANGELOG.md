@@ -10,6 +10,23 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **A supply run is now recognised no matter which craft kept its name after the undock,
+  and the craft you delivered to is no longer mistaken for the craft you loaded from.**
+  Take fuel or cargo off one craft, drive on, hand it to another, and Parsek should see
+  one supply run: a source and a destination. It did not. When two craft dock the game
+  merges them and picks one of the two names for the combined vessel - often not the one
+  you were flying - and after the undock the camera can be left on either side. Parsek
+  was reading the camera to decide which craft had been doing the delivering, so on a run
+  where the depot won the merge it decided the depot was the transport and recorded the
+  delivery craft as its own supply source, which is not a thing. Separately, when the
+  transport docked at its DESTINATION and handed cargo over, that destination was recorded
+  as the run's supply source as well, even though nothing came aboard there. Both are
+  fixed. Parsek now works out which craft was doing the run from what actually happened -
+  the dock it witnessed, and which side the cargo moved onto - and only records a source
+  where cargo genuinely came ABOARD. A craft you only gave things to is a destination and
+  is never treated as the source. Starting a flight already docked at a depot behaves
+  exactly as before.
+
 - **Moving a stored part between two docked craft no longer kills the supply route.**
   Hand a part across from one inventory to another while docked and the game used to
   lose track of it: KSP quietly rewrites part of the item as it is handed over, and

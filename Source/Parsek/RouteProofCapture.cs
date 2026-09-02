@@ -41,9 +41,9 @@ namespace Parsek
     /// <para>THERE IS NO ORIGIN CHOICE HERE (P12). A route candidate is defined by
     /// TRANSFERS AND DOCKS, not by a vessel type: the transport takes cargo at one docked
     /// partner and delivers it at another, and bases are ordinary vessels. So capture
-    /// records BOTH halves and defers the choice to the UNDOCK, where the half the player
-    /// did NOT keep flying is the origin (see
-    /// <see cref="RouteProofCapture.ClassifyUndockOriginBinding"/>).</para>
+    /// records BOTH halves and defers the choice to the UNDOCK, where the half the RUN was
+    /// flying is the transport and the other one is the origin (see
+    /// <see cref="RouteProofCapture.ResolveTransportHalfAtUndock"/>).</para>
     /// </summary>
     internal enum DockSeamPairAdmission
     {
@@ -140,10 +140,15 @@ namespace Parsek
 
     /// <summary>
     /// Which half of the captured pair the UNDOCK bound the origin to, or why it could not.
-    /// THE BINDING RULE: the origin is the half the player did NOT keep flying, i.e. the half
-    /// that matches the BACKGROUND side of the split. Only <see cref="BoundToHalfA"/> /
-    /// <see cref="BoundToHalfB"/> produce an origin; everything else leaves the proof
-    /// unbound, and an unbound proof is never forwarded as an origin.
+    /// Only <see cref="BoundToHalfA"/> / <see cref="BoundToHalfB"/> produce an origin;
+    /// everything else leaves the proof unbound, and an unbound proof is never forwarded as
+    /// an origin.
+    ///
+    /// <para>The two BOUND values are produced twice over: first by
+    /// <see cref="RouteProofCapture.ClassifyUndockOriginBinding"/> reading the post-split
+    /// FOCUS, then possibly re-pointed by
+    /// <see cref="RouteProofCapture.ResolveTransportHalfAtUndock"/>, which outranks focus
+    /// with the run's own actions. The REFUSAL values only ever come from the first.</para>
     /// </summary>
     internal enum OriginUndockBinding
     {
@@ -809,12 +814,26 @@ namespace Parsek
         // ===================================================================
 
         /// <summary>
-        /// THE BINDING RULE, pure / static. At the undock the pair separates into an ACTIVE
-        /// side (the half the player kept flying - the transport) and a BACKGROUND side. The
-        /// ORIGIN IS THE HALF THE PLAYER DID NOT KEEP FLYING, matched by PART SET rather than
-        /// by vessel pid: a <c>persistentId</c> is craft-baked and never proves physical
-        /// identity, while the merged part persistentIds captured per half at recording start
-        /// are exactly the parts each side is made of.
+        /// THE FOCUS READING of the binding, pure / static. At the undock the pair separates
+        /// into an ACTIVE side (the half KSP gave focus to) and a BACKGROUND side, matched by
+        /// PART SET rather than by vessel pid: a <c>persistentId</c> is craft-baked and never
+        /// proves physical identity, while the merged part persistentIds captured per half at
+        /// recording start are exactly the parts each side is made of.
+        ///
+        /// <para>THIS IS NO LONGER THE WHOLE RULE, and the demotion is the fix for
+        /// ROUTE-ORIGIN-PROOF-BIND-FOLLOWS-FOCUS-NOT-THE-RUN. Focus is only a PROXY for "which
+        /// half is the run's transport", and on the operator's 2026-09-03 relay it was simply
+        /// wrong: rover C drove to rover B, docked, TOOK 154.4 LiquidFuel off B and undocked,
+        /// but B was the dominant half of the merge and KSP still held focus on B one frame
+        /// after the split, so this classifier named C - the transport itself - as its own
+        /// supply origin. <see cref="ResolveTransportHalfAtUndock"/> now consults this reading
+        /// LAST, behind two ACTION-derived signals (operator ruling 2026-09-02: a route comes
+        /// from what the vessels DID, not from what they are or which one the camera
+        /// followed).</para>
+        ///
+        /// <para>Its REFUSALS stay terminal, and deliberately so: they are shape statements
+        /// about the SPLIT ("this seam did not separate the pair"), not identity guesses, and
+        /// no cargo reading may overrule them.</para>
         ///
         /// <para>Part-set OVERLAP, not equality: EVA construction or a mid-window decoupler
         /// can add or drop parts on either side during the docked span, and a strict equality
@@ -864,6 +883,278 @@ namespace Parsek
             return backgroundInA
                 ? OriginUndockBinding.BoundToHalfA
                 : OriginUndockBinding.UnrelatedSeam;
+        }
+
+        /// <summary>
+        /// Pure / static. True when <paramref name="window"/> is a WITNESSED DOCK of exactly
+        /// this seam pair: its own transport part set overlaps <paramref name="halfPartPids"/>
+        /// and its endpoint part set overlaps <paramref name="otherHalfPartPids"/>. Overlap,
+        /// not equality, for the same reason <see cref="ClassifyUndockOriginBinding"/> uses
+        /// overlap - parts move across a docked span.
+        ///
+        /// <para>WHY THE WINDOW IS THE AUTHORITY ON WHICH HALF IS THE TRANSPORT. A connection
+        /// window is opened at the dock by <see cref="BuildDockRouteConnectionWindow"/> from
+        /// the RECORDING'S OWN pre-couple part set - the run's subject - and the partner's.
+        /// It therefore names the transport from the run rather than from focus, and it is
+        /// already right on both hops of the operator's relay where the focus reading is
+        /// wrong on the first.</para>
+        /// </summary>
+        internal static bool WindowNamesHalfAsTransport(
+            RouteConnectionWindow window,
+            IReadOnlyList<uint> halfPartPids,
+            IReadOnlyList<uint> otherHalfPartPids)
+        {
+            return window != null
+                && SetsOverlap(window.TransportPartPersistentIds, halfPartPids)
+                && SetsOverlap(window.EndpointPartPersistentIds, otherHalfPartPids);
+        }
+
+        /// <summary>
+        /// Pure / static. Scans a recording's connection windows for one that WITNESSED this
+        /// seam pair's dock, and reports which half it names as the transport.
+        ///
+        /// <para>Returns true as soon as ANY window straddles the pair - that is the
+        /// "the dock was witnessed inside this recording" fact
+        /// <see cref="ClassifyOriginBindGate"/> needs, and it holds even when two windows
+        /// disagree about the direction (a dock, an undock and a re-dock of the same pair on
+        /// one recording). A disagreement sets BOTH out flags, which
+        /// <see cref="ResolveTransportHalfAtUndock"/> reads as "no window verdict" and falls
+        /// through to the next signal - it never guesses between them.</para>
+        /// </summary>
+        internal static bool TryResolveWitnessedDockTransportHalf(
+            IReadOnlyList<RouteConnectionWindow> windows,
+            IReadOnlyList<uint> halfAPartPids,
+            IReadOnlyList<uint> halfBPartPids,
+            out bool halfAIsTransport,
+            out bool halfBIsTransport)
+        {
+            halfAIsTransport = false;
+            halfBIsTransport = false;
+            if (windows == null || windows.Count == 0)
+                return false;
+
+            bool witnessed = false;
+            for (int i = 0; i < windows.Count; i++)
+            {
+                RouteConnectionWindow w = windows[i];
+                if (WindowNamesHalfAsTransport(w, halfAPartPids, halfBPartPids))
+                {
+                    halfAIsTransport = true;
+                    witnessed = true;
+                }
+                if (WindowNamesHalfAsTransport(w, halfBPartPids, halfAPartPids))
+                {
+                    halfBIsTransport = true;
+                    witnessed = true;
+                }
+            }
+            return witnessed;
+        }
+
+        /// <summary>
+        /// Which evidence named the transport half at an undock bind. Stamped into the bind
+        /// line as <c>transportSignal=</c> so a reader can tell a run-derived answer from the
+        /// focus fallback without re-deriving anything.
+        /// </summary>
+        internal enum SeamTransportHalfSignal
+        {
+            /// <summary>A connection window on this recording witnessed the pair's dock and named its transport.</summary>
+            WitnessedDockWindow = 0,
+            /// <summary>
+            /// No witnessed dock, and the docked-span cargo flow CORROBORATES the focus
+            /// reading: the half focus called the transport is the half whose cargo rose.
+            /// </summary>
+            DockedSpanGain = 1,
+            /// <summary>Neither action signal resolved: the half KSP gave focus to after the split.</summary>
+            PostSplitActiveSide = 2,
+            /// <summary>
+            /// No witnessed dock, and the docked-span cargo flow CONTRADICTS the focus
+            /// reading. The binding is left on focus and the bind is REFUSED - see
+            /// <see cref="SeamTransportHalfDecision.FlowContradictsFocus"/>.
+            /// </summary>
+            DockedSpanGainContradictsFocus = 3,
+        }
+
+        /// <summary>
+        /// Outcome of <see cref="ResolveTransportHalfAtUndock"/>: the binding to use, which
+        /// evidence produced it, and how that evidence relates to the focus reading (the live
+        /// caller Warns on both disagreement flags, naming both halves).
+        /// </summary>
+        internal sealed class SeamTransportHalfDecision
+        {
+            public OriginUndockBinding Binding;
+            public SeamTransportHalfSignal Signal;
+            /// <summary>True when the witnessed dock window re-pointed the binding away from focus.</summary>
+            public bool OverrodeActiveSide;
+            /// <summary>
+            /// True when the ONLY action evidence available (the docked-span cargo flow, with
+            /// no window to arbitrate) says the other half was the taker. The binding is left
+            /// where focus put it and <see cref="ClassifyOriginBindGate"/> refuses.
+            /// </summary>
+            public bool FlowContradictsFocus;
+        }
+
+        /// <summary>
+        /// THE BINDING RULE since the 2026-09-02 operator ruling, pure / static. A route
+        /// candidate is made of ACTIONS - "if a vessel docked, took fuel or cargo FROM another
+        /// vessel, undocked, went to a second vessel, docked, transferred fuel TO it,
+        /// undocked - that is a potential valid route" - so the transport half is the half the
+        /// RUN was flying, and the origin is the other one.
+        ///
+        /// <list type="number">
+        /// <item><b>The witnessed dock window OUTRANKS EVERYTHING.</b> When a connection window
+        /// on this recording straddles the pair it already names the transport, derived at the
+        /// dock from the recording's OWN pre-couple part set - before the merge could rename
+        /// anything and independently of where the camera ended up. This is the signal that
+        /// fixes the operator's hop 1.</item>
+        /// <item><b>Otherwise the post-split active side</b>
+        /// (<see cref="ClassifyUndockOriginBinding"/>), with the docked-span cargo flow as a
+        /// CROSS-CHECK ONLY.</item>
+        /// </list>
+        ///
+        /// <para>WHY THE CARGO FLOW CROSS-CHECKS RATHER THAN DECIDES, which is the one thing
+        /// in this file it is easiest to get backwards. "The half that gained is the transport"
+        /// is FALSE in general: on a DELIVERY the ENDPOINT gains, so a start-docked run that
+        /// hands fuel to its depot and leaves would have the DEPOT named as the transport and
+        /// the run itself stamped as the origin - the very inversion this package exists to
+        /// remove, reintroduced through the other door. And in the no-window case focus is not
+        /// merely a proxy: the recorder FOLLOWS the focused vessel across a split
+        /// (<c>ParsekFlight.DeferredUndockBranch</c>), so the active half IS the half this
+        /// recording continues on. So when the flow contradicts focus the honest answer is
+        /// that the two available signals disagree and neither is authoritative: the decision
+        /// carries <see cref="SeamTransportHalfDecision.FlowContradictsFocus"/>, the caller
+        /// Warns naming both halves, and the bind is refused. A wrong origin is worse than a
+        /// missing one - it moves which vessel a route DEBITS.</para>
+        ///
+        /// <para>FAIL-CLOSED ON A REFUSAL: when the focus reading is not a binding at all
+        /// (<see cref="OriginUndockBinding.BothHalvesActive"/> and friends) it is returned
+        /// unchanged. Those are statements about the SPLIT - the same-craft identical-part-set
+        /// case among them - and a cargo delta cannot make an unseparated pair separate.</para>
+        /// </summary>
+        internal static SeamTransportHalfDecision ResolveTransportHalfAtUndock(
+            OriginUndockBinding activeSideBinding,
+            bool windowNamesHalfATransport,
+            bool windowNamesHalfBTransport,
+            bool halfAGained,
+            bool halfBGained)
+        {
+            var decision = new SeamTransportHalfDecision
+            {
+                Binding = activeSideBinding,
+                Signal = SeamTransportHalfSignal.PostSplitActiveSide,
+                OverrodeActiveSide = false,
+                FlowContradictsFocus = false
+            };
+
+            if (activeSideBinding != OriginUndockBinding.BoundToHalfA
+                && activeSideBinding != OriginUndockBinding.BoundToHalfB)
+            {
+                return decision;
+            }
+
+            // The origin is the half the transport is NOT: transport A -> BoundToHalfB.
+            if (windowNamesHalfATransport ^ windowNamesHalfBTransport)
+            {
+                OriginUndockBinding resolved = windowNamesHalfATransport
+                    ? OriginUndockBinding.BoundToHalfB
+                    : OriginUndockBinding.BoundToHalfA;
+                decision.Binding = resolved;
+                decision.Signal = SeamTransportHalfSignal.WitnessedDockWindow;
+                decision.OverrodeActiveSide = resolved != activeSideBinding;
+                return decision;
+            }
+
+            if (halfAGained ^ halfBGained)
+            {
+                // Focus says the transport is the half the ORIGIN is not.
+                bool focusTransportIsA = activeSideBinding == OriginUndockBinding.BoundToHalfB;
+                bool flowAgrees = focusTransportIsA ? halfAGained : halfBGained;
+                decision.Signal = flowAgrees
+                    ? SeamTransportHalfSignal.DockedSpanGain
+                    : SeamTransportHalfSignal.DockedSpanGainContradictsFocus;
+                decision.FlowContradictsFocus = !flowAgrees;
+            }
+
+            return decision;
+        }
+
+        /// <summary>
+        /// Whether an undock may write an origin onto the proof, and if not, why.
+        /// </summary>
+        internal enum OriginBindGate
+        {
+            /// <summary>The transport half GAINED admitted cargo across the span. The validating bind.</summary>
+            BindGain = 0,
+            /// <summary>
+            /// No dock was witnessed inside the recording (the start-docked family), so the
+            /// load that put the cargo aboard happened before the recorder existed and cannot
+            /// be measured. The pair is still real evidence and is stamped as it always was,
+            /// UNVALIDATED - which is not an origin
+            /// (<c>RouteAnalysisEngine.HasDockedOriginProof</c> refuses it).
+            /// </summary>
+            BindStartDockedCarried = 1,
+            /// <summary>
+            /// The dock WAS witnessed and the transport half did not gain: this seam is a
+            /// DELIVERY (or a no-op re-dock). Under the ruling a vessel the transport only
+            /// gave cargo TO is a destination, never an origin, so nothing is written at all.
+            /// </summary>
+            SkipDeliveryWindow = 2,
+            /// <summary>The dock was witnessed but nothing was measured at the undock.</summary>
+            SkipNoUndockManifest = 3,
+            /// <summary>
+            /// No dock was witnessed AND the docked-span cargo flow contradicts the focus
+            /// reading: the two available signals disagree about which half was the run and
+            /// neither is authoritative. Writing an origin here would be a coin flip on which
+            /// vessel a route DEBITS, so nothing is written.
+            /// </summary>
+            SkipFlowContradictsFocus = 4,
+        }
+
+        /// <summary>
+        /// THE BIND GATE, pure / static. Closes the second half of
+        /// ROUTE-ORIGIN-PROOF-BIND-FOLLOWS-FOCUS-NOT-THE-RUN: on the operator's relay the
+        /// binder stamped lander A - the vessel rover C had just DELIVERED 200 LiquidFuel to -
+        /// as C's supply origin, on a window where the transport only LOST cargo.
+        ///
+        /// <para>The discriminator is whether the recording WITNESSED the dock. When it did,
+        /// a real pickup would have been measured, so the absence of a gain is positive
+        /// evidence that this partner supplied nothing and NOTHING is written. When it did not
+        /// (the recording opened already docked), the load predates the recorder and the
+        /// unvalidated <see cref="OriginPickupKind.Carried"/> stamp stays exactly as it was -
+        /// it is the operator-facing discriminator between "left with nothing" and "left with
+        /// cargo it already had", and it is not an origin either way.</para>
+        ///
+        /// <para><paramref name="flowContradictsFocus"/> is the third outcome, and it can only
+        /// arise in the no-witnessed-dock case (see
+        /// <see cref="ResolveTransportHalfAtUndock"/>): the cargo says the OTHER half was the
+        /// taker, focus says this one, and nothing arbitrates. That refuses too. A Gain is
+        /// checked first and the two cannot co-occur - a contradiction means the half being
+        /// measured is exactly the half that did NOT gain.</para>
+        /// </summary>
+        internal static OriginBindGate ClassifyOriginBindGate(
+            OriginPickupKind transportPickup,
+            bool dockWitnessedInRecording,
+            bool flowContradictsFocus = false)
+        {
+            if (transportPickup == OriginPickupKind.Gain)
+                return OriginBindGate.BindGain;
+            if (flowContradictsFocus)
+                return OriginBindGate.SkipFlowContradictsFocus;
+            if (!dockWitnessedInRecording)
+                return OriginBindGate.BindStartDockedCarried;
+            return transportPickup == OriginPickupKind.NoUndockManifest
+                ? OriginBindGate.SkipNoUndockManifest
+                : OriginBindGate.SkipDeliveryWindow;
+        }
+
+        /// <summary>
+        /// Pure / static. True when the gate refuses to write anything onto the proof.
+        /// </summary>
+        internal static bool IsBindRefusal(OriginBindGate gate)
+        {
+            return gate == OriginBindGate.SkipDeliveryWindow
+                || gate == OriginBindGate.SkipNoUndockManifest
+                || gate == OriginBindGate.SkipFlowContradictsFocus;
         }
 
         private static bool SetsOverlap(IReadOnlyList<uint> a, IReadOnlyList<uint> b)
@@ -1120,15 +1411,23 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Binds a pending start-docked seam pair at an UNDOCK: chooses the origin half (the
-        /// one the player did not keep flying), re-scopes the transport manifests to the half
-        /// that kept flying, validates the pickup, and stamps the result onto
-        /// <paramref name="proof"/>. Returns true when an origin was bound.
+        /// Binds a pending start-docked seam pair at an UNDOCK: chooses the TRANSPORT half
+        /// from the run's own actions (<see cref="ResolveTransportHalfAtUndock"/>), re-scopes
+        /// the transport manifests to it, decides whether this seam may name an origin at all
+        /// (<see cref="ClassifyOriginBindGate"/>) and stamps the result onto
+        /// <paramref name="proof"/>. Returns true when an origin was written.
         ///
         /// <para>Operates entirely on the DTO plus <c>ConfigNode</c> snapshots, so the whole
-        /// decision - including the guid gate and the pickup rule - is drivable headlessly;
-        /// the live caller (<c>ParsekFlight.CreateSplitBranch</c>) only supplies the two
-        /// post-split snapshots and the live pids/guids.</para>
+        /// decision - the half selection, the guid gate and the pickup rule - is drivable
+        /// headlessly; the live caller (<c>ParsekFlight.CreateSplitBranch</c>) only supplies
+        /// the two post-split snapshots, the recording's connection windows and the live
+        /// pids/guids.</para>
+        ///
+        /// <para>WRITE-ONCE MEANS FIRST VALID BIND WINS. Only a bind that is
+        /// PICKUP-VALIDATED is final. An unvalidated <see cref="OriginPickupKind.Carried"/>
+        /// stamp is observability, not an origin, and must not lock the slot against a real
+        /// pickup measured at a later seam - on the operator's relay a slot locked by the
+        /// first unvalidated stamp would have kept the wrong answer forever.</para>
         ///
         /// <para>A binding that does not resolve leaves the proof PENDING, never
         /// half-written: an unbound proof carries no origin identity at all and
@@ -1138,6 +1437,11 @@ namespace Parsek
         /// <para>ONLY AN UNDOCK CALLS THIS. Non-undock separations - a joint break, a stack
         /// or radial decoupler - leave the pair PENDING by design; see the call site's own
         /// note in <c>ParsekFlight.CreateSplitBranch</c>.</para>
+        ///
+        /// <para>The two trailing parameters are OPTIONAL so the pre-fix call shape still
+        /// compiles: with no background snapshot and no windows the function reduces to the
+        /// start-docked family (no witnessed dock, no measurable second half), which is
+        /// exactly the shape every headless caller before this fix was driving.</para>
         /// </summary>
         internal static bool TryBindStartDockedOriginAtUndock(
             RouteOriginProof proof,
@@ -1150,7 +1454,11 @@ namespace Parsek
             uint recordedVesselPid,
             string recordedVesselGuid,
             double undockUT,
-            string recordingContext)
+            string recordingContext,
+            ConfigNode backgroundSideSnapshot = null,
+            IReadOnlyList<RouteConnectionWindow> recordingConnectionWindows = null,
+            uint activeSideLiveVesselPid = 0u,
+            string activeSideLiveVesselGuid = null)
         {
             string context = string.IsNullOrEmpty(recordingContext) ? "<none>" : recordingContext;
             string utToken = undockUT.ToString("R", CultureInfo.InvariantCulture);
@@ -1172,8 +1480,15 @@ namespace Parsek
             // every live bind killed by its own observability stamp. Treating the stamp as
             // advisory rather than terminal is what makes the binder independent of WHICH
             // stop path fired, instead of resting on every caller threading a flag correctly.
+            //
+            // AND ONLY A VALIDATED BoundAtUndock IS FINAL. An unvalidated Carried stamp is an
+            // observation, not an origin - HasDockedOriginProof refuses it - so letting it
+            // hold the write-once slot would trade a wrong answer for a missing one. On the
+            // operator's relay the first seam stamped Carried and the real pickup was one
+            // undock later; first-VALID-bind-wins is what lets the later seam still land.
             bool alreadyBound =
-                proof.StartDockedOriginBindState == StartDockedOriginBindState.BoundAtUndock;
+                proof.StartDockedOriginBindState == StartDockedOriginBindState.BoundAtUndock
+                && proof.StartDockedOriginPickupValidated;
             bool pairUsable = proof.StartDockedPair != null
                 && proof.StartDockedPair.HalfA != null
                 && proof.StartDockedPair.HalfB != null;
@@ -1190,17 +1505,17 @@ namespace Parsek
 
             StartDockedSeamHalf halfA = proof.StartDockedPair.HalfA;
             StartDockedSeamHalf halfB = proof.StartDockedPair.HalfB;
-            OriginUndockBinding binding = ClassifyUndockOriginBinding(
+            OriginUndockBinding activeSideBinding = ClassifyUndockOriginBinding(
                 halfA.PartPersistentIds,
                 halfB.PartPersistentIds,
                 activeSidePartPids,
                 backgroundSidePartPids);
 
-            if (binding != OriginUndockBinding.BoundToHalfA
-                && binding != OriginUndockBinding.BoundToHalfB)
+            if (activeSideBinding != OriginUndockBinding.BoundToHalfA
+                && activeSideBinding != OriginUndockBinding.BoundToHalfB)
             {
                 ParsekLog.Info("Flight",
-                    $"RouteOriginProof unbound: recording={context} ut={utToken} reason={binding} " +
+                    $"RouteOriginProof unbound: recording={context} ut={utToken} reason={activeSideBinding} " +
                     $"halfAParts={halfA.PartPersistentIds?.Count ?? 0} " +
                     $"halfBParts={halfB.PartPersistentIds?.Count ?? 0} " +
                     $"activeParts={activeSidePartPids?.Count ?? 0} " +
@@ -1209,9 +1524,61 @@ namespace Parsek
                 return false;
             }
 
+            // THE AUTHORITATIVE SIGNAL: did a connection window on this recording WITNESS this
+            // pair's dock, and which half did it call its transport. Also the fact the bind
+            // gate keys on - a witnessed dock that moved nothing aboard is a delivery.
+            bool dockWitnessed = TryResolveWitnessedDockTransportHalf(
+                recordingConnectionWindows,
+                halfA.PartPersistentIds,
+                halfB.PartPersistentIds,
+                out bool windowNamesHalfATransport,
+                out bool windowNamesHalfBTransport);
+
+            // THE CROSS-CHECK: which half's own admitted cargo ROSE across the docked span.
+            // Each half is measured against the snapshot that actually HOLDS it after the
+            // split, which is why the background snapshot has to reach this far - on the
+            // operator's relay the transport half was the BACKGROUND side, and reading it off
+            // the active snapshot (all the pre-fix code could do) measured nothing.
+            OriginPickupKind halfAPickup = MeasureHalfPickupAtUndock(
+                halfA, activeSidePartPids, activeSideSnapshot,
+                backgroundSidePartPids, backgroundSideSnapshot);
+            OriginPickupKind halfBPickup = MeasureHalfPickupAtUndock(
+                halfB, activeSidePartPids, activeSideSnapshot,
+                backgroundSidePartPids, backgroundSideSnapshot);
+
+            SeamTransportHalfDecision halfDecision = ResolveTransportHalfAtUndock(
+                activeSideBinding,
+                windowNamesHalfATransport,
+                windowNamesHalfBTransport,
+                halfAPickup == OriginPickupKind.Gain,
+                halfBPickup == OriginPickupKind.Gain);
+            OriginUndockBinding binding = halfDecision.Binding;
+
             bool originIsA = binding == OriginUndockBinding.BoundToHalfA;
             StartDockedSeamHalf originHalf = originIsA ? halfA : halfB;
             StartDockedSeamHalf transportHalf = originIsA ? halfB : halfA;
+
+            if (halfDecision.OverrodeActiveSide || halfDecision.FlowContradictsFocus)
+            {
+                // NAME BOTH HALVES. The focus reading and the cargo reading disagree, and an
+                // operator has to be able to see which vessel the camera was on and which one
+                // the cargo says was taking delivery - whether the window settled it
+                // (OverrodeActiveSide) or nothing did (FlowContradictsFocus, refused below).
+                bool activeSaidOriginIsA = activeSideBinding == OriginUndockBinding.BoundToHalfA;
+                StartDockedSeamHalf focusTransport = activeSaidOriginIsA ? halfB : halfA;
+                StartDockedSeamHalf cargoTransport = halfDecision.FlowContradictsFocus
+                    ? (activeSaidOriginIsA ? halfA : halfB)
+                    : transportHalf;
+                ParsekLog.Warn("Flight",
+                    $"RouteOriginProof transport half overridden: recording={context} ut={utToken} " +
+                    $"signal={halfDecision.Signal} " +
+                    $"resolved={(halfDecision.FlowContradictsFocus ? "refused" : "run")} " +
+                    $"focusTransportRoot={focusTransport.RootPartUId.ToString(CultureInfo.InvariantCulture)} " +
+                    $"focusTransportName='{focusTransport.VesselName ?? "<none>"}' " +
+                    $"runTransportRoot={cargoTransport.RootPartUId.ToString(CultureInfo.InvariantCulture)} " +
+                    $"runTransportName='{cargoTransport.VesselName ?? "<none>"}' " +
+                    $"(the half KSP gave focus to is not the half the cargo says took delivery)");
+            }
 
             // TRANSPORT-SCOPED MANIFESTS (closes
             // ROUTE-ORIGIN-PROOF-TRANSPORT-MANIFESTS-INCLUDE-THE-DEPOT). The start manifests
@@ -1219,13 +1586,80 @@ namespace Parsek
             // seam edge in the merged part tree; the end manifests are re-extracted from the
             // same stop snapshot they always came from, now scoped to the same half, so both
             // ends of the run are measured on one part set.
+            //
+            // NOTHING IS WRITTEN ONTO THE PROOF UNTIL THE GATE BELOW ADMITS THE SEAM. The
+            // measurement is done into locals first so a refused delivery window leaves the
+            // proof exactly as it found it, rather than half-written with a re-scoped manifest
+            // and no origin.
             List<uint> transportPids = transportHalf.PartPersistentIds;
-            if (transportPids != null && transportPids.Count > 0)
+            bool transportScoped = transportPids != null && transportPids.Count > 0;
+
+            // WHICH SNAPSHOT HOLDS THE TRANSPORT after the split. Before this fix the undock
+            // manifest was always read off the ACTIVE snapshot, which silently measured the
+            // wrong vessel whenever the run's transport was the backgrounded half - the
+            // operator's first relay hop exactly.
+            ConfigNode transportSideSnapshot = SelectSnapshotForHalf(
+                transportPids, activeSidePartPids, activeSideSnapshot,
+                backgroundSidePartPids, backgroundSideSnapshot);
+
+            Dictionary<string, ResourceAmount> startTransportResources = transportScoped
+                ? RouteProofMetadata.CloneResourceManifest(transportHalf.StartResources)
+                : proof.StartTransportResources;
+            List<InventoryPayloadItem> startTransportInventory = transportScoped
+                ? RouteProofMetadata.CloneInventoryPayloadItems(transportHalf.StartInventory)
+                : proof.StartTransportInventory;
+
+            // THE PICKUP, measured on the transport half at the undock - BOTH cargo kinds,
+            // each scoped to the same seam-derived transport part set, so a run that took on
+            // a cargo container rather than fuel is witnessed identically (operator ruling).
+            bool canMeasure = transportSideSnapshot != null && transportScoped;
+            Dictionary<string, ResourceAmount> undockTransportResources = canMeasure
+                ? VesselSpawner.ExtractResourceManifest(transportSideSnapshot, transportPids)
+                : null;
+            List<InventoryPayloadItem> undockTransportInventory = canMeasure
+                ? VesselSpawner.ExtractInventoryPayloadItems(transportSideSnapshot, transportPids)
+                : null;
+            // CLASSIFY AGAINST THE HALF'S OWN BASELINE, not the persisted field. The two
+            // differ in exactly one way that matters: the half records an explicit empty list
+            // when it was measured and found nothing, whereas the persisted field keeps the
+            // codec's null-for-empty convention, and a null there would read as "no baseline"
+            // and refuse a real pickup.
+            List<InventoryPayloadItem> startInventoryBaseline = transportScoped
+                ? transportHalf.StartInventory
+                : proof.StartTransportInventory;
+            OriginPickupKind pickup = ClassifyOriginPickup(
+                startTransportResources, undockTransportResources,
+                startInventoryBaseline, undockTransportInventory);
+            string pickupDelta = FormatOriginPickupDelta(
+                startTransportResources, undockTransportResources,
+                startInventoryBaseline, undockTransportInventory);
+
+            // THE GATE. A witnessed dock that moved nothing ONTO the transport is a delivery
+            // or a no-op re-dock, and under the ruling neither is an origin; a cargo flow that
+            // contradicts focus with no window to arbitrate is refused for want of evidence.
+            OriginBindGate gate = ClassifyOriginBindGate(
+                pickup, dockWitnessed, halfDecision.FlowContradictsFocus);
+            if (IsBindRefusal(gate))
             {
-                proof.StartTransportResources =
-                    RouteProofMetadata.CloneResourceManifest(transportHalf.StartResources);
-                proof.StartTransportInventory =
-                    RouteProofMetadata.CloneInventoryPayloadItems(transportHalf.StartInventory);
+                ParsekLog.Info("Flight",
+                    $"RouteOriginProof bind skipped: recording={context} ut={utToken} " +
+                    $"reason={gate} " +
+                    $"bindState={proof.StartDockedOriginBindState} " +
+                    $"candidateOriginRoot={originHalf.RootPartUId.ToString(CultureInfo.InvariantCulture)} " +
+                    $"candidateOriginName='{originHalf.VesselName ?? "<none>"}' " +
+                    $"transportRoot={transportHalf.RootPartUId.ToString(CultureInfo.InvariantCulture)} " +
+                    $"transportSignal={halfDecision.Signal} " +
+                    $"dockWitnessed={(dockWitnessed ? "1" : "0")} " +
+                    $"pickup={pickup} pickupDelta=[{pickupDelta}] " +
+                    $"(nothing came ABOARD the run's transport at this seam, so the partner is " +
+                    $"not a supply origin and the proof stays as capture left it)");
+                return false;
+            }
+
+            if (transportScoped)
+            {
+                proof.StartTransportResources = startTransportResources;
+                proof.StartTransportInventory = startTransportInventory;
                 if (endScopeSnapshot != null)
                 {
                     proof.EndTransportResources =
@@ -1235,35 +1669,24 @@ namespace Parsek
                 }
             }
 
-            // THE PICKUP, measured on the transport half at the undock - BOTH cargo kinds,
-            // each scoped to the same seam-derived transport part set, so a run that took on
-            // a cargo container rather than fuel is witnessed identically (operator ruling).
-            bool canMeasure = activeSideSnapshot != null
-                && transportPids != null && transportPids.Count > 0;
-            Dictionary<string, ResourceAmount> undockTransportResources = canMeasure
-                ? VesselSpawner.ExtractResourceManifest(activeSideSnapshot, transportPids)
-                : null;
-            List<InventoryPayloadItem> undockTransportInventory = canMeasure
-                ? VesselSpawner.ExtractInventoryPayloadItems(activeSideSnapshot, transportPids)
-                : null;
-            // CLASSIFY AGAINST THE HALF'S OWN BASELINE, not the persisted field. The two
-            // differ in exactly one way that matters: the half records an explicit empty list
-            // when it was measured and found nothing, whereas the persisted field keeps the
-            // codec's null-for-empty convention, and a null there would read as "no baseline"
-            // and refuse a real pickup.
-            List<InventoryPayloadItem> startInventoryBaseline =
-                (transportPids != null && transportPids.Count > 0)
-                    ? transportHalf.StartInventory
-                    : proof.StartTransportInventory;
-            OriginPickupKind pickup = ClassifyOriginPickup(
-                proof.StartTransportResources, undockTransportResources,
-                startInventoryBaseline, undockTransportInventory);
-            string pickupDelta = FormatOriginPickupDelta(
-                proof.StartTransportResources, undockTransportResources,
-                startInventoryBaseline, undockTransportInventory);
+            // THE ORIGIN'S LIVE PID FOLLOWS THE ORIGIN HALF, not the background side. The two
+            // used to be the same statement because the origin was DEFINED as the background
+            // half; now that the run's actions choose the transport, the origin can land on
+            // either side of the split and a background-only reading would stamp the
+            // TRANSPORT's pid as the origin's. Falls back to the background reading whenever
+            // the caller supplied no active-side identity, which is every pre-fix caller.
+            uint resolvedOriginPid = originLiveVesselPid;
+            string resolvedOriginGuid = originLiveVesselGuid;
+            if (activeSideLiveVesselPid != 0u
+                && !SetsOverlap(originHalf.PartPersistentIds, backgroundSidePartPids)
+                && SetsOverlap(originHalf.PartPersistentIds, activeSidePartPids))
+            {
+                resolvedOriginPid = activeSideLiveVesselPid;
+                resolvedOriginGuid = activeSideLiveVesselGuid;
+            }
 
             OriginPidStampDecision pidDecision = DecideOriginPidStamp(
-                originLiveVesselPid, originLiveVesselGuid, recordedVesselPid, recordedVesselGuid);
+                resolvedOriginPid, resolvedOriginGuid, recordedVesselPid, recordedVesselGuid);
 
             proof.StartDockedOriginBindState = StartDockedOriginBindState.BoundAtUndock;
             proof.StartDockedOriginRootPartUId = originHalf.RootPartUId;
@@ -1274,7 +1697,7 @@ namespace Parsek
             proof.StartDockedOriginVesselPid =
                 (pidDecision == OriginPidStampDecision.Stamped
                  || pidDecision == OriginPidStampDecision.StampedGuidUnknown)
-                    ? originLiveVesselPid
+                    ? resolvedOriginPid
                     : 0u;
             proof.StartDockedOriginPickupKind = pickup;
             proof.StartDockedOriginPickupValidated = IsPickupValidated(pickup);
@@ -1296,7 +1719,10 @@ namespace Parsek
                 $"startRes={proof.StartTransportResources?.Count ?? 0} " +
                 $"undockRes={undockTransportResources?.Count ?? 0} " +
                 $"startInv={proof.StartTransportInventory?.Count ?? 0} " +
-                $"undockInv={undockTransportInventory?.Count ?? 0}");
+                $"undockInv={undockTransportInventory?.Count ?? 0} " +
+                $"transportSignal={halfDecision.Signal} " +
+                $"dockWitnessed={(dockWitnessed ? "1" : "0")} " +
+                $"gate={gate}");
 
             if (!proof.StartDockedOriginPickupValidated)
             {
@@ -1309,6 +1735,63 @@ namespace Parsek
             }
 
             return true;
+        }
+
+        /// <summary>
+        /// Picks the post-split snapshot that actually contains a seam half's parts.
+        ///
+        /// <para>DEFAULTS TO THE ACTIVE SNAPSHOT, and diverts to the background one ONLY when
+        /// a background snapshot was supplied AND the half is clearly not on the active side.
+        /// That ordering keeps every caller that supplies no background snapshot byte-identical
+        /// to the pre-fix reading, and makes the divert self-validating: a half that overlaps
+        /// neither side (a fully decoupled seam) reads off the active snapshot exactly as
+        /// before rather than silently becoming unmeasurable.</para>
+        /// </summary>
+        private static ConfigNode SelectSnapshotForHalf(
+            IReadOnlyList<uint> halfPartPids,
+            IReadOnlyList<uint> activeSidePartPids,
+            ConfigNode activeSideSnapshot,
+            IReadOnlyList<uint> backgroundSidePartPids,
+            ConfigNode backgroundSideSnapshot)
+        {
+            if (backgroundSideSnapshot == null)
+                return activeSideSnapshot;
+            if (SetsOverlap(halfPartPids, activeSidePartPids))
+                return activeSideSnapshot;
+            return SetsOverlap(halfPartPids, backgroundSidePartPids)
+                ? backgroundSideSnapshot
+                : activeSideSnapshot;
+        }
+
+        /// <summary>
+        /// Classifies ONE seam half's own cargo movement across the docked span, measured
+        /// against whichever post-split snapshot holds it. Feeds the
+        /// <see cref="SeamTransportHalfSignal.DockedSpanGain"/> signal; a half that cannot be
+        /// measured reads <see cref="OriginPickupKind.NoUndockManifest"/>, which is not a gain
+        /// and therefore never re-points the binding.
+        /// </summary>
+        private static OriginPickupKind MeasureHalfPickupAtUndock(
+            StartDockedSeamHalf half,
+            IReadOnlyList<uint> activeSidePartPids,
+            ConfigNode activeSideSnapshot,
+            IReadOnlyList<uint> backgroundSidePartPids,
+            ConfigNode backgroundSideSnapshot)
+        {
+            List<uint> pids = half?.PartPersistentIds;
+            if (pids == null || pids.Count == 0)
+                return OriginPickupKind.NoUndockManifest;
+
+            ConfigNode snapshot = SelectSnapshotForHalf(
+                pids, activeSidePartPids, activeSideSnapshot,
+                backgroundSidePartPids, backgroundSideSnapshot);
+            if (snapshot == null)
+                return OriginPickupKind.NoUndockManifest;
+
+            return ClassifyOriginPickup(
+                half.StartResources,
+                VesselSpawner.ExtractResourceManifest(snapshot, pids),
+                half.StartInventory,
+                VesselSpawner.ExtractInventoryPayloadItems(snapshot, pids));
         }
 
         /// <summary>

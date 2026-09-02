@@ -807,7 +807,8 @@ namespace Parsek.Logistics
                     $"RouteAnalysis rejected: undocked-start origin originRec={originRec?.RecordingId ?? "<none>"} " +
                     $"launchSite={(string.IsNullOrEmpty(originRec?.LaunchSiteName) ? "<none>" : originRec.LaunchSiteName)} " +
                     $"startBody={(string.IsNullOrEmpty(originRec?.StartBodyName) ? "<none>" : originRec.StartBodyName)} " +
-                    $"originProof={(HasDockedOriginProof(originRec) ? "yes" : "no")}");
+                    $"originProof={(HasDockedOriginProof(originRec) ? "yes" : "no")} " +
+                    $"selfOriginProof={(IsSelfOriginProof(originRec?.RouteOriginProof) ? "yes" : "no")}");
                 return new RouteAnalysisResult
                 {
                     Status = RouteAnalysisStatus.UndockedStartOrigin,
@@ -1228,7 +1229,31 @@ namespace Parsek.Logistics
             return proof != null
                 && proof.StartDockedOriginBindState == StartDockedOriginBindState.BoundAtUndock
                 && proof.StartDockedOriginPickupValidated
-                && proof.StartDockedOriginRootPartUId != 0;
+                && proof.StartDockedOriginRootPartUId != 0
+                && !IsSelfOriginProof(proof);
+        }
+
+        /// <summary>
+        /// READ-SIDE REFUSAL of a proof that names the TRANSPORT as its own supply origin.
+        /// Both roots are launch-unique part flightIDs, so equality here is not a craft-baked
+        /// persistentId coincidence - it is one vessel on both sides of the seam.
+        ///
+        /// <para>WHY IT EXISTS EVEN THOUGH THE BINDER NO LONGER WRITES ONE. The operator's
+        /// 2026-09-03 relay save carries two proofs written by the pre-fix binder, one of them
+        /// self-origin (<c>originRoot=3466447829</c> naming rover C, whose transport root is
+        /// that same 3466447829). Recordings are never migrated - the schema contract is one
+        /// current format - so those bytes stay on disk and have to be refused at the READ,
+        /// not only at the write. A self-origin proof cannot be repaired here either: nothing
+        /// in it says which half was actually the depot. It simply is not a proof, and a run
+        /// that needs one falls to <see cref="RouteAnalysisStatus.UndockedStartOrigin"/>
+        /// exactly as if the bind had never happened - which under the operator ruling is the
+        /// honest answer, since no vessel is ever its own origin.</para>
+        /// </summary>
+        internal static bool IsSelfOriginProof(RouteOriginProof proof)
+        {
+            return proof != null
+                && proof.StartDockedOriginRootPartUId != 0
+                && proof.StartDockedOriginRootPartUId == proof.StartDockedTransportRootPartUId;
         }
 
         /// <summary>
