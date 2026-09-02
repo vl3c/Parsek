@@ -1,0 +1,13 @@
+# Background-thread grep gate (scripts/grep-audit-background-threads.ps1).
+# Files listed here are permitted to start a thread (new Thread / Task.Run /
+# Task.Factory.StartNew / ThreadPool.*QueueUserWorkItem / Parallel.* /
+# System.Threading.Timer / System.Timers.Timer / new Timer).
+#
+# The list is EMPTY by design: Parsek runs entirely on KSP's main thread, and
+# the CultureInfo pin HighLogic.Awake applies to that thread is per-thread
+# (see the InvariantCulture rule under "KSP API & code gotchas" in
+# .claude/CLAUDE.md). A file added here must carry its own per-thread culture
+# handling for every string it formats, and a rationale line next to the entry.
+#
+# One path per line, repo-relative, forward slashes. A trailing '/' makes the
+# entry a directory prefix. '#' starts a comment.

@@ -22,6 +22,17 @@ namespace Parsek.Tests
     /// the UI / deferred-apply / settings allowlist is a build break. That is the
     /// mechanical enforcement of the design §9 visibility-only invariant.</para>
     ///
+    /// <para><b>Background threads</b>: runs
+    /// <c>scripts/grep-audit-background-threads.ps1</c> and asserts exit 0, i.e.
+    /// any thread-start site (<c>new Thread</c>, <c>Task.Run</c>,
+    /// <c>Task.Factory.StartNew</c>, <c>ThreadPool.*QueueUserWorkItem</c>,
+    /// <c>Parallel.*</c>, <c>System.Threading.Timer</c> / <c>System.Timers.Timer</c>)
+    /// in <c>Source/Parsek</c> outside the (empty) allowlist is a build break.
+    /// KSP pins <c>CultureInfo.CreateSpecificCulture("en")</c> on the MAIN thread
+    /// only, and the InvariantCulture rule in <c>.claude/CLAUDE.md</c> lets the
+    /// culture-sensitive <c>ParsekLog.*</c> format specifiers stand on that pin;
+    /// this gate is what keeps the "Parsek starts no threads" premise true.</para>
+    ///
     /// <para>When <c>pwsh</c> is unavailable on PATH, each gate falls back to an
     /// equivalent managed scan (same patterns, same allowlist semantics) so the
     /// gate still runs instead of silently skipping — e.g. on a future CI runner
@@ -40,6 +51,12 @@ namespace Parsek.Tests
         public void GrepAudit_UiComplexityModeVocabularyIsAllowlisted()
         {
             RunGrepAuditScript("grep-audit-ui-complexity-mode.ps1", RunManagedUiComplexityModeAudit);
+        }
+
+        [Fact]
+        public void GrepAudit_SourceParsekStartsNoBackgroundThreads()
+        {
+            RunGrepAuditScript("grep-audit-background-threads.ps1", RunManagedBackgroundThreadsAudit);
         }
 
         private static void RunGrepAuditScript(string scriptFileName, Action<string> managedFallback)
@@ -149,16 +166,56 @@ namespace Parsek.Tests
                 });
         }
 
+        // Managed mirror of scripts/grep-audit-background-threads.ps1: the same
+        // case-sensitive SUBSTRING tokens over RAW lines (comments included, like
+        // the sibling gates), allowlisted via
+        // scripts/background-threads-audit-allowlist.txt. Zero hits is the
+        // healthy state here, so the shared walk runs with expectHits: false.
+        private static void RunManagedBackgroundThreadsAudit(string repoRoot)
+        {
+            string[] tokens =
+            {
+                "new Thread(",
+                "Task.Run(",
+                "Task.Factory.StartNew(",
+                "ThreadPool.QueueUserWorkItem(",
+                "ThreadPool.UnsafeQueueUserWorkItem(",
+                "Parallel.",
+                "System.Threading.Timer",
+                "System.Timers.Timer",
+                "new Timer(",
+            };
+            RunManagedAllowlistAudit(
+                repoRoot, "background-threads-audit-allowlist.txt", "background-thread",
+                line =>
+                {
+                    foreach (string token in tokens)
+                    {
+                        if (line.IndexOf(token, StringComparison.Ordinal) >= 0) return true;
+                    }
+                    return false;
+                },
+                expectHits: false,
+                failureHint:
+                    "Parsek must run on KSP's main thread only: the CultureInfo.CreateSpecificCulture(\"en\") "
+                    + "pin from HighLogic.Awake is PER-THREAD, so code on any other thread formats ParsekLog "
+                    + "output under the OS culture. See the InvariantCulture rule under 'KSP API & code "
+                    + "gotchas' in .claude/CLAUDE.md.");
+        }
+
         // Shared allowlist-audit walk mirroring both scripts' semantics: scan
         // Source/Parsek/**/*.cs, compute repo-relative forward-slash paths, and
         // allow a hit when its file is an exact allowlist entry or under a
         // trailing-slash directory-prefix entry (both OrdinalIgnoreCase, matching
-        // the scripts). Unlike the zero-reference GrepAudit* fallbacks, hits are
-        // EXPECTED here — the allowlisted definitions alone guarantee a nonzero
-        // count — so a zero total means the scan itself broke and fails loud
-        // rather than passing vacuously.
+        // the scripts). With expectHits (the ERS/ELS and UI-mode gates) hits are
+        // EXPECTED (the allowlisted definitions alone guarantee a nonzero count),
+        // so a zero total means the scan itself broke and fails loud rather than
+        // passing vacuously. A zero-reference gate (background threads) passes
+        // expectHits: false, where zero hits is the healthy state; its scan is
+        // kept honest by the source-root existence assert instead.
         private static void RunManagedAllowlistAudit(
-            string repoRoot, string allowlistFileName, string label, Func<string, bool> lineMatches)
+            string repoRoot, string allowlistFileName, string label, Func<string, bool> lineMatches,
+            bool expectHits = true, string failureHint = null)
         {
             string sourceRoot = Path.Combine(repoRoot, "Source", "Parsek");
             Assert.True(Directory.Exists(sourceRoot),
@@ -219,10 +276,15 @@ namespace Parsek.Tests
 
             Assert.True(violations.Count == 0,
                 "managed " + label + " audit failed (un-allowlisted reference(s), total pattern hits: "
-                    + hitsTotal + "):\n" + string.Join("\n", violations));
-            Assert.True(hitsTotal > 0,
-                "managed " + label + " audit saw ZERO pattern hits — the allowlisted definitions alone "
-                    + "should match, so the scan is broken (wrong root or dead patterns), not clean.");
+                    + hitsTotal + ")."
+                    + (failureHint == null ? string.Empty : "\n" + failureHint)
+                    + "\n" + string.Join("\n", violations));
+            if (expectHits)
+            {
+                Assert.True(hitsTotal > 0,
+                    "managed " + label + " audit saw ZERO pattern hits — the allowlisted definitions alone "
+                        + "should match, so the scan is broken (wrong root or dead patterns), not clean.");
+            }
         }
 
         private static bool TryFindExecutable(string fileName, out string path)
