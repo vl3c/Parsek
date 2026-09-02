@@ -2186,6 +2186,25 @@ first spawn frame (hold-then-retry, never a single eager ask).
    entry in CLAUDE.md). The in-game H37 category tests part-event fidelity
    headlessly; this is its flown-replay sibling and claims the D7 cells H37
    cannot (CLAIM-IS-NOT-GATE: each cell needs its replay-side token).
+   **AUTHORED 2026-09-02 as `GS-6-part-event-applier-sweep`, NEVER FLOWN, and
+   v1 is SHORTER than this entry asks for in a way worth recording.** The
+   replay-side token now exists: PR #1608 gave the applier one grep-stable line
+   per family per ghost surface (`[GhostPartEvents] apply family=<enum member>
+   surface=<token> rec= pid= applied= skipped= reason=`). The lane is GS-4's
+   flight unchanged plus an OPT-IN `PART-SWEEP` phase (`partSweepSteps`, a
+   closed step vocabulary; an empty list keeps the pre-GS-6 22-phase graph, so
+   GS-4 is untouched). THE DRIVER GAP IS CLOSED: kRPC 0.5.4 exposes
+   `Control.lights` / `.gear` / `.brakes` / `.rcs` / `toggle_action_group` plus
+   `SolarPanel|Antenna|Radiator.deployed`, `CargoBay.open`,
+   `ResourceConverter.start()`/`.stop()` and `Parachute.arm()`/`.deploy()`/
+   `.cut()` - every family this entry names is now a step name. THE CRAFT GAP
+   IS NOT: the committed `Kerbal X.craft` carries no chute, gear, light, bay,
+   fairing, converter or EFFECTS engine, so v1 claims four D7 cells
+   (`decouple-stage-destroy`, `engine-fx-legacy`, `panels-antennas-radiators`,
+   `rcs`) and the other six wait on the purpose-built craft this entry's own
+   craft note specifies (`GS6-SWEEP-CRAFT-LACKS-SEVEN-FAMILIES`). Five families
+   are out of reach of ANY sweep craft and are scoped out rather than owed
+   (`GS6-FAMILIES-WITHOUT-A-KRPC-DRIVER`).
 2. **Watch retarget + explosion hold.** D6
    `watch-mode-retarget-explosion-hold` is the value the entire V-family
    deliberately declined ("a measured REFUSAL is not evidence of it"; "an

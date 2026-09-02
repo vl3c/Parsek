@@ -1209,7 +1209,7 @@ class MapClosedBeforeTheWatchTests(unittest.TestCase):
     def test_map_exit_sits_between_the_open_and_the_watch(self):
         """The phase order IS the rule. MUTATION: move MAP-EXIT after WATCH and the
         map closes only once the watch camera has already driven under it."""
-        self.assertEqual(22, len(mlib.KXRW_PHASES))
+        self.assertEqual(23, len(mlib.KXRW_PHASES))
         self.assertEqual(len(set(mlib.KXRW_PHASES)), len(mlib.KXRW_PHASES))
         i = mlib.KXRW_PHASES.index
         self.assertEqual(i(mlib.KXRW_MAP_VIEW) + 1, i(mlib.KXRW_MAP_EXIT))
@@ -1676,11 +1676,19 @@ class HappyPathTests(unittest.TestCase):
         self.assertTrue(st.done)
         self.assertIsNone(st.verdict)
 
-        # EVERY declared phase was actually walked - the chain joins up end to end,
-        # all 22 of them. MUTATION: wire any phase's exit to the wrong successor and
-        # the skipped one shows up here even when its own per-phase cell passes.
-        self.assertEqual(set(mlib.KXRW_PHASES), set(st.phases_reached))
-        self.assertEqual(22, len(mlib.KXRW_PHASES))
+        # EVERY declared phase was actually walked EXCEPT the opt-in GS-6 sweep -
+        # the chain joins up end to end. MUTATION: wire any phase's exit to the
+        # wrong successor and the skipped one shows up here even when its own
+        # per-phase cell passes.
+        #
+        # PART-SWEEP IS EXCLUDED BY DESIGN, and this line is the compatibility
+        # statement: these params declare no `partSweepSteps`, so COAST advances
+        # straight to TREE-STATE exactly as it did before the phase existed. A
+        # sweep-declaring params set reaching it is the sibling cell below.
+        self.assertEqual(set(mlib.KXRW_PHASES) - {mlib.KXRW_PART_SWEEP},
+                         set(st.phases_reached))
+        self.assertNotIn(mlib.KXRW_PART_SWEEP, st.phases_reached)
+        self.assertEqual(23, len(mlib.KXRW_PHASES))
 
         rows = mlib.evaluate_kxrw_assertions([], mlib.kxrw_params_from_dict(pdict),
                                              st)
@@ -1695,6 +1703,135 @@ class HappyPathTests(unittest.TestCase):
         again, acts = mlib.kxrw_decide(st, snap(ut=9999.0))
         self.assertIs(st, again)
         self.assertEqual([], acts)
+
+
+class PartSweepTests(unittest.TestCase):
+    """GS-6's scripted part-event timeline: the OPT-IN phase between COAST and
+    TREE-STATE that fires one Parsek part-event family per settle window.
+
+    The compatibility statement lives in HappyPathTests (no declared steps ->
+    PART-SWEEP is never entered and the graph is the pre-GS-6 one); these cells
+    own the sweep itself."""
+
+    def _at_coast(self, **over):
+        """A machine parked in COAST with the sweep params under test."""
+        st = machine(**over)
+        st = dataclasses.replace(st, phase=mlib.KXRW_COAST, phase_entry_ut=100.0,
+                                 phase_frames=1)
+        return st
+
+    def test_no_declared_steps_keeps_coast_going_straight_to_tree_state(self):
+        # THE COMPATIBILITY HINGE, as a direct call: the pure function that decides
+        # it, and then the phase machine agreeing with it.
+        self.assertEqual(mlib.KXRW_TREE_STATE, mlib.kxrw_coast_next_phase(()))
+        self.assertEqual(mlib.KXRW_TREE_STATE, mlib.kxrw_coast_next_phase([]))
+        self.assertEqual(mlib.KXRW_PART_SWEEP,
+                         mlib.kxrw_coast_next_phase(("gear-down",)))
+
+        st = self._at_coast()
+        st, acts = mlib.kxrw_decide(st, snap(ut=999.0, situation="SUB_ORBITAL"))
+        self.assertEqual(mlib.KXRW_TREE_STATE, st.phase)
+        self.assertEqual([mlib.ACTION_PARSEK_SEAM_COMMAND], kinds(acts))
+
+    def test_a_declared_sweep_fires_every_step_in_order_then_advances(self):
+        steps = ["gear-down", "lights-on", "deployables-out", "chutes-arm"]
+        st = self._at_coast(partSweepSteps=steps, partSweepSettleFrames=2)
+        st, acts = mlib.kxrw_decide(st, snap(ut=999.0, situation="SUB_ORBITAL"))
+        self.assertEqual(mlib.KXRW_PART_SWEEP, st.phase)
+        self.assertEqual([], acts)   # entry frame commands nothing
+
+        fired = []
+        for _ in range(60):
+            st, acts = mlib.kxrw_decide(st, snap(ut=1000.0, situation="SUB_ORBITAL"))
+            fired.extend(acts)
+            if st.phase != mlib.KXRW_PART_SWEEP:
+                break
+
+        self.assertEqual(mlib.KXRW_TREE_STATE, st.phase)
+        # The four families, in the spec's order, and NOTHING else - then the one
+        # RecordingState probe that opens TREE-STATE.
+        self.assertEqual(
+            [mlib.ACTION_SET_GEAR, mlib.ACTION_SET_LIGHTS,
+             mlib.ACTION_SET_DEPLOYABLES, mlib.ACTION_ARM_CHUTES,
+             mlib.ACTION_PARSEK_SEAM_COMMAND],
+            kinds(fired))
+        self.assertEqual([1.0, 1.0, 1.0], [a.value for a in fired[:3]])
+
+    def test_the_settle_gap_is_honoured_between_steps(self):
+        # Two part actions in ONE physics frame can coalesce into a single recorded
+        # event, which would under-count families in the replay. MUTATION: drop the
+        # gap and both steps land on consecutive frames here.
+        st = self._at_coast(partSweepSteps=["gear-down", "gear-up"],
+                            partSweepSettleFrames=5)
+        st, _ = mlib.kxrw_decide(st, snap(ut=999.0, situation="SUB_ORBITAL"))
+        seen = []
+        for _ in range(12):
+            st, acts = mlib.kxrw_decide(st, snap(ut=1000.0, situation="SUB_ORBITAL"))
+            seen.append(len(acts))
+            if st.phase != mlib.KXRW_PART_SWEEP:
+                break
+        # First step on the first frame, then four silent frames, then the second.
+        self.assertEqual(1, seen[0])
+        self.assertEqual([0, 0, 0, 0], seen[1:5])
+        self.assertEqual(1, seen[5])
+
+    def test_an_unknown_step_name_flakes_at_the_entry_gate_rather_than_being_skipped(self):
+        # A silently-dropped step is a family that never fires, and the lane would
+        # then read as "the applier never logged it" - blaming the product for a
+        # spec typo. FAIL CLOSED, naming the vocabulary.
+        self.assertEqual(("gear-DOWN", "wings-out"),
+                         mlib.kxrw_sweep_steps_valid(
+                             ["gear-down", "gear-DOWN", "wings-out"]))
+        st = self._at_coast(partSweepSteps=["gear-down", "wings-out"])
+        st, acts = mlib.kxrw_decide(st, snap(ut=999.0, situation="SUB_ORBITAL"))
+        self.assertTrue(st.done)
+        self.assertEqual(mlib.MISSION_FLAKE, st.verdict)
+        self.assertIn("wings-out", st.flake_reason)
+        self.assertIn("gear-down", st.flake_reason)   # names the vocabulary
+        self.assertEqual([], acts)
+
+    def test_the_step_vocabulary_maps_one_to_one_onto_real_action_kinds(self):
+        # Every name resolves to an Action, no name resolves to None, and the
+        # vocabulary the give-up text prints is the same set the mapping holds.
+        self.assertEqual(set(mlib.KXRW_SWEEP_STEP_NAMES),
+                         set(mlib.KXRW_SWEEP_STEP_ACTIONS))
+        for name in mlib.KXRW_SWEEP_STEP_NAMES:
+            action = mlib.kxrw_sweep_action_for_step(name)
+            self.assertIsNotNone(action, name)
+            self.assertTrue(str(action.kind), name)
+        self.assertIsNone(mlib.kxrw_sweep_action_for_step("nope"))
+        self.assertIsNone(mlib.kxrw_sweep_action_for_step(""))
+
+    def test_every_action_kind_the_sweep_can_emit_touches_a_vessel(self):
+        # NONE of the sweep kinds may join VESSEL_FREE_ACTION_KINDS: every one
+        # reads `v` / `control` in the runner, and a kind dispatched before the
+        # active-vessel resolve would raise there and end the mission as an
+        # unclassifiable MISSION-ERROR.
+        for name in mlib.KXRW_SWEEP_STEP_NAMES:
+            kind = mlib.kxrw_sweep_action_for_step(name).kind
+            self.assertNotIn(kind, mlib.VESSEL_FREE_ACTION_KINDS, name)
+
+    def test_the_sweep_is_bounded_so_a_stalled_machine_gives_up_by_name(self):
+        st = self._at_coast(partSweepSteps=["gear-down", "gear-up"],
+                            partSweepSettleFrames=10000,
+                            partSweepFrames=20)
+        st, _ = mlib.kxrw_decide(st, snap(ut=999.0, situation="SUB_ORBITAL"))
+        for _ in range(40):
+            st, _ = mlib.kxrw_decide(st, snap(ut=1000.0, situation="SUB_ORBITAL"))
+            if st.done:
+                break
+        self.assertTrue(st.done)
+        self.assertEqual(mlib.MISSION_FLAKE, st.verdict)
+        self.assertIn("PART-SWEEP", st.flake_reason)
+        self.assertIn("gear-up", st.flake_reason)
+
+    def test_part_sweep_is_a_flight_phase_so_the_vessel_lost_carve_out_excludes_it(self):
+        # It runs on a live, still-recording craft between two flight phases, so a
+        # vessel_lost frame in it is a real loss, not the expected post-rewind
+        # scene churn.
+        self.assertIn(mlib.KXRW_PART_SWEEP, mlib.KXRW_FLIGHT_PHASES)
+        self.assertNotIn(mlib.KXRW_PART_SWEEP, mlib.KXRW_POST_REWIND_PHASES)
+        self.assertNotIn(mlib.KXRW_PART_SWEEP, mlib.KXRW_VESSEL_LOST_EXPECTED_PHASES)
 
 
 class CraftAndSchemaSyncTests(unittest.TestCase):

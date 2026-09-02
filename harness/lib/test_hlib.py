@@ -6720,6 +6720,11 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # ARMING pass (three-run discipline, GHOSTLIFE_ARMED_SPECS) and the
         # ordinary cadence PROMOTION call - the GS-1/GS-2/GS-3 shape exactly.
         "GS-4-kerbalx-rewind-watch.toml":   "FLOWN GREEN 2026-08-27 (2145 reading, 2204 green, both attempt 1); operator tier is now the arming + PROMOTION call, not debt",
+        # tier=operator by PROMOTION POLICY on a NEVER-FLOWN lane, the GS-1 shape
+        # exactly: GS-6 is authored and registered but has not flown, so it cannot
+        # sit on a cadence. Its debt is the READING RUN, carried by the
+        # `pending-flight` tag and its own status row - not an operator-REVIEW debt.
+        "GS-6-part-event-applier-sweep.toml": "AUTHORED 2026-09-02, NEVER FLOWN; debt is the reading run, carried by the pending-flight tag",
         # The FIFTH forge, same mechanism again: it stamps gs2-orbital-stack by
         # flying the live-proven forge_lko ascent with the new parkAttached=true,
         # which skips the SEPARATE phase so the stack is parked ATTACHED. Its
@@ -9074,6 +9079,18 @@ class GhostLifecycleVerifierWiringTests(unittest.TestCase):
         #     GHOSTLIFE_ARMED_SPECS above) follows the standard three-run
         #     discipline as its own pass.
         "GS-4-kerbalx-rewind-watch.toml",
+        # [D] THE THIRD DECLARER, and the first whose subject is the PART-EVENT
+        #     APPLIER rather than the mesh census: GS-6 re-flies GS-4's craft and
+        #     profile with a scripted part-event timeline inserted (the PART-SWEEP
+        #     phase) and gates the applier's per-family
+        #     `[GhostPartEvents] apply family=... applied=N` lines. It declares the
+        #     block for the SAME reason GS-4 does - the derender balance a regex
+        #     cannot state - and INHERITS GS-4's measured window (spawned=8,
+        #     destroyLines=8, unbalanced=0 on four flights of the same craft), since
+        #     part events add no ghosts. REPORT-ONLY until its own reading run:
+        #     arming is a per-scenario operator decision and this lane has never
+        #     flown.
+        "GS-6-part-event-applier-sweep.toml",
         # [D] THE SECOND DECLARER, and the first whose census IS the point rather
         #     than a balance check: the synthetic PART SHOWCASE corpus (243
         #     ghost-only, one-part recordings standing in front of the KSC pad,

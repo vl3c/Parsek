@@ -10,6 +10,19 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **Automated testing: a flight can now drive part actions on a scripted timeline, and
+  the replay of each is checked family by family.** The test harness could stage,
+  throttle and deploy parachutes, but nothing else a player presses - so lights,
+  landing gear, cargo bays, solar panels and antennas, drills, chute cuts and custom
+  action groups had never been fired by an automated flight, and the ghost replay of
+  them had never been checked at all. Missions can now drive every one of those, in a
+  written order with a settle gap between steps, and a new test case flies a rocket,
+  fires part actions while it records, rewinds to the launch and watches its own
+  replay - failing if a family that was recorded does not come back on the ghost.
+  Nothing player-facing changes. The test case has not flown yet; its first run is a
+  reading pass.
+
+
 - **The log now says, per part family, whether a recorded event actually reached the
   ghost.** Replaying a recording applies part events to the ghost - lights, gear, bays,
   fairings, chutes, panels, drills, engine and RCS plumes, and the rest - and until now

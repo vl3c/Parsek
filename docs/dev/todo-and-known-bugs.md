@@ -1247,6 +1247,74 @@ Full contract: `docs/dev/design-map-ts-render-tracer.md` Appendix A,
 `Source/Parsek.Tests/GhostPartEventApplyLogTests.cs` (25 cells: grammar, tally,
 per-family outcome per drivable skip class, InvariantCulture under `de-DE`).
 
+## GS6-SWEEP-CRAFT-LACKS-SEVEN-FAMILIES: the committed `Kerbal X.craft` carries no chute, gear, light, bay, fairing, converter or EFFECTS-node engine, so GS-6 v1 sweeps four part-event families instead of eleven [FOUND BY READING 2026-09-02 while authoring `GS-6-part-event-applier-sweep`, off the craft file's own part census. CRAFT PROPERTY, REPORT-ONLY - never a Parsek defect and never a harness-driver gap]
+
+THE DISTINCTION THAT MATTERS, because it decides what the fix is: this is a CRAFT
+gap, not a DRIVER gap. kRPC 0.5.4 exposes a verb for every one of these families
+(read off the installed client source, `.venv/Lib/site-packages/krpc/services/
+spacecenter.py`, `__version__ '0.5.4'`), and all of them are now wired as `mlib`
+actions and `partSweepSteps` step names:
+
+  lights        `Control.lights`                     -> LightOn / LightOff
+  gear / legs   `Control.gear`                       -> GearDeployed / GearRetracted
+  bays          `CargoBay.open`                      -> CargoBayOpened / Closed
+  panels etc    `SolarPanel|Antenna|Radiator.deployed` -> DeployableExtended / Retracted
+  converters    `ResourceConverter.start()/.stop()`  -> ConverterActivated / Deactivated
+  chutes        `Parachute.arm()/.deploy()/.cut()`   -> the chute trio INCLUDING CUT
+  any of them   `Control.toggle_action_group(1..10)` -> whatever the craft binds
+
+WHAT THE COMMITTED CRAFT ACTUALLY CARRIES (and it is NOT the stock Kerbal X - it is
+the operator's docking variant): `RCSBlock.v2` x8, `mediumDishAntenna` x1,
+`liquidEngine2` x7 + `liquidEngineMainsail.v2` x1, `Decoupler.2` x2 +
+`radialDecoupler1` x6, `solarPanels5` x4 (OX-STAT, STATIC - `deployable` reads false
+and the runner correctly skips it), `ladder1` x2 + `telescopicLadderBay` x1 (Parsek
+records ladders through the deployable family, but kRPC exposes no Ladder class and
+stock binds them to no action group), `dockingPort2` x1. No parachute, no landing
+leg, no light, no cargo bay, no fairing, no ISRU, and every engine aboard is a legacy
+`fx_*` part.
+
+SO GS-6 v1 CLAIMS FOUR D7 CELLS (`decouple-stage-destroy`, `engine-fx-legacy`,
+`panels-antennas-radiators`, `rcs`) and cannot claim `chute-two-phase`, `chute-cut`,
+`shroud`, `fairing`, `gear`, `bays`, `lights` or `engine-fx-effects`.
+
+THE FIX IS ONE PURPOSE-BUILT CRAFT, and the roadmap entry (Tier A item 1) already
+specifies the hard part of it: legacy vs EFFECTS engine FX needs BOTH populations
+aboard, and stock's only EFFECTS liquid engines are the Ant / Spark / Twitch v2 family
+(`microEngine_v2`, `liquidEngineMini_v2`, `liquidEngine24-77_v2` - verified by grepping
+`^	EFFECTS` across `GameData/Squad/Parts`, where the stock LV-T45 / Mainsail / LV-909
+/ RT-10 all carry legacy `fx_*` instead). NOT authored here, and the reason is
+recorded rather than hidden: `harness/tools/build_gs1_craft.py` establishes that a
+by-construction craft lifts every PART tail BYTE-FOR-BYTE out of a stock craft KSP
+itself wrote, precisely so no MODULE block is invented and no module-index mismatch
+can be authored in - and no stock VAB craft carries a light, a service bay, an ISRU or
+a Spark, so their tails would have to be invented. That is the piece of work, and it
+wants its own lane.
+
+## GS6-FAMILIES-WITHOUT-A-KRPC-DRIVER: five part-event families cannot be fired from a scripted timeline at all, so no sweep craft will ever reach them [FOUND BY READING 2026-09-02 against the installed kRPC 0.5.4 client surface. SCOPE NOTE, REPORT-ONLY - not a defect in anything]
+
+Unlike GS6-SWEEP-CRAFT-LACKS-SEVEN-FAMILIES above, these are NOT fixed by a better
+craft:
+
+  DeployableBroken        a PHYSICS OUTCOME (a panel snapped by overspeed). kRPC
+                          exposes `SolarPanel.state` to READ it and nothing to cause
+                          it; a lane would have to fly a deliberate overspeed deploy.
+  ThermalAnimationHot     also physics outcomes (reentry / engine heating). Reachable
+  ThermalAnimationMedium  by a B4-shaped REENTRY profile rather than by a verb - which
+  ThermalAnimationCold    is roadmap Tier A item 3's lane, not a sweep step.
+  InventoryPartPlaced     needs EVA CONSTRUCTION mode. kRPC 0.5.4 has no inventory or
+  InventoryPartRemoved    construction API at all.
+  RoboticMotionStarted    Breaking Ground DLC. The `stock-minimal` instance carries no
+  RoboticPositionSample   robotic part, and the kRPC `InfernalRobotics` service is a
+  RoboticMotionStopped    different mod entirely.
+  Docked / Undocked       drivable (BDOCK-1 does it) but they are CHAIN-BOUNDARY
+                          events rather than ghost-pose events, and the applier's
+                          default arm reports them `unhandled-event-type` BY DESIGN.
+  Eva*                    the six EVA members belong to an EVA lane, not a craft sweep.
+
+Recorded so a future sweep author does not spend a flight discovering it, and so the
+D7 cells above are read as OUT OF SCOPE for the sweep family rather than as UNCOVERED
+work someone forgot.
+
 ## FIXTURE-DUNA-PARK-PROBE-CANNOT-RETURN-TO-KERBIN: the DD1 probe every committed Duna-parked fixture carries is ~550 m/s short of a Kerbin return, so the reserved `B29-duna-kerbin-return` lane could not be flown as specified [MEASURED 2026-08-26 off `fixtures/saves/duna-park-probe/persistent.sfs` while opening B29's Phase-0 door. FIXTURE PROPERTY, REPORT-ONLY - never a Parsek defect and never a spec defect; it blocked one lane's PRODUCTION, not any product question. ROUTED AROUND the same day by re-scoping B29 to depart Jool; see the second entry below]
 
 THE ARITHMETIC, derived from the fixture's own bytes rather than from a delta-v map:
