@@ -358,7 +358,25 @@ required  = [
   # leaves this seam carrying LiquidFuel, and an unvalidated pickup makes the proof a
   # non-origin. The cell additionally ASSERTS that originRoot equals the depot's own root
   # flightID - a regex cannot express that equality across two independent classes.
-  "RouteOriginProof bound at undock: recording=\\S+ ut=\\S+ binding=BoundToHalf[AB] originHalf=[AB] originRoot=[1-9][0-9]* originName='[^']+' originType=[0-9]+ originPid=[0-9]+ guidDecision=\\S+ transportRoot=[1-9][0-9]* transportParts=[1-9][0-9]* pickup=(Gain|Carried) pickupValidated=1 pickupDelta=\\[.*\\] startRes=[0-9]+ undockRes=[0-9]+",
+  # `recoveredFromStopStamp=[01]` is pinned DELIBERATELY, and not only because the
+  # production line emits it BETWEEN `binding=` and `originHalf=` (the adjacent pin this
+  # replaces could not match a correct build and would have red the lane). It is the ONLY
+  # token anywhere that says whether the bind had to recover from a premature
+  # `UnboundAtStop` stamp - the defect the item-4 flight measured, where the recorder stop
+  # that precedes the deferred split concluded "ended while still docked" and killed every
+  # live bind. Without it in a required pattern a flight cannot show which path fired.
+  #
+  # IT IS A CLASS, NOT A LITERAL, on purpose: both readings are correct product behaviour
+  # (1 = the stop stamped and the bind recovered, 0 = the chain-boundary flag kept the
+  # stamp out of the way), so pinning either value would pin the STOP ORDER rather than
+  # the binding. The regex was self-checked against the verbatim production format string
+  # in RouteProofCapture.TryBindStartDockedOriginAtUndock; the item-4 log cannot serve as
+  # a replay because no bind fired on it at all.
+  #
+  # `pickup=Gain` is now a LITERAL (was a Gain|Carried class): only a GAIN validates since
+  # the transfer ruling, and this cell TAKES fuel from the depot while docked, so Carried
+  # here would mean the transfer never reached the transport half manifest.
+  "RouteOriginProof bound at undock: recording=\\S+ ut=\\S+ binding=BoundToHalf[AB] recoveredFromStopStamp=[01] originHalf=[AB] originRoot=[1-9][0-9]* originName='[^']+' originType=[0-9]+ originPid=[0-9]+ guidDecision=\\S+ transportRoot=[1-9][0-9]* transportParts=[1-9][0-9]* pickup=Gain pickupValidated=1 pickupDelta=\\[.*\\] startRes=[0-9]+ undockRes=[0-9]+",
   "StartDockedOriginBind: cell=start-docked depotRoot=[1-9][0-9]* line=.*originRoot=[1-9][0-9]*.*",
   # The forwarding fix's own line. Without it the proof dies on FlightRecorder.CaptureAtStop
   # and never reaches a tree recording - which is what flights 1 and 2 measured.

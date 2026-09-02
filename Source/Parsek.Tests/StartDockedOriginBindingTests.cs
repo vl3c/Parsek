@@ -1162,6 +1162,60 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void LivePath_AStampedProofBindsWithNoForwardingPlumbingInvolved()
+        {
+            // THE SECOND DISCRIMINATING CELL for the advisory-stamp rule, and it is
+            // deliberately NOT the same shape as the one above. That one drives the whole
+            // live sequence (forward -> deep clone -> bind), so a refactor of the forwarding
+            // helpers could mask the property it pins. This one calls the stamp DIRECTLY and
+            // then binds, so it reds on a terminal-stamp regression no matter what the
+            // capture / forward plumbing is doing.
+            //
+            // Mutation-checked: restoring the terminal guard (bind only when
+            // BindState == PairPendingBinding) reds this cell AND
+            // LivePath_StopThenDeepCloneThenBind_StillBinds; the ChainBoundary, decision and
+            // still-docked cells all survive it, because none of them ever binds a stamped
+            // proof.
+            RouteOriginProof proof = PendingProof();
+            Assert.True(RouteProofCapture.MarkStartDockedOriginUnboundAtStop(proof, "rec-1"));
+            Assert.Equal(StartDockedOriginBindState.UnboundAtStop, proof.StartDockedOriginBindState);
+
+            ConfigNode activeSnapshot = SnapshotWithResource(110u, "LiquidFuel", 90.0);
+            Assert.True(RouteProofCapture.TryBindStartDockedOriginAtUndock(
+                proof, HalfAParts, HalfBParts, activeSnapshot, activeSnapshot,
+                500u, GuidB, 400u, GuidA, 276.0, "rec-1"));
+
+            Assert.Equal(StartDockedOriginBindState.BoundAtUndock, proof.StartDockedOriginBindState);
+            Assert.Equal(555u, proof.StartDockedOriginRootPartUId);
+            Assert.True(proof.StartDockedOriginPickupValidated);
+            // The token the H57 spec pins, emitted on exactly this path.
+            Assert.Contains(logLines, l => l.Contains("RouteOriginProof bound at undock:")
+                && l.Contains("recoveredFromStopStamp=1"));
+        }
+
+        [Fact]
+        public void LivePath_OnlyBoundAtUndockIsFinal_TheStampIsNot()
+        {
+            // States the rule as one pair of assertions: a STAMPED proof is still bindable, a
+            // BOUND one never is. If the terminal guard comes back, the first half reds; if
+            // write-once is dropped, the second does.
+            RouteOriginProof stamped = PendingProof();
+            RouteProofCapture.MarkStartDockedOriginUnboundAtStop(stamped, "rec-1");
+            ConfigNode snap = SnapshotWithResource(110u, "LiquidFuel", 90.0);
+            Assert.True(RouteProofCapture.TryBindStartDockedOriginAtUndock(
+                stamped, HalfAParts, HalfBParts, snap, snap,
+                500u, GuidB, 400u, GuidA, 276.0, "rec-1"));
+
+            // Now it IS final - a second undock cannot move it.
+            Assert.False(RouteProofCapture.TryBindStartDockedOriginAtUndock(
+                stamped, HalfBParts, HalfAParts, snap, snap,
+                900u, GuidB, 400u, GuidA, 402.5, "rec-1"));
+            Assert.Equal(555u, stamped.StartDockedOriginRootPartUId);
+            Assert.Contains(logLines, l => l.Contains("RouteOriginProof bind skipped:")
+                && l.Contains("reason=already-bound"));
+        }
+
+        [Fact]
         public void LivePath_TheUndockDecisionIsTheSplitRecordedStaysActiveBranch()
         {
             // Pins WHICH branch the sequence above models. H57's flight logged
