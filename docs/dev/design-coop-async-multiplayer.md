@@ -245,7 +245,9 @@ Design-concept-to-implementation-class mapping: section 18.
 | Spawn gate (`GhostPlaybackLogic.ShouldSpawnAtRecordingEnd` + hosts) | Spawns terminal Orbiting/Landed/Splashed leaves once | Unchanged for foreign recordings (spawn stamps are local runtime state); `MissingParts` recordings get a new early reject | Low |
 | Fly/Switch-To consume (`ParsekFlight.TryConsumeStockActionIntent` -> `TryTakeCommittedTreeForSpawnedVesselRestore`) | Three branches: committed-tree clone (deep-clone + replace in place at commit), BG-member continuation, standalone | Fourth branch for FOREIGN spawned vessels: a new local tree whose root continues the foreign recording (`ContinuesForeignRecordingId`), built with `SwitchSegmentBuilder`; the restore path is never taken for foreign trees (it would replace the owner's tree). No-op segments auto-discard via `SwitchSegmentNoOpClassifier` | Med |
 | TS Recover of a spawned committed vessel (`GhostTrackingStationPatch` `OnRecoverConfirm` passthrough for real vessels; recovery ledger rows) | Own spawned vessels: whatever happens today (verify at plan time how the recording's terminal is marked) | Foreign spawns: identical behavior plus a Recover terminal claim in the next flush packet. No guards: foreign vessels are controlled as if own | Low |
-| `TerminalSpawnSupersededByRecordingId` (`RecordingStore.SupersedeTerminalSpawn.cs`) | Written at dock merge + commit-time pass; read by the spawn gate; NEVER cleared anywhere | Fold-driven spawn-ownership reconciliation: clear stale/dangling stamps, re-point the canonical tip at a live tracked instance, designate a local spawn link when the tip is unspawnable (7.8 step 6) | Med |
+| `TerminalSpawnSupersededByRecordingId` (`RecordingStore.SupersedeTerminalSpawn.cs`) | Written at dock merge + commit-time pass; read by the spawn gate; NEVER cleared anywhere | Fold-driven spawn-ownership reconciliation: clear stale/dangling stamps, re-point the canonical tip at a live tracked instance, hold a degraded ghost when the tip is unspawnable (7.8 step 6) | Med |
+| Post-commit leaf spawner (`ParsekFlight.SpawnTreeLeaves` <- `RecordingTree.GetSpawnableLeaves` / `IsSpawnableLeaf`) | Spawns committed leaves WITHOUT the spawn gate: three checks (no children, terminal not Destroyed/Recovered/Docked/Boarded, snapshot non-null); ignores the supersede stamp, `VesselSpawned`, debris, rewind suppression | Route through the spawn gate (pre-refactor C3, a behavior change with its own PR) so masks and re-points bind all six spawn paths | Med |
+| `RecordingStore.RunOptimizationPass` (five sub-passes) | Merge, split, boring-tail trim, loop-sync parent indices, discovery-time checkpoint normalization; the last three rewrite bytes outside any boundary predicate | One `IsOptimizationFrozen` predicate at four sites (merge guard, split loop head + its discovery normalization, tail-trim loop head) | Low |
 | `Logistics/RouteStore` endpoint validation | Endpoint resolves any Parsek-tracked pid | Refuse foreign-owned endpoints at route creation | Low |
 | Dock merge (`ParsekFlight.HandleTreeDockMerge` / `CreateMergeBranch`) | Branch in controller's tree; `MarkTerminalSpawnSupersededByDockMerge` stamps the foreign recording's local spawn state; pre-dock parent closed `TerminalState.Docked`, NO fresh snapshot stamped on it | Allowed on foreign spawns; stamp stays local-only; commit derives a tip claim; NEW: stamp the transient dock-time self-snapshot onto the closing parent (makes truncation clean; additive, harmless solo) | Med |
 | `RecordingOptimizer` (load-time merge/split) | Rewrites committed recordings; `SplitAtUT` nulls the head's terminal | Frozen for exported recordings (export = optimization fence, like the existing supersede-row `CanAutoMerge` guard) and for all foreign recordings | Low |
@@ -788,9 +790,14 @@ produces a claim (verified: no store mutation on proximity).
 
 One additive recorder change ships with this feature: at dock-merge time,
 `CreateMergeBranch` stamps the transient dock-time self-snapshot
-(`pendingDockSelfSnapshot`) onto the closing pre-dock parent (which today keeps
-its segment-start snapshot and gets no fresh one). This is what makes salvage
-truncation clean (7.9); it is harmless in solo play.
+(`pendingDockSelfSnapshot`) onto the closing active pre-dock parent, and the
+partner snapshot onto a background parent when the partner pid matches (both
+today keep their segment-start snapshot and get no fresh one). The stamps are
+conditional: the captures happen only while the two vessels are still
+distinct, so a null capture leaves the segment-start snapshot in place (the
+fallback in 7.9 step 1 is load-bearing, not a corner). Ghost appearance is
+unaffected (meshes read the separate `GhostVisualSnapshot`). This is what
+makes salvage truncation clean (7.9); it is harmless in solo play.
 
 At commit, consuming interactions with shared vessels produce tip claims in
 the exported packet, derived from the branch points and the terminal-spawn
@@ -839,9 +846,15 @@ The fold:
 4. Derived masks: every rejected, non-withdrawn claim's continuation chain
    (docked-window recording + descendants) and every accepted non-structural
    claim's target-side post-undock recording (the demoted station-side leaf)
-   is masked from canonical state on ALL machines. Masking is ERS-level
-   suppression: masked recordings neither play as ghosts nor pass the spawn
-   gate nor feed the ledger. The mask is replaced by durable retirement
+   is masked from canonical state on ALL machines. Masking is derived
+   suppression at the effective-state layer: masked recordings neither play
+   as ghosts nor pass any spawn path (all six, including the post-commit
+   leaf spawner, which today bypasses the spawn gate and must be routed
+   through it first) nor feed the ledger. The ledger half is a recording-id
+   exclusion inside `ComputeELS` keyed on the mask version: today ELS
+   retires rows ONLY through durable per-action tombstones, and that
+   contract widens to "tombstones or fold masks" rather than minting fake
+   tombstones for a derived fact. The mask is replaced by durable retirement
    state when the loser's confirming packet arrives.
 5. Crew ownership (7.6) is folded in the same pass, by the same key.
 6. **Spawn-ownership reconciliation** (local, per vessel). Today a dock

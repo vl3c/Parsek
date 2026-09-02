@@ -6,7 +6,7 @@
 **Worktree:** TBD at kickoff (`../Parsek-coop-multiplayer` off `origin/main`)
 **Build state:** TBD at kickoff
 
-The mechanics below were verified in code on 2026-09-01 (commit `3b18e1faf` lineage) by three investigation passes during design; line references are accurate to that date and must be refreshed by the kickoff Explore agents (step 0.4) before any task plan cites them. The FACTS are the load-bearing part; the line numbers are conveniences.
+The mechanics below were verified in code on 2026-09-01 (commit `3b18e1faf` lineage) by three investigation passes during design, and extended on 2026-09-02 by four refactor-lens passes whose findings live in `coop-async-multiplayer-prerefactor.md` (registration seam split, mutation chokepoints, sidecar path loaders, optimizer sub-passes, recalc overload flag matrix, spawn-gate pinning, the leaf spawner bypassing the gate, ERS double composition, test-reset gaps). Line references are accurate to those dates and must be refreshed by the kickoff Explore agents (step 0.4) before any task plan cites them. The FACTS are the load-bearing part; the line numbers are conveniences.
 
 ---
 

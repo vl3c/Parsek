@@ -98,6 +98,12 @@ Items identified during design (2026-09-01 interview, adversarial reviews, code 
 **Revisit when:** The measured walk time at 3,000 recordings exceeds its budget.
 **Status:** Open - measure first.
 
+### D17. Full `SpawnOwnershipResolver`
+**What:** Replace the emergent leaf-owns-spawn rule with one pure per-vessel resolver consumed by every spawn host.
+**Why deferred:** The 13-step spawn gate is pinned by ~112 test call sites asserting reason strings plus a cross-predicate drift guard; several host-specific conditions are scene capabilities, not ownership. The fold's needs are met by a structured-result overload, coded early rejects, a stamp clear/re-point API, and routing the leaf spawner through the gate (pre-refactor C1-C3).
+**Revisit when:** After M4 ships, if the ladder proves inadequate.
+**Status:** Open - rejected for v1.
+
 ### D16. Schema-generation bump to 5
 **What:** Bump `CurrentRecordingSchemaGeneration` at the exchange layer's birth instead of shipping additive null-defaulted fields on generation 4.
 **Why deferred:** It is not: decided 2026-09-02 to bump to 5 (not public yet, no backward-compatibility need); fixture saves are re-stamped in task M2.1.
