@@ -155,6 +155,47 @@ _(unreleased — entries accumulate here per commit)_
   way the bytes spell them, so a window always names a value the game will hold;
   the raw spellings are counted separately rather than silently collapsed.
 
+- **A supply route to a surface base does show its path on the map, and two
+  different renderers both draw it.** That was an open question - the one
+  measured fact nearby says a landed replay gets no map object of its own outside
+  the flight scene, which is still true, but a route's overview path is drawn by a
+  different producer that never looks at one. A new test lane opened the map view in
+  flight over the committed rover-route save, created and activated a route, and
+  watched: on some frames the static route overview draws the path, and on the rest
+  the replaying ghost has that leg and the overview stands aside, so the path is
+  never absent. The lane was written as a census - it pre-registered both possible
+  answers and pinned neither, and it was careful to say in advance that "the
+  overview stood aside" must not be misread as "nothing was drawn", which is exactly
+  the trap the numbers set: read naively, nine of thirteen frames look like an empty
+  map. It is now pinned to what it measured, including both halves of the handoff
+  together, so neither renderer can quietly stop drawing without the lane noticing.
+
+- The lane is also the first anywhere to drive the map-view seam verb, which made
+  the map-gated half of the ghost trajectory renderer observable on a surface
+  subject for the first time. It published ownership exactly as the orbital case
+  did, so a standing note about that half being unmeasurable is narrowed to the one
+  thing still unmeasured - a manifest counter, not the behaviour.
+
+- Noted, not fixed: the render-composition manifest is per-scene by design, and a
+  lane that observes in flight and then exports from another scene reads zeroes for
+  everything the flight scene measured. The lane above reads its numbers from the
+  log instead.
+
+- The lane flew three times and measured the same thing every time. The middle run
+  found a mistake in the test rather than in the product - it had pinned the id of
+  the route it creates, and that id is generated fresh on each run - which is worth
+  recording because the three runs then produced three different ids and an
+  otherwise identical reading, which is what makes the result a repeatable
+  measurement instead of one observation. A deliberately broken copy of the lane was
+  also run once and failed on exactly the one thing it was broken in, so the check
+  is known to be able to fail.
+
+- The harness's H-series batch-wiring family now decides membership from the
+  scenario itself instead of from its id. The check read "an H-numbered scenario
+  drives an in-game test batch", which was true of all 43 members and is false for
+  the render-census lane above, so a scenario with no batch would have been pulled
+  into a family whose every assertion is about a batch's category and tally.
+
 - The agent instructions now scope the invariant-culture formatting rule to what
   actually needs it. A unit-test run on a comma-locale machine printed
   `targetUT=150,00` from a log line, and the standing rule read as if every one of

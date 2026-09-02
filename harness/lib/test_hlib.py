@@ -6444,6 +6444,8 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
     # each classified by hand. A NEW one reds
     # `test_every_untagged_candidate_is_classified` until someone decides.
     REVIEWED_UNTAGGED = {
+        # THE D11 CENSUS LANE, 2026-09-02, same reading-run shape as the four below.
+        "H59-surface-route-map-lines.toml":        "tier=operator as a CENSUS reading run, NOT debt: roadmap Tier D item 11 (registry dimension D10) asks for a route-map-lines lane on a SURFACE route authored against the measured landed pin LANDED-TERMINAL-LOOP-HAS-NO-MAP-PRESENCE-OUTSIDE-THE-FLIGHT-SCENE rather than against V18T's orbital pins. Every token is structural or a VALUE REGEX and the two plausible outcomes (a surface route's overview line drawn, routesDrawn=1 legsDrawn>=1; or not drawn, with other= / malformed= / skippedOwned= discriminating WHY) are pre-registered in the spec header, so the flight's product is a census a human reads. It is also the first committed lane to drive EnterMapView on a route or a landed subject, which is what makes `Polyline frame:` (RC-OWN-DRAW-HALF-IS-MAP-GATED's own evidence rule) a required instrument token here. Nothing armed; what is owed is the FLIGHT, not a human review call",
         # THE FOUR 2026-09-02 READING-RUN LANES, authored so every live-gated todo entry
         # has a driver instead of a "needs a flight" note. All four are tier=operator on
         # the calibration-discipline shape and NOT debt: each pins token SHAPES rather
@@ -8501,7 +8503,24 @@ class RenderComposeVerifierWiringTests(unittest.TestCase):
     # their own lens-calibration rounds measured is flight-mesh only (no map / TS proto
     # in the terminal sliver). A thin ownership half on those two is the expected
     # reading.
-    RENDERCOMPOSE_DECLARER_SPECS = {"V14M-ike-player-loop.toml",
+    RENDERCOMPOSE_DECLARER_SPECS = {# -- 2026-09-02, the D11 surface-route map-presence
+                                    # census. DECLARED BARE, NEVER FLOWN. The first
+                                    # manifest ever taken on (a) a SURFACE supply route
+                                    # and (b) a FLIGHT scene with the map deliberately
+                                    # OPEN, which is what makes the two route facets and
+                                    # `ownershipChanges` mean something new here:
+                                    # `routeLineBuilds` has exactly one non-zero reading
+                                    # in the whole suite (V18T, a Kerbin-ORBIT depot
+                                    # route, measured in the TRACKING STATION), and V6M
+                                    # closed RC-OWN-DRAW-HALF-IS-MAP-GATED on a MUN ORBIT
+                                    # subject with the qualifier "on a lane that opens the
+                                    # map AND publishes" written into the entry. Neither
+                                    # result transfers to a landed route subject, so both
+                                    # are captured report-only and the arming candidate
+                                    # (`routeLineBuilds = { min = 1 }`) is earned off this
+                                    # lane's own readings rather than copied from V18T.
+                                    "H59-surface-route-map-lines.toml",
+                                    "V14M-ike-player-loop.toml",
                                     "V8-eve-player-loop.toml",
                                     "V24W-duna-one-warp-stair.toml",
                                     "V6M-mun-player-loop.toml",
