@@ -2857,6 +2857,142 @@ class CommittedFixtureSweepTests(unittest.TestCase):
                 "dismissedCandidates": 0, "promptedCandidates": 1,
             },
         },
+        # --- THE UNTYPED-DEPOT RELAY HOST (RVR-5 / RVR-6) ----------------
+        # PROVENANCE: the operator's own hand-flown SANDBOX save
+        # `logistics-rover-B`, flown 2026-09-02 and collected into the umbrella
+        # `logs/2026-09-02_2041/`. Harvested from a scratch COPY with
+        # `--keep-parsek --expect-situation ORBITING` and finished by
+        # `harness/tools/build_rover_relay_recorded.py`. The
+        # `duna-one-recorded` / `depot-route-recorded` / `rover-route-recorded`
+        # provenance class.
+        #
+        # WHAT IT IS: three identical 16-part rovers A, B and C on the KSC
+        # shore, all LANDED, each with ONE ModuleCommand and ONE dockingPort2
+        # and no grapple. C drove to B, docked at UT 218.22, loaded +200
+        # LiquidFuel (B 200 -> 0), undocked at UT 276.00, drove ~780 m to A,
+        # docked at UT 340.12, unloaded 126.8 LiquidFuel (A 200 -> 326.8),
+        # undocked at UT 402.50 and drove away. Saved at UT 443.64 with C's
+        # recording stopped.
+        #
+        # WHY IT EXISTS, AND WHY IT IS NOT INTERCHANGEABLE WITH
+        # `rover-route-recorded`: it is the first committed save that carries a
+        # COMPLETE, BALANCED two-hop relay and STILL produces no route. That is
+        # what `routes` reads below - EVERY count zero, including
+        # `promptedCandidates`, where the sibling carries 1. Two INDEPENDENT
+        # fail-closed reasons, both measured on the source flight's KSP.log:
+        #   (1) NO ORIGIN PROOF - `RouteOriginProof skipped: no depot half ...
+        #       seams=2 candidates=0 ... (neither docked half is typed Base or
+        #       Station ...)`, once per dock (log lines 20911 / 24463). All
+        #       three rovers are `vesselType = Rover`. The standing todo entry
+        #       ROUTE-ORIGIN-PROOF-REQUIRES-A-PLAYER-TYPED-DEPOT; these are the
+        #       first committed bytes that hold its output. NOTE this is a
+        #       DIFFERENT zero from the sibling's, whose producer skips because
+        #       both trees start at a KSC site.
+        #   (2) `RouteAnalysisStatus.MixedPickupDelivery` - an UNWITNESSED
+        #       INVENTORY GAIN, measured over the relay tree in exactly this
+        #       shape (log line 28049: `mixedPickup=1`), AND AN OPEN PRODUCT
+        #       DEFECT rather than a designed refusal. While docked at hop 1 the
+        #       player moved the SAME `DeployedCentralStation` from B to C and it
+        #       RE-HASHED in transit: stock's `StoreCargoPartAtSlot(Part, int)`
+        #       rebuilds a live `ProtoPartSnapshot`, so
+        #       `ModuleGroundExpControl.OnSave` adds a runtime-computed `canComm`
+        #       value the craft-authored `STOREDPART` never had, and
+        #       `ComputeInventoryPayloadIdentityHash` hashes module values by
+        #       design. So the arriving item's identityHash (5bcde9ad...) is not
+        #       the one the endpoint gave up (5072997a...) and
+        #       `HasUnwitnessedInventoryGain` fails the window closed. Filed as
+        #       LOGISTICS-INVENTORY-IDENTITY-HASH-BREAKS-ON-A-LIVE-CARGO-MOVE
+        #       (OPEN). The `evaChute` and `evaScienceKit` moved in the same
+        #       window closed cleanly - their modules write nothing computed.
+        #       THESE BYTES ARE THAT DEFECT'S ONLY COMMITTED SUBJECT and RVR-5 is
+        #       its regression instrument, so a re-harvest that moved no
+        #       inventory would retire both; `RoverRelayRecordedFixtureDriftTests`
+        #       pins the gain/loss walk so that reds in `harness/lib`.
+        #
+        # OTHER MEASURED BYTES:
+        #   save clock (FLIGHTSTATE UT) 443.63999999988647, Mode SANDBOX,
+        #     6 VESSEL nodes of which 3 are real (`rover C` 1461186781 Rover
+        #     LANDED - the active vessel after the builder's re-point - plus
+        #     `rover B` 35783242 and `rover A` 1625259141, all LANDED Rovers of
+        #     16 parts) and 3 are stock asteroids kept verbatim.
+        #   THE ACTIVE VESSEL IS A BUILDER EDIT. The source was saved from the
+        #     SPACE CENTER, so KSP left `activeVessel = 0` pointing at
+        #     `Ast. UYX-230`; that save BOOTS (IsLoadedGameFocusable accepts it)
+        #     straight into solar orbit with every rover unloaded. Step 1 of the
+        #     builder re-points to index 1.
+        #   THE PID SPLIT ACROSS THE UNDOCKS is the craft-baked-pid trap in the
+        #     OTHER direction from the sibling's: the two route windows name
+        #     target pids 2123618197 and 831319732 (the ORIGIN recordings'), but
+        #     the LIVE rovers B and A carry 35783242 and 1625259141 because
+        #     `Part.Undock` re-pids the separated half. So
+        #     `RouteEndpointResolver.TryResolveEndpoint`, which resolves by
+        #     `FlightGlobals.FindVessel(pid)`, would find no live endpoint at
+        #     all - a third, independent reason this is a refusal host and not a
+        #     delivery host.
+        #   TWO route windows, BOTH TARGET-branch, each with its target pid
+        #     carried by a recording in a DIFFERENT committed tree. The sibling
+        #     holds that property once; this fixture holds it twice, which is
+        #     why RVR-6 pins the two `RouteProof_*` cell tokens.
+        #   `terminalStates` SUMS TO 7, NOT 9: the two dock members e175776c and
+        #     e6cb44a7 carry no `terminalState` (they are mid-tree merged
+        #     children).
+        #   `branchPoints` is the suite's first Dock 2 / Undock 2 ALTERNATION -
+        #     two hops rather than one supply run - and carries no `JointBreak`
+        #     and no `Launch`.
+        #   `minAuthoritativeSidecars` is 35 = 9 x .prec + 9 x .pann +
+        #     8 x _vessel.craft + 9 x _ghost.craft; `31e843024f` carries no
+        #     `_vessel.craft`.
+        #   pointCount total 811 over the 9 recordings (largest 153, smallest
+        #     26).
+        #   The three rovers sit 336 m (A-C), 783 m (A-B) and 983 m (B-C) apart:
+        #     far outside the ~200 m dock range, well inside physics range.
+        #
+        # WHAT THE FIXTURE DOES NOT CARRY: `Parsek/Saves` (FIVE `parsek_rw_*`
+        # plus a `parsek_career_start`, pruned by the harvest with BOTH
+        # `rewindSave` hints cleared - both payloads existed in the source, so
+        # the prune is what would have made the hints dangle), `Ships/` (the
+        # collected save carried none, and this is a
+        # RECORDED subject that launches nothing), and the two `.craft.txt`
+        # snapshot mirrors.
+        "rover-relay-recorded": {
+            "trees": 3, "committedTrees": 3, "recordings": 9,
+            "supersedes": 0, "tombstones": 0, "rewind_points": 0,
+            "rewind_retirements": 0,
+            "terminalStates": {"Landed": 5, "Docked": 2},
+            "branchPoints": {"Dock": 2, "Undock": 2},
+            "minAuthoritativeSidecars": 35,
+            "recordingIds": ["073a1ed6fdbc411da694dfcc59bdbc9f",
+                             "0f391265a0b2453ea94fccd5daa1febb",
+                             "31e843024f3347dfafc030f8d64796be",
+                             "49eaec92876041efa53deb1f5e5c96f4",
+                             "5f76d136e3dc4316bff71f4cfb0688a4",
+                             "9511fa11878e413d9e4ea1861afae034",
+                             "e175776c7c614e0a893a15f5bf84ff2c",
+                             "e6cb44a7243d4377a5c6051c91636c0b",
+                             "ff014f588ed640aaa8e48fbabc8a1c38"],
+            "schemaGeneration": 4,
+            # EVERY COUNT ZERO, INCLUDING `promptedCandidates`, AND THAT IS THE
+            # FIXTURE'S WHOLE CONTRACT. The sibling carries `promptedCandidates`
+            # 1 (Parsek's own record that it found the tree route-ELIGIBLE);
+            # here it never offered the tree at all, which is what the measured
+            # `DeriveCandidates: ... candidates=0` says from the other side. A
+            # prompted row appearing after a re-harvest would contradict the
+            # fixture's own evidence and would change what RVR-5's refusal
+            # means; a dismissed row would change the refusal from
+            # `candidate-ineligible` to `candidate-dismissed` while every other
+            # facet still read correct. Both are asserted by
+            # `build_rover_relay_recorded.py::verify_no_route_state` as well.
+            "routes": {
+                "count": 0, "dormant": 0, "stops": 0, "sourceRefs": 0,
+                "completedCycles": 0, "skippedCycles": 0,
+                "codecRejects": 0, "unparsed": 0, "unknownStatuses": 0,
+                "unknownConnectionKinds": 0,
+                "statuses": {}, "connectionKinds": {},
+                "originBodies": {}, "destinationBodies": {}, "holdKinds": {},
+                "ids": [], "destinationVesselPids": [],
+                "dismissedCandidates": 0, "promptedCandidates": 0,
+            },
+        },
     }
 
     def test_fixture_set_is_exactly_the_committed_set(self):

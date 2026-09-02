@@ -1,0 +1,416 @@
+schema = 1
+id = "RVR-5-rover-relay-eligibility"
+tier = "nightly"
+# =====================================================================================
+# THE FIRST LANE IN THE SUITE WHOSE PRODUCT IS A **REFUSAL**: a complete, balanced,
+# two-hop surface relay that Parsek declines to promote into a route, and the driven
+# proof that it declines for the reason it says it does.
+#
+# **NEVER FLOWN. AUTHORED 2026-09-02.** Every token below is a literal RUN taken from
+# the emitting `string.Format` / interpolation in source, or DERIVED from a line the
+# SOURCE FLIGHT measured over these exact bytes; none is pasted from a log of a run of
+# THIS spec, because there has not been one. The first flight is a census and may move
+# any pin the header marks as derived.
+#
+# -------------------------------------------------------------------------------------
+# WHAT THE FIXTURE IS, AND WHY A REFUSAL LANE NEEDED A NEW ONE.
+# `rover-relay-recorded` is the operator's hand-flown SANDBOX save `logistics-rover-B`
+# (2026-09-02). Three identical 16-part rovers A, B and C sit on the KSC shore, all
+# LANDED, each with ONE `ModuleCommand` and ONE `dockingPort2` and no grapple. Rover C
+# drove to B, docked at UT 218.22, loaded +200 LiquidFuel (B 200 -> 0), undocked at UT
+# 276.00, drove ~780 m to A, docked at UT 340.12, unloaded 126.8 LiquidFuel
+# (A 200 -> 326.8), undocked at UT 402.50 and drove off. The save was written at UT
+# 443.64 with C's recording stopped.
+#
+# STRUCTURALLY IT LOOKS LIKE AN ELIGIBLE SUPPLY RUN AND IT IS NOT ONE, which is the
+# entire reason it is a fixture: 3 committed trees, 9 recordings, 4 branch points
+# (Dock 2 / Undock 2), 2 `ROUTE_CONNECTION_WINDOWS` with BALANCED resource deltas
+# (+200 / -200 and -126.8 / +126.8), 2 `ENDPOINT_AT_DOCK` nodes, both windows
+# TARGET-branch with a cross-tree partner recording - and 0 `ROUTES`, 0
+# `PROMPTED_ROUTE_CANDIDATES`, 0 `ROUTE_ORIGIN_PROOF`, 0 route ledger actions. No
+# existing fixture can stand in: `rover-route-recorded` is the ELIGIBLE candidate host
+# (RVR-2 promotes it) and `depot-route-recorded` already carries a route.
+#
+# -------------------------------------------------------------------------------------
+# THE TWO REASONS THE RELAY PRODUCES NO ROUTE. THEY ARE INDEPENDENT, AND THEY ARE NOT
+# THE SAME KIND OF THING: reason 1 is the product failing CLOSED by design, reason 2 is
+# an OPEN PRODUCT DEFECT whose only committed subject is this fixture.
+#
+# REASON 1 - NO ORIGIN PROOF, BECAUSE NEITHER DOCKED HALF IS A PLAYER-TYPED DEPOT.
+#   The producer's own line, once per dock, from the source flight's collected KSP.log
+#   (`logs/2026-09-02_2041/KSP.log`, lines 20911 and 24463):
+#       RouteOriginProof skipped: no depot half recId=1461186781 vessel='rover C'
+#           seams=2 candidates=0 isEva=False (neither docked half is typed Base or
+#           Station, so no supply origin was recorded; set the depot's type in the
+#           tracking station)
+#   `seams=2 candidates=0` is the whole statement: the producer SAW both dock seams and
+#   admitted neither, because all three rovers are `vesselType = Rover`. This is the
+#   standing todo entry ROUTE-ORIGIN-PROOF-REQUIRES-A-PLAYER-TYPED-DEPOT, and these are
+#   the first committed bytes that hold its output.
+#   NOTE THIS IS A DIFFERENT ZERO FROM `rover-route-recorded`'s. There the producer skips
+#   because both trees START AT A KSC SITE (the by-design KSC-origin skip); here it skips
+#   after walking two real non-KSC dock seams. Same absence, different branch.
+#
+# REASON 2 - THE ANALYSIS REJECTS `MixedPickupDelivery`, AND IT IS AN **OPEN PRODUCT
+#   DEFECT** RATHER THAN THE PRODUCT WORKING. MEASURED over the relay tree in exactly
+#   the shape this fixture ships (same log, line 28049, emitted in the same commit as
+#   `NotifyLedgerTreeCommitted: tree='rover C' recordings=7`):
+#       DeriveCandidates: trees=1 candidates=0 notSealed=0 ineligible=1 alreadyPromoted=0
+#           dismissed=0 [missingProof=0 unorderableWindows=0 missingEndpoint=0
+#           mixedPickup=1 noManifest=0 undockedStart=0 untrackedGain=0 flowNotClosed=0
+#           startTrimUnsupported=0 unsupportedKind=0]
+#   THE PLAYER MOVED THE **SAME** PART AND IT RE-HASHED IN TRANSIT. While docked at hop 1
+#   the player moved one `DeployedCentralStation` and one `evaChute` out of B's inventory
+#   into C's. The chute closed cleanly (transport gain 1, endpoint loss 1, ONE identity)
+#   and so did the science kit; the station did not - it left B as `5072997a...` and
+#   arrived on C as `5bcde9ad...`. `RouteAnalysisEngine.HasUnwitnessedInventoryGain` pairs
+#   gains to losses BY HASH, so the gain had nothing to pair with, and B's real loss is
+#   invisible in the other direction too.
+#   WHY IT RE-HASHED, from the forensics that diffed the two persisted
+#   `STOREDPART_SNAPSHOT` nodes: the only unstripped difference is one ADDED value inside
+#   `MODULE { name = ModuleGroundExpControl }`, `canComm = False`. Stock's
+#   `ModuleGroundExpControl.OnSave` writes it ONLY from a live instance in FLIGHT, and a
+#   stock inventory move goes through `ModuleInventoryPart.StoreCargoPartAtSlot(Part,
+#   int)`, which builds a fresh `ProtoPartSnapshot` off the live part and re-runs every
+#   module's `OnSave`. The editor-authored `STOREDPART` never carries it.
+#   `VesselSpawner.ComputeInventoryPayloadIdentityHash` hashes module-level values BY
+#   DESIGN, so a value STOCK adds on the way through changes the identity of a part
+#   nobody swapped. FILED as LOGISTICS-INVENTORY-IDENTITY-HASH-BREAKS-ON-A-LIVE-CARGO-MOVE
+#   in `docs/dev/todo-and-known-bugs.md` (OPEN, needs a design call). The class is wider
+#   than one part: any cargo part whose module writes a computed value in `OnSave`
+#   re-hashes on a live move.
+#   THE USER-FACING WORDING IS THEREFORE MISLEADING HERE, and that is worth knowing before
+#   reading a red run: `RouteCreationFormatters` says "only a stored part that visibly
+#   moved from the destination onto the transport can be picked up" - which is exactly
+#   what the player did.
+#   **THIS LANE IS THE DEFECT'S REGRESSION INSTRUMENT.** Tokens 4 and 5 pin
+#   `status=MixedPickupDelivery` / `reason=candidate-ineligible`, so when the hash is
+#   fixed this spec MUST be re-measured rather than assumed: the window will then either
+#   admit (and the create stops being refused at all) or fail a LATER gate (and the status
+#   changes). Do not "fix" the fixture instead - these bytes are the only committed
+#   subject the defect has, and `RoverRelayRecordedFixtureDriftTests` pins the whole
+#   gain/loss walk so a re-harvest that quietly retired it reds in `harness/lib`.
+#
+# WHY THE ORDER OF THE TWO IS NOT EVIDENCE THAT ONE WENT AWAY. The two EARLIER derive
+# passes in the same log (lines 15543 and 18645, over the two single-recording origin
+# trees) read `missingProof=1 mixedPickup=0`; only the final pass over the 7-recording
+# relay tree reads `missingProof=0 mixedPickup=1`. Reason 1 is a PRODUCER-side absence
+# that the analysis of THIS tree never reaches, because the mixed-pickup gate rejects
+# first. A re-fly that fixes only one still produces no route.
+#
+# -------------------------------------------------------------------------------------
+# THE ONE AUTHORING FACT THAT COST THE MOST TO ESTABLISH, RECORDED SO IT IS NOT REDONE.
+# **`DeriveCandidates` IS NOT A LOAD-TIME PASS AND CANNOT BE A REQUIRED TOKEN HERE.**
+# Its only two callers are `RouteRunPrompt` (the post-TREE-COMMIT prompt) and
+# `LogisticsWindowUI` (only while that window is open, on a ~1 Hz throttle). The source
+# flight's log carries exactly THREE `DeriveCandidates` lines and all three sit inside a
+# merge-dialog commit - the very next line of each is `MergeDialog ... User chose: Tree
+# Merge` - against SIX `Scenario OnLoad` lines that produce none. `trees=1` in all three
+# is the same fact from the other side: the prompt derives over the ONE tree it just
+# committed, not over the committed corpus.
+# A driven headless run that only LOADS this fixture therefore prints NO `DeriveCandidates`
+# line at all, and requiring one would red a correct run. What carries the same claim is
+# TOKEN 4 below: `RouteCommandCreate` runs `RouteAnalysisEngine.AnalyzeTree(tree,
+# Diagnostic)` SYNCHRONOUSLY inside the verb and prints the analysis status on its own
+# gate line. That is a stronger instrument, not a weaker one - it names the status for the
+# tree the step addressed, where the derive line only counts reasons.
+#
+# -------------------------------------------------------------------------------------
+# THE STEPS, AND WHAT EACH ONE IS FOR.
+#
+# THE PROLOGUE IS RVR-1's / RVR-2's, STEP FOR STEP AND ARG FOR ARG, and it is SAFE ON
+# THESE BYTES for a reason that was checked rather than inherited: **all three trees are
+# COMMITTED and NONE is active.** The fixture carries ZERO `isActive` keys and ZERO
+# `mergeState` keys, so `DiscardTree` - which discards the LIVE plain tree and never a
+# committed one - answers OK with nothing-discarded, and `StopRecording` is
+# idempotent-OK. The pair is there for the structural reason the recorded-host family
+# records: the committed-tree restore path resumes a promotion-stub recording ~1 s into
+# the scene, BEFORE any step can run. The `SetSetting autoRecordOnLaunch=false` stops a
+# later one.
+# ORDERING IS DELIBERATE: discard BEFORE any route verb. If a future edit ever made
+# `DiscardTree` touch committed state, this lane would analyse a tree it had just deleted.
+#
+# STEP 6 - `SealSlot tree=<relay>`. THIS IS NOT SETUP; IT IS WHAT MAKES THE REFUSAL
+#   ATTRIBUTABLE. `TestCommandRouteCommand.ClassifyCreateRefusal` walks
+#   found -> dismissed -> sealed -> eligible and returns the FIRST failure, so a create
+#   over an unsealed tree refuses `tree-not-sealed` and says nothing about candidacy. The
+#   fixture carries no `mergeState` key anywhere (pinned builder-side by
+#   `verify_seal_state`), so `RouteCandidateFinder.IsTreeFullySealed` is ALREADY true and
+#   the verb is expected to answer the idempotent no-op: `total=7 sealed=0 remaining=0
+#   alreadySealed=True`. `total=7` is the relay tree's own recording count, so a tree that
+#   lost a member reds here rather than at the create. The asymmetry with the count row
+#   below is deliberate: `recordings.count` admits a load-time optimizer split (max 11),
+#   but this token does NOT - a split inside the relay tree would raise `total=` above 7
+#   and red here while the count row passes. On a first census that red is a reading to
+#   act on (re-pin `total=` to the measured tree size), not a defect.
+#
+# STEP 7 - `RouteCommand action=create`, EXPECTED **REJECTED**. The refusal grammar,
+#   read from `ParsekTestCommandAddon.RouteCommand.cs`: on any non-`None` refusal the verb
+#   calls `SetExecResult("REJECTED", null, msg)`, and `TestCommandRouteCommand.RefusalMsg`
+#   renders the ineligible branch as the compound `candidate-ineligible <status>` (the
+#   wire percent-encodes the space; the log line does not). So the seam verdict is
+#   REJECTED, which is what `expect` names, and the reason rides tokens 4 and 5.
+#   `interval=` is deliberately omitted and `name=` is inert here: neither is reached,
+#   because the refusal returns before `RouteCreationService` is called at all.
+#
+# STEP 8 - `SaveGame`, so the produced save carries the artefact the two report-only
+#   saveParse blocks read. A run that quits without saving leaves the first census
+#   nothing to read, and the census IS the product.
+#
+# -------------------------------------------------------------------------------------
+# WHAT THE OPERATOR FOLLOW-UP IS, stated here because this lane deliberately does NOT
+# take it, and because the obvious version of it DOES NOT WORK. To get a route-CARRYING
+# relay fixture, re-fly the same three rovers with B (and/or A) typed **Base** in the
+# tracking station BEFORE the dock. That closes reason 1 at the producer.
+# IT DOES NOT CLOSE REASON 2, and assuming it does is how a re-fly gets spent for
+# nothing: the identity re-hash is a defect in the hash, not in how the cargo was moved,
+# so a typed-depot re-fly that moves ANY re-hashing cargo part is refused again with the
+# same `mixedPickup=1`. Until LOGISTICS-INVENTORY-IDENTITY-HASH-BREAKS-ON-A-LIVE-CARGO-
+# MOVE has a design call, a re-fly aimed at a route-carrying fixture must move NO stored
+# inventory at all and transfer resources only - or move only cargo whose modules write
+# nothing computed in `OnSave` (`evaChute` and `evaScienceKit` both survived the move on
+# this very flight, which is the cheapest available evidence of which parts are safe).
+# Until then this lane holds the refusing direction, which nothing else does.
+# =====================================================================================
+description = "AUTHORED 2026-09-02, NEVER FLOWN. THE REFUSING DIRECTION OF ROUTE CANDIDACY, driven end to end for the first time: a complete two-hop surface relay (three landed rovers, dock/undock at both ends, balanced +200/-200 and -126.8/+126.8 LiquidFuel, two TARGET-branch windows with cross-tree partners) that Parsek declines to promote. SealSlot proves the relay tree is already fully sealed (total=7 sealed=0 alreadySealed=True), so the refusal is attributable to the ANALYSIS rather than to a cheaper gate ahead of it; RouteCommand action=create is then expected REJECTED with refusal=CandidateIneligible and status=MixedPickupDelivery. TWO INDEPENDENT FAIL-CLOSED REASONS, both measured on the source flight's own log: (1) no ROUTE_ORIGIN_PROOF, because neither docked half is typed Base or Station (`no depot half ... seams=2 candidates=0`, the ROUTE-ORIGIN-PROOF-REQUIRES-A-PLAYER-TYPED-DEPOT todo); (2) an OPEN PRODUCT DEFECT rather than a designed refusal - the player moved the SAME DeployedCentralStation from B to C, and it RE-HASHED in transit (stock's StoreCargoPartAtSlot(Part, int) rebuilds a live ProtoPartSnapshot, so ModuleGroundExpControl.OnSave adds a runtime-computed canComm value the craft-authored STOREDPART never had, and ComputeInventoryPayloadIdentityHash hashes module values by design), so the arriving item's identityHash (5bcde9ad) is not the one the endpoint gave up (5072997a) and HasUnwitnessedInventoryGain fails the window closed. Filed as LOGISTICS-INVENTORY-IDENTITY-HASH-BREAKS-ON-A-LIVE-CARGO-MOVE; THIS LANE IS ITS REGRESSION INSTRUMENT and must be re-measured when the hash is fixed. The evaChute and evaScienceKit moved in the same window closed cleanly, because their modules write nothing computed. ONE AUTHORING FACT ESTABLISHED FOR THE FAMILY: DeriveCandidates is NOT a load-time pass (its only callers are the post-tree-commit RouteRunPrompt and the Logistics window), so a driven run prints none and this lane pins the create verb's own synchronous gate line instead. The saveParse structure and routes blocks are REPORT-ONLY. Operator follow-up: typing B as Base closes reason 1 but NOT reason 2, so a re-fly aimed at a route-carrying relay fixture must move no re-hashing cargo (resources only, or only parts whose modules write nothing computed) until the hash defect has a design call."
+instanceProfile = "stock-minimal"
+tags = ["seam-verbs", "logistics", "route-candidacy", "route-refusal", "untyped-depot",
+        "recorded-fixture", "RVR-5", "pending-flight"]
+
+[fixture]
+# KNOWN DAMAGED BYTES SHIPPED ON PURPOSE: the two undock background children
+# (`49eaec92...` rover B, `0f391265...` rover A) carry `maxDist` of ~735 km and a handful
+# of leading flat POINTs that are anchor-local metre offsets written as lat/lon (todo
+# UNDOCK-BG-CHILD-WRITES-RELATIVE-METRES-AS-FLAT-LAT-LON). No analyzer rule reads
+# `maxDist` or range-checks flat points, so the analyzer verifier passes these bytes; a
+# green analyzer row on this lane is NOT a clean bill for that defect.
+# `rover-relay-recorded`, the relay harvest: the operator's hand-flown `logistics-rover-B`
+# SANDBOX save, collected 2026-09-02, harvested `--keep-parsek --expect-situation
+# ORBITING` and finished by `harness/tools/build_rover_relay_recorded.py`. Pinned shape in
+# `harness/lib/test_saveparse.py::RECORDED_FIXTURES`; the two route windows, the seal
+# state, the cross-tree links, the unwitnessed-gain hashes and the three-rover geometry
+# are pinned builder-side and wired in by `RoverRelayRecordedFixtureDriftTests`.
+#
+# WHAT THIS LANE NEEDS FROM IT, beyond the shape:
+#   * ALL THREE TREES FULLY SEALED (no `mergeState` key anywhere) - step 6.
+#   * NO `ROUTES` and NO `PROMPTED_ROUTE_CANDIDATES` - so the create is not answered
+#     `candidate-already-promoted`, and so there is no prior offer to confuse the reading.
+#   * NO `DISMISSED_ROUTE_CANDIDATES` - a dismissed tree is skipped BEFORE the analysis,
+#     which would make the same REJECTED verdict mean `candidate-dismissed`.
+#   * the window-1 inventory hash mismatch that causes `MixedPickupDelivery`.
+#
+# MEASURED on the committed bytes: THREE committed trees (`d33027c4` rover B's launch, 1
+# recording; `c7324bee` rover A's launch, 1; `87fba47a` the relay, 7), NINE recordings,
+# TWO route windows, FOUR branch points (Dock 2 / Undock 2), ZERO of everything in the
+# list above, and no `mergeState` key. Save clock UT 443.64, Mode SANDBOX, 6 FLIGHTSTATE
+# vessels of which 3 are real. Active vessel index 1: `rover C`, type=Rover, sit=LANDED,
+# 16 parts, 2 `ModuleInventoryPart`, LiquidFuel 273.2 / 400, ElectricCharge 922.3 / 1000,
+# NO BaseConverter and NO BaseDrill. The three rovers sit 336 m / 783 m / 983 m apart.
+#
+# THE ACTIVE VESSEL IS A BUILDER EDIT AND IT IS LOAD-BEARING. The source was saved from
+# the SPACE CENTER, so KSP left `activeVessel = 0` pointing at a stock asteroid in solar
+# orbit; that save BOOTS (`IsLoadedGameFocusable` accepts it) straight into deep space
+# with all three rovers unloaded. The builder re-points to `rover C`.
+#
+# `mapRenderTracing = True` IS INHERITED AND LEFT ALONE. `rover-route-recorded` carries
+# the same value and RVR-1 / RVR-2 / H56 / H59 all fly it green with
+# `allowedAnomalies = []`, so it is a proven-safe setting rather than an oversight; a
+# builder that flipped it would depart from the sibling for no measured reason.
+#
+# `injectedRecordings = "none"` is REQUIRED rather than chosen: the payload is carried by
+# the TEMPLATE, and injecting a synthetic corpus would give `RouteAnalysisEngine` other
+# trees to consider and make the create's candidate resolution un-attributable.
+saveTemplate       = "fixtures/saves/rover-relay-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                    expect = "OK" },
+  { cmd = "DiscardTree",                                                      expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" },  expect = "OK" },
+  { cmd = "SealSlot",     args = { tree = "87fba47a981e4c86a598fe855a6e8113" }, expect = "OK", budget = 120 },
+  { cmd = "RouteCommand", args = { action = "create", tree = "87fba47a981e4c86a598fe855a6e8113", name = "relay" }, expect = "REJECTED", budget = 120 },
+  { cmd = "SaveGame",                                                         expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                     expect = "OK" },
+]
+
+[dimensionsCovered]
+# BOOT FACTS ONLY, AND NO D10 VALUE IS CLAIMED - the H35 CLAIM-IS-NOT-GATE rule, applied
+# to a case that makes it tempting to break. The obvious candidate is
+# `candidate-detection`, and it is the WRONG one twice over: it names the POSITIVE
+# detection of a candidate (H34 / H35 own it off lanes that find one), and this lane
+# finds none by construction. There is no registry value for "the finder correctly
+# refuses", and inventing one on a NEVER-FLOWN spec would be a claim rather than a gate -
+# the exact thing the growth rule forbids. If the first census confirms the refusal
+# chain, a new D10 value is a separate, measured decision taken in that commit, with the
+# `route-map-lines-surface` precedent (registry comment + three-run discipline) for shape.
+#
+# WHAT THIS LANE ACTUALLY BUYS, stated so it is not dressed as a coverage row: it is the
+# first driven execution anywhere of `RouteCommand action=create`'s REFUSING branch, and
+# the first committed bytes that hold the untyped-depot producer skip. That is a real
+# product and it is not a registry cell.
+D14 = ["sandbox", "scene-flight"]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING (the H7 lesson): run.py reads `expectations.allowedAnomalies`,
+# and a bare key written AFTER an `[expectations.<sub>]` header is TOML-scoped to that
+# sub-table and never read. hlib.validate_spec rejects the misplaced form, so this must
+# stay ahead of the sub-tables. No tracer is armed by this spec (the fixture's inherited
+# `mapRenderTracing = True` is a SAVE setting, not a spec arm), and NO render-composition
+# expectations block is declared, which is what leaves `PARSEK_RENDER_MANIFEST` unset.
+allowedAnomalies = []
+
+[expectations.recordings]
+# THE ANTI-DATA-LOSS FLOOR, for the H39 census-2 reason: on that flight the batch went
+# GREEN and the run red ANYWAY on `recordings.count`, which is how
+# QUICKLOAD-OVER-COMMITTED-RESTORE-OVERLAP-DELETES-TREE-ON-SAVE (player-reachable data
+# loss) was found. Not one in-game cell could see it; the count row was the only
+# instrument pointed at the committed corpus.
+#
+# A WINDOW RATHER THAN AN EXACT PIN, BECAUSE THIS SPEC HAS NEVER FLOWN. 9 is the staged
+# corpus and is the FLOOR that matters - below it means destroyed sidecars. The ceiling
+# of 11 admits the load-time optimizer split that H35 / H39 / H40 all measure on their
+# hosts (RVR-1 and RVR-2 measured NO split on `rover-route-recorded`, which is a property
+# of those bytes and not a prediction about these). The first census measures it and the
+# pin is replaced with an exact one in that commit.
+count = { min = 9, max = 11 }
+
+[expectations.logContracts]
+# NEVER FLOWN. Every token is a literal RUN taken from the emitting `string.Format` /
+# interpolation in source, never a line pasted from a log - an interpolated string is not
+# stored the way it renders, and a token spanning a hole (or an em dash) cannot match.
+#
+# TOKEN 1  THE BOOT, from `TestCommandLoadGame`. Pins `scene=FLIGHT` one layer earlier
+#          than anything else, where a failure is legible as a boot fault rather than as
+#          a candidacy finding. The same token is measured on the sibling fixture by
+#          RVR-1 / RVR-2 / H56 / H59.
+#
+# TOKEN 2  THE SEAL NO-OP, from `ParsekTestCommandAddon.SealSlot.cs`'s `SealWholeTree` OK
+#          branch: "sealslot complete mode=tree tree={0} total={1} sealed={2}
+#          remaining=0 alreadySealed={3}". `remaining=0` is a LITERAL in the format string
+#          (the branch only runs when the verdict is OK), so `remaining=0
+#          alreadySealed=True` is one contiguous run. `sealed=0` says nothing was sealed
+#          and `alreadySealed=True` says the verb recognised that as success. `total=7`
+#          is DERIVED FROM THE COMMITTED BYTES (the relay tree's RECORDING count, pinned
+#          by `verify_seal_state`), so a tree that lost a member reds here rather than at
+#          the create.
+#
+# TOKEN 3  THE GATE WALK, first half - `routecommand create gate ... treeFound=True
+#          dismissed=False sealed=True eligible=False`, from `RouteCommandCreate`'s
+#          pre-decision Info line. THIS IS THE ATTRIBUTION. It says the tree was FOUND,
+#          was NOT dismissed, WAS sealed, and the analysis nevertheless found it
+#          ineligible - i.e. the refusal belongs to the ANALYSIS and to nothing cheaper.
+#          The first three conjuncts are properties of the committed bytes;
+#          `eligible=False` is MEASURED (the source flight's `ineligible=1` over this
+#          tree).
+#
+# TOKEN 4  THE GATE WALK, second half - `status=MixedPickupDelivery alreadyPromoted=False
+#          refusal=CandidateIneligible`, one contiguous run in the same format string.
+#          PINNED SEPARATELY ON PURPOSE: it is the only token that names WHY, and a red
+#          on it alone says the tree is still ineligible but for a DIFFERENT reason,
+#          which is a finding rather than a boot fault. THE STATUS IS DERIVED FROM A
+#          MEASURED LINE over the same tree in the same shape (`mixedPickup=1`, source
+#          KSP.log line 28049) rather than from reading the engine, but it is still a
+#          derivation across two instruments: if the first census reads another
+#          ineligible status here, THIS is the token that moves.
+#
+# TOKEN 5  THE REFUSAL REACHING THE SEAM, from the Warn one line later:
+#          `routecommand rejected reason={msg} tree={treeArg}`. Pinned as the HEAD token
+#          only (`reason=candidate-ineligible`), because `RefusalMsg` appends the status
+#          as a compound tail and token 4 already carries that half. Together with the
+#          step's own `expect = "REJECTED"` this is the GS-3 / H58 shape: the verdict and
+#          the reason pinned as two independent instruments, since a refusal for the
+#          WRONG reason is a green step and a false lane.
+#
+# TOKEN 6  THE ROUTE STORE IS EMPTY ON THE WAY IN, from `RouteModule`'s recalculation
+#          epilogue (`PostWalk: routes={0}, paused=...`). It fires on OnLoad - unlike
+#          `DeriveCandidates`, which does not (see the header) - and the fixture already
+#          carries `verboseLogging = True`, with step 5 re-asserting it. It is the
+#          before-picture the refusal is measured against.
+#
+# WHAT IS DELIBERATELY NOT REQUIRED:
+#   * any `DeriveCandidates:` line. It is not a load-time pass; see the header. Requiring
+#     one would red a correct run.
+#   * any `RouteOriginProof skipped:` line. That producer runs at RECORD time, and this
+#     lane records nothing - the absence it caused is already in the committed bytes and
+#     is pinned by the builder's `verify_no_route_state`, not by a flight.
+#   * any `RouteRunPrompt skipped` line, for the same reason as `DeriveCandidates`: it is
+#     emitted on the post-commit prompt path this driver never walks.
+#
+# THE FORBID LIST IS THE VACUITY GUARD AND IS THE POINT. `routecommand complete
+# action=create` is the OK branch's ACK line, emitted only when a route was actually
+# built. A run that produced one would satisfy every required token above except 3, 4 and
+# 5 - and if a future refactor ever reordered the gate logging, this forbid is what still
+# says "no route may exist at the end of this lane".
+required  = [
+  "loadgame complete scene=FLIGHT save=.* game-loaded=true expected=Flight",
+  "sealslot complete mode=tree tree=87fba47a981e4c86a598fe855a6e8113 total=7 sealed=0 remaining=0 alreadySealed=True",
+  "routecommand create gate tree=87fba47a981e4c86a598fe855a6e8113 treeFound=True dismissed=False sealed=True eligible=False",
+  "status=MixedPickupDelivery alreadyPromoted=False refusal=CandidateIneligible",
+  "routecommand rejected reason=candidate-ineligible",
+  "PostWalk: routes=0",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "routecommand complete action=create",
+]
+
+[expectations.recordings.structure]
+# REPORT-ONLY: NO `gating` KEY, deliberately, and the reason is the standing arming rule
+# (`harness/lib/saveparse.py` -> `ARMED_ALLOWLIST`): a block is armed only after a
+# report-only READING run whose facets match the declared windows, and this spec has
+# never flown. The numbers below are not invented - they are MEASURED off the committed
+# fixture bytes by `saveparse.observed_structure_facets` and re-asserted in `harness/lib`
+# by `RECORDED_FIXTURES` - but "measured on the staged save" and "measured on the PRODUCED
+# save" are different claims, and only the second is what this block evaluates.
+#
+# `recordings` carries the same window as the count row above and for the same reason.
+# `terminalStates` is stated as FLOORS: a load-time optimizer split would add recordings
+# and could add terminal states, but it cannot remove one.
+# `branchPoints` is EXACT on both bounds, because a split does not create or destroy dock
+# and undock seams - and the Dock 2 / Undock 2 alternation is what makes this a RELAY
+# rather than a single supply run. Losing one hop is the single most damaging thing a
+# re-harvest could do to this fixture while leaving every other facet plausible.
+trees          = { min = 3, max = 3 }
+committedTrees = { min = 3, max = 3 }
+recordings     = { min = 9, max = 11 }
+terminalStates = { Landed = { min = 5 }, Docked = { min = 2 } }
+branchPoints   = { Dock = { min = 2, max = 2 }, Undock = { min = 2, max = 2 } }
+
+[expectations.routes]
+# REPORT-ONLY (no `gating` key), same arming rule. THIS IS THE BLOCK THE LANE EXISTS FOR
+# and it is the one that must NOT be armed on an unflown spec: `count = 0` is the whole
+# claim, and arming an unread block is how a spec starts gating something it has never
+# measured. The first census reads it; the arming decision is taken then, per scenario,
+# and only if the reading matches.
+#
+# The M-C2 `routes` facet landed 2026-09-02 (PR #1603) and is live - H59 declares one -
+# so this is a real surface rather than a reserved one.
+count   = { min = 0, max = 0 }
+dormant = { min = 0, max = 0 }
+
+[runtime]
+# Budget arithmetic (M-A5 S8): run.py gives EVERY deferred seam verb
+# `required_step_wait(max(step budget, SEAM_FALLBACK_DEFERRAL_SECONDS=600))` = 660 s
+# regardless of the declared step budget. Only LoadGame is deferred here, so the worst
+# case is 660 plus the four synchronous route/seal/save budgets (120 x 3) and the two
+# unbudgeted settings verbs. 1200 clears it with headroom, and trimming it to hug the
+# expected ~50 s wall (RVR-2's measured figure for a comparable driven chain on the
+# sibling fixture) would convert a slow restore into a KILLED run with no artefact, which
+# on a first census destroys the entire product of the flight.
+#
+# The route and seal verbs are SINGLE-PHASE - build / analyse / store are synchronous
+# state mutation, so the read-back is a final answer with no TryComplete counterpart and
+# no DeferralBudget row - so their 120 s budgets bound only the game-not-loaded defer and
+# none of them can be the slow step.
+budgetSeconds = 1200
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

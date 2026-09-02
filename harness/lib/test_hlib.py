@@ -4005,6 +4005,19 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
         # ordinary path's executable ceiling is zero. Authored 2026-09-02, never flown,
         # INTERIM.
         "H60-route-escrow-contention": ("RouteEscrowContention", 2),
+        # THE FOURTH RECORDED `Logistics` HOST, and the first THREE-TREE,
+        # NINE-RECORDING, TWO-WINDOW forest any isolated batch has booted. Its
+        # fixture `rover-relay-recorded` is the operator's 2026-09-02 two-hop
+        # surface relay, and the corpus is INELIGIBLE as it stands (see RVR-5: one
+        # designed refusal plus the OPEN identity-hash defect) - so a
+        # `Logistics` cell that quietly assumes the committed corpus is
+        # promotable has a host that refutes it. Both its route windows are
+        # TARGET-branch with a cross-tree partner, where `rover-route-recorded`
+        # carries one, so every `RouteProof_*` walk has more than one subject for
+        # the first time. The tally derivation is ATTRIBUTE-level and therefore
+        # the same 47 as its six siblings; only the split differs, and that split
+        # is INTERIM (see INTERIM_PIN_IDS).
+        "RVR-6-rover-relay-logistics-host": ("Logistics", 47),
     }
 
     # Members whose category is only PARTLY batch-disabled, i.e. the ordinary path
@@ -4039,7 +4052,13 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
                                  # attribute-level, so it is the same 8-vs-46 for
                                  # every Logistics member regardless of which host it
                                  # boots.
-                                 "RVR-1-rover-route-proof"}
+                                 "RVR-1-rover-route-proof",
+                                 # RVR-6 joins on the identical arithmetic, for
+                                 # the identical reason: the derivation is
+                                 # attribute-level, so it is the same 8-vs-46
+                                 # for every Logistics member whatever host it
+                                 # boots.
+                                 "RVR-6-rover-relay-logistics-host"}
 
     # Members whose BATCH_COMPLETE line cannot distinguish the isolated path from the
     # ordinary one, whatever it is pinned to, so the discrimination duty transfers to
@@ -4290,7 +4309,45 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
     # classes; the justification for each is in the spec's own header, and the load-bearing
     # pair is `raw=11 netted=5` then `raw=5 netted=5`, which is the reserve/release
     # pre-image identity measured live.
-    INTERIM_PIN_IDS = set()
+    #
+    # NON-EMPTY AGAIN 2026-09-02 for `RVR-6-rover-relay-logistics-host`, authored the
+    # same day and never flown. It is interim for EXACTLY the reason H39, H40 and RVR-1
+    # were: the split turns on what a RECORDED CORPUS and a LIVE CRAFT happen to contain,
+    # and no attribute settles a run-time `InGameAssert.Skip`. `total=47` is
+    # attribute-exact (shared with six siblings, so a 48th Logistics declaration moves all
+    # seven) and `failed=0` is a literal; the `passed=` spelling is the family's
+    # non-vacuous `(?:9|[1-9][0-9]+)` rather than the plain interim class, because the
+    # ORDINARY path's executable ceiling for this category is 8 and a plain floor of 1
+    # would accept the exact line a run that lost the `isolated` arg prints.
+    #
+    # WHICH QUESTIONS ARE OPEN HERE, since the family has now measured three censuses.
+    # The closest relative is RVR-1's `rover-route-recorded`: also a LANDED rover, also 2
+    # `ModuleInventoryPart`, also no converter and no drill, and it measured `skipped=8`
+    # with a 7-name run-time roster. What is DIFFERENT on this host and could move the
+    # split: THREE committed trees rather than two (anything walking
+    # `RecordingStore.CommittedTrees` sees a forest for the first time), TWO route windows
+    # rather than one, a corpus that is INELIGIBLE as it stands, a drained partner
+    # vessel at LiquidFuel 0/400, and - the one that has flipped a cell before - TWO OTHER
+    # REAL ROVERS inside physics range at 336 m and 983 m, where every previous host
+    # offered only unloaded or spawned candidates. `Escrow_CompetingRouteSeesReservation_
+    # Holds` is the cell whose band that could move (it skips on H39's 645.42 LF source and
+    # passes on H38 / H40); the spec header carries the cell-by-cell hypothesis as a
+    # PREDICTION written to be refuted.
+    #
+    # THE TWO SKIPS THIS LANE IS PREDICTED TO CONVERT ARE NOT LEFT TO THE INTERIM TALLY.
+    # `RouteProof_ActiveAsTargetDockWindow_HasEndpointProof` and
+    # `RouteProof_CrossTreeCommittedPartner_HasEndpointProof` turn on BYTE properties of
+    # the fixture (two target-branch windows, each with its cross-tree partner recording
+    # kept), pinned builder-side and gated by `RoverRelayRecordedFixtureDriftTests`, and
+    # RVR-1 MEASURED both PASSING on the only other host that satisfies them. The spec pins
+    # both as REQUIRED cell tokens, because an interim `passed=` says almost nothing about
+    # WHICH cells passed - which is the whole hazard of an interim pin.
+    #
+    # WHAT THIS MEMBER OWES: the first census measures the split, the spec's pin is
+    # replaced whole, a MEASURED_SKIPPED entry is added if the run-time guards push
+    # `skipped` above the attribute floor of 1, the `recordings.count` window is replaced
+    # with an exact pin, and the id LEAVES this set in the same commit.
+    INTERIM_PIN_IDS = {"RVR-6-rover-relay-logistics-host"}
 
     # id -> measured `skipped=` for members whose RUN-TIME InGameAssert.Skip guards
     # push the split above the attribute-derived floor. The attributes give a FLOOR

@@ -500,12 +500,14 @@ omission: the pin and the prose sit in the same place, so a re-harvest that move
 shape reds against the paragraph describing it. Do not restate a recorded fixture's shape
 here; a second copy of a moving list is a second thing to leave stale.
 
-TWO ENTRIES SIT HERE ANYWAY, each for its own reason. `rover-route-recorded` is a
-POINTER worth keeping, because the naming rule it rests on can destroy an operator's own
-save if it is ever forgotten. `rover-route-career` is not a harvest at all - it is
-file-constructed from two committed inputs, exactly like everything above this section -
-so it belongs to this file's scope even though its payload is recorded. Neither entry
-restates a shape `RECORDED_FIXTURES` already pins.
+THREE ENTRIES SIT HERE ANYWAY, each for its own reason. `rover-route-recorded` and
+`rover-relay-recorded` are POINTERS worth keeping, because the naming rule they rest on
+can destroy an operator's own save if it is ever forgotten - and because the relay's
+reason to exist is two fail-closed REFUSALS that no structural facet can express.
+`rover-route-career` is not a harvest at all - it is file-constructed from two committed
+inputs, exactly like everything above this section - so it belongs to this file's scope
+even though its payload is recorded. No entry restates a shape `RECORDED_FIXTURES`
+already pins.
 
 ### rover-route-recorded (GAME Mode = SANDBOX, 3 real vessels + 8 asteroids)
 
@@ -550,6 +552,81 @@ and what a future re-harvest could silently lose:
   cycle-1-fits / cycle-2-blocks chain reachable in two driven cycles.
 
 All three are asserted by the builder's `--check`, so a re-harvest that lost any of them
+reds in `harness/lib` rather than on a flight.
+
+### rover-relay-recorded (GAME Mode = SANDBOX, 3 real vessels + 3 asteroids)
+
+The UNTYPED-DEPOT RELAY host (RVR-5 / RVR-6), landed 2026-09-02. Harvested from a scratch
+COPY of the operator's hand-flown `logistics-rover-B` save (flown 2026-09-02, collected
+into the umbrella `logs/2026-09-02_2041/`), finished by
+`harness/tools/build_rover_relay_recorded.py`, shape pinned in `RECORDED_FIXTURES` and
+wired into the suite by `harness/lib/test_build_rover_relay_recorded.py`.
+
+**IT IS NAMED FOR THE LANE AND NEVER FOR THE SOURCE SAVE**, the same safety rule its
+sibling states: `run.py::stage_fixture` rmtree's the same-named save inside the automation
+instance, so a fixture called `logistics-rover-b` would DELETE the operator's hand-played
+save the first time any scenario staged it.
+
+The flight: three identical 16-part rovers A, B and C on the KSC shore, all LANDED on
+Kerbin, each with one `ModuleCommand` and one `dockingPort2` and no grapple. C drove to B,
+docked at UT 218.22, loaded +200 LiquidFuel (B 200 -> 0), undocked at UT 276.00, drove
+~780 m to A, docked at UT 340.12, unloaded 126.8 LiquidFuel (A 200 -> 326.8), undocked at
+UT 402.50 and drove away. Saved at UT 443.64 from the SPACE CENTER with C's recording
+stopped. The three rovers sit **336 m apart (A-C), 783 m (A-B) and 983 m (B-C)** - far
+outside the ~200 m docking range, so the relay is a genuine drive, and well inside physics
+range of each other, so any route driven over these bytes would take `path=loaded` rather
+than the sibling fixture's `path=unloaded`.
+
+Four facts belong in a human-readable place, because they are what make it useful and what
+a future re-harvest could silently lose:
+
+- **NO ROUTE WAS EVER CREATED, and there are TWO INDEPENDENT fail-closed reasons.** The
+  first is the product working by decision, the second is an open defect, and fixing only
+  one still produces no route.
+  1. **No `ROUTE_ORIGIN_PROOF`, because neither docked half is a player-typed depot.** The
+     producer's own line, once per dock: `RouteOriginProof skipped: no depot half
+     recId=1461186781 vessel='rover C' seams=2 candidates=0 isEva=False (neither docked
+     half is typed Base or Station, so no supply origin was recorded; set the depot's type
+     in the tracking station)`. All three rovers are `vesselType = Rover`. This is the
+     standing todo entry ROUTE-ORIGIN-PROOF-REQUIRES-A-PLAYER-TYPED-DEPOT, and these are
+     the first committed bytes that hold its output. It is a DIFFERENT zero from
+     `rover-route-recorded`'s, whose producer skips because both trees start at a KSC site.
+  2. **`RouteAnalysisStatus.MixedPickupDelivery` - an unwitnessed inventory gain, and
+     unlike reason 1 this one is an OPEN PRODUCT DEFECT.** While docked at hop 1 the player
+     moved the **same** `DeployedCentralStation` (and an `evaChute`) out of B's inventory
+     into C's, and the station RE-HASHED in transit: it left B as `5072997a...` and arrived
+     on C as `5bcde9ad...`. Stock's `ModuleInventoryPart.StoreCargoPartAtSlot(Part, int)`
+     rebuilds a live `ProtoPartSnapshot`, so `ModuleGroundExpControl.OnSave` writes a
+     runtime-computed `canComm` value the craft-authored `STOREDPART` never had, and
+     `ComputeInventoryPayloadIdentityHash` hashes module-level values by design - so a
+     value STOCK adds on the way through changes the identity of a part nobody swapped.
+     `RouteAnalysisEngine.HasUnwitnessedInventoryGain` pairs gains to losses BY HASH, so
+     the gain has nothing to pair with and the window fails closed. The `evaChute` and
+     `evaScienceKit` moved in the same window closed cleanly, because their modules write
+     nothing computed. Filed as
+     LOGISTICS-INVENTORY-IDENTITY-HASH-BREAKS-ON-A-LIVE-CARGO-MOVE (OPEN, needs a design
+     call). **THESE BYTES ARE THAT DEFECT'S ONLY COMMITTED SUBJECT and `RVR-5` is its
+     regression instrument, so DO NOT "clean up" the fixture** - a re-harvest that moved no
+     inventory would retire both silently, which is why the builder pins the whole
+     gain/loss walk.
+- **Both of its route windows are TARGET-branch with a cross-tree partner**, where
+  `rover-route-recorded` holds that property once. Each window's `transferTargetPid` is
+  carried by the single recording of its own origin tree, which is why the forest is THREE
+  trees and why neither origin tree is spare payload.
+- **The resource half of the relay BALANCES on both hops** (+200 / -200 and -126.8 /
+  +126.8). A reader of RVR-5's `candidate-ineligible` refusal must not conclude the
+  resource bookkeeping failed; it did not, the inventory half did, and only on hop 1.
+- **Its `activeVessel` is a BUILDER EDIT.** The source was saved from the SPACE CENTER, so
+  KSP left `activeVessel = 0` pointing at `Ast. UYX-230`, a stock asteroid in solar orbit.
+  That save BOOTS - `IsLoadedGameFocusable` accepts it - straight into deep space 13.5 Gm
+  out with all three rovers unloaded and every live-vessel `Logistics` guard skipping. The
+  builder re-points it to index 1, `rover C`, LANDED. **A re-harvest must repeat that
+  re-point**, and the harvest's `--expect-situation ORBITING` is armed against the SOURCE
+  for exactly this reason (passing `LANDED` would fail the gate on a healthy source).
+  The three asteroids are KEPT verbatim, on the sibling's precedent: pruning them would
+  move every index the re-point resolves against for no benefit, and no lane reads them.
+
+All four are asserted by the builder's `--check`, so a re-harvest that lost any of them
 reds in `harness/lib` rather than on a flight.
 
 ### rover-route-career (GAME Mode = CAREER, the SAME 3 real vessels + 8 asteroids)

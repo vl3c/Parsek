@@ -1,0 +1,68 @@
+version = 1
+MILESTONE
+{
+	id = d7cfaef6984648008e935d5326013678
+	startUT = 0
+	endUT = 55.040000000003005
+	recordingId = 
+	committed = True
+	lastReplayedIdx = 1
+	GAME_STATE_EVENT
+	{
+		ut = 19.119999999999681
+		type = 18
+		key = RecordsDistance
+		detail = funds=4800;rep=0;sci=0
+		recordingId = 073a1ed6fdbc411da694dfcc59bdbc9f
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 31.119999999999425
+		type = 18
+		key = RecordsSpeed
+		detail = funds=4800;rep=0;sci=0
+		recordingId = 073a1ed6fdbc411da694dfcc59bdbc9f
+	}
+}
+MILESTONE
+{
+	id = 214a92280b26472e901403a70a1f2645
+	startUT = 55.040000000003005
+	endUT = 275.960000000039
+	recordingId = 
+	committed = True
+	lastReplayedIdx = 1
+	GAME_STATE_EVENT
+	{
+		ut = 218.22000000003783
+		type = 18
+		key = Kerbin/BaseConstruction
+		detail = funds=5400;rep=1;sci=0
+		recordingId = 31e843024f3347dfafc030f8d64796be
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 218.22000000003783
+		type = 18
+		key = Kerbin/Docking
+		detail = funds=2400;rep=0;sci=0
+		recordingId = 31e843024f3347dfafc030f8d64796be
+	}
+}
+MILESTONE
+{
+	id = 59a0dbf594a446fd8c660a1e2e8c8f25
+	startUT = 275.960000000039
+	endUT = 276.02000000003892
+	recordingId = 
+	committed = True
+	lastReplayedIdx = 0
+	GAME_STATE_EVENT
+	{
+		ut = 276.00000000003894
+		type = 18
+		key = Kerbin/Landing
+		detail = funds=800;rep=0;sci=0
+		recordingId = 5f76d136e3dc4316bff71f4cfb0688a4
+	}
+}

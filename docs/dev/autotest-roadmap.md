@@ -2636,6 +2636,74 @@ gated behind the ROUTE-ORIGIN-PROOF-PRODUCER-UNREACHABLE probe (todo) before any
    `Vessel.Initialize` - so a re-dock of the same craft legitimately reports a
    different target vessel pid, and any future route lane comparing vessel pids
    across an undock is comparing the wrong thing.
+15. **Rover relay, untyped depot - the REFUSING direction, and the first
+    committed bytes that hold it.** Added 2026-09-02, after the operator's second
+    hand-flown surface session (`logistics-rover-B`): three identical 16-part
+    rovers A, B and C on the KSC shore, all LANDED, one `ModuleCommand` + one
+    `dockingPort2` each, no grapple. C drove to B, docked at UT 218.22, loaded
+    +200 LiquidFuel (B 200 -> 0), undocked at UT 276.00, drove ~780 m to A,
+    docked at UT 340.12, unloaded 126.8 LiquidFuel (A 200 -> 326.8), undocked at
+    UT 402.50 and drove away. Saved at UT 443.64. **NO ROUTE WAS EVER CREATED,
+    for two independent reasons that are NOT the same kind of thing.**
+    (1) NO `ROUTE_ORIGIN_PROOF`, and this half is the product failing CLOSED by
+    design: neither docked half is a player-typed depot -
+    `RouteOriginProof skipped: no depot half recId=1461186781 vessel='rover C'
+    seams=2 candidates=0 ... (neither docked half is typed Base or Station, so no
+    supply origin was recorded; set the depot's type in the tracking station)`,
+    once per dock. All three rovers are `vesselType = Rover`. This is the standing
+    todo entry ROUTE-ORIGIN-PROOF-REQUIRES-A-PLAYER-TYPED-DEPOT, and it is a
+    DIFFERENT zero from `rover-route-recorded`'s (there the producer skips on a
+    KSC-site start; here it walked two real non-KSC seams and admitted neither).
+    (2) `RouteAnalysisStatus.MixedPickupDelivery` - an UNWITNESSED INVENTORY GAIN,
+    measured over the relay tree in exactly the shape the fixture ships
+    (`DeriveCandidates: trees=1 candidates=0 ... ineligible=1 ... mixedPickup=1`),
+    and **an OPEN PRODUCT DEFECT rather than the product working**. The player
+    moved the SAME `DeployedCentralStation` from B to C and it RE-HASHED in
+    transit: stock's `ModuleInventoryPart.StoreCargoPartAtSlot(Part, int)`
+    rebuilds a live `ProtoPartSnapshot`, so `ModuleGroundExpControl.OnSave` adds a
+    runtime-computed `canComm` value the craft-authored `STOREDPART` never had,
+    and `ComputeInventoryPayloadIdentityHash` hashes module-level values by
+    design. The arriving item's `identityHash` (`5bcde9ad...`) is therefore not
+    the one the endpoint gave up (`5072997a...`) and
+    `HasUnwitnessedInventoryGain` fails the window closed. The `evaChute` and
+    `evaScienceKit` moved in the same window closed cleanly, because their modules
+    write nothing computed. Filed as
+    LOGISTICS-INVENTORY-IDENTITY-HASH-BREAKS-ON-A-LIVE-CARGO-MOVE (OPEN, needs a
+    design call); the class is wider than one part.
+    The two reasons are INDEPENDENT: fixing only one still produces no route.
+    **LANDED AS `harness/fixtures/saves/rover-relay-recorded` PLUS TWO NEVER-FLOWN
+    LANES.** `RVR-5-rover-relay-eligibility` drives `SealSlot` (which answers the
+    idempotent no-op `total=7 sealed=0 alreadySealed=True`, so the refusal is
+    attributable to the ANALYSIS rather than to a cheaper gate) then
+    `RouteCommand action=create` expecting `REJECTED` with
+    `refusal=CandidateIneligible status=MixedPickupDelivery`, and forbids the
+    create ACK as its vacuity guard. It doubles as the hash defect's REGRESSION
+    INSTRUMENT: those two pins must be re-measured when the hash is fixed, and the
+    fixture must not be cleaned up instead - these are the only committed bytes
+    the defect has. `RVR-6-rover-relay-logistics-host` is RVR-1's isolated
+    `Logistics` batch over the same bytes: the fourth recorded host and the first
+    THREE-TREE, NINE-RECORDING, TWO-WINDOW forest any isolated batch has booted,
+    with both windows TARGET-branch and cross-tree-partnered where
+    `rover-route-recorded` holds that property once.
+    **THE AUTHORING FACT THE WAVE ESTABLISHED FOR THE WHOLE PROGRAM:
+    `DeriveCandidates` is NOT a load-time pass.** Its only callers are
+    `RouteRunPrompt` (post-TREE-COMMIT) and `LogisticsWindowUI` (window-open, ~1
+    Hz throttle); the source flight's log carries exactly three of its lines and
+    all three sit inside a merge-dialog commit, against six `Scenario OnLoad`
+    lines that produce none. A driven headless run prints NONE, so a lane that
+    requires one reds a correct run - pin the create verb's own synchronous
+    `routecommand create gate` line instead.
+    **THE OPERATOR FOLLOW-UP, which neither lane takes, AND THE OBVIOUS VERSION OF
+    IT DOES NOT WORK.** Re-flying the same three rovers with B (and/or A) typed
+    Base in the tracking station BEFORE the dock closes reason 1 at the producer.
+    It does NOT close reason 2: the re-hash is a defect in the hash, not in how
+    the cargo was moved, so a typed-depot re-fly that moves ANY re-hashing cargo
+    part is refused again with the same `mixedPickup=1`. Until the hash defect has
+    a design call, a re-fly aimed at the suite's first route-carrying MULTI-HOP
+    relay fixture must move NO stored inventory and transfer resources only - or
+    move only cargo whose modules write nothing computed in `OnSave` (`evaChute`
+    and `evaScienceKit` both survived the move on this very flight, which is the
+    cheapest available evidence of which parts are safe).
 
 **H55 GREEN 2026-09-01 (run 2, `2026-09-01_2229`, 6/6, re-tiered nightly): B5, B6, B7 and B8 are MEASURED on a driven run - the only Tier B item still owing anything is B4, gated on the probe reading on a LANDED host.**
 
@@ -2992,11 +3060,17 @@ D10 rows, which H56 owes and this item never did.
 
 - **`RouteCommand` + `SealSlot` seam verbs** (Cause C closure) - in flight on
   this branch. Everything in Tier A2+ depends on them.
-- **saveparse `route` expectation block** - `routes` is a RESERVED block name
-  today (IMPROVEMENT-SAVEPARSE-NO-ROUTES-FACET); until it parses ROUTES nodes,
-  creation lanes pin end-state via logContract tokens + the builder-side
-  `verify_route()` pattern. Promote when RVR-2 stabilizes, then arm per the
-  standing report-only-first protocol.
+- ~~**saveparse `route` expectation block** - `routes` is a RESERVED block
+  name today (IMPROVEMENT-SAVEPARSE-NO-ROUTES-FACET).~~ **LANDED 2026-09-02
+  (PR #1603): `[expectations.routes]` parses the ParsekScenario `ROUTES` node and
+  is live surface, not reserved.** Four committed specs declare one - H58, H59,
+  V18T and RVR-5 - all REPORT-ONLY, per the standing protocol that a block is
+  armed only after a report-only READING run whose facets match the declared
+  windows. What it does NOT reach is the `ROUTE_CONNECTION_WINDOWS` node on a
+  RECORDING: that is a different surface written by a different codec
+  (`RouteProofCodec`, not `RouteCodec`), so window pins stay builder-side in
+  `build_rover_route_recorded.py` / `build_rover_relay_recorded.py` and should
+  stay there.
 - ~~**Fixture: `logistics-rover-a` harvest** (RVR-1/2 host).~~ **LANDED
   2026-08-30 as `harness/fixtures/saves/rover-route-recorded`** - named for the
   LANE and never for the source save, because `run.py::stage_fixture` rmtree's
@@ -3111,12 +3185,17 @@ Remaining fail-open surfaces, ranked:
    readings are confirmed live. S4.1-rewind-merge is armed (runs `2026-07-31_1628`
    read-only / `_1635` armed / `_1637` negative control); every other spec is still
    report-only, so for them this remains ADDRESSED-REPORT-ONLY.
-3. **Three expectation verifier families are declared and inert** (`route`,
+3. **Three expectation verifier families were declared and inert** (`route`,
    `rewind`, `loop`). PARTIALLY CLOSED by R9 2026-07-31: `rewind` is now evaluated
    AND ARMED on its one declarer - S4.1's asserts stopped being comments and became
-   a gate that has been watched both pass and fail. `route` / `loop` stay reserved
-   BY CHOICE: zero committed declarers, so an evaluator would be unused surface; the
-   spec-author trap is bounded to blocks nobody declares.
+   a gate that has been watched both pass and fail. CLOSED FURTHER 2026-09-02 (PR
+   #1603): the route family shipped as `[expectations.routes]`, which parses the
+   `ROUTES` node and has four committed declarers (H58, H59, V18T, RVR-5), all
+   REPORT-ONLY pending their reading runs. `loop` alone stays reserved BY CHOICE (the constant
+   `hlib.RESERVED_EXPECTATION_BLOCKS` still lists the singular `route` too, as a retired
+   spelling kept so a spec cannot declare it by mistake):
+   zero committed declarers, so an evaluator would be unused surface; the
+   spec-author trap is bounded to the one block nobody declares.
 4. **The ledger oracle's independence check is a structural no-op** (see the open-bugs
    table). `compute_expected` consumes seam-declared entries only, with no live
    cross-check, in the one verifier the entire L-track depends on.
