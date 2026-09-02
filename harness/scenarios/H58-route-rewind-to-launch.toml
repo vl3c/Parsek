@@ -1,0 +1,697 @@
+schema = 1
+id = "H58-route-rewind-to-launch"
+tier = "nightly"
+# =====================================================================================
+# D12 "route x rewind, flown" - THE PRE-REGISTERED LANE, AND A REWIND THAT ACTUALLY
+# FIRES. LIVE-PROVEN 2026-09-02.
+#
+# FLIGHT 2, 2026-09-02 (`2026-09-02_1020`, wall 62 s): PASS ATTEMPT 1, AND THE
+# PRE-REGISTRATION BELOW WAS CONFIRMED ON EVERY NUMBER. It was written before the
+# machinery that lets the lane test it existed, is unchanged by that machinery landing,
+# and the run matched it without a single re-pin of a predicted value:
+#     OnLoad: go-back route reconcile at cutoff=1585.4999999999995 retiredRouteRows=1
+#                                        committedRoutes=1 dormantRoutes=0
+#     OnLoad go-back: routes at rewind cutoff 1585.4999999999995: kept=1 (reconciled=1)
+#                                        dormant=0 (newly=0)
+#     OnLoad go-back: kept-route status fidelity at cutoff 1585.4999999999995:
+#                     derivedPaused=1 derivedActive=0 oneShotFlagsCleared=1
+#                     countersReconstructed=0
+#     RewindReconcile: route <id> cycle state reset at cutoff=... status=Active
+#     RewindReconcile: route <id> cleared armed one-shot flags
+#                      (PauseAfterCurrentCycle/SendOnceArmed do not survive time travel)
+# and the seam half:
+#     invokerewindtolaunch refused: ambiguous-tree tree= committedTrees=3      (step 17)
+#     invokerewindtolaunch target resolved tree=<guid> resolvedBy=LatestKeyword
+#                                        arg=latest committedTrees=3           (step 18)
+#     invokerewindtolaunch invoking tree=<guid> rec=<guid> startUT=1600.5
+#                                        - plain Rewind-to-Launch (NOT a Re-Fly)
+#     invokerewindtolaunch armed ... adjustedUT=1585.5
+#     invokerewindtolaunch complete rec=<guid> tree=<guid> adjustedUT=1585.5 elapsed=4.8s
+# `Captured rewind save at UT 1600.5`, `Total committed: 6 recordings, 3 trees`,
+# recordings.count=6, and NO `Rewind save skipped:` line at all this run.
+#
+# THE PRODUCED SAVE IS THE OTHER HALF OF THE CONFIRMATION: `status = Paused` (the
+# derivation flipped a route the player left Active), `pauseAfterCurrentCycle = False`,
+# `nextDispatchUT = 1585.4999999999995` (the cursor reset to the cutoff),
+# `completedCycles = 0`, `skippedCycles = 0`. **`sendOnceArmed` IS ABSENT FROM THE NODE,
+# NOT `False`**, and that is the codec omitting a default rather than a flag going
+# missing - the same shape `mergeState` has (`RecordingTreeRecordCodec` omits the key for
+# the default value and the loader defaults a missing key back to it). Any future facet or
+# grep asserting `sendOnceArmed = False` on these bytes would be asserting a spelling the
+# writer never emits; absence IS the cleared state.
+#
+# TWO CORRECTIONS TO FLIGHT 1'S OWN WRITE-UP, both from these bytes:
+#   * THE DISPATCHER EMITS NO `reject id=` LINE ON THIS PATH. Flight 1's
+#     `reject id=0016 cmd=InvokeRewindToLaunch reason=recording-active` came from the
+#     DISPATCH guard; when the verb itself refuses, the line is its own
+#     (`invokerewindtolaunch refused: ...`) and no `reject id=` is written. The
+#     `reason=recording-active` forbid below is therefore still exactly right - it can
+#     only match the dispatch-guard failure it was written for - but it is NOT the token
+#     that proves step 17 reached `ResolveTarget`; the required `ambiguous-tree` token is.
+#   * The flight-1 note that the promotion line "will appear on every green run from now
+#     on" is REFUTED: this run printed none. Stopping the recorder at step 15 before
+#     anything else runs is apparently enough that the promotion does not re-arm a second
+#     time. The forbid stays RETIRED anyway - it fired legitimately once, so it cannot be
+#     a gate - and the positive `Captured rewind save at UT ` token carries the claim.
+#
+# FLIGHT 1, 2026-09-02 (`2026-09-02_1010_..._a2`, attempts=2): INVALID
+# (driver-verdict-mismatch), NOT a PARSEK-FAIL - a DRIVER defect in this file, fixed
+# below. Both invokes were refused by the DISPATCH guard before either reached
+# `ResolveTarget`: `reject id=0016 cmd=InvokeRewindToLaunch reason=recording-active`,
+# same for 0017. Zero `invokerewindtolaunch target resolved` lines, zero
+# `invokerewindtolaunch complete`, zero reconcile lines; the produced save's ROUTES node
+# read `status = Active` with BOTH one-shot flags still True - correct for a run in which
+# no rewind happened, and a clean negative control for P3 by accident.
+#
+# WHAT RE-ARMED THE RECORDER, from the log and not from a guess. `CommitTree` did, 4 ms
+# after answering OK, and the promotion is its own auto-resume rather than anything this
+# file drives:
+#     13:10:56.732 [TestCommands]   committree committed=true
+#     13:10:56.735 [RecordingStore] Armed committed-tree restore attempt for 'B'
+#                                   (id=821b8202..., recordings=1, cutoffs=1,
+#                                    reason=TryTakeCommittedTreeForSpawnedVesselRestore)
+#     13:10:56.736 [Recorder]       Rewind save skipped: tree branch/chain promotion
+#     13:10:56.739 [Recorder]       Recording started: vessel="B", ..., promotion,
+#                                   treeRec=rec[a41fdece|B|tree|-]
+#     13:10:56.739 [Flight]         ResumeCommittedActiveRecording: resumed committed
+#                                   recording 'a41fdece...' on vessel 'B' pid=313889796
+#     13:10:56.902 recv id=0015 RouteCommand (send-once)   <- innocent
+#     13:10:57.149 recv id=0016 InvokeRewindToLaunch       -> reason=recording-active
+# The vessel the recording was taken of is STILL THE ACTIVE VESSEL when the tree commits,
+# so the committed-tree restore path adopts it back and resumes the same recording id in
+# place as a chain promotion. It is the mechanism RVR-2's prologue already documents at
+# SCENE ENTRY; the only new fact is that a driven `CommitTree` triggers it too. Neither
+# the send-once nor anything else between the commit and the invoke touches the recorder.
+#
+# THE FIX IS ONE STEP: `StopRecording` immediately after `CommitTree` (step 15 below).
+# That is what clears `ParsekFlight.HasLiveRecorderForTagging()`, which is BOTH the
+# dispatch guard that refused (`recording-active`) and `CanRewind`'s "Stop recording
+# before rewinding" reason.
+# `DiscardTree` IS DELIBERATELY *NOT* ADDED, and reading the verb is why. RVR-2's prologue
+# pairs the two, but that pairing is only safe when there is nothing to discard:
+# `DiscardTreeImpl` early-returns `nothing=true` on `!flight.HasActiveTree`, and after the
+# auto-resume `HasActiveTree` is TRUE - the resumed COMMITTED tree is the active tree. The
+# verb would then call `AutoDiscardActiveTreeWithMessage` and reap the sidecars of every
+# recording in it, i.e. delete the rewind subject this lane just committed. The prologue's
+# copy is safe because at scene entry the restore has not taken yet (flight 1 measured
+# exactly that: `stoprecording stopped=false idle=true` at 13:10:53.634); here it has.
+# ONE RESIDUAL, stated rather than hidden: `CanRewind` also refuses on `HasPendingTree`
+# ("Merge or discard pending tree first"). A plain `StopRecording` is not expected to
+# populate the pending slot - that slot is the post-revert limbo - but this has not been
+# measured on this path. If it does, the run reds LOUDLY and by name on the
+# `invokerewindtolaunch refused: rewind-gate` forbid rather than reading green, and the
+# answer is then to merge (`AnswerMergeDialog`) rather than to discard.
+#
+# The pre-registration below was written FIRST, before the machinery that lets the lane
+# test it existed, and it is UNCHANGED by that machinery landing. Read it before the
+# steps: the run's product is a reading against a written prediction, not a green tick.
+#
+# -------------------------------------------------------------------------------------
+# STEP 0 - THE PRE-REGISTRATION. Written BEFORE any run, so the reading run can only
+# confirm or refute it. What SHOULD an ACTIVE supply route do when the player rewinds a
+# flight back to its launch (the Recordings-table "R" button, `RecordingStore.
+# InitiateRewind` -> `ParsekScenario.HandleRewindOnLoad`)?
+#
+# PREDICTION (verbatim, and repeated unchanged in the package report):
+#
+#   The route neither retires nor pauses. It HOLDS. Specifically, at a go-back rewind
+#   with cutoff `RewindContext.RewindAdjustedUT`:
+#     (P1) A route whose `Route.CreatedUT` is AFTER the cutoff goes DORMANT - definition
+#          preserved, non-firing, non-tree-binding, listed only in the Logistics window's
+#          collapsed "Dormant Routes (N)" disclosure - and re-materializes PAUSED when the
+#          re-flown timeline reaches its `CreatedUT` again.
+#     (P2) A route whose `CreatedUT` is BEFORE the cutoff stays COMMITTED and keeps its
+#          status. Its forward-looking cycle state is reset (`ResetCycleStateForRewind`),
+#          its pause state is re-derived from the KEPT player-driven `RoutePaused` /
+#          `RouteResumed` ledger rows (`DeriveTimelineStatus`; latest player row wins,
+#          `AutoPause:` / `AutoResume:` rows skipped, a derived resume needs at least one
+#          kept player pause row), and its `CompletedCycles` / `SkippedCycles` are
+#          reconstructed from the kept dispatch/delivery rows.
+#     (P3) ARMED ONE-SHOTS DO NOT SURVIVE. `PauseAfterCurrentCycle` and `SendOnceArmed`
+#          are cleared UNCONDITIONALLY on every kept route, because the flags carry no
+#          timestamp and a phantom arm cannot be traced.
+#     (P4) Free-standing route ledger rows with `UT > cutoff` are RETIRED IN PLACE by
+#          `Ledger.RetireFutureRouteActionsAtRewind` (the go-back path preserves the
+#          in-memory ledger, so without the retire the Rec-1 rows would survive).
+#     (P5) For THIS lane's route specifically - created live over tree B, activated,
+#          paused, activated again, then Send-Once armed, all of it BEFORE any rewind
+#          cutoff a Rewind-to-Launch of that same session could produce - the kept-route
+#          derivation is: latest player row = `RouteResumed reason=player-activate`, at
+#          least one kept player `RoutePaused reason=player-pause` row exists, so the
+#          derived verdict is Active; `ApplyDerivedTimelineStatus` then changes NOTHING
+#          (a derived Active only un-pauses an explicitly `Paused` route), so
+#          `derivedPaused=0 derivedActive=0`, while `oneShotFlagsCleared=1` (P3).
+#          [P5 AMENDMENT, same authoring session, kept as an amendment rather than a
+#          silent rewrite: `RecordingStore.RewindToLaunchLeadTimeSeconds = 15.0` winds the
+#          cutoff back 15 s from the quicksave, and the lane's third player row (the
+#          activate at step 11) is written seconds before the recording starts - so that
+#          row is EXPECTED to fall after the cutoff and be retired, leaving the kept rows
+#          ending in a PAUSE and the derivation flipping the live Active route to Paused
+#          (`retiredRouteRows=1 derivedPaused=1`). P5's original reading is then the (a)
+#          branch, reached only if more than 15 s of game time separates steps 11 and 12.
+#          Both are named in "WHICH BRANCH THIS LANE EXERCISES" below with the
+#          discriminator; neither is pinned.]
+#
+#   LOG TOKENS the prediction says a successful rewind must print, all from
+#   `RouteRewindClassifier.ReconcileStoreAtRewind` under the go-back caller's tags
+#   ("Rewind" / "OnLoad go-back"):
+#     "OnLoad: go-back route reconcile at cutoff=<UT> retiredRouteRows=<n>
+#      committedRoutes=<n> dormantRoutes=<n>"      (ParsekScenario, always)
+#     "OnLoad go-back: routes at rewind cutoff <UT>: kept=<n> (reconciled=<n>)
+#      dormant=<n> (newly=<n>)"                    (only when newlyDormant>0 or reconciled>0)
+#     "OnLoad go-back: kept-route status fidelity at cutoff <UT>: derivedPaused=<n>
+#      derivedActive=<n> oneShotFlagsCleared=<n> countersReconstructed=<n>"
+#     and the Verbose "RewindReconcile: route <short> cleared armed one-shot flags ..."
+#
+#   SAVED `ROUTES` NODE afterwards: the route is still there with its definition intact,
+#   `status` unchanged from the pre-rewind value, the armed one-shot flags OFF, the
+#   cycle cursors reset, and any post-cutoff `RouteDispatched` / `RouteCargoDelivered` /
+#   `RoutePaused` / `RouteResumed` rows gone from the ledger. A route classified dormant
+#   moves OUT of the committed list into the sparse `DORMANT_ROUTES` list.
+#
+# DOC CITATIONS the prediction rests on (read, not remembered):
+#   docs/parsek-logistics-supply-routes-design.md:909 - the whole "Route existence window
+#     across a rewind (dormant routes, SHIPPED)" paragraph: dormant classification at a
+#     cutoff preceding `CreatedUT`; `MaterializeDueDormantRoutes` re-materializing Paused;
+#     `ResetCycleStateForRewind` for kept routes; `DeriveTimelineStatus`'s player-row
+#     rule and its auto-row skip; "unconditionally clears `PauseAfterCurrentCycle`/
+#     `SendOnceArmed` (armed one-shots carry no timestamp, so they cannot survive time
+#     travel)"; `ReconstructCycleCounters`; and "BOTH rewind exits run this reconciliation
+#     through the shared `RouteRewindClassifier.ReconcileStoreAtRewind` helper: the Re-Fly
+#     seam (`ReconciliationBundle.Restore(cutoff)`) and the plain go-back rewind
+#     (`ParsekScenario.HandleRewindOnLoad`, which additionally retires the abandoned-future
+#     free-standing route ledger rows in place via `Ledger.RetireFutureRouteActionsAtRewind`
+#     at the `RewindAdjustedUT` cutoff)".
+#   docs/parsek-logistics-supply-routes-design.md:905 - the pause/resume timeline rows:
+#     `player-pause` / `player-activate` reasons, the `AutoPause:` / `AutoResume:` prefixes,
+#     and "All rows are retired at a rewind whose cutoff precedes them".
+#   docs/parsek-logistics-supply-routes-design.md:1030 - Rec-1, why the retire exists
+#     ("funds charged, cargo never re-delivered").
+#   docs/dev/autotest-roadmap.md:2234 - the Send-Once wave's own instruction: "Send Once
+#     is now observable. The fix wave added grep-stable tokens: `ArmedPause:` with
+#     `reason=blocked-then-paused`, the delivered/blocked toasts, and
+#     `TrySendOneCycleNow:` with `PauseAfterCurrentCycle=true`. Pin these, not UI state."
+#   harness/scenarios/H6-route-rewind-timeline.toml header - what H6 does NOT reach:
+#     "the REAL HandleRewindOnLoad go-back scene load and RewindInvoker.ConsumePostLoad".
+#     That sentence is this lane's entire reason to exist.
+#
+# -------------------------------------------------------------------------------------
+# WHICH BRANCH THIS LANE EXERCISES, AND WHY IT IS THE KEPT ONE. P2/P5, decided and
+# ENGINEERED rather than hoped for. `RecordingStore.RewindToLaunchLeadTimeSeconds = 15.0`,
+# so the reconcile cutoff is (the StartRecording UT) - 15 s, and the branch is decided by
+# where `Route.CreatedUT` falls against it. The route is created at the host's boot UT
+# (~979 by RVR-2's measurement) and the lane then TimeJumps to 1600 BEFORE starting the
+# recording, so the cutoff lands near 1585 and the creation point sits ~600 s below it -
+# a margin no plausible seam latency can close. P1 (dormant) needs the mirror ordering
+# (create AFTER the recording starts) and is a separate lane, not a coin flip inside
+# this one.
+#
+# THE TIMEJUMP IS TAKEN WHILE THE ROUTE IS PAUSED, and that is the whole reason step 9
+# exists where it does. RVR-2's flight 1 MEASURED that an instantaneous TimeJump past
+# several loop periods produces a dock crossing the orchestrator acts on (`warp jump=21
+# ... firing ONCE and snapping forward`), so jumping an ACTIVE route would fire a cycle,
+# write dispatch / delivery rows, and turn P5's derivation into a different question.
+# `ProcessLoopRoute` runs only for the Active family, so a Paused route cannot dispatch
+# across the jump; the route is re-activated on the far side.
+#
+# WHAT THAT ORDERING PREDICTS, IN FULL, and NONE of it is pinned - it is the reading the
+# run exists to take. Three player rows are written: `RouteResumed player-activate` and
+# `RoutePaused player-pause` at ~979, then a second `RouteResumed player-activate` at
+# ~1600. The cutoff (~1585) falls BETWEEN the second and third, so:
+#     retiredRouteRows=1        the post-cutoff resume is retired in place
+#     kept player rows          [Resumed@979, Paused@979] -> the latest is a PAUSE
+#     derived verdict           Paused, and the live route IS Active, so the derivation
+#                               BITES: derivedPaused=1 derivedActive=0
+#     oneShotFlagsCleared=1     the Send Once armed at step 15 never fired (P3)
+#     countersReconstructed=0   no dispatch row exists to reconstruct from
+#     dormant=0 (newly=0)       CreatedUT is ~600 s below the cutoff
+#   and the produced save's ROUTES node should read the route back PAUSED with both
+#   one-shot flags OFF - a route the player left Active, wound back to the pause the
+#   surviving timeline actually records. THAT IS THE POINT OF THE LANE: the derivation
+#   doing something visible rather than being a no-op.
+# TWO OTHER READINGS ARE LEGITIMATE AND THE HEADER NAMES THEM SO NEITHER IS READ AS A
+# DEFECT. (a) If more than 15 s of game time elapses between step 11 and step 12 the
+# third row is KEPT too, the latest player row is a resume, the resume-needs-a-recorded-
+# pause gate is satisfied by the kept pause, and the verdict is Active - which changes
+# NOTHING (a derived Active only un-pauses an explicitly Paused route), giving
+# `retiredRouteRows=0 derivedPaused=0 derivedActive=0`. `retiredRouteRows=` is the
+# discriminator between (a) and the main reading. (b) The rewind reloads a quicksave
+# taken 15 s earlier in which BOTH rovers are alive, and they are additionally protected
+# by `RewindContext.RewindQuicksaveVesselPids`, so no strip is expected - but if the
+# route's source or endpoint did lose its vessel, `RevalidateSources` would land a
+# validity status and `ApplyDerivedTimelineStatus` would take its validity branch,
+# writing the derived verdict to `PreMissingStatus` and logging `preMissingStatus X->Y
+# reason=rewind-status-derivation` instead. That is the seam working, not a failure.
+#
+# -------------------------------------------------------------------------------------
+# WHAT MADE THIS LANE POSSIBLE, AND WHAT IS STILL TRUE ABOUT THE FIXTURES. Rewind-to-Launch
+# needs a subject carrying a launch quicksave, and `RecordingStore.CanRewind` refuses
+# "No rewind save available" without one. That is still true of every committed recorded
+# fixture and is POLICY rather than decay: `harvest_bdock_station.py` prunes `Parsek/Saves`
+# and clears the hint, and `build_rover_route_recorded.py` gates the absence in both
+# directions (`FORBIDDEN_DIR_NAMES` contains `"Saves"`; `verify_tree` reds on "a rewindSave
+# = parsek_rw_* hint survived", rationale "INV9's dangling-hint WARN depends on it"). So
+# this lane does NOT rewind a fixture tree: it PRODUCES its own subject in-run.
+# `FlightRecorder.CaptureRewindSave` writes the `parsek_rw_*` quicksave at every
+# NON-PROMOTION recording start, and after the prologue's `StopRecording` + `DiscardTree`
+# there is no active tree and no chain, so `ParsekFlight.StartRecording`'s
+# `isContinuation` is false, a fresh single-node tree is created, and the quicksave is
+# captured. `CommitTree` then APPENDS it to `RecordingStore.CommittedTrees`.
+# THE SECOND HALF OF THAT ROAD WAS CLOSED UNTIL THIS COMMIT: a freshly committed tree's
+# id is a runtime `Guid`, the harness has exactly one spec-side substitution
+# (`${runSave}`), and the bare auto-select refuses `ambiguous-tree` over the host's two
+# committed trees. `InvokeRewindToLaunch tree=latest` (added in the same commit as this
+# spec; contract in `docs/dev/design-autotest-command-seam.md` -> `#### D12/A2`) names the
+# most recently committed tree - last in the append-ordered `CommittedTrees` list - which
+# is exactly the tree step 14 just committed. The id path is untouched and still wins, and
+# the BARE call still refuses, which step 16 keeps as a live negative control.
+#
+# -------------------------------------------------------------------------------------
+# ORDERING IS LOAD-BEARING, and each step says why.
+#   1-5  THE PROLOGUE, RVR-2's verbatim and for its reasons: the committed-tree restore
+#        path resumes a promotion-stub recording ~1 s into the scene before any step can
+#        run, `StopRecording` is idempotent-OK, `DiscardTree` answers OK with
+#        nothing-discarded when no plain tree is live (and it discards the LIVE plain
+#        tree, NEVER a committed one, which is why it is safe on a lane whose subject is
+#        committed trees), and the two `SetSetting`s stop a later auto-record and arm the
+#        Verbose lines several tokens below need. HERE THE PROLOGUE IS ALSO LOAD-BEARING
+#        FOR THE SUBJECT: it is what leaves `activeTree == null` with no chain, which is
+#        what makes step 12's start a NON-PROMOTION and therefore quicksave-capturing.
+#   6    SealSlot tree=B -> the idempotent no-op on an already-fully-sealed tree, kept
+#        from RVR-2 because it makes the create's precondition an ASSERTED fact.
+#   7    RouteCommand create over tree B -> one route, `status=Paused` (the service's
+#        `initialStatus: Paused`), `interval=` OMITTED so the driven create takes the same
+#        `ComputeRootToUndockSpan` default a player create takes.
+#   8    RouteCommand activate  -> Paused->Active, emits `RouteResumed player-activate`.
+#   9    RouteCommand pause     -> Active->Paused, emits `RoutePaused  player-pause`. THE
+#        ROUTE IS LEFT PAUSED ACROSS THE JUMP ON PURPOSE (see above).
+#   10   TimeJump ut=1600       -> ~620 s forward, no dispatch possible while Paused. This
+#        is what puts `Route.CreatedUT` unambiguously below the rewind cutoff.
+#   11   RouteCommand activate  -> Paused->Active again, the third and last player row.
+#   12   StartRecording         -> the SUBJECT. Captures `parsek_rw_*` and fixes the
+#        cutoff at (this UT) - 15 s.
+#   13   StopRecording          -> S0.6's shape: start / stop / commit with essentially no
+#        elapsed game time is an established green sequence, so no spacer steps.
+#   14   CommitTree             -> the third committed tree; `latest` now resolves to it.
+#        IT ALSO AUTO-RESUMES A RECORDER on the still-active vessel (flight 1's whole
+#        defect; see the FLIGHT 1 block at the top), which is what step 15 exists for.
+#   15   StopRecording          -> THE FIX. Clears `HasLiveRecorderForTagging`, which is
+#        both the dispatch `recording-active` guard that refused flight 1 and `CanRewind`'s
+#        "Stop recording before rewinding". `stopped=true idle=false` is its ACK; NOT a
+#        no-op here, unlike the prologue's copy. Placed immediately after the commit so no
+#        step runs while a recorder is live.
+#   16   RouteCommand send-once -> arms `SendOnceArmed` + `PauseAfterCurrentCycle`. AFTER
+#        the commit and with NO further TimeJump, so nothing can fire between the arm and
+#        the rewind and P3's `oneShotFlagsCleared=1` is about an arm that is genuinely
+#        still standing.
+#   17   InvokeRewindToLaunch (no arg) -> REJECTED `ambiguous-tree`. A cheap negative
+#        control that costs one refusal, and it is not decoration: `committedTrees=3` is
+#        the only assertion in the file that step 14 produced a THIRD tree rather than
+#        updating an existing one, and it proves the keyword did not relax the bare rule.
+#        FLIGHT 1 PROVED `expect = "REJECTED"` ALONE IS NOT ENOUGH: a refusal for the
+#        WRONG REASON (`recording-active`, never reaching `ResolveTarget`) satisfies the
+#        step verdict and reads met=True. The required `ambiguous-tree` token and the new
+#        `reason=recording-active` forbid are what make this step sharp.
+#   18   InvokeRewindToLaunch tree=latest -> OK. Two-phase; completion is
+#        `!IsRewinding && scene == SPACECENTER && !deferredAdjustmentPending`, all three
+#        halves, so the terminal only arrives once `HandleRewindOnLoad` has reached its
+#        `EndRewind()` tail AND `ApplyRewindResourceAdjustment` has drained.
+#   19   SaveGame -> the produced save carries the POST-rewind ROUTES node, which is what
+#        the P5 routes facet will read (see the TODO below).
+#   20   FlushAndQuit.
+#
+# THE ROUTE IS ADDRESSED BY NAME on every operation, RVR-2's reason verbatim:
+# `TestCommandRouteCommand.ResolveRoute` accepts either spelling and reports `match=`,
+# and a name is what a reader of this file can check against the create step; an id would
+# have to be harvested from a run first, which a never-flown spec cannot do.
+description = "D12 route x rewind, FLOWN: create and drive a real supply route over the committed rover-route trees (the suite's first driven route pause/activate), produce a rewindable subject in-run (StartRecording -> CommitTree), then Rewind-to-Launch it through tree=latest and read what the go-back reconcile did to the kept route."
+instanceProfile = "stock-minimal"
+tags = ["route", "rewind", "logistics", "route-x-rewind", "rewind-to-launch", "H58", "D12"]
+
+[fixture]
+# RVR-1/2/3's host, unchanged and unre-harvested: two committed trees, five recordings,
+# one TARGET-branch ROUTE_CONNECTION_WINDOWS node, no ROUTES node (which is what gives
+# the create something to do), no mergeState key anywhere (both trees already sealed).
+saveTemplate = "fixtures/saves/rover-route-recorded"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                    expect = "OK" },
+  { cmd = "DiscardTree",                                                      expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" },  expect = "OK" },
+  { cmd = "SealSlot",     args = { tree = "73e50f1e3aa24c299919016cd9e92269" }, expect = "OK", budget = 120 },
+  { cmd = "RouteCommand", args = { action = "create", tree = "73e50f1e3aa24c299919016cd9e92269", name = "H58 Rover Supply" }, expect = "OK", budget = 120 },
+  { cmd = "RouteCommand", args = { action = "activate",  route = "H58 Rover Supply" }, expect = "OK", budget = 120 },
+  { cmd = "RouteCommand", args = { action = "pause",     route = "H58 Rover Supply" }, expect = "OK", budget = 120 },
+  { cmd = "TimeJump",     args = { ut = "1600" },                             expect = "OK", budget = 300 },
+  { cmd = "RouteCommand", args = { action = "activate",  route = "H58 Rover Supply" }, expect = "OK", budget = 120 },
+  { cmd = "StartRecording",                                                   expect = "OK", budget = 180 },
+  { cmd = "StopRecording",                                                    expect = "OK" },
+  { cmd = "CommitTree",                                                       expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                    expect = "OK" },
+  { cmd = "RouteCommand", args = { action = "send-once", route = "H58 Rover Supply" }, expect = "OK", budget = 120 },
+  { cmd = "InvokeRewindToLaunch",                                             expect = "REJECTED", budget = 300 },
+  { cmd = "InvokeRewindToLaunch", args = { tree = "latest" },                 expect = "OK", budget = 300 },
+  { cmd = "SaveGame",                                                         expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                     expect = "OK" },
+]
+
+[dimensionsCovered]
+# DECLARED 2026-09-02, IN THE COMMIT THAT MEASURED IT - the CLAIM-IS-NOT-GATE rule
+# satisfied rather than waived. `route-x-rewind` was H6's SYNTHETIC claim: H6 drives the
+# reconciliation through `ReconciliationBundle.Restore(cutoff)` from an in-game test, and
+# its own header names what it cannot reach - "the REAL HandleRewindOnLoad go-back scene
+# load". That is exactly what flight 2 drove: a real `RecordingStore.InitiateRewind`, a
+# real KSP scene reload into SPACECENTER, and `ParsekScenario.HandleRewindOnLoad`'s own
+# `Ledger.RetireFutureRouteActionsAtRewind` + `RouteRewindClassifier.ReconcileStoreAtRewind`
+# pass over the live `RouteStore`. H6 KEEPS the cell as the synthetic declarer; this is
+# the FLOWN one, and the two are complementary rather than duplicate.
+# WHAT GATES IT, so the claim is not a sentence: the three reconcile tokens below are
+# `required` with their measured counts (`retiredRouteRows=1 committedRoutes=1
+# dormantRoutes=0`, `kept=1 (reconciled=1) dormant=0`, `derivedPaused=1 derivedActive=0
+# oneShotFlagsCleared=1 countersReconstructed=0`), so a regression that skips the go-back
+# reconcile, dormants the wrong route, stops retiring post-cutoff rows or stops clearing
+# the armed one-shots reds this lane by name.
+# NOT CLAIMED: D9 `reconciliation-bundle` (this is the go-back exit, NOT
+# `ReconciliationBundle.Restore` - two callers of one shared helper, and conflating them
+# is the whole distinction this lane exists to draw) and D8 `route` (H6 owns it on the
+# same evidence class; a second declarer would add a claim without adding a gate).
+D10 = ["route-x-rewind"]
+D14 = ["sandbox", "scene-flight"]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING (the H7 lesson): a bare key written after an
+# `[expectations.<sub>]` header is TOML-scoped to that sub-table and never read.
+# `hlib.validate_spec` rejects the misplaced form, so this stays ahead of the sub-tables.
+# No tracer and no render-composition block is armed by this spec, so the empty list is
+# honest.
+#
+# NO `[expectations.ledger]` BLOCK, AND IT IS NOT AN OVERSIGHT: `hlib.validate_spec`
+# REFUSES the pairing outright ("a rewind/merge rewrites the career pools the seed+manifest
+# contract cannot model; the rewound-career ledger oracle is DEFERRED to L4"). This lane
+# restores a quicksave, so its post-rewind career pools are whatever that file carried.
+allowedAnomalies = []
+
+# THE M-C2 `saveParse` ROUTES FACET, REPORT-ONLY AND DELIBERATELY NOT ARMED.
+# `harness/lib/saveparse.py`'s `[expectations.routes]` evaluator LANDED ON MAIN 2026-09-02
+# (PR #1603), so as of this branch's merge of `41f0f1415` this block is EVALUATED on every
+# driver-valid run rather than inert. It is REPORT-ONLY: no `gating = true`, and
+# `ARMED_ALLOWLIST` in `harness/lib/test_hlib.py` does not name this spec.
+# **IT HAS NOT BEEN READ ON A RUN YET.** The three greens flown so far (`_1020`, `_1033`
+# and the negative control) all predate the facet reaching this branch, so no result JSON
+# carries a `routes` row for H58. The offline evaluation below is a strong pre-check
+# against the real evaluator and the real bytes - it is NOT a reading run, and the
+# standing protocol counts only the latter.
+# WHY IT IS DECLARED NOW ANYWAY: flight 2's produced save is the first save in the suite
+# that carries a route THROUGH a real go-back rewind, so it is the exact bytes the facet
+# exists to read, and declaring the block in the same commit as the flight means the
+# next run reports something rather than a blank row.
+#
+# EVALUATED OFFLINE against flight 2's produced-save snapshot using THAT BRANCH'S
+# `saveparse.py` (not a re-implementation): `parse_parsek_scenario` -> parsed=True,
+# scenarioFound=True; `validate_routes_expectations` -> no errors;
+# `evaluate_save_structure` -> status=REPORT, gating=False, mismatches=() - ZERO. The
+# measured facets it read: count=1 dormant=0 stops=1 sourceRefs=2 completedCycles=0
+# skippedCycles=0 codecRejects=0 unparsed=0 unknownStatuses=0
+# statuses={Paused: 1} connectionKinds={DockingPort: 1} originBodies={Kerbin: 1}
+# destinationBodies={Kerbin: 1}.
+#
+# ARMING FOLLOWS, and only after (b): this block has been READ on an actual run whose
+# facets match these windows (the standing report-only-first protocol). (a) - the facet
+# being on `main` - is now SATISFIED. `ARMED_ALLOWLIST` in `harness/lib/test_hlib.py` is
+# deliberately UNTOUCHED, and arming it is a per-scenario operator decision, not a
+# consequence of this commit.
+#
+# WHAT THE FOUR WINDOWS ASSERT, and none is a run-local literal: the route survived the
+# rewind as a COMMITTED route rather than being dormanted or dropped (`count` exact 1,
+# `dormant` max 0 - the P1/P2 branch discriminator in the SAVE rather than in the log),
+# and the derivation's verdict landed in the bytes (`statuses.Paused` exact 1 - the route
+# was Active when the rewind started). The two cycle counters at max 0 pin
+# `countersReconstructed=0`'s consequence: no dispatch row existed to reconstruct from, so
+# a future edit that let a cycle fire before the rewind would red here as well as in the
+# log. `ids` / `destinationVesselPids` are NOT declared: the route id is a per-run Guid,
+# and the pid, while stable, is RVR-2's fixture claim rather than this lane's.
+# `sendOnceArmed` is NOT declared because the codec OMITS the key when False (see the
+# FLIGHT 2 block above) - a facet asserting a spelling the writer never emits would be
+# asserting nothing.
+[expectations.routes]
+count           = { min = 1, max = 1 }
+dormant         = { max = 0 }
+completedCycles = { max = 0 }
+skippedCycles   = { max = 0 }
+statuses        = { Paused = { min = 1, max = 1 } }
+
+[expectations.recordings]
+# EXACT AT 6, both bounds, and the arithmetic is 5 + 1.
+#   5  the staged corpus. RVR-1 and RVR-2 both MEASURED 5 on these bytes (no load-time
+#      optimizer split happens on this corpus - a property of the bytes, not of the lane),
+#      and RVR-2's header states the floor's purpose: this lane holds `SOURCE` references
+#      into that corpus which `RouteStore.RevalidateSources` compares against a live
+#      rebuild, so a recording destroyed mid-run would flip the fresh route to
+#      `SourceChanged` and present as a route defect rather than as data loss.
+#   1  the rewind SUBJECT this lane commits at step 14. A landed rover recorded for
+#      about a second with no staging, no boundary and no warp DURING the recording (the
+#      TimeJump is at step 10, before the recorder exists), so there is nothing for the
+#      optimizer to split and `CommitTree` commits a single-node tree.
+# 7 would mean the subject split or something re-committed; 5 would mean the subject was
+# never committed and the rewind at step 18 could not have had a target - which the
+# `Total committed: 6 recordings, 3 trees` token below reads independently, one layer
+# earlier and with the tree count attached.
+# MEASURED 6 ON FLIGHT 1 (`observed.recordings.count = 6`), and the number is UNCHANGED by
+# the step-15 fix: `CommitTree`'s auto-resume RESUMES the same recording id in place
+# (`ResumeCommittedActiveRecording: resumed committed recording 'a41fdece...'`) rather
+# than creating a new one, so the sub-second tail that step 15 now stops is appended to a
+# recording already counted. Nothing in the rewind deletes recordings either.
+count = { min = 6, max = 6 }
+
+[expectations.logContracts]
+# NEVER FLOWN. Every token below is a literal RUN taken from the emitting
+# `string.Format` / interpolation in source, never a line pasted from a log: an
+# interpolated string is not stored the way it renders, and a token spanning a hole (or
+# an em dash) cannot match. THE DISCIPLINE THIS FILE HOLDS TO: a token is `required` only
+# when the emitting line is UNCONDITIONAL on the path the steps drive. Everything whose
+# VALUE is the question - every count in the reconcile lines, the derived status, the
+# retired-row count - is left to the reading run and named in the header instead. Pinning
+# a prediction is how a correct run reds.
+#
+# TOKEN 1  THE BOOT, from `TestCommandLoadGame`. Pins `scene=FLIGHT` one layer earlier
+#          than anything else, where a failure is legible as a boot fault rather than as
+#          a route or rewind defect. Measured on this exact fixture by RVR-1/RVR-2.
+#
+# TOKEN 2  THE SEAL NO-OP, from `ParsekTestCommandAddon.SealSlot.cs`'s `SealWholeTree` OK
+#          branch. `remaining=0` is a LITERAL in the format string, so
+#          `remaining=0 alreadySealed=True` is one contiguous run: `sealed=0` says nothing
+#          was sealed and `alreadySealed=True` says the verb recognised that as success.
+#          `total=4` is tree B's recording count, so a tree that lost a member reds here
+#          rather than at the create. MEASURED by RVR-2 flight 1 verbatim.
+#
+# TOKEN 3  THE CREATE GATE WALK, from `RouteCommandCreate`'s pre-decision Info line - the
+#          only line that names WHY a create was allowed. On a red run it discriminates
+#          "not sealed" from "analysis found it ineligible" from "a route already claims
+#          the source". MEASURED by RVR-2 flight 1.
+#
+# TOKEN 4  THE CREATE ACK. `status=Paused` is the service's `initialStatus: Paused`, which
+#          is what makes step 8's activate a real transition. The interval / transit /
+#          cadence values are NOT pinned: they are computed floats from two recorded UTs,
+#          and pinning one on an unflown spec is how a correct run reds on rounding.
+#
+# TOKENS 5-8  THE PLAYER-INTENT LIFECYCLE PAIR - the surface the whole rewind derivation
+#          reads. Each verb ACK is pinned NEXT TO the ledger marker it should have caused,
+#          because they are two different claims and a regression can take one without the
+#          other:
+#          5  `routecommand complete action=activate ... statusBefore=Paused status=Active`
+#             is the seam's read-back of `RouteOrchestrator.TryActivate` (from the shared
+#             `RouteCommandOperate` OK line, whose `statusBefore=`/`status=` pair renders
+#             with no hole between the key and the enum name).
+#          6  `LifecycleMarker: route .* type=RouteResumed reason=player-activate ut=` is
+#             the persisted timeline row. The trailing ` ut=` is REQUIRED and is H6's
+#             lesson verbatim: the emission renders "... reason=X ut=<UT> seq=...", while
+#             `RouteOrchestrator`'s "SKIPPED - live UT unresolved" warn puts " SKIPPED"
+#             where the emission puts " ut=". Without the suffix the token would match the
+#             line that says the row was NOT written - and a bogus-UT row is exactly what
+#             would survive a rewind cutoff it should not have.
+#          7  the pause ACK, `statusBefore=Active status=Paused`.
+#          8  `type=RoutePaused reason=player-pause ut=`, same ` ut=` rule.
+#          H6 pins tokens 6 and 8's shapes too, but from IN-GAME synthetic routes; here
+#          they are produced by the seam over a real committed-tree route, which is the
+#          first time in the suite. The SECOND activate (step 11) emits another copy of
+#          token 6 and is deliberately NOT separately pinned - `logContracts` is
+#          presence-only and cannot count (roadmap fail-open risk 1), so a second
+#          identical token would assert nothing.
+#
+# TOKEN 9  THE QUICKSAVE, from `FlightRecorder.CaptureRewindSave`'s Info line
+#          ("Captured rewind save at UT {ut}: vessel ..."), pinned as the leading literal
+#          run before the first hole. THIS IS THE STEP THAT MAKES THE LANE POSSIBLE and it
+#          is the one with a real alternative outcome: if step 12's start were treated as
+#          a PROMOTION the recorder would print "Rewind save skipped: tree branch/chain
+#          promotion" instead, no quicksave would exist, and the rewind would refuse
+#          `rewind-gate No rewind save available`. Pinning the POSITIVE line makes that
+#          failure legible HERE rather than five steps later.
+#          MEASURED on flight 1: `Captured rewind save at UT 1600.48: vessel "B" in
+#          LANDED (save: parsek_rw_fd00e9)`. The mirror FORBID this file used to carry -
+#          `Rewind save skipped: tree branch/chain promotion` - IS RETIRED, and flight 1
+#          is why: the line fires LEGITIMATELY from `CommitTree`'s own auto-resume, four
+#          milliseconds after the commit and entirely outside step 12, so as a bare
+#          forbid it reds every correct run. Re-derived rather than re-tuned: the fix
+#          added at step 15 STOPS that recorder but cannot prevent the promotion that
+#          already happened, so the line will fire on every green run of this lane from
+#          now on. The positive token is the whole assertion.
+
+# TOKEN 9b THE FIX'S OWN ACK, `stoprecording stopped=true idle=false` (step 15). HONEST
+#          LIMIT: step 13's StopRecording renders the identical string, and `logContracts`
+#          is presence-only and cannot count, so this token does NOT prove step 15 fired -
+#          it only proves that at least one stop found a live recorder. The real gate on
+#          the defect is the `reason=recording-active` FORBID below, which asserts the
+#          absence directly at the moment that matters.
+#
+# TOKEN 10 THE COMMIT, from `RecordingStore`'s commit line. `Total committed: 6 recordings,
+#          3 trees` is one contiguous literal run after the last hole and it is TWO
+#          assertions: the subject recording joined the corpus (6 = 5 + 1, agreeing with
+#          `[expectations.recordings]` one layer out) and it arrived as a THIRD TREE rather
+#          than updating an existing one - which is what makes `tree=latest` resolve to it.
+#
+# TOKEN 11 THE ARM, from `RouteOrchestrator.TrySendOneCycleNow`'s Info line - the long tail
+#          after the last hole, the most distinctive literal the method owns. The roadmap's
+#          Send-Once lesson names this token by hand. MEASURED by RVR-2 flight 1.
+#
+# TOKEN 12 THE NEGATIVE CONTROL (step 17). From the target-resolution Warn line,
+#          `$"invokerewindtolaunch refused: {reason} tree={treeArg ?? ""} committedTrees={n}"`;
+#          with the arg omitted the empty hole collapses and the two literal runs meet, so
+#          the line reads `... ambiguous-tree tree= committedTrees=3`. `committedTrees=3`
+#          is THE assertion - the product reading back that a third tree now exists - and
+#          the refusal itself proves the new keyword did NOT relax the bare-call rule.
+#
+# TOKEN 13 THE NEW MACHINERY, MEASURED (step 18). From the applier's resolution line added
+#          with the `tree=latest` spelling:
+#          `invokerewindtolaunch target resolved tree=<id> resolvedBy=LatestKeyword arg=latest committedTrees=3`.
+#          `resolvedBy=LatestKeyword` is the whole point: the `invoking` line names the
+#          tree but not the RULE, and this is the only proof the lane rewound the tree it
+#          had just committed rather than one the fixture shipped. The tree ID is a runtime
+#          Guid and is left to a regex - that it CANNOT be written here is the reason the
+#          keyword exists.
+#
+# TOKEN 14 THE PRODUCT ENTRY POINT, `Rewind-to-Launch initiated to UT` from
+#          `RecordingStore.BeginRewindForOwner`. Pinned separately from the seam's own
+#          lines because it is the PRODUCT saying the rewind started, not the verb saying
+#          it asked - GS-4 pins the same token for the same reason.
+#
+# TOKEN 15 THE SEAM TERMINAL, `invokerewindtolaunch complete rec=` (GS-4's token
+#          verbatim). It is emitted ONLY on the three-part CompleteOk conjunction, so it
+#          asserts that the rewind flags cleared, the scene settled in SPACECENTER, AND
+#          the deferred post-load adjustment drained. A rewind that failed or timed out
+#          reaches an ERROR terminal and this line never renders.
+#
+# TOKEN 16 THE SUBJECT OF THE LANE: `OnLoad: go-back route reconcile at cutoff=` from
+#          `ParsekScenario.HandleRewindOnLoad`. UNCONDITIONAL on this path - it is logged
+#          before `RouteRewindClassifier.ReconcileStoreAtRewind` on every go-back rewind,
+#          with no route-count gate - so pinning the PREFIX asserts that the go-back route
+#          seam ran at all, which is the thing H6's header says it cannot reach. Its
+#          VALUES (`retiredRouteRows=`, `committedRoutes=`, `dormantRoutes=`) are the
+#          reading and are deliberately outside the token.
+#
+# TOKENS 17-20  THE PREDICTION, NOW MEASURED AND PINNED WITH ITS COUNTS. Before flight 2
+#          these four were deliberately absent - "pinning a prediction is how a correct run
+#          reds". Flight 2 read them and every number matched the header, so they are pinned
+#          from the BYTES, not from the derivation:
+#          17 `OnLoad: go-back route reconcile at cutoff=<UT> retiredRouteRows=1
+#             committedRoutes=1 dormantRoutes=0` - P4 (the post-cutoff `RouteResumed` row
+#             retired in place) and the P1/P2 branch (`dormantRoutes=0`) in one line.
+#          18 `... routes at rewind cutoff <UT>: kept=1 (reconciled=1) dormant=0 (newly=0)`.
+#             This line is CONDITIONAL (`newlyDormant > 0 || reconciled > 0`), which is why
+#             it was unpinnable before: `reconciled=1` is exactly what makes it print, and
+#             it is now measured. A regression that stopped resetting the kept route's cycle
+#             cursors would silence the line and red HERE.
+#          19 `... kept-route status fidelity at cutoff <UT>: derivedPaused=1 derivedActive=0
+#             oneShotFlagsCleared=1 countersReconstructed=0` - THE CENTRAL ASSERTION of the
+#             lane. `derivedPaused=1` is the derivation biting (a route the player left
+#             Active read back Paused from the kept rows), `oneShotFlagsCleared=1` is P3.
+#          20 `RewindReconcile: route <id> cleared armed one-shot flags` - P3's own witness,
+#             one layer below token 19's count, and Verbose (which is why step 5 arms
+#             `verboseLogging`). The route id is a per-run Guid: regexed, never written.
+#          THE CUTOFF IS A BAND, NOT A VALUE. Flight 2 read 1585.4999999999995, derived from
+#          a quicksave at UT 1600.5 minus the 15.0 s lead; flight 1's quicksave was at
+#          1600.48, so the exact spelling moves run to run with seam latency after the jump.
+#          `158[4-7]\.[0-9]+` is the honest band: it accepts a StartRecording anywhere in
+#          [1599, 1603), i.e. the TimeJump's 1600 target plus up to ~3 s of seam latency,
+#          and it CANNOT accept a cutoff from a missed jump (~964) or from a changed lead
+#          time (~1600). Pinning `1585\.4999` would red a correct run that started the
+#          recording 20 ms earlier.
+#          The two guid-shaped ids on tokens 13 / 15 / 16 are `[0-9a-f]{32}` rather than
+#          `.*` for the same reason a run-local literal is banned: the SHAPE is stable and
+#          asserting it costs nothing, while the value is per-run.
+#
+# WHAT IS STILL DELIBERATELY NOT PINNED:
+#   * `RewindReconcile: route ... cycle state reset at cutoff=... status=Active` - the
+#     sibling Verbose line. It says the same thing token 18's `reconciled=1` already
+#     gates, and its `status=Active` is the PRE-derivation status, which reads as a
+#     contradiction of token 19 unless the reader knows the ordering. Left out on
+#     legibility grounds, not evidence grounds.
+#   * Any dispatch / delivery / `ArmedPause:` token: nothing fires here by construction
+#     (the only TimeJump happens while the route is Paused), and RVR-2 owns that half green.
+#   * Anything from the produced save: that is the `[expectations.routes]` block's job.
+required  = [
+  "loadgame complete scene=FLIGHT save=.* game-loaded=true expected=Flight",
+  "sealslot complete mode=tree tree=73e50f1e3aa24c299919016cd9e92269 total=4 sealed=0 remaining=0 alreadySealed=True",
+  "routecommand create gate tree=73e50f1e3aa24c299919016cd9e92269 treeFound=True dismissed=False sealed=True eligible=True status=Eligible alreadyPromoted=False refusal=None",
+  "routecommand complete action=create tree=73e50f1e3aa24c299919016cd9e92269 route=.* name='H58 Rover Supply' status=Paused",
+  "routecommand complete action=activate route=.* name='H58 Rover Supply' match=.* statusBefore=Paused status=Active",
+  "LifecycleMarker: route .* type=RouteResumed reason=player-activate ut=",
+  "routecommand complete action=pause route=.* name='H58 Rover Supply' match=.* statusBefore=Active status=Paused",
+  "LifecycleMarker: route .* type=RoutePaused reason=player-pause ut=",
+  "Captured rewind save at UT ",
+  "Total committed: 6 recordings, 3 trees",
+  "stoprecording stopped=true idle=false",
+  "PauseAfterCurrentCycle=true \\(route will dispatch one cycle when conditions allow, then transition to Paused\\)",
+  "invokerewindtolaunch refused: ambiguous-tree tree= committedTrees=3",
+  "invokerewindtolaunch target resolved tree=[0-9a-f]{32} resolvedBy=LatestKeyword arg=latest committedTrees=3",
+  "invokerewindtolaunch invoking tree=[0-9a-f]{32} rec=[0-9a-f]{32} startUT=[0-9]+\\.[0-9]+ - plain Rewind-to-Launch \\(NOT a Re-Fly\\)",
+  "Rewind-to-Launch initiated to UT",
+  "invokerewindtolaunch complete rec=[0-9a-f]{32} tree=[0-9a-f]{32} adjustedUT=158[4-7]\\.[0-9]+ elapsed=",
+  "OnLoad: go-back route reconcile at cutoff=158[4-7]\\.[0-9]+ retiredRouteRows=1 committedRoutes=1 dormantRoutes=0",
+  "OnLoad go-back: routes at rewind cutoff 158[4-7]\\.[0-9]+: kept=1 \\(reconciled=1\\) dormant=0 \\(newly=0\\)",
+  "OnLoad go-back: kept-route status fidelity at cutoff 158[4-7]\\.[0-9]+: derivedPaused=1 derivedActive=0 oneShotFlagsCleared=1 countersReconstructed=0",
+  "RewindReconcile: route [0-9a-f]+ cleared armed one-shot flags",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  # THE FLIGHT-1 DEFECT, as a gate. Both invokes were refused by the DISPATCH guard
+  # before either reached `ResolveTarget`, and `expect = "REJECTED"` on step 17 read
+  # met=True on that WRONG reason. This forbid is what makes a live recorder at either
+  # invoke impossible to pass off as the ambiguity refusal - it is the sharp half of
+  # step 17's expectation, paired with the required `ambiguous-tree` token.
+  "reject id=[0-9]+ cmd=InvokeRewindToLaunch reason=recording-active",
+  # The gate refusal this lane exists to have stopped seeing: any `rewind-gate` reason
+  # means step 18 never started a rewind. Deliberately the PREFIX, so all four
+  # `CanRewind` reasons red here - including "Merge or discard pending tree first", the
+  # one residual the FLIGHT 1 block names as unmeasured on this path.
+  "invokerewindtolaunch refused: rewind-gate",
+]
+
+[runtime]
+# Budget arithmetic (M-A5 S8). `run.py` gives EVERY deferred seam verb
+# `required_step_wait(max(step budget, SEAM_FALLBACK_DEFERRAL_SECONDS=600))` = 660 s
+# regardless of the declared step budget. FOUR steps are deferred verbs here - LoadGame,
+# the TimeJump, and both InvokeRewindToLaunch calls - so the worst case is 660 x 4 = 2640;
+# the synchronous seal / route / record / commit / save verbs add their own budgets on
+# top. 3600 clears it with headroom.
+#
+# ONLY STEP 18 CAN ACTUALLY BE SLOW. Step 17 refuses synchronously inside Execute
+# (`ResolveTarget` runs before anything else), so it never reaches the two-phase decider.
+# Step 18 straddles a whole KSP scene reload into SPACECENTER and then waits on the
+# deferred post-load adjustment coroutine (~2 s after the flags clear), which is why its
+# declared budget is the 300 s the verb's own `DeferralBudget` row carries. MEASURED on
+# flight 2: the whole run took 62 s wall, of which the rewind step reported
+# `elapsed=4.8s` - so the 3600 s ceiling is two orders of magnitude of headroom and the
+# scene reload is not the cost centre.
+budgetSeconds = 3600
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

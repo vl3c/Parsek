@@ -2634,6 +2634,51 @@ moved is that no further authoring stands between them and a flight.
     no run has evaluated.**
 12. **Route x rewind, flown.** H6 covers the timeline synthetically;
     a rover-route rewind variant makes `route-x-rewind` a flown claim.
+    **DONE 2026-09-02: LIVE-PROVEN, AND `route-x-rewind` IS NOW A FLOWN CLAIM**
+    (`harness/scenarios/H58-route-rewind-to-launch.toml`, run
+    `2026-09-02_1020`, 62 s, PASS attempt 1, re-tiered nightly). The
+    pre-registration was CONFIRMED on every number - `retiredRouteRows=1
+    committedRoutes=1 dormantRoutes=0`, `kept=1 (reconciled=1) dormant=0`,
+    `derivedPaused=1 derivedActive=0 oneShotFlagsCleared=1
+    countersReconstructed=0` - and the produced save read the route back
+    `Paused` from a session the player left Active, with the one-shot flags
+    cleared. H6 keeps `route-x-rewind` as the SYNTHETIC declarer; this is the
+    flown one, and it is the first flight to execute the REAL
+    `HandleRewindOnLoad` go-back scene load that H6's own header names as
+    unreachable there. The prediction is
+    written down first, in the spec header and in `autotest-status.md`, and is
+    UNCHANGED by the machinery that lets the lane test it: an Active route HOLDS
+    across a Rewind-to-Launch - dormant only when the cutoff precedes
+    `Route.CreatedUT`, otherwise kept with cursors reset, pause state re-derived
+    from the kept PLAYER lifecycle rows, counters reconstructed, and the armed
+    one-shots cleared unconditionally - cited to the design doc's lines 905 /
+    909 / 1030. The lane takes the KEPT branch by construction (the route is
+    created ~600 s below the cutoff, with `RewindToLaunchLeadTimeSeconds = 15.0`
+    doing the arithmetic), and its TimeJump is taken while the route is PAUSED
+    because RVR-2 measured that a jump past several loop periods fires a cycle.
+    **THE AUTHORING MEASURED TWO BLOCKERS AND CLOSED THE SECOND ONE.** (1) NO
+    COMMITTED RECORDED FIXTURE CAN BE A REWIND-TO-LAUNCH SUBJECT: `CanRewind`
+    needs a `rewindSave` on the tree root and every recorded fixture carries it
+    EMPTY by harvest policy, gated in both directions by
+    `build_rover_route_recorded.py` with INV9's dangling-hint WARN as the stated
+    rationale - so "the rover fixture is committed" was true and irrelevant, and
+    THIS HALF STILL STANDS. The lane routes around it by producing its own
+    subject in-run: `CaptureRewindSave` writes the `parsek_rw_*` quicksave at
+    every non-promotion recording start, so `StartRecording` -> `CommitTree`
+    yields a rewindable tree. (2) NAMING that tree was the other half - a
+    runtime `Guid`, and `${runSave}` is the harness's only substitution, so the
+    auto-select refused `ambiguous-tree` over the host's two committed trees.
+    CLOSED 2026-09-02 by the seam addition `InvokeRewindToLaunch tree=latest`
+    (contract: `design-autotest-command-seam.md` -> `#### D12/A2`): the most
+    recently committed tree, id path untouched and still winning, bare no-arg
+    call still refusing - which H58 keeps as a live negative control reading
+    `committedTrees=3`. Filed as
+    ROUTE-REWIND-TO-LAUNCH-UNREACHABLE-ON-COMMITTED-FIXTURES, now narrowed to
+    blocker 1. What the lane also buys: the suite's FIRST driven route
+    pause/activate pair (the exact player-intent rows `DeriveTimelineStatus`
+    reads at every rewind, never produced by a driven run before), and the first
+    `OnLoad: go-back route reconcile` line any flight has ever printed - the
+    seam H6's own header names as unreachable there.
 13. **Harvest-provenance, surface.** An ISRU drill rover feeding the route
     (D10 `harvest-provenance` surface flavor; the orbital flavor has
     coverage via the depot-drill lanes).
@@ -2709,7 +2754,12 @@ unamended here too.
 RVR-1/2/3/4, H55, H56. What can be built NEXT WITHOUT a manual flight, in
 order: (a) the B4 producer fix + capture cell (todo
 ROUTE-ORIGIN-PROOF-PRODUCER-UNREACHABLE, now CONFIRMED); (b) D12 route x rewind
-flown - `InvokeRewindToLaunch` is implemented and the rover fixture is committed;
+flown - CORRECTED 2026-09-02: "`InvokeRewindToLaunch` is implemented and the
+rover fixture is committed" is true and NOT sufficient, and H58's authoring is
+what measured why (see item 12: no committed fixture carries a launch quicksave,
+so the lane must produce its own subject in-run, and naming that subject needed
+the `tree=latest` seam addition that landed with it). H58 IS AUTHORED AND A
+REWIND FIRES IN IT; what it owes is its first flight;
 (c) D11 surface-route map presence over the rover fixture with the map-view
 verbs, authored against the landed-terminal-no-proto pin; (d) ~~C10 escrow
 competition - scope a synthetic two-candidate fixture before assuming a

@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Globalization;
 
@@ -64,6 +65,26 @@ namespace Parsek.TestCommands
         AmbiguousTree,
     }
 
+    /// <summary>HOW a <see cref="RewindToLaunchTargetOutcome.Selected"/> target was
+    /// picked. Reported in the applier's log line so a collected KSP.log says which
+    /// rule chose the tree, not just which tree was chosen: an `explicit-id` rewind and
+    /// a `latest` rewind that happen to land on the same tree are the same OUTCOME and
+    /// very different EVIDENCE.</summary>
+    internal enum RewindToLaunchTargetResolution
+    {
+        /// <summary>Nothing was selected (a refusal outcome).</summary>
+        None,
+
+        /// <summary>An explicit <c>tree=&lt;id&gt;</c> matched a committed tree id.</summary>
+        ExplicitId,
+
+        /// <summary><c>tree=latest</c>: the most recently committed tree.</summary>
+        LatestKeyword,
+
+        /// <summary>No <c>tree=</c> arg, and exactly one committed tree existed.</summary>
+        AutoSingle,
+    }
+
     /// <summary>Pure result of <see cref="TestCommandRewindToLaunch.ResolveTarget"/>.</summary>
     internal struct RewindToLaunchTarget
     {
@@ -72,6 +93,10 @@ namespace Parsek.TestCommands
         /// <summary>The selected committed-tree id (null unless
         /// <see cref="RewindToLaunchTargetOutcome.Selected"/>).</summary>
         public string TreeId;
+
+        /// <summary>Which rule picked <see cref="TreeId"/>;
+        /// <see cref="RewindToLaunchTargetResolution.None"/> on every refusal.</summary>
+        public RewindToLaunchTargetResolution Resolution;
 
         /// <summary>The REJECTED <c>msg</c> for a non-Selected outcome (null when
         /// Selected).</summary>
@@ -89,6 +114,12 @@ namespace Parsek.TestCommands
     /// </summary>
     internal static class TestCommandRewindToLaunch
     {
+        /// <summary>The one <c>tree=</c> value that is not an id: "the most recently
+        /// committed tree". A const rather than a literal so the spec-facing spelling,
+        /// the resolver and the seam-design doc's verb grammar cannot drift apart, and so
+        /// a `nameof`-free grep finds every site.</summary>
+        internal const string LatestTreeKeyword = "latest";
+
         /// <summary>
         /// Decide the two-phase InvokeRewindToLaunch completion. The addon polls this only
         /// at SETTLED scenes (the pump gates off during LOADING / transition / settle), so
@@ -154,6 +185,38 @@ namespace Parsek.TestCommands
         /// Guessing among several would silently unwind the wrong flight, which is
         /// irreversible in the same breath - hence <c>ambiguous-tree</c> rather than
         /// "first wins".</para>
+        ///
+        /// <para><b><c>tree=latest</c> - the one spelling a STATIC spec can write.</b> A
+        /// scenario that produces its own rewind subject in-run (<c>StartRecording</c> ->
+        /// <c>CommitTree</c>, which is what makes a rewindable tree at all, since
+        /// <c>FlightRecorder.CaptureRewindSave</c> writes the <c>parsek_rw_*</c> quicksave
+        /// at every non-promotion recording start) cannot NAME it: a freshly committed
+        /// tree's id is a runtime <c>Guid</c>, and the harness has exactly one spec-side
+        /// substitution (<c>${runSave}</c>) with no way to feed a prior step's payload
+        /// into a later step's args. On any host that already carries committed trees the
+        /// auto-select then refuses <c>ambiguous-tree</c>, which left the whole
+        /// Rewind-to-Launch mechanism undriveable by a step-sequence lane
+        /// (ROUTE-REWIND-TO-LAUNCH-UNREACHABLE-ON-COMMITTED-FIXTURES). This keyword is
+        /// that gap and nothing else.
+        /// <list type="bullet">
+        /// <item>It is an EXPLICIT choice, not a relaxation of the ambiguity rule: the
+        /// bare no-arg call still refuses over several trees, because "the operator did
+        /// not say" and "the operator said: the newest one" are different intents.</item>
+        /// <item>The ID PATH IS UNTOUCHED and still wins. The keyword is tested only
+        /// AFTER the exact-id scan fails, so a committed tree literally named
+        /// <c>latest</c> would still be selected by id. Real ids are 32-hex <c>Guid</c>
+        /// "N" strings, so the collision is unreachable in practice and the ordering
+        /// makes it harmless anyway.</item>
+        /// <item>"Latest" is LAST-IN-LIST, and that is the definition, not an
+        /// approximation: <c>RecordingStore.CommittedTrees</c> is append-ordered on
+        /// commit, so the last entry is the most recently committed tree. The applier
+        /// hands the ids in that list order.</item>
+        /// <item>Matched ORDINAL-IGNORE-CASE so a spec may write <c>latest</c> or
+        /// <c>LATEST</c>; every id comparison stays ordinal-exact.</item>
+        /// <item>With NO committed tree it answers <c>no-committed-tree</c> - the same
+        /// verdict the bare call gives for the same world state, rather than
+        /// <c>unknown-tree</c>, which would blame the argument for an empty save.</item>
+        /// </list></para>
         /// </summary>
         internal static RewindToLaunchTarget ResolveTarget(
             IReadOnlyList<string> committedTreeIds, string treeArg)
@@ -169,9 +232,29 @@ namespace Parsek.TestCommands
                             {
                                 Outcome = RewindToLaunchTargetOutcome.Selected,
                                 TreeId = treeArg,
+                                Resolution = RewindToLaunchTargetResolution.ExplicitId,
                             };
                     }
                 }
+
+                // The keyword, tested only after the id scan (see the contract above).
+                if (string.Equals(treeArg, LatestTreeKeyword, StringComparison.OrdinalIgnoreCase))
+                {
+                    int latestCount = committedTreeIds != null ? committedTreeIds.Count : 0;
+                    if (latestCount == 0)
+                        return new RewindToLaunchTarget
+                        {
+                            Outcome = RewindToLaunchTargetOutcome.NoCommittedTree,
+                            RefusalReason = "no-committed-tree",
+                        };
+                    return new RewindToLaunchTarget
+                    {
+                        Outcome = RewindToLaunchTargetOutcome.Selected,
+                        TreeId = committedTreeIds[latestCount - 1],
+                        Resolution = RewindToLaunchTargetResolution.LatestKeyword,
+                    };
+                }
+
                 return new RewindToLaunchTarget
                 {
                     Outcome = RewindToLaunchTargetOutcome.UnknownTree,
@@ -196,6 +279,7 @@ namespace Parsek.TestCommands
             {
                 Outcome = RewindToLaunchTargetOutcome.Selected,
                 TreeId = committedTreeIds[0],
+                Resolution = RewindToLaunchTargetResolution.AutoSingle,
             };
         }
 
