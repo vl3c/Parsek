@@ -239,6 +239,130 @@ namespace Parsek.Tests
                 TestCommandRewindToLaunch.ResolveTarget(null, "tree_a").Outcome);
         }
 
+        // ----- ResolveTarget: the `tree=latest` keyword -----
+        //
+        // WHY THE KEYWORD EXISTS, so a future reader does not "simplify" it away: a
+        // step-sequence lane that produces its own rewind subject in-run (StartRecording
+        // -> CommitTree) cannot NAME it, because a fresh tree's id is a runtime Guid and
+        // the harness has exactly one spec-side substitution (${runSave}) with no way to
+        // feed a prior step's payload into a later step's args. On a host that already
+        // carries committed trees the auto-select then refuses `ambiguous-tree`, which
+        // left Rewind-to-Launch undriveable by any step-sequence lane
+        // (ROUTE-REWIND-TO-LAUNCH-UNREACHABLE-ON-COMMITTED-FIXTURES, blocker 2).
+
+        [Fact]
+        public void ResolveTarget_Latest_PicksTheMostRecentlyCommittedTree()
+        {
+            // LAST-IN-LIST IS THE DEFINITION, not an approximation:
+            // RecordingStore.CommittedTrees is append-ordered on commit, and the applier
+            // hands the ids in that order. Three entries, so "last" cannot be confused
+            // with "only" or with "second".
+            var t = TestCommandRewindToLaunch.ResolveTarget(
+                new List<string> { "tree_a", "tree_b", "tree_fresh" },
+                TestCommandRewindToLaunch.LatestTreeKeyword);
+            Assert.Equal(RewindToLaunchTargetOutcome.Selected, t.Outcome);
+            Assert.Equal("tree_fresh", t.TreeId);
+            Assert.Equal(RewindToLaunchTargetResolution.LatestKeyword, t.Resolution);
+            Assert.Null(t.RefusalReason);
+        }
+
+        [Fact]
+        public void ResolveTarget_Latest_OverASingleTree_SelectsIt()
+        {
+            var t = TestCommandRewindToLaunch.ResolveTarget(
+                new List<string> { "tree_only" }, "latest");
+            Assert.Equal(RewindToLaunchTargetOutcome.Selected, t.Outcome);
+            Assert.Equal("tree_only", t.TreeId);
+            Assert.Equal(RewindToLaunchTargetResolution.LatestKeyword, t.Resolution);
+        }
+
+        [Fact]
+        public void ResolveTarget_Latest_WithNoCommittedTree_IsNoCommittedTree()
+        {
+            // Deliberately NOT unknown-tree: an empty save is a world-state fact, and
+            // blaming the argument for it would send a lane author hunting a typo. Same
+            // verdict the bare no-arg call gives for the same world.
+            foreach (var ids in new[] { new List<string>(), null })
+            {
+                var t = TestCommandRewindToLaunch.ResolveTarget(ids, "latest");
+                Assert.Equal(RewindToLaunchTargetOutcome.NoCommittedTree, t.Outcome);
+                Assert.Equal("no-committed-tree", t.RefusalReason);
+                Assert.Null(t.TreeId);
+                Assert.Equal(RewindToLaunchTargetResolution.None, t.Resolution);
+            }
+        }
+
+        [Fact]
+        public void ResolveTarget_Latest_IsCaseInsensitive_WhileIdsStayOrdinal()
+        {
+            var upper = TestCommandRewindToLaunch.ResolveTarget(
+                new List<string> { "tree_a", "tree_b" }, "LATEST");
+            Assert.Equal(RewindToLaunchTargetOutcome.Selected, upper.Outcome);
+            Assert.Equal("tree_b", upper.TreeId);
+
+            // Ids themselves are NOT case-folded: a case-shifted id is still unknown.
+            var id = TestCommandRewindToLaunch.ResolveTarget(
+                new List<string> { "tree_a" }, "TREE_A");
+            Assert.Equal(RewindToLaunchTargetOutcome.UnknownTree, id.Outcome);
+        }
+
+        [Fact]
+        public void ResolveTarget_ExplicitIdStillWins_EvenForATreeNamedLatest()
+        {
+            // THE ORDERING GUARANTEE. The keyword is tested only AFTER the exact-id scan
+            // fails, so the id path is untouched by this addition. Real ids are 32-hex
+            // Guid "N" strings so the collision is unreachable in practice, and the
+            // ordering makes it harmless if it ever were not.
+            var t = TestCommandRewindToLaunch.ResolveTarget(
+                new List<string> { "latest", "tree_b" }, "latest");
+            Assert.Equal(RewindToLaunchTargetOutcome.Selected, t.Outcome);
+            Assert.Equal("latest", t.TreeId);
+            Assert.Equal(RewindToLaunchTargetResolution.ExplicitId, t.Resolution);
+        }
+
+        [Fact]
+        public void ResolveTarget_TheKeywordDoesNotRelaxTheAmbiguityRule()
+        {
+            // "The operator did not say" and "the operator said: the newest one" are
+            // different intents. Adding the keyword must not make the BARE call start
+            // guessing - that refusal is the whole reason the verb is safe to drive.
+            var bare = TestCommandRewindToLaunch.ResolveTarget(
+                new List<string> { "tree_a", "tree_b", "tree_c" }, null);
+            Assert.Equal(RewindToLaunchTargetOutcome.AmbiguousTree, bare.Outcome);
+            Assert.Equal("ambiguous-tree", bare.RefusalReason);
+
+            // And no OTHER non-id word is quietly accepted alongside it.
+            foreach (var word in new[] { "newest", "last", "active", "first", "latest2" })
+            {
+                var t = TestCommandRewindToLaunch.ResolveTarget(
+                    new List<string> { "tree_a", "tree_b" }, word);
+                Assert.Equal(RewindToLaunchTargetOutcome.UnknownTree, t.Outcome);
+            }
+        }
+
+        [Fact]
+        public void ResolveTarget_ResolutionIsReportedForEverySelectingPath()
+        {
+            // The applier logs `resolvedBy=`, so every Selected path must carry a
+            // resolution and every refusal must carry None - otherwise a collected log
+            // would read `resolvedBy=None` on a successful rewind.
+            Assert.Equal(RewindToLaunchTargetResolution.ExplicitId,
+                TestCommandRewindToLaunch.ResolveTarget(
+                    new List<string> { "tree_a", "tree_b" }, "tree_a").Resolution);
+            Assert.Equal(RewindToLaunchTargetResolution.AutoSingle,
+                TestCommandRewindToLaunch.ResolveTarget(
+                    new List<string> { "tree_only" }, null).Resolution);
+            Assert.Equal(RewindToLaunchTargetResolution.LatestKeyword,
+                TestCommandRewindToLaunch.ResolveTarget(
+                    new List<string> { "tree_a", "tree_b" }, "latest").Resolution);
+            Assert.Equal(RewindToLaunchTargetResolution.None,
+                TestCommandRewindToLaunch.ResolveTarget(
+                    new List<string> { "tree_a", "tree_b" }, null).Resolution);
+            Assert.Equal(RewindToLaunchTargetResolution.None,
+                TestCommandRewindToLaunch.ResolveTarget(
+                    new List<string> { "tree_a" }, "nope").Resolution);
+        }
+
         // ----- GateRefusalMsg -----
 
         [Fact]

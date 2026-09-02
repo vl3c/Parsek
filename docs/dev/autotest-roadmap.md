@@ -2543,36 +2543,41 @@ moved is that no further authoring stands between them and a flight.
     that pin, not against the orbital route lines V18T covers.
 12. **Route x rewind, flown.** H6 covers the timeline synthetically;
     a rover-route rewind variant makes `route-x-rewind` a flown claim.
-    **LANE AUTHORED 2026-09-02 AS A PRE-REGISTRATION + CENSUS, NEVER FLOWN**
-    (`harness/scenarios/H58-route-rewind-to-launch.toml`), and the authoring
-    MEASURED that the obvious shape does not exist. The prediction is written
-    down first, in the spec header and in `autotest-status.md`: an Active route
-    HOLDS across a Rewind-to-Launch - dormant only when the cutoff precedes
+    **LANE AUTHORED 2026-09-02, NEVER FLOWN, AND A REWIND ACTUALLY FIRES IN IT**
+    (`harness/scenarios/H58-route-rewind-to-launch.toml`). The prediction is
+    written down first, in the spec header and in `autotest-status.md`, and is
+    UNCHANGED by the machinery that lets the lane test it: an Active route HOLDS
+    across a Rewind-to-Launch - dormant only when the cutoff precedes
     `Route.CreatedUT`, otherwise kept with cursors reset, pause state re-derived
     from the kept PLAYER lifecycle rows, counters reconstructed, and the armed
     one-shots cleared unconditionally - cited to the design doc's lines 905 /
-    909 / 1030. **THE TWO BLOCKERS, both now spec-pinned as `expect =
-    "REJECTED"` negative controls rather than argued in prose.** (1) NO
+    909 / 1030. The lane takes the KEPT branch by construction (the route is
+    created ~600 s below the cutoff, with `RewindToLaunchLeadTimeSeconds = 15.0`
+    doing the arithmetic), and its TimeJump is taken while the route is PAUSED
+    because RVR-2 measured that a jump past several loop periods fires a cycle.
+    **THE AUTHORING MEASURED TWO BLOCKERS AND CLOSED THE SECOND ONE.** (1) NO
     COMMITTED RECORDED FIXTURE CAN BE A REWIND-TO-LAUNCH SUBJECT: `CanRewind`
     needs a `rewindSave` on the tree root and every recorded fixture carries it
     EMPTY by harvest policy, gated in both directions by
     `build_rover_route_recorded.py` with INV9's dangling-hint WARN as the stated
-    rationale - so "the rover fixture is committed" was true and irrelevant.
-    (2) A SUBJECT PRODUCED IN-SESSION CANNOT BE NAMED: `StartRecording` ->
-    `CommitTree` does produce a rewindable tree (`CaptureRewindSave` writes the
-    `parsek_rw_*` quicksave at every non-promotion start), but
-    `ResolveTarget` auto-selects only over exactly one committed tree, the rover
-    host ships two, and `tree=` takes a runtime `Guid` no static spec can write
-    (`${runSave}` is the harness's only substitution). GS-4 escapes solely
-    because its host has zero committed trees. Filed as
-    ROUTE-REWIND-TO-LAUNCH-UNREACHABLE-ON-COMMITTED-FIXTURES. THE RECOMMENDED
-    UNBLOCK IS THE SMALLEST: a `tree=` spelling a spec can write (`latest`, or a
-    `RecordingTree.TreeName` match) - pure addition to `ResolveTarget`, no
-    fixture and no policy moves, and it turns H58 into a flown D12 lane by
-    replacing two steps with one. What H58 buys in the meantime is real: the
-    suite's FIRST driven route pause/activate pair (the exact player-intent rows
-    `DeriveTimelineStatus` reads at every rewind, never produced by a driven run
-    before), each pinned as a verb-ACK + ledger-marker pair.
+    rationale - so "the rover fixture is committed" was true and irrelevant, and
+    THIS HALF STILL STANDS. The lane routes around it by producing its own
+    subject in-run: `CaptureRewindSave` writes the `parsek_rw_*` quicksave at
+    every non-promotion recording start, so `StartRecording` -> `CommitTree`
+    yields a rewindable tree. (2) NAMING that tree was the other half - a
+    runtime `Guid`, and `${runSave}` is the harness's only substitution, so the
+    auto-select refused `ambiguous-tree` over the host's two committed trees.
+    CLOSED 2026-09-02 by the seam addition `InvokeRewindToLaunch tree=latest`
+    (contract: `design-autotest-command-seam.md` -> `#### D12/A2`): the most
+    recently committed tree, id path untouched and still winning, bare no-arg
+    call still refusing - which H58 keeps as a live negative control reading
+    `committedTrees=3`. Filed as
+    ROUTE-REWIND-TO-LAUNCH-UNREACHABLE-ON-COMMITTED-FIXTURES, now narrowed to
+    blocker 1. What the lane also buys: the suite's FIRST driven route
+    pause/activate pair (the exact player-intent rows `DeriveTimelineStatus`
+    reads at every rewind, never produced by a driven run before), and the first
+    `OnLoad: go-back route reconcile` line any flight has ever printed - the
+    seam H6's own header names as unreachable there.
 13. **Harvest-provenance, surface.** An ISRU drill rover feeding the route
     (D10 `harvest-provenance` surface flavor; the orbital flavor has
     coverage via the depot-drill lanes).
@@ -2651,9 +2656,9 @@ ROUTE-ORIGIN-PROOF-PRODUCER-UNREACHABLE, now CONFIRMED); (b) D12 route x rewind
 flown - CORRECTED 2026-09-02: "`InvokeRewindToLaunch` is implemented and the
 rover fixture is committed" is true and NOT sufficient, and H58's authoring is
 what measured why (see item 12: no committed fixture carries a launch quicksave,
-and an in-session subject cannot be named by a static spec). The lane is
-authored and the census is ready to fly; the flown claim itself waits on a
-`tree=` spelling a spec can write;
+so the lane must produce its own subject in-run, and naming that subject needed
+the `tree=latest` seam addition that landed with it). H58 IS AUTHORED AND A
+REWIND FIRES IN IT; what it owes is its first flight;
 (c) D11 surface-route map presence over the rover fixture with the map-view
 verbs, authored against the landed-terminal-no-proto pin; (d) C10 escrow
 competition - scope a synthetic two-candidate fixture before assuming a flight;

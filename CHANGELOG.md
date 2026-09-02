@@ -96,7 +96,7 @@ _(unreleased — entries accumulate here per commit)_
 ### Dev
 
 - Added an automated-testing lane for the supply-route-across-a-rewind question,
-  and the authoring of it found that the obvious way to ask it does not exist.
+  plus the one piece of test-harness plumbing it turned out to need.
   The lane writes down first, before any run, what an active supply route should
   do when the player rewinds a flight back to its launch: it holds. A route
   created after the point being rewound to goes dormant and reappears, paused,
@@ -110,11 +110,16 @@ _(unreleased — entries accumulate here per commit)_
   committed test save today, for two reasons the lane now proves on a real run
   rather than asserting on paper: recorded test saves deliberately ship without
   the launch quicksave a rewind reloads, and a flight recorded during the run
-  itself produces a rewindable subject the test script has no way to name,
-  because the game refuses to guess which of several flights to unwind. Both
-  refusals are pinned as deliberate negative controls. The same run buys the
-  first automated drive of pausing and re-activating a real supply route, which
-  is the exact history the rewind reads.
+  itself produces a rewindable subject the test script had no way to name,
+  because the game refuses to guess which of several flights to unwind and a
+  freshly recorded flight has no name a script can write down in advance. The
+  second of those is now fixed: the test-command rewind verb accepts "the most
+  recently committed flight" as a target, which lets a test record its own
+  flight and then rewind it. Naming a flight outright still works exactly as
+  before and still wins, and the verb still refuses to guess when nothing was
+  said. The lane now performs a real rewind and reads what it did to the route,
+  and the same run buys the first automated drive of pausing and re-activating a
+  real supply route, which is the exact history the rewind reads.
 
 - The agent instructions now scope the invariant-culture formatting rule to what
   actually needs it. A unit-test run on a comma-locale machine printed
