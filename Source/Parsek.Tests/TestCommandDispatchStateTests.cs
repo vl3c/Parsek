@@ -48,6 +48,7 @@ namespace Parsek.Tests
             public void InvokeRewindToLaunch(ParsedCommand cmd) => Calls.Add("InvokeRewindToLaunch");
             public void SealSlot(ParsedCommand cmd) => Calls.Add("SealSlot");
             public void RouteCommand(ParsedCommand cmd) => Calls.Add("RouteCommand");
+            public void DeleteRecording(ParsedCommand cmd) => Calls.Add("DeleteRecording");
         }
 
         [Fact]
@@ -116,6 +117,10 @@ namespace Parsek.Tests
         // "make it FLIGHT-only like the rest".
         [InlineData("SealSlot", "RequiresGameLoaded")]
         [InlineData("RouteCommand", "RequiresGameLoaded")]
+        // DeleteRecording: RequiresGameLoaded for the logistics pair's reason. It mutates
+        // a save-scoped store only, and the lane it exists for deletes AT THE KSC with
+        // KSC ghosts alive - a RequiresFlight row would defer there to its budget.
+        [InlineData("DeleteRecording", "RequiresGameLoaded")]
         public void RequirementFor_MatchesTable(string verb, string expected)
         {
             Assert.Equal(expected, TestCommandDispatcher.RequirementFor(verb).ToString());
@@ -156,6 +161,7 @@ namespace Parsek.Tests
             fake.InvokeRewindToLaunch(cmd);
             fake.SealSlot(cmd);
             fake.RouteCommand(cmd);
+            fake.DeleteRecording(cmd);
 
             // One interface method per implemented v1 verb, no more, no less.
             var interfaceMethods = typeof(ITestCommandExecutor).GetMethods();

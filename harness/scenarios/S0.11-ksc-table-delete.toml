@@ -1,0 +1,194 @@
+schema = 1
+id = "S0.11-ksc-table-delete"
+# `operator` for its first flight: a READING RUN, the first consumer of a NEW seam verb
+# (`DeleteRecording`), whose single load-bearing pin depends on a timing the lane can
+# only measure by flying (a KSC ghost must be ALIVE at the delete instant).
+tier = "operator"
+#
+# WHAT THIS SPEC IS FOR. AUTOMATION-GAP-KSC-TABLE-DELETE (todo, now closed by the verb
+# this lane drives): PR #1591 made every mid-list removal from the committed recording
+# list raise Removing / Removed notifications, and `ParsekKSC` subscribes to them to
+# shift its index-keyed ghost state (`ShiftKscIndexKeyedState`) - the fix for a Space
+# Center delete that used to leave every ghost above the deleted row playing its
+# neighbour's trajectory. The subscriber was pinned headlessly
+# (`CommittedListNotificationTests`) and never driven in the scene it was written for,
+# because the table's delete is an IMGUI button and no seam verb removed a recording.
+# `DeleteRecording index=<n>` is that verb (design-autotest-command-seam.md ->
+# `#### DeleteRecording`); this lane is its first flight.
+#
+# THE HOST. V22K's recipe VERBATIM up to and including the SPACECENTER boot, because it
+# is the only KSC-scene lane ever flown green and its boot MEASURED a placed KSC ghost:
+# loop armed on the fixture's one tree, warp to the loop's next departure, `TimeJump
+# 22825` into the in-window landed sliver, save, reload with `scene=spacecenter`, and
+# V22K's dwell then read `KSC SURFACE playback resolved` (run `2026-08-24_2053`). The
+# fixture's committed list is the Kerbin-frame `Kerbal X` parent at index 0 (the loop
+# member the host renders) with its shed debris above it, so `index=1` is a MID-LIST
+# removal with the rendering row BELOW it - the shape the subscriber exists for. What
+# sits at index 1 after the load-time optimizer pass is a `Kerbal X` half or a `Kerbal X
+# Debris` row; the pins accept either (W1's lesson: the load-time pass may split the
+# parent, so a name pinned off the raw sfs order is a bet).
+#
+# THE DWELL SPLIT. Ten `RecordingState` ticks before the delete so `ParsekKSC` has
+# placed the loop member's ghost (V22K's forty-tick dwell measured the placement; the
+# ticks are single dispatches, well inside the landed sliver), then the delete, then
+# thirty more so the scene keeps rendering AFTER the removal under the shifted indices.
+# The subject line - `KSC ghost state reindexed after committed removal at #1` - is
+# printed by `ShiftKscIndexKeyedState` ONLY when `kscGhosts.Count + kscOverlapGhosts.Count
+# > 0` at the delete, so a green run cannot mean "nothing was rendered and the shift was
+# a no-op".
+#
+# WHAT THE READING DECIDES, pre-registered:
+#   - GREEN: the verb works at the KSC, the store removed the row, the host shifted its
+#     ghost state with a ghost alive and kept rendering. The gap is closed live.
+#   - RED on the reindex line ALONE (delete complete, store lines present): no KSC ghost
+#     existed at the delete instant - a DWELL-LENGTH reading (move the delete later, or
+#     the sliver had closed and the jump epoch needs V22K's re-derivation), not a defect.
+#   - `deleterecording error reason=delete-not-applied`: the store refused a row the verb
+#     had bound-checked - a product finding on `DeleteRecordingFull`.
+#   - `subscriber threw` or a `[Parsek][ERROR]`: the KSC handler failed on a live
+#     removal - THE defect this lane exists to catch, filed against
+#     COMMITTED-LIST-SILENT-REMOVERS's KSC host.
+#   - INVALID(driver) on the DeleteRecording step with `game-not-loaded`: the
+#     SPACECENTER reload had not settled a game the dispatcher recognises - a seam
+#     reading about `RequiresGameLoaded` at the KSC, which no committed spec has yet
+#     exercised (SealSlot / RouteCommand's rows share the requirement but have only run
+#     in FLIGHT).
+description = "Reading run: V22K's boot into SPACECENTER with the loop member's KSC ghost placed, then the NEW DeleteRecording seam verb removes committed index 1 under it and the scene dwells on - the first live drive of ParsekKSC's committed-list notification subscriber (AUTOMATION-GAP-KSC-TABLE-DELETE)."
+instanceProfile = "stock-minimal"
+tags = ["S0.11", "ksc-scene", "recordings-table", "delete", "committed-list-notifications", "seam-verb", "kerbin", "sandbox", "reading-run"]
+
+[fixture]
+# V22K's fixture verbatim: harvested from B4-reentry-splashdown, Kerbin-frame end to end.
+saveTemplate       = "fixtures/saves/kerbin-splashdown-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  # V22K STEPS 1-15 VERBATIM (minus the two render tracers this lane does not read):
+  # the only measured path to a SPACECENTER scene with a placed KSC ghost.
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                   expect = "OK" },
+  { cmd = "DiscardTree",                                                     expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  # The subject line and V22K's KSC pins are Verbose.
+  { cmd = "SetSetting", args = { name = "verboseLogging",   value = "true" }, expect = "OK" },
+  { cmd = "MissionConfig", args = { tree = "c05c834cd2754892b4588e7ce9220c3f", loop = "true" }, expect = "OK" },
+  { cmd = "StartLoopPlayback", args = { tree = "c05c834cd2754892b4588e7ce9220c3f" }, expect = "OK", budget = 300 },
+  { cmd = "TimeJump", args = { ut = "22825" }, expect = "OK", budget = 300 },
+  { cmd = "SaveGame",   args = { name = "persistent" },                      expect = "OK" },
+  { cmd = "StopRecording",                                                   expect = "OK" },
+  { cmd = "DiscardTree",                                                     expect = "OK" },
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent", scene = "spacecenter" }, expect = "OK", budget = 300 },
+  # DWELL 1: ten ticks for ParsekKSC to place the loop member's ghost.
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  # THE SUBJECT: a mid-list removal at the KSC under a living ghost.
+  { cmd = "DeleteRecording", args = { index = "1" },                         expect = "OK" },
+  # DWELL 2: thirty ticks so the host keeps rendering under the shifted indices
+  # (and so the 2 s rate-limited KSC emitters get a chance to print again).
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "FlushAndQuit",                                                    expect = "OK" },
+]
+
+[dimensionsCovered]
+# V22K's, earned by the same steps. Nothing for the delete itself: no dimension value
+# exists for it, and whether one should is what the reading decides.
+D14 = ["kerbin", "scene-ksc", "sandbox"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 1, max = 12 }
+
+[expectations.logContracts]
+required  = [
+  # V22K's measured KSC pins: the boot reached SPACECENTER, the host found eligible
+  # recordings, and a ghost was PLACED (the surface-resolved line is per-frame ghost
+  # placement, the anti-vacuity floor for the subject line below).
+  "loadgame spacecenter route \\(requested\\): resuming to SPACECENTER save=",
+  "loadgame complete scene=SPACECENTER save=.* game-loaded=true expected=SpaceCenter",
+  "ParsekKSC initialized, \\d+ committed recordings, [1-9]\\d* eligible for KSC ghost playback",
+  "\\[KSCGhost\\] Eligible breakdown: looping=\\d+",
+  "KSC SURFACE playback resolved: recording=.* branch=",
+  # The verb's own lines: the store route at the KSC, and the read-back-verified
+  # completion with the count pair (RecordingState exposes no committed count).
+  "deleterecording start index=1 recId=[0-9a-f]{32} vessel='Kerbal X( Debris)?' ghostOnly=false route=store committed=[0-9]+ scene=SPACECENTER",
+  "deleterecording complete index=1 recId=[0-9a-f]{32} route=store committedBefore=[0-9]+ committedAfter=[0-9]+",
+  # The production path's own removal lines.
+  "DeleteRecordingFull: deleting 'Kerbal X( Debris)?' at index 1",
+  "Removed recording 'Kerbal X( Debris)?' \\(id=[0-9a-f]{32}\\) at index 1",
+  # THE SUBJECT. ShiftKscIndexKeyedState prints this only when a KSC ghost was alive
+  # at the delete, so it is the proof the subscriber shifted REAL state.
+  "\\[KSCGhost\\] KSC ghost state reindexed after committed removal at #1: primary=[0-9]+ overlapSets=[0-9]+",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  # The notification seam's exception containment: a throwing KSC handler lands here.
+  "subscriber threw",
+  # The verb must neither refuse nor read back a surviving row.
+  "deleterecording rejected",
+  "deleterecording error",
+  "DeleteRecordingFull: invalid index",
+  # V22K's own forbids, verbatim.
+  "timejump refused reason=backward-jump",
+  "KSC point skipped: recording=.* body=",
+  "KSC segment skipped: beforeBody=",
+]
+
+[expectations.recordings.structure]
+# REPORT-ONLY (declaring is not arming). V22K measured 9 recordings in the produced
+# save; one delete should leave 8. The first flight reads whether that holds through
+# the load-time optimizer pass and the FlushAndQuit persist.
+trees          = { min = 1, max = 2 }
+committedTrees = { min = 1, max = 1 }
+recordings     = { min = 8, max = 8 }
+
+[runtime]
+# V22K's budget: the same steps up to the KSC boot, a dwell of the same total length.
+budgetSeconds = 2400
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
