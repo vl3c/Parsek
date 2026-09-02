@@ -1025,6 +1025,16 @@
         "2026-09-02T05:47:53Z": 140.0
       }
     },
+    "H59-surface-route-map-lines": {
+      "last": 99.0,
+      "lastVsP50": 1.0,
+      "n": 1,
+      "p50": 99.0,
+      "p95": 99.0,
+      "samples": {
+        "2026-09-02T09:49:20Z": 99.0
+      }
+    },
     "H6-route-rewind-timeline": {
       "last": 50.0,
       "lastVsP50": 1.0,
