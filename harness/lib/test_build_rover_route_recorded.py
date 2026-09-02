@@ -270,10 +270,17 @@ class RoverRouteSpecFixtureSyncTests(unittest.TestCase):
     # PRELAUNCH pad rig, which is what drives the origin-proof probe's non-PRELAUNCH
     # branch. A spec that stages the fixture for a live reason still breaks if the
     # fixture is renamed, which is exactly what this class exists to catch.
+    # `H57` / `H58` / `H59` stage it for the same landed-rover host (start-docked
+    # origin, route x rewind, surface map lines) and are held to the same pairing.
     SPECS = ("RVR-1-rover-route-proof.toml",
              "RVR-2-rover-route-create.toml",
              "RVR-3-route-lifecycle.toml",
-             "H56-route-dock-capture-landed.toml")
+             "H56-route-dock-capture-landed.toml",
+             "H57-route-start-docked-origin-landed.toml",
+             "H58-route-rewind-to-launch.toml",
+             "H59-surface-route-map-lines.toml")
+
+    FIXTURE_LITERAL = '"fixtures/saves/rover-route-recorded"'
 
     @classmethod
     def setUpClass(cls):
@@ -283,11 +290,31 @@ class RoverRouteSpecFixtureSyncTests(unittest.TestCase):
             path = os.path.join(SCENARIOS_DIR, name)
             with open(path, "r", encoding="utf-8") as fh:
                 cls.text[name] = fh.read()
+        # The reverse direction: every committed spec whose text carries the
+        # quoted fixture path, whether SPECS names it or not.
+        cls.on_disk = []
+        for name in sorted(os.listdir(SCENARIOS_DIR)):
+            if not name.endswith(".toml"):
+                continue
+            with open(os.path.join(SCENARIOS_DIR, name), "r",
+                      encoding="utf-8") as fh:
+                if cls.FIXTURE_LITERAL in fh.read():
+                    cls.on_disk.append(name)
 
     def test_every_consumer_spec_stages_this_fixture(self):
         for name in self.SPECS:
-            self.assertIn('"fixtures/saves/rover-route-recorded"',
-                          self.text[name], name)
+            self.assertIn(self.FIXTURE_LITERAL, self.text[name], name)
+
+    def test_specs_is_exactly_the_consumers_on_disk(self):
+        # SET EQUALITY against what is on disk, not the one-way check above: this
+        # fires both when a listed member is removed/renamed AND when a new spec
+        # stages the fixture without being added here (H57 and H59 landed that
+        # way and red nothing until this cell existed).
+        self.assertEqual(sorted(self.on_disk), sorted(self.SPECS),
+                         "the committed specs staging rover-route-recorded differ "
+                         "from SPECS in this test. A spec here but not on disk was "
+                         "removed or renamed; a spec on disk but not here is new and "
+                         "must be added to SPECS in the same commit")
 
     def test_rvr2_names_the_transport_tree_id_verbatim(self):
         """The SealSlot and create steps address the tree by id. A spec naming
