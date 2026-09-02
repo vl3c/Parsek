@@ -10,6 +10,22 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **Automated testing: the suite now has a saved campaign carrying a supply route
+  that runs between two planets.** Every route the automated tests could reach ran
+  from one place to another on the SAME body, so the parts of the map drawing that
+  only apply to a route crossing between planets - which end of the journey gets
+  drawn, and the deliberate gap where the interplanetary coast is left out - had
+  never actually been exercised by a test, only reasoned about. A campaign the
+  developer played by hand, with a fuel depot parked in Duna orbit and a supply
+  ship launched from the space centre to dock with it, is now a permanent test
+  fixture. It cannot be built by a script: creating a route needs a finished,
+  sealed flight with a real docking, and no automated flight can produce one
+  between planets. A checker script re-reads the saved campaign and fails if any
+  of the eight things that make it the right subject ever drift - the two ends
+  being on different planets above all. The developer's own save was never
+  modified; the fixture is a pruned copy.
+
+
 - **Map view: a supply route that runs between two bodies now draws its line again.**
   A route from the KSC to a depot in Duna orbit drew NOTHING on the flight map or in
   the Tracking Station - no launch path, no arrival path - while a route that stayed on

@@ -1,0 +1,428 @@
+version = 1
+MILESTONE
+{
+	id = 61a6c1b44cb14d25bd126e4429abf96a
+	startUT = 0
+	endUT = 82987133.689754725
+	recordingId = 
+	committed = True
+	lastReplayedIdx = 0
+	GAME_STATE_EVENT
+	{
+		ut = 82959390.644754469
+		type = 18
+		key = Orbit
+		detail = funds=12000;rep=2;sci=1
+	}
+}
+MILESTONE
+{
+	id = 8d78d6b567aa4d1c9f5f33e227a33d16
+	startUT = 83045028.079957783
+	endUT = 83758191.738186672
+	recordingId = 
+	committed = True
+	lastReplayedIdx = 15
+	GAME_STATE_EVENT
+	{
+		ut = 83758174.238190323
+		type = 18
+		key = RecordsAltitude
+		detail = funds=4800;rep=0;sci=0
+		recordingId = fdb510bf72a049448d812cb2cb54eed9
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 83758174.238190323
+		type = 18
+		key = RecordsAltitude
+		detail = funds=4800;rep=1;sci=0
+		recordingId = fdb510bf72a049448d812cb2cb54eed9
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 83758174.238190323
+		type = 18
+		key = RecordsAltitude
+		detail = funds=4800;rep=0;sci=0
+		recordingId = fdb510bf72a049448d812cb2cb54eed9
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 83758174.238190323
+		type = 18
+		key = RecordsAltitude
+		detail = funds=4800;rep=1;sci=0
+		recordingId = fdb510bf72a049448d812cb2cb54eed9
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 83758174.238190323
+		type = 18
+		key = RecordsAltitude
+		detail = funds=4800;rep=1;sci=1
+		recordingId = fdb510bf72a049448d812cb2cb54eed9
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 83758174.238190323
+		type = 18
+		key = RecordsAltitude
+		detail = funds=0;rep=0;sci=0
+		recordingId = fdb510bf72a049448d812cb2cb54eed9
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 83758174.238190323
+		type = 18
+		key = RecordsSpeed
+		detail = funds=4800;rep=0;sci=0
+		recordingId = fdb510bf72a049448d812cb2cb54eed9
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 83758174.238190323
+		type = 18
+		key = RecordsSpeed
+		detail = funds=4800;rep=1;sci=0
+		recordingId = fdb510bf72a049448d812cb2cb54eed9
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 83758174.238190323
+		type = 18
+		key = RecordsSpeed
+		detail = funds=4800;rep=0;sci=0
+		recordingId = fdb510bf72a049448d812cb2cb54eed9
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 83758174.238190323
+		type = 18
+		key = RecordsSpeed
+		detail = funds=4800;rep=1;sci=0
+		recordingId = fdb510bf72a049448d812cb2cb54eed9
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 83758174.238190323
+		type = 18
+		key = RecordsDistance
+		detail = funds=4800;rep=0;sci=0
+		recordingId = fdb510bf72a049448d812cb2cb54eed9
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 83758174.238190323
+		type = 18
+		key = RecordsDistance
+		detail = funds=4800;rep=1;sci=0
+		recordingId = fdb510bf72a049448d812cb2cb54eed9
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 83758174.238190323
+		type = 18
+		key = RecordsDistance
+		detail = funds=4800;rep=0;sci=0
+		recordingId = fdb510bf72a049448d812cb2cb54eed9
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 83758174.238190323
+		type = 18
+		key = RecordsDistance
+		detail = funds=4800;rep=1;sci=0
+		recordingId = fdb510bf72a049448d812cb2cb54eed9
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 83758174.238190323
+		type = 18
+		key = RecordsDistance
+		detail = funds=4800;rep=1;sci=1
+		recordingId = fdb510bf72a049448d812cb2cb54eed9
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 83758174.238190323
+		type = 18
+		key = RecordsDistance
+		detail = funds=0;rep=0;sci=0
+		recordingId = fdb510bf72a049448d812cb2cb54eed9
+	}
+}
+MILESTONE
+{
+	id = 12bb6ba6cf824b4b892adfe9e0850d3c
+	startUT = 83758191.738186672
+	endUT = 83758576.197435245
+	recordingId = 
+	committed = True
+	lastReplayedIdx = 15
+	GAME_STATE_EVENT
+	{
+		ut = 83758569.177436709
+		type = 18
+		key = RecordsAltitude
+		detail = funds=4800;rep=0;sci=0
+		recordingId = 5ca48c99fa55435e8cf8547a6ef27a39
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 83758569.177436709
+		type = 18
+		key = RecordsAltitude
+		detail = funds=4800;rep=1;sci=0
+		recordingId = 5ca48c99fa55435e8cf8547a6ef27a39
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 83758569.177436709
+		type = 18
+		key = RecordsAltitude
+		detail = funds=4800;rep=0;sci=0
+		recordingId = 5ca48c99fa55435e8cf8547a6ef27a39
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 83758569.177436709
+		type = 18
+		key = RecordsAltitude
+		detail = funds=4800;rep=1;sci=0
+		recordingId = 5ca48c99fa55435e8cf8547a6ef27a39
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 83758569.177436709
+		type = 18
+		key = RecordsAltitude
+		detail = funds=4800;rep=1;sci=1
+		recordingId = 5ca48c99fa55435e8cf8547a6ef27a39
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 83758569.177436709
+		type = 18
+		key = RecordsAltitude
+		detail = funds=0;rep=0;sci=0
+		recordingId = 5ca48c99fa55435e8cf8547a6ef27a39
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 83758569.177436709
+		type = 18
+		key = RecordsSpeed
+		detail = funds=4800;rep=0;sci=0
+		recordingId = 5ca48c99fa55435e8cf8547a6ef27a39
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 83758569.177436709
+		type = 18
+		key = RecordsSpeed
+		detail = funds=4800;rep=1;sci=0
+		recordingId = 5ca48c99fa55435e8cf8547a6ef27a39
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 83758569.177436709
+		type = 18
+		key = RecordsSpeed
+		detail = funds=4800;rep=0;sci=0
+		recordingId = 5ca48c99fa55435e8cf8547a6ef27a39
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 83758569.177436709
+		type = 18
+		key = RecordsSpeed
+		detail = funds=4800;rep=1;sci=0
+		recordingId = 5ca48c99fa55435e8cf8547a6ef27a39
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 83758569.177436709
+		type = 18
+		key = RecordsDistance
+		detail = funds=4800;rep=0;sci=0
+		recordingId = 5ca48c99fa55435e8cf8547a6ef27a39
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 83758569.177436709
+		type = 18
+		key = RecordsDistance
+		detail = funds=4800;rep=1;sci=0
+		recordingId = 5ca48c99fa55435e8cf8547a6ef27a39
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 83758569.177436709
+		type = 18
+		key = RecordsDistance
+		detail = funds=4800;rep=0;sci=0
+		recordingId = 5ca48c99fa55435e8cf8547a6ef27a39
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 83758569.177436709
+		type = 18
+		key = RecordsDistance
+		detail = funds=4800;rep=1;sci=0
+		recordingId = 5ca48c99fa55435e8cf8547a6ef27a39
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 83758569.177436709
+		type = 18
+		key = RecordsDistance
+		detail = funds=4800;rep=1;sci=1
+		recordingId = 5ca48c99fa55435e8cf8547a6ef27a39
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 83758569.177436709
+		type = 18
+		key = RecordsDistance
+		detail = funds=0;rep=0;sci=0
+		recordingId = 5ca48c99fa55435e8cf8547a6ef27a39
+	}
+}
+MILESTONE
+{
+	id = ffef51f0580c491aa5cfbef00227bba2
+	startUT = 83758576.197435245
+	endUT = 87620501.988759115
+	recordingId = c9ef80ee91b34de2b3717a4fb8bd1226
+	committed = True
+	lastReplayedIdx = 15
+	GAME_STATE_EVENT
+	{
+		ut = 87620475.7087646
+		type = 18
+		key = RecordsAltitude
+		detail = funds=4800;rep=0;sci=0
+		recordingId = ef23bb0df71645f4833607864ea2c627
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 87620475.7087646
+		type = 18
+		key = RecordsAltitude
+		detail = funds=4800;rep=1;sci=0
+		recordingId = ef23bb0df71645f4833607864ea2c627
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 87620475.7087646
+		type = 18
+		key = RecordsAltitude
+		detail = funds=4800;rep=0;sci=0
+		recordingId = ef23bb0df71645f4833607864ea2c627
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 87620475.7087646
+		type = 18
+		key = RecordsAltitude
+		detail = funds=4800;rep=1;sci=0
+		recordingId = ef23bb0df71645f4833607864ea2c627
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 87620475.7087646
+		type = 18
+		key = RecordsAltitude
+		detail = funds=4800;rep=1;sci=1
+		recordingId = ef23bb0df71645f4833607864ea2c627
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 87620475.7087646
+		type = 18
+		key = RecordsAltitude
+		detail = funds=0;rep=0;sci=0
+		recordingId = ef23bb0df71645f4833607864ea2c627
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 87620475.7087646
+		type = 18
+		key = RecordsSpeed
+		detail = funds=4800;rep=0;sci=0
+		recordingId = ef23bb0df71645f4833607864ea2c627
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 87620475.7087646
+		type = 18
+		key = RecordsSpeed
+		detail = funds=4800;rep=1;sci=0
+		recordingId = ef23bb0df71645f4833607864ea2c627
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 87620475.7087646
+		type = 18
+		key = RecordsSpeed
+		detail = funds=4800;rep=0;sci=0
+		recordingId = ef23bb0df71645f4833607864ea2c627
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 87620475.7087646
+		type = 18
+		key = RecordsSpeed
+		detail = funds=4800;rep=1;sci=0
+		recordingId = ef23bb0df71645f4833607864ea2c627
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 87620475.7087646
+		type = 18
+		key = RecordsDistance
+		detail = funds=4800;rep=0;sci=0
+		recordingId = ef23bb0df71645f4833607864ea2c627
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 87620475.7087646
+		type = 18
+		key = RecordsDistance
+		detail = funds=4800;rep=1;sci=0
+		recordingId = ef23bb0df71645f4833607864ea2c627
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 87620475.7087646
+		type = 18
+		key = RecordsDistance
+		detail = funds=4800;rep=0;sci=0
+		recordingId = ef23bb0df71645f4833607864ea2c627
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 87620475.7087646
+		type = 18
+		key = RecordsDistance
+		detail = funds=4800;rep=1;sci=0
+		recordingId = ef23bb0df71645f4833607864ea2c627
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 87620475.7087646
+		type = 18
+		key = RecordsDistance
+		detail = funds=4800;rep=1;sci=1
+		recordingId = ef23bb0df71645f4833607864ea2c627
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 87620475.7087646
+		type = 18
+		key = RecordsDistance
+		detail = funds=0;rep=0;sci=0
+		recordingId = ef23bb0df71645f4833607864ea2c627
+	}
+}

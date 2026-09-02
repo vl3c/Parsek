@@ -22,8 +22,10 @@ chain `ROUTE-CANDIDACY-GATED-ON-SEAL-NO-SEAM-PATH` names: route candidacy needs 
 FULLY SEALED tree, an automated profile ending on a flight-class terminal leaves
 `CommittedProvisional` members behind by design, and sealing was a player action
 with no seam path - so route CREATION was unreachable from any driven lane and
-every committed route fixture in the suite (`depot-route-recorded`, the only
-committed Active route) is a HARVEST. `SealSlot` seals through the production
+every committed route fixture in the suite is a HARVEST (`depot-route-recorded`,
+which carried the suite's only committed Active route until 2026-09-02, and
+`interbody-route-recorded`, harvested that day from the operator's own campaign
+as the G10 inter-body subject). `SealSlot` seals through the production
 `UnfinishedFlightSealHandler.TrySeal` (the Unfinished Flights per-row button:
 effective-tip flip, `FilesDirty`, `BumpSupersedeStateVersionLive` - which is both
 the ERS-cache invalidation and `RouteStore.RevalidateSources` - persist, then RP
