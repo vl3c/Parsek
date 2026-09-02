@@ -248,6 +248,8 @@ This is the single live path after main PR #943 (merged 2026-05-21). `OnPartUndo
 
 After this, `IsComplete` returns `true` and `RouteAnalysisEngine.AnalyzeTree` will consider the window viable. Net cargo movement = `UndockTransportResources - DockTransportResources` (transport deltas) and `UndockEndpointResources - DockEndpointResources` (endpoint deltas), which by conservation must sum to zero per resource.
 
+**The same block ALSO binds the start-docked origin proof - see section 6.5.**
+
 ### 6.4 Phase 3: window closed at undock — transient-state path (SUPERSEDED, historical)
 
 > **Superseded by main PR #943 (2026-05-21).** This subsection describes the removed `DeferredHandleTransientUndock` workaround. Undock recording is now driven by `OnVesselsUndocking` (§6.3); both paths funnel through the same `CreateSplitBranch` -> `TryCompleteLatestRouteConnectionWindow` sink, so route-window completion is unaffected. Retained for historical context only.
@@ -265,6 +267,20 @@ Fallbacks: if no separate vessel can be found (KSP didn't actually split — fal
 Idempotency vs follow-up events: stopping the recorder + setting `pendingSplitInProgress = true` means any follow-up `onPartUndock` from KSP early-returns at the top of `OnPartUndock` (`recorder == null` and/or `pendingSplitInProgress` guard). No double-processing.
 
 ---
+
+### 6.5 The undock binds the start-docked origin (P12, 2026-09-02)
+
+The `CreateSplitBranch` block that completes a route window is also where a start-docked `RouteOriginProof` gets its origin. It is a second, independent consumer of the undock split, and it exists because nothing at recording start can say which half of a settled dock is the supply origin.
+
+- **Capture (recording start) names no origin.** `FlightRecorder.CaptureStartRouteOriginProofIfDocked` reads BOTH halves of the seam off the docking-node pair and stores them as `RouteOriginProof.StartDockedPair` (`HalfA` = the near node's own half, `HalfB` = the facing node's), each with the part-`persistentId` set it owns on the merged vessel, derived by cutting the seam edge in the merged part tree (`RouteProofCapture.TrySplitPartsAcrossSeam`). `StartDockedOriginBindState` is `PairPendingBinding` and `StartDockedOriginRootPartUId` is 0. There is NO vessel-type discriminator any more: bases are ordinary vessels, and a route candidate is defined by transfers and docks.
+- **Bind (undock).** `ParsekFlight.TryBindStartDockedOriginOnUndock` -> `RouteProofCapture.TryBindStartDockedOriginAtUndock` matches the two post-split part sets against the two captured halves and binds the origin to **the half the player did NOT keep flying** - the background side. The recorder follows the focused vessel across a split (`DeferredUndockBranch`), so the active side is the half this run continues on, i.e. the transport. Matching is by part set, never by vessel pid: a `persistentId` is craft-baked and proves no physical identity.
+- **Transport scoping.** The bind replaces `StartTransportResources` / `StartTransportInventory` with the transport half's own captured manifests and re-extracts the end manifests scoped to the same half. Before the bind the manifests are the whole merged pair's, which is the only honest baseline while both halves are one `Vessel`.
+- **Transfer validation.** The transport half's manifest at the undock is compared with its start manifest: a rise in any admitted resource is `Gain`; otherwise non-empty admitted cargo is `Carried`; otherwise `None`. Only `Gain` / `Carried` set `StartDockedOriginPickupValidated` (design 19.2.2 item 2, the "Loaded" provenance).
+- **Pid stamping is guid-gated.** The background half's live pid is stamped only when it is not the recorded launch's own pid under `VesselLaunchIdentity` - that refusal is what keeps a run from becoming its own supply origin. The root part `flightID` is the identity either way.
+- **Write-once.** A proof already `BoundAtUndock` is never rebound, so a later delivery undock cannot move the origin onto the delivery endpoint.
+- **Never bound.** A recording that ends still docked is stamped `UnboundAtStop` at the ordinary recorder stop (a chain-boundary stop is the first half of a split and is exempt). An unbound proof - pending or `UnboundAtStop` - is kept as evidence but `RouteAnalysisEngine.HasDockedOriginProof` refuses it, so it is never forwarded as an origin.
+
+Logging: `RouteOriginProof pair captured:` at start, `RouteOriginProof bound at undock:` (which half, why, the guid decision, the pickup delta) at the split, and `RouteOriginProof unbound:` with a reason on every path that does not produce an origin.
 
 ## 7. Concrete walkthrough: the 2026-05-18 dock-2 playtest
 

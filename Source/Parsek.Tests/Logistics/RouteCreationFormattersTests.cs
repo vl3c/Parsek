@@ -633,7 +633,13 @@ namespace Parsek.Tests.Logistics
                 RouteOriginProof = new RouteOriginProof
                 {
                     StartDockedOriginVesselPid = 4242u,
-                    StartDockedOriginRootPartUId = 4243u
+                    StartDockedOriginRootPartUId = 4243u,
+                    // Bound and pickup-validated: the display classification shares
+                    // RouteAnalysisEngine.HasDockedOriginProof with the analysis gate, so an
+                    // unbound pair reads "unknown" here by the same rule (P12).
+                    StartDockedOriginBindState = StartDockedOriginBindState.BoundAtUndock,
+                    StartDockedOriginPickupValidated = true,
+                    StartDockedOriginPickupKind = OriginPickupKind.Gain,
                 },
                 ExplicitStartUT = 0.0,
                 ExplicitEndUT = 300.0

@@ -46,8 +46,17 @@ namespace Parsek.InGameTests
             RouteOriginProof proof = recording.RouteOriginProof;
             InGameAssert.IsNotNull(proof,
                 $"RouteOriginProof must be non-null (tree={treeId} rec={recording.RecordingId})");
-            InGameAssert.AreNotEqual(0u, proof.StartDockedOriginVesselPid,
-                $"RouteOriginProof.StartDockedOriginVesselPid must be a real partner pid " +
+            // P12: the ORIGIN identity is the bound half's root part flightID, not a vessel
+            // pid. The pid slot is a corroborating key stamped at the bind behind the
+            // launch-guid gate and may legitimately still be 0 (no live vessel, or the
+            // candidate pid was the recorded launch's own).
+            InGameAssert.AreNotEqual(0u, proof.StartDockedOriginRootPartUId,
+                $"RouteOriginProof.StartDockedOriginRootPartUId must name the bound origin half " +
+                $"(tree={treeId} rec={recording.RecordingId})");
+            InGameAssert.AreEqual(
+                (int)StartDockedOriginBindState.BoundAtUndock,
+                (int)proof.StartDockedOriginBindState,
+                $"a forwarded origin proof must have been BOUND at an undock " +
                 $"(tree={treeId} rec={recording.RecordingId})");
 
             int startResCount = proof.StartTransportResources != null
@@ -83,6 +92,9 @@ namespace Parsek.InGameTests
             ParsekLog.Info("TestRunner",
                 $"RouteOriginProof_NonKsc: tree={treeId} rec={recording.RecordingId} " +
                 $"partnerPid={proof.StartDockedOriginVesselPid} " +
+                $"originRoot={proof.StartDockedOriginRootPartUId} " +
+                $"bindState={proof.StartDockedOriginBindState} " +
+                $"pickup={proof.StartDockedOriginPickupKind} " +
                 $"startRes={startResCount} startInv={startInvCount} " +
                 $"endRes={endResCount} endInv={endInvCount}");
         }
@@ -138,7 +150,14 @@ namespace Parsek.InGameTests
                 {
                     if (recording?.RouteOriginProof == null)
                         continue;
-                    if (recording.RouteOriginProof.StartDockedOriginVesselPid == 0)
+                    // The pid slot is not the identity since P12; a BOUND proof is what this
+                    // walker is looking for, and its identity is the origin half's root id.
+                    if (recording.RouteOriginProof.StartDockedOriginBindState
+                        != StartDockedOriginBindState.BoundAtUndock)
+                    {
+                        continue;
+                    }
+                    if (recording.RouteOriginProof.StartDockedOriginRootPartUId == 0)
                         continue;
 
                     treeId = view.Tree.Id;
