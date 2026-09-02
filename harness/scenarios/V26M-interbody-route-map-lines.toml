@@ -1,0 +1,423 @@
+schema = 1
+id = "V26M-interbody-route-map-lines"
+# =====================================================================================
+# 0. WHAT THIS LANE IS, IN ONE SENTENCE
+#
+# The RENDER-COMPOSITION half of G10: drive the flight-map OPEN/CLOSE pair over the
+# `interbody-route-recorded` harvest and take a manifest CENSUS of what an INTER-BODY
+# route's overview line actually composed - the first non-SameBody reading of the M-A7
+# route surfaces anywhere in the suite.
+#
+# B32 is the LOG reading of the same subject and asks a different question ("what did the
+# classifier decide, and on what authority"). This lane asks "what did the renderer
+# BUILD", which only the manifest can answer, and it is the reason the
+# `[expectations.renderComposition]` block is here and not there.
+#
+# =====================================================================================
+# 1. THE CENSUS THIS LANE IS FOR, AND THE TWO OUTCOMES IT IS PREPARED TO READ
+#
+# `RC-ROUTE`'s per-unit half and the `ROUTE_LINE_BUILD` record carry a
+# `transferLegsDropped` count. On V18T's SameBody subject that count is ZERO BY SCOPE -
+# `FilterLegsToEndpointBodies` does not run at all for a same-body route - so the ratified
+# transfer-leg DROP has never been evaluated against non-vacuous data. On THIS subject the
+# filter runs (that is half the 2026-09-02 product fix). BOTH of the following are
+# READINGS, not failures, and the lane is authored to survive either:
+#
+#   OUTCOME A - transferDropped >= 1. The recorded members carry a non-orbital leg in a
+#   THIRD body frame (the Sun-frame mid-course stretch of the Kerbin -> Duna coast), the
+#   leg-derived `ResolveEndpointBodies` resolves origin Kerbin != destination Duna, and
+#   the filter drops it. This is the shape the M6 follow-up was built for and the one the
+#   G10 entry predicts. It would be the FIRST non-zero `transferLegsDropped` in the suite.
+#
+#   OUTCOME B - transferDropped = 0, for either of two honest reasons. (i) The recorded
+#   members carry no non-orbital leg outside the two endpoint bodies: the transfer member
+#   (`5ca48c99...`, `Duna Supply 1 Probe`, which carries NO startBodyName) may be entirely
+#   ORBITAL, and `GhostTrajectoryPolylineRenderer.BuildLegsForRecording` emits polyline
+#   legs only for non-orbital stretches - a heliocentric coast recorded as `OrbitSegment`s
+#   produces no leg to drop. (ii) The ROUND-TRIP STAND-DOWN fires: if the clipped legs
+#   resolve earliest-body == latest-body, `FilterLegsToEndpointBodies` returns 0 rather
+#   than dropping the entire far-body arc (a documented, deliberate lesser error).
+#
+# Which one this subject produces IS THE MEASUREMENT. Pre-registering a window either way
+# would be a prediction read back as though it were a measurement - the mistake V14M, V8
+# and V6M all shipped bare through their reading runs to avoid - so
+# `[expectations.renderComposition]` is DECLARED BARE below and NOTHING about the drop is
+# required or forbidden in `logContracts` either.
+#
+# =====================================================================================
+# 2. WHY THE MAP-OPEN PAIR, AND WHY IT IS THIS LANE'S AND NOT B32's
+#
+# The G10 roadmap entry says V26M "owes the map-open pair since it asserts ghost polyline
+# facets". `RouteTrajectoryLineRenderer.DrawAll`'s only call site is the polyline Driver's
+# map-camera `onPreCull` hook, guarded by `cam == PlanetariumCamera.Camera` and
+# `scene in {TRACKSTATION, FLIGHT}` (`GhostTrajectoryPolylineRenderer.cs:3942-3952`), and
+# in FLIGHT that camera renders only while the map is open. So the pair is not
+# scene-setting: OPEN is what makes the composition happen, and CLOSE is what makes the
+# lane a PAIR rather than a one-way trip - the deactivation sweep, the cache lifetime and
+# the ownership publish/retract all have a closing half, and a lane that never closes the
+# map cannot say it observed one.
+#
+# THE EXPORT IS TAKEN AFTER THE CLOSE, and the placement is PINNED rather than chosen:
+# `test_every_declarer_exports_immediately_before_teardown` requires the export verb to be
+# the step immediately before `FlushAndQuit`, which puts `ExitMapView` ahead of it. That
+# costs this lane nothing, and the reason is worth stating because it is the exact
+# distinction the per-scene clobber entry turns on: `RenderCompositionRecorder` resets on
+# a SCENE SWITCH (`OnGameSceneSwitchRequested` -> auto-flush + `Reset()`), NOT on a map
+# toggle, so closing the map ends the observation without discarding it and the file
+# written afterwards still carries every record the open window accumulated. What the
+# close DOES change is the instant: the deactivation sweep has run by then, so any facet
+# that reads a LIVE line count rather than an accumulated event count reads the closed
+# state. Every facet this lane names (`routeLineBuilds`, `routeCoDrawViolations`,
+# `ownershipChanges`, the seam and unevaluable censuses) is an accumulated count, so this
+# is a statement about what the reading means rather than a caveat on it.
+#
+# THIS LANE STAYS IN ONE SCENE ON PURPOSE. `RENDER-MANIFEST-VERB-EXPORT-IN-A-SECOND-SCENE-CLOBBERS-THE-FIRST-SCENE-ACCUMULATION`
+# (todo, measured by H59's `2026-09-02_0947` census): the recorder accumulates PER SCENE
+# and the export verb writes unconditionally, so a lane that observes in FLIGHT and then
+# exports from SPACECENTER reads zeroes for everything FLIGHT measured. H59 is exactly
+# that shape and its manifest reported `routeLineBuilds=0` off a run whose KSP.log carried
+# a real route build. This lane has no second scene, so the trap cannot fire; V26T is the
+# TS observation and takes its own export in TS.
+#
+# =====================================================================================
+# 3. THE SUBJECT
+#
+# `interbody-route-recorded` - the 2026-09-02 harvest of the operator's own hand-played
+# `orbital supply route` campaign. TWO committed routes, BOTH inter-body under the
+# endpoint scope rule and both still carrying `dispatchWindowPeriod = 0`:
+#
+#   71a983a1  Route: KSC -> Duna   Active   Kerbin -> Duna, DockingPort,
+#             recordedDockUT 72353218.8197432, 4 members, completedCycles 0
+#   8f644e71  Route: KSC -> Mun    Paused   Kerbin -> Mun,  DockingPort
+#
+# So the census counts TWO route line builds where V18T's counts one, and the manifest's
+# per-unit `ROUTE` node can carry `scope = InterBody` for the first time.
+#
+# =====================================================================================
+# 4. WHAT IS REQUIRED, AND WHY THE LIST IS SHORT
+#
+# CLAIM-IS-NOT-GATE, and on a reading run the list is short for that reason. The tokens
+# below are the ANTI-VACUITY floor - the map pass ran, both routes were classified
+# InterBody, both were built, at least one was drawn - and nothing else. Every count in
+# the build line has since been tightened off run 1, route ids stay classed `[0-9a-f]{8}`
+# rather than pinned as literals (the H59 `2026-09-02_1017` arming defect), and the two
+# skip-counter FORBIDS carry the pre-fix reading as a control the lane brings with it.
+#
+# DELIBERATELY NOT REQUIRED: `transferDropped=` in either direction (section 1), any
+# cadence / dispatch / anchor token (no TimeJump is taken - see B32 section 4 for the
+# arithmetic), `Polyline frame:` (whether the GHOST polyline draws anything on this
+# subject is a separate unmeasured question, and requiring an unverified emitter is
+# V22K's stated trap), and every probe/lens summary - those are re-pinned from what this
+# run reads.
+#
+# NO `[dimensionsCovered]` CLAIM. Nothing is armed, so nothing is earned. D10 has no
+# `inter-body-scope` value today; the registry growth rule puts it in the PR that first
+# gates on it.
+#
+# ================= RE-PINNED 2026-09-02 OFF READING RUN 1 =================
+# The lane FLEW on the pre-F1 build and every route reading came back IDENTICAL
+# across B32, V26M and V26T, so the counts below are MEASURED and no longer
+# classes. What run 1 read, verbatim and the same in all three:
+#
+#   Route scope: route=8f644e71 origin=Kerbin destination=Mun  scope=InterBody basis=Endpoints
+#   Route scope: route=71a983a1 origin=Kerbin destination=Duna scope=InterBody basis=Endpoints
+#   Route line build: route=8f644e71 members=4 groups=3 legs=3 transferDropped=0
+#   Route line build: route=71a983a1 members=4 groups=3 legs=3 transferDropped=0
+#   Route line draw: enabled=True routesDrawn=2 legsDrawn=6 skippedOwned=0
+#                    malformed=0 other=0 deact=0 cache=2
+#
+# THE HEADLINE IS `transferDropped=0`, and it is OUTCOME B of the two this
+# package pre-registered rather than a disappointment: the endpoint-leg filter
+# RUNS now (that was half the product fix) and finds nothing to drop, because
+# `groups=3` out of `members=4` already says one member contributed no drawable
+# leg at all - the transfer member `5ca48c99` carries no `startBodyName` and its
+# heliocentric coast is recorded as OrbitSegments, which `BuildLegsForRecording`
+# never emits as a polyline leg. There is no third-body leg to drop. The
+# ratified transfer GAP is therefore real on this subject and visible as an
+# absence, which is a weaker reading than a measured drop and is recorded as such
+# rather than dressed up: G10's "FilterLegsToEndpointBodies has never dropped a
+# leg on a driven run" is STILL TRUE after this lane, and closing it needs a
+# subject whose transfer stretch was recorded in the physics frame.
+#
+# `legsDrawn=6` = two routes x three groups x one leg each, and `routesDrawn=2`
+# with `malformed=0 other=0` is the whole pre-fix failure inverted in one line.
+#
+# THE RUNS DID NOT REACH THESE PINS. All three classified
+# `PARSEK-FAIL subkind=analyzer` on `INV2-NO-DOUBLE-COVER` over the fixture's own
+# recorded sections, which short-circuits every expectation behind it - so the
+# readings above come from the KSP.log, not from a green verifier chain. The
+# fixture has since been repaired at build time (twelve contained sections
+# dropped across four recordings, coverage invariant, `RED=0` after; see
+# INTERBODY-SAVE-CARRIES-INV2-DOUBLE-COVER), so run 2 is expected to reach them.
+# ==========================================================================#
+# TRACER LEAK AT TEARDOWN, OBSERVED ON ALL THREE RUNS and recorded here so the
+# next reader does not re-diagnose it: the run tail prints
+# `cleared leaked: ghostRenderTracing,mapRenderTracing`. Those are the two
+# tracers this lane arms ON PURPOSE through `SetSetting`, and the harness's
+# settings-sidecar teardown clears anything left non-default. It is the teardown
+# doing its job, not this lane leaking - a spec that arms a tracer and does not
+# disarm it is the normal shape (V18T, V14M and H59 all do the same) - and the
+# line is expected on every future run of these three.
+#
+# =====================================================================================
+tier = "operator"
+description = "FLOWN 2026-09-02, ARMED-DISCIPLINE COMPLETE: reading run `2026-09-02_18xx` (route tokens read from the KSP.log; the run itself classified `PARSEK-FAIL(analyzer)` on the fixture's own pre-existing INV2 double-cover, since repaired), pins tightened off it, armed re-flight PASS attempt 1, and a negative control `B32X-interbody-scope-negative-control` (uncommitted) that red `PARSEK-FAIL(expectation)` on exactly the seeded `scope=SameBody` token with zero forbids and a green analyzer. THE RENDER-COMPOSITION HALF OF G10 and the first non-SameBody reading of the M-A7 route surfaces: the flight-map OPEN/CLOSE pair over the `interbody-route-recorded` harvest with a manifest CENSUS of what an INTER-BODY route's overview line composed. B32 is the LOG reading of the same subject; this lane asks what the RENDERER BUILT, which only the manifest answers. THE HEADLINE UNKNOWN WAS `transferLegsDropped`, the spec was authored to survive both readings, and THE MEASUREMENT IS OUTCOME B: `transferLegsDropped=0` on both `ROUTE_LINE_BUILD` records. `groups=3` out of `members=4` says why - the transfer member `5ca48c99` carries no `startBodyName` and its heliocentric coast is recorded as OrbitSegments, which `BuildLegsForRecording` never emits as a polyline leg, so there was no third-body leg to drop. THE ENDPOINT-LEG FILTER NOW RUNS (that was half the product fix) BUT HAS STILL NEVER DROPPED A LEG ON A DRIVEN RUN, so G10's gap of that name REMAINS OPEN after this lane and needs a subject whose transfer stretch was recorded in the PHYSICS frame; the ratified transfer gap is real here but visible only as an absence, which is a weaker reading and is recorded as such rather than dressed up. Manifest reading: `routeLineBuilds=2`, `routeCoDrawViolations=0`, `seamKinds={flexible-soi: 2, rigid: 15}` - the FIRST `flexible-soi` seam any route lane has measured - two INFO `RC-QUAL` raises, `unevaluable=1066`, and a per-unit `ROUTE` node reading `scope=InterBody dispatchWindowPeriod=0`, the first `InterBody` scope any manifest has carried, beside the stored period the fix demoted. `[expectations.renderComposition]` STAYS BARE: `unevaluable=1066` against V18T's ceiling of 10 is the clearest argument there is against copying a sibling's window, and a second matching reading is owed before any of it is armed. The map-open PAIR is this lane's own obligation (the G10 entry names it) and a hard precondition, not scene-setting. The export placement is PINNED to the step immediately before `FlushAndQuit` and therefore sits after `ExitMapView`, which costs nothing: the recorder resets on a SCENE SWITCH, not on a map toggle, and every facet named is an accumulated count. ONE SCENE ONLY, because RENDER-MANIFEST-VERB-EXPORT-IN-A-SECOND-SCENE-CLOBBERS-THE-FIRST-SCENE-ACCUMULATION makes a FLIGHT-observe / elsewhere-export lane read zeroes for everything FLIGHT measured. Same carried control as B32."
+instanceProfile = "stock-minimal"
+tags = ["V26", "route", "logistics", "inter-body", "kerbin", "duna", "map-render",
+        "scene-map", "render-composition", "rc-route", "route-map-lines"]
+
+[fixture]
+# The 2026-09-02 harvest of the operator's `orbital supply route` campaign: FOUR committed
+# trees, 45 recordings, TWO ROUTES, 20 VESSEL nodes, SANDBOX, active vessel `Depot`
+# (ORBITING, FLIGHTSTATE index 0 - a Kerbin-orbit depot, i.e. the routes' ORIGIN body, so
+# the map opens on the origin side of both journeys). Payload pinned in
+# `test_saveparse.RECORDED_FIXTURES`; the route shape, seal state, dock/undock pair and
+# endpoint bodies in `harness/tools/build_interbody_route_recorded.py`.
+saveTemplate       = "fixtures/saves/interbody-route-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  # Kill the scene-entry auto-recorder: this fixture's active vessel is a parked craft
+  # whose tree is committed, the shape that re-arms a promotion stub ~1 s into the scene
+  # (V2 flight 4 / V5 run 1 / B23 flight 1).
+  { cmd = "StopRecording",                                                   expect = "OK" },
+  { cmd = "DiscardTree",                                                     expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  # The three tracers every render-composition declarer must arm
+  # (`test_every_declarer_arms_the_tracers_the_seam_capture_needs`): mapRenderTracing arms
+  # the map/TS tracer + probe AND gates every seam capture predicate the manifest reads;
+  # ghostRenderTracing is the FLIGHT-scene Tier-C raise gate, which this lane actually
+  # uses because it observes IN FLIGHT; verboseLogging is LOAD-BEARING beside both because
+  # the tracer emits its Tier-B truth at Verbose (the V1 lesson) and because this lane's
+  # own `Route scope:` / `Route line build:` tokens are Verbose.
+  { cmd = "SetSetting", args = { name = "ghostRenderTracing", value = "true" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "mapRenderTracing",   value = "true" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" }, expect = "OK" },
+  # ARMED EXPLICITLY rather than relied on: `showRouteLines` is the ONLY gate inside
+  # `DrawAll` and it defaults true - but a lane whose whole subject is that pass must not
+  # depend on a default it does not state.
+  { cmd = "SetSetting", args = { name = "showRouteLines",     value = "true" }, expect = "OK" },
+  # OPEN. Section 2: this is what makes the composition happen at all.
+  { cmd = "EnterMapView",                                    expect = "OK", budget = 120 },
+  # THE DWELL, 40 ticks - the V22K / H59 map-open dwell length, kept whole here rather
+  # than halved as in B32 because this lane reads a CENSUS rather than a first emission:
+  # the manifest aggregates per-frame, so a longer dwell is a larger sample of the same
+  # composition and makes an intermittent build/draw visible as a count rather than as an
+  # absence. RecordingState is AnyScene and side-effect-free.
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  # CLOSE. The second half of the pair this lane owes.
+  { cmd = "ExitMapView",                                     expect = "OK", budget = 120 },
+  # M-A7 CAPTURE. PLACEMENT IS PINNED, not chosen:
+  # `test_every_declarer_exports_immediately_before_teardown` requires the export to be
+  # the step IMMEDIATELY before `FlushAndQuit`, so it sits AFTER the map close (section 2
+  # explains why that costs this lane nothing). INERT by construction
+  # (`hlib.SEAM_VERB_TAIL_ROLE["ExportRenderManifest"]` = inert): an in-memory read plus
+  # one file write in the KSP root, touching no vessel, no save and no Parsek state.
+  { cmd = "ExportRenderManifest",                        expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                    expect = "OK" },
+]
+
+[dimensionsCovered]
+# Same basis as B32 - identical gated tokens on the same surface. DELIBERATELY NOT
+# CLAIMED: any renderComposition cell, because that block is still BARE and gates
+# nothing, which is exactly the condition H35 CLAIM-IS-NOT-GATE names.
+D10 = ["route-map-lines-inter-body"]
+D14 = ["kerbin", "duna", "scene-map", "sandbox"]
+
+[expectations]
+# EMPTY, AND THAT IS NOW A MEASUREMENT RATHER THAN A POSTURE: two runs took the
+# sweep fully armed and neither raised a single anomaly, so there is nothing to
+# tolerate. The S1.4 rule is that a token is re-added WITH the flight that shows
+# it, and no flight has shown one.
+# It opens the map on a scene holding 20 vessels and several ghosts - the
+# `line-blink` / `icon-jump` surface that was unmeasured at authoring time - and the two
+# runs settled it clean.
+allowedAnomalies = []
+
+[expectations.recordings]
+# Same bracket and same argument as B32: the fixture ships 45, the step triple kills ONE
+# promotion stub and is not a latch (so 46 is admissible), the ceiling is headroom for a
+# load-time optimizer that has never been run against these bytes (two Dock, two Undock,
+# twenty JointBreak branch points and a VesselSwitchContinuation give both `SplitAtUT` and
+# `CanAutoMerge` candidate populations), and the FLOOR of 43 is margin for the unknown
+# rather than a prediction. A reading below 45 is to be INVESTIGATED, not window-widened:
+# a merge landing on any of the four Duna-route SOURCE recordings flips the route to
+# `SourceChanged`, which is the one failure mode that makes this lane green and empty.
+count = { min = 43, max = 60 }
+
+[expectations.logContracts]
+# THE ANTI-VACUITY FLOOR, and nothing beyond it (section 4).
+#   the two `Route scope:` lines - both committed routes classified InterBody off their
+#     own endpoints. `basis=Endpoints` is pinned as well as the scope: `basis=MemberBodies`
+#     would mean the endpoint bodies were unreadable and the shipped v1 fallback answered,
+#     a different reading of the same verdict.
+#   "Route line build: route=[0-9a-f]{8} members=" - the overview line set was built. Every
+#     count after `members=` is unpinned; `transferDropped` in particular is THE
+#     measurement (section 1) and requiring a value either way would pre-register it.
+#   "Route line draw: enabled=True routesDrawn=[1-9]" - BUILT is not DRAWN, and this lane
+#     is about the draw.
+#   "RevalidateSources reason=.* routes=2 transitioned=0" - both committed routes survived
+#     the load and neither flipped status under the load-time optimizer.
+#   the loadgame completion line and the two map-view echoes - the precondition of
+#     section 2 stated as tokens. The `already=false` halves are load-bearing: they say
+#     the verb DID something rather than answering OK against a map that was already in
+#     that state.
+required  = [
+  "Route scope: route=[0-9a-f]{8} origin=Kerbin destination=Duna scope=InterBody basis=Endpoints",
+  "Route scope: route=[0-9a-f]{8} origin=Kerbin destination=Mun scope=InterBody basis=Endpoints",
+  "Route line build: route=[0-9a-f]{8} members=4 groups=3 legs=3 transferDropped=0",
+  "Route line draw: enabled=True routesDrawn=2 legsDrawn=6 skippedOwned=0 malformed=0 other=0",
+  "RevalidateSources reason=.* routes=2 transitioned=0",
+  "loadgame complete scene=FLIGHT save=.* game-loaded=true expected=Flight",
+  "entermapview ok mapOpen=true already=false",
+  "exitmapview ok mapOpen=false already=false",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  # THE CARRIED CONTROL, and the two halves are NOT the same kind of claim.
+  # `malformed=[1-9]` is literally what this subject emitted on every drawn frame before the
+  # 2026-09-02 scope fix. `scope=MalformedMixedBodies` could NOT have been emitted then -
+  # the `Route scope:` line is new in the same change - so it restates the claim on the new
+  # line, catching a regression that keeps the line and flips the verdict.
+  "Route line draw: .* malformed=[1-9]",
+  "scope=MalformedMixedBodies",
+  # `other` is `NoBackingRecordings` (zero drawable groups) - a different way for the lane
+  # to be green and empty. H59 carries the same pair for the same reason.
+  "Route line draw: .* other=[1-9]",
+]
+
+[expectations.renderComposition]
+# M-A7 Phase 4 - DECLARED BARE 2026-09-02: NO `gating`, NO window, NO list, DELIBERATELY.
+#
+# Declaring is what sets `PARSEK_RENDER_MANIFEST=1` at launch and arms the C# recorder at
+# Awake, and `rendercompose` then records its facets UNCONDITIONALLY on a parseable
+# manifest - which is how a lane earns its first honest window off a green report-only
+# run. A window written today would be a PREDICTION read back as though it were a
+# measurement, the mistake V14M, V8 and V6M all shipped bare through their reading runs to
+# avoid.
+#
+# AND THE PREDICTION WOULD BE UNUSUALLY UNSAFE HERE, which is why this block says so
+# rather than copying V18T's armed shape:
+#   `routeLineBuilds` - V18T measured 1 on a ONE-route subject. This one carries TWO
+#     routes, so the honest expectation is 2, but `DrawAll` builds once per route per
+#     signature change and the observation instant is not pinned to a frame count. A
+#     `{min = 2}` written today asserts an arithmetic nobody has run.
+#   `unevaluable` - V18T's ceiling of 10 was scaled to a TS census with no closed dwell
+#     and no endpoint decimation. This lane observes IN FLIGHT with 20 vessels loaded and
+#     a 40-tick dwell, which is a different regime entirely; the sibling ratio-to-
+#     measurement convention (~3.4x) needs a measurement first.
+#   `dwells` / `cycles` - no loop is armed on this subject and no route has ever run a
+#     cycle (`completedCycles = 0`, `loopAnchorUT = -1` on the Duna route), so both plausibly
+#     measure 0 and a floor would red the run it was armed from. V18T's block says the same
+#     thing about its own TS observation.
+#   `requireSeamKinds` - `flexible-soi` is the interesting one on an inter-body subject and
+#     is exactly what has never been observed here. Requiring it would be requiring an
+#     unverified emitter.
+#
+# WHAT THE READING RUN OWES BACK, so the arming pass is mechanical rather than a fresh
+# argument: `routeLineBuilds`, `routeCoDrawViolations`, `ownershipChanges`, the
+# `unevaluable` reason census, the seam-kind census, and - the headline - the per-unit
+# `ROUTE` node's `scope` and `transferLegsDropped` for route 71a983a1. Two readings that
+# match facet for facet, then a window, then an armed re-flight, then a negative control.
+#
+# OBSERVED, RUN 1 (report-only, recorded not armed): `routeLineBuilds=2`,
+# `routeCoDrawViolations=0`, `seamKinds={flexible-soi: 2, rigid: 15}` - the
+# FIRST `flexible-soi` seam any route lane has measured, which is the inter-body
+# subject showing up in the seam census exactly where it should - two INFO
+# `RC-QUAL` raises, `unevaluable=1064` (`decimated-section-seam_endpoint` 748,
+# `seam-endpoint-skipped` 309, remainder minor), and a per-unit `ROUTE` node
+# reading `scope=InterBody dispatchWindowPeriod=0` - the first `InterBody` scope
+# any manifest has ever carried, beside the stored period the fix demoted. BOTH
+# `ROUTE_LINE_BUILD` records read `transferLegsDropped=0`, which is outcome B
+# (see the re-pin block at the top of this file).
+#
+# STILL BARE, DELIBERATELY. `unevaluable=1064` against V18T's ceiling of 10 is
+# the clearest possible argument for not copying a sibling's window: this is a
+# FLIGHT scene with 20 vessels and a 40-tick map-open dwell, a different regime
+# entirely, and the number needs a SECOND matching reading before it becomes a
+# ceiling. Arming candidates for that pass: `routeLineBuilds = { min = 2 }`,
+# `routeCoDrawViolations = { max = 0 }`,
+# `requireSeamKinds = [rigid, flexible-soi]`.
+
+[expectations.routes]
+# M-C2 save-parse, DECLARED REPORT-ONLY: `gating` IS DELIBERATELY OMITTED. The
+# windows below were written from the fixture's committed bytes and are now
+# CORROBORATED by two runs' produced saves, but arming stays a separate operator
+# decision taken deliberately (`ARMED_ALLOWLIST` /
+# `test_no_committed_spec_arms_gating`), not a side effect of a lane going green,
+#
+# `originBodies` and `destinationBodies` naming DIFFERENT bodies is the inter-body claim
+# expressed in the save-structure vocabulary: that pair is what `ClassifyRouteScope`
+# reads, and
+# `RouteFacetFixtureAgreementTests.test_the_interbody_fixture_is_the_corpus_only_cross_body_route`
+# pins that this is the only committed fixture where they differ.
+count = { min = 2, max = 2 }
+dormant = { max = 0 }
+stops = { min = 2, max = 2 }
+sourceRefs = { min = 8, max = 8 }
+completedCycles = { max = 0 }
+skippedCycles = { max = 0 }
+statuses = { Active = { min = 1, max = 1 }, Paused = { min = 1, max = 1 } }
+connectionKinds = { DockingPort = { min = 2, max = 2 } }
+originBodies = { Kerbin = { min = 2, max = 2 } }
+destinationBodies = { Duna = { min = 1, max = 1 }, Mun = { min = 1, max = 1 } }
+
+[runtime]
+# 300 LoadGame + 120 EnterMapView + 120 export + 120 ExitMapView + the fast non-deferred
+# verbs + KSP boot + collect. No TimeJump, so no game time is bought; the 40-tick dwell
+# adds seconds. The budget is the family's standard rather than a tight fit.
+budgetSeconds = 2400
+
+[retry]
+# One retry absorbs the V5 promotion-recorder re-arm race (which this fixture's
+# committed-tree-for-the-active-craft shape makes likelier than most) and ordinary seam
+# flakes. It does not absorb a missing token or an unparseable manifest: both reproduce
+# exactly on attempt 2.
+policy = "once"
+
+[expectedFail]
+bugId = ""

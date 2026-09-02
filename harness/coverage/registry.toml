@@ -167,6 +167,35 @@ values = ["rewind-to-launch", "fast-forward", "rewind-to-separation", "refly-gat
 # red on exactly the headline token with zero forbids. Three runs generated three DIFFERENT
 # route ids and produced an IDENTICAL render reading, so the behaviour behind this cell is
 # repeatable and its gate is proven able to fire.
+# "route-map-lines-inter-body" (added 2026-09-02 with B32 / V26M / V26T, per the growth
+# rule): an INTER-BODY route's scope classification and overview line, observed live.
+# DISTINCT from both siblings on the axis the growth rule cares most about - A CODE PATH NO
+# LANE COULD REACH AT ALL - rather than on surface or geometry:
+#   * UNREACHABLE BEFORE THE SAME PR. `ClassifyRouteScope` read `Route.DispatchWindowPeriod`
+#     as the scope authority and `RouteBuilder` hard-coded it to 0.0, so `InterBody` could
+#     not be produced by any creation path; a real Kerbin -> Duna route classified
+#     `MalformedMixedBodies` and `ClassifyRouteLineSkip` skipped its line. V18T's
+#     "route-map-lines" and H59's "route-map-lines-surface" are both SAME-BODY readings and
+#     neither can execute the InterBody branch or the endpoint-leg filter behind it.
+#   * DIFFERENT MEASURED BEHAVIOUR: two routes drawn from one subject
+#     (`routesDrawn=2 legsDrawn=6`), a per-unit manifest `ROUTE` node reading
+#     `scope=InterBody`, and the suite's first `flexible-soi` seam on a route lane.
+# ONE VALUE, THREE DECLARERS, AND THE MEASUREMENT IS WHY IT IS NOT TWO. The flight-map
+# (B32, V26M) and tracking-station (V26T) readings came back BYTE-IDENTICAL - same build
+# line, same draw line, same scope verdict on both routes - so surface is not an axis here
+# the way it was for V18T vs H59, where a flight-scene ghost/overview handoff existed that a
+# TS observation structurally cannot produce. Splitting on a difference that measured zero
+# would be a claim the runs do not support.
+# CLAIMED UNCONDITIONALLY, and the discipline is what earns it under CLAIM-IS-NOT-GATE: the
+# reading run (which classified PARSEK-FAIL(analyzer) on the fixture's own pre-existing INV2
+# residue, since repaired), pins tightened off its log, an armed re-flight PASS attempt 1 on
+# all three, and an uncommitted negative control that red PARSEK-FAIL(expectation) on exactly
+# the seeded `scope=SameBody` token with zero forbids. The gating tokens are the required
+# `scope=InterBody basis=Endpoints` lines, and the control proved they can fire.
+# WHAT THIS CELL DOES NOT CLAIM: that the ratified transfer-leg DROP has been observed.
+# `transferLegsDropped=0` on both records - the filter RUNS but the subject's transfer member
+# contributed no drawable leg - so G10's gap of that name is still OPEN and needs a subject
+# whose transfer stretch was recorded in the physics frame.
 # "multi-origin-escrow" gained a THIRD owner 2026-09-02 with H60-route-escrow-contention,
 # and the value is NOT re-scoped by it - the addition is a different PRODUCER of the same
 # behaviour, in the shape the growth rule allows a shared value. H38 and H40 carry it off
@@ -190,7 +219,7 @@ values = ["candidate-detection", "ksc-origin", "docked-depot-origin", "dock-prod
           "inventory-cargo", "harvest-provenance", "multi-stop", "multi-origin-escrow",
           "round-trip-pair", "inter-body-nth-window", "dispatch-cadence", "hold-reasons",
           "destination-full-gate", "route-map-lines", "route-map-lines-surface",
-          "route-x-rewind"]
+          "route-map-lines-inter-body", "route-x-rewind"]
 
 [D11]  # missions / periodicity / re-aim
 values = ["default-mission", "leg-trim", "whole-mission-loop", "self-overlap", "clone",

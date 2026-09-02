@@ -2633,6 +2633,115 @@ class CommittedFixtureSweepTests(unittest.TestCase):
         # `rewindSave` hint that referenced them cleared), `Ships/` (the
         # collected save carried none, and this is a RECORDED subject that
         # launches nothing), and the two `.craft.txt` snapshot mirrors.
+        # THE INTER-BODY SUPPLY-ROUTE HOST, and the only save in the corpus
+        # whose route runs between two bodies. Roadmap gap G10 (B32 / V26M /
+        # V26T) needs it because every route mechanism that is route-SPECIFIC in
+        # the render engages only on that shape: `ClassifyRouteScope = InterBody`
+        # had never been read live, and `FilterLegsToEndpointBodies` - the
+        # ratified transfer-leg DROP - had never dropped a leg on a driven run.
+        # On the SameBody host (`depot-route-recorded`, V18T) both clauses are
+        # satisfied BY SCOPE and confirm nothing.
+        #
+        # PROVENANCE. The operator's own hand-played SANDBOX campaign
+        # `Kerbal Space Program/saves/orbital supply route`, harvested READ-ONLY
+        # from a scratch COPY on 2026-09-02 via
+        # `harvest_bdock_station.py --keep-parsek --expect-situation ORBITING`,
+        # then finished by `harness/tools/build_interbody_route_recorded.py`
+        # (drops the `Ships/` the harvester keeps, restores the 618-byte AddOns
+        # donor from `depot-route-recorded`). The harvest pruned `Parsek/Saves`,
+        # cleared four dangling `rewindSave` hints and dropped 86 ORPHAN sidecars
+        # (306 -> 220 files). The operator's save was never written to. Two
+        # siblings were inspected and rejected in the same pass: `orbital supply
+        # route CLEAN` carries ZERO ROUTE nodes, and `orbital supply route
+        # DELIVERY test` carries one `Route: Kerbin -> Kerbin` at
+        # completedCycles = 1 (a SameBody duplicate of V18T's subject).
+        #
+        # WHY IT IS THE SUBJECT, read off the bytes against the roadmap's own
+        # 8-step specification: a Duna-orbit depot placed first (`Depot Station
+        # Duna I`, two Duna-start recordings), a KSC-pad transport (`Duna Supply
+        # 1`, isKscOrigin = True), a positive DELIVERY_MANIFEST (LiquidFuel
+        # 257.83 / Oxidizer 315.13), a dock/undock PAIR at
+        # dockUT = 72353218.8197432 / undockUT = 72353267.2397331 with
+        # transferKind = DockingPort, a SEALED tree (zero `mergeState` lines in
+        # the whole save, and the codec writes that key only when the state is
+        # not Immutable), status Active at completedCycles = 0, and nothing
+        # deleted afterwards (45 recordings, 23 Destroyed terminals = the ascent
+        # debris still present). The route's scope inputs are ORIGIN bodyName
+        # Kerbin against STOP ENDPOINT bodyName Duna.
+        #
+        # TWO ROUTES, DELIBERATELY. The save also carries `Route: KSC -> Mun`,
+        # Paused, origin Kerbin / stop Mun - a SECOND inter-body route under the
+        # endpoint scope rule. That is why `count` is 2 and `statuses` reads
+        # {Active: 1, Paused: 1}: cutting it would have meant hand-editing the
+        # operator's ParsekScenario, a worse trade than a richer census. A lane
+        # over this host must expect two committed routes.
+        #
+        # BOTH routes carry `dispatchWindowPeriod = 0`, which is the whole point:
+        # under the retired period-as-scope-flag contract both classified
+        # MalformedMixedBodies and drew no line at all
+        # (todo ROUTE-INTERBODY-SCOPE-NEVER-REACHABLE, fixed 2026-09-02). The
+        # line stays on the wire by design - the fix moved the authority, not the
+        # schema - and `test_build_interbody_route_recorded` pins that it is
+        # still there.
+        #
+        # REPAIRED AT BUILD TIME, the `duna-one-recorded` / `depot-route-recorded`
+        # precedent, and the reading is the argument. The 2026-09-02 B32 / V26M /
+        # V26T runs all classified `PARSEK-FAIL(analyzer)` on
+        # `INV2-NO-DOUBLE-COVER`; the fixture read `FAIL=3 WARN=1 RED=1` under the
+        # Forbid gate. `build_interbody_route_recorded.py` now runs the SHARED
+        # containment dedupe (imported from `build_duna_one_recorded`, third
+        # consumer, no copy) over FOUR recordings and drops TWELVE sections -
+        # seven 65-byte frame-less shells and three 170-byte re-clips of a conic
+        # the kept envelope already carries, plus an exact-span duplicate pair.
+        # The predicate is CONTAINMENT, so the coverage union cannot move, and
+        # `repair_prec` refuses to write if it does or if a PARTIAL overlap would
+        # be left. Reading after: `FAIL=0 WARN=1 INFO=0 STALE=0 BASELINED=0
+        # RED=0`. NONE of the counts pinned below moved - the drops are sidecar
+        # TrackSections, not recordings, files or `.sfs` structure - which is why
+        # this block is a provenance note rather than a re-derivation.
+        #
+        # A BASELINE WAS NOT AN OPTION and the reason is structural: `run.py`
+        # hard-codes `-FreshSaveGate` on every produced-save analyzer run, which
+        # sets `PARSEK_ANALYZER_BASELINE_MODE=forbid`, and in Forbid the PRESENCE
+        # of `analysis/baseline.cfg` is itself a `BASELINE-FORBIDDEN` FAIL. The
+        # producer defect behind the residue is filed as
+        # INTERBODY-SAVE-CARRIES-INV2-DOUBLE-COVER; it is not repaired away.
+        #
+        # `recordingIds` is the four [root..undock] MEMBERS of the inter-body
+        # route rather than all 45: those are the ones the route resolves and a
+        # route-line build walks, so a sidecar loss THERE is the loss that breaks
+        # the lane. Their bodies are the scope inputs seen from the member side:
+        # Kerbin, <transfer - no startBodyName>, Duna, Duna.
+        "interbody-route-recorded": {
+            "trees": 4, "committedTrees": 4, "recordings": 45,
+            "supersedes": 0, "tombstones": 0, "rewind_points": 0,
+            "rewind_retirements": 0,
+            "terminalStates": {"Destroyed": 23, "Docked": 4, "Orbiting": 11,
+                               "SubOrbital": 2},
+            "branchPoints": {"Dock": 2, "JointBreak": 20, "Launch": 2,
+                             "Undock": 2, "VesselSwitchContinuation": 1},
+            "minAuthoritativeSidecars": 175,
+            "recordingIds": ["d23e453bc982482b850ce717ba83bffd",
+                             "5ca48c99fa55435e8cf8547a6ef27a39",
+                             "3700f40e66c84ff79ce5197b362cf937",
+                             "caa6190c37f74e928bfcdc8652ef3910"],
+            "schemaGeneration": 4,
+            "routes": {
+                "count": 2, "dormant": 0, "stops": 2, "sourceRefs": 8,
+                "completedCycles": 0, "skippedCycles": 0,
+                "codecRejects": 0, "unparsed": 0, "unknownStatuses": 0,
+                "unknownConnectionKinds": 0,
+                "statuses": {"Active": 1, "Paused": 1},
+                "connectionKinds": {"DockingPort": 2},
+                "originBodies": {"Kerbin": 2},
+                "destinationBodies": {"Duna": 1, "Mun": 1},
+                "holdKinds": {},
+                "ids": ["8f644e71b1164df3bb735330127d2ee7",
+                        "71a983a16dc04d78bc2a2b90f1d184b0"],
+                "destinationVesselPids": ["4277041026", "1413036399"],
+                "dismissedCandidates": 2, "promptedCandidates": 0,
+            },
+        },
         "rover-route-recorded": {
             "trees": 2, "committedTrees": 2, "recordings": 5,
             "supersedes": 0, "tombstones": 0, "rewind_points": 0,
@@ -4167,6 +4276,50 @@ class RouteFacetFixtureAgreementTests(unittest.TestCase):
             CommittedFixtureSweepTests
             .RECORDED_FIXTURES["depot-route-recorded"]["routes"],
             saveparse.observed_routes_facets(snap))
+
+    def test_the_interbody_builder_and_the_sweep_pin_the_same_route_facet(self):
+        path = os.path.join(TOOLS_DIR, "build_interbody_route_recorded.py")
+        spec = importlib.util.spec_from_file_location(
+            "build_interbody_route_recorded_facet_check", path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        self.assertEqual(
+            CommittedFixtureSweepTests
+            .RECORDED_FIXTURES["interbody-route-recorded"]["routes"],
+            module.ROUTE_FACET_PINS,
+            "the fixture sweep and build_interbody_route_recorded.py disagree "
+            "about the committed routes - re-derive both from "
+            "saveparse.observed_routes_facets over the fixture bytes")
+
+    def test_the_interbody_pinned_facet_is_what_the_parser_reads(self):
+        path = os.path.join(FIXTURE_SAVES_DIR, "interbody-route-recorded",
+                            "persistent.sfs")
+        snap = saveparse.parse_parsek_scenario(_read(path))
+        self.assertEqual(
+            CommittedFixtureSweepTests
+            .RECORDED_FIXTURES["interbody-route-recorded"]["routes"],
+            saveparse.observed_routes_facets(snap))
+
+    def test_the_interbody_fixture_is_the_corpus_only_cross_body_route(self):
+        """THE claim the fixture exists to make, stated as a sweep.
+
+        `ClassifyRouteScope` answers InterBody when the origin body differs from
+        a stop body, so a fixture is an inter-body subject exactly when its
+        `originBodies` and `destinationBodies` censuses do not name the same
+        single body. Before this harvest NO committed fixture was one, which is
+        why the G10 lanes could not be authored even after the product fix.
+        """
+        cross = []
+        for name, want in sorted(
+                CommittedFixtureSweepTests.RECORDED_FIXTURES.items()):
+            routes = want.get("routes") or {}
+            origins = set(routes.get("originBodies") or {})
+            dests = set(routes.get("destinationBodies") or {})
+            if not origins or not dests:
+                continue
+            if origins != dests or len(origins) > 1 or len(dests) > 1:
+                cross.append(name)
+        self.assertEqual(["interbody-route-recorded"], cross)
 
 
 if __name__ == "__main__":  # pragma: no cover

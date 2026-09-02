@@ -28,6 +28,7 @@ namespace Parsek.InGameTests
     public class RouteLineDrawInGameTest
     {
         private const string KerbinBodyName = "Kerbin";
+        private const string DunaBodyName = "Duna";
         private const int MapLineLayer = 31;
 
         [InGameTest(Category = "MapRender", Scene = GameScenes.FLIGHT,
@@ -140,7 +141,7 @@ namespace Parsek.InGameTests
         public IEnumerator RouteLine_InterBodyDrawsEndpointLegsDropsTransferLeg()
         {
             CelestialBody kerbin = FlightGlobals.Bodies?.Find(b => b.bodyName == KerbinBodyName);
-            CelestialBody duna = FlightGlobals.Bodies?.Find(b => b.bodyName == "Duna");
+            CelestialBody duna = FlightGlobals.Bodies?.Find(b => b.bodyName == DunaBodyName);
             if (kerbin == null || duna == null)
             {
                 InGameAssert.Skip("Kerbin/Duna not found in FlightGlobals.Bodies (non-stock pack)");
@@ -239,7 +240,21 @@ namespace Parsek.InGameTests
                 {
                     "routeline-ib-rec-" + System.Guid.NewGuid().ToString("N"),
                 },
-                DispatchWindowPeriod = 5000000.0, // non-zero synodic period -> inter-body scope
+                // Inter-body scope comes from the ENDPOINTS (origin body != stop body), which is
+                // what every production path actually fills in. The period stays at the 0.0
+                // RouteBuilder writes, deliberately: this synthetic is now shaped exactly like a
+                // real save's route, and under the retired period-as-scope-flag contract it would
+                // have classified MalformedMixedBodies and drawn nothing.
+                Origin = new RouteEndpoint { BodyName = KerbinBodyName, IsSurface = true },
+                Stops = new List<RouteStop>
+                {
+                    new RouteStop
+                    {
+                        Endpoint = new RouteEndpoint { BodyName = DunaBodyName },
+                        ConnectionKind = RouteConnectionKind.DockingPort,
+                    },
+                },
+                DispatchWindowPeriod = 0.0,
                 DispatchWindowEpochUT = startUT,
                 RecordedDockUT = -1.0,
                 Status = RouteStatus.Active,
@@ -290,7 +305,18 @@ namespace Parsek.InGameTests
                 {
                     "routeline-rec-" + System.Guid.NewGuid().ToString("N"),
                 },
-                DispatchWindowPeriod = 0.0, // same-body (v1 scope)
+                // Same-body (v1 scope): origin body == stop body, so the endpoint authority says
+                // SameBody and the member-body cross-check (all Kerbin) agrees.
+                Origin = new RouteEndpoint { BodyName = KerbinBodyName, IsSurface = true },
+                Stops = new List<RouteStop>
+                {
+                    new RouteStop
+                    {
+                        Endpoint = new RouteEndpoint { BodyName = KerbinBodyName },
+                        ConnectionKind = RouteConnectionKind.DockingPort,
+                    },
+                },
+                DispatchWindowPeriod = 0.0,
                 RecordedDockUT = -1.0,       // no dock clip -> whole path
                 Status = RouteStatus.Active,
             };

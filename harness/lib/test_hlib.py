@@ -7158,6 +7158,9 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # header carries is what makes that flight readable rather than a fishing trip.
         "V18T-depot-route-ts-arrival.toml":  "operator by the calibration discipline (V1/V2/V24W precedent); AUTHORED 2026-08-26, NEVER FLOWN, reading pending. THE SUITE'S FIRST ROUTE LANE and G1's first lane of any kind: a tracking-station observation of the committed Active GhostDriving SameBody route in the B27 harvest `depot-route-recorded`, arming NO mission loop because the ROUTE drives. Its anchor branch is genuinely unresolvable pre-flight - the header derives all THREE candidates (unlocked-faithful, single-rotation phase lock, and a VesselOrbital-dominant joint/zero-drift road whose anchor is not computable from the committed bytes at all) and the two forward jumps are chosen to be honest under every one of them, with the calibration recipe written down. So the reading run measures the anchor and round 2 re-pins; that is the discipline, not a debt. What IS gated on the first flight is anti-vacuity, three ways: `RevalidateSources ... transitioned=0` (the route did not flip to SourceChanged under the load-time optimizer - the one failure mode that would make this lane green and empty at once), `ghostDriving=[1-9]` and `routeMissions=[1-9]`. `[expectations.renderComposition]` is BARE and D10 `route-map-lines` is deliberately UNDECLARED (H35 CLAIM-IS-NOT-GATE): the headline facet `routeLineBuilds >= 1` would be the first non-zero reading of that census anywhere, and it gets declared in the commit that arms it, citing the run",
         "V25M-duna-park-player-loop.toml":   "operator by the calibration discipline (V8-iteration-1 precedent); AUTHORED 2026-08-26, NEVER FLOWN, reading pending. RE-AIM'S SECOND DEPARTURE CLASS - a heliocentric-parking departure, over `duna-park-recorded`, the path `ReaimClassifier`'s own exception comment names by fixture ('EXCEPTION (s15 Kerbal X #2)') and that no committed lane has driven. Unlike V18T its clock IS fully derivable and the header derives it end to end off the committed .prec bytes: classifier verdict (parking=True, via a replay of DetectRuns / the empty-cut scope gate / the ecc+sma admissibility gate), loiter cuts (ONE, destination-side, 43,963.92 s at the Duna capture, downstream of every window so all three map uncompressed), synodic 19,645,697.250367, span/synodic 1.185268 -> cadence = 2x synodic with PadAlignLaunch declined, k=142, D0 5,350,759,909.583645 and phaseAnchorUT 5,336,966,486.982761 - with the k shown robust to the seconds of scene time between LoadGame and the MissionConfig that stamps LoopAnchorUT. Operator tier is therefore the ordinary first-flight promotion call: the run confirms or refutes a written prediction rather than discovering one. The prediction is pinned as ONE conjunction regex over the ReaimDiag line and its exact inverse (the 'transfer departs from a heliocentric parking orbit' decline) is FORBIDDEN, so a refutation reds loudly instead of quietly measuring a faithful replay",
+        "B32-interbody-route-scope.toml":    "operator by the calibration discipline; FLOWN 2026-09-02, ARMED-DISCIPLINE COMPLETE (reading run, pins tightened off it, armed re-flight PASS attempt 1, and a negative control that red PARSEK-FAIL(expectation) on exactly the seeded token). THE FIRST LANE ANYWHERE THAT HAS READ `ClassifyRouteScope = InterBody`, over the `interbody-route-recorded` harvest. It stays untagged because what it owed was an ordinary reading, not a human call, and that reading is in: the product change that made the verdict reachable (todo ROUTE-INTERBODY-SCOPE-NEVER-REACHABLE) landed in the same PR, the tokens are derived from the classifier source rather than predicted, and the two FORBIDS carry the pre-fix reading as a control the lane brings with it. Nothing is armed, so the flights confirmed without a promotion decision attached; the `[expectations.routes]` arming pass is the one still outstanding.",
+        "V26M-interbody-route-map-lines.toml": "operator by the calibration discipline; FLOWN 2026-09-02, ARMED-DISCIPLINE COMPLETE (reading run, pins tightened off it, armed re-flight PASS attempt 1, and a negative control that red PARSEK-FAIL(expectation) on exactly the seeded token). The RENDER-COMPOSITION half of G10 - the manifest census of an inter-body route line. It read `transferLegsDropped=0`, which is OUTCOME B of the two its header pre-registered: the filter RUNS but found no third-body leg, so G10's `never dropped a leg on a driven run` gap REMAINS OPEN. `[expectations.renderComposition]` stays DECLARED BARE; the arming pass is the human call and it is deliberately NOT taken here.",
+        "V26T-interbody-route-ts-arrival.toml": "operator by the calibration discipline; FLOWN 2026-09-02, ARMED-DISCIPLINE COMPLETE (reading run, pins tightened off it, armed re-flight PASS attempt 1, and a negative control that red PARSEK-FAIL(expectation) on exactly the seeded token). V18T's tracking-station grammar on the inter-body subject. It carries ONE genuinely open question the reading run must answer rather than pass: V18T's front-door tokens (`ghostDriving=[1-9]`, `routeMissions=[1-9]`) are deliberately NOT required, because this subject's Duna route has `loopAnchorUT = -1` and has never run a cycle, so whether a never-dispatched route enters the GhostDriving selection is unmeasured - and RUN 1 ANSWERED IT: `ghostDriving=1` and `routeMissions=1` both printed, so dispatch history is NOT a precondition for a route driving a tracking-station ghost, and both tokens are REQUIRED from the armed re-flight onward. What this lane still owes is the renderComposition arming pass.",
     }
 
     def _specs(self):
@@ -8753,6 +8756,38 @@ class RenderComposeVerifierWiringTests(unittest.TestCase):
                                     #     none. D10 `route-map-lines` stays UNDECLARED
                                     #     until a gating token earns it (H35).
                                     "V18T-depot-route-ts-arrival.toml",
+                                    # -- 2026-09-02, G10: THE INTER-BODY ROUTE PAIR over
+                                    #    the new `interbody-route-recorded` harvest.
+                                    #    DECLARED BARE, NEVER FLOWN. They are the first
+                                    #    subjects whose route can classify
+                                    #    `scope = InterBody` at all - `ClassifyRouteScope`
+                                    #    used to read `Route.DispatchWindowPeriod`, which
+                                    #    RouteBuilder hard-coded to 0.0, so every real
+                                    #    Kerbin -> Duna route classified
+                                    #    MalformedMixedBodies and drew nothing (todo
+                                    #    ROUTE-INTERBODY-SCOPE-NEVER-REACHABLE, fixed the
+                                    #    same day). What is newly measurable is the per-
+                                    #    unit ROUTE node's `scope` and, above all,
+                                    #    `transferLegsDropped`: on V18T's SameBody subject
+                                    #    the endpoint-leg filter does not run at all, so
+                                    #    the ratified transfer-leg DROP has never been
+                                    #    evaluated against non-vacuous data. NO window is
+                                    #    written on either, and V26M's header names BOTH
+                                    #    outcomes it is prepared to read (a drop, or an
+                                    #    honest zero because the transfer member may be
+                                    #    entirely orbital) precisely so the reading run
+                                    #    measures rather than confirms.
+                                    # [M] FLIGHT, the map-open/close PAIR the G10 entry
+                                    #     says V26M owes; export taken with the map still
+                                    #     open and ONE scene only, because
+                                    #     RENDER-MANIFEST-VERB-EXPORT-IN-A-SECOND-SCENE-
+                                    #     CLOBBERS-THE-FIRST-SCENE-ACCUMULATION makes a
+                                    #     two-scene lane read zeroes (H59 measured it).
+                                    "V26M-interbody-route-map-lines.toml",
+                                    # [T] the TRACKSTATION half, V18T's grammar on the new
+                                    #     subject; separate lane rather than a second
+                                    #     dwell for the same per-scene reason.
+                                    "V26T-interbody-route-ts-arrival.toml",
                                     # [M] THE SECOND RE-AIM DEPARTURE CLASS. Every prior
                                     #     re-aim subject (V2 / V8 / V10 / V24W) is a
                                     #     direct ejection; this one phases on the SUN for

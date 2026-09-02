@@ -139,7 +139,24 @@ namespace Parsek.Logistics
         /// <summary>Original flight start UT; anchors inter-body synodic phase.</summary>
         public double DispatchWindowEpochUT;
 
-        /// <summary>0 for same-body, synodic period for inter-body.</summary>
+        /// <summary>
+        /// INFORMATIONAL ONLY. Was documented as "0 for same-body, synodic period for inter-body"
+        /// and was read as the render's authoritative scope flag, but no production path ever wrote
+        /// it non-zero (<c>RouteBuilder</c> hard-codes 0.0), so that contract was never true of a
+        /// real save and it made <c>RouteLineScope.InterBody</c> unreachable from creation
+        /// (ROUTE-INTERBODY-SCOPE-NEVER-REACHABLE). Scope is now derived from the endpoints
+        /// (<see cref="Origin"/>'s body vs the <see cref="Stops"/> endpoint bodies) by
+        /// <c>RouteTrajectoryLineRenderer.IsInterBodyByEndpoints</c>, and the journey's cadence is
+        /// the LOOP's business (<c>RouteLoopClock.DeriveWindowBasis</c>, derived per tick and never
+        /// persisted). Nothing in the logistics runtime reads this field.
+        ///
+        /// <para>KEPT, NOT DELETED, and the codec still writes/reads it unconditionally
+        /// (<c>RouteCodec</c>): every committed save and fixture carries a
+        /// <c>dispatchWindowPeriod = 0</c> line, so dropping it would change the ROUTE node bytes
+        /// for nothing. There is NO schema bump here - the node shape is unchanged and existing
+        /// ROUTE nodes round-trip byte-identically. The value is still reported into the M-A7
+        /// manifest's route record so a reading run can see what a save carries.</para>
+        /// </summary>
         public double DispatchWindowPeriod;
 
         /// <summary>UT of next scheduled dispatch.</summary>

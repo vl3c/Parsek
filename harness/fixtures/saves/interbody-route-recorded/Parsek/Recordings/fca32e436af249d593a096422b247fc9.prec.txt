@@ -1,0 +1,124 @@
+version = 1
+recordingSchemaGeneration = 4
+recordingId = fca32e436af249d593a096422b247fc9
+sidecarEpoch = 5
+sectionAuthoritative = True
+PART_EVENT
+{
+	ut = 72353267.2397331
+	pid = 2136043622
+	type = 6
+	part = liquidEngine2-2.v2
+	value = 0
+	midx = 0
+}
+TRACK_SECTION
+{
+	env = 2
+	ref = 0
+	startUT = 72353267.2397331
+	endUT = 72353267.2597331
+	sampleRate = 0
+	minAlt = 237050.8
+	maxAlt = 237050.8
+	POINT
+	{
+		ut = 72353267.2597331
+		lat = 0.32449544990996054
+		lon = 4.3529603324843187
+		alt = 237050.79529129609
+		rotX = -0.403618753
+		rotY = 0.23449561
+		rotZ = 0.8830037
+		rotW = -0.04907435
+		body = Duna
+		velX = -709.2161
+		velY = -7.122224
+		velZ = -200.712631
+		funds = 0
+		science = 0
+		rep = 0
+	}
+}
+TRACK_SECTION
+{
+	env = 2
+	ref = 0
+	startUT = 72353267.2597331
+	endUT = 72353276.3197312
+	sampleRate = 0.3776436
+	minAlt = 236909.375
+	maxAlt = 237050.8
+	POINT
+	{
+		ut = 72353267.2597331
+		lat = 0.32449544990996054
+		lon = 4.3529603324843187
+		alt = 237050.79529129609
+		rotX = -0.403618753
+		rotY = 0.23449561
+		rotZ = 0.8830037
+		rotW = -0.04907435
+		body = Duna
+		velX = -709.2161
+		velY = -7.122224
+		velZ = -200.712631
+		funds = 0
+		science = 0
+		rep = 0
+	}
+	POINT
+	{
+		ut = 72353270.279732466
+		lat = 0.32228992508153864
+		lon = 4.5653223181469578
+		alt = 237034.51750955696
+		rotX = -0.403490573
+		rotY = 0.234492034
+		rotZ = 0.8830613
+		rotW = -0.04910918
+		body = Duna
+		velX = -708.4324
+		velY = -7.13878632
+		velZ = -203.538971
+		funds = 0
+		science = 0
+		rep = 0
+	}
+	POINT
+	{
+		ut = 72353273.299731836
+		lat = 0.32007912251539306
+		lon = 4.77769757112989
+		alt = 237018.27760525816
+		rotX = -0.403362632
+		rotY = 0.234485269
+		rotZ = 0.883119643
+		rotW = -0.049142357
+		body = Duna
+		velX = -707.6372
+		velY = -7.15523672
+		velZ = -206.36232
+		funds = 0
+		science = 0
+		rep = 0
+	}
+	POINT
+	{
+		ut = 72353276.3197312
+		lat = 0.3178630767256867
+		lon = 4.990086062323706
+		alt = 237002.07583792636
+		rotX = -0.403234869
+		rotY = 0.234477937
+		rotZ = 0.8831782
+		rotW = -0.04917602
+		body = Duna
+		velX = -706.83075
+		velY = -7.17157459
+		velZ = -209.182632
+		funds = 0
+		science = 0
+		rep = 0
+	}
+}
