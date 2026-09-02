@@ -608,10 +608,18 @@ namespace Parsek.Logistics
                 {
                     // M1: the proof carries the origin endpoint descriptor captured at
                     // recording start, so build a real-coordinate endpoint. Surface-base
-                    // origins thereby reach RouteEndpointResolver's proximity fallback
-                    // when the depot's pid no longer resolves - and since the partner rule
-                    // landed, the pid on a captured proof is ALWAYS 0, so the descriptor
-                    // IS the resolution path for a surface depot.
+                    // origins thereby reach RouteEndpointResolver's proximity fallback when
+                    // the depot cannot be resolved by identity.
+                    //
+                    // THE PID IS NO LONGER ALWAYS 0 (P12 corrects the claim this comment
+                    // used to make). It is 0 at CAPTURE, and the UNDOCK bind stamps the
+                    // origin half's live pid whenever the launch-guid gate clears it
+                    // (RouteProofCapture.DecideOriginPidStamp). A bound proof therefore
+                    // usually carries a real pid, and one that reads 0 means either no live
+                    // vessel resolved for that half or the stamp was REFUSED as a
+                    // self-origin. Either way the IDENTITY is RootPartUId and
+                    // RouteEndpointResolver tries the ROOT-PART step first; the pid is a
+                    // corroborating fallback behind it, not the resolution path.
                     origin = new RouteEndpoint
                     {
                         VesselPersistentId = originProof.StartDockedOriginVesselPid,

@@ -66,7 +66,31 @@ _(unreleased — entries accumulate here per commit)_
   place was never recorded but whose destination sits on a body its path never
   visits. Same-body routes are unaffected. Saves are
   unaffected: the stored number is still written and read exactly as before, so no save
-  or fixture changes shape; it is simply no longer what the map believes.
+  or fixture changes shape; it is simply no longer what the map believes.- **Supply routes: the game now works out where a delivery's cargo came from by
+  watching you undock, instead of by reading the vessel type you happened to set.**
+  Starting a recording while your ship is docked to something is how you tell Parsek
+  "this run's cargo came from here". Until now that only worked if you had gone into
+  the tracking station and set the other craft's type to Base or Station - and no stock
+  part makes a craft either of those, so an ordinary landed base you built yourself
+  counted for nothing, and a rover refuelling from another rover counted for nothing
+  either. Both of those were silently dropped: no route, no explanation beyond a line
+  in the log. That requirement is gone. Parsek now simply remembers BOTH craft at the
+  moment you start recording, and waits: when you undock and fly away, the one you left
+  behind is the supply origin. It also checks that you actually picked something up -
+  a run that leaves a dock with nothing aboard is not supplied by it, and will not be
+  offered as a route - and "picked something up" counts CARGO CONTAINERS as well as fuel,
+  so a run that collects a supply container rather than propellant is witnessed the same
+  way. It means the transport's own cargo went UP
+  while it was docked, not merely that it left with something aboard, so a run that only
+  DELIVERS at a dock can never name that vessel as its supply source. If you stop the
+  recording while still docked, nothing is claimed at all, because nothing was
+  witnessed. The cargo counted as "what the transport started with" is now the
+  transport's own tanks rather than the whole docked stack,
+  so a start-docked run is no longer costed as if it were carrying the depot's fuel
+  too. Proven in a real flight: a transport that starts docked to an untyped rover-built
+  depot, takes on fuel, undocks and delivers elsewhere now records that depot as its
+  supply origin - the case that recorded nothing at all before.
+
 - **Automated testing: a test case that recovers a landed craft now waits a fixed moment
   before doing it, so it always produces the same number of recordings.** Nothing in the
   game changed. Parsek deliberately refuses to cut a flight in two when either piece

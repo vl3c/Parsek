@@ -10,6 +10,23 @@ namespace Parsek.Tests
     [Collection("Sequential")]
     public class RouteAnalysisEngineTests : IDisposable
     {
+        /// <summary>
+        /// A start-docked origin proof in the ONE state that is an origin: an undock bound a
+        /// half and the transport's manifests witnessed the pickup. A bare pid / root with no
+        /// bind is a captured PAIR, which route analysis refuses by design (P12).
+        /// </summary>
+        internal static RouteOriginProof BoundDockedOriginProof(uint originPid)
+        {
+            return new RouteOriginProof
+            {
+                StartDockedOriginVesselPid = originPid,
+                StartDockedOriginRootPartUId = originPid + 1u,
+                StartDockedOriginBindState = StartDockedOriginBindState.BoundAtUndock,
+                StartDockedOriginPickupValidated = true,
+                StartDockedOriginPickupKind = OriginPickupKind.Gain,
+            };
+        }
+
         // Capture ParsekLog output so the pickup-rejection diagnostic can be
         // asserted on. Following the canonical RewindLoggingTests pattern:
         // SuppressLogging is a global flag toggled by every static-touching
@@ -371,10 +388,7 @@ namespace Parsek.Tests
         {
             RecordingTree tree = BuildTwoRecordingTree(out _);
             Recording root = tree.Recordings["root"];
-            root.RouteOriginProof = new RouteOriginProof
-            {
-                StartDockedOriginVesselPid = 7777
-            };
+            root.RouteOriginProof = BoundDockedOriginProof(7777u);
 
             RouteAnalysisResult result = RouteAnalysisEngine.AnalyzeTree(tree);
 
@@ -2849,10 +2863,7 @@ namespace Parsek.Tests
                 ParentBranchPointId = "bp1",
                 ExplicitStartUT = proofLegStartUT,
                 ExplicitEndUT = proofLegStartUT + 20.0,
-                RouteOriginProof = new RouteOriginProof
-                {
-                    StartDockedOriginVesselPid = 4242
-                }
+                RouteOriginProof = BoundDockedOriginProof(4242u)
             };
             var delivery = new Recording
             {
@@ -3056,7 +3067,7 @@ namespace Parsek.Tests
             Recording root = tree.Recordings["chain-root"];
             // Give the ORIGIN a proof too - it must be excluded from the
             // mid-tree collection.
-            root.RouteOriginProof = new RouteOriginProof { StartDockedOriginVesselPid = 7 };
+            root.RouteOriginProof = BoundDockedOriginProof(7u);
             var sourcePathIds = new HashSet<string>
             {
                 "chain-root", "chain-segment", "chain-delivery"

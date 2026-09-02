@@ -5644,6 +5644,15 @@ namespace Parsek
             ConfigNode activeSnapshot = VesselSpawner.TryBackupSnapshot(activeVessel);
             ConfigNode bgSnapshot = VesselSpawner.TryBackupSnapshot(backgroundVessel);
 
+            // BOTH ROUTE CONSUMERS BELOW ARE UNDOCK-ONLY, AND THAT IS THE CONTRACT.
+            // A joint break, a stack decoupler or a radial decoupler also reaches
+            // CreateSplitBranch, with a DIFFERENT branchType, and neither completes a route
+            // window nor binds a start-docked origin: the pair stays PENDING and the proof
+            // stays a non-origin. Deliberate, not an oversight - the note under design
+            // 19.2.2's provenance taxonomy says a tanker that DECOUPLES from a base is
+            // witnessable "in principle" but is explicitly out of scope for every milestone,
+            // and the revisit path it names is a separate "separated-with" loading variant
+            // anchored to the controlled-decouple event, NOT a widening of this gate.
             if (branchType == BranchPointType.Undock && parentRec != null)
             {
                 bool routeWindowCompleted = RouteProofCapture.TryCompleteLatestRouteConnectionWindow(
@@ -5657,6 +5666,19 @@ namespace Parsek
                         $"Route proof dock window completed on undock: parent={parentRecordingId} " +
                         $"ut={branchUT.ToString("R", CultureInfo.InvariantCulture)}");
                 }
+
+                // THE START-DOCKED ORIGIN BIND (P12). The recording started on a settled
+                // docked pair; capture recorded BOTH halves and deferred the origin choice to
+                // here, where the split has actually happened. The ORIGIN is the half the
+                // player did NOT keep flying - the background side - and the transport is the
+                // active side, which is also what re-scopes the proof's transport manifests
+                // off the merged pair.
+                //
+                // THE PROOF WAS ADOPTED ONTO parentRec above by AppendCapturedDataToRecording
+                // (write-once), so this binds the copy that will actually be persisted.
+                TryBindStartDockedOriginOnUndock(
+                    parentRec, parentRecordingId, activeVessel, backgroundVessel,
+                    activeSnapshot, bgSnapshot, branchUT);
             }
 
             // Look up the parent's Generation so the children inherit correctly.
@@ -5767,6 +5789,64 @@ namespace Parsek
             {
                 TryAuthorRewindPointForSplit(bp, branchType, activeVessel, activeChild, backgroundVessel, bgChild);
             }
+        }
+
+        /// <summary>
+        /// Live half of the start-docked origin BIND (P12). Reduces the two post-split
+        /// snapshots to part-pid sets, reads the background vessel's live pid + launch guid
+        /// and the recorded launch's, and hands the whole decision to
+        /// <see cref="RouteProofCapture.TryBindStartDockedOriginAtUndock"/> - which owns the
+        /// binding rule, the guid gate, the manifest re-scoping and the pickup validation, and
+        /// is therefore drivable headlessly.
+        ///
+        /// <para>WHICH HALF IS WHICH: the recorder follows the FOCUSED vessel across a split
+        /// (see <see cref="DeferredUndockBranch"/>), so the active side is the half this run
+        /// continues on - the transport - and the background side is the origin. That is the
+        /// ruling, and it is stated relative to the RUN rather than to any vessel type.</para>
+        /// </summary>
+        private void TryBindStartDockedOriginOnUndock(
+            Recording parentRec,
+            string parentRecordingId,
+            Vessel activeVessel,
+            Vessel backgroundVessel,
+            ConfigNode activeSnapshot,
+            ConfigNode bgSnapshot,
+            double branchUT)
+        {
+            RouteOriginProof proof = parentRec?.RouteOriginProof;
+            if (proof == null)
+                return;
+
+            List<uint> activePids = VesselSpawner.CollectPartPersistentIds(activeSnapshot);
+            List<uint> backgroundPids = VesselSpawner.CollectPartPersistentIds(bgSnapshot);
+
+            uint originLivePid = backgroundVessel != null ? backgroundVessel.persistentId : 0u;
+            string originLiveGuid = (backgroundVessel != null && backgroundVessel.id != Guid.Empty)
+                ? backgroundVessel.id.ToString("N")
+                : null;
+
+            bool bound = RouteProofCapture.TryBindStartDockedOriginAtUndock(
+                proof,
+                activePids,
+                backgroundPids,
+                activeSnapshot,
+                parentRec.VesselSnapshot,
+                originLivePid,
+                originLiveGuid,
+                parentRec.VesselPersistentId,
+                parentRec.RecordedVesselGuid,
+                branchUT,
+                parentRecordingId);
+
+            if (bound)
+                parentRec.MarkFilesDirty();
+
+            ParsekLog.Verbose("Flight",
+                $"RouteOriginProof bind attempt: parent={parentRecordingId ?? "<none>"} " +
+                $"bound={(bound ? "1" : "0")} bindState={proof.StartDockedOriginBindState} " +
+                $"activeVessel='{activeVessel?.vesselName ?? "<none>"}' " +
+                $"backgroundVessel='{backgroundVessel?.vesselName ?? "<none>"}' " +
+                $"activeParts={activePids?.Count ?? 0} backgroundParts={backgroundPids?.Count ?? 0}");
         }
 
         private void CreateSplitBranchFromBackgroundParent(
