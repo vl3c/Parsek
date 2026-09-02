@@ -10,6 +10,12 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **Test coverage: the start-docked supply-route origin now has an automated subject.**
+  Two new in-game checks fly the shape the roadmap had reserved for a hand-flown
+  mission - a transport that starts docked to a landed base, undocks, and delivers to
+  somewhere else - plus a control that docks and undocks before recording and must
+  record no origin at all. Nothing player-facing changes.
+
 - **A supply run that starts already docked to a base now records where it started
   from.** The start-docked origin proof looked for a part whose parent belonged to a
   different vessel, which a docked pair never has: KSP merges the two craft into one

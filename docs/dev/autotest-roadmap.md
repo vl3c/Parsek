@@ -2391,6 +2391,19 @@ gated behind the ROUTE-ORIGIN-PROOF-PRODUCER-UNREACHABLE probe (todo) before any
    host - is now lane `H57-route-start-docked-origin-landed.toml`, authored and never
    flown.
 5. **Ground pickup + mixed direction.** ~~The base loads cargo ONTO the
+   **THE LANE, AUTHORED 2026-09-02 AND NEVER FLOWN:** two cells in a NEW category
+   `RouteStartDockedOrigin` (a separate category on purpose - `RouteDockCapture`'s
+   `total=6` is pinned by two flown-green specs and a seventh declaration would red
+   both). The subject docks a self-provisioned partner rig into the active vessel
+   with NO recording running, starts the recording docked, undocks, then docks a
+   SECOND rig and delivers LiquidFuel across a real window, and after the stop reads
+   the proof back off the captured recording asserting a real body name and
+   `IsSurface=true`. The negative control docks and UNDOCKS before the start and must
+   capture nothing. ONE CAVEAT, recorded in the spec and the todo entry: the cells
+   couple with a raw `Part.Couple`, which writes no docking-node bookkeeping, so each
+   stamps it from the decompiled `DockToVessel` contract first - half the gate is a
+   stock-contract emulation, and what it buys is the whole LIVE producer path. The
+   non-emulated confirmation is a real player dock and stays unbought.
    transport (pickup manifest), then a both-directions window
    (`mixed-direction`). Same two-rover template, transfers reversed.~~
    **AUTOMATABLE: `RouteDockCapture` cells authored 2026-09-02, lane H55 never

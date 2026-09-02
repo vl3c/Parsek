@@ -3913,6 +3913,16 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
         # measures them on landed rovers. AUTHORED 2026-09-02, NEVER FLOWN, so the
         # split is INTERIM (see INTERIM_PIN_IDS).
         "H56-route-dock-capture-landed": ("RouteDockCapture", 6),
+        # TIER B ITEM 4, AND A DIFFERENT CATEGORY IN THE SAME SOURCE FILE. The
+        # `RouteStartDockedOrigin` cells reuse the `RouteDockCapture` rig (the
+        # CellContext / PartnerRig machinery is a private nested type, so moving them
+        # to their own file would mean promoting it for no gain), but a batch selects
+        # on CATEGORY, so this lane flies exactly its two cells and H55 / H56's pinned
+        # total of 6 does not move. The subject is a DIFFERENT producer: every
+        # RouteDockCapture cell docks AFTER the recorder is running and its product is
+        # a route WINDOW; these two dock BEFORE it starts and their product is the
+        # start-time ORIGIN PROOF. Authored 2026-09-02, never flown, INTERIM.
+        "H57-route-start-docked-origin-landed": ("RouteStartDockedOrigin", 2),
         # THE THIRD RECORDED `Logistics` HOST, and the first that can pay the debt
         # H39's and H40's rosters both name as unpayable by existing bytes. Its
         # fixture `rover-route-recorded` is the harvest H39's roster asked for in so
@@ -4175,7 +4185,10 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
     # example, since its `passed=1` was the probe and none of the five subjects.
     # AND BACK TO ZERO ON 2026-09-02: H56 PASSED attempt 1 (`2026-09-02_0545`,
     # total=6 passed=6 failed=0 skipped=0), pinned whole.
-    INTERIM_PIN_IDS = set()
+    # NON-EMPTY AGAIN 2026-09-02: H57 is authored and has never flown. Its obligation
+    # is the standing one - the first flight measures the split, the spec's pin is
+    # replaced whole, and the id leaves this set in the same commit.
+    INTERIM_PIN_IDS = {"H57-route-start-docked-origin-landed"}
 
     # id -> measured `skipped=` for members whose RUN-TIME InGameAssert.Skip guards
     # push the split above the attribute-derived floor. The attributes give a FLOOR
@@ -4688,6 +4701,17 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
         # "Active vessel carries no part with a LiquidFuel resource" - a fixture problem
         # reported as a category problem.
         "RouteDockCapture": "logistics",
+        # `RouteStartDockedOrigin` gets `logistics` for the same reason and NOT by
+        # inheritance from the file it shares. Its two cells spawn partner rigs beside
+        # the active vessel and couple them in, so they need everything `loaded-vessel`
+        # asserts; and cell 1 delivers LiquidFuel from the ACTIVE vessel's own tank
+        # across the destination window and reads that window's resource manifest back,
+        # so the host must genuinely carry a LiquidFuel tank with positive capacity.
+        # Neither cell stages. A THIRD claim this row does NOT encode, because the table
+        # has no predicate for it: both cells need a NON-PRELAUNCH host (the resolver
+        # short-circuits on PRELAUNCH before it walks candidates), which is stated in the
+        # spec's own fixture block and asserted in-cell rather than here.
+        "RouteStartDockedOrigin": "logistics",
     }
 
     @staticmethod
@@ -6400,6 +6424,7 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         "S4.3-refly-discard-with-ghosts.toml":     "tier=operator as a reading run, NOT debt: S4.2's seam cycle with the conclusion flipped to AnswerMergeDialog choice=discard, pinning ReFlyDiscard's per-recording removal line and ParsekFlight's two CommittedRecording* handler lines - PR #1591's never-driven path. Nothing armed; promotion is the reading run",
         "S4.4-refly-quicksave-mid-session.toml":   "tier=operator as a reading run, NOT debt: the deliberate experiment REFLY-BATCH-BASELINE-DISCARDS-LIVE-SESSION asked for (a real quicksave AND quickload from inside the live Re-Fly session, no batch - save alone is GREEN by construction since the verdict token has only load-path emitters), whose GREEN / INVALID / RED readings are pre-registered in the spec. Nothing armed; the reading decides which todo entry owns the finding",
         "L6-career-same-name-recover.toml":        "tier=operator as a reading run, NOT debt: science_bench_recover flown a SECOND time over career-earned-pad, whose two prior-launch same-name recordings carry a different launch guid, so PickRecoveryRecordingId's stage 1 guid filter is measured live (KERBAL-XP-RECOVERY-PICK-IS-NAME-AND-UT-ONLY stage 2's repro shape); pins the pick line's shape with guidDropped=2 literal and nameMatches / survivors / tier as value classes. Nothing armed; promotion is the reading run",
+        "H57-route-start-docked-origin-landed.toml": "tier=operator as a reading run, NOT debt: the Tier B item-4 subject, and the first lane anywhere that can reach the start-docked origin producer Captured branch (the fix shipped in the same commit as its cells, so nothing has ever exercised it live). Its two cells pin token SHAPES plus one mirrored pair of verdicts - subject proofCaptured=True, negative control proofCaptured=False - and the passed= / skipped= split is a regex class until the first census, so what is owed is the FLIGHT and the re-pin, not a human call. Registered in IsolatedBatchWiringGroupTests.INTERIM_PIN_IDS to carry that obligation",
         # tier=operator by the CALIBRATION DISCIPLINE, the whole B18-B26 family's
         # tier, and NOT a debt: a first-flight B lane is operator because its
         # windows are derived rather than measured and the first run is a
@@ -9222,7 +9247,14 @@ class IngameCategoryInventoryDocTests(unittest.TestCase):
         # origin-proof instrument. Its own category rather than a slice of `Logistics`
         # for the same reason `LogisticsGrapple` is: `Logistics`' total=47 is pinned by
         # five committed specs, and adding a cell family there would red all of them.
-        self.assertIn("**110 categories / %d declarations**" % stated_decls, body,
+        # 110 -> 111 with `RouteStartDockedOrigin` (H57, 2026-09-02): the two
+        # start-docked origin cells. They share `RouteDockCapture`'s source file and
+        # its whole rig, and are a separate CATEGORY anyway, because that category's
+        # `total=6` is pinned by two flown-green specs and a seventh declaration would
+        # red both. The subject is a different producer: those cells dock AFTER the
+        # recorder starts and produce a route WINDOW; these dock BEFORE it and produce
+        # the start-time ORIGIN PROOF.
+        self.assertIn("**111 categories / %d declarations**" % stated_decls, body,
                       "the triage totals line disagrees with the table it summarises "
                       "(table sums to %d declarations across %d categories)"
                       % (stated_decls, len(self.rows)))

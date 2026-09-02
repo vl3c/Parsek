@@ -1,0 +1,306 @@
+schema = 1
+id = "H57-route-start-docked-origin-landed"
+tier = "operator"
+# =====================================================================================
+# TIER B ITEM 4, AND THE FIRST LANE ANYWHERE THAT DRIVES THE START-DOCKED ORIGIN
+# PRODUCER TO ITS Captured BRANCH. AUTHORED 2026-09-02, NEVER FLOWN.
+#
+# The roadmap wrote item 4 as a manual flight: "record the transport STARTING docked to
+# the base rover off-pad, undock, deliver elsewhere". H56's probe retired that flight by
+# measuring, on this same host, that the producer could not fire at all
+# (`externalParentParts=0 proofCaptured=False situation=1 outcome=no-external-coupling` -
+# ROUTE-ORIGIN-PROOF-PRODUCER-UNREACHABLE, CONFIRMED). The producer is now fixed to read
+# the docking node's OWN docked-partner record instead of the part-parent identity, and
+# THIS LANE IS THE SUBJECT the roadmap asked for, self-provisioned rather than hand-flown:
+# the same two-rover shape, on the same landed host, driven by two in-game cells.
+#
+# -------------------------------------------------------------------------------------
+# THE TWO CELLS, category `RouteStartDockedOrigin`
+# (`Source/Parsek/InGameTests/RouteDockCaptureInGameTest.cs`).
+#
+# 1 `StartDockedOrigin_StartsDockedThenUndocksAndDelivers` - the subject. Spawns a
+#   `dockingPort2` and couples it into the ACTIVE vessel, assembles a partner rig rooted
+#   on a `probeCoreOcto2.v2` (the depot), COUPLES THE TWO WITH NO RECORDING RUNNING, then
+#   starts the recording. That start is the producer's only live entry point, and it must
+#   emit `RouteOriginProof captured:`. The depot then undocks (a plain `Part.Undock` - no
+#   window was ever opened, so there is nothing to complete), a SECOND partner rig is
+#   assembled, and LiquidFuel is delivered across a real docked window to that different
+#   endpoint vessel. After the stop the cell reads the proof back OFF THE CAPTURED
+#   RECORDING and asserts the M1 endpoint descriptor: a real body name and
+#   `IsSurface = true`, which is what gives a surface-base origin the same proximity
+#   rebuild destinations get.
+#
+# 2 `StartDockedOrigin_PartnerUndockedBeforeStart_CapturesNoOriginProof` - the negative
+#   control, and it is what makes cell 1 mean something. The SAME rig docks and then
+#   UNDOCKS before the recording starts. The docking node keeps its `vesselInfo` (stock
+#   never clears it on this path), but its docked partner part is on another vessel now,
+#   so `RouteProofCapture.IsSettledDockSeam`'s partner-resolves conjunct must reject it
+#   and the producer must take `NoExternalCoupling`. Without this cell a green run could
+#   not distinguish "the seam producer works" from "any craft that ever docked gets an
+#   origin", which is the exact false-positive population the predicate exists to exclude.
+#
+# -------------------------------------------------------------------------------------
+# THE CAVEAT THIS LANE CARRIES, STATED UP FRONT RATHER THAN DISCOVERED LATER.
+#
+# The cells couple with a RAW `Part.Couple`. That is deliberate and inherited from the
+# `RouteDockCapture` family - it is what lets the real `onPartCouple` classify a
+# port-to-port pair with no docking FSM in the way, and there is no magnetic acquire to
+# drive between two parts spawned 15 m apart. But `Part.Couple` writes NO docking-node
+# bookkeeping, so each cell first stamps it (`StampStockDockBookkeeping`: `vesselInfo` +
+# `dockedPartUId` per half, the three assignments quoted from the decompiled
+# `ModuleDockingNode.DockToVessel` plus the FSM's own
+# `dockedPartUId = otherNode.part.flightID`; `otherNode` and the FSM state are
+# deliberately NOT written, because arming the node-distance event nulls `vesselInfo`
+# straight back out).
+#
+# SO HALF OF THIS GATE IS A STOCK-CONTRACT EMULATION, NOT AN INDEPENDENT MEASUREMENT: the
+# cell writes the two fields the predicate reads. What the lane still buys, and what no
+# headless test can: the whole LIVE producer path - walk `v.parts`, find the node, resolve
+# the docked partner ON THIS vessel, build the merged-vessel candidate, run the resolver,
+# populate the endpoint descriptor and the start manifests, forward the proof onto the
+# captured recording through `BuildCaptureRecording`, and survive an undock split on the
+# way there. The non-emulated confirmation is a real player dock; that remains unbought
+# and is recorded as such in the todo entry.
+#
+# -------------------------------------------------------------------------------------
+# WHY THE HOST IS `rover-route-recorded` AND NOT THE PAD RIG.
+#
+# `RouteProofCapture.TryResolveStartDockedOriginPartner` returns `ActiveVesselPrelaunch`
+# BEFORE it walks candidates, so on `logi-cargo-pad` (situation 4, clamped) the Captured
+# branch is unreachable by construction - H55's own probe line is the standing evidence.
+# This host is `sit = LANDED` (situation 1), which is also what makes cell 1's
+# `surface=1` assertion a real assertion rather than a tautology: `IsSurfaceOriginSituation`
+# admits LANDED and SPLASHED only.
+#
+# -------------------------------------------------------------------------------------
+# ID NOTE. `H56` is the highest H-series id on `origin/main`; `harness/scenarios/` was
+# listed on every OPEN PR branch (`ksc-delete-verb`, `escrow-competition-lane`,
+# `claude/coop-multiplayer-design-control`) before this id was taken, per the standing
+# "check OPEN PRs for id collisions" rule. None claims `H57-`.
+#
+# -------------------------------------------------------------------------------------
+# WHAT THIS LANE IS NOT. It is not a third `RouteDockCapture` member. Its category is
+# DIFFERENT (`RouteStartDockedOrigin`, 2 declarations) precisely so that H55's and H56's
+# pinned `total=6` does not move: every `RouteDockCapture` cell docks AFTER the recorder
+# is running and its product is a route WINDOW; these two dock BEFORE it starts and their
+# product is the start-time ORIGIN PROOF, a different producer on a different code path.
+# =====================================================================================
+description = "AUTHORED 2026-09-02, NEVER FLOWN. Tier B item 4, the start-docked origin subject, self-provisioned instead of hand-flown: two RouteStartDockedOrigin cells over the LANDED rover-route-recorded host. Cell 1 docks a spawned partner rig into the active vessel with NO recording running, starts the recording docked (the start-docked origin producer's only live entry point), asserts RouteOriginProof captured, undocks the depot, then docks a SECOND partner and delivers LiquidFuel across a real window - and after the stop reads the proof back off the captured recording, asserting a real body name and IsSurface=true so the origin endpoint gets its proximity rebuild. Cell 2 is the negative control that makes cell 1 mean something: the same rig docks and UNDOCKS before the start, so the node keeps its vesselInfo but its partner part is on another vessel, and IsSettledDockSeam's partner-resolves conjunct must reject it (outcome=no-external-coupling). THE CAVEAT: the cells couple with a raw Part.Couple, which writes no docking-node bookkeeping, so each stamps it first from the decompiled DockToVessel contract - half this gate is a stock-contract emulation, and what it buys is the whole LIVE producer path (walk parts, find the node, resolve the partner on this vessel, build the merged-vessel candidate, populate the descriptor and manifests, forward through BuildCaptureRecording across an undock split), which no headless test can drive. The host is landed because the resolver short-circuits on PRELAUNCH before it walks candidates, which is why H55's pad rig could never reach this branch. total=2 is attribute-exact and source-synced; passed=/skipped= are a regex class until the first census, registered in IsolatedBatchWiringGroupTests.INTERIM_PIN_IDS; failed=0 is a literal. The recordings count is pinned exactly at the staged 5, the anti-data-loss floor and the campaign-isolation ceiling in one row, measured on these bytes by RVR-1 on both its flights."
+instanceProfile = "stock-minimal"
+tags = ["ingame-batch", "isolated-batch", "logistics", "route", "dock", "origin-proof",
+        "tier-b", "landed", "recorded-fixture", "H57"]
+
+[fixture]
+# `rover-route-recorded`, the RVR harvest, shared with RVR-1 / RVR-2 / RVR-3 / H56 and
+# stamped into career for RVR-4. Full provenance lives in
+# `harness/lib/test_saveparse.py::RECORDED_FIXTURES` and
+# `harness/tools/build_rover_route_recorded.py`; only what THIS lane needs is restated.
+#
+# WHAT THE TWO CELLS NEED OF IT, read off their shared preconditions
+# (`CellContext.Begin`, inherited whole from the `RouteDockCapture` family):
+#   * a live `ParsekFlight` and a loaded+unpacked ACTIVE VESSEL to spawn beside and
+#     couple into. `B` is a 17-part LANDED rover, `type = Rover`, active vessel index 7.
+#   * NOT an EVA kerbal, and NOT landed within 5 degrees of a pole. The Runway sits at
+#     latitude ~0.0055 degrees.
+#   * NOT PRELAUNCH - and this one is a REQUIREMENT of this lane rather than of the
+#     shared rig. `sit = LANDED` is what makes the Captured branch reachable at all.
+#   * a part on the ACTIVE vessel carrying a `LiquidFuel` RESOURCE with positive amount,
+#     because cell 1 delivers 20 units from it. `B` carries ONE tank at 102.4 / 400.
+# NO INVENTORY REQUIREMENT: neither cell moves a stored cargo item, so the `evaChute` /
+# `evaScienceKit` question that shapes H56's skip hypothesis does not arise here.
+#
+# The PARTNER side is entirely self-provisioned (`probeCoreOcto2.v2`, `dockingPort2`,
+# `fuelTank` - stock-install properties already proven to resolve on `stock-minimal` by
+# H55 flight 1), so nothing here asks the shared fixture to change, which matters: five
+# committed lanes now boot these exact bytes.
+#
+# `injectedRecordings = "none"` is REQUIRED rather than chosen: the corpus is carried by
+# the TEMPLATE, so injecting on top would make the pinned count un-attributable.
+saveTemplate       = "fixtures/saves/rover-route-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+# THE PROLOGUE IS H56's, WHICH IS RVR-1's, step for step and arg for arg - the same host
+# needs the same prologue. The KILL TRIPLE is load-bearing: this save carries TWO
+# committed trees and the committed-tree restore path resumes a promotion-stub recording
+# roughly 1 s into the scene, BEFORE any step can run. `StopRecording` is idempotent-OK
+# and `DiscardTree` answers OK with nothing-discarded when no plain tree is live, so the
+# pair is safe on any entry state; the `SetSetting` stops a later one.
+#
+# autoRecordOnLaunch=false matters doubly here. Both cells spawn vessels and drive
+# couples, and BOTH start a recording of their own at a moment they choose - an
+# auto-record firing first would put a tree in front of the producer and destroy the one
+# measurement this lane exists for.
+#
+# verboseLogging=true is REQUIRED, not cosmetic: the runner writes each cell's per-test
+# PASSED / SKIPPED line at Verbose, AND the producer's own skip branches
+# (`RouteOriginProof skipped: ...`) and the new seam-scan line are Verbose. A census
+# without them cannot separate "no seam was found" from "the seam was found and the
+# resolver rejected the partner", and those call for opposite fixes.
+#
+# THE RunTests BUDGET IS 540, the schema cap (`hlib.MAX_DEFERRED_STEP_BUDGET_SECONDS`).
+# Two cells against H56's six, on the same host and the same spawn machinery, so the wall
+# should be well inside; the budget stays at the family convention rather than being
+# trimmed to hug an expectation, because trimming converts a slow-restore run into a
+# KILLED run with NO TALLY - which on a first census destroys the product of the flight.
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                    expect = "OK" },
+  { cmd = "DiscardTree",                                                      expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" },  expect = "OK" },
+  { cmd = "RunTests",   args = { category = "RouteStartDockedOrigin", isolated = "true" }, expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit",                                                     expect = "OK" },
+]
+
+[dimensionsCovered]
+# NOTHING CLAIMED. The lane has never flown and the CLAIM-IS-NOT-GATE rule
+# (autotest-roadmap.md, "Trust and fail-open risks", item 5) applies exactly as it did to
+# the whole RVR wave. The row it would earn is D10 `docked-depot-origin` - the one row
+# H55 and H56 explicitly could NOT earn, because on both of them the producer never
+# reached its Captured branch. It is claimed in the commit that reads a green census.
+#
+# NO D14 ROW: the boot facts (`sandbox`, `scene-flight`) ride RVR-1's row on this same
+# host, and re-claiming a covered row inflates the coverage count without gating a new
+# behaviour (the H34 rule).
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING (the H7 lesson): run.py reads
+# `expectations.allowedAnomalies`, and a bare key written AFTER an
+# `[expectations.<sub>]` header is TOML-scoped to that sub-table and never read.
+# No tracer is armed by this spec, and NO render-composition block is declared, which is
+# what leaves `PARSEK_RENDER_MANIFEST` unset.
+allowedAnomalies = []
+
+[expectations.recordings]
+# EXACTLY 5, the same two-assertions-in-one-row H56 pins on these bytes.
+#
+# THE FLOOR is the anti-data-loss instrument: `rover-route-recorded` stages five `.prec`
+# sidecars and this batch subjects them to TWO interleaved quickload baseline restores.
+# H39's census 2 is the standing worked example of that row finding player-reachable data
+# loss (QUICKLOAD-OVER-COMMITTED-RESTORE-OVERLAP-DELETES-TREE-ON-SAVE, fixed at
+# 5218b13a8) that no in-game cell could see.
+#
+# THE CEILING is the campaign-isolation proof: both cells spawn up to three vessels each
+# and drive real couple / undock cycles, and cell 1 additionally drives an undock SPLIT
+# that creates a branch recording. If ANY of that leaks into the produced save, the
+# per-test baseline restore did not hold - which is the property the isolated path rests
+# on, and which matters more here than in H56 because the split is a tree mutation rather
+# than just a spawn.
+#
+# WHY 5 EXACTLY AND NOT A WINDOW on a never-flown lane: RVR-1 MEASURED
+# `verifiers.expectations.observed.recordings.count = 5` on these bytes on both of its
+# flights, i.e. the staged set with NO load-time optimizer split. The split is a property
+# of the BYTES, not of which category walks them, and H56 then measured the same 5 with
+# six cells over them.
+count = { min = 5, max = 5 }
+
+[expectations.logContracts]
+# EVIDENCE STANDING: AUTHORED, INTERIM, NEVER FLOWN. `total=` is attribute-derived and
+# source-synced; the `passed=` / `skipped=` split is a REGEX CLASS until the first census
+# measures it, and the id is declared in `IsolatedBatchWiringGroupTests.INTERIM_PIN_IDS`
+# to carry that obligation. `failed=0` is a LITERAL: a reading run may legitimately
+# discover a SKIP (see the skip hypothesis below), but a cell that FAILS here is a
+# finding either way.
+#
+# DERIVED, NOT GUESSED. The commands, so the next reader re-runs them:
+#   hlib.derive_batch_tally(decls, "RouteStartDockedOrigin", "FLIGHT", isolated=True)
+#     -> total=2  scene_skipped=0  batch_skipped=0  executable=2
+#   hlib.derive_batch_tally(decls, "RouteStartDockedOrigin", "FLIGHT")
+#     -> total=2  scene_skipped=0  batch_skipped=2  executable=0
+#   restore-flagged declarations admitted at FLIGHT -> 2
+#
+#  - total=2 is ATTRIBUTE-EXACT: 2 `[InGameTest(Category = "RouteStartDockedOrigin")]`
+#    declarations, both `Scene = GameScenes.FLIGHT`, both `AllowBatchExecution = false` +
+#    `RestoreBatchFlightBaselineAfterExecution = true`. Kept in sync by
+#    `CommittedBatchTallySourceSyncTests`, so a third cell reds locally.
+#  - The ATTRIBUTE FLOOR for `skipped` is 0 on the isolated path.
+#  - THE INTERIM `passed=` SPELLING IS THE PLAIN `[1-9][0-9]*`, and it is correct here
+#    rather than lazy: `RouteStartDockedOrigin` is WHOLLY batch-disabled, so the ORDINARY
+#    path's executable ceiling is `passed=0` and any `passed=[1-9][0-9]*` already proves
+#    the isolated route ran. The tally discriminates at a margin of two.
+#  - scene=FLIGHT is this fixture's Focusable route, MEASURED by RVR-1 / RVR-2 / RVR-3 /
+#    H56 on this exact template, and it is the B10 fail-open guard.
+#
+# EXPECTED-SKIP HYPOTHESIS, pinned by nothing. Every shared precondition is answered by
+# the committed bytes (LANDED, 17 parts, latitude ~0.0055, one LiquidFuel tank at
+# 102.4 / 400 against a 20-unit request), and the four stock prefabs the rigs need were
+# proven to resolve on `stock-minimal` by H55 flight 1. So `passed=2 skipped=0` is the
+# predicted good case. The one skip worth naming in advance is cell 1's
+# "destination rig has no tank to receive the delivery", which would mean a `fuelTank`
+# spawn failed rather than a Parsek defect.
+#
+# THE TWO STRUCTURAL TOKENS. The baseline-slot literal is 2 - DERIVED
+# (`ordered.Count(t => t.RestoreBatchFlightBaselineAfterExecution)` over the admitted
+# batch), not copied - and is emitted only by
+# `InGameTestRunner.PrepareBatchFlightRestoreExecution`, which `RunCategory` never calls,
+# so it proves the ISOLATED entry point INDEPENDENTLY of the tally, and only as a
+# LITERAL. The seam echo is the canary for the provisioning trap: the harness flies the
+# `automation/stock-minimal` instance, NOT the one `dotnet build` deploys to, so its
+# ABSENCE means a stale `Parsek.dll` rather than a Parsek regression - which matters more
+# on this lane than on any other in the family, because the behaviour under test SHIPPED
+# IN THE SAME COMMIT AS THE CELLS.
+#
+# THE TEARDOWN-PROTECTION TOKEN is pinned for the same reason H56 pins it and H55 does
+# not: this host stages a corpus that the `FlushAndQuit` save suppression protects.
+#
+# THE PRODUCER TOKENS, and this is where the lane's product lives:
+#   1 SEAM SCAN - the fix's own instrument, emitted at EVERY recorder start:
+#       RouteOriginProof seam scan: settledDockSeamCandidates=N externalParentCandidates=M
+#     `settledDockSeamCandidates=[1-9][0-9]*` proves the new producer found the seam;
+#     `externalParentCandidates=0` proves the RETIRED reading contributed nothing, which
+#     is the same fact H56's probe measured and is what stops a green run from being
+#     satisfied by the old path. Both halves are pinned in ONE token so the pairing
+#     cannot be split by a partial match.
+#   2 CAPTURE - the producer's Captured branch, with the M1 descriptor fields it is the
+#     lane's job to prove are real. `surface=1` is the assertion: `IsSurfaceOriginSituation`
+#     admits LANDED and SPLASHED only, so a pad or flying host cannot satisfy it.
+#     `partnerBody` and `partnerSituation` are left as classes - the body name is a
+#     fixture property already asserted by `body=Kerbin` in the cell token below, and
+#     pinning the situation integer twice would be a duplicate.
+#   3 CLASSIFY + WINDOW - cell 1's SECOND dock, the delivery leg, wildcarded on ids and
+#     on the UT-bearing window name exactly as H55 / H56 pin them.
+#
+# THE TWO CELL TOKENS. One per cell, each pinning the fields that make the line a
+# STATEMENT rather than a name, and the two are deliberately mirror images: the subject
+# pins `proofCaptured=True` with a non-zero origin pid and a surface endpoint, the control
+# pins `proofCaptured=False originPid=0` with the exact skip branch. A regression that
+# made the producer fire unconditionally would go green on the first and red on the
+# second; one that lost the seam entirely does the reverse. Neither token alone is a gate.
+required  = [
+  "loadgame complete scene=FLIGHT save=.* game-loaded=true expected=Flight",
+  "runtests start category=RouteStartDockedOrigin isolated=true",
+  "Using batch baseline slot .* for 2 restore-after-run test\\(s\\)",
+  "BATCH_COMPLETE v1 total=2 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=RouteStartDockedOrigin scene=FLIGHT",
+  "RouteOriginProof seam scan: settledDockSeamCandidates=[1-9][0-9]* externalParentCandidates=0",
+  "RouteOriginProof captured: recId=[0-9]+ vessel='.*' partnerPid=[1-9][0-9]* candidates=[1-9][0-9]* transportParts=[1-9][0-9]* startRes=[0-9]+ startInv=[0-9]+ partnerBody=\\S+ partnerSituation=-?[0-9]+ surface=1",
+  "OnPartCouple producer classified: kind=DockingPort fromPart=dockingPort2 toPart=dockingPort2 involvesEva=False",
+  "Route proof dock window captured: child=\\S+ window=\\S+ targetPid=[0-9]+ kind=DockingPort",
+  "StartDockedOrigin: cell=start-docked run=\\S+ proofCaptured=True originPid=[1-9][0-9]* body=Kerbin surface=1 situation=-?[0-9]+ windows=1",
+  "StartDockedOrigin: cell=undocked-before-start run=\\S+ proofCaptured=False originPid=0 body=<none> surface=0 situation=-?[0-9]+ windows=0 detail=outcome=no-external-coupling",
+  "DockCapture PASS: cell=start-docked run=\\S+ windows=1 kind=DockingPort complete=True deliveryResources=[1-9][0-9]*",
+  "flushandquit: save suppressed \\(batch baseline already restored\\)",
+]
+# MIRRORS the family's, and nothing more. Deliberately NO `forbidden` token for the
+# `is not trackable (debris)` line: cell 1's per-cell teardown undocks the lone
+# transport-side `dockingPort2` off the active vessel, and THAT half really is a bare
+# docking port, so the line legitimately appears late in a healthy run. The guard lives
+# in the cells, scoped to each partner undock, where it can be precise.
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+[runtime]
+# Budget arithmetic (M-A5 S8): run.py gives EVERY deferred seam verb
+# `required_step_wait(max(step budget, SEAM_FALLBACK_DEFERRAL_SECONDS=600))` = 660 s
+# regardless of the declared step budget, and BOTH LoadGame and RunTests are deferred, so
+# the worst case is max(300,600)+60 + max(540,600)+60 = 660 + 660 = 1320. 1400 clears it,
+# which is the isolated family's convention and is enforced for this family by
+# `IsolatedBatchWiringGroupTests.test_the_budget_clears_the_deferred_worst_case`. It
+# stays at 1400 regardless of how fast the first run turns out to be: trimming it to hug
+# the expectation would convert a slow-restore run into a KILLED run with NO TALLY, which
+# on a first census destroys the entire product of the flight.
+budgetSeconds = 1400
+
+[retry]
+policy = "once"

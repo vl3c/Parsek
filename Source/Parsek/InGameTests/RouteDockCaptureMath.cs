@@ -121,6 +121,43 @@ namespace Parsek.InGameTests
         }
 
         /// <summary>
+        /// Grep-stable verdict line for the <c>RouteStartDockedOrigin</c> cells (Tier B
+        /// item 4: the transport STARTS docked to a surface base, undocks, delivers
+        /// elsewhere). ONE format across that category so its spec pins one regex shape
+        /// per cell, discriminated by <c>cell=</c>.
+        ///
+        /// <para>The fields are the ones a reader needs to tell the fix from a
+        /// coincidence: whether the producer captured at all, the origin vessel pid it
+        /// resolved (the merged docked pair's, which <c>Part.Undock</c> leaves on the half
+        /// that keeps the parent side of the seam), and the M1 endpoint descriptor's body
+        /// + surface flag, which is what gives the origin its proximity rebuild. A
+        /// <c>proofCaptured=False</c> line is a legitimate reading for the negative
+        /// control and a red for the subject cell, which is why the value is IN the line
+        /// rather than implied by which line was emitted.</para>
+        /// </summary>
+        internal static string FormatStartDockedOriginLine(
+            string cell,
+            string runId,
+            bool proofCaptured,
+            uint originVesselPid,
+            string originBodyName,
+            bool originIsSurface,
+            int originSituation,
+            int completeWindows,
+            string detail)
+        {
+            return "StartDockedOrigin: cell=" + cell
+                + " run=" + (string.IsNullOrEmpty(runId) ? "<none>" : runId)
+                + " proofCaptured=" + (proofCaptured ? "True" : "False")
+                + " originPid=" + originVesselPid.ToString(IC)
+                + " body=" + (string.IsNullOrEmpty(originBodyName) ? "<none>" : originBodyName)
+                + " surface=" + (originIsSurface ? "1" : "0")
+                + " situation=" + originSituation.ToString(IC)
+                + " windows=" + completeWindows.ToString(IC)
+                + " detail=" + (string.IsNullOrEmpty(detail) ? "<none>" : detail);
+        }
+
+        /// <summary>
         /// The B6 (EVA-construction drift) observation, reduced to one token.
         /// The documented contract is: the drift warning fires, the window
         /// still completes, and the moved part appears in NO manifest. Any
