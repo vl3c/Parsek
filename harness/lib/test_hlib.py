@@ -3542,67 +3542,45 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
     # into the wrong family or fall between them.
     GROUP_ID_RE = re.compile(r"^H(?:[7-9]|[1-9][0-9]+)-")
 
-    # H-series ids that are NOT batch-wiring lanes at all, each with its reason.
-    # The id pattern above encodes an assumption the H-series carried until
-    # 2026-09-02 - that every two-digit H spec drives one [InGameTest] category -
-    # and H58 is the first committed member that does not: it is a pure
-    # step-sequence route lane with ZERO RunTests steps, so it has no category, no
-    # tally to pin, and nothing for this class's other cells to assert.
-    #
-    # THIS IS AN ALLOWLIST, NOT A PREDICATE, on purpose. Excluding "any H spec with
-    # no RunTests step" would silently drop a genuine batch member the day someone
-    # deleted its RunTests line - the exact silent-hole shape the set-equality cell
-    # exists to close. Naming ids costs an edit here, in the same commit, with the
-    # reason written down; and test_the_non_batch_exclusions_really_drive_no_batch
-    # below re-derives the claim from disk, so a wrong entry cannot hide a batch lane.
-    NON_BATCH_MEMBERS = {
-        "H58-route-rewind-to-launch":
-            "pure step-sequence route lane (seal + create + activate/pause/activate + "
-            "send-once, then two REJECTED InvokeRewindToLaunch negative controls); "
-            "drives no [InGameTest] category, so there is no tally to pin",
-    }
-
     @classmethod
     def setUpClass(cls):
         cls.decls = load_ingame_test_declarations()
         cls.specs = {}
         cls.on_disk = set()
-        cls.non_batch_specs = {}
         for name in sorted(os.listdir(SCENARIOS_DIR)):
             if not name.endswith(".toml"):
                 continue
             spec = load_spec(name)
             sid = spec.get("id") or ""
-            if sid in cls.NON_BATCH_MEMBERS:
-                cls.non_batch_specs[sid] = spec
-            elif cls.GROUP_ID_RE.match(sid) and not hlib.spec_batch_isolated(spec):
+            # THE THIRD CONDITION IS NEW (2026-09-02) AND IT CORRECTS AN ASSUMPTION,
+            # not a bug in any committed spec. The predicate above reads "an H-series
+            # id that is not isolated", which silently encoded "every H-numbered spec
+            # drives an in-game batch" - true of all 43 members and of the isolated
+            # family, and FALSE from `H59-surface-route-map-lines` on: H59 is an
+            # H-numbered RENDER-CENSUS lane whose driver is route verbs, a map-view
+            # pair and dwells, with no `RunTests` step at all. Admitting it would put a
+            # spec with no batch into a family every one of whose cells asserts about a
+            # batch's category, tally and baseline slot, and the first failure would
+            # read as a missing doc row rather than as a mis-classified lane.
+            # DERIVED FROM THE SPEC, never from an id exclusion list, for the same
+            # reason the isolated/ordinary partition is: a member must not be able to
+            # drift into the wrong family or fall between the two.
+            # `[driver.autorun]` counts too, for the same reason `spec_batch_isolated`
+            # reads it: no committed spec uses that shape today, but a lane that ever
+            # did would still be driving a batch and must not fall out of the family
+            # through the back door.
+            _driver = spec.get("driver", {}) or {}
+            drives_batch = (
+                any((step or {}).get("cmd") == "RunTests"
+                    for step in (_driver.get("steps", []) or []))
+                or isinstance(_driver.get("autorun"), dict))
+            if (cls.GROUP_ID_RE.match(sid) and drives_batch
+                    and not hlib.spec_batch_isolated(spec)):
                 cls.on_disk.add(sid)
             if sid in cls.GROUP:
                 cls.specs[sid] = spec
 
-    def test_the_non_batch_exclusions_really_drive_no_batch(self):
-        """The exclusion above is only honest while each named spec genuinely runs
-        no batch. Re-derived from the committed bytes rather than trusted: an entry
-        that acquired a RunTests step would be a batch lane hiding outside the
-        set-equality cell, which is worse than the drift the exclusion prevents.
-        Also asserts every named id is actually on disk, so a stale entry (a
-        renamed or deleted spec) reds instead of lingering inert."""
-        self.assertEqual(sorted(self.NON_BATCH_MEMBERS), sorted(self.non_batch_specs),
-                         "NON_BATCH_MEMBERS names an id that is not committed on disk "
-                         "(renamed or deleted?); drop the entry in the same commit")
-        for sid, spec in sorted(self.non_batch_specs.items()):
-            with self.subTest(spec=sid):
-                steps = (spec.get("driver", {}) or {}).get("steps", []) or []
-                batches = [s for s in steps if (s or {}).get("cmd") == "RunTests"]
-                self.assertEqual(
-                    [], batches,
-                    "%s is excluded from the H-series batch-wiring group as a "
-                    "non-batch lane, but it drives %d RunTests step(s): either drop "
-                    "the exclusion and add it to GROUP (with its category, total and "
-                    "scene, plus the doc rows), or drop the batch"
-                    % (sid, len(batches)))
-
-    def test_the_group_table_is_not_empty(self):
+        def test_the_group_table_is_not_empty(self):
         # ANTI-VACUITY FLOOR, and the reason it exists is this PR's own thesis.
         # Every other cell in this class iterates `self.specs`, which is built by
         # filtering the committed specs against GROUP. Delete an entry from GROUP and
