@@ -2404,6 +2404,15 @@ gated behind the ROUTE-ORIGIN-PROOF-PRODUCER-UNREACHABLE probe (todo) before any
    stamps it from the decompiled `DockToVessel` contract first - half the gate is a
    stock-contract emulation, and what it buys is the whole LIVE producer path. The
    non-emulated confirmation is a real player dock and stays unbought.
+   **FLIGHT 1 (`2026-09-02_1005`) PARSEK-FAIL(results), `total=2 passed=1 failed=1`, and
+   the failure is the PRODUCT rather than the lane:** the control passed, the subject red
+   on reading the proof back off a committed recording, and the caller set says the proof
+   never reaches one in always-tree mode
+   (ROUTE-ORIGIN-PROOF-NEVER-REACHES-A-TREE-RECORDING). **SO ITEM 4 IS NOT DONE.** The
+   producer half is fixed and live-confirmed by H56's post-fix probe
+   (`proofCaptured=True outcome=captured`); the persistence half and the partner-pid rule
+   (ROUTE-ORIGIN-PROOF-PARTNER-IDENTITY) are open, and no D10 `docked-depot-origin` row is
+   claimed until both land and H57 flies green.
    transport (pickup manifest), then a both-directions window
    (`mixed-direction`). Same two-rover template, transfers reversed.~~
    **AUTOMATABLE: `RouteDockCapture` cells authored 2026-09-02, lane H55 never

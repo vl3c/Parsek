@@ -28,7 +28,10 @@ _(unreleased — entries accumulate here per commit)_
   and body as the origin. Ports stuck together in the editor, ports docked to their
   own vessel, and ports that have since undocked are all excluded, so no craft gains
   an origin it never had. Vessels sitting clamped on the pad are unchanged: a launch
-  is still a launch, not a delivery from a depot.
+  is still a launch, not a delivery from a depot. Note that this is the recording half
+  only: the origin is worked out correctly, but it does not yet survive onto the saved
+  recording, so routes built from a start-docked run still have no origin to show. That
+  second half is tracked and not yet done.
 
 - **Restructuring the recordings list mid-session now tells every index-keyed
   consumer.** Merging to the timeline or committing a chain segment runs the same

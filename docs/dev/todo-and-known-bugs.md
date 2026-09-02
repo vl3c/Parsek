@@ -452,6 +452,94 @@ and that must not red); the arithmetic it produces is pinned instead. If a futur
 fixture is built by construction from a sandbox harvest, expect the same line and expect
 its live pools to be the seeded values rather than the ledger's totals.
 
+## ROUTE-ORIGIN-PROOF-NEVER-REACHES-A-TREE-RECORDING: the start-docked proof is produced and attached to `CaptureAtStop`, and in always-tree mode nothing forwards it onto a `Recording` [FOUND 2026-09-02 by lane H57's first flight (`2026-09-02_1005`), which red on exactly this. OPEN, product defect, blocks the whole start-docked origin feature]
+
+**What the flight measured.** H57's subject cell started a recording on a settled docked
+pair, the producer fired (`RouteOriginProof captured: ... partnerBody=Kerbin surface=1`),
+the cell then stopped the recording and found NO recording in the tree carrying a
+`RouteOriginProof`.
+
+**The caller set, re-derived rather than read off comments.** `Recording.RouteOriginProof`
+has exactly two writers in `Source/Parsek`: `Recording.ApplyPersistenceArtifactsFrom`
+(`Recording.cs:912`) and `Recording.CloneWithPersistenceArtifacts` (`Recording.cs:1023`).
+The only production caller of the first in the recording pipeline is
+`ChainSegmentManager.CommitSegmentCore` (`ChainSegmentManager.cs:658`), reached from
+`CommitChainSegment` / `CommitDockUndockSegment` - the LEGACY chain-commit path. The
+always-tree paths do not touch the field: `ParsekFlight.FlushRecorderToTreeRecording`
+(`ParsekFlight.cs:3898`) and the undock split (`ParsekFlight.cs:5580`) both go through
+`ParsekFlight.AppendCapturedDataToRecording`, which omits it BY EXPLICIT DECISION with the
+rationale written at `ParsekFlight.cs:4661-4672` ("that proof reaches committed recordings
+via `Recording.ApplyPersistenceArtifactsFrom` at chain-commit time"). That rationale is
+stale for always-tree mode, which is the shipping mode.
+
+**So the producer half is fixed and the consumer half is unreachable.** The proof is built
+(`RouteProofCapture.BuildStartRouteOriginProof`), held in `FlightRecorder.pendingRouteOriginProof`
+between the start and the stop, and attached to `FlightRecorder.CaptureAtStop` by
+`BuildCaptureRecording` (`FlightRecorder.cs:7927`). It dies there.
+
+**Why this is NOT a one-line forward, and why it was left open rather than patched.** The
+obvious edit - adopt `RouteOriginProof` in `AppendCapturedDataToRecording` - lands in a
+helper shared by the stop flush, the undock split (`ParsekFlight.cs:5580`) and the merge
+path (`ParsekFlight.cs:6302`), so it changes tree metadata semantics for every recording,
+not just start-docked ones, and it needs write-once semantics of its own (the field is
+nulled at every recorder restart, so a split-then-stop sequence would otherwise overwrite a
+real proof with null). It also cannot be settled independently of
+ROUTE-ORIGIN-PROOF-PARTNER-IDENTITY below: forwarding a pid whose meaning is disputed just
+persists the dispute. Fix shape: one write-once adoption in
+`AppendCapturedDataToRecording` (adopt when `target.RouteOriginProof == null`), with a unit
+test for the null-source-does-not-clobber case, taken together with the partner rule.
+
+## ROUTE-ORIGIN-PROOF-PARTNER-IDENTITY: the start-docked proof stamps the MERGED vessel's own pid as the origin partner, which is right only when the depot is the dominant half [FOUND 2026-09-02 by the adversarial review of the producer fix (F1/F2). OPEN, needs a design ruling before any further code]
+
+**F1.** `FlightRecorder.CaptureStartRouteOriginProofIfDocked` stamps
+`v.persistentId` into the seam candidate, so the producer can only ever emit
+`partnerPid == RecordingVesselId`. That pid is the pid of the half that KEEPS the merged
+`Vessel` across `Part.Undock` (the undocking subtree gets a fresh `Vessel`; the remainder
+keeps the original), and which half that is comes from stock's own
+`Vessel.GetDominantVessel` - vesselType priority, then mass - through
+`ModuleDockingNode.DockToVessel`'s `base.part.Couple(node.part)` and `Undock`'s
+`otherNode.part.parent == part` dispatch. For the canonical supply shape (a
+`VesselType.Base` depot, a Rover/Ship transport) the depot is dominant, keeps the pid, and
+the reading is correct. It is NOT correct in general, and it is NOT what the fix's own
+in-game gate produces: H57's subject cell couples the depot INTO the transport with a raw
+`Part.Couple`, so the depot is the child and LEAVES, and the recorded pid names the
+transport. The cell no longer asserts pid identity (2026-09-02 follow-up); it reports the
+recorded pid and pins the descriptor fields instead.
+
+**What the docking node can actually supply.** `DockedVesselInfo` carries `name`,
+`vesselType` and `rootPartUId` (a PART flightID) of each half's PRE-dock vessel, and NO
+vessel pid at all - decompiled, not assumed. So the partner's vessel pid is genuinely
+unresolvable at capture time. The codebase already knows part pids are the identity that
+survives an undock: `RouteConnectionWindow.EndpointPartPersistentIds` is asserted on
+exactly that ground by the round-trip cell.
+
+**F2, the same ruling from the other side.** `IsSettledDockSeam` is SYMMETRIC, so a station
+or a base that starts a recording while something is docked to it now gets a
+`RouteOriginProof` naming itself, which flips `RouteAnalysisEngine`'s non-KSC origin gate
+for a vessel that is not a transport at all. There is no route design doc in `docs/dev` to
+cite a rule from (`docs/dev/done/logistics-origin-ownership-proposal.md` is the archived
+source, and its start-docked bullet is the one this wave already corrected), so the rule
+has to be WRITTEN before it can be cited.
+
+**The ruling that is needed, stated as the choice.** Either (a) the origin partner is the
+half that STAYS, in which case `v.persistentId` is right by construction and the depot-side
+start is a real false positive that needs an exclusion rule and a test; or (b) the origin
+partner is the OTHER half of the seam, in which case the proof must carry that half's
+pre-dock `name` + `rootPartUId` (new fields, schema generation bump) and the pid is bound
+later, by the undock or by the existing M1 proximity rebuild. Nothing further should be
+built on the current producer until this is decided.
+
+**F3, recorded so it is not rediscovered.** The live wiring of the seam predicate's third
+conjunct (`TryFindPartByFlightIdOnVessel(v, node.dockedPartUId) != null`,
+`FlightRecorder.cs`) has NO headless pin: the helper takes a live `Vessel`, which xUnit
+cannot construct, so mutating that argument to a constant `true` leaves the suite green.
+The pure predicate itself is `[Theory]`-pinned over all eight input shapes. The ONLY pin on
+the live wiring is H57's negative-control cell
+(`StartDockedOrigin_PartnerUndockedBeforeStart_CapturesNoOriginProof`), which docks and
+undocks before the recorder starts and must read `outcome=no-external-coupling` - and that
+cell PASSED on H57's first flight, so the conjunct is live-proven even though the lane as a
+whole red. H57 must be green before this work merges.
+
 ## ~~ROUTE-ORIGIN-PROOF-PRODUCER-UNREACHABLE (CONFIRMED 2026-09-02): the start-docked `RouteOriginProof` producer keys on a part-parent condition that a settled dock can never satisfy, so no live recording has ever carried a proof~~ [FOUND BY READING 2026-09-01 while scoping which route flights can be automated, CORROBORATED by the 2026-08-30 rover flight log. CONFIRMED live 2026-09-02 by the H56 probe. FIXED 2026-09-02, code green, NOT YET FLOWN]
 
 **FIXED 2026-09-02.** `FlightRecorder.CaptureStartRouteOriginProofIfDocked` now builds its
@@ -468,11 +556,18 @@ carries `v.persistentId`, `v.situation` and `v`'s body-fixed coordinates, which 
 M1 endpoint descriptor real-coordinate and surface-typed on a landed pair, and leaves the
 pid on the depot half after `Part.Undock` whenever the transport docked INTO the base (the
 undocking subtree gets the fresh `Vessel`; the parent side keeps the pid). The OLD
-external-parent producer is KEPT rather than replaced - the mirror direction: it costs one
-pass over `v.parts`, and it is the only reading that could see an UNSETTLED coupling. Both
-counts are logged at every start (`RouteOriginProof seam scan: settledDockSeamCandidates=N
-externalParentCandidates=M ...`). The PRELAUNCH short-circuit is untouched: a clamped pad
-vessel is still not a delivery origin.
+external-parent reading is COUNTED BUT NO LONGER EMITS (2026-09-02 review follow-up, F4):
+an earlier draft kept it emitting on the claim that it was "the only reading that could see
+an UNSETTLED coupling", which was a hypothesis with no measurement and no decompile behind
+it. It produced zero candidates on both hosts that have ever measured it. The COUNT stays
+because it is the instrument that proves a captured proof came from the seam and not from
+the retired rule, and two committed lanes pin `externalParentCandidates=0`
+(`RouteOriginProof seam scan: settledDockSeamCandidates=N externalParentCandidates=M ...`).
+The PRELAUNCH short-circuit is untouched: a clamped pad vessel is still not a delivery
+origin. TWO THINGS THIS ENTRY DOES NOT CLOSE, both filed above:
+ROUTE-ORIGIN-PROOF-NEVER-REACHES-A-TREE-RECORDING (the proof dies on `CaptureAtStop` in
+always-tree mode) and ROUTE-ORIGIN-PROOF-PARTNER-IDENTITY (the partner-pid rule and the
+depot-side-start false positive). The feature is not usable end to end until both land.
 
 The instrument became the gate. `OriginProofProbe_SettledDockLeavesNoExternalParent` was
 renamed `OriginProof_SettledDockCapturesProofFromDockingNode` (same category, same cell id

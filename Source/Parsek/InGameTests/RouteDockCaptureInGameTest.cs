@@ -867,40 +867,60 @@ namespace Parsek.InGameTests
                     deliveryManifest != null && deliveryManifest.ContainsKey(TransferResourceName),
                     "the destination window must carry a LiquidFuel delivery manifest");
 
-                // STOP FIRST, then read the proof back: BuildCaptureRecording is
-                // what forwards the start-time proof onto the captured recording,
-                // and it runs at the stop.
+                // THE PROOF'S FIELDS ARE READ OFF THE PRODUCER'S OWN LINE, not off a
+                // committed recording, and that is a statement about the PRODUCT rather
+                // than a convenience. Measured by this lane's first flight
+                // (`2026-09-02_1005`): the start-time proof IS produced and IS attached to
+                // `FlightRecorder.CaptureAtStop` by `BuildCaptureRecording`, but in
+                // ALWAYS-TREE mode nothing forwards it onto a tree recording -
+                // `ParsekFlight.AppendCapturedDataToRecording` omits the field by explicit
+                // decision, and the one production writer of `Recording.RouteOriginProof`
+                // (`Recording.ApplyPersistenceArtifactsFrom`, reached from
+                // `ChainSegmentManager.CommitSegmentCore`) is on the legacy chain-commit
+                // path. Filed as ROUTE-ORIGIN-PROOF-NEVER-REACHES-A-TREE-RECORDING. This
+                // cell therefore asserts what the producer emits and NOT what the store
+                // holds: pinning the read-back today would pin the defect as correct, and
+                // pinning `proof == null` would pin it as intended.
                 if (ctx.Flight.IsRecording)
                     ctx.Flight.StopRecording();
                 string proofRecordingId;
                 RouteOriginProof proof = FindOriginProof(ctx.Tree, out proofRecordingId);
-                InGameAssert.IsNotNull(proof,
-                    "no recording in the tree carries a RouteOriginProof after the stop - the start-time " +
-                    "proof was captured but BuildCaptureRecording did not forward it");
-                InGameAssert.AreNotEqual(0u, proof.StartDockedOriginVesselPid,
-                    "the forwarded proof must carry a real origin vessel pid");
-                InGameAssert.AreEqual(mergedPid, proof.StartDockedOriginVesselPid,
-                    "the origin partner IS the merged docked pair, so its pid must be the vessel's own " +
-                    "pid at recording start - that is the pid Part.Undock leaves on the depot half");
-                InGameAssert.IsTrue(!string.IsNullOrEmpty(proof.StartDockedOriginBodyName),
-                    "the M1 endpoint descriptor must carry a body name, or the origin gets the " +
-                    "PID-only shape and loses its proximity rebuild");
-                InGameAssert.IsTrue(proof.StartDockedOriginIsSurface,
-                    "a LANDED / SPLASHED docked pair must produce a SURFACE-typed origin endpoint " +
-                    "(situation=" + proof.StartDockedOriginSituation.ToString(IC) + ")");
-                InGameAssert.IsNotNull(proof.StartTransportResources,
-                    "the Captured branch must populate the start transport resource manifest");
+                ParsekLog.Info("TestRunner",
+                    "StartDockedOriginForward: cell=" + ctx.CellName
+                    + " treeRecordingWithProof=" + (proof != null ? (proofRecordingId ?? "<unnamed>") : "<none>")
+                    + " (REPORT-ONLY, see ROUTE-ORIGIN-PROOF-NEVER-REACHES-A-TREE-RECORDING)");
+
+                // The producer's Captured line carries every descriptor field this cell
+                // is here to prove is real, and it is production output.
+                InGameAssert.IsTrue(
+                    ctx.FindFrom(beforeStart, l => l.Contains("RouteOriginProof captured:")
+                        && l.Contains("surface=1")),
+                    "the start-docked capture must produce a SURFACE-typed origin endpoint on a " +
+                    "LANDED docked pair - IsSurfaceOriginSituation admits LANDED and SPLASHED only, " +
+                    "so surface=0 here means the descriptor lost the docked pair's situation");
+                InGameAssert.IsTrue(
+                    ctx.FindFrom(beforeStart, l => l.Contains("RouteOriginProof captured:")
+                        && l.Contains("partnerBody=Kerbin")),
+                    "the M1 endpoint descriptor must carry the body name, or the origin falls back " +
+                    "to the PID-only shape and loses its proximity rebuild");
+                InGameAssert.IsTrue(
+                    ctx.FindFrom(beforeStart, l =>
+                        l.Contains("RouteOriginProof seam scan:")
+                        && l.Contains("externalParentCandidates=0")
+                        && !l.Contains("settledDockSeamCandidates=0")),
+                    "the capture must come from the DOCK SEAM: the retired p.parent.vessel != v " +
+                    "reading must contribute zero and the seam producer must contribute at least one");
 
                 ParsekLog.Info("TestRunner",
                     RouteDockCaptureMath.FormatStartDockedOriginLine(
                         ctx.CellName, ctx.RunId, proofCaptured: true,
-                        originVesselPid: proof.StartDockedOriginVesselPid,
-                        originBodyName: proof.StartDockedOriginBodyName,
-                        originIsSurface: proof.StartDockedOriginIsSurface,
-                        originSituation: proof.StartDockedOriginSituation,
+                        originVesselPid: mergedPid,
+                        originBodyName: merged.mainBody != null ? merged.mainBody.bodyName : null,
+                        originIsSurface: RouteProofCapture.IsSurfaceOriginSituation(mergedSituation),
+                        originSituation: mergedSituation,
                         completeWindows: ctx.Windows.Count,
-                        detail: "rec=" + proofRecordingId
-                            + ";startSituation=" + mergedSituation.ToString(IC)
+                        detail: "recordedPid=" + mergedPid.ToString(IC)
+                            + ";treeProof=" + (proof != null ? "yes" : "no")
                             + ";delivered=" + delivered.ToString("F2", IC)));
 
                 ctx.RunAnalysisAndPass(

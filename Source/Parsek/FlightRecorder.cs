@@ -7051,9 +7051,23 @@ namespace Parsek
 
             var candidates = new List<OriginPartnerCandidate>();
 
-            // Producer 1: settled dock seams. The merged vessel IS the origin partner, so
-            // every seam contributes the SAME descriptor and the resolver collapses them to
-            // one distinct pid (never PartnerAmbiguous on a single merged vessel).
+            // THE ONLY CANDIDATE PRODUCER: settled dock seams. Every seam on the merged
+            // vessel contributes the SAME descriptor, so the resolver collapses them to one
+            // distinct pid and can never read PartnerAmbiguous on a single merged pair.
+            //
+            // THE PARTNER-PID RULE IS UNDER REVIEW AND IS THE ONE THING HERE THAT IS NOT
+            // SETTLED. `v.persistentId` is the pid of the half that KEEPS the merged
+            // `Vessel` across `Part.Undock` (the undocking subtree gets a fresh `Vessel`;
+            // the remainder keeps the original and its pid), and which half that is comes
+            // from stock's own `Vessel.GetDominantVessel` - vesselType priority, then mass -
+            // via `ModuleDockingNode.DockToVessel`'s `base.part.Couple(node.part)` and
+            // `Undock`'s `otherNode.part.parent == part` dispatch. For the canonical supply
+            // shape (a `VesselType.Base` depot, a Rover/Ship transport) the depot is
+            // dominant, keeps the pid, and this reads correctly. It is NOT correct in
+            // general, and the honest statement of what the docking node can actually
+            // supply - `DockedVesselInfo` carries name / vesselType / rootPartUId of each
+            // half's PRE-dock vessel and NO pid at all - is filed as
+            // ROUTE-ORIGIN-PROOF-PARTNER-IDENTITY in docs/dev/todo-and-known-bugs.md.
             int settledDockSeamCandidates = 0;
             for (int i = 0; i < v.parts.Count; i++)
             {
@@ -7081,7 +7095,16 @@ namespace Parsek
                     v.altitude));
             }
 
-            // Producer 2: any live part whose parent belongs to a different vessel.
+            // THE RETIRED READING, COUNTED AND NOT EMITTED. `p.parent.vessel != v` is the
+            // pre-2026-09-02 candidate rule. It produced no candidate on either host that
+            // has ever measured it (H55 `externalParentParts=0`, H56 the same on a landed
+            // docked pair), so it emits nothing here. NO MECHANISM IS CLAIMED for when it
+            // could be non-zero - an earlier draft of this comment asserted it was "the only
+            // reading that could see an unsettled coupling", which was a hypothesis with no
+            // measurement and no decompile behind it. The COUNT is kept because it is the
+            // instrument: it is what proves a captured proof came from the dock seam and not
+            // from this rule, and two committed lanes pin `externalParentCandidates=0` in
+            // their required tokens.
             int externalParentCandidates = 0;
             for (int i = 0; i < v.parts.Count; i++)
             {
@@ -7092,14 +7115,6 @@ namespace Parsek
                 Vessel parentVessel = parent.vessel;
                 if (parentVessel == null || parentVessel == v) continue;
                 externalParentCandidates++;
-                candidates.Add(new OriginPartnerCandidate(
-                    p.persistentId,
-                    parentVessel.persistentId,
-                    (int)parentVessel.situation,
-                    parentVessel.mainBody != null ? parentVessel.mainBody.bodyName : null,
-                    parentVessel.latitude,
-                    parentVessel.longitude,
-                    parentVessel.altitude));
             }
 
             ParsekLog.Verbose("Recorder",

@@ -270,8 +270,10 @@ ORIGIN PROOF - a different producer on a different code path, whose only in-game
 is what `StartRecording` emits. They are a separate CATEGORY rather than two more cells
 for exactly the reason the family's tally discipline predicts: `RouteDockCapture`'s
 `total=6` is pinned by TWO flown-green specs, and a seventh declaration would red both.
-Bucket **B**: driven by one committed spec that has never flown. It moves to **A** on its
-first clean census, `RouteLifecycle`'s standing exactly. What the pair is FOR is the
+Bucket **B**: driven by one committed spec that has flown ONCE and not green
+(`2026-09-02_1005`, `total=2 passed=1 failed=1` - the control passed and the subject red on
+a real product finding, ROUTE-ORIGIN-PROOF-NEVER-REACHES-A-TREE-RECORDING). It moves to
+**A** on its first clean census, `RouteLifecycle`'s standing exactly. What the pair is FOR is the
 Tier B item-4 subject the roadmap wrote as a manual flight and H56's probe retired -
 ROUTE-ORIGIN-PROOF-PRODUCER-UNREACHABLE, fixed in the same commit as these cells, so
 nothing has ever exercised the fixed producer live.

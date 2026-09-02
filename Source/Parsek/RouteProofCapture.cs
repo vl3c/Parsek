@@ -9,13 +9,19 @@ namespace Parsek
     /// Represents one part on the active vessel that evidences a coupling to an origin at
     /// recording-start time, with the origin vessel's identity + endpoint descriptor attached.
     ///
-    /// <para>Two producers build these (see
-    /// <c>FlightRecorder.CaptureStartRouteOriginProofIfDocked</c>):
-    /// a SETTLED DOCK SEAM (<see cref="RouteProofCapture.IsSettledDockSeam"/>) - the docked pair is
-    /// one merged <c>Vessel</c>, so the origin descriptor fields carry the MERGED vessel's own pid,
-    /// situation and body-fixed coordinates; and a part whose <c>part.parent</c> still belongs to a
-    /// different vessel, which is the pre-2026-09-02 reading and is unsatisfiable once a couple has
-    /// settled (kept because it costs nothing and covers any unsettled coupling).</para>
+    /// <para>ONE producer builds these (see
+    /// <c>FlightRecorder.CaptureStartRouteOriginProofIfDocked</c>): a SETTLED DOCK SEAM
+    /// (<see cref="RouteProofCapture.IsSettledDockSeam"/>). The docked pair is one merged
+    /// <c>Vessel</c>, so the origin descriptor fields carry the MERGED vessel's own pid,
+    /// situation and body-fixed coordinates. The pre-2026-09-02 reading (a part whose
+    /// <c>part.parent</c> still belongs to a different vessel) is COUNTED but no longer
+    /// emits: it produced zero candidates on both hosts that have measured it, and no
+    /// mechanism is claimed for when it could be non-zero.</para>
+    ///
+    /// <para>The PID carried in <see cref="ParentVesselPersistentId"/> is the merged
+    /// vessel's, which is the half that keeps the <c>Vessel</c> across <c>Part.Undock</c>.
+    /// That is correct for the canonical depot-dominant shape and not in general - see
+    /// ROUTE-ORIGIN-PROOF-PARTNER-IDENTITY in <c>docs/dev/todo-and-known-bugs.md</c>.</para>
     /// </summary>
     internal readonly struct OriginPartnerCandidate
     {
