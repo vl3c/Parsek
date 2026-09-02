@@ -10,6 +10,19 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **Automated testing: a test case that recovers a landed craft now waits a fixed moment
+  before doing it, so it always produces the same number of recordings.** Nothing in the
+  game changed. Parsek deliberately refuses to cut a flight in two when either piece
+  would be shorter than five seconds - that is what stops a rover that touches down and
+  lifts off again from being shredded into a pile of tiny recordings, and a craft
+  recovered three seconds after landing correctly keeps that last moment as part of its
+  flight. One automated test happened to recover its craft right on that five-second
+  line, so the same test produced two recordings on one run and one on the next, and it
+  could never be trusted to check the number. The test now holds twelve seconds before
+  recovering, which puts it clearly on one side of the line, a second copy of the test
+  keeps the original timing so the difference stays measurable, and the other side of the
+  line is checked directly in the unit tests at the exact timings that were observed.
+
 - **Automated testing: a flight can now drive part actions on a scripted timeline, and
   the replay of each is checked family by family.** The test harness could stage,
   throttle and deploy parachutes, but nothing else a player presses - so lights,
