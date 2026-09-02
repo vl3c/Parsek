@@ -2113,6 +2113,99 @@ namespace Parsek.Tests
             Assert.False(RecordingOptimizer.CanAutoSplitIgnoringGhostTriggers(rec, 1));
         }
 
+        // ------------------------------------------------------------------
+        // THE 5.0 s BOTH-HALVES FLOOR AT THE MAGNITUDES ONE LANE ACTUALLY
+        // STRADDLED. The cell above proves the floor exists at a 3 s tail; these
+        // pin it at the numbers that made a harness lane nondeterministic, so the
+        // rule stays a deliberate contract rather than an implementation detail
+        // some later refactor can round off.
+        //
+        // THE SHAPE, from `L6-career-same-name-recover`: the flight lands, sits,
+        // and is RECOVERED - which ENDS the recording. The optimizer's split
+        // candidate is the touchdown `SurfaceStationary` section, so the second
+        // half is exactly `recoverUT - touchdownSectionUT`, and three flights of
+        // one mission on one fixture (the last two on one DLL) measured it at
+        // 5.34 s, 4.82 s and 5.88 s - margins of +0.34, -0.18 and +0.88. The same
+        // inputs therefore produced 2 recordings, then 1, then 2. THAT IS THE
+        // RULE WORKING: a 4.8 s, 2-point landed tail is not worth its own
+        // recording, and the hop guard behind the floor (a rover that touches
+        // down and lifts again must not be shredded into fragments) is the
+        // deliberate behaviour. What was uncontrolled was the INPUT, which is now
+        // a mission param (`preRecoverDwellSeconds`).
+        //
+        // WHY THESE CELLS AND NOT A FLIGHT: a hold can only make the tail LONGER,
+        // so a scenario can reach the SPLIT side of this floor deterministically
+        // and can never reach the NO-SPLIT side. This is where the no-split side
+        // is proven.
+        // ------------------------------------------------------------------
+
+        [Fact]
+        public void CanAutoSplitIgnoringGhostTriggers_L6LandedTailUnderTheFloor_DoesNotSplit()
+        {
+            // Run `2026-09-02_1402`: touchdown 748.98, recovery 753.8 -> 4.82 s.
+            // Its own log said so: `Split summary: ... splittableButRejected=2`.
+            var rec = MakeRecordingWithSections(400.0, 748.98, 753.8,
+                SegmentEnvironment.Atmospheric, SegmentEnvironment.SurfaceStationary);
+            Assert.False(RecordingOptimizer.CanAutoSplitIgnoringGhostTriggers(rec, 1));
+        }
+
+        [Fact]
+        public void CanAutoSplitIgnoringGhostTriggers_L6LandedTailOverTheFloor_Splits()
+        {
+            // Runs `_1328` (749.16 -> 754.5 = 5.34 s) and `_1411` (747.82 ->
+            // 753.7 = 5.88 s), both of which logged `SplitAtSection: split ...
+            // (second: 2 pts/1 sections)` and committed 2 recordings.
+            var runA = MakeRecordingWithSections(400.0, 749.16, 754.5,
+                SegmentEnvironment.Atmospheric, SegmentEnvironment.SurfaceStationary);
+            Assert.True(RecordingOptimizer.CanAutoSplitIgnoringGhostTriggers(runA, 1));
+
+            var runB = MakeRecordingWithSections(400.0, 747.82, 753.7,
+                SegmentEnvironment.Atmospheric, SegmentEnvironment.SurfaceStationary);
+            Assert.True(RecordingOptimizer.CanAutoSplitIgnoringGhostTriggers(runB, 1));
+        }
+
+        [Fact]
+        public void CanAutoSplitIgnoringGhostTriggers_FloorIsInclusiveAtExactlyFiveSeconds()
+        {
+            // The predicate refuses on `< 5.0`, so 5.0 itself SPLITS. Pinned
+            // because the lane's whole margin arithmetic is written against this
+            // side of the comparison, and a `<=` would silently move it.
+            var exactly = MakeRecordingWithSections(700.0, 1000.0, 1005.0,
+                SegmentEnvironment.Atmospheric, SegmentEnvironment.SurfaceStationary);
+            Assert.True(RecordingOptimizer.CanAutoSplitIgnoringGhostTriggers(exactly, 1));
+
+            var justUnder = MakeRecordingWithSections(700.0, 1000.0, 1004.999,
+                SegmentEnvironment.Atmospheric, SegmentEnvironment.SurfaceStationary);
+            Assert.False(RecordingOptimizer.CanAutoSplitIgnoringGhostTriggers(justUnder, 1));
+        }
+
+        [Fact]
+        public void CanAutoSplitIgnoringGhostTriggers_L6LongDwellVariantTail_Splits()
+        {
+            // What `L6-career-same-name-recover` now buys with
+            // `preRecoverDwellSeconds = 12`. The dwell is anchored on the LANDING
+            // frame and the `SurfaceStationary` section opens ~3-4 s later (stock
+            // needs <0.1 m/s for 3 s), so the tail this lane authors is
+            // `12 - ~3.4 = ~8.6 s` - a +3.6 s margin over the floor against the
+            // natural dwell's worst measured -0.18. Sized at the PESSIMISTIC end
+            // of that offset here (a 4.5 s section-start lag, tail 7.5 s), which
+            // is the value the spec header's arithmetic has to survive.
+            var pessimistic = MakeRecordingWithSections(400.0, 749.0, 756.5,
+                SegmentEnvironment.Atmospheric, SegmentEnvironment.SurfaceStationary);
+            Assert.True(RecordingOptimizer.CanAutoSplitIgnoringGhostTriggers(pessimistic, 1));
+        }
+
+        [Fact]
+        public void CanAutoSplitIgnoringGhostTriggers_TheFloorGuardsBOTHHalves()
+        {
+            // The mirror direction, checked rather than assumed: the L6 arithmetic
+            // is all about the SECOND half because the first is a whole flight, so
+            // a reader could conclude the floor only looks one way. It does not.
+            var shortFirstHalf = MakeRecordingWithSections(745.0, 749.0, 800.0,
+                SegmentEnvironment.Atmospheric, SegmentEnvironment.SurfaceStationary);
+            Assert.False(RecordingOptimizer.CanAutoSplitIgnoringGhostTriggers(shortFirstHalf, 1));
+        }
+
         [Fact]
         public void CanAutoSplitIgnoringGhostTriggers_StillChecksSectionCount()
         {
