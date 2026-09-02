@@ -26,6 +26,21 @@ _(unreleased — entries accumulate here per commit)_
   broken copy of the check was confirmed to fail - so the check is known to catch a
   regression rather than merely to pass. Nothing player-facing changes.
 
+- **The log now says, per part family, whether a recorded event actually reached the
+  ghost.** Replaying a recording applies part events to the ghost - lights, gear, bays,
+  fairings, chutes, panels, drills, engine and RCS plumes, and the rest - and until now
+  the log said only how many events had been consumed, never whether any of them
+  changed anything. An event whose part carried nothing on the ghost was consumed and
+  discarded in silence, which looked exactly like an event that worked. Each family now
+  writes one summary line per playback interval naming the family, the part, how many
+  applied, how many were skipped, and why they were skipped: no such part on this
+  ghost, a part with nothing to pose, a pose that was never captured when the ghost was
+  built, a deliberate no-op, or an event type that has no visual at all. Cabin lights
+  report separately from lamps, and a cargo bay reports which of its two door
+  mechanisms it used, so a half-applied event can no longer read as a whole one.
+  Nothing about playback itself changed - the same events do the same things - and the
+  lines cost nothing on a frame with no events to apply.
+
 - **Test coverage: the start-docked supply-route origin now has an automated subject.**
   Two new in-game checks fly the shape the roadmap had reserved for a hand-flown
   mission - a transport that starts docked to a landed base, undocks, and delivers to
