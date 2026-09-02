@@ -118,12 +118,24 @@ id = "GS-6-part-event-applier-sweep"
 # forward across the whole recorded span exactly once - which is all a one-shot window
 # can give, and all this lane needs.
 #
-# SHOWCASE-COLORCHANGER-APPLY-UNOBSERVABLE IS NOT MEASURABLE HERE, and saying so is the
-# point: that entry is about the injected part-showcase corpus (25 colour-changer rows
-# with their own scripted light clips), and this lane injects nothing and carries no
-# light part. Its one-token grep - `family=LightOn surface=colorchanger ... reason=` -
-# belongs on S1.9's next flight, which renders that corpus. Recorded here so nobody
-# reads this lane's silence on it as a measurement.
+# SHOWCASE-COLORCHANGER-APPLY-UNOBSERVABLE BECOMES MEASURABLE IN REVISION 2, and the
+# correction is worth stating because revision 1's header said the opposite. That
+# claim ("this lane carries no light part, so the grep belongs on S1.9's next
+# flight") was true of revision 1 and is FALSE now, for a reason found by reading the
+# craft rather than by adding a part: `Squad/Parts/Command/Mk1-3Pod/mk1-3.cfg:85`
+# carries a `ModuleColorChanger` with `toggleName = Toggle Lights` - a Pattern-A
+# CABIN LIGHT - and this craft's top stack has always been built on `mk1-3pod`. So
+# `lights-on` / `lights-off` drive BOTH light surfaces: `surface=light` (the two
+# spotLight1 lamps revision 2 adds) and `surface=colorchanger` (the pod's own cabin
+# light, aboard since revision 1).
+#
+# OBSERVE, DO NOT PIN. The reading run should capture
+# `family=LightOn surface=colorchanger ... reason=<token>` and read it as:
+# `applied=[1-9]` the emissive toggled; `no-cabin-light-entry` entries exist for the
+# pid but none is a cabin light; `no-info-for-part` Pattern-A discovery resolved
+# NOTHING for the pid - the render gap S1.9 could not distinguish. Nothing is
+# required on it: this is the first flight that can ask the question, and pinning an
+# answer before measuring one is exactly what the todo warns against.
 #
 # =====================================================================================
 # 4. STATUS: FLOWN GREEN 2026-09-02 - reading run `2026-09-02_1420`, PASS attempt 1,
@@ -218,7 +230,11 @@ steps = [
 ]
 
 [driver.missionParams]
-craftName        = "Kerbal X"
+# REVISION 2: the derivative sweep craft, committed physically in this fixture
+# (single-consumer rule). GS-4 keeps the untouched `Kerbal X`. The staging plan is
+# inherited verbatim, so boosterStageCount and the istg 2 discard gate do not move.
+craftName        = "Kerbal X Sweep"
+rolloutExpectedVesselName = "Kerbal X Sweep"
 launchSite       = "LaunchPad"
 watcherCraftName = "Jumping Flea"
 # THE SCRIPTED TIMELINE. Out-and-back on each family so BOTH members of each recorded
@@ -226,12 +242,21 @@ watcherCraftName = "Jumping Flea"
 # vocabulary; an unknown name is rejected by the schema and again by the machine's own
 # COAST gate, never silently skipped.
 partSweepSteps = [
+  "lights-on",
+  "gear-down",
+  "converters-on",
+  "engines-on",
   "deployables-out",
   "rcs-on",
   "throttle-up",
   "throttle-zero",
   "rcs-off",
   "deployables-in",
+  "engines-off",
+  "converters-off",
+  "gear-up",
+  "lights-off",
+  "chutes-arm",
 ]
 # 12 frames at the machine's 0.5 s poll is ~6 s between steps: comfortably more than one
 # physics frame (the coalescing risk the gap exists for) and cheap against the coast.
@@ -264,6 +289,11 @@ D6 = ["basic-playback", "mesh-lifecycle-derender"]
 #   `rcs`                       <- family=RCSActivated surface=rcs-fx
 # NOT claimed, because the craft carries no such part: `chute-two-phase`, `chute-cut`,
 # `shroud`, `fairing`, `gear`, `bays`, `lights`, `engine-fx-effects`.
+# REVISION 2 CLAIMS NOTHING NEW YET. `gear`, `lights`, `fairing`, `converters` and
+# `engine-fx-effects` are all now FIREABLE (the craft carries the parts, the sweep
+# fires them), but CLAIM-IS-NOT-GATE: each needs a required token backed by a
+# measured line, and revision 2 has not flown. They are added here only after the
+# revision-2 reading run, exactly as `shroud` was added after revision 1's.
 D7 = ["decouple-stage-destroy", "engine-fx-legacy", "panels-antennas-radiators", "rcs", "shroud"]
 D9 = ["rewind-to-launch"]
 D14 = ["kerbin", "sandbox", "scene-flight", "scene-ksc", "scene-map"]
@@ -361,7 +391,7 @@ tombstones    = { max = 0 }
 # GS-4's 2400 plus the sweep: 6 steps x 12 frames at the 0.5 s poll is ~36 s of extra
 # flight, and the recorded span grows by the same, which the playback wait then spends
 # again in REAL time (this lane warps nowhere). ~75 s of real cost, rounded up.
-budgetSeconds = 2520
+budgetSeconds = 2760
 
 [retry]
 policy = "once"

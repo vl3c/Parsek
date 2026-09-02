@@ -1493,6 +1493,43 @@ can be authored in - and no stock VAB craft carries a light, a service bay, an I
 a Spark, so their tails would have to be invented. That is the piece of work, and it
 wants its own lane.
 
+## GS6-CARGOBAY-NEEDS-A-HARVESTED-SERVICEBAY-TAIL: the GS-6 sweep craft cannot carry a cargo bay, so D7 `bays` stays unreachable until a `ServiceBay.125.v2` tail is harvested from a live VAB session [FOUND BY READING 2026-09-02 while building the revision-2 craft. CRAFT-AUTHORING CONSTRAINT, REPORT-ONLY - not a product defect, not a driver gap]
+
+THE DRIVER IS NOT THE PROBLEM: kRPC 0.5.4 exposes `CargoBay.open`, and it is wired
+as `mlib.ACTION_SET_CARGO_BAYS` with `bays-open` / `bays-close` step names. The
+moment a craft carries a bay, the sweep fires it.
+
+TWO CONSTRAINTS MEET, and neither alone would block it:
+
+  1. THE BYTE-LIFT RULE. `harness/tools/build_gs1_craft.py` (and now
+     `build_kerbal_x_sweep_craft.py`) lifts every PART tail BYTE-FOR-BYTE out of a
+     craft KSP itself wrote, so that no MODULE block is invented and no
+     module-index mismatch can be authored in. A tail therefore has to EXIST
+     somewhere before a part can be used.
+  2. THE 0.625 m NODE. The GS-6 craft's surviving top stack has exactly ONE free
+     stack node - `dockingPort2`'s top, a Clamp-O-Tron Jr - and revision 2 spends
+     it on the fairing base. Everything else must be surface-attachable, and no
+     cargo or service bay is.
+
+WHAT WAS CHECKED, so nobody re-checks it:
+
+  - `ServiceBay.125.v2` and `ServiceBay.250.v2` appear in NO stock craft under
+     `Ships/VAB` or `Ships/SPH`, and `GameData/Squad/Ships` contains no craft
+     carrying one either (grepped for `^	part = ServiceBay`; no hits).
+  - The only bay tails that exist anywhere are SPACEPLANE fuselage sections -
+     `mk2CargoBayS` (Learstar A1), `mk3CargoBayS` / `mk3CargoBayM` (Stearwing
+     A300, Mallard), `mk3CargoBayL` (Dynawing). All are Mk2/Mk3 profile, all are
+     stack-only, and hanging one off a 0.625 m Clamp-O-Tron Jr would need a chain
+     of adapters authored blind - which is precisely the risk the byte-lift rule
+     exists to avoid.
+
+THE FIX IS ONE HARVEST, not a design: open the VAB once, place a
+`ServiceBay.125.v2` on a 1.25 m stack, save the craft, and lift its tail into
+`build_kerbal_x_sweep_craft.py`'s TAILS table alongside the other six. The bay then
+goes INTO the 1.25 m section of the stack (it is a structural section, not a
+nose part), which also sidesteps the 0.625 m node entirely. Until then D7 `bays`
+is UNCOVERED by every lane, and GS-6 says so rather than implying it was missed.
+
 ## GS6-CHUTE-TWO-PHASE-NEEDS-A-DESCENT-VARIANT: the sweep craft carries parachutes and the harness has arm/deploy/cut verbs, but `kx_rewind_watch` commits at the top of a sub-orbital coast and never re-enters, so D7 `chute-two-phase` and `chute-cut` stay unreachable [FOUND BY READING 2026-09-02 while preparing the GS-6 revision-2 craft. MISSION-SHAPE NOTE, REPORT-ONLY - not a defect in the product, the craft or the driver]
 
 WHAT IS ALREADY IN PLACE: `Parachute.arm()` / `.deploy()` / `.cut()` are all on the
