@@ -2026,6 +2026,38 @@ endpoint `Duna`, `status = Active`, `completedCycles = 0`, dock + undock window
 `transferKind = DockingPort`, zero `mergeState` overrides anywhere in the save = every
 recording Immutable), so it is B32's harvest source.
 
+**THE THREE LANES ARE AUTHORED, 2026-09-02, ALL NEVER FLOWN.**
+`B32-interbody-route-scope` (FLIGHT, map opened as a HARD precondition because
+`DrawAll`'s only call site is a map-camera onPreCull hook; reads the new
+`Route scope: ... scope=InterBody basis=Endpoints` line for BOTH committed routes and
+declares `[expectations.routes]` report-only), `V26M-interbody-route-map-lines` (the
+map-open/close PAIR this entry says V26M owes, `[expectations.renderComposition]`
+DECLARED BARE, one scene only so the per-scene manifest clobber cannot fire) and
+`V26T-interbody-route-ts-arrival` (V18T's TS grammar on the new subject). NONE takes a
+TimeJump and none attempts a dispatch: the Duna route's 8.53 Ms transit against an 87.6
+Ms save clock, its `loopAnchorUT = -1` and its never-persisted `ReaimWindows` basis make
+the dispatch anchor uncomputable from the committed bytes, and the overview line draws
+STATICALLY so the scope reading needs no clock motion. A phase-positioned reading is owed
+to a later round off a MEASURED anchor.
+
+TWO CORRECTIONS TO THIS ENTRY'S OWN ASSUMPTIONS, from the harvest rather than argued.
+(1) The save carries TWO cross-body routes, not one: the Paused sibling is
+`Route: KSC -> Mun`, also inter-body under the endpoint rule, so every lane pins
+`routes=2` and V18T's `skippedByStatus=[1-9]` forbid does NOT transfer (a skip count of 1
+is the expected reading when one of two routes is Paused). (2) The Duna route has
+`loopAnchorUT = -1` and has never run a cycle, so V18T's front-door tokens
+(`ghostDriving=[1-9]`, `routeMissions=[1-9]`) are DELIBERATELY not required on V26T - and
+if a never-dispatched route turns out not to enter the GhostDriving selection at all,
+that is a finding for the todo rather than a red.
+
+WHAT THE READING RUNS OWE BACK, so the arming pass is mechanical: the per-unit `ROUTE`
+node's `scope` and `transferLegsDropped` (the headline - on a SameBody subject the
+endpoint-leg filter does not run at all, so the ratified transfer-leg DROP has never been
+evaluated against non-vacuous data), `routeLineBuilds` on a TWO-route subject, the
+`unevaluable` reason census in a FLIGHT regime, and the seam-kind census. V26M's header
+names BOTH outcomes it is prepared to read for the drop, so the run measures rather than
+confirms.
+
 **THE OPERATOR SAVE SPECIFICATION for B32** (write it once, fly it by hand; the
 seam cannot create this and no driven lane can either, because route candidacy is
 seal-gated and the create gate refuses `candidate-ineligible MissingRouteProof`

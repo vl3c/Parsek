@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import importlib.util
 import os
+import tomllib
 import unittest
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
@@ -111,6 +112,127 @@ class InterbodyRouteRecordedFixtureDriftTests(unittest.TestCase):
                          self.builder.ROUTE_FACET_PINS["originBodies"])
         self.assertEqual({"Duna": 1, "Mun": 1},
                          self.builder.ROUTE_FACET_PINS["destinationBodies"])
+
+
+class InterbodyRouteSpecFixtureSyncTests(unittest.TestCase):
+    """Every committed spec that stages this fixture, kept HONEST rather than restated.
+
+    The rover file's hand-maintained roster went stale (four listed, seven staging),
+    so the consumer set here is DERIVED from the scenarios directory: any spec whose
+    PARSED `fixture.saveTemplate` names this fixture is a consumer, and the tuple
+    below is only the floor.
+
+    EVERY CLAIM IS MADE AGAINST THE PARSED TOML, NEVER AGAINST THE FILE TEXT. These
+    specs carry long prose headers that quote the very tokens the cells below rule
+    out - V26T's header explains at length why V18T's `skippedByStatus=[1-9]` forbid
+    does NOT transfer to this host - and a text scan reads a comment as a
+    declaration, which is how a guard passes GREEN on the wrong evidence.
+    """
+
+    EXPECTED_AT_LEAST = ("B32-interbody-route-scope.toml",
+                         "V26M-interbody-route-map-lines.toml",
+                         "V26T-interbody-route-ts-arrival.toml")
+    SAVE_TEMPLATE = "fixtures/saves/interbody-route-recorded"
+
+    @classmethod
+    def setUpClass(cls):
+        cls.specs = {}
+        for name in sorted(os.listdir(SCENARIOS_DIR)):
+            if not name.endswith(".toml"):
+                continue
+            with open(os.path.join(SCENARIOS_DIR, name), "rb") as fh:
+                cls.specs[name] = tomllib.load(fh)
+        cls.consumers = {
+            name: spec for name, spec in cls.specs.items()
+            if ((spec.get("fixture") or {}).get("saveTemplate")
+                == cls.SAVE_TEMPLATE)}
+
+    def _log_contracts(self, spec):
+        exp = spec.get("expectations") or {}
+        lc = exp.get("logContracts") or {}
+        return list(lc.get("required") or []), list(lc.get("forbidden") or [])
+
+    def test_every_expected_consumer_spec_stages_this_fixture(self):
+        for name in self.EXPECTED_AT_LEAST:
+            self.assertIn(name, self.specs,
+                          "%s is missing from harness/scenarios" % name)
+            self.assertIn(name, self.consumers,
+                          "%s does not stage this fixture" % name)
+
+    def test_no_consumer_spec_expects_a_single_committed_route(self):
+        """A lane over this host must expect TWO committed routes, not one.
+
+        The save carries the Active Kerbin -> Duna subject AND a Paused
+        Kerbin -> Mun route. A spec copied from V18T's single-route
+        `[expectations.routes] count = { min = 1, max = 1 }` - or from its
+        `routes=1 transitioned=0` token - would red on its first flight for a
+        reason having nothing to do with what it measures.
+        """
+        for name, spec in sorted(self.consumers.items()):
+            routes = (spec.get("expectations") or {}).get("routes") or {}
+            count = routes.get("count")
+            if isinstance(count, dict):
+                self.assertNotEqual({"min": 1, "max": 1}, count, name)
+            required, _ = self._log_contracts(spec)
+            for pattern in required:
+                self.assertNotIn("routes=1 transitioned=0", pattern, name)
+
+    def test_no_consumer_spec_forbids_the_paused_route_skip(self):
+        """V18T's `skippedByStatus=[1-9]` forbid does NOT transfer to this host.
+
+        V18T can forbid it because its subject is the only committed route, so a
+        non-zero skip means THE subject was skipped. Here one of the two routes
+        is deliberately Paused, so a skip count of 1 is the EXPECTED reading and
+        the forbid would red a correct run.
+        """
+        for name, spec in sorted(self.consumers.items()):
+            _, forbidden = self._log_contracts(spec)
+            for pattern in forbidden:
+                self.assertNotIn("skippedByStatus", pattern, name)
+
+    def test_every_consumer_spec_carries_the_pre_fix_negative_control(self):
+        """The reading the subject produced BEFORE the scope fix stays forbidden.
+
+        `malformed=[1-9]` in the draw summary and `scope=MalformedMixedBodies` at
+        the classification site are what this save emitted on every drawn frame
+        under the retired period-as-scope-flag contract. Carrying them as forbids
+        means a regression reds on the lane itself rather than needing a separate
+        control run.
+        """
+        for name, spec in sorted(self.consumers.items()):
+            _, forbidden = self._log_contracts(spec)
+            self.assertIn("Route line draw: .* malformed=[1-9]", forbidden, name)
+            self.assertIn("scope=MalformedMixedBodies", forbidden, name)
+
+    def test_every_consumer_spec_requires_the_interbody_scope_reading(self):
+        """The token the whole package exists to make emittable.
+
+        A consumer that does not require `scope=InterBody basis=Endpoints` is a
+        lane over this subject that never states what makes it the subject.
+        """
+        for name, spec in sorted(self.consumers.items()):
+            required, _ = self._log_contracts(spec)
+            self.assertTrue(
+                any("scope=InterBody basis=Endpoints" in p for p in required),
+                "%s stages the inter-body fixture but requires no InterBody "
+                "scope reading" % name)
+
+    def test_no_consumer_spec_arms_a_render_composition_or_routes_gate(self):
+        """NEVER FLOWN, so nothing is armed - and the sibling allowlists agree.
+
+        `test_no_committed_spec_arms_gating` (save-parse) and the
+        render-composition validator both refuse an arming that no reading run
+        earned; this cell states the same thing locally, so a future edit that
+        arms one of these three lanes reds beside the fixture it arms over.
+        """
+        for name, spec in sorted(self.consumers.items()):
+            exp = spec.get("expectations") or {}
+            for block in ("routes", "renderComposition",
+                          "rewind", "recordings"):
+                node = exp.get(block)
+                if isinstance(node, dict):
+                    self.assertNotIn("gating", node,
+                                     "%s arms [expectations.%s]" % (name, block))
 
 
 if __name__ == "__main__":

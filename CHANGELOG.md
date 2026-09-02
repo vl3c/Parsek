@@ -10,6 +10,16 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **Automated testing: three new checks will watch the between-planets supply route
+  the map fix restored.** They load the new saved campaign, open the map, and read
+  the game's own log line saying which kind of route it decided each one is and why -
+  one in the flight map, one taking a full picture of everything the map composed,
+  one in the tracking station. None of them has been run yet, so none of them can
+  fail a build; they are written to be read once and then tightened. Each carries the
+  exact wrong answer the map used to give as a forbidden line, so if the fix is ever
+  undone the checks say so themselves instead of quietly drawing nothing.
+
+
 - **Automated testing: the suite now has a saved campaign carrying a supply route
   that runs between two planets.** Every route the automated tests could reach ran
   from one place to another on the SAME body, so the parts of the map drawing that

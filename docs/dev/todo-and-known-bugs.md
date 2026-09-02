@@ -2354,7 +2354,7 @@ routeCodecRejects=0 mismatches=0`), negative control `2026-09-02_1014`
 this block's OWN window rather than the shared `rewind.supersedeRows` minimum,
 so the routes path is proven end to end rather than the evaluator re-proven.
 
-## SUBJECT-CANDIDATE-INTERPLANETARY-ROUTE: the operator's plain `orbital supply route` save carries a Kerbin -> Duna route that may be the MalformedMixedBodies case, and nothing has looked [OPENED 2026-08-26 while ranking route sources. TODO, not a defect]
+## ~~SUBJECT-CANDIDATE-INTERPLANETARY-ROUTE: the operator's plain `orbital supply route` save carries a Kerbin -> Duna route that may be the MalformedMixedBodies case, and nothing has looked~~ [OPENED 2026-08-26 while ranking route sources; READ 2026-09-02; HARVESTED 2026-09-02 as `interbody-route-recorded` on branch `interbody-scope-fix`. TODO, not a defect - DONE]
 
 Three operator saves carry route state. `orbital supply route DELIVERY test`
 became `depot-route-recorded` (above). `orbital supply route CLEAN` carries NO
@@ -2402,6 +2402,38 @@ G10 entry now carries the operator save specification that WOULD produce the
 latter once the product fix lands. If someone wants the malformed reading pinned
 before then, it is a legitimate standalone harvest (a fixture nothing exercises
 today) and needs its own subject id, not B32's.
+
+**RESOLVED 2026-09-02, SAME DAY, branch `interbody-scope-fix`: it IS B32's, and
+the last paragraph above is superseded rather than deleted so the correction is
+legible.** The product fix landed first (ROUTE-INTERBODY-SCOPE-NEVER-REACHABLE,
+now ~~done~~): scope is derived from the ENDPOINT bodies, so this save's route -
+ORIGIN `bodyName = Kerbin` against STOP ENDPOINT `bodyName = Duna` - now reads
+`InterBody` at the same `dispatchWindowPeriod = 0` it always carried. There is no
+malformed reading left to pin; the save went straight to being G10's `InterBody`
+subject.
+
+Harvested READ-ONLY from a scratch COPY as `harness/fixtures/saves/interbody-route-recorded`
+(the operator's save was never written to), finished by
+`harness/tools/build_interbody_route_recorded.py`, pinned in
+`test_saveparse.RECORDED_FIXTURES` and gated by
+`harness/lib/test_build_interbody_route_recorded.py`. It satisfies all eight steps
+of the roadmap's operator-save specification, checked against the bytes: a Duna
+depot placed first, a KSC-pad transport, a positive delivery manifest, a
+DockingPort dock/undock pair, a SEALED tree (zero `mergeState` lines anywhere, and
+the codec writes that key only when the state is not Immutable), Active at
+`completedCycles = 0`, and nothing deleted afterwards.
+
+TWO CORRECTIONS TO THE READING ABOVE, both from the harvest rather than argued.
+(1) The Paused sibling is `Route: KSC -> Mun`, so it is ALSO inter-body under the
+endpoint rule - the fixture carries TWO cross-body routes, not one, and every lane
+over it must expect `routes=2`. (2) The `orbital supply route CLEAN` control
+candidate named at the top of this entry is still uncommitted and still a
+legitimate idea, but it is NOT the pre-route ancestor of THIS save's Duna tree
+`3daf0cff...` - it is the ancestor of `depot-route-recorded`'s `c9ef80ee...`, so
+pairing it with B32 would pair the wrong trees.
+
+Lanes: `B32-interbody-route-scope`, `V26M-interbody-route-map-lines`,
+`V26T-interbody-route-ts-arrival`, all authored 2026-09-02 and NEVER FLOWN.
 
 ## M-A7-SEAM-ENDPOINT-SKIP-REASON-CENSUS: `seam-endpoint-skipped` dominates every renderCompose unevaluable count and DOUBLED between two flights of the same lane with no explanation on record [FOUND 2026-08-25 reading the V14M reading-vs-armed facets (53 vs 106 skips) and the s15 free-play manifest (512 at the cap). IMPROVEMENT, REPORT-ONLY]
 
