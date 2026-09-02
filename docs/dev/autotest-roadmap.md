@@ -1986,6 +1986,77 @@ Sequencing: behind nothing technically (the M-A7 instrument and the V18T
 grammar both exist); ahead of G8's multi-route co-residency, which wants this
 lane's subject class as one of its co-residents.
 
+**BLOCKED AS OF 2026-09-02 ON A PRODUCT CHANGE, not on a subject** (feasibility
+walk: `docs/dev/research/g10-interbody-route-feasibility.md`; the "behind nothing
+technically" sentence above is superseded and kept only so the correction is
+legible). `ClassifyRouteScope` reads `Route.DispatchWindowPeriod` as the
+authoritative scope flag, and `RouteBuilder.cs:486` hard-codes
+`DispatchWindowPeriod = 0.0`. That is the ONLY assignment in `Source/Parsek/`
+outside `RouteCodec`'s parse and two hand-built in-game-test synthetics, so NO
+production path can mint a route whose scope classifies `InterBody`. A route
+whose members span Kerbin and Duna classifies `MalformedMixedBodies` instead and
+`ClassifyRouteLineSkip` skips its line, and `FilterLegsToEndpointBodies` - the
+ratified transfer-leg DROP this entry is built around - sits behind the same
+`DispatchWindowPeriod != 0.0` branch and is unreachable too. Verified against the
+operator's own data, not argued: the plain `orbital supply route` save's
+`name = Route: KSC -> Duna` (`persistent.sfs:4358`, `status = Active`,
+`reaimWindowBasisEngaged = True`) carries `dispatchWindowPeriod = 0`. So the
+save this entry assumed exists is the MALFORMED case; harvesting it as B32 today
+pins `malformed=1` and nothing G10 wants. Fix first
+(ROUTE-INTERBODY-SCOPE-NEVER-REACHABLE in `todo-and-known-bugs.md`), then
+harvest, then author the lanes. Nothing else about the entry changes: the render
+gap it names is real and gets WIDER once the fix lands, since the malformed skip
+is currently hiding it.
+
+**THE OPERATOR SAVE SPECIFICATION for B32** (write it once, fly it by hand; the
+seam cannot create this and no driven lane can either, because route candidacy is
+seal-gated and the create gate refuses `candidate-ineligible MissingRouteProof`
+over every committed fixture - the four that carry a `ROUTE_CONNECTION_WINDOW`
+are Kerbin-only, and `duna-park-recorded` / `duna-one-recorded` carry none at
+all). Fly it in a SANDBOX save with `autoRecordOnLaunch` on, one save, one
+continuous campaign:
+
+1. **Put a depot at Duna FIRST.** Launch a depot craft from the KSC pad, transfer
+   to Duna, capture, and leave it in a stable Duna orbit (any altitude; a
+   circular park is easiest to redock with). It must carry a docking port and
+   spare capacity in a routable resource (LiquidFuel + Oxidizer is the shape
+   `depot-route-recorded` uses), and it must have a `ModuleCommand` part so it is
+   a vessel rather than debris. Let its recording finish and merge.
+2. **Launch the transport from the KSC pad**, in the SAME save, as a fresh
+   launch. KSC origin is what clears the M1 workflow gate
+   (`RouteAnalysisStatus.UndockedStartOrigin`); do NOT start the transport
+   already in orbit or already docked to something.
+3. **Carry cargo.** The transport must launch with more LiquidFuel/Oxidizer than
+   it burns, so the arrival dock can transfer a positive delivery manifest to the
+   depot. Nothing may be harvested en route (that switches the analysis onto the
+   harvest-origin path and changes the subject).
+4. **Transfer to Duna and DOCK to the depot** with a docking port (a claw works
+   but stamps `Grapple`, a different `RouteConnectionKind` reading). While
+   docked, **transfer resources FROM the transport TO the depot** through the
+   stock transfer UI. That is the delivery manifest; without a transfer the
+   window analyses `NoDeliveryManifest`.
+5. **UNDOCK** and let the transport fly clear. Dock and undock must BOTH be
+   recorded in one continuous session - that pair is the
+   `ROUTE_CONNECTION_WINDOW` (`dockUT` / `undockUT` /
+   `transferKind = DockingPort`).
+6. **Conclude the tree** (return and recover, or end the flight cleanly) and let
+   it commit. Then **seal it**: every recording in the tree must reach
+   `MergeState.Immutable`, else the create gate answers `tree-not-sealed`.
+7. **Create the route** from the Logistics window's "Create Route" over that
+   tree, name it, and leave it `Active` with `pauseAfterCurrentCycle` unset. Do
+   not run a cycle; a fresh route with `completedCycles = 0` is the cleaner
+   subject.
+8. **Do not delete anything afterwards** - not the ascent debris, not the
+   decoupled stages, not the depot. The route's `CREATION_TREE_RECORDINGS`
+   snapshot and the member-body collection both read the whole tree.
+
+What the seam then does over the harvested save: `LoadGame` -> `SetSetting
+showRouteLines=true` -> `EnterMapView` (V26M) or a TRACKSTATION boot (V26T) ->
+`TimeJump` into the route's dispatch window -> the `renderCompose` manifest step.
+What B32's builder asserts is the predicate in the feasibility memo; its last
+clause (`dispatchWindowPeriod != 0.0`) is the one the product fix has to make
+true, and until it does the harvest reads `MalformedMixedBodies`.
+
 **Cross-cutting instrument, not a gap: M-A7, the render composition manifest +
 verifier** (design authority `design-autotest-render-composition.md`; indexed
 as V8 of the visual program in `design-testing-unified.md` section 6 and in
@@ -2579,8 +2650,47 @@ moved is that no further authoring stands between them and a flight.
    a run is green. NO D10 claim yet, on the CLAIM-IS-NOT-GATE rule: the career
    flavor of `ksc-origin` is earned in the commit that measures the lane green.
 10. **Escrow competition.** Two routes sharing one physical source (D10
-    `multi-origin-escrow`). **SCOPED 2026-09-02 AND BLOCKED ON THE SYNTHETIC
-    PATH; NO LANE AUTHORED, NO `H60` SPEC EXISTS.** Two corrections to this
+    `multi-origin-escrow`). **BUILT AND LIVE-PROVEN 2026-09-02: the in-game
+    category `RouteEscrowContention` (2 cells) plus
+    `harness/scenarios/H60-route-escrow-contention.toml` over `logi-cargo-pad`.
+    Census `2026-09-02_1314`, PASS attempt 1, wall 79 s, `total=2 passed=2
+    failed=0 skipped=0` PINNED WHOLE, tier nightly.** THE MEASUREMENT IS THE
+    INVARIANT: `raw=11 netted=5` while the holder held, then `raw=5 netted=5`
+    after it debited - the competitor's availability did not move across the
+    release, only the CAUSE did (`escrow` -> `physical`), so the escrow withheld
+    exactly what the debit took (no over-block, no double-claim). Cell 2 read
+    `freedByRemoval=6 pickedUpByB=8`: the holder removed mid-cycle freed its
+    reservation WITHOUT debiting, and the competitor took its full 8. **ARMED DISCIPLINE COMPLETE the same day, and D10 `multi-origin-escrow`
+    IS CLAIMED off it**: armed re-flight `2026-09-02_1339` PASS attempt 1 on the
+    whole pin with `mismatches=[]`, and a negative control (cell 1's
+    `causeAfterWindow` flipped `physical` -> `escrow`) red on EXACTLY that one
+    token with zero forbids - so the pin discriminates rather than merely passes.
+    The two runs drew different source pids and read identical amounts, so the
+    invariance is the product's and not one log's. **ITEM 10 IS CLOSED.**
+    **THE SCOPING'S SECOND HALF WAS REFUTED BY THE BUILD'S OWN DERIVATION, and
+    that is the item's most useful residue.** The scoping prescribed asserting
+    `ReleaseWindowEscrow` and "a subsequently eligible B after A's later window
+    fires". The second is UNREACHABLE, and not by tuning: the reserve is the
+    SUMMED pickup manifest `M` (`RouteOrchestrator.cs:1886`), each window's
+    release is that window's OWN manifest (`:1966`), and the release fires
+    TOGETHER WITH a physical debit of the SAME manifest, unconditionally
+    (`:2690-2709`). So a competitor sees `max(S0 - M, 0)` at EVERY point of the
+    holder's cycle - its availability is invariant across the release, and the
+    escrow is an exact PRE-IMAGE of the debit (no double-claim, no over-block).
+    What DOES move across the holder's window is the hold CAUSE, `escrow` ->
+    `physical`, because `IsEscrowCausedShort` needs `raw >= need` and that fails
+    once the cargo is taken. Cell 1 therefore drives reserved ->
+    blocked(escrow) -> causeFlip(physical), which is the invariant driven rather
+    than asserted; cell 2 drives the ONLY release that frees a competitor -
+    `RouteStore.RemoveRoute` -> `DropRouteEscrow` mid-cycle, the player-reachable
+    no-cargo release - after which the competitor is eligible and physically
+    picks the cargo up. Two cells because one timeline cannot carry both: cell 1
+    consumes the hold by debiting it, cell 2 needs it released un-debited. The
+    identity is pinned headlessly by `RouteCargoEscrowTests.NettedAvailable_*`
+    over the extracted pure `RoutePickupSourceGate.NettedAvailable`, which the
+    live reader now calls.
+    **THE SCOPING'S FIRST HALF STANDS UNCHANGED**, and is why the lane looks the
+    way it does. Two corrections to this
     item's own wording came out of the scoping. FIRST, "no driven lane" was
     already stale: the in-game cell
     `Escrow_CompetingRouteSeesReservation_Holds` executes and PASSES on H38,
@@ -2597,13 +2707,26 @@ moved is that no further authoring stands between them and a flight.
     (`RouteOrchestrator.cs:2500-2506`). Only a MULTI-STOP route holds escrow
     across the dispatch-to-window gap (`:1407-1412`), and every route-bearing
     committed fixture carries exactly one `WINDOW` node, so every route the
-    corpus can create is single-stop. The closing move is therefore a C# cell
-    in the `RouteDockCapture` family, built on H55's already-green
-    `DockCapture_TwoPartnersSequential_TwoWindowsOneRecording` (which produces
-    two windows in one tree programmatically), with a spec pinning its tokens
-    afterwards. Full derivation, the three stacked secondary blockers and the
-    two forgeries deliberately not attempted:
-    `docs/dev/todo-and-known-bugs.md` ->
+    corpus can create is single-stop.
+    **WHAT WAS BUILT, AND THE ONE PLACE IT DEPARTS FROM THE SCOPING'S PLAN.**
+    The scoping named H55's already-green
+    `DockCapture_TwoPartnersSequential_TwoWindowsOneRecording` as the producer.
+    It is not the one used: that cell produces two RECORDED dock windows in one
+    tree, but two routes still cannot be promoted off one tree
+    (`candidate-already-promoted`) and a seam-created route's dispatch timing is
+    derived from the recorded span rather than chosen. The builder shapes from
+    `LogisticsMultiOriginRuntimeTests` are used instead - synthetic route
+    topology plus the `LoopUnitResolverForTesting` clock - which is the whole of
+    what is emulated; both routes are really in `RouteStore`, the tick is the
+    production `RouteOrchestrator.Tick`, the gate is the production
+    `CheckEligibility` over a live `LiveRouteRuntimeEnvironment`, the source is a
+    live spawned vessel and every debit is a real resource write. Processing
+    order is fixed by the production priority rule (`CompareRoutesForTick`
+    ascending on `DispatchPriority`, holder 0 and competitor 1), so nothing turns
+    on luck. A NEW category rather than two more `RouteDockCapture` cells,
+    precisely so H55's and H56's pinned `total=6` does not move.
+    Full derivation, the three stacked secondary blockers and the two forgeries
+    deliberately not attempted: `docs/dev/todo-and-known-bugs.md` ->
     `C10-ESCROW-CONTENTION-NEEDS-A-MULTI-STOP-ROUTE`.
 
 ### Tier D - scale and rendering (pair with the render programs' budgets)

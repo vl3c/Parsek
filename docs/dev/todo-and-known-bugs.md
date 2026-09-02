@@ -15,6 +15,63 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ROUTE-INTERBODY-SCOPE-NEVER-REACHABLE: `Route.DispatchWindowPeriod` is the authoritative scope flag and NOTHING in production ever sets it non-zero, so every inter-body route classifies `MalformedMixedBodies` and draws no line [FOUND 2026-09-02 by the G10 P10 feasibility walk (branch `interbody-route-lane`). DEFECT, no fix in this branch - it is a product change and this branch is spec/docs-only]
+
+**The contract.** `RouteTrajectoryLineRenderer.ClassifyRouteScope`
+(`Source/Parsek/Display/RouteTrajectoryLineRenderer.cs:139`) says
+`Route.DispatchWindowPeriod` is "the authoritative flag (0 = same-body, the
+synodic period for inter-body)", and `Route.cs:142` repeats it ("0 for same-body,
+synodic period for inter-body"). The v7 archive records the design intent
+verbatim: "inter-body routes draw, period-0-with-mixed-bodies routes stay
+declined (skip reason renamed `NotSameBody` -> `MalformedMixedBodies`)".
+
+**The defect.** `RouteBuilder.cs:486` writes `DispatchWindowPeriod = 0.0` and
+that is the ONLY assignment anywhere in `Source/Parsek/`. A repo-wide grep for
+`WindowPeriod` over `Source/` returns, besides it: the field declaration
+(`Route.cs:143`), the codec's write/read pair (`RouteCodec.cs:97` / `:311`), the
+renderer's five reads, the manifest recorder's reads, and two HAND-BUILT
+synthetics inside `InGameTests/RouteLineDrawInGameTest.cs` (`:242` sets
+`5000000.0`, `:293` sets `0.0`) plus the xUnit fixtures. No production site
+computes or stores a synodic period onto a route.
+
+**Consequences, all currently live:**
+
+- `ClassifyRouteScope` can only return `SameBody` or `MalformedMixedBodies` for
+  any route a player or the seam can create. `InterBody` is dead from creation.
+- A real Kerbin -> Duna route has mixed member bodies at period 0, so it
+  classifies `MalformedMixedBodies`, and `ClassifyRouteLineSkip`
+  (`:161`) skips its route line entirely. The player sees NO route line for the
+  one route shape the feature is advertised for.
+- `FilterLegsToEndpointBodies` (the ratified transfer-leg DROP) is inside
+  `if (route.DispatchWindowPeriod != 0.0)` at `:245`, so it never runs.
+- The route-signature hash's inter-body terms (`:369-372`) never contribute.
+
+**Confirmed against live operator data, not argued.**
+`Kerbal Space Program/saves/orbital supply route/persistent.sfs:4358` is a real
+`name = Route: KSC -> Duna`, `status = Active`, `isKscOrigin = True`,
+`reaimWindowBasisEngaged = True`, and line 4367 reads `dispatchWindowPeriod = 0`.
+Its members are {Kerbin, <transfer>, Duna, Duna}.
+
+**NOT the same mechanism as the re-aim window basis, which is healthy.**
+`RouteWindowBasis` (`RouteLoopClock.cs:59-83`) is DERIVED per tick from the loop
+unit and never reads the period, which is why `reaimWindowBasisEngaged = True`
+coexists with period 0 and why `H34-logistics-inter-body` can gate
+`basis=ReaimWindows` today. This entry is about the RENDER scope flag only.
+
+**Fix shape (two options, unranked - needs a design call).** (a) Have
+`RouteBuilder` populate the synodic period on a cross-parent build, from the same
+`ReaimWindowSchedule` the loop unit already derives, so the persisted field
+matches its documented contract. (b) Retire the field as the scope source and
+classify scope from member bodies plus the derived re-aim basis, keeping the
+period only as a codec-compatible legacy value. Either way the codec is
+append-safe (the value already round-trips) and existing period-0 routes keep
+their `SameBody` reading whenever their members agree on one body.
+
+**Blocks G10** (`autotest-roadmap.md`): B32 / V26M / V26T cannot read an
+`InterBody` scope until this lands, and an operator harvest flown today would pin
+the malformed reading instead. Walk:
+`docs/dev/research/g10-interbody-route-feasibility.md`.
+
 ## RENDER-MANIFEST-VERB-EXPORT-IN-A-SECOND-SCENE-CLOBBERS-THE-FIRST-SCENE-ACCUMULATION: a lane that observes in FLIGHT and then exports the manifest from another scene reads zeroes for everything the FLIGHT scene measured [MEASURED 2026-09-02 by the H59 census run `2026-09-02_0947` (PASS). REPORT-ONLY, NO FIX PROPOSED: the per-scene partition is deliberate and the verb's unconditional write is deliberate; what is undocumented is the CONSEQUENCE for a multi-scene lane, and what is unresolved is a placement rule that forces exactly that shape]
 
 **What was measured.** `H59-surface-route-map-lines` drives its observation in FLIGHT with
@@ -142,7 +199,7 @@ loss for another, and probably the worst of the three.
 
 **What remains open, and it is only blocker 1.** A route-READING rewind lane - one that must rewind a fixture's OWN committed flight rather than a subject it manufactured - still has no subject, and would need (U2). Nothing needs that today: H58's manufactured subject is a legitimate Rewind-to-Launch (a real non-promotion recording with a real launch quicksave), and its "launch" being 15 s old is a property of the lane, not of the mechanism. Revisit if a lane ever needs to rewind a HARVESTED flight.
 
-## C10-ESCROW-CONTENTION-NEEDS-A-MULTI-STOP-ROUTE: the roadmap's C10 "two routes sharing one physical source" lane cannot be built from any committed fixture, because escrow contention is unreachable on the SINGLE-STOP path by construction [SCOPED 2026-09-02 while authoring the C10 lane as scenario id H60. HARNESS SCOPING FINDING, not a defect - no product change proposed. BLOCKED on the synthetic path; the shape a real lane needs is recorded below, and it is NOT a manual flight]
+## ~~C10-ESCROW-CONTENTION-NEEDS-A-MULTI-STOP-ROUTE: the roadmap's C10 "two routes sharing one physical source" lane cannot be built from any committed fixture, because escrow contention is unreachable on the SINGLE-STOP path by construction~~ [SCOPED 2026-09-02 while authoring the C10 lane as scenario id H60. HARNESS SCOPING FINDING, not a defect - no product change proposed. **CLOSED 2026-09-02 (branch `escrow-multistop-cell`): the in-game category `RouteEscrowContention` (2 cells) plus `harness/scenarios/H60-route-escrow-contention.toml` are committed. NEVER FLOWN - the first run is a reading run. The closing derivation REFUTED this entry's own final paragraph; see the correction at the end**]
 
 **The question, and why it was asked before anything was authored.** `docs/dev/autotest-roadmap.md` Tier C item 10 asks for two routes competing for one physical source vessel, and its own hand-off line says "scope a synthetic two-candidate fixture before assuming a flight". This is that scoping. The answer is that the synthetic path is blocked, and so is the manual one, for the same structural reason - so "two runs from one base" would not have produced the subject either.
 
@@ -158,7 +215,13 @@ loss for another, and probably the worst of the three.
 
 **What already exists, stated precisely, because the roadmap item's own wording is now stale.** Item 10 says the invariant "has unit coverage but no driven lane". It HAS a driven lane: the in-game cell `LogisticsMultiOriginRuntimeTests.Escrow_CompetingRouteSeesReservation_Holds` (`Category = "Logistics"`, isolated-batch) executes and PASSES on H38-logistics-isolated, H40-logistics-isolated-depot-route and RVR-1-rover-route-proof (it self-skips on H39 only, where the shared source is too large to demonstrate the net). What that cell does NOT do is drive contention through the production orchestrator: it calls `RouteStore.ReserveCargo` directly for a synthetic route A, evaluates `env.OriginHasCargo` directly for a synthetic route B, and neither route is ever added to `RouteStore` or ticked. So the real gap is narrower than the roadmap says - the GATE and the TOKEN are proven live; the ORCHESTRATOR-driven reserve-hold-release cycle between two stored routes is not.
 
-**The shape a real lane needs (and it is not a manual flight).** H55's `DockCapture_TwoPartnersSequential_TwoWindowsOneRecording` already produces two dock windows in one tree PROGRAMMATICALLY and measured green (`windows=2 analysis=Eligible stops=2`, run `2026-09-01_2229`), which is the exact multi-stop precondition this finding is short of. The closing move is therefore a C# in-game cell in the `RouteDockCapture` family, not a spec: spawn one shared source and two partners, build a MULTI-STOP route A and a single-stop route B whose pickup source is the shared vessel, stock that vessel into the band `[needB, needA_shared + needB)`, `RouteStore.AddRoute` both, and drive `RouteOrchestrator.Tick` across the gap - asserting `ReserveCycleEscrow: ... reservedSources=` on A's dispatch, `source-reserved:` + `short-cause=escrow reservingRouteId=<A>` on B's blocked crossing, and `ReleaseWindowEscrow` + a subsequently eligible B after A's later window fires. Only then does a harness spec (an `H60` over the `logi-cargo-pad` host, pinning those four tokens) have something to gate. Filed rather than built because this package is scenario / fixture / python scoped and adding an in-game cell is C# work with its own `CommittedBatchTallySourceSyncTests` obligations.
+**WHAT WAS BUILT, AND THE PART OF THE PLAN THIS PARAGRAPH USED TO PRESCRIBE THAT IS REFUTED.** The original wording asked for a cell asserting `ReserveCycleEscrow`, `source-reserved:` + `short-cause=escrow`, `ReleaseWindowEscrow`, "and a subsequently eligible B after A's later window fires". THE FOURTH IS UNREACHABLE, and not by tuning - the reserve is the SUMMED pickup manifest M (`RouteOrchestrator.cs:1886`), each window's release is that window's OWN manifest (`:1966`), and the release fires TOGETHER WITH a physical debit of the SAME manifest, unconditionally (`:2690-2709`); the competitor's netted read is `max(raw - reservedByOthers, 0)` (`LiveRouteRuntimeEnvironment.cs:321-328` -> `RoutePickupSourceGate.NettedAvailable`). So for every split of M into fired and unfired parts the competitor sees `max(S0 - M, 0)`: its availability is INVARIANT from the holder's dispatch through cycle completion, and the escrow is an exact PRE-IMAGE of the debit - it cannot double-claim and it cannot over-block. What DOES move is the hold CAUSE, `escrow` -> `physical`, since `IsEscrowCausedShort` needs `raw >= need` and that fails once the cargo is taken. A competitor is freed only by a release that takes NO cargo: `RouteStore.RemoveRoute` -> `DropRouteEscrow` (`RouteStore.cs:363-382`), a window endpoint lost mid-cycle (`RouteOrchestrator.cs:2708-2709`), rewind dormanting (`RouteRewindClassifier.cs:740`), or the scene-change `ClearAllEscrow` (`ParsekScenario.cs:8308`).
+
+**As built, therefore: two cells, not one.** `RouteEscrowContentionInGameTest.cs`, new category `RouteEscrowContention`, both isolated-only. Cell 1 `Escrow_MultiStopHoldBlocksStoredCompetitor_ThenCauseFlipsToPhysical` drives phases reserved -> blocked(escrow) -> causeFlip(physical); cell 2 `Escrow_RouteRemovalMidCycleReleasesHold_CompetitorBecomesEligible` drives reserved -> blocked(escrow) -> eligible-after-removal. They cannot share a timeline: cell 1 consumes the hold by debiting it and cell 2 needs it released un-debited. Both put BOTH routes in `RouteStore` (`DispatchPriority` 0 and 1, so `CompareRoutesForTick` fixes the order) and tick the production `RouteOrchestrator.Tick`; the holder is MULTI-STOP with both pickup windows on the ONE shared source, so the dispatch reserves their sum and a tick landing between its docks leaves the residual held across ticks. The producer is NOT H55's two-window cell as this entry originally guessed - two routes cannot be promoted off one tree, and a seam-created route's timing is derived rather than chosen - but the `LogisticsMultiOriginRuntimeTests` builder shapes plus the `LoopUnitResolverForTesting` clock, which is the whole of what is emulated. The invariant itself is pinned headlessly by `RouteCargoEscrowTests.NettedAvailable_IsInvariantAcrossEveryWindowSplitOfTheReservation` over the extracted pure `RoutePickupSourceGate.NettedAvailable`, which the live reader now calls.
+
+**FLOWN 2026-09-02 (`2026-09-02_1314`), PASS attempt 1, wall 79 s, `total=2 passed=2 failed=0 skipped=0` PINNED WHOLE, tier nightly.** The band guard did not fire, so `logi-cargo-pad` took the fixture SPAWN path and `skipped=0` sits on the attribute floor. THE INVARIANT WAS MEASURED, not just observed: `raw=11 netted=5 reservedByRoute=6` while the holder held, then `raw=5 netted=5 reservedByRoute=0` after its window debited - the competitor's availability did not move across the release, only the CAUSE did. Cell 2 read `freedByRemoval=6 pickedUpByB=8` with exactly one `DropRouteEscrow routeId=escrowA- droppedPids=1 droppedResourceEntries=1`. Every resource amount is now pinned as a literal (`6` / `8` are cell literals, `15` is the cell literal routed through the fixture cap so pinning it also gates that the spawn path was taken, `11` / `5` derive from those); pids and the source vessel name stay classes.
+
+**ARMED DISCIPLINE COMPLETE the same day, and the entry is fully closed.** Armed re-flight `2026-09-02_1339` (61 s) PASS attempt 1 on the whole pin, `mismatches=[]`, all 13 tokens met. Its negative control (`H60-NEGCTL-route-escrow-contention`, uncommitted; identical except the declared id and cell 1's `causeAfterWindow=physical` flipped to `=escrow`, a line the product never emits) classified PARSEK-FAIL(expectation) with EXACTLY ONE unmet token and ZERO forbidden hits, batch green - so the pin is proven able to REJECT, which a PASS alone cannot show. The two runs drew DIFFERENT source pids and read IDENTICAL pinned amounts, so the invariance belongs to the product rather than to one log. D10 `multi-origin-escrow` is now CLAIMED on the lane, as a third owner of the value contributing the ORCHESTRATOR-driven form H38's and H40's hand-reserved cell cannot reach. Nothing is owed.
 
 ## ~~AUTOMATION-GAP-KSC-TABLE-DELETE: no seam verb deletes a recording from the recordings table, so PR #1591's `ParsekKSC` subscriber (the Space Center delete that used to leave every ghost above the row playing its neighbour) cannot be driven live~~ [OPENED 2026-09-02 while authoring flight lanes for every live-gated todo entry. HARNESS GAP, not a defect. **CLOSED 2026-09-02 (branch `ksc-delete-verb`): the additive `DeleteRecording index=<n>` seam verb landed (30 -> 31 implemented; `RequiresGameLoaded`, single-phase, read-back-verified, routed to the table's three production calls) and `harness/scenarios/S0.11-ksc-table-delete.toml` drives it at the KSC under the loop member's ghost; see that lane's row for its first-flight reading**]
 
@@ -1134,6 +1197,31 @@ either a logged skip reason in the applier (the PART-EVENT-APPLIER-IS-UNLOGGED
 fix shape) or a manual eyeball of a colour-changer row mid-window. S1.9
 deliberately does NOT pin the token (its header records the measurement).
 
+**NARROWED 2026-09-02 (P8 step 1): the INSTRUMENT now exists; the MEASUREMENT is
+still owed.** `ApplyColorChangerLightStateWithOutcome` no longer returns silently -
+its precondition classifier separates the four ways a cabin light can fail to
+toggle, and each surfaces as its own reason token on the `family=LightOn` /
+`family=LightOff` line at `surface=colorchanger`:
+
+  `no-family-state`      the ghost has no colour-changer dictionary at all
+  `no-info-for-part`     the dictionary exists but Pattern-A discovery resolved
+                         NOTHING for this pid -> hypothesis (a), a real render gap
+  `no-cabin-light-entry` entries exist but none is a cabin light -> hypothesis (b),
+                         the part genuinely carries only Pattern-B (reentry char)
+  `no-resolved-visual`   a cabin-light entry exists but every material is null
+
+So (a) and (b) are now distinguishable from the log text alone, which is exactly
+what this entry said was missing. What is NOT yet done, and is why this stays open:
+nothing has FLOWN with the new line, so which token the 25 showcase colour-changer
+rows actually produce is still unmeasured. That reading is a GS-6 (step 2) job, and
+it is a one-token grep on the next flight that renders the showcase.
+
+One related change landed with the instrument: the pre-existing
+`Part pid=N: applied color changer cabin light state=<bool>` line now fires only
+when a live material was actually written. It previously fired for a cabin-light
+entry with zero live materials - claiming an apply that had not happened - so a
+reading that found it present was weaker evidence than it looked.
+
 ## SHOWCASE-LOOPFLAG-STRIPPED-AT-LOAD: every part-showcase recording is authored `WithLoopPlayback(true)` and every one has that flag CLEARED on load, so the standing part exhibition does not actually loop in game [MEASURED 2026-08-28 by `S1.9-part-showcase-render` reading run 1 (`2026-08-28_1945`), which red for an unrelated timing reason and turned this up in the same log. REPORT-ONLY, NO product change proposed, NO mechanism blamed - the sanitizer is doing exactly what it was written to do]
 
 The line, verbatim from the collected log:
@@ -1172,7 +1260,7 @@ WHY IT MATTERS, and why it is filed rather than fixed here:
    pins the sanitizer line as a REQUIRED token, so if this ever changes the lane reds
    and names it instead of silently changing meaning.
 
-## PART-EVENT-APPLIER-IS-UNLOGGED: the ghost part-event applier writes no per-family log line, so no automated test can distinguish "the recorded event was applied to the ghost" from "the event was silently skipped" for most part families [FOUND BY READING 2026-08-28 while authoring `S1.9-part-showcase-render`, from the source alone - NOT measured on a flight. OBSERVABILITY GAP, REPORT-ONLY. No product change made: this is the hot path under 243 simultaneous ghosts and the fix is a product decision, not a test-lane one]
+## ~~PART-EVENT-APPLIER-IS-UNLOGGED~~: the ghost part-event applier wrote no per-family log line, so no automated test could distinguish "the recorded event was applied to the ghost" from "the event was silently skipped" for most part families [FOUND BY READING 2026-08-28 while authoring `S1.9-part-showcase-render`, from the source alone - NOT measured on a flight. OBSERVABILITY GAP, REPORT-ONLY. No product change made: this is the hot path under 243 simultaneous ghosts and the fix is a product decision, not a test-lane one]
 
 `GhostPlaybackLogic.ApplyPartEvents` is the sole apply path for flight, KSC and
 flight-preview ghosts, and it emits exactly ONE aggregate line per call -
@@ -1207,6 +1295,76 @@ per-part-per-family key - the shape `Part pid=N: applied heat level ...` already
 or a per-family counter folded into the existing aggregate line
 (`Applied N part events ... [lights=2 deployables=1 bays=1]`), which costs one line per
 ghost per interval rather than one per event.
+
+**FIXED 2026-09-02 (P8 step 1, branch `part-event-applier-log`), taking the
+per-interval counter shape this entry described.** Product code only; the GS-6 lane
+that consumes the lines is step 2 and is NOT part of this. `Source/Parsek/
+GhostPartEventApplyLog.cs` holds the outcome vocabulary and the tally;
+`ApplyPartEvents` accumulates one entry per consumed event and flushes ONE
+`VerboseRateLimited` line per (recording, family, surface) after the loop:
+
+```
+[Parsek][VERBOSE][GhostPartEvents] apply family=<PartEventType member> surface=<token>
+    rec=<int> pid=<uint> applied=<int> skipped=<int> reason=<token>
+```
+
+`family` is the enum MEMBER NAME verbatim so a spec pins it by name. `surface` is the
+ghost sub-surface the counters describe, from a closed set (`visibility`, `parachute`,
+`engine-fx`, `engine-audio`, `rcs-fx`, `deployable`, `jettison-panel`, `fairing`,
+`heat`, `light`, `colorchanger`, `blink-state`, `converter-loop`, `eva`, `robotic`,
+`inventory`) - a second surface exists exactly where a family drives two independent
+things (a light event writes Unity `Light` components AND Pattern-A colour-changer
+materials; an engine event writes FX and audio) or CASCADES (a cargo bay tries the
+animated deployable, then jettison panels). `reason` is also closed: `applied`,
+`already-in-state`, `deferred-to-driver`, `legacy-event-ignored`, `no-family-state`,
+`no-info-for-part`, `no-cabin-light-entry`, `no-resolved-visual`, `pose-not-sampled`,
+`unhandled-event-type`. Only `applied` counts toward `applied=`, so "nothing moved"
+cannot hide inside the applied count. `pid` is the first SKIPPED pid when there was any
+skip, else the first applied one. Every token is whitespace-free, so a parser splits on
+whitespace.
+
+Verbatim, from passing test captures:
+
+```
+apply family=LightOn surface=colorchanger rec=12 pid=7 applied=0 skipped=1 reason=no-cabin-light-entry
+apply family=GearDeployed surface=deployable rec=5 pid=7 applied=1 skipped=0 reason=applied
+apply family=CargoBayOpened surface=deployable rec=3 pid=11 applied=1 skipped=2 reason=no-resolved-visual
+apply family=ConverterActivated surface=converter-loop rec=6 pid=1 applied=0 skipped=1 reason=already-in-state
+apply family=EvaJetpackDeployed surface=eva rec=0 pid=5 applied=0 skipped=1 reason=unhandled-event-type
+```
+
+HOW THE FLOOD RISK IS HANDLED: the tally is allocated LAZILY on the first CONSUMED
+event, so the overwhelmingly common frame (cursor already caught up, loop body never
+entered) allocates nothing and logs nothing. Rate limiting is then PER FAMILY rather
+than uniform: only `EngineThrottle`, `RCSThrottle` and `RoboticPositionSample` - the
+three the recorder samples continuously, whose line count is unbounded in the flight
+length - flush through `VerboseRateLimited` at 15 s keyed per (recording, family,
+surface). Every other family flushes as plain `Verbose`, one line per occurrence,
+because it is bounded and event-driven and an occurrence is already one AGGREGATED line
+per applier call. A uniform limiter was tried first and was wrong: it suppressed a SKIP
+that landed within 15 s of an APPLY on the same key, leaving the thing the instrument
+exists to surface as a `suppressed=N` counter on a later line.
+
+HOW DRIFT IS PREVENTED: each family's preconditions live in an internal
+`Classify*Apply` PURE function that the handler itself calls, so the classifier IS the
+early return and there is no second copy of a guard. That shape is also forced by a
+measured constraint worth writing down: SOME Unity writes make their whole enclosing
+method un-JIT-able under xUnit - `SecurityException: ECall methods must be packaged
+into a system module` on ENTRY, before any branch runs - so a guard inside such a body
+is untestable by construction, whichever branch it would take. The boundary is narrower
+than "any Unity write" and was MEASURED: the `GameObject.SetActive` / `Light.enabled`
+shape throws, while plain Transform property writes do not (`ApplyHeatStateWithOutcome`
+and `ApplyDeployableStateWithOutcome` run headlessly). The split is applied uniformly
+anyway, so coverage does not vanish the day a handler gains a SetActive. Historical
+signatures
+(`SetEngineEmission`, `ApplyDeployableState`, `ApplyHeatState`,
+`ApplyConverterLoopState`, ...) are kept as wrappers over `*WithOutcome` cores, so no
+existing caller changed.
+
+Full contract: `docs/dev/design-map-ts-render-tracer.md` Appendix A,
+"`GhostPartEventApplyLog.cs`". Headless guards:
+`Source/Parsek.Tests/GhostPartEventApplyLogTests.cs` (25 cells: grammar, tally,
+per-family outcome per drivable skip class, InvariantCulture under `de-DE`).
 
 ## FIXTURE-DUNA-PARK-PROBE-CANNOT-RETURN-TO-KERBIN: the DD1 probe every committed Duna-parked fixture carries is ~550 m/s short of a Kerbin return, so the reserved `B29-duna-kerbin-return` lane could not be flown as specified [MEASURED 2026-08-26 off `fixtures/saves/duna-park-probe/persistent.sfs` while opening B29's Phase-0 door. FIXTURE PROPERTY, REPORT-ONLY - never a Parsek defect and never a spec defect; it blocked one lane's PRODUCTION, not any product question. ROUTED AROUND the same day by re-scoping B29 to depart Jool; see the second entry below]
 
@@ -1788,6 +1946,39 @@ regime (synodic rather than 0) and is the likely home of the
 `MalformedMixedBodies` classification, which no fixture exercises. Nobody has
 opened it beyond the ranking pass. It is NOT part of B27 and should get its own
 subject id when someone takes it.
+
+**OPENED AND READ 2026-09-02** (branch `interbody-route-lane`, the G10 P10
+feasibility pass; full walk in
+`docs/dev/research/g10-interbody-route-feasibility.md`). The half of the guess
+above about `MalformedMixedBodies` is CONFIRMED; the half about the
+`dispatchWindowPeriod` regime is WRONG and the correction is the finding.
+
+Measured off `Kerbal Space Program/saves/orbital supply route/persistent.sfs`:
+
+- line 4358 `ROUTE` - `name = Route: KSC -> Duna`, `isKscOrigin = True`,
+  `status = Active`, `pauseAfterCurrentCycle = True`, `completedCycles = 0`,
+  `transitDuration = dispatchInterval = 8527534.1813754588`,
+  `recordedDockUT = 72353218.8197432`, `reaimWindowBasisEngaged = True`,
+  backing tree `3daf0cff...`, 13 `CREATION_TREE_RECORDINGS`, 4 `RECORDING_IDS`;
+- line 4224 `ROUTE` - the `Paused` sibling, backing tree `02382fcd...`,
+  `dispatchInterval = 85354.0697399592`;
+- **BOTH carry `dispatchWindowPeriod = 0`** (lines 4367 and 4233).
+
+The Active route's four members resolve to bodies {Kerbin (`d23e453b`, launch,
+`launchSiteName = Launch Pad`), none (`5ca48c99`, the transfer - no
+`startBodyName`, `parentAnchorRecordingId = d23e453b`), Duna (`3700f40e`), Duna
+(`caa6190c`, the depot dock)}. Mixed member bodies at period 0 is exactly
+`ClassifyRouteScope = MalformedMixedBodies`, so this save's route draws NO line
+today (`ClassifyRouteLineSkip` -> `MalformedMixedBodies`).
+
+It is not a "synodic rather than 0" regime and never could be: nothing in
+`Source/Parsek/` writes a non-zero `DispatchWindowPeriod` - see
+ROUTE-INTERBODY-SCOPE-NEVER-REACHABLE below. So this save is a fine subject for
+the MALFORMED reading and a bad one for G10's `InterBody` reading; the roadmap
+G10 entry now carries the operator save specification that WOULD produce the
+latter once the product fix lands. If someone wants the malformed reading pinned
+before then, it is a legitimate standalone harvest (a fixture nothing exercises
+today) and needs its own subject id, not B32's.
 
 ## M-A7-SEAM-ENDPOINT-SKIP-REASON-CENSUS: `seam-endpoint-skipped` dominates every renderCompose unevaluable count and DOUBLED between two flights of the same lane with no explanation on record [FOUND 2026-08-25 reading the V14M reading-vs-armed facets (53 vs 106 skips) and the s15 free-play manifest (512 at the cap). IMPROVEMENT, REPORT-ONLY]
 

@@ -54,14 +54,146 @@ namespace Parsek.Tests.Logistics
         /// The amount route <paramref name="routeId"/> sees as available on
         /// <paramref name="pid"/> for <paramref name="resource"/>, given a live
         /// stored amount: the exact production wrap from
-        /// <see cref="LiveRouteRuntimeEnvironment"/>.
+        /// <see cref="LiveRouteRuntimeEnvironment"/>, which calls the SAME pure
+        /// <see cref="RoutePickupSourceGate.NettedAvailable"/> this helper does - so
+        /// the helper cannot drift away from the live reader.
         /// </summary>
         private static double GateAvailable(
             string routeId, uint pid, string resource, double liveStored)
         {
-            double available =
-                liveStored - RouteStore.OtherRoutesReservedFor(routeId, pid, resource);
-            return available > 0.0 ? available : 0.0;
+            return RoutePickupSourceGate.NettedAvailable(
+                liveStored, RouteStore.OtherRoutesReservedFor(routeId, pid, resource));
+        }
+
+        // ---- the reserve/release PRE-IMAGE identity (C10) ---------------------
+
+        // catches: any future change that lets the escrow withhold MORE than the
+        // holder's debit takes (over-block: a competitor held out of cargo nobody
+        // consumed) or LESS (double-claim: a competitor promised cargo the holder is
+        // about to take). Both would break the identity
+        //     NettedAvailable(S0 - fired, M - fired) == NettedAvailable(S0 - M, 0)
+        // over EVERY split of the summed reservation M into a fired and an unfired
+        // part. This is the headless statement of what the RouteEscrowContention
+        // in-game cells drive live; it is also the reason a competitor cannot become
+        // eligible from the release at the holder's own window.
+        [Fact]
+        public void NettedAvailable_IsInvariantAcrossEveryWindowSplitOfTheReservation()
+        {
+            // A cycle reserving M = 10 against a source holding S0, released and
+            // debited window by window. The competitor's availability must read the
+            // same at EVERY intermediate point as it does at the end.
+            double[] stored = { 0.0, 3.0, 9.5, 10.0, 15.0, 200.0 };
+            double[][] windowSets =
+            {
+                new[] { 10.0 },
+                new[] { 4.0, 6.0 },
+                new[] { 1.0, 2.0, 3.0, 4.0 },
+            };
+
+            foreach (double s0 in stored)
+            {
+                foreach (double[] windows in windowSets)
+                {
+                    double m = 0.0;
+                    foreach (double w in windows) m += w;
+
+                    double endState = RoutePickupSourceGate.NettedAvailable(s0 - m, 0.0);
+
+                    double fired = 0.0;
+                    // Before any window fires: the whole reservation is unfired.
+                    Assert.Equal(endState, RoutePickupSourceGate.NettedAvailable(s0 - fired, m - fired));
+                    foreach (double w in windows)
+                    {
+                        fired += w; // the release and the debit are the SAME amount
+                        Assert.Equal(
+                            endState,
+                            RoutePickupSourceGate.NettedAvailable(s0 - fired, m - fired));
+                    }
+                    Assert.Equal(m, fired);
+                }
+            }
+        }
+
+        // catches: a removed ZERO CLAMP. The invariance cell above is clamp-BLIND by
+        // algebra - both sides of its identity reduce to `s0 - m`, so they agree whether
+        // or not the floor is applied, and deleting the clamp from
+        // RoutePickupSourceGate.NettedAvailable leaves it green. The clamp is real
+        // behaviour: LiveRouteRuntimeEnvironment's reader must never hand the gate a
+        // NEGATIVE availability (a reservation larger than the tank), because
+        // RoutePickupSourceGate.Evaluate compares it against a positive need and a
+        // negative would only deepen an already-failing comparison while making the
+        // logged `netted=` value nonsense. Pinned directly, at both the strictly-negative
+        // case and the exact zero boundary.
+        [Fact]
+        public void NettedAvailable_FloorsAtZero_WhenOthersReservedMoreThanIsStored()
+        {
+            // Strictly negative before the clamp: 3 stored, 10 held by others.
+            Assert.Equal(0.0, RoutePickupSourceGate.NettedAvailable(3.0, 10.0));
+            // Exactly zero - the boundary the `> 0.0` test decides.
+            Assert.Equal(0.0, RoutePickupSourceGate.NettedAvailable(10.0, 10.0));
+            // And the unclamped side is untouched: a positive remainder passes through.
+            Assert.Equal(2.0, RoutePickupSourceGate.NettedAvailable(12.0, 10.0));
+        }
+
+        // catches: the same identity re-stated as the OBSERVABLE consequence the
+        // C10 lane pins - across the holder's window the competitor's hold CAUSE
+        // flips escrow -> physical while its availability does not move. A change
+        // that made the release free MORE than the debit took would turn the
+        // post-window reading eligible and silently invalidate the lane's phase 3.
+        [Fact]
+        public void HoldCause_FlipsEscrowToPhysical_AcrossTheHoldersWindow_OnUnchangedNumbers()
+        {
+            const double s0 = 15.0;       // shared source stored
+            const double windowA0 = 4.0;  // holder window 0
+            const double windowA1 = 6.0;  // holder window 1 (the residual)
+            const double needB = 8.0;     // competitor need
+
+            // WHILE the holder holds window 1: window 0 already debited, so raw is
+            // s0 - windowA0 and the residual windowA1 is still reserved.
+            double rawDuringHold = s0 - windowA0;
+            double nettedDuringHold = RoutePickupSourceGate.NettedAvailable(rawDuringHold, windowA1);
+            Assert.True(RoutePickupSourceGate.IsEscrowCausedShort(needB, rawDuringHold, nettedDuringHold));
+
+            // AFTER the holder's window 1 fires: the reserved amount is physically
+            // gone and nothing is held.
+            double rawAfterDebit = s0 - windowA0 - windowA1;
+            double nettedAfterDebit = RoutePickupSourceGate.NettedAvailable(rawAfterDebit, 0.0);
+
+            // The numbers the competitor can rely on did NOT move ...
+            Assert.Equal(nettedDuringHold, nettedAfterDebit);
+            // ... but the CAUSE did: raw no longer covers the need.
+            Assert.False(RoutePickupSourceGate.IsEscrowCausedShort(needB, rawAfterDebit, nettedAfterDebit));
+            // And the competitor is short in BOTH readings - the release alone can
+            // never make it eligible.
+            Assert.True(nettedDuringHold < needB);
+            Assert.True(nettedAfterDebit < needB);
+        }
+
+        // catches: a regression in the ONLY shape that does free a competitor - a
+        // release that takes no cargo (RouteStore.RemoveRoute -> DropRouteEscrow,
+        // an endpoint lost mid-cycle, a scene-change ClearAllEscrow). Here the
+        // residual is dropped while the cargo is still in the tank.
+        [Fact]
+        public void DroppingTheHoldersEscrowWithoutADebit_MakesTheCompetitorEligible()
+        {
+            const uint depot = 4242u;
+            const double s0 = 15.0;
+            const double windowA0 = 4.0;
+            const double windowA1 = 6.0;
+            const double needB = 8.0;
+
+            // The holder reserved its summed manifest and released only window 0.
+            RouteStore.ReserveCargo("holder", depot, "LiquidFuel", windowA0 + windowA1);
+            RouteStore.ReleaseCargo("holder", depot, "LiquidFuel", windowA0);
+            double rawDuringHold = s0 - windowA0; // window 0's debit took its own amount
+            Assert.True(GateAvailable("competitor", depot, "LiquidFuel", rawDuringHold) < needB);
+
+            // The holder is removed mid-cycle: the residual is dropped and window 1
+            // never debits, so the raw amount does NOT move.
+            RouteStore.DropRouteEscrow("holder");
+            Assert.Equal(rawDuringHold,
+                GateAvailable("competitor", depot, "LiquidFuel", rawDuringHold));
+            Assert.True(GateAvailable("competitor", depot, "LiquidFuel", rawDuringHold) >= needB);
         }
 
         // ---- A reserves: B sees less, A excludes its own ---------------------

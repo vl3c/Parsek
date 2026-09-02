@@ -10,6 +10,37 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **Test coverage: two supply routes competing for the same depot are now checked
+  automatically.** Two new in-game checks set up one shared fuel depot, a route that
+  will collect from it twice on one run, and a second route that wants the same fuel,
+  and then run the game's own route scheduler over them. The first check confirms that
+  while the first route is still owed a pickup it has reserved, the second route is
+  held back and told which route is holding the fuel - and that once the first route
+  actually takes that fuel, the second is held back for the plain reason that the tank
+  is now empty. The second check confirms the one case where the hold really does free
+  up: delete the first route mid-run, and the second route immediately gets the fuel it
+  was waiting for. Together these pin the promise the reservation makes - it holds back
+  exactly what the first route is going to take, never more and never less - so two
+  routes can never both spend the same fuel, and a route is never told to wait for fuel
+  nobody will collect. Both checks pass unattended, twice over, and a deliberately
+  broken copy of the check was confirmed to fail - so the check is known to catch a
+  regression rather than merely to pass. Nothing player-facing changes.
+
+- **The log now says, per part family, whether a recorded event actually reached the
+  ghost.** Replaying a recording applies part events to the ghost - lights, gear, bays,
+  fairings, chutes, panels, drills, engine and RCS plumes, and the rest - and until now
+  the log said only how many events had been consumed, never whether any of them
+  changed anything. An event whose part carried nothing on the ghost was consumed and
+  discarded in silence, which looked exactly like an event that worked. Each family now
+  writes one summary line per playback interval naming the family, the part, how many
+  applied, how many were skipped, and why they were skipped: no such part on this
+  ghost, a part with nothing to pose, a pose that was never captured when the ghost was
+  built, a deliberate no-op, or an event type that has no visual at all. Cabin lights
+  report separately from lamps, and a cargo bay reports which of its two door
+  mechanisms it used, so a half-applied event can no longer read as a whole one.
+  Nothing about playback itself changed - the same events do the same things - and the
+  lines cost nothing on a frame with no events to apply.
+
 - **Test coverage: the start-docked supply-route origin now has an automated subject.**
   Two new in-game checks fly the shape the roadmap had reserved for a hand-flown
   mission - a transport that starts docked to a landed base, undocks, and delivers to
@@ -152,6 +183,23 @@ _(unreleased — entries accumulate here per commit)_
   charging a wrong part-less price.
 
 ### Dev
+
+- Wrote down why a supply route between two different planets cannot yet be
+  proven by an automated run, and found a real problem in the process. A route
+  decides whether it is a same-planet or a between-planets route by looking at a
+  stored transfer-window length, and nothing in the mod ever fills that value in:
+  it is written as zero every time a route is created. A route whose stops are on
+  two different planets therefore reads as inconsistent rather than as a
+  between-planets route, and its line is left undrawn on the map. Confirmed
+  against a real Kerbin-to-Duna route in an existing save. The delivery timing
+  itself is worked out by a different, healthy path, so scheduling is unaffected;
+  the map line is the part that suffers. No fix in this change, which is
+  documentation only: the problem, the two candidate fixes, and the exact flight
+  someone has to fly by hand to produce a test subject are all written up
+  (`docs/dev/research/g10-interbody-route-feasibility.md`, and the G10 entry in
+  the automated-testing roadmap). Also recorded: none of the committed test saves
+  contains a between-planets delivery at all, so no existing fixture could have
+  stood in for that flight.
 
 - Added an automated-testing lane for the supply-route-across-a-rewind question,
   plus the one piece of test-harness plumbing it turned out to need.
