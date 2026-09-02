@@ -174,9 +174,13 @@ namespace Parsek.Logistics
         /// STOREDPART nodes per the captured gate). The NEAR-MISS probe behind
         /// the <c>inventory-state:</c> hold token: when the identity-hash gate
         /// (<see cref="CountStored"/>) reports zero but this reports a positive
-        /// count, the origin physically holds the part and only its STATE
-        /// (charge, fuel, module contents) differs from the recorded cargo -
-        /// a legibility distinction only, never an admission relaxation.
+        /// count, the origin physically holds the part and only the REST OF ITS
+        /// KIND differs from the recorded cargo. Since the 2026-09-02 ruling that
+        /// is exactly two things: the selected VARIANT, or a stored resource in a
+        /// different FILL BUCKET (empty / partial / full). Module state and
+        /// ElectricCharge cannot cause a near miss any more - neither enters the
+        /// kind key. A legibility distinction only, never an admission
+        /// relaxation.
         /// </summary>
         internal int CountStoredByPartName(string partName)
         {

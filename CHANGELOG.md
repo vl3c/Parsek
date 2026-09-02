@@ -20,10 +20,16 @@ _(unreleased — entries accumulate here per commit)_
   empty, part-full or full - and nothing else. A part sitting in an inventory is just
   cargo; two of the same thing are interchangeable, and passing one across a dock is
   ordinary supply work again. Existing saves need no conversion: the kind is recomputed
-  from what the save already stores the moment it loads. When a route IS still refused
-  for unaccounted cargo, the reason now always reaches the log, naming the part instead
-  of leaving the refusal silent, and the message shown to the player no longer claims
-  that inventory items are one-of-a-kind.
+  from what the save already stores the moment it loads. **One thing to know if you
+  already run supply routes:** a route built before this update over a recording that
+  involved stored cargo now sees its source recording as changed, and stops with
+  "source changed" the first time it revalidates. Nothing is lost - the recording and
+  the route are both still there - but that route has to be created again from the same
+  recording, which now takes a second because the refusal it used to hit is gone. Routes
+  that only move resources are untouched. When a route IS still refused for unaccounted
+  cargo, the reason now always reaches the log, naming the part instead of leaving the
+  refusal silent, and the message shown to the player no longer claims that inventory
+  items are one-of-a-kind.
 
 - **Test coverage: a supply relay that the game correctly REFUSES to turn into a
   route now has a saved subject and two automated lanes.** Everything the automated

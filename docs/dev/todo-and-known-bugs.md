@@ -86,11 +86,24 @@ that now share a kind (quantities and slots sum) and logs one Verbose summary
 (`InventoryKindKeyRefresh: node=... recomputed=N kept=M changed=K merged=J`). An
 item with no snapshot keeps the stored string - there is nothing to derive from.
 
-**Consequence worth knowing:** the recording's `RouteProofHash` changes for any
-recording whose proof carries inventory payloads, so an EXISTING route over such a
-recording will read `differingField=route-proof-hash` in `RouteStore.RevalidateSources`
-once. That is a source-problem transition, not data loss, and it is inherent to
-changing the identity string at all.
+**Consequence worth knowing, and it is NOT self-healing:** the recording's
+`RouteProofHash` changes for any recording whose proof carries inventory payloads
+(`RouteProofHasher.AppendInventoryItems` writes each item's `identity=` into the
+canonical string, and the kind key is a different string than the old fingerprint),
+so an EXISTING route over such a recording reads
+`differingField=route-proof-hash` in `RouteStore.RevalidateSources` on its first
+revalidation after this ships. That sets `RouteStatus.SourceChanged`, and
+`RouteStore.DecideRevalidatedStatus` allows recovery only from
+`MissingSourceRecording` - "SourceChanged stays SourceChanged" per design 7.4.
+The route is excluded from dispatch and the PLAYER MUST RECREATE IT. No data is
+lost (the route definition and the recording are both intact) and the route can be
+recreated over the same recording immediately, but the transition is permanent,
+not a one-pass blip. It is inherent to changing the identity string at all; the
+alternative would be a re-stamp path for `RouteSourceRef.RouteProofHash`, which is
+a deliberate non-goal (the hash exists to detect exactly this kind of change).
+Only routes whose source proof actually carries inventory payload items are
+affected; a resource-only route over craft with no stored parts hashes
+identically.
 
 **Proof.** `Source/Parsek.Tests/Logistics/InventoryPayloadKindKeyTests.cs` (27
 cells) drives the REAL bytes: `Source/Parsek.Tests/Fixtures/InventoryKindMove/rover-relay-window.cfg`
