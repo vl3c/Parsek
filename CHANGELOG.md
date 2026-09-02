@@ -188,6 +188,57 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Dev
 
+- Recorded why a landed flight sometimes leaves one recording and sometimes two.
+  A short stop at the end of a flight is only worth its own recording if it
+  lasted at least five seconds; below that it stays part of the flight it
+  belongs to. Three test runs of the same mission landed on either side of that
+  line - the craft was recovered 5.3, 5.9 and 4.8 seconds after touching down -
+  so the same flight produced two recordings twice and one recording once. The
+  behaviour is deliberate and unchanged; the test that was counting on two has
+  been corrected to accept either, and the timing itself is written up as a
+  test-side thing to fix. Nothing player-facing changes.
+
+- Proved on a real flight that a recovery is credited to the right flight.
+  When a craft is recovered, Parsek picks which recorded flight the recovery
+  belongs to; since August it throws out recordings of earlier flights of the
+  same craft by launch identity, but that had only ever been shown in offline
+  tests. A run over the new two-launch career now shows it live: of four
+  same-name recordings the two from the earlier launch were dropped and the
+  recovery was credited to the flight that had just happened, including the
+  crew's experience entry - the first time that entry has been seen on a real
+  run. Nothing player-facing changes; the behaviour is the one that shipped.
+
+- Built the test save the recovery-credit check needed, and pointed its test
+  lane at it. When a craft is recovered, Parsek has to decide which recorded
+  flight the recovery belongs to, and it now uses the launch identity to throw
+  out recordings of earlier flights of the same craft. Proving that on a real
+  run needs a career that has already flown one craft, kept the recordings, and
+  not yet spent the science - because the test mission only reaches the recovery
+  step if its transmission earns something. No existing save was in that state:
+  the one with the recordings had already banked the science, which is what the
+  first attempt at this measured. The new save is assembled from two moments of
+  the same career - the recordings from after the flight, the career from before
+  it - and is built and checked by script, so it cannot quietly drift. Test-only;
+  nothing player-facing changes.
+
+- Corrected the automated-testing record for the rover supply-route test batch.
+  The batch flew twice on one day - once before and once after a fix to the test
+  save it uses - and passed on the second run with the same result as the first,
+  which is what proved the fix changed none of the tests. The lane's own notes,
+  its machine-readable status tag and the programme summary in the status
+  document all still described it as flown once and awaiting a re-run. They now
+  say what happened. Nothing player-facing changes and no test moved.
+
+- Corrected the automated-testing record for the watch-mode distance probe.
+  The lane that measures how far away a replayed flight can be before the game
+  refuses to follow it with the camera had flown and passed, but its own notes
+  still said a reading run was owed, and the refusal distance quoted in the
+  status table was the modelled figure rather than the one the game printed.
+  Both now match the flight: refused at 1,064 km, followed at 0.46 km. The notes
+  also record why the run looked missing - a passing run keeps its log beside the
+  run result instead of in the collected-logs folder, and the two are named in
+  different clocks. Nothing player-facing changes.
+
 - Wrote down why a supply route between two different planets cannot yet be
   proven by an automated run, and found a real problem in the process. A route
   decides whether it is a same-planet or a between-planets route by looking at a

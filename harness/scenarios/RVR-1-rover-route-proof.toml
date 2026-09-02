@@ -5,9 +5,12 @@ tier = "nightly"
 # THE ISOLATED `Logistics` BATCH ON THE **TARGET-BRANCH** RECORDED HOST - THE THIRD
 # RECORDED HOST, AND THE ONLY ONE THAT CAN PAY THE DEBT H38, H39 AND H40 ALL ROSTER.
 #
-# FLOWN ONCE, 2026-09-01 (`2026-09-01_2008_RVR-1-rover-route-proof`, wall 184 s).
-# EVERY VERIFIER PASSED except `expectations`, which red on ONE required token - an
-# AUTHORING ERROR in this file, corrected below, not a product finding. MEASURED:
+# FLOWN TWICE, 2026-09-01, AND **LIVE-PROVEN ON RUN 2**
+# (`2026-09-01_2043_RVR-1-rover-route-proof`, wall 179 s, PASS attempt 1, every verifier
+# green, on the REPAIRED fixture). Run 1 (`2026-09-01_2008`, wall 184 s, pre-repair bytes)
+# passed EVERY verifier except `expectations`, which red on ONE required token - an
+# AUTHORING ERROR in this file, corrected below, not a product finding. Both runs measured
+# the SAME line, so the endpoint-inventory repair moved no Logistics cell:
 #     BATCH_COMPLETE v1 total=47 passed=39 failed=0 skipped=8 category=Logistics scene=FLIGHT
 # with 7 `SKIPPED:` lines plus the one scene filter (`byRequiredScene=SPACECENTER:1`), and
 # `[expectations.recordings] count` observed 5 - the staged set exactly, NO load-time
@@ -20,17 +23,18 @@ tier = "nightly"
 # and the predicted initiator-cell trade held (`RouteProof_ActiveAsInitiatorDockWindow_
 # HasEndpointProof` SKIPPED, as the strict-complement argument says it must).
 #
-# THE TALLY SPLIT STAYS INTERIM ON PURPOSE, and this is a deliberate departure from the
-# usual "flight 1 measures it, the pin is replaced whole" obligation: the fixture's
-# ENDPOINT INVENTORY was repaired after this run (see `build_rover_route_recorded.py` ->
-# "THE ENDPOINT INVENTORY REPAIR"), and the repair frees two inventory slots on a vessel
-# several `Logistics` cells walk. Pinning `passed=39 skipped=8` from a run made against
-# the PRE-REPAIR bytes would pin a subject that no longer exists. The obligation is
-# unchanged, only deferred by one flight: the RE-FLY measures the split, the pin is
-# replaced whole, a MEASURED_SKIPPED entry is added, and the id LEAVES
-# `IsolatedBatchWiringGroupTests.INTERIM_PIN_IDS` in the same commit.
+# THE TALLY SPLIT IS PINNED WHOLE, off run 2. It was held INTERIM after run 1 on purpose -
+# the fixture's ENDPOINT INVENTORY was repaired between the two runs (see
+# `build_rover_route_recorded.py` -> "THE ENDPOINT INVENTORY REPAIR") and the repair frees
+# two inventory slots on a vessel several `Logistics` cells walk, so pinning a split
+# measured on bytes the next flight would not fly was worse than one more interim flight.
+# The re-fly then measured the IDENTICAL split, the pin was replaced whole, a
+# `MEASURED_SKIPPED` entry was added and the id LEFT
+# `IsolatedBatchWiringGroupTests.INTERIM_PIN_IDS` in the same commit (246837e39). That the
+# repair moved nothing is itself the measurement the deferral bought.
 #
-# THE FLIGHT-1 SKIP ROSTER, recorded so the re-fly's delta is attributable (7 cells):
+# THE SKIP ROSTER, MEASURED IDENTICALLY ON BOTH FLIGHTS (7 run-time cells; the eighth skip
+# is the attribute-forced SPACECENTER filter):
 #   HarvestCapture_ConverterToggle_OpensAndClosesWindow          (no BaseConverter)
 #   HarvestCapture_WarpToggle_RebaselinesAtRailsTransitions      (no BaseConverter)
 #   HarvestCapture_CatchUpOnLoad_AttributesInsideWindowOrBridges (no BaseConverter)
@@ -45,8 +49,8 @@ tier = "nightly"
 # `Delivery_LoadedVessel_StacksInventoryQuantityIntoSlot`,
 # `InventoryPickupDebit_LoadedEndpointVessel_RemovesStoredPart` and
 # `Escrow_CompetingRouteSeesReservation_Holds`. The two-container inventory is exactly the
-# axis four of those read, and it is exactly what the repair edited - which is the other
-# half of why the split is not pinned from this run.
+# axis four of those read, and it is exactly what the repair edited - which is why the
+# split was pinned off the POST-repair run rather than this one.
 #
 # -------------------------------------------------------------------------------------
 # THE DEBT, IN THE TWO EXISTING LANES' OWN WORDS.
@@ -161,10 +165,10 @@ tier = "nightly"
 # ("what a RECORDED CORPUS happens to CONTAIN ... no attribute, no craft property and no
 # amount of reading the .sfs settles a run-time InGameAssert.Skip").
 # =====================================================================================
-description = "AUTHORED 2026-08-30, FLOWN ONCE 2026-09-01. The isolated Logistics batch (46 admitted cells, 38 of them restore-after-run) over rover-route-recorded, the FIRST committed fixture whose ROUTE_CONNECTION_WINDOWS node is TARGET-branch: two surface rovers with DIFFERENT baked persistentIds dock on the Runway, so the window's transferTargetPid (2123618197) differs from its carrier's (313889796) and is also carried by a recording in the OTHER committed tree. That is the exact harvest H38 rostered as one debt and H39/H40 both measured as unpayable by existing bytes, and flight 1 took the acceptance test and PASSED IT: RouteProof_ActiveAsTargetDockWindow_HasEndpointProof and RouteProof_CrossTreeCommittedPartner_HasEndpointProof both executed and passed for the first time in the suite's history, on a run measuring total=47 passed=39 failed=0 skipped=8 with every verifier green. The initiator cell skipped by strict complement as predicted, which is a trade the family absorbs (H39/H40 pin it) rather than a regression. The run's ONE red was an authoring error since corrected: a REQUIRED PASSED token for RouteOriginProof_StartedOnRunway_ProducerSkipsProof, whose predicate is StartSituation == Prelaunch - and a wheeled Runway rollout is Landed, so the cell self-skips here by design and the token is removed. recordings.count is now PINNED EXACTLY at the measured 5 (no load-time optimizer split on these bytes); run 2 (2026-09-01_2043, on the repaired fixture) measured the SAME total=47 passed=39 failed=0 skipped=8 and PASSED attempt 1 with every verifier green, so the tally is now PINNED WHOLE and the lane is re-tiered to nightly beside H38/H39/H40."
+description = "AUTHORED 2026-08-30, FLOWN TWICE 2026-09-01, LIVE-PROVEN on run 2 (`2026-09-01_2043`, 179 s, PASS attempt 1) with the tally pinned whole. The isolated Logistics batch (46 admitted cells, 38 of them restore-after-run) over rover-route-recorded, the FIRST committed fixture whose ROUTE_CONNECTION_WINDOWS node is TARGET-branch: two surface rovers with DIFFERENT baked persistentIds dock on the Runway, so the window's transferTargetPid (2123618197) differs from its carrier's (313889796) and is also carried by a recording in the OTHER committed tree. That is the exact harvest H38 rostered as one debt and H39/H40 both measured as unpayable by existing bytes, and flight 1 took the acceptance test and PASSED IT: RouteProof_ActiveAsTargetDockWindow_HasEndpointProof and RouteProof_CrossTreeCommittedPartner_HasEndpointProof both executed and passed for the first time in the suite's history, on a run measuring total=47 passed=39 failed=0 skipped=8 with every verifier green. The initiator cell skipped by strict complement as predicted, which is a trade the family absorbs (H39/H40 pin it) rather than a regression. The run's ONE red was an authoring error since corrected: a REQUIRED PASSED token for RouteOriginProof_StartedOnRunway_ProducerSkipsProof, whose predicate is StartSituation == Prelaunch - and a wheeled Runway rollout is Landed, so the cell self-skips here by design and the token is removed. recordings.count is now PINNED EXACTLY at the measured 5 (no load-time optimizer split on these bytes); run 2 (2026-09-01_2043, on the repaired fixture) measured the SAME total=47 passed=39 failed=0 skipped=8 and PASSED attempt 1 with every verifier green, so the tally is now PINNED WHOLE and the lane is re-tiered to nightly beside H38/H39/H40."
 instanceProfile = "stock-minimal"
 tags = ["ingame-batch", "isolated-batch", "logistics", "route-proof", "recorded-fixture",
-        "RVR-1", "pending-flight", "reading-iteration"]
+        "RVR-1", "flown", "reading-iteration"]
 
 [fixture]
 # `rover-route-recorded`, the RVR harvest: the operator's hand-flown `logistics-rover-A`
