@@ -634,6 +634,76 @@ routeCoDrawViolations = { max = 0 }
 unevaluable = { max = 10 }
 requireSeamKinds = ["rigid"]
 
+[expectations.routes]
+# THE PRODUCED SAVE'S ROUTE, gated. This is the fourth M-C2 save-parse block
+# (`harness/lib/saveparse.py`, 2026-09-02) and this is its FIRST declarer, armed
+# here because this lane's whole subject is the committed route: the log
+# contracts above already require `RevalidateSources ... routes=1
+# transitioned=0`, and this block asserts the same claim against the BYTES the
+# run left behind rather than against a line it printed. A route that flipped
+# after the last revalidate pass - or one the next load would DROP - is
+# invisible to a log token and visible here.
+#
+# ARMED OFF ITS OWN BYTES, not off a prediction. Every window below was read by
+# `saveparse.observed_routes_facets` from the produced `persistent.sfs` of THIS
+# SPEC's own runs `2026-08-26_2042`, `_2317` and `_2318`, and corroborated by
+# H40-logistics-isolated-depot-route's `2026-08-28_2253` and `_2358` over the
+# same fixture: all five read count 1 / dormant 0 / statuses {Active: 1} /
+# sourceRefs 4 / codecRejects 0, byte-identically. Neither lane mutates the
+# route, so the agreement across two scenarios and five runs is this block's
+# determinism statement.
+#
+# ARMING LEDGER, DISCHARGED 2026-09-02 the same day the facet shipped. The five
+# measurements above are offline reads of saves those runs produced, which is
+# stronger than the usual single report-only reading; the three-run workflow then
+# closed on top of them:
+#   armed re-flight   2026-09-02_1013  PASS attempt 1, wall 69 s, block GATING -
+#                     `saveParse status=PASS gating=True blocks=['routes']
+#                     armed=['routes'] ... routes=1 routeStatuses={'Active': 1}
+#                     routeCodecRejects=0 mismatches=0`
+#   negative control  2026-09-02_1014  PARSEK-FAIL(save-structure), mismatches
+#                     exactly ["routes.statuses.SourceChanged 0 < min 1"], from a
+#                     temporary `statuses = { SourceChanged = { min = 1 } }` that
+#                     was reverted immediately (the committed block is the armed
+#                     one). The inversion is THIS block's own headline window, not
+#                     the shared `rewind.supersedeRows` evaluator minimum every
+#                     earlier lane reused, so what it proves is the routes path end
+#                     to end rather than the evaluator a second time.
+gating = true
+# ANTI-VACUITY. The fixture ships exactly one committed route; a lane that
+# rendered a route overview line for a route the save no longer carries is the
+# one failure that would otherwise pass green and dark.
+count = { min = 1, max = 1 }
+# NOT DORMANT. `RouteRewindClassifier` moves a route to DORMANT_ROUTES when its
+# CreatedUT is after a rewind cutoff, and a dormant route is invisible to every
+# committed-route consumer - the orchestrator tick, the candidate finder, the
+# renderer. This lane performs no rewind, so a non-zero here means a
+# reclassification nothing asked for.
+dormant = { max = 0 }
+# THE HEADLINE. `Active` is the status the whole G1 route front door depends on:
+# a flip to SourceChanged / MissingSourceRecording / EndpointLost leaves the
+# count at 1 and the map dark. The load-time optimizer is the mechanism - a
+# merge that moves any source recording's startUT / endUT flips the route - and
+# it is exactly why `[expectations.recordings] count` above has a floor BELOW
+# the fixture's own 22.
+statuses = { Active = { min = 1, max = 1 } }
+# THE MECHANISM, pinned directly: the four SOURCE rows `RevalidateSources`
+# compares against a live rebuild. This reds a merge that consumed one of them
+# even in the (unobserved) case where the status somehow survived.
+sourceRefs = { min = 4, max = 4 }
+# IDENTITY, so a re-harvest that swapped in a different route of the same shape
+# cannot pass every window above.
+ids = ["5420f805fcbb453b8d5928b71393f14b"]
+# DELIBERATELY NOT PINNED, each for a reason:
+#   completedCycles / skippedCycles - the lane takes two large TimeJumps, so a
+#     dispatch crossing one of them would be a CORRECT product outcome that a
+#     pin would red. Measured 1 / 0 on all five runs; recorded, not gated.
+#   stops / originBodies / destinationBodies / destinationVesselPids - pure
+#     corroboration of the shape `count` + `ids` already fix, and the endpoint
+#     pid is separately pinned builder-side against a live FLIGHTSTATE vessel.
+#   connectionKinds - same; `DockingPort` is a fixture property, not a claim
+#     about what this run did.
+
 [runtime]
 # 300 LoadGame + 300 TimeJump + 300 TimeJump + 300 LoadGame(TS) + 120 export + the fast
 # non-deferred verbs + KSP boot + collect. Every jump is instantaneous, so the ~14 ks of

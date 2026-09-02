@@ -212,10 +212,14 @@ edit MUST NOT mutate vessel cargo from here" - so nothing re-applies the deliver
 at load and the repair is stable. The ledger row is left alone: it is a true
 record of something that happened.
 
-THE ROUTE WINDOW PINS ARE BUILDER-SIDE ON PURPOSE, exactly as
-`build_depot_route_recorded.py`'s ROUTE pins are: `harness/lib/saveparse.py` has
-no `routes` facet and no route-window facet, so the shape of the one thing this
-fixture exists for would otherwise be unpinned anywhere.
+THE ROUTE WINDOW PINS ARE BUILDER-SIDE ON PURPOSE, and STAY so - which is now a
+DIFFERENT statement from the one `build_depot_route_recorded.py` used to make.
+That file's ROUTE pins moved to `harness/lib/saveparse.py`'s 2026-09-02 `routes`
+facet, which parses the ParsekScenario-level `ROUTES` node. What THIS fixture
+exists for is a `ROUTE_CONNECTION_WINDOWS` node on a RECORDING - a different
+surface, written by a different codec (`RouteProofCodec`, not `RouteCodec`). The
+facet does not reach it and should not. The one thing it DOES now cover here is
+the no-ROUTES assertion below, which reads `count = 0` off the same parser.
 
 THERE IS NO `ROUTES` NODE AND NO `ROUTE_ORIGIN_PROOF` NODE, and both absences are
 POSITIVE facts asserted below rather than accidents:
@@ -256,9 +260,16 @@ from typing import List, Optional, Tuple
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _HARNESS_ROOT = os.path.dirname(_HERE)
 _SAVES = os.path.join(_HARNESS_ROOT, "fixtures", "saves")
+_LIB = os.path.join(_HARNESS_ROOT, "lib")
 
 if _HERE not in sys.path:
     sys.path.insert(0, _HERE)
+if _LIB not in sys.path:
+    sys.path.insert(0, _LIB)
+
+# THE SHARED SAVE PARSER, for the route facts below (the no-ROUTES assertion and
+# the two candidate-intent sibling nodes).
+import saveparse  # noqa: E402
 
 # ONE copy of the ConfigNode-text node helpers, for the same reason
 # `build_depot_route_recorded.py` imports them: a second implementation is a
@@ -773,32 +784,43 @@ def verify_save(lines: List[str]) -> List[str]:
                                 % (get_value(lines, tree, "id"), orders,
                                    len(orders) - 1))
 
-    # THE NO-ROUTE ASSERTION. This fixture is a route CANDIDATE host: the
-    # operator created the route AFTER the save was written, which is exactly
-    # what gives RVR-2's `RouteCommand action=create` something to do.
-    if child_nodes(lines, scn, "ROUTES"):
-        problems.append(
-            "ParsekScenario carries a ROUTES node - this fixture is the route "
-            "CANDIDATE host and RVR-2's create would answer "
-            "candidate-already-promoted")
+    # THE NO-ROUTE ASSERTION AND THE PROMPTED CANDIDATE, both read through the
+    # SHARED PARSER (`harness/lib/saveparse.py`, 2026-09-02): the ROUTES node
+    # and the two sparse candidate-intent siblings are facet surface now, so
+    # this fixture states its route facts in the same vocabulary a scenario
+    # declares through `[expectations.routes]`.
+    snap = saveparse.parse_parsek_scenario("\n".join(lines))
+    if not snap.parsed:
+        problems.append("saveparse could not read the save: %s" % snap.error)
+    else:
+        facet = saveparse.observed_routes_facets(snap)
+        # This fixture is a route CANDIDATE host: the operator created the route
+        # AFTER the save was written, which is exactly what gives RVR-2's
+        # `RouteCommand action=create` something to do.
+        if facet["count"] or facet["dormant"]:
+            problems.append(
+                "ParsekScenario carries %d committed / %d dormant route(s) - this "
+                "fixture is the route CANDIDATE host and RVR-2's create would "
+                "answer candidate-already-promoted"
+                % (facet["count"], facet["dormant"]))
+        # Parsek's own record that it found this tree route-ELIGIBLE is the
+        # closest the bytes come to RVR-2's create precondition.
+        if list(snap.prompted_candidate_tree_ids) != [PROMPTED_CANDIDATE_TREE_ID]:
+            problems.append(
+                "PROMPTED_ROUTE_CANDIDATES names %r, expected exactly [%r]"
+                % (list(snap.prompted_candidate_tree_ids),
+                   PROMPTED_CANDIDATE_TREE_ID))
+        if snap.dismissed_candidate_tree_ids:
+            problems.append(
+                "ParsekScenario carries DISMISSED_ROUTE_CANDIDATES %r - a "
+                "dismissed tree is skipped by the candidate finder, so RVR-2's "
+                "create precondition would be gone"
+                % (list(snap.dismissed_candidate_tree_ids),))
 
     for name in ("RECORDING_SUPERSEDES", "LEDGER_TOMBSTONES", "REWIND_POINTS",
                  "REWIND_RETIREMENTS"):
         if child_nodes(lines, scn, name):
             problems.append("ParsekScenario carries a %s node" % name)
-
-    prompted = child_nodes(lines, scn, "PROMPTED_ROUTE_CANDIDATES")
-    if len(prompted) != 1:
-        problems.append("expected exactly 1 PROMPTED_ROUTE_CANDIDATES node, "
-                        "found %d" % len(prompted))
-    else:
-        got = get_value(lines, prompted[0], "treeId")
-        if got != PROMPTED_CANDIDATE_TREE_ID:
-            problems.append(
-                "PROMPTED_ROUTE_CANDIDATES names tree %r, expected %r - Parsek's "
-                "own record that it found this tree route-ELIGIBLE is the "
-                "closest the bytes come to RVR-2's create precondition"
-                % (got, PROMPTED_CANDIDATE_TREE_ID))
 
     # Every schema generation in the save must be the current one; a stray older
     # value would be a recording RecordingStore rejects at load.

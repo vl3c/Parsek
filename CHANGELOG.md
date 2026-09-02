@@ -95,6 +95,31 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Dev
 
+- The autotest harness's save-structure verifier now reads SUPPLY ROUTES out of a
+  produced save. `harness/lib/saveparse.py` parsed recording trees, supersede rows,
+  tombstones and rewind points but not the `ROUTES` node, so the one committed
+  route in the fixture corpus was pinned inside its own builder script rather than
+  in the shared facet, and no scenario could express a window over route state at
+  all. It now parses `ROUTES` and its three sparse siblings (`DORMANT_ROUTES` and
+  the two candidate-intent lists), with the node shape taken from the C# writers,
+  and exposes a fourth expectation block, `[expectations.routes]`: route count,
+  dormant count, stops, source rows, the two dispatch counters, statuses and
+  connection kinds bucketed by enum name, origin and destination bodies, and
+  exact-set route-id / endpoint-pid identity. Report-only unless a scenario opts
+  in, like the three blocks before it. Two readings are hard mismatches whenever
+  the block is declared: a route the game would DROP on the next load (zero stops,
+  or a source row missing its ids) and an unreadable dispatch counter - a save
+  that has already lost a route must not read as a save that never had one. There
+  is no escrow facet because escrow is never serialized. The depot-route fixture's
+  route pin moved onto the shared facet, the rover-route fixture's no-route and
+  candidate assertions now read through the same parser, and the tracking-station
+  route lane arms the block on windows measured from five produced saves of two
+  scenarios - confirmed by an armed flight that passed with the block gating and
+  by a negative control that red on exactly the predicted mismatch. Statuses and
+  connection kinds are bucketed the way the game's own loader reads them, not the
+  way the bytes spell them, so a window always names a value the game will hold;
+  the raw spellings are counted separately rather than silently collapsed.
+
 - The agent instructions now scope the invariant-culture formatting rule to what
   actually needs it. A unit-test run on a comma-locale machine printed
   `targetUT=150,00` from a log line, and the standing rule read as if every one of

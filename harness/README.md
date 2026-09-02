@@ -15,9 +15,15 @@ Everything the harness fetches or generates lives UNDER `harness/`:
 - Code: `run.py`, `lib/` (`hlib.py` pure decision library + `oracle.py`, the
   M-B2 pure ledger oracle, + `saveparse.py`, the M-C2 pure save-structure
   parser/evaluator behind the `saveParse` verifier row - `[expectations.rewind]`,
-  `[expectations.recordings.structure]`, and the gate-12
+  `[expectations.recordings.structure]`, the gate-12
   `[expectations.recordings.points]` block that asserts recordings actually
-  RECORDED something rather than merely existing as `.prec` files),
+  RECORDED something rather than merely existing as `.prec` files, and
+  `[expectations.routes]`, the SUPPLY-ROUTE block over the `ROUTES` /
+  `DORMANT_ROUTES` nodes: route count, statuses by `RouteStatus` NAME, stops,
+  SOURCE rows, origin / destination bodies, route-id and endpoint-pid identity,
+  plus a `codecRejects` counter for a route the game would DROP on the next
+  load. There is deliberately NO escrow facet - `RouteStore`'s `cargoEscrow` is
+  pure RAM and no save carries it),
   + `rendercompose.py`, the M-A7 pure render-composition parser / clock-math
   re-derivation / RC-* rule set behind the `renderCompose` verifier row
   (`[expectations.renderComposition]`, evaluated over the produced
