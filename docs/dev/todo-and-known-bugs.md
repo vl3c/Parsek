@@ -5528,7 +5528,7 @@ If that happens, the fix is at
 `FlightRecorder`'s checkpoint re-emission path, and the test is that a packed section
 never carries a propulsive env.
 
-## ~~L6-RECOVER-DWELL-STRADDLES-SPLIT-FLOOR: the recover mission lands within a second of the optimizer's 5 s split floor, so a flight yields one recording or two~~ [FILED 2026-09-02 off three L6 flights on one fixture and (for the last two) one DLL. HARNESS/LANE AUTHORING, never a product defect. **CLOSED 2026-09-02 (branch `l6-dwell-variants`) BY MEASURING BOTH SIDES OF THE FLOOR ON PURPOSE**: an optional `preRecoverDwellSeconds` mission param, an L6 pair one param apart, and a headless pin of the sub-floor side that no flight can produce. READING RUNS ARE OWED on both lanes and on L3; see the resolution at the end]
+## ~~L6-RECOVER-DWELL-STRADDLES-SPLIT-FLOOR: the recover mission lands within a second of the optimizer's 5 s split floor, so a flight yields one recording or two~~ [FILED 2026-09-02 off three L6 flights on one fixture and (for the last two) one DLL. HARNESS/LANE AUTHORING, never a product defect. **CLOSED 2026-09-02 (branch `l6-dwell-variants`) BY MEASURING BOTH SIDES OF THE FLOOR ON PURPOSE**: an optional `preRecoverDwellSeconds` mission param, an L6 pair one param apart, and a headless pin of the sub-floor side that no flight can produce. **FULLY DISCHARGED THE SAME DAY**: both lanes flew green, the long one twice, with a flown negative control that reds on exactly the seeded token; see the resolution at the end]
 
 **What was measured.** `L6-career-same-name-recover` flew three times on
 `career-same-name-pad`: `2026-09-02_1328` (PASS, 4 committed / 2 survivors),
@@ -5640,11 +5640,29 @@ accidentally engaged would have moved that by ~12 s.
 any of the three logs, and that is correct - `_sbr_evidence` is built only for a FAILURE or
 FLAKE reason, and all three runs were MISSION-OK.
 
-**WHAT IS STILL OWED: the ARMED run of the long lane, not another reading.** Its tier note
-carries the twice-green rule and it stands at one green flight. A negative control
-(uncommitted, id `L6-negctl-long-dwell-namematches-three`, one token flipped to
-`nameMatches=3`) replays against `_1806`'s own KSP.log at exactly one unmet and zero
-forbids, so the exact pin already gates on itself.
+**THE ARMED RUN AND ITS CONTROL FLEW THE SAME EVENING, AND THAT CLOSES THIS ENTRY.**
+
+| run | verdict | what it measured |
+|---|---|---|
+| `2026-09-02_1847` L6 long-dwell, ARMED | PASS attempt 1, 463 s, DLL 43a84abb | mismatches=0, count=4. `SplitAtSection: split fc5c190c... at UT=747.9 (first: 508 pts/3 sections, second: 4 pts/1 sections)`; `TrackSection closed: env=SurfaceStationary ... frames=4 ... duration=11.66s`; `nameMatches=4 survivors=2 guidDropped=2 ... pick=ded60f81...`; XP `rows=1 ... kerbals='Karen Kerman'` |
+| `2026-09-02_1856` negative control | PARSEK-FAIL(expectation) | id `L6-negctl-long-dwell-namematches-three` (UNCOMMITTED): the same spec with ONE token flipped to `nameMatches=3`, reading EXACTLY the seeded unmet and zero forbids, with count=4 and every other token still passing underneath it |
+
+**TWO GREENS ON THE EXACT PINS PLUS A FLOWN, DISCRIMINATING CONTROL** is the armed
+discipline, and it is met. What remains on that lane is the ordinary operator -> nightly
+promotion call, which is a human decision rather than missing evidence.
+
+**THE SPREAD IS THE WHOLE RESULT.** The two dwell-declaring flights authored landed tails
+of 11.84 s and 11.66 s - a 0.18 s spread - where the UNCONTROLLED dwell's four-point band
+spans 4.82-5.88 s ACROSS the 5.0 floor. The landedUT-to-section offset is now a three-point
+measurement (0.50 / 0.50 / 0.56 s), so the 3.4 s this branch's arithmetic assumed is
+refuted by every flight that has ever measured it - wrong, and wrong in the safe direction,
+leaving realized margins of +6.84 s and +6.66 s rather than the predicted +3.6 s.
+
+**CLOSED BY THREE THINGS TOGETHER**, none of which is sufficient alone: the two lane
+variants (the dwell forces the split and pins exactly; the control keeps the uncontrolled
+reading ranged), the four `RecordingOptimizerTests.CanAutoSplitIgnoringGhostTriggers_*`
+cells that pin the sub-floor side no flight can produce, and
+`SbrDwellCompatibilityTests`, which keeps the default provably inert for L3.
 
 ## KERBAL-XP-RECOVERY-PICK-IS-NAME-AND-UT-ONLY: the recovery correlator matches by vessel NAME plus a UT tier, and the XP row makes a wrong pick irreversible [OPEN - **STAGE 1 LIVE-PROVEN 2026-09-02**, shipped headless 2026-08-28 (branch `kerbal-xp-guid-filter`), STAGE 2 OUTSTANDING but NO LONGER GATE-BLOCKED; filed 2026-08-20 with the correlation fix above. **A REPRO LANE WAS AUTHORED AND FLOWN, AND FOUND THE PRODUCED-SAVE SHORTCUT CANNOT REACH THE CORRELATOR: `harness/scenarios/L6-career-same-name-recover.toml`, reading run 1 `2026-09-02_1137` (INVALID(driver) MISSION-ASSERT-FAIL).** The idea was `science_bench_recover` flown a second time over `career-earned-pad` (L3's produced save, which already carries the pad craft's TWO chained same-name recordings under a different launch guid), so the recovery correlator would see two same-name candidates and stage 1's guid filter would resolve them live (expected `nameMatches>=3 guidDropped=2 survivors>=1`). The flight FLEW - landed, collected 2 experiments, recorded a third same-name recording - but TRANSMIT credited ZERO career science because L3 already banked that launchpad biome's science, so the mission's structural transmit->recover gate (`_sbr_transmit` needs a strictly positive pool rise; the schema forbids a floor below 0.001) failed the flight BEFORE recovery, the phase the correlator fires in. **THE BANKED-SCIENCE CONFLICT IS INTRINSIC TO REUSING A PRODUCED SAVE**, so this shortcut does not work. Closing stage 2 needs either a recover mission with NO transmit-science gate (none in the library today) or a purpose-built fixture carrying two same-name launches whose flight science is un-banked. **UNBLOCKED 2026-09-02 BY THE PURPOSE-BUILT FIXTURE** `harness/fixtures/saves/career-same-name-pad`: `harness/tools/build_career_same_name_pad.py` splices `C2CareerPostFix`'s RECORDING_TREE (the two chained same-name recordings, launch guid `f77e4207...`) into `career-science-pad`, the PRE-FLIGHT save L3 actually flies - two moments of one timeline, which is why those recordings' `preLaunchFunds = 500000` / `preLaunchScience = 100` are that host's live pools. The career therefore carries the prior launch with ZERO banked `Science` subjects, so the same mission transmits exactly as it does for L3; the host vessel's `pid` is re-stamped to `9b3c71e4...` so the filter has two conclusive mismatches to drop, while its craft-baked `persistentId` is deliberately left colliding at `2905720181` - the trap this entry names. The earned ledger is NOT copied (its rows credit the science the fixture must leave un-banked, and the recalc engine patches state from the ledger). Gated by `CareerSameNamePadFixtureDriftTests`. L6 now stages that fixture; its expected shape came back EXACTLY on reading run 2 (`2026-09-02_1328`, PASS attempt 1, 470 s): four identical pairs of `PickRecoveryRecordingId guid filter: ... dropped=2 remaining=2 reason=guid-conclusive-mismatch` + `PickRecoveryRecordingId: ... nameMatches=4 survivors=2 guidDropped=2 ... tier=most-recent-ended bracketTie=n/a pick=0d74e88c...`, with `Recovery kerbal XP recorded: ... rows=1 deduped=0 noAction=0` PRESENT (its first observation anywhere) and no refused line. **THE LIVE-PROOF GATE STAGE 2 WAS BLOCKED ON IS THEREFORE DISCHARGED**: the filter is proven active, dropping exactly the two prior-launch candidates, over every leg that picked, without disturbing a correct pick - and re-proven on two further flights the same day (`2026-09-02_1402` and `2026-09-02_1411`), which measured `guidDropped=2` identically while the flight's OWN recording count moved (see L6-RECOVER-DWELL-STRADDLES-SPLIT-FLOOR: an optimizer split floor against the mission's landed dwell, not a correlator behaviour). Stage 2 (the XP-leg `ambiguous-recovery-recording` refusal) is still NOT implemented - it is now merely unwritten rather than ungated]
 

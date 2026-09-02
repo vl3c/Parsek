@@ -89,9 +89,37 @@ id = "L6-career-same-name-recover"
 # floor - replays against this run's own KSP.log at EXACTLY one unmet and zero forbids, so
 # the exact pin gates on ITSELF rather than riding a coupled token.
 #
-# WHAT IS STILL OWED IS THE ARMED RUN, not another reading: the tier note's twice-green
-# rule is unmet at one green flight. A divergence in the count is still a DWELL reading
-# (compare against the sibling's range), never a correlator finding.
+# **THE ARMED RUN FLEW AND THE ARMED DISCIPLINE IS COMPLETE** (`2026-09-02_1847`, PASS
+# attempt 1, wall 463 s, DLL 43a84abb - main-equivalent plus an unrelated scope fix, inert
+# on this lane). Second green on the exact pins, mismatches=0, count=4:
+#
+#   SplitAtSection: split fc5c190c... at UT=747.9 (first: 508 pts/3 sections,
+#       second: 4 pts/1 sections, flatSync=track-sections/track-sections)
+#   TrackSection closed: env=SurfaceStationary ... frames=4 ... duration=11.66s
+#   PickRecoveryRecordingId guid filter: ... ut=759.7 dropped=2 remaining=2
+#       reason=guid-conclusive-mismatch
+#   PickRecoveryRecordingId: ... nameMatches=4 survivors=2 guidDropped=2 ...
+#       tier=most-recent-ended bracketTie=n/a pick=ded60f81...
+#   Recovery kerbal XP recorded: ... rows=1 deduped=0 noAction=0 kerbals='Karen Kerman'
+#
+# THE OFFSET IS NOW A THREE-POINT MEASUREMENT, 0.50 / 0.50 / **0.56** s (this run: COLLECT
+# at ut=747.360, section at UT=747.92), so the 3.4 s the arithmetic block above ASSUMED is
+# refuted by every flight that has ever measured it and the realized margin is +6.66 s
+# here against +6.84 s on `_1806`. The two dwell-declaring flights authored 11.84 s and
+# 11.66 s tails - a 0.18 s spread where the UNCONTROLLED dwell's four-point band spans
+# 4.82-5.88 s across the floor. THAT SPREAD IS THE WHOLE RESULT.
+#
+# THE NEGATIVE CONTROL FLEW TOO, and it is a FLIGHT rather than a replay:
+# `2026-09-02_1856`, id `L6-negctl-long-dwell-namematches-three`, this spec with ONE token
+# flipped to `nameMatches=3`, PARSEK-FAIL(expectation) with EXACTLY the seeded unmet
+# (`nameMatches=3` against the printed 4), zero forbids, and count=4 - so the count pin and
+# every other token still passed underneath it. The exact pin gates on ITSELF rather than
+# riding a coupled token. THE CONTROL IS DELIBERATELY UNCOMMITTED.
+#
+# So this lane stands at TWO GREENS ON THE EXACT PINS plus a discriminating control, which
+# is the armed discipline this spec's tier note asks for. A divergence in the count from
+# here is still a DWELL reading (compare against the sibling's range), never a correlator
+# finding.
 # ####################################################################################
 #
 # UNBLOCKED 2026-09-02 BY A PURPOSE-BUILT FIXTURE. (HISTORY from here down; reading run 2
