@@ -1493,6 +1493,86 @@ can be authored in - and no stock VAB craft carries a light, a service bay, an I
 a Spark, so their tails would have to be invented. That is the piece of work, and it
 wants its own lane.
 
+## ~~GS6-SWEEP-CRAFT-PARTS-DROPPED-AT-LOAD~~: every part appended to the revision-2 sweep craft was silently discarded by KSP because its PARENT carried no `link =` line, so three families read as silent that were never actually aboard [MEASURED 2026-09-02 on run `2026-09-02_1505` (PARSEK-FAIL(expectations), 7 mismatches). LANE DEFECT, FIXED THE SAME DAY - not a product gap, and worth writing down because it MIMICS one perfectly]
+
+THE SYMPTOM was three families with ZERO applier lines - Gear*, Converter* and
+FairingJettisoned - on a craft whose `.craft` file plainly contained a
+`landingLeg1` x3, a `FuelCell` and a `fairingSize1`. Read as a product gap
+("the recorder does not capture module Y") that would have been a wrong filing.
+
+THE RECORDER'S OWN CENSUS refuted it in one line group, and it is the first thing
+to grep on any future "family X never fired" reading:
+
+```
+12376 Visual coverage [Parachute] 0: <none>
+12378 Visual coverage [Deployable] 5: mediumDishAntenna, solarPanels5 x4
+12382 Visual coverage [Light] 1: telescopicLadderBay[pid=2225231708]
+12383 Visual coverage [Gear] 0: <none>
+12384 Visual coverage [CargoBay] 0: <none>
+12385 Visual coverage [Fairing] 0: <none>
+```
+
+Not one appended part is there. The recorder was not failing to CAPTURE them; they
+were not on the vessel. The `.craft` had them, the KSP.log's only mentions of
+`parachuteRadial` / `spotLight1` are part-database and texture loads, and the
+flight carried none.
+
+THE CAUSE: `ShipConstruct` builds the part TREE from each parent's own `link =`
+lines. `build_kerbal_x_sweep_craft.py` emitted correct `srfN` / `attN` on every
+CHILD but never added the matching `link =` to the HOST, so KSP discarded all ten
+- with no warning and no error, which is exactly why the symptom looked like a
+recorder gap.
+
+FIXED in the builder (`_add_links`, inserting the link lines where KSP writes them:
+after `modSize`, before the first `attN` / `srfN`). Verified on the regenerated
+craft: `Rockomax16.BW` gains 9 child links, `dockingPort2` gains 1, no dangling
+link, and `--check` re-derives the committed bytes.
+
+THE LESSON, which outlives this lane: a hand-authored .craft can be structurally
+invalid in a way that produces NO error and looks precisely like a missing product
+feature. Any future "family X never fired" reading checks the recorder's
+`Visual coverage [X]` census FIRST, before blaming capture.
+
+## GS6-GHOST-HAS-NO-COLORCHANGER-STATE: a ghost built from a craft whose pod carries a Pattern-A cabin light has no colour-changer state at all, so every LightOn/LightOff colour-changer apply is skipped `no-family-state` - and this is the SHOWCASE-COLORCHANGER-APPLY-UNOBSERVABLE answer [MEASURED 2026-09-02 on run `2026-09-02_1505`. D7 GHOST-VISUAL FINDING, REPORT-ONLY - filed, not fixed]
+
+THE LINES, verbatim, both directions of the family:
+
+```
+apply family=LightOn  surface=colorchanger rec=0 pid=57152010 applied=0 skipped=3 reason=no-family-state
+apply family=LightOff surface=colorchanger rec=0 pid=57152010 applied=0 skipped=3 reason=no-family-state
+```
+
+`no-family-state` is the strongest of the four colour-changer reason classes: it
+does not mean "no entry for this part" (`no-info-for-part`) or "entries exist but
+none is a cabin light" (`no-cabin-light-entry`) - it means the ghost carries NO
+`colorChangerInfos` DICTIONARY AT ALL. pid 57152010 is `mk1-3pod`, and
+`Squad/Parts/Command/Mk1-3Pod/mk1-3.cfg:85` gives it a `ModuleColorChanger` with
+`toggleName = Toggle Lights`, so the live part does have a Pattern-A cabin light.
+
+THIS SETTLES SHOWCASE-COLORCHANGER-APPLY-UNOBSERVABLE'S OPEN QUESTION, at least for
+this population. That entry asked whether S1.9's 25 silent colour-changer rows were
+(a) a render gap - Pattern-A discovery resolving nothing - or (b) parts that
+genuinely carry no cabin light. The answer here is neither of those two: the ghost
+never gets a colour-changer surface built for it in the first place, so the
+question "did discovery resolve anything?" never gets asked. Whether the builder
+should populate `colorChangerInfos` for a flight ghost (it evidently does for the
+showcase ghosts, since S1.9 measured the dictionary present) is the product
+question, and it is not one a test lane should answer.
+
+RELATED, ON THE OTHER LIGHT SURFACE, same run:
+
+```
+apply family=LightOn  surface=light rec=0 pid=57152010 applied=1 skipped=2 reason=no-info-for-part
+apply family=LightOff surface=light rec=0 pid=57152010 applied=1 skipped=2 reason=no-info-for-part
+```
+
+Three light events, ONE applied. The recorder's `Visual coverage [Light] 1:
+telescopicLadderBay` says why: the ghost's only Unity `Light` is the ladder bay's,
+so the pod and the second light-event target have no `LightGhostInfo`. Note this
+reading was taken while the two `spotLight1` lamps were still being dropped at load
+(the entry above), so it must be RE-TAKEN on the fixed craft before anything is
+concluded about lamps specifically.
+
 ## GS6-CARGOBAY-NEEDS-A-HARVESTED-SERVICEBAY-TAIL: the GS-6 sweep craft cannot carry a cargo bay, so D7 `bays` stays unreachable until a `ServiceBay.125.v2` tail is harvested from a live VAB session [FOUND BY READING 2026-09-02 while building the revision-2 craft. CRAFT-AUTHORING CONSTRAINT, REPORT-ONLY - not a product defect, not a driver gap]
 
 THE DRIVER IS NOT THE PROBLEM: kRPC 0.5.4 exposes `CargoBay.open`, and it is wired

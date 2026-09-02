@@ -850,6 +850,15 @@ PART
 	link = RCSBlock.v2_4294467510
 	link = RCSBlock.v2_4294467268
 	link = RCSBlock.v2_4294467026
+	link = parachuteRadial_4200500137
+	link = parachuteRadial_4200500274
+	link = landingLeg1_4200500411
+	link = landingLeg1_4200500548
+	link = landingLeg1_4200500685
+	link = spotLight1_4200500822
+	link = spotLight1_4200500959
+	link = FuelCell_4200501096
+	link = microEngine.v2_4200501233
 	attN = top,Decoupler.2_4294282032_0|0.920000017|0_0|1|0_0|0.920000017|0_0|1|0
 	attN = bottom,liquidEngine2-2.v2_4294624146_0|-0.920000017|0_0|-1|0_0|-0.920000017|0_0|-1|0
 	EVENTS
@@ -11659,6 +11668,7 @@ PART
 	modCost = 0
 	modMass = 0
 	modSize = 0,0,0
+	link = fairingSize1_4200501370
 	attN = top,Null_0_0|0.282883197|0_0|1|0_0|0.282883197|0_0|1|0
 	attN = bottom,mk1-3pod_4294320818_0|0|0_0|-1|0_0|0|0_0|-1|0
 	EVENTS

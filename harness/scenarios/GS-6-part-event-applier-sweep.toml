@@ -138,61 +138,67 @@ id = "GS-6-part-event-applier-sweep"
 # answer before measuring one is exactly what the todo warns against.
 #
 # =====================================================================================
-# 4. STATUS: FLOWN GREEN 2026-09-02 - reading run `2026-09-02_1420`, PASS attempt 1,
-# wall 412 s, MISSION-OK through DONE (28 phases including PART-SWEEP), expectations
-# mismatches=0, analyzer/logValidate/driverValidity clean. THE INSTRUMENT WORKS, AND
-# EVERY WINDOW BELOW IS NOW RE-PINNED FROM THESE BYTES rather than predicted.
+# 4. STATUS: TWO READING RUNS FLOWN, and the second one's lesson is the one to read
+# first.
 #
-# THE APPLIER CENSUS: 55 `apply family=` lines. Every one reads `reason=applied`
-# except the OX-STAT panels (below). Re-pinned WHOLE; per-run values stay regexed -
-# `pid=[0-9]+` because the tally reports whichever pid it saw first, and
-# `rec=[0-9]+` because a rec is a RUNTIME committed-list index (W1's refutation).
+# RUN 1, `2026-09-02_1420` (revision 1, the stock committed Kerbal X): PASS attempt
+# 1, wall 412 s, expectations mismatches=0. 55 applier lines, every one
+# `reason=applied` bar the OX-STAT panels. This is where the nine base tokens below
+# were measured and where D7 `shroud` was found (the HeatShield2's jettisonable
+# shroud, which this spec had been authored saying was not claimable here).
 #
-#   Decoupled           visibility      rec=0, five pids, applied 1..3 each
-#   Destroyed           visibility      rec=0 pid=2908259249 applied=1  (R8winglet)
-#   ShroudJettisoned    jettison-panel  rec=0 pid=2104924005 applied=8  (HeatShield2)
-#                                       + one line each on recs 1-7 (the debris)
-#   EngineIgnited       engine-fx AND engine-audio  rec=0 pid=235925713 applied=7
-#   EngineShutdown      engine-fx AND engine-audio  13 PAIRS across recs 0-7
-#   RCSActivated        rcs-fx          rec=0 pid=57152010 applied=9   (mk1-3pod)
-#   RCSStopped          rcs-fx          rec=0 pid=57152010 applied=9
-#   DeployableExtended  deployable      rec=0 pid=1170199082 applied=1 (mediumDishAntenna)
+# RUN 2, `2026-09-02_1505` (revision 2, the `Kerbal X Sweep` craft):
+# PARSEK-FAIL(expectations), 7 mismatches, MISSION-OK through DONE. SIX of the
+# seven were this spec's own fault - the vessel-name tokens still said
+# `vessel=Kerbal X` while the new craft reads `Kerbal X Sweep` / `... Sweep Debris`
+# / `... Sweep Probe`. Fixed below, and ANCHORED: every name token now ends in
+# ` reason=` or is a full Sweep spelling, so the bare `Kerbal X` form can never
+# prefix-match a Sweep line. The seventh was `family=Destroyed`, which is
+# RUN-VARIABLE (whether staging debris is destroyed inside the recorded span
+# depends on the flight) - demoted from required to OBSERVED.
 #
-# FOUR REQUIRED TOKENS BECAME NINE. `EngineIgnited surface=engine-audio`,
-# `EngineShutdown`, `RCSStopped`, `ShroudJettisoned` and `Destroyed` were all OBSERVED
-# with `applied=[1-9]` and are now REQUIRED. The AUDIO surface is the one most worth
-# gating: it is the half that can go silent while the FX half keeps moving, and no
-# other token in the suite can tell those apart.
+# AND RUN 2 FOUND A LANE DEFECT THAT MIMICKED A PRODUCT GAP PERFECTLY. Gear*,
+# Converter* and FairingJettisoned produced ZERO lines. The tempting reading was
+# "the recorder does not capture these modules". The recorder's own census refuted
+# it in one line group - `Visual coverage [Gear] 0: <none>`, `[Fairing] 0`,
+# `[Parachute] 0`, `[Light] 1: telescopicLadderBay` - because ALL TEN appended
+# parts were silently DROPPED by KSP at craft load: the builder emitted correct
+# `srfN` / `attN` on every child but no `link =` on the HOST, and ShipConstruct
+# builds the tree from the parent's links. Fixed in
+# `harness/tools/build_kerbal_x_sweep_craft.py`; filed as
+# `~~GS6-SWEEP-CRAFT-PARTS-DROPPED-AT-LOAD~~`. The standing lesson: a
+# "family X never fired" reading checks `Visual coverage [X]` BEFORE blaming
+# capture.
 #
-# SHROUD ARRIVED FREE, and it is a MEASURED bonus nothing predicted: the HeatShield2's
-# jettisonable shroud fires `ShroudJettisoned` eight times on the parent plus once per
-# debris recording. D7 `shroud` is therefore CLAIMED on this run's evidence - it was
-# listed as not-claimable when this spec was authored, and the flight refuted that.
+# WHAT RUN 2 DID MEASURE, on the parts that were genuinely aboard: EngineIgnited 4
+# pairs, EngineShutdown 15 pairs, ShroudJettisoned 10, Decoupled 6,
+# DeployableExtended 4 (two applied pids plus the OX-STAT skip), DeployableRetracted
+# 2 (both applied - now required), RCS 9/9. The OX-STAT skip repeated exactly:
+# `pid=1114565348 applied=0 skipped=4 reason=no-resolved-visual`.
 #
-# THE ONE NON-APPLIED READING, a real finding rather than a lane defect:
+# THE LIGHT SURFACES, OBSERVED and deliberately NOT pinned, because both readings
+# are about a craft whose lamps were being dropped at load and must be re-taken:
+#   apply family=LightOn surface=light        pid=57152010 applied=1 skipped=2 reason=no-info-for-part
+#   apply family=LightOn surface=colorchanger pid=57152010 applied=0 skipped=3 reason=no-family-state
+# The colour-changer reading is the sharpest result of the whole lane so far:
+# `no-family-state` means the ghost carries NO colour-changer dictionary at all,
+# even though pid 57152010 is the `mk1-3pod` whose cfg gives it a Pattern-A cabin
+# light. Filed as `GS6-GHOST-HAS-NO-COLORCHANGER-STATE`, and it is the answer
+# SHOWCASE-COLORCHANGER-APPLY-UNOBSERVABLE was waiting for: neither of that
+# entry's two hypotheses, but a third - the surface is never built for a flight
+# ghost, so discovery is never asked.
 #
-#   apply family=DeployableExtended surface=deployable rec=0 pid=1114565348
-#       applied=0 skipped=4 reason=no-resolved-visual          (twice)
+# ghostLifecycle STAYS REPORT-ONLY. Both runs measured spawned=8 / spawnLines=8 /
+# destroyLines=8 / unbalanced=0, which is GS-4's census twice over and would
+# ordinarily justify arming. It is NOT armed because the craft that produces the
+# census is CHANGING: revision 2's ten extra parts can plausibly shed differently,
+# and arming a window now would arm it against a shape that has not flown. The next
+# green reading on the FIXED craft is the arming trigger, and if the census moves
+# the window is re-pinned rather than widened.
 #
-# pid 1114565348 is `solarPanels5`, the OX-STAT flat panel, and `skipped=4` is the
-# tally aggregating all FOUR of them into one line. The recorder seeds a
-# DeployableExtended for each (they read EXTENDED because they are permanently
-# deployed), the ghost builds their meshes, and the applier correctly reports it has
-# no POSE to write - a static panel has no deploy animation. Filed as
-# `GS6-DEPLOYABLE-NO-RESOLVED-VISUAL-solarPanels5`, REPORT-ONLY. NOTHING HERE PINS IT:
-# the DeployableExtended token asks for `applied=[1-9]`, which the antenna line
-# satisfies whichever way the product decision goes.
-#
-# ghostLifecycle REPORT: spawned=8 spawnLines=8 destroyLines=8 unbalanced=0
-# malformed=0, reasons {parent-anchored debris outside relative coverage: 2, playback
-# completed: 2, stale past-end ghost: 3, watch hold expired: 1} - GS-4's census
-# exactly, on a craft and profile it shares. IT STAYS REPORT-ONLY: arming needs the
-# reading run of the FINAL shape, and the sweep craft is still growing (revision 2,
-# `Kerbal X Sweep`), so arming now would arm a shape about to change.
-#
-# OWED: revision 2 - the purpose-built craft carrying the families this one cannot
-# (lights, gear, bays, fairing, converter, chutes, an EFFECTS-node engine), its own
-# reading run, and only then the arming pass.
+# OWED: the re-fly of the fixed craft, whose job is a census of the five families
+# that have never once been measured - Gear*, Converter*, FairingJettisoned,
+# LightOn/Off on real lamps, and EngineIgnited on the EFFECTS-node Ant.
 tier = "operator"
 description = "Part-event applier sweep: a scripted part-event timeline (RCS, deployable antenna, engine throttle) fired during a recorded Kerbal X flight, committed, Rewound-to-Launch and WATCHED, with the applier's per-family [GhostPartEvents] apply lines gated per family against the replay."
 instanceProfile = "stock-minimal"
@@ -349,12 +355,12 @@ required  = ["Auto-record started \\((?:PRELAUNCH|LANDED|first staging on pad)",
              "entermapview ok mapOpen=true",
              "exitmapview ok mapOpen=false",
              "enterwatchmode complete: index=",
-             "phase=MeshSpawned [^\\r\\n]*vessel=Kerbal X reason=ghost-created",
-             "phase=MeshSpawned [^\\r\\n]*vessel=Kerbal X Probe reason=ghost-created",
-             "phase=MeshSpawned [^\\r\\n]*vessel=Kerbal X Debris",
-             "phase=MeshDestroyed [^\\r\\n]*vessel=Kerbal X reason=(?:watch hold expired|playback completed|auto-followed)",
-             "phase=MeshDestroyed [^\\r\\n]*vessel=Kerbal X Probe reason=",
-             "phase=MeshDestroyed [^\\r\\n]*vessel=Kerbal X Debris",
+             "phase=MeshSpawned [^\\r\\n]*vessel=Kerbal X Sweep reason=ghost-created",
+             "phase=MeshSpawned [^\\r\\n]*vessel=Kerbal X Sweep Probe reason=ghost-created",
+             "phase=MeshSpawned [^\\r\\n]*vessel=Kerbal X Sweep Debris",
+             "phase=MeshDestroyed [^\\r\\n]*vessel=Kerbal X Sweep reason=(?:watch hold expired|playback completed|auto-followed)",
+             "phase=MeshDestroyed [^\\r\\n]*vessel=Kerbal X Sweep Probe reason=",
+             "phase=MeshDestroyed [^\\r\\n]*vessel=Kerbal X Sweep Debris",
              "\\[GhostPartEvents\\] apply family=Decoupled surface=visibility rec=[0-9]+ pid=[0-9]+ applied=[1-9]",
              "\\[GhostPartEvents\\] apply family=EngineIgnited surface=engine-fx rec=[0-9]+ pid=[0-9]+ applied=[1-9]",
              "\\[GhostPartEvents\\] apply family=EngineIgnited surface=engine-audio rec=[0-9]+ pid=[0-9]+ applied=[1-9]",
@@ -362,8 +368,8 @@ required  = ["Auto-record started \\((?:PRELAUNCH|LANDED|first staging on pad)",
              "\\[GhostPartEvents\\] apply family=RCSActivated surface=rcs-fx rec=[0-9]+ pid=[0-9]+ applied=[1-9]",
              "\\[GhostPartEvents\\] apply family=RCSStopped surface=rcs-fx rec=[0-9]+ pid=[0-9]+ applied=[1-9]",
              "\\[GhostPartEvents\\] apply family=ShroudJettisoned surface=jettison-panel rec=[0-9]+ pid=[0-9]+ applied=[1-9]",
-             "\\[GhostPartEvents\\] apply family=Destroyed surface=visibility rec=[0-9]+ pid=[0-9]+ applied=[1-9]",
-             "\\[GhostPartEvents\\] apply family=DeployableExtended surface=deployable rec=[0-9]+ pid=[0-9]+ applied=[1-9]"]
+             "\\[GhostPartEvents\\] apply family=DeployableExtended surface=deployable rec=[0-9]+ pid=[0-9]+ applied=[1-9]",
+             "\\[GhostPartEvents\\] apply family=DeployableRetracted surface=deployable rec=[0-9]+ pid=[0-9]+ applied=[1-9]"]
 # The suite-wide ERROR pattern; it also covers the seam verbs' own failure terminals.
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 

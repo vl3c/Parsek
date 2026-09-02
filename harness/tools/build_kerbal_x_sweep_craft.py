@@ -196,6 +196,7 @@ def build():
 
     uid = 4200500000
     blocks = []
+    children = {}
     for part, az, dy in RADIAL:
         uid += 137
         a = math.radians(az)
@@ -206,6 +207,7 @@ def build():
         blocks.append(_block(part, uid, pos, rel, srf_rotation(part, az), istg=-1,
                              srfn="%s,,0|0|0,%s|0|0,0|0|0"
                                   % (host_tok, _fmt(RADIAL_RADIUS))))
+        children.setdefault(host_tok, []).append("%s_%d" % (part, uid))
 
     uid += 137
     fy = nose_pos[1] + NOSE_HOST_TOP_OFFSET - FAIRING_BOTTOM_OFFSET
@@ -214,7 +216,43 @@ def build():
                          istg=FAIRING_ISTG,
                          attn="bottom,%s_0|%s|0"
                               % (nose_tok, _fmt(FAIRING_BOTTOM_OFFSET))))
+    children.setdefault(nose_tok, []).append("fairingSize1_%d" % uid)
+
+    # THE PARENT SIDE OF EVERY ATTACHMENT, and the whole reason revision 2 first
+    # measured nothing. ShipConstruct builds the part TREE from each parent's own
+    # `link =` lines; a child carrying a correct srfN / attN but NOT linked from its
+    # host is silently DROPPED at craft load - no warning, no error. Run
+    # `2026-09-02_1505` is the proof: all ten appended parts were absent from the
+    # flying vessel and the recorder census read `[Parachute] 0`, `[Gear] 0`,
+    # `[Fairing] 0`, `[Light] 1` (the ladder bay alone), while the .craft plainly
+    # contained them.
+    for host_token, kids in children.items():
+        out = _add_links(out, host_token, kids)
     return out + "\n" + "\n".join(blocks) + "\n"
+
+
+def _add_links(text, host_token, child_tokens):
+    """Insert `link = <child>` lines into the host PART block, where KSP writes
+    them: after `modSize`, before the first `attN` / `srfN`. A child that is not
+    linked from its parent is dropped at craft load, silently."""
+    tab = chr(9)
+    nl = chr(10)
+    i = text.index(tab + "part = " + host_token + nl)
+    j = text.index(nl + "}", i)
+    rows = text[i:j].split(nl)
+    at = None
+    for k, row in enumerate(rows):
+        if row.startswith(tab + "attN = ") or row.startswith(tab + "srfN = "):
+            at = k
+            break
+        if row.startswith(tab + "modSize = "):
+            at = k + 1
+    if at is None:
+        raise SystemExit("cannot place link= in " + host_token)
+    have = set(rows)
+    rows[at:at] = [tab + "link = " + t for t in child_tokens
+                   if tab + "link = " + t not in have]
+    return text[:i] + nl.join(rows) + text[j:]
 
 
 def main(argv=None):
