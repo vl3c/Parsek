@@ -452,9 +452,59 @@ and that must not red); the arithmetic it produces is pinned instead. If a futur
 fixture is built by construction from a sandbox harvest, expect the same line and expect
 its live pools to be the seeded values rather than the ledger's totals.
 
-## ROUTE-ORIGIN-PROOF-PRODUCER-UNREACHABLE (CONFIRMED 2026-09-02): the start-docked `RouteOriginProof` producer keys on a part-parent condition that a settled dock can never satisfy, so no live recording has ever carried a proof [FOUND BY READING 2026-09-01 while scoping which route flights can be automated, CORROBORATED by the 2026-08-30 rover flight log. SUSPECTED, not yet probed live - REPORT-ONLY until the probe cell below runs]
+## ~~ROUTE-ORIGIN-PROOF-PRODUCER-UNREACHABLE (CONFIRMED 2026-09-02): the start-docked `RouteOriginProof` producer keys on a part-parent condition that a settled dock can never satisfy, so no live recording has ever carried a proof~~ [FOUND BY READING 2026-09-01 while scoping which route flights can be automated, CORROBORATED by the 2026-08-30 rover flight log. CONFIRMED live 2026-09-02 by the H56 probe. FIXED 2026-09-02, code green, NOT YET FLOWN]
 
-**CONFIRMED 2026-09-02 by lane H56 (`2026-09-02_0545`), the probe on a LANDED host:** `OriginProofProbe: externalParentParts=0 proofCaptured=False situation=1 outcome=no-external-coupling partnerPid=2507516556` - the resolver reached its candidate walk (no PRELAUNCH short-circuit) after a settled `Part.Couple` and found ZERO externally-parented parts, and every recording start on the docked vessel logged `RouteOriginProof skipped: no external coupling ... candidates=0`. The producer is dead code on a settled dock. OPEN DEFECT: fix per the shape above (derive the partner from the docking node's own docked-partner information at recording start), pin with a self-provisioning capture cell in `RouteDockCapture`, and un-skip `RouteOriginProof_StartedDockedToNonKsc_ProducerLandsProof` on that lane. The roadmap's manual B4 flight is retired.
+**FIXED 2026-09-02.** `FlightRecorder.CaptureStartRouteOriginProofIfDocked` now builds its
+candidate list from TWO producers instead of one. The new one is the settled dock seam:
+for every `ModuleDockingNode` on the active vessel, `RouteProofCapture.IsSettledDockSeam`
+(pure, `[Theory]`-pinned over all eight input shapes) accepts the node when it carries a
+`vesselInfo` (stock creates one ONLY in `ModuleDockingNode.DockToVessel`, i.e. a real
+cross-vessel dock - never for an editor-preattached pair, never in `DockToSameVessel`), a
+non-zero `dockedPartUId`, AND a docked-partner part that still resolves ON THE SAME
+VESSEL. Both those fields round-trip through the node's `DOCKEDVESSEL` / `dockUId` save
+keys, so the seam survives save/load, which the parent-identity reading never could. A
+settled dock is ONE `Vessel`, so the origin partner IS the merged vessel: the candidate
+carries `v.persistentId`, `v.situation` and `v`'s body-fixed coordinates, which makes the
+M1 endpoint descriptor real-coordinate and surface-typed on a landed pair, and leaves the
+pid on the depot half after `Part.Undock` whenever the transport docked INTO the base (the
+undocking subtree gets the fresh `Vessel`; the parent side keeps the pid). The OLD
+external-parent producer is KEPT rather than replaced - the mirror direction: it costs one
+pass over `v.parts`, and it is the only reading that could see an UNSETTLED coupling. Both
+counts are logged at every start (`RouteOriginProof seam scan: settledDockSeamCandidates=N
+externalParentCandidates=M ...`). The PRELAUNCH short-circuit is untouched: a clamped pad
+vessel is still not a delivery origin.
+
+The instrument became the gate. `OriginProofProbe_SettledDockLeavesNoExternalParent` was
+renamed `OriginProof_SettledDockCapturesProofFromDockingNode` (same category, same cell id
+`origin-probe`, same `OriginProofProbe:` line and therefore the same lane token - the
+`RouteDockCapture` count stays 6 and no pinned tally moves). It still measures, but now
+asserts three things: `externalParentParts == 0` (the retired predicate must stay dead, so
+the proof cannot be coming from it), and then the producer's verdict HOST-AWARE - on a
+PRELAUNCH host (H55's `logi-cargo-pad`) the `active-vessel-PRELAUNCH` skip, on any other
+host (H56's landed `rover-route-recorded`) `proofCaptured=True outcome=captured`.
+
+ONE CAVEAT, STATED RATHER THAN BURIED. The `RouteDockCapture` cells couple with a RAW
+`Part.Couple` (deliberately - it is what lets the real `onPartCouple` classify a
+port-to-port pair with no docking FSM in the way, and there is no magnetic acquire to
+drive between two parts spawned 15 m apart). Raw `Part.Couple` writes NO docking-node
+bookkeeping, so the cell now stamps it first (`StampStockDockBookkeeping`, the three
+assignments quoted from the decompiled `ModuleDockingNode.DockToVessel` plus the FSM's own
+`dockedPartUId = otherNode.part.flightID`; `otherNode` and the FSM state are deliberately
+NOT written, because arming the node-distance event nulls `vesselInfo` straight back out).
+That makes this half of the gate a stock-contract EMULATION rather than an independent
+measurement. What it still buys is the whole live producer path - walk the parts, find the
+node, resolve the partner ON THIS vessel, build the merged-vessel candidate, run the
+resolver, populate the descriptor and the manifests - which no headless test can drive.
+The non-emulated confirmation is a real player dock, which is what a future manual or
+mission-driven subject would add.
+
+STILL OPEN, and deliberately not done here: `RouteOriginProof_StartedDockedToNonKsc_ProducerLandsProof`
+(category `Logistics`) is a READ-SIDE cell that self-skips until a committed recording
+carries a proof. It un-skips by itself once a lane produces one - which moves RVR-1's
+whole-pinned `passed=39 skipped=8`, so it is a re-pin that belongs to the commit that
+reads that census off a real flight, not to this one.
+
+**CONFIRMED 2026-09-02 by lane H56 (`2026-09-02_0545`), the probe on a LANDED host:** `OriginProofProbe: externalParentParts=0 proofCaptured=False situation=1 outcome=no-external-coupling partnerPid=2507516556` - the resolver reached its candidate walk (no PRELAUNCH short-circuit) after a settled `Part.Couple` and found ZERO externally-parented parts, and every recording start on the docked vessel logged `RouteOriginProof skipped: no external coupling ... candidates=0`. The producer is dead code on a settled dock. The roadmap's manual B4 flight is retired.
 
 **The condition.** `FlightRecorder.CaptureStartRouteOriginProofIfDocked` builds its partner
 candidates from parts where `p.parent.vessel != null && p.parent.vessel != v`
@@ -478,8 +528,8 @@ mid-tree docked-origin window path (`RouteAnalysisEngine.AnalyzeWindows`), which
 `depot-route-recorded` fixture exercises - the start proof was never load-bearing for any
 committed route.
 
-**The settling instrument is now AUTHORED (2026-09-02), and this entry stays SUSPECTED
-until it runs.** `OriginProofProbe_SettledDockLeavesNoExternalParent`
+**HISTORICAL, kept for the reasoning trail - the entry is CONFIRMED and FIXED; the
+instrument named here is now the regression gate.** `OriginProofProbe_SettledDockLeavesNoExternalParent`
 (`Source/Parsek/InGameTests/RouteDockCaptureInGameTest.cs`, category `RouteDockCapture`,
 driven by `harness/scenarios/H55-route-dock-capture-isolated.toml`) spawns a `dockingPort2`,
 couples it into the active vessel, lets it settle, counts the parts satisfying the
@@ -518,7 +568,7 @@ walks candidates at all - so `outcome=active-vessel-PRELAUNCH` is the PRELAUNCH 
 not the empty-candidate branch, and the Captured branch remains unexercised. The count is
 evidence; the producer's verdict on this host is not.
 
-**STATUS STAYS SUSPECTED, and the follow-up is a host change rather than a code change.** A
+**HISTORICAL (written after the first, PRELAUNCH measurement): STATUS STAYS SUSPECTED, and the follow-up is a host change rather than a code change.** A
 LANDED host reaches the candidate walk (the guard excludes PRELAUNCH only), and one is already
 committed: `harness/fixtures/saves/rover-route-recorded`, whose vessels read
 `startSituation = Landed launchSiteName = Runway` - the same fact RVR-1's roster records for a

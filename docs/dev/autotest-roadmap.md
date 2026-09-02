@@ -2374,6 +2374,22 @@ gated behind the ROUTE-ORIGIN-PROOF-PRODUCER-UNREACHABLE probe (todo) before any
    verdict pin, so a green run proves the line was emitted and settles nothing
    by itself; a human reads the numbers.
    **SETTLED 2026-09-02 (H56, `2026-09-02_0545`, PASS): on the LANDED host the probe read `situation=1 outcome=no-external-coupling externalParentParts=0` - the producer is dead code on a settled dock. ROUTE-ORIGIN-PROOF-PRODUCER-UNREACHABLE is CONFIRMED; this item is now a BUG FIX plus a `RouteDockCapture` capture cell, and the manual flight is RETIRED.**
+   **FIXED 2026-09-02 (code green, not yet flown).** The producer now builds its
+   candidates from the docking node's own docked-partner information
+   (`RouteProofCapture.IsSettledDockSeam`: a `vesselInfo` created only by a real
+   cross-vessel `DockToVessel`, a non-zero `dockedPartUId`, and a partner part that
+   still resolves on the SAME vessel), with the merged vessel as the origin partner;
+   the old external-parent reading is KEPT alongside it for the unsettled mirror
+   case. The probe cell became the regression gate
+   (`OriginProof_SettledDockCapturesProofFromDockingNode`, same category, same count,
+   same `OriginProofProbe:` token): it asserts `externalParentParts=0` on both hosts,
+   the `active-vessel-PRELAUNCH` skip on H55's pad host, and
+   `proofCaptured=True outcome=captured` on H56's landed host. THE NEXT FLIGHT ON
+   THIS ITEM IS AN H55 + H56 RE-RUN, not a manual subject. The surface flavor of D10
+   `docked-depot-origin` is claimed off H56's post-fix census, and the Tier B item-4
+   subject proper - transport STARTS docked, undocks, delivers elsewhere on a landed
+   host - is now lane `H57-route-start-docked-origin-landed.toml`, authored and never
+   flown.
 5. **Ground pickup + mixed direction.** ~~The base loads cargo ONTO the
    transport (pickup manifest), then a both-directions window
    (`mixed-direction`). Same two-rover template, transfers reversed.~~

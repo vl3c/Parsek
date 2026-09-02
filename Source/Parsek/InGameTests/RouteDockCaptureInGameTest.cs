@@ -619,21 +619,22 @@ namespace Parsek.InGameTests
         }
 
         // ==================================================================
-        // The origin-proof PROBE (an instrument, not a gate)
+        // The origin-proof CAPTURE CELL (the B4 regression gate)
         // ==================================================================
 
         [InGameTest(Category = "RouteDockCapture", Scene = GameScenes.FLIGHT,
             AllowBatchExecution = false,
             RestoreBatchFlightBaselineAfterExecution = true,
             BatchSkipReason = IsolatedOnlyBatchSkipReason,
-            Description = "INSTRUMENT for ROUTE-ORIGIN-PROOF-PRODUCER-UNREACHABLE (todo, SUSPECTED): couples a " +
-                "spawned dockingPort2 partner into the active vessel, counts the parts satisfying the " +
-                "producer's own predicate (p.parent.vessel != v), then starts a recording on the docked " +
-                "vessel and reads back whether a RouteOriginProof was captured. Logs " +
-                "'OriginProofProbe: externalParentParts=N proofCaptured=<bool> ...' and asserts NO verdict - " +
-                "it PASSES whenever it measured. That measurement is what decides whether roadmap Tier B " +
-                "item 4 is a flight or a bug fix")]
-        public IEnumerator OriginProofProbe_SettledDockLeavesNoExternalParent()
+            Description = "REGRESSION GATE for ROUTE-ORIGIN-PROOF-PRODUCER-UNREACHABLE (CONFIRMED by this " +
+                "cell's own instrument reading on H56, fixed 2026-09-02): couples a spawned dockingPort2 " +
+                "partner into the active vessel, counts the parts satisfying the RETIRED predicate " +
+                "(p.parent.vessel != v) to prove the fix does not depend on it, then starts a recording on " +
+                "the docked vessel and asserts the producer's verdict - proofCaptured=True off the settled " +
+                "dock seam on any non-PRELAUNCH host, and the ActiveVesselPrelaunch skip on a pad host. " +
+                "Still logs the 'OriginProofProbe: externalParentParts=N proofCaptured=<bool> ...' " +
+                "instrument line, whose values both lanes pin as a regex")]
+        public IEnumerator OriginProof_SettledDockCapturesProofFromDockingNode()
         {
             var ctx = new CellContext("origin-probe");
             IEnumerator pre = ctx.Begin();
@@ -654,6 +655,7 @@ namespace Parsek.InGameTests
                 // is exactly when the producer runs.
                 Part partnerPort = rig.Port;
                 uint partnerPid = rig.Vessel != null ? rig.Vessel.persistentId : 0u;
+                StampStockDockBookkeeping(partnerPort, ctx.TransportPort);
                 partnerPort.Couple(ctx.TransportPort);
                 for (int i = 0; i < SettleFrames; i++)
                     yield return null;
@@ -696,11 +698,46 @@ namespace Parsek.InGameTests
                     externalParentParts, proofCaptured, (int)v.situation, outcome, partnerPid);
                 ParsekLog.Info("TestRunner", line);
 
-                // NO VERDICT. The cell passes because it measured; the numbers
-                // in the line above are the product.
                 InGameAssert.IsTrue(ctx.Flight.IsRecording,
-                    "the probe must have actually started a recording, or it measured nothing");
-                InGameAssert.IsTrue(externalParentParts >= 0, "counter sanity");
+                    "the cell must have actually started a recording, or it measured nothing");
+
+                // THE VERDICT. Three assertions, in the order that makes a red name
+                // its own cause.
+                //
+                // (1) The RETIRED predicate must stay dead. Part.Couple reassigns
+                //     vessel across the absorbed subtree, so a settled dock leaves
+                //     zero externally parented parts - measured on both hosts before
+                //     the fix. A non-zero count here would mean the fix is being
+                //     carried by the OLD reading and the seam producer is untested.
+                InGameAssert.AreEqual(0, externalParentParts,
+                    "a settled Part.Couple must leave NO externally parented part - the retired " +
+                    "p.parent.vessel != v reading is what ROUTE-ORIGIN-PROOF-PRODUCER-UNREACHABLE " +
+                    "is about, and the origin proof must not come from it");
+
+                // (2) / (3) The producer's verdict, host-aware. The resolver
+                //     short-circuits on an active PRELAUNCH vessel BEFORE it walks
+                //     candidates (a clamped pad vessel is not a delivery origin), so
+                //     the pad lane's correct answer is the skip and the landed lane's
+                //     is the capture. Both are pinned: a lane cannot pass by
+                //     producing the other host's answer.
+                if (v.situation == Vessel.Situations.PRELAUNCH)
+                {
+                    InGameAssert.IsFalse(proofCaptured,
+                        "a PRELAUNCH active vessel must NOT capture an origin proof (outcome=" +
+                        outcome + ")");
+                    InGameAssert.AreEqual("active-vessel-PRELAUNCH", outcome,
+                        "a PRELAUNCH host must take the ActiveVesselPrelaunch branch, not another skip");
+                }
+                else
+                {
+                    InGameAssert.IsTrue(proofCaptured,
+                        "the settled dock seam must produce a RouteOriginProof on a non-PRELAUNCH " +
+                        "host (situation=" + ((int)v.situation).ToString(IC) + " outcome=" + outcome +
+                        "). 'no-external-coupling' here means the docking-node seam producer " +
+                        "regressed back to the retired parent-vessel reading");
+                    InGameAssert.AreEqual("captured", outcome,
+                        "the producer must report the Captured branch, not a skip");
+                }
             }
             finally
             {
@@ -743,6 +780,11 @@ namespace Parsek.InGameTests
             }
 
             internal int CapturedCount => captured.Count;
+
+            /// <summary>The tree the cell's own recording is running in, bound by
+            /// <see cref="StartRecordingAndWait"/>. Read AFTER a stop to inspect what
+            /// <c>BuildCaptureRecording</c> forwarded onto the captured recording.</summary>
+            internal RecordingTree Tree => tree;
 
             internal bool FindFrom(int fromIndex, Predicate<string> predicate)
             {
@@ -1620,6 +1662,74 @@ namespace Parsek.InGameTests
         {
             AvailablePart info = PartLoader.getPartInfoByName(name);
             return info != null ? info.partPrefab : null;
+        }
+
+        /// <summary>
+        /// Stamps the post-dock bookkeeping stock's <c>ModuleDockingNode.DockToVessel</c>
+        /// writes, on both ends of a port pair that is about to be coupled with a RAW
+        /// <c>Part.Couple</c>. MUST be called BEFORE the couple: <c>vesselInfo</c> records
+        /// each half's PRE-dock vessel identity, which is unrecoverable afterwards.
+        ///
+        /// <para>Why the cells need it. <c>Part.Couple</c> is not the docking FSM - which is
+        /// exactly what the five capture cells want (a port-to-port couple that the real
+        /// <c>onPartCouple</c> classifies with no FSM in the way, and no magnetic acquire to
+        /// drive between two spawned parts 15 m apart). But it leaves the node's own
+        /// docked-partner record empty, and that record is what the start-docked origin
+        /// producer reads (<c>RouteProofCapture.IsSettledDockSeam</c>). A real in-game dock
+        /// always writes it, and it round-trips through the node's DOCKEDVESSEL / dockUId
+        /// save keys, so a cell that skipped this step would be testing a world state the
+        /// game never produces.</para>
+        ///
+        /// <para>The three assignments below are quoted from the decompiled
+        /// <c>DockToVessel</c> (name / vesselType / rootPartUId per half) plus the FSM's own
+        /// <c>dockedPartUId = otherNode.part.flightID</c>. WHAT IS DELIBERATELY NOT WRITTEN:
+        /// <c>otherNode</c> and the FSM state. Assigning <c>otherNode</c> while a node sits
+        /// in <c>Ready</c> arms the acquire / node-distance events, and
+        /// <c>on_nodeDistance</c>'s handler nulls <c>vesselInfo</c> straight back out - so
+        /// stamping it would silently undo the stamp. The producer reads neither.</para>
+        ///
+        /// <para>STANDING CAVEAT, stated rather than buried: the cell writes the two fields
+        /// the predicate reads, so this half of the gate is a stock-contract emulation, not
+        /// an independent measurement. What it still buys is the whole live producer path -
+        /// walk the parts, find the node, resolve the partner ON THIS vessel, build the
+        /// merged-vessel candidate, run the resolver, populate the descriptor and the
+        /// manifests - which no headless test can drive.</para>
+        /// </summary>
+        private static void StampStockDockBookkeeping(Part portA, Part portB)
+        {
+            InGameAssert.IsNotNull(portA, "dock bookkeeping needs a live port A");
+            InGameAssert.IsNotNull(portB, "dock bookkeeping needs a live port B");
+            ModuleDockingNode nodeA = portA.FindModuleImplementing<ModuleDockingNode>();
+            ModuleDockingNode nodeB = portB.FindModuleImplementing<ModuleDockingNode>();
+            InGameAssert.IsNotNull(nodeA, "port A must carry ModuleDockingNode");
+            InGameAssert.IsNotNull(nodeB, "port B must carry ModuleDockingNode");
+            Vessel vesselA = portA.vessel;
+            Vessel vesselB = portB.vessel;
+            InGameAssert.IsNotNull(vesselA, "port A must still be on a live vessel (call BEFORE the couple)");
+            InGameAssert.IsNotNull(vesselB, "port B must still be on a live vessel (call BEFORE the couple)");
+            InGameAssert.AreNotEqual(vesselA, vesselB,
+                "the two halves must still be SEPARATE vessels when the bookkeeping is stamped - " +
+                "a same-vessel pair is DockToSameVessel, which writes no vesselInfo");
+
+            nodeA.vesselInfo = new DockedVesselInfo
+            {
+                name = vesselA.vesselName,
+                vesselType = vesselA.vesselType,
+                rootPartUId = vesselA.rootPart != null ? vesselA.rootPart.flightID : portA.flightID
+            };
+            nodeB.vesselInfo = new DockedVesselInfo
+            {
+                name = vesselB.vesselName,
+                vesselType = vesselB.vesselType,
+                rootPartUId = vesselB.rootPart != null ? vesselB.rootPart.flightID : portB.flightID
+            };
+            nodeA.dockedPartUId = portB.flightID;
+            nodeB.dockedPartUId = portA.flightID;
+
+            ParsekLog.Verbose("TestRunner",
+                "RouteDockCapture dock bookkeeping stamped: aPart=" + portA.flightID.ToString(IC) +
+                " bPart=" + portB.flightID.ToString(IC) +
+                " aVessel='" + vesselA.vesselName + "' bVessel='" + vesselB.vesselName + "'");
         }
 
         private static bool IsProducerClassifiedLine(string line)

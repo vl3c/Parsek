@@ -5,9 +5,17 @@ using System.Globalization;
 namespace Parsek
 {
     /// <summary>
-    /// Candidate part-to-parent mapping used by <see cref="RouteProofCapture.TryResolveStartDockedOriginPartner"/>.
-    /// Represents one part on the active vessel whose <c>part.parent</c> belongs to a different vessel
-    /// at recording-start time (i.e. an externally-coupled coupling such as a dock or grapple).
+    /// Origin-partner candidate used by <see cref="RouteProofCapture.TryResolveStartDockedOriginPartner"/>.
+    /// Represents one part on the active vessel that evidences a coupling to an origin at
+    /// recording-start time, with the origin vessel's identity + endpoint descriptor attached.
+    ///
+    /// <para>Two producers build these (see
+    /// <c>FlightRecorder.CaptureStartRouteOriginProofIfDocked</c>):
+    /// a SETTLED DOCK SEAM (<see cref="RouteProofCapture.IsSettledDockSeam"/>) - the docked pair is
+    /// one merged <c>Vessel</c>, so the origin descriptor fields carry the MERGED vessel's own pid,
+    /// situation and body-fixed coordinates; and a part whose <c>part.parent</c> still belongs to a
+    /// different vessel, which is the pre-2026-09-02 reading and is unsatisfiable once a couple has
+    /// settled (kept because it costs nothing and covers any unsettled coupling).</para>
     /// </summary>
     internal readonly struct OriginPartnerCandidate
     {
@@ -72,9 +80,43 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Pure resolver: given the active vessel's situation/EVA flag and a list of externally
-        /// parented parts (parts whose <c>part.parent.vessel != activeVessel</c>), decide whether
-        /// a single valid non-KSC origin partner exists. No KSP dependency; logging happens at the
+        /// Pure / static. True when one <c>ModuleDockingNode</c> on the active vessel records a
+        /// SETTLED cross-vessel dock - the seam the start-docked origin proof is derived from.
+        ///
+        /// <para>Why this predicate and not <c>part.parent.vessel != activeVessel</c>:
+        /// <c>Part.Couple</c> reassigns <c>vessel</c> across the whole absorbed subtree, so after
+        /// a settled dock every part reads <c>p.parent.vessel == v</c> and the parent-identity
+        /// candidate list is empty. That is ROUTE-ORIGIN-PROOF-PRODUCER-UNREACHABLE, confirmed
+        /// live by H56's probe (<c>externalParentParts=0 ... outcome=no-external-coupling</c>).
+        /// The docking node keeps its OWN docked-partner information across the couple: stock
+        /// <c>ModuleDockingNode.DockToVessel</c> sets <c>vesselInfo</c> (the pre-dock vessel
+        /// identity of each half) and <c>dockedPartUId</c> (the partner part's flightID), and both
+        /// round-trip through the node's <c>DOCKEDVESSEL</c> / <c>dockUId</c> save keys - so the
+        /// seam survives save/load, which the parent-identity reading never could.</para>
+        ///
+        /// <para>Each input is load-bearing. <paramref name="hasDockedVesselInfo"/> is the
+        /// CROSS-VESSEL discriminator: stock creates <c>vesselInfo</c> only in
+        /// <c>DockToVessel</c>, never for an editor-preattached port pair and never in
+        /// <c>DockToSameVessel</c>, so a craft built with two ports stuck together cannot forge an
+        /// origin. <paramref name="dockedPartUId"/> non-zero rejects a node that never recorded a
+        /// partner part. <paramref name="partnerPartResolvesOnSameVessel"/> is the SETTLED half:
+        /// after an undock the partner part lives on a different <c>Vessel</c>, so a node that
+        /// kept a stale <c>vesselInfo</c> cannot keep producing a seam.</para>
+        /// </summary>
+        internal static bool IsSettledDockSeam(
+            bool hasDockedVesselInfo,
+            uint dockedPartUId,
+            bool partnerPartResolvesOnSameVessel)
+        {
+            return hasDockedVesselInfo
+                && dockedPartUId != 0
+                && partnerPartResolvesOnSameVessel;
+        }
+
+        /// <summary>
+        /// Pure resolver: given the active vessel's situation/EVA flag and a list of origin
+        /// partner candidates (settled dock seams, plus any part still externally parented),
+        /// decide whether a single valid non-KSC origin partner exists. No KSP dependency; logging happens at the
         /// call site so callers can attach context (vessel name, recording id, etc.).
         ///
         /// Decision contract (in order):

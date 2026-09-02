@@ -7004,13 +7004,26 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Logistics start-docked origin proof producer. Inspects the live vessel for
-        /// externally-coupled parts (i.e. a docking port whose part.parent.vessel is a
-        /// different vessel) and delegates the gloops/null-snapshot guards, the resolver
+        /// Logistics start-docked origin proof producer. Builds the origin-partner candidate
+        /// list off the live vessel and delegates the gloops/null-snapshot guards, the resolver
         /// dispatch, the per-branch logging, and the proof construction to
         /// <see cref="RouteProofCapture.BuildStartRouteOriginProof"/>. This method's
         /// own responsibility is just the live-Vessel work: null-vessel guard plus
         /// candidate construction from <c>v.parts</c>.
+        ///
+        /// <para>TWO candidate producers, in this order:</para>
+        /// <para>1. SETTLED DOCK SEAMS (<see cref="RouteProofCapture.IsSettledDockSeam"/>).
+        /// <c>Part.Couple</c> merges the docked pair into ONE <c>Vessel</c>, so the origin
+        /// partner is that merged vessel: its pid, situation and body-fixed coordinates ARE the
+        /// docked pair's, and <c>Part.Undock</c> leaves that pid on the half that keeps the
+        /// parent side of the seam - the depot, when the transport docked into it. When the pid
+        /// no longer resolves at dispatch time the M1 endpoint descriptor carried alongside it
+        /// gives <c>RouteEndpointResolver</c> its proximity rebuild.</para>
+        /// <para>2. EXTERNALLY PARENTED PARTS (<c>p.parent.vessel != v</c>), the pre-2026-09-02
+        /// reading. Kept rather than replaced: it costs one pass over <c>v.parts</c> and it is
+        /// the only reading that could see an UNSETTLED coupling, which is the mirror direction
+        /// of the fix. It is unsatisfiable once a couple has settled - measured live, H56
+        /// <c>2026-09-02_0545</c>: <c>externalParentParts=0</c> on a landed docked pair.</para>
         /// </summary>
         private void CaptureStartRouteOriginProofIfDocked(Vessel v)
         {
@@ -7036,8 +7049,40 @@ namespace Parsek
                 return;
             }
 
-            // Build candidates: any live part whose parent belongs to a different vessel.
             var candidates = new List<OriginPartnerCandidate>();
+
+            // Producer 1: settled dock seams. The merged vessel IS the origin partner, so
+            // every seam contributes the SAME descriptor and the resolver collapses them to
+            // one distinct pid (never PartnerAmbiguous on a single merged vessel).
+            int settledDockSeamCandidates = 0;
+            for (int i = 0; i < v.parts.Count; i++)
+            {
+                Part p = v.parts[i];
+                if (p == null || p.Modules == null) continue;
+                bool seam = false;
+                for (int m = 0; m < p.Modules.Count && !seam; m++)
+                {
+                    ModuleDockingNode node = p.Modules[m] as ModuleDockingNode;
+                    if (node == null) continue;
+                    seam = RouteProofCapture.IsSettledDockSeam(
+                        node.vesselInfo != null,
+                        node.dockedPartUId,
+                        TryFindPartByFlightIdOnVessel(v, node.dockedPartUId) != null);
+                }
+                if (!seam) continue;
+                settledDockSeamCandidates++;
+                candidates.Add(new OriginPartnerCandidate(
+                    p.persistentId,
+                    v.persistentId,
+                    (int)v.situation,
+                    v.mainBody != null ? v.mainBody.bodyName : null,
+                    v.latitude,
+                    v.longitude,
+                    v.altitude));
+            }
+
+            // Producer 2: any live part whose parent belongs to a different vessel.
+            int externalParentCandidates = 0;
             for (int i = 0; i < v.parts.Count; i++)
             {
                 Part p = v.parts[i];
@@ -7046,6 +7091,7 @@ namespace Parsek
                 if (parent == null) continue;
                 Vessel parentVessel = parent.vessel;
                 if (parentVessel == null || parentVessel == v) continue;
+                externalParentCandidates++;
                 candidates.Add(new OriginPartnerCandidate(
                     p.persistentId,
                     parentVessel.persistentId,
@@ -7055,6 +7101,11 @@ namespace Parsek
                     parentVessel.longitude,
                     parentVessel.altitude));
             }
+
+            ParsekLog.Verbose("Recorder",
+                $"RouteOriginProof seam scan: settledDockSeamCandidates={settledDockSeamCandidates} " +
+                $"externalParentCandidates={externalParentCandidates} " +
+                $"recId={RecordingVesselId} vessel='{v.vesselName}' mergedPid={v.persistentId}");
 
             RouteProofCapture.BuildStartRouteOriginProof(
                 activeVesselSituation: (int)v.situation,
@@ -7066,6 +7117,26 @@ namespace Parsek
                 recordingVesselId: RecordingVesselId,
                 out pendingRouteOriginProof,
                 out pendingRouteOriginProofStartPartPids);
+        }
+
+        /// <summary>
+        /// Resolves a part by KSP <c>flightID</c> WITHIN one vessel. Deliberately not
+        /// <c>FlightGlobals.FindPartByID</c>, which searches every loaded vessel: the
+        /// settled-dock seam predicate needs "the docked partner part is on THIS vessel",
+        /// and a global hit on a partner that has already undocked would keep a dead seam
+        /// alive. Returns null when <paramref name="flightId"/> is 0 or unmatched.
+        /// </summary>
+        private static Part TryFindPartByFlightIdOnVessel(Vessel v, uint flightId)
+        {
+            if (v == null || v.parts == null || flightId == 0)
+                return null;
+            for (int i = 0; i < v.parts.Count; i++)
+            {
+                Part p = v.parts[i];
+                if (p != null && p.flightID == flightId)
+                    return p;
+            }
+            return null;
         }
 
         /// <summary>

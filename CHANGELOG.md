@@ -10,6 +10,20 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **A supply run that starts already docked to a base now records where it started
+  from.** The start-docked origin proof looked for a part whose parent belonged to a
+  different vessel, which a docked pair never has: KSP merges the two craft into one
+  vessel the moment they couple, so every part's parent reads back as the same vessel
+  and the check found nothing on any real dock, in flight or after a reload. A
+  transport recorded leaving a surface base therefore carried no origin at all, and a
+  route built from it had nowhere to say it came from. The recorder now reads the
+  docking port's own record of what it is docked to, which is the thing that actually
+  survives both the dock and a save/load, and stamps the docked pair's own position
+  and body as the origin. Ports stuck together in the editor, ports docked to their
+  own vessel, and ports that have since undocked are all excluded, so no craft gains
+  an origin it never had. Vessels sitting clamped on the pad are unchanged: a launch
+  is still a launch, not a delivery from a depot.
+
 - **Restructuring the recordings list mid-session now tells every index-keyed
   consumer.** Merging to the timeline or committing a chain segment runs the same
   merge/split pass that runs at load, and that pass removes merge-absorbed
