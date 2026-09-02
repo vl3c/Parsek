@@ -1986,7 +1986,7 @@ Sequencing: behind nothing technically (the M-A7 instrument and the V18T
 grammar both exist); ahead of G8's multi-route co-residency, which wants this
 lane's subject class as one of its co-residents.
 
-**BLOCKED AS OF 2026-09-02 ON A PRODUCT CHANGE, not on a subject** (feasibility
+**WAS BLOCKED 2026-09-02 ON A PRODUCT CHANGE, not on a subject; UNBLOCKED THE SAME DAY by branch `interbody-scope-fix` - see the closing paragraph of this block** (feasibility
 walk: `docs/dev/research/g10-interbody-route-feasibility.md`; the "behind nothing
 technically" sentence above is superseded and kept only so the correction is
 legible). `ClassifyRouteScope` reads `Route.DispatchWindowPeriod` as the
@@ -2007,6 +2007,71 @@ pins `malformed=1` and nothing G10 wants. Fix first
 harvest, then author the lanes. Nothing else about the entry changes: the render
 gap it names is real and gets WIDER once the fix lands, since the malformed skip
 is currently hiding it.
+
+**UNBLOCKED 2026-09-02 (branch `interbody-scope-fix`).** `ClassifyRouteScope` now
+derives scope from the route's ENDPOINT bodies - `Route.Origin.BodyName` against the
+`Route.Stops[].Endpoint.BodyName` set - through one predicate,
+`RouteTrajectoryLineRenderer.IsInterBodyByEndpoints`, which the endpoint-leg filter
+gates on as well, so `FilterLegsToEndpointBodies` runs for an inter-body route.
+`Route.DispatchWindowPeriod` is kept and demoted to informational: the codec still
+writes and reads it, every committed save and fixture keeps its
+`dispatchWindowPeriod = 0` line, and there is NO schema bump. `MalformedMixedBodies`
+survives for the genuinely inconsistent case (a route declaring one body at both
+endpoints whose members visit another, or a route with no readable endpoint bodies
+whose members disagree). Each route-line build logs
+`Route scope: route=<8hex> origin=<body> destination=<body> scope=<...> basis=<...>`,
+which is the token the lanes read. The operator's `orbital supply route` save satisfies
+every step of the 8-step specification below (verified read-only: origin `Kerbin`, stop
+endpoint `Duna`, `status = Active`, `completedCycles = 0`, dock + undock window
+`transferKind = DockingPort`, zero `mergeState` overrides anywhere in the save = every
+recording Immutable), so it is B32's harvest source.
+
+**THE THREE LANES FLEW 2026-09-02 AND THE ARMED DISCIPLINE IS COMPLETE.**
+`B32-interbody-route-scope` (FLIGHT, map opened as a HARD precondition),
+`V26M-interbody-route-map-lines` (the map-open/close PAIR this entry says V26M owes, with
+the manifest census) and `V26T-interbody-route-ts-arrival` (V18T's TS grammar on the new
+subject) all PASS attempt 1 on the re-flight, 61 / 62 / 59 s. The reading run first
+classified `PARSEK-FAIL(analyzer)` on the fixture's OWN pre-existing INV2 double-cover
+residue - not the product - which was repaired at build time (twelve contained sections
+across four recordings, coverage union invariant; the producer question is filed as
+INTERBODY-SAVE-CARRIES-INV2-DOUBLE-COVER); pins were tightened off that run's log and the
+re-flight read them byte-identically. A negative control seeded `scope=SameBody` and red
+`PARSEK-FAIL(expectation)` on exactly that token with zero forbids.
+
+WHAT G10 NOW HAS. `ClassifyRouteScope = InterBody` HAS BEEN READ LIVE, twice, on both
+routes of the subject and on both surfaces:
+`Route scope: route=71a983a1 origin=Kerbin destination=Duna scope=InterBody basis=Endpoints`.
+The re-aimed route ghost renders, the manifest carries the first `scope = InterBody`
+per-unit `ROUTE` node and the suite's first `flexible-soi` seam on a route lane
+(`seamKinds={flexible-soi: 2, rigid: 15}`), and RC-ROUTE's per-unit accounting has now
+evaluated against non-vacuous inter-body data. New coverage value
+`route-map-lines-inter-body`, one cell across all three lanes because the flight-map and
+tracking-station readings were byte-identical.
+
+WHAT G10 STILL DOES NOT HAVE, and this entry must not be read as closed.
+**`FilterLegsToEndpointBodies` HAS STILL NEVER DROPPED A LEG ON A DRIVEN RUN.** Both
+`ROUTE_LINE_BUILD` records read `transferLegsDropped=0`. The filter RUNS now - that was
+half the product fix, and it is a real change from "sits behind an unreachable branch" -
+but this subject gave it nothing to drop: `groups=3` out of `members=4` means the transfer
+member `5ca48c99` contributed no drawable leg at all, because it carries no
+`startBodyName` and its heliocentric coast is recorded as `OrbitSegment`s, which
+`BuildLegsForRecording` never emits as a polyline leg. The ratified transfer GAP is
+therefore real on this subject but visible only as an ABSENCE, which is a weaker reading
+than a measured drop. CLOSING IT NEEDS A DIFFERENT SUBJECT: one whose transfer stretch was
+recorded in the PHYSICS frame (a mid-course correction burn body-fixed to the Sun), which
+no committed fixture carries. Also still open: `DispatchWindowPeriod != 0` synodic cadence
+is unmeasured and now unmeasurable by design (the field is informational since the scope
+fix), and no dispatch has been driven on an inter-body route - the anchor is uncomputable
+from the committed bytes and needs a measured one.
+
+TWO CORRECTIONS TO THIS ENTRY'S OWN ASSUMPTIONS, from the harvest and the flights rather
+than argued. (1) The save carries TWO cross-body routes, not one: the Paused sibling is
+`Route: KSC -> Mun`, also inter-body under the endpoint rule, so every lane pins
+`routes=2` and V18T's `skippedByStatus=[1-9]` forbid does NOT transfer. (2) The Duna route
+has `loopAnchorUT = -1` and has never run a cycle, so V26T deliberately did not require
+V18T's front-door tokens - and the run ANSWERED it: `ghostDriving=1` and `routeMissions=1`
+both printed, so dispatch history is not a precondition for a route driving a
+tracking-station ghost. Both tokens are required from the re-flight onward.
 
 **THE OPERATOR SAVE SPECIFICATION for B32** (write it once, fly it by hand; the
 seam cannot create this and no driven lane can either, because route candidacy is

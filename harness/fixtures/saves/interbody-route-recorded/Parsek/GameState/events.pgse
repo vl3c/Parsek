@@ -1,0 +1,22 @@
+version = 1
+GAME_STATE_EVENT
+{
+	ut = 87620512.528756917
+	type = 10
+	key = Samby Kerman
+	detail = from=Assigned;to=Available
+}
+GAME_STATE_EVENT
+{
+	ut = 87620551.14874886
+	type = 10
+	key = Samby Kerman
+	detail = from=Assigned;to=Available
+}
+GAME_STATE_EVENT
+{
+	ut = 87622049.068436369
+	type = 10
+	key = Valentina Kerman
+	detail = from=Available;to=Assigned
+}

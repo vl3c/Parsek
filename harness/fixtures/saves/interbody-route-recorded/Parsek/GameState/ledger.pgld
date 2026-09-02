@@ -1,0 +1,365 @@
+version = 0
+recordingSchemaGeneration = 4
+GAME_ACTION
+{
+	ut = 0
+	type = 21
+	actionId = act_773a0630d76a4d61bb12b4ebca9ed05c
+	initialScience = 0
+}
+GAME_ACTION
+{
+	ut = 0
+	type = 22
+	actionId = act_157a8cec85304ba3a2c4fa8f32e2434a
+	initialReputation = 0
+}
+GAME_ACTION
+{
+	ut = 82959390.644754469
+	type = 4
+	actionId = act_972aefdc2b1f4ce3b6a282e9fc78e810
+	seq = 1
+	milestoneId = Orbit
+	milestoneFundsAwarded = 12000
+	milestoneRepAwarded = 2
+	milestoneSciAwarded = 1
+}
+GAME_ACTION
+{
+	ut = 6623249.4318648726
+	type = 11
+	actionId = act_5d1504f72f064c8295dc62a18460156d
+	recordingId = f496fdcf08034e61970572ec3be4fa94
+	seq = 1
+	kerbalName = Jebediah Kerman
+	kerbalRole = Pilot
+	startUT = 6623249.5
+	endUT = 6623447.5
+	endState = 2
+	xpGained = 0
+}
+GAME_ACTION
+{
+	ut = 6623447.4804814849
+	type = 11
+	actionId = act_dae06571257c4806983b7c4a5c1d97dd
+	recordingId = 58130506e8f84025b78a95d2497534ab
+	seq = 1
+	kerbalName = Jebediah Kerman
+	kerbalRole = Pilot
+	startUT = 6623447.5
+	endUT = 6652856
+	endState = 0
+	xpGained = 0
+}
+GAME_ACTION
+{
+	ut = 6652885.4514345713
+	type = 11
+	actionId = act_27619b05ba3a4f7a9a2cdee5a23b3db0
+	recordingId = c549ef6e4ed14f0fb93236a72f435cb4
+	seq = 1
+	kerbalName = Jebediah Kerman
+	kerbalRole = Pilot
+	startUT = 6652885.5
+	endUT = 6653158.5
+	endState = 2
+	xpGained = 0
+}
+GAME_ACTION
+{
+	ut = 6738212.0211751452
+	type = 11
+	actionId = act_8719a5df43aa4a658a3468b45f2c1bae
+	recordingId = 5737c255fba64ad6aa062b3fd7b0683d
+	seq = 1
+	kerbalName = Jebediah Kerman
+	kerbalRole = Pilot
+	startUT = 6738212
+	endUT = 6738239.5
+	endState = 3
+	xpGained = 0
+}
+GAME_ACTION
+{
+	ut = 6738239.5211745305
+	type = 11
+	actionId = act_ccb1254562a8449a89f5e9d792b7b2b7
+	recordingId = 4759c914f4ce4e789abc0dd91238e75b
+	seq = 1
+	kerbalName = Jebediah Kerman
+	kerbalRole = Pilot
+	startUT = 6738239.5
+	endUT = 6738307
+	endState = 3
+	xpGained = 0
+}
+GAME_ACTION
+{
+	ut = 6738239.5211745305
+	type = 11
+	actionId = act_06fec369a6f847afaf5669489a8d6db7
+	recordingId = 4759c914f4ce4e789abc0dd91238e75b
+	seq = 2
+	kerbalName = Jebediah Kerman
+	kerbalRole = Pilot
+	startUT = 6738239.5
+	endUT = 6738307
+	endState = 3
+	xpGained = 0
+}
+GAME_ACTION
+{
+	ut = 6738307.0411730213
+	type = 11
+	actionId = act_f322fcf319b646b5a9bf1e58c09743c0
+	recordingId = 7e0d79b5d57a40d29400afd8b49d1906
+	seq = 1
+	kerbalName = Jebediah Kerman
+	kerbalRole = Pilot
+	startUT = 6738307
+	endUT = 6738317
+	endState = 0
+	xpGained = 0
+}
+GAME_ACTION
+{
+	ut = 6738307.0611730209
+	type = 11
+	actionId = act_61a89cdd06494d89a24e1cac1d43b715
+	recordingId = b9f08d0f269346ee84162dd763e462aa
+	seq = 1
+	kerbalName = Jebediah Kerman
+	kerbalRole = Pilot
+	startUT = 6738307
+	endUT = 6738332
+	endState = 0
+	xpGained = 0
+}
+GAME_ACTION
+{
+	ut = 6653158.6215875726
+	type = 11
+	actionId = act_1843fd1255364d548840848f3e821588
+	recordingId = 041770246260406ab85b59495eb51f45
+	seq = 1
+	kerbalName = Jebediah Kerman
+	kerbalRole = Pilot
+	startUT = 6653158.5
+	endUT = 6738239.5
+	endState = 0
+	xpGained = 0
+}
+GAME_ACTION
+{
+	ut = 42874031.620448671
+	type = 11
+	actionId = act_779a9087e958408287db7202c8a7c16a
+	recordingId = ffffab0a00b743a89ae829aa3c83cc92
+	seq = 1
+	kerbalName = Elnard Kerman
+	kerbalRole = Pilot
+	startUT = 4.287403E+07
+	endUT = 5.256654E+07
+	endState = 2
+	xpGained = 0
+}
+GAME_ACTION
+{
+	ut = 42874302.333675139
+	type = 11
+	actionId = act_38a62843f17648bbb792c3a70a8dacdb
+	recordingId = cc8ec5e4c95a42c697120751599de426
+	seq = 1
+	kerbalName = Elnard Kerman
+	kerbalRole = Pilot
+	startUT = 42874304
+	endUT = 49217516
+	endState = 0
+	xpGained = 0
+}
+GAME_ACTION
+{
+	ut = 52566541.374800466
+	type = 11
+	actionId = act_945c232985ec4f88bd2a7dd57e5c695b
+	recordingId = 470bdcf9-06e1-4a3e-b6ed-3ae12c7c774f
+	seq = 1
+	kerbalName = Elnard Kerman
+	kerbalRole = Pilot
+	startUT = 5.256654E+07
+	endUT = 5.256657E+07
+	endState = 0
+	xpGained = 0
+}
+GAME_ACTION
+{
+	ut = 63825684.638367742
+	type = 11
+	actionId = act_7c14c50c2a0649b1aa3d1eb0300c8519
+	recordingId = d23e453bc982482b850ce717ba83bffd
+	seq = 1
+	kerbalName = Hayfal Kerman
+	kerbalRole = Pilot
+	startUT = 63825684
+	endUT = 6.382586E+07
+	endState = 2
+	xpGained = 0
+}
+GAME_ACTION
+{
+	ut = 72353179.479751408
+	type = 11
+	actionId = act_962adea78ecd4695b8a6a51c895b8db3
+	recordingId = 3700f40e66c84ff79ce5197b362cf937
+	seq = 1
+	kerbalName = Elnard Kerman
+	kerbalRole = Pilot
+	startUT = 72353176
+	endUT = 7.235322E+07
+	endState = 3
+	xpGained = 0
+}
+GAME_ACTION
+{
+	ut = 72353218.8197432
+	type = 11
+	actionId = act_042d08602030465a8f090729a6475131
+	recordingId = caa6190c37f74e928bfcdc8652ef3910
+	seq = 1
+	kerbalName = Elnard Kerman
+	kerbalRole = Pilot
+	startUT = 7.235322E+07
+	endUT = 7.235326E+07
+	endState = 3
+	xpGained = 0
+}
+GAME_ACTION
+{
+	ut = 72353218.8197432
+	type = 11
+	actionId = act_7fd58af232594485a40ca958b6f480c1
+	recordingId = caa6190c37f74e928bfcdc8652ef3910
+	seq = 2
+	kerbalName = Hayfal Kerman
+	kerbalRole = Pilot
+	startUT = 7.235322E+07
+	endUT = 7.235326E+07
+	endState = 3
+	xpGained = 0
+}
+GAME_ACTION
+{
+	ut = 72353267.2397331
+	type = 11
+	actionId = act_38180603e6994637be946e21795a1135
+	recordingId = fca32e436af249d593a096422b247fc9
+	seq = 1
+	kerbalName = Elnard Kerman
+	kerbalRole = Pilot
+	startUT = 7.235326E+07
+	endUT = 7.235328E+07
+	endState = 0
+	xpGained = 0
+}
+GAME_ACTION
+{
+	ut = 72353267.2597331
+	type = 11
+	actionId = act_15cc3c196004443da1a210f0317445ca
+	recordingId = 1331a21bddfb49418be6ebec99dabf98
+	seq = 1
+	kerbalName = Hayfal Kerman
+	kerbalRole = Pilot
+	startUT = 7.235326E+07
+	endUT = 7.235331E+07
+	endState = 0
+	xpGained = 0
+}
+GAME_ACTION
+{
+	ut = 63825858.83231353
+	type = 11
+	actionId = act_b8840a5ea2a94438a3ceaa2ac21b9f59
+	recordingId = 36c7688b8e5141f7809e2d4dbe9dc094
+	seq = 1
+	kerbalName = Hayfal Kerman
+	kerbalRole = Pilot
+	startUT = 6.382586E+07
+	endUT = 7.235322E+07
+	endState = 0
+	xpGained = 0
+}
+GAME_ACTION
+{
+	ut = 28553075.766977921
+	type = 23
+	actionId = act_807fe04f6f1743549afd6f834164bd46
+	routeId = m5-ingame-route-8aaac00a
+	routeCycleId = cycle-0
+}
+GAME_ACTION
+{
+	ut = 28553075.766977921
+	type = 24
+	actionId = act_c80f5ccb906e4d759abe34bbdf411de6
+	seq = 1
+	routeId = m5-ingame-route-8aaac00a
+	routeCycleId = cycle-0
+	resource = LiquidFuel|100
+}
+GAME_ACTION
+{
+	ut = 67859227.300933763
+	type = 23
+	actionId = act_38acb0fe14e34e3281891f0bcce4de61
+	routeId = m5-ingame-route-8aaac00a
+	routeCycleId = cycle-1
+}
+GAME_ACTION
+{
+	ut = 67859227.300933763
+	type = 24
+	actionId = act_54505ad3ebcb4612863fbfda44830855
+	seq = 1
+	routeId = m5-ingame-route-8aaac00a
+	routeCycleId = cycle-1
+	resource = LiquidFuel|100
+}
+GAME_ACTION
+{
+	ut = 28553075.766977921
+	type = 23
+	actionId = act_e602c74fe6804f749088f0e7bebacfd1
+	routeId = m5-ingame-route-5bf36911
+	routeCycleId = cycle-0
+}
+GAME_ACTION
+{
+	ut = 28553075.766977921
+	type = 24
+	actionId = act_0d081cff95c04d5b905370cb5af790a0
+	seq = 1
+	routeId = m5-ingame-route-5bf36911
+	routeCycleId = cycle-0
+	resource = LiquidFuel|100
+}
+GAME_ACTION
+{
+	ut = 67859227.300933763
+	type = 23
+	actionId = act_229832dd1a4a4a6392a6e7698e81c40a
+	routeId = m5-ingame-route-5bf36911
+	routeCycleId = cycle-1
+}
+GAME_ACTION
+{
+	ut = 67859227.300933763
+	type = 24
+	actionId = act_ffe563b1939544b2b504d8a7e81c25be
+	seq = 1
+	routeId = m5-ingame-route-5bf36911
+	routeCycleId = cycle-1
+	resource = LiquidFuel|100
+}

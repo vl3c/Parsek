@@ -10,7 +10,63 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
-- **Supply routes: the game now works out where a delivery's cargo came from by
+- **Automated testing: three new checks now watch the between-planets supply route
+  the map fix restored, and they have been proved able to fail.** They load the new
+  saved campaign, open the map, and read the game's own record of which kind of route
+  it decided each one is and why - one in the flight map, one taking a full picture of
+  everything the map composed, one in the tracking station. All three pass unattended,
+  and the map drew both of the saved campaign's between-planets routes correctly. Each
+  carries the exact wrong answer the map used to give as a forbidden line, so if the fix
+  is ever undone the checks say so themselves instead of quietly drawing nothing - and a
+  deliberately broken copy of one was run to confirm that machinery works: it reported
+  exactly the single wrong answer it had been given, and nothing else. The first run
+  also turned up a separate, older problem in the saved campaign itself: a handful of
+  recorded orbit stretches stored twice over the same span of time, which the recording
+  checker rightly refuses. Those exact duplicates are trimmed out of the test copy
+  (nothing is rewritten, and what the recordings cover is unchanged), and the underlying
+  recorder question is written up separately rather than swept away. One thing these
+  checks do NOT yet prove: the deliberate gap where the interplanetary coast is left out
+  of the drawn line. On this particular route there was nothing to leave out, so that
+  part is still waiting on a different saved flight.
+
+
+- **Automated testing: the suite now has a saved campaign carrying a supply route
+  that runs between two planets.** Every route the automated tests could reach ran
+  from one place to another on the SAME body, so the parts of the map drawing that
+  only apply to a route crossing between planets - which end of the journey gets
+  drawn, and the deliberate gap where the interplanetary coast is left out - had
+  never actually been exercised by a test, only reasoned about. A campaign the
+  developer played by hand, with a fuel depot parked in Duna orbit and a supply
+  ship launched from the space centre to dock with it, is now a permanent test
+  fixture. It cannot be built by a script: creating a route needs a finished,
+  sealed flight with a real docking, and no automated flight can produce one
+  between planets. A checker script re-reads the saved campaign and fails if any
+  of the eight things that make it the right subject ever drift - the two ends
+  being on different planets above all. The developer's own save was never
+  modified; the fixture is a pruned copy.
+
+
+- **Map view: a supply route that runs between two bodies now draws its line again.**
+  A route from the KSC to a depot in Duna orbit drew NOTHING on the flight map or in
+  the Tracking Station - no launch path, no arrival path - while a route that stayed on
+  one body drew normally. The renderer decided which of the two a route was by reading a
+  stored "dispatch window period" number, and nothing that creates a route has ever
+  written anything but zero into it, so every between-bodies route was read as a
+  same-body route whose recorded path inexplicably visits two planets, classified
+  malformed, and skipped. It now decides from the thing that actually says what a route
+  is: where it starts and where it stops. Any two of its known endpoint bodies
+  disagreeing means between-bodies - taken in origin-then-stops order, so a route whose
+  origin body was never resolved (which happens for a route that starts docked to
+  something recorded without one) still reads correctly off its stops, and those
+  routes draw their launch and arrival paths at the two ends
+  while the recorded interplanetary coast between them stays with the mission ghost that
+  re-aims it each launch window (unchanged, deliberate). A route that declares one body
+  at both ends but whose recorded path wanders off it is still declined as malformed -
+  that is the case the check was for, and it now also catches a route whose starting
+  place was never recorded but whose destination sits on a body its path never
+  visits. Same-body routes are unaffected. Saves are
+  unaffected: the stored number is still written and read exactly as before, so no save
+  or fixture changes shape; it is simply no longer what the map believes.- **Supply routes: the game now works out where a delivery's cargo came from by
   watching you undock, instead of by reading the vessel type you happened to set.**
   Starting a recording while your ship is docked to something is how you tell Parsek
   "this run's cargo came from here". Until now that only worked if you had gone into

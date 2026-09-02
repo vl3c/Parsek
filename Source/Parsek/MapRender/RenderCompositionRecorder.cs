@@ -1015,8 +1015,11 @@ namespace Parsek.MapRender
                 if (!match)
                     continue;
 
+                // Member bodies are the cross-check the scope classifier applies ONLY when the
+                // endpoints did not already answer InterBody; skip the walk when they did (mirrors
+                // RouteTrajectoryLineRenderer.ResolveScope, the single owner of the expression).
                 List<string> bodies = null;
-                if (route.DispatchWindowPeriod == 0.0)
+                if (!Parsek.Display.RouteTrajectoryLineRenderer.IsInterBodyByEndpoints(route))
                 {
                     bodies = new List<string>(members.Length);
                     for (int m = 0; m < members.Length; m++)
@@ -1039,7 +1042,7 @@ namespace Parsek.MapRender
                     RecordedOriginUndockUT = route.RecordedOriginUndockUT,
                     DispatchWindowPeriod = route.DispatchWindowPeriod,
                     Scope = Parsek.Display.RouteTrajectoryLineRenderer.ClassifyRouteScope(
-                        route.DispatchWindowPeriod, bodies).ToString(),
+                        route, bodies).ToString(),
                     ExcludedIntervalKeys = JoinSorted(route.ExcludedIntervalKeys),
                 };
             }

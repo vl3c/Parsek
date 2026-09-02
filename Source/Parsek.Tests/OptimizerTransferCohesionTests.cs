@@ -551,16 +551,39 @@ namespace Parsek.Tests
 
             // PRE-FIX this found exactly one rule-4 body split in the whole
             // inventory -- the Dres Kerbin->Sun handoff -- which was the measured
-            // blast radius of Phase 1. POST-FIX there are NONE, and that pair of
+            // blast radius of Phase 1. POST-FIX that one is gone, and that pair of
             // readings is the blast-radius proof: the only boundary that moved is
             // the one the fix targeted, on the one fixture that had it.
-            Assert.True(bodySplits.Count == 0,
-                "expected NO rule-4 body split in the fixture inventory after the cohesion fix, "
-                + "found " + bodySplits.Count + " after scanning " + sidecarsScanned
-                + " sidecars: " + string.Join(" || ", bodySplits)
+            //
+            // THE INVENTORY IS AN EXPECTED SET RATHER THAN ZERO SINCE 2026-09-02,
+            // which is the remedy this cell's own failure message prescribes for a
+            // legitimate new fixture. `interbody-route-recorded` (harvested that day
+            // as the G10 inter-body route subject) carries one, and it is the
+            // PRESERVED contract rather than a regression: the left side is a
+            // per-frame ATMOSPHERIC / Absolute Kerbin ascent ending at UT
+            // 42,874,302.33, the right side an EXOBALLISTIC / OrbitalCheckpoint Duna
+            // section starting 9.69 Ms later at 52,566,541.19. The two sides are in
+            // DIFFERENT environment classes, so rule 3's same-class Exo-coast
+            // cohesion never applies and rule 4 splits on the body change (#251) --
+            // the same decision E2_PoweredSoiCrossing_StillSplits pins synthetically.
+            // Widening ShouldKeepCohesiveCrossBodyExoCoast to swallow this would fuse
+            // a Kerbin ascent to a Duna orbit across a 9.7 Ms gap.
+            var expectedBodySplits = new[]
+            {
+                "ffffab0a00b743a89ae829aa3c83cc92.prec.txt :: 4->5 @ut 52566541.2 "
+                + ": Atmospheric(Absolute)/Kerbin -> ExoBallistic(OrbitalCheckpoint)/Duna",
+            };
+            bodySplits.Sort(StringComparer.Ordinal);
+            Assert.True(
+                bodySplits.Count == expectedBodySplits.Length
+                && !bodySplits.Where((t, i) => t != expectedBodySplits[i]).Any(),
+                "the rule-4 body-split inventory changed after scanning " + sidecarsScanned
+                + " sidecars."
+                + "\n  expected: " + string.Join(" || ", expectedBodySplits)
+                + "\n  found:    " + string.Join(" || ", bodySplits)
                 + "\nIF THIS IS A LEGITIMATE NEW FIXTURE: a physics-frame powered SOI crossing "
                 + "SHOULD split -- that contract is deliberately preserved. The remedy is to PIN "
-                + "the new boundary here (assert the expected set rather than zero), NOT to widen "
+                + "the new boundary here (extend the expected set), NOT to widen "
                 + "ShouldKeepCohesiveCrossBodyExoCoast to swallow it.");
         }
     }

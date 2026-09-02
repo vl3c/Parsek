@@ -63,7 +63,7 @@ Option 1 is the proportionate one unless a lane appears that genuinely needs the
 Whoever takes it re-flies L3 once to confirm, and updates this entry and the L3 status row
 in the same commit.
 
-## ROUTE-INTERBODY-SCOPE-NEVER-REACHABLE: `Route.DispatchWindowPeriod` is the authoritative scope flag and NOTHING in production ever sets it non-zero, so every inter-body route classifies `MalformedMixedBodies` and draws no line [FOUND 2026-09-02 by the G10 P10 feasibility walk (branch `interbody-route-lane`). DEFECT, no fix in this branch - it is a product change and this branch is spec/docs-only]
+## ~~ROUTE-INTERBODY-SCOPE-NEVER-REACHABLE: `Route.DispatchWindowPeriod` is the authoritative scope flag and NOTHING in production ever sets it non-zero, so every inter-body route classifies `MalformedMixedBodies` and draws no line~~ [FOUND 2026-09-02 by the G10 P10 feasibility walk (branch `interbody-route-lane`). FIXED 2026-09-02 on branch `interbody-scope-fix`]
 
 **The contract.** `RouteTrajectoryLineRenderer.ClassifyRouteScope`
 (`Source/Parsek/Display/RouteTrajectoryLineRenderer.cs:139`) says
@@ -106,19 +106,205 @@ unit and never reads the period, which is why `reaimWindowBasisEngaged = True`
 coexists with period 0 and why `H34-logistics-inter-body` can gate
 `basis=ReaimWindows` today. This entry is about the RENDER scope flag only.
 
-**Fix shape (two options, unranked - needs a design call).** (a) Have
-`RouteBuilder` populate the synodic period on a cross-parent build, from the same
-`ReaimWindowSchedule` the loop unit already derives, so the persisted field
-matches its documented contract. (b) Retire the field as the scope source and
-classify scope from member bodies plus the derived re-aim basis, keeping the
-period only as a codec-compatible legacy value. Either way the codec is
-append-safe (the value already round-trips) and existing period-0 routes keep
-their `SameBody` reading whenever their members agree on one body.
+**FIXED: the operator's design ruling took option (b), sharpened.** A supply route
+rides the looped-mission infrastructure: the journey and its cadence are the LOOP's
+business (`RouteLoopClock.DeriveWindowBasis`, derived per tick and deliberately never
+persisted), and the route only adds the resource transfer. So the scope is not something
+to COMPUTE at route creation - it is read off what defines it, the pair of places the
+route connects.
 
-**Blocks G10** (`autotest-roadmap.md`): B32 / V26M / V26T cannot read an
-`InterBody` scope until this lands, and an operator harvest flown today would pin
-the malformed reading instead. Walk:
-`docs/dev/research/g10-interbody-route-feasibility.md`.
+**The rule as built** (`RouteTrajectoryLineRenderer.IsInterBodyByEndpoints` /
+`ClassifyRouteScope`), top-down, with the authority named in the log:
+
+1. Two KNOWN endpoint bodies disagree, taking them in `[origin, stop0, stop1, ...]`
+   order -> `InterBody`, basis `Endpoints`. The FIRST known one seeds the reference
+   (`ResolveEndpointReferenceBody`), so the origin is NOT privileged: `RouteBuilder`'s
+   pre-descriptor docked-origin branch writes `BodyName = StartBodyName ?? string.Empty`
+   and an empty `StartBodyName` is real (the committed `interbody-route-recorded`
+   fixture's transfer member carries none), so an origin-only seed sent such a route to
+   the member-body fallback and back to `MalformedMixedBodies` - the same failure,
+   narrowed. The seed is SHARED with the same-body branch below, which is the mirror
+   direction: whatever can establish that endpoints disagree must also establish what
+   they agree ON. Members are expected to span bodies here,
+   so no member cross-check runs, and a THIRD body among the members is the ratified
+   transfer gap (`FilterLegsToEndpointBodies` drops it), not a malformation.
+2. At least one endpoint body known and every other known one EQUAL to it -> a declared
+   same-body route, basis `Endpoints`, with that reference body the one the members
+   must match. Its members must agree with that body; one on another body means
+   the recorded path leaves the pair the route declares and drawing it whole would paint
+   a cross-body chord -> `MalformedMixedBodies` (design doc section 17 "Map view
+   integration"). That is the ONLY meaning `MalformedMixedBodies` now carries, plus:
+3. NO readable endpoint body anywhere (default-constructed origin AND no stop carrying one)
+   -> the shipped v1 member-body consistency read, basis `MemberBodies`: all agree ->
+   `SameBody`, they disagree -> `MalformedMixedBodies`. With no endpoints there is no
+   authority saying WHICH two bodies are the endpoints, so the safe reading is the
+   shipped decline, not a guessed inter-body draw.
+
+`FilterLegsToEndpointBodies` now runs behind that same predicate rather than
+`DispatchWindowPeriod != 0.0`, so "the filter ran" and "the scope classified InterBody"
+are one decision. The route-line cache signature folds the endpoint bodies (the scope
+authority) so a scope flip invalidates the cached line the way the period fold used to.
+
+**`Route.DispatchWindowPeriod` is KEPT and DEMOTED to informational, NOT deleted.** The
+codec still writes and reads it unconditionally, so every committed save and fixture
+keeps its `dispatchWindowPeriod = 0` line and ROUTE nodes round-trip byte-identically:
+**there is NO schema bump.** It is still reported into the M-A7 manifest's route record
+so a reading run can see what a save carries. Nothing in the logistics runtime ever read
+it. Pinned by `RouteCodecTests.Serialize_InterBodyRoute_StillWritesTheZeroPeriodLine_NoSchemaMove`
+and the pre-existing `Serialize_PreM5Route_ByteIdenticalBaseline`.
+
+Observability: one line per route-line BUILD,
+`Route scope: route=<8hex> origin=<body> destination=<body> scope=<...> basis=<...>`
+([RouteLine], Verbose, rate-limited 5 s per route id).
+
+**Unblocks G10** (`autotest-roadmap.md`): B32 / V26M / V26T can now read an `InterBody`
+scope. Walk: `docs/dev/research/g10-interbody-route-feasibility.md` (its blocker 1 is
+now historical; blocker 2, that no COMMITTED fixture carries an inter-body dock, is
+answered by the B32 harvest of the operator's `orbital supply route` save).
+
+## INTERBODY-SAVE-CARRIES-INV2-DOUBLE-COVER: three recordings in the operator's real play carry a checkpoint section that double-covers the two finer ones tiling the same span, and the producer's own guard against that shape is dated after the play [MEASURED 2026-09-02 by the B32 / V26M / V26T reading runs over the new `interbody-route-recorded` fixture. DEFECT in produced DATA; the analyzer is RIGHT and no fixture edit is proposed]
+
+**What red'd.** All three G10 lanes classified `PARSEK-FAIL subkind=analyzer` on
+`analyzer red topRule=INV2-NO-DOUBLE-COVER red=1 failNonBaselined=3`, which
+short-circuits every expectation behind it. The fixture's own analysis header:
+`save=interbody-route-recorded generation=4 FAIL=3 WARN=1 INFO=0 STALE=0
+BASELINED=0 RED=1`. The three FAIL rows:
+
+    INV2 overlap recording=041770246260406ab85b59495eb51f45
+         a=[6737626.5840336476,6738050.3439115509] b=[6737631.9546000445,6738050.3439115509]
+    INV2 overlap recording=36c7688b8e5141f7809e2d4dbe9dc094
+         a=[72353071.380143166,72353168.179753765] b=[72353162.545671731,72353168.179753765]
+    INV2 overlap recording=58130506e8f84025b78a95d2497534ab
+         a=[6623968.0276330262,6625978.8885054318] b=[6625335.49533078,6625978.8885054318]
+
+**THE SHAPE IS IDENTICAL IN ALL THREE, and it is a TRIPLE rather than the pair
+the finding names.** Reading the committed `.prec.txt` sidecars, each flagged
+spot is three consecutive `OrbitalCheckpoint` sections, every one of them
+`src = 2` (`TrackSectionSource.Checkpoint`, "from orbital checkpoint
+propagation"):
+
+    [n]   OrbitalCheckpoint  T0 .. T1
+    [n+1] OrbitalCheckpoint  T0 .. T2      <- the finding's `a`
+    [n+2] OrbitalCheckpoint  T1 .. T2      <- the finding's `b`
+
+`[n]` and `[n+2]` TILE `[T0,T2]` exactly, and `[n+1]` is a coarse envelope
+duplicating the whole of it. INV2 reports the (a, b) pair whose ends coincide;
+the (a, [n]) overlap is the same redundancy seen from the other side. Per
+recording, with the bracketing per-frame `Absolute` sections that make the span a
+packed/on-rails stretch:
+
+| recording | T0 | T1 | T2 | envelope span |
+| --- | --- | --- | --- | --- |
+| `041770246...` (sections 45-47) | 6737626.584 | 6737631.955 | 6738050.344 | 423.8 s |
+| `36c7688b...` (sections 58-60) | 72353071.380 | 72353162.546 | 72353168.180 | 96.8 s |
+| `58130506...` (sections 5-7) | 6623968.028 | 6625335.495 | 6625978.889 | 2010.9 s |
+
+**PRODUCER PATH: the checkpoint-BRIDGE PROMOTION, not a chain boundary and not a
+scene-exit tail.** `src = 2` on all three sections rules out the Active recorder
+(`0`) and the BackgroundRecorder (`1`). The live recorder's two
+`TrackSectionSource.Checkpoint` emitters
+(`FlightRecorder.InitializeOnRailsOrbitSegment` and `OnVesselGoOnRails`, at
+`FlightRecorder.cs:10708` / `:10772`) each open exactly ONE section through a
+`CloseCurrentTrackSection` + `StartNewTrackSection` pair, so neither can produce
+three overlapping ones in a pass. The only other producer of
+`ReferenceFrame.OrbitalCheckpoint` sections in `Source/Parsek/` is
+`OrbitSegmentCheckpointBridge` (`:76`), whose
+`EnsureCheckpointSectionsForTopLevelOrbitSegments` promotes flat
+`Recording.OrbitSegments` (a runtime cache) into durable sections.
+
+**AND THAT PRODUCER ALREADY CARRIES A GUARD AGAINST EXACTLY THIS SHAPE, which is
+why this entry is filed as a data question rather than an open product bug with a
+known fix.** `OrbitSegmentCheckpointBridge.cs:407-414` says it verbatim:
+
+> Anti-double-cover (checkpoint-vs-checkpoint): spans already owned by CLOSED
+> checkpoint sections win; only the uncovered remainder(s) of the candidate are
+> promoted. Without this a coarse flat envelope segment [X,Z] would be added
+> alongside existing finer checkpoint sections [X,Y] + [Y,Z], double-covering the
+> whole span.
+
+That is the fixture's shape, named. It landed in `dd8b0272c` (2026-07-11, "Fix
+TrackSection double-cover in the checkpoint bridge producer").
+
+**SETTLED MECHANICALLY, not argued: (a) PRE-GUARD RESIDUE.** The question was run
+rather than reasoned, against the pre-repair bytes: the CURRENT
+`OrbitSegmentCheckpointBridge.EnsureCheckpointSectionsForTopLevelOrbitSegments`
+was driven over the three sidecars headlessly. Measured, identically on all
+three:
+
+    added=0  clipped=0  skippedCovered=0  skippedExisting=14/17/5
+    reconciledEmpty=2/3/2  resorted=0
+
+THE GUARD HOLDS against this input - nothing is added and nothing is clipped, so
+the current producer does not re-create the shape and the bytes predate it. The
+alternative hypothesis (a remaining hole opened by a later splitter re-cutting a
+promoted envelope, `RecordingOptimizer.SplitAtUT` being the place to look) is not
+supported by this input; it is not disproved in general.
+
+AND ONE THING THE MEASUREMENT EXPLICITLY DOES NOT EXCLUDE: multi-pass accumulation
+WITHIN ONE SESSION. The probe ran the bridge ONCE over sidecars as they sit on
+disk. The live path calls it repeatedly across a session - after a split, at a
+persist, on an optimizer pass - each time against a section list the previous call
+may have changed, and the guard is evaluated per candidate against the list AT THAT
+MOMENT. A sequence in which a coarse envelope is promoted, then re-cut, then
+re-promoted against the re-cut list is not reachable by re-running the pass over a
+finished save and is therefore untested by this evidence. Anyone reopening this
+should drive the SEQUENCE, not the snapshot.
+
+**AND THE PRODUCER DOES NOT REPAIR IT EITHER, which is the half that decides the
+remedy.** With the empty-shell reconcile armed the bridge DOES act - it removes
+2-3 payload-less sections per recording, and the `[T0,T1]` leg of each triple is
+one of them - but the coarse `[T0,T2]` ENVELOPE and the `[T1,T2]` leg both carry
+payload and both SURVIVE. Those two are precisely the `a` and `b` of the INV2
+finding, so the reported overlap is untouched by any number of producer re-runs.
+There is no retire path for a payload-bearing duplicate already on disk.
+
+**A BASELINE IS NOT AVAILABLE HERE, BY DESIGN, so the fixture was REPAIRED at
+build time on the corpus's own precedent.** The obvious remedy - record the three
+as known findings in `<save>/analysis/baseline.cfg` per
+`docs/dev/design-autotest-findings-baseline.md` and let the gate red only on NEW
+ones - cannot be used on a harness lane. `run.py::_run_analyzer` hard-codes
+`fresh_gate=True` on every produced-save analyzer run, `-FreshSaveGate` sets
+`PARSEK_ANALYZER_BASELINE_MODE=forbid`, and in Forbid the mere PRESENCE of the
+file is a `BASELINE-FORBIDDEN` FAIL. The design doc states the rule itself: "a
+baseline beside a fixture corpus is a BASELINE-FORBIDDEN FAIL; fixtures are
+regenerated, never baselined." `stage_fixture` copytrees the fixture verbatim
+into the produced save, so a committed baseline would ride in and turn every lane
+`INVALID(fixture-authoring)`. `analysis` therefore stays in the builder's
+`FORBIDDEN_DIR_NAMES`.
+
+What the corpus does instead - twice before this - is a build-time CONTAINMENT
+DEDUPE: `duna-one-recorded` dropped six sections and `depot-route-recorded` two,
+each with the before/after analyzer reading recorded in
+`test_saveparse.RECORDED_FIXTURES`. `build_interbody_route_recorded.py` is the
+THIRD consumer of the same shared machinery in `build_duna_one_recorded.py` (no
+copy), and it drops TWELVE sections across FOUR recordings: seven 65-byte
+frame-less shells and three 170-byte re-clips of a conic the kept envelope
+already carries, plus an exact-span duplicate pair in a fourth recording. The
+predicate is CONTAINMENT, so the coverage union cannot move; `repair_prec`
+refuses to write if it does, or if any PARTIAL overlap would be left behind.
+Reading after: `FAIL=0 WARN=1 INFO=0 STALE=0 BASELINED=0 RED=0` (the surviving
+WARN is `INV2-UNCOVERED-SPAN` on the 9.69 Ms Kerbin-ascent-to-Duna-checkpoint gap
+in `ffffab0a...`, which is the same recording the optimizer-cohesion inventory
+pins and is not this entry's subject).
+
+THE REPAIR DOES NOT CLOSE THIS ENTRY. It removes the residue from ONE save so
+three lanes can run; the producer question above stands, and any other save from
+the same era still carries it.
+
+**A FOURTH RECORDING WAS FOUND ONLY BY REPAIRING THE FIRST THREE**, which is
+worth recording as a method note rather than a footnote: the analyzer reports
+FINDINGS, not a repair plan, and clearing the three it named surfaced two more in
+`cc8ec5e4c95a42c697120751599de426`. The builder's `verify_prec` therefore sweeps
+EVERY sidecar and reds on anything droppable that is not in its table, so the
+next re-harvest cannot need another round of the same discovery.
+
+**WHAT CLOSING THIS ACTUALLY NEEDS**, in order: a retire path for a
+payload-bearing checkpoint duplicate (the bridge has none, by design - its
+anti-double-cover guard is preventive only), then a one-shot pass over affected
+saves. Neither is on G10's path, which is why this is filed rather than fixed
+here. The tripwire in the meantime is the builder's own `verify_prec`: re-running
+the shared dedupe over the committed bytes must drop NOTHING, so a future change
+that starts re-creating the shape reds on the next `--check`.
 
 ## RENDER-MANIFEST-VERB-EXPORT-IN-A-SECOND-SCENE-CLOBBERS-THE-FIRST-SCENE-ACCUMULATION: a lane that observes in FLIGHT and then exports the manifest from another scene reads zeroes for everything the FLIGHT scene measured [MEASURED 2026-09-02 by the H59 census run `2026-09-02_0947` (PASS). REPORT-ONLY, NO FIX PROPOSED: the per-scene partition is deliberate and the verb's unconditional write is deliberate; what is undocumented is the CONSEQUENCE for a multi-scene lane, and what is unresolved is a placement rule that forces exactly that shape]
 
@@ -2555,7 +2741,7 @@ routeCodecRejects=0 mismatches=0`), negative control `2026-09-02_1014`
 this block's OWN window rather than the shared `rewind.supersedeRows` minimum,
 so the routes path is proven end to end rather than the evaluator re-proven.
 
-## SUBJECT-CANDIDATE-INTERPLANETARY-ROUTE: the operator's plain `orbital supply route` save carries a Kerbin -> Duna route that may be the MalformedMixedBodies case, and nothing has looked [OPENED 2026-08-26 while ranking route sources. TODO, not a defect]
+## ~~SUBJECT-CANDIDATE-INTERPLANETARY-ROUTE: the operator's plain `orbital supply route` save carries a Kerbin -> Duna route that may be the MalformedMixedBodies case, and nothing has looked~~ [OPENED 2026-08-26 while ranking route sources; READ 2026-09-02; HARVESTED 2026-09-02 as `interbody-route-recorded` on branch `interbody-scope-fix`. TODO, not a defect - DONE]
 
 Three operator saves carry route state. `orbital supply route DELIVERY test`
 became `depot-route-recorded` (above). `orbital supply route CLEAN` carries NO
@@ -2603,6 +2789,38 @@ G10 entry now carries the operator save specification that WOULD produce the
 latter once the product fix lands. If someone wants the malformed reading pinned
 before then, it is a legitimate standalone harvest (a fixture nothing exercises
 today) and needs its own subject id, not B32's.
+
+**RESOLVED 2026-09-02, SAME DAY, branch `interbody-scope-fix`: it IS B32's, and
+the last paragraph above is superseded rather than deleted so the correction is
+legible.** The product fix landed first (ROUTE-INTERBODY-SCOPE-NEVER-REACHABLE,
+now ~~done~~): scope is derived from the ENDPOINT bodies, so this save's route -
+ORIGIN `bodyName = Kerbin` against STOP ENDPOINT `bodyName = Duna` - now reads
+`InterBody` at the same `dispatchWindowPeriod = 0` it always carried. There is no
+malformed reading left to pin; the save went straight to being G10's `InterBody`
+subject.
+
+Harvested READ-ONLY from a scratch COPY as `harness/fixtures/saves/interbody-route-recorded`
+(the operator's save was never written to), finished by
+`harness/tools/build_interbody_route_recorded.py`, pinned in
+`test_saveparse.RECORDED_FIXTURES` and gated by
+`harness/lib/test_build_interbody_route_recorded.py`. It satisfies all eight steps
+of the roadmap's operator-save specification, checked against the bytes: a Duna
+depot placed first, a KSC-pad transport, a positive delivery manifest, a
+DockingPort dock/undock pair, a SEALED tree (zero `mergeState` lines anywhere, and
+the codec writes that key only when the state is not Immutable), Active at
+`completedCycles = 0`, and nothing deleted afterwards.
+
+TWO CORRECTIONS TO THE READING ABOVE, both from the harvest rather than argued.
+(1) The Paused sibling is `Route: KSC -> Mun`, so it is ALSO inter-body under the
+endpoint rule - the fixture carries TWO cross-body routes, not one, and every lane
+over it must expect `routes=2`. (2) The `orbital supply route CLEAN` control
+candidate named at the top of this entry is still uncommitted and still a
+legitimate idea, but it is NOT the pre-route ancestor of THIS save's Duna tree
+`3daf0cff...` - it is the ancestor of `depot-route-recorded`'s `c9ef80ee...`, so
+pairing it with B32 would pair the wrong trees.
+
+Lanes: `B32-interbody-route-scope`, `V26M-interbody-route-map-lines`,
+`V26T-interbody-route-ts-arrival`, all authored 2026-09-02 and NEVER FLOWN.
 
 ## M-A7-SEAM-ENDPOINT-SKIP-REASON-CENSUS: `seam-endpoint-skipped` dominates every renderCompose unevaluable count and DOUBLED between two flights of the same lane with no explanation on record [FOUND 2026-08-25 reading the V14M reading-vs-armed facets (53 vs 106 skips) and the s15 free-play manifest (512 at the cap). IMPROVEMENT, REPORT-ONLY]
 
