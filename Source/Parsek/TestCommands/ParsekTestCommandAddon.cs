@@ -1163,6 +1163,13 @@ namespace Parsek.TestCommands
         void ITestCommandExecutor.SealSlot(ParsedCommand cmd) => SealSlotImpl(cmd);
         void ITestCommandExecutor.RouteCommand(ParsedCommand cmd) => RouteCommandImpl(cmd);
 
+        // DeleteRecording: the body lives in the sibling
+        // ParsekTestCommandAddon.DeleteRecording.cs partial. Single-phase - the removal
+        // is a synchronous list mutation whose notifications fan out in the same call,
+        // so the read-back (the row is gone) is a final answer and there is no
+        // TryComplete* counterpart in TryCompleteTwoPhaseCore.
+        void ITestCommandExecutor.DeleteRecording(ParsedCommand cmd) => DeleteRecordingImpl(cmd);
+
         private void InvokeExecutor(ParsedCommand cmd)
         {
             // Batch-baseline latch clear (finding 1). Any verb that can change state a
@@ -1212,6 +1219,7 @@ namespace Parsek.TestCommands
                 case "InvokeRewindToLaunch": exec.InvokeRewindToLaunch(cmd); break;
                 case "SealSlot": exec.SealSlot(cmd); break;
                 case "RouteCommand": exec.RouteCommand(cmd); break;
+                case "DeleteRecording": exec.DeleteRecording(cmd); break;
                 default:
                     // Unreachable: DecideDispatch rejects unknown/reserved verbs before Execute.
                     SetExecResult("ERROR", null, "unknown-command");
