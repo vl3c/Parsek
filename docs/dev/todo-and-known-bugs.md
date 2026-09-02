@@ -114,6 +114,141 @@ scope. Walk: `docs/dev/research/g10-interbody-route-feasibility.md` (its blocker
 now historical; blocker 2, that no COMMITTED fixture carries an inter-body dock, is
 answered by the B32 harvest of the operator's `orbital supply route` save).
 
+## INTERBODY-SAVE-CARRIES-INV2-DOUBLE-COVER: three recordings in the operator's real play carry a checkpoint section that double-covers the two finer ones tiling the same span, and the producer's own guard against that shape is dated after the play [MEASURED 2026-09-02 by the B32 / V26M / V26T reading runs over the new `interbody-route-recorded` fixture. DEFECT in produced DATA; the analyzer is RIGHT and no fixture edit is proposed]
+
+**What red'd.** All three G10 lanes classified `PARSEK-FAIL subkind=analyzer` on
+`analyzer red topRule=INV2-NO-DOUBLE-COVER red=1 failNonBaselined=3`, which
+short-circuits every expectation behind it. The fixture's own analysis header:
+`save=interbody-route-recorded generation=4 FAIL=3 WARN=1 INFO=0 STALE=0
+BASELINED=0 RED=1`. The three FAIL rows:
+
+    INV2 overlap recording=041770246260406ab85b59495eb51f45
+         a=[6737626.5840336476,6738050.3439115509] b=[6737631.9546000445,6738050.3439115509]
+    INV2 overlap recording=36c7688b8e5141f7809e2d4dbe9dc094
+         a=[72353071.380143166,72353168.179753765] b=[72353162.545671731,72353168.179753765]
+    INV2 overlap recording=58130506e8f84025b78a95d2497534ab
+         a=[6623968.0276330262,6625978.8885054318] b=[6625335.49533078,6625978.8885054318]
+
+**THE SHAPE IS IDENTICAL IN ALL THREE, and it is a TRIPLE rather than the pair
+the finding names.** Reading the committed `.prec.txt` sidecars, each flagged
+spot is three consecutive `OrbitalCheckpoint` sections, every one of them
+`src = 2` (`TrackSectionSource.Checkpoint`, "from orbital checkpoint
+propagation"):
+
+    [n]   OrbitalCheckpoint  T0 .. T1
+    [n+1] OrbitalCheckpoint  T0 .. T2      <- the finding's `a`
+    [n+2] OrbitalCheckpoint  T1 .. T2      <- the finding's `b`
+
+`[n]` and `[n+2]` TILE `[T0,T2]` exactly, and `[n+1]` is a coarse envelope
+duplicating the whole of it. INV2 reports the (a, b) pair whose ends coincide;
+the (a, [n]) overlap is the same redundancy seen from the other side. Per
+recording, with the bracketing per-frame `Absolute` sections that make the span a
+packed/on-rails stretch:
+
+| recording | T0 | T1 | T2 | envelope span |
+| --- | --- | --- | --- | --- |
+| `041770246...` (sections 45-47) | 6737626.584 | 6737631.955 | 6738050.344 | 423.8 s |
+| `36c7688b...` (sections 58-60) | 72353071.380 | 72353162.546 | 72353168.180 | 96.8 s |
+| `58130506...` (sections 5-7) | 6623968.028 | 6625335.495 | 6625978.889 | 2010.9 s |
+
+**PRODUCER PATH: the checkpoint-BRIDGE PROMOTION, not a chain boundary and not a
+scene-exit tail.** `src = 2` on all three sections rules out the Active recorder
+(`0`) and the BackgroundRecorder (`1`). The live recorder's two
+`TrackSectionSource.Checkpoint` emitters
+(`FlightRecorder.InitializeOnRailsOrbitSegment` and `OnVesselGoOnRails`, at
+`FlightRecorder.cs:10708` / `:10772`) each open exactly ONE section through a
+`CloseCurrentTrackSection` + `StartNewTrackSection` pair, so neither can produce
+three overlapping ones in a pass. The only other producer of
+`ReferenceFrame.OrbitalCheckpoint` sections in `Source/Parsek/` is
+`OrbitSegmentCheckpointBridge` (`:76`), whose
+`EnsureCheckpointSectionsForTopLevelOrbitSegments` promotes flat
+`Recording.OrbitSegments` (a runtime cache) into durable sections.
+
+**AND THAT PRODUCER ALREADY CARRIES A GUARD AGAINST EXACTLY THIS SHAPE, which is
+why this entry is filed as a data question rather than an open product bug with a
+known fix.** `OrbitSegmentCheckpointBridge.cs:407-414` says it verbatim:
+
+> Anti-double-cover (checkpoint-vs-checkpoint): spans already owned by CLOSED
+> checkpoint sections win; only the uncovered remainder(s) of the candidate are
+> promoted. Without this a coarse flat envelope segment [X,Z] would be added
+> alongside existing finer checkpoint sections [X,Y] + [Y,Z], double-covering the
+> whole span.
+
+That is the fixture's shape, named. It landed in `dd8b0272c` (2026-07-11, "Fix
+TrackSection double-cover in the checkpoint bridge producer").
+
+**SETTLED MECHANICALLY, not argued: (a) PRE-GUARD RESIDUE.** The question was run
+rather than reasoned, against the pre-repair bytes: the CURRENT
+`OrbitSegmentCheckpointBridge.EnsureCheckpointSectionsForTopLevelOrbitSegments`
+was driven over the three sidecars headlessly. Measured, identically on all
+three:
+
+    added=0  clipped=0  skippedCovered=0  skippedExisting=14/17/5
+    reconciledEmpty=2/3/2  resorted=0
+
+THE GUARD HOLDS against this input - nothing is added and nothing is clipped, so
+the current producer does not re-create the shape and the bytes predate it. The
+alternative hypothesis (a remaining hole opened by a later splitter re-cutting a
+promoted envelope, `RecordingOptimizer.SplitAtUT` being the place to look) is not
+supported by this input; it is not disproved in general, and the cell's comment
+says so rather than overclaiming.
+
+**AND THE PRODUCER DOES NOT REPAIR IT EITHER, which is the half that decides the
+remedy.** With the empty-shell reconcile armed the bridge DOES act - it removes
+2-3 payload-less sections per recording, and the `[T0,T1]` leg of each triple is
+one of them - but the coarse `[T0,T2]` ENVELOPE and the `[T1,T2]` leg both carry
+payload and both SURVIVE. Those two are precisely the `a` and `b` of the INV2
+finding, so the reported overlap is untouched by any number of producer re-runs.
+There is no retire path for a payload-bearing duplicate already on disk.
+
+**A BASELINE IS NOT AVAILABLE HERE, BY DESIGN, so the fixture was REPAIRED at
+build time on the corpus's own precedent.** The obvious remedy - record the three
+as known findings in `<save>/analysis/baseline.cfg` per
+`docs/dev/design-autotest-findings-baseline.md` and let the gate red only on NEW
+ones - cannot be used on a harness lane. `run.py::_run_analyzer` hard-codes
+`fresh_gate=True` on every produced-save analyzer run, `-FreshSaveGate` sets
+`PARSEK_ANALYZER_BASELINE_MODE=forbid`, and in Forbid the mere PRESENCE of the
+file is a `BASELINE-FORBIDDEN` FAIL. The design doc states the rule itself: "a
+baseline beside a fixture corpus is a BASELINE-FORBIDDEN FAIL; fixtures are
+regenerated, never baselined." `stage_fixture` copytrees the fixture verbatim
+into the produced save, so a committed baseline would ride in and turn every lane
+`INVALID(fixture-authoring)`. `analysis` therefore stays in the builder's
+`FORBIDDEN_DIR_NAMES`.
+
+What the corpus does instead - twice before this - is a build-time CONTAINMENT
+DEDUPE: `duna-one-recorded` dropped six sections and `depot-route-recorded` two,
+each with the before/after analyzer reading recorded in
+`test_saveparse.RECORDED_FIXTURES`. `build_interbody_route_recorded.py` is the
+THIRD consumer of the same shared machinery in `build_duna_one_recorded.py` (no
+copy), and it drops TWELVE sections across FOUR recordings: seven 65-byte
+frame-less shells and three 170-byte re-clips of a conic the kept envelope
+already carries, plus an exact-span duplicate pair in a fourth recording. The
+predicate is CONTAINMENT, so the coverage union cannot move; `repair_prec`
+refuses to write if it does, or if any PARTIAL overlap would be left behind.
+Reading after: `FAIL=0 WARN=1 INFO=0 STALE=0 BASELINED=0 RED=0` (the surviving
+WARN is `INV2-UNCOVERED-SPAN` on the 9.69 Ms Kerbin-ascent-to-Duna-checkpoint gap
+in `ffffab0a...`, which is the same recording the optimizer-cohesion inventory
+pins and is not this entry's subject).
+
+THE REPAIR DOES NOT CLOSE THIS ENTRY. It removes the residue from ONE save so
+three lanes can run; the producer question above stands, and any other save from
+the same era still carries it.
+
+**A FOURTH RECORDING WAS FOUND ONLY BY REPAIRING THE FIRST THREE**, which is
+worth recording as a method note rather than a footnote: the analyzer reports
+FINDINGS, not a repair plan, and clearing the three it named surfaced two more in
+`cc8ec5e4c95a42c697120751599de426`. The builder's `verify_prec` therefore sweeps
+EVERY sidecar and reds on anything droppable that is not in its table, so the
+next re-harvest cannot need another round of the same discovery.
+
+**WHAT CLOSING THIS ACTUALLY NEEDS**, in order: a retire path for a
+payload-bearing checkpoint duplicate (the bridge has none, by design - its
+anti-double-cover guard is preventive only), then a one-shot pass over affected
+saves. Neither is on G10's path, which is why this is filed rather than fixed
+here. The tripwire in the meantime is the builder's own `verify_prec`: re-running
+the shared dedupe over the committed bytes must drop NOTHING, so a future change
+that starts re-creating the shape reds on the next `--check`.
+
 ## RENDER-MANIFEST-VERB-EXPORT-IN-A-SECOND-SCENE-CLOBBERS-THE-FIRST-SCENE-ACCUMULATION: a lane that observes in FLIGHT and then exports the manifest from another scene reads zeroes for everything the FLIGHT scene measured [MEASURED 2026-09-02 by the H59 census run `2026-09-02_0947` (PASS). REPORT-ONLY, NO FIX PROPOSED: the per-scene partition is deliberate and the verb's unconditional write is deliberate; what is undocumented is the CONSEQUENCE for a multi-scene lane, and what is unresolved is a placement rule that forces exactly that shape]
 
 **What was measured.** `H59-surface-route-map-lines` drives its observation in FLIGHT with

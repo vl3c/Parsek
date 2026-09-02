@@ -7024,48 +7024,12 @@ TRACK_SECTION
 	env = 2
 	ref = 2
 	startUT = 6623968.0276330262
-	endUT = 6625335.49533078
-	sampleRate = 0
-	src = 2
-}
-TRACK_SECTION
-{
-	env = 2
-	ref = 2
-	startUT = 6623968.0276330262
 	endUT = 6625978.8885054318
 	sampleRate = 0
 	src = 2
 	ORBIT_SEGMENT
 	{
 		startUT = 6623968.0276330262
-		endUT = 6625978.8885054318
-		inc = 0.098623565224491533
-		ecc = 0.0056959723406217405
-		sma = 757792.6212358895
-		lan = 250.67822292507395
-		argPe = 43.376540959121776
-		mna = 5.5104870402157813
-		epoch = 6623968.0276330262
-		body = Kerbin
-		isPredicted = False
-		ofrX = 0.499462843
-		ofrY = -0.500533938
-		ofrZ = -0.5003356
-		ofrW = 0.4996668
-	}
-}
-TRACK_SECTION
-{
-	env = 2
-	ref = 2
-	startUT = 6625335.49533078
-	endUT = 6625978.8885054318
-	sampleRate = 0
-	src = 2
-	ORBIT_SEGMENT
-	{
-		startUT = 6625335.49533078
 		endUT = 6625978.8885054318
 		inc = 0.098623565224491533
 		ecc = 0.0056959723406217405
@@ -8838,14 +8802,6 @@ TRACK_SECTION
 		ofrZ = -0.497481376
 		ofrW = 0.4972979
 	}
-}
-TRACK_SECTION
-{
-	env = 2
-	ref = 0
-	startUT = 6646497.6471289583
-	endUT = 6647570.0420407793
-	sampleRate = 0
 }
 TRACK_SECTION
 {

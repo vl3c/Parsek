@@ -17,7 +17,14 @@ _(unreleased — entries accumulate here per commit)_
   one in the tracking station. None of them has been run yet, so none of them can
   fail a build; they are written to be read once and then tightened. Each carries the
   exact wrong answer the map used to give as a forbidden line, so if the fix is ever
-  undone the checks say so themselves instead of quietly drawing nothing.
+  undone the checks say so themselves instead of quietly drawing nothing. They have
+  now been run once each: the map drew both of the saved campaign's between-planets
+  routes correctly, and the checks were tightened to the exact numbers that run
+  measured. The run also turned up a separate, older problem in the saved campaign
+  itself - a handful of recorded orbit stretches stored twice over the same span of
+  time, which the recording checker rightly refuses. Those exact duplicates are
+  trimmed out of the test copy (nothing is rewritten, and what the recordings cover
+  is unchanged), and the underlying recorder question is written up separately.
 
 
 - **Automated testing: the suite now has a saved campaign carrying a supply route

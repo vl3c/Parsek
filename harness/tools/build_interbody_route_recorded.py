@@ -112,6 +112,22 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 _HARNESS = os.path.dirname(_HERE)
 _SAVES = os.path.join(_HARNESS, "fixtures", "saves")
 
+if _HERE not in sys.path:
+    sys.path.insert(0, _HERE)
+
+# The INV2 machinery is IMPORTED, not copied, for the reason
+# `build_depot_route_recorded.py` gives when it does the same:
+# `build_duna_one_recorded.py` owns the `.prec` reader, the containment
+# predicate, the overlap sweep and the byte splice, all pure and all already
+# unit-tested on synthetic shapes. This is the THIRD consumer; a third copy would
+# be a third thing to drift, and the predicate is the one piece of judgement in
+# any of the three repairs.
+import build_duna_one_recorded as inv2  # noqa: E402
+
+read_prec_sections = inv2.read_prec_sections
+find_redundant_sections = inv2.find_redundant_sections
+overlapping_pairs = inv2.overlapping_pairs
+
 TARGET_NAME = "interbody-route-recorded"
 
 # --- title / active vessel ------------------------------------------------
@@ -174,6 +190,107 @@ INTERBODY_ROUTE_MEMBER_IDS = (
     "caa6190c37f74e928bfcdc8652ef3910",   # Depot Station Duna I, the dock member
 )
 
+# --- the INV2 containment repair (three recordings) -----------------------
+#
+# WHY THIS FIXTURE NEEDS ONE, MEASURED RATHER THAN ASSUMED. The B32 / V26M / V26T
+# reading runs of 2026-09-02 all classified `PARSEK-FAIL subkind=analyzer` on
+# `topRule=INV2-NO-DOUBLE-COVER red=1 failNonBaselined=3`, and the fixture's own
+# analysis header read `FAIL=3 WARN=1 INFO=0 STALE=0 BASELINED=0 RED=1`. The
+# three FAIL rows, verbatim:
+#
+#   INV2 overlap recording=041770246260406ab85b59495eb51f45
+#        a=[6737626.5840336476,6738050.3439115509] b=[6737631.9546000445,6738050.3439115509]
+#   INV2 overlap recording=36c7688b8e5141f7809e2d4dbe9dc094
+#        a=[72353071.380143166,72353168.179753765] b=[72353162.545671731,72353168.179753765]
+#   INV2 overlap recording=58130506e8f84025b78a95d2497534ab
+#        a=[6623968.0276330262,6625978.8885054318] b=[6625335.49533078,6625978.8885054318]
+#
+# THE SHAPE IS THE SAME TRIPLE IN ALL THREE, and reading it is what makes the
+# repair safe rather than plausible. Each flagged spot is three consecutive
+# `OrbitalCheckpoint` sections, every one `src = 2`
+# (`TrackSectionSource.Checkpoint`):
+#
+#   [n]   [T0,T1]  a NINE-LINE SHELL: zero POINT, zero FRAME, zero ORBIT_SEGMENT
+#   [n+1] [T0,T2]  the coarse envelope, carrying the span's ORBIT_SEGMENT
+#   [n+2] [T1,T2]  a RE-CLIP OF THE SAME CONIC - sma / ecc / inc / lan / argPe /
+#                  mna / epoch / body all byte-identical to [n+1]'s
+#
+# So dropping [n] and [n+2] changes NEITHER coverage (their union is contained in
+# [T0,T2], which is kept) NOR payload (the conic that survives is the same one,
+# at the same epoch). That is exactly `depot-route-recorded`'s repair - "a
+# frame-less shell that was a strict prefix of the next section, and a re-clip of
+# the same conic" - and `duna-one-recorded`'s before it. The shared predicate
+# picks the survivor on its own: widest-first, then largest payload, so the
+# envelope is kept without this builder naming it.
+#
+# WHY NOT A BASELINE. `docs/dev/design-autotest-findings-baseline.md` provides a
+# per-save findings baseline exactly for known findings - but the harness cannot
+# use it here, BY DESIGN. `run.py::_run_analyzer` hard-codes `fresh_gate=True` on
+# every produced-save analyzer run, `analyze-recordings.ps1 -FreshSaveGate` sets
+# `PARSEK_ANALYZER_BASELINE_MODE=forbid`, and in Forbid the mere PRESENCE of
+# `analysis/baseline.cfg` is a `BASELINE-FORBIDDEN` FAIL - the design doc says so
+# itself ("a baseline beside a fixture corpus is a BASELINE-FORBIDDEN FAIL;
+# fixtures are regenerated, never baselined"). `run.py::stage_fixture` copytrees
+# the fixture verbatim into the produced save, so a committed baseline would ride
+# in and red every lane as `INVALID(fixture-authoring)`. That is also why
+# `analysis` stays in FORBIDDEN_DIR_NAMES below.
+#
+# THE PRODUCT FINDING IS NOT REPAIRED AWAY. The residue is real recorder output
+# and is filed as INTERBODY-SAVE-CARRIES-INV2-DOUBLE-COVER in
+# `docs/dev/todo-and-known-bugs.md`, with the producer classified
+# (`OrbitSegmentCheckpointBridge` promotion) and the two-branch question settled
+# by measurement: the CURRENT bridge run over the pre-repair bytes adds nothing
+# and clips nothing (the 2026-07-11 anti-double-cover guard holds), so the bytes
+# predate the guard; and its empty-shell reconcile removes the [T0,T1] shell but
+# leaves the flagged pair standing, so no producer re-run repairs a save. This
+# builder is the only thing that can, and it does it by dropping sections rather
+# than by rewriting any payload.
+
+# (recordingId, sections before, sections after). The dropped INDICES are not
+# pinned: they are what the shared containment predicate selects, and pinning
+# them would duplicate the predicate's judgement in a place that cannot check it.
+# The COUNTS are pinned because they are the falsifiable part - a re-harvest
+# whose sidecars carry a different section list reds here rather than silently
+# repairing something else.
+INV2_REPAIRS = (
+    ("041770246260406ab85b59495eb51f45", 57, 54),
+    ("36c7688b8e5141f7809e2d4dbe9dc094", 64, 60),
+    ("58130506e8f84025b78a95d2497534ab", 25, 22),
+    ("cc8ec5e4c95a42c697120751599de426", 42, 40),
+)
+
+# TEN sections in total, and the dedupe found MORE than the three INV2 rows
+# named - which is the predicate doing its job rather than a surprise. Measured
+# drops, by byte size, which is what distinguishes the two shapes:
+#
+#   SEVEN 65-byte FRAME-LESS SHELLS. Three are the [T0,T1] legs of the triples
+#   above; the other four are `ref=0 src=0` Absolute shells sharing a span
+#   EXACTLY with the `ref=2 src=2` OrbitalCheckpoint beside them
+#   (041770246 [18], 36c7688b [22] and [30], 58130506 [18]). That second shape is
+#   `duna-one-recorded`'s repair verbatim - "keeps the ref=2 src=2
+#   OrbitalCheckpoint carrying the span's ORBIT_SEGMENT over the frame-less
+#   ref=0 src=0 shell at each of the four SOI seams" - and the shared predicate
+#   picks the same survivor here without this builder naming it.
+#
+#   THREE 170-byte RE-CLIPS of a conic the kept envelope already carries
+#   (041770246 [47], 36c7688b [60], 58130506 [7]).
+#
+# A FOURTH RECORDING JOINED THE LIST AFTER THE FIRST REPAIR RAN, and how it was
+# found is the reason `verify_prec` sweeps every sidecar rather than only the
+# named ones. The 2026-09-02 flights reported THREE INV2 FAILs; repairing those
+# three and re-running the Forbid gate surfaced TWO MORE, in
+# `cc8ec5e4c95a42c697120751599de426` ([18] and [33], an exact-span duplicate pair
+# each). Chasing the analyzer one report at a time would have taken as many
+# passes as there are findings, so the builder now runs the shared containment
+# predicate over EVERY `.prec` in the fixture and reds on anything droppable that
+# is not in this table - which is also what makes a re-harvest that grows a new
+# one fail loudly instead of shipping a lane-reddening fixture.
+#
+# `overlapping_pairs` over the kept list is EMPTY for all four afterwards, and
+# `inv2.repair_prec` refuses to write at all if the coverage union moves or if a
+# PARTIAL overlap (two sections crossing without containment) would be left
+# behind. Neither happens here.
+
 # --- the file tree --------------------------------------------------------
 
 ADDONS_DONOR_NAME = "depot-route-recorded"
@@ -210,6 +327,11 @@ EXPECTED_AUTHORITATIVE_SIDECARS = 175
 # ---------------------------------------------------------------------------
 #  File I/O (LF-only, matching the harvest)
 # ---------------------------------------------------------------------------
+
+
+def _read_bytes(path: str) -> bytes:
+    with open(path, "rb") as fh:
+        return fh.read()
 
 
 def read_lines(path: str) -> List[str]:
@@ -269,6 +391,96 @@ def _child_span(lines: List[str], span: Tuple[int, int],
         if lines[i].strip() == name:
             return _node_block(lines, i)
     return None
+
+
+# ---------------------------------------------------------------------------
+#  The INV2 containment repair
+# ---------------------------------------------------------------------------
+
+
+def repair_prec(recordings_dir: str) -> List[Tuple[str, List[dict]]]:
+    """Run the shared INV2 containment dedupe over the three flagged sidecars.
+
+    Delegates to `inv2.repair_prec` by pointing its module constant at each
+    recording in turn, the rebinding pattern `build_depot_route_recorded.py`
+    established. Rebinding rather than re-implementing keeps ONE copy of the
+    coverage-invariance assertion, the partial-overlap refusal and the
+    mirror-agreement check; the try/finally restores the constant so a process
+    that imported several builders cannot leave another one aimed here.
+
+    Writes nothing when there is nothing to drop, so it is idempotent and
+    `--check` can run the same reader over the committed bytes.
+    """
+    out: List[Tuple[str, List[dict]]] = []
+    saved = inv2.INV2_REPAIR_RECORDING_ID
+    try:
+        for rec_id, _before, _after in INV2_REPAIRS:
+            inv2.INV2_REPAIR_RECORDING_ID = rec_id
+            out.append((rec_id, inv2.repair_prec(recordings_dir)))
+    finally:
+        inv2.INV2_REPAIR_RECORDING_ID = saved
+    return out
+
+
+def verify_prec(fixture_dir: str) -> List[str]:
+    """Post-conditions over the three repaired sidecars.
+
+    Re-running the dedupe over the COMMITTED bytes must drop NOTHING (the repair
+    is idempotent and already applied), the section count must be the pinned
+    after-count, and no interior overlap may remain - that last one is the
+    fixture-side statement of the analyzer finding this repair exists to clear,
+    checked here without needing a KSP run.
+    """
+    problems: List[str] = []
+    recordings = os.path.join(fixture_dir, "Parsek", "Recordings")
+    for rec_id, before, after in INV2_REPAIRS:
+        prec = os.path.join(recordings, rec_id + ".prec")
+        if not os.path.isfile(prec):
+            problems.append("repaired recording %s.prec is missing" % rec_id)
+            continue
+        blob = _read_bytes(prec)
+        _count_offset, sections = read_prec_sections(blob)
+        if len(sections) != after:
+            problems.append(
+                "%s carries %d TrackSections, expected %d after the INV2 repair "
+                "(%d before)" % (rec_id, len(sections), after, before))
+        still = overlapping_pairs(sections)
+        if still:
+            problems.append(
+                "%s still carries interior TrackSection overlap(s) %r - the INV2 "
+                "repair did not clear the finding" % (rec_id, still))
+        droppable = find_redundant_sections(sections)
+        if droppable:
+            problems.append(
+                "%s still has redundant section(s) %r - re-running the dedupe "
+                "over the committed bytes must drop nothing"
+                % (rec_id, droppable))
+
+    # THE SWEEP, over every sidecar rather than the named four. The analyzer
+    # reports findings, not a repair plan, and repairing the three it named
+    # surfaced two more in a fourth recording (see INV2_REPAIRS above). Asserting
+    # that NOTHING else in the fixture is droppable is the only form of this
+    # check that cannot need another round.
+    named = {rec_id for rec_id, _b, _a in INV2_REPAIRS}
+    for name in sorted(os.listdir(recordings)):
+        if not name.endswith(".prec"):
+            continue
+        rec_id = name[:-len(".prec")]
+        if rec_id in named:
+            continue
+        try:
+            _off, sections = read_prec_sections(
+                _read_bytes(os.path.join(recordings, name)))
+        except Exception as exc:                      # noqa: BLE001
+            problems.append("%s: unreadable .prec (%s)" % (rec_id, exc))
+            continue
+        droppable = find_redundant_sections(sections)
+        if droppable:
+            problems.append(
+                "%s carries redundant section(s) %r but is NOT in INV2_REPAIRS - "
+                "add it (with its before/after counts) and re-run the builder"
+                % (rec_id, droppable))
+    return problems
 
 
 # ---------------------------------------------------------------------------
@@ -598,6 +810,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     if args.check:
         problems = verify_save(read_lines(sfs))
         problems += verify_tree(fixture_dir)
+        problems += verify_prec(fixture_dir)
         for p in problems:
             print("FAIL: %s" % p)
         if problems:
@@ -625,8 +838,20 @@ def main(argv: Optional[List[str]] = None) -> int:
           % (ADDONS_REL.replace("\\", "/"), ADDONS_DONOR_NAME,
              os.path.getsize(addons_dst)))
 
+    # --- 3: the INV2 containment repair ----------------------------------
+    repaired = repair_prec(os.path.join(fixture_dir, "Parsek", "Recordings"))
+    for rec_id, dropped in repaired:
+        if dropped:
+            print("INV2 dedupe %s: dropped %d section(s) %s"
+                  % (rec_id[:8], len(dropped),
+                     ", ".join("[%d] %r..%r" % (d["index"], d["startUT"], d["endUT"])
+                               for d in dropped)))
+        else:
+            print("INV2 dedupe %s: nothing to drop (already repaired)" % rec_id[:8])
+
     problems = verify_save(read_lines(sfs))
     problems += verify_tree(fixture_dir)
+    problems += verify_prec(fixture_dir)
     for p in problems:
         print("FAIL: %s" % p)
     if problems:

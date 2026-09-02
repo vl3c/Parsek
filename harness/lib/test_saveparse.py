@@ -2684,6 +2684,29 @@ class CommittedFixtureSweepTests(unittest.TestCase):
         # schema - and `test_build_interbody_route_recorded` pins that it is
         # still there.
         #
+        # REPAIRED AT BUILD TIME, the `duna-one-recorded` / `depot-route-recorded`
+        # precedent, and the reading is the argument. The 2026-09-02 B32 / V26M /
+        # V26T runs all classified `PARSEK-FAIL(analyzer)` on
+        # `INV2-NO-DOUBLE-COVER`; the fixture read `FAIL=3 WARN=1 RED=1` under the
+        # Forbid gate. `build_interbody_route_recorded.py` now runs the SHARED
+        # containment dedupe (imported from `build_duna_one_recorded`, third
+        # consumer, no copy) over FOUR recordings and drops TWELVE sections -
+        # seven 65-byte frame-less shells and three 170-byte re-clips of a conic
+        # the kept envelope already carries, plus an exact-span duplicate pair.
+        # The predicate is CONTAINMENT, so the coverage union cannot move, and
+        # `repair_prec` refuses to write if it does or if a PARTIAL overlap would
+        # be left. Reading after: `FAIL=0 WARN=1 INFO=0 STALE=0 BASELINED=0
+        # RED=0`. NONE of the counts pinned below moved - the drops are sidecar
+        # TrackSections, not recordings, files or `.sfs` structure - which is why
+        # this block is a provenance note rather than a re-derivation.
+        #
+        # A BASELINE WAS NOT AN OPTION and the reason is structural: `run.py`
+        # hard-codes `-FreshSaveGate` on every produced-save analyzer run, which
+        # sets `PARSEK_ANALYZER_BASELINE_MODE=forbid`, and in Forbid the PRESENCE
+        # of `analysis/baseline.cfg` is itself a `BASELINE-FORBIDDEN` FAIL. The
+        # producer defect behind the residue is filed as
+        # INTERBODY-SAVE-CARRIES-INV2-DOUBLE-COVER; it is not repaired away.
+        #
         # `recordingIds` is the four [root..undock] MEMBERS of the inter-body
         # route rather than all 45: those are the ones the route resolves and a
         # route-line build walks, so a sidecar loss THERE is the loss that breaks
