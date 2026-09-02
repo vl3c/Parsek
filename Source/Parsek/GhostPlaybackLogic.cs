@@ -7613,16 +7613,28 @@ namespace Parsek
             }
         }
 
+        /// <summary>
+        /// THE DRIVER PATH, and it stays CLASSIFY-FREE on purpose.
+        /// <see cref="UpdateBlinkingLights"/> calls this once per blinking light per
+        /// ghost per frame, and that cost multiplies across every ghost in the scene.
+        /// Routing it through the outcome variant would run the light classifier PLUS
+        /// the nested colour-changer scan (a per-part list walk with a per-material
+        /// walk inside it) on every one of those frames only to discard the answer.
+        /// The blink driver has no event to attribute an outcome to, so it does the
+        /// writes and nothing else - exactly the work the pre-P8 body did.
+        /// </summary>
         internal static void SetLightState(GhostPlaybackState state, uint partPersistentId, bool on)
         {
-            SetLightStateWithOutcomes(state, partPersistentId, on, out _, out _);
+            WriteUnityLightState(state, partPersistentId, on);
+            WriteColorChangerLightState(state, partPersistentId, on);
         }
 
         /// <summary>
-        /// P8 step 1 outcome-reporting core for the two light surfaces. The per-frame
-        /// blink driver keeps calling the void wrapper: those writes are a DRIVER pass,
-        /// not an event apply, and tallying them would flood the family line with
-        /// counts that no recorded event produced.
+        /// P8 step 1 outcome-reporting variant for the two light surfaces, reached ONLY
+        /// from a recorded light EVENT (<see cref="ApplyLightPowerEventWithOutcomes"/>),
+        /// never from the per-frame blink driver above. Classifies each surface, then
+        /// hands the write to the SAME single writer the driver path uses - one write
+        /// loop per surface, not two.
         /// </summary>
         internal static void SetLightStateWithOutcomes(
             GhostPlaybackState state,
@@ -7634,17 +7646,26 @@ namespace Parsek
             // Toggle Unity Light components (existing behavior)
             lightOutcome = ClassifyUnityLightApply(state, partPersistentId);
             if (lightOutcome == GhostPartEventOutcome.Applied)
-            {
-                LightGhostInfo info = state.lightInfos[partPersistentId];
-                for (int i = 0; i < info.lights.Count; i++)
-                {
-                    if (info.lights[i] != null)
-                        info.lights[i].enabled = on;
-                }
-            }
+                WriteUnityLightState(state, partPersistentId, on);
 
             // Toggle ColorChanger emissive materials (Pattern A: cabin lights)
             colorChangerOutcome = ApplyColorChangerLightStateWithOutcome(state, partPersistentId, on);
+        }
+
+        /// <summary>The single Unity-Light write loop, shared by both paths above.</summary>
+        private static void WriteUnityLightState(
+            GhostPlaybackState state, uint partPersistentId, bool on)
+        {
+            if (state.lightInfos == null) return;
+            LightGhostInfo info;
+            if (!state.lightInfos.TryGetValue(partPersistentId, out info)
+                || info == null || info.lights == null)
+                return;
+            for (int i = 0; i < info.lights.Count; i++)
+            {
+                if (info.lights[i] != null)
+                    info.lights[i].enabled = on;
+            }
         }
 
         /// <summary>
@@ -7666,26 +7687,20 @@ namespace Parsek
             return GhostPartEventOutcome.NoResolvedVisual;
         }
 
+        /// <summary>
+        /// The classify-free colour-changer half of the DRIVER path (see
+        /// <see cref="SetLightState"/>). Same writer the event path uses.
+        /// </summary>
         internal static void ApplyColorChangerLightState(GhostPlaybackState state, uint partPersistentId, bool on)
         {
-            ApplyColorChangerLightStateWithOutcome(state, partPersistentId, on);
+            WriteColorChangerLightState(state, partPersistentId, on);
         }
 
         /// <summary>
-        /// P8 step 1 outcome-reporting core. The three not-applied cases are distinct
-        /// facts about the GHOST BUILD, and telling them apart is the whole point of
-        /// SHOWCASE-COLORCHANGER-APPLY-UNOBSERVABLE:
-        /// <list type="bullet">
-        /// <item><description><c>no-family-state</c>: the ghost has no colour-changer
-        /// dictionary at all (nothing on the craft uses ModuleColorChanger).</description></item>
-        /// <item><description><c>no-info-for-part</c>: the dictionary exists but Pattern-A
-        /// discovery resolved NOTHING for this part.</description></item>
-        /// <item><description><c>no-cabin-light-entry</c>: entries exist for the part but
-        /// none is a cabin light, so a light event has nothing here to toggle - the part
-        /// genuinely carries only Pattern-B (reentry char) colour changers.</description></item>
-        /// <item><description><c>no-resolved-visual</c>: a cabin-light entry exists but
-        /// every material in it resolved to null.</description></item>
-        /// </list>
+        /// P8 step 1 outcome-reporting variant, reached only from a recorded light
+        /// EVENT. Classifies (the four distinct ghost-build facts are documented on
+        /// <see cref="ClassifyColorChangerLightApply"/>) and then hands the write to
+        /// the single writer below.
         /// </summary>
         internal static GhostPartEventOutcome ApplyColorChangerLightStateWithOutcome(
             GhostPlaybackState state, uint partPersistentId, bool on)
@@ -7694,12 +7709,31 @@ namespace Parsek
                 ClassifyColorChangerLightApply(state, partPersistentId);
             if (precondition != GhostPartEventOutcome.Applied) return precondition;
 
-            List<ColorChangerGhostInfo> infos = state.colorChangerInfos[partPersistentId];
+            WriteColorChangerLightState(state, partPersistentId, on);
+            return GhostPartEventOutcome.Applied;
+        }
+
+        /// <summary>
+        /// The single Pattern-A colour-changer write loop, shared by the driver path
+        /// and the event path. Self-guarding, so the driver reaches it without a
+        /// classifier pass.
+        /// </summary>
+        private static void WriteColorChangerLightState(
+            GhostPlaybackState state, uint partPersistentId, bool on)
+        {
+            if (state.colorChangerInfos == null) return;
+
+            List<ColorChangerGhostInfo> infos;
+            if (!state.colorChangerInfos.TryGetValue(partPersistentId, out infos) || infos == null)
+                return;
+
             for (int c = 0; c < infos.Count; c++)
             {
                 var ccInfo = infos[c];
-                if (!ccInfo.isCabinLight) continue; // Only Pattern A responds to light events
+                if (ccInfo == null || !ccInfo.isCabinLight) continue; // Only Pattern A responds
+                if (ccInfo.materials == null) continue;
 
+                bool wrote = false;
                 for (int i = 0; i < ccInfo.materials.Count; i++)
                 {
                     if (ccInfo.materials[i].material != null)
@@ -7707,14 +7741,14 @@ namespace Parsek
                         ccInfo.materials[i].material.SetColor(
                             ccInfo.shaderProperty,
                             on ? ccInfo.materials[i].onColor : ccInfo.materials[i].offColor);
+                        wrote = true;
                     }
                 }
 
-                ParsekLog.VerboseRateLimited("Flight", $"cc-light-{partPersistentId}",
-                    $"Part pid={partPersistentId}: applied color changer cabin light state={on}");
+                if (wrote)
+                    ParsekLog.VerboseRateLimited("Flight", $"cc-light-{partPersistentId}",
+                        $"Part pid={partPersistentId}: applied color changer cabin light state={on}");
             }
-
-            return GhostPartEventOutcome.Applied;
         }
 
         /// <summary>

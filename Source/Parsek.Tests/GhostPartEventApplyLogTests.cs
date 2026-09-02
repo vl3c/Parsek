@@ -16,15 +16,18 @@ namespace Parsek.Tests
     /// ghost carries nothing for that pid". Six D7 registry cells were unclaimable for
     /// want of a required token.
     ///
-    /// WHAT IS AND IS NOT DRIVABLE HERE, measured rather than assumed. A method whose
-    /// BODY names a Unity ECall (any Transform / GameObject / Light / Material write)
-    /// cannot even be JIT'd under xUnit: it throws
+    /// WHAT IS AND IS NOT DRIVABLE HERE, measured rather than assumed. SOME Unity
+    /// writes make their whole enclosing method un-JIT-able under xUnit: it throws
     /// <c>SecurityException: ECall methods must be packaged into a system module</c>
     /// on ENTRY, before the first guard runs, so a guard living inside such a body is
-    /// unreachable from a headless test no matter which branch it would take. That is
-    /// why every family's preconditions live in a <c>Classify*Apply</c> function the
-    /// handler CALLS rather than in an early return the handler owns - one code path,
-    /// and a testable one.
+    /// unreachable from a headless test no matter which branch it would take. The
+    /// boundary is NARROWER than "any Unity write" and was measured by running these
+    /// cells: the <c>GameObject.SetActive</c> / <c>Light.enabled</c> shape throws,
+    /// while plain Transform property writes do not - <c>ApplyHeatStateWithOutcome</c>
+    /// and <c>ApplyDeployableStateWithOutcome</c> both run here. Every family's
+    /// preconditions still live in a <c>Classify*Apply</c> function the handler CALLS
+    /// rather than in an early return the handler owns: one code path, a testable one,
+    /// and coverage that does not vanish the day a handler gains a SetActive.
     ///
     /// Covered below: the tally and the line grammar (every token, InvariantCulture),
     /// and every family's "the ghost carries nothing here" class - exactly the facts the
@@ -248,6 +251,82 @@ namespace Parsek.Tests
         {
             new GhostPartEventApplyTally().Flush(0);
             Assert.DoesNotContain(logLines, l => l.Contains("[GhostPartEvents]"));
+        }
+
+        [Fact]
+        public void OnlyTheThreeContinuouslySampledFamiliesAreRateLimited()
+        {
+            // The recorder samples these three every frame while the signal moves; every
+            // other family is a state CHANGE, bounded by the recorded event count.
+            Assert.True(GhostPartEventApplyLog.IsPerFrameFamily(PartEventType.EngineThrottle));
+            Assert.True(GhostPartEventApplyLog.IsPerFrameFamily(PartEventType.RCSThrottle));
+            Assert.True(GhostPartEventApplyLog.IsPerFrameFamily(PartEventType.RoboticPositionSample));
+
+            foreach (PartEventType family in Enum.GetValues(typeof(PartEventType)))
+            {
+                if (family == PartEventType.EngineThrottle
+                    || family == PartEventType.RCSThrottle
+                    || family == PartEventType.RoboticPositionSample)
+                    continue;
+                Assert.False(GhostPartEventApplyLog.IsPerFrameFamily(family),
+                    "family " + family + " must not be rate-limited");
+            }
+        }
+
+        [Fact]
+        public void ABoundedFamilysSecondOccurrenceIsNotSuppressed_TheSkipMustSurvive()
+        {
+            // THE REVIEW FINDING, as a test. Under one uniform 15 s key per (rec,
+            // family, surface) this second flush - the SKIP a lane is hunting - was
+            // suppressed outright and survived only as a `suppressed=N` counter on some
+            // later emission. Both lines must be in the log, in full.
+            ParsekLog.ClockOverrideForTesting = () => 0.0;
+            var applied = new GhostPartEventApplyTally();
+            applied.Record(PartEventType.GearDeployed, GhostPartEventSurface.Deployable, 1u,
+                GhostPartEventOutcome.Applied);
+            applied.Flush(4);
+
+            ParsekLog.ClockOverrideForTesting = () => 5.0;
+            var skipped = new GhostPartEventApplyTally();
+            skipped.Record(PartEventType.GearDeployed, GhostPartEventSurface.Deployable, 2u,
+                GhostPartEventOutcome.NoInfoForPart);
+            skipped.Flush(4);
+
+            Assert.Contains(logLines, l => l.Contains(
+                "apply family=GearDeployed surface=deployable rec=4 pid=1 applied=1 skipped=0 reason=applied"));
+            Assert.Contains(logLines, l => l.Contains(
+                "apply family=GearDeployed surface=deployable rec=4 pid=2 applied=0 skipped=1 reason=no-info-for-part"));
+            Assert.DoesNotContain(logLines, l => l.Contains("suppressed="));
+        }
+
+        [Fact]
+        public void APerFrameFamilysSecondOccurrenceInsideTheWindowIsRateLimited()
+        {
+            // The other half of the policy: EngineThrottle IS unbounded in flight
+            // length, so a second line 5 s later is deliberately held back.
+            ParsekLog.ClockOverrideForTesting = () => 0.0;
+            var first = new GhostPartEventApplyTally();
+            first.Record(PartEventType.EngineThrottle, GhostPartEventSurface.EngineFx, 1u,
+                GhostPartEventOutcome.Applied);
+            first.Flush(4);
+
+            ParsekLog.ClockOverrideForTesting = () => 5.0;
+            var second = new GhostPartEventApplyTally();
+            second.Record(PartEventType.EngineThrottle, GhostPartEventSurface.EngineFx, 2u,
+                GhostPartEventOutcome.Applied);
+            second.Flush(4);
+
+            Assert.Equal(1, logLines.Count(
+                l => l.Contains("apply family=EngineThrottle surface=engine-fx")));
+
+            // Past the 15 s interval it emits again, carrying the suppressed count.
+            ParsekLog.ClockOverrideForTesting = () => 30.0;
+            var third = new GhostPartEventApplyTally();
+            third.Record(PartEventType.EngineThrottle, GhostPartEventSurface.EngineFx, 3u,
+                GhostPartEventOutcome.Applied);
+            third.Flush(4);
+            Assert.Equal(2, logLines.Count(
+                l => l.Contains("apply family=EngineThrottle surface=engine-fx")));
         }
 
         #endregion

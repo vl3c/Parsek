@@ -911,25 +911,45 @@ CONTRACTS THAT MUST NOT DRIFT:
 - **The precondition classifiers ARE the handlers' early returns.** Each family has an
   internal `Classify*Apply` pure function that the handler CALLS; there is no second
   copy of a guard. Two reasons: the standing rule against duplicating a predicate, and
-  the measured fact that a method whose BODY names a Unity ECall (any Transform /
-  GameObject / Light / Material write) cannot be JIT'd under xUnit at all - it throws
-  `SecurityException: ECall methods must be packaged into a system module` on ENTRY,
-  before any branch runs. A guard inside such a body is untestable by construction.
+  a measured testability constraint. Some Unity writes make their whole enclosing
+  method un-JIT-able under xUnit - it throws `SecurityException: ECall methods must be
+  packaged into a system module` on ENTRY, before any branch runs - so a guard inside
+  such a body is unreachable from a headless test whichever branch it would take.
+  MEASURED, not assumed, and the boundary is narrower than "any Unity write": the
+  `GameObject.SetActive` / `Light.enabled` shape throws, while plain Transform property
+  writes do NOT - `ApplyHeatStateWithOutcome` and `ApplyDeployableStateWithOutcome`
+  both run headlessly. The classifier split is applied uniformly anyway, because the
+  boundary is a property of the JIT rather than of the family and a handler that gains
+  a `SetActive` later would otherwise silently lose its test coverage.
 - **The historical signatures are wrappers.** `SetEngineEmission`, `ApplyDeployableState`,
   `ApplyHeatState`, `ApplyConverterLoopState` and the rest keep their void/bool
   signatures and delegate to a `*WithOutcome` core, so no existing caller changed. The
   converter wrapper deliberately maps BOTH `Applied` and `AlreadyInState` back to true,
   which is its historical contract ("a loop was reached").
+- **The rate-limit policy is PER FAMILY, not uniform.** `IsPerFrameFamily` names the
+  only three rate-limited families - `EngineThrottle`, `RCSThrottle` and
+  `RoboticPositionSample`, the ones the recorder samples continuously rather than on a
+  state change, whose line count is unbounded in the flight length. Those flush through
+  `VerboseRateLimited` at 15 s keyed per (recording, family, surface). EVERY OTHER
+  FAMILY flushes as plain `Verbose`, one line per occurrence, because it is bounded and
+  event-driven (a stage fires once, a bay opens once, a chute cuts once) and an
+  occurrence is already one AGGREGATED line per `ApplyPartEvents` call. A UNIFORM 15 s
+  limiter was measurably wrong and is the thing not to reintroduce: a batch that applied
+  pid A at t=0 and SKIPPED pid B at t=5 suppressed the second line outright, so the skip
+  the instrument exists to surface survived only as a `suppressed=N` counter on some
+  later emission. Guarded by `ABoundedFamilysSecondOccurrenceIsNotSuppressed_TheSkipMustSurvive`
+  and its per-frame mirror.
 - **Cost.** The tally is allocated LAZILY on the first CONSUMED event, so a ghost whose
-  event cursor is caught up (the overwhelmingly common frame) pays nothing. The flush
-  is `VerboseRateLimited` at a 15 s interval keyed per (recording, family, surface) -
-  longer than the 5 s default because a family line is a state statement, not
-  telemetry, and a scene multiplies every line by the ghost count. The first occurrence
-  per key always emits, so a lane still sees every family it drove.
-- **`UpdateBlinkingLights` must not be tallied.** It calls the same `SetLightState`
-  every frame; those writes are a DRIVER pass, not an event apply, and counting them
-  would flood the family line with counts no recorded event produced. Only the void
-  wrapper is on that path.
+  event cursor is caught up (the overwhelmingly common frame) pays nothing at all.
+- **`UpdateBlinkingLights` must stay on the CLASSIFY-FREE driver path.** It calls
+  `SetLightState` once per blinking light per ghost per frame, and that cost multiplies
+  across every ghost in the scene. `SetLightState` therefore calls the two writers
+  (`WriteUnityLightState` / `WriteColorChangerLightState`) DIRECTLY; only
+  `SetLightStateWithOutcomes`, reached from a recorded light event, runs the light
+  classifier and the nested colour-changer scan (a per-part list walk with a
+  per-material walk inside it). Routing the driver through the outcome variant would
+  run both every frame only to discard the answer, and would also tally driver writes
+  that no recorded event produced. One write loop per surface serves both paths.
 - One behaviour note, deliberate: the pre-existing `Part pid=N: applied color changer
   cabin light state=<bool>` line now fires only when a live material was actually
   written (it previously fired for a cabin-light entry with zero live materials). It

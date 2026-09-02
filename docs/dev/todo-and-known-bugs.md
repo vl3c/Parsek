@@ -1159,19 +1159,28 @@ apply family=EvaJetpackDeployed surface=eva rec=0 pid=5 applied=0 skipped=1 reas
 
 HOW THE FLOOD RISK IS HANDLED: the tally is allocated LAZILY on the first CONSUMED
 event, so the overwhelmingly common frame (cursor already caught up, loop body never
-entered) allocates nothing and logs nothing; the flush rate-limits at 15 s per
-(recording, family, surface), longer than the 5 s default because a family line is a
-state statement rather than telemetry and a crowded scene multiplies it by the ghost
-count. The first occurrence per key always emits, so a lane sees every family it drove.
+entered) allocates nothing and logs nothing. Rate limiting is then PER FAMILY rather
+than uniform: only `EngineThrottle`, `RCSThrottle` and `RoboticPositionSample` - the
+three the recorder samples continuously, whose line count is unbounded in the flight
+length - flush through `VerboseRateLimited` at 15 s keyed per (recording, family,
+surface). Every other family flushes as plain `Verbose`, one line per occurrence,
+because it is bounded and event-driven and an occurrence is already one AGGREGATED line
+per applier call. A uniform limiter was tried first and was wrong: it suppressed a SKIP
+that landed within 15 s of an APPLY on the same key, leaving the thing the instrument
+exists to surface as a `suppressed=N` counter on a later line.
 
 HOW DRIFT IS PREVENTED: each family's preconditions live in an internal
 `Classify*Apply` PURE function that the handler itself calls, so the classifier IS the
 early return and there is no second copy of a guard. That shape is also forced by a
-measured constraint worth writing down: a method whose BODY names a Unity ECall (any
-Transform / GameObject / Light / Material write) cannot be JIT'd under xUnit at all -
-it throws `SecurityException: ECall methods must be packaged into a system module` on
-ENTRY, before any branch runs - so a guard inside such a body is untestable by
-construction, whichever branch it would take. Historical signatures
+measured constraint worth writing down: SOME Unity writes make their whole enclosing
+method un-JIT-able under xUnit - `SecurityException: ECall methods must be packaged
+into a system module` on ENTRY, before any branch runs - so a guard inside such a body
+is untestable by construction, whichever branch it would take. The boundary is narrower
+than "any Unity write" and was MEASURED: the `GameObject.SetActive` / `Light.enabled`
+shape throws, while plain Transform property writes do not (`ApplyHeatStateWithOutcome`
+and `ApplyDeployableStateWithOutcome` run headlessly). The split is applied uniformly
+anyway, so coverage does not vanish the day a handler gains a SetActive. Historical
+signatures
 (`SetEngineEmission`, `ApplyDeployableState`, `ApplyHeatState`,
 `ApplyConverterLoopState`, ...) are kept as wrappers over `*WithOutcome` cores, so no
 existing caller changed.

@@ -93,13 +93,50 @@ namespace Parsek
         internal const string Subsystem = "GhostPartEvents";
 
         /// <summary>
-        /// Rate-limit interval for the per-family summary. Deliberately longer than
-        /// the 5 s default: a family line is a STATE statement, not telemetry, and a
-        /// scene full of ghosts multiplies every emitted line by the ghost count.
-        /// The first occurrence per (recording, family, surface) always emits, so a
-        /// log-reading lane still sees every family it drove.
+        /// Rate-limit interval for the PER-FRAME families only (see
+        /// <see cref="IsPerFrameFamily"/>). Deliberately longer than the 5 s default:
+        /// those families emit on every playback interval per ghost, and a crowded
+        /// scene multiplies that by the ghost count. The first occurrence per
+        /// (recording, family, surface) always emits.
         /// </summary>
         internal const double RateLimitSeconds = 15.0;
+
+        /// <summary>
+        /// THE RATE-LIMIT POLICY, and it is per FAMILY rather than uniform.
+        ///
+        /// The house convention reserves <c>VerboseRateLimited</c> for per-frame paths
+        /// and logs bounded per-item counts plainly. A UNIFORM rate limit was
+        /// measurably wrong here: with one 15 s key per (recording, family, surface),
+        /// a batch that APPLIED pid A at t=0 and SKIPPED pid B at t=5 suppressed the
+        /// second line outright, and the skip a lane is hunting survived only as a
+        /// <c>suppressed=N</c> counter on some later emission. The skip is the whole
+        /// reason this instrument exists; it must not be what the limiter eats.
+        ///
+        /// PER-FRAME (rate-limited, keyed rec+family+surface): the three families the
+        /// recorder samples continuously rather than on a state change -
+        /// <see cref="PartEventType.EngineThrottle"/>,
+        /// <see cref="PartEventType.RCSThrottle"/> and
+        /// <see cref="PartEventType.RoboticPositionSample"/>. Their line count is
+        /// unbounded in the flight length.
+        ///
+        /// EVERYTHING ELSE: plain <see cref="ParsekLog.Verbose"/>, one line per
+        /// occurrence. These are bounded, event-driven families - a stage fires once,
+        /// a bay opens once, a chute cuts once - and an occurrence is already one
+        /// AGGREGATED line per ApplyPartEvents call that consumed at least one event
+        /// of that family, so the volume is bounded by the recorded event count.
+        /// </summary>
+        internal static bool IsPerFrameFamily(PartEventType family)
+        {
+            switch (family)
+            {
+                case PartEventType.EngineThrottle:
+                case PartEventType.RCSThrottle:
+                case PartEventType.RoboticPositionSample:
+                    return true;
+                default:
+                    return false;
+            }
+        }
 
         internal static string OutcomeToken(GhostPartEventOutcome outcome)
         {
@@ -292,18 +329,30 @@ namespace Parsek
             foreach (var kv in entries)
             {
                 Entry entry = kv.Value;
-                ParsekLog.VerboseRateLimited(
-                    GhostPartEventApplyLog.Subsystem,
-                    GhostPartEventApplyLog.RateLimitKey(recIdx, entry.family, entry.surface),
-                    GhostPartEventApplyLog.FormatLine(
-                        entry.family,
-                        entry.surface,
-                        recIdx,
-                        entry.hasSkippedPid ? entry.skippedPid : entry.appliedPid,
-                        entry.applied,
-                        entry.skipped,
-                        entry.hasSkippedPid ? entry.firstSkipReason : GhostPartEventOutcome.Applied),
-                    GhostPartEventApplyLog.RateLimitSeconds);
+                string line = GhostPartEventApplyLog.FormatLine(
+                    entry.family,
+                    entry.surface,
+                    recIdx,
+                    entry.hasSkippedPid ? entry.skippedPid : entry.appliedPid,
+                    entry.applied,
+                    entry.skipped,
+                    entry.hasSkippedPid ? entry.firstSkipReason : GhostPartEventOutcome.Applied);
+
+                // Per-family policy, NOT a uniform limiter - see
+                // GhostPartEventApplyLog.IsPerFrameFamily for why a uniform 15 s key
+                // silently ate the skip lines this instrument exists to surface.
+                if (GhostPartEventApplyLog.IsPerFrameFamily(entry.family))
+                {
+                    ParsekLog.VerboseRateLimited(
+                        GhostPartEventApplyLog.Subsystem,
+                        GhostPartEventApplyLog.RateLimitKey(recIdx, entry.family, entry.surface),
+                        line,
+                        GhostPartEventApplyLog.RateLimitSeconds);
+                }
+                else
+                {
+                    ParsekLog.Verbose(GhostPartEventApplyLog.Subsystem, line);
+                }
             }
         }
     }
