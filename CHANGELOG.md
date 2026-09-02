@@ -22,7 +22,9 @@ _(unreleased — entries accumulate here per commit)_
   was waiting for. Together these pin the promise the reservation makes - it holds back
   exactly what the first route is going to take, never more and never less - so two
   routes can never both spend the same fuel, and a route is never told to wait for fuel
-  nobody will collect. Nothing player-facing changes.
+  nobody will collect. Both checks pass unattended, twice over, and a deliberately
+  broken copy of the check was confirmed to fail - so the check is known to catch a
+  regression rather than merely to pass. Nothing player-facing changes.
 
 - **Test coverage: the start-docked supply-route origin now has an automated subject.**
   Two new in-game checks fly the shape the roadmap had reserved for a hand-flown

@@ -167,6 +167,24 @@ values = ["rewind-to-launch", "fast-forward", "rewind-to-separation", "refly-gat
 # red on exactly the headline token with zero forbids. Three runs generated three DIFFERENT
 # route ids and produced an IDENTICAL render reading, so the behaviour behind this cell is
 # repeatable and its gate is proven able to fire.
+# "multi-origin-escrow" gained a THIRD owner 2026-09-02 with H60-route-escrow-contention,
+# and the value is NOT re-scoped by it - the addition is a different PRODUCER of the same
+# behaviour, in the shape the growth rule allows a shared value. H38 and H40 carry it off
+# their whole `Logistics` tallies, whose escrow cell
+# (`Escrow_CompetingRouteSeesReservation_Holds`) calls `RouteStore.ReserveCargo` by hand
+# for a synthetic route A, evaluates `env.OriginHasCargo` by hand for a synthetic route B,
+# and adds neither route to the store nor ticks either: it proves the GATE and the M6
+# hold TOKEN. H60 drives the ORCHESTRATOR - both routes stored at `DispatchPriority` 0 and
+# 1 (so `CompareRoutesForTick` fixes the order), the reservation produced by a real
+# `ReserveCycleEscrow` at a real MULTI-STOP dispatch and held across a real
+# dispatch-to-window gap, the block landing on the competitor's OWN crossing - and it
+# measures the reserve/release PRE-IMAGE identity on both sides of the holder's window
+# (`raw=11 netted=5` while held, `raw=5 netted=5` after the debit: the competitor's
+# availability does not move, only the CAUSE does). It also gates the ONLY release that
+# frees a competitor, `RouteStore.RemoveRoute` -> `DropRouteEscrow` mid-cycle. Three-run
+# discipline complete: census `2026-09-02_1314` PASS, armed re-flight `_1339` PASS attempt
+# 1 on the whole pin with `mismatches=[]`, and a negative control red on exactly one token
+# with zero forbids. Two runs, two different source-pid pairs, identical pinned amounts.
 values = ["candidate-detection", "ksc-origin", "docked-depot-origin", "dock-producer",
           "claw-producer", "delivery", "pickup", "mixed-direction", "resource-cargo",
           "inventory-cargo", "harvest-provenance", "multi-stop", "multi-origin-escrow",

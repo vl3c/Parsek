@@ -227,30 +227,35 @@ steps = [
   { cmd = "FlushAndQuit",                                                     expect = "OK" },
 ]
 
-# EMPTY BY DECISION, NOT BY OMISSION - see the header. The census `_1314` is green and
-# the pin is whole, but the gate is not yet PROVEN ABLE TO FIRE, and a dimension claim on
-# an unproven gate is exactly the CLAIM-IS-NOT-GATE mistake.
+# CLAIMED 2026-09-02, on the condition this block used to state as pending - and both
+# halves of it are now read. The three-run discipline is complete:
+#   (a) CENSUS `2026-09-02_1314`, PASS attempt 1, wall 79 s, value tokens measured.
+#   (b) ARMED RE-FLIGHT `2026-09-02_1339` on the WHOLE pin, PASS attempt 1, wall 61 s,
+#       `mismatches=[]`, all 13 tokens met, both summaries as pinned. The two runs
+#       generated DIFFERENT source pids (1592478814 / 3515272469, then 4092364233 /
+#       443813389) and produced an IDENTICAL reading on every pinned amount, so the
+#       behaviour is repeatable rather than a single lucky log.
+#   (c) NEGATIVE CONTROL `H60-NEGCTL-route-escrow-contention` (uncommitted; identical
+#       except the declared id and cell 1's `causeAfterWindow=physical` flipped to
+#       `=escrow`, a line the product never emits): PARSEK-FAIL(expectation) with EXACTLY
+#       ONE unmet token - that one - and ZERO forbidden hits, with the batch itself green.
+#       So the pin is proven able to REJECT, which a PASS alone cannot show.
 #
-# THE CONDITION, STATED SO IT CANNOT DRIFT. Add
-#
-#     D10 = ["multi-origin-escrow"]
-#
-# and nothing else, in the commit that reads BOTH of these green:
-#   (a) the ARMED RE-FLIGHT of this spec on the whole pin above (`passed=2 failed=0
-#       skipped=0` literal, both `EscrowContention:` summaries with their numeric
-#       invariants, the escrow->physical `raw=`/`netted=` pair);
-#   (b) its NEGATIVE CONTROL - an uncommitted copy with a distinct declared id and ONE
-#       required token flipped to a line the run never emits - classifying
-#       PARSEK-FAIL(expectation) with EXACTLY ONE unmet token and ZERO forbidden hits.
-#
-# The row is `multi-origin-escrow` and NOT `multi-stop`, `hold-reasons` or
-# `dispatch-cadence`: the multi-stop route here is the INSTRUMENT that opens the
-# dispatch-to-window gap, not the subject, and the hold this lane gates is one specific
-# reason (`OriginLacksCargo` via escrow) rather than the hold vocabulary. H38 and H40
-# already carry `multi-origin-escrow` off their whole tallies; what this lane adds under
-# the same value is the ORCHESTRATOR-driven form - two routes actually stored and ticked,
-# with the reservation produced by a real dispatch - which their cell cannot reach.
+# THE ROW IS `multi-origin-escrow` AND NOTHING ELSE, and the exclusions are deliberate.
+# Not `multi-stop`: the multi-stop route here is the INSTRUMENT that opens the
+# dispatch-to-window gap, not the subject. Not `hold-reasons`: the hold this lane gates is
+# ONE specific reason (`OriginLacksCargo` via escrow), not the hold vocabulary. Not
+# `dispatch-cadence`: the loop clock arrives through a test seam and gates nothing.
+# WHY IT IS NOT A DUPLICATE OF H38 / H40, which already carry the value off their whole
+# tallies: their cell (`Escrow_CompetingRouteSeesReservation_Holds`) reserves by hand and
+# gates by hand and stores neither route, so what it proves is the GATE and the TOKEN.
+# What this lane adds under the same value is the ORCHESTRATOR-driven form - two routes
+# actually stored and ticked, the reservation produced by a real `ReserveCycleEscrow` at a
+# real multi-stop dispatch, held across a real dispatch-to-window gap - plus the
+# reserve/release PRE-IMAGE invariant measured on both sides of the holder's window
+# (`raw=11 netted=5` then `raw=5 netted=5`), which no hand-reserved cell can reach.
 [dimensionsCovered]
+D10 = ["multi-origin-escrow"]
 
 [expectations]
 allowedAnomalies = []

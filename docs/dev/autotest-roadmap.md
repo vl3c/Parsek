@@ -2660,12 +2660,13 @@ moved is that no further authoring stands between them and a flight.
     release, only the CAUSE did (`escrow` -> `physical`), so the escrow withheld
     exactly what the debit took (no over-block, no double-claim). Cell 2 read
     `freedByRemoval=6 pickedUpByB=8`: the holder removed mid-cycle freed its
-    reservation WITHOUT debiting, and the competitor took its full 8. **D10
-    `multi-origin-escrow` is STILL NOT CLAIMED**, on an exact condition rather
-    than a deferral: the census made the tokens literal but did not show they
-    would reject a different log, so the row is added in the commit that reads
-    the ARMED RE-FLIGHT and its NEGATIVE CONTROL green (the control is authored
-    and replay-verified: exactly one unmet token, zero forbids).
+    reservation WITHOUT debiting, and the competitor took its full 8. **ARMED DISCIPLINE COMPLETE the same day, and D10 `multi-origin-escrow`
+    IS CLAIMED off it**: armed re-flight `2026-09-02_1339` PASS attempt 1 on the
+    whole pin with `mismatches=[]`, and a negative control (cell 1's
+    `causeAfterWindow` flipped `physical` -> `escrow`) red on EXACTLY that one
+    token with zero forbids - so the pin discriminates rather than merely passes.
+    The two runs drew different source pids and read identical amounts, so the
+    invariance is the product's and not one log's. **ITEM 10 IS CLOSED.**
     **THE SCOPING'S SECOND HALF WAS REFUTED BY THE BUILD'S OWN DERIVATION, and
     that is the item's most useful residue.** The scoping prescribed asserting
     `ReleaseWindowEscrow` and "a subsequently eligible B after A's later window
