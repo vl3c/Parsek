@@ -4008,15 +4008,20 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
         # THE FOURTH RECORDED `Logistics` HOST, and the first THREE-TREE,
         # NINE-RECORDING, TWO-WINDOW forest any isolated batch has booted. Its
         # fixture `rover-relay-recorded` is the operator's 2026-09-02 two-hop
-        # surface relay, and the corpus is INELIGIBLE as it stands (see RVR-5: one
-        # designed refusal plus the OPEN identity-hash defect) - so a
-        # `Logistics` cell that quietly assumes the committed corpus is
-        # promotable has a host that refutes it. Both its route windows are
-        # TARGET-branch with a cross-tree partner, where `rover-route-recorded`
-        # carries one, so every `RouteProof_*` walk has more than one subject for
-        # the first time. The tally derivation is ATTRIBUTE-level and therefore
-        # the same 47 as its six siblings; only the split differs, and that split
-        # is INTERIM (see INTERIM_PIN_IDS).
+        # surface relay. Both its route windows are TARGET-branch with a
+        # cross-tree partner, where `rover-route-recorded` carries one, so every
+        # `RouteProof_*` walk has more than one subject for the first time.
+        # CORRECTED 2026-09-03: this comment used to say the corpus "is INELIGIBLE
+        # as it stands (see RVR-5: one designed refusal plus the OPEN
+        # identity-hash defect)", and named that as what a `Logistics` cell
+        # assuming a promotable corpus would be refuted by. BOTH REASONS ARE
+        # CLOSED - PR #1620 matches stored cargo by kind and PR #1618 plus the
+        # pickup-window origin derivation replace the player-typed-depot
+        # requirement - and RVR-5 flew GREEN on the ADMISSION over these exact
+        # bytes (`2026-09-02_2244`, one route, `stops=2`). The corpus is
+        # ELIGIBLE. The tally derivation is ATTRIBUTE-level and therefore the same
+        # 47 as its six siblings; the split is MEASURED at 38/9 (see
+        # `MEASURED_SKIPPED`) and is no longer interim.
         "RVR-6-rover-relay-logistics-host": ("Logistics", 47),
     }
 

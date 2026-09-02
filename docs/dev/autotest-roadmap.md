@@ -2697,11 +2697,14 @@ gated behind the ROUTE-ORIGIN-PROOF-PRODUCER-UNREACHABLE probe (todo) before any
     alreadyPromoted=False refusal=None` is ONE contiguous required token, the
     create ACK is required, `routecommand rejected` is the FORBID, and
     `[expectations.routes] count` moves from `{0, 0}` to `{1, 1}` (report-only).
-    **THOSE PINS ARE DERIVED FROM THE RULING, NOT MEASURED** - the lane has never
-    flown in either shape - and the gate token is the instrument that names which
-    gate moved if the first flight disagrees.
-    **LANDED AS TWO COMMITTED FIXTURES AND THREE LANES, ONE OF WHICH IS
-    LIVE-PROVEN.**
+    Those pins were DERIVED FROM THE RULING when written, with the gate token named
+    as the instrument that would identify which gate moved if the override had not
+    landed. **IT LANDED, AND ALL THREE LANES ARE NOW LIVE-PROVEN.** RVR-5 flew
+    `2026-09-02_2244` (PASS attempt 1, wall 48 s, every verifier PASS,
+    `mismatches=0`, analyzer `red=0`) and read `eligible=True status=Eligible
+    refusal=None`, one route, `stops=2`.
+    **LANDED AS TWO COMMITTED FIXTURES AND THREE LANES, ALL THREE LIVE-PROVEN on
+    automation DLL sha256 `2f9309f5e3487257` (`main` + PR #1621).**
     `harness/fixtures/saves/rover-relay-recorded` is the ZERO-PROOF half and
     `harness/fixtures/saves/rover-relay-c-recorded` (added 2026-09-03) is the
     WRONG-PROOF half; together they say the admission does not depend on a proof
@@ -2710,7 +2713,10 @@ gated behind the ROUTE-ORIGIN-PROOF-PRODUCER-UNREACHABLE probe (todo) before any
     no-op `total=7 sealed=0 alreadySealed=True`, so the create verdict is
     attributable to the ANALYSIS rather than to a cheaper gate) then
     `RouteCommand action=create` expecting **OK**, and forbids `routecommand
-    rejected` as its vacuity guard. It drives NO cycle, and that is measured: its
+    rejected` as its vacuity guard - **GREEN on run `2026-09-02_2244`**, with
+    `saveParse` reading `routes count=1 statuses={Paused:1} stops=2 sourceRefs=3
+    completedCycles=0` and `recordings.count` re-pinned from the window `{9, 11}`
+    to the measured exact 9. It drives NO cycle, and that is measured: its
     fixture's save was written after the relay ran, so the source rover B is
     drained to LiquidFuel 0/400 against the window's 200 pickup manifest and the
     all-or-nothing `RouteOriginCargoCheck.HasRequired` would block a dispatch.
@@ -2746,9 +2752,22 @@ gated behind the ROUTE-ORIGIN-PROOF-PRODUCER-UNREACHABLE probe (todo) before any
     the DESTINATION. Both record `pickup=Carried pickupValidated=0`. Every other
     route fixture carries ZERO proof nodes, so these are the only bytes on which an
     analysis that TRUSTS a bound proof and one that DERIVES the origin from the
-    pickup window give visibly different answers. The lane is RVR-2's thirteen-step
-    shape with `SealSlot ... total=8`, the create expecting OK, two send-once arms
-    with a TimeJump after each, `SaveGame` and `FlushAndQuit`.
+    pickup window give visibly different answers - and **the green create over
+    those bytes IS the override working**. The lane is RVR-2's step shape with
+    `SealSlot ... total=8`, the create expecting OK, ONE send-once arm with a
+    TimeJump after it, `SaveGame` and `FlushAndQuit`.
+    **LIVE-PROVEN on run `2026-09-02_2251` (PASS attempt 1, wall 49 s, every
+    verifier PASS, `mismatches=0`, analyzer `red=0`).** The FIRST CENSUS
+    (`2026-09-02_2245`) classified PARSEK-FAIL on FIVE AUTHORING MISPREDICTIONS AND
+    NOTHING ELSE - the route was created, dispatched and delivered on that flight
+    too. Measured end to end: `Origin debit: ... origin=B requested=154.3999999999952
+    tankBefore=200 tankAfter=45.6`, three `Inventory remove` lines, `Delivery write:
+    ... dest=A requested=200 written=200 tankBefore=200 tankAfter=400`, three
+    `Inventory store` lines, `Delivery: ... inventoryUnits=4/4
+    inventoryUnitsSkipped=0 partial=0`, and `ArmedPause: ... cycle-0 COMPLETED cycle`
+    -> `delivered-then-paused`; `saveParse` read `routes count=1 stops=2
+    sourceRefs=3 completedCycles=1`, `recordings.count` re-pinned to the measured
+    exact 10.
     **ITS FIXTURE IS STAGED AT START-OF-CYCLE, AND THAT IS WHAT MAKES IT A DISPATCH
     LANE AT ALL.** A route REPLAYS a recorded run against the CURRENT live
     endpoints, and the save was written AFTER the relay finished: as harvested B
@@ -2775,17 +2794,33 @@ gated behind the ROUTE-ORIGIN-PROOF-PRODUCER-UNREACHABLE probe (todo) before any
     `PART persistentId` on A, corroborated by what is left on C and by B's own
     surviving kit.
     **SO THE LANE PINS THE WHOLE CYCLE**: the pickup at B (`Origin debit: ...
-    origin=B ... requested=154.39... path=loaded` plus `Inventory remove (loaded):
-    ... removed=1`), the delivery at A (`Delivery write: ... dest=A ...
-    requested=200 written=200 ... path=loaded` plus `Inventory store: ... dest=A
-    ... path=loaded`) and `cycle=cycle-0 FIRED full cycle
-    (dispatch+debit+delivered)`, and it FORBIDS both hold tokens - `BLOCKED
-    kind=OriginLacksCargo` and `BLOCKED kind=DestinationFull` - so a regression to
-    the spent state reds explicitly and names which end regressed. It drives ONE
-    send-once, not RVR-2's two: after cycle 0 the endpoints are spent again exactly
-    as the operator left them, so a second cycle would block and a two-cycle driver
-    would make the spec contradict its own forbids. The one-cycle arithmetic is
-    gated in `harness/lib`.
+    origin=B ... requested=154.39... path=unloaded` plus `Inventory remove
+    (unloaded): ... removed=1`), the delivery at A (`Delivery write: ... dest=A ...
+    requested=200 written=200 ... path=unloaded` plus `Inventory store: ... dest=A
+    ... path=unloaded`) and the measured cycle trio `LoopRoute(multi): ...
+    cycle=cycle-0 ... dispatch fired (carrierStopIndex=0)` / `Delivery: ...
+    partial=0` / `ArmedPause: ... COMPLETED cycle`, and it FORBIDS both hold tokens
+    - `BLOCKED kind=OriginLacksCargo` and `BLOCKED kind=DestinationFull` - so a
+    regression to the spent state reds explicitly and names which end regressed.
+    It drives ONE send-once, not RVR-2's two: after cycle 0 the endpoints are spent
+    again exactly as the operator left them, so a second cycle would block and a
+    two-cycle driver would make the spec contradict its own forbids. The one-cycle
+    arithmetic is gated in `harness/lib`.
+    **TWO CORRECTIONS THE CENSUS FORCED, and both are transferable.** (1) THE PATH
+    IS `unloaded`, NOT `loaded`. The spec was authored predicting loaded because the
+    three rovers sit 313 m / 731 m / 1041 m apart, well inside physics range; that
+    reasoning is WRONG for a driven lane, because the seam `TimeJump` warps with the
+    endpoints PACKED and it is the load state at the DISPATCH TICK that decides the
+    path, not the separation. Any future dispatch lane whose driver reaches its
+    cycle through a `TimeJump` should pin `unloaded` unless it has measured
+    otherwise. (2) THERE IS NO `FIRED full cycle` LINE on the multi-stop path -
+    that token was invented; the real cycle lines are the `LoopRoute(multi)` /
+    `Delivery:` / `ArmedPause:` trio above.
+    **AND ONE FINDING NEITHER FIXTURE COULD YIELD ON ITS OWN**: BOTH relay lanes
+    read `stops=2`, so the analysis shapes a pickup-plus-delivery relay as TWO
+    STOPS of one route rather than as origin-plus-stop. That question is what the
+    header of each spec named as underivable from the bytes, and it is now settled
+    on two independent saves.
     **TWO AUTHORING TRAPS THE WAVE ESTABLISHED.** `RemoveInventory(part=...,
     kind=...)` is NOT the inventory-pickup success line: it lives in
     `LiveInventoryPickupWriter.RemoveOne`'s CATCH block and fires only when the

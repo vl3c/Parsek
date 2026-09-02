@@ -57,8 +57,9 @@ _(unreleased — entries accumulate here per commit)_
   refusal silent, and the message shown to the player no longer claims that inventory
   items are one-of-a-kind.
 
-- **Test coverage: two hand-flown supply relays are now saved test subjects, and the
-  lanes over them check that the game ACCEPTS both.** Everything the automated tests
+- **Test coverage: two hand-flown supply relays are now saved test subjects, the lanes
+  over them check that the game ACCEPTS both, and all three have been run for real and
+  passed.** Everything the automated tests
   had ever checked about supply routes was a single hop from one craft to another; a
   relay - drive to a second craft, take fuel and cargo on board, drive to a third and
   hand some over - had no saved subject at all. Two hand-flown sessions now provide
@@ -94,8 +95,13 @@ _(unreleased — entries accumulate here per commit)_
   it takes 154.4 fuel and three items from the first rover and hands 200 fuel and four
   items to the second. The test refuses to pass if either end runs short, so if the
   preparation is ever lost it says which end failed rather than quietly checking nothing.
-  Nothing player-facing changes.
-- **Supply routes: the game now works out where a delivery's cargo came from by
+  **All of this has now been run in the real game and watched pass**: the fuel left the
+  first rover exactly as its own record said it would (200 down to 45.6) and arrived in
+  the second exactly as well (200 up to 400), with all four cargo items stored and none
+  skipped. The first attempt failed on four small wrong guesses in the test's own
+  expected wording and one line that turned out not to exist, all of which were corrected
+  against what the game actually printed; nothing about the game itself was wrong on that
+  run either. Nothing player-facing changes.
 - **Test coverage: a supply relay that the game correctly REFUSES to turn into a
   route now has a saved subject and two automated lanes.** Everything the automated
   tests had ever checked about supply routes was a route that worked; nothing checked

@@ -402,8 +402,14 @@ class RoverRelayCRecordedFixtureDriftTests(unittest.TestCase):
         """The scale, computed from the bytes: three rovers hundreds of metres
         apart, far outside the ~200 m docking range and well inside physics range
         of each other. It is what makes this a DRIVE relay rather than a warp, and
-        what makes a driven route over these bytes take `path=loaded` where
-        `rover-route-recorded`'s 5.4 km separation forces `path=unloaded`."""
+        it decides which live-vessel guards find a subject.
+
+        IT DOES **NOT** DECIDE THE WRITER PATH, and the authored version of this
+        docstring said it did ("what makes a driven route over these bytes take
+        `path=loaded`"). RVR-7's first census measured `path=unloaded` on every
+        writer over exactly these bytes: a seam `TimeJump` warps with the endpoints
+        PACKED, so the load state at the DISPATCH TICK decides, not the
+        separation."""
         problems = self.builder.verify_geometry(self.lines)
         self.assertEqual([], problems, "\n".join(problems))
 
@@ -555,8 +561,8 @@ class RoverRelayCSpecFixtureSyncTests(unittest.TestCase):
         """`RemoveInventory(part=..., kind=...)` LIVES IN A CATCH BLOCK.
 
         `LiveInventoryPickupWriter.RemoveOne` emits it as a Warn ONLY when the
-        removal threw; the success line is `Inventory remove (loaded): ...
-        removed=1`. Requiring the catch-block string would red every correct run
+        removal threw; the success line is `Inventory remove (loaded|unloaded): ...
+        removed=1` - and RVR-7 measured the UNLOADED spelling. Requiring the catch-block string would red every correct run
         and pass only on an exception, so this cell keeps it out of the spec for
         good rather than leaving the next author to re-derive it."""
         text = self.text["RVR-7-rover-relay-c-dispatch.toml"]

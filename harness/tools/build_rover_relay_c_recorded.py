@@ -1952,10 +1952,17 @@ def verify_geometry(lines: List[str]) -> List[str]:
 
     The scale is what makes the fixture a SURFACE RELAY: hundreds of metres apart,
     far outside the ~200 m docking range (so the relay is a genuine drive) and
-    well inside physics range of each other, so a driven route over these bytes
-    would take `path=loaded` where `rover-route-recorded`'s 5.4 km separation
-    forces `path=unloaded`. A re-harvest that moved a rover changes which
-    live-vessel guards find a subject, so the layout is a pin rather than prose."""
+    well inside physics range of each other. A re-harvest that moved a rover
+    changes which live-vessel guards find a subject, so the layout is a pin rather
+    than prose.
+
+    IT DOES NOT DECIDE THE WRITER PATH, and the authored version of this docstring
+    said it did ("so a driven route over these bytes would take `path=loaded` where
+    `rover-route-recorded`'s 5.4 km separation forces `path=unloaded`"). RVR-7's
+    first census measured `path=unloaded` on EVERY writer over exactly these bytes:
+    a seam `TimeJump` warps with the endpoints PACKED, so the load state at the
+    DISPATCH TICK decides, not the separation. A player driving the relay by hand
+    would see the loaded path."""
     problems: List[str] = []
     positions = {}
     for record in vessel_records(lines):

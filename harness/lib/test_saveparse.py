@@ -2904,10 +2904,16 @@ class CommittedFixtureSweepTests(unittest.TestCase):
         #       LOGISTICS-INVENTORY-IDENTITY-HASH-BREAKS-ON-A-LIVE-CARGO-MOVE
         #       (OPEN). The `evaChute` and `evaScienceKit` moved in the same
         #       window closed cleanly - their modules write nothing computed.
-        #       THESE BYTES ARE THAT DEFECT'S ONLY COMMITTED SUBJECT and RVR-5 is
-        #       its regression instrument, so a re-harvest that moved no
-        #       inventory would retire both; `RoverRelayRecordedFixtureDriftTests`
-        #       pins the gain/loss walk so that reds in `harness/lib`.
+        #       THESE BYTES ARE THAT DEFECT'S ONLY COMMITTED SUBJECT, so a
+        #       re-harvest that moved no inventory would retire it;
+        #       `RoverRelayRecordedFixtureDriftTests` pins the gain/loss walk so
+        #       that reds in `harness/lib`. CORRECTED 2026-09-03: this used to add
+        #       "and RVR-5 is its regression instrument", which is no longer true.
+        #       The defect is FIXED (PR #1620, cargo matched BY KIND) and RVR-5 is
+        #       now the ADMISSION lane over these bytes - LIVE-PROVEN
+        #       `2026-09-02_2244`, PASS attempt 1, one route with `stops=2`. The
+        #       two hashes below are kept as the only committed record of the
+        #       re-hash, and they are now inert.
         #
         # OTHER MEASURED BYTES:
         #   save clock (FLIGHTSTATE UT) 443.63999999988647, Mode SANDBOX,
@@ -2975,17 +2981,22 @@ class CommittedFixtureSweepTests(unittest.TestCase):
                              "e6cb44a7243d4377a5c6051c91636c0b",
                              "ff014f588ed640aaa8e48fbabc8a1c38"],
             "schemaGeneration": 4,
-            # EVERY COUNT ZERO, INCLUDING `promptedCandidates`, AND THAT IS THE
-            # FIXTURE'S WHOLE CONTRACT. The sibling carries `promptedCandidates`
-            # 1 (Parsek's own record that it found the tree route-ELIGIBLE);
-            # here it never offered the tree at all, which is what the measured
-            # `DeriveCandidates: ... candidates=0` says from the other side. A
-            # prompted row appearing after a re-harvest would contradict the
-            # fixture's own evidence and would change what RVR-5's refusal
-            # means; a dismissed row would change the refusal from
-            # `candidate-ineligible` to `candidate-dismissed` while every other
-            # facet still read correct. Both are asserted by
+            # EVERY COUNT ZERO, INCLUDING `promptedCandidates`, AND THAT IS
+            # WHAT GIVES RVR-5's CREATE SOMETHING TO DO. These are the STAGED
+            # bytes: the sibling carries `promptedCandidates` 1 (Parsek's own
+            # record that it found the tree route-ELIGIBLE), where the DLL that
+            # wrote these never offered the tree at all - the measured
+            # `DeriveCandidates: ... candidates=0` from the other side. A prompted
+            # row appearing after a re-harvest would contradict the fixture's own
+            # evidence; a `ROUTES` node would make the create answer
+            # `candidate-already-promoted`; a dismissed row would make it answer
+            # `candidate-dismissed` while every other facet still read correct.
+            # Both are asserted by
             # `build_rover_relay_recorded.py::verify_no_route_state` as well.
+            # NOT TO BE CONFUSED WITH THE PRODUCED SAVE: RVR-5 flew green
+            # (`2026-09-02_2244`) and its produced save reads `routes count=1
+            # statuses={Paused:1} stops=2`, which is that lane's
+            # `[expectations.routes]` block, not this one.
             "routes": {
                 "count": 0, "dormant": 0, "stops": 0, "sourceRefs": 0,
                 "completedCycles": 0, "skippedCycles": 0,

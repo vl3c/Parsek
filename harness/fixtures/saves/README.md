@@ -579,8 +579,13 @@ docked at UT 218.22, loaded +200 LiquidFuel (B 200 -> 0), undocked at UT 276.00,
 UT 402.50 and drove away. Saved at UT 443.64 from the SPACE CENTER with C's recording
 stopped. The three rovers sit **336 m apart (A-C), 783 m (A-B) and 983 m (B-C)** - far
 outside the ~200 m docking range, so the relay is a genuine drive, and well inside physics
-range of each other, so any route driven over these bytes would take `path=loaded` rather
-than the sibling fixture's `path=unloaded`.
+range of each other. **CORRECTED 2026-09-02 BY MEASUREMENT**: this used to conclude "so
+any route driven over these bytes would take `path=loaded` rather than the sibling
+fixture's `path=unloaded`". Separation does NOT decide the writer path on a DRIVEN lane -
+RVR-7's first census read `path=unloaded` on every writer over the OTHER relay fixture,
+whose rovers are just as close, because a seam `TimeJump` warps with the endpoints PACKED
+and it is the load state at the DISPATCH TICK that decides. The separation still decides
+what a PLAYER sees, and it is still what makes this a drive rather than a warp.
 
 Four facts belong in a human-readable place, because they are what make it useful and what
 a future re-harvest could silently lose:
@@ -676,8 +681,11 @@ LiquidFuel (B 200 -> 45.6) and three stored items, undocked at UT 212.54, drove 
 at UT 274.18, UNLOADED 200 LiquidFuel (A 200 -> 400) and four items, undocked at UT 335.32
 and drove off. Saved at UT 410.40 from the SPACE CENTER. The three rovers sit **313 m apart
 (A-C), 731 m (A-B) and 1041 m (B-C)** - far outside the ~200 m docking range, so the relay is
-a genuine drive, and well inside physics range of each other, so a route driven over these
-bytes would take `path=loaded`.
+a genuine drive, and well inside physics range of each other. **MEASURED, and NOT what
+the separation predicts**: RVR-7's cycle took `path=unloaded` on every writer, because a
+seam `TimeJump` warps with the endpoints PACKED and it is the load state at the DISPATCH
+TICK that decides the writer path, not the distance. A player driving the same relay by
+hand would see the loaded path.
 
 **WHY IT EXISTS: IT CARRIES TWO PERSISTED `ROUTE_ORIGIN_PROOF` NODES AND BOTH NAME THE
 WRONG ORIGIN.** Every other route fixture in the corpus carries ZERO

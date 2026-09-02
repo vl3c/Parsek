@@ -189,8 +189,14 @@ line distances between the three LANDED rovers, computed from their own
 FLIGHTSTATE lat / lon / alt against Kerbin's 600 km radius:
     A - B  783.46 m      A - C  336.16 m      B - C  982.81 m
 All three are far outside the 200 m dock range and well inside physics range of
-each other, which is why the relay is a DRIVE rather than a warp and why any
-route driven over it would take `path=loaded`, not the sibling's `path=unloaded`.
+each other, which is why the relay is a DRIVE rather than a warp.
+CORRECTED 2026-09-02: this used to add "and why any route driven over it would
+take `path=loaded`, not the sibling's `path=unloaded`". SEPARATION DOES NOT DECIDE
+THE WRITER PATH ON A DRIVEN LANE. RVR-7's first census measured `path=unloaded` on
+every writer over the OTHER relay fixture, whose rovers are just as close, because
+a seam `TimeJump` warps with the endpoints PACKED and it is the load state at the
+DISPATCH TICK that decides. A player driving the relay by hand would see the
+loaded path.
 
 `--check` re-runs every post-condition against the ALREADY COMMITTED fixture and
 writes nothing. It is WIRED, not decorative:
@@ -1264,10 +1270,15 @@ def verify_geometry(lines: List[str]) -> List[str]:
 
     The scale is what makes the fixture a SURFACE RELAY: hundreds of metres apart,
     far outside the ~200 m docking range (so the relay is a genuine drive) and
-    well inside physics range of each other (so any driven route over these bytes
-    would take `path=loaded`, unlike the sibling fixture's 5.4 km `path=unloaded`).
-    A re-harvest that moved a rover changes which live-vessel guards find a subject
-    in RVR-6's census, so the layout is a pin rather than prose."""
+    well inside physics range of each other. A re-harvest that moved a rover
+    changes which live-vessel guards find a subject in RVR-6's census, so the
+    layout is a pin rather than prose.
+
+    IT DOES NOT DECIDE THE WRITER PATH. The authored version added "(so any driven
+    route over these bytes would take `path=loaded`, unlike the sibling fixture's
+    5.4 km `path=unloaded`)", and RVR-7's first census refuted it: a seam `TimeJump`
+    warps with the endpoints PACKED, so the load state at the DISPATCH TICK decides,
+    not the separation."""
     problems: List[str] = []
     positions = {}
     for record in vessel_records(lines):
