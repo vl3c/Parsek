@@ -21,9 +21,13 @@ id = "L6-career-same-name-recover"
 # fixture carrying two same-name launches whose flight science is NOT already banked - which
 # is a purpose-built fixture, the exact thing this lane tried to avoid. The `science_bench_
 # recover` + produced-save shortcut does not work for the recovery-correlator repro. The
-# lane is kept as the record of that finding; KERBAL-XP-RECOVERY-PICK-IS-NAME-AND-UT-ONLY
-# stage 2 stays gated on live proof, now with the blocker named. Marked expectedFail against
-# that entry so a tier run reads it as a documented block, not a spurious red.
+# lane is kept as the RECORD of that finding; KERBAL-XP-RECOVERY-PICK-IS-NAME-AND-UT-ONLY
+# stage 2 stays gated on live proof, now with the blocker named. DO NOT FLY AS BUILT: it
+# reads INVALID(driver) every time (a mission that cannot reach RECOVER), and no
+# `[expectedFail]` key can demote that - the harness demotes PARSEK-FAIL signatures only,
+# never a driver-INVALID - so `bugId` is deliberately left empty. It stays `operator`
+# (run on request only, never by a scheduled tier) until the purpose-built fixture
+# exists, at which point the mission params are re-derived off that fixture's bytes.
 tier = "operator"
 #
 # WHAT THIS SPEC IS FOR. KERBAL-XP-RECOVERY-PICK-IS-NAME-AND-UT-ONLY (todo, stage 2

@@ -165,8 +165,14 @@ required  = [
   "ParsekKSC initialized, \\d+ committed recordings, [1-9]\\d* eligible for KSC ghost playback",
   # The verb's own lines: the store route at the KSC, and the read-back-verified
   # completion with the count pair (RecordingState exposes no committed count).
-  "deleterecording start index=8 recId=[0-9a-f]{32} vessel='Kerbal X Debris' ghostOnly=false route=store committed=[0-9]+ scene=SPACECENTER",
-  "deleterecording complete index=8 recId=[0-9a-f]{32} route=store committedBefore=[0-9]+ committedAfter=[0-9]+",
+  # The count pair is pinned LITERALLY (V22K measured 9 committed recordings; every S0.11
+  # run read committed=9 -> 8): a value class would accept before == after and let a
+  # no-op removal read green. The recId stays a class because the load-time optimizer
+  # regenerates the chain-split ids on every load; the LEAF identity is held by
+  # `vessel='Kerbal X Debris'` plus the analyzer's INV7 rule, which reds if a parent is
+  # deleted instead (run 5 measured exactly that).
+  "deleterecording start index=8 recId=[0-9a-f]{32} vessel='Kerbal X Debris' ghostOnly=false route=store committed=9 scene=SPACECENTER",
+  "deleterecording complete index=8 recId=[0-9a-f]{32} route=store committedBefore=9 committedAfter=8",
   # The production path's own removal lines.
   "DeleteRecordingFull: deleting 'Kerbal X Debris' at index 8",
   "Removed recording 'Kerbal X Debris' \\(id=[0-9a-f]{32}\\) at index 8",
