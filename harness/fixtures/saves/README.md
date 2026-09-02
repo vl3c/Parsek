@@ -357,6 +357,63 @@ The spec-to-fixture pairing is gated by `L4SpecFixtureSyncTests` in the same fil
 the structural counts by `CommittedFixtureSweepTests.RECORDED_FIXTURES` in
 `harness/lib/test_saveparse.py`.
 
+## career-same-name-pad (GAME Mode = CAREER, 1 VESSEL, 2 recordings)
+
+The recovery correlator's repro subject: a career that has already flown its pad craft
+ONCE - two chained `Jumping Flea` recordings under launch guid `f77e4207...` - and has
+banked NOTHING from it, with the same craft back on the pad under a FRESH launch guid.
+Used by `L6-career-same-name-recover`.
+
+**WHY IT EXISTS, and it was measured rather than assumed.**
+`KERBAL-XP-RECOVERY-PICK-IS-NAME-AND-UT-ONLY` stage 2 needs a live recovery where the
+correlator's stage-1 launch-guid filter actually has same-name candidates to drop. L6's
+first reading run (`2026-09-02_1137`) tried to get that for free by re-flying
+`science_bench_recover` over `career-earned-pad`, which already carries those two
+recordings - and it flew, landed and collected, but TRANSMIT credited ZERO career
+science, because that save is L3's PRODUCED one and its launchpad biome is already
+banked to cap. The mission's structural transmit -> recover gate therefore failed BEFORE
+recovery, the phase the correlator fires in, and the schema forbids a transmit floor
+below 0.001 (`science_bench_recover.schema.toml`), so no param rescues it. **The
+banked-science conflict is intrinsic to reusing a produced save.**
+
+**THE SPLIT THAT ANSWERS IT:** take the RECORDINGS from the produced save
+(`Source/Parsek.Tests/Fixtures/C2CareerPostFix/`) and the CAREER from the PRE-FLIGHT one
+(`career-science-pad`, the save L3 flies). The two halves are two moments of ONE
+timeline, which is why those recordings' `preLaunchFunds = 500000` /
+`preLaunchScience = 100` are the host's own live pools.
+
+Built BY CONSTRUCTION, headlessly, by `harness/tools/build_career_same_name_pad.py` - no
+forge flight and no operator session. `--check` re-verifies every post-condition against
+the COMMITTED bytes and is WIRED through `CareerSameNamePadFixtureDriftTests` in
+`harness/lib/test_career_same_name_pad.py`, which also re-runs the splice and asserts
+byte-identity, so a re-harvest of `C2CareerPostFix` reds here.
+
+**Five edits**, all against the HOST save text:
+
+1. `C2CareerPostFix`'s `RECORDING_TREE` (both `Jumping Flea` recordings, verbatim - no
+   id, UT or point count rewritten) spliced into the host's `ParsekScenario` node, with
+   `Parsek/Recordings/` copied alongside it.
+2. The `rewindSave = parsek_rw_*` hint stripped, because `Parsek/Saves/` is not copied -
+   the two halves `CommittedFixtureRewindSaveTests` pins together.
+3. **The load-bearing edit:** the host VESSEL's `pid` re-stamped to `9b3c71e4...`. The
+   host craft IS the craft those recordings recorded, so its committed `pid` is
+   byte-identical to their `recordedVesselGuid`; left alone, the live launch and both
+   recordings read as the SAME launch and the filter would drop nothing.
+4. `persistentId` deliberately NOT re-stamped. KSP bakes it into the `.craft` and reuses
+   it on every launch, so a genuine relaunch DOES collide on pid while carrying a fresh
+   `Vessel.id`. Keeping `2905720181` on both sides is what makes this a repro of the trap
+   the todo entry names rather than a case nothing could confuse.
+5. The career clock moved to the produced save's own `409.56` (and the vessel's `lct` /
+   `lastUT` with it), so both recordings lie wholly in the PAST of a craft that has just
+   rolled out. The host's `9.06` would leave committed recordings running into the
+   future at load.
+
+**What is deliberately NOT copied:** the produced save's `Parsek/GameState/ledger.pgld`.
+Its rows credit the very science this fixture must leave un-banked, and the
+recalculation engine patches KSP state from the ledger - splicing it back would rebuild
+the blocker. Two recordings with no ledger rows is coherent; a banked pool with an
+un-banked ledger is not.
+
 ## strategy-career (GAME Mode = CAREER, 0 VESSELS)
 
 `fresh-career` with a reputation seed and nothing else. Used by

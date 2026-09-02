@@ -3,31 +3,141 @@ id = "L6-career-same-name-recover"
 # `operator`: a READING RUN whose whole purpose is to put the recovery correlator's UT
 # tiers IN COMPETITION for the first time in the suite. Nothing here is armed.
 #
-# BLOCKED - THIS LANE CANNOT REACH ITS SUBJECT ON THIS FIXTURE, measured by reading run 1
-# (`2026-09-02_1137`, INVALID(driver) MISSION-ASSERT-FAIL `transmit-credited-no-science`).
-# The idea was to reuse `career-earned-pad` (L3's PRODUCED save, which already carries the
-# pad craft's TWO chained recordings) so a second `science_bench_recover` flight would give
-# the recovery correlator two same-name candidates. The flight FLEW (landed, collected 2
-# experiments, recorded `e321be21...`), but TRANSMIT credited ZERO career science and the
-# mission's structural transmit->recover gate failed the flight BEFORE recovery - the very
-# phase the correlator fires in. THE CAUSE IS INTRINSIC TO REUSING A PRODUCED SAVE: L3
-# already banked that launchpad biome's science, so a second identical flight transmits for
-# no gain, and `_sbr_transmit` needs a strictly positive pool rise (the schema forbids a
-# floor below 0.001, so no param value passes a gain of exactly 0.0). The RECOVERY
-# correlator - the FUNDS and XP legs, which is what stage 2 needs - is never reached.
+# UNBLOCKED 2026-09-02 BY A PURPOSE-BUILT FIXTURE; READING RUN 2 IS OWED. Round 1 flew
+# (`2026-09-02_1137`, INVALID(driver) MISSION-ASSERT-FAIL `transmit-credited-no-science`)
+# over `career-earned-pad` - L3's PRODUCED save, which already carries the pad craft's TWO
+# chained recordings - on the idea that a second `science_bench_recover` flight would hand
+# the recovery correlator two same-name candidates for free. The flight FLEW (landed,
+# collected 2 experiments, recorded `e321be21...`), but TRANSMIT credited ZERO career
+# science and the mission's structural transmit->recover gate failed BEFORE recovery, the
+# very phase the correlator fires in. THE CAUSE IS INTRINSIC TO REUSING A PRODUCED SAVE:
+# L3 already banked that launchpad biome to its cap, so a second identical flight
+# transmits for no gain, and `_sbr_transmit` needs a strictly positive pool rise (the
+# schema forbids a floor below 0.001, so no param value passes a gain of exactly 0.0).
 #
-# WHAT CLOSING IT ACTUALLY NEEDS (recorded so the next author does not re-derive it): either
-# a recover mission WITHOUT a transmit-science gate (none exists in the library today), or a
-# fixture carrying two same-name launches whose flight science is NOT already banked - which
-# is a purpose-built fixture, the exact thing this lane tried to avoid. The `science_bench_
-# recover` + produced-save shortcut does not work for the recovery-correlator repro. The
-# lane is kept as the RECORD of that finding; KERBAL-XP-RECOVERY-PICK-IS-NAME-AND-UT-ONLY
-# stage 2 stays gated on live proof, now with the blocker named. DO NOT FLY AS BUILT: it
-# reads INVALID(driver) every time (a mission that cannot reach RECOVER), and no
-# `[expectedFail]` key can demote that - the harness demotes PARSEK-FAIL signatures only,
-# never a driver-INVALID - so `bugId` is deliberately left empty. It stays `operator`
-# (run on request only, never by a scheduled tier) until the purpose-built fixture
-# exists, at which point the mission params are re-derived off that fixture's bytes.
+# THE FIX IS THE FIXTURE, NOT THE MISSION. `career-same-name-pad` takes the RECORDINGS
+# from the produced save and the CAREER from the PRE-FLIGHT one:
+# `harness/tools/build_career_same_name_pad.py` splices `C2CareerPostFix`'s
+# RECORDING_TREE (the two chained `Jumping Flea` recordings) into `career-science-pad`,
+# the save L3 actually flew to produce them. The two halves are two moments of ONE
+# timeline, which is why those recordings' `preLaunchFunds = 500000` /
+# `preLaunchScience = 100` ARE that host's live pools. The result is a career that has
+# flown this craft before and banked NOTHING - a state no single produced save can be in
+# - so the same mission that could not transmit over `career-earned-pad` transmits here
+# exactly as it does for L3. The earned ledger is deliberately NOT copied: its rows
+# credit the science this fixture must leave un-banked, and the recalculation engine
+# patches KSP state from the ledger. Byte-identity with a fresh rebuild, the
+# un-banked-science post-condition and both identity post-conditions are gated by
+# `CareerSameNamePadFixtureDriftTests` in `harness/lib/test_career_same_name_pad.py`.
+#
+# THREE FLIGHTS, AND THE THIRD EXPLAINED THE ONE PIN THAT WAS TOO TIGHT.
+# READING RUN 2 (`2026-09-02_1328`) PASS, the ARMED re-flight (`2026-09-02_1402`, DLL
+# 2e679bd7) PARSEK-FAIL(expectations) on THREE count pins, and the NEGATIVE CONTROL
+# (`2026-09-02_1411`, same fixture, same DLL, back to back) PASS on everything except its
+# own deliberately flipped token. All three were MISSION-OK with every mission assertion
+# met, and all three measured the lane's SUBJECT identically: `guidDropped=2`,
+# `reason=guid-conclusive-mismatch`, `tier=most-recent-ended bracketTie=n/a`,
+# `skippedZombieNotCommitted=0 sessionProvisionalAdmitted=False`, and one
+# `Recovery kerbal XP recorded ... rows=1 deduped=0 noAction=0`.
+#
+# WHAT MOVED, AND IT IS NOT NONDETERMINISM IN PARSEK. Only the count of THIS FLIGHT's own
+# recordings moved (4/2, then 3/1, then 4/2), and the cause is arithmetic:
+# `RecordingOptimizer.CanAutoSplitIgnoringGhostTriggers` refuses a split unless BOTH halves
+# exceed **5.0 s** ("Both halves must be longer than 5 seconds"). The boundary in question
+# is the touchdown `SurfaceStationary` section, and the recording ends when the craft is
+# recovered, so the second half is exactly `recoverUT - touchdownSectionUT`:
+#
+#   run `_1328`  touchdown 749.16, recovery 754.5 -> 5.34 s  >= 5.0  SPLIT   -> 4 / 2
+#   run `_1411`  touchdown 747.82, recovery 753.7 -> 5.88 s  >= 5.0  SPLIT   -> 4 / 2
+#   run `_1402`  touchdown 748.98, recovery 753.8 -> 4.82 s  <  5.0  NO SPLIT-> 3 / 1
+#
+# and `_1402`'s own log says so in its own words: `Split summary: rec=aa5a0caa...
+# evaluated=2 ... splittableButRejected=2`, against `_1411`'s `SplitAtSection: split
+# 320f644a... at UT=747.8 (first: 505 pts/3 sections, second: 2 pts/1 sections)`. THE
+# MISSION'S LANDED DWELL SITS ON THAT KNIFE-EDGE: measured margins +0.34 s, +0.88 s and
+# **-0.18 s**. The rule is deterministic and correct (a 3 s tail is not worth its own
+# recording); what is not controlled is the input.
+#
+# IT IS ALSO NOT A COMMIT RACE, and that was checked rather than assumed: all three runs
+# report `skippedZombieNotCommitted=0 sessionProvisionalAdmitted=False`, and in both
+# splitting runs the split, both halves' sidecar writes and the `Committed recording ...
+# actions added to ledger` line all precede the first `PickRecoveryRecordingId` inside the
+# same millisecond batch. Nothing was provisional or unflushed when the pick ran.
+#
+# THE PINS BELOW ARE THEREFORE CUT TO WHAT ALL THREE FLIGHTS AGREE ON - the subject - and
+# the flight's own segment count is a RANGE with this paragraph as its reason. Getting the
+# exact 4/2 back is a MISSION-side change (a dwell between touchdown and `recover_vessel`
+# that clears 5.0 s with margin), filed as L6-RECOVER-DWELL-STRADDLES-SPLIT-FLOOR in
+# `docs/dev/todo-and-known-bugs.md`; it is not attempted here because
+# `science_bench_recover` is shared with L3 and a shell change needs its own reading run.
+#
+# READING RUN 2 (`2026-09-02_1328`, wall 470 s, mission 347 s, DLL 7b9e4d19, NO C# change)
+# FLEW **PASS ON ATTEMPT 1**: MISSION-OK across PRELAUNCH..RECOVERED, expectations
+# mismatches=0, analyzer red=0, zero `[Parsek][ERROR]`, and the fixture reached the
+# recovery phase round 1 could not. **EVERY TOKEN BELOW IS NOW MEASURED AND PINNED WHOLE**,
+# and the predicted `nameMatches=4 survivors=2 guidDropped=2` came back exactly, so the
+# arithmetic in this header is confirmed rather than merely plausible - though see the
+# three-flight ledger above for the one pin that was too tight. Verbatim from that run,
+# FOUR IDENTICAL PAIRS at one UT:
+#
+#   PickRecoveryRecordingId guid filter: vessel='Jumping Flea'
+#       rawVessel='#autoLOC_501224' ut=754.5 dropped=2 remaining=2
+#       reason=guid-conclusive-mismatch
+#   PickRecoveryRecordingId: vessel='Jumping Flea' rawVessel='#autoLOC_501224' ut=754.5
+#       nameMatches=4 survivors=2 guidDropped=2 skippedZombieNotCommitted=0
+#       sessionProvisionalAdmitted=False tier=most-recent-ended bracketTie=n/a
+#       pick=0d74e88c72c947718b8ac7a42f6d173b
+#
+# THE STAGE-1 FILTER RESOLVING A REAL SECOND LAUNCH, LIVE, FOR THE FIRST TIME ANYWHERE IN
+# THE SUITE. The four pairs are the legs that pick (funds, XP, and the science leg's
+# per-subject picks); the line does not name its leg, so what the multiplicity proves is
+# that EVERY leg that picked saw the same filtered set, which is the "all three legs"
+# half of the recommendation. The tier is `most-recent-ended` - the weakest of the three
+# and exactly the one the todo entry says a driven career lands on - reached over the
+# SURVIVORS, which is the point: the fixture's two prior-launch recordings never got to
+# compete.
+#
+# **`Recovery kerbal XP recorded` IS PRESENT, AND THIS IS ITS FIRST OBSERVATION ANYWHERE**
+# (`rows=1 deduped=0 noAction=0`, under the picked id), with NO `Recovery kerbal XP
+# refused` line - so the pick was CONSUMED, not merely logged.
+#
+# THE LAUNCH GUID CAME FROM THE FIXTURE'S OWN RE-STAMP, which is what makes the drop
+# attributable rather than incidental: the recorder logged
+# `StartRecording: captured launch guid=9b3c71e4d0a84f52ae6d18c4f7b25a30`, the literal
+# `build_career_same_name_pad.py` mints, against the two spliced recordings' `f77e4207...`.
+# The flight flew the fixture's OWN pad vessel; nothing new was rolled out.
+#
+# AN UNPREDICTED FIXTURE CONSEQUENCE, MEASURED AND KEPT: the recovered kerbal is
+# **'Freddin Kerman', a Parsek STAND-IN, not Jebediah**. The spliced recordings carry a
+# CREW_MANIFEST for Jebediah, so the crew-reservation system holds him
+# (`Reservation extended: 'Jebediah Kerman' endUT->Infinity`) and generates a replacement
+# for the relaunch (`Stand-in generated: 'Freddin Kerman' (Pilot) for slot 'Jebediah
+# Kerman' depth 0`). The stand-in NAME is generated per run, so the XP token below regexes
+# it; that a relaunch of a crewed recorded craft flies a stand-in is a real property of
+# this fixture and is stated here so the next reader does not file it as drift.
+#
+# THE MISSION LEG, for the record and because round 1 died on it: the transmit surfaces in
+# the MISSION stdout, not in KSP.log - `[Science] run_science_experiments ran=3 skipped=0
+# failed=0`, `[Science] transmit_science sent=1 skipped=2 failed=0`, `[Assert] assert
+# scienceTransmittedObserved value=11.600 met=True` against the 0.5 floor, and
+# `vesselRecoveredObserved value=5323.000` against the 1.0 floor. THOSE ARE NOT
+# logContract TOKENS AND MUST NOT BE PINNED AS SUCH (`logContracts` reads KSP.log; a
+# mission-stdout string pinned there can never match). The gate on them is the mission's
+# own assertion params below, which is where round 1's red came from.
+#
+# STILL `operator` and STILL NOTHING ARMED. **NO `[expectations.ledger]` BLOCK IS
+# DECLARED, and the reason is the L3 precedent rather than an oversight**: L3 - the only
+# other spec driving this mission, on this career - defers its ledger and unityExceptions
+# blocks to a separate arming decision so that arming a gating surface never rides inside
+# a promotion commit, and the same argument holds here with one addition. The oracle diffs
+# EXACT expected pools, and this lane's flight carries a per-run variable the pools inherit
+# (the stand-in above is generated fresh each run), so a pool manifest pinned from this run
+# would gate a number the lane does not control. What a future arming would start from,
+# recorded so it starts from data: `fundsPostLoss=536523.0` after a `vesselRecoveredObserved
+# 5323.0` credit, `scienceTransmittedObserved 11.600`, `saveParse pointsTotal=1040
+# pointsLargest=510 pointsSmallest=2`, `unityExceptions total=0`, and the mission's own
+# HANDOFF contract (`ledgerScienceCapture, ledgerRecoveryCapture not verified`) naming
+# exactly the two surfaces such a block would cover. `[expectedFail] bugId` stays empty.
 tier = "operator"
 #
 # WHAT THIS SPEC IS FOR. KERBAL-XP-RECOVERY-PICK-IS-NAME-AND-UT-ONLY (todo, stage 2
@@ -38,12 +148,13 @@ tier = "operator"
 # launches of the same craft name with a recovery of the second - which is also the shape
 # the eventual fix should be live-proven on." This lane is that shape.
 #
-# HOW IT GETS TWO SAME-NAME LAUNCHES WITHOUT A NEW FIXTURE. `career-earned-pad` is the
-# save L3-career-science-recover PRODUCED (run `2026-08-19_2130`): a career that already
-# EARNED flight science and RECOVERED the pad craft once, with the SAME craft spliced
-# back onto the pad in PRELAUNCH so a FLIGHT-scene lane can boot into it (that splice is
-# what L4 flies against). Flying `science_bench_recover` over it again is therefore the
-# second launch of the same craft name, ending in the second recovery.
+# HOW IT GETS TWO SAME-NAME LAUNCHES. `career-same-name-pad` carries the two chained
+# `Jumping Flea` recordings of a PRIOR launch (via `C2CareerPostFix`, the committed copy
+# of what L3's run produced) on top of the pre-flight career that produced them, with the
+# same craft sitting on the pad in PRELAUNCH so a FLIGHT-scene lane can boot into it.
+# Flying `science_bench_recover` over it is therefore the SECOND launch of the same craft
+# name, ending in the second recovery - with the first launch's science still unspent,
+# which is the only reason the mission can reach RECOVER at all.
 #
 # THE FIXTURE'S OWN BYTES, read before pinning anything (the first draft of this spec
 # pinned `nameMatches=2` off the assumption of ONE prior recording and would never have
@@ -51,8 +162,14 @@ tier = "operator"
 #   - the prior launch left TWO chained recordings, both `vesselName = Jumping Flea`,
 #     both `recordedVesselGuid = f77e4207...` (L3's optimizer split its one flight in
 #     two; `test_career_earned_pad.py` gates exactly 2 `.prec`, L4 pins count 2/2);
-#   - the spliced pad VESSEL carries `pid = 3d90c5b1...`, a DIFFERENT launch guid, and
-#     that guid is what this flight records and what the recovery hands the correlator.
+#   - the pad VESSEL's `pid` is re-stamped to `9b3c71e4...`, a DIFFERENT launch guid, and
+#     that guid is what this flight records and what the recovery hands the correlator;
+#   - its craft-baked `persistentId` is DELIBERATELY left colliding at `2905720181`, the
+#     same value both recordings carry, so the fixture is a repro of the trap the todo
+#     entry names (a pid match is not a launch match) rather than a case a pid-only
+#     correlator could not have got wrong either;
+#   - the career banks ZERO `Science` subjects and sits at the seed pools (funds 500000,
+#     science 100), which is the post-condition round 1's red bought.
 #
 # WHEN THE PICK RUNS, AND WHAT IT THEREFORE SEES. The XP leg
 # (`GameStateRecorder` ExperienceGained -> `TryRecordRecoveryKerbalExperience`) fires in
@@ -87,12 +204,12 @@ tier = "operator"
 # finding. A pick line whose `survivors=0` cannot exist - that branch logs nothing - so
 # an absent line with the XP row refused reads as "both dropped and nothing of this flight
 # was committed yet", a timing reading against the doc comment quoted above.
-description = "Reading run: fly science_bench_recover a SECOND time over career-earned-pad (the save L3 produced, whose pad craft already flew and was recovered once, leaving two same-name recordings under a different launch guid), so the recovery correlator's stage 1 guid filter and its UT-tier pick are measured live on a real second launch for the first time (KERBAL-XP-RECOVERY-PICK-IS-NAME-AND-UT-ONLY stage 2's repro shape)."
+description = "Reading run, NEVER FLOWN ON THIS FIXTURE: fly science_bench_recover over career-same-name-pad, the purpose-built career that carries two same-name recordings of a PRIOR launch (different launch guid, same craft-baked persistentId) with its flight science still UN-BANKED, so the recovery correlator's stage 1 guid filter and its UT-tier pick are measured live on a real second launch for the first time (KERBAL-XP-RECOVERY-PICK-IS-NAME-AND-UT-ONLY stage 2's repro shape). Round 1 flew the same mission over career-earned-pad and measured why a PRODUCED save cannot host this: its launchpad biome is already banked, so TRANSMIT credited 0.0 and the mission never reached RECOVER."
 instanceProfile = "stock-minimal"
 tags = ["ledger", "L6", "recovery", "correlator", "same-name", "career", "reading-run"]
 
 [fixture]
-saveTemplate = "fixtures/saves/career-earned-pad"
+saveTemplate = "fixtures/saves/career-same-name-pad"
 # LOAD-BEARING: the fixture's OWN two recordings are the first launch the correlator must
 # compete against; an injection preset would add synthetic candidates and blur the read.
 injectedRecordings = "none"
@@ -117,9 +234,10 @@ steps = [
 ]
 
 [driver.missionParams]
-# L3's flight-leg values verbatim: the craft is the same pad craft (career-earned-pad is
-# L3's produced save with that craft spliced back onto the pad), so the ascent windows
-# and the chute arming transfer. ONE value DEPARTS from L3, and it is the driver reading
+# L3's flight-leg values verbatim, and now literally L3's own subject: the career half of
+# `career-same-name-pad` IS `career-science-pad`, the save L3 flies, so the ascent
+# windows, the chute arming and the transmit floor transfer unchanged rather than by
+# analogy. ONE value DEPARTS from L3, and it is the driver reading
 # this lane's header pre-authorized ("the params need re-sizing against the fixture's own
 # bytes - a driver reading, never a PARSEK-FAIL").
 throttle                 = 1.0
@@ -155,20 +273,53 @@ D14 = ["kerbin", "career", "scene-flight"]
 allowedAnomalies = []
 
 [expectations.recordings]
-# The fixture's two recordings plus at least this flight's one. No ceiling: the
-# scene-exit optimizer may split the new recording (L3 measured that on its own flight).
-count = { min = 3 }
+# MEASURED ACROSS THREE FLIGHTS: 4, then 3, then 4. The FLOOR is the fixture's own two
+# plus at least one recording of this flight; the CEILING is those two plus the flight's
+# split pair. Which of the two the run produces is decided by
+# `CanAutoSplitIgnoringGhostTriggers`'s 5.0 s half-duration floor against the mission's
+# landed dwell (header, three-flight ledger), so a `{4, 4}` pin - which run `_1328`
+# justified and run `_1402` then red on - is a pin on the mission's timing jitter, not on
+# Parsek. It stays a window until the dwell is controlled; the window's own floor still
+# fails a run that recorded nothing.
+count = { min = 3, max = 4 }
 
 [expectations.logContracts]
+# RE-CUT 2026-09-02 ACROSS THREE FLIGHTS to what all of them agree on. `guidDropped=2` -
+# THE SUBJECT - is a literal, and so are the tier, the tie-break, the zombie/provisional
+# fields and the XP row's shape: those never moved. `nameMatches` and `survivors` (and the
+# filter line's `remaining`) are two-value classes because the flight's OWN segment count
+# is decided by the optimizer's 5.0 s split floor against the mission's landed dwell, which
+# the lane does not control - see the three-flight ledger in the header. Note what the
+# ranges still forbid: `nameMatches=[34]` with `guidDropped=2` cannot be satisfied by a run
+# where the fixture's prior launch failed to load (that reads 1 or 2), and `survivors=[12]`
+# cannot be satisfied by an empty candidate set. What stays regexed beyond that is only
+# what a run mints fresh (the UT, the recording id, the stand-in kerbal's name).
 required = [
-  # The XP leg's pick: the fixture's two prior-launch recordings name-match and are
-  # dropped by guid (guidDropped=2 literal - the one fact this lane exists to measure);
-  # this flight's own recording(s) survive and the tier walk runs over them alone.
-  "PickRecoveryRecordingId: .* nameMatches=[3-9] survivors=[1-9] guidDropped=2 .* tier=(bracketing|most-recent-ended|global-latest) bracketTie=\\S+ pick=",
-  # L3's own token with the id as a value class: the pick was consumed by a row.
-  "Recovery kerbal XP recorded: vessel='Jumping Flea'.*recordingId=\\S+ rows=[1-9]",
+  # THE FILTER ITSELF, and it was not pinned before because it had never been seen. This
+  # is the line that says the drop HAPPENED and why - a pick line alone cannot tell a
+  # filter that dropped two from one that never ran.
+  "PickRecoveryRecordingId guid filter: vessel='Jumping Flea' rawVessel='#autoLOC_501224' ut=[0-9.]+ dropped=2 remaining=[12] reason=guid-conclusive-mismatch",
+  # THE PICK. The fixture's two prior-launch recordings name-match and are dropped by guid
+  # - `guidDropped=2` is the literal this lane exists for - and the tier walk runs over
+  # THIS flight's survivors alone, landing on `most-recent-ended`, the weakest tier and the
+  # one the todo entry says a driven career recovery reaches. `nameMatches` / `survivors`
+  # are `[34]` / `[12]` because the flight yields one recording or two depending on whether
+  # its landed tail cleared the optimizer's 5.0 s split floor.
+  "PickRecoveryRecordingId: vessel='Jumping Flea' rawVessel='#autoLOC_501224' ut=[0-9.]+ nameMatches=[34] survivors=[12] guidDropped=2 skippedZombieNotCommitted=0 sessionProvisionalAdmitted=False tier=most-recent-ended bracketTie=n/a pick=[0-9a-f]{32}",
+  # THE XP ROW: the pick was CONSUMED. `rows=1 deduped=0 noAction=0` is the measured shape;
+  # the kerbal is a per-run generated STAND-IN (see the header), so only its Kerman suffix
+  # is pinned.
+  "Recovery kerbal XP recorded: vessel='Jumping Flea' rawVessel='#autoLOC_501224' ut=[0-9.]+ recordingId=[0-9a-f]{32} rows=1 deduped=0 noAction=0 kerbals='[A-Za-z]+ Kerman'",
 ]
-forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  # The XP leg's fail-safe. Measured ABSENT on the green run, and its appearance would mean
+  # the filter emptied the candidate set or the pick returned null - the product finding
+  # this lane is the instrument for. Forbidding it is safe on THIS fixture because the
+  # recovery is crewed by construction (the pad craft carries a pod and a kerbal, stand-in
+  # or not), which `CareerSameNamePadFixtureDriftTests` asserts.
+  "Recovery kerbal XP refused:",
+]
 
 [runtime]
 # L3's budget: the mission leg dominates.

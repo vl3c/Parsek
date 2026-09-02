@@ -5,8 +5,28 @@ id = "W1-watch-distance-cutoff"
 #
 # AUTHORED 2026-08-28. READING RUN 1 (`2026-08-28_1902`, both attempts) flew INVALID and
 # REFUTED THE SPEC'S CENTRAL ASSUMPTION - not the product. Round 2 is re-derived off that
-# run's own bytes; section 2A is the ledger. Everything still marked [INTERIM] is a
-# prediction, everything marked [MEASURED] came back from run 1.
+# run's own bytes; section 2A is the ledger.
+#
+# READING RUN 2 (`2026-08-28_1624`, 147 s wall) FLEW **PASS ON ATTEMPT 1**, every verifier
+# green and all eighteen required tokens matched, so nothing in this file is a prediction
+# any more. The two lines the lane exists for, verbatim from that run:
+#     [Parsek][INFO][CameraFollow] EnterWatchMode refused: ghost #1 "Kerbal X"
+#         is 1064km from active vessel (max 300km)
+#     [Parsek][INFO][CameraFollow] Entering watch mode for recording #2 "Kerbal X"
+#         - ghost at alt 583m on Kerbin
+# The 300 km cutoff REFUSED at 1,064 km and ACCEPTED at 0.46 km, on one body, one vessel,
+# one tree and one scene, inside a single loop cycle.
+#
+# THE ARTIFACT TRAP THIS RUN LEAVES BEHIND, recorded because a census hit it: run ids are
+# UTC (16:24 for the PASS; 15:56 / 15:59 for run 1's two attempts) while `../logs` folder
+# names are LOCAL time (1859 / 1902), AND the PASS run's `collectLogs.ran` is FALSE - its
+# KSP.log exists only as
+# `harness/results/2026-08-28_1624_W1-watch-distance-cutoff_shots/KSP.log` in the flying
+# worktree. A `../logs` census therefore reads this lane as never flown when it flew green;
+# the result JSON beside that folder is the authority.
+#
+# Everything marked [MEASURED] came back from a real flight: run 1 for the subject map and
+# the geometry, run 2 for the five tokens gated on the corrected indices.
 #
 # -------------------------------------------------------------------------------------
 # 0. WHAT THIS LANE MEASURES
@@ -157,7 +177,8 @@ id = "W1-watch-distance-cutoff"
 #             SEPARATION [MEASURED across the whole of run 1's dwell at this exact
 #             epoch]: 1,069,651 m at loopUT 434.595, falling ~1.14 km/s to 995,904 m at
 #             loopUT 499.375. The probe fires at the near end of that walk, so the
-#             printed value should read ~1,06x km. **NEVER below 3.3x the cutoff.**
+#             printed value should read ~1,06x km - and run 2 printed **1064km**.
+#             **NEVER below 3.3x the cutoff.**
 #   PROBE B   `index = "2"` (the DESCENT member), `ut = 22764` -> loopUT 1214.575 =
 #             touchdown - 60.1 s, 361 s into member #2's [853.72, 1276.42] window and
 #             61.85 s clear of its end. [MEASURED at this exact epoch in run 1:
@@ -279,7 +300,7 @@ id = "W1-watch-distance-cutoff"
 # `watch-mode-retarget-explosion-hold` value stays unclaimed - different semantics.
 # =====================================================================================
 tier = "operator"
-description = "READING RUN 1 (`2026-08-28_1902`) FLEW INVALID AND REFUTED THE SPEC'S SUBJECT MAP, NOT THE PRODUCT; ROUND 2 IS RE-DERIVED OFF THAT RUN'S BYTES. The watch-entry 300 km cutoff as the SINGLE measured variable: one Kerbin recording chain replayed against the fixture's own Kerbin-landed pod, probed twice inside one loop cycle - REFUSED at 1,069.7 km and ENTERED at 0.46 km, both figures MEASURED - so body, vessel, tree and scene are held constant and only the separation moves. Closes the conflation every committed `EnterWatchMode expect=REJECTED` lane carries, where a foreign-orbit geometry makes the different-body guard and the distance guard indistinguishable. THE CRUX, read from the code: the verb's auto-select conjunction already filters on `IsGhostWithinVisualRange`, which IS the same 300 km predicate, so a far auto-select probe returns `no-watchable-ghost` before the guard ever runs - both probes therefore pass an explicit `index`, the only path into `TryResolveWatchEntryState`, and the far one expects `ERROR msg=watch-not-entered` (the silent-refusal timeout), never `REJECTED`. WHAT RUN 1 REFUTED: the load-time optimizer SPLITS the fixture's single 1,240 s parent recording twice on persisted phase changes (212.20 Atmospheric->ExoBallistic, 853.74 ExoBallistic->Atmospheric), so the runtime corpus is NINE recordings and index 0 is the ASCENT segment alone - inactive at both probe epochs, which refused above the distance guard and wrote no line. The probes now name the COAST member (index 1) and the DESCENT member (index 2), and the split ids are run-generated GUIDs that are deliberately NOT pinned; the layout is proven in-run from id-free lines instead (both split candidates, `members=3`, member #0's window, and each probe's own `camera-live member #x->#y at loopUT=` transition). WHAT RUN 1 VALIDATED: the derived loop clock to the millisecond (`phaseAnchor=21583.965183089826`), the body-fixed separation model to 0.1% (1,068.8 km derived vs 1,069,651 m measured), and the pod's position (463.5 m from the descent ghost). Both round-1 open questions are now ANSWERED and the tokens sharpened - the distance field renders DIGITS (65 consecutive finite `hidden-by-zone_distance=` prints, where `unresolved` is what a non-finite read would print), and the body check above the guard is satisfied (round 1 measured it via `CreatePendingSpawnState`'s `SetInterpolated` seed, whose line is now itself a required token; since 2026-08-28 that check routes through `IsGhostOnSameBody`, which resolves the body from the RECORDING'S TRAJECTORY with the seed as fallback - this Kerbin-only fixture answers `Kerbin` on both paths, so the lane is unaffected and the body-before-distance ORDER is pinned by a wiring cell). Map view is never opened and `ExitMapView` runs before both probes; `[Parsek][ERROR]` is deliberately NOT forbidden, because the refusal's own timeout line is a required token. Nothing armed, no evaluator block declared."
+description = "FLOWN GREEN: READING RUN 2 (`2026-08-28_1624`, 147 s) PASS attempt 1, all eighteen required tokens matched - REFUSED at 1,064 km, ENTERED at 0.46 km. READING RUN 1 (`2026-08-28_1902`) FLEW INVALID AND REFUTED THE SPEC'S SUBJECT MAP, NOT THE PRODUCT; ROUND 2 WAS RE-DERIVED OFF THAT RUN'S BYTES. The watch-entry 300 km cutoff as the SINGLE measured variable: one Kerbin recording chain replayed against the fixture's own Kerbin-landed pod, probed twice inside one loop cycle - REFUSED at 1,069.7 km and ENTERED at 0.46 km, both figures MEASURED - so body, vessel, tree and scene are held constant and only the separation moves. Closes the conflation every committed `EnterWatchMode expect=REJECTED` lane carries, where a foreign-orbit geometry makes the different-body guard and the distance guard indistinguishable. THE CRUX, read from the code: the verb's auto-select conjunction already filters on `IsGhostWithinVisualRange`, which IS the same 300 km predicate, so a far auto-select probe returns `no-watchable-ghost` before the guard ever runs - both probes therefore pass an explicit `index`, the only path into `TryResolveWatchEntryState`, and the far one expects `ERROR msg=watch-not-entered` (the silent-refusal timeout), never `REJECTED`. WHAT RUN 1 REFUTED: the load-time optimizer SPLITS the fixture's single 1,240 s parent recording twice on persisted phase changes (212.20 Atmospheric->ExoBallistic, 853.74 ExoBallistic->Atmospheric), so the runtime corpus is NINE recordings and index 0 is the ASCENT segment alone - inactive at both probe epochs, which refused above the distance guard and wrote no line. The probes now name the COAST member (index 1) and the DESCENT member (index 2), and the split ids are run-generated GUIDs that are deliberately NOT pinned; the layout is proven in-run from id-free lines instead (both split candidates, `members=3`, member #0's window, and each probe's own `camera-live member #x->#y at loopUT=` transition). WHAT RUN 1 VALIDATED: the derived loop clock to the millisecond (`phaseAnchor=21583.965183089826`), the body-fixed separation model to 0.1% (1,068.8 km derived vs 1,069,651 m measured), and the pod's position (463.5 m from the descent ghost). Both round-1 open questions are now ANSWERED and the tokens sharpened - the distance field renders DIGITS (65 consecutive finite `hidden-by-zone_distance=` prints, where `unresolved` is what a non-finite read would print), and the body check above the guard is satisfied (round 1 measured it via `CreatePendingSpawnState`'s `SetInterpolated` seed, whose line is now itself a required token; since 2026-08-28 that check routes through `IsGhostOnSameBody`, which resolves the body from the RECORDING'S TRAJECTORY with the seed as fallback - this Kerbin-only fixture answers `Kerbin` on both paths, so the lane is unaffected and the body-before-distance ORDER is pinned by a wiring cell). Map view is never opened and `ExitMapView` runs before both probes; `[Parsek][ERROR]` is deliberately NOT forbidden, because the refusal's own timeout line is a required token. Nothing armed, no evaluator block declared."
 instanceProfile = "stock-minimal"
 tags = ["W1", "watch-mode", "distance-cutoff", "loop-playback", "kerbin", "boundary-probe"]
 
@@ -400,10 +421,11 @@ count = { min = 1, max = 12 }
 # ---------------------------------------------------------------------------------
 # ROUND 2, re-cut off reading run `2026-08-28_1902`. THIRTEEN of the eighteen tokens
 # below were re-matched against that run's collected log after the re-cut (counts: 1, 1,
-# 1, 1, 1, 1, 3, 26, 2, 1, 1, 2, 1). The FIVE that miss are exactly the five gated on the
-# corrected indices - both `enterwatchmode initiated: index=1|2 recId=` lines, the
-# refusal line, and probe B's two entry halves - which the run could not reach because
-# round 1 addressed index 0. Those five are [INTERIM]; the rest are [MEASURED].
+# 1, 1, 1, 1, 3, 26, 2, 1, 1, 2, 1). The FIVE that missed were exactly the five gated on
+# the corrected indices - both `enterwatchmode initiated: index=1|2 recId=` lines, the
+# refusal line, and probe B's two entry halves - which run 1 could not reach because it
+# addressed index 0. ALL EIGHTEEN ARE NOW [MEASURED]: reading run 2 (`2026-08-28_1624`)
+# matched the whole list on attempt 1, the five late ones included.
 # ---------------------------------------------------------------------------------
 required  = [
   # -- the loop is running on the derived clock ------------------------------------
@@ -426,7 +448,7 @@ required  = [
   # whole lane (section 5B): without this stamp the guard refuses one branch higher.
   "Pending spawn interpolation seed: vessel='Kerbal X' lifecycle=StandardEnter UT=434\\.[0-9] body='Kerbin'",
   "enterwatchmode initiated: index=1 recId=",
-  # -- PROBE A: THE LINE THIS LANE EXISTS FOR [INTERIM - never yet reached] ---------
+  # -- PROBE A: THE LINE THIS LANE EXISTS FOR [MEASURED run 2: 1064km] -------------
   # `WatchModeController.TryResolveWatchEntryState`, verbatim. Reaching it proves: ghost
   # resolved, SAME body (the body check sits above it and returns silently), NOT within
   # 300 km. The digits form is justified by run 1's 65 finite
@@ -437,7 +459,7 @@ required  = [
   # -- PROBE B: the DESCENT member is the live one at this epoch --------------------
   "Chain-loop unit owner=0 camera-live member #1->#2 at loopUT=1214\\.5",
   "enterwatchmode initiated: index=2 recId=",
-  # -- PROBE B: entry ACCEPTED at 0.46 km, both halves [INTERIM - never yet reached] -
+  # -- PROBE B: entry ACCEPTED at 0.46 km, both halves [MEASURED run 2, alt 583m] ---
   "Entering watch mode for recording #2 \"Kerbal X\"",
   "enterwatchmode complete: index=2",
 ]
