@@ -1,0 +1,230 @@
+schema = 1
+id = "H60-route-escrow-contention"
+tier = "operator"
+# =====================================================================================
+# TIER C ITEM 10 - TWO ROUTES COMPETING FOR ONE PHYSICAL SOURCE.
+# AUTHORED 2026-09-02. NEVER FLOWN. THE FIRST RUN IS A READING RUN.
+# =====================================================================================
+#
+# WHY THIS LANE EXISTS, AND WHAT IT IS NOT.
+# `docs/dev/autotest-roadmap.md` Tier C item 10 asks for two routes contending for one
+# source. The todo entry C10-ESCROW-CONTENTION-NEEDS-A-MULTI-STOP-ROUTE scoped it and
+# found that NO committed fixture can produce the subject (every route-bearing fixture
+# carries exactly ONE recorded dock WINDOW, so no fixture route is multi-stop; and the
+# seam refuses a second promotion off one tree with `candidate-already-promoted`). The
+# closing move was therefore a C# in-game cell, not a spec. That cell now exists - the
+# `RouteEscrowContention` category, two cells - and THIS spec is what gates it.
+#
+# WHAT WAS ALREADY GATED, STATED PRECISELY SO THE DELTA IS LEGIBLE.
+# `LogisticsMultiOriginRuntimeTests.Escrow_CompetingRouteSeesReservation_Holds` (category
+# `Logistics`) already runs green on H38 / H40 / RVR-1 and proves the GATE and the M6
+# hold TOKEN. What it does NOT do is drive contention through the ORCHESTRATOR: it calls
+# `RouteStore.ReserveCargo` by hand for a synthetic route A, evaluates `env.OriginHasCargo`
+# by hand for a synthetic route B, and neither route is ever added to `RouteStore` nor
+# ever ticked. This lane's two cells put BOTH routes in the store and produce the
+# reservation from a real `ReserveCycleEscrow` at a real multi-stop dispatch.
+#
+# -------------------------------------------------------------------------------------
+# THE DERIVATION THE CELLS ARE SHAPED BY, AND THE HALF OF THE ORIGINAL PLAN IT KILLED.
+# -------------------------------------------------------------------------------------
+#
+# The todo's closing paragraph prescribed four assertions: reserve, blocked-with-escrow,
+# release, and "a subsequently eligible B after A's later window fires". The fourth is
+# UNREACHABLE, and not by tuning. Read off the code:
+#
+#   * the reserve is the SUMMED pickup manifest M over one source's windows
+#     (`RouteOrchestrator.cs:1886` over `RoutePickupSourceGate.TryBuildReservations`);
+#   * each window's release is that window's OWN manifest
+#     (`RouteOrchestrator.cs:1966`, `stop.PickupManifest`);
+#   * the release fires TOGETHER WITH a physical debit of the SAME manifest, and
+#     unconditionally (`RouteOrchestrator.cs:2690-2709`);
+#   * the competitor's availability is `max(raw - reservedByOthers, 0)`
+#     (`LiveRouteRuntimeEnvironment.cs:321-328` -> `RoutePickupSourceGate.NettedAvailable`).
+#
+# So at every point of A's cycle the competitor sees `max(S0 - M, 0)`: what it can rely
+# on WHILE A holds equals the raw amount left AFTER A debits. B's eligibility is
+# INVARIANT across the release. The escrow is an exact PRE-IMAGE of the debit - it
+# cannot double-claim and it cannot over-block. Pinned headlessly by
+# `RouteCargoEscrowTests.NettedAvailable_IsInvariantAcrossEveryWindowSplitOfTheReservation`.
+#
+# What DOES change across A's window is the hold CAUSE: `IsEscrowCausedShort` needs
+# `raw >= need`, which holds while the cargo is still in the tank and fails once it is
+# taken. So the observable is `short-cause=escrow` -> `short-cause=physical` on unchanged
+# numbers. That is cell 1, and it is the invariant DRIVEN rather than asserted.
+#
+# A competitor becomes ELIGIBLE only from a release that takes no cargo. The
+# player-reachable one is route removal (`RouteStore.cs:363-382`: `RemoveRoute` ->
+# `DropRouteEscrow`); the others are an endpoint lost mid-cycle
+# (`RouteOrchestrator.cs:2708-2709`, `context=window-endpoint-lost`), rewind dormanting
+# (`RouteRewindClassifier.cs:740`) and the scene-change `ClearAllEscrow`
+# (`ParsekScenario.cs:8308`). Cell 2 drives the removal. It CANNOT share cell 1's
+# timeline: cell 1 consumes the hold by debiting it, cell 2 needs it released un-debited,
+# and one route A cannot do both. Hence two cells, not one.
+#
+# -------------------------------------------------------------------------------------
+# HOW THE SUBJECT IS PRODUCED, AND WHAT IS EMULATED.
+# -------------------------------------------------------------------------------------
+#
+# Route A is MULTI-STOP with BOTH pickup windows on the SAME shared source (docks at loop
+# UT 1500 and 2000) plus a delivery stop at 2500. The gate groups the two windows into
+# ONE source, so the dispatch reserves their SUM (4 + 6 = 10) once. A tick at 1560 fires
+# window 0 only: `cycleLastDockReached` is false, the cycle-complete `DropRouteEscrow`
+# does not run, and window 1's 6 units stay reserved ACROSS TICKS. That gap is the only
+# contention surface in the product; a single-stop route cannot produce it, because its
+# reserve and release are both inside one `EmitLoopCycle`.
+#
+# Route B is single-stop pickup-only on the same source, needing 8. Its own crossing is
+# what blocks. ORDER IS NOT LUCK: `RouteOrchestrator.CompareRoutesForTick` sorts ascending
+# on `DispatchPriority`, and A is 0 while B is 1, so A is always processed first within a
+# tick. B carries a much SHORTER loop cadence (span 100 s, dock phase +50) so it gets a
+# fresh owed crossing at each of the two chosen ticks - a blocked crossing snaps B's
+# cursor to its dock cycle, so a same-cadence B would not re-cross.
+#
+# EMULATED: the route TOPOLOGY and the loop CLOCK (the builder shapes are ported from
+# `LogisticsMultiOriginRuntimeTests` and the loop unit arrives through
+# `RouteOrchestrator.LoopUnitResolverForTesting`). NOT EMULATED, and this is the whole
+# point of the lane: both routes are really in `RouteStore`, the tick is the production
+# `RouteOrchestrator.Tick`, the eligibility gate is the production
+# `RouteDispatchEvaluator.CheckEligibility` over a live `LiveRouteRuntimeEnvironment`, the
+# source is a live auto-spawned vessel, and every debit is a real resource write.
+#
+# -------------------------------------------------------------------------------------
+# WHY THIS HOST, AND THE ONE THING THAT CAN SELF-SKIP.
+# -------------------------------------------------------------------------------------
+#
+# `logi-cargo-pad`, and the choice is measured rather than aesthetic. The cells need a
+# shared source stocked in the band [12, 18) LiquidFuel: below 12 the phase-2 short reads
+# PHYSICAL rather than ESCROW (or A cannot dispatch at all), at or above 18 the source
+# covers both routes and nothing contends. `UnloadedFuelVesselFixture` caps the SPAWNED
+# copy's tank to exactly 15 - but the cap does NOT apply to a REUSED pre-existing
+# unloaded vessel, and a recorded host has plenty of those. That exact failure is already
+# measured elsewhere: the existing escrow cell self-skips on H39 (`bdock-recorded`, whose
+# shared source holds 645.42 LF) and passes on H38 / H40. `logi-cargo-pad` is a fresh
+# un-recorded pad fixture with no other vessels, so the SPAWN path is taken and the cap
+# binds. If a future run reads `skipped=2`, that is the band guard firing and the host is
+# wrong, not the product.
+#
+# NO KILL TRIPLE, for H55's reason: `logi-cargo-pad` is a fresh un-recorded pad fixture
+# with zero trees, so there is nothing to stop and nothing to discard.
+#
+# -------------------------------------------------------------------------------------
+# EVIDENCE STANDING: AUTHORED, INTERIM, NEVER FLOWN.
+# -------------------------------------------------------------------------------------
+#
+# `total=2` is ATTRIBUTE-EXACT (two `[InGameTest(Category = "RouteEscrowContention")]`
+# declarations, both `Scene = FLIGHT`, both `AllowBatchExecution = false` +
+# `RestoreBatchFlightBaselineAfterExecution = true`), source-synced by
+# `CommittedBatchTallySourceSyncTests`. `failed=0` is a literal. `passed=` and `skipped=`
+# are regex classes until the first census measures the split, and the id is registered
+# in `IsolatedBatchWiringGroupTests.INTERIM_PIN_IDS` until then.
+#
+# WHAT DEFENDS THE INTERIM SPLIT. The category is WHOLLY batch-disabled, so the ORDINARY
+# path's executable ceiling is zero and `passed=[1-9][0-9]*` already rejects every line
+# the ordinary path could print. What an interim `passed=` cannot say is WHICH cell
+# passed, and that duty is discharged by the EIGHT phase tokens below - every one of them
+# a PRODUCTION line from `[Route]`, not a test echo, except the two `EscrowContention:`
+# summaries which name the cell and its four phase outcomes in one grep-stable line.
+#
+# WHAT IS PINNED AS A LITERAL AND WHY IT IS SAFE TO. The route short ids: the cells build
+# their ids with the EXACTLY-8-character prefixes `escrowA-` / `escrowB-`, which is
+# `RouteIds.Short`'s truncation width, so the short id in every production line is the
+# stable literal rather than per-run noise - and that is what lets the M6 hold token be
+# pinned to the HOLDER specifically. Everything genuinely per-run is a class: vessel pids
+# `[0-9]+`, the batch baseline slot `.*`, and every resource amount, because the band is
+# [12, 18) and only the RESIDUAL (6, route A's un-fired window) is fixed by construction.
+#
+# D10 `multi-origin-escrow` IS NOT CLAIMED HERE. The registry value already belongs to
+# H38 and H40 off their whole tallies. This lane's claim - the ORCHESTRATOR-driven
+# contention between two STORED routes - is a strictly narrower thing than the value
+# names, and an unflown lane claims no dimension at all. `[dimensionsCovered]` therefore
+# stays EMPTY on authoring; the first green census is the moment to decide whether the
+# row moves here, and the decision needs the measured tokens in hand.
+# =====================================================================================
+description = "AUTHORED 2026-09-02, NEVER FLOWN. Roadmap Tier C item 10: TWO STORED routes competing for ONE physical source, driven through the production RouteOrchestrator.Tick over the logi-cargo-pad rig. The isolated RouteEscrowContention batch - two self-provisioning cells that spawn a shared unloaded LiquidFuel source capped into the [12,18) band, put a MULTI-STOP holder route A (two pickup windows on that one source, summing to 10) and a single-stop competitor route B (needing 8) into RouteStore at DispatchPriority 0 and 1, and tick them. Cell 1 (phases 1-3): A's dispatch RESERVES the summed manifest (ReserveCycleEscrow reservedSources=1), fires only its first window, and the still-held second window blocks B on its OWN crossing with the M6 token source-reserved:<pid>:<name>:<routeA-name> and short-cause=escrow; then A's second window fires, releasing the hold and PHYSICALLY DEBITING the same amount in the same instant, so B stays blocked on UNCHANGED numbers with the cause flipped to physical. That flip is the reserve/release PRE-IMAGE invariant driven live - the escrow withholds exactly what the debit takes, no double-claim and no over-block - and it is why the todo's original 'B becomes eligible after ReleaseWindowEscrow' assertion was refuted and replaced. Cell 2 (phases 1-2 then 4): the only shape in which a release DOES free a competitor - RouteStore.RemoveRoute on the holder mid-cycle drops the reservation without debiting anything, and B is eligible on its next crossing and physically picks the cargo up. total=2 is attribute-exact and failed=0 is a literal; passed=/skipped= are regex classes until the first census, and the eight phase tokens (six production [Route] lines plus the two per-cell EscrowContention summaries) carry the per-cell obligation the interim split cannot"
+instanceProfile = "stock-minimal"
+tags = ["ingame-batch", "isolated-batch", "logistics", "route", "escrow",
+        "contention", "tier-c", "H60"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/logi-cargo-pad"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" },  expect = "OK" },
+  { cmd = "RunTests",   args = { category = "RouteEscrowContention", isolated = "true" }, expect = "OK", budget = 420 },
+  { cmd = "FlushAndQuit",                                                     expect = "OK" },
+]
+
+# EMPTY BY DECISION, NOT BY OMISSION - see the header. D10 `multi-origin-escrow` is
+# already claimed by H38 / H40, and an unflown lane claims no dimension; whether the row
+# moves here is decided off the first green census.
+[dimensionsCovered]
+
+[expectations]
+allowedAnomalies = []
+
+# The cells commit synthetic trees mid-run and remove them again in finally; the
+# per-test baseline restore plus the teardown revert must leave the produced save as
+# clean as the fixture, which carries no recordings at all. This row is the
+# campaign-isolation assertion as much as a count.
+[expectations.recordings]
+count = { min = 0, max = 0 }
+
+[expectations.logContracts]
+required  = [
+  # ---- boot + batch entry ----
+  "loadgame complete scene=FLIGHT save=.* game-loaded=true expected=Flight",
+  # The isolated entry point, and the canary for the provisioning trap: the harness
+  # flies automation/stock-minimal, not the `dotnet build` dev instance.
+  "runtests start category=RouteEscrowContention isolated=true",
+  # Emitted ONLY by PrepareBatchFlightRestoreExecution, so it proves the isolated path
+  # independently of the tally. Literal 2 = both cells carry the restore flag.
+  "Using batch baseline slot .* for 2 restore-after-run test\\(s\\)",
+  # INTERIM: total exact, failed literal, the split a regex class until the first census.
+  "BATCH_COMPLETE v1 total=2 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=RouteEscrowContention scene=FLIGHT",
+
+  # ---- PHASE 1, reserved. The production dispatch-time reserve, naming ONE summed
+  #      source (both of A's pickup windows resolve to the same live pid) ----
+  "ReserveCycleEscrow: route escrowA- cycle=cycle-0 context=dispatch reservedSources=1 reservedResourceEntries=1",
+
+  # ---- PHASE 2, blocked (escrow-caused). B's OWN crossing, carrying the M6 hold token
+  #      whose final segment is the HOLDER's player-visible name (route A is stored, so
+  #      TryGetReservingRoute resolves the Name rather than the short-id fallback) ----
+  "LoopRoute: route escrowB- cycle=cycle-0 BLOCKED kind=OriginLacksCargo reason=source-reserved:[0-9]+:[^:]*:LiquidFuel:Parsek Escrow Holder In-Game",
+  # The classification line: raw covers B's need, only the netted availability does not,
+  # and the residual is route A's un-fired window (6 by construction - the ONLY resource
+  # amount in this spec that is not a class, because the band leaves the others free).
+  "PickupSourcesHaveCargo: route escrowB- short-cause=escrow pid=[0-9]+ resource=LiquidFuel raw=[0-9.]+ netted=[0-9.]+ reservingRouteId=escrowA- reservedByRoute=6(?![0-9.])",
+
+  # ---- PHASE 3, the cause flip. A's second window releases AND debits in one instant ----
+  "ReleaseWindowEscrow: route escrowA- cycle=cycle-0 pid=[0-9]+ releasedResourceEntries=1 context=window-debit",
+  # Same competitor, same source, nothing reserved any more - and now raw does not cover,
+  # so the cause is PHYSICAL. This pair of lines IS the pre-image invariant.
+  "PickupSourcesHaveCargo: route escrowB- short-cause=physical pid=[0-9]+ resource=LiquidFuel raw=[0-9.]+ netted=[0-9.]+ reservingRouteId=<none> reservedByRoute=0",
+
+  # ---- PHASE 4, the no-cargo release. Removing the holder mid-cycle drops the whole
+  #      reservation; one pid, one resource entry - the residual window's hold ----
+  "DropRouteEscrow routeId=escrowA- droppedPids=1 droppedResourceEntries=1",
+
+  # ---- per-cell summaries: the four phase outcomes in one grep-stable line each ----
+  "EscrowContention: cell=hold-then-cause-flip reserved=1 blocked=1 causeAfterWindow=physical eligibleAfterRouteRemoval=0",
+  "EscrowContention: cell=removal-releases-hold reserved=1 blocked=1 causeAfterWindow=escrow eligibleAfterRouteRemoval=1",
+
+  # The batch reverted from its own baseline, so the quit must not re-save over it.
+  "flushandquit: save suppressed \\(batch baseline already restored\\)",
+]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+[runtime]
+budgetSeconds = 1400
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

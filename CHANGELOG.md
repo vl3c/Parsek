@@ -10,6 +10,20 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **Test coverage: two supply routes competing for the same depot are now checked
+  automatically.** Two new in-game checks set up one shared fuel depot, a route that
+  will collect from it twice on one run, and a second route that wants the same fuel,
+  and then run the game's own route scheduler over them. The first check confirms that
+  while the first route is still owed a pickup it has reserved, the second route is
+  held back and told which route is holding the fuel - and that once the first route
+  actually takes that fuel, the second is held back for the plain reason that the tank
+  is now empty. The second check confirms the one case where the hold really does free
+  up: delete the first route mid-run, and the second route immediately gets the fuel it
+  was waiting for. Together these pin the promise the reservation makes - it holds back
+  exactly what the first route is going to take, never more and never less - so two
+  routes can never both spend the same fuel, and a route is never told to wait for fuel
+  nobody will collect. Nothing player-facing changes.
+
 - **Test coverage: the start-docked supply-route origin now has an automated subject.**
   Two new in-game checks fly the shape the roadmap had reserved for a hand-flown
   mission - a transport that starts docked to a landed base, undocks, and delivers to
