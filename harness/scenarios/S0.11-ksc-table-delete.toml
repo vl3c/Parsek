@@ -1,0 +1,213 @@
+schema = 1
+id = "S0.11-ksc-table-delete"
+# `operator`: a READING RUN, the first consumer of a NEW seam verb (`DeleteRecording`),
+# whose single load-bearing pin - the ParsekKSC subscriber's reindex line - fires only
+# when a KSC ghost is ALIVE at the delete instant, a timing the lane took four reading
+# runs to place. Nothing here is armed.
+#
+# WHAT THIS SPEC IS FOR. AUTOMATION-GAP-KSC-TABLE-DELETE (todo, closed by the verb this
+# lane drives): PR #1591 made every mid-list removal from the committed recording list
+# raise Removing / Removed notifications, and `ParsekKSC` subscribes to them to shift its
+# index-keyed ghost state (`ShiftKscIndexKeyedState`) - the fix for a Space Center delete
+# that used to leave every ghost above the deleted row playing its neighbour's trajectory.
+# The subscriber was pinned headlessly (`CommittedListNotificationTests`) and never driven
+# in the scene it was written for, because the table's delete is an IMGUI button and no
+# seam verb removed a recording. `DeleteRecording index=<n>` is that verb
+# (design-autotest-command-seam.md -> `#### DeleteRecording`); this lane is its first flight.
+#
+# THE HOST IS V22K'S, WITH ONE NUMBER CHANGED - AND FINDING THAT NUMBER WAS THE WORK. The
+# fixture's nine recordings are NOT loop-enabled (`Eligible breakdown: looping=0`), so
+# `ShouldUseGlobalAutoLaunchQueue` excludes them and NOTHING renders at the KSC on its own
+# (their recorded UTs are in the past). The ONLY thing that replays them at the KSC is a
+# MISSION loop (V22K's whole mechanism): `MissionConfig loop=true` + `StartLoopPlayback`
+# arm it, and the loop drives its members through `UpdateUnitMemberKsc` while the loop
+# clock (loopUT) is inside a member's window. So the loop is REQUIRED; the reading runs
+# below are all about WHERE in the loop cycle the SPACECENTER boot lands.
+#
+# WHY V22K'S JUMP (22825) DOES NOT WORK HERE. The mission loop has member windows -
+# measured [34.54, 212.20] (member #0), [212.20, 853.72] (member #1), and a landed-tail
+# window ending ~1274 (member #2) - and an INTER-CYCLE WAIT after them before the cycle
+# wraps. `TimeJump 22825` lands loopUT ~1275.81 at KSC init, 1.8 s PAST the last window, so
+# `ParsekKSC` logs `Chain-loop unit owner=0 in inter-cycle wait ... all members hidden`
+# hundreds of times and `kscGhosts` is EMPTY for the whole dwell. Runs 1-3 (10/20/35-tick
+# dwells) all landed the delete in that wait and the reindex line stayed silent - the
+# pre-registered dwell reading, not a defect. (Run "no-loop" confirmed the loop is required:
+# with it removed, the KSC init reported 9 eligible but placed ZERO ghosts.)
+#
+# THE JUMP THIS LANE USES. loopUT tracks real UT within a cycle: at jump 22825, loopUT was
+# 1275.81, and V22K's own `Rotation(Kerbin) P=21549.425` is the loop base, so
+# loopUT = realUT - 21549.4 (22825 - 21549.4 = 1275.6, matching). To land loopUT in the
+# MIDDLE of member #1's 641 s window [212.20, 853.72], jump to 532 + 21549.4 = 22081.4 ->
+# `TimeJump 22082` (loopUT ~532). Member #1 then renders CONTINUOUSLY through the dwell
+# (loopUT advances ~6 s over 20 ticks, staying deep in the window), so a delete at any tick
+# catches a live ghost and `ShiftKscIndexKeyedState`'s `before > 0` guard is satisfied. The
+# jump stays forward of the fixture's current UT (~21584, V22K's L1).
+#
+# THE DELETE IS index=8 (A LEAF DEBRIS), AND THAT IS RUNS 4-5's LESSON, IN TWO STEPS.
+# Run 4 (jump 22082) placed member #1 perfectly (loopUT 532.85, rendering continuously),
+# but deleted index=1 - which WAS member #1, the sole live ghost. The Removing handler
+# destroys the deleted index's ghost FIRST (`Ghost #1 destroyed`), so at the Removed
+# handler `ShiftKscIndexKeyedState` sampled `before=0` and the line did not print. Run 5
+# then deleted index=0 (the ascent PARENT `28b6e543`, a hidden non-live row below member
+# #1): the reindex line FIRED (`before=1`, member #1 alive), but the analyzer red'd on
+# INV7-TREE-TOPOLOGY - deleting the parent left the SIX debris recordings, each
+# `ParentAnchorRecordingId=28b6e543`, with a dangling anchor (12 dangling links). That is
+# a REAL finding the verb's widening exposes (DELETE-OF-PARENT-DANGLES-CHILD-ANCHORS, todo)
+# but it is NOT player-reachable - the table offers delete only for ghost-only leaves,
+# never a parent - and the correct repair (cascade / re-anchor / refuse) is a design call,
+# not a mechanical scrub. So this lane deletes a LEAF instead: index 8 is the last-added
+# `Kerbal X Debris` (a shed booster), which nothing anchors to and which is hidden at
+# loopUT 532. Member #1 (a low index) stays LIVE, so `before>0` and the subscriber fires
+# its `at #8` reindex line; member #1 sits below index 8 so its slot does not move, but the
+# LINE is the proof the subscriber ran on a live-state committed removal at the KSC - which
+# is exactly the AUTOMATION-GAP subject. (The subscriber's index-SHIFT logic is separately
+# unit-pinned by `CommittedListNotificationTests`; this lane proves it FIRES live.)
+#
+# RUN 1 (`2026-09-02_0813`) ALSO FOUND A PRODUCT DEFECT THE VERB'S WIDENING EXPOSED
+# (DELETE-LEAVES-TREE-MEMBERSHIP, todo): the store removed the row from the flat list
+# (OnSave wrote 8), but the committed RECORDING_TREE still held the member, so the
+# FlushAndQuit save re-wrote all five of its sidecars (mtime eight seconds after
+# `DeleteRecordingFiles` had removed them) and saveParse read 9 recordings. Fixed in the
+# same branch: `RemoveRecordingAt` now prunes the row from its committed tree. The
+# report-only `recordings = 8` pin below reads that fix.
+tier = "operator"
+description = "Reading run: V22K's mission-loop KSC host with the jump moved to 22082 so the loop clock lands mid-member-window (member #1 renders continuously), then the NEW DeleteRecording seam verb removes a leaf debris (index 8) while that member ghost is live - so ParsekKSC's committed-list subscriber fires its reindex line under live state - the first live drive of the subscriber (AUTOMATION-GAP-KSC-TABLE-DELETE). Deleting a leaf, not the ascent parent, avoids the DELETE-OF-PARENT-DANGLES-CHILD-ANCHORS finding run 5 measured."
+instanceProfile = "stock-minimal"
+tags = ["S0.11", "ksc-scene", "recordings-table", "delete", "committed-list-notifications", "seam-verb", "kerbin", "sandbox", "reading-run"]
+
+[fixture]
+# V22K's fixture verbatim: harvested from B4-reentry-splashdown, Kerbin-frame end to end.
+saveTemplate       = "fixtures/saves/kerbin-splashdown-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  # V22K's setup, with the jump moved to 22082 (mid member-#1 window, not the inter-cycle
+  # wait). The fixture carries verboseLogging=True; the FLIGHT detour is kept because
+  # MissionConfig is a FLIGHT-only verb and the loop must be armed before the SPACECENTER
+  # reload renders it.
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                   expect = "OK" },
+  { cmd = "DiscardTree",                                                     expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",   value = "true" }, expect = "OK" },
+  { cmd = "MissionConfig", args = { tree = "c05c834cd2754892b4588e7ce9220c3f", loop = "true" }, expect = "OK" },
+  { cmd = "StartLoopPlayback", args = { tree = "c05c834cd2754892b4588e7ce9220c3f" }, expect = "OK", budget = 300 },
+  { cmd = "TimeJump", args = { ut = "22082" }, expect = "OK", budget = 300 },
+  { cmd = "SaveGame",   args = { name = "persistent" },                      expect = "OK" },
+  { cmd = "StopRecording",                                                   expect = "OK" },
+  { cmd = "DiscardTree",                                                     expect = "OK" },
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent", scene = "spacecenter" }, expect = "OK", budget = 300 },
+  # DWELL 1: twenty ticks (~6 s) with member #1 rendering continuously (loopUT deep in
+  # [212, 854] the whole time), so a live KSC ghost is present at the delete.
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  # THE SUBJECT: remove a leaf debris (index 8, hidden) while member #1's ghost is live, so
+  # the subscriber runs under before>0 and prints its reindex line (a leaf, so no dangling
+  # child anchors - see the header's run-5 note).
+  { cmd = "DeleteRecording", args = { index = "8" },                         expect = "OK" },
+  # DWELL 2: fifteen ticks so the host keeps rendering under the shifted indices.
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "FlushAndQuit",                                                    expect = "OK" },
+]
+
+[dimensionsCovered]
+# V22K's, earned by the same steps. Nothing for the delete itself: no dimension value
+# exists for it, and whether one should is what the reading decides.
+D14 = ["kerbin", "scene-ksc", "sandbox"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 1, max = 12 }
+
+[expectations.logContracts]
+required  = [
+  # V22K's measured KSC pins: the boot reached SPACECENTER and the host found eligible
+  # recordings (the `[1-9]\d*` is the anti-vacuity floor).
+  "loadgame spacecenter route \\(requested\\): resuming to SPACECENTER save=",
+  "loadgame complete scene=SPACECENTER save=.* game-loaded=true expected=SpaceCenter",
+  "ParsekKSC initialized, \\d+ committed recordings, [1-9]\\d* eligible for KSC ghost playback",
+  # The verb's own lines: the store route at the KSC, and the read-back-verified
+  # completion with the count pair (RecordingState exposes no committed count).
+  # The count pair is pinned LITERALLY (V22K measured 9 committed recordings; every S0.11
+  # run read committed=9 -> 8): a value class would accept before == after and let a
+  # no-op removal read green. The recId stays a class because the load-time optimizer
+  # regenerates the chain-split ids on every load; the LEAF identity is held by
+  # `vessel='Kerbal X Debris'` plus the analyzer's INV7 rule, which reds if a parent is
+  # deleted instead (run 5 measured exactly that).
+  "deleterecording start index=8 recId=[0-9a-f]{32} vessel='Kerbal X Debris' ghostOnly=false route=store committed=9 scene=SPACECENTER",
+  "deleterecording complete index=8 recId=[0-9a-f]{32} route=store committedBefore=9 committedAfter=8",
+  # The production path's own removal lines.
+  "DeleteRecordingFull: deleting 'Kerbal X Debris' at index 8",
+  "Removed recording 'Kerbal X Debris' \\(id=[0-9a-f]{32}\\) at index 8",
+  # THE SUBJECT. ShiftKscIndexKeyedState prints this only when a KSC ghost was alive
+  # at the delete, so it is the proof the subscriber shifted REAL state.
+  "\\[KSCGhost\\] KSC ghost state reindexed after committed removal at #8: primary=[0-9]+ overlapSets=[0-9]+",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  # The notification seam's exception containment: a throwing KSC handler lands here.
+  "subscriber threw",
+  # The verb must neither refuse nor read back a surviving row.
+  "deleterecording rejected",
+  "deleterecording error",
+  "DeleteRecordingFull: invalid index",
+  # V22K's own forbids, verbatim.
+  "timejump refused reason=backward-jump",
+  "KSC point skipped: recording=.* body=",
+  "KSC segment skipped: beforeBody=",
+]
+
+[expectations.recordings.structure]
+# REPORT-ONLY (declaring is not arming). V22K measured 9 recordings in the produced
+# save; one delete should leave 8. Run 1 read 9: the tree still held the deleted member
+# (DELETE-LEAVES-TREE-MEMBERSHIP, fixed on this branch). This pin reads the fix.
+trees          = { min = 1, max = 2 }
+committedTrees = { min = 1, max = 1 }
+recordings     = { min = 8, max = 8 }
+
+[runtime]
+# V22K's budget: the same steps, a dwell of similar length.
+budgetSeconds = 2400
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

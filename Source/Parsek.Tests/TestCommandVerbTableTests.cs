@@ -42,6 +42,8 @@ namespace Parsek.Tests
         [InlineData("InvokeRewindToLaunch")]
         [InlineData("SealSlot")]
         [InlineData("RouteCommand")]
+        [InlineData("ExportRenderManifest")]
+        [InlineData("DeleteRecording")]
         public void ImplementedVerbs_ClassifyImplemented(string verb)
         {
             Assert.Equal(TestCommandVerbClass.Implemented, TestCommandVerbs.Classify(verb));
@@ -112,7 +114,9 @@ namespace Parsek.Tests
             // StashSlot and FlySlot deliberately stay behind: FlySlot's mechanism is
             // already driveable as InvokeRewind, and nothing needs StashSlot's slot-OPEN
             // direction.
-            Assert.Equal(30, TestCommandVerbs.ImplementedVerbNames.Count);
+            // DeleteRecording is ADDITIVE (30 -> 31; reserved unchanged at 5): the
+            // reserved envelope never carried a recording-deletion verb.
+            Assert.Equal(31, TestCommandVerbs.ImplementedVerbNames.Count);
             Assert.Equal(5, TestCommandVerbs.ReservedVerbNames.Count);
         }
 

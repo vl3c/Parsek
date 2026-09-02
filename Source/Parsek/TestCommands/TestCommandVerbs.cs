@@ -27,7 +27,7 @@ namespace Parsek.TestCommands
     /// </summary>
     internal static class TestCommandVerbs
     {
-        // Implemented (v1 + M-C1 batch 1 + M-C1.1 follow-up + M-C2 EVA batch + EVA-4 + R12 + the arrival-validation lane + the player-workflow lane + M-A7 + the map-view pair + InvokeRewindToLaunch + the logistics pair): 30 verbs.
+        // Implemented (v1 + M-C1 batch 1 + M-C1.1 follow-up + M-C2 EVA batch + EVA-4 + R12 + the arrival-validation lane + the player-workflow lane + M-A7 + the map-view pair + InvokeRewindToLaunch + the logistics pair + DeleteRecording): 31 verbs.
         // M-C1 promoted InvokeRewind, AnswerMergeDialog, TimeJump, and KscAction from
         // Reserved to Implemented (design-autotest-seam-verbs-c1.md). The M-C1.1 follow-up
         // added SaveGame (the M-B3 L2/R6 persist-before-reload dependency). M-C2 added the
@@ -132,6 +132,19 @@ namespace Parsek.TestCommands
             // Ordered so seal-then-create is the readable pair.
             "SealSlot",
             "RouteCommand",
+            // DeleteRecording. ADDITIVE (30 -> 31 implemented, reserved unchanged at 5),
+            // like SaveGame and the EVA family: the reserved envelope never carried a
+            // recording-deletion verb. It is the Recordings table's per-row delete
+            // (RecordingsTableUI.DeleteGhostOnlyRecording: the flight host's
+            // ParsekFlight.DeleteGhostOnlyRecording for a ghost-only row in FLIGHT,
+            // RecordingStore.DeleteRecordingFull everywhere else), driven by committed-list
+            // index. Deliberately WIDER than the button on one axis - it deletes any
+            // committed row, not only ghost-only ones - because the button's ghost-only
+            // gate is an OFFERING policy over rows only the Gloops recorder produces, and
+            // the removal seam this verb exists to drive live (a mid-list removal under
+            // living KSC / flight ghosts, AUTOMATION-GAP-KSC-TABLE-DELETE) needs a row with
+            // ghosts ABOVE it, which an appended ghost-only row can never be.
+            "DeleteRecording",
         };
 
         // Reserved (recognized, not implemented in v1): 5 verbs.
