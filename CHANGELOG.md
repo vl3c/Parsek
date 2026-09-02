@@ -118,6 +118,16 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Dev
 
+- Corrected the automated-testing record for the watch-mode distance probe.
+  The lane that measures how far away a replayed flight can be before the game
+  refuses to follow it with the camera had flown and passed, but its own notes
+  still said a reading run was owed, and the refusal distance quoted in the
+  status table was the modelled figure rather than the one the game printed.
+  Both now match the flight: refused at 1,064 km, followed at 0.46 km. The notes
+  also record why the run looked missing - a passing run keeps its log beside the
+  run result instead of in the collected-logs folder, and the two are named in
+  different clocks. Nothing player-facing changes.
+
 - Added an automated-testing lane for the supply-route-across-a-rewind question,
   plus the one piece of test-harness plumbing it turned out to need.
   The lane writes down first, before any run, what an active supply route should
