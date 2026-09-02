@@ -1374,6 +1374,16 @@
         "2026-08-29T10:43:59Z": 54.0
       }
     },
+    "S0.11-ksc-table-delete": {
+      "last": 61.0,
+      "lastVsP50": 1.0,
+      "n": 1,
+      "p50": 61.0,
+      "p95": 61.0,
+      "samples": {
+        "2026-09-02T09:09:15Z": 61.0
+      }
+    },
     "S0.5-live-record-discard": {
       "last": 46.0,
       "lastVsP50": 1.0,
@@ -1545,6 +1555,16 @@
       "p95": 59.0,
       "samples": {
         "2026-09-02T08:16:08Z": 59.0
+      }
+    },
+    "S4.4-refly-quicksave-mid-session": {
+      "last": 59.0,
+      "lastVsP50": 1.0,
+      "n": 1,
+      "p50": 59.0,
+      "p95": 59.0,
+      "samples": {
+        "2026-09-02T08:47:09Z": 59.0
       }
     },
     "V1-map-dwell-mun-orbit": {

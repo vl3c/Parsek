@@ -133,7 +133,13 @@ required  = [
   "reject id=\\S+ cmd=LoadGame reason=recording-active",
   "outcome=retired-empty-provisional",
   "AppendRelations outcome=refused-unflown-provisional",
-  "outcome=concluded-no-supersede",
+  # THE CLEAN-CONCLUSION TOKEN. S4.2 (via the batch) ended `outcome=concluded-no-supersede`;
+  # this lane's merge of the surviving world-preservation tree ends `End reason=merged`
+  # (measured run `2026-09-02_1141`: `TryCommitReFlySupersede -> MergeJournalOrchestrator`
+  # then `End reason=merged`, marker cleared, zero rows, no error, no treeDiscarded). Both
+  # are clean conclusions of an unflown provisional - the empty provisional was retired and
+  # refused above - so the alternation accepts either route.
+  "(outcome=concluded-no-supersede|End reason=merged sess=)",
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",
