@@ -1,0 +1,562 @@
+schema = 1
+id = "RVR-7-rover-relay-c-dispatch"
+tier = "nightly"
+# =====================================================================================
+# THE FIRST DRIVEN DISPATCH OF A TWO-HOP RELAY: one cycle that PICKS UP 154.4 LiquidFuel
+# and three stored items from rover B and DELIVERS 200 LiquidFuel and four items into
+# rover A - and the only committed bytes on which the analysis-side origin override can
+# be exercised at all, because the fixture's two persisted origin proofs both name the
+# WRONG origin.
+#
+# **LIVE-PROVEN 2026-09-02: run `2026-09-02_2251`, PASS attempt 1, wall 49 s, EVERY
+# VERIFIER PASS** - expectations `mismatches=0`, analyzer `red=0`, `saveParse` reading
+# `routes count=1 statuses={Paused:1} stops=2 sourceRefs=3 completedCycles=1` over a
+# 3-tree / 10-recording corpus. Flown on automation DLL sha256 `2f9309f5e3487257`
+# (`main` + PR #1621).
+#
+# THE FIRST CENSUS (`2026-09-02_2245`) CLASSIFIED PARSEK-FAIL ON FIVE AUTHORING
+# MISPREDICTIONS AND NOTHING ELSE: the route was created, dispatched and delivered on
+# that flight too. Every token is now a MEASURED line. The header below is kept as
+# authored where it reasons about the fixture and the bytes, and the places where it
+# predicted wrongly are marked SUPERSEDED in place rather than rewritten, because the
+# prediction and its correction are the useful record. The authoritative list of what
+# moved is the FIRST CENSUS note under `[expectations.logContracts]`.
+#
+# -------------------------------------------------------------------------------------
+# WHAT THE FIXTURE IS. `rover-relay-c-recorded` is the operator's hand-flown SANDBOX save
+# `logistics-rover-c` (2026-09-02), the SECOND three-rover surface relay in the corpus.
+# Three identical 16-part rovers named A, B and C on the KSC shore, all LANDED, each with
+# one `probeStackSmall`, two `ConformalStorageUnit` containers (three slots each) and one
+# `dockingPort2`; no grapple, no converter, no drill. C drove to B, docked at UT 155.82,
+# LOADED +154.4 LiquidFuel (B 200 -> 45.6) plus three stored items, undocked at UT 212.54,
+# drove to A, docked at UT 274.18, UNLOADED 200 LiquidFuel (A 200 -> 400) plus four items,
+# undocked at UT 335.32 and drove off. The save was written at UT 410.40 from the SPACE
+# CENTER (so `activeVessel = 0` pointed at an asteroid; the builder re-points to rover C).
+#
+# **THE FIXTURE IS STAGED AT START-OF-CYCLE, AND THIS LANE COULD NOT EXIST OTHERWISE.**
+# A route REPLAYS a recorded run against the CURRENT live endpoints, and the save was
+# written AFTER the relay finished, so as harvested B held LiquidFuel 45.6 / 400 against
+# its own window's 154.4 pickup manifest and A was at 400 / 400 with 6 of 6 inventory
+# slots occupied. `RouteOriginCargoCheck.HasRequired` (eligibility step 6) and
+# `RouteDestinationCapacityCheck.HasCapacityForAllStops` (step 8) are BOTH
+# all-or-nothing, so every driven cycle blocked and emitted nothing.
+# `build_rover_relay_c_recorded.py` step 3 restores both PHYSICAL ENDPOINTS - in
+# FLIGHTSTATE only - to the state THEIR OWN WINDOW recorded at ITS dock:
+#     B  <- window 0's DOCK_ENDPOINT_RESOURCES / DOCK_ENDPOINT_INVENTORY
+#     A  <- window 1's
+# so both now hold LiquidFuel 200 / 400 and three of six slots, with the STOREDPART bytes
+# LIFTED VERBATIM out of the window snapshots. NO NUMBER IS INVENTED and the Parsek
+# payload is untouched. THE PRECEDENT IS `build_rover_route_recorded.py` step 3, which
+# strips the two `STOREDPART` nodes a hand-driven Send Once had already delivered into ITS
+# endpoint - same class of edit, same reason, and RVR-2 flight 1 is the flight that was
+# lost to not having it. The transport C is left EXACTLY as saved: the pickup writer
+# removes from the SOURCE only and the delivery writer stores into the DESTINATION, so
+# nothing a dispatch reads touches the transport's own hold.
+#
+# WHY IT IS NOT A SECOND COPY OF `rover-relay-recorded`. It carries TWO PERSISTED
+# `ROUTE_ORIGIN_PROOF` NODES AND BOTH NAME THE WRONG ORIGIN. Every other route fixture in
+# the corpus carries ZERO (`rover-route-recorded` skips on the KSC-site start;
+# `rover-relay-recorded` skipped because neither docked half was a player-typed depot), so
+# this is the only save where an analysis can be shown to IGNORE a bound proof. Quoted
+# verbatim from the source flight's collected KSP.log
+# (`logs/2026-09-03_0026_rover-c/KSP.log`, lines 22361 and 25769):
+#     RouteOriginProof bound at undock: recording=39ac117a8a8b4d61b1296983e7d538a8
+#         ut=212.54000000003492 binding=BoundToHalfB ... originName='C' originType=3
+#         originPid=612987736 ... transportRoot=549109006 ... pickup=Carried
+#         pickupValidated=0 pickupDelta=[LiquidFuel=-154.4;inv:-3] ...
+#     RouteOriginProof bound at undock: recording=b9df0ee00fd84831a0d9619b4e34fc97
+#         ut=335.319999999985 binding=BoundToHalfB ... originName='A' originType=3
+#         originPid=4280917262 ... transportRoot=3466447829 ... pickup=Carried
+#         pickupValidated=0 pickupDelta=[LiquidFuel=-200.0;inv:-4] ...
+# HOP 1 IS THE PICKUP and its correct origin is **B**; the binder bound **C**, the
+# transport itself, and put B's root part in the TRANSPORT slot - the two halves exactly
+# inverted. HOP 2 IS A PURE DELIVERY and has no origin at all; the binder bound **A**, the
+# DESTINATION. Both say `pickupValidated=0`, i.e. the binder recorded that it never
+# validated the pickup and simply bound the half it could see at the undock.
+#
+# WHY HOP 1 INVERTED RATHER THAN COIN-FLIPPED: at the hop-1 dock KSP resolved the COMBINED
+# vessel to **B's** identity (the dock-member recording `39ac117a` carries
+# `vesselPersistentId = 90564594` and B's `recordedVesselGuid`), so "half B" of that seam
+# IS rover C. That same identity swap makes window 0 INITIATOR-branch - its
+# `transferTargetPid` equals the carrying recording's pid - where BOTH of
+# `rover-relay-recorded`'s windows are TARGET-branch. Do not carry the sibling's
+# "two target-branch windows" claim onto this fixture; here it is one of each, and
+# `RoverRelayCRecordedFixtureDriftTests` pins the asymmetry.
+#
+# -------------------------------------------------------------------------------------
+# THE STANDING OF THE PINS. TWO DIFFERENT KINDS, AND THE DIFFERENCE MATTERS ON A RED.
+#
+# THE CREATE PINS ARE DERIVED FROM A RULING. The operator's ruling (2026-09-03): "route
+# candidates come from the ACTIONS: dock, take fuel or cargo FROM, undock, dock elsewhere,
+# transfer TO, undock = a valid route". Two landed fixes stand between these bytes and
+# that ruling - PR #1620 (stored cargo matched BY KIND, so a part that re-hashes in
+# transit no longer breaks a window closed) and PR #1618 (the origin binds at the undock)
+# - and a third, the analysis deriving the ORIGIN from the PICKUP WINDOW and ignoring a
+# bound proof that disagrees, is what makes these particular bytes admissible. Under all
+# three, the two windows yield exactly ONE candidate: **source B, destination A**.
+# **CONFIRMED ON BOTH FLIGHTS**: `eligible=True status=Eligible refusal=None`, one route
+# built, and `saveParse` read `routes count=1 stops=2` - the two windows became the two
+# STOPS of ONE route, which is the shape the ruling predicts and the census settled.
+# (Authored standing, kept: these were PREDICTIONS, and token 3 was named as the
+# instrument that would identify which gate said no if the override had not landed.)
+#
+# THE DISPATCH PINS ARE DERIVED FROM THE FIXTURE'S OWN BYTES, which is a stronger footing.
+# The amounts come out of the recorded windows and the repaired endpoints:
+#     PICKUP at B   transport 200 -> 354.4  =>  manifest 154.4, against B's restored 200
+#     DELIVERY at A endpoint 200 -> 400     =>  manifest 200,  against A's restored
+#                                               200 / 400, i.e. EXACTLY 200 of headroom
+# An exact fit IS a fit: `RouteDeliveryPlanner.PrepareDelivery` takes
+# `Math.Min(requested, freeCapacity)` and sets `anyResourcePartial` only when that is
+# STRICTLY less than requested. The inventory half fits too - the delivery manifest is
+# three distinct KINDS (station, chute, kit) against three free slots, and the kit can
+# additionally stack into A's existing partial slot.
+# **BOTH MEASURED EXACTLY AS DERIVED**, which is the start-of-cycle repair's own proof:
+# `Origin debit: ... requested=154.3999999999952 ... tankBefore=200 tankAfter=45.6` and
+# `Delivery write: ... requested=200 written=200 tankBefore=200 tankAfter=400`, with
+# `Delivery: ... resources=1 inventoryUnits=4/4 inventoryUnitsSkipped=0 partial=0`. The
+# exact-fit delivery wrote its full 200 and skipped nothing.
+#
+# -------------------------------------------------------------------------------------
+# WHY ONE SEND-ONCE AND NOT RVR-2's TWO. After cycle 0 the endpoints are spent again
+# exactly as the operator left them: B falls to 45.6 against a 154.4 manifest and A
+# returns to 400 / 400 - both MEASURED as the `tankAfter=` values above. A second cycle would therefore BLOCK - and blocking is precisely
+# what the two forbids below are there to catch. Driving a second send-once would make
+# this spec contradict itself. The one-cycle arithmetic is gated in `harness/lib` by
+# `test_one_cycle_fits_and_a_second_would_not`, which asserts BOTH halves against each
+# other so neither can move alone.
+#
+# -------------------------------------------------------------------------------------
+# THE STEPS, AND WHAT EACH ONE IS FOR.
+#
+# THE PROLOGUE IS RVR-1's / RVR-2's / RVR-5's, STEP FOR STEP AND ARG FOR ARG, and it is
+# SAFE ON THESE BYTES for a reason that was checked rather than inherited: all three trees
+# are COMMITTED and none is active. The fixture carries ZERO `isActive` keys and ZERO
+# `mergeState` keys, so `DiscardTree` - which discards the LIVE plain tree and never a
+# committed one - answers OK with nothing-discarded, and `StopRecording` is
+# idempotent-OK. The pair is there for the structural reason the recorded-host family
+# records: the committed-tree restore path resumes a promotion-stub recording ~1 s into
+# the scene, BEFORE any step can run. The `SetSetting autoRecordOnLaunch=false` stops a
+# later one. `verboseLogging=true` is required - `PostWalk:` is a Verbose line.
+# ORDERING IS DELIBERATE: discard BEFORE any route verb. If a future edit ever made
+# `DiscardTree` touch committed state, this lane would analyse a tree it had just deleted.
+#
+# STEP 6 - `SealSlot tree=<relay>`. NOT SETUP: it is what makes the create verdict
+#   ATTRIBUTABLE either way. `TestCommandRouteCommand.ClassifyCreateRefusal` walks
+#   found -> dismissed -> sealed -> eligible and returns the FIRST failure, so a create
+#   over an unsealed tree answers `tree-not-sealed` and says nothing about candidacy. The
+#   fixture carries no `mergeState` key anywhere (pinned builder-side by
+#   `verify_seal_state`), so `RouteCandidateFinder.IsTreeFullySealed` is ALREADY true and
+#   the verb is expected to answer the idempotent no-op: `total=8 sealed=0 remaining=0
+#   alreadySealed=True`. `total=8` is the relay tree's own recording count - EIGHT here
+#   where the sibling relay has seven, because this operator's flight left two extra
+#   post-undock children (rover B's own tail, and rover A's two-segment chain). A tree
+#   that lost a member reds here rather than at the create. The asymmetry with the count
+#   row below is deliberate: `recordings.count` admits a load-time optimizer split (max
+#   12), this token does not.
+#
+# STEP 7 - `RouteCommand action=create`, EXPECTED **OK**. `interval=` is deliberately
+#   OMITTED so the driven create takes `RouteCreationDialog.ComputeRootToUndockSpan(
+#   analysis, tree)` - the SAME helper both production create paths funnel their default
+#   through, so a driven create and a player create produce the identical interval for one
+#   analysis. Passing a number here would make this lane prove something a player create
+#   never does. The route is addressed BY NAME on the send-once step:
+#   `TestCommandRouteCommand.ResolveRoute` accepts either spelling and reports `match=`,
+#   and a name is what a reader of this file can check against the create step one line
+#   above; an id would have to be harvested from a run first, which a never-flown spec
+#   cannot do.
+#
+# STEP 8 - `RouteCommand send-once`. `TrySendOneCycleNow` does NOT dispatch: it arms
+#   `PauseAfterCurrentCycle` + `SendOnceArmed`, un-pauses to Active and pulls
+#   `NextDispatchUT` forward; the cycle is reached only inside `ProcessLoopRoute` AFTER
+#   the crossing gate, i.e. at a dock crossing of the backing mission loop.
+#
+# STEP 9 - `TimeJump ut=1100`, +689.6 s from this save's clock of UT 410.40. RVR-2's
+#   flight 1 SETTLED the one question this shape used to raise - an instantaneous jump
+#   past several loop periods DOES produce a crossing the orchestrator acts on
+#   (`warp jump=21 ... firing ONCE and snapping forward`) - so no smaller jumps and no
+#   settle wait are needed. The loop period here is `dockUT - spanStartUT` over the relay
+#   root, i.e. roughly 44 s, so the jump clears it many times over; the cost of
+#   overshooting is nothing (the orchestrator snaps `lastObservedLoopCycleIndex` forward)
+#   where the cost of undershooting is a census that reads nothing for a clock reason.
+#
+# STEP 10 - `SaveGame`, so the produced save carries the `ROUTES` node this lane created
+#   and the cycle it completed. The two report-only saveParse blocks read it.
+#
+# STEP 11 - `FlushAndQuit`.
+# =====================================================================================
+description = "LIVE-PROVEN 2026-09-02: run 2026-09-02_2251, PASS attempt 1, wall 49 s, EVERY VERIFIER PASS (expectations mismatches=0, analyzer red=0, logValidate PASS), on automation DLL sha256 2f9309f5e3487257 (main + PR #1621). THE FIRST DRIVEN DISPATCH OF A TWO-HOP RELAY, and the only lane anywhere that exercises the analysis-side origin override. Fixture rover-relay-c-recorded is the operator's second three-rover relay (logistics-rover-c, 2026-09-02): C loads +154.4 LiquidFuel and 3 stored items FROM B at dock UT 155.82 / undock 212.54, then delivers 200 LiquidFuel and 4 items TO A at dock 274.18 / undock 335.32, saved at UT 410.40 from the space center. WHAT THE FLIGHT MEASURED, end to end: SealSlot answered the idempotent no-op total=8 sealed=0 alreadySealed=True; the create gate read eligible=True status=Eligible alreadyPromoted=False refusal=None and built one route named relay-c at status=Paused; one send-once plus one TimeJump to ut=1100 fired cycle-0, which DEBITED B (Origin debit requested=154.3999999999952, tankBefore=200 tankAfter=45.6) plus three inventory removes, DELIVERED to A (Delivery write requested=200 written=200, tankBefore=200 tankAfter=400) plus three inventory stores, and closed with Delivery: resources=1 inventoryUnits=4/4 inventoryUnitsSkipped=0 partial=0 and ArmedPause: cycle-0 COMPLETED cycle -> delivered-then-paused. saveParse read routes count=1 statuses={Paused:1} stops=2 sourceRefs=3 completedCycles=1 skippedCycles=0 dormant=0, and recordings.count=10 with no load-time optimizer split. TWO THINGS THE CENSUS SETTLED THAT NO READING OF THE BYTES COULD. (1) THE ROUTE IS TWO STOPS, not origin-plus-stop: stops=2, connectionKinds={DockingPort:2}, destinationVesselPids=[90564594, 2123618197], originBodies={Kerbin:1}, and the dispatch line reads LoopRoute(multi): ... carrierStopIndex=0 - the pickup at B and the delivery at A are both STOPS of ONE route, which is exactly the shape the operator ruling predicts. (2) BOTH WRITERS TOOK path=unloaded, NOT path=loaded. The spec was authored predicting loaded on the strength of the three rovers sitting 313 m / 731 m / 1041 m apart, well inside physics range; that reasoning is wrong for a driven lane, because the seam TimeJump warps with the endpoints PACKED and it is the load state at the DISPATCH TICK that decides the path, not the separation. THE FIRST CENSUS (2026-09-02_2245) classified PARSEK-FAIL on FIVE AUTHORING MISPREDICTIONS AND NOTHING ELSE - the route was created, dispatched and delivered on that flight too. The five: the loaded/unloaded path on the resource debit, the inventory remove, the delivery write and the inventory store, plus an invented FIRED full cycle line that does not exist (the real cycle lines are LoopRoute(multi) ... dispatch fired, Delivery: ... partial=0 and ArmedPause: ... COMPLETED cycle). All five are re-pinned from the measured lines and the re-fly is green; the misprediction is kept in the spec as history, not as current state. THE FIXTURE IS STAGED AT START-OF-CYCLE, and the flight is that repair's proof. The save was written AFTER the relay finished, so as harvested B held 45.6/400 LiquidFuel against its own window's 154.4 pickup manifest and A was at 400/400 with 6 of 6 inventory slots - both all-or-nothing eligibility gates false, every driven cycle blocking - and the builder restores each PHYSICAL endpoint, in FLIGHTSTATE only, to the state ITS OWN window recorded at ITS dock (both to 200/400 and three of six slots, with the STOREDPART bytes lifted verbatim out of the window snapshots). The measured tankBefore=200 / tankAfter=45.6 at B and tankBefore=200 / tankAfter=400 at A are the restored values moving exactly as derived. No number is invented and the Parsek payload is untouched; the precedent is build_rover_route_recorded.py step 3, and RVR-2 flight 1 is the flight that was lost to not having it. The transport C is left exactly as saved. UNLIKE EVERY OTHER ROUTE FIXTURE IT CARRIES TWO ROUTE_ORIGIN_PROOF NODES AND BOTH NAME THE WRONG ORIGIN, written by the 2026-09-02 undock binder: hop 1 (the pickup) bound the TRANSPORT itself (originName='C' originPid=612987736, with B's root part in the transport slot - the halves inverted, because KSP resolved the hop-1 merged vessel to B's identity so 'half B' of that seam is C), and hop 2 (a pure delivery with no source at all) bound the DESTINATION (originName='A' originPid=4280917262). Both record pickupValidated=0. The green create over those bytes IS the override working. ONE CYCLE IS DRIVEN, deliberately: after it the endpoints are spent again exactly as the operator left them, so a second would block - and BOTH hold tokens (BLOCKED kind=OriginLacksCargo for gate 6, BLOCKED kind=DestinationFull for gate 8) are FORBIDDEN, so a regression to the spent state reds explicitly rather than passing quietly. routecommand rejected is forbidden too, the vacuity guard on the create. Also the first relay host whose windows are one INITIATOR-branch and one TARGET-branch rather than two target-branch. The saveParse structure and routes blocks stay REPORT-ONLY - the values are measured, but arming is a separate per-scenario operator decision."
+instanceProfile = "stock-minimal"
+tags = ["seam-verbs", "logistics", "route-create", "route-delivery", "route-pickup",
+        "origin-proof", "recorded-fixture", "RVR-7"]
+
+[fixture]
+# `rover-relay-c-recorded`, harvested from a scratch COPY of the operator's collected
+# save with `--keep-parsek --expect-situation ORBITING` (never `--force`) and finished by
+# `harness/tools/build_rover_relay_c_recorded.py`. Shape pinned in
+# `harness/lib/test_saveparse.py::RECORDED_FIXTURES`; the two route windows, the TWO
+# WRONG origin proofs, the seal state, the cross-tree links, the pickup-then-delivery flow
+# directions, the START-OF-CYCLE endpoint repair and the three-rover geometry are pinned
+# builder-side and wired in by `RoverRelayCRecordedFixtureDriftTests`.
+#
+# WHAT THIS LANE NEEDS FROM IT, beyond the shape:
+#   * ALL THREE TREES FULLY SEALED (no `mergeState` key anywhere) - step 6.
+#   * NO `ROUTES` and NO `PROMPTED_ROUTE_CANDIDATES` - so the create is not answered
+#     `candidate-already-promoted`, and so there is no prior offer to confuse the reading.
+#   * NO `DISMISSED_ROUTE_CANDIDATES` - a dismissed tree is skipped BEFORE the analysis,
+#     which would make a REJECTED verdict mean `candidate-dismissed`.
+#   * BOTH WRONG PROOFS PRESENT. A save whose proofs became correct measures nothing
+#     about the override; the builder reds on exactly that.
+#   * THE START-OF-CYCLE ENDPOINTS. B at 200 / 400 with the three items C took from it,
+#     A at 200 / 400 with three free slots. Every dispatch token below rests on them.
+#
+# MEASURED on the committed bytes: THREE committed trees (`c4c72bdf` rover A's launch, 1
+# recording; `6c0c38a7` rover B's launch, 1; `88c012a6` the relay, 8), TEN recordings, TWO
+# route windows, FOUR branch points (Dock 2 / Undock 2), TWO `ROUTE_ORIGIN_PROOF` nodes,
+# ZERO routes / prompted / dismissed candidates, and no `mergeState` key. pointCount total
+# 769 (largest 153, smallest 1). Save clock UT 410.3999999999167, Mode SANDBOX, 9
+# FLIGHTSTATE vessels of which 3 are real. Active vessel index 5: `C`, type=Probe,
+# sit=LANDED, 16 parts, 2 `ModuleInventoryPart`, LiquidFuel 154.4 / 400 (UNTOUCHED by the
+# repair), ElectricCharge 913.2 / 1000. The three rovers sit 313 m (A-C), 731 m (A-B) and
+# 1041 m (B-C) apart - far outside the ~200 m dock range and well inside physics range of
+# each other, which is why both halves of the cycle take `path=loaded` where
+# `rover-route-recorded`'s 5.4 km separation forces RVR-2's `path=unloaded`.
+#
+# THE ACTIVE VESSEL IS A BUILDER EDIT AND IT IS LOAD-BEARING. The source was saved from
+# the SPACE CENTER, so KSP left `activeVessel = 0` pointing at `Ast. RQL-681` in solar
+# orbit; that save BOOTS (`IsLoadedGameFocusable` accepts it) straight into deep space with
+# all three rovers unloaded - and with them unloaded the cycle would take `path=unloaded`
+# and every token below that pins `loaded` would red. The builder re-points to `C`.
+#
+# `injectedRecordings = "none"` is REQUIRED rather than chosen: the payload is carried by
+# the TEMPLATE, and injecting a synthetic corpus would give `RouteAnalysisEngine` other
+# trees to consider and make the create's candidate resolution un-attributable.
+saveTemplate       = "fixtures/saves/rover-relay-c-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                    expect = "OK" },
+  { cmd = "DiscardTree",                                                      expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" },  expect = "OK" },
+  { cmd = "SealSlot",     args = { tree = "88c012a6eed94bf09ff73397a4a31410" }, expect = "OK", budget = 120 },
+  { cmd = "RouteCommand", args = { action = "create", tree = "88c012a6eed94bf09ff73397a4a31410", name = "relay-c" }, expect = "OK", budget = 120 },
+  { cmd = "RouteCommand", args = { action = "send-once", route = "relay-c" },  expect = "OK", budget = 120 },
+  { cmd = "TimeJump",     args = { ut = "1100" },                             expect = "OK", budget = 300 },
+  { cmd = "SaveGame",                                                         expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                     expect = "OK" },
+]
+
+[dimensionsCovered]
+# BOOT FACTS ONLY, AND NO D10 VALUE IS CLAIMED - the H35 CLAIM-IS-NOT-GATE rule. Three
+# registry values now describe things this lane WOULD measure once flown - `pickup`,
+# `delivery` and `candidate-detection` - and none is claimed, because this spec has never
+# flown and a claim from a derivation is a claim rather than a gate. That rule has teeth
+# here rather than being ceremony: the create pins rest on a fix still in flight, so the
+# lane could red before it measures anything. RVR-2 and RVR-5 leave D10 empty for the same
+# reason. The first green census is where these rows are declared, in the same commit that
+# replaces the derived pins with measured ones.
+#
+# `mixed-direction` is a special case worth naming so the next reader does not claim it by
+# reflex: this cycle DOES move cargo in both directions within one route (a pickup at B
+# and a delivery at A), which is exactly what that value names - but whether the route
+# shapes those as origin-plus-stop or as two stops is the thing the census is FOR, so the
+# claim waits on the reading.
+#
+# WHAT THIS LANE ACTUALLY BUYS, stated so it is not dressed as a coverage row: it is the
+# first driven execution anywhere of a create over a tree whose persisted origin proofs
+# CONTRADICT its own windows, the first committed bytes that hold a wrong-origin proof,
+# and the first driven pickup-and-delivery cycle on the LOADED path. That is a real
+# product and it is not a registry cell.
+D14 = ["sandbox", "scene-flight"]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING (the H7 lesson): run.py reads `expectations.allowedAnomalies`,
+# and a bare key written AFTER an `[expectations.<sub>]` header is TOML-scoped to that
+# sub-table and never read. hlib.validate_spec rejects the misplaced form, so this must
+# stay ahead of the sub-tables. No tracer is armed by this spec, and NO render-composition
+# expectations block is declared, which is what leaves `PARSEK_RENDER_MANIFEST` unset - a
+# confirmed dock crossing would otherwise append `route-dock-crossing` CLOCK-EVENTs to
+# that manifest for nothing.
+allowedAnomalies = []
+
+[expectations.recordings]
+# THE ANTI-DATA-LOSS FLOOR, for the H39 census-2 reason: on that flight the batch went
+# GREEN and the run red ANYWAY on `recordings.count`, which is how
+# QUICKLOAD-OVER-COMMITTED-RESTORE-OVERLAP-DELETES-TREE-ON-SAVE (player-reachable data
+# loss) was found. Not one in-game cell could see it; the count row was the only
+# instrument pointed at the committed corpus. This lane drives a TimeJump and a SaveGame
+# over a committed corpus and the route it creates holds `SOURCE` references into it which
+# `RouteStore.RevalidateSources` compares against a live rebuild, so a recording destroyed
+# mid-run would flip the fresh route to `SourceChanged` - which never auto-recovers, and
+# which would present as a route defect rather than as data loss.
+#
+# MEASURED EXACT 2026-09-02, replacing the authored window `{10, 12}`. Both flights read
+# `observed.recordings.count = 10` and `saveParse` agreed
+# (`recordings.structure.recordings = 10`), so the load-time optimizer split that H35 /
+# H39 / H40 all measure on their hosts does NOT happen on this corpus - the same property
+# RVR-1 and RVR-2 measured independently on `rover-route-recorded`. Below 10 means
+# destroyed sidecars; above it means a split these bytes have now been shown not to take.
+count = { min = 10, max = 10 }
+
+[expectations.logContracts]
+# FIRST CENSUS (run 2026-09-02_2245 UTC, automation DLL sha256 2f9309f5e3487257 = main +
+# PR #1621): the route WAS created, dispatched and delivered on the first flight - Origin debit
+# 154.3999999999952 from B (tank 200 -> 45.6), three inventory removes at B, Delivery write
+# 200 to A (tank 200 -> 400), three Inventory store lines (4/4 units), cycle-0 COMPLETED and
+# delivered-then-paused - but FIVE authored tokens were mis-predicted and the run classified
+# PARSEK-FAIL on them alone: (1) every writer took `path=unloaded`, not `path=loaded`; the
+# seam TimeJump to ut=1100 warps with the endpoints packed, so physics range does not decide
+# the path here, the load state at the dispatch tick does; (2) the invented `FIRED full cycle`
+# line does not exist - the measured cycle lines are `LoopRoute(multi): ... dispatch fired`,
+# `Delivery: ... inventoryUnits=4/4 ... partial=0` and `ArmedPause: ... COMPLETED cycle`.
+# All five were re-pinned from the measured lines; the prose above that reasons about
+# `path=loaded` records the prediction and is superseded by this note.
+#
+# **RE-FLY `2026-09-02_2251`: PASS attempt 1, wall 49 s, every verifier PASS,
+# `mismatches=0`, analyzer `red=0`.** The lane is LIVE-PROVEN on the re-pinned token set,
+# and nothing below is a prediction any more.
+#
+# EVERY TOKEN IS NOW A MEASURED LINE, and each is still a literal RUN out of the emitting
+# `string.Format` / interpolation rather than a whole rendered line - an interpolated
+# string is not stored the way it renders, and a token spanning a hole (or an em dash)
+# cannot match. Per-run ids and floats whose formatting is not derivable stay regexed;
+# the amounts the fixture's own windows fix are pinned exactly.
+#
+# TOKEN 1  THE BOOT, from `TestCommandLoadGame`. Pins `scene=FLIGHT` one layer earlier
+#          than anything else, where a failure is legible as a boot fault rather than as a
+#          dispatch finding.
+#
+# TOKEN 2  THE SEAL NO-OP, from `ParsekTestCommandAddon.SealSlot.cs`'s `SealWholeTree` OK
+#          branch: "sealslot complete mode=tree tree={0} total={1} sealed={2} remaining=0
+#          alreadySealed={3}". `remaining=0` is a LITERAL in the format string (the branch
+#          only runs when the verdict is OK), so `remaining=0 alreadySealed=True` is one
+#          contiguous run. `total=8` is DERIVED FROM THE COMMITTED BYTES (the relay tree's
+#          RECORDING count, pinned by `verify_seal_state`).
+#
+# TOKEN 3  THE GATE WALK, ONE CONTIGUOUS RUN, and the lane's create instrument. From
+#          `RouteCommandCreate`'s pre-decision Info line, whose format string is
+#          "routecommand create gate tree={0} treeFound={1} dismissed={2} sealed={3}
+#           eligible={4} status={5} alreadyPromoted={6} refusal={7}" with no hole between
+#          the fields, so the whole positive reading is one token. THE FIRST THREE
+#          CONJUNCTS ARE PROPERTIES OF THE COMMITTED BYTES; `eligible=True status=Eligible
+#          refusal=None` IS THE PREDICTION.
+#
+# TOKEN 4  THE CREATE ACK, from the same file's OK branch. `status=Paused` is the service's
+#          `initialStatus: Paused` - a created route does NOT start dispatching, which is
+#          what makes the send-once step meaningful. The route id is a per-run value and is
+#          regexed. `name='relay-c'` pins that the verb built the route the step asked for
+#          rather than resolving some other candidate. `intervalSeconds` /
+#          `transitSeconds` / `cadence` / `stops` are deliberately NOT pinned before the
+#          first flight: the interval is a computed float out of `ComputeRootToUndockSpan`
+#          and `stops=` depends on how the post-fix analysis shapes a pickup-plus-delivery
+#          relay, which is exactly what this census is for. RVR-2's history is the standing
+#          lesson on pinning a derived number.
+#
+# TOKEN 5  THE ARM, from `RouteOrchestrator.TrySendOneCycleNow`'s Info line. The pinned run
+#          is the long tail after the last hole, which is the most distinctive literal the
+#          method owns. Only ONE send-once fires in this lane, so unlike RVR-2 this token
+#          appearing twice would itself be a finding.
+#
+# TOKEN 6  THE PICKUP DEBIT AT B, resource half, from `LiveOriginDebitWriters`'s
+#          per-resource Info line: "Origin debit: route={..} origin={..} pid={..}
+#          resource={..} requested={..} debited={..} tankBefore={..} tankAfter={..}
+#          path={..}". THIS EMITTER SERVES BOTH SHAPES, which is why it is the token rather
+#          than `PickupDebit plan:` - if the post-fix analysis makes B the `Route.Origin`
+#          the debit runs through `EmitDispatchDebit`, and if it makes B stop 0's pickup
+#          window it runs through `EmitPickupHalf` -> `ApplyPickupDebit`; both construct
+#          `LiveOriginDebitWriters` and both print THIS line. `origin=B` pins the vessel,
+#          `requested=154.39` pins the leading digits of the manifest DERIVED from the
+#          window (`UNDOCK_TRANSPORT 354.3999999999952 - DOCK_TRANSPORT 200`), and the
+#          float tail is left to the regex because "R" formatting of that value is not
+#          derivable by hand. `path=loaded` is the falsifiable half: all three rovers are
+#          inside physics range of each other, so an unloaded reading would mean the boot
+#          focused something else.
+#
+# TOKEN 7  THE PICKUP DEBIT AT B, inventory half, from `LiveInventoryPickupWriter`'s
+#          loaded-branch Info line: "Inventory remove (loaded): source={..} pid={..}
+#          part={..} slot={..} hash={..} stackBefore={..} removed={..}". `source=B
+#          pid=90564594` is contiguous, and `removed=1` is the success half.
+#          **DO NOT PIN `RemoveInventory(part=..., kind=...)`.** That string lives in the
+#          method's CATCH block and is emitted ONLY when the removal THREW; requiring it
+#          would red every correct run and pass only on an exception. Checked in source,
+#          `LiveInventoryPickupWriter.RemoveOne`.
+#
+# TOKEN 8  THE DELIVERY AT A, resource half, from `LiveDeliveryWriters`'s per-resource
+#          Info line. `dest=A` pins the vessel and `requested=200 written=200` pins BOTH
+#          halves of the exact-fit arithmetic: the manifest is the window's own
+#          `UNDOCK_ENDPOINT 400 - DOCK_ENDPOINT 200`, and A's restored tank has exactly
+#          200 of headroom, so a partial write would show as `written=` less than 200 and
+#          red here rather than silently reducing the delivery. Both are clean integers in
+#          "R" formatting because both endpoints of the subtraction are, which is why they
+#          are pinned rather than regexed. `path=loaded` for the same reason as token 6.
+#
+# TOKEN 9  THE DELIVERY AT A, inventory half, from the same file's `Inventory store:` Info
+#          line. `dest=A` and `path=loaded` are pinned; the `units=N/N` count is NOT,
+#          because the planner splits a manifest line into `ceil(Quantity / stackCapacity)`
+#          slot-sized stacks and whether the two delivered kits land in A's existing
+#          partial slot or a fresh one is a planner decision this lane does not gate.
+#
+# TOKEN 10 THE CYCLE COMPLETED, from `ProcessLoopRoute`'s Info line: "LoopRoute: route {..}
+#          cycle={..} FIRED full cycle (dispatch+debit+delivered) at ut={..}". THIS IS THE
+#          TOKEN THE WHOLE LANE TURNS ON - it is the branch a blocked cycle does not reach.
+#          `cycle=cycle-0` is derivable: `cycleId` is `cycle-{CompletedCycles +
+#          SkippedCycles}` and a freshly created route has both at zero, which RVR-2's
+#          flight measured directly (its first cycle printed `cycle=cycle-0`).
+#
+# TOKEN 11 THE ROUTE STORE IS EMPTY ON THE WAY IN, from `RouteModule`'s recalculation
+#          epilogue (`PostWalk: routes={0}, paused=...`). It fires on OnLoad - unlike
+#          `DeriveCandidates`, which does not - and the fixture already carries
+#          `verboseLogging = True`, with step 5 re-asserting it. It is the before-picture
+#          the admission is measured against, and together with the
+#          `[expectations.routes]` reading of the PRODUCED save it brackets the create:
+#          zero in, one out.
+#
+# WHAT IS DELIBERATELY NOT REQUIRED, and each omission is a decision rather than an
+# oversight:
+#   * `PickupDebit plan:` and `PickupHalf:`. Both belong to the PER-WINDOW pickup path
+#     only (`EmitPickupHalf`), so requiring either would gate the route's SHAPE - which
+#     the census is meant to read, not assume. Token 6 carries the same claim on both
+#     shapes.
+#   * ANY `DeriveCandidates:` LINE. It is NOT a load-time pass - RVR-5's header establishes
+#     this for the whole family: its only two callers are `RouteRunPrompt` (the
+#     post-TREE-COMMIT prompt) and `LogisticsWindowUI` (window-open, ~1 Hz), and a driven
+#     headless run that only LOADS a fixture prints none. Requiring one would red a
+#     correct run. Token 3 carries the same claim and carries it better.
+#   * ANY `RouteOriginProof bound at undock` LINE. That producer runs at RECORD time and
+#     this lane records nothing; the two proofs it wrote are already IN the committed bytes
+#     and are pinned by the builder's `verify_wrong_origin_proofs`, not by a flight.
+#   * `reason=delivered-then-paused` and the `ArmedPause: ... COMPLETED cycle` line. Both
+#     are EXPECTED - `TryHonorArmedPauseOnCompletedCycle` consumes the send-once arm on a
+#     completed cycle exactly as its blocked sibling does - but neither has been measured
+#     in a driven run on this path, and RVR-2's flight 1 is the standing lesson about
+#     requiring a token derived rather than measured. They are added, if at all, in the
+#     commit that measures them.
+#
+# THE FORBID LIST IS THE POINT, AND IT IS THREE CLAIMS.
+#   `routecommand rejected` is the Warn the verb emits on ANY non-`None` refusal, so a run
+#     whose create was refused would still satisfy tokens 1, 2, 5 and 11.
+#   `BLOCKED kind=OriginLacksCargo` is eligibility gate 6 and `BLOCKED kind=DestinationFull`
+#     is gate 8 - the two all-or-nothing gates the start-of-cycle repair exists to satisfy.
+#     Forbidding both makes a REGRESSION TO THE SPENT STATE red EXPLICITLY and name which
+#     end regressed, instead of presenting as a missing delivery token. `kind=` and the
+#     enum name are separated by no hole in `ProcessLoopRoute`'s format string.
+required  = [
+  "loadgame complete scene=FLIGHT save=.* game-loaded=true expected=Flight",
+  "sealslot complete mode=tree tree=88c012a6eed94bf09ff73397a4a31410 total=8 sealed=0 remaining=0 alreadySealed=True",
+  "routecommand create gate tree=88c012a6eed94bf09ff73397a4a31410 treeFound=True dismissed=False sealed=True eligible=True status=Eligible alreadyPromoted=False refusal=None",
+  "routecommand complete action=create tree=88c012a6eed94bf09ff73397a4a31410 route=.* name='relay-c' status=Paused",
+  "PauseAfterCurrentCycle=true \\(route will dispatch one cycle when conditions allow, then transition to Paused\\)",
+  "Origin debit: route=.* origin=B pid=90564594 resource=LiquidFuel requested=154\\.39.* path=unloaded",
+  "Inventory remove \\(unloaded\\): source=B pid=90564594 .* removed=1",
+  "Delivery write: route=.* dest=A pid=4280917262 resource=LiquidFuel requested=200 written=200 .* path=unloaded",
+  "Inventory store: route=.* dest=A pid=4280917262 .* path=unloaded",
+  "LoopRoute\\(multi\\): route [0-9a-f]{8} cycle=cycle-0 cMin=0 dispatch fired \\(carrierStopIndex=0\\)",
+  "Delivery: route [0-9a-f]{8} cycle=cycle-0 resources=1 inventoryUnits=4/4 inventoryUnitsSkipped=0 partial=0",
+  "ArmedPause: route [0-9a-f]{8} cycle=cycle-0 COMPLETED cycle consumed the armed pause",
+  "PostWalk: routes=0",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "routecommand rejected",
+  "BLOCKED kind=OriginLacksCargo",
+  "BLOCKED kind=DestinationFull",
+]
+
+[expectations.recordings.structure]
+# STILL REPORT-ONLY: NO `gating` KEY, deliberately. The standing arming rule
+# (`harness/lib/saveparse.py` -> `ARMED_ALLOWLIST`) is that a block is armed only after a
+# report-only READING run whose facets match the declared windows, and this spec has now
+# had TWO (`2026-09-02_2245` and `2026-09-02_2251`), which read identical values. Arming
+# is the separate per-scenario operator decision those readings unlock; it has not been
+# taken. The numbers were MEASURED off the committed fixture bytes by
+# `saveparse.observed_structure_facets` and re-asserted in `harness/lib` by
+# `RECORDED_FIXTURES`, and both flights confirmed them on the PRODUCED save too - the two
+# are different claims, and this block evaluates the second.
+#
+# NONE OF THESE FACETS IS TOUCHED BY THE START-OF-CYCLE REPAIR, which edits FLIGHTSTATE
+# only; every one of them reads the ParsekScenario node.
+#
+# `recordings` carries the same window as the count row above and for the same reason.
+# `terminalStates` is stated as FLOORS: a load-time optimizer split would add recordings
+# and could add terminal states, but it cannot remove one. The measured reading is
+# Landed 5 / Docked 2, summing to 7 rather than 10 because three recordings carry no
+# `terminalState` at all (the two dock members and the first chain segment of rover A's
+# post-undock tail).
+# `branchPoints` is EXACT on both bounds, because a split does not create or destroy dock
+# and undock seams - and the Dock 2 / Undock 2 alternation is what makes this a RELAY
+# rather than a single supply run. Losing one hop is the single most damaging thing a
+# re-harvest could do to this fixture while leaving every other facet plausible.
+trees          = { min = 3, max = 3 }
+committedTrees = { min = 3, max = 3 }
+recordings     = { min = 10, max = 12 }
+terminalStates = { Landed = { min = 5 }, Docked = { min = 2 } }
+branchPoints   = { Dock = { min = 2, max = 2 }, Undock = { min = 2, max = 2 } }
+
+[expectations.routes]
+# STILL REPORT-ONLY (no `gating` key) - the readings below are MEASURED, but arming is a
+# separate per-scenario operator decision taken after a reading run, and this block has
+# had exactly one. Every value is now the reading from `2026-09-02_2251`, which agreed
+# with the first census's.
+#
+# `count = 1` was the authored claim and the ruling's claim about the NUMBER: dock, take
+# FROM, undock, dock elsewhere, transfer TO, undock is ONE route, not two. MEASURED 1.
+#
+# **`stops = 2` IS THE CENSUS'S OWN FINDING and it settles a question this file's header
+# left open.** The header could not derive whether the analysis would shape the relay as
+# origin-plus-stop or as two stops, and named that as the reason no dispatch hold token
+# could be predicted. It is TWO STOPS: `stops=2`, `connectionKinds={DockingPort:2}`,
+# `destinationVesselPids=[90564594, 2123618197]` - the pickup at B and the delivery at A
+# are both STOPS of one route, with `originBodies={Kerbin:1}`. The measured dispatch line
+# `LoopRoute(multi): ... carrierStopIndex=0` is the same fact from the log side.
+#
+# `sourceRefs = 3` is the route's references into the committed corpus, and it is what
+# `RouteStore.RevalidateSources` compares against a live rebuild - the surface the
+# `recordings.count` floor above protects.
+#
+# `completedCycles = 1` was DELIBERATELY NOT DECLARED while unflown, because whether the
+# armed send-once leaves the route at Paused with the counter already bumped before
+# `SaveGame` runs was a sequencing question only a flight could answer. It does: the save
+# records the completed cycle, `skippedCycles = 0`, and the route rests at `Paused`
+# (`statuses = {Paused = 1}`), which is `TryHonorArmedPauseOnCompletedCycle` consuming the
+# send-once arm - the same event the `ArmedPause: ... COMPLETED cycle` token pins from the
+# log.
+#
+# `dormant = 0` was derived (`RouteCreationService.CreatePausedFromCandidate` stores a
+# COMMITTED route and nothing in this driver moves one to `DORMANT_ROUTES`) and is now
+# measured too.
+#
+# The M-C2 `routes` facet landed 2026-09-02 (PR #1603) and is live - H59 declares one - so
+# this is a real surface rather than a reserved one.
+count           = { min = 1, max = 1 }
+dormant         = { min = 0, max = 0 }
+stops           = { min = 2, max = 2 }
+sourceRefs      = { min = 3, max = 3 }
+completedCycles = { min = 1, max = 1 }
+skippedCycles   = { min = 0, max = 0 }
+statuses        = { Paused = { min = 1, max = 1 } }
+
+[runtime]
+# Budget arithmetic (M-A5 S8): run.py gives EVERY deferred seam verb
+# `required_step_wait(max(step budget, SEAM_FALLBACK_DEFERRAL_SECONDS=600))` = 660 s
+# regardless of the declared step budget. LoadGame and the TimeJump are deferred, so the
+# worst case is 660 x 2 = 1320; the five synchronous route/seal/save verbs add their own
+# budgets on top. 2400 clears it with headroom - RVR-2's comparable driven chain measured
+# a 50 s wall, and trimming the budget to hug that would convert a slow restore into a
+# KILLED run with no artefact, which on a first census destroys the whole product of the
+# flight.
+#
+# The route and seal verbs are SINGLE-PHASE - build / analyse / store are synchronous
+# state mutation, so the read-back is a final answer with no TryComplete counterpart and
+# no DeferralBudget row - so their 120 s budgets bound only the game-not-loaded defer and
+# none of them can be the slow step.
+budgetSeconds = 2400
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

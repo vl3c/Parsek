@@ -189,8 +189,14 @@ line distances between the three LANDED rovers, computed from their own
 FLIGHTSTATE lat / lon / alt against Kerbin's 600 km radius:
     A - B  783.46 m      A - C  336.16 m      B - C  982.81 m
 All three are far outside the 200 m dock range and well inside physics range of
-each other, which is why the relay is a DRIVE rather than a warp and why any
-route driven over it would take `path=loaded`, not the sibling's `path=unloaded`.
+each other, which is why the relay is a DRIVE rather than a warp.
+CORRECTED 2026-09-02: this used to add "and why any route driven over it would
+take `path=loaded`, not the sibling's `path=unloaded`". SEPARATION DOES NOT DECIDE
+THE WRITER PATH ON A DRIVEN LANE. RVR-7's first census measured `path=unloaded` on
+every writer over the OTHER relay fixture, whose rovers are just as close, because
+a seam `TimeJump` warps with the endpoints PACKED and it is the load state at the
+DISPATCH TICK that decides. A player driving the relay by hand would see the
+loaded path.
 
 `--check` re-runs every post-condition against the ALREADY COMMITTED fixture and
 writes nothing. It is WIRED, not decorative:
@@ -509,11 +515,18 @@ SOURCE_ACTIVE_VESSEL_NAME = "Ast. UYX-230"
 # two ENDPOINT recordings name pids 2123618197 (B) and 831319732 (A), but the LIVE
 # rovers B and A carry 35783242 and 1625259141: `Part.Undock` re-pids the
 # separated half, so the live vessel is not the pid its own recorded window names.
-# `RouteEndpointResolver.TryResolveEndpoint` resolves by
-# `FlightGlobals.FindVessel(pid)`, so a route driven over these bytes would find
-# NO live endpoint at all - which is a third, independent reason this fixture is
-# a refusal host and not a delivery host. Nothing in either lane depends on it;
-# it is stated so a future lane does not assume otherwise.
+#
+# CORRECTED 2026-09-03. This comment used to conclude "so a route driven over these
+# bytes would find NO live endpoint at all", and named that as a third, independent
+# reason the fixture could not host a delivery. THAT CONCLUSION IS WRONG and is
+# struck. `RouteEndpointResolver.TryResolveEndpoint` does not resolve by pid alone:
+# `NextEndpointStep` walks RootPart -> Pid -> SurfaceProximity, and the proximity
+# step is a great-circle search bounded by
+# `RouteOrchestrator.SurfaceProximityRadiusMeters = 500` against the window's own
+# recorded `ENDPOINT_AT_DOCK` coordinates - which every one of these LANDED rovers
+# is within metres of. Only the PID step misses. Nothing in either lane ever
+# depended on the claim; it is corrected rather than deleted so the next reader
+# does not re-derive it from the pid split alone.
 REQUIRED_VESSELS = (
     (ACTIVE_VESSEL_NAME, ACTIVE_VESSEL_PID, "Rover", "LANDED",
      "ebb4fcf9704e4f79ba8a46f004f4f5c3"),
@@ -1257,10 +1270,15 @@ def verify_geometry(lines: List[str]) -> List[str]:
 
     The scale is what makes the fixture a SURFACE RELAY: hundreds of metres apart,
     far outside the ~200 m docking range (so the relay is a genuine drive) and
-    well inside physics range of each other (so any driven route over these bytes
-    would take `path=loaded`, unlike the sibling fixture's 5.4 km `path=unloaded`).
-    A re-harvest that moved a rover changes which live-vessel guards find a subject
-    in RVR-6's census, so the layout is a pin rather than prose."""
+    well inside physics range of each other. A re-harvest that moved a rover
+    changes which live-vessel guards find a subject in RVR-6's census, so the
+    layout is a pin rather than prose.
+
+    IT DOES NOT DECIDE THE WRITER PATH. The authored version added "(so any driven
+    route over these bytes would take `path=loaded`, unlike the sibling fixture's
+    5.4 km `path=unloaded`)", and RVR-7's first census refuted it: a seam `TimeJump`
+    warps with the endpoints PACKED, so the load state at the DISPATCH TICK decides,
+    not the separation."""
     problems: List[str] = []
     positions = {}
     for record in vessel_records(lines):

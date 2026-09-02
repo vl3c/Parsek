@@ -1,0 +1,86 @@
+version = 1
+recordingSchemaGeneration = 4
+recordingId = a597f168e5d24e4f94f0803f80246832
+sidecarEpoch = 4
+sectionAuthoritative = False
+POINT
+{
+	ut = 340.85999999997995
+	lat = -0.087423942025970189
+	lon = -74.779385574955469
+	alt = 65.936978967278264
+	rotX = -0.08881728
+	rotY = 0.113354236
+	rotZ = 0.5956376
+	rotW = -0.7902393
+	body = Kerbin
+	velX = -0.0004356706
+	velY = 0.000318131351
+	velZ = -0.0004486785
+	funds = 0
+	science = 0
+	rep = 0
+}
+PART_EVENT
+{
+	ut = 335.319999999985
+	pid = 1715808488
+	type = 9
+	part = solarPanels5
+	value = 0
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 335.319999999985
+	pid = 2354159901
+	type = 9
+	part = solarPanels5
+	value = 0
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 335.319999999985
+	pid = 3687420106
+	type = 9
+	part = solarPanels5
+	value = 0
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 335.319999999985
+	pid = 2569670107
+	type = 9
+	part = solarPanels5
+	value = 0
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 335.319999999985
+	pid = 643575962
+	type = 9
+	part = solarPanels5
+	value = 0
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 335.319999999985
+	pid = 2114703283
+	type = 9
+	part = solarPanels5
+	value = 0
+	midx = 0
+}
+TRACK_SECTION
+{
+	env = 0
+	ref = 0
+	startUT = 335.319999999985
+	endUT = 340.85999999997995
+	sampleRate = 0
+	src = 1
+}
