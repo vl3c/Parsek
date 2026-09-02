@@ -10,6 +10,21 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **Moving a stored part between two docked craft no longer kills the supply route.**
+  Hand a part across from one inventory to another while docked and the game used to
+  lose track of it: KSP quietly rewrites part of the item as it is handed over, and
+  Parsek was matching stored cargo on an exact fingerprint of the whole item, so the
+  part that arrived did not match the part that left. The run then looked like it had
+  picked up cargo out of nowhere and no route could be created from it. Stored cargo is
+  now counted by KIND - which part it is, which variant, and whether its tanks are
+  empty, part-full or full - and nothing else. A part sitting in an inventory is just
+  cargo; two of the same thing are interchangeable, and passing one across a dock is
+  ordinary supply work again. Existing saves need no conversion: the kind is recomputed
+  from what the save already stores the moment it loads. When a route IS still refused
+  for unaccounted cargo, the reason now always reaches the log, naming the part instead
+  of leaving the refusal silent, and the message shown to the player no longer claims
+  that inventory items are one-of-a-kind.
+
 - **Test coverage: a supply relay that the game correctly REFUSES to turn into a
   route now has a saved subject and two automated lanes.** Everything the automated
   tests had ever checked about supply routes was a route that worked; nothing checked

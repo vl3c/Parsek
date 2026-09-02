@@ -461,6 +461,57 @@ namespace Parsek
             rateLimitStateByKey[compositeKey] = state;
         }
 
+        /// <summary>
+        /// Rate-limited info. Same throttling as <see cref="WarnRateLimited"/> but
+        /// emits at INFO level, and like it is NOT gated on IsVerboseEnabled. For a
+        /// STANDING condition a player needs to see in the log but whose producer
+        /// runs on a poll - the route-analysis refusal reasons are the case it was
+        /// added for: the Logistics window re-analyses at about 1 Hz while it is
+        /// open, so an unthrottled Info would bury the log, and a Warn would put an
+        /// ordinary designed refusal on the WRN surface the log validator reads.
+        /// </summary>
+        public static void InfoRateLimited(
+            string subsystem,
+            string key,
+            string message,
+            double minIntervalSeconds = DefaultRateLimitSeconds)
+        {
+            if (string.IsNullOrEmpty(key))
+            {
+                Info(subsystem, message);
+                return;
+            }
+
+            string compositeKey = $"I|{subsystem}|{key}";
+            double now = GetLogClockSeconds();
+            if (!rateLimitStateByKey.TryGetValue(compositeKey, out var state))
+            {
+                rateLimitStateByKey[compositeKey] = new RateLimitState
+                {
+                    lastEmitSeconds = now,
+                    suppressedCount = 0
+                };
+                Info(subsystem, message);
+                return;
+            }
+
+            if ((now - state.lastEmitSeconds) >= minIntervalSeconds)
+            {
+                string suffix = state.suppressedCount > 0
+                    ? $" | suppressed={state.suppressedCount}"
+                    : string.Empty;
+                Info(subsystem, $"{message}{suffix}");
+                state.lastEmitSeconds = now;
+                state.suppressedCount = 0;
+            }
+            else
+            {
+                state.suppressedCount++;
+            }
+
+            rateLimitStateByKey[compositeKey] = state;
+        }
+
         private static double GetLogClockSeconds()
         {
             if (ClockOverrideForTesting != null)

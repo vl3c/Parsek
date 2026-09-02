@@ -152,9 +152,18 @@ namespace Parsek.Tests
             string firstHash = VesselSpawner.ComputeInventoryPayloadIdentityHash(first);
             Assert.Equal(firstHash, VesselSpawner.ComputeInventoryPayloadIdentityHash(second));
 
+            // A resource that crosses a FILL BUCKET boundary is a different kind:
+            // 5/5 is full, 4/5 is partial.
             second.GetNode("PART").GetNode("RESOURCE").SetValue("amount", "4", true);
             Assert.NotEqual(firstHash, VesselSpawner.ComputeInventoryPayloadIdentityHash(second));
 
+            // 2026-09-02 kind ruling: MODULE state is ignored entirely (bar the
+            // variant selection). ModuleCargoPart.payloadMode packed-vs-deployed
+            // is module state, so it is the SAME kind. This is the assertion that
+            // flipped when LOGISTICS-INVENTORY-IDENTITY-HASH-BREAKS-ON-A-LIVE-
+            // CARGO-MOVE was fixed: stock re-serializes a live part on every
+            // in-flight inventory move, so module values are not stable in transit
+            // and can never be part of a matchable key.
             ConfigNode third = MakeStoredPartWithInnerPart(
                 partName: "evaJetpack",
                 resourceAmount: 5.0,
@@ -163,7 +172,7 @@ namespace Parsek.Tests
                 persistentId: "100",
                 position: "0,0,0",
                 temperature: "-1");
-            Assert.NotEqual(firstHash, VesselSpawner.ComputeInventoryPayloadIdentityHash(third));
+            Assert.Equal(firstHash, VesselSpawner.ComputeInventoryPayloadIdentityHash(third));
         }
 
         [Fact]

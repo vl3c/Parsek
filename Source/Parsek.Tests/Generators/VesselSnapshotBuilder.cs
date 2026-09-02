@@ -282,12 +282,13 @@ namespace Parsek.Tests.Generators
         /// silently change the extracted <c>SlotsTaken</c>.
         /// </para>
         /// <para>
-        /// Note that <c>slot</c> and <c>quantity</c> are deliberately EXCLUDED
-        /// from <c>VesselSpawner.ComputeInventoryPayloadIdentityHash</c>: two
-        /// stored parts differing only in slot or stack size share one payload
-        /// identity. Vary <paramref name="storedPartName"/>,
-        /// <paramref name="variantName"/> or the stored resources to author a
-        /// DIFFERENT identity.
+        /// Note that <c>slot</c> and <c>quantity</c> never enter
+        /// <c>VesselSpawner.ComputeInventoryPayloadKindKey</c>, and neither does
+        /// module state: the KIND is part name + variant + per-resource fill
+        /// bucket, and nothing else (2026-09-02 ruling). Vary
+        /// <paramref name="storedPartName"/>, <paramref name="variantName"/>, or
+        /// push a stored resource across a fill bucket (empty / partial / full)
+        /// to author a DIFFERENT kind.
         /// </para>
         /// </summary>
         /// <param name="partIndex">Index of the host part (call order of <see cref="AddPart"/>).</param>

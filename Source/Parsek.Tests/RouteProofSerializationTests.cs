@@ -63,7 +63,13 @@ namespace Parsek.Tests
             Assert.Equal(4, window.TransferEndpointSituation);
 
             InventoryPayloadItem payload = window.DockTransportInventory[0];
-            Assert.Equal("payload-hash", payload.IdentityHash);
+            // 2026-09-02 kind ruling: the loaded identityHash is RECOMPUTED from
+            // the item's own STOREDPART snapshot (the self-heal), so the stale
+            // authored string does not survive the load - by design.
+            Assert.Equal(
+                VesselSpawner.ComputeInventoryPayloadKindKey(payload.StoredPartSnapshot),
+                payload.IdentityHash);
+            Assert.NotEqual("payload-hash", payload.IdentityHash);
             Assert.Equal("evaJetpack", payload.PartName);
             Assert.Equal("white", payload.VariantName);
             Assert.Equal(2, payload.Quantity);

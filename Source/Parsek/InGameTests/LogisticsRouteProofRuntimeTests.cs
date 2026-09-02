@@ -141,10 +141,39 @@ namespace Parsek.InGameTests
                 InGameAssert.AreEqual(beforeHash, destinationPayload.IdentityHash,
                     "Moving a stock cargo item between inventories changed logistics payload identity");
 
+                // The overload driven above, StoreCargoPartAtSlot(ProtoPartSnapshot,
+                // int), copies the node VERBATIM, so it cannot re-run any module's
+                // OnSave. The player's in-flight move takes the sibling
+                // StoreCargoPartAtSlot(Part, int) overload, which builds a fresh
+                // ProtoPartSnapshot off the LIVE part and therefore lets a module
+                // write a runtime-computed value (the witnessed one was
+                // ModuleGroundExpControl.canComm; see the closed defect
+                // LOGISTICS-INVENTORY-IDENTITY-HASH-BREAKS-ON-A-LIVE-CARGO-MOVE).
+                // This rig cannot instantiate a live cargo Part to drive that
+                // overload, so it asserts the property that makes the live path
+                // safe under the 2026-09-02 kind ruling: module state does not
+                // participate in the KIND key at all. Perturb the MOVED node the
+                // way a live re-serialization does, then re-derive the key.
+                ConfigNode reSerialized = destinationPayload.StoredPartSnapshot != null
+                    ? destinationPayload.StoredPartSnapshot.CreateCopy()
+                    : null;
+                InGameAssert.IsNotNull(reSerialized,
+                    "Moved destination payload carried no STOREDPART snapshot to re-derive from");
+
+                int mutatedModuleValues = SimulateLiveReSerialization(reSerialized);
+                InGameAssert.IsTrue(mutatedModuleValues > 0,
+                    $"Cargo part '{candidate.PartName}' has no MODULE nodes to perturb; " +
+                    "pick a cargo item carrying at least one module so the kind-key claim is exercised");
+
+                InGameAssert.AreEqual(beforeHash,
+                    VesselSpawner.ComputeInventoryPayloadKindKey(reSerialized),
+                    "Module values written by a live re-serialization changed the payload KIND key");
+
                 ParsekLog.Verbose("TestRunner",
                     $"InventoryPayloadIdentityHash_LiveStockMove_PreservesIdentity: part={candidate.PartName} " +
                     $"sourcePartPid={candidate.Source.PartPersistentId} sourceSlot={candidate.SourceSlot} " +
                     $"destPartPid={candidate.Destination.PartPersistentId} destSlot={candidate.DestinationSlot} " +
+                    $"mutatedModuleValues={mutatedModuleValues.ToString(CultureInfo.InvariantCulture)} " +
                     $"hash={beforeHash}");
             }
             finally
@@ -430,6 +459,40 @@ namespace Parsek.InGameTests
                 return null;
 
             return FindPayloadByHash(snapshot, partPersistentId, identityHash);
+        }
+
+        /// <summary>
+        /// Perturbs a STOREDPART node the way stock's live re-serialization does
+        /// on <c>StoreCargoPartAtSlot(Part, int)</c>: every MODULE gains a
+        /// runtime-computed value it did not carry (the canComm shape) and has an
+        /// existing one flipped, and the PART-level placement transients move.
+        /// Returns the number of MODULE nodes touched so the caller can refuse to
+        /// pass vacuously on a module-less cargo part.
+        /// </summary>
+        private static int SimulateLiveReSerialization(ConfigNode storedPart)
+        {
+            if (storedPart == null)
+                return 0;
+
+            storedPart.SetValue("slotIndex", "31", true);
+
+            int touched = 0;
+            ConfigNode[] parts = storedPart.GetNodes("PART");
+            for (int i = 0; i < parts.Length; i++)
+            {
+                parts[i].SetValue("persistentId", "4294967290", true);
+                parts[i].SetValue("state", "6", true);
+                parts[i].SetValue("attached", "False", true);
+
+                ConfigNode[] modules = parts[i].GetNodes("MODULE");
+                for (int j = 0; j < modules.Length; j++)
+                {
+                    modules[j].AddValue("parsekLiveResaveProbe", "False");
+                    modules[j].SetValue("isEnabled", "False", true);
+                    touched++;
+                }
+            }
+            return touched;
         }
 
         private static InventoryPayloadItem FindPayloadByHash(

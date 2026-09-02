@@ -226,8 +226,8 @@ namespace Parsek.Tests.Logistics
             Assert.Null(window.UndockTransportInventory);
             Assert.Null(window.DockEndpointInventory);
 
-            // Inventory IDENTITY hashes survive - the non-fungible key every
-            // delivery/pickup match is made on.
+            // Inventory KIND keys survive - the key every delivery / pickup
+            // match is made on.
             Assert.Equal(2, window.DockTransportInventory.Count);
             for (int i = 0; i < authored.DockTransportInventory.Count; i++)
             {

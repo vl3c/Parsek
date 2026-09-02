@@ -156,8 +156,8 @@ namespace Parsek.Logistics
         public Dictionary<string, double> ResourceLoadManifest;
 
         /// <summary>
-        /// M3 inventory pickup load manifest (plan D7/D8, Phase 5): per exact
-        /// <see cref="InventoryPayloadItem.IdentityHash"/>, the sign-flip mirror
+        /// M3 inventory pickup load manifest (plan D7/D8, Phase 5): per
+        /// <see cref="InventoryPayloadItem.IdentityHash"/> (the KIND key), the sign-flip mirror
         /// of <see cref="InventoryDeliveryManifest"/> -
         /// <c>loaded = min(endpointLoss, transportGain)</c> stored-part copies
         /// that flowed FROM the endpoint ONTO the transport across the window,
@@ -826,10 +826,24 @@ namespace Parsek.Logistics
 
                 // M3 direction classification (plan D2/D7): an unwitnessed
                 // transport inventory gain (gain with no matching endpoint loss)
-                // fails closed window-locally - inventory has no harvested
-                // provenance, so it can never be admitted as a load term.
+                // fails closed window-locally - stored cargo has no harvested
+                // provenance, so it can never be admitted as a load term. Matching
+                // is by KIND key (2026-09-02 ruling), so a part stock re-serialized
+                // in transit no longer reads as a gain out of nowhere.
                 if (HasUnwitnessedInventoryGain(w.Window, out string inventoryPickupReason))
                 {
+                    // Info, NOT Diag: a silent refusal here cost the operator a
+                    // whole hand-flown session (the Diag below is log-mode-gated
+                    // and was absent from that KSP.log). Rate-limited because the
+                    // Logistics window re-analyses at about 1 Hz while it is open
+                    // and a refusal is a STANDING condition; the key carries the
+                    // window AND the reason, so a CHANGED reason prints at once.
+                    ParsekLog.InfoRateLimited("Route",
+                        $"unwitnessed-inventory|{w.Window.WindowId ?? "<none>"}|{inventoryPickupReason}",
+                        $"RouteAnalysis reject reason: unwitnessed inventory gain " +
+                        $"source={w.Source?.RecordingId ?? "<none>"} " +
+                        $"window={w.Window.WindowId ?? "<none>"} {inventoryPickupReason}",
+                        60.0);
                     Diag(logMode,
                         $"RouteAnalysis rejected: unwitnessed inventory gain " +
                         $"source={w.Source?.RecordingId ?? "<none>"} " +
@@ -1550,7 +1564,7 @@ namespace Parsek.Logistics
         // HasUnwitnessedInventoryGain). It is retained as a directly-tested
         // presence detector mirroring HasResourcePickup. The actual fail-closed
         // protection for an unwitnessed transport inventory gain is
-        // HasUnwitnessedInventoryGain, the non-fungible window-local closure.
+        // HasUnwitnessedInventoryGain, the window-local closure.
         internal static bool HasInventoryPickup(RouteConnectionWindow window, out string reason)
         {
             reason = null;
@@ -1958,7 +1972,8 @@ namespace Parsek.Logistics
         /// <summary>
         /// M3 inventory pickup load manifest (plan D7, Phase 5): the EXACT
         /// sign-flip mirror of <see cref="BuildInventoryDeliveryManifest"/>. Per
-        /// exact <see cref="InventoryPayloadItem.IdentityHash"/>,
+        /// <see cref="InventoryPayloadItem.IdentityHash"/> (the KIND key -
+        /// stored cargo is generic, 2026-09-02 ruling),
         /// <c>loaded = min(endpointLoss, transportGain)</c> where
         /// <c>endpointLoss = DockEndpoint - UndockEndpoint</c> (stored parts that
         /// left the endpoint across the window) and
@@ -1973,7 +1988,7 @@ namespace Parsek.Logistics
         /// (DockEndpointInventory, the depot's own STOREDPART) is the canonical
         /// copy carried so the Phase-5 source probe + remove writer match against
         /// the depot's own stored geometry. Returns null when no inventory pickup
-        /// is witnessed. The non-fungible window-local closure (an unwitnessed
+        /// is witnessed. The window-local closure (an unwitnessed
         /// transport gain) is enforced separately by
         /// <see cref="HasUnwitnessedInventoryGain"/> BEFORE this admits.
         /// </summary>
@@ -2027,10 +2042,14 @@ namespace Parsek.Logistics
         }
 
         /// <summary>
-        /// M3 window-local inventory closure (plan D7 / OQ3, Phase 5): inventory
-        /// is non-fungible and has NO harvested provenance, so a transport
-        /// inventory GAIN with NO matching endpoint LOSS is unwitnessed cargo and
-        /// MUST fail closed. Per identity, the WITNESSED load term is
+        /// M3 window-local inventory closure (plan D7 / OQ3, Phase 5): stored
+        /// cargo has NO harvested provenance, so a transport inventory GAIN with
+        /// NO matching endpoint LOSS is unwitnessed cargo and MUST fail closed.
+        /// The unit of matching is the KIND key (2026-09-02 ruling; see
+        /// <see cref="VesselSpawner.ComputeInventoryPayloadKindKey"/>), NOT an
+        /// individual fingerprint: a stored part that stock re-serialized in
+        /// transit is the same kind on both sides of the move. Per kind, the
+        /// WITNESSED load term is
         /// <c>min(endpointLoss, transportGain)</c>; the UNWITNESSED gain is
         /// <c>transportGain - loaded == transportGain - min(endpointLoss, transportGain)</c>
         /// which is positive exactly when <c>transportGain > endpointLoss</c> (the
@@ -2074,8 +2093,12 @@ namespace Parsek.Logistics
                 int unwitnessed = transportGain - witnessed;
                 if (unwitnessed > 0)
                 {
+                    InventoryPayloadItem sample =
+                        identities.TryGetValue(identity, out InventoryPayloadItem s) ? s : null;
                     reason =
                         $"inventory={identity} " +
+                        $"part={(string.IsNullOrEmpty(sample?.PartName) ? "<unknown>" : sample.PartName)} " +
+                        $"variant={(string.IsNullOrEmpty(sample?.VariantName) ? "<none>" : sample.VariantName)} " +
                         $"transportGain={transportGain.ToString(CultureInfo.InvariantCulture)} " +
                         $"endpointLoss={endpointLoss.ToString(CultureInfo.InvariantCulture)} " +
                         $"unwitnessed={unwitnessed.ToString(CultureInfo.InvariantCulture)}";

@@ -11,8 +11,8 @@ namespace Parsek.Logistics
     /// + <see cref="LiveDeliveryWriters.WriteInventory"/>). Where delivery
     /// finds the first EMPTY destination slot and STORES a payload, pickup
     /// LOCATES a STORED item matching an <see cref="InventoryPayloadItem.IdentityHash"/>
-    /// on the SOURCE endpoint and REMOVES it - the only genuinely new mutation
-    /// in M3.
+    /// (the KIND key - part + variant + per-resource fill bucket) on the SOURCE
+    /// endpoint and REMOVES it - the only genuinely new mutation in M3.
     ///
     /// <para><b>Loaded path:</b> walk <see cref="ModuleInventoryPart.storedParts"/>
     /// in ascending slot index; for each occupied slot, reconstruct the
@@ -30,8 +30,11 @@ namespace Parsek.Logistics
     /// <see cref="LiveDeliveryWriters.WriteInventoryUnloaded"/>'s add).</para>
     ///
     /// <para><b>Deterministic partial-match (design D7):</b> multiple stored
-    /// parts of one IdentityHash with a partial load take the LOWEST slot index
-    /// first, so replay across save/reload picks the same physical item. The
+    /// parts of one KIND key with a partial load take the LOWEST slot index
+    /// first, so replay across save/reload picks the same physical item. Since
+    /// the 2026-09-02 kind ruling the matched item is any part of the requested
+    /// kind, not a specific instance - which is exactly what the ruling says a
+    /// stored part is. The
     /// transport CREDIT is BOOKKEEPING ONLY (the transport never materializes,
     /// 19.2.3) - this writer removes from the SOURCE only; no physical store on
     /// the transport. Revert-safety = the rewind quicksave (same mechanism as
@@ -278,8 +281,8 @@ namespace Parsek.Logistics
         }
 
         /// <summary>
-        /// Removes ONE stored part matching <paramref name="item"/>'s
-        /// <see cref="InventoryPayloadItem.IdentityHash"/> from the source
+        /// Removes ONE stored part of <paramref name="item"/>'s KIND
+        /// (<see cref="InventoryPayloadItem.IdentityHash"/>) from the source
         /// endpoint, taking the lowest-index occupied slot (deterministic
         /// partial-match, design D7). Returns true when a match was located AND
         /// removed; false when no slot matched (the source no longer holds the
@@ -301,7 +304,8 @@ namespace Parsek.Logistics
             catch (Exception ex)
             {
                 ParsekLog.Warn(Tag,
-                    $"RemoveInventory(part={item.PartName}, hash={ShortHash(item.IdentityHash)}) " +
+                    $"RemoveInventory(part={item.PartName}, kind={DescribeKind(item)}, " +
+                    $"hash={ShortHash(item.IdentityHash)}) " +
                     $"threw {ex.GetType().Name}: {ex.Message}");
                 removed = false;
             }
@@ -393,11 +397,13 @@ namespace Parsek.Logistics
         }
 
         /// <summary>
-        /// Canonical identity hash for a LIVE <see cref="StoredPart"/>: serialize
-        /// it via stock <see cref="StoredPart.Save"/> into a STOREDPART-named
-        /// node (the shape <see cref="VesselSpawner.BuildInventoryPayloadItem"/>
-        /// reads and the recorded payload hash was computed over) and run the
-        /// canonical hash (slotIndex / quantity / transient PART fields stripped).
+        /// KIND key for a LIVE <see cref="StoredPart"/>: serialize it via stock
+        /// <see cref="StoredPart.Save"/> into a STOREDPART-named node (the shape
+        /// <see cref="VesselSpawner.BuildInventoryPayloadItem"/> reads and the
+        /// recorded payload key was derived from) and derive the key. Only part
+        /// name, variant and per-resource fill buckets count, so the live shape
+        /// and the recorded shape agree by construction rather than through a
+        /// per-value strip-list.
         /// </summary>
         internal static string ComputeLoadedStoredPartHash(StoredPart storedPart)
         {
@@ -498,12 +504,12 @@ namespace Parsek.Logistics
         }
 
         /// <summary>
-        /// The lowest-slotIndex STOREDPART child node whose canonical identity
-        /// hash equals <paramref name="identityHash"/> (deterministic
-        /// partial-match), or null. A STOREDPART proto node is ALREADY in the
-        /// shape the recorded payload hash was computed over, so it is hashed
-        /// directly (a fresh copy named STOREDPART so the canonical walk's
-        /// node-name check fires). Internal for direct unit testing of the
+        /// The lowest-slotIndex STOREDPART child node whose KIND key equals
+        /// <paramref name="identityHash"/> (deterministic partial-match), or
+        /// null. A STOREDPART proto node is ALREADY in the shape the recorded
+        /// payload key was derived from, so the key is derived from it directly
+        /// (a fresh copy is taken so the caller's node is never renamed).
+        /// Internal for direct unit testing of the
         /// deterministic lowest-slot rule (the live ClearPartAtSlot / RemoveNode
         /// removal needs a Vessel and is pinned in-game).
         /// </summary>
@@ -543,6 +549,17 @@ namespace Parsek.Logistics
             if (string.IsNullOrEmpty(hash))
                 return "<none>";
             return hash.Length > 8 ? hash.Substring(0, 8) : hash;
+        }
+
+        // Readable rendering of the KIND the hash stands for, so a log line says
+        // WHAT was matched and not only the digest of it.
+        private static string DescribeKind(InventoryPayloadItem item)
+        {
+            if (item == null)
+                return "<none>";
+            return (string.IsNullOrEmpty(item.PartName) ? "<unknown>" : item.PartName)
+                + "/"
+                + (string.IsNullOrEmpty(item.VariantName) ? "<no-variant>" : item.VariantName);
         }
     }
 }

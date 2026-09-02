@@ -280,6 +280,33 @@ allowedAnomalies = []
 count = { min = 9, max = 11 }
 
 [expectations.logContracts]
+# ############################################################################
+# STALE PINS - READ BEFORE FLYING THIS LANE (added 2026-09-02, branch
+# `inventory-kind-matching`).
+#
+# Refusal REASON 2 of the two this lane was authored around - the re-hashing
+# `DeployedCentralStation`, filed as
+# LOGISTICS-INVENTORY-IDENTITY-HASH-BREAKS-ON-A-LIVE-CARGO-MOVE - IS FIXED. The
+# operator ruled that stored inventory cargo is GENERIC and is matched BY KIND
+# (part name + variant + per-resource fill bucket; module state ignored entirely),
+# so stock's transit-added `canComm` no longer touches the key. Proven headless
+# over THESE EXACT FIXTURE BYTES by
+# `Source/Parsek.Tests/Logistics/InventoryPayloadKindKeyTests.cs`:
+# `HasUnwitnessedInventoryGain` now returns FALSE on window
+# `dock-218.22000000003783-target-2123618197` and `BuildInventoryLoadManifest`
+# credits the station.
+#
+# Reason 1 (no `ROUTE_ORIGIN_PROOF`, because neither docked half is a player-typed
+# depot) is untouched and still stands.
+#
+# CONSEQUENCE: TOKEN 4, TOKEN 5 AND THE CREATE STEP'S OWN `expect = "REJECTED"`
+# ARE NO LONGER DERIVED FROM ANYTHING MEASURED. On the first flight the tree
+# either fails the NEXT gate with a DIFFERENT status or admits outright. They were
+# deliberately NOT re-pinned here: re-pinning without flying would invent a
+# measurement. Re-derive all three from the first run's own reading, then update
+# `docs/dev/autotest-status.md` and this header together.
+# ############################################################################
+#
 # NEVER FLOWN. Every token is a literal RUN taken from the emitting `string.Format` /
 # interpolation in source, never a line pasted from a log - an interpolated string is not
 # stored the way it renders, and a token spanning a hole (or an em dash) cannot match.

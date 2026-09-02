@@ -1387,11 +1387,20 @@ namespace Parsek.Tests
             // No funds line written -> reads back at the 0 default (NOT 999).
             Assert.Equal(0f, result.RouteKscFundsCost);
 
-            // M3 Phase 5: the inventory manifests round-trip - identity hash,
-            // part name, variant, quantity, and the verbatim STOREDPART snapshot.
+            // M3 Phase 5: the inventory manifests round-trip - part name, variant,
+            // quantity, and the verbatim STOREDPART snapshot. The identityHash is
+            // deliberately NOT a verbatim round-trip since the 2026-09-02 kind
+            // ruling: any loaded item carrying a snapshot has its KIND key
+            // RECOMPUTED from that snapshot, so a row written before the ruling
+            // self-heals to a key the live code can match instead of staying stuck
+            // on a stale per-instance fingerprint.
             Assert.NotNull(result.RouteInventoryManifest);
             Assert.Single(result.RouteInventoryManifest);
-            Assert.Equal("ore-container-hash", result.RouteInventoryManifest[0].IdentityHash);
+            Assert.Equal(
+                VesselSpawner.ComputeInventoryPayloadKindKey(
+                    result.RouteInventoryManifest[0].StoredPartSnapshot),
+                result.RouteInventoryManifest[0].IdentityHash);
+            Assert.NotEqual("ore-container-hash", result.RouteInventoryManifest[0].IdentityHash);
             Assert.Equal("smallCargoContainer", result.RouteInventoryManifest[0].PartName);
             Assert.Equal("white", result.RouteInventoryManifest[0].VariantName);
             Assert.Equal(1, result.RouteInventoryManifest[0].Quantity);

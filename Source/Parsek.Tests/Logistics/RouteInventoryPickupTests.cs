@@ -17,7 +17,7 @@ namespace Parsek.Tests.Logistics
     ///   <item><see cref="RouteAnalysisEngine.BuildInventoryLoadManifest"/> -
     ///     the sign-flip mirror of the inventory delivery builder.</item>
     ///   <item><see cref="RouteAnalysisEngine.HasUnwitnessedInventoryGain"/> -
-    ///     the non-fungible window-local closure (fail-closed).</item>
+    ///     the window-local closure (fail-closed, witnessed per KIND).</item>
     ///   <item>The cross-vessel + proto-vs-loaded IDENTITY HASH stability the
     ///     pickup match depends on (the existing live-move test is same-vessel
     ///     only).</item>
@@ -130,7 +130,7 @@ namespace Parsek.Tests.Logistics
         }
 
         // ==============================================================
-        // HasUnwitnessedInventoryGain - non-fungible window-local closure
+        // HasUnwitnessedInventoryGain - the window-local closure (per KIND)
         // ==============================================================
 
         // catches: an unwitnessed transport gain (no matching endpoint loss)

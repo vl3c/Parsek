@@ -15,7 +15,111 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## LOGISTICS-INVENTORY-IDENTITY-HASH-BREAKS-ON-A-LIVE-CARGO-MOVE: a stored part moved between two docked vessels re-hashes, so its delivery reads as unwitnessed cargo and the whole route rejects `MixedPickupDelivery` [FOUND 2026-09-02 by forensics on the hand-flown rover relay `logs/2026-09-02_2041` (save `logistics-rover-B`, now the `rover-relay-recorded` fixture). PRODUCT DEFECT in outcome; the hash contract itself is designed, but its stated premise is false and the guard test cannot observe the case. OPEN, needs a design call]
+## DISASSEMBLED-VESSEL-TERMINAL-STATE: a vessel whose last part is pocketed in EVA construction ends its recording as `TerminalState.Destroyed`, indistinguishable from a crash [RAISED 2026-09-02 alongside the inventory KIND ruling. APPROVED IN PRINCIPLE by the operator, including the schema-generation bump it needs. OPEN, not started]
+
+**What happens today.** Pocket the last remaining part of a vessel during EVA
+construction and KSP destroys the vessel like any other. Parsek takes the plain
+`ParsekFlight.OnVesselWillDestroy` path and seals the recording as
+`TerminalState.Destroyed`, so the Missions tab shows a deliberate disassembly and
+a crash as the same outcome.
+
+**The ruling this follows from.** The 2026-09-02 inventory ruling says a vessel
+whose core is pocketed into an inventory HAS ENDED ITS MISSION, and from then on
+the core is generic cargo. That is a mission ending, not a loss, and the operator
+approved a distinct terminal value for it.
+
+**Why it is not a one-liner.** A new `TerminalState` member is a serialized-enum
+change, so it needs `RecordingStore.CurrentRecordingSchemaGeneration` to go from 4
+to 5, and there is NO migration path by contract: `IsRecordingSchemaCompatible`
+rejects an older generation outright. Every committed fixture stamps
+`recordingSchemaGeneration = 4`, so a bump means re-stamping every one of them and
+re-running the lanes that read them. The co-op integration branch
+(`coop-multiplayer`) also plans generation 5 in its M2.1, so whoever lands second
+takes generation 6 - coordinate before starting.
+
+**The detection question, unresolved.** Nothing yet distinguishes "the last part
+was pocketed by a kerbal in EVA construction" from a real destruction at the
+`onVesselWillDestroy` seam. The starting point is KSP's own EVA-construction
+events / `ModuleInventoryPart` store path around the moment of destruction; the
+answer has to be positive evidence (a witnessed store of that part into an
+inventory in the same frame), never an inference from "no explosion FX".
+
+---
+
+## ~~LOGISTICS-INVENTORY-IDENTITY-HASH-BREAKS-ON-A-LIVE-CARGO-MOVE: a stored part moved between two docked vessels re-hashes, so its delivery reads as unwitnessed cargo and the whole route rejects `MixedPickupDelivery`~~ [FOUND 2026-09-02 by forensics on the hand-flown rover relay `logs/2026-09-02_2041` (save `logistics-rover-B`, now the `rover-relay-recorded` fixture). PRODUCT DEFECT in outcome; the hash contract itself is designed, but its stated premise is false and the guard test cannot observe the case. FIXED 2026-09-02 on branch `inventory-kind-matching` by the operator's KIND ruling - fix shape (a) generalized past a skip-list]
+
+**FIXED 2026-09-02. The ruling, and the contract it produced.** The operator ruled:
+"any inventory cargo should be transferable without issues. Parts in an inventory
+are generic: we only care about identity for mission-defining parts while they are
+PART OF A VESSEL, and a vessel whose core is pocketed into an inventory has ended
+its mission; from then on the core is a generic part like any other." Stored parts
+are therefore matched BY KIND, and the kind is exactly three things -
+`VesselSpawner.BuildInventoryPayloadKindCanonicalString`
+(`Source/Parsek/VesselSpawner.cs`):
+
+- `partName` as stored (dot-form);
+- the selected part variant, resolved by `ResolveStoredPartVariantName` from the
+  first populated of `STOREDPART/variantName`, `STOREDPART/variant`,
+  `PART/moduleVariantName`, `MODULE{ModulePartVariants}/selectedVariant`;
+- per stored resource, its name plus a FILL BUCKET (`empty` under 1% of max,
+  `full` over 99%, `partial` between; a capacity-less resource reads `empty`), so
+  float drift cannot split one kind in two. ElectricCharge and IntakeAir are
+  excluded, matching `ExtractStoredPartResourceManifest`.
+
+MODULE state is ignored ENTIRELY apart from the variant selection, which is what
+kills the defect: `canComm` and every other value a module computes in `OnSave`
+now sits outside the key by construction, not by a per-value skip-list (fix shape
+(a) from the original write-up, generalized). Slot index, quantity, stack
+capacity and every ProtoPartSnapshot transient never enter the string at all, so
+the old `TransientStoredPartProtoValueNames` set and the whole canonical-ConfigNode
+walk are deleted.
+
+**No format change and no schema bump.** `InventoryPayloadItem.IdentityHash` keeps
+its name and its serialized `identityHash` key in `RouteProofCodec`, `RouteCodec`
+and `GameActions/GameAction.cs`; the VALUE is now the kind key.
+`ComputeInventoryPayloadIdentityHash` is a thin alias for
+`ComputeInventoryPayloadKindKey` so no call site and no in-game cell name moved.
+Saves written before the ruling self-heal:
+`VesselSpawner.NormalizeLoadedInventoryPayloadItems` runs in all three codec read
+paths, recomputes each item's key from its own `STOREDPART_SNAPSHOT`, merges items
+that now share a kind (quantities and slots sum) and logs one Verbose summary
+(`InventoryKindKeyRefresh: node=... recomputed=N kept=M changed=K merged=J`). An
+item with no snapshot keeps the stored string - there is nothing to derive from.
+
+**Consequence worth knowing:** the recording's `RouteProofHash` changes for any
+recording whose proof carries inventory payloads, so an EXISTING route over such a
+recording will read `differingField=route-proof-hash` in `RouteStore.RevalidateSources`
+once. That is a source-problem transition, not data loss, and it is inherent to
+changing the identity string at all.
+
+**Proof.** `Source/Parsek.Tests/Logistics/InventoryPayloadKindKeyTests.cs` (27
+cells) drives the REAL bytes: `Source/Parsek.Tests/Fixtures/InventoryKindMove/rover-relay-window.cfg`
+is the verbatim `ROUTE_CONNECTION_WINDOWS` node of window
+`dock-218.22000000003783-target-2123618197`, lifted out of
+`harness/fixtures/saves/rover-relay-recorded/persistent.sfs` (a byte-identity cell
+keeps the two in step). The two `DeployedCentralStation` nodes that hashed
+`5072997a` and `5bcde9ad` now produce ONE key; `HasUnwitnessedInventoryGain` over
+that window returns false and `BuildInventoryLoadManifest` credits the station; the
+undock side's two station entries aggregate to quantity 2. Plus the ignore/split
+matrix (module value added in transit, slot, persistentId, state, attached, cid,
+temp vs partName, all three variant spellings, full/partial/empty buckets), the
+self-heal load path, and a de-DE culture cell. The in-game cell
+`LogisticsRouteProofRuntimeTests.InventoryPayloadIdentityHash_LiveStockMove_PreservesIdentity`
+keeps its name (H38 pins it) and now perturbs the MOVED node the way a live
+re-serialization does before re-deriving the key - it still cannot drive the
+`StoreCargoPartAtSlot(Part, int)` overload, because instantiating a live cargo Part
+is beyond that rig.
+
+**Open follow-up, NOT done here: `RVR-5-rover-relay-eligibility` must be
+re-measured before it flies.** That never-flown lane pins
+`status=MixedPickupDelivery alreadyPromoted=False refusal=CandidateIneligible` and
+`expect = "REJECTED"` on the create verb, derived from the source flight's
+`mixedPickup=1`. Reason 2 is now closed, so the lane's first flight either fails
+the NEXT gate with a different status or admits outright; either way tokens 4-5 and
+possibly the step verdict move. Nothing was re-pinned here because re-pinning
+without flying would be inventing a measurement. A warning block was added to the
+spec instead.
+
 
 **Symptom.** The player docks rover C to rover B, moves a `DeployedCentralStation`
 and an `evaChute` from B's inventory into C's, transfers 200 LiquidFuel, undocks,

@@ -3240,7 +3240,7 @@ namespace Parsek.Logistics
         /// loaded gate ONCE for THAT vessel, and removes each witnessed item from
         /// the source via the <see cref="LiveInventoryPickupWriter"/> (loaded
         /// <c>ClearPartAtSlot</c> / unloaded STOREDPART proto-node removal, matched
-        /// strictly by <see cref="InventoryPayloadItem.IdentityHash"/>, lowest-slot
+        /// by <see cref="InventoryPayloadItem.IdentityHash"/> (the KIND key), lowest-slot
         /// partial-match). The transport CREDIT is bookkeeping only - the writer
         /// removes from the SOURCE only; no physical store on the transport (the
         /// transport never materializes, 19.2.3). Returns the actual-removed /

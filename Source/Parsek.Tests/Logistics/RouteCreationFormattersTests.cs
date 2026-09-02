@@ -121,17 +121,19 @@ namespace Parsek.Tests.Logistics
             // so MixedPickupDelivery is reached only for an UNWITNESSED inventory
             // gain (the transport gained a stored part the destination did not
             // give it). The copy must (1) state the cause plainly (an unwitnessed
-            // inventory gain), (2) explain the non-fungible inventory constraint,
-            // and (3) give the actionable fix (re-record so the picked-up part is
-            // the one the destination held).
+            // inventory gain), (2) explain the KIND-matching constraint (2026-09-02
+            // ruling: stored cargo is generic and counted by kind, never by an
+            // individual fingerprint), and (3) give the actionable fix (re-record
+            // so the picked-up part comes from the destination).
             string msg = RouteCreationFormatters.FormatRejectMessage(
                 RouteAnalysisStatus.MixedPickupDelivery);
 
             // (1) plain-language cause
             Assert.Contains("Unwitnessed inventory gain", msg);
             Assert.Contains("the destination did not give it", msg);
-            // (2) non-fungible constraint
-            Assert.Contains("non-fungible", msg);
+            // (2) kind-matching constraint - and NOT the retired non-fungible claim
+            Assert.Contains("counted by kind", msg);
+            Assert.DoesNotContain("non-fungible", msg);
             // (3) actionable fix
             Assert.Contains("Re-record", msg);
 
