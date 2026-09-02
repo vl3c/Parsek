@@ -1,4 +1,4 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using Parsek;
 using Parsek.Logistics;
 using Parsek.Tests.Generators;
@@ -509,6 +509,90 @@ namespace Parsek.Tests.Logistics
             Assert.Equal(
                 "538f2b91a99a6139",
                 RouteProofHasher.ComputeRouteProofHashFromRecording(rec));
+        }
+
+        // catches (P12 sparse-append pin): the start-docked BIND lifecycle leaking into
+        // the hash of a proof that does not carry it. The fixture above is the pre-P12
+        // shape - bind state at its 0 default (PairPendingBinding), no captured pair - and
+        // every persisted proof recorded before P12 deserializes to exactly that, so the
+        // new block must emit NOTHING for it. Without the sparse gate, RouteStore
+        // .RevalidateSources would mark every existing route SourceChanged on the first
+        // revalidate pass after the update. The literal is deliberately the SAME one
+        // Hash_PreM2Recording_ByteStable pins: P12 must not move it.
+        [Fact]
+        public void Hash_PreP12Recording_ByteStable()
+        {
+            Recording rec = RecordingWithProof();
+            Assert.Equal(
+                StartDockedOriginBindState.PairPendingBinding,
+                rec.RouteOriginProof.StartDockedOriginBindState);
+            Assert.Null(rec.RouteOriginProof.StartDockedPair);
+            Assert.Equal(
+                "538f2b91a99a6139",
+                RouteProofHasher.ComputeRouteProofHashFromRecording(rec));
+        }
+
+        // catches: the bind lifecycle being EXCLUDED from the hash. Unlike the M1
+        // descriptor fields, the bind state and the pickup validation are part of the
+        // witnessed transfer - together they decide whether the proof names an origin at
+        // all - so a rewrite that dropped or flipped them MUST flip the fingerprint.
+        [Fact]
+        public void Hash_ChangesWhenTheOriginBindsOrItsPickupValidationFlips()
+        {
+            Recording pending = RecordingWithProof();
+            string pendingHash = RouteProofHasher.ComputeRouteProofHashFromRecording(pending);
+
+            Recording bound = RecordingWithProof();
+            bound.RouteOriginProof.StartDockedOriginBindState =
+                StartDockedOriginBindState.BoundAtUndock;
+            bound.RouteOriginProof.StartDockedOriginPickupValidated = true;
+            bound.RouteOriginProof.StartDockedOriginPickupKind = OriginPickupKind.Gain;
+            string boundHash = RouteProofHasher.ComputeRouteProofHashFromRecording(bound);
+            Assert.NotEqual(pendingHash, boundHash);
+
+            Recording boundNoPickup = RecordingWithProof();
+            boundNoPickup.RouteOriginProof.StartDockedOriginBindState =
+                StartDockedOriginBindState.BoundAtUndock;
+            boundNoPickup.RouteOriginProof.StartDockedOriginPickupKind = OriginPickupKind.None;
+            Assert.NotEqual(
+                boundHash,
+                RouteProofHasher.ComputeRouteProofHashFromRecording(boundNoPickup));
+        }
+
+        // catches: the captured PAIR being left out of the fingerprint. The pair is
+        // IDENTITY, not resolution metadata - a run that started docked to a different
+        // pair of craft is a different route - so a rewrite that renumbered a half must
+        // flip the hash. Sparse-appended: a null pair emits nothing (pinned above).
+        [Fact]
+        public void Hash_ChangesWhenACapturedPairHalfChangesIdentity()
+        {
+            Recording a = RecordingWithProof();
+            a.RouteOriginProof.StartDockedPair = new StartDockedSeamPair
+            {
+                HalfA = new StartDockedSeamHalf
+                {
+                    RootPartUId = 100u, VesselName = "transport", VesselType = 7
+                },
+                HalfB = new StartDockedSeamHalf
+                {
+                    RootPartUId = 200u, VesselName = "depot", VesselType = 5
+                },
+            };
+            string first = RouteProofHasher.ComputeRouteProofHashFromRecording(a);
+
+            Recording b = RecordingWithProof();
+            b.RouteOriginProof.StartDockedPair = new StartDockedSeamPair
+            {
+                HalfA = new StartDockedSeamHalf
+                {
+                    RootPartUId = 100u, VesselName = "transport", VesselType = 7
+                },
+                HalfB = new StartDockedSeamHalf
+                {
+                    RootPartUId = 999u, VesselName = "depot", VesselType = 5
+                },
+            };
+            Assert.NotEqual(first, RouteProofHasher.ComputeRouteProofHashFromRecording(b));
         }
 
         // catches (M3 D9 byte-stability pin): the recording-side proof hash drifting

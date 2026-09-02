@@ -243,6 +243,66 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void PendingPair_RoundTripsThroughTheCodec_AndStaysANonOrigin()
+        {
+            // A recording can STOP while its start-docked pair is still unbound (the run
+            // never undocked, or the split did not separate the pair), and that proof is
+            // persisted: the pair is the evidence, and the bind state is what tells a
+            // reader why it is not an origin. What must NOT survive is the pair's
+            // capture-time WORKING data - each half's part-pid set and start manifests -
+            // because a reloaded pair can never bind anyway (a closed recording cannot
+            // witness an undock), so persisting them would be dead weight in every save.
+            var proof = new RouteOriginProof
+            {
+                StartDockedOriginBindState = StartDockedOriginBindState.UnboundAtStop,
+                StartDockedPair = new StartDockedSeamPair
+                {
+                    HalfA = new StartDockedSeamHalf
+                    {
+                        RootPartUId = 100u,
+                        VesselName = "Transport",
+                        VesselType = (int)VesselType.Rover,
+                        PartPersistentIds = new List<uint> { 1u, 2u },
+                        StartResources = new Dictionary<string, ResourceAmount>
+                        {
+                            { "LiquidFuel", new ResourceAmount { amount = 10.0, maxAmount = 100.0 } }
+                        },
+                    },
+                    HalfB = new StartDockedSeamHalf
+                    {
+                        RootPartUId = 200u,
+                        VesselName = "Depot",
+                        VesselType = (int)VesselType.Rover,
+                        PartPersistentIds = new List<uint> { 3u },
+                    },
+                },
+            };
+            var rec = new Recording { RecordingId = "pending", RouteOriginProof = proof };
+
+            var node = new ConfigNode("RECORDING");
+            RecordingTreeRecordCodec.SaveRecordingInto(node, rec);
+            Assert.True(node.HasNode("ROUTE_ORIGIN_PROOF"));
+
+            var loaded = new Recording { RecordingId = "pending" };
+            RecordingTreeRecordCodec.LoadRecordingFrom(node, loaded);
+
+            Assert.NotNull(loaded.RouteOriginProof);
+            Assert.Equal(
+                StartDockedOriginBindState.UnboundAtStop,
+                loaded.RouteOriginProof.StartDockedOriginBindState);
+            Assert.Equal(0u, loaded.RouteOriginProof.StartDockedOriginRootPartUId);
+            Assert.NotNull(loaded.RouteOriginProof.StartDockedPair);
+            Assert.Equal(100u, loaded.RouteOriginProof.StartDockedPair.HalfA.RootPartUId);
+            Assert.Equal("Transport", loaded.RouteOriginProof.StartDockedPair.HalfA.VesselName);
+            Assert.Equal(200u, loaded.RouteOriginProof.StartDockedPair.HalfB.RootPartUId);
+            // Working data deliberately not persisted.
+            Assert.Null(loaded.RouteOriginProof.StartDockedPair.HalfA.PartPersistentIds);
+            Assert.Null(loaded.RouteOriginProof.StartDockedPair.HalfA.StartResources);
+            // And it is still NOT an origin on the other side of the round trip.
+            Assert.False(Parsek.Logistics.RouteAnalysisEngine.HasDockedOriginProof(loaded));
+        }
+
+        [Fact]
         public void NoProofAnywhere_LeavesTheSlotNullAndTheGateClosed()
         {
             var target = new Recording { RecordingId = "tree-rec" };
