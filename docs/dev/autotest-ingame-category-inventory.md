@@ -123,7 +123,7 @@ Two limits of this table, stated so nobody over-reads it:
 | `KSP` | 6 | 6 | 4 | 4 | 0 | 0 | H13 | A |
 | `KspApiSanity` | 5 | 5 | 3 | 3 | 0 | 3 | H24 | A |
 | `Ledger` | 4 | 0 | 4 | 0 | 0 | 4 | H48 (flown 2026-08-28, executes 4 of 4) | A |
-| `LedgerGroundTruth` | 2 | 2 | 0 | 0 | 0 | 1 | L2 | B |
+| `LedgerGroundTruth` | 3 | 3 | 0 | 0 | 0 | 1 | L2, L4 (the third cell, `CurrencyTooltipLiveInvariantTest`, was added 2026-09-02 and both lanes' tallies were RE-DERIVED to total=3 ahead of a flight) | B |
 | `LocalizedName` | 3 | 3 | 3 | 3 | 0 | 0 | H29 | A |
 | `LogContracts` | 10 | 10 | 8 | 8 | 0 | 2 | H26 | A |
 | `Logistics` | 47 | 8 | 2 | 1 | 38 | 46 | H34 (SPACECENTER slice), H35 (FLIGHT ordinary slice), H38 (FLIGHT ISOLATED on a built pad rig, flown 2026-08-28, executes 39), H39 + H40 (the same ISOLATED slice on RECORDED hosts, both flown 2026-08-28, executing 34 and 35), RVR-1 (the same ISOLATED slice on the TARGET-BRANCH recorded host `rover-route-recorded`, authored 2026-08-30, NEVER FLOWN - predicted to convert the two dock-window cells H39/H40 both measured as unpayable by existing bytes, at the cost of the initiator cell they pin). Union across the five FLOWN slices: 42 of 47 | B |
@@ -166,7 +166,7 @@ Two limits of this table, stated so nobody over-reads it:
 | `RevertVesselStrip` | 1 | 1 | 0 | 0 | 0 | 1 | - | B |
 | `Rewind` | 38 | 26 | 6 | 0 | 6 | 24 | R7a / R7c | A |
 | `RewindSaves` | 1 | 1 | 1 | 1 | 0 | 1 | - | B |
-| `RouteDockCapture` | 6 | 0 | 0 | 0 | 6 | 6 | H55 (ISOLATED, GREEN run 2 2026-09-01 `total=6 passed=6 failed=0 skipped=0`, nightly; run 1 `passed=1 failed=5` - RED on an authoring defect in the cells' own partner rig, which carried no `ModuleCommand` part so the undocked half was debris and no split branch, hence no route-window completion, was created; rigs re-rooted on a probe core, re-fly pending. The ordinary path executes 0 of 6, so the isolated arg is the only way to run any of it. Pins `total=6` exactly with `passed=`/`skipped=` interim and `failed=0` asserted, plus one REQUIRED token per cell) | B |
+| `RouteDockCapture` | 6 | 0 | 0 | 0 | 6 | 6 | H55 (ISOLATED, GREEN run 2 2026-09-01 `total=6 passed=6 failed=0 skipped=0`, nightly; run 1 `passed=1 failed=5` - RED on an authoring defect in the cells' own partner rig, which carried no `ModuleCommand` part so the undocked half was debris and no split branch, hence no route-window completion, was created; rigs re-rooted on a probe core, re-fly pending. The ordinary path executes 0 of 6, so the isolated arg is the only way to run any of it. Pins `total=6` exactly with `passed=`/`skipped=` interim and `failed=0` asserted, plus one REQUIRED token per cell); RVR-5 (the SAME isolated batch over the LANDED `rover-route-recorded` host, authored 2026-09-02, NEVER FLOWN, so the origin-proof probe measures the producer's candidate walk past its PRELAUNCH short-circuit; INTERIM split) | B |
 | `RouteLifecycle` | 8 | 8 | 8 | 8 | 0 | 8 | RVR-3 (flown once 2026-09-01, `total=6 passed=4 failed=2`; the two failures were CONTRACT DRIFT - see the triage note - and the category is now 8 cells pinning BOTH halves of the armed-pause state machine. Pins `total=8` exactly with `passed=`/`skipped=` interim, `failed=0` asserted, plus a REQUIRED PASS token per resolution cell, and declares no render-composition expectations block, which is what keeps the five crossing cells from self-skipping) | B |
 | `RouteLiveAnchor` | 1 | 1 | 0 | 0 | 0 | 1 | - | B |
 | `RouteRewindTimeline` | 7 | 7 | 7 | 7 | 0 | 1 | H6 | B |
@@ -204,8 +204,8 @@ Two limits of this table, stated so nobody over-reads it:
 
 ## Triage
 
-Totals, re-derived: **110 categories / 613 declarations**. Buckets **A 34 categories
-(235 declarations)**, **B 76 categories (378 declarations)**, **C 0 categories (0
+Totals, re-derived: **110 categories / 614 declarations**. Buckets **A 34 categories
+(235 declarations)**, **B 76 categories (379 declarations)**, **C 0 categories (0
 declarations)**. The 107th is `AutoMergeCommit` (R4, the AUTOMERGE-ON-BY-DEFAULT
 wave; the 106th is `DisabledHoverEcho`, landed the same week): the plan-§7
 autoMerge=ON scene-exit cell, batch-disabled and restore-backed exactly like the two

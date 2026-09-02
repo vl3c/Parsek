@@ -3907,6 +3907,12 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
         # ATTRIBUTE-level and therefore the same 47 as its three siblings; only the
         # split differs, and that split is INTERIM (see INTERIM_PIN_IDS).
         "RVR-1-rover-route-proof": ("Logistics", 47),
+        # H55's six RouteDockCapture cells over RVR-1's LANDED host, authored 2026-09-02 and
+        # never flown: the lane that moves H55's origin-proof probe past the producer's
+        # PRELAUNCH short-circuit (ROUTE-ORIGIN-PROOF-PRODUCER-UNREACHABLE). Same wholly
+        # batch-disabled category as H55, so the ordinary ceiling is zero and the tally
+        # discriminates on the `passed=` floor; the split is INTERIM until the first census.
+        "RVR-5-origin-proof-probe-landed": ("RouteDockCapture", 6),
     }
 
     # Members whose category is only PARTLY batch-disabled, i.e. the ordinary path
@@ -4123,7 +4129,10 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
     # REQUIRED list is the longest in the family.
     # AND BACK TO ZERO ON 2026-09-02: H55 flew twice the same day and PASSED run 2
     # (`2026-09-01_2229`, total=6 passed=6 failed=0 skipped=0), pinned whole.
-    INTERIM_PIN_IDS = set()
+    # AND TO ONE THE SAME DAY: RVR-5 runs H55's six cells on a host they have never run
+    # on (a landed rover), whose split only a census can measure. The obligation above
+    # applies verbatim.
+    INTERIM_PIN_IDS = {"RVR-5-origin-proof-probe-landed"}
 
     # id -> measured `skipped=` for members whose RUN-TIME InGameAssert.Skip guards
     # push the split above the attribute-derived floor. The attributes give a FLOOR
@@ -6340,6 +6349,15 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
     # each classified by hand. A NEW one reds
     # `test_every_untagged_candidate_is_classified` until someone decides.
     REVIEWED_UNTAGGED = {
+        # THE FOUR 2026-09-02 READING-RUN LANES, authored so every live-gated todo entry
+        # has a driver instead of a "needs a flight" note. All four are tier=operator on
+        # the calibration-discipline shape and NOT debt: each pins token SHAPES rather
+        # than verdicts and pre-registers what GREEN / RED / INVALID mean, so the first
+        # flight is a reading a human looks at, and what is owed is the FLIGHT.
+        "S4.3-refly-discard-with-ghosts.toml":     "tier=operator as a reading run, NOT debt: S4.2's seam cycle with the conclusion flipped to AnswerMergeDialog choice=discard, pinning ReFlyDiscard's per-recording removal line and ParsekFlight's two CommittedRecording* handler lines - PR #1591's never-driven path. Nothing armed; promotion is the reading run",
+        "S4.4-refly-quicksave-mid-session.toml":   "tier=operator as a reading run, NOT debt: the deliberate experiment REFLY-BATCH-BASELINE-DISCARDS-LIVE-SESSION asked for (a real SaveGame while the Re-Fly session is live, no batch), whose forbidden `End reason=treeDiscarded` is the verdict token and whose GREEN / RED / INVALID readings are pre-registered in the spec. Nothing armed; the reading decides which todo entry owns the finding",
+        "L6-career-same-name-recover.toml":        "tier=operator as a reading run, NOT debt: science_bench_recover flown a SECOND time over career-earned-pad so PickRecoveryRecordingId sees two name-matching recordings (KERBAL-XP-RECOVERY-PICK-IS-NAME-AND-UT-ONLY stage 2's repro shape); pins the pick line's shape with nameMatches=2 literal and the tier as a value class. Nothing armed; promotion is the reading run",
+        "RVR-5-origin-proof-probe-landed.toml":    "tier=operator as a reading run with an INTERIM tally, NOT debt: H55's six RouteDockCapture cells over the LANDED rover-route-recorded host so the origin-proof probe measures the producer's candidate walk past its PRELAUNCH short-circuit (ROUTE-ORIGIN-PROOF-PRODUCER-UNREACHABLE); situation=1 pinned literal. Nothing armed; the first census measures the split and the id leaves INTERIM_PIN_IDS in the same commit",
         # tier=operator by the CALIBRATION DISCIPLINE, the whole B18-B26 family's
         # tier, and NOT a debt: a first-flight B lane is operator because its
         # windows are derived rather than measured and the first run is a

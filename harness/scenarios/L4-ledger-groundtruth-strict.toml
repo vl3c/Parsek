@@ -334,8 +334,12 @@ count = { min = 2, max = 2 }
 # the re-assert and it reads `divergent=1`. Read TOKEN FOR TOKEN out of the
 # collected KSP.log of run `2026-08-20_1953`; the format string lives at
 # `LedgerGroundTruthDiff.CompareKerbalCareerLogs`' tail.
+# RE-DERIVED 2026-09-02, NOT MEASURED: a third LedgerGroundTruth declaration was added
+# (`CurrencyTooltipLiveInvariantTest.TooltipsReconcileWithTheLiveBar`, FLIGHT,
+# batch-allowed, career-only guards this fixture satisfies), so total=3 passed=3; the
+# first flight after this replaces the prediction with the measured line.
 required = [
-  "BATCH_COMPLETE v1 total=2 passed=2 failed=0 skipped=0 category=LedgerGroundTruth scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=3 passed=3 failed=0 skipped=0 category=LedgerGroundTruth scene=FLIGHT",
   "result: hardFailures=0 reportOnly=0 facetsCompared=11 strict=True",
   "CompareContracts: reconActive=1 saveActive=1 phantoms=0 mismatches=0 missing=0",
   "CompareKerbalCareerLogs: kerbals=1 divergent=0",

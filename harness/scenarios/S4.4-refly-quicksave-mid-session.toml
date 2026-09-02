@@ -1,0 +1,109 @@
+schema = 1
+id = "S4.4-refly-quicksave-mid-session"
+# `operator` for its first flight: this is THE DELIBERATE EXPERIMENT the todo entry
+# REFLY-BATCH-BASELINE-DISCARDS-LIVE-SESSION asked for and nobody ran - a save taken
+# WHILE a Re-Fly session is live, OUTSIDE any in-game batch. Its verdict decides whether
+# that entry is a product bug or a harness-isolation artefact, so the first flight is a
+# reading a human has to look at.
+tier = "operator"
+#
+# THE QUESTION. S4.2's attempt 1 (run `2026-08-11_2111`) lost its live Re-Fly session
+# ~1.2 s after the in-game batch started: `[ReFlySession] End reason=treeDiscarded` fired
+# inside the batch's baseline handling (`CaptureBatchBaseline` classifies a FLIGHT scene
+# with a live vessel as InMemoryAndDisk and QUICKSAVES it; the batch's "save-scoped state"
+# preparation then discarded the tree), so the AnswerMergeDialog step deferred on
+# `no-refly-dialog` to its budget. Attempt 2 ran clean; `flake.json` quarantines S4.2 at
+# rate=0.50. The open question the entry leaves is whether ANY save mid-session ends it -
+# which would make a player's F5 a session-killer and the entry a product bug - or only the
+# batch's own save-scoped preparation does, which is harness isolation (R7's family).
+#
+# THE EXPERIMENT. S4.2's seam cycle with the batch REPLACED by a `SaveGame`: LoadGame ->
+# InvokeRewind -> SaveGame (a real in-process GamePersistence.SaveGame, the M-C1.1 verb,
+# the same act a player's F5 performs on the live session) -> AnswerMergeDialog merge.
+# No RunTests, so nothing prepares save-scoped state and nothing reverts a baseline.
+#
+# WHAT EACH OUTCOME MEANS, pre-registered so the reading is not made up afterwards:
+#   - GREEN (the three conclusion tokens present, `End reason=treeDiscarded` absent):
+#     a plain save does NOT end the session. The S4.2 race is HARNESS-ONLY, owned by the
+#     batch baseline path, and the todo entry is re-headed under R7-SESSION-BATCH-ISOLATION.
+#   - RED on `End reason=treeDiscarded` (forbidden) with the AnswerMergeDialog step
+#     deferring on `no-refly-dialog`: the save itself ends the session. That is a PRODUCT
+#     BUG (a player's F5 mid-Re-Fly discards the attempt) and the entry is its head.
+#   - INVALID(driver) on the SaveGame step: the verb refused mid-session (a `recording-
+#     active` or similar dispatch reject). That is a harness limitation to record, and the
+#     experiment then needs a different save trigger, not a relaxed contract.
+#
+# THE CONCLUSION TOKENS are S4.2's three, verbatim: the conclusion route of a session
+# that flew nothing between rewind and merge is `retired-empty-provisional` ->
+# `refused-unflown-provisional` -> `concluded-no-supersede`. A session that survived the
+# save concludes exactly that way; one that did not never reaches any of them.
+description = "Reading run: InvokeRewind a crashed-booster slot, take a real in-process SaveGame WHILE the Re-Fly session is live (no in-game batch), then merge - the deliberate experiment that decides whether a mid-session save ends the session (product bug) or only the batch baseline path does (harness isolation), per REFLY-BATCH-BASELINE-DISCARDS-LIVE-SESSION."
+instanceProfile = "stock-minimal"
+tags = ["rewind", "refly", "quicksave", "session-isolation", "S4.4", "D9", "reading-run"]
+
+[fixture]
+# S4.2's fixture verbatim: loads into FLIGHT (the Focusable route) with the injected
+# world-preservation rewindable tree under `rp_wp_root`.
+saveTemplate       = "fixtures/saves/gloops-airshow"
+injectedRecordings = "refly-world-preservation"
+craft              = []
+
+[driver]
+kind = "seam"
+# THE ORDERING IS THE EXPERIMENT: SaveGame must sit AFTER InvokeRewind (the session is
+# live) and BEFORE AnswerMergeDialog (the session is still meant to be live). The save
+# name is `persistent` because that is the spelling every committed SaveGame step uses
+# (B18/B19/B20) and the verb's contract is a persist of the CURRENT game, whatever the
+# slot; a player's F5 writes quicksave.sfs through the same GamePersistence.SaveGame.
+steps = [
+  { cmd = "LoadGame",          args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 240 },
+  { cmd = "SetSetting",        args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "InvokeRewind",      args = { rp = "rp_wp_root", slot = "1" },            expect = "OK", budget = 300 },
+  { cmd = "SaveGame",          args = { name = "persistent" },                      expect = "OK" },
+  { cmd = "AnswerMergeDialog", args = { choice = "merge" },                         expect = "OK", budget = 120 },
+  { cmd = "RecordingState",                                                         expect = "OK" },
+  { cmd = "FlushAndQuit",                                                           expect = "OK" },
+]
+
+[dimensionsCovered]
+# S4.1's seam half, claimed as such. The mid-session save has no D9 value; whether it
+# deserves one is what the reading run decides.
+D9  = ["rewind-to-separation", "refly-gate", "reconciliation-bundle", "read-back-guard"]
+D14 = ["sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# S4.2's floor: the merged fork leaves at least the surviving tree visible.
+count = { min = 1 }
+
+[expectations.logContracts]
+required  = [
+  "Re-Fly \\(Rewind-to-Separation\\) StartInvoke", "Invocation complete",
+  "ConsumePostLoad: restoring bundle with route-retire cutoffUT=",
+  "Restored: recs=.* pendingScience=",
+  "outcome=retired-empty-provisional",
+  "AppendRelations outcome=refused-unflown-provisional",
+  "outcome=concluded-no-supersede",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  # THE VERDICT TOKEN. This is the line S4.2's attempt 1 measured inside the batch
+  # baseline path; on this lane nothing but the save itself could produce it.
+  "End reason=treeDiscarded",
+  "not found in committed list after tree commit",
+  "Marker invalid field=ActiveReFlyRecordingId",
+]
+
+[runtime]
+# S4.2's arithmetic with SaveGame (default 60) in place of RunTests: LoadGame 660 +
+# SetSetting 60 + InvokeRewind 660 + SaveGame 60 + AnswerMergeDialog 120 +
+# RecordingState 60 + FlushAndQuit 60 = 1680; +120 margin.
+budgetSeconds = 1800
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

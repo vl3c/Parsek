@@ -1,0 +1,113 @@
+schema = 1
+id = "RVR-5-origin-proof-probe-landed"
+# `operator` for its first flight: a READING RUN that moves an existing instrument onto
+# the host it needs. Its tally is INTERIM (total pinned, split not) until the first
+# census, exactly as H55's was.
+tier = "operator"
+#
+# WHAT THIS SPEC IS FOR. ROUTE-ORIGIN-PROOF-PRODUCER-UNREACHABLE (todo, SUSPECTED) says the
+# start-docked RouteOriginProof producer keys on `p.parent.vessel != v`, a condition a
+# settled `Part.Couple` can never satisfy because the coupled assembly is ONE Vessel. H55
+# carries the instrument for it - `OriginProofProbe_SettledDockLeavesNoExternalParent`,
+# which couples a spawned docking-port rig into the active vessel, counts the parts
+# satisfying the producer's own predicate, starts a recording and reads back the
+# producer's branch - and H55's green run 2 measured
+#     OriginProofProbe: externalParentParts=0 proofCaptured=False situation=4
+#                       outcome=active-vessel-PRELAUNCH partnerPid=...
+# The zero count SUPPORTS the finding, but `situation=4` is PRELAUNCH and the producer
+# short-circuits on PRELAUNCH BEFORE it walks candidates (RouteProofCapture
+# .TryResolveStartDockedOriginPartner, decision 2), so the walk itself is still
+# unexercised and the todo stays SUSPECTED. H55's own row names the fix: "closing it needs
+# the probe on a LANDED host (`rover-route-recorded`), a follow-up lane."
+#
+# THIS IS THAT LANE. `rover-route-recorded` boots into FLIGHT with a 17-part LANDED rover
+# as the active vessel (RVR-1's header; `situation=1`), so the producer passes its
+# PRELAUNCH gate and reaches the candidate walk with the probe's coupled partner in the
+# part list. The same six-cell RouteDockCapture isolated batch H55 runs is run here
+# unchanged: the five capture cells self-provision their rigs beside the rover exactly as
+# they did beside the pad craft, and the probe is the sixth.
+#
+# WHAT THE READING DECIDES, pre-registered:
+#   - `externalParentParts=0 ... situation=1 outcome=no-external-coupling` (the branch the
+#     todo predicts): CONFIRMED. The producer cannot fire on a settled dock, and the fix
+#     is a design decision (what identity a proof should carry when the partner is no
+#     longer a vessel), which the todo entry then records as the next step.
+#   - `externalParentParts>0` or `proofCaptured=True`: REFUTED. KSP does yield a
+#     cross-vessel parent link on this host, and the producer works; the entry records
+#     the KSP state that produced it and the B4 manual flight becomes unnecessary.
+#   - `situation=4` again: the fixture did not boot LANDED (a wheeled runway rollout is
+#     Landed per RVR-1, so this would be a fixture reading to record).
+# The required token pins the line's SHAPE with `situation=1` literal - the one fact
+# this lane must establish to be worth flying - and leaves the count and outcome as
+# value classes, on the instrument-not-gate rule.
+description = "Reading run: the six-cell RouteDockCapture isolated batch (H55's) over rover-route-recorded, whose active vessel is a LANDED rover, so H55's OriginProofProbe measures the RouteOriginProof producer's candidate walk PAST its PRELAUNCH short-circuit for the first time - the reading that confirms or refutes ROUTE-ORIGIN-PROOF-PRODUCER-UNREACHABLE."
+instanceProfile = "stock-minimal"
+tags = ["logistics", "RVR-5", "route-origin-proof", "ingame-batch", "isolated", "landed-host", "reading-run"]
+
+[fixture]
+# RVR-1's fixture verbatim: the target-branch recorded host with a landed rover active.
+saveTemplate       = "fixtures/saves/rover-route-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+# RVR-1's preamble verbatim: the fixture loads with a live recorder that InvokeRewind-class
+# verbs and the isolated batch's baseline capture both refuse to race, so it is stopped
+# and its tree discarded first; autoRecordOnLaunch OFF for the same determinism, and
+# verboseLogging ON because the producer's own `RouteOriginProof skipped:` branch line
+# (which the probe reads back) is Verbose.
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                    expect = "OK" },
+  { cmd = "DiscardTree",                                                      expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" },  expect = "OK" },
+  { cmd = "RunTests",   args = { category = "RouteDockCapture", isolated = "true" }, expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit",                                                     expect = "OK" },
+]
+
+[dimensionsCovered]
+# NONE before the first flight, on H55's CLAIM-IS-NOT-GATE rule. The D10 rows the five
+# capture cells could earn on this host are claimed in the commit that reads a green
+# census off a real run.
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# The recorded host's own corpus stays and the six cells' spawned vessels must not leak
+# past the per-test baseline restore, so the produced save carries EXACTLY the template's
+# staged set: 5 .prec sidecars, pinned as a closed window on RVR-1's shape (the
+# isolated-group cell derives the floor from the template, so a run that destroyed part
+# of the corpus, or one whose restore leaked a spawned tree, reds either way).
+count = { min = 5, max = 5 }
+
+[expectations.logContracts]
+# INTERIM tally: `total=6` attribute-exact (all six RouteDockCapture declarations are
+# FLIGHT, AllowBatchExecution=false, admitted by the isolated filter); `passed=` a floor
+# above the ordinary path's ceiling of ZERO (the category is wholly batch-disabled, so a
+# run that silently lost the isolated arg prints passed=0 and is rejected); `failed=0`
+# asserted; `skipped=` unmeasured. The seam isolated echo is the second discriminator.
+required  = [
+  "BATCH_COMPLETE v1 total=6 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=RouteDockCapture scene=FLIGHT",
+  "runtests start category=RouteDockCapture isolated=true",
+  # The literal restore-count token every isolated member owes: all six cells carry
+  # RestoreBatchFlightBaselineAfterExecution, so the runner announces the slot for 6.
+  "Using batch baseline slot .* for 6 restore-after-run test\\(s\\)",
+  "OriginProofProbe: externalParentParts=[0-9]+ proofCaptured=(True|False) situation=1 outcome=\\S+ partnerPid=[0-9]+",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+]
+
+[runtime]
+# RVR-1's shape: LoadGame 660 + four short verbs 240 + RunTests max(540,600)+60 = 660 +
+# FlushAndQuit 60 = 1620; +180 margin.
+budgetSeconds = 1800
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

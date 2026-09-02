@@ -104,9 +104,12 @@ class L2CoverageClaimTests(unittest.TestCase):
         # contract an empty or all-skipped batch could satisfy). `passed=1` is the cell
         # EXECUTING rather than merely being admitted - which is the property a
         # ground-truth claim needs and the one B.1 flew to establish.
+        # RE-DERIVED 2026-09-02 to total=3 passed=2: a third LedgerGroundTruth
+        # declaration (CurrencyTooltipLiveInvariantTest) was added and its pass is
+        # predicted, not measured; the first flight re-pins the spec and this cell.
         matching = [p for p in self.required if p.startswith("BATCH_COMPLETE")]
         self.assertEqual(1, len(matching), "exactly one tally pin expected")
-        for token in ("total=2", "passed=1", "failed=0", "skipped=1",
+        for token in ("total=3", "passed=2", "failed=0", "skipped=1",
                       "category=LedgerGroundTruth", "scene=FLIGHT"):
             self.assertIn(token, matching[0])
 
