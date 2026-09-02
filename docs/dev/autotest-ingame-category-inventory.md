@@ -167,6 +167,7 @@ Two limits of this table, stated so nobody over-reads it:
 | `Rewind` | 38 | 26 | 6 | 0 | 6 | 24 | R7a / R7c | A |
 | `RewindSaves` | 1 | 1 | 1 | 1 | 0 | 1 | - | B |
 | `RouteDockCapture` | 6 | 0 | 0 | 0 | 6 | 6 | H55 (ISOLATED, GREEN run 2 2026-09-01 `total=6 passed=6 failed=0 skipped=0`, nightly; run 1 `passed=1 failed=5` - RED on an authoring defect in the cells' own partner rig, which carried no `ModuleCommand` part so the undocked half was debris and no split branch, hence no route-window completion, was created; rigs re-rooted on a probe core, and run 2 pins the whole tally. The ordinary path executes 0 of 6, so the isolated arg is the only way to run any of it. Pins `total=6` exactly, `failed=0` asserted, plus one REQUIRED token per cell) + H56 (ISOLATED, AUTHORED 2026-09-02, NEVER FLOWN - the SAME six cells on a SECOND host, `rover-route-recorded`, whose active vessel is a 17-part LANDED rover instead of H55's PRELAUNCH pad rig. Two products H55 structurally cannot buy: the origin-proof probe's non-PRELAUNCH branch, which decides roadmap Tier B item 4, and the SURFACE flavor of the five capture cells. Driver, batch and token shapes are H55's step for step so a census delta is attributable to the host alone; `total=6` is shared and attribute-exact, so a seventh cell reds BOTH members, and the `passed=`/`skipped=` split is interim until its first census) | B |
+| `RouteEscrowContention` | 2 | 0 | 0 | 0 | 2 | 2 | H60 (ISOLATED, LIVE-PROVEN 2026-09-02 `2026-09-02_1314` PASS attempt 1, `total=2 passed=2 failed=0 skipped=0` pinned whole, nightly - roadmap Tier C item 10, two STORED routes contending for ONE physical source through the production `RouteOrchestrator.Tick`. A MULTI-STOP holder route reserves its SUMMED pickup manifest at dispatch, fires only its first window, and the still-held second window blocks a competitor on the competitor's OWN crossing with the M6 `source-reserved:` token; the holder's second window then releases AND debits in the same instant, so the competitor stays blocked on unchanged numbers with the cause flipped `escrow` -> `physical` - the reserve/release PRE-IMAGE invariant driven live. A second cell drives the only release that DOES free a competitor: `RouteStore.RemoveRoute` on the holder mid-cycle. Its own category, not two more `RouteDockCapture` or `Logistics` cells, precisely so those categories' pinned `total=6` / `total=47` do not move. Pins `total=2 passed=2 failed=0 skipped=0` WHOLE, plus eight phase tokens - six production `[Route]` lines and one `EscrowContention:` summary per cell, with the measured `raw=11 netted=5` / `raw=5 netted=5` pair carrying the pre-image invariant. ARMED DISCIPLINE COMPLETE the same day: armed re-flight `2026-09-02_1339` PASS attempt 1 on the whole pin with `mismatches=[]`, and a negative control - cell 1's `causeAfterWindow` flipped `physical` -> `escrow` - red on exactly that one token with zero forbids, so the pin discriminates rather than merely passes. The two runs drew different source pids and read identical amounts. D10 `multi-origin-escrow` is CLAIMED off the completed discipline, as a third owner contributing the ORCHESTRATOR-driven form H38's and H40's hand-reserved cell cannot reach) | A |
 | `RouteLifecycle` | 8 | 8 | 8 | 8 | 0 | 8 | RVR-3 (flown once 2026-09-01, `total=6 passed=4 failed=2`; the two failures were CONTRACT DRIFT - see the triage note - and the category is now 8 cells pinning BOTH halves of the armed-pause state machine. Pins `total=8` exactly with `passed=`/`skipped=` interim, `failed=0` asserted, plus a REQUIRED PASS token per resolution cell, and declares no render-composition expectations block, which is what keeps the five crossing cells from self-skipping) | B |
 | `RouteLiveAnchor` | 1 | 1 | 0 | 0 | 0 | 1 | - | B |
 | `RouteRewindTimeline` | 7 | 7 | 7 | 7 | 0 | 1 | H6 | B |
@@ -205,8 +206,8 @@ Two limits of this table, stated so nobody over-reads it:
 
 ## Triage
 
-Totals, re-derived: **111 categories / 616 declarations**. Buckets **A 35 categories
-(237 declarations)**, **B 76 categories (379 declarations)**, **C 0 categories (0
+Totals, re-derived: **112 categories / 618 declarations**. Buckets **A 36 categories
+(239 declarations)**, **B 76 categories (379 declarations)**, **C 0 categories (0
 declarations)**. The 107th is `AutoMergeCommit` (R4, the AUTOMERGE-ON-BY-DEFAULT
 wave; the 106th is `DisabledHoverEcho`, landed the same week): the plan-§7
 autoMerge=ON scene-exit cell, batch-disabled and restore-backed exactly like the two
@@ -261,6 +262,26 @@ defect: the self-provisioned partner rig carried no `ModuleCommand` part, so
 complete. Every rig is now rooted on a `probeCoreOcto2.v2`. THE LESSON GENERALISES past this
 category and is worth carrying into any future self-provisioned undock subject: an undock
 that produces debris produces no branch at all.
+
+The 112th is `RouteEscrowContention` (H60, 2026-09-02): TWO cells for roadmap Tier C
+item 10, the "two routes competing for one physical source" subject. What they add over
+`LogisticsMultiOriginRuntimeTests.Escrow_CompetingRouteSeesReservation_Holds` - which
+already runs green on three hosts - is the ORCHESTRATOR: that cell reserves by hand and
+gates by hand and stores neither route, while these put BOTH routes in `RouteStore` at
+`DispatchPriority` 0 and 1 and tick them, so the reservation comes from a real
+`ReserveCycleEscrow` at a real multi-stop dispatch and the block comes from the
+competitor's own crossing. A THIRD category in the route family for the family's
+standing reason: `RouteDockCapture`'s `total=6` is pinned by two flown-green specs and
+`Logistics`' `total=47` by five, so a cell added to either reds every one of them.
+The derivation that shaped the pair is worth recording here because it REFUTED the
+plan they were authored from: the reserve is the summed manifest, each window's release
+is that window's own manifest, and the release fires together with a physical debit of
+the SAME manifest - so a competitor's netted availability is invariant from dispatch to
+cycle completion, and it CANNOT become eligible from the release at the holder's window.
+What changes there is the hold CAUSE (`escrow` -> `physical`), which is cell 1; a
+competitor is freed only by a release that takes no cargo, which is cell 2's
+`RouteStore.RemoveRoute`. The identity is pinned headlessly by
+`RouteCargoEscrowTests.NettedAvailable_IsInvariantAcrossEveryWindowSplitOfTheReservation`.
 
 The 111th is `RouteStartDockedOrigin` (H57, 2026-09-02): TWO cells that share the
 `RouteDockCapture` source file and its whole spawn / couple / undock rig, but nothing
