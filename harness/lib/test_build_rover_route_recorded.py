@@ -263,9 +263,17 @@ class RoverRouteSpecFixtureSyncTests(unittest.TestCase):
     substring scan cannot be fooled by a spec that parses but names a different
     tree."""
 
+    # Every committed spec that stages this fixture. `H56` is the odd one out and is
+    # listed anyway: it reads NONE of the recorded corpus (its six `RouteDockCapture`
+    # cells self-provision everything they touch) and boots these bytes purely for the
+    # LIVE properties of the active vessel - a LANDED 17-part rover rather than a
+    # PRELAUNCH pad rig, which is what drives the origin-proof probe's non-PRELAUNCH
+    # branch. A spec that stages the fixture for a live reason still breaks if the
+    # fixture is renamed, which is exactly what this class exists to catch.
     SPECS = ("RVR-1-rover-route-proof.toml",
              "RVR-2-rover-route-create.toml",
-             "RVR-3-route-lifecycle.toml")
+             "RVR-3-route-lifecycle.toml",
+             "H56-route-dock-capture-landed.toml")
 
     @classmethod
     def setUpClass(cls):
@@ -276,7 +284,7 @@ class RoverRouteSpecFixtureSyncTests(unittest.TestCase):
             with open(path, "r", encoding="utf-8") as fh:
                 cls.text[name] = fh.read()
 
-    def test_all_three_specs_stage_this_fixture(self):
+    def test_every_consumer_spec_stages_this_fixture(self):
         for name in self.SPECS:
             self.assertIn('"fixtures/saves/rover-route-recorded"',
                           self.text[name], name)

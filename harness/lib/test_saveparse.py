@@ -2405,7 +2405,13 @@ class CommittedFixtureSweepTests(unittest.TestCase):
                              "efb9be7191284013983a9f3662604bc4"],
             "schemaGeneration": 4,
         },
-        # --- THE SUPPLY-ROUTE LANE HOST (RVR-1 / RVR-2 / RVR-3) -----------
+        # --- THE SUPPLY-ROUTE LANE HOST (RVR-1 / RVR-2 / RVR-3 / H56) -----
+        # H56 stages it for a LIVE reason rather than for this payload: its six
+        # self-provisioning `RouteDockCapture` cells read none of the corpus and
+        # want the active vessel's LANDED situation, which is what drives the
+        # origin-proof probe's non-PRELAUNCH branch. The pinned facets below are
+        # unaffected by it - the cells' per-test baseline restore is what keeps
+        # them so, and the lane's `recordings.count = 5` is the instrument.
         # PROVENANCE: rover-route-recorded <- THE OPERATOR'S OWN HAND-FLOWN
         # SANDBOX SAVE `logistics-rover-A`, collected 2026-08-30 into
         # `.claude/worktrees/logs/2026-08-30_1106_rover-route/saves/
