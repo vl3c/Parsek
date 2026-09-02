@@ -1355,26 +1355,52 @@ Parsek renders a ghost that sits on a heliocentric parking orbit for 156 days an
 then departs - is unmeasured, and no committed subject other than this one can
 ask it. Until a lane flies, nothing reads these bytes.
 
-## IMPROVEMENT-SAVEPARSE-NO-ROUTES-FACET: `harness/lib/saveparse.py` parses no `ROUTES` node, so the only committed ROUTE is pinned builder-side instead of in the shared facet map [OPENED 2026-08-26 alongside `depot-route-recorded`. IMPROVEMENT, not a defect]
+## ~~IMPROVEMENT-SAVEPARSE-NO-ROUTES-FACET: `harness/lib/saveparse.py` parses no `ROUTES` node, so the only committed ROUTE is pinned builder-side instead of in the shared facet~~ [OPENED 2026-08-26 alongside `depot-route-recorded`. IMPROVEMENT, not a defect. DONE 2026-09-02]
 
-`saveparse.parse_parsek_scenario` models RECORDING_TREE topology, supersede rows,
-tombstones, rewind retirements and REWIND_POINTS - but not `ROUTES`. So when
-`depot-route-recorded` landed, its ROUTE had to be pinned inside
-`harness/tools/build_depot_route_recorded.py::verify_route` (id, status, backing
-tree, dock member, the two clocks, the window period, the four `RECORDING_IDS`,
-the four `SOURCE` rows, the STOP endpoint's resolution to a live VESSEL node),
-wired into the suite through `DepotRouteRecordedFixtureDriftTests`. That works and
-is guarded, but it is one fixture's private parser rather than a facet any
-scenario can express a window over.
+FIXED. `saveparse.py` now parses the `ROUTES` node and its three sparse
+siblings (`DORMANT_ROUTES`, `DISMISSED_ROUTE_CANDIDATES`,
+`PROMPTED_ROUTE_CANDIDATES`), shapes derived from `RouteStore.SaveRoutesTo` +
+`RouteCodec.SerializeInto` / `RouteNodeCodec.SerializeEndpoint`, and exposes
+them as `observed_routes_facets` plus a fourth M-C2 block,
+`[expectations.routes]` (REPORT-ONLY unless a block declares `gating = true`,
+the R9 discipline). Keys: `count` / `dormant` / `stops` / `sourceRefs` /
+`completedCycles` / `skippedCycles` windows, `statuses` and `connectionKinds`
+buckets by enum NAME, free-form `originBodies` / `destinationBodies` buckets,
+and the exact-SET identity keys `ids` / `destinationVesselPids`. Two facets
+are DEFINED mismatches for a declared block (the points-block `unparsed`
+precedent): `codecRejects`, a route `RouteCodec.DeserializeFrom` would DROP
+on the next load, and `unparsed`, an unreadable dispatch counter.
 
-**What a `routes` facet would buy**: `[expectations.recordings.routes]` blocks in
-a scenario spec (route count, status, completedCycles, endpoint kind), evaluated
-by the `saveParse` verifier row like every other structure window - so the G1
-lanes could gate on route STATE rather than only on render tokens, and a
-`SourceChanged` flip mid-run would red the flight instead of silently producing a
-dark map. Python-only change in `harness/lib/saveparse.py` plus cells in
-`test_saveparse.py`; no C# and no flight. Do it before the second route fixture,
-not after.
+NO ESCROW FACET, deliberately: `RouteStore.cargoEscrow` is pure RAM
+(`SaveRoutesTo` writes only the four nodes above), so a save cannot carry
+reservation state and a window over it would assert over nothing.
+
+The `depot-route-recorded` ROUTE pin MOVED off builder-side:
+`build_depot_route_recorded.py::verify_route` now reads through the shared
+parser and asserts `ROUTE_FACET_PINS`, the same dict
+`test_saveparse.RECORDED_FIXTURES["depot-route-recorded"]["routes"]` pins
+(cross-file agreement gated by `RouteFacetFixtureAgreementTests`). What stayed
+builder-side is what a facet should not model: the fixture's float clocks and
+cursor indices, the ORIGIN coordinates, the nine SOURCE fields
+`RevalidateSources` compares, and the STOP endpoint's resolution to a live
+FLIGHTSTATE vessel. `build_rover_route_recorded.py`'s no-ROUTES and
+prompted-candidate assertions route through the same parser; its
+`ROUTE_CONNECTION_WINDOWS` pins stay builder-side (a RECORDING-level surface
+written by `RouteProofCodec`, which this facet does not and should not reach).
+
+ARMED AND LIVE-PROVEN on `V18T-depot-route-ts-arrival` (tier=operator):
+`count {1,1}` / `dormant {max 0}` / `statuses {Active {1,1}}` /
+`sourceRefs {4,4}` / `ids [5420f805...]`. Windows written from five OFFLINE
+reads of produced saves across two scenarios over the same fixture (V18T runs
+`2026-08-26_2042` / `_2317` / `_2318`, H40 runs `2026-08-28_2253` / `_2358`,
+all byte-identical), then the three-run workflow closed the same day: armed
+re-flight `2026-09-02_1013` PASS attempt 1 (69 s, `saveParse status=PASS
+gating=True armedBlocks=['routes'] ... routes=1 routeStatuses={'Active': 1}
+routeCodecRejects=0 mismatches=0`), negative control `2026-09-02_1014`
+`PARSEK-FAIL(save-structure)` on exactly
+`["routes.statuses.SourceChanged 0 < min 1"]`, reverted. The control inverts
+this block's OWN window rather than the shared `rewind.supersedeRows` minimum,
+so the routes path is proven end to end rather than the evaluator re-proven.
 
 ## SUBJECT-CANDIDATE-INTERPLANETARY-ROUTE: the operator's plain `orbital supply route` save carries a Kerbin -> Duna route that may be the MalformedMixedBodies case, and nothing has looked [OPENED 2026-08-26 while ranking route sources. TODO, not a defect]
 

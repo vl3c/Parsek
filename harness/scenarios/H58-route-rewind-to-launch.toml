@@ -398,13 +398,19 @@ D14 = ["sandbox", "scene-flight"]
 allowedAnomalies = []
 
 # THE M-C2 `saveParse` ROUTES FACET, REPORT-ONLY AND DELIBERATELY NOT ARMED.
-# `harness/lib/saveparse.py` gains an `[expectations.routes]` evaluator on the sibling
-# branch `saveparse-routes-facet` (PR pending, NOT on main at the time of writing); until
-# it merges, `hlib` treats an undeclared-evaluator block as inert and this costs nothing.
+# `harness/lib/saveparse.py`'s `[expectations.routes]` evaluator LANDED ON MAIN 2026-09-02
+# (PR #1603), so as of this branch's merge of `41f0f1415` this block is EVALUATED on every
+# driver-valid run rather than inert. It is REPORT-ONLY: no `gating = true`, and
+# `ARMED_ALLOWLIST` in `harness/lib/test_hlib.py` does not name this spec.
+# **IT HAS NOT BEEN READ ON A RUN YET.** The three greens flown so far (`_1020`, `_1033`
+# and the negative control) all predate the facet reaching this branch, so no result JSON
+# carries a `routes` row for H58. The offline evaluation below is a strong pre-check
+# against the real evaluator and the real bytes - it is NOT a reading run, and the
+# standing protocol counts only the latter.
 # WHY IT IS DECLARED NOW ANYWAY: flight 2's produced save is the first save in the suite
 # that carries a route THROUGH a real go-back rewind, so it is the exact bytes the facet
 # exists to read, and declaring the block in the same commit as the flight means the
-# first reading run has something to report rather than a blank row.
+# next run reports something rather than a blank row.
 #
 # EVALUATED OFFLINE against flight 2's produced-save snapshot using THAT BRANCH'S
 # `saveparse.py` (not a re-implementation): `parse_parsek_scenario` -> parsed=True,
@@ -415,10 +421,11 @@ allowedAnomalies = []
 # statuses={Paused: 1} connectionKinds={DockingPort: 1} originBodies={Kerbin: 1}
 # destinationBodies={Kerbin: 1}.
 #
-# ARMING FOLLOWS, and only after BOTH: (a) the facet is on `main`, and (b) this block has
-# been READ on an actual run (the standing report-only-first protocol - an offline
-# evaluation is a strong pre-check, not a reading run). `ARMED_ALLOWLIST` in
-# `harness/lib/test_hlib.py` is deliberately UNTOUCHED by this commit.
+# ARMING FOLLOWS, and only after (b): this block has been READ on an actual run whose
+# facets match these windows (the standing report-only-first protocol). (a) - the facet
+# being on `main` - is now SATISFIED. `ARMED_ALLOWLIST` in `harness/lib/test_hlib.py` is
+# deliberately UNTOUCHED, and arming it is a per-scenario operator decision, not a
+# consequence of this commit.
 #
 # WHAT THE FOUR WINDOWS ASSERT, and none is a run-local literal: the route survived the
 # rewind as a COMMITTED route rather than being dormanted or dropped (`count` exact 1,
