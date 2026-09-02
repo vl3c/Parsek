@@ -30,11 +30,72 @@ id = "L6-career-same-name-recover"
 # un-banked-science post-condition and both identity post-conditions are gated by
 # `CareerSameNamePadFixtureDriftTests` in `harness/lib/test_career_same_name_pad.py`.
 #
-# STILL `operator`, run on request only, and NOTHING IS ARMED: the tokens below are a
-# PREDICTION re-derived off the new fixture's bytes and have never been measured. The
-# first reading run on this fixture either matches them or refutes them, and a refutation
-# about the fixture's own bytes is a fixture reading, never a PARSEK-FAIL - which is why
-# `[expectedFail] bugId` stays empty.
+# READING RUN 2 (`2026-09-02_1328`, wall 470 s, mission 347 s, DLL 7b9e4d19, NO C# change)
+# FLEW **PASS ON ATTEMPT 1**: MISSION-OK across PRELAUNCH..RECOVERED, expectations
+# mismatches=0, analyzer red=0, zero `[Parsek][ERROR]`, and the fixture reached the
+# recovery phase round 1 could not. **EVERY TOKEN BELOW IS NOW MEASURED AND PINNED WHOLE**,
+# and the predicted `nameMatches=4 survivors=2 guidDropped=2` came back exactly, so the
+# arithmetic in this header is confirmed rather than merely plausible. Verbatim, FOUR
+# IDENTICAL PAIRS at one UT:
+#
+#   PickRecoveryRecordingId guid filter: vessel='Jumping Flea'
+#       rawVessel='#autoLOC_501224' ut=754.5 dropped=2 remaining=2
+#       reason=guid-conclusive-mismatch
+#   PickRecoveryRecordingId: vessel='Jumping Flea' rawVessel='#autoLOC_501224' ut=754.5
+#       nameMatches=4 survivors=2 guidDropped=2 skippedZombieNotCommitted=0
+#       sessionProvisionalAdmitted=False tier=most-recent-ended bracketTie=n/a
+#       pick=0d74e88c72c947718b8ac7a42f6d173b
+#
+# THE STAGE-1 FILTER RESOLVING A REAL SECOND LAUNCH, LIVE, FOR THE FIRST TIME ANYWHERE IN
+# THE SUITE. The four pairs are the legs that pick (funds, XP, and the science leg's
+# per-subject picks); the line does not name its leg, so what the multiplicity proves is
+# that EVERY leg that picked saw the same filtered set, which is the "all three legs"
+# half of the recommendation. The tier is `most-recent-ended` - the weakest of the three
+# and exactly the one the todo entry says a driven career lands on - reached over the
+# SURVIVORS, which is the point: the fixture's two prior-launch recordings never got to
+# compete.
+#
+# **`Recovery kerbal XP recorded` IS PRESENT, AND THIS IS ITS FIRST OBSERVATION ANYWHERE**
+# (`rows=1 deduped=0 noAction=0`, under the picked id), with NO `Recovery kerbal XP
+# refused` line - so the pick was CONSUMED, not merely logged.
+#
+# THE LAUNCH GUID CAME FROM THE FIXTURE'S OWN RE-STAMP, which is what makes the drop
+# attributable rather than incidental: the recorder logged
+# `StartRecording: captured launch guid=9b3c71e4d0a84f52ae6d18c4f7b25a30`, the literal
+# `build_career_same_name_pad.py` mints, against the two spliced recordings' `f77e4207...`.
+# The flight flew the fixture's OWN pad vessel; nothing new was rolled out.
+#
+# AN UNPREDICTED FIXTURE CONSEQUENCE, MEASURED AND KEPT: the recovered kerbal is
+# **'Freddin Kerman', a Parsek STAND-IN, not Jebediah**. The spliced recordings carry a
+# CREW_MANIFEST for Jebediah, so the crew-reservation system holds him
+# (`Reservation extended: 'Jebediah Kerman' endUT->Infinity`) and generates a replacement
+# for the relaunch (`Stand-in generated: 'Freddin Kerman' (Pilot) for slot 'Jebediah
+# Kerman' depth 0`). The stand-in NAME is generated per run, so the XP token below regexes
+# it; that a relaunch of a crewed recorded craft flies a stand-in is a real property of
+# this fixture and is stated here so the next reader does not file it as drift.
+#
+# THE MISSION LEG, for the record and because round 1 died on it: the transmit surfaces in
+# the MISSION stdout, not in KSP.log - `[Science] run_science_experiments ran=3 skipped=0
+# failed=0`, `[Science] transmit_science sent=1 skipped=2 failed=0`, `[Assert] assert
+# scienceTransmittedObserved value=11.600 met=True` against the 0.5 floor, and
+# `vesselRecoveredObserved value=5323.000` against the 1.0 floor. THOSE ARE NOT
+# logContract TOKENS AND MUST NOT BE PINNED AS SUCH (`logContracts` reads KSP.log; a
+# mission-stdout string pinned there can never match). The gate on them is the mission's
+# own assertion params below, which is where round 1's red came from.
+#
+# STILL `operator` and STILL NOTHING ARMED. **NO `[expectations.ledger]` BLOCK IS
+# DECLARED, and the reason is the L3 precedent rather than an oversight**: L3 - the only
+# other spec driving this mission, on this career - defers its ledger and unityExceptions
+# blocks to a separate arming decision so that arming a gating surface never rides inside
+# a promotion commit, and the same argument holds here with one addition. The oracle diffs
+# EXACT expected pools, and this lane's flight carries a per-run variable the pools inherit
+# (the stand-in above is generated fresh each run), so a pool manifest pinned from this run
+# would gate a number the lane does not control. What a future arming would start from,
+# recorded so it starts from data: `fundsPostLoss=536523.0` after a `vesselRecoveredObserved
+# 5323.0` credit, `scienceTransmittedObserved 11.600`, `saveParse pointsTotal=1040
+# pointsLargest=510 pointsSmallest=2`, `unityExceptions total=0`, and the mission's own
+# HANDOFF contract (`ledgerScienceCapture, ledgerRecoveryCapture not verified`) naming
+# exactly the two surfaces such a block would cover. `[expectedFail] bugId` stays empty.
 tier = "operator"
 #
 # WHAT THIS SPEC IS FOR. KERBAL-XP-RECOVERY-PICK-IS-NAME-AND-UT-ONLY (todo, stage 2
@@ -170,20 +231,43 @@ D14 = ["kerbin", "career", "scene-flight"]
 allowedAnomalies = []
 
 [expectations.recordings]
-# The fixture's two recordings plus at least this flight's one. No ceiling: the
-# scene-exit optimizer may split the new recording (L3 measured that on its own flight).
-count = { min = 3 }
+# MEASURED 4 on run `2026-09-02_1328` and PINNED WHOLE: the fixture's two plus this
+# flight's own chained pair (`OnSave: saving 4 committed recordings`), corroborated
+# independently by the pick line's own `nameMatches=4` - every committed recording on this
+# save name-matches, so the two numbers cannot drift apart silently. The authored ceiling
+# was open because L3's flight split; this one produced the same 2, and a different count
+# is a reading rather than a pass.
+count = { min = 4, max = 4 }
 
 [expectations.logContracts]
+# RE-PINNED WHOLE off reading run `2026-09-02_1328`. The three counts that were regexed
+# ranges while they were predictions (`nameMatches`, `survivors`, the tier) are LITERALS
+# now; what stays regexed is only what the run mints fresh (the UT, the recording id and
+# the stand-in kerbal's name).
 required = [
-  # The XP leg's pick: the fixture's two prior-launch recordings name-match and are
-  # dropped by guid (guidDropped=2 literal - the one fact this lane exists to measure);
-  # this flight's own recording(s) survive and the tier walk runs over them alone.
-  "PickRecoveryRecordingId: .* nameMatches=[3-9] survivors=[1-9] guidDropped=2 .* tier=(bracketing|most-recent-ended|global-latest) bracketTie=\\S+ pick=",
-  # L3's own token with the id as a value class: the pick was consumed by a row.
-  "Recovery kerbal XP recorded: vessel='Jumping Flea'.*recordingId=\\S+ rows=[1-9]",
+  # THE FILTER ITSELF, and it was not pinned before because it had never been seen. This
+  # is the line that says the drop HAPPENED and why - a pick line alone cannot tell a
+  # filter that dropped two from one that never ran.
+  "PickRecoveryRecordingId guid filter: vessel='Jumping Flea' rawVessel='#autoLOC_501224' ut=[0-9.]+ dropped=2 remaining=2 reason=guid-conclusive-mismatch",
+  # THE PICK, MEASURED WHOLE: the fixture's two prior-launch recordings name-match and are
+  # dropped by guid, this flight's own chained pair survives, and the tier walk runs over
+  # the survivors alone - landing on `most-recent-ended`, the weakest tier and the one the
+  # todo entry says a driven career recovery reaches.
+  "PickRecoveryRecordingId: vessel='Jumping Flea' rawVessel='#autoLOC_501224' ut=[0-9.]+ nameMatches=4 survivors=2 guidDropped=2 skippedZombieNotCommitted=0 sessionProvisionalAdmitted=False tier=most-recent-ended bracketTie=n/a pick=[0-9a-f]{32}",
+  # THE XP ROW: the pick was CONSUMED. `rows=1 deduped=0 noAction=0` is the measured shape;
+  # the kerbal is a per-run generated STAND-IN (see the header), so only its Kerman suffix
+  # is pinned.
+  "Recovery kerbal XP recorded: vessel='Jumping Flea' rawVessel='#autoLOC_501224' ut=[0-9.]+ recordingId=[0-9a-f]{32} rows=1 deduped=0 noAction=0 kerbals='[A-Za-z]+ Kerman'",
 ]
-forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  # The XP leg's fail-safe. Measured ABSENT on the green run, and its appearance would mean
+  # the filter emptied the candidate set or the pick returned null - the product finding
+  # this lane is the instrument for. Forbidding it is safe on THIS fixture because the
+  # recovery is crewed by construction (the pad craft carries a pod and a kerbal, stand-in
+  # or not), which `CareerSameNamePadFixtureDriftTests` asserts.
+  "Recovery kerbal XP refused:",
+]
 
 [runtime]
 # L3's budget: the mission leg dominates.

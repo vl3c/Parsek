@@ -1258,6 +1258,16 @@
         "2026-08-20T19:57:58Z": 54.0
       }
     },
+    "L6-career-same-name-recover": {
+      "last": 470.0,
+      "lastVsP50": 1.0,
+      "n": 1,
+      "p50": 470.0,
+      "p95": 470.0,
+      "samples": {
+        "2026-09-02T13:36:38Z": 470.0
+      }
+    },
     "M1-mission-loop-unit": {
       "last": 46.0,
       "lastVsP50": 1.0,

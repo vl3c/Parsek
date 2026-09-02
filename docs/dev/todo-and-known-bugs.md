@@ -4786,7 +4786,7 @@ If that happens, the fix is at
 `FlightRecorder`'s checkpoint re-emission path, and the test is that a packed section
 never carries a propulsive env.
 
-## KERBAL-XP-RECOVERY-PICK-IS-NAME-AND-UT-ONLY: the recovery correlator matches by vessel NAME plus a UT tier, and the XP row makes a wrong pick irreversible [OPEN - STAGE 1 SHIPPED headless 2026-08-28 (branch `kerbal-xp-guid-filter`), STAGE 2 OUTSTANDING and gated on live proof; filed 2026-08-20 with the correlation fix above. **A REPRO LANE WAS AUTHORED AND FLOWN, AND FOUND THE PRODUCED-SAVE SHORTCUT CANNOT REACH THE CORRELATOR: `harness/scenarios/L6-career-same-name-recover.toml`, reading run 1 `2026-09-02_1137` (INVALID(driver) MISSION-ASSERT-FAIL).** The idea was `science_bench_recover` flown a second time over `career-earned-pad` (L3's produced save, which already carries the pad craft's TWO chained same-name recordings under a different launch guid), so the recovery correlator would see two same-name candidates and stage 1's guid filter would resolve them live (expected `nameMatches>=3 guidDropped=2 survivors>=1`). The flight FLEW - landed, collected 2 experiments, recorded a third same-name recording - but TRANSMIT credited ZERO career science because L3 already banked that launchpad biome's science, so the mission's structural transmit->recover gate (`_sbr_transmit` needs a strictly positive pool rise; the schema forbids a floor below 0.001) failed the flight BEFORE recovery, the phase the correlator fires in. **THE BANKED-SCIENCE CONFLICT IS INTRINSIC TO REUSING A PRODUCED SAVE**, so this shortcut does not work. Closing stage 2 needs either a recover mission with NO transmit-science gate (none in the library today) or a purpose-built fixture carrying two same-name launches whose flight science is un-banked. **UNBLOCKED 2026-09-02 BY THE PURPOSE-BUILT FIXTURE** `harness/fixtures/saves/career-same-name-pad`: `harness/tools/build_career_same_name_pad.py` splices `C2CareerPostFix`'s RECORDING_TREE (the two chained same-name recordings, launch guid `f77e4207...`) into `career-science-pad`, the PRE-FLIGHT save L3 actually flies - two moments of one timeline, which is why those recordings' `preLaunchFunds = 500000` / `preLaunchScience = 100` are that host's live pools. The career therefore carries the prior launch with ZERO banked `Science` subjects, so the same mission transmits exactly as it does for L3; the host vessel's `pid` is re-stamped to `9b3c71e4...` so the filter has two conclusive mismatches to drop, while its craft-baked `persistentId` is deliberately left colliding at `2905720181` - the trap this entry names. The earned ledger is NOT copied (its rows credit the science the fixture must leave un-banked, and the recalc engine patches state from the ledger). Gated by `CareerSameNamePadFixtureDriftTests`. L6 now stages that fixture; its expected shape (`nameMatches=4 guidDropped=2 survivors=2`, two spliced plus this flight's own chained pair) is a PREDICTION until reading run 2 measures it, and stage 2 stays gated on that flight]
+## KERBAL-XP-RECOVERY-PICK-IS-NAME-AND-UT-ONLY: the recovery correlator matches by vessel NAME plus a UT tier, and the XP row makes a wrong pick irreversible [OPEN - **STAGE 1 LIVE-PROVEN 2026-09-02**, shipped headless 2026-08-28 (branch `kerbal-xp-guid-filter`), STAGE 2 OUTSTANDING but NO LONGER GATE-BLOCKED; filed 2026-08-20 with the correlation fix above. **A REPRO LANE WAS AUTHORED AND FLOWN, AND FOUND THE PRODUCED-SAVE SHORTCUT CANNOT REACH THE CORRELATOR: `harness/scenarios/L6-career-same-name-recover.toml`, reading run 1 `2026-09-02_1137` (INVALID(driver) MISSION-ASSERT-FAIL).** The idea was `science_bench_recover` flown a second time over `career-earned-pad` (L3's produced save, which already carries the pad craft's TWO chained same-name recordings under a different launch guid), so the recovery correlator would see two same-name candidates and stage 1's guid filter would resolve them live (expected `nameMatches>=3 guidDropped=2 survivors>=1`). The flight FLEW - landed, collected 2 experiments, recorded a third same-name recording - but TRANSMIT credited ZERO career science because L3 already banked that launchpad biome's science, so the mission's structural transmit->recover gate (`_sbr_transmit` needs a strictly positive pool rise; the schema forbids a floor below 0.001) failed the flight BEFORE recovery, the phase the correlator fires in. **THE BANKED-SCIENCE CONFLICT IS INTRINSIC TO REUSING A PRODUCED SAVE**, so this shortcut does not work. Closing stage 2 needs either a recover mission with NO transmit-science gate (none in the library today) or a purpose-built fixture carrying two same-name launches whose flight science is un-banked. **UNBLOCKED 2026-09-02 BY THE PURPOSE-BUILT FIXTURE** `harness/fixtures/saves/career-same-name-pad`: `harness/tools/build_career_same_name_pad.py` splices `C2CareerPostFix`'s RECORDING_TREE (the two chained same-name recordings, launch guid `f77e4207...`) into `career-science-pad`, the PRE-FLIGHT save L3 actually flies - two moments of one timeline, which is why those recordings' `preLaunchFunds = 500000` / `preLaunchScience = 100` are that host's live pools. The career therefore carries the prior launch with ZERO banked `Science` subjects, so the same mission transmits exactly as it does for L3; the host vessel's `pid` is re-stamped to `9b3c71e4...` so the filter has two conclusive mismatches to drop, while its craft-baked `persistentId` is deliberately left colliding at `2905720181` - the trap this entry names. The earned ledger is NOT copied (its rows credit the science the fixture must leave un-banked, and the recalc engine patches state from the ledger). Gated by `CareerSameNamePadFixtureDriftTests`. L6 now stages that fixture; its expected shape came back EXACTLY on reading run 2 (`2026-09-02_1328`, PASS attempt 1, 470 s): four identical pairs of `PickRecoveryRecordingId guid filter: ... dropped=2 remaining=2 reason=guid-conclusive-mismatch` + `PickRecoveryRecordingId: ... nameMatches=4 survivors=2 guidDropped=2 ... tier=most-recent-ended bracketTie=n/a pick=0d74e88c...`, with `Recovery kerbal XP recorded: ... rows=1 deduped=0 noAction=0` PRESENT (its first observation anywhere) and no refused line. **THE LIVE-PROOF GATE STAGE 2 WAS BLOCKED ON IS THEREFORE DISCHARGED**: the filter is proven active, dropping exactly the two prior-launch candidates, over every leg that picked, without disturbing a correct pick. Stage 2 (the XP-leg `ambiguous-recovery-recording` refusal) is still NOT implemented - it is now merely unwritten rather than ungated]
 
 `LedgerOrchestrator.PickRecoveryRecordingId` matches candidate recordings by vessel NAME
 (`RecoveredVesselIdentity.MatchesName`, raw or localized) and then ranks them by a UT
@@ -4814,10 +4814,12 @@ changes the funds and science legs too, so it is its own change with its own liv
 and doing it inside a fix whose whole argument is "use the SAME correlator the funds leg
 uses" would have made both claims unfalsifiable at once.
 
-**Not currently observable in a driven run:** every committed career fixture flies one
-launch of one craft name, so the tiers are never in competition. A repro needs two
-launches of the same craft name with a recovery of the second - which is also the shape
-the eventual fix should be live-proven on.
+**Observable in a driven run since 2026-09-02**, and it was not before: every committed
+career fixture flew one launch of one craft name, so the tiers were never in competition.
+`harness/fixtures/saves/career-same-name-pad` is the two-launches-same-name shape this
+paragraph asked for - the prior launch's two recordings spliced onto the pre-flight career
+that produced them, with the live vessel's launch guid re-stamped and its craft-baked
+`persistentId` deliberately left colliding - and `L6-career-same-name-recover` flies it.
 
 ### RECOMMENDATION (written 2026-08-28 on branch `ledger-hygiene-2`; NO code change made)
 
@@ -4870,12 +4872,17 @@ second. That single flight exercises both halves - the filter must make the firs
 drop out of the candidate set, and the refusal must NOT fire once it has (a spurious
 `ambiguous-recovery-recording` on that run would be the fix over-firing).
 
-### STAGE 1 SHIPPED, headless only (2026-08-28, branch `kerbal-xp-guid-filter`)
+### STAGE 1 SHIPPED (2026-08-28, branch `kerbal-xp-guid-filter`) AND LIVE-PROVEN (2026-09-02, `L6-career-same-name-recover` run `2026-09-02_1328`)
 
 The guid-corroboration FILTER is implemented exactly as recommendation half 1 describes,
-on all three legs, and is green headless. **Stage 2 (the XP-leg
-`ambiguous-recovery-recording` refusal) is NOT implemented** and must not be landed before
-the filter has flown - the recommendation's own argument for splitting them stands.
+on all three legs, green headless, and **now flown**: L6's reading run measured
+`dropped=2 remaining=2 reason=guid-conclusive-mismatch` on four picks at one recovery, the
+survivors resolving through `tier=most-recent-ended` to this flight's own recording, and
+the XP row written under the picked id. **Stage 2 (the XP-leg
+`ambiguous-recovery-recording` refusal) is still NOT implemented** - the precondition the
+recommendation set ("must not be landed before the filter has flown") is now met, so it is
+unwritten rather than blocked, and its own live proof would need a shape where the
+survivors still number more than one after the filter.
 
 **What was built.** `LedgerOrchestrator.PickRecoveryRecordingId` now runs in two passes: it
 gathers the name+eligibility candidate set (the zombie / session-provisional rules
@@ -4951,7 +4958,7 @@ that makes it. The existing `PickRecoveryRecordingId:` summary line gains `guidD
 and replaces the now-ambiguous `candidates=` token with explicit `nameMatches=` (pre-filter)
 and `survivors=` (post-filter); nothing pinned the old token.
 
-### THE LIVE-PROOF GATE (stage 2 is blocked on this)
+### THE LIVE-PROOF GATE [DISCHARGED 2026-09-02 - kept as the record of what was asked for and what was flown]
 
 **Which lane.** `L3-career-science-recover` is the only committed spec that drives a real
 crewed recovery with the funds, science AND XP legs all firing on one flight - it is

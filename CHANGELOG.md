@@ -118,6 +118,16 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Dev
 
+- Proved on a real flight that a recovery is credited to the right flight.
+  When a craft is recovered, Parsek picks which recorded flight the recovery
+  belongs to; since August it throws out recordings of earlier flights of the
+  same craft by launch identity, but that had only ever been shown in offline
+  tests. A run over the new two-launch career now shows it live: of four
+  same-name recordings the two from the earlier launch were dropped and the
+  recovery was credited to the flight that had just happened, including the
+  crew's experience entry - the first time that entry has been seen on a real
+  run. Nothing player-facing changes; the behaviour is the one that shipped.
+
 - Built the test save the recovery-credit check needed, and pointed its test
   lane at it. When a craft is recovered, Parsek has to decide which recorded
   flight the recovery belongs to, and it now uses the launch identity to throw
