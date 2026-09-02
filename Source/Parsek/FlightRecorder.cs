@@ -7052,42 +7052,77 @@ namespace Parsek
             var candidates = new List<OriginPartnerCandidate>();
 
             // THE ONLY CANDIDATE PRODUCER: settled dock seams. Every seam on the merged
-            // vessel contributes the SAME descriptor, so the resolver collapses them to one
-            // distinct pid and can never read PartnerAmbiguous on a single merged pair.
+            // vessel names the SAME origin half, so the resolver collapses them to one
+            // distinct origin root and can never read PartnerAmbiguous on a single pair.
             //
-            // THE PARTNER-PID RULE IS UNDER REVIEW AND IS THE ONE THING HERE THAT IS NOT
-            // SETTLED. `v.persistentId` is the pid of the half that KEEPS the merged
-            // `Vessel` across `Part.Undock` (the undocking subtree gets a fresh `Vessel`;
-            // the remainder keeps the original and its pid), and which half that is comes
-            // from stock's own `Vessel.GetDominantVessel` - vesselType priority, then mass -
-            // via `ModuleDockingNode.DockToVessel`'s `base.part.Couple(node.part)` and
-            // `Undock`'s `otherNode.part.parent == part` dispatch. For the canonical supply
-            // shape (a `VesselType.Base` depot, a Rover/Ship transport) the depot is
-            // dominant, keeps the pid, and this reads correctly. It is NOT correct in
-            // general, and the honest statement of what the docking node can actually
-            // supply - `DockedVesselInfo` carries name / vesselType / rootPartUId of each
-            // half's PRE-dock vessel and NO pid at all - is filed as
-            // ROUTE-ORIGIN-PROOF-PARTNER-IDENTITY in docs/dev/todo-and-known-bugs.md.
+            // THE PARTNER RULE (settled 2026-09-02). Each seam is read as a PAIR: the node
+            // on this part carries its OWN half's pre-dock identity in `vesselInfo`, and the
+            // docked partner part's node carries the OTHER half's. `RouteProofCapture.
+            // SelectStartDockedOriginHalf` picks the DEPOT-typed half as the origin. Nothing
+            // here reads which half stock made dominant on the merge - `v.persistentId` and
+            // `v.rootPart` are deliberately NOT identity inputs, because the merged pid names
+            // whichever half won `Vessel.GetDominantVessel` (vesselType, then mass, then a
+            // guid compare) and that is the transport whenever the depot is the lighter or
+            // lower-typed half. Derivation and the ruling it implements:
+            // docs/dev/research/origin-proof-partner-identity-memo.md.
+            //
+            // The body-fixed descriptor still comes off the merged vessel, and correctly so:
+            // while the halves are docked they are in the same place, so the merged vessel's
+            // body / coordinates / situation ARE the depot's.
             int settledDockSeamCandidates = 0;
             for (int i = 0; i < v.parts.Count; i++)
             {
                 Part p = v.parts[i];
                 if (p == null || p.Modules == null) continue;
-                bool seam = false;
-                for (int m = 0; m < p.Modules.Count && !seam; m++)
+                ModuleDockingNode seamNode = null;
+                Part partnerPart = null;
+                for (int m = 0; m < p.Modules.Count && seamNode == null; m++)
                 {
                     ModuleDockingNode node = p.Modules[m] as ModuleDockingNode;
                     if (node == null) continue;
-                    seam = RouteProofCapture.IsSettledDockSeam(
-                        node.vesselInfo != null,
-                        node.dockedPartUId,
-                        TryFindPartByFlightIdOnVessel(v, node.dockedPartUId) != null);
+                    Part resolvedPartner = TryFindPartByFlightIdOnVessel(v, node.dockedPartUId);
+                    if (!RouteProofCapture.IsSettledDockSeam(
+                            node.vesselInfo != null,
+                            node.dockedPartUId,
+                            resolvedPartner != null))
+                    {
+                        continue;
+                    }
+                    seamNode = node;
+                    partnerPart = resolvedPartner;
                 }
-                if (!seam) continue;
+                if (seamNode == null) continue;
                 settledDockSeamCandidates++;
+
+                DockSeamHalfIdentity near = BuildSeamHalfIdentity(seamNode);
+                DockSeamHalfIdentity far = BuildSeamHalfIdentity(
+                    FindDockingNodeFacingPart(partnerPart, p.flightID));
+                OriginHalfSelection selection =
+                    RouteProofCapture.SelectStartDockedOriginHalf(near, far);
+                ParsekLog.Verbose("Recorder",
+                    $"RouteOriginProof seam pair: recId={RecordingVesselId} " +
+                    $"seamPart={p.flightID.ToString(CultureInfo.InvariantCulture)} " +
+                    $"nearName='{near.VesselName ?? "<none>"}' nearType={near.VesselType.ToString(CultureInfo.InvariantCulture)} " +
+                    $"nearRoot={near.RootPartUId.ToString(CultureInfo.InvariantCulture)} " +
+                    $"farName='{far.VesselName ?? "<none>"}' farType={far.VesselType.ToString(CultureInfo.InvariantCulture)} " +
+                    $"farRoot={far.RootPartUId.ToString(CultureInfo.InvariantCulture)} " +
+                    $"selection={selection}");
+                if (selection != OriginHalfSelection.OriginIsNear
+                    && selection != OriginHalfSelection.OriginIsFar)
+                {
+                    continue;
+                }
+
+                bool originIsNear = selection == OriginHalfSelection.OriginIsNear;
+                DockSeamHalfIdentity originHalf = originIsNear ? near : far;
+                DockSeamHalfIdentity transportHalf = originIsNear ? far : near;
                 candidates.Add(new OriginPartnerCandidate(
                     p.persistentId,
-                    v.persistentId,
+                    originHalf.RootPartUId,
+                    originHalf.VesselName,
+                    originHalf.VesselType,
+                    transportHalf.RootPartUId,
+                    transportHalf.VesselType,
                     (int)v.situation,
                     v.mainBody != null ? v.mainBody.bodyName : null,
                     v.latitude,
@@ -7128,6 +7163,7 @@ namespace Parsek
                 activeVesselSituation: (int)v.situation,
                 activeVesselIsEva: v.isEVA,
                 candidates: candidates,
+                settledDockSeamsScanned: settledDockSeamCandidates,
                 snapshot: lastGoodVesselSnapshot,
                 isGloopsMode: false, // already handled above; helper still defensively re-checks
                 vesselContext: v.vesselName,
@@ -7154,6 +7190,58 @@ namespace Parsek
                     return p;
             }
             return null;
+        }
+
+        /// <summary>
+        /// The docking node on <paramref name="partnerPart"/> that points BACK at the seam
+        /// part (<paramref name="facingFlightId"/>). A part can carry several
+        /// <c>ModuleDockingNode</c>s (multi-port adapters, and the stock shielded ports),
+        /// and only the one whose <c>dockedPartUId</c> names our side of the seam describes
+        /// THIS seam's far half.
+        ///
+        /// <para>NO FALL-OPEN. An earlier draft returned the first node carrying any
+        /// <c>vesselInfo</c> when none named us; on a multi-port adapter that node is
+        /// ANOTHER seam's far half, so the origin rule would have been handed a third
+        /// vessel's identity and could have named it the depot. Returning null instead makes
+        /// <see cref="RouteProofCapture.SelectStartDockedOriginHalf"/> read
+        /// HalfIdentityMissing and the seam contribute no candidate - fail closed, which for
+        /// this producer means "no proof", never "a proof about the wrong craft".</para>
+        /// </summary>
+        private static ModuleDockingNode FindDockingNodeFacingPart(Part partnerPart, uint facingFlightId)
+        {
+            if (partnerPart == null || partnerPart.Modules == null)
+                return null;
+
+            // Collect the docking nodes in module order, then let the pure selector decide.
+            // The live half here is only the module walk; the DECISION - including the
+            // fail-closed answer on a multi-port adapter - is pinned by
+            // RouteProofCapture.SelectFacingSeamNodeIndex's own tests.
+            var nodes = new List<ModuleDockingNode>();
+            var records = new List<RouteProofCapture.SeamNodeRecord>();
+            for (int m = 0; m < partnerPart.Modules.Count; m++)
+            {
+                ModuleDockingNode node = partnerPart.Modules[m] as ModuleDockingNode;
+                if (node == null) continue;
+                nodes.Add(node);
+                records.Add(new RouteProofCapture.SeamNodeRecord(
+                    node.vesselInfo != null, node.dockedPartUId));
+            }
+
+            int index = RouteProofCapture.SelectFacingSeamNodeIndex(records, facingFlightId);
+            return index >= 0 ? nodes[index] : null;
+        }
+
+        /// <summary>
+        /// Lifts one docking node's <c>DockedVesselInfo</c> into the pure
+        /// <see cref="DockSeamHalfIdentity"/> the partner rule reads. A null node or a node
+        /// without <c>vesselInfo</c> becomes the not-present identity.
+        /// </summary>
+        private static DockSeamHalfIdentity BuildSeamHalfIdentity(ModuleDockingNode node)
+        {
+            DockedVesselInfo info = node != null ? node.vesselInfo : null;
+            if (info == null)
+                return new DockSeamHalfIdentity(false, null, -1, 0u);
+            return new DockSeamHalfIdentity(true, info.name, (int)info.vesselType, info.rootPartUId);
         }
 
         /// <summary>

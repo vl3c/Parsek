@@ -3992,6 +3992,19 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
         # PRELAUNCH short-circuit (ROUTE-ORIGIN-PROOF-PRODUCER-UNREACHABLE). Same wholly
         # batch-disabled category as H55, so the ordinary ceiling is zero and the tally
         # discriminates on the `passed=` floor; the split is INTERIM until the first census.
+        #
+        # ROADMAP TIER C ITEM 10, AND A THIRD CATEGORY IN THE ROUTE FAMILY. Two cells
+        # that put TWO routes in `RouteStore` on ONE physical source and tick them
+        # through the production orchestrator - the surface the existing
+        # `Escrow_CompetingRouteSeesReservation_Holds` cell does NOT reach, because it
+        # reserves and gates by hand and stores neither route. The category is its own
+        # (`RouteEscrowContention`) rather than an addition to `RouteDockCapture`
+        # precisely so H55's and H56's pinned `total=6` does not move: a batch selects on
+        # CATEGORY, and this lane flies exactly its two cells. Wholly batch-disabled (both
+        # cells spawn vessels, wipe RouteStore and write live resource state), so the
+        # ordinary path's executable ceiling is zero. Authored 2026-09-02, never flown,
+        # INTERIM.
+        "H60-route-escrow-contention": ("RouteEscrowContention", 2),
     }
 
     # Members whose category is only PARTLY batch-disabled, i.e. the ordinary path
@@ -4243,6 +4256,40 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
     # BACK TO ZERO ON 2026-09-02: H57 flew green on its third attempt
     # (`2026-09-02_1044`, PASS attempt 1, total=2 passed=2 failed=0 skipped=0) and
     # its pin is now whole.
+    #
+    # NON-EMPTY AGAIN 2026-09-02 for `H60-route-escrow-contention`, authored the same day
+    # and never flown. `total=2` is attribute-exact and `failed=0` is a literal; the split
+    # is a regex class because it turns on ONE run-time guard no attribute can see - the
+    # shared source's stored LiquidFuel must land in [12, 18) for the phase-2 short to be
+    # ESCROW-caused rather than physical. `UnloadedFuelVesselFixture` caps the SPAWNED
+    # copy to exactly 15, but the cap does not bind on a REUSED pre-existing unloaded
+    # vessel, which is why the sibling escrow cell self-skips on H39 (645.42 LF) and
+    # passes on H38 / H40. `logi-cargo-pad` is a fresh un-recorded pad fixture with no
+    # other vessels, so the spawn path should be taken and `skipped=0` is the prediction -
+    # but a prediction is not a pin, and `skipped=2` would mean the host is wrong rather
+    # than the product.
+    #
+    # WHAT DEFENDS IT MEANWHILE, and it is the H55 / H56 argument unchanged:
+    # `RouteEscrowContention` is WHOLLY batch-disabled, so the ordinary path's executable
+    # ceiling is ZERO and the plain `passed=[1-9][0-9]*` spelling already rejects every
+    # line the ordinary path could print. What an interim `passed=` cannot say is WHICH
+    # cell passed, and that duty is discharged by the spec's EIGHT phase tokens - six
+    # production `[Route]` lines (reserve / BLOCKED-with-the-M6-token / short-cause=escrow
+    # / release / short-cause=physical / DropRouteEscrow) plus the two per-cell
+    # `EscrowContention:` summaries, which name the cell and all four phase outcomes.
+    #
+    # WHAT THIS MEMBER OWES: the first census measures the split, the spec's pin is
+    # replaced whole, a MEASURED_SKIPPED entry is added if the band guard pushes `skipped`
+    # above the attribute floor of 0, and the id LEAVES this set in the same commit.
+    #
+    # BACK TO ZERO ON 2026-09-02: H60 flew its census (`2026-09-02_1314`, PASS attempt 1,
+    # wall 79 s, `total=2 passed=2 failed=0 skipped=0`) and its pin is now whole. The band
+    # guard did NOT fire - `logi-cargo-pad` took the fixture SPAWN path and the 15-unit cap
+    # bound - so `skipped=0` sits exactly on the attribute floor and NO `MEASURED_SKIPPED`
+    # entry is owed. The re-pin also made the resource amounts literals rather than
+    # classes; the justification for each is in the spec's own header, and the load-bearing
+    # pair is `raw=11 netted=5` then `raw=5 netted=5`, which is the reserve/release
+    # pre-image identity measured live.
     INTERIM_PIN_IDS = set()
 
     # id -> measured `skipped=` for members whose RUN-TIME InGameAssert.Skip guards
@@ -4767,6 +4814,20 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
         # short-circuits on PRELAUNCH before it walks candidates), which is stated in the
         # spec's own fixture block and asserted in-cell rather than here.
         "RouteStartDockedOrigin": "logistics",
+        # `RouteEscrowContention` gets `logistics` for the reason the predicate actually
+        # asserts, not by family resemblance to the two rows above. Its two cells never
+        # stage and never couple anything - they spawn NOTHING beside the active vessel
+        # except through `UnloadedFuelVesselFixture`, which COPIES the active vessel's
+        # own snapshot and shapes its FIRST LiquidFuel tank into the shared source. So
+        # the host must genuinely carry a LiquidFuel tank with positive capacity, which
+        # is exactly the `logistics` floor; without it the fixture cannot shape a donor
+        # and both cells self-skip on the precondition. A second, narrower claim the
+        # table has no predicate for, stated here because it decides the HOST: the
+        # source's stored amount must land in [12, 18) LF, which the fixture's cap
+        # guarantees only on the SPAWN path - so the host must have no reusable
+        # pre-existing unloaded LiquidFuel vessel. That is asserted in-cell (the band
+        # guard skips with the measured amount named) and argued in the spec's header.
+        "RouteEscrowContention": "logistics",
     }
 
     @staticmethod
@@ -9455,7 +9516,17 @@ class IngameCategoryInventoryDocTests(unittest.TestCase):
         # red both. The subject is a different producer: those cells dock AFTER the
         # recorder starts and produce a route WINDOW; these dock BEFORE it and produce
         # the start-time ORIGIN PROOF.
-        self.assertIn("**111 categories / %d declarations**" % stated_decls, body,
+        # 111 -> 112 with `RouteEscrowContention` (H60, 2026-09-02): the roadmap Tier C
+        # item 10 subject - two STORED routes contending for ONE physical source through
+        # the production orchestrator tick. Its own category rather than two more
+        # `RouteDockCapture` cells for that family's standing reason (`total=6` is pinned
+        # by two flown-green specs, so a seventh declaration would red both) and rather
+        # than two more `Logistics` cells for H38's (`total=47` is pinned by five). The
+        # subject is a third producer again: `RouteDockCapture` docks after the recorder
+        # starts and produces a WINDOW, `RouteStartDockedOrigin` docks before it and
+        # produces an ORIGIN PROOF, and these two produce a reserve-hold-release ESCROW
+        # cycle between two stored routes.
+        self.assertIn("**112 categories / %d declarations**" % stated_decls, body,
                       "the triage totals line disagrees with the table it summarises "
                       "(table sums to %d declarations across %d categories)"
                       % (stated_decls, len(self.rows)))

@@ -588,7 +588,12 @@ internal sealed class RouteConnectionWindow
 
 internal sealed class RouteOriginProof
 {
-    public uint StartDockedOriginVesselPid;                   // non-KSC origin depot, if recording starts docked
+    public uint StartDockedOriginVesselPid;                   // AS BUILT 2026-09-02: ALWAYS 0 at capture, the bind-later slot
+    public uint StartDockedOriginRootPartUId;                 // AS BUILT: the depot's identity - a launch-unique part flightID
+    public string StartDockedOriginVesselName;                // AS BUILT: the depot's pre-dock name from the docking-node pair
+    public int StartDockedOriginVesselType;                   // AS BUILT: the depot's pre-dock vesselType - the field the rule selects on
+    public uint StartDockedTransportRootPartUId;              // AS BUILT: the OTHER half of the seam
+    public int StartDockedTransportVesselType;                // AS BUILT: the OTHER half's type
     public Dictionary<string, ResourceAmount> StartTransportResources;
     public Dictionary<string, ResourceAmount> EndTransportResources;
     public List<InventoryPayloadItem> StartTransportInventory;
@@ -743,7 +748,7 @@ Walk the committed tree's source path chronologically:
 **Derived values:**
 - **Origin** = KSC launch site, or a non-KSC origin depot vessel if the Supply Run starts docked to that depot and records its PID
 - **Stops** = the one complete dock-transfer-undock delivery window accepted by v1; multiple delivery windows make the candidate ineligible
-- **Origin vessel PID** = `0` for KSC routes; otherwise the start-docked origin depot vessel PID
+- **Origin vessel PID** = `0` for KSC routes; and `0` for a start-docked origin too, AS BUILT 2026-09-02 - the depot's pid is not knowable at capture, so the origin is identified by `StartDockedOriginRootPartUId` and resolved through the M1 endpoint descriptor. A MID-TREE docked origin still carries a real pid from its dock-time endpoint
 - **Stop vessel PID** = `TransferTargetVesselPid` from the stock connection boundary
 - **IsKscOrigin** = true if origin body is Kerbin and coordinates are near a launch site
 - **DeliveryManifest** = matched resource amount that both left the transport part set and appeared on the endpoint part set across the dock/undock window
@@ -760,6 +765,8 @@ Walk the committed tree's source path chronologically:
 - **SourceRefs** = immutable source recording fingerprints used to detect deletion, optimizer rewrites, and superseded recordings after route creation
 
 **Start-docked non-KSC origin detection:** A non-KSC route is valid only when the first source recording starts while the transport is already connected to a real origin depot. The recorder must capture the connected origin vessel PID, connection kind, origin part PID set, and transport-scoped start/end manifests without requiring a `DockUT` inside the Supply Run. If the run starts undocked away from KSC, or the start-docked vessel is a ghost/EVA/debris/invalid cargo owner, route analysis rejects the candidate instead of debiting an arbitrary nearby vessel.
+
+**AS BUILT 2026-09-02 - WHICH HALF IS THE DEPOT, and the three places this paragraph's wording was not achievable.** A settled dock is ONE `Vessel`: `Part.Couple` merges the pair and destroys the absorbed half's `Vessel`, so (1) THE CONNECTED ORIGIN VESSEL PID IS NOT KNOWABLE at recording start. What the docking-node PAIR does carry is one `DockedVesselInfo` per half - `name` / `vesselType` / `rootPartUId`, no pid and no guid, round-tripping through the node's `DOCKEDVESSEL` save node. So the origin is identified by the depot's ROOT PART UID (a `flightID`, assigned per launch and not baked into the `.craft`, hence launch-unique where a `persistentId` is not), and `StartDockedOriginVesselPid` stays 0 until an undock can bind it. THE SELECTION RULE: the origin is the half whose pre-dock `vesselType` is `Base` or `Station`; the other half is the transport. It deliberately does NOT read which half KSP made dominant on the merge (`Vessel.GetDominantVessel`: vesselType, then mass, then a guid compare), because that names the transport whenever the depot is the lighter or lower-typed half - which is exactly this doc's line "deducts from recorded origin depot, NOT TRANSPORT". Neither half depot-typed, both depot-typed, or either half outside the valid-cargo-owner set (`Debris` / `SpaceObject` / `Unknown` / `EVA` / `Flag` / deployed-science - this paragraph's own reject set) yields NO proof rather than a guess. Full derivation: `docs/dev/research/origin-proof-partner-identity-memo.md`. (2) THE ORIGIN PART PID SET is not captured; the root part id is the identity carried instead. (3) THE MANIFESTS ARE NOT YET TRANSPORT-SCOPED - they cover the whole merged vessel, so a start-docked run counts the depot's tanks as start cargo; filed as ROUTE-ORIGIN-PROOF-TRANSPORT-MANIFESTS-INCLUDE-THE-DEPOT.
 
 **Cost calculation:**
 

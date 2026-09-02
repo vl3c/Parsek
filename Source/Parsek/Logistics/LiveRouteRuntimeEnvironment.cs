@@ -323,8 +323,11 @@ namespace Parsek.Logistics
                         double live = liveReader(name);
                         double reservedByOthers =
                             RouteStore.OtherRoutesReservedFor(routeId, sourcePid, name);
-                        double available = live - reservedByOthers;
-                        return available > 0.0 ? available : 0.0;
+                        // The net itself is the pure RoutePickupSourceGate.NettedAvailable
+                        // (same expression, one definition): its doc comment carries the
+                        // pre-image identity the headless tests pin, so the live reader and
+                        // the tests cannot drift apart.
+                        return RoutePickupSourceGate.NettedAvailable(live, reservedByOthers);
                     };
 
                     // Inventory escrow is the B3 seam (plan D11: "inventory escrow

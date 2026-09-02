@@ -632,7 +632,8 @@ namespace Parsek.Tests.Logistics
                 LaunchSiteName = null,   // not a KSC launch
                 RouteOriginProof = new RouteOriginProof
                 {
-                    StartDockedOriginVesselPid = 4242u
+                    StartDockedOriginVesselPid = 4242u,
+                    StartDockedOriginRootPartUId = 4243u
                 },
                 ExplicitStartUT = 0.0,
                 ExplicitEndUT = 300.0
@@ -707,7 +708,7 @@ namespace Parsek.Tests.Logistics
             RouteAnalysisResult analysis = DepotOriginViaTreeRootAnalysis(out RecordingTree tree);
             string block = RouteCreationFormatters.BuildSummaryBlock(
                 analysis, Game.Modes.SANDBOX, tree);
-            Assert.Contains("Origin: Mun (vessel #4242)", block);
+            Assert.Contains("Origin: Mun (root #4243)", block);
             Assert.DoesNotContain("Origin: unknown", block);
         }
 
@@ -716,7 +717,7 @@ namespace Parsek.Tests.Logistics
         {
             // catches: the candidate-table cell showing "-" for a depot route.
             RouteAnalysisResult analysis = DepotOriginViaTreeRootAnalysis(out RecordingTree tree);
-            Assert.Equal("depot pid=4242",
+            Assert.Equal("depot root #4243",
                 LogisticsWindowUI.FormatCandidateOrigin(analysis, tree));
         }
     }

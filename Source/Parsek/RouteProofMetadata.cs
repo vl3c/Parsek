@@ -14,6 +14,12 @@ namespace Parsek
     internal struct RouteEndpoint
     {
         public uint VesselPersistentId;
+        // The endpoint vessel's ROOT PART flightID, when known. Launch-unique and not
+        // craft-baked, so it identifies a physical vessel where a persistentId cannot.
+        // Set for a start-docked origin (where no pid is knowable at capture); zero for
+        // KSC origins, dock-window endpoints and pre-2026-09-02 routes, which keep the
+        // pid + proximity resolution they always had.
+        public uint RootPartUId;
         public string BodyName;
         public double Latitude;
         public double Longitude;
@@ -99,7 +105,26 @@ namespace Parsek
 
     internal sealed class RouteOriginProof
     {
+        // The origin depot's LIVE vessel pid. ZERO on every proof the capture
+        // producer builds: Part.Couple destroys the absorbed half's Vessel so
+        // its pid is unrecoverable, and the surviving half's pid is only usable
+        // behind the launch-guid gate. The field stays as the bind-later slot.
+        // Capture-time identity is StartDockedOriginRootPartUId below.
         public uint StartDockedOriginVesselPid;
+        // Origin depot identity, read from the docking-node PAIR at capture
+        // (one DockedVesselInfo per half: name / vesselType / rootPartUId - no
+        // pid, no guid). rootPartUId is a KSP part flightID: assigned per launch
+        // and NOT craft-baked, so unlike persistentId it is a launch-unique key.
+        // The half carrying a Base / Station vesselType is the origin; the other
+        // half is the transport. Rule and derivation:
+        // docs/dev/research/origin-proof-partner-identity-memo.md.
+        public uint StartDockedOriginRootPartUId;
+        public string StartDockedOriginVesselName;
+        public int StartDockedOriginVesselType = -1; // (int)VesselType; -1 = unknown
+        // The transport half of the same pair, kept so a reader can see which
+        // half was classified away without re-deriving the selection.
+        public uint StartDockedTransportRootPartUId;
+        public int StartDockedTransportVesselType = -1; // (int)VesselType; -1 = unknown
         // Origin endpoint descriptor (M1): the docked origin partner's body +
         // body-fixed coordinates + situation at recording start. Captured
         // additively; old proofs simply lack the fields (empty body name,
@@ -121,6 +146,11 @@ namespace Parsek
             return new RouteOriginProof
             {
                 StartDockedOriginVesselPid = StartDockedOriginVesselPid,
+                StartDockedOriginRootPartUId = StartDockedOriginRootPartUId,
+                StartDockedOriginVesselName = StartDockedOriginVesselName,
+                StartDockedOriginVesselType = StartDockedOriginVesselType,
+                StartDockedTransportRootPartUId = StartDockedTransportRootPartUId,
+                StartDockedTransportVesselType = StartDockedTransportVesselType,
                 StartDockedOriginBodyName = StartDockedOriginBodyName,
                 StartDockedOriginLatitude = StartDockedOriginLatitude,
                 StartDockedOriginLongitude = StartDockedOriginLongitude,
