@@ -1,0 +1,356 @@
+schema = 1
+id = "RVR-6-rover-relay-logistics-host"
+tier = "nightly"
+# =====================================================================================
+# THE FOURTH RECORDED `Logistics` HOST, AND THE FIRST THREE-TREE FOREST ANY ISOLATED
+# BATCH HAS EVER BOOTED.
+#
+# **NEVER FLOWN. AUTHORED 2026-09-02.** `total=47` is attribute-exact and `failed=0` is a
+# literal; the SPLIT is an interim regex class and the id sits in
+# `IsolatedBatchWiringGroupTests.INTERIM_PIN_IDS` until the first census measures it.
+#
+# -------------------------------------------------------------------------------------
+# WHAT IT ADDS TO H39 / H40 / RVR-1, WHICH IS THE ONLY QUESTION THAT MATTERS FOR A
+# FOURTH MEMBER OF A FAMILY WHOSE TALLY DERIVATION IS ATTRIBUTE-LEVEL AND THEREFORE
+# IDENTICAL ON EVERY HOST.
+#
+#   * TWO ROUTE WINDOWS, NOT ONE, AND BOTH TARGET-BRANCH WITH A CROSS-TREE PARTNER.
+#     `rover-route-recorded` is the suite's only other target-branch host and it carries
+#     ONE window; this fixture carries TWO, on two DIFFERENT partner rovers in two
+#     DIFFERENT committed trees. Every `RouteProof_*` cell is a walk over committed
+#     windows, so this is the first host on which those walks have more than one subject
+#     to find - the shape in which a walker that stops at the first hit and a walker that
+#     enumerates are distinguishable at all.
+#   * THREE COMMITTED TREES. Every previous recorded host boots ONE or TWO. Anything that
+#     iterates `RecordingStore.CommittedTrees` - the analysis, the candidate finder, the
+#     proof walkers, the escrow source resolution - sees a forest for the first time.
+#   * A CORPUS THAT IS INELIGIBLE AS IT STANDS. RVR-5's subject is the refusal - one
+#     DESIGNED one (no player-typed depot, so no origin proof) plus one OPEN PRODUCT
+#     DEFECT (LOGISTICS-INVENTORY-IDENTITY-HASH-BREAKS-ON-A-LIVE-CARGO-MOVE: a stored
+#     part re-hashes when stock moves it between docked vessels, so a real handover reads
+#     as unwitnessed cargo). THIS LANE'S contribution is that the SAME bytes are
+#     underneath a 46-cell batch, so a `Logistics` cell that quietly assumes the
+#     committed corpus is promotable has a host that refutes it.
+#     NOTE FOR THE CENSUS: one of the 46 cells is
+#     `InventoryPayloadIdentityHash_LiveStockMove_PreservesIdentity`, the guard the
+#     defect's todo entry names as STRUCTURALLY INCAPABLE of observing it (it binds the
+#     `ProtoPartSnapshot` overload of `StoreCargoPartAtSlot`, a verbatim node copy that
+#     cannot re-run `OnSave`, and runs both sides on ONE vessel). So a PASS from that cell
+#     on this host is NOT evidence the hash is sound, and must not be read as such.
+#   * A DRAINED PARTNER. `rover B` holds LiquidFuel 0 / 400 (it gave all 200 away in hop
+#     1). No previous host carries an empty-but-present tank on a live vessel, and
+#     several origin / escrow cells branch on stored-versus-capacity.
+#
+# WHAT IT DOES NOT ADD, stated so the census is read honestly: the TALLY. The derivation
+# is ATTRIBUTE-level, so H34, H35, H38, H39, H40, RVR-1 and this lane all pin the same
+# `total=47`, and adding one `Logistics` `[InGameTest]` moves all seven in the same
+# commit (`CommittedBatchTallySourceSyncTests` reds locally when it does). Only the SPLIT
+# can differ, and that is what the census measures.
+#
+# -------------------------------------------------------------------------------------
+# THE ANTI-DATA-LOSS FLOOR IS THE SECOND PRODUCT, AND ON THIS HOST IT IS THE BIGGER ONE.
+# The H39 census-2 lesson is the whole reason `[expectations.recordings] count` exists:
+# on that flight the batch went GREEN and the run red ANYWAY on `recordings.count 9 <
+# min 19`, which is how QUICKLOAD-OVER-COMMITTED-RESTORE-OVERLAP-DELETES-TREE-ON-SAVE
+# (player-reachable data loss) was found. Not one of the 46 in-game cells could see it.
+# This lane subjects a NINE-recording, THREE-tree corpus to the same 38 interleaved
+# quickloads - the largest tree COUNT any isolated batch has run over - and the count row
+# is the only instrument pointed at it.
+#
+# -------------------------------------------------------------------------------------
+# THE HYPOTHESIS, WRITTEN TO BE REFUTED RATHER THAN PINNED. Read against RVR-1's MEASURED
+# 7-name run-time skip roster on `rover-route-recorded` (`skipped=8` = 1 attribute-forced
+# SPACECENTER cell + 7 run-time), because that host is the closest relative: also a
+# LANDED rover, also 2 `ModuleInventoryPart`, also no converter and no drill.
+#   * `HarvestCapture_ConverterToggle_*` / `HarvestCapture_WarpToggle_*` /
+#     `HarvestCapture_CatchUpOnLoad_*`   -> SKIP. `rover C` carries no `BaseConverter`
+#     and no `BaseDrill` part (part list: ConformalStorageUnit, advSasModule,
+#     dockingPort2, mk2FuselageShortLiquid, probeStackSmall, roverWheel1, solarPanels5).
+#   * `HarvestRoute_AnalyzesEligible_FromSyntheticRecording` -> SKIP.
+#     `injectedRecordings = "none"` is REQUIRED here, so no member of this family can pay
+#     it.
+#   * `RouteOriginProof_StartedOnRunway_ProducerSkipsProof` -> SKIP. Its predicate is
+#     `StartSituation == "Prelaunch"`, and every recording in this fixture reads `Landed`
+#     or `Flying`; a wheeled rover is on the ground the instant the scene loads. RVR-1
+#     measured this exact skip and its header records the correction that produced it -
+#     a REQUIRED `PASSED:` token is a claim about a cell's RUN-TIME GUARD, never about
+#     the fixture property the cell is named after.
+#   * `RouteOriginProof_StartedDockedToNonKsc_ProducerLandsProof` -> SKIP, and this host
+#     is the closest anything has come to paying it: two real non-KSC dock seams. It
+#     still cannot, because the producer refused both (`no depot half ... seams=2
+#     candidates=0`), so there is no `ROUTE_ORIGIN_PROOF` node to land on. That is
+#     RVR-5's subject and the roadmap's operator follow-up, not this lane's.
+#   * `RouteProof_ActiveAsInitiatorDockWindow_HasEndpointProof` -> SKIP, by strict
+#     complement: BOTH windows here are target-branch, and the initiator and target
+#     predicates are complements. H39 and H40 pin the initiator cell's PASS echo; the
+#     three cells are covered ACROSS the family, not within any one member.
+#   * `Escrow_CompetingRouteSeesReservation_Holds` -> UNKNOWN, and it is the one cell
+#     whose outcome this host could genuinely flip. It skips on H39 (source 645.42 LF,
+#     too large) and passes on H38 / H40. The band matters and the host now has THREE
+#     candidate sources at 273.2, 326.8 and 0.0 LF; which one
+#     `UnloadedFuelVesselFixture` reuses versus spawns is not settled by any `.sfs` read.
+#   * The four multi-container cells RVR-1 RE-OPENED and measured PASSING
+#     (`Delivery_MultiModule_FirstContainerFullSecondReceives`,
+#     `InventoryPayloadIdentityHash_LiveStockMove_PreservesIdentity`,
+#     `Delivery_LoadedVessel_StacksInventoryQuantityIntoSlot`,
+#     `InventoryPickupDebit_LoadedEndpointVessel_RemovesStoredPart`) -> LIKELY PASS
+#     again: this host also carries 2 `ModuleInventoryPart`. NOT CERTAIN - the identity
+#     cell additionally needs a quantity-1 stored part plus an empty slot in the other
+#     container, and the host's inventory occupancy (2 stored parts on `rover C`) is not
+#     the sibling's.
+# EVERY ONE OF THOSE IS A RUN-TIME `InGameAssert.Skip` over live modules. That is exactly
+# the class INTERIM_PIN_IDS exists for.
+#
+# WHAT DISCHARGES THE INTERIM PIN MEANWHILE, because an interim `passed=` says almost
+# nothing about WHICH cells passed: the TWO REQUIRED CELL TOKENS below. Both
+# `RouteProof_ActiveAsTargetDockWindow_HasEndpointProof` and
+# `RouteProof_CrossTreeCommittedPartner_HasEndpointProof` turn on BYTE properties of the
+# fixture that are pinned builder-side and gated by `RoverRelayRecordedFixtureDriftTests`
+# (two target-branch windows, each with its partner recording kept in its own origin
+# tree). RVR-1 MEASURED both PASSING on the only other host that satisfies them. If a
+# re-harvest ever degraded this corpus to initiator-branch windows, or dropped an origin
+# tree, this lane would collapse into an expensive re-run of H40 and these tokens say so
+# out loud.
+#
+# -------------------------------------------------------------------------------------
+# THE FIXTURE REQUIREMENT IS THE LIQUIDFUEL ONE, NOT STAGING. H39 generalised
+# `IsolatedBatchWiringGroupTests` to a per-category capability table for exactly this:
+# the PRELAUNCH + `ModuleEngines` check is the `SceneExitMerge` / `Rewind` STAGING
+# requirement, and `Logistics` never stages. What it needs is a snapshottable active
+# vessel carrying a LiquidFuel RESOURCE node with positive capacity, or
+# `UnloadedFuelVesselFixture` returns `reason = "no-liquidfuel-resource"` and every
+# unloaded-depot cell skips. `rover C` carries 273.2 / 400, pinned in `harness/lib` by
+# `test_the_active_vessel_carries_the_logistics_fixture_requirement`.
+#
+# ONE FIXTURE RISK NAMED SO IT IS NOT RE-INVESTIGATED, RVR-1's verbatim and stronger
+# here: `UnloadedFuelVesselFixture` spawns its depot through `BuildFarSideParkingOrbit`,
+# i.e. on the OPPOSITE side of the body by construction, so a LANDED host at 66 m
+# altitude is no more at risk of accidentally LOADING it than an orbital host was. The
+# separation is a body diameter either way. What IS new is that this host has TWO OTHER
+# REAL ROVERS within 983 m, i.e. inside physics range - so a cell that resolves "some
+# other vessel" may find a LOADED one here where every previous host offered only
+# unloaded or spawned candidates. That is a census question, not a risk.
+# =====================================================================================
+description = "AUTHORED 2026-09-02, NEVER FLOWN. The isolated Logistics batch (46 admitted cells, 38 of them restore-after-run) over rover-relay-recorded - the FOURTH recorded host and the first THREE-TREE, NINE-RECORDING, TWO-WINDOW forest any isolated batch has booted. What it adds over H39/H40/RVR-1, whose attribute-level tally it shares exactly (total=47): TWO target-branch route windows with cross-tree partners rather than one, so every RouteProof walk has more than one subject for the first time; three committed trees rather than one or two; a committed corpus that is INELIGIBLE as it stands (RVR-5's subject - one designed refusal, plus the OPEN identity-hash defect LOGISTICS-INVENTORY-IDENTITY-HASH-BREAKS-ON-A-LIVE-CARGO-MOVE), so a Logistics cell that assumes the corpus is promotable has a host that refutes it; a drained partner vessel at LiquidFuel 0/400; and two other real rovers inside physics range at 336 m and 983 m. The SECOND product is the anti-data-loss floor: this is the largest committed corpus any isolated batch has subjected to 38 interleaved quickloads, and the count row is the only instrument pointed at it (the H39 census-2 lesson, which is how QUICKLOAD-OVER-COMMITTED-RESTORE-OVERLAP-DELETES-TREE-ON-SAVE was found). total=47 is attribute-exact and failed=0 is a literal; the split is INTERIM until the first census, and the interim pin's WHICH-CELLS gap is discharged by two REQUIRED cell tokens - RouteProof_ActiveAsTargetDockWindow_HasEndpointProof and RouteProof_CrossTreeCommittedPartner_HasEndpointProof, both of which RVR-1 measured PASSING on the only other target-branch host."
+instanceProfile = "stock-minimal"
+tags = ["ingame-batch", "isolated-batch", "logistics", "route-proof", "recorded-fixture",
+        "RVR-6", "pending-flight"]
+
+[fixture]
+# KNOWN DAMAGED BYTES SHIPPED ON PURPOSE: the two undock background children
+# (`49eaec92...` rover B, `0f391265...` rover A) carry `maxDist` of ~735 km and a handful
+# of leading flat POINTs that are anchor-local metre offsets written as lat/lon (todo
+# UNDOCK-BG-CHILD-WRITES-RELATIVE-METRES-AS-FLAT-LAT-LON). No analyzer rule reads
+# `maxDist` or range-checks flat points, so the analyzer verifier passes these bytes; a
+# green analyzer row on this lane is NOT a clean bill for that defect.
+# `rover-relay-recorded`, the relay harvest, shared with RVR-5. Full provenance and pinned
+# shape live in `harness/lib/test_saveparse.py::RECORDED_FIXTURES` and
+# `harness/tools/build_rover_relay_recorded.py`; only what THIS lane needs is restated.
+#
+# MEASURED on the committed bytes: THREE committed trees (`d33027c4` rover B's launch, 1
+# recording; `c7324bee` rover A's launch, 1; `87fba47a` the relay, 7), NINE recordings,
+# TWO `ROUTE_CONNECTION_WINDOWS` nodes, both TARGET-branch, each with its target pid
+# carried by a recording in a DIFFERENT committed tree; FOUR branch points (Dock 2 /
+# Undock 2); ZERO `ROUTES`, ZERO `PROMPTED_ROUTE_CANDIDATES`, ZERO `ROUTE_ORIGIN_PROOF`
+# and no `mergeState` key anywhere. Save clock UT 443.64, Mode SANDBOX, 6 FLIGHTSTATE
+# vessels of which 3 are real (all LANDED Rovers, 16 parts each). Active vessel index 1:
+# `rover C`, LiquidFuel 273.2 / 400, ElectricCharge 922.3 / 1000, 2 `ModuleInventoryPart`
+# with 2 stored parts, NO BaseConverter and NO BaseDrill.
+#
+# THE TWO CELLS THIS LANE PINS BY NAME rest on the window properties above, which the
+# builder asserts and `RoverRelayRecordedFixtureDriftTests` wires into the suite:
+#   window 1  carrier rec e175776c... (pid 1461186781), target 2123618197
+#             -> partner rec 073a1ed6... in tree d33027c4
+#   window 2  carrier rec e6cb44a7... (pid 1461186781), target 831319732
+#             -> partner rec 9511fa11... in tree c7324bee
+#
+# `injectedRecordings = "none"` is REQUIRED rather than chosen: the payload is carried by
+# the TEMPLATE, and injecting a synthetic corpus on top would make the recordings count
+# un-attributable - the same rule H35, H39, H40 and RVR-1 are held to.
+saveTemplate       = "fixtures/saves/rover-relay-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+# THE PROLOGUE IS H39's / H40's / RVR-1's, STEP FOR STEP AND ARG FOR ARG, deliberately:
+# this lane differs from them ONLY in which bytes it boots, and any driver difference
+# would make the census delta un-attributable to the fixture.
+#
+# THE KILL TRIPLE IS LOAD-BEARING, AND IT IS SAFE ON THESE BYTES for a reason that was
+# checked rather than inherited: all three trees are COMMITTED and NONE is active. The
+# fixture carries ZERO `isActive` keys and ZERO `mergeState` keys, so `DiscardTree` -
+# which discards the LIVE plain tree and never a committed one - answers OK with
+# nothing-discarded, and `StopRecording` is idempotent-OK. The pair is there because the
+# committed-tree restore path resumes a promotion-stub recording ~1 s into the scene,
+# BEFORE any step can run; the SetSetting stops a later one.
+#
+# ONE EXTRA REASON THE TRIPLE MATTERS HERE. The fixture's builder re-points
+# `activeVessel` off a stock ASTEROID (the source was saved from the SPACE CENTER, so KSP
+# left index 0 focused on `Ast. UYX-230`) onto the LANDED `rover C`. A LANDED rover is
+# not the fresh-rollout shape `RecordingStore.SceneEntryFreshRolloutVesselPid` has a fast
+# path for, so the boot does not put a rollout-shaped vessel under the
+# `autoRecordOnLaunch` gate one step before that gate closes.
+#
+# THE STOP/LOAD RACE, carried forward from V18T, H39 and RVR-1 as a WARNING rather than a
+# mitigation. This driver has no mid-run LoadGame so it cannot hit `reject id=...
+# cmd=LoadGame reason=recording-active`. What it CAN hit is the same race one layer down:
+# the isolated path quickloads a flight baseline per restore-flagged test, and if the
+# recorder is still winding down when `CaptureBatchBaseline` writes the clean `.bak`, the
+# baseline is captured over a live recording. `retry policy = "once"` is the cover.
+#
+# verboseLogging=true is REQUIRED, not cosmetic: the runner writes each cell's per-test
+# PASSED / SKIPPED line at Verbose, and the entire product of a first flight here is the
+# CENSUS - which of the 46 admitted cells executed and what the skips said. The fixture
+# already carries `verboseLogging = True`; the step re-asserts it rather than relying on
+# a save value a future re-harvest could change.
+#
+# The 540 s RunTests budget is `hlib.MAX_DEFERRED_STEP_BUDGET_SECONDS`, the cap, and is
+# RVR-1's number unchanged.
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                    expect = "OK" },
+  { cmd = "DiscardTree",                                                      expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" },  expect = "OK" },
+  { cmd = "RunTests",   args = { category = "Logistics", isolated = "true" }, expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit",                                                     expect = "OK" },
+]
+
+[dimensionsCovered]
+# BOOT FACTS ONLY, AND NO D10 VALUE IS CLAIMED - RVR-1's reasoning applies unchanged. The
+# cells this host may un-skip are READ-SIDE walkers over surfaces the operator's own docks
+# produced; H35 declined a D10 row for their initiator sibling on exactly that ground
+# (`dock-producer` already covers the producing behaviour), and re-declaring a covered row
+# inflates the coverage count without gating one new behaviour (the H34 rule). A fourth
+# member of an attribute-identical family that measured nothing new would be the clearest
+# possible case of a claim that is not a gate.
+D14 = ["sandbox", "scene-flight"]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING (the H7 lesson): run.py reads `expectations.allowedAnomalies`,
+# and a bare key written AFTER an `[expectations.<sub>]` header is TOML-scoped to that
+# sub-table and never read. hlib.validate_spec rejects the misplaced form, so this must
+# stay ahead of the sub-tables. No tracer is armed by this spec, and NO render-composition
+# expectations block is declared, which is what leaves `PARSEK_RENDER_MANIFEST` unset.
+allowedAnomalies = []
+
+[expectations.recordings]
+# THE ANTI-DATA-LOSS FLOOR - see the header. A WINDOW rather than an exact pin, because
+# this spec has never flown. 9 is the staged corpus and is the FLOOR that matters: below
+# it means destroyed sidecars, which is the H39 census-2 instrument doing its job. The
+# ceiling of 11 admits the load-time optimizer split H35 / H39 / H40 all measure on their
+# hosts; RVR-1 and RVR-2 measured NO split on `rover-route-recorded`, which is a property
+# of THOSE bytes and not a prediction about these. Above the ceiling means a mid-run tree
+# leaked past the teardown.
+#
+# The first census measures it and the window is replaced with an exact pin in that
+# commit, in the same edit that replaces the tally and drops the id from INTERIM_PIN_IDS.
+count = { min = 9, max = 11 }
+
+[expectations.logContracts]
+# NEVER FLOWN. `total=` is attribute-derived and source-synced; `passed=` and `skipped=`
+# are the interim halves and the id is declared in
+# `IsolatedBatchWiringGroupTests.INTERIM_PIN_IDS`.
+#
+# DERIVED, NOT GUESSED. The commands, so the next reader re-runs them rather than trusting
+# this block:
+#   hlib.derive_batch_tally(decls, "Logistics", "FLIGHT", isolated=True)
+#     -> total=47  scene_skipped=1  batch_skipped=0  executable=46
+#   hlib.derive_batch_tally(decls, "Logistics", "FLIGHT")
+#     -> total=47  scene_skipped=1  batch_skipped=38 executable=8
+# The derivation is ATTRIBUTE-level, so it is identical for every Logistics member
+# regardless of host - H34, H35, H38, H39, H40, RVR-1 and this lane all pin the same
+# `total=47`, and adding one Logistics `[InGameTest]` moves all seven in the same commit.
+# `CommittedBatchTallySourceSyncTests` reds locally when it does.
+#
+#  - total=47 is ATTRIBUTE-EXACT and the only statically certain token: 47
+#    `[InGameTest(Category = "Logistics")]` declarations. BATCH_COMPLETE's `total` is
+#    `allTests.Count(Status != NotRun)` over the single batch, so it counts FILTERED tests
+#    too.
+#
+#  - THE INTERIM `passed=` SPELLING IS `(?:9|[1-9][0-9]+)`, NOT the plain `[1-9][0-9]*`,
+#    and the difference is the load-bearing part. The ORDINARY (non-isolated) path's
+#    executable ceiling for this category is 8, so a plain floor of 1 would ACCEPT
+#    `passed=8` - the exact line a run that silently lost the `isolated` arg prints. H38
+#    and RVR-1 both used this spelling while interim, and
+#    `test_each_pin_rejects_both_the_vacuous_and_the_non_isolated_line` is what enforces
+#    it.
+#
+#  - `failed=0` IS PINNED AS A LITERAL EVEN THOUGH THE SPLIT IS INTERIM. A reading run may
+#    legitimately discover a SKIP; a cell that FAILS is a finding either way, and H38's
+#    run 1 is the worked example - it red on `failed=2` and produced one product defect
+#    plus two test defects.
+#
+#  - `skipped=[0-9]+` is the interim half. The attribute FLOOR is 1 (the SPACECENTER cell
+#    `InterBodyRoute_RealBuilder_ClassifiesReaimWindows_AndModuloFires`, which H34 owns);
+#    run-time guards can only push it higher. RVR-1 measured 8 on the closest relative and
+#    the header's cell-by-cell reading is a HYPOTHESIS written to be refuted, not a pin.
+#
+# THE BASELINE-SLOT LITERAL IS 38, not 47 and not 46: the runner logs
+# `ordered.Count(t => t.RestoreBatchFlightBaselineAfterExecution)` over the ADMITTED batch
+# (`InGameTestRunner.PrepareBatchFlightRestoreExecution`), and the other 8 admitted cells
+# are batch-eligible outright and carry no restore flag. That line is emitted ONLY by
+# `PrepareBatchFlightRestoreExecution`, which `RunCategory` never calls, so it proves the
+# ISOLATED entry point INDEPENDENTLY of the tally - and only as a LITERAL: a `[0-9]+`
+# there is satisfied by a batch that admitted a different population.
+#
+# THE SEAM ECHO is the canary for the provisioning trap: the harness flies the
+# `automation/stock-minimal` instance, NOT the one `dotnet build` deploys to, so
+# `runtests start ...`'s ABSENCE means a stale `Parsek.dll` rather than a Parsek
+# regression.
+#
+# THE TWO CELL TOKENS ARE WHAT DISCHARGE THE INTERIM PIN'S WHICH-CELLS GAP. They are the
+# only two `Logistics` cells whose outcome is decided by BYTE properties this fixture is
+# pinned to carry, and RVR-1 measured both PASSING on the only other host that carries
+# them. They are also a FIXTURE assertion the drift test cannot make: the drift test
+# proves the BYTES carry two target-branch cross-tree windows; only a flight proves the
+# RUNTIME walk finds them.
+#
+# THERE IS DELIBERATELY NO THIRD CELL TOKEN, and RVR-1's flight 1 is why. That run's ONE
+# red was a REQUIRED `PASSED:` echo for
+# `RouteOriginProof_StartedOnRunway_ProducerSkipsProof`, demanded on the reasoning that
+# the fixture's trees launch from the Runway. The predicate is `StartSituation ==
+# "Prelaunch"`, and a wheeled Runway rollout is `Landed`, so the cell self-skips by
+# design. THE GENERAL LESSON, because it is cheap to repeat: a REQUIRED `PASSED:` token is
+# a claim about a cell's RUN-TIME GUARD, not about the fixture property the cell is named
+# after. Derive it from the guard's own source before pinning it.
+#
+# THE TEARDOWN-PROTECTION TOKEN is STRUCTURAL PROOF of half the 5218b13a8 fix: the
+# isolated batch's teardown baseline restore must be the LAST write, so `FlushAndQuit`
+# suppresses its `SaveGame` after the restore latch. Without that suppression the driver's
+# final save re-serialises a store whose trees the restore has just reverted, which is
+# precisely the both-or-neither omission path the data loss travelled. Pinned in all three
+# other recorded-host lanes and pinned here for the same reason - this host stages the
+# largest corpus of the four.
+required  = [
+  "loadgame complete scene=FLIGHT save=.* game-loaded=true expected=Flight",
+  "runtests start category=Logistics isolated=true",
+  "Using batch baseline slot .* for 38 restore-after-run test\\(s\\)",
+  "BATCH_COMPLETE v1 total=47 passed=(?:9|[1-9][0-9]+) failed=0 skipped=[0-9]+ category=Logistics scene=FLIGHT",
+  "PASSED: LogisticsRouteProofRuntimeTests\\.RouteProof_ActiveAsTargetDockWindow_HasEndpointProof",
+  "PASSED: LogisticsRouteProofRuntimeTests\\.RouteProof_CrossTreeCommittedPartner_HasEndpointProof",
+  "flushandquit: save suppressed \\(batch baseline already restored\\)",
+]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+[runtime]
+# Budget arithmetic (M-A5 S8): run.py gives EVERY deferred seam verb
+# `required_step_wait(max(step budget, SEAM_FALLBACK_DEFERRAL_SECONDS=600))` = 660 s
+# regardless of the declared step budget, and BOTH LoadGame and RunTests are deferred, so
+# the worst case is 660 + 660 = 1320. 1400 clears it, and it is H39's, H40's and RVR-1's
+# number.
+#
+# H39 and H40 measured 143-155 s wall over the same 46 admitted cells on hosts with 19 and
+# 22 recordings, and RVR-1 measured 179 s on a 5-recording one; this corpus is 9. THE
+# NUMBER STAYS AT 1400 REGARDLESS: it covers the DEFERRED worst case, not the observed
+# wall, and trimming it to hug the expectation would convert a slow-restore run into a
+# KILLED run with NO TALLY - which on a first census destroys the entire product of the
+# flight.
+budgetSeconds = 1400
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

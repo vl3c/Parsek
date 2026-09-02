@@ -1,0 +1,91 @@
+ut = 439.23999999989047
+funds = 0
+science = 0
+reputation = 0
+TECH_IDS
+{
+}
+FACILITY_LEVELS
+{
+	SpaceCenter/VehicleAssemblyBuilding = 1
+	SpaceCenter/TrackingStation = 1
+	SpaceCenter/SpaceplaneHangar = 1
+	SpaceCenter/Runway = 1
+	SpaceCenter/ResearchAndDevelopment = 1
+	SpaceCenter/MissionControl = 1
+	SpaceCenter/LaunchPad = 1
+	SpaceCenter/AstronautComplex = 1
+	SpaceCenter/Administration = 1
+}
+BUILDING_INTACT
+{
+	SpaceCenter/Administration/Facility/mainBuilding = True
+	SpaceCenter/AstronautComplex/Facility/building = True
+	SpaceCenter/FlagPole/Facility = True
+	SpaceCenter/LaunchPad/Facility/LaunchPadMedium/KSCFlagPoleLaunchPad = True
+	SpaceCenter/LaunchPad/Facility/LaunchPadMedium/ksp_pad_waterTower = True
+	SpaceCenter/LaunchPad/Facility/LaunchPadMedium/ksp_pad_sphereTank = True
+	SpaceCenter/LaunchPad/Facility/LaunchPadMedium/ksp_pad_launchPad = True
+	SpaceCenter/LaunchPad/Facility/LaunchPadMedium/ksp_pad_cylTank = True
+	SpaceCenter/MissionControl/Facility/building = True
+	SpaceCenter/ResearchAndDevelopment/Facility/SideLab = True
+	SpaceCenter/ResearchAndDevelopment/Facility/Observatory = True
+	SpaceCenter/ResearchAndDevelopment/Facility/WindTunnel = True
+	SpaceCenter/ResearchAndDevelopment/Facility/CornerLab = True
+	SpaceCenter/ResearchAndDevelopment/Facility/MainBuilding = True
+	SpaceCenter/ResearchAndDevelopment/Facility/CentralBuilding = True
+	SpaceCenter/ResearchAndDevelopment/Facility/SmallLab = True
+	SpaceCenter/ResearchAndDevelopment/Facility/ksp_pad_cylTank = True
+	SpaceCenter/Runway/Facility/Section4 = True
+	SpaceCenter/Runway/Facility/Section3 = True
+	SpaceCenter/Runway/Facility/Section2 = True
+	SpaceCenter/Runway/Facility/Section1 = True
+	SpaceCenter/Runway/Facility/End27 = True
+	SpaceCenter/Runway/Facility/End09 = True
+	SpaceCenter/Runway/Facility/model_runway_new_v43/runway_light_SW = True
+	SpaceCenter/Runway/Facility/model_runway_new_v43/runway_light_NW = True
+	SpaceCenter/Runway/Facility/model_runway_new_v43/runway_light_NE = True
+	SpaceCenter/Runway/Facility/model_runway_new_v43/runway_light_SE = True
+	SpaceCenter/SpaceplaneHangar/Facility/mainBuilding = True
+	SpaceCenter/SpaceplaneHangar/Facility/ksp_pad_waterTower = True
+	SpaceCenter/SpaceplaneHangar/Facility/ksp_pad_cylTank = True
+	SpaceCenter/SpaceplaneHangar/Facility/Tank = True
+	SpaceCenter/TrackingStation/Facility/MainBuilding = True
+	SpaceCenter/TrackingStation/Facility/dish_array/dish_east = True
+	SpaceCenter/TrackingStation/Facility/dish_array/dish_north = True
+	SpaceCenter/TrackingStation/Facility/dish_array/dish_south = True
+	SpaceCenter/VehicleAssemblyBuilding/Facility/PodMemorial = True
+	SpaceCenter/VehicleAssemblyBuilding/Facility/mainBuilding = True
+	SpaceCenter/VehicleAssemblyBuilding/Facility/Tank = True
+	SpaceCenter/VehicleAssemblyBuilding/Facility/ksp_pad_cylTank = True
+}
+ACTIVE_CONTRACTS
+{
+}
+CREW_ROSTER
+{
+	CREW
+	{
+		name = Jebediah Kerman
+		status = Available
+		trait = Pilot
+	}
+	CREW
+	{
+		name = Bill Kerman
+		status = Available
+		trait = Engineer
+	}
+	CREW
+	{
+		name = Bob Kerman
+		status = Available
+		trait = Scientist
+	}
+	CREW
+	{
+		name = Valentina Kerman
+		status = Available
+		trait = Pilot
+	}
+}

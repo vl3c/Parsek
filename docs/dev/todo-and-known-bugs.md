@@ -15,6 +15,261 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## LOGISTICS-INVENTORY-IDENTITY-HASH-BREAKS-ON-A-LIVE-CARGO-MOVE: a stored part moved between two docked vessels re-hashes, so its delivery reads as unwitnessed cargo and the whole route rejects `MixedPickupDelivery` [FOUND 2026-09-02 by forensics on the hand-flown rover relay `logs/2026-09-02_2041` (save `logistics-rover-B`, now the `rover-relay-recorded` fixture). PRODUCT DEFECT in outcome; the hash contract itself is designed, but its stated premise is false and the guard test cannot observe the case. OPEN, needs a design call]
+
+**Symptom.** The player docks rover C to rover B, moves a `DeployedCentralStation`
+and an `evaChute` from B's inventory into C's, transfers 200 LiquidFuel, undocks,
+drives to rover A and unloads. The tree seals and is rejected:
+`DeriveCandidates: ... ineligible=1 [... mixedPickup=1 ...]` (`KSP.log:28049`).
+No route can be created from a relay in which the player moved that kind of
+inventory. (The same save was ALSO refused an origin proof at both docks by
+ROUTE-ORIGIN-PROOF-REQUIRES-A-PLAYER-TYPED-DEPOT; the two rejections are
+independent, and this one would still block a typed-depot re-fly.)
+
+**Evidence, from the produced save.** Window
+`dock-218.22000000003783-target-2123618197` in `persistent.sfs` carries four
+inventory manifests:
+
+| identity | DOCK transport (C) | UNDOCK transport (C) | DOCK endpoint (B) | UNDOCK endpoint (B) |
+| --- | --- | --- | --- | --- |
+| DCS `5072997a` | 1 | 1 | 1 | 0 |
+| DCS `5bcde9ad` | 0 | 1 | 0 | 0 |
+| evaChute `67867f65` | 1 | 2 | 1 | 0 |
+| evaScienceKit `796e8060` | 2 | 3 | 2 | 1 |
+
+The chute and the science kit closed cleanly (gain 1, endpoint loss 1). The
+`DeployedCentralStation` did not: it left B as `5072997a` and arrived on C as
+`5bcde9ad`. Diffing the two verbatim `STOREDPART_SNAPSHOT` nodes the codec
+persists (`GameActions/GameAction.cs:1990-1998`) leaves exactly five differences:
+`slotIndex 1 -> 2`, `persistentId`, `state 0 -> 6`, `attached True -> False`, and
+one ADDED value inside the `MODULE { name = ModuleGroundExpControl }` node:
+`canComm = False`. The first four are stripped from the hash; the fifth is not.
+
+**Root cause.** `VesselSpawner.ComputeInventoryPayloadIdentityHash`
+(`Source/Parsek/VesselSpawner.cs:791`) SHA-256s a canonical walk of the
+`STOREDPART` node. `ShouldSkipStoredPartIdentityValue` (`:974`) strips
+`slotIndex` / `quantity` at `STOREDPART` level and the
+`TransientStoredPartProtoValueNames` set (`:750-789`) at `PART` level ONLY; its
+own comment says module-level state IS part of the identity by design. `canComm`
+sits in a `MODULE` node, so nothing strips it.
+
+The value appears because of stock, not Parsek. Decompiled
+`ModuleGroundExpControl.OnSave` (KSP 1.12.5) is
+`if (!HighLogic.LoadedSceneIsFlight) return; node.AddValue("canComm", CanComm());`:
+a RUNTIME-COMPUTED value written only when the module is saved from a LIVE
+instance in FLIGHT. The editor-authored `STOREDPART` in the `.craft` never has it.
+A stock inventory move in flight goes through
+`ModuleInventoryPart.StoreCargoPartAtSlot(Part sPart, int slotIndex)`, which
+builds `new ProtoPartSnapshot(sPart, vessel.protoVessel)` off the live part, so
+every module's `OnSave` runs and `canComm` materializes. Parsek reads what stock
+produced: `VesselSpawner.ExtractInventoryPayloadItems` (`:683`) walks the vessel
+snapshot's `STOREDPART` nodes and hashes them verbatim (`:833`).
+
+Neither hash then matches the other side of the move, so
+`RouteAnalysisEngine.HasUnwitnessedInventoryGain`
+(`Source/Parsek/Logistics/RouteAnalysisEngine.cs:2028`) stops at `5bcde9ad`:
+`endpointLoss = 0`, `transportGain = 1`, `witnessed = 0`, `unwitnessed = 1`, and
+the per-window gate at `:831` returns `MixedPickupDelivery`. B's real loss of
+`5072997a` is invisible in the other direction too (`transportGain = 0` skips it
+at `:2050`), so `BuildInventoryLoadManifest` never credits the delivery either.
+
+**Three consequences worth stating separately.**
+
+- This is NOT the same-craft-file pid collision. B and C share the craft file, so
+  both DCS start on hash `5072997a`; that collision is harmless. Had the hash been
+  stable the move would read C 1 -> 2 and B 1 -> 0, witnessed = 1, and the window
+  would admit. Three DIFFERENT craft files would NOT fix it: the moved item still
+  gains `canComm` on the destination.
+- The class is wider than one part: any cargo part whose module writes a computed
+  value in `OnSave` re-hashes on a live move. `evaChute` and `evaScienceKit`
+  survived only because their modules write nothing new. (Inferred from one
+  decompiled instance; the other cargo modules were not enumerated.)
+- Only the inventory move poisoned this run. With no inventory moved every
+  identity has `transportGain <= 0` and this gate passes (the run-level gates
+  after `:831` were never evaluated on this flight, since analysis returns at the
+  first reject).
+
+**Already flagged as a residual risk, and mis-scoped.**
+`docs/dev/done/plans/plan-logistics-m3-direction-generality.md:128` framed the
+hazard as a STATIC unstripped depot-side value and asked for a cross-vessel +
+proto-vs-loaded test. The live mechanism is a re-serialization that ADDS a value
+neither side had.
+
+**Why the guard test does not catch it.**
+`LogisticsRouteProofRuntimeTests.InventoryPayloadIdentityHash_LiveStockMove_PreservesIdentity`
+(`Source/Parsek/InGameTests/LogisticsRouteProofRuntimeTests.cs:98`) passes
+`candidate.SourceStoredPartSnapshot`, declared `ProtoPartSnapshot` at `:525`, so
+it binds the `StoreCargoPartAtSlot(ProtoPartSnapshot, int)` overload, a verbatim
+node copy that cannot re-run `OnSave`, and it runs source and destination on ONE
+vessel. The player's path takes the `Part` overload. The test is structurally
+incapable of observing the defect it is cited to guard (`VesselSpawner.cs:784-789`
+cites it by name).
+
+**Fix (needs a design call; three shapes, unranked).** (a) Hash a NORMALIZED
+module surface: drop module values that are not persisted KSPFields, or add a
+MODULE-level skip-list the way `TransientStoredPartProtoValueNames` works at PART
+level. Cheap, per-known-value, will need extending. (b) Keep the strict hash as
+the exact-match key but add a documented FALLBACK match at the window-closure
+gate: an unwitnessed transport gain whose `partName` + `variantName` +
+`StoredResources` match an unmatched endpoint loss in the same window is
+witnessed. Preserves fail-closed for genuinely unaccounted cargo. (c) Accept the
+reject and surface it: today the player sees a route that silently will not
+create, and even the `Diag` naming the identity (`RouteAnalysisEngine.cs:833`) is
+log-mode-gated and absent from this KSP.log.
+
+**Verification.** (1) Headless: feed the two `STOREDPART` nodes from the fixture
+window (`persistent.sfs` DOCK_TRANSPORT_INVENTORY item `5072997a` vs
+UNDOCK_TRANSPORT_INVENTORY item `5bcde9ad`) to
+`ComputeInventoryPayloadIdentityHash` and assert they differ today / agree after
+the fix. (2) Extend the live-move in-game cell with a second cell that moves via
+`StoreCargoPartAtSlot(Part, slot)` on a live-instantiated part across two docked
+vessels; that cell reds today. (3) Lane `RVR-5-rover-relay-eligibility` pins
+`mixedPickup=1` and the `candidate-ineligible` refusal on the relay fixture; after
+a fix it must be re-pinned (the fixture's window is then either admitted or fails
+the next gate), so the lane doubles as the regression instrument.
+
+## UNDOCK-BG-CHILD-WRITES-RELATIVE-METRES-AS-FLAT-LAT-LON: an undock background child persists anchor-local metre offsets as flat lat/lon points, and `maxDist` reads 735 km for a rover that never left the pad area [FOUND 2026-09-02 by forensics on the hand-flown rover relay `logs/2026-09-02_2041` (save `logistics-rover-B`, now the `rover-relay-recorded` fixture). DEFECT. The safe substitution that exists to prevent exactly this is disabled by a zero-frame TrackSection the same producer emits. OPEN, not fixed]
+
+**Symptom.** Both undock-side background children of the relay
+(`49eaec92876041efa53deb1f5e5c96f4` "rover B", `0f391265a0b2453ea94fccd5daa1febb`
+"rover A") persist `maxDist = 734718.522` / `735321.077` metres for vessels that
+sat within ~1 m of the undock point. Their first six or seven flat `POINT` nodes
+read `lat ~0.0016..0.0177 lon ~0.759..0.779 alt ~ -0.008..-0.050` before snapping
+to the true `-0.0936 / -74.7253 / 65.99`.
+
+**Evidence.** `49eaec92....prec.txt` holds THREE `TRACK_SECTION`s, and the middle
+one is `ref = 1` (Relative), `startUT = 276.02000000003892`, `endUT =
+277.16000000003788`, `anchorRecordingId = 5f76d136e3dc4316bff71f4cfb0688a4` (the
+active sibling), with 7 `POINT` frames AND 7 `BODY_FIXED_POINT` frames. The
+recording's 79 flat `POINT` nodes are that section's 7 anchor-local frames
+followed by the third section's 74 Absolute frames. `KSP.log:27211` records the
+damage being computed: `BackfillMaxDistance: rec=49eaec... maxDist=734719m from
+155 points`. The number is geometry, not corruption: a Kerbin chord from a surface
+point at lon 0.777 to one at lon -74.725 is `2 * 600000 * sin(37.75 deg) =
+734.7 km`.
+
+**Root cause, four layers.**
+
+1. `BackgroundRecorder` DUAL-WRITES every sample: the frame goes to
+   `state.currentTrackSection.frames` (and, for a Relative section, the
+   body-fixed twin to `.bodyFixedFrames`) at
+   `Source/Parsek/BackgroundRecorder.cs:6857-6862`, and the SAME frame goes to
+   `treeRec.Points` via `ApplyTrajectoryPointToRecording` (`:6917`). For a
+   Relative section that frame carries anchor-local Cartesian METRES in
+   `latitude/longitude/altitude` (the CLAUDE.md RELATIVE contract).
+   `RecordingStore.AppendPointsFromTrackSections` ->
+   `RebuildPointsFromTrackSections` (`Source/Parsek/TrajectoryTextSidecarCodec.cs:448`)
+   is likewise frame-blind. This is DELIBERATE: the flat list is a compatibility
+   mirror, and the design's answer is a substitution at WRITE time.
+2. That substitution is `GetFlatFallbackPointsForWrite`
+   (`TrajectoryTextSidecarCodec.cs:615`) ->
+   `TryBuildBodyFixedPrimaryFlatPointsForRelativeSections` (`:623`), which
+   replaces each Relative section's frames with its `bodyFixedFrames` before
+   serializing. It DID NOT RUN here: `KSP.log:27732` reads
+   `safeRelativeFlatFallback=False`. It bails at `:651-657`
+   (`if (sectionPoints == null || sectionPoints.Count == 0) return false`) on the
+   FIRST section, an Absolute section with ZERO frames spanning the undock
+   instant (`env = 0, ref = 0, startUT = 276.00000000003894, endUT =
+   276.02000000003892`, `sampleRate = 0`). The same zero-frame section makes
+   `HasCompleteTrackSectionPayloadForFlatSync` (`:531`) return false, so
+   `ShouldWriteSectionAuthoritativeTrajectory` (`:422`) is false and the flat
+   list becomes the on-disk trajectory of record (`sectionAuthoritative = False`).
+   One empty section costs both defences.
+3. The empty section is a producer artifact of the undock split. `KSP.log:21657`
+   `TrackSection started: env=Atmospheric ref=Absolute source=Background
+   pid=35783242 at UT=276.00`, then `:21774` `TrackSection closed: ... frames=0
+   ... duration=0.02s`, then `:21775` the Relative section opens.
+   `BackgroundRecorder.CloseBackgroundTrackSection` (`BackgroundRecorder.cs:7034`)
+   has a seed-only discard at `:7073-7077`, but it is gated
+   `referenceFrame == ReferenceFrame.Relative` to preserve legitimate Absolute
+   single-frame finalizations used by `FinalizeAllForCommit`. A ZERO-frame
+   Absolute section is not such a finalization and is kept anyway.
+4. The consumer that turns this into a number is
+   `ParsekFlight.Finalization.cs:686-689`, which calls
+   `VesselSpawner.BackfillMaxDistance` (`VesselSpawner.cs:4041`): `rec.Points[0]`
+   is the launch reference and every flat point goes through
+   `body.GetWorldSurfacePosition(lat, lon, alt)` (`ComputeMaxDistanceCore`,
+   `:4068`). Its guarded sibling `BackfillMaxDistanceAbsoluteOnly` (`:4109`)
+   exists precisely for this and its XML doc names the hazard verbatim ("a
+   falsely huge maxDist"), but only `ParsekFlight.IsActiveTreeIdleOnPad`
+   (`ParsekFlight.cs:2453`) uses it.
+
+**Repro (minimal).** In FLIGHT on Kerbin, dock two vessels, then undock. The
+undocked half becomes a `BackgroundRecorder` subject whose section list is
+`[Absolute 0 frames at the undock UT] [Relative anchored to the sibling]
+[Absolute ...]`. At scene exit its persisted `maxDist` is the chord from the
+anchor-local offset to the real position. The active-side sibling is unaffected
+(`5f76d136...` has all-Absolute sections, a 1-frame seam, `maxDist=781m`); the
+trigger is a recording whose FIRST authored frame lives in a Relative section.
+
+**Premise corrections for anyone re-reading the evidence.** The apparent "160
+POINT nodes over 80 distinct UTs" in the `.prec.txt` mirror is NOT a doubling
+defect: 160 = 79 top-level flat POINTs + 81 section frames, and the flat list is
+the frame list minus the 2 adjacent duplicates the log reports
+(`dedupedPointCopies=2`, `KSP.log:23426`). `pointCount = 79` and the sidecar
+agree; the 155 in `KSP.log:27211` predates `TrimBoringTail` (`:27719`), which cut
+76 points before the final write. The two `#419` `AppendPointsFromTrackSections`
+warns (`KSP.log:23425`, `:27194`) are the monotonicity guard WORKING: the flush
+re-rebuilds the full section list every time and the guard drops the frames
+already present via the dual-write; `overlapCopies=0` because per-frame boundary
+points appended between flushes break the suffix/prefix match. Noisy and O(n^2)
+per flush, worth its own entry, but not this defect. `lastResIdx = 154` vs
+`pointCount = 79` is a resource-application cursor left stale by
+`TrimBoringTail` (`RecordingTreeRecordCodec.cs:343`); whether any consumer
+indexes `Points` with it was not chased.
+
+**Blast radius.** Confirmed damaged: the persisted `maxDist` and the on-disk flat
+`POINT` list. `MaxDistanceFromLaunch` feeds `IsIdleOnPad` / `IsPadFailure`
+(`ParsekFlight.cs:19675` / `:19649`) and `HasPadLocalizedMotionOverride`
+(`:19698`), so an inflated value FAILS OPEN: a genuinely idle undock child would
+escape the idle-on-pad discard. NOT confirmed damaged: ghost playback. The map
+polyline (`Display/GhostTrajectoryPolylineRenderer.cs:2795-2802`) uses flat
+Points only OUTSIDE every section span, KSC playback
+(`ParsekKSC.Playback.cs:200-236`) returns section frames when a section covers
+the UT, and `IsKscStructurallyEligible` (`ParsekKSC.cs:1493`) only reads
+`Points[0].bodyName`. Inferred from reading, not driven; the flight-scene
+`IPlaybackTrajectory` adapter was not traced.
+
+**No analyzer rule catches this.** INV1 checks flat-Points UT monotonicity only
+(passes); INV3 range-checks ABSOLUTE SECTION frames only and never touches
+Relative frames or the flat list (`Inv3RelativeContract.cs:9-25`); INV2
+partitions section spans; INV10 round-trips the codec (the corrupt list
+round-trips fine). Nothing cross-checks flat Points against section frames,
+range-checks flat Points, or validates `MaxDistanceFromLaunch` against the
+trajectory. The `rover-relay-recorded` fixture ships both damaged children, so
+every lane staging it (RVR-5, RVR-6) carries them through the analyzer verifier
+green; that is the gap, not a clean bill.
+
+**Fix (minimal sites, in dependency order).**
+1. `Source/Parsek/BackgroundRecorder.cs:7073`: extend the seed-only discard to
+   drop a section with `frameCount == 0 && checkpointCount == 0` regardless of
+   `referenceFrame`. A payload-free section is never a legitimate finalization,
+   and this alone restores BOTH `sectionAuthoritative = True` and the safe
+   relative substitution. Mirror it in `FlightRecorder.CloseCurrentTrackSection`,
+   which the BG comment says it mirrors.
+2. `Source/Parsek/TrajectoryTextSidecarCodec.cs:651-657` and `:531-570`, defence
+   in depth: a zero-frame section is "no payload HERE", not "payload incomplete";
+   skip it instead of returning false.
+3. `Source/Parsek/ParsekFlight.Finalization.cs:688`: call
+   `VesselSpawner.BackfillMaxDistanceAbsoluteOnly` (`VesselSpawner.cs:4109`)
+   instead of `BackfillMaxDistance` (`:4041`). NOTE the behavioural difference:
+   the Absolute-only variant walks `rec.TrackSections` and leaves
+   `MaxDistanceFromLaunch` untouched when a recording has no Absolute section, so
+   a sections-less legacy recording needs the flat path kept as a fallback.
+4. Optional, and the durable one: an analyzer rule that FAILS when a flat
+   `Recording.Points` entry's UT is covered by a Relative section and it does not
+   equal that section's `bodyFixedFrames` sample.
+
+**Verification.** (1) Unit: build a Recording with sections `[Absolute 0 frames]
+[Relative with frames + bodyFixedFrames] [Absolute]` and assert
+`TryBuildBodyFixedPrimaryFlatPointsForRelativeSections` returns true and
+`ShouldWriteSectionAuthoritativeTrajectory` is true; both are false today.
+(2) Unit: pure-extract the close-section decision and assert a 0-frame /
+0-checkpoint section is discarded. (3) Live: re-fly a dock/undock relay and assert
+every recording's `maxDist < 1000` and that no `.prec.txt` flat `POINT` carries
+`|lon| < 1` at KSC longitude. The fix claim in (1) is derived from reading the two
+predicates, not executed.
+
 ## ROUTE-INTERBODY-SCOPE-NEVER-REACHABLE: `Route.DispatchWindowPeriod` is the authoritative scope flag and NOTHING in production ever sets it non-zero, so every inter-body route classifies `MalformedMixedBodies` and draws no line [FOUND 2026-09-02 by the G10 P10 feasibility walk (branch `interbody-route-lane`). DEFECT, no fix in this branch - it is a product change and this branch is spec/docs-only]
 
 **The contract.** `RouteTrajectoryLineRenderer.ClassifyRouteScope`
