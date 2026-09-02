@@ -95,12 +95,17 @@ template does, and each omission is load-bearing:
     exactly two sections. Every other `.prec` in the fixture is byte-for-byte
     what Parsek wrote.
 
-THE ROUTE PINS ARE BUILDER-SIDE ON PURPOSE. `harness/lib/saveparse.py` has no
-`routes` facet today (a todo improvement is filed), so the shape of the one thing
-this fixture exists for would otherwise be unpinned anywhere. `verify_route`
-below is that pin: id, status, backing tree, dock member, the two clocks, the
-window period, the four `RECORDING_IDS`, and the STOP endpoint's resolution to a
-live `Depot` VESSEL node.
+THE ROUTE SHAPE PINS MOVED TO THE SHARED FACET 2026-09-02. They were
+builder-side only because `harness/lib/saveparse.py` had no `routes` facet; it
+now parses the ROUTES node, so `verify_route` asserts
+`saveparse.observed_routes_facets` against `ROUTE_FACET_PINS` - the same
+vocabulary a scenario declares through `[expectations.routes]` - plus the parsed
+`RouteRow`'s identity fields (id, name, status, backing tree, dock member,
+`RECORDING_IDS`, `EXCLUDED_INTERVALS`). What stayed here is what a facet should
+NOT model: this fixture's float clocks and cursor indices
+(`ROUTE_SCALAR_PINS`), the ORIGIN's three coordinate zeros, the nine SOURCE
+fields `RevalidateSources` compares, and the STOP endpoint's resolution to a
+live `Depot` VESSEL node (a FLIGHTSTATE fact, not a route fact).
 
 `--check` re-runs every post-condition against the ALREADY COMMITTED fixture and
 writes nothing. It is WIRED, not decorative: `DepotRouteRecordedFixtureDriftTests`
@@ -128,9 +133,19 @@ from typing import List, Optional, Tuple
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _HARNESS_ROOT = os.path.dirname(_HERE)
 _SAVES = os.path.join(_HARNESS_ROOT, "fixtures", "saves")
+_LIB = os.path.join(_HARNESS_ROOT, "lib")
 
 if _HERE not in sys.path:
     sys.path.insert(0, _HERE)
+if _LIB not in sys.path:
+    sys.path.insert(0, _LIB)
+
+# THE SHARED SAVE PARSER. The route SHAPE pins below read through
+# `saveparse.observed_routes_facets` rather than this file's own line scanner,
+# so the fixture check and a scenario's `[expectations.routes]` window are two
+# readings of ONE parser. Same rationale as the two imports below: a second
+# implementation is a second thing to drift.
+import saveparse  # noqa: E402
 
 # ONE copy of the ConfigNode-text node helpers, for the same reason
 # build_duna_one_recorded.py imports them: a second implementation is a second
@@ -218,25 +233,40 @@ KEEP_RECORDING_IDS = DEPOT_LINEAGE_RECORDING_IDS + BACKING_TREE_RECORDING_IDS
 DEPOT_LINEAGE_MISSION_ID = "ab583a948310406c91b7c7116c7799cd"
 BACKING_MISSION_ID = "a414bc8c24214defb1c12adbeaed0e19"
 
-# --- the ROUTE (decision 6: pinned BUILDER-side) ------------------------
+# --- the ROUTE (decision 6) ---------------------------------------------
 #
-# `saveparse.py` carries no `routes` facet, so without this the one surface the
-# fixture exists for would be unpinned everywhere. Every value below was read off
-# the harvested bytes.
+# THE SHAPE PINS MOVED TO THE SHARED FACET 2026-09-02. `saveparse.py` now parses
+# the ROUTES node (`observed_routes_facets`), so the route's SHAPE and IDENTITY
+# are pinned once, in the vocabulary every scenario spec can also express through
+# `[expectations.routes]`, and `verify_route` reads through that parser instead
+# of a private line scanner. What stayed builder-side is what a facet should NOT
+# carry: this fixture's float CLOCKS and cursor indices, and the nine SOURCE
+# fields `RevalidateSources` compares. Those are FIXTURE IDENTITY (a re-harvest
+# must red), not a window a lane would ever declare.
 ROUTE_ID = "5420f805fcbb453b8d5928b71393f14b"
 # The name carries U+2192 RIGHTWARDS ARROW, which is what Parsek's route-naming
 # code writes. Spelled as an escape rather than pasted so this file stays ASCII.
 ROUTE_NAME = "Route: Kerbin \u2192 Kerbin"
-ROUTE_PINS = {
-    "id": ROUTE_ID,
+# Asserted against the parsed `saveparse.RouteRow` (attribute -> value), so the
+# node-reading half is the shared parser's, not this file's.
+ROUTE_ROW_PINS = {
+    "route_id": ROUTE_ID,
     "name": ROUTE_NAME,
-    "isKscOrigin": "True",
     "status": "Active",
-    "completedCycles": "1",
-    "skippedCycles": "0",
+    "is_ksc_origin": True,
+    "completed_cycles": 1,
+    "skipped_cycles": 0,
+    "backing_mission_tree_id": BACKING_TREE_ID,
+    "dock_member_recording_id": "70667ab4a1d34ef0bc05ce9911bfcd30",
+    "codec_reject": "",
+    "dormant": False,
+}
+# The raw `key = value` remainder: every scalar the facet deliberately does not
+# model. Read with `get_value` because they are TEXT pins - a float that
+# round-trips through Python would compare equal after a writer change that
+# altered the printed form, and the printed form is what the game reads back.
+ROUTE_SCALAR_PINS = {
     "pauseAfterCurrentCycle": "True",
-    "backingMissionTreeId": BACKING_TREE_ID,
-    "dockMemberRecordingId": "70667ab4a1d34ef0bc05ce9911bfcd30",
     "recordedDockUT": "17478.248634212287",
     "nextDispatchUT": "17478.248634212287",
     "dispatchWindowEpochUT": "1420.246738452149",
@@ -279,11 +309,42 @@ ROUTE_EXCLUDED_INTERVALS = (
     "44129e52aec64f08b25cdd3ca22ea34d/seg3",
     "efb9be7191284013983a9f3662604bc4",
 )
-ROUTE_ORIGIN = {"bodyName": "Kerbin", "latitude": "0", "longitude": "0",
-                "altitude": "0", "isSurface": "True"}
+# The ORIGIN's COORDINATES only. Its body and its `isSurface` flag are facet /
+# row assertions now; these three zeros are a KSC-origin detail no scenario
+# window would ever carry, so they stay a raw text pin here.
+ROUTE_ORIGIN = {"latitude": "0", "longitude": "0", "altitude": "0"}
+ROUTE_ORIGIN_BODY = "Kerbin"
 ROUTE_STOP_ENDPOINT_PID = "3620499050"
 ROUTE_STOP_ENDPOINT_BODY = "Kerbin"
 ROUTE_STOP_CONNECTION_KIND = "DockingPort"
+
+# THE FACET, verbatim: `saveparse.observed_routes_facets` over this fixture's
+# committed bytes. The SAME dict is pinned in `test_saveparse.py`'s
+# `RECORDED_FIXTURES["depot-route-recorded"]["routes"]`, so the builder's check
+# and the fixture sweep read one measurement rather than two hand-kept copies -
+# and every value is spelled through the constant it belongs to, so a re-harvest
+# that moved one identity cannot leave the facet copy agreeing with the old one.
+ROUTE_FACET_PINS = {
+    "count": 1,
+    "dormant": 0,
+    "stops": 1,
+    "sourceRefs": len(ROUTE_SOURCE_ROWS),
+    "completedCycles": 1,
+    "skippedCycles": 0,
+    "codecRejects": 0,
+    "unparsed": 0,
+    "unknownStatuses": 0,
+    "unknownConnectionKinds": 0,
+    "statuses": {"Active": 1},
+    "connectionKinds": {ROUTE_STOP_CONNECTION_KIND: 1},
+    "originBodies": {ROUTE_ORIGIN_BODY: 1},
+    "destinationBodies": {ROUTE_STOP_ENDPOINT_BODY: 1},
+    "holdKinds": {},
+    "ids": [ROUTE_ID],
+    "destinationVesselPids": [ROUTE_STOP_ENDPOINT_PID],
+    "dismissedCandidates": 0,
+    "promptedCandidates": 0,
+}
 
 # D4: the dock member's RECORDING node must stay BYTE-EXACT. `routeProofHash`
 # 5432980487a27600 is computed over that recording's ROUTE_CONNECTION_WINDOWS,
@@ -710,8 +771,17 @@ def _verify_active_vessel(lines: List[str]) -> List[str]:
 
 
 def verify_route(lines: List[str]) -> List[str]:
-    """THE ROUTE PIN (decision 6). `saveparse.py` has no `routes` facet yet, so
-    this is the only place the fixture's reason to exist is asserted."""
+    """THE ROUTE PIN (decision 6).
+
+    THE SHAPE HALF READS THROUGH THE SHARED FACET. `saveparse.py` parses the
+    ROUTES node as of 2026-09-02, so route count / status / stops / source-row
+    count / endpoint bodies / route id / endpoint pid are asserted as the SAME
+    facet dict a scenario spec declares through `[expectations.routes]` - one
+    parser, one vocabulary, and a shape drift now reds identically here and on a
+    lane. What is still read raw below is what no facet models: this fixture's
+    float clocks, its cursor indices, and the nine SOURCE fields
+    `RouteStore.RevalidateSources` compares against a live rebuild.
+    """
     problems: List[str] = []
 
     scn = parsek_scenario(lines)
@@ -725,34 +795,48 @@ def verify_route(lines: List[str]) -> List[str]:
         return ["expected exactly 1 ROUTE, found %d" % len(entries)]
     route = entries[0]
 
-    for key, want in sorted(ROUTE_PINS.items()):
-        got = get_value(lines, route, key)
+    # --- the SHARED FACET ------------------------------------------------
+    snap = saveparse.parse_parsek_scenario("\n".join(lines))
+    if not snap.parsed:
+        return ["saveparse could not read the save: %s" % snap.error]
+    facet = saveparse.observed_routes_facets(snap)
+    for key in sorted(ROUTE_FACET_PINS):
+        want = ROUTE_FACET_PINS[key]
+        got = facet.get(key)
         if got != want:
-            problems.append("ROUTE %s is %r, expected %r" % (key, got, want))
-
-    ids_node = child_nodes(lines, route, "RECORDING_IDS")
-    if len(ids_node) != 1:
-        problems.append("ROUTE has %d RECORDING_IDS nodes, expected 1"
-                        % len(ids_node))
+            problems.append("ROUTE facet %s is %r, expected %r" % (key, got, want))
+    if len(snap.routes) != 1:
+        # Guarded above through the line scanner too; keep the parser's own
+        # count as the thing every later read below indexes into.
+        problems.append("saveparse read %d committed route(s), expected 1"
+                        % len(snap.routes))
     else:
-        got = _repeated_values(lines, ids_node[0], "id")
-        if got != list(ROUTE_RECORDING_IDS):
+        row = snap.routes[0]
+        for attr in sorted(ROUTE_ROW_PINS):
+            want = ROUTE_ROW_PINS[attr]
+            got = getattr(row, attr)
+            if got != want:
+                problems.append("ROUTE %s is %r, expected %r" % (attr, got, want))
+        if list(row.recording_ids) != list(ROUTE_RECORDING_IDS):
             problems.append("ROUTE RECORDING_IDS are %r, expected %r"
-                            % (got, list(ROUTE_RECORDING_IDS)))
-        missing = [r for r in got if r not in KEEP_RECORDING_IDS]
+                            % (list(row.recording_ids), list(ROUTE_RECORDING_IDS)))
+        missing = [r for r in row.recording_ids if r not in KEEP_RECORDING_IDS]
         if missing:
             problems.append("ROUTE names recording(s) no kept tree carries: %r"
                             % (missing,))
-
-    excl = child_nodes(lines, route, "EXCLUDED_INTERVALS")
-    if len(excl) != 1:
-        problems.append("ROUTE has %d EXCLUDED_INTERVALS nodes, expected 1"
-                        % len(excl))
-    else:
-        got = _repeated_values(lines, excl[0], "excludedInterval")
-        if got != list(ROUTE_EXCLUDED_INTERVALS):
+        if list(row.excluded_intervals) != list(ROUTE_EXCLUDED_INTERVALS):
             problems.append("ROUTE EXCLUDED_INTERVALS are %r, expected %r"
-                            % (got, list(ROUTE_EXCLUDED_INTERVALS)))
+                            % (list(row.excluded_intervals),
+                               list(ROUTE_EXCLUDED_INTERVALS)))
+        if row.origin is None or not row.origin.is_surface:
+            problems.append("ROUTE ORIGIN is %r, expected a SURFACE endpoint "
+                            "(the KSC origin)" % (row.origin,))
+
+    # --- the raw scalar remainder ---------------------------------------
+    for key, want in sorted(ROUTE_SCALAR_PINS.items()):
+        got = get_value(lines, route, key)
+        if got != want:
+            problems.append("ROUTE %s is %r, expected %r" % (key, got, want))
 
     refs = child_nodes(lines, route, "SOURCE_REFS")
     if len(refs) != 1:
@@ -778,6 +862,9 @@ def verify_route(lines: List[str]) -> List[str]:
                 "RouteStore.RevalidateSources compares against a live rebuild"
                 % (rows, list(ROUTE_SOURCE_ROWS)))
 
+    # The ORIGIN's own COORDINATES. The facet pins the origin's BODY and the
+    # row check its `isSurface`; the three zeros are a KSC-origin detail no
+    # window would carry, so they stay raw.
     origin = child_nodes(lines, route, "ORIGIN")
     if len(origin) != 1:
         problems.append("ROUTE has %d ORIGIN nodes, expected 1" % len(origin))
@@ -788,39 +875,19 @@ def verify_route(lines: List[str]) -> List[str]:
                 problems.append("ROUTE ORIGIN %s is %r, expected %r"
                                 % (key, got, want))
 
-    stops = child_nodes(lines, route, "STOP")
-    if len(stops) != 1:
-        problems.append("ROUTE has %d STOP nodes, expected 1" % len(stops))
-    else:
-        kind = get_value(lines, stops[0], "connectionKind")
-        if kind != ROUTE_STOP_CONNECTION_KIND:
-            problems.append("ROUTE STOP connectionKind is %r, expected %r"
-                            % (kind, ROUTE_STOP_CONNECTION_KIND))
-        endpoints = child_nodes(lines, stops[0], "ENDPOINT")
-        if len(endpoints) != 1:
-            problems.append("ROUTE STOP has %d ENDPOINT nodes, expected 1"
-                            % len(endpoints))
-        else:
-            pid = get_value(lines, endpoints[0], "vesselPersistentId")
-            body = get_value(lines, endpoints[0], "bodyName")
-            if pid != ROUTE_STOP_ENDPOINT_PID:
-                problems.append("ROUTE STOP endpoint pid is %r, expected %r"
-                                % (pid, ROUTE_STOP_ENDPOINT_PID))
-            if body != ROUTE_STOP_ENDPOINT_BODY:
-                problems.append("ROUTE STOP endpoint body is %r, expected %r"
-                                % (body, ROUTE_STOP_ENDPOINT_BODY))
-            # THE ENDPOINT MUST RESOLVE. A route whose STOP names a vessel the
-            # save no longer carries is the failure mode the D3 keep-list exists
-            # to prevent, and it would be invisible in the ROUTE node alone.
-            live = [r for r in vessel_records(lines) if r["pid"] == pid]
-            if len(live) != 1:
-                problems.append(
-                    "ROUTE STOP endpoint pid %s resolves to %d FLIGHTSTATE "
-                    "vessel(s), expected exactly 1" % (pid, len(live)))
-            elif live[0]["name"] != ACTIVE_VESSEL_NAME:
-                problems.append("ROUTE STOP endpoint pid %s resolves to %r, "
-                                "expected %r"
-                                % (pid, live[0]["name"], ACTIVE_VESSEL_NAME))
+    # THE ENDPOINT MUST RESOLVE. The facet asserts the STOP endpoint's pid and
+    # body; what it cannot see - and what the D3 keep-list exists to protect -
+    # is whether that pid still names a live FLIGHTSTATE vessel. A route whose
+    # STOP points at a deleted vessel is invisible in the ROUTE node alone.
+    live = [r for r in vessel_records(lines) if r["pid"] == ROUTE_STOP_ENDPOINT_PID]
+    if len(live) != 1:
+        problems.append(
+            "ROUTE STOP endpoint pid %s resolves to %d FLIGHTSTATE "
+            "vessel(s), expected exactly 1" % (ROUTE_STOP_ENDPOINT_PID, len(live)))
+    elif live[0]["name"] != ACTIVE_VESSEL_NAME:
+        problems.append("ROUTE STOP endpoint pid %s resolves to %r, expected %r"
+                        % (ROUTE_STOP_ENDPOINT_PID, live[0]["name"],
+                           ACTIVE_VESSEL_NAME))
 
     # D4: the dock member's RECORDING node, byte-exact.
     digest = dock_member_node_digest(lines)

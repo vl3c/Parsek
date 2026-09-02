@@ -1002,7 +1002,8 @@ class SpecValidationRejectTests(unittest.TestCase):
         # BOTH numbers in opposite directions - the arithmetic signature that tells a
         # promotion from an addition, and that catches a half-done one (a name added to
         # IMPLEMENTED and left in RESERVED moves the first number without the second).
-        self.assertEqual(len(hlib.IMPLEMENTED_SEAM_VERBS), 30)
+        # 31 / 5 after DeleteRecording, an ADDITION (the first number moves alone).
+        self.assertEqual(len(hlib.IMPLEMENTED_SEAM_VERBS), 31)
         self.assertEqual(len(hlib.RESERVED_SEAM_VERBS), 5)
         # Disjointness, asserted rather than assumed: Classify checks Implemented
         # first in the C# mirror, so a leftover reserved row would be invisible.
@@ -1238,6 +1239,34 @@ class SpecValidationRejectTests(unittest.TestCase):
                 self.assertFalse(
                     any(verb in e for e in v.errors),
                     "%s wrongly flagged: %s" % (verb, list(v.errors)))
+
+    def test_delete_recording_verb_is_implemented_additively(self):
+        # ADDITIVE, never a promotion: implemented, not reserved, and the reserved
+        # set is untouched by it (the two counts above pin the arithmetic).
+        self.assertIn("DeleteRecording", hlib.IMPLEMENTED_SEAM_VERBS)
+        self.assertNotIn("DeleteRecording", hlib.RESERVED_SEAM_VERBS)
+        # Single-phase: rides the 60 s default, never the 540 s deferred cap.
+        self.assertNotIn("DeleteRecording", hlib.DEFERRED_SEAM_VERBS)
+        self.assertNotIn("DeleteRecording", hlib.DISPATCH_DEFERRAL_BUDGET_SECONDS)
+        # Both role tables answer for it explicitly (the totality cells enforce the
+        # rows exist; this pins WHICH answer, since a delete is the least reversible
+        # verb after the two rewinds and the seal).
+        self.assertEqual(hlib.TAIL_ROLE_WORLD_MUTATING,
+                         hlib.SEAM_VERB_TAIL_ROLE["DeleteRecording"])
+        self.assertEqual(hlib.POST_MISSION_ROLE_RECORDING,
+                         hlib.SEAM_VERB_POST_MISSION_ROLE["DeleteRecording"])
+
+    def test_delete_recording_step_is_not_rejected(self):
+        # The behavioural half: a spec naming the verb validates. The S0.11 lane is the
+        # first consumer (a KSC-scene delete under living KSC ghosts).
+        def m(s):
+            s.get("expectations", {}).pop("ledger", None)
+            s["driver"]["steps"].insert(
+                1, {"cmd": "DeleteRecording", "args": {"index": "1"}, "expect": "OK"})
+        v = self._reject(m)
+        self.assertFalse(
+            any("DeleteRecording" in e for e in v.errors),
+            "DeleteRecording wrongly flagged: %s" % (list(v.errors),))
 
     def test_logistics_verbs_are_not_two_phase_deferred(self):
         # Both are SINGLE-phase: the seal (plus its persist) and the
@@ -6423,7 +6452,8 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # flight is a reading a human looks at, and what is owed is the FLIGHT.
         "S4.3-refly-discard-with-ghosts.toml":     "tier=operator as a reading run, NOT debt: S4.2's seam cycle with the conclusion flipped to AnswerMergeDialog choice=discard, pinning ReFlyDiscard's per-recording removal line and ParsekFlight's two CommittedRecording* handler lines - PR #1591's never-driven path. Nothing armed; promotion is the reading run",
         "S4.4-refly-quicksave-mid-session.toml":   "tier=operator as a reading run, NOT debt: the deliberate experiment REFLY-BATCH-BASELINE-DISCARDS-LIVE-SESSION asked for (a real quicksave AND quickload from inside the live Re-Fly session, no batch - save alone is GREEN by construction since the verdict token has only load-path emitters), whose GREEN / INVALID / RED readings are pre-registered in the spec. Nothing armed; the reading decides which todo entry owns the finding",
-        "L6-career-same-name-recover.toml":        "tier=operator as a reading run, NOT debt: science_bench_recover flown a SECOND time over career-earned-pad, whose two prior-launch same-name recordings carry a different launch guid, so PickRecoveryRecordingId's stage 1 guid filter is measured live (KERBAL-XP-RECOVERY-PICK-IS-NAME-AND-UT-ONLY stage 2's repro shape); pins the pick line's shape with guidDropped=2 literal and nameMatches / survivors / tier as value classes. Nothing armed; promotion is the reading run",
+        "L6-career-same-name-recover.toml":        "tier=operator as a BLOCKED record, NOT debt: its reading run (2026-09-02) proved the produced-save shortcut cannot reach the recovery correlator - career-earned-pad already banked the launchpad science, so a second science_bench_recover flight transmits for no gain and the mission's structural transmit->recover gate fails it before RECOVER (INVALID(driver), which no expectedFail key can demote). Kept as the record of that finding; not flyable as built, needs a purpose-built two-same-name-launch fixture. Nothing armed",
+        "S0.11-ksc-table-delete.toml":               "tier=operator as a reading run, NOT debt: the first consumer of the DeleteRecording seam verb (AUTOMATION-GAP-KSC-TABLE-DELETE's lane) - V22K's SPACECENTER boot with the loop member's KSC ghost placed, then DeleteRecording index=1 under it, pinning the ParsekKSC host's reindex line, which prints only when a KSC ghost was alive at the delete. Nothing armed; the first flight decides whether the dwell length puts the delete under a placed ghost",
         "H57-route-start-docked-origin-landed.toml": "tier=operator as a reading run, NOT debt: the Tier B item-4 subject, and the first lane anywhere that can reach the start-docked origin producer Captured branch (the fix shipped in the same commit as its cells, so nothing has ever exercised it live). Its two cells pin token SHAPES plus one mirrored pair of verdicts - subject proofCaptured=True, negative control proofCaptured=False - and the passed= / skipped= split is a regex class until the first census, so what is owed is the FLIGHT and the re-pin, not a human call. Registered in IsolatedBatchWiringGroupTests.INTERIM_PIN_IDS to carry that obligation",
         # tier=operator by the CALIBRATION DISCIPLINE, the whole B18-B26 family's
         # tier, and NOT a debt: a first-flight B lane is operator because its
@@ -7197,6 +7227,41 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
         self.assertTrue(hlib.validate_spec(spec, reg).ok,
                         "a well-formed points block must validate")
 
+    def test_validate_spec_rejects_malformed_routes_block(self):
+        # The FOURTH M-C2 block reaches validate_spec through the same
+        # delegation as the other three, and it is TOP-LEVEL (a sibling of
+        # `rewind`, not nested under `recordings`) because that is where the
+        # ROUTES node sits in the save.
+        spec = copy.deepcopy(load_spec("S4.1-rewind-merge.toml"))
+        reg = load_registry()
+        spec["expectations"]["routes"] = {"escrow": {"min": 1}}
+        v = hlib.validate_spec(spec, reg)
+        self.assertFalse(v.ok)
+        self.assertTrue(any("expectations.routes" in e for e in v.errors), v.errors)
+        # An ARMED-and-empty routes block is a gate that can never red.
+        spec["expectations"]["routes"] = {"gating": True}
+        v = hlib.validate_spec(spec, reg)
+        self.assertFalse(v.ok)
+        self.assertTrue(any("gates nothing" in e for e in v.errors), v.errors)
+        spec["expectations"]["routes"] = {"count": {"min": 1, "max": 1}}
+        self.assertTrue(hlib.validate_spec(spec, reg).ok,
+                        "a well-formed routes block must validate")
+
+    def test_validate_spec_warns_on_the_singular_reserved_route_block(self):
+        # `route` (singular) is still in RESERVED_EXPECTATION_BLOCKS with no
+        # evaluator, so verifier 7 records it SKIPPED. Now that the PLURAL
+        # `routes` gates, the one-character slip is the difference between a
+        # gate and nothing - a WARNING, not an error, because declaring a
+        # reserved block is exactly what reserved means and stays legal.
+        spec = copy.deepcopy(load_spec("S4.1-rewind-merge.toml"))
+        reg = load_registry()
+        spec["expectations"]["route"] = {"count": 1}
+        v = hlib.validate_spec(spec, reg)
+        self.assertTrue(v.ok, v.errors)
+        self.assertTrue(any("[expectations.routes], plural" in w
+                            for w in v.warnings), v.warnings)
+        self.assertIn("route", hlib.RESERVED_EXPECTATION_BLOCKS)
+
     def test_eva2_declares_the_points_block_unarmed(self):
         # Gate 12 landed REPORT-ONLY on EVA-2 (the scenario whose green
         # `count = {min=2,max=2}` let the empty-recording defect through).
@@ -7601,7 +7666,51 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
                        # clean runs (_0853/_0854, the five-raise set; four
                        # of five ratios to four decimals, fifth 1 ulp; armed run
                        # _0857); control shared with V8's _0830.
-                       "V8F-eve-loop-faithful.toml"}
+                       "V8F-eve-loop-faithful.toml",
+                       # V18T: THE FIRST DECLARER OF THE FOURTH M-C2 BLOCK,
+                       # `[expectations.routes]` (the ROUTES node), armed
+                       # 2026-09-02 in the commit that shipped the facet.
+                       # WINDOWS WRITTEN FROM MEASUREMENT, NOT PREDICTION, and
+                       # from an unusually wide one for a first arming: the new
+                       # parser was run OFFLINE over the produced
+                       # `persistent.sfs` of this spec's own runs
+                       # `2026-08-26_2042` / `_2317` / `_2318` AND over
+                       # H40-logistics-isolated-depot-route's `2026-08-28_2253`
+                       # / `_2358` (same fixture, different lane). All five read
+                       # count 1 / dormant 0 / statuses {Active: 1} /
+                       # sourceRefs 4 / codecRejects 0 / ids
+                       # [5420f805...] byte-identically; neither lane mutates
+                       # the route, so the arming re-pins nothing and moves no
+                       # verdict on the shapes already flown.
+                       # DISCIPLINE COMPLETE 2026-09-02, the same day the facet
+                       # shipped. The five readings above are offline reads of
+                       # saves those runs left behind - stronger than the usual
+                       # single report-only reading, but not the armed run - so
+                       # the workflow closed on top of them: armed re-flight
+                       # `2026-09-02_1013` PASS attempt 1 (wall 69 s) with
+                       # `saveParse status=PASS gating=True blocks=['routes']
+                       # armed=['routes'] ... routes=1
+                       # routeStatuses={'Active': 1} routeCodecRejects=0
+                       # mismatches=0`, and its OWN negative control
+                       # `2026-09-02_1014` PARSEK-FAIL(save-structure) with the
+                       # mismatch list exactly
+                       # ["routes.statuses.SourceChanged 0 < min 1"], reverted
+                       # immediately. WHY ITS OWN CONTROL RATHER THAN THE
+                       # FAMILY'S SHARED ONE: every armed lane before this
+                       # inverted `rewind.supersedeRows`, which re-proves the
+                       # shared evaluator; this block has a parse, a
+                       # normalisation and a bucketing step of its own between
+                       # the bytes and that evaluator, so only an inversion of a
+                       # `routes` window proves them.
+                       # WHY THIS LANE: it is the only committed spec whose
+                       # subject IS the committed route, its `logContracts`
+                       # already require `RevalidateSources ... routes=1
+                       # transitioned=0` (so the block asserts the same claim
+                       # against the produced BYTES, the falsifiable half a log
+                       # token cannot cover after the last revalidate pass), and
+                       # tier=operator is where the calibration discipline puts
+                       # a first arming.
+                       "V18T-depot-route-ts-arrival.toml"}
 
     def test_no_committed_spec_arms_gating(self):
         armed = []
@@ -7642,6 +7751,37 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
                          set(exp["rewind"]),
                          "a window was added to (or removed from) S4.1's ARMED block; "
                          "every armed window needs its own report-only reading run first")
+
+    def test_v18t_declares_the_routes_block_armed(self):
+        # The FOURTH block's first declarer, armed 2026-09-02. Same shape as the
+        # S4.1 cell above: pin the KEY SET as well as the values, so growing the
+        # armed block is as deliberate as arming it was. The four windows and the
+        # one identity list were each read off five produced saves (this spec's
+        # `2026-08-26_2042` / `_2317` / `_2318` plus H40's `2026-08-28_2253` /
+        # `_2358`); see the allowlist comment for what is still owed.
+        exp = load_spec("V18T-depot-route-ts-arrival.toml")["expectations"]
+        self.assertIn("routes", saveparse.declared_structure_blocks(exp))
+        self.assertIn("routes", saveparse.armed_structure_blocks(exp))
+        self.assertEqual({"gating", "count", "dormant", "statuses",
+                          "sourceRefs", "ids"}, set(exp["routes"]),
+                         "a window was added to (or removed from) V18T's ARMED "
+                         "routes block; every armed window needs its own "
+                         "measurement first")
+        self.assertEqual({"min": 1, "max": 1}, exp["routes"]["count"])
+        self.assertEqual({"max": 0}, exp["routes"]["dormant"])
+        self.assertEqual({"Active": {"min": 1, "max": 1}}, exp["routes"]["statuses"])
+        self.assertEqual({"min": 4, "max": 4}, exp["routes"]["sourceRefs"])
+        # The identity list must name the ONE route the fixture carries, read
+        # from the fixture bytes rather than from a literal that could drift.
+        fixture = os.path.join(
+            HARNESS_ROOT, "fixtures", "saves", "depot-route-recorded",
+            "persistent.sfs")
+        with open(fixture, "r", encoding="utf-8", errors="replace") as fh:
+            snap = saveparse.parse_parsek_scenario(fh.read())
+        self.assertEqual(saveparse.observed_routes_facets(snap)["ids"],
+                         exp["routes"]["ids"],
+                         "V18T's armed `ids` no longer names the committed "
+                         "route in the fixture it stages")
 
 
 class RenderComposeVerifierWiringTests(unittest.TestCase):

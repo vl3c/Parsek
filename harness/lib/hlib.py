@@ -282,6 +282,20 @@ IMPLEMENTED_SEAM_VERBS: Tuple[str, ...] = (
     # neither joins DEFERRED_SEAM_VERBS and both ride the 60 s default budget - which
     # bounds only their game-not-loaded dispatch defer.
     "SealSlot", "RouteCommand",
+    # DeleteRecording. ADDITIVE (30 -> 31 implemented, reserved unchanged at 5): the
+    # reserved envelope never carried a recording-deletion verb. It is the Recordings
+    # table's per-row delete driven by committed-list `index=`, routed exactly as the
+    # table routes it: ParsekFlight.DeleteGhostOnlyRecording for a ghost-only row in
+    # FLIGHT, ParsekFlight.DeleteRecording (behind its CanDeleteRecording guard) for any
+    # other row in FLIGHT, RecordingStore.DeleteRecordingFull everywhere else - the KSC
+    # branch included. Deliberately WIDER than the table's "X" button on one axis - any
+    # committed row, not only ghost-only ones - because the removal seam it exists to
+    # drive live is a mid-list removal under living ghosts
+    # (AUTOMATION-GAP-KSC-TABLE-DELETE), which needs a row with ghosts ABOVE it, and the
+    # only rows that button offers (Gloops recordings) are appended last. SINGLE-PHASE
+    # (a synchronous list mutation whose Removing / Removed notifications fan out
+    # inside the call, verified by read-back), so it rides the 60 s default budget.
+    "DeleteRecording",
 )
 
 # The M-A7 export verb, named once. Referenced by the verb/block coupling rule in
@@ -759,6 +773,10 @@ SEAM_VERB_TAIL_ROLE: Dict[str, str] = {
     #     unmet tail exists to stop firing.
     "SealSlot": TAIL_ROLE_WORLD_MUTATING,
     "RouteCommand": TAIL_ROLE_WORLD_MUTATING,
+    # DeleteRecording destroys durable recorded data (the row, its sidecar files, its
+    # chain siblings' linkage) - DiscardTree's exact reasoning: driving it on an unmet
+    # run would delete the forensics the collect-logs snapshot exists to preserve.
+    "DeleteRecording": TAIL_ROLE_WORLD_MUTATING,
 }
 
 # ---------------------------------------------------------------------------
@@ -889,6 +907,10 @@ SEAM_VERB_POST_MISSION_ROLE: Dict[str, str] = {
     # Both are WORLD-MUTATING on the tail axis; the two axes disagree by design.
     "SealSlot": POST_MISSION_ROLE_RECORDING,
     "RouteCommand": POST_MISSION_ROLE_RECORDING,
+    # DeleteRecording is `recording`: its OK means "the committed row is gone and the
+    # index-keyed hosts were told", a read-back of PARSEK's own store - a claim about a
+    # feature under test, never about a kerbal's physical in-world state.
+    "DeleteRecording": POST_MISSION_ROLE_RECORDING,
 }
 
 
@@ -3614,10 +3636,11 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
         errors.extend(validate_world_roster_expectations(world_block.get("roster")))
 
     # M-C2 (R9) save-parse verifier spec surfaces: [expectations.rewind],
-    # [expectations.recordings.structure] and (gate 12)
-    # [expectations.recordings.points]. Same rationale as the unityExceptions
-    # block above - a malformed window (or a non-bool gating key) must be a
-    # pre-launch rejection, never a block that silently evaluates as a no-op.
+    # [expectations.recordings.structure], (gate 12)
+    # [expectations.recordings.points] and [expectations.routes]. Same rationale
+    # as the unityExceptions block above - a malformed window (or a non-bool
+    # gating key) must be a pre-launch rejection, never a block that silently
+    # evaluates as a no-op.
     if "rewind" in expectations:
         errors.extend(saveparse.validate_rewind_expectations(expectations.get("rewind")))
     recordings_block = expectations.get("recordings")
@@ -3627,10 +3650,18 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
     if isinstance(recordings_block, dict) and saveparse.POINTS_BLOCK in recordings_block:
         errors.extend(saveparse.validate_points_expectations(
             recordings_block.get(saveparse.POINTS_BLOCK)))
+    # The fourth M-C2 block: the ROUTES node. Top-level beside `rewind` because
+    # that is where it lives in the save.
+    if saveparse.ROUTES_BLOCK in expectations:
+        errors.extend(saveparse.validate_routes_expectations(
+            expectations.get(saveparse.ROUTES_BLOCK)))
     # Declared-but-assertion-less UNARMED blocks degrade to an empty report row;
     # WARN like the unityExceptions precedent (armed-and-empty is a hard error
-    # inside the validators above).
+    # inside the validators above). The singular RESERVED `route` near-miss WARNs
+    # too, now that a one-character slip is the difference between a gate and a
+    # SKIPPED row.
     warnings.extend(saveparse.save_structure_expectation_warnings(expectations))
+    warnings.extend(saveparse.reserved_route_block_warnings(expectations))
 
     # M-A7 render-composition verifier spec surface:
     # [expectations.renderComposition]. Same rationale as the two blocks above -
@@ -4113,6 +4144,12 @@ class ExpectationResult:
 # ``[expectations.recordings.points]`` sub-blocks. ``route`` and
 # ``loop`` stay RESERVED: their consumers do not exist yet (no committed spec declares
 # either), and building an evaluator with zero declarers would be unused surface.
+# READ THAT LINE CAREFULLY AFTER 2026-09-02: the save-parse verifier now also owns
+# the PLURAL ``routes`` block (the ROUTES node - route count, statuses, stops,
+# source rows, endpoint identity). The SINGULAR ``route`` here is a DIFFERENT,
+# still-unowned name and stays reserved; it was never the ROUTES-node surface.
+# ``validate_spec`` WARNs on a spec declaring the singular, since a reserved block
+# is recorded SKIPPED and a one-character slip would otherwise gate nothing.
 RESERVED_EXPECTATION_BLOCKS: Tuple[str, ...] = ("route", "loop")
 
 
