@@ -149,7 +149,7 @@ namespace Parsek.Tests.Logistics
             public bool IsCareer { get; set; }
             public bool TryResolveEndpoint(RouteEndpoint endpoint, out string reason) { reason = string.Empty; return true; }
             public bool TryResolveEndpointVessel(RouteEndpoint endpoint, out Vessel vessel, out string reason) { vessel = null; reason = string.Empty; return true; }
-            public bool OriginHasCargo(Route route, out string lackingResource) { lackingResource = string.Empty; return true; }
+            public bool OriginHasCargo(Route route, out string lackingResource, out double shortfall) { shortfall = 0.0; lackingResource = string.Empty; return true; }
             public bool KscFundsAvailable(Route route, out double shortfall) { shortfall = 0.0; return true; }
             public bool DestinationHasCapacity(Route route, out string fullResource) { fullResource = string.Empty; return true; }
             public bool RouteHasValidSourcesInErs(Route route) => true;
@@ -171,8 +171,8 @@ namespace Parsek.Tests.Logistics
             { reason = EndpointResolvable ? string.Empty : "pid-miss"; return EndpointResolvable; }
             public bool TryResolveEndpointVessel(RouteEndpoint endpoint, out Vessel vessel, out string reason)
             { vessel = null; reason = string.Empty; return true; }
-            public bool OriginHasCargo(Route route, out string lackingResource)
-            { lackingResource = OriginHasCargoResult ? string.Empty : OriginLackingResource; return OriginHasCargoResult; }
+            public bool OriginHasCargo(Route route, out string lackingResource, out double shortfall)
+            { lackingResource = OriginHasCargoResult ? string.Empty : OriginLackingResource; shortfall = 0.0; return OriginHasCargoResult; }
             public bool KscFundsAvailable(Route route, out double shortfall)
             { shortfall = KscFundsAvailableResult ? 0.0 : KscFundsShortfall; return KscFundsAvailableResult; }
             public bool DestinationHasCapacity(Route route, out string fullResource)
@@ -190,7 +190,7 @@ namespace Parsek.Tests.Logistics
             public bool TryResolveEndpoint(RouteEndpoint endpoint, out string reason) { reason = string.Empty; return true; }
             public bool TryResolveEndpointVessel(RouteEndpoint endpoint, out Vessel vessel, out string reason)
             { vessel = null; reason = "no-live-vessels"; return false; }
-            public bool OriginHasCargo(Route route, out string lackingResource) { lackingResource = string.Empty; return true; }
+            public bool OriginHasCargo(Route route, out string lackingResource, out double shortfall) { shortfall = 0.0; lackingResource = string.Empty; return true; }
             public bool KscFundsAvailable(Route route, out double shortfall) { shortfall = 0.0; return true; }
             public bool DestinationHasCapacity(Route route, out string fullResource) { fullResource = string.Empty; return true; }
             public bool RouteHasValidSourcesInErs(Route route) => true;
@@ -259,7 +259,7 @@ namespace Parsek.Tests.Logistics
             route.InventoryCostManifest = null;
             var env = new LiveRouteRuntimeEnvironment();
 
-            bool hasCargo = env.OriginHasCargo(route, out string lacking);
+            bool hasCargo = env.OriginHasCargo(route, out string lacking, out _);
 
             Assert.True(hasCargo);
             Assert.Equal(string.Empty, lacking);

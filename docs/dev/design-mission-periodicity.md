@@ -1041,6 +1041,13 @@ Each INCLUDED segment contributes only the phase constraint its own frame impose
    a **surface-only / atmospheric-only config of B imposes NO phase constraint** (this
    is the "no-inertial-arc -> MinCycleDuration" edge case). The rotation constraint
    requires the surface<->inertial-orbit hand-off, not a bare surface segment.
+   This holds for the LIVE-anchor rule 5 as well, and it is enforced there rather
+   than assumed: a LANDED / SPLASHED / PRELAUNCH anchor carries a stock pseudo-orbit
+   (e ~0.9948 with a finite, settling-dependent period) that passes every
+   closed-orbit filter, so `IBodyInfo.TryGetVesselOrbit` rejects it outright via
+   `MissionPeriodicity.IsPhaseAnchorEligible`. Without that guard a surface-only
+   relay tree acquired a `VesselOrbital` lock from a parked rover and had its cadence
+   stretched 3.4x (PERIODICITY-LANDED-ANCHOR-PHASE-LOCK, 2026-09-03).
 
 2. **Inertial orbit segment around body B** -> by itself imposes **no** phase
    constraint (B is always there; an inertial orbit is faithful at any UT). Its only

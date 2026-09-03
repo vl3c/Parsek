@@ -881,6 +881,48 @@ namespace Parsek.Tests.Logistics
             Assert.Equal(0, route.DispatchPriority);
         }
 
+        // catches (ROUTE-HOLD-SHORTFALL-DROPPED): an OriginLacksCargo hold's measured
+        // shortfall not surviving save/load. The evaluator used to hardcode 0.0 for
+        // this kind, which the codec's sparse "> 0.0" rule then omitted - so the
+        // number was invisible in the save as well as in the UI. With the gate's
+        // amount threaded through, the key must be written AND read back exactly.
+        [Fact]
+        public void RoundTrip_OriginLacksCargoShortfall_Persists()
+        {
+            var stop = new RouteStop
+            {
+                Endpoint = BuildMunStopEndpoint(),
+                ConnectionKind = RouteConnectionKind.DockingPort,
+                DeliveryManifest = new Dictionary<string, double> { { "LiquidFuel", 100.0 } },
+                SegmentIndexBefore = 0,
+                DeliveryOffsetSeconds = 0.0
+            };
+            var route = new RouteFixtureBuilder()
+                .WithId("cargo-hold-route")
+                .WithOrigin(BuildKscOrigin())
+                .WithStop(stop)
+                .WithLastHold(
+                    RouteDispatchEvaluator.EligibilityFailureKind.OriginLacksCargo,
+                    "source:90564594:B:LiquidFuel", 108.79999999999706, 257000.0)
+                .Build();
+
+            var node = new ConfigNode("ROUTE");
+            route.SerializeInto(node);
+
+            Assert.True(node.HasValue("lastHoldShortfall"),
+                "a measured cargo shortfall must be written (the sparse rule only drops 0)");
+
+            Route roundTripped = Route.DeserializeFrom(node);
+
+            Assert.NotNull(roundTripped);
+            Assert.Equal(
+                RouteDispatchEvaluator.EligibilityFailureKind.OriginLacksCargo,
+                roundTripped.LastHoldKind);
+            Assert.Equal("source:90564594:B:LiquidFuel", roundTripped.LastHoldDetail);
+            Assert.Equal(108.79999999999706, roundTripped.LastHoldShortfall);
+            Assert.Equal(257000.0, roundTripped.LastHoldUT);
+        }
+
         // catches (M6 hold reasons): a never-held route writing any of the four
         // sparse lastHold* keys (save bloat on every healthy route).
         [Fact]

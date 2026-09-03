@@ -88,6 +88,16 @@ The `VesselOrbital` constraint's period (and phase reference) derives, per loop-
    existing vessel always carries an orbit). Read T_station and the phase reference from
    its CURRENT orbit. The live station is where the approach will visually land, so the
    live orbit is the alignment truth.
+   **"Carries an orbit" is not "carries a phase reference."** A LANDED / SPLASHED /
+   PRELAUNCH vessel keeps a stock pseudo-orbit - an extreme-eccentricity ellipse
+   (e ~0.9948) whose period is a finite few hundred seconds and drifts while the craft
+   settles - which passes both the `ecc >= 1` and the degenerate-period filters. A
+   surface vessel is therefore rejected as an anchor BEFORE its orbit is read, via the
+   pure `MissionPeriodicity.IsPhaseAnchorEligible(landedOrSplashed, situation)`; the
+   classifier then takes its existing `UnsupportedRendezvous` reject and the mission
+   keeps its built cadence. This mirrors the periodicity design's "a surface-only /
+   atmospheric-only config imposes NO phase constraint" rule on the live-anchor side
+   (PERIODICITY-LANDED-ANCHOR-PHASE-LOCK, 2026-09-03).
 2. **Identity resolution (corrected by the 2026-06-11 playtest)**: the recorder
    deliberately ZEROES the section's `anchorVesselId` whenever it stamps an
    `anchorRecordingId` (FlightRecorder serialization checkpoints), so the
@@ -303,6 +313,9 @@ Still rejected (fail closed, reason string preserved):
 - Two or more DISTINCT vessel anchors in one window (multi-rendezvous tours).
 - Cross-parent vessel anchors (station around the destination body): Tier 2.
 - Unresolvable anchors (section 3.2 case 3) and non-closed anchor orbits.
+- LANDED / SPLASHED / PRELAUNCH anchors (section 3.2): a surface pseudo-orbit is not a
+  phase reference, so the seam refuses it and the reject reason is the same
+  "not in save / no closed orbit" string.
 
 ### 5.3 Solving and tolerance
 

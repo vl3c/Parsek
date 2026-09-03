@@ -4183,10 +4183,16 @@ namespace Parsek
 
             if (ShouldSkipCommittedTreeRestoreForFreshLaunch(activeVesselPid, freshRolloutVesselPid))
             {
-                ParsekLog.Info("Flight",
+                // Standing condition, not an event: the per-frame Update retry re-reaches
+                // this branch for the life of the scene (111 identical Info lines in one
+                // collected session). Per the batch-counting convention it belongs on the
+                // rate-limited channel with a per-pid key - the pid identity matters, so
+                // one line per fresh-rollout vessel rather than one shared key.
+                ParsekLog.VerboseRateLimited("Flight",
+                    "fresh-rollout-skip-" + activeVesselPid,
                     $"TryRestoreCommittedTreeForSpawnedActiveVessel: skipping fresh-rollout " +
                     $"vessel '{activeVessel.vesselName}' pid={activeVesselPid} " +
-                    "(matches captured scene-entry pid) — new mission gets its own tree");
+                    "(matches captured scene-entry pid) - new mission gets its own tree");
                 return false;
             }
 

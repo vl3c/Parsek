@@ -34,6 +34,12 @@ namespace Parsek.Tests.Logistics
             public Func<RouteEndpoint, (bool Ok, string Reason)> EndpointResolver { get; set; }
             public bool OriginHasCargoResult { get; set; } = true;
             public string OriginLackingResource { get; set; } = "LiquidFuel";
+            /// <summary>
+            /// Missing AMOUNT reported alongside <see cref="OriginLackingResource"/>
+            /// on a short (the OriginHasCargo shortfall out-param). Default 0 keeps
+            /// the pre-shortfall cells byte-identical.
+            /// </summary>
+            public double OriginCargoShortfall { get; set; } = 0.0;
             public bool KscFundsAvailableResult { get; set; } = true;
             public double KscFundsShortfall { get; set; } = 0.0;
             public bool DestinationHasCapacityResult { get; set; } = true;
@@ -64,9 +70,10 @@ namespace Parsek.Tests.Logistics
                 return TryResolveEndpoint(endpoint, out reason);
             }
 
-            public bool OriginHasCargo(Route route, out string lackingResource)
+            public bool OriginHasCargo(Route route, out string lackingResource, out double shortfall)
             {
                 lackingResource = OriginHasCargoResult ? string.Empty : OriginLackingResource;
+                shortfall = OriginHasCargoResult ? 0.0 : OriginCargoShortfall;
                 return OriginHasCargoResult;
             }
 
@@ -331,6 +338,49 @@ namespace Parsek.Tests.Logistics
             Assert.Contains("LiquidFuel", decision.Reason);
         }
 
+        // catches (ROUTE-HOLD-SHORTFALL-DROPPED): the env's measured shortfall being
+        // dropped on the floor between the cargo gate and the EligibilityResult. The
+        // token is a legibility string that must never be parsed for a magnitude, so
+        // this field is the ONLY channel the number has; a 0 here is what made a
+        // partially-short source render as "out of X".
+        [Fact]
+        public void CheckEligibility_OriginCargoShort_ThreadsEnvShortfall()
+        {
+            var route = MakeDueRoute();
+            var env = new FakeRouteRuntimeEnvironment
+            {
+                OriginHasCargoResult = false,
+                OriginLackingResource = "source:90564594:B:LiquidFuel",
+                OriginCargoShortfall = 108.79999999999706,
+            };
+
+            var elig = RouteDispatchEvaluator.CheckEligibility(route, 200.0, env);
+
+            Assert.False(elig.Eligible);
+            Assert.Equal(RouteDispatchEvaluator.EligibilityFailureKind.OriginLacksCargo, elig.Kind);
+            Assert.Equal("source:90564594:B:LiquidFuel", elig.Reason);
+            Assert.Equal(108.79999999999706, elig.Shortfall);
+        }
+
+        // catches: an eligible route (or an inventory / unresolved-endpoint short, which
+        // reports the "unknown" 0) picking up a stale non-zero shortfall.
+        [Fact]
+        public void CheckEligibility_OriginCargoShort_UnknownShortfallStaysZero()
+        {
+            var route = MakeDueRoute();
+            var env = new FakeRouteRuntimeEnvironment
+            {
+                OriginHasCargoResult = false,
+                OriginLackingResource = "inventory:someStoredPart",
+            };
+
+            var elig = RouteDispatchEvaluator.CheckEligibility(route, 200.0, env);
+
+            Assert.False(elig.Eligible);
+            Assert.Equal(RouteDispatchEvaluator.EligibilityFailureKind.OriginLacksCargo, elig.Kind);
+            Assert.Equal(0.0, elig.Shortfall);
+        }
+
         // catches: a Career KSC route dispatching despite insufficient funds.
         [Fact]
         public void WaitFunds_OnlyInCareer()
@@ -480,9 +530,10 @@ namespace Parsek.Tests.Logistics
                 return TryResolveEndpoint(endpoint, out reason);
             }
 
-            public bool OriginHasCargo(Route route, out string lackingResource)
+            public bool OriginHasCargo(Route route, out string lackingResource, out double shortfall)
             {
                 lackingResource = string.Empty;
+                shortfall = 0.0;
                 return true;
             }
 
@@ -535,13 +586,13 @@ namespace Parsek.Tests.Logistics
                 return TryResolveEndpoint(endpoint, out reason);
             }
 
-            public bool OriginHasCargo(Route route, out string lackingResource)
+            public bool OriginHasCargo(Route route, out string lackingResource, out double shortfall)
             {
                 return RouteOriginCargoCheck.HasRequired(
                     route.CostManifest,
                     name => Stored.TryGetValue(name, out double v) ? v : 0.0,
                     out lackingResource,
-                    out _);
+                    out shortfall);
             }
 
             public bool KscFundsAvailable(Route route, out double shortfall)
@@ -587,6 +638,11 @@ namespace Parsek.Tests.Logistics
             Assert.False(elig.Eligible);
             Assert.Equal(RouteDispatchEvaluator.EligibilityFailureKind.OriginLacksCargo, elig.Kind);
             Assert.Equal("LiquidFuel", elig.Reason);
+            // ROUTE-HOLD-SHORTFALL-DROPPED: the MISSING AMOUNT rides in the same
+            // EligibilityResult field FundsShort uses (need 100 - stored 40 = 60).
+            // Before the fix the evaluator hardcoded 0.0 here and the player text
+            // said "out of LiquidFuel" for a source holding 40% of the manifest.
+            Assert.Equal(60.0, elig.Shortfall);
 
             var decision = RouteDispatchEvaluator.EvaluateRoute(route, 200.0, env);
             Assert.Equal(RouteDispatchOutcome.WaitResources, decision.Outcome);
