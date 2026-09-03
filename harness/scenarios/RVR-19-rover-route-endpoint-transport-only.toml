@@ -242,7 +242,7 @@ steps = [
 ]
 
 [dimensionsCovered]
-# NO D10 CLAIM, for RVR-18's reasons: no registry value names endpoint RESOLUTION, and
+# NO D10 CLAIM FOR ENDPOINT RESOLUTION, for RVR-18's reasons: no registry value names it, and
 # adding one is a registry decision taken on its own merits rather than to fit a lane. If
 # an `endpoint-transfer` value is ever added it is declared by BOTH this lane and RVR-18
 # or by neither - the transfer and its refusal are two sides of one contract, and a value
@@ -399,8 +399,9 @@ branchPoints   = { Dock = { min = 1, max = 1 }, Undock = { min = 1, max = 1 } }
 [expectations.routes]
 # REPORT-ONLY and DERIVED. Arming is a separate operator decision taken after a
 # report-only reading run whose facets match, with its own `ARMED_ALLOWLIST` entry in
-# `harness/lib/test_hlib.py`; this lane has never been flown, so arming it now would gate
-# on a prediction.
+# `harness/lib/test_hlib.py`. The reading run now exists (`2026-09-03_2154`) and every facet
+# matched, so arming is available to the operator - it is deliberately not taken here, as on
+# RVR-18.
 #
 # `completedCycles = 0` is the BYTES-side statement of the whole lane: not one cycle
 # dispatched. `skippedCycles` was authored as a `{min=1,max=2}` window because the second

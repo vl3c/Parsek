@@ -3119,15 +3119,17 @@ gated behind the ROUTE-ORIGIN-PROOF-PRODUCER-UNREACHABLE probe (todo) before any
     vessel the route rebinds to the visitor and follows it away after undock; no committed
     fixture reaches it, which is why neither lane below measures it).
 
-    **THE MATRIX FOLLOWED THE RULING ON 2026-09-04, AND NEITHER LANE HAS FLOWN IN ITS
-    NEW SHAPE.** RVR-18 was RE-AUTHORED against the transfer (its 2026-09-03 census is
+    **THE MATRIX FOLLOWED THE RULING ON 2026-09-04, AND BOTH LANES HAVE SINCE FLOWN GREEN
+    IN THEIR NEW SHAPE** (RVR-18 run `2026-09-03_2153`, 65 s; RVR-19 run `2026-09-03_2154`,
+    49 s; both PASS attempt 1 on DLL `2414aa3a3d32d7b7`, a clean build of `main` at
+    `d723cf419`). RVR-18 was RE-AUTHORED against the transfer (its 2026-09-03 census is
     kept verbatim in the spec header, because that census is what the ruling was
     decided on) and a fourth lane, RVR-19, was added as the guard for the refusal.
     Both are pinned from the SHIPPED concatenations rather than predicted - the C#
     author supplied `RouteEndpointTransfer.FormatTransferLine`'s literal rendering and
-    the two-line proximity refusal - and both are unsatisfiable on `origin/main` by
-    construction, which is the intended reading: they red until the automation DLL
-    carries the change. **THE ONE THING THAT HAD TO BE CHECKED BEFORE PINNING**, and
+    the two-line proximity refusal - and both were unsatisfiable on a PRE-#1627 build by
+    construction, which is the intended reading: they red on a stale automation DLL
+    rather than quietly re-measuring the old behaviour. **THE ONE THING THAT HAD TO BE CHECKED BEFORE PINNING**, and
     the C# author flagged it: the exclusion identifies the transport
     `VesselLaunchIdentity`-style, guid first. This fixture's two `[root..dock]` source
     recordings carry `recordedVesselGuid = 3edd6bc7967c4e2ca0feb9138d116b6d`, which is

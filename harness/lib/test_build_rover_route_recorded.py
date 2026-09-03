@@ -49,6 +49,7 @@ from __future__ import annotations
 import importlib.util
 import math
 import os
+import re
 import sys
 import tomllib
 import unittest
@@ -290,9 +291,10 @@ class RoverRouteSpecFixtureSyncTests(unittest.TestCase):
     # RVR-16, RVR-18 and RVR-19 are the ENDPOINT MATRIX over this fixture: same
     # payload, same driver, a different LIVE FLIGHTSTATE declared per lane through
     # `[[fixture.liveState]]`. Their numbers are re-derived from these bytes by
-    # `RoverRouteEndpointMatrixTests` below. RVR-16 and RVR-18 flew on 2026-09-03;
-    # RVR-19 was authored 2026-09-04 for the endpoint-transfer ruling (with RVR-18
-    # re-authored against it in the same commit) and has never flown.
+    # `RoverRouteEndpointMatrixTests` below. RVR-16 flew on 2026-09-03; RVR-18 was
+    # re-authored 2026-09-04 for the endpoint-transfer ruling and RVR-19 authored for
+    # it in the same commit, and both flew green against the merged ruling (runs
+    # `2026-09-03_2153` / `_2154` on DLL `2414aa3a3d32d7b7`).
     SPECS = ("RVR-1-rover-route-proof.toml",
              "RVR-2-rover-route-create.toml",
              "RVR-3-route-lifecycle.toml",
@@ -391,8 +393,9 @@ class RoverRouteEndpointMatrixTests(unittest.TestCase):
     destination vessel is gone but another stands within 500 m, the route
     TRANSFERS its persisted stop onto that vessel - never onto its own transport,
     and with no other candidate the `EndpointLost` hold stays. RVR-18 is the
-    transfer, RVR-19 the refusal; neither has flown in that shape, so the cells
-    below are the only mechanical check on their pins until the first census."""
+    transfer, RVR-19 the refusal; both flew green against the merged ruling on
+    2026-09-03 (`_2153` / `_2154`), and the cells below are the mechanical check
+    that keeps their pins tied to the bytes between flights."""
 
     RVR16 = "RVR-16-rover-route-destination-slots-full.toml"
     RVR18 = "RVR-18-rover-route-endpoint-removed.toml"
@@ -774,6 +777,36 @@ class RoverRouteEndpointMatrixTests(unittest.TestCase):
                       "correct build")
         self.assertIn("pid=%s" % self.SUBSTITUTE_PID, required)
 
+    def test_rvr18s_root_part_pin_is_the_transfer_targets_own_root_part_uid(self):
+        """THE LITERAL THE RE-FLIGHT PINNED, tied back to the bytes. Cycle 1's
+        `Endpoint resolved: step=root-part rootPartUId=<uid>` names the root part
+        flightID the rebind stamped from the RESOLVED vessel, so the number in the
+        token must be `A`'s own root part `uid` in the committed FLIGHTSTATE: the
+        VESSEL node's `root` index into its PART list, and that PART's `uid`. A
+        re-harvest that rebuilt `A` reds here rather than on a night flight, and a
+        token naming some other vessel's root would be pinning a transfer onto the
+        wrong craft - so the transport's root is asserted DIFFERENT as well."""
+        required = self.spec[self.RVR18]["expectations"]["logContracts"]["required"]
+        carriers = [t for t in required if "rootPartUId=" in t]
+        self.assertEqual(1, len(carriers), carriers)
+        match = re.search(r"rootPartUId=([0-9]+)", carriers[0])
+        self.assertIsNotNone(match, carriers[0])
+        pinned = match.group(1)
+
+        def root_uid(pid):
+            _name, span = self._vessel(pid)
+            root = int(savepatch.get_value(self.lines, span, "root"))
+            parts = savepatch.child_nodes(self.lines, span, "PART")
+            self.assertLess(root, len(parts), pid)
+            return savepatch.get_value(self.lines, parts[root], "uid")
+
+        self.assertEqual(root_uid(self.SUBSTITUTE_PID), pinned,
+                         "RVR-18 pins rootPartUId=%s but A's root part uid in the "
+                         "fixture is %s" % (pinned, root_uid(self.SUBSTITUTE_PID)))
+        self.assertNotEqual(root_uid(self.TRANSPORT_PID), pinned,
+                            "the pinned root is the TRANSPORT's - the token would "
+                            "be green on a transfer onto the route's own carrier")
+
     def test_rvr18s_routes_facet_reads_the_transfer_target(self):
         """The BYTES-side witness, and the one reading that flips with the ruling.
         The 2026-09-03 census measured `destinationVesselPids: ['2123618197']` -
@@ -1062,8 +1095,8 @@ class RoverRouteEndpointMatrixTests(unittest.TestCase):
         operator decision taken after a report-only run whose facets match, with
         its own `ARMED_ALLOWLIST` entry - and `test_hlib` reds if one is armed
         without it. This cell keeps the intent visible in the lane's own file.
-        It matters more for the two ruling lanes than for RVR-16: neither has
-        flown in its current shape, so arming would gate on a prediction.
+        All three have now flown green in their current shape, so arming is
+        AVAILABLE to the operator; it is deliberately not taken in a harness PR.
 
         PARSED, not text-scanned: the headers use the word "gating" in prose to
         say they are NOT armed, and a substring scan would read that as the
