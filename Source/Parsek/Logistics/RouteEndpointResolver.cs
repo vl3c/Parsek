@@ -15,6 +15,15 @@ namespace Parsek.Logistics
     /// (<see cref="TrySurfaceFallbackPure"/>) that takes a flat list of
     /// <see cref="SurfaceVesselSnapshot"/> records so xUnit can exercise the
     /// branch without constructing live <c>Vessel</c> instances.
+    ///
+    /// <para>THE PROXIMITY STEP IS A TRANSFER, NOT A SUBSTITUTION (operator ruling
+    /// 2026-09-04). When it lands on a vessel other than the recorded one, the persisted
+    /// endpoint is REBOUND to it by <see cref="RouteEndpointTransfer"/> - so the next cycle
+    /// resolves it by identity, the save names the new vessel, and the player is told once -
+    /// and the owning route's own TRANSPORT is excluded from the candidate set, because a
+    /// route's carrier parked back at the dock is routinely the nearest surface vessel to the
+    /// recorded coordinates. Both need to know which route owns the endpoint, which is why
+    /// that lookup happens on this step and nowhere earlier.</para>
     /// </summary>
     internal static class RouteEndpointResolver
     {
@@ -118,6 +127,13 @@ namespace Parsek.Logistics
         internal struct SurfaceVesselSnapshot
         {
             public uint PersistentId;
+            /// <summary>
+            /// KSP's per-launch <c>Vessel.id</c> guid, normalized, when it can be read;
+            /// null/empty means unknown. Only the transport exclusion reads it, and an unknown
+            /// guid there means "no evidence", never "a different launch" (the
+            /// <see cref="VesselLaunchIdentity"/> contract).
+            /// </summary>
+            public string LaunchGuid;
             public string BodyName;
             public Vessel.Situations Situation;
             /// <summary>World-space position used for distance comparison.</summary>
@@ -255,20 +271,56 @@ namespace Parsek.Logistics
                 List<SurfaceVesselSnapshot> snapshots = BuildSurfaceSnapshots(
                     FlightGlobals.Vessels, endpoint.BodyName);
 
+                // THE ROUTE CONTEXT, resolved only on this step. Two things need it and
+                // nothing earlier does: the TRANSPORT EXCLUSION (a route must never pay or
+                // load from its own carrier, measured as the runner-up at 16.42 m by RVR-18),
+                // and the REBIND that turns a positional substitution into a persisted
+                // transfer. The resolver is handed a copy of the endpoint struct, so the way
+                // back to the persisted field is a value match over the committed routes.
+                List<RouteEndpointTransfer.EndpointOwner> owners =
+                    RouteEndpointTransfer.FindOwnersLive(endpoint);
+                List<RouteEndpointTransfer.VesselIdentity> transports =
+                    RouteEndpointTransfer.CollectTransportIdentitiesLive(owners);
+
                 bool resolved = TrySurfaceFallbackPure(
                     endpointWorldPos,
                     endpoint.BodyName,
                     snapshots,
                     GhostMapPresence.ghostMapVesselPids,
+                    transports,
                     RouteOrchestrator.SurfaceProximityRadiusMeters,
                     out vessel,
                     out uint proximityPid,
+                    out double proximityDistance,
+                    out int transportsSkipped,
                     out reason);
+                if (transportsSkipped > 0)
+                {
+                    ParsekLog.Verbose("Logistics",
+                        "Endpoint proximity transport excluded: skipped="
+                        + transportsSkipped.ToString(CultureInfo.InvariantCulture)
+                        + " reason=route-own-transport"
+                        + " body=" + endpoint.BodyName);
+                }
                 ParsekLog.Verbose("Logistics",
                     "Endpoint proximity step: resolved=" + (resolved ? "1" : "0")
                     + " pid=" + proximityPid.ToString(CultureInfo.InvariantCulture)
                     + " reason=" + (string.IsNullOrEmpty(reason) ? "-" : reason)
                     + " body=" + endpoint.BodyName);
+                if (resolved)
+                {
+                    RouteEndpointTransfer.ApplyTransfers(
+                        owners,
+                        endpoint,
+                        proximityPid,
+                        RouteEndpointTransfer.TryReadLaunchGuid(vessel),
+                        vessel != null ? vessel.vesselName : null,
+                        ResolveRootPartFlightId(vessel),
+                        EndpointResolutionStep.SurfaceProximity,
+                        proximityDistance,
+                        true,
+                        ReadUniversalTime());
+                }
                 return resolved;
             }
 
@@ -298,8 +350,47 @@ namespace Parsek.Logistics
             out uint pickedPid,
             out string reason)
         {
+            return TrySurfaceFallbackPure(
+                endpointWorldPos, bodyName, liveSnapshots, excludePids,
+                null, radiusMeters,
+                out vessel, out pickedPid, out _, out _, out reason);
+        }
+
+        /// <summary>
+        /// The full surface-fallback search: the overload above plus the ROUTE-OWN-TRANSPORT
+        /// exclusion and the two diagnostics the transfer path needs.
+        ///
+        /// <para><paramref name="excludeTransports"/> carries the identities of the owning
+        /// route's transports (guid-first, pid-fallback via
+        /// <see cref="RouteEndpointTransfer.IsRouteTransport"/>). A route's own carrier parked
+        /// back at the dock is routinely the NEAREST surface vessel to the recorded
+        /// coordinates, so without this the "the depot was rebuilt here" branch would hand the
+        /// route's cargo to the route itself. Excluded candidates are counted in
+        /// <paramref name="transportCandidatesSkipped"/> so the caller can log them, and when
+        /// an exclusion is the reason nothing was found the miss carries its own token
+        /// (<c>no-candidate-after-transport-exclusion</c>) rather than the generic one.</para>
+        ///
+        /// <para><paramref name="pickedDistanceMeters"/> is the winning candidate's distance
+        /// (0 on every miss path), reported so the transfer log names how far the substitute
+        /// stood from the recorded dock point.</para>
+        /// </summary>
+        internal static bool TrySurfaceFallbackPure(
+            Vector3d endpointWorldPos,
+            string bodyName,
+            IReadOnlyList<SurfaceVesselSnapshot> liveSnapshots,
+            HashSet<uint> excludePids,
+            IReadOnlyList<RouteEndpointTransfer.VesselIdentity> excludeTransports,
+            double radiusMeters,
+            out Vessel vessel,
+            out uint pickedPid,
+            out double pickedDistanceMeters,
+            out int transportCandidatesSkipped,
+            out string reason)
+        {
             vessel = null;
             pickedPid = 0u;
+            pickedDistanceMeters = 0.0;
+            transportCandidatesSkipped = 0;
             reason = string.Empty;
 
             if (liveSnapshots == null || liveSnapshots.Count == 0)
@@ -326,6 +417,14 @@ namespace Parsek.Logistics
                 if (excludePids != null && excludePids.Contains(snap.PersistentId))
                     continue;
 
+                // Exclude the route's own transport (operator ruling 2026-09-04).
+                if (RouteEndpointTransfer.IsRouteTransport(
+                        snap.PersistentId, snap.LaunchGuid, excludeTransports, out _))
+                {
+                    transportCandidatesSkipped++;
+                    continue;
+                }
+
                 double dist = (snap.WorldPosition - endpointWorldPos).magnitude;
                 if (dist < bestDist)
                 {
@@ -336,7 +435,9 @@ namespace Parsek.Logistics
 
             if (bestIdx < 0)
             {
-                reason = "no-surface-candidate";
+                reason = transportCandidatesSkipped > 0
+                    ? "no-candidate-after-transport-exclusion"
+                    : "no-surface-candidate";
                 return false;
             }
             if (bestDist > radiusMeters)
@@ -347,6 +448,7 @@ namespace Parsek.Logistics
 
             vessel = liveSnapshots[bestIdx].Vessel;
             pickedPid = liveSnapshots[bestIdx].PersistentId;
+            pickedDistanceMeters = bestDist;
             return true;
         }
 
@@ -441,8 +543,15 @@ namespace Parsek.Logistics
             return snapshots;
         }
 
-        private static uint ResolveRootPartFlightId(Vessel v)
+        /// <summary>
+        /// The vessel's ROOT part flightID: live part first, proto snapshot second, 0 when
+        /// neither can supply one. Internal because the transfer path stamps it onto a rebound
+        /// endpoint (a flightID is launch-unique where a persistentId is craft-baked, so the
+        /// next cycle resolves at the root-part step instead of walking to proximity again).
+        /// </summary>
+        internal static uint ResolveRootPartFlightId(Vessel v)
         {
+            if (v == null) return 0u;
             try
             {
                 if (v.rootPart != null)
@@ -484,6 +593,7 @@ namespace Parsek.Logistics
                 snapshots.Add(new SurfaceVesselSnapshot
                 {
                     PersistentId = v.persistentId,
+                    LaunchGuid = RouteEndpointTransfer.TryReadLaunchGuid(v),
                     BodyName = v.mainBody.bodyName,
                     Situation = v.situation,
                     WorldPosition = v.GetWorldPos3D(),
@@ -520,6 +630,23 @@ namespace Parsek.Logistics
                 // surface as a benign endpoint-miss rather than a hard crash.
             }
             return null;
+        }
+
+        /// <summary>
+        /// Current UT for the transfer log line. Defensive for the same reason the probes
+        /// above are: a resolution can run while <c>Planetarium</c> is mid-teardown, and a
+        /// missing timestamp must not cost the rebind.
+        /// </summary>
+        private static double ReadUniversalTime()
+        {
+            try
+            {
+                return Planetarium.GetUniversalTime();
+            }
+            catch
+            {
+                return 0.0;
+            }
         }
 
         private static CelestialBody ResolveBodyByName(string bodyName)

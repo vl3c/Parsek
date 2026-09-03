@@ -1731,7 +1731,40 @@ pure function over one proof plus two snapshots, and reaching a sibling recordin
 tree traversal and chain resolution into it. Do it as its own pass, with the traversal placed
 on the live side (`ParsekFlight`) and only the DECISION handed to `RouteProofCapture`.
 
-## ROUTE-DELIVERY-PROXIMITY-RETARGETS-ANY-NEARBY-VESSEL: when the recorded destination no longer exists, the endpoint resolver's 500 m surface search accepts whatever craft is parked there - and the route delivered a full manifest into the player's own active-scene rover [MEASURED 2026-09-03 by the RVR-18 census `2026-09-03_2011` (PASS - the lane is a CHARACTERIZATION, so the measurement is its product). OBSERVATION AND A DESIGN QUESTION FOR THE OPERATOR, not a defect ruling and not fixed]
+## ~~ROUTE-DELIVERY-PROXIMITY-RETARGETS-ANY-NEARBY-VESSEL: when the recorded destination no longer exists, the endpoint resolver's 500 m surface search accepts whatever craft is parked there - and the route delivered a full manifest into the player's own active-scene rover~~ [MEASURED 2026-09-03 by the RVR-18 census `2026-09-03_2011`. RULED 2026-09-04 and FIXED - the substitution is now a persisted, announced TRANSFER, with the route's own transport excluded]
+
+**RULED (operator, 2026-09-04): "if the destination vessel is no longer there, but there
+is another vessel within 500 m, transfer the route to that endpoint."** So the permissive
+side of the question below was taken - delivering to a craft standing at the recorded dock
+spot IS the intended "the base was rebuilt here" behaviour - but the two things that made
+it worth a ruling are closed rather than accepted:
+
+  * **It is no longer invisible.** `RouteEndpointResolver` now REBINDS the persisted
+    endpoint to the resolved vessel (`RouteEndpointTransfer.ApplyTransfers`): the stop's
+    `VesselPersistentId` becomes the new pid and its `RootPartUId` the new vessel's root
+    part `flightID`, so the next cycle resolves at the launch-unique root-part step rather
+    than re-searching by position, the produced save names the new vessel, and the
+    Logistics window shows its name. The recorded dock coordinates stay put as the
+    historical anchor the radius is measured from. One grep-stable `Route endpoint
+    transferred: ...` Info line and ONE screen message per transfer; it cannot repeat,
+    because the binding moved. Same rule, same code, for a pickup source and for
+    `Route.Origin` - the ruling is about endpoints, not about deliveries.
+  * **The transport can no longer be paid.** The route's own carrier (its `SourceRefs`
+    recordings' pid + `RecordedVesselGuid`, compared `VesselLaunchIdentity`-style through
+    the ERS) is excluded from the proximity candidate set, so the measured runner-up at
+    16.42 m is never a candidate. When the exclusion empties the set the route holds
+    `EndpointLost` on its own token, `no-candidate-after-transport-exclusion`.
+
+Untouched: the RADIUS (still 500 m), the step ORDER, and the "same depot that drifted a
+few metres" case, which resolves to the same pid and is explicitly a Keep. Still open and
+still owning its own half: `RESOLVER-PID-STEP-NOT-GUID-GATED` below - a `RouteEndpoint`
+carries no launch guid, so the pid step landing on a different LAUNCH of the same craft
+file is undetectable; `RouteEndpointTransfer.Evaluate` has that arm and unit-tests it, but
+nothing in production can feed it yet. Pure decisions + the transport guard are covered by
+`RouteEndpointTransferTests`; the flight-side proof is the re-authored `RVR-18` plus the
+new transport-only-candidate lane.
+
+The measurement that produced the ruling is kept below verbatim.
 
 **WHAT WAS MEASURED.** `RVR-18-rover-route-endpoint-removed` deletes the delivery
 endpoint from FLIGHTSTATE before the game boots (`liveState patched pid=2123618197
