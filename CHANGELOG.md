@@ -10,6 +10,22 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **If the craft a supply route delivered to is gone but another craft stands where it
+  was, the route now moves to that craft and tells you once.** Parsek already handled the
+  rebuilt-base case by looking for a craft within 500 m of the recorded dock spot - but it
+  did so silently and forgot again immediately: the route still named the craft that no
+  longer existed, so it went looking every single cycle and nothing you could see ever said
+  where the cargo had actually gone. The route now TRANSFERS: the stop is rebound to the
+  craft it found, a one-off message names it ("Supply route Mun Run: Mun Base not found,
+  now delivering to Mun Base II"), and from then on the route simply delivers there - the
+  Logistics window shows the new craft's name like any other destination. The same applies
+  to a craft a route LOADS from, which then takes its cargo from the craft standing in the
+  old one's place. Two things it will not do: it never transfers onto the route's own
+  transport parked back at the dock (a route cannot deliver to itself), and if the only
+  craft nearby IS that transport, the route holds exactly as it did before. A route whose
+  destination merely drifted a few metres is untouched, and nothing changes for a route
+  whose destination is still there.
+
 - **A held supply route now tells you HOW MUCH fuel is missing instead of claiming the
   depot is empty.** A pickup source that holds part of what a run needs held the route
   with "B is out of LiquidFuel", which read as an empty tank when B was sitting on 45 of
