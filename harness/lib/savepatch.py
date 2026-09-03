@@ -568,6 +568,14 @@ def _set_resource(lines: List[str], vessel: Tuple[int, int], vessel_name: str,
         raise LiveStatePatchError(
             "liveState: vessel %r's %s RESOURCE has an unparseable maxAmount %r"
             % (vessel_name, resource, raw_max))
+    # Mirror of the validator's `>= 0` shape check, kept HERE as well because
+    # the applier is also reachable without `validate_spec` in front of it (the
+    # builder, a direct caller) and a negative `amount =` is a save KSP never
+    # writes; both ends of the range are refused by the same function.
+    if float(amount) < 0:
+        raise LiveStatePatchError(
+            "liveState: vessel %r's %s = %s is negative - a spec error, not a "
+            "clamp" % (vessel_name, resource, format_amount(amount)))
     if float(amount) > max_amount:
         raise LiveStatePatchError(
             "liveState: vessel %r's %s = %s exceeds maxAmount %s - a spec error, "

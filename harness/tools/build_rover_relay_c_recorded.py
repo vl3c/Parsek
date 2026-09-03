@@ -1016,8 +1016,8 @@ def repair_start_of_cycle_endpoints(lines: List[str]) -> Tuple[List[str], List[s
         # mode cannot disagree about where a snapshot item lands. Its faults are
         # LiveStatePatchError; this tool's contract is a clean SystemExit, so
         # they are re-raised as one rather than surfacing as a traceback.
-        stored = _window_dock_endpoint_stored_parts(out, window)
         try:
+            stored = _window_dock_endpoint_stored_parts(out, window)
             placement = savepatch.plan_container_entries(
                 stored, CRAFT_AUTHORED_INVENTORY_LAYOUT,
                 "window %d's DOCK_ENDPOINT_INVENTORY" % window_index)
@@ -1030,7 +1030,11 @@ def repair_start_of_cycle_endpoints(lines: List[str]) -> Tuple[List[str], List[s
         # Bottom-up again, for the same span reason.
         modules = list(enumerate(_inventory_modules(out, record["span"])))
         for container_index, module in reversed(modules):
-            out = _rewrite_container(out, module, placement.get(container_index, []))
+            try:
+                out = _rewrite_container(out, module,
+                                         placement.get(container_index, []))
+            except savepatch.LiveStatePatchError as ex:
+                raise SystemExit("%s: %s" % (name, ex))
         notes.append("%s inventory -> %d stored part(s) from window %d's dock "
                      "snapshot" % (name, len(stored), window_index))
 

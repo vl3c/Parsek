@@ -218,6 +218,42 @@ class SyntheticResourceTests(unittest.TestCase):
         self.assertIn("exceeds maxAmount", str(ctx.exception))
         self.assertIn("101", str(ctx.exception))
 
+    def test_a_negative_amount_is_refused_by_the_applier_too(self):
+        # The validator already rejects `< 0` at spec time; the applier is also
+        # reachable WITHOUT the validator in front of it (the builder, a direct
+        # caller), and a negative `amount =` is a save KSP never writes.
+        with self.assertRaises(savepatch.LiveStatePatchError) as ctx:
+            savepatch.apply_live_state(
+                _SYNTHETIC, [{"pid": 111, "resources": {"LiquidFuel": -1}}])
+        self.assertIn("negative", str(ctx.exception))
+        self.assertIn("-1", str(ctx.exception))
+
+    def test_a_multi_tank_vessel_is_refused_not_split(self):
+        # Two LiquidFuel RESOURCE nodes on one vessel: "LiquidFuel = 20" has two
+        # defensible readings (per tank / across the vessel), so the applier
+        # refuses and names the count rather than picking one.
+        # Anchored on Alpha's own `amount = 50` (Beta's tank reads 10), so the
+        # splice lands on the vessel the entry names.
+        first_tank_end = ("\t\t\t\t\tamount = 50\n"
+                          "\t\t\t\t\tmaxAmount = 100\n\t\t\t\t}\n")
+        second_tank = "\n".join([
+            "\t\t\t\tRESOURCE",
+            "\t\t\t\t{",
+            "\t\t\t\t\tname = LiquidFuel",
+            "\t\t\t\t\tamount = 5",
+            "\t\t\t\t\tmaxAmount = 100",
+            "\t\t\t\t}",
+            "",
+        ])
+        self.assertEqual(1, _SYNTHETIC.count(first_tank_end))
+        two_tanks = _SYNTHETIC.replace(first_tank_end, first_tank_end + second_tank, 1)
+        self.assertNotEqual(_SYNTHETIC, two_tanks, "the second tank was spliced")
+        with self.assertRaises(savepatch.LiveStatePatchError) as ctx:
+            savepatch.apply_live_state(
+                two_tanks, [{"pid": 111, "resources": {"LiquidFuel": 20}}])
+        self.assertIn("2 LiquidFuel RESOURCE node(s)", str(ctx.exception))
+        self.assertIn("Alpha", str(ctx.exception))
+
     def test_exactly_at_max_is_accepted(self):
         after, _ = savepatch.apply_live_state(
             _SYNTHETIC, [{"pid": 111, "resources": {"LiquidFuel": 100}}])

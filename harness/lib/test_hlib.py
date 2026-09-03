@@ -7936,9 +7936,9 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
                        # baseline lane's are gated.
                        #
                        # **DISCIPLINE COMPLETE 2026-09-03, the same day it was armed**,
-                       # both runs on automation DLL sha256 877208524b314e7b (`main`
-                       # a575d64f0, PR #1623 merged): the ARMED RE-FLIGHT
-                       # `2026-09-03_1816` PASS attempt 1 (wall 49 s, `saveParse
+                       # finished on the CLEAN automation DLL sha256 995772453f2339a2
+                       # (`main` a575d64f0, IL-verified guard): the ARMED RE-FLIGHT
+                       # `2026-09-03_1838` PASS attempt 1 (wall 50 s, `saveParse
                        # status=PASS gating=True armed=['routes']`, mismatches 0), and
                        # this lane's OWN NEGATIVE CONTROL - a throwaway copy carrying a
                        # temporary `skippedCycles = { min = 1 }`, flown from a sibling
@@ -7953,10 +7953,16 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
                        # V18T's own recorded reason: that re-proves the shared evaluator,
                        # where this block has a parse, a normalisation and a bucketing
                        # step of its own between the bytes and that evaluator.
+                       # HISTORY: the FIRST armed re-flight `2026-09-03_1816` (PASS,
+                       # wall 49 s, the same saveParse reading) and the negative
+                       # control both flew `877208524b314e7b`, the MUTATED snapshot of
+                       # PR #1624 (the stubbed method is nowhere near this block's
+                       # `routes` evaluator, and `_1838` re-measured the positive
+                       # direction on clean bytes; the control was not re-flown).
                        #
                        # THE ARMING IS ALSO THE MATRIX'S CALIBRATION FLOOR, and that is
                        # now measured rather than intended: the eight RVR-8..RVR-15 lanes
-                       # flew the same afternoon on the same DLL, each declaring this
+                       # flew the same afternoon on the same clean DLL, each declaring this
                        # same block REPORT-ONLY with its own counters, and six of them
                        # read the exact inverse pair (`completedCycles 0` /
                        # `skippedCycles 1`) against this lane's gated `1` / `0`.
