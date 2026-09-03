@@ -818,6 +818,59 @@ class CommittedRoverRouteFixtureTests(unittest.TestCase):
         self.assertNotIn(self.ENDPOINT_PID,
                          [vpid for _n, vpid, _s in after])
 
+    def test_rvr19s_two_removals_leave_only_the_transport_and_keep_the_focus(self):
+        """RVR-19's staging, END TO END on the real bytes: the suite's first
+        TWO-REMOVAL declaration.
+
+        THREE CLAIMS, and each is one the applier could break silently. (1) BOTH
+        deletes are accepted - they sit at indices 9 and 10, strictly after
+        `activeVessel = 7`, and the second entry re-resolves its span from the
+        already-shortened text rather than from a stale one. (2) The FOCUS DOES
+        NOT MOVE: index 7 still names the transport afterwards, which is what
+        makes every token the lane derives a statement about the scene that
+        boots. (3) The transport is then the ONLY surface-classified vessel left
+        - `RouteEndpointResolver.IsSurfaceSituation` admits LANDED / SPLASHED /
+        PRELAUNCH and every survivor but `B` is an ORBITING asteroid - which is
+        the configuration in which the 2026-09-04 transport exclusion is the only
+        thing that can decide the proximity step."""
+        surface = ("LANDED", "SPLASHED", "PRELAUNCH")
+        before = savepatch.flightstate_vessels(_lines(self.text))
+        active = savepatch._active_vessel_index(_lines(self.text))
+        focused = before[active]
+        out, notes = savepatch.apply_live_state(
+            self.text,
+            [{"pid": int(self.ENDPOINT_PID), "remove": True},
+             {"pid": int(self.SUBSTITUTE_PID), "remove": True}],
+            "rover-route-recorded")
+        self.assertEqual(
+            ["pid=%s name=rover fuel 0 removed=1" % self.ENDPOINT_PID,
+             "pid=%s name=A removed=1" % self.SUBSTITUTE_PID],
+            notes)
+        after_lines = _lines(out)
+        after = savepatch.flightstate_vessels(after_lines)
+        self.assertEqual(len(before) - 2, len(after))
+        self.assertEqual(focused[:2], after[active][:2])
+        self.assertEqual(active, savepatch._active_vessel_index(after_lines),
+                         "the activeVessel key itself must be untouched")
+        survivors = [(vpid, name) for name, vpid, span in after
+                     if savepatch.get_value(after_lines, span, "sit") in surface]
+        self.assertEqual([(focused[1], focused[0])], survivors,
+                         "only the transport may survive as a surface candidate; "
+                         "got %r" % (survivors,))
+
+    def test_the_two_removals_apply_in_either_declared_order(self):
+        """Order-independence, stated as an assertion rather than as a comment.
+        Both vessels sit after `activeVessel`, so neither delete can move the
+        other below the guard - and the produced bytes are identical either way,
+        which is what lets a lane declare them in whichever order reads best."""
+        entries = [{"pid": int(self.ENDPOINT_PID), "remove": True},
+                   {"pid": int(self.SUBSTITUTE_PID), "remove": True}]
+        forward, _ = savepatch.apply_live_state(self.text, entries,
+                                                "rover-route-recorded")
+        reverse, _ = savepatch.apply_live_state(self.text, list(reversed(entries)),
+                                                "rover-route-recorded")
+        self.assertEqual(forward, reverse)
+
     def test_removing_a_vessel_does_not_touch_the_parsek_payload(self):
         """The module's whole boundary claim, measured on the one mode that
         deletes rather than rewrites. The recorded window still names the pid it
