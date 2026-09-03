@@ -4944,6 +4944,21 @@ class RemovalAndCareerStageTests(unittest.TestCase):
         self.assertEqual("staging", subkind)
         self.assertIn("activeVessel is 0", self._log())
 
+    def test_removing_an_unknown_pid_terminates_invalid_without_booting(self):
+        """The whole-attempt shape of the refusal: a `remove` naming a pid the
+        save does not carry is INVALID(staging) with KSP never launched, the same
+        contract `LiveStateStageTests` pins for an unsatisfiable `resources`."""
+        rt = FakeRuntime("pass")
+        result = run.run_attempt(
+            self._spec(live_state=[{"pid": 999999, "remove": True}]),
+            self.instance, self.tmp, rt, attempt=1, prior_boot_crashed=False,
+            logger=self.logger)
+        self.assertEqual(hlib.VERDICT_INVALID, result["verdict"])
+        self.assertEqual("staging", result["subkind"])
+        self.assertEqual(0, rt.launch_count,
+                         "a removal of a vessel the save does not carry must never boot KSP")
+        self.assertIn("found 0", self._log())
+
     def test_a_career_seed_reaches_the_staged_save(self):
         ok, name, subkind = run.stage_fixture(
             self._spec(career={"funds": 7409}), self.instance,

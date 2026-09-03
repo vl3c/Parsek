@@ -494,8 +494,8 @@ The destination-slots-full edge is not expressible BY STAGING on
 `rover-relay-c-recorded` (rover A starts with three free slots and one cycle consumes
 at most two), and that limit is a property of THAT fixture rather than of this
 mechanism: on `rover-route-recorded` the destination starts with three free slots and
-one cycle consumes TWO, so RVR-16 reaches the same edge by PLAYING the fixture with a
-single `resources` declaration. The relay-c version of the edge still needs a second
+one cycle consumes ALL THREE (a three-part manifest), so RVR-16 reaches the same edge
+by PLAYING the fixture with a single `resources` declaration. The relay-c version of the edge still needs a second
 harvest; it stays filed in `docs/dev/autotest-roadmap.md` item 15.
 
 ### Recording sidecars: what is committed and what is derived

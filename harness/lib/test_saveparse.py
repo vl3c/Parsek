@@ -2614,8 +2614,11 @@ class CommittedFixtureSweepTests(unittest.TestCase):
         #     (836ca8fa... live vs 0c322ddb... recorded) - the craft-baked-pid
         #     trap, here as a fixture property. `RouteEndpointResolver` resolves
         #     by `FlightGlobals.FindVessel(pid)` with no guid gate and no loaded
-        #     gate, so a driven route's STOP resolves to `rover fuel 0`, 5.4 km
-        #     from the focus and therefore UNLOADED - `path=unloaded`, which IS
+        #     gate, so a driven route's STOP resolves to `rover fuel 0`, ~568 m
+        #     from the focus (inside stock's landed LOAD distance, outside its
+        #     350 m PACK distance; the earlier `5.4 km` reading was wrong, see
+        #     `build_rover_route_recorded.py`) and therefore PACKED -
+        #     `path=unloaded`, which IS
         #     a delivering path (`LiveDeliveryWriters.WriteResourceUnloaded`
         #     writes `ProtoPartResourceSnapshot.amount`).
         #   `terminalStates` SUMS TO 4, NOT 5: the dock member f2fb77ea carries

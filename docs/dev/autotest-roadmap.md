@@ -3125,9 +3125,9 @@ gated behind the ROUTE-ORIGIN-PROOF-PRODUCER-UNREACHABLE probe (todo) before any
       `rover-relay-c-recorded` (rover A starts with three free slots and one cycle
       consumes at most two, so nothing short of INVENTING `STOREDPART` nodes fills
       them) and wrong as a general statement: on `rover-route-recorded` the
-      destination starts with three free slots and ONE CYCLE CONSUMES TWO, so a
+      destination starts with three free slots and ONE CYCLE CONSUMES ALL THREE, so a
       single `resources` declaration that takes the RESOURCE half out of the way
-      leaves the second cycle with one free slot against a two-item manifest. The
+      leaves the second cycle with zero free slots against a three-item manifest. The
       lane stages the tank at 100 / 400 (any value <= 204.8 keeps both cycles'
       resource half fitting), delivers on cycle 0 and blocks cycle 1
       `kind=DestinationFull reason=stored-part:evaChute` - the `FirstShortToken`

@@ -176,10 +176,11 @@ INVENTORY_RESTORE_DOCK_PREFIX = "restore-dock-endpoint:"
 # second harvest) rather than a new string here. It IS expressible on
 # `rover-route-recorded` without any new mode, and the difference is worth
 # stating because it is what stopped a `fill` mode being built: there the
-# destination starts with 3 of 6 slots free and ONE cycle consumes two of them,
-# so a lane that removes the RESOURCE constraint (a plain `resources` entry, the
-# tank staged low) reaches the slot shortfall by PLAYING the fixture rather than
-# by authoring bytes. RVR-16 is that lane.
+# destination starts with 3 of 6 slots free and ONE cycle consumes ALL THREE (the
+# manifest is three stored parts - the window's own endpoint delta, measured by
+# RVR-16's census), so a lane that removes the RESOURCE constraint (a plain
+# `resources` entry, the tank staged low) reaches the slot shortfall by PLAYING
+# the fixture rather than by authoring bytes. RVR-16 is that lane.
 
 
 # ---------------------------------------------------------------------------
