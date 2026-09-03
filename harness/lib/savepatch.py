@@ -140,7 +140,19 @@ ENTRY_KEYS = ("pid", "resources", "inventory", "remove")
 # `RouteEndpointResolver.TryResolveEndpoint` walks root-part -> pid -> SURFACE
 # PROXIMITY, so on a surface endpoint the removal only opens the proximity step,
 # and whether that step misses is a property of what else is parked near the
-# recorded coordinates. On `rover-route-recorded` it does NOT miss (RVR-18).
+# recorded coordinates. On `rover-route-recorded` ONE removal does NOT miss: the
+# fallback finds `A` 1.03 m from the recorded dock point and (since the
+# 2026-09-04 operator ruling) TRANSFERS the route's persisted stop onto it -
+# RVR-18.
+#
+# MORE THAN ONE ENTRY MAY REMOVE, and that is how the miss is authored. RVR-19
+# declares TWO `remove = true` entries to delete every surface vessel except the
+# route's own TRANSPORT, which the ruling forbids transferring onto, so the
+# proximity step finally refuses and the cycle holds `EndpointLost`. Nothing
+# special is needed for the second entry: entries apply in file order and each
+# re-resolves its own span from the already-shortened text, and the
+# `activeVessel` refusal below is re-checked per entry against the index the save
+# still carries (removals strictly AFTER it never move it, in any order).
 REMOVE_KEY = "remove"
 
 # The inventory modes. `keep` is the DEFAULT (an absent key changes nothing), so

@@ -418,7 +418,19 @@ inventory = "clear"                  # and empty both containers
   `RouteEndpointResolver` walks root-part -> pid -> SURFACE PROXIMITY, so on a
   surface endpoint a removal only opens the third step, and whether that step misses
   is a property of what else is parked near the recorded coordinates (on
-  `rover-route-recorded` it does not miss: RVR-18).
+  `rover-route-recorded` ONE removal does not miss: the fallback finds another rover
+  1.03 m from the recorded dock point and, since the 2026-09-04 operator ruling,
+  TRANSFERS the route's persisted stop onto it - RVR-18).
+* **MORE THAN ONE ENTRY MAY REMOVE, and that is how a miss is authored.** Entries
+  apply in file order and each re-resolves its own span from the already-shortened
+  text, so a second deletion is not a special case; the `activeVessel` refusal is
+  re-checked per entry against the index the save still carries, and removals
+  strictly AFTER it never move it in any order. RVR-19 is the first lane to use it:
+  it deletes BOTH other surface vessels so the only candidate left inside the radius
+  is the route's own TRANSPORT, which the ruling forbids transferring onto, and the
+  cycle finally holds `EndpointLost`. The general point, because the roadmap got it
+  wrong once: a reachability claim made about ONE application of a staging mode is
+  not a claim about the mode.
 
 A sibling key covers the one career quantity a route lane's arithmetic runs on:
 

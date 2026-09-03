@@ -3083,7 +3083,7 @@ gated behind the ROUTE-ORIGIN-PROOF-PRODUCER-UNREACHABLE probe (todo) before any
     regression" reasoning is kept in the spec headers as history, because it is what
     made the pins safe to author ahead of the fix.
 
-16. **The FIRST rover fixture's endpoint matrix - RVR-16, RVR-17, RVR-18.**
+16. **The FIRST rover fixture's endpoint matrix - RVR-16, RVR-17, RVR-18, RVR-19.**
     AUTHORED AND FLOWN 2026-09-03, **ALL THREE LIVE-PROVEN**, on the automation DLL
     `995772453f2339a2`: RVR-17 (`_2010`, 50 s) and RVR-18 (`_2011`, 49 s) PASS
     attempt 1, and RVR-16 green on its re-fly (`_2025`, 49 s) after a census
@@ -3101,12 +3101,41 @@ gated behind the ROUTE-ORIGIN-PROOF-PRODUCER-UNREACHABLE probe (todo) before any
     two fixtures are short of DIFFERENT things. Every lane is RVR-2's / RVR-4's
     thirteen-step driver verbatim with a declaration block as the only variable.
 
-    **THE ROUND'S HEADLINE FINDING IS RVR-18's, and it is now a filed design
-    question rather than a lane result**: with the recorded destination deleted, the
-    resolver's 500 m surface search substituted a DIFFERENT craft and the route
-    delivered 97.6 LiquidFuel and three stored parts into it, while the produced
-    save still named the deleted one. `ROUTE-DELIVERY-PROXIMITY-RETARGETS-ANY-NEARBY-VESSEL`
-    in `todo-and-known-bugs.md` asks the operator whether that should fail closed.
+    **THE ROUND'S HEADLINE FINDING WAS RVR-18's, AND IT HAS SINCE BEEN RULED ON**:
+    with the recorded destination deleted, the resolver's 500 m surface search
+    substituted a DIFFERENT craft and the route delivered 97.6 LiquidFuel and three
+    stored parts into it, while the produced save still named the deleted one. That
+    measurement was filed as `ROUTE-DELIVERY-PROXIMITY-RETARGETS-ANY-NEARBY-VESSEL`
+    in `todo-and-known-bugs.md`, and **the operator ruled on 2026-09-04: the route
+    TRANSFERS onto the nearby craft** - `RouteEndpointResolver` REBINDS the persisted
+    `RouteStop.Endpoint` to the resolved vessel (so the produced save's STOP names
+    the new pid), logs one Info line and shows one ScreenMessage, and NEVER transfers
+    onto the route's own transport, matched against the source recordings by guid and
+    then by pid; with no other candidate the existing `EndpointLost` hold stays. The
+    C# change MERGED as PR #1627 (`d723cf419`), which closed that todo entry; its own
+    Fable review found no defects and named one design residue, now filed as
+    `ROUTE-ENDPOINT-TRANSFER-DOCKED-DOMINANT-PARTNER` (a destination stop carries
+    `RootPartUId = 0`, so while a base is docked by a visitor that DOMINATES the merged
+    vessel the route rebinds to the visitor and follows it away after undock; no committed
+    fixture reaches it, which is why neither lane below measures it).
+
+    **THE MATRIX FOLLOWED THE RULING ON 2026-09-04, AND NEITHER LANE HAS FLOWN IN ITS
+    NEW SHAPE.** RVR-18 was RE-AUTHORED against the transfer (its 2026-09-03 census is
+    kept verbatim in the spec header, because that census is what the ruling was
+    decided on) and a fourth lane, RVR-19, was added as the guard for the refusal.
+    Both are pinned from the SHIPPED concatenations rather than predicted - the C#
+    author supplied `RouteEndpointTransfer.FormatTransferLine`'s literal rendering and
+    the two-line proximity refusal - and both are unsatisfiable on `origin/main` by
+    construction, which is the intended reading: they red until the automation DLL
+    carries the change. **THE ONE THING THAT HAD TO BE CHECKED BEFORE PINNING**, and
+    the C# author flagged it: the exclusion identifies the transport
+    `VesselLaunchIdentity`-style, guid first. This fixture's two `[root..dock]` source
+    recordings carry `recordedVesselGuid = 3edd6bc7967c4e2ca0feb9138d116b6d`, which is
+    live `B`'s FLIGHTSTATE `pid` guid exactly (the save WAS produced by flying B), so
+    RVR-19 measures a same-launch guid match rather than a craft-baked pid fallback,
+    and `A`'s different guid is what keeps RVR-18's transfer legal. Had those guids
+    differed, RVR-19 would have measured a transfer onto `B` instead - green for the
+    contract, but a different lane - so `harness/lib` asserts the agreement.
 
     **THE ROUND'S AUTHORING LESSON IS RVR-16's**: the delivery manifest is THREE
     stored parts, not two, and the wrong number had survived two green flights
@@ -3155,32 +3184,71 @@ gated behind the ROUTE-ORIGIN-PROOF-PRODUCER-UNREACHABLE probe (todo) before any
       awards, clamped back to the seed, which is the whole reason a declared number
       is the number the gate reads.
     * `RVR-18` ENDPOINT REMOVED - the first lane anywhere to drive
-      `RouteEndpointResolver`'s THIRD step. A new `remove = true` liveState mode
-      deletes the vessel the recorded window names, and **the measured consequence
-      is not the expected one**: the fallback does not miss, it SUBSTITUTES. The
-      recorded dock coordinates have vessel `A` parked 1.03 m away and the transport
-      16.42 m, against a 500 m radius - while the deleted endpoint itself sat 567.93
-      m away and could never have been re-found by proximity. So the route delivered
-      into a vessel whose pid it never recorded, which happens to be the rover that
+      `RouteEndpointResolver`'s THIRD step. A `remove = true` liveState mode deletes
+      the vessel the recorded window names, and **the measured consequence was not
+      the expected one**: the fallback does not miss, it SUBSTITUTES. The recorded
+      dock coordinates have vessel `A` parked 1.03 m away and the transport 16.42 m,
+      against a 500 m radius - while the deleted endpoint itself sat 567.93 m away
+      and could never have been re-found by proximity. So the route delivered into a
+      vessel whose pid it never recorded, which happens to be the rover that
       PHYSICALLY docked (the named one is a later rollout of the same craft file,
-      carrying the same baked `persistentId`) - and the produced save STILL names
-      the deleted one, so the substitution exists only in the log. It is also the
+      carrying the same baked `persistentId`) - and the produced save STILL named
+      the deleted one, so the substitution existed only in the log. It is also the
       suite's first driven `path=loaded` delivery, so it gates
       `WriteResourceLoaded` / `WriteInventoryLoaded` and the LOADED capacity probe
-      as a side effect. The lane is a CHARACTERIZATION: the pid step is not
-      guid-gated (RESOLVER-PID-STEP-NOT-GUID-GATED) and proximity accepts any
-      surface vessel inside the radius, both deliberate and both undriven until now,
-      so the ruling filed as
-      `ROUTE-DELIVERY-PROXIMITY-RETARGETS-ANY-NEARBY-VESSEL` will flip its tokens
-      and the red is the notification.
+      as a side effect. **RE-AUTHORED 2026-09-04 AGAINST THE RULING** (it was a
+      CHARACTERIZATION lane and said its tokens would flip when the decision landed;
+      they did). It now makes three claims instead of one: the substitution still
+      happens and `A` still wins on DISTANCE, so the transport exclusion is not what
+      decides here; the substitution is RECORDED (`Route endpoint transferred: ...
+      from=2123618197/'<unknown>' to=2875537755/'A' step=proximity ...`, and
+      `destinationVesselPids` flips to the new pid - the one report-only facet the
+      ruling moves); and the rebind is DURABLE, stamping `rootPartUId` as well as
+      `vesselPersistentId` so cycle 1 resolves at the ROOT-PART step and proximity is
+      never walked twice, which is also the constructive argument that the transfer
+      line fires exactly once (the log-contract evaluator is regex-only and has no
+      occurrence count). `step=proximity` may never become an alternation: the
+      transfer decision's pid arm has no production caller while
+      RESOLVER-PID-STEP-NOT-GUID-GATED is open.
+    * `RVR-19` TRANSPORT ONLY - **the guard for the ruling's second half, and the
+      suite's first TWO-REMOVAL `[[fixture.liveState]]` block.** It deletes BOTH
+      other surface vessels (`A` at index 9 and `rover fuel 0` at index 10, both
+      strictly after `activeVessel = 7`, so the focus does not move) leaving the
+      transport `B` as the ONLY LANDED / SPLASHED / PRELAUNCH craft in the save -
+      every survivor is an ORBITING asteroid, which `IsSurfaceSituation` never
+      admits. WHY IT IS A SEPARATE LANE AND NOT A SECOND TOKEN ON RVR-18: there the
+      transport is a live candidate but loses on distance, so RVR-18's forbid on a
+      transfer naming it is also satisfied by a completely ABSENT exclusion; only
+      when the transport is the sole candidate does the exclusion decide anything.
+      Expected: no transfer line at all, the proximity branch printing BOTH
+      `Endpoint proximity transport excluded: skipped=1 reason=route-own-transport`
+      and `Endpoint proximity step: resolved=0 pid=0
+      reason=no-candidate-after-transport-exclusion` (two lines pinned because
+      neither alone attributes the miss to the exclusion - the reason token is
+      deliberately distinct from the pre-existing `no-surface-candidate`), and the
+      cycle blocking `kind=EndpointLost
+      reason=stop-0-no-candidate-after-transport-exclusion` into
+      `blocked-then-paused`: **the suite's first driven `EndpointLost` hold**. It
+      also settles what "WHAT THIS SETTLES FOR THE MECHANISM" below could not: a
+      genuine `EndpointLost` IS reachable on this fixture after all, by removing two
+      vessels rather than by moving the focus. `destinationVesselPids` must NOT move
+      here, which is the mirror of RVR-18's facet and makes the pair the whole ruling
+      in the BYTES.
 
     **WHAT THIS SETTLES FOR THE MECHANISM.** A `relocate` mode (patching lat / lon)
     is NOT worth building and the bytes say why: the pid step is position-blind and
     wins before proximity, so moving a vessel is unobservable until its pid is gone,
-    which is what `remove` already does. A genuine `EndpointLost` hold is likewise
-    NOT reachable on this fixture - the nearest candidate after the removal is 1 m
-    from the recorded coordinates and the runner-up is the ACTIVE vessel, so
-    emptying the radius would mean moving the focus.
+    which is what `remove` already does. **The second half of this paragraph was
+    WRONG and RVR-19 is the correction**, recorded rather than edited away because
+    the error is instructive: it read "a genuine `EndpointLost` hold is NOT reachable
+    on this fixture - the nearest candidate after the removal is 1 m from the
+    recorded coordinates and the runner-up is the ACTIVE vessel, so emptying the
+    radius would mean moving the focus". Emptying the radius does NOT require moving
+    the focus, because `remove` is not limited to one entry: deleting the runner-up
+    as well leaves the ACTIVE vessel as the only candidate, and under the 2026-09-04
+    ruling the active vessel is precisely the one a route may not transfer onto. The
+    general form: a reachability claim made about ONE application of a staging mode is
+    not a claim about the mode.
 
     **WHAT IS STRUCTURALLY UNREACHABLE HERE, and belongs to the relay fixture
     instead**: every ORIGIN-side edge. This route is KSC-origin, so

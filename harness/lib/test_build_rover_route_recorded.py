@@ -287,15 +287,18 @@ class RoverRouteSpecFixtureSyncTests(unittest.TestCase):
     # fixture is renamed, which is exactly what this class exists to catch. `H57`
     # boots it for the same live reason; `H58` and `H59` read the committed corpus
     # itself. All three are held to the same pairing.
-    # RVR-16 and RVR-18 are the 2026-09-03 ENDPOINT MATRIX over this fixture: same
+    # RVR-16, RVR-18 and RVR-19 are the ENDPOINT MATRIX over this fixture: same
     # payload, same driver, a different LIVE FLIGHTSTATE declared per lane through
     # `[[fixture.liveState]]`. Their numbers are re-derived from these bytes by
-    # `RoverRouteEndpointMatrixTests` below.
+    # `RoverRouteEndpointMatrixTests` below. RVR-16 and RVR-18 flew on 2026-09-03;
+    # RVR-19 was authored 2026-09-04 for the endpoint-transfer ruling (with RVR-18
+    # re-authored against it in the same commit) and has never flown.
     SPECS = ("RVR-1-rover-route-proof.toml",
              "RVR-2-rover-route-create.toml",
              "RVR-3-route-lifecycle.toml",
              "RVR-16-rover-route-destination-slots-full.toml",
              "RVR-18-rover-route-endpoint-removed.toml",
+             "RVR-19-rover-route-endpoint-transport-only.toml",
              "H56-route-dock-capture-landed.toml",
              "H57-route-start-docked-origin-landed.toml",
              "H58-route-rewind-to-launch.toml",
@@ -362,9 +365,10 @@ class RoverRouteSpecFixtureSyncTests(unittest.TestCase):
 
 
 class RoverRouteEndpointMatrixTests(unittest.TestCase):
-    """THE RVR-16 / RVR-18 ENDPOINT MATRIX, checked against the FIXTURE'S OWN BYTES.
+    """THE RVR-16 / RVR-18 / RVR-19 ENDPOINT MATRIX, checked against the FIXTURE'S
+    OWN BYTES.
 
-    Two lanes over one committed save, each staging a different LIVE FLIGHTSTATE
+    Three lanes over one committed save, each staging a different LIVE FLIGHTSTATE
     through `[[fixture.liveState]]` and pinning tokens DERIVED from that state.
     The derivations are arithmetic and geometry over numbers this fixture
     carries, so they are re-derivable here - and that is the point: a pin that
@@ -372,18 +376,40 @@ class RoverRouteEndpointMatrixTests(unittest.TestCase):
     SILENTLY, because a wrong token reds as a product finding on a live flight
     rather than as a fixture finding in CI.
 
-    THE TWO STRONGEST CELLS ARE
+    THE THREE STRONGEST CELLS ARE
     `test_rvr16s_staged_tank_makes_the_slot_half_the_only_blocker` (the whole
-    reason RVR-16 can measure the inventory branch at all) and
+    reason RVR-16 can measure the inventory branch at all),
     `test_rvr18s_proximity_pick_is_the_nearest_surface_vessel` (which recomputes
-    the fallback's own search over the committed coordinates). Nothing else in
-    the tree connects those literals to the bytes."""
+    the fallback's own search over the committed coordinates) and
+    `test_rvr19_leaves_only_the_transport_as_a_candidate` (which recomputes the
+    same search after BOTH of RVR-19's removals and asserts the sole survivor is
+    the route's own transport - the configuration in which the 2026-09-04
+    transport exclusion is the only thing that can decide). Nothing else in the
+    tree connects those literals to the bytes.
+
+    THE RULING THIS MATRIX NOW STRADDLES (operator, 2026-09-04): when a route's
+    destination vessel is gone but another stands within 500 m, the route
+    TRANSFERS its persisted stop onto that vessel - never onto its own transport,
+    and with no other candidate the `EndpointLost` hold stays. RVR-18 is the
+    transfer, RVR-19 the refusal; neither has flown in that shape, so the cells
+    below are the only mechanical check on their pins until the first census."""
 
     RVR16 = "RVR-16-rover-route-destination-slots-full.toml"
     RVR18 = "RVR-18-rover-route-endpoint-removed.toml"
+    RVR19 = "RVR-19-rover-route-endpoint-transport-only.toml"
+    # Every lane that stages this fixture through `[[fixture.liveState]]` and is
+    # held to RVR-2's driver. A new matrix lane joins here and inherits the
+    # whole-matrix cells at the bottom of the class.
+    MATRIX = (RVR16, RVR18, RVR19)
 
     ENDPOINT_PID = "2123618197"     # `rover fuel 0`, the window's transferTargetPid
     SUBSTITUTE_PID = "2875537755"   # `A`, the rover that physically docked
+    # `B`, the TRANSPORT: the source recording's own vessel, the save's
+    # `activeVessel`, and the one craft the 2026-09-04 ruling forbids a route from
+    # transferring onto (a route may not pay itself). Cross-checked against the
+    # builder's own `ACTIVE_VESSEL_PID` / `DOCK_MEMBER_VESSEL_PID` below rather
+    # than spelled independently.
+    TRANSPORT_PID = "313889796"
 
     # `RouteOrchestrator.SurfaceProximityRadiusMeters`. Spelled here rather than
     # read from C#: this suite is stdlib-only Python, and a change to the constant
@@ -400,7 +426,7 @@ class RoverRouteEndpointMatrixTests(unittest.TestCase):
         cls.builder = _load_builder()
         cls.spec = {}
         cls.text = {}
-        for name in (cls.RVR16, cls.RVR18):
+        for name in cls.MATRIX:
             path = os.path.join(SCENARIOS_DIR, name)
             with open(path, "rb") as fh:
                 cls.spec[name] = tomllib.load(fh)
@@ -711,16 +737,315 @@ class RoverRouteEndpointMatrixTests(unittest.TestCase):
     def test_rvr18_forbids_the_reading_an_unpatched_run_would_print(self):
         self.assertIn("dest=rover fuel 0", self._forbidden(self.RVR18))
 
-    # -- both lanes ------------------------------------------------------
+    # -- RVR-18 under the 2026-09-04 transfer ruling ----------------------
 
-    def test_both_lanes_drive_rvr2s_steps(self):
+    def test_rvr18_pins_the_transfer_from_and_to_pids(self):
+        """THE RE-AUTHORING'S LOAD-BEARING TOKEN. The ruling's own line is the
+        only thing that distinguishes the post-ruling lane from the pre-ruling
+        one, and its two pids ARE the finding: `from=` the vessel the recording
+        named, `to=` the vessel standing on the spot. The header declares the rest
+        of the line a SOFT pin (field order and name rendering are predicted, and
+        `RouteEndpoint` carries no vessel name at all), so this cell asserts
+        exactly the part that may never be loosened."""
+        required = self._required(self.RVR18)
+        self.assertIn("Route endpoint transferred:", required,
+                      "RVR-18 no longer pins the ruling's own line; without it "
+                      "the lane is its own pre-ruling characterization")
+        self.assertIn("from=%s" % self.ENDPOINT_PID, required)
+        self.assertIn("to=%s" % self.SUBSTITUTE_PID, required)
+        self.assertIn("step=proximity", required,
+                      "the transfer must be attributed to the PROXIMITY step; a "
+                      "pid-step transfer is a different branch of the ruling")
+
+    def test_rvr18_pins_the_rebind_surviving_into_the_next_cycle(self):
+        """The durability half. The rebind writes BOTH `vesselPersistentId` and
+        `rootPartUId`, so cycle 1 resolves at the ROOT-PART step and never walks
+        to proximity again; the `step=pid` spelling stays in the alternation
+        because it is what fires if the resolved vessel exposes no root flightID,
+        and the claim is identical either way. That token is also the
+        constructive argument for "the transfer fires once" - the log-contract
+        evaluator is regex-only and cannot count occurrences, so the single-shot
+        claim has to rest on a positive token rather than on a forbid."""
+        required = self._required(self.RVR18)
+        self.assertIn("Endpoint resolved: step=", required)
+        self.assertIn("root-part", required,
+                      "the rebind stamps rootPartUId, so the root-part step is "
+                      "the one that fires; pinning only step=pid would red on a "
+                      "correct build")
+        self.assertIn("pid=%s" % self.SUBSTITUTE_PID, required)
+
+    def test_rvr18s_routes_facet_reads_the_transfer_target(self):
+        """The BYTES-side witness, and the one reading that flips with the ruling.
+        The 2026-09-03 census measured `destinationVesselPids: ['2123618197']` -
+        the deleted vessel - which is exactly the "recorded in the log and nowhere
+        else" finding the ruling answered. A rebind that logged but did not
+        persist would still read the old pid, and no `logContract` can catch that
+        (they read KSP.log, never the produced save)."""
+        pids = self.spec[self.RVR18]["expectations"]["routes"].get(
+            "destinationVesselPids")
+        self.assertEqual([self.SUBSTITUTE_PID], pids)
+
+    def test_rvr18_forbids_transferring_onto_its_own_transport(self):
+        """The transport is a LIVE candidate on RVR-18 too (16.42 m, well inside
+        the radius); it merely loses on distance. So the exclusion has to hold
+        here as well, and the lane says so."""
+        forbidden = self._forbidden(self.RVR18)
+        self.assertIn("to=%s" % self.TRANSPORT_PID, forbidden)
+        self.assertIn("dest=B pid=%s" % self.TRANSPORT_PID, forbidden)
+
+    # -- RVR-19: the transport is the only candidate ----------------------
+
+    def test_the_transport_pid_is_the_builders_active_vessel(self):
+        """`TRANSPORT_PID` is not an independent spelling: it must be the save's
+        `activeVessel` AND the dock window's transport member, or every RVR-19
+        claim about "the route's own transport" is about some other craft."""
+        self.assertEqual(self.TRANSPORT_PID, self.builder.ACTIVE_VESSEL_PID)
+        self.assertEqual(self.TRANSPORT_PID, self.builder.DOCK_MEMBER_VESSEL_PID)
+        vessels = savepatch.flightstate_vessels(self.lines)
+        active = savepatch._active_vessel_index(self.lines)
+        self.assertEqual(self.TRANSPORT_PID, vessels[active][1])
+        self.assertEqual(self.builder.ACTIVE_VESSEL_NAME, vessels[active][0])
+
+    def test_rvr19_declares_exactly_the_two_removals(self):
+        entries = self._live_state(self.RVR19)
+        self.assertEqual(sorted([int(self.ENDPOINT_PID), int(self.SUBSTITUTE_PID)]),
+                         sorted(entries))
+        for pid in (self.ENDPOINT_PID, self.SUBSTITUTE_PID):
+            entry = entries[int(pid)]
+            self.assertTrue(entry.get("remove"), pid)
+            # `remove = true` is exclusive with both other keys (the validator
+            # refuses the combination); asserting it here says the lane MEANT a
+            # bare deletion rather than relying on that refusal.
+            self.assertNotIn("resources", entry)
+            self.assertNotIn("inventory", entry)
+        # And the transport is NOT among them: deleting it would delete the
+        # focused vessel and there would be no scene to measure.
+        self.assertNotIn(int(self.TRANSPORT_PID), entries)
+
+    def test_rvr19s_removals_are_both_after_the_active_vessel(self):
+        """`savepatch._remove_vessel` REFUSES a removal at or before
+        `activeVessel`, so a lane declaring one aborts at staging on a prepared
+        instance under the machine lock. With TWO removals the check has to hold
+        for both, in either application order - and it does trivially, because
+        neither deletion moves an index at or below the active one."""
+        vessels = savepatch.flightstate_vessels(self.lines)
+        active = savepatch._active_vessel_index(self.lines)
+        for pid in (self.ENDPOINT_PID, self.SUBSTITUTE_PID):
+            index = [i for i, (_n, vpid, _s) in enumerate(vessels)
+                     if vpid == pid][0]
+            self.assertGreater(index, active,
+                               "removing pid %s at index %d would re-point "
+                               "activeVessel %d" % (pid, index, active))
+
+    def test_rvr19_leaves_only_the_transport_as_a_candidate(self):
+        """THE LANE'S WHOLE INSTRUMENT, recomputed. After both removals every
+        remaining FLIGHTSTATE vessel except the transport is ORBITING, and
+        `RouteEndpointResolver.IsSurfaceSituation` admits only LANDED / SPLASHED /
+        PRELAUNCH - so the proximity search has EXACTLY ONE candidate and it is
+        the route's own transport. If a re-harvest parks a fourth craft anywhere
+        on Kerbin's surface this cell reds, and it must: the lane would then be
+        measuring a transfer onto that craft rather than a refusal."""
+        removed = {self.ENDPOINT_PID, self.SUBSTITUTE_PID}
+        candidates = []
+        for name, vpid, span in savepatch.flightstate_vessels(self.lines):
+            if vpid in removed:
+                continue
+            if savepatch.get_value(self.lines, span, "sit") in self.SURFACE_SITUATIONS:
+                candidates.append((vpid, name))
+        self.assertEqual([(self.TRANSPORT_PID, self.builder.ACTIVE_VESSEL_NAME)],
+                         candidates,
+                         "RVR-19 needs the transport to be the SOLE surface "
+                         "candidate; the save offers %r" % (candidates,))
+
+    def test_rvr19s_sole_candidate_is_well_inside_the_radius(self):
+        """And it is not refused for being too far away. The transport sits
+        ~16 m from the recorded dock point, hundreds of metres inside
+        `SurfaceProximityRadiusMeters`, so `no-vessel-within-radius` cannot be
+        what produces the refusal - only the transport exclusion can. Without
+        this margin the lane would pass for the wrong reason."""
+        keys = self._endpoint_at_dock()
+        _name, span = self._vessel(self.TRANSPORT_PID)
+        distance = self._surface_distance_m(
+            float(keys["latitude"]), float(keys["longitude"]), float(keys["altitude"]),
+            float(savepatch.get_value(self.lines, span, "lat")),
+            float(savepatch.get_value(self.lines, span, "lon")),
+            float(savepatch.get_value(self.lines, span, "alt")))
+        self.assertLess(distance, self.PROXIMITY_RADIUS_M / 4.0,
+                        "the transport is %.2f m from the recorded endpoint; "
+                        "RVR-19's refusal would be ambiguous with a "
+                        "no-vessel-within-radius miss" % distance)
+
+    def test_rvr19_requires_the_refusal_and_the_endpoint_lost_hold(self):
+        required = self._required(self.RVR19)
+        self.assertIn("Endpoint proximity step: resolved=0", required,
+                      "without `resolved=0` the lane does not assert the search "
+                      "refused; it is the only token nothing but the exclusion "
+                      "can produce on these bytes")
+        self.assertIn("transport excluded: skipped=1 reason=route-own-transport",
+                      required,
+                      "`resolved=0` alone is also what an EMPTY candidate list "
+                      "prints; the exclusion's own line is what attributes the "
+                      "miss to the transport rule")
+        self.assertIn("BLOCKED kind=EndpointLost", required)
+        self.assertIn("hold recorded kind=EndpointLost", required)
+        self.assertIn("hold kind=EndpointLost", required,
+                      "the armed pause must be shown to have been CONSUMED by "
+                      "this kind; a postponement hold would keep the arm")
+
+    def test_rvr19s_hold_reason_is_the_exclusion_token_not_the_generic_miss(self):
+        """`CheckEligibility` builds `stop-{i}-{epReason}`, so the hold carries
+        the resolver's own reason verbatim. `no-surface-candidate` is the
+        PRE-EXISTING token for a search that had nothing to look at and still
+        fires unchanged when nothing was excluded, so a hold naming it here would
+        mean the exclusion is not what refused - the lane would be green for the
+        wrong reason. Both emitters of the reason are checked, because they are
+        two different files (`RouteOrchestrator`'s BLOCKED line and
+        `Route.RecordHold`'s) and a partial re-pin would leave one stale."""
+        required = self.spec[self.RVR19]["expectations"]["logContracts"]["required"]
+        token = "stop-0-no-candidate-after-transport-exclusion"
+        carriers = [t for t in required if token in t]
+        self.assertEqual(2, len(carriers),
+                         "expected the BLOCKED line and the hold line to name %r; "
+                         "got %r" % (token, carriers))
+        self.assertTrue(any("BLOCKED kind=EndpointLost reason=" + token in t
+                            for t in carriers), carriers)
+        self.assertTrue(any("hold recorded kind=EndpointLost detail=" + token in t
+                            for t in carriers), carriers)
+        self.assertNotIn("no-surface-candidate", "\n".join(required))
+
+    def test_rvr19_forbids_the_transfer_and_the_pre_ruling_reading(self):
+        """Both directions of the guard. The bare event name is forbidden because
+        there is no legal target at all on this lane; the specific
+        `resolved=1 pid=<transport>` forbid is what makes an un-upgraded
+        automation DLL fail LOUDLY instead of quietly re-measuring the old
+        behaviour."""
+        forbidden = self._forbidden(self.RVR19)
+        self.assertIn("Route endpoint transferred", forbidden)
+        self.assertIn("Endpoint proximity step: resolved=1 pid=%s"
+                      % self.TRANSPORT_PID, forbidden)
+        for token in ("Delivery write:", "Inventory store:",
+                      "BLOCKED kind=DestinationFull"):
+            self.assertIn(token, forbidden,
+                          "RVR-19 must FORBID %r - gate 5 fails first, so nothing "
+                          "downstream may run" % token)
+
+    def test_rvr19s_routes_facet_keeps_the_recorded_pid(self):
+        """A REFUSED transfer must leave the persisted stop exactly as the
+        recording wrote it. This is the mirror of RVR-18's facet and the pair is
+        the whole ruling in the BYTES: one flips, one does not."""
+        pids = self.spec[self.RVR19]["expectations"]["routes"].get(
+            "destinationVesselPids")
+        self.assertEqual([self.ENDPOINT_PID], pids)
+        self.assertEqual(
+            0, self.spec[self.RVR19]["expectations"]["routes"]["completedCycles"]["max"],
+            "a lane that blocks at gate 5 cannot complete a cycle")
+
+    # -- the identity the transport exclusion matches on ------------------
+
+    def _transport_tree_recordings(self):
+        """(treeOrder, recordingId, vesselPersistentId, recordedVesselGuid) for
+        the TRANSPORT tree's recordings, tree-order ascending."""
+        scn = savepatch.parsek_scenario_node(self.lines)
+        self.assertIsNotNone(scn, "the fixture carries no ParsekScenario node")
+        rows = []
+        for tree in savepatch.child_nodes(self.lines, scn, "RECORDING_TREE"):
+            # Identified by its ROOT RECORDING id rather than by a tree-id key:
+            # the builder pins the root, and the root is the transport's launch.
+            if (savepatch.get_value(self.lines, tree, "rootRecordingId")
+                    != self.builder.TRANSPORT_TREE_RECORDING_IDS[0]):
+                continue
+            recs = savepatch.child_nodes(self.lines, tree, "RECORDING")
+            ids = [savepatch.get_value(self.lines, r, "recordingId") for r in recs]
+            for rec, rid in zip(recs, ids):
+                rows.append((
+                    int(savepatch.get_value(self.lines, rec, "treeOrder")),
+                    rid,
+                    savepatch.get_value(self.lines, rec, "vesselPersistentId"),
+                    savepatch.get_value(self.lines, rec, "recordedVesselGuid")))
+        self.assertTrue(rows, "the transport tree was not found by its root id")
+        rows.sort()
+        return rows
+
+    def test_the_route_sources_are_the_transports_own_same_launch_recordings(self):
+        """THE IDENTITY THE EXCLUSION MATCHES ON, from the bytes. The transport
+        exclusion is `VesselLaunchIdentity`-style - guid first, craft-baked pid
+        only as a fallback - against the route's `SourceRefs`, and
+        `BuildRouteSourceRefs` takes the `[root..dock]` member prefix (which is
+        why every lane in this family measures `sourceRefs = 2`). So the first
+        `sourceRefs` recordings in tree order must all be the TRANSPORT's, and
+        their `recordedVesselGuid` must be live `B`'s FLIGHTSTATE `pid` guid, or
+        RVR-19's refusal is a pid-fallback guess rather than the strong form."""
+        want = self.spec[self.RVR19]["expectations"]["routes"]["sourceRefs"]["max"]
+        rows = self._transport_tree_recordings()
+        self.assertGreaterEqual(len(rows), want)
+        _name, span = self._vessel(self.TRANSPORT_PID)
+        live_guid = savepatch.get_value(self.lines, span, "pid")
+        self.assertTrue(live_guid, "vessel B carries no FLIGHTSTATE pid guid")
+        for order, rid, vpid, guid in rows[:want]:
+            self.assertEqual(self.TRANSPORT_PID, vpid,
+                             "source-set member %s (treeOrder %d) is not the "
+                             "transport's recording" % (rid, order))
+            self.assertEqual(live_guid, guid,
+                             "source-set member %s records launch guid %r but "
+                             "live B is %r - the exclusion would fall back to "
+                             "the craft-baked pid, which is a different (weaker) "
+                             "claim than this lane's header makes"
+                             % (rid, guid, live_guid))
+
+    def test_the_transfer_target_is_a_different_launch_from_the_transport(self):
+        """The mirror direction, and the reason RVR-18 can transfer at all. If
+        `A` shared the transport's launch identity the exclusion would capture it
+        and RVR-18 would red on its own `BLOCKED kind=EndpointLost` forbid."""
+        _bname, bspan = self._vessel(self.TRANSPORT_PID)
+        _aname, aspan = self._vessel(self.SUBSTITUTE_PID)
+        self.assertNotEqual(savepatch.get_value(self.lines, bspan, "pid"),
+                            savepatch.get_value(self.lines, aspan, "pid"))
+        self.assertNotEqual(self.TRANSPORT_PID, self.SUBSTITUTE_PID)
+
+    def test_the_child_recording_that_would_widen_the_source_set_is_last(self):
+        """THE NEAR MISS, recorded because it is one source-set change away from
+        flipping RVR-18. The transport tree's LAST recording in tree order is
+        `A`'s undock CHILD and it carries NO `recordedVesselGuid` at all, so a
+        change that widened the source set past the dock would fall to a pid-only
+        match and start excluding `A` - RVR-18 would then red on
+        `BLOCKED kind=EndpointLost`. This cell pins that it is currently OUTSIDE
+        the `[root..dock]` prefix, so the red would be a real finding rather than
+        a stale pin."""
+        want = self.spec[self.RVR18]["expectations"]["routes"]["sourceRefs"]["max"]
+        rows = self._transport_tree_recordings()
+        tail = [r for r in rows[want:] if r[2] == self.SUBSTITUTE_PID]
+        self.assertEqual(1, len(tail),
+                         "expected exactly one non-source recording carrying the "
+                         "transfer target's pid; got %r" % (rows,))
+        self.assertEqual(rows[-1], tail[0],
+                         "the transfer target's recording is no longer the last "
+                         "member of the transport tree")
+        self.assertIsNone(tail[0][3],
+                          "that recording now carries a launch guid; re-read the "
+                          "source-set derivation in RVR-18's and RVR-19's headers")
+
+    def test_the_two_ruling_lanes_disagree_on_exactly_the_facet_that_moves(self):
+        """The pair, stated as one assertion. RVR-18 and RVR-19 stage the SAME
+        first removal and pin the SAME structure; the transfer is the only thing
+        between them, so their `destinationVesselPids` must differ and must be
+        each other's alternative."""
+        got = {name: self.spec[name]["expectations"]["routes"]
+               ["destinationVesselPids"]
+               for name in (self.RVR18, self.RVR19)}
+        self.assertNotEqual(got[self.RVR18], got[self.RVR19])
+        self.assertEqual({tuple([self.SUBSTITUTE_PID]), tuple([self.ENDPOINT_PID])},
+                         {tuple(v) for v in got.values()})
+
+    # -- every matrix lane -----------------------------------------------
+
+    def test_every_matrix_lane_drives_rvr2s_steps(self):
         """The matrix design: the driver is the CONTROL and the liveState block is
         the variable. A lane that quietly changed a step would be measuring
         something RVR-2's green run does not underwrite."""
         with open(os.path.join(SCENARIOS_DIR, "RVR-2-rover-route-create.toml"),
                   "rb") as fh:
             base = tomllib.load(fh)["driver"]["steps"]
-        for name in (self.RVR16, self.RVR18):
+        for name in self.MATRIX:
             steps = self.spec[name]["driver"]["steps"]
             self.assertEqual(len(base), len(steps), name)
             for want, got in zip(base, steps):
@@ -731,17 +1056,19 @@ class RoverRouteEndpointMatrixTests(unittest.TestCase):
                 if want["cmd"] == "TimeJump":
                     self.assertEqual(want["args"]["ut"], got["args"]["ut"], name)
 
-    def test_neither_lane_arms_a_gating_save_parse_block(self):
-        """Both declare `[expectations.routes]` and
+    def test_no_matrix_lane_arms_a_gating_save_parse_block(self):
+        """Each declares `[expectations.routes]` and
         `[expectations.recordings.structure]` as READINGS. Arming either is an
         operator decision taken after a report-only run whose facets match, with
         its own `ARMED_ALLOWLIST` entry - and `test_hlib` reds if one is armed
         without it. This cell keeps the intent visible in the lane's own file.
+        It matters more for the two ruling lanes than for RVR-16: neither has
+        flown in its current shape, so arming would gate on a prediction.
 
-        PARSED, not text-scanned: both headers use the word "gating" in prose to
+        PARSED, not text-scanned: the headers use the word "gating" in prose to
         say they are NOT armed, and a substring scan would read that as the
         arming it is denying."""
-        for name in (self.RVR16, self.RVR18):
+        for name in self.MATRIX:
             expectations = self.spec[name]["expectations"]
             blocks = {
                 "routes": expectations.get("routes") or {},
@@ -754,10 +1081,22 @@ class RoverRouteEndpointMatrixTests(unittest.TestCase):
                 self.assertNotIn("gating", block,
                                  "%s arms its %s block" % (name, label))
 
-    def test_neither_lane_arms_render_composition_capture(self):
-        for name in (self.RVR16, self.RVR18):
+    def test_no_matrix_lane_arms_render_composition_capture(self):
+        for name in self.MATRIX:
             self.assertNotIn("[expectations.renderComposition]", self.text[name])
             self.assertNotIn("ExportRenderManifest", self.text[name])
+
+    def test_every_matrix_lane_declares_the_same_structure_reading(self):
+        """One committed payload, three FLIGHTSTATE stagings: `savepatch` may not
+        touch the Parsek payload, so the structure facet is the SAME reading on
+        all three and a lane that quietly moved one would be claiming its live
+        edit reached the recordings."""
+        base = self.spec[self.RVR16]["expectations"]["recordings"]["structure"]
+        for name in self.MATRIX:
+            self.assertEqual(
+                base, self.spec[name]["expectations"]["recordings"]["structure"],
+                "%s declares a different structure reading than RVR-16 over the "
+                "same committed payload" % name)
 
 
 if __name__ == "__main__":

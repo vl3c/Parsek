@@ -15,6 +15,96 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ROUTE-ENDPOINT-TRANSFER-DOCKED-DOMINANT-PARTNER: while a visitor is docked to a delivery destination and DOMINATES the merged vessel, the route now REBINDS to the visitor and follows it away after undock [RAISED 2026-09-04 by the Fable review of PR #1627 (the endpoint-transfer ruling). DESIGN RESIDUE of that PR, not a defect it introduced blindly - the pre-#1627 behaviour was self-healing by accident. OPEN, no fix proposed; two siblings filed in the same entry]
+
+**THE SHAPE.** A destination stop's `RouteEndpoint` carries `RootPartUId = 0`.
+`RouteBuilder` stamps that field at exactly two sites and both are the ORIGIN
+(`RootPartUId = originProof.StartDockedOriginRootPartUId`); a delivery stop's endpoint is
+`window.EndpointAtDock` verbatim, whose keys are pid / body / lat / lon / alt / isSurface
+and nothing else. So the resolver's walk for a destination is pid -> proximity, with the
+launch-unique root-part step unreachable by construction.
+
+Now dock any visitor to that destination base. `Part.Couple` destroys one of the two
+`Vessel`s, and which one survives is `Vessel.GetDominantVessel(v1, v2)`: higher
+`VesselType` enum value wins, a type tie goes to the heavier total mass, and within 0.01t
+to the larger `Vessel.id` guid (`docs/dev/research/claw-grapple-coupling-internals.md:36`;
+the same helper `ModuleDockingNode` uses). When the VISITOR dominates - a Station-typed
+tug meeting a Base-typed depot, or simply a heavier ship of the same type - the merged
+vessel keeps the VISITOR's `persistentId`, and the base's pid is gone from
+`FlightGlobals` for as long as the pair stays docked.
+
+**WHAT CHANGES, AND IT IS A REGRESSION IN OUTCOME EVEN THOUGH THE RULING IS RIGHT.**
+Before PR #1627 the pid step missed, the proximity step resolved the combined vessel
+(which is sitting exactly where the base is), the delivery went into it - which is
+physically correct, the base is part of that vessel - and NOTHING WAS PERSISTED. On the
+next cycle the same positional re-resolve happened again, so after the visitor undocked
+the route silently re-found the base: self-healing, by accident rather than by design.
+After #1627 the same resolution REBINDS the stop to the visitor's pid AND its root part
+flightID. The root id is launch-unique, so from the next cycle on the route resolves the
+VISITOR by identity at step 1 - and when the visitor undocks and flies away, the route
+follows it. The base it was built to supply is no longer named anywhere in the route.
+
+The window is not exotic. A supply base with a tug or a lander parked on it is the
+ordinary state of a base between deliveries, and the dominance rule means the operator
+does not get to choose which half survives.
+
+**SIBLING 1: THE ROUTE'S OWN TRANSPORT LEFT DOCKED AT THE DESTINATION.** Same setup, with
+the visitor being the route's own carrier and dominating the merge. The combined vessel
+then carries a transport identity, `RouteEndpointTransfer`'s guard excludes it from the
+candidate set, and the cycle holds
+`BLOCKED kind=EndpointLost reason=stop-0-no-candidate-after-transport-exclusion` until the
+transport undocks. That IS the ruling's stated behaviour (a route may not pay itself) and
+it is fail-closed, so nothing here is wrong - but it is a VISIBLE change from a route that
+used to deliver in that state, and the hold names an exclusion rather than the docked
+composite that caused it, so a player reading it has no path to the cause. Filed as a
+legibility question rather than a defect.
+
+**SIBLING 2: THE TRANSPORT EXCLUSION IS A UNION ACROSS EVERY ROUTE OWNING THE ENDPOINT.**
+`RouteEndpointTransfer.CollectTransportIdentitiesLive` walks `FindOwners`, which matches
+by endpoint VALUE over `RouteStore.CommittedRoutes`, and unions the transports of every
+owner. So when two routes deliver to the same endpoint, route A's candidate set also
+excludes route B's carrier. That is defensible - a route should not transfer onto anyone's
+carrier, and the pre-existing single-route reading would have let A adopt B's transport -
+and it is recorded here as a NOTE, not as a residue to fix. What it means in practice is
+that adding a second route to a shared depot narrows the first route's transfer options,
+which is not obvious from either route's own configuration.
+
+**MITIGATION CANDIDATES, neither costed:**
+
+(a) STAMP `RootPartUId` FOR DESTINATION STOPS AT CAPTURE TIME. The information is in hand:
+`ParsekFlight.CapturePendingDockRouteEndpointProof` resolves the live `endpointVessel`
+before calling `BuildRouteEndpointFromVessel`, so the endpoint's own root part `flightID`
+is readable at exactly the moment `ENDPOINT_AT_DOCK` is written. With it, the destination
+walk starts at the root-part step, the docked composite resolves back to the BASE by
+identity (the base's root part survives the couple - `Part.Couple` re-parents parts, it
+does not renumber `flightID`), and neither the mis-transfer nor sibling 1's hold can arise.
+This is also the fix RESOLVER-PID-STEP-NOT-GUID-GATED wants for the same endpoint, so the
+two should be costed together. It touches the capture site, `RouteNodeCodec` (the field
+already round-trips, so no schema generation moves) and the route hash.
+
+(b) DEFER THE REBIND WHILE THE RESOLVED VESSEL IS A DOCKED COMPOSITE. Keep delivering
+(the cargo reaches the right physical place either way) but do not PERSIST the transfer
+while the resolved vessel's part set spans more than the recorded endpoint - i.e. treat
+"resolved onto a composite" as evidence that the identity is temporary. Cheaper and local
+to `RouteEndpointTransfer.Evaluate`, but it needs a composite test that does not exist yet
+and it leaves the destination walk pid-only, so it fixes the symptom rather than the shape.
+
+**NOT MEASURED, AND THE TWO LANES THAT COULD HAVE CAUGHT IT STRUCTURALLY CANNOT.** The
+endpoint-transfer pair both flew green against the shipped change on 2026-09-03
+(`RVR-18` run `_2153`, `RVR-19` run `_2154`, both PASS attempt 1 on DLL
+`2414aa3a3d32d7b7`), so the ruling itself is live-proven - but neither lane reaches this
+case, and the reason is a property of the fixture rather than of the lanes:
+`rover-route-recorded`'s rovers are UNDOCKED by the time the route dispatches, so the
+resolver never meets a docked composite at all. What the flights DID corroborate is the
+premise this entry rests on: `RVR-18`'s log shows the destination walk reaching the
+proximity step at all, which is only possible because the stop carries no `RootPartUId`.
+
+A lane for this wants a two-vessel DOCKED-AT-REST fixture plus a `VesselType` / mass pair
+chosen so the visitor wins `GetDominantVessel`, and it would need to drive the undock as
+well to show the route following the wrong craft away - which is a mission, not a
+`[[fixture.liveState]]` edit. Worth building before either mitigation is, because
+everything above is derived from source and from the dominance rule, not from a log.
+
 ## ~~ROUTE-HOLD-SHORTFALL-DROPPED: a PARTIALLY short pickup source holds the route with `shortfall=0` and the player is told the depot is empty~~ [FOUND 2026-09-03 by forensics on `logs/2026-09-03_1955_rover-c-route-created`. PRODUCT DEFECT (legibility only - the blocking itself was correct). FIXED in this PR]
 
 **What happened.** The pickup-source gate measured the short exactly and then

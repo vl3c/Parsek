@@ -1,0 +1,439 @@
+schema = 1
+id = "RVR-19-rover-route-endpoint-transport-only"
+tier = "nightly"
+# =====================================================================================
+# THE ONLY CRAFT LEFT STANDING AT THE DELIVERY SITE IS THE ROUTE'S OWN TRANSPORT - AND
+# THE ROUTE REFUSES TO TRANSFER ONTO ITSELF, HOLDING `EndpointLost` INSTEAD.
+#
+# **LIVE-PROVEN 2026-09-03: run `2026-09-03_2154`, PASS attempt 1, wall 49 s, EVERY
+# VERIFIER PASS**, on the automation DLL sha256 `2414aa3a3d32d7b7` - a clean build of
+# `main` at `d723cf419` (PR #1627, the endpoint-transfer ruling), IL-verified guard and
+# transfer markers present. AUTHORED 2026-09-04 for that ruling and flown on its first
+# attempt with every token pinned BEFORE the flight from the merged emitters. It could not
+# have passed on a PRE-#1627 build: there, with the endpoint deleted, the 500 m surface
+# search picks the TRANSPORT at 16.42 m and the route delivers a full manifest into the
+# craft that was carrying it - a route paying itself, which is the behaviour the ruling's
+# second half forbids and this lane is the guard for.
+#
+# WHAT FLEW, from the collected KSP.log:
+#     [Stage] liveState patched pid=2123618197 name=rover fuel 0 removed=1
+#     [Stage] liveState patched pid=2875537755 name=A removed=1
+#     Endpoint proximity transport excluded: skipped=1 reason=route-own-transport body=Kerbin
+#     Endpoint proximity step: resolved=0 pid=0
+#         reason=no-candidate-after-transport-exclusion body=Kerbin
+#     Route 32f9e3d3 hold recorded kind=EndpointLost
+#         detail=stop-0-no-candidate-after-transport-exclusion shortfall=0 ut=1600
+#     LoopRoute: route 32f9e3d3 cycle=cycle-0 BLOCKED kind=EndpointLost
+#         reason=stop-0-no-candidate-after-transport-exclusion shortfall=0
+#         - emitted nothing, snapped lastObserved=20 skippedCycles=1
+#     (and again at cycle-1, snapped lastObserved=32 skippedCycles=2)
+# and the produced save read `routes count=1 dormant=0 stops=1 sourceRefs=2
+# completedCycles=0 skippedCycles=2 statuses={Paused:1} holdKinds={EndpointLost:1}
+# destinationVesselPids=['2123618197']`.
+#
+# **THREE DERIVATIONS CAME BACK EXACTLY**, and they are the ones the lane rests on. The
+# proximity search ran and matched NOTHING on a save whose only surface vessel sits 16 m
+# from the endpoint. BOTH cycles blocked, so `skippedCycles` is now pinned exact at 2
+# where it was authored as a `{min=1,max=2}` window (the header said to tighten it at the
+# first census; this is that census). And the hold line printed exactly ONCE across two
+# identical refusals - `Route.RecordHold` logs only when the recorded hold CHANGED - which
+# is why token 9 is not paired per cycle.
+#
+# -------------------------------------------------------------------------------------
+# THE RULING (operator, 2026-09-04), second half. A route TRANSFERS its stop onto a
+# vessel found by the resolver's proximity (or a different-launch pid) step - but NEVER
+# onto the route's own transport, matched against the source recording's vessel by guid
+# and then by pid. With no other candidate the pre-existing `EndpointLost` hold stays.
+# RVR-18 is the lane for the transfer; this one is the lane for the refusal, and the two
+# together are the whole contract.
+#
+# **WHY A SECOND LANE AND NOT A SECOND TOKEN ON RVR-18.** On RVR-18 the exclusion DOES
+# run - its `2026-09-03_2153` flight measured `Endpoint proximity transport excluded:
+# skipped=1 reason=route-own-transport` there too, correcting that lane's authored claim
+# that distance alone decided - but it cannot be SHOWN to matter, because `A` sits 1.03 m
+# from the recorded dock point (measured 2.01 m world-frame) against the transport's
+# 16.42 m and would have won the comparison anyway. RVR-18 forbids a transfer naming the
+# transport, which is a real guard, but it is a guard that a completely ABSENT exclusion
+# would also satisfy. The exclusion only becomes load-bearing when the transport is the
+# ONLY candidate - which is what this lane stages, by deleting BOTH of the other two
+# surface vessels, and the `resolved=0` it measured is a reading nothing else in the suite
+# can produce.
+#
+# -------------------------------------------------------------------------------------
+# THE STAGING, AND IT IS TWO REMOVALS - THE FIRST TWO-REMOVAL `liveState` BLOCK IN THE
+# SUITE.
+#
+#     index  pid          name           situation    distance to the recorded dock point
+#     -----  -----------  -------------  -----------  ----------------------------------
+#       0-6  (asteroids)                 ORBITING     not surface-classified, never candidates
+#         7  313889796    B              LANDED         16.42 m   <- the TRANSPORT, activeVessel
+#         8  927771998    Ast. SDT-697   ORBITING     not a candidate
+#         9  2875537755   A              LANDED          1.03 m   <- REMOVED by this lane
+#        10  2123618197   rover fuel 0   PRELAUNCH     567.93 m   <- REMOVED by this lane
+#
+# After both removals every remaining FLIGHTSTATE vessel except `B` is ORBITING, and
+# `RouteEndpointResolver.IsSurfaceSituation` admits only LANDED / SPLASHED / PRELAUNCH. So
+# the proximity search has EXACTLY ONE candidate and it is the transport. That is the
+# whole instrument, and it is re-derived from the committed bytes by
+# `RoverRouteEndpointMatrixTests.test_rvr19_leaves_only_the_transport_as_a_candidate` in
+# `harness/lib` rather than trusted from this comment - a re-harvest that parks a fourth
+# craft near the dock point reds there instead of on the flight.
+#
+# **BOTH REMOVALS ARE LEGAL AND THE FOCUS DOES NOT MOVE.** `savepatch._remove_vessel`
+# REFUSES a removal at or before `activeVessel`, because `activeVessel` is a positional
+# index into the FLIGHTSTATE vessel list: deleting an earlier vessel silently re-points
+# the focus and every token below would be a statement about a different scene. Here
+# `activeVessel = 7` names `B`, and both removals are at indices 9 and 10 - strictly
+# after it - so the index still names `B` afterwards, in either application order (the
+# applier re-resolves each entry's span from the already-shortened text, and neither
+# deletion moves an index at or below 7). A cell asserts both indices, and asserts that
+# the index the save carries is the transport's.
+#
+# -------------------------------------------------------------------------------------
+# THE CHAIN, END TO END.
+#   step 5 (endpoints)   pid 2123618197 misses (deleted) -> proximity runs -> its ONLY
+#                        surface candidate is the transport, which the exclusion refuses
+#                        -> `Endpoint proximity step: resolved=0 ...`
+#                        -> NO `Route endpoint transferred:` line, and the stop's
+#                        persisted endpoint is untouched
+#                        -> `CheckEligibility` returns
+#                        `EligibilityFailureKind.EndpointLost` with reason
+#                        `stop-0-<resolverReason>`
+#   steps 6-8            NEVER REACHED. Gate 5 is the first gate and it fails, so the
+#                        origin-cargo, funds and capacity gates never run - which is why
+#                        `BLOCKED kind=DestinationFull` is FORBIDDEN below rather than
+#                        merely unpinned: it would mean the walk got past step 5.
+#   cycle 0              blocked. `ProcessLoopRoute` bumps `SkippedCycles`, records the
+#                        hold (`Route <id8> hold recorded kind=EndpointLost detail=stop-0-...`)
+#                        and hands the blocked cycle to `TryHonorArmedPauseOnBlockedCycle`.
+#                        `EndpointLost` is NOT a postponement hold
+#                        (`IsPostponementHold` names only `SourcesStale` and
+#                        `WaitingForPartner`), so the armed one-shot is CONSUMED: the
+#                        route transitions to `Paused` with `reason=blocked-then-paused`
+#                        and `hold kind=EndpointLost`, and a `RoutePaused` lifecycle
+#                        marker lands.
+#   cycle 1              the second `send-once` re-arms and the second crossing blocks
+#                        identically. The cycle INDEX is not pinned: `TryActivate` resets
+#                        every per-stop cursor and `LastObservedLoopCycleIndex` on
+#                        re-activation, so whether the second crossing reads `cycle-1` or
+#                        `cycle-0` again is a property of the loop clock this lane has
+#                        never measured. The token regexes the index.
+#
+# **WHICH LOG PATH EMITS THE HOLD, and it is not the obvious one.** `ApplyEndpointLost`
+# (with its `EndpointLost: route ... reason=... retryAt=...` Info line and its
+# `RouteEndpointLost` ledger row) belongs to the LEGACY `EvaluateRoute` dispatch path.
+# This fixture's route is a LOOP route, so it goes through `ProcessLoopRoute`, which
+# records the hold and pauses WITHOUT going through that applier. Nothing here pins
+# `EndpointLost:` or the ledger row, deliberately - pinning a token from the path that
+# does not run is how a lane reds on a healthy build.
+#
+# -------------------------------------------------------------------------------------
+# THE REFUSAL'S TWO LINES ARE PINNED FROM THE SHIPPED CONCATENATIONS, NOT PREDICTED.
+# Confirmed 2026-09-04 with the `endpoint-transfer` C# author, MERGED as PR #1627
+# (`d723cf419`), and MEASURED on the `2026-09-03_2154` flight: the exclusion is applied
+# INSIDE `TrySurfaceFallbackPure` as a candidate exclusion (so the search genuinely ends
+# with nothing to pick), and the resulting miss carries its OWN reason token so the hold
+# says why. On this scene the proximity branch prints TWO lines, in this order:
+#
+#   [Parsek][VERBOSE][Logistics] Endpoint proximity transport excluded: skipped=1
+#       reason=route-own-transport body=Kerbin
+#   [Parsek][VERBOSE][Logistics] Endpoint proximity step: resolved=0 pid=0
+#       reason=no-candidate-after-transport-exclusion body=Kerbin
+#
+# BOTH ARE PINNED, and they are not redundant. The FIRST says the exclusion ran and
+# skipped exactly one candidate - which, given the census above, can only be the
+# transport. The SECOND says the search then had nothing left, with a reason token
+# distinct from the pre-existing `no-surface-candidate` (which still fires unchanged when
+# nothing was excluded) - so the two together attribute the miss to the exclusion rather
+# than to an empty candidate list, and neither alone does. `pid=0` is
+# `TrySurfaceFallbackPure`'s miss-path `pickedPid`, pinned literally. ALL FOUR FIELDS
+# ACROSS BOTH LINES CAME BACK EXACTLY AS PINNED on `2026-09-03_2154`.
+#
+# THE HOLD REASON IS THAT TOKEN, PREFIXED. `CheckEligibility` builds
+# `$"stop-{i}-{epReason}"`, so both the orchestrator's BLOCKED line and
+# `Route.RecordHold`'s line read `stop-0-no-candidate-after-transport-exclusion`. Pinned
+# in full: a hold that named the generic `no-surface-candidate` would mean the exclusion
+# is not what refused.
+#
+# -------------------------------------------------------------------------------------
+# THE EXCLUSION MATCHES ON A GUID HERE, WHICH IS THE STRONG FORM, and that is a property
+# of these bytes worth stating because the C# author flagged the alternative as the one
+# risk. The exclusion identifies the transport `VesselLaunchIdentity`-style - guid first,
+# craft-baked pid only as a fallback - against the route's `SourceRefs` recordings. The
+# transport tree (`73e50f1e...`) is four recordings in tree order: `cf8d06fc` (B, launch),
+# `f2fb77ea` (B, the docked pair carrying the route window), `4370a799` (B, post-undock)
+# and `0996f1ba` (A, the undock CHILD). Only the `[root..dock]` prefix becomes a source,
+# which is why RVR-2 measured `sourceRefs = 2`, and both of those carry
+# `recordedVesselGuid = 3edd6bc7967c4e2ca0feb9138d116b6d` - live `B`'s FLIGHTSTATE `pid`
+# guid EXACTLY, because this save WAS produced by flying B. So the refusal below is a
+# SAME-LAUNCH guid match, not a pid-fallback guess, and the lane is not silently measuring
+# the weaker half of the identity rule. Had the guids conclusively differed, B would not
+# have been excluded and this lane would have measured a TRANSFER onto B instead - a
+# green-able outcome for the guard's contract but a different lane, so
+# `RoverRouteEndpointMatrixTests` asserts the guid agreement rather than assuming it. THE
+# FLIGHT CORROBORATED THE WHOLE PARAGRAPH in the only way it can: the refusal fired at all.
+# Had the guids conclusively differed, the exclusion would not have matched `B`, the run
+# would have measured a TRANSFER onto `B`, and this lane's `Route endpoint transferred`
+# forbid would have caught it.
+#
+# -------------------------------------------------------------------------------------
+# WHAT THIS LANE DOES **NOT** CLAIM. It does not measure recovery: nothing here re-adds a
+# vessel and re-checks that the route resumes. `EndpointLost` is a RETRYING state by
+# design (`NextEligibilityCheckUT = currentUT + WaitRetryIntervalSec`), and a lane for
+# the recovery direction would need a `liveState` mode that ADDS a vessel, which does not
+# exist and would be invented bytes. The hold is measured; the un-hold is not.
+# =====================================================================================
+description = "LIVE-PROVEN 2026-09-03: run 2026-09-03_2154, PASS attempt 1, wall 49 s, EVERY VERIFIER PASS, on the automation DLL sha256 2414aa3a3d32d7b7 - a clean build of main at d723cf419 (PR #1627, the endpoint-transfer ruling). AUTHORED 2026-09-04 for that ruling and green on its first attempt, every token pinned beforehand from the merged emitters. The guard for the ruling's second half: a route may transfer its delivery stop onto a nearby vessel, but NEVER onto its own transport. Both other surface vessels are deleted from FLIGHTSTATE through the suite's first TWO-REMOVAL `[[fixture.liveState]]` block - `A` (pid 2875537755, index 9, 1.03 m from the recorded dock point) and `rover fuel 0` (pid 2123618197, index 10, the vessel the route window names) - leaving the transport `B` (pid 313889796, index 7, activeVessel, 16.42 m away) as the ONLY LANDED/SPLASHED/PRELAUNCH craft in the save; every other vessel is an ORBITING asteroid and `IsSurfaceSituation` never admits one. So the 500 m proximity search has exactly one candidate and it is the route's own transport. WHY A SEPARATE LANE FROM RVR-18: there the transport is a live candidate but loses on DISTANCE (1.03 m vs 16.42 m), so RVR-18's forbid on a transfer naming it would also be satisfied by a completely absent exclusion; here the exclusion is the only thing that can decide. EXPECTED: no `Route endpoint transferred:` line at all, `Endpoint proximity step: resolved=0` refusing the transport, and the cycle blocking `BLOCKED kind=EndpointLost reason=stop-0-...` with the hold recorded and the armed send-once consumed into `blocked-then-paused` (EndpointLost is not a postponement hold, so `TryHonorArmedPauseOnBlockedCycle` pauses rather than keeping the arm). Gate 5 is the FIRST gate, so gates 6-8 never run - which is why `Delivery write:`, `Inventory store:` and `BLOCKED kind=DestinationFull` are all forbidden, the last a statement about the WALK rather than about capacity. The route is a LOOP route, so the hold comes from `ProcessLoopRoute` and NOT from `ApplyEndpointLost`; the legacy path's `EndpointLost:` line and its RouteEndpointLost ledger row are deliberately unpinned. On a PRE-#1627 build this lane fails by construction: the fallback would pick the transport at 16.42 m and deliver the whole manifest into the craft that was carrying it. MEASURED: both refusal lines came back with all four fields exactly as pinned, both cycles blocked (`skippedCycles` is now an exact pin at 2, tightened from its authored {min=1,max=2} window at this census), the hold line printed ONCE across two identical refusals as `Route.RecordHold`'s change-gate predicts, and the produced save read `completedCycles=0 skippedCycles=2 statuses={Paused:1} holdKinds={EndpointLost:1} destinationVesselPids=['2123618197']` - the suite's FIRST DRIVEN EndpointLost hold anywhere, which is why this lane claims D10 `hold-reasons`. THE REFUSAL'S TWO LINES ARE PINNED FROM THE SHIPPED CONCATENATIONS, confirmed 2026-09-04 with the C# author: the exclusion is applied INSIDE `TrySurfaceFallbackPure` as a candidate exclusion, so the branch prints `Endpoint proximity transport excluded: skipped=1 reason=route-own-transport body=Kerbin` and then `Endpoint proximity step: resolved=0 pid=0 reason=no-candidate-after-transport-exclusion body=Kerbin`. Both are required and neither is redundant: the first says the exclusion ran and skipped exactly one candidate (which the census says can only be the transport), the second says the search then had nothing left, under a reason token DISTINCT from the pre-existing `no-surface-candidate` - so together they attribute the miss to the exclusion rather than to an empty candidate list, and the hold reads the same token prefixed, `stop-0-no-candidate-after-transport-exclusion`. THE EXCLUSION MATCHES ON A GUID HERE, the strong form of the identity rule and the one risk the C# author flagged: the route's two `[root..dock]` source recordings carry `recordedVesselGuid = 3edd6bc7967c4e2ca0feb9138d116b6d`, which is live B's FLIGHTSTATE `pid` guid exactly (the save was produced by flying B), so this is a same-launch guid match rather than a craft-baked pid fallback - had the guids conclusively differed, B would not be excluded and the lane would measure a transfer onto B instead, a green-able outcome for the contract but a different lane, so `harness/lib` asserts the agreement rather than assuming it. The produced save must still read `destinationVesselPids: ['2123618197']`: a refused transfer must leave the persisted stop exactly as it was."
+instanceProfile = "stock-minimal"
+tags = ["seam-verbs", "logistics", "route-create", "endpoint-resolve",
+        "surface-proximity", "endpoint-transfer", "endpoint-lost", "live-state",
+        "recorded-fixture", "RVR-19", "matrix"]
+
+[fixture]
+# `rover-route-recorded`, RVR-2's host, staged through the same `[[fixture.liveState]]`
+# surface RVR-16 and RVR-18 use. What this lane needs from it is the FLIGHTSTATE CENSUS:
+# exactly three surface-classified vessels, of which two can be removed without moving
+# `activeVessel`. That is re-derived from the committed bytes in `harness/lib`.
+saveTemplate       = "fixtures/saves/rover-route-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[[fixture.liveState]]
+# REMOVAL 1: the vessel the route window names (`transferTargetPid = 2123618197`), at
+# FLIGHTSTATE index 10. This is RVR-18's removal verbatim - it is what makes the pid step
+# miss and opens the resolver's third step at all.
+pid    = 2123618197
+remove = true
+
+[[fixture.liveState]]
+# REMOVAL 2, AND THE ONE THIS LANE ADDS: `A`, at FLIGHTSTATE index 9, the rover that
+# physically docked and the vessel RVR-18's proximity step transfers onto at 1.03 m.
+# Deleting it too is what leaves the TRANSPORT as the sole surface candidate, which is the
+# only configuration in which the transport exclusion decides anything.
+#
+# NO `inventory` / `resources` KEY, and the validator would refuse one anyway
+# (`remove = true` is exclusive with both - they would patch a node this entry then
+# deletes). RVR-18 clears A's containers because A receives the delivery there; here
+# nothing is ever delivered, so A's contents are irrelevant and the vessel is simply gone.
+pid    = 2875537755
+remove = true
+
+[driver]
+kind = "seam"
+# RVR-2's THIRTEEN STEPS, VERBATIM apart from the route name - the matrix design: the
+# driver is the CONTROL and the `liveState` block is the variable, held to that by
+# `RoverRouteEndpointMatrixTests.test_every_matrix_lane_drives_rvr2s_steps`. Prologue
+# rationale and the TimeJump derivation are RVR-2's; `verboseLogging = true` is REQUIRED
+# because the resolver's proximity line and `Route.RecordHold`'s line are Verbose.
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                    expect = "OK" },
+  { cmd = "DiscardTree",                                                      expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" },  expect = "OK" },
+  { cmd = "SealSlot",     args = { tree = "73e50f1e3aa24c299919016cd9e92269" }, expect = "OK", budget = 120 },
+  { cmd = "RouteCommand", args = { action = "create", tree = "73e50f1e3aa24c299919016cd9e92269", name = "RVR19 Transport Only" }, expect = "OK", budget = 120 },
+  { cmd = "RouteCommand", args = { action = "send-once", route = "RVR19 Transport Only" }, expect = "OK", budget = 120 },
+  { cmd = "TimeJump",     args = { ut = "1600" },                             expect = "OK", budget = 300 },
+  { cmd = "RouteCommand", args = { action = "send-once", route = "RVR19 Transport Only" }, expect = "OK", budget = 120 },
+  { cmd = "TimeJump",     args = { ut = "2200" },                             expect = "OK", budget = 300 },
+  { cmd = "SaveGame",                                                         expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                     expect = "OK" },
+]
+
+[dimensionsCovered]
+# NO D10 CLAIM, for RVR-18's reasons: no registry value names endpoint RESOLUTION, and
+# adding one is a registry decision taken on its own merits rather than to fit a lane. If
+# an `endpoint-transfer` value is ever added it is declared by BOTH this lane and RVR-18
+# or by neither - the transfer and its refusal are two sides of one contract, and a value
+# claimed by only the positive half would leave the guard uncounted.
+#
+# **D10 `hold-reasons` IS CLAIMED, as a SECOND declarer alongside `H38-logistics-isolated`
+# on the different-BRANCH axis - and it is the only D10 row this whole ruling earns.** The
+# family's standing rule, written in RVR-13's row and applied by RVR-16: same branch at a
+# different value does NOT re-declare; a different branch does. H38 declares the row off
+# `OriginGate_EmptyOrigin_HoldsWaitingForResources`, which is `CheckEligibility`'s step 6
+# (origin cargo). This lane gates step 5 (ENDPOINT RESOLUTION), a gate no lane had ever
+# failed, and the measured VALUE is `EndpointLost` - a `EligibilityFailureKind` no driven
+# run had emitted anywhere, confirmed by the produced save's `holdKinds={EndpointLost:1}`.
+#
+# WHY THIS DOES NOT DISTURB THE FAMILY'S ABSTENTIONS. RVR-8, RVR-10, RVR-11, RVR-12 and
+# RVR-17 all declined `hold-reasons`, and every one of them declined for the SAME reason:
+# they were not the first measurer of their kind. RVR-17 says so outright - "RVR-4 produced
+# that kind first and did not claim; the first measurer's abstention stands". There is no
+# predecessor to defer to here: nothing has ever produced an `EndpointLost` hold, so this
+# lane IS the first measurer and the decision is its own to make.
+#
+# THREE REQUIRED TOKENS PROVE IT AT THREE EMITTERS, which is what the claim rests on
+# rather than the facet (a report-only facet gates nothing): `LoopRoute: ... BLOCKED
+# kind=EndpointLost reason=stop-0-...` (`RouteOrchestrator`), `Route <id8> hold recorded
+# kind=EndpointLost detail=stop-0-...` (`Route.RecordHold`, the persisted verdict) and
+# `... hold kind=EndpointLost` on the ArmedPause line (which additionally proves
+# `IsPostponementHold` did not claim the kind). All three flew green.
+#
+# NOTHING ELSE IS CLAIMED. Endpoint RESOLUTION and the transfer itself have no registry
+# value, and adding one is a registry decision taken on its own merits rather than to fit a
+# lane - RVR-18 abstains for exactly that reason and this lane does not invent the value on
+# its behalf. If an `endpoint-transfer` row is ever added it is declared by BOTH lanes or
+# by neither: the transfer and its refusal are two sides of one contract, and a value
+# claimed by only the positive half would leave the guard uncounted.
+D10 = ["hold-reasons"]
+D14 = ["sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# RVR-2's anti-data-loss floor, exact at 5. Removing FLIGHTSTATE vessels touches no
+# RECORDING node - the Parsek payload is outside what `savepatch.py` may write, and the
+# five recordings' own `vesselPersistentId` fields are historical metadata that no longer
+# needs a live vessel. TWO removals do not change that; the floor is the same number
+# RVR-16 and RVR-18 measured.
+count = { min = 5, max = 5 }
+
+[expectations.logContracts]
+# TWELVE TOKENS, ALL MEASURED GREEN on `2026-09-03_2154`. Each is a literal RUN from the
+# emitting concatenation in source; the only regexed spans are the per-run route id and the
+# loop cycle index (measured `cycle-0` and `cycle-1`, left regexed because `TryActivate`
+# rebases the loop cursors on re-activation and one measurement of that index is not a
+# contract).
+#
+# TOKENS 1-5 ARE RVR-2's PROLOGUE SET, this lane's control. They also carry a claim
+#          specific to a save with two vessels deleted: the tree still seals
+#          (`total=4 sealed=0 remaining=0 alreadySealed=True`) and the create gate still
+#          answers `status=Eligible ... refusal=None`. Route creation reads the COMMITTED
+#          recording tree and the recorded window, never the live vessel list, so removing
+#          the endpoint craft must not make the route uncreatable - if it did, this lane
+#          would be measuring a broken create rather than a refused transfer.
+#
+# TOKEN 6  **THE EXCLUSION RAN AND SKIPPED EXACTLY ONE CANDIDATE.** Given the census
+#          above, that one can only be the transport - the save holds no other surface
+#          vessel after the two removals. `reason=route-own-transport` is the exclusion's
+#          own token.
+#
+# TOKEN 7  **THE SEARCH THEN HAD NOTHING LEFT, AND THE LANE'S SUBJECT**, from
+#          `RouteEndpointResolver`'s proximity branch:
+#            "Endpoint proximity step: resolved=" + ... + " pid=" + ... + " reason="
+#            + ... + " body=" + endpoint.BodyName
+#          `resolved=0` is the whole claim: the search ran and matched NOTHING, on a save
+#          whose only surface vessel sits 16.42 m from the endpoint and 483 m inside the
+#          radius. `pid=0` is `TrySurfaceFallbackPure`'s miss-path `pickedPid`, and
+#          `reason=no-candidate-after-transport-exclusion` is the token that distinguishes
+#          this miss from the pre-existing `no-surface-candidate` (still emitted unchanged
+#          when nothing was excluded). Tokens 6 and 7 TOGETHER attribute the miss to the
+#          exclusion; neither alone does.
+#          TOKEN 7 IS ALSO THE STAGING'S FALSIFICATION, in both directions: on the
+#          UNPATCHED fixture the pid step wins and this line never prints at all, and with
+#          only ONE of the two removals applied it prints `resolved=1 pid=2875537755`
+#          (RVR-18's measured reading).
+#
+# TOKEN 8  THE GATE VERDICT, from `ProcessLoopRoute`'s Info line. `kind=EndpointLost` is
+#          `CheckEligibility` step 5 failing, and the reason is `$"stop-{i}-{epReason}"` -
+#          the stop index and the resolver's own token, pinned in full. The cycle INDEX is
+#          regexed (see the header: `TryActivate` rebases the loop cursors on the second
+#          `send-once`, so the second crossing's index is not derivable without a
+#          measurement).
+#
+# TOKEN 9  THE PERSISTED VERDICT, from `Route.RecordHold`. It logs only when the recorded
+#          hold CHANGED, so exactly one such line is expected across two identical
+#          refusals - which is why this token is not paired per cycle. It is the BYTES-side
+#          witness that `holdKinds` will read `EndpointLost`.
+#
+# TOKENS 10-11  THE ARMED PAUSE and its provenance. `hold kind=EndpointLost` names WHICH
+#          refusal consumed the one-shot, and it is the token that proves
+#          `IsPostponementHold` did NOT claim this kind: a postponement would have taken
+#          the `arm kept, route stays <Status>` branch instead and neither of these lines
+#          would exist.
+#
+# TOKEN 12 THE LIFECYCLE MARKER, the persisted-timeline half of token 10's decision.
+required  = [
+  "loadgame complete scene=FLIGHT save=.* game-loaded=true expected=Flight",
+  "sealslot complete mode=tree tree=73e50f1e3aa24c299919016cd9e92269 total=4 sealed=0 remaining=0 alreadySealed=True",
+  "routecommand create gate tree=73e50f1e3aa24c299919016cd9e92269 treeFound=True dismissed=False sealed=True eligible=True status=Eligible alreadyPromoted=False refusal=None",
+  "routecommand complete action=create tree=73e50f1e3aa24c299919016cd9e92269 route=.* name='RVR19 Transport Only' status=Paused",
+  "PauseAfterCurrentCycle=true \\(route will dispatch one cycle when conditions allow, then transition to Paused\\)",
+  "Endpoint proximity transport excluded: skipped=1 reason=route-own-transport body=Kerbin",
+  "Endpoint proximity step: resolved=0 pid=0 reason=no-candidate-after-transport-exclusion body=Kerbin",
+  "cycle=cycle-[0-9]+ BLOCKED kind=EndpointLost reason=stop-0-no-candidate-after-transport-exclusion",
+  "Route [0-9a-f]{8} hold recorded kind=EndpointLost detail=stop-0-no-candidate-after-transport-exclusion",
+  "ArmedPause: route .* BLOCKED cycle consumed the armed pause",
+  "reason=blocked-then-paused armedBy=send-once hold kind=EndpointLost",
+  "LifecycleMarker: route .* type=RoutePaused reason=blocked-then-paused",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "routecommand rejected",
+  # **THE GUARD ITSELF.** No transfer of any kind may happen on this lane: there is no
+  # legal target. The bare event name is forbidden rather than a transport-specific
+  # spelling, because a transfer onto ANYTHING here would be wrong - the only surface
+  # vessel in the save is the transport.
+  "Route endpoint transferred",
+  # AND THE SPECIFIC READING THE PRE-RULING BUILD PRODUCES. On `origin/main` the fallback
+  # picks the transport at 16.42 m and this is the line it prints; the forbid is what makes
+  # the lane fail LOUDLY on an un-upgraded automation DLL instead of quietly measuring the
+  # old behaviour.
+  "Endpoint proximity step: resolved=1 pid=313889796",
+  # NOTHING MAY BE DELIVERED. Gate 5 fails, so no delivery is even planned; these two
+  # forbids are what make "the route paid itself" impossible to miss if the exclusion
+  # regressed but the logging did not.
+  "Delivery write:",
+  "Inventory store:",
+  # AND THE WALK MUST STOP AT GATE 5. Gate 8 would have PASSED on these bytes against the
+  # transport (`B` carries its own tank and free slots), so a `DestinationFull` reading
+  # would mean the endpoint resolved after all - a statement about the WALK rather than
+  # about capacity, exactly as RVR-17 uses the same forbid against its funds gate.
+  "BLOCKED kind=DestinationFull",
+]
+
+[expectations.recordings.structure]
+# REPORT-ONLY (no `gating` key), the committed fixture's own structure re-read through
+# `harness/lib/saveparse.py`. Two FLIGHTSTATE deletions and a driver that creates no
+# recordings leave every one of these unchanged - the same five numbers RVR-16, RVR-17 and
+# RVR-18 declare.
+trees          = { min = 2, max = 2 }
+committedTrees = { min = 2, max = 2 }
+recordings     = { min = 5, max = 5 }
+terminalStates = { Landed = { min = 3 }, Docked = { min = 1 } }
+branchPoints   = { Dock = { min = 1, max = 1 }, Undock = { min = 1, max = 1 } }
+
+[expectations.routes]
+# REPORT-ONLY and DERIVED. Arming is a separate operator decision taken after a
+# report-only reading run whose facets match, with its own `ARMED_ALLOWLIST` entry in
+# `harness/lib/test_hlib.py`; this lane has never been flown, so arming it now would gate
+# on a prediction.
+#
+# `completedCycles = 0` is the BYTES-side statement of the whole lane: not one cycle
+# dispatched. `skippedCycles` was authored as a `{min=1,max=2}` window because the second
+# crossing's existence depends on the loop clock after `TryActivate` rebases the cursors,
+# with a note to tighten it at the first census. **THAT CENSUS IS `2026-09-03_2154` and it
+# measured 2** (cycle-0 blocked at `lastObserved=20`, cycle-1 at `lastObserved=32`), so
+# the window is now an exact pin - the same shape RVR-17 carries for the same driver.
+#
+# **`destinationVesselPids` IS THE REFUSAL'S OWN FACET, AND IT HELD.** MEASURED
+# `['2123618197']` on the flight, against RVR-18's measured `['2875537755']` over the same
+# committed payload - the pair is the whole ruling in the bytes, one facet flipping and one
+# not. RVR-18's moves to the transfer target; this one must NOT. A refused transfer leaves the persisted STOP exactly as
+# the recording wrote it, so the save still names the deleted `rover fuel 0` - which is
+# also the honest reading of the state: the route is HOLDING for an endpoint it still
+# expects, not silently re-pointed at something else.
+count                 = { min = 1, max = 1 }
+dormant               = { min = 0, max = 0 }
+stops                 = { min = 1, max = 1 }
+sourceRefs            = { min = 2, max = 2 }
+completedCycles       = { min = 0, max = 0 }
+skippedCycles         = { min = 2, max = 2 }
+statuses              = { Paused = { min = 1, max = 1 } }
+destinationVesselPids = ["2123618197"]
+
+[runtime]
+# RVR-17's / RVR-18's budget arithmetic, unchanged: three deferred verbs at 660 s each is
+# 1980 worst case, plus the six synchronous route/seal/save budgets. Those lanes came in
+# at 49-50 s wall on the identical driver, and this one does strictly less work (no
+# delivery is written).
+budgetSeconds = 2400
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

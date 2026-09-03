@@ -396,6 +396,37 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Dev
 
+- **Two test lanes now pin the rule for a supply route whose destination craft is
+  gone: it moves to the craft standing on the spot, but never to the craft that was
+  carrying the cargo.** The measurement that raised the question is a few entries
+  below - a delivery went into a rover parked one metre from the recorded docking
+  spot, with the route's own record still naming the craft that no longer exists -
+  and it has now been answered: the route re-points itself at the craft it found, so
+  the save says where the cargo is going, and it refuses to re-point at its own
+  transport, which would be a supply run paying itself. The lane that made the
+  original measurement was rewritten around the new rule, and a second one was added
+  for the refusal: it deletes BOTH other craft standing near the recorded spot, so
+  the only thing left within range is the transport itself, and checks that the route
+  holds instead of delivering. That second case had been written off as unreachable
+  on this save - the note said emptying the search radius would mean moving the craft
+  the game opens on - which was wrong, and the correction is recorded rather than
+  quietly edited: nothing limited the setup to dropping ONE craft, and dropping two
+  leaves exactly the situation the rule is about. The lanes' expected log lines were
+  taken from the mod source that emits them rather than guessed, and the identity the
+  refusal turns on was checked against the save's own bytes: the recorded run and the
+  live transport are the same launch, so the refusal rests on a launch id rather than
+  on a craft-file id that any copy of the same craft would share. **Both lanes have now
+  been flown against the shipped change and both passed on the first attempt**, with
+  every expected log line and every produced-save reading matching what was written down
+  beforehand - including the two readings that are the whole point of the pair: the route
+  that moved says so in the save (it names the craft it moved to), and the route that
+  refused leaves its record exactly as it was. One written-down claim was wrong and is
+  corrected rather than quietly dropped: the first lane's notes said the nearby rover was
+  chosen because it was closer, when in fact the transport had already been set aside
+  before any distance was compared. The rover was closer too, so the outcome was right -
+  but that lane cannot show the set-aside rule working, which is exactly why the second
+  lane exists.
+
 - The same per-scenario setup now covers two more situations a supply route can
   meet, and three new test lanes use them over the FIRST rover save. A scenario can
   say "this craft is no longer in the save at all" (the whole craft is dropped
