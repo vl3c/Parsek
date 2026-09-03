@@ -235,11 +235,18 @@ namespace Parsek.Logistics
                     EligibilityFailureKind.EndpointLost, $"origin-{originReason}", 0.0);
             }
 
-            // 6. Origin has cargo.
-            if (!env.OriginHasCargo(route, out string lackingResource))
+            // 6. Origin has cargo. The gate's measured shortfall rides in the SAME
+            //    EligibilityResult field FundsShort uses: the hold token is a
+            //    legibility string that must never be parsed for a magnitude, so
+            //    this is the only channel the number has. Without it a PARTIALLY
+            //    short source rendered as a bare "out of X" with no amount
+            //    (ROUTE-HOLD-SHORTFALL-DROPPED). 0 means "unknown / not a resource
+            //    shortfall" (inventory short, unresolved endpoint) and keeps the
+            //    pre-existing wording.
+            if (!env.OriginHasCargo(route, out string lackingResource, out double cargoShortfall))
             {
                 return new EligibilityResult(
-                    EligibilityFailureKind.OriginLacksCargo, lackingResource, 0.0);
+                    EligibilityFailureKind.OriginLacksCargo, lackingResource, cargoShortfall);
             }
 
             // 7. Career funds (only when Career mode AND KSC origin).

@@ -1250,6 +1250,43 @@ namespace Parsek.Tests
                 l.Contains("[INFO]") && l.Contains("Drift amber CLEARED") && l.Contains("tree=t")));
         }
 
+        // PERIODICITY-LANDED-ANCHOR-PHASE-LOCK: the live-anchor seam
+        // (IBodyInfo.TryGetVesselOrbit) filtered only on ecc >= 1 and a non-positive /
+        // NaN period. A LANDED vessel passes both - stock keeps a pseudo-orbit on it
+        // (e ~0.9948, P ~550 s, drifting as the craft settles) - so a surface-only relay
+        // tree acquired an orbital phase lock: cadence 162.74 s became 549.47 s and the
+        // dispatch anchor jumped 274.18 -> 660.91. The Unity-bound seam reads the live
+        // Vessel, so the DECISION is this pure predicate.
+        // catches: the landed/splashed/prelaunch set shrinking, or the predicate
+        // inverting (which would reject every genuine orbiting anchor).
+        [Theory]
+        [InlineData(true, Vessel.Situations.LANDED)]
+        [InlineData(true, Vessel.Situations.SPLASHED)]
+        [InlineData(true, Vessel.Situations.PRELAUNCH)]
+        // LandedOrSplashed and situation are read independently: either one alone rejects.
+        [InlineData(false, Vessel.Situations.LANDED)]
+        [InlineData(false, Vessel.Situations.SPLASHED)]
+        [InlineData(false, Vessel.Situations.PRELAUNCH)]
+        [InlineData(true, Vessel.Situations.ORBITING)]
+        public void IsPhaseAnchorEligible_RejectsSurfaceAnchors(
+            bool landedOrSplashed, Vessel.Situations situation)
+        {
+            Assert.False(MissionPeriodicity.IsPhaseAnchorEligible(landedOrSplashed, situation));
+        }
+
+        // catches: the guard over-reaching into the airborne / orbiting situations a
+        // genuine rendezvous anchor reports (the design's supported shape).
+        [Theory]
+        [InlineData(Vessel.Situations.ORBITING)]
+        [InlineData(Vessel.Situations.SUB_ORBITAL)]
+        [InlineData(Vessel.Situations.ESCAPING)]
+        [InlineData(Vessel.Situations.FLYING)]
+        [InlineData(Vessel.Situations.DOCKED)]
+        public void IsPhaseAnchorEligible_AcceptsAirborneAnchors(Vessel.Situations situation)
+        {
+            Assert.True(MissionPeriodicity.IsPhaseAnchorEligible(false, situation));
+        }
+
         [Fact]
         public void Solve_LoneVesselOrbital_LocksStationPeriod_SingleVesselOrbitalMethod()
         {

@@ -31,8 +31,18 @@ namespace Parsek.Logistics
         /// True if the origin currently has the manifest's required resources.
         /// KSC origin always returns <c>true</c> (funds are checked separately
         /// via <see cref="KscFundsAvailable"/>).
+        ///
+        /// <para><paramref name="shortfall"/> is the missing AMOUNT of
+        /// <paramref name="lackingResource"/> (need minus stored, in the
+        /// resource's own units), mirroring the
+        /// <see cref="KscFundsAvailable"/> shortfall contract: it is the only
+        /// channel the number has, because the hold token is a legibility
+        /// string and must never be parsed for a magnitude. <c>0</c> means
+        /// "unknown / not a resource shortfall": the short is an inventory
+        /// (stored-part) short, or the endpoint could not be resolved.
+        /// Undefined when the call returns <c>true</c>.</para>
         /// </summary>
-        bool OriginHasCargo(Route route, out string lackingResource);
+        bool OriginHasCargo(Route route, out string lackingResource, out double shortfall);
 
         /// <summary>
         /// True if (Career mode AND KSC origin) has funds for the dispatch cost.

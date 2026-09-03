@@ -132,7 +132,7 @@ Two limits of this table, stated so nobody over-reads it:
 | `MapRender` | 22 | 21 | 0 | 0 | 1 | 14 | S1.7 | B |
 | `MapView` | 4 | 3 | 3 | 4 | 0 | 2 | H47 (flown 2026-08-28, executes 4 of 4) | A |
 | `MergeDialog` | 2 | 0 | 0 | 0 | 2 | 2 | - | B |
-| `MissionPhasing` | 2 | 2 | 0 | 0 | 0 | 0 | - | B |
+| `MissionPhasing` | 3 | 3 | 0 | 0 | 0 | 0 | - | B |
 | `Missions` | 13 | 7 | 6 | 0 | 0 | 9 | M1, H54 (FLIGHT slice, flown 2026-08-28, executes **3 of 13** - see the archetype note below) | B |
 | `Optimizer` | 2 | 0 | 2 | 0 | 0 | 2 | - | B |
 | `PartEventFX` | 6 | 6 | 0 | 0 | 0 | 6 | - | B |
@@ -206,8 +206,8 @@ Two limits of this table, stated so nobody over-reads it:
 
 ## Triage
 
-Totals, re-derived: **112 categories / 618 declarations**. Buckets **A 36 categories
-(239 declarations)**, **B 76 categories (379 declarations)**, **C 0 categories (0
+Totals, re-derived: **112 categories / 619 declarations**. Buckets **A 36 categories
+(239 declarations)**, **B 76 categories (380 declarations)**, **C 0 categories (0
 declarations)**. The 107th is `AutoMergeCommit` (R4, the AUTOMERGE-ON-BY-DEFAULT
 wave; the 106th is `DisabledHoverEcho`, landed the same week): the plan-§7
 autoMerge=ON scene-exit cell, batch-disabled and restore-backed exactly like the two
@@ -1037,7 +1037,7 @@ them to Skips is filed product work, and doing it will move H31's pin
 deliberately.
 
 **B5 - too small to justify a dedicated boot.** The long tail: `Bug289` (2),
-`ContinuationIntegrity` (2), `MissionPhasing` (2), `PartEventTiming` (2),
+`ContinuationIntegrity` (2), `MissionPhasing` (3), `PartEventTiming` (2),
 `Pipeline-Frame` (1), `Pipeline-Outlier` (1), `Pipeline-Terrain` (1),
 `Pipeline-AnchorPropagate` (1), `ForwardRender` (1), `ResourceManifest` (1),
 `StockWarpLimits` (1), `RouteLiveAnchor` (1), `LedgerGroundTruth` (2) and similar.

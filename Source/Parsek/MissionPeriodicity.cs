@@ -260,8 +260,11 @@ namespace Parsek
         double Radius(string bodyName);
 
         /// <summary>Resolves a vessel by persistentId to its CURRENT orbit. False when the vessel
-        /// does not exist in the save, has no orbit, the orbit is not closed (ecc &gt;= 1 /
-        /// degenerate period), or <paramref name="recordedVesselGuid"/> conclusively differs from
+        /// does not exist in the save, is LANDED / SPLASHED / PRELAUNCH (a surface vessel carries a
+        /// pseudo-orbit - stock reports ecc ~0.9948 with a finite period - which is NOT a phase
+        /// reference; see <see cref="MissionPeriodicity.IsPhaseAnchorEligible"/>), has no orbit,
+        /// the orbit is not closed (ecc &gt;= 1 / degenerate period), or
+        /// <paramref name="recordedVesselGuid"/> conclusively differs from
         /// the live vessel's launch Guid (persistentId is craft-baked, NOT launch-unique: a fresh
         /// launch of the same craft reuses the pid and must not read as the recorded anchor;
         /// null/empty guid falls back to pid-only, the VesselLaunchIdentity contract).
@@ -276,6 +279,30 @@ namespace Parsek
     {
         // Set true in tests to silence the per-extraction / per-solve Verbose summaries.
         internal static bool SuppressLogging;
+
+        /// <summary>
+        /// Pure eligibility predicate for a live vessel used as a PHASE anchor
+        /// (<see cref="IBodyInfo.TryGetVesselOrbit"/>). A landed / splashed /
+        /// prelaunch vessel is NOT one: stock keeps a pseudo-orbit on a surface
+        /// vessel (an extreme-eccentricity ellipse, e ~0.9948, whose period is a
+        /// finite few hundred seconds and drifts as the craft settles), so the
+        /// ecc &gt;= 1 and non-positive-period filters both pass it and a
+        /// surface-only config would acquire an orbital phase lock it can never
+        /// satisfy - delaying dispatch and stretching every later cycle. The
+        /// design's "a surface-only / atmospheric-only config imposes NO phase
+        /// constraint" rule (design-mission-periodicity, "Edge cases") is what
+        /// this enforces on the LIVE-anchor side. Fail closed: rejecting here
+        /// routes the classifier to its existing UnsupportedRendezvous branch, so
+        /// the mission keeps its built cadence and anchor.
+        /// </summary>
+        internal static bool IsPhaseAnchorEligible(
+            bool landedOrSplashed, Vessel.Situations situation)
+        {
+            return !landedOrSplashed
+                && situation != Vessel.Situations.LANDED
+                && situation != Vessel.Situations.SPLASHED
+                && situation != Vessel.Situations.PRELAUNCH;
+        }
 
         // Environments that constrain a body's ROTATION phase (a surface/atmospheric segment
         // must sit over its ground spot + connect to its inertial orbit). Approach is an
@@ -2908,6 +2935,26 @@ namespace Parsek
             // guid falls back to pid-only).
             if (VesselLaunchIdentity.GuidsConclusivelyDiffer(recordedVesselGuid, v.id.ToString()))
                 return false;
+            // Landed / splashed / prelaunch anchors are NOT phase references: stock keeps a
+            // pseudo-orbit on a surface vessel (e ~0.9948 with a finite, drifting period), so
+            // BOTH filters below pass it and a surface-only relay tree would acquire an orbital
+            // phase lock (PERIODICITY-LANDED-ANCHOR-PHASE-LOCK). Rejected here so the classifier
+            // takes its existing UnsupportedRendezvous branch and the route keeps its cadence.
+            if (!MissionPeriodicity.IsPhaseAnchorEligible(v.LandedOrSplashed, v.situation))
+            {
+                if (!MissionPeriodicity.SuppressLogging)
+                {
+                    ParsekLog.VerboseRateLimited(
+                        "MissionPeriodicity",
+                        // One key per anchor pid: bounded by the anchor-candidate count.
+                        "vessel-orbit-landed-anchor." + vesselPid.ToString(CultureInfo.InvariantCulture),
+                        "TryGetVesselOrbit: skipped landed anchor " +
+                        $"pid={vesselPid.ToString(CultureInfo.InvariantCulture)} " +
+                        $"situation={v.situation} landedOrSplashed={v.LandedOrSplashed} " +
+                        "- a surface pseudo-orbit is not a phase reference");
+                }
+                return false;
+            }
             Orbit orbit = v.orbit;
             if (orbit == null)
                 return false;

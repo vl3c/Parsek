@@ -646,9 +646,10 @@ namespace Parsek.Tests.Logistics
                 reason = "fake-null-vessel";
                 return false;
             }
-            public bool OriginHasCargo(Route route, out string lackingResource)
+            public bool OriginHasCargo(Route route, out string lackingResource, out double shortfall)
             {
                 lackingResource = string.Empty;
+                shortfall = 0.0;
                 return true;
             }
             public bool KscFundsAvailable(Route route, out double shortfall)

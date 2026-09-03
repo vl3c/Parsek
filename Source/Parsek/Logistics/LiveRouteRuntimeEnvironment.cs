@@ -102,9 +102,10 @@ namespace Parsek.Logistics
             return RouteEndpointResolver.TryResolveEndpoint(endpoint, out vessel, out reason);
         }
 
-        public bool OriginHasCargo(Route route, out string lackingResource)
+        public bool OriginHasCargo(Route route, out string lackingResource, out double shortfall)
         {
             lackingResource = string.Empty;
+            shortfall = 0.0;
             if (route == null)
             {
                 lackingResource = "null-route";
@@ -119,10 +120,10 @@ namespace Parsek.Logistics
             // NOT double-count. Gate the origin first (it owns the KSC / harvest
             // early returns), then ALWAYS gate the pickup sources (a KSC-origin or
             // harvest-origin route can still load cargo from a refinery/depot).
-            if (!OriginProvenanceHasCargo(route, out lackingResource))
+            if (!OriginProvenanceHasCargo(route, out lackingResource, out shortfall))
                 return false;
 
-            return PickupSourcesHaveCargo(route, out lackingResource);
+            return PickupSourcesHaveCargo(route, out lackingResource, out shortfall);
         }
 
         /// <summary>
@@ -134,9 +135,11 @@ namespace Parsek.Logistics
         /// the new per-pickup-source gate (<see cref="PickupSourcesHaveCargo"/>) can
         /// run as an independent provenance after it.
         /// </summary>
-        private bool OriginProvenanceHasCargo(Route route, out string lackingResource)
+        private bool OriginProvenanceHasCargo(
+            Route route, out string lackingResource, out double shortfall)
         {
             lackingResource = string.Empty;
+            shortfall = 0.0;
 
             if (route.IsKscOrigin)
             {
@@ -186,14 +189,18 @@ namespace Parsek.Logistics
             var probe = new LiveOriginCargoProbe(originVessel, originIsLoaded);
             bool covered = RouteOriginCargoCheck.HasRequired(
                 route.CostManifest, probe.ProbeResourceStored,
-                out string shortResource, out double shortfall);
+                out string shortResource, out double resourceShortfall);
             if (!covered)
             {
                 lackingResource = shortResource;
+                // The missing AMOUNT is the only channel the number has (the
+                // hold token is a legibility string, never parsed for a
+                // magnitude), so thread it out to the caller alongside the name.
+                shortfall = resourceShortfall;
                 double need = 0.0;
                 if (route.CostManifest != null)
                     route.CostManifest.TryGetValue(shortResource, out need);
-                double have = need - shortfall;
+                double have = need - resourceShortfall;
                 ParsekLog.VerboseRateLimited(Tag, "origin-short-" + route.Id,
                     $"OriginHasCargo: route {ShortIdForRoute(route)} " +
                     $"origin={originVessel.vesselName ?? "<none>"} " +
@@ -261,9 +268,11 @@ namespace Parsek.Logistics
         /// short source (ordered by the source's earliest dock UT) names the source
         /// in the hold token. Logs a per-gate summary (sources are few/bounded).
         /// </summary>
-        private bool PickupSourcesHaveCargo(Route route, out string lackingResource)
+        private bool PickupSourcesHaveCargo(
+            Route route, out string lackingResource, out double shortfall)
         {
             lackingResource = string.Empty;
+            shortfall = 0.0;
 
             // Cache resolved vessels per pid across this gate call so two pickup
             // windows against the same craft-baked pid resolve + capture the
@@ -407,6 +416,11 @@ namespace Parsek.Logistics
             if (!result.Covered)
             {
                 lackingResource = result.ShortHoldToken;
+                // Thread the gate's measured shortfall out to the evaluator so the
+                // player-facing hold can say HOW MUCH is missing. Inventory shorts
+                // carry a stored-part COUNT in GateResult.Shortfall, which is not a
+                // resource amount, so they report 0 (the "unknown" contract value).
+                shortfall = result.InventoryShort ? 0.0 : result.Shortfall;
                 ParsekLog.VerboseRateLimited(Tag, "pickup-source-gate-short-" + route.Id,
                     $"PickupSourcesHaveCargo: route {ShortIdForRoute(route)} " +
                     $"all-or-nothing FAIL first-short source pid={result.ShortSourcePid.ToString(IC)} " +

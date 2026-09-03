@@ -403,7 +403,7 @@ namespace Parsek.Tests.Logistics
                 => throw new InvalidOperationException("env must not be consulted");
             public bool TryResolveEndpointVessel(RouteEndpoint endpoint, out Vessel vessel, out string reason)
                 => throw new InvalidOperationException("env must not be consulted");
-            public bool OriginHasCargo(Route route, out string lackingResource)
+            public bool OriginHasCargo(Route route, out string lackingResource, out double shortfall)
                 => throw new InvalidOperationException("env must not be consulted");
             public bool KscFundsAvailable(Route route, out double shortfall)
                 => throw new InvalidOperationException("env must not be consulted");

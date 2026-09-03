@@ -121,6 +121,92 @@ namespace Parsek.Tests.Logistics
                 LogisticsHoldPresentation.DescribeHold(OriginLacksCargo, token, 0.0));
         }
 
+        // ROUTE-HOLD-SHORTFALL-DROPPED: a PARTIALLY short source held with
+        // "B is out of LiquidFuel" while B physically held 45.6 of the 154.4 the
+        // manifest needed - the gate measured the 108.8 shortfall, logged it, and
+        // then dropped it before the UI. catches: the shortfall argument being
+        // ignored on the "source:" branch, the magnitude not reaching the text, the
+        // now-wrong "out of" wording surviving a measured short, or a culture-
+        // dependent number format.
+        [Fact]
+        public void DescribeHold_PickupSourcePartialShort_NamesTheMissingAmount()
+        {
+            string token = RoutePickupSourceGate.BuildHoldToken(90564594u, "B", "LiquidFuel");
+            string text = LogisticsHoldPresentation.DescribeHold(
+                OriginLacksCargo, token, 108.79999999999706);
+
+            Assert.Equal(
+                "B is short 108.8 LiquidFuel - delivers when it has the full amount",
+                text);
+            Assert.DoesNotContain("out of", text);
+        }
+
+        // Same measured short, compact Status-cell treatment.
+        [Fact]
+        public void StatusCellText_PickupSourcePartialShort_NamesTheMissingAmount()
+        {
+            string token = RoutePickupSourceGate.BuildHoldToken(90564594u, "B", "LiquidFuel");
+            string cell = LogisticsHoldPresentation.StatusCellText(
+                OriginLacksCargo, token, 108.79999999999706);
+
+            Assert.Equal("Held: B short 108.8 LiquidFuel", cell);
+            Assert.DoesNotContain("out of", cell);
+        }
+
+        // The single-docked-origin provenance carries the same number.
+        // catches: only the pickup-source branch being wired.
+        [Fact]
+        public void DescribeHold_OriginPartialShort_NamesTheMissingAmount()
+        {
+            Assert.Equal(
+                "origin is short 60.0 LiquidFuel - delivers when the origin has the full amount",
+                LogisticsHoldPresentation.DescribeHold(OriginLacksCargo, "LiquidFuel", 60.0));
+            Assert.Equal("Held: origin short 60.0 LiquidFuel",
+                LogisticsHoldPresentation.StatusCellText(
+                    OriginLacksCargo, "origin-lacks-LiquidFuel", 60.0));
+        }
+
+        // catches: an INVENTORY short (whose shortfall is a stored-part COUNT, not a
+        // resource amount, and therefore reports the "unknown" 0) or an unresolved
+        // endpoint growing a bogus amount now that the argument is read.
+        [Fact]
+        public void DescribeHold_UnknownShortfall_KeepsThePreExistingWording()
+        {
+            string inventory = RoutePickupSourceGate.BuildHoldToken(50u, "Cargo Bay", "inventory:evaJetpack");
+            Assert.Equal(
+                LogisticsHoldPresentation.DescribeHold(OriginLacksCargo, inventory, 0.0),
+                LogisticsHoldPresentation.DescribeHold(OriginLacksCargo, inventory, 3.0));
+            // Zero shortfall keeps the "out of" text on every resource branch.
+            Assert.Equal(
+                "B is out of LiquidFuel - delivers when it has the full amount",
+                LogisticsHoldPresentation.DescribeHold(
+                    OriginLacksCargo,
+                    RoutePickupSourceGate.BuildHoldToken(90564594u, "B", "LiquidFuel"), 0.0));
+        }
+
+        // catches: the shortfall rendering under the OS culture (the xUnit host runs
+        // under it; ro-RO prints "108,8"). Same contract as the FundsShort number.
+        [Fact]
+        public void DescribeHold_ShortfallAmount_IsInvariantUnderAForeignCulture()
+        {
+            var prior = System.Threading.Thread.CurrentThread.CurrentCulture;
+            try
+            {
+                System.Threading.Thread.CurrentThread.CurrentCulture =
+                    new System.Globalization.CultureInfo("de-DE");
+                Assert.Equal("108.8", LogisticsHoldPresentation.FormatShortfallAmount(108.79999999999706));
+                Assert.Contains("short 108.8 LiquidFuel",
+                    LogisticsHoldPresentation.DescribeHold(
+                        OriginLacksCargo,
+                        RoutePickupSourceGate.BuildHoldToken(90564594u, "B", "LiquidFuel"),
+                        108.79999999999706));
+            }
+            finally
+            {
+                System.Threading.Thread.CurrentThread.CurrentCulture = prior;
+            }
+        }
+
         // catches: an inventory-short pickup source not naming the source, or
         // not naming the part now that the gate's token carries the part name.
         [Fact]

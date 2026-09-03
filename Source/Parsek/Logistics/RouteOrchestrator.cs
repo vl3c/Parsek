@@ -5244,7 +5244,7 @@ namespace Parsek.Logistics
             public bool IsCareer { get; }
             public bool TryResolveEndpoint(RouteEndpoint endpoint, out string reason) { reason = null; return false; }
             public bool TryResolveEndpointVessel(RouteEndpoint endpoint, out Vessel vessel, out string reason) { vessel = null; reason = null; return false; }
-            public bool OriginHasCargo(Route route, out string lackingResource) { lackingResource = null; return false; }
+            public bool OriginHasCargo(Route route, out string lackingResource, out double shortfall) { shortfall = 0.0; lackingResource = null; return false; }
             public bool KscFundsAvailable(Route route, out double shortfall) { shortfall = 0.0; return true; }
             public bool DestinationHasCapacity(Route route, out string fullResource) { fullResource = null; return true; }
             public bool RouteHasValidSourcesInErs(Route route) => true;
