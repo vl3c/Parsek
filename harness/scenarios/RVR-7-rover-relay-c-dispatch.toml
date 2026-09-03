@@ -184,7 +184,7 @@ tier = "nightly"
 #
 # STEP 11 - `FlushAndQuit`.
 # =====================================================================================
-description = "LIVE-PROVEN 2026-09-02: run 2026-09-02_2251, PASS attempt 1, wall 49 s, EVERY VERIFIER PASS (expectations mismatches=0, analyzer red=0, logValidate PASS), on automation DLL sha256 2f9309f5e3487257 (main + PR #1621). THE FIRST DRIVEN DISPATCH OF A TWO-HOP RELAY, and the only lane anywhere that exercises the analysis-side origin override. Fixture rover-relay-c-recorded is the operator's second three-rover relay (logistics-rover-c, 2026-09-02): C loads +154.4 LiquidFuel and 3 stored items FROM B at dock UT 155.82 / undock 212.54, then delivers 200 LiquidFuel and 4 items TO A at dock 274.18 / undock 335.32, saved at UT 410.40 from the space center. WHAT THE FLIGHT MEASURED, end to end: SealSlot answered the idempotent no-op total=8 sealed=0 alreadySealed=True; the create gate read eligible=True status=Eligible alreadyPromoted=False refusal=None and built one route named relay-c at status=Paused; one send-once plus one TimeJump to ut=1100 fired cycle-0, which DEBITED B (Origin debit requested=154.3999999999952, tankBefore=200 tankAfter=45.6) plus three inventory removes, DELIVERED to A (Delivery write requested=200 written=200, tankBefore=200 tankAfter=400) plus three inventory stores, and closed with Delivery: resources=1 inventoryUnits=4/4 inventoryUnitsSkipped=0 partial=0 and ArmedPause: cycle-0 COMPLETED cycle -> delivered-then-paused. saveParse read routes count=1 statuses={Paused:1} stops=2 sourceRefs=3 completedCycles=1 skippedCycles=0 dormant=0, and recordings.count=10 with no load-time optimizer split. TWO THINGS THE CENSUS SETTLED THAT NO READING OF THE BYTES COULD. (1) THE ROUTE IS TWO STOPS, not origin-plus-stop: stops=2, connectionKinds={DockingPort:2}, destinationVesselPids=[90564594, 2123618197], originBodies={Kerbin:1}, and the dispatch line reads LoopRoute(multi): ... carrierStopIndex=0 - the pickup at B and the delivery at A are both STOPS of ONE route, which is exactly the shape the operator ruling predicts. (2) BOTH WRITERS TOOK path=unloaded, NOT path=loaded. The spec was authored predicting loaded on the strength of the three rovers sitting 313 m / 731 m / 1041 m apart, well inside physics range; that reasoning is wrong for a driven lane, because the seam TimeJump warps with the endpoints PACKED and it is the load state at the DISPATCH TICK that decides the path, not the separation. THE FIRST CENSUS (2026-09-02_2245) classified PARSEK-FAIL on FIVE AUTHORING MISPREDICTIONS AND NOTHING ELSE - the route was created, dispatched and delivered on that flight too. The five: the loaded/unloaded path on the resource debit, the inventory remove, the delivery write and the inventory store, plus an invented FIRED full cycle line that does not exist (the real cycle lines are LoopRoute(multi) ... dispatch fired, Delivery: ... partial=0 and ArmedPause: ... COMPLETED cycle). All five are re-pinned from the measured lines and the re-fly is green; the misprediction is kept in the spec as history, not as current state. THE FIXTURE IS STAGED AT START-OF-CYCLE, and the flight is that repair's proof. The save was written AFTER the relay finished, so as harvested B held 45.6/400 LiquidFuel against its own window's 154.4 pickup manifest and A was at 400/400 with 6 of 6 inventory slots - both all-or-nothing eligibility gates false, every driven cycle blocking - and the builder restores each PHYSICAL endpoint, in FLIGHTSTATE only, to the state ITS OWN window recorded at ITS dock (both to 200/400 and three of six slots, with the STOREDPART bytes lifted verbatim out of the window snapshots). The measured tankBefore=200 / tankAfter=45.6 at B and tankBefore=200 / tankAfter=400 at A are the restored values moving exactly as derived. No number is invented and the Parsek payload is untouched; the precedent is build_rover_route_recorded.py step 3, and RVR-2 flight 1 is the flight that was lost to not having it. The transport C is left exactly as saved. UNLIKE EVERY OTHER ROUTE FIXTURE IT CARRIES TWO ROUTE_ORIGIN_PROOF NODES AND BOTH NAME THE WRONG ORIGIN, written by the 2026-09-02 undock binder: hop 1 (the pickup) bound the TRANSPORT itself (originName='C' originPid=612987736, with B's root part in the transport slot - the halves inverted, because KSP resolved the hop-1 merged vessel to B's identity so 'half B' of that seam is C), and hop 2 (a pure delivery with no source at all) bound the DESTINATION (originName='A' originPid=4280917262). Both record pickupValidated=0. The green create over those bytes IS the override working. ONE CYCLE IS DRIVEN, deliberately: after it the endpoints are spent again exactly as the operator left them, so a second would block - and BOTH hold tokens (BLOCKED kind=OriginLacksCargo for gate 6, BLOCKED kind=DestinationFull for gate 8) are FORBIDDEN, so a regression to the spent state reds explicitly rather than passing quietly. routecommand rejected is forbidden too, the vacuity guard on the create. Also the first relay host whose windows are one INITIATOR-branch and one TARGET-branch rather than two target-branch. The saveParse structure and routes blocks stay REPORT-ONLY - the values are measured, but arming is a separate per-scenario operator decision."
+description = "LIVE-PROVEN 2026-09-02: run 2026-09-02_2251, PASS attempt 1, wall 49 s, EVERY VERIFIER PASS (expectations mismatches=0, analyzer red=0, logValidate PASS), on automation DLL sha256 2f9309f5e3487257 (main + PR #1621). THE FIRST DRIVEN DISPATCH OF A TWO-HOP RELAY, and the only lane anywhere that exercises the analysis-side origin override. Fixture rover-relay-c-recorded is the operator's second three-rover relay (logistics-rover-c, 2026-09-02): C loads +154.4 LiquidFuel and 3 stored items FROM B at dock UT 155.82 / undock 212.54, then delivers 200 LiquidFuel and 4 items TO A at dock 274.18 / undock 335.32, saved at UT 410.40 from the space center. WHAT THE FLIGHT MEASURED, end to end: SealSlot answered the idempotent no-op total=8 sealed=0 alreadySealed=True; the create gate read eligible=True status=Eligible alreadyPromoted=False refusal=None and built one route named relay-c at status=Paused; one send-once plus one TimeJump to ut=1100 fired cycle-0, which DEBITED B (Origin debit requested=154.3999999999952, tankBefore=200 tankAfter=45.6) plus three inventory removes, DELIVERED to A (Delivery write requested=200 written=200, tankBefore=200 tankAfter=400) plus three inventory stores, and closed with Delivery: resources=1 inventoryUnits=4/4 inventoryUnitsSkipped=0 partial=0 and ArmedPause: cycle-0 COMPLETED cycle -> delivered-then-paused. saveParse read routes count=1 statuses={Paused:1} stops=2 sourceRefs=3 completedCycles=1 skippedCycles=0 dormant=0, and recordings.count=10 with no load-time optimizer split. TWO THINGS THE CENSUS SETTLED THAT NO READING OF THE BYTES COULD. (1) THE ROUTE IS TWO STOPS, not origin-plus-stop: stops=2, connectionKinds={DockingPort:2}, destinationVesselPids=[90564594, 2123618197], originBodies={Kerbin:1}, and the dispatch line reads LoopRoute(multi): ... carrierStopIndex=0 - the pickup at B and the delivery at A are both STOPS of ONE route, which is exactly the shape the operator ruling predicts. (2) BOTH WRITERS TOOK path=unloaded, NOT path=loaded. The spec was authored predicting loaded on the strength of the three rovers sitting 313 m / 731 m / 1041 m apart, well inside physics range; that reasoning is wrong for a driven lane, because the seam TimeJump warps with the endpoints PACKED and it is the load state at the DISPATCH TICK that decides the path, not the separation. THE FIRST CENSUS (2026-09-02_2245) classified PARSEK-FAIL on FIVE AUTHORING MISPREDICTIONS AND NOTHING ELSE - the route was created, dispatched and delivered on that flight too. The five: the loaded/unloaded path on the resource debit, the inventory remove, the delivery write and the inventory store, plus an invented FIRED full cycle line that does not exist (the real cycle lines are LoopRoute(multi) ... dispatch fired, Delivery: ... partial=0 and ArmedPause: ... COMPLETED cycle). All five are re-pinned from the measured lines and the re-fly is green; the misprediction is kept in the spec as history, not as current state. THE FIXTURE IS STAGED AT START-OF-CYCLE, and the flight is that repair's proof. The save was written AFTER the relay finished, so as harvested B held 45.6/400 LiquidFuel against its own window's 154.4 pickup manifest and A was at 400/400 with 6 of 6 inventory slots - both all-or-nothing eligibility gates false, every driven cycle blocking - and the builder restores each PHYSICAL endpoint, in FLIGHTSTATE only, to the state ITS OWN window recorded at ITS dock (both to 200/400 and three of six slots, with the STOREDPART bytes lifted verbatim out of the window snapshots). The measured tankBefore=200 / tankAfter=45.6 at B and tankBefore=200 / tankAfter=400 at A are the restored values moving exactly as derived. No number is invented and the Parsek payload is untouched; the precedent is build_rover_route_recorded.py step 3, and RVR-2 flight 1 is the flight that was lost to not having it. The transport C is left exactly as saved. UNLIKE EVERY OTHER ROUTE FIXTURE IT CARRIES TWO ROUTE_ORIGIN_PROOF NODES AND BOTH NAME THE WRONG ORIGIN, written by the 2026-09-02 undock binder: hop 1 (the pickup) bound the TRANSPORT itself (originName='C' originPid=612987736, with B's root part in the transport slot - the halves inverted, because KSP resolved the hop-1 merged vessel to B's identity so 'half B' of that seam is C), and hop 2 (a pure delivery with no source at all) bound the DESTINATION (originName='A' originPid=4280917262). Both record pickupValidated=0. The green create over those bytes IS the override working. ONE CYCLE IS DRIVEN, deliberately: after it the endpoints are spent again exactly as the operator left them, so a second would block - and BOTH hold tokens (BLOCKED kind=OriginLacksCargo for gate 6, BLOCKED kind=DestinationFull for gate 8) are FORBIDDEN, so a regression to the spent state reds explicitly rather than passing quietly. routecommand rejected is forbidden too, the vacuity guard on the create. Also the first relay host whose windows are one INITIATOR-branch and one TARGET-branch rather than two target-branch. ARMED 2026-09-03: [expectations.routes] carries gating = true after TWO report-only reading runs that read every declared window identically, with not one window moved in the arming edit; the spec is registered in ARMED_ALLOWLIST in the same commit and the sibling [expectations.recordings.structure] block stays REPORT-ONLY. This is the first arming anywhere on a route the lane itself CREATES AND DISPATCHES (V18T armed the facet on a route it never mutates), so the four counters are the produced-bytes half of claims the log tokens make from the other side, catching a regression that breaks the SAVE half while leaving the log half intact. DISCIPLINE COMPLETE 2026-09-03, the same day it was armed, and finished on the CLEAN automation DLL sha256 995772453f2339a2 (main a575d64f0, IL-verified guard): armed re-flight 2026-09-03_1838 PASS attempt 1, wall 50 s, saveParse status=PASS gating=True armed=['routes'] with mismatches 0; and this lane's OWN negative control - a throwaway copy carrying a temporary skippedCycles = { min = 1 }, flown from a sibling worktree and deleted afterwards - PARSEK-FAIL reason=gating save-structure expectations mismatch, saveParse status=FAIL gating=True armed=['routes'], wall 51 s, mismatch list EXACTLY ['routes.skippedCycles 0 < min 1'] with logContracts still PASS. One window inverted, one mismatch, nothing else moved, which says the gate can fire AND that it fires on the window it names rather than on the block as a whole. It could not share the family's rewind.supersedeRows inversion, which re-proves the shared evaluator rather than this block's own parse / normalisation / bucketing steps. Nothing is owed. HISTORY: the FIRST armed re-flight 2026-09-03_1816 (PASS, wall 49 s, same saveParse reading) and the control both flew 877208524b314e7b, which PR #1624 identifies as a MUTATED SNAPSHOT (IsPhaseAnchorEligible stubbed to return true); the control's subject is nowhere near the stubbed method and _1838 re-measured the positive direction on clean bytes. **THE cMin FINDING - A PIN MEASURED WHILE A DEFECT IS LIVE CAN ENCODE THE DEFECT.** This lane's dispatch token was pinned cMin=0 and that value WAS measured, on the green 2026-09-02_2251 - and it was still wrong. The clean-DLL census 2026-09-03_1836 red on that one token for this spec AND for RVR-15, measuring cycle=cycle-0 cMin=4 dispatch fired (carrierStopIndex=0) at ut=1100. cMin counts CADENCES ELAPSED, and the cadence is exactly what PR #1623 fixed: before it the landed relay was re-anchored by the orbital phase lock to 551.62 s, so one crossing fits before ut=1100 and cMin=0; after it the loop keeps the tree's own 162.74 s span, five crossings fit, and the first due window resolves to cMin=4. The original measurement was a faithful reading of a defective clock - nothing about the DISPATCH changed, only the index it was labelled with. THE RULE: cMin is a property of the CLOCK, not of the dispatch, so no lane pins it; every RVR spec regexes cMin=[0-9]+ and the measured values are kept as history (1 at ut=600, 4 at ut=1100, both on the fixed build). Generally: a token whose value is downstream of the behaviour a fix is about must be regexed until that fix has landed, because measured is not the same as measured on the build you are going to keep."
 instanceProfile = "stock-minimal"
 tags = ["seam-verbs", "logistics", "route-create", "route-delivery", "route-pickup",
         "origin-proof", "recorded-fixture", "RVR-7"]
@@ -454,7 +454,7 @@ required  = [
   "Inventory remove \\(unloaded\\): source=B pid=90564594 .* removed=1",
   "Delivery write: route=.* dest=A pid=4280917262 resource=LiquidFuel requested=200 written=200 .* path=unloaded",
   "Inventory store: route=.* dest=A pid=4280917262 .* path=unloaded",
-  "LoopRoute\\(multi\\): route [0-9a-f]{8} cycle=cycle-0 cMin=0 dispatch fired \\(carrierStopIndex=0\\)",
+  "LoopRoute\\(multi\\): route [0-9a-f]{8} cycle=cycle-0 cMin=[0-9]+ dispatch fired \\(carrierStopIndex=0\\)",
   "Delivery: route [0-9a-f]{8} cycle=cycle-0 resources=1 inventoryUnits=4/4 inventoryUnitsSkipped=0 partial=0",
   "ArmedPause: route [0-9a-f]{8} cycle=cycle-0 COMPLETED cycle consumed the armed pause",
   "PostWalk: routes=0",
@@ -497,10 +497,81 @@ terminalStates = { Landed = { min = 5 }, Docked = { min = 2 } }
 branchPoints   = { Dock = { min = 2, max = 2 }, Undock = { min = 2, max = 2 } }
 
 [expectations.routes]
-# STILL REPORT-ONLY (no `gating` key) - the readings below are MEASURED, but arming is a
-# separate per-scenario operator decision taken after a reading run, and this block has
-# had exactly one. Every value is now the reading from `2026-09-02_2251`, which agreed
-# with the first census's.
+# **ARMED 2026-09-03** (`gating = true`), on the standing rule that arming follows a
+# report-only READING run whose facets match the declared windows - and this block has had
+# TWO, `2026-09-02_2245` and `2026-09-02_2251`, which read every value below IDENTICALLY.
+# The arming re-pins NOTHING: not one window moved in the arming edit, which is the S4.1
+# rule ("arming must not smuggle in a re-pinned window") and is checkable against the diff.
+# The spec is registered in `ARMED_ALLOWLIST` in `harness/lib/test_hlib.py` in the same
+# commit, and the sibling `[expectations.recordings.structure]` block above stays
+# REPORT-ONLY - one block per arming decision.
+#
+# WHY THIS BLOCK AND WHY NOW. V18T armed the `routes` facet on a route it never MUTATES
+# (a tracking-station observation of a committed Active route); this is the first arming
+# anywhere on a route the lane itself CREATES AND DISPATCHES, so the four counters below
+# are the produced-bytes half of claims the log tokens make from the other side:
+# `completedCycles = 1` against `ArmedPause: ... COMPLETED cycle`, `skippedCycles = 0`
+# against the two BLOCKED forbids, `statuses = {Paused: 1}` against
+# `reason=delivered-then-paused`, and `stops = 2` against
+# `LoopRoute(multi): ... carrierStopIndex=0`. A regression that broke the SAVE half while
+# leaving the log half intact - a codec that dropped the counter, a status written before
+# the pause landed - is invisible to `logContracts` and is exactly what this arming
+# catches. It also becomes the load-bearing floor the RVR-8..RVR-15 matrix is calibrated
+# against: every one of those lanes declares the same block REPORT-ONLY with its own
+# counters, and they are only readable as a matrix if the baseline lane's are gated.
+#
+# **DISCIPLINE COMPLETE 2026-09-03, THE SAME DAY IT WAS ARMED**, and finished on the CLEAN
+# automation DLL sha256 `995772453f2339a2` (built from `main` a575d64f0, IL-verified
+# guard):
+#   * ARMED RE-FLIGHT `2026-09-03_1838`: PASS attempt 1, wall 50 s, `saveParse status=PASS
+#     gating=True armed=['routes']`, mismatches 0. The block is load-bearing and green.
+#   * NEGATIVE CONTROL, flown from a sibling worktree on a throwaway copy of this spec
+#     carrying a temporary `skippedCycles = { min = 1 }`, deleted afterwards:
+#     PARSEK-FAIL reason=`gating save-structure expectations mismatch`, `saveParse
+#     status=FAIL gating=True armed=['routes']`, wall 51 s, and the mismatch list EXACTLY
+#     `['routes.skippedCycles 0 < min 1']` with `logContracts` still PASS. One window
+#     inverted, one mismatch, nothing else moved - which is what says the gate can fire
+#     AND that it fires on the window it names rather than on the block as a whole.
+# It could not share the family's usual `rewind.supersedeRows` inversion - that re-proves
+# the shared evaluator, and V18T's own arming note records why a `routes` window needs a
+# `routes` inversion: this block has a parse, a normalisation and a bucketing step of its
+# own between the bytes and that evaluator. Nothing is owed.
+#
+# HISTORY, kept because it is the record of how the mutated DLL was found: the FIRST armed
+# re-flight `2026-09-03_1816` (PASS, wall 49 s, same `saveParse` reading) and the control
+# both flew `877208524b314e7b`, which PR #1624 identifies as a MUTATED SNAPSHOT
+# (`IsPhaseAnchorEligible` stubbed to `return true`). The control's subject - this block's
+# `routes` evaluator - is nowhere near the stubbed method, and `_1838` re-measured the
+# positive direction on the clean build, so the discipline rests on clean bytes.
+#
+# -------------------------------------------------------------------------------------
+# **THE cMin FINDING, AND IT IS THE SHARPEST AUTHORING LESSON OF THE WHOLE WAVE: A PIN
+# MEASURED WHILE A DEFECT IS LIVE CAN ENCODE THE DEFECT.**
+#
+# This lane's dispatch token was pinned `cMin=0`, and that value was MEASURED - on
+# `2026-09-02_2251`, a green run. It was still wrong, and the clean-DLL census
+# `2026-09-03_1836` is what exposed it: this spec and RVR-15 both red on that one token,
+# which measured `cycle=cycle-0 cMin=4 dispatch fired (carrierStopIndex=0) at ut=1100`.
+#
+# THE ARITHMETIC OF WHY. `cMin` is the loop-cycle index the dock crossing resolves to, so
+# it counts CADENCES ELAPSED, and the cadence is exactly what PR #1623 fixed:
+#   * BEFORE the fix, the landed relay was re-anchored by the single-vessel ORBITAL phase
+#     lock to a 551.62 s cadence. One crossing fits before ut=1100, so `cMin=0`.
+#   * AFTER it, the loop unit keeps the tree's own 162.74 s span. Five crossings fit
+#     before ut=1100, and the first DUE window resolves to `cMin=4`.
+# So the original measurement was a faithful reading of a defective clock. Nothing about
+# the DISPATCH changed - the cycle fired, debited and delivered identically on both builds
+# - only the index it was labelled with.
+#
+# THE RULE THIS ESTABLISHES, and it is now applied across the family: `cMin` is a property
+# of the CLOCK, not of the dispatch, so no lane pins it. Every RVR spec regexes it
+# (`cMin=[0-9]+`), and the measured values are kept here as HISTORY rather than as
+# contracts: **1 at ut=600** (RVR-9's clock) and **4 at ut=1100** (this lane's and
+# RVR-15's), both on the fixed build. The general form: a token whose value is downstream
+# of the behaviour a fix is about must be regexed until that fix has landed, because
+# "measured" is not the same as "measured on the build you are going to keep".
+#
+# Every value is the reading from `2026-09-02_2251`, which agreed with the first census's.
 #
 # `count = 1` was the authored claim and the ruling's claim about the NUMBER: dock, take
 # FROM, undock, dock elsewhere, transfer TO, undock is ONE route, not two. MEASURED 1.
@@ -531,6 +602,7 @@ branchPoints   = { Dock = { min = 2, max = 2 }, Undock = { min = 2, max = 2 } }
 #
 # The M-C2 `routes` facet landed 2026-09-02 (PR #1603) and is live - H59 declares one - so
 # this is a real surface rather than a reserved one.
+gating          = true
 count           = { min = 1, max = 1 }
 dormant         = { min = 0, max = 0 }
 stops           = { min = 2, max = 2 }

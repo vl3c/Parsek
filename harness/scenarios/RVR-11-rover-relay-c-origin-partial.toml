@@ -1,0 +1,174 @@
+schema = 1
+id = "RVR-11-rover-relay-c-origin-partial"
+tier = "nightly"
+# =====================================================================================
+# THE MATRIX, EDGE 2: THE ORIGIN IS PARTIAL, AND ALL-OR-NOTHING MEANS NOTHING MOVES.
+# Rover B holds 100 LiquidFuel against a 154.3999999999952 manifest - two thirds of what
+# the route needs, which under a proportional or best-effort gate would ship SOMETHING.
+# `RouteOriginCargoCheck.HasRequired` is ALL-OR-NOTHING, so the correct outcome is a
+# cycle that emits nothing at all, and this lane is the only place in the corpus where
+# that distinction is DRIVEN rather than unit-tested.
+#
+# **LIVE-PROVEN 2026-09-03: run `2026-09-03_1832`, PASS attempt 1, EVERY
+# VERIFIER PASS**, on the CLEAN automation DLL sha256 `995772453f2339a2`
+# (built from `main` a575d64f0, IL-verified guard).
+#
+# **FIRST-CENSUS HISTORY**: this lane also passed on `2026-09-03_1810` (wall 51 s), but
+# that run flew `877208524b314e7b`, which PR #1624 identifies as a MUTATED SNAPSHOT -
+# taken from the #1623 review worktree while that reviewer's mutation test had
+# `IsPhaseAnchorEligible` stubbed to `return true` (IL code size 7 against 27 clean,
+# which a marker grep structurally CANNOT SEE). The clean re-flight above is what this
+# header rests on; the mutated run is kept because it is the record of how the stub was
+# found.
+#
+# **PASSED ON ITS FIRST FLIGHT ON BOTH BUILDS** with every token as authored.
+#
+# THE STAGED STATE, from the harness log: `liveState patched pid=90564594 name=B
+# resources=[LiquidFuel 200->100] inventory=keep`. **The three `shortfall=54.39` pins all
+# matched**, so the arithmetic below is measured rather than derived: 154.3999999999952 -
+# 100, with the classifier's own `netted` reading back as exactly 100. The
+# #1623 hold-shortfall fix is live-proven here at a second stored value.
+#
+# **AND THE ALL-OR-NOTHING CLAIM IS NOW MEASURED WHERE IT MATTERS MOST.** With 100 units
+# on the source a gate degraded to best-effort has material to work with; the run emitted
+# no `Origin debit:`, no `Delivery write:` and no `dispatch fired`, so "nothing moved"
+# here is a decision rather than an arithmetic inevitability - which is exactly what
+# separates this lane from RVR-10.
+#
+#
+# -------------------------------------------------------------------------------------
+# WHY THE PARTIAL CASE IS NOT A SPELLING OF THE EMPTY ONE. RVR-10 drains B to zero, where
+# "nothing moved" is indistinguishable from "there was nothing to move" - a gate that had
+# silently degraded to best-effort would produce the same empty log. HERE THERE IS
+# SOMETHING TO MOVE. A partial dispatch would print `Origin debit: ... requested=154.39
+# debited=100`, a partial delivery would print `Delivery: ... partial=1`, and the forbids
+# below name both. That is what makes this the sharper of the two origin lanes, and why
+# the pair is authored together rather than either alone.
+#
+# The mirror direction is checked too, and by a DIFFERENT lane rather than by assertion:
+# `RouteDeliveryPlanner.PrepareDelivery` DOES do a `Math.Min(requested, freeCapacity)`
+# partial on the DESTINATION side, and `RouteDestinationCapacityCheck` then refuses the
+# whole cycle on `plan.IsPartial`. So the two ends behave the same way through different
+# code, and RVR-14 stages the destination half of exactly this question.
+#
+# -------------------------------------------------------------------------------------
+# THE ARITHMETIC. 154.3999999999952 - 100 = 54.3999999999952, and the classifier's own
+# `netted` reads back as exactly 100 (`netted = need - shortfall`), which is the internal
+# consistency check the `raw=100 netted=100` half of token 9 pins: a discrepancy between
+# them would mean an escrow reservation the lane never created.
+#
+# `short-cause=physical` is the falsifiable claim there. This save carries exactly ONE
+# route, so no competing reservation can exist and an `escrow` reading would be the M6
+# classifier attributing a plain shortfall to a route that does not exist.
+#
+# THE SHORTFALL PINS ARE AUTHORED FOR THE FIXED BEHAVIOUR: `54\.39` on the gate line AND
+# on `Route.RecordHold` AND on `ProcessLoopRoute`'s BLOCKED line. Pre-fix, the latter two
+# print `shortfall=0` from `CheckEligibility`'s hard-coded `0.0` and red while the gate
+# token passes - the "wrong DLL" signature rather than a relay regression.
+#
+# -------------------------------------------------------------------------------------
+# 100 IS CHOSEN, NOT ARBITRARY. It is comfortably under the manifest (so the gate must
+# fail), comfortably over zero (so a best-effort gate has material to work with), and a
+# clean integer, so `shortfall=54.3999999999952` carries the manifest's own float tail
+# unchanged - a shortfall that came back with DIFFERENT trailing digits would mean the
+# manifest itself moved, which is a fixture finding rather than a gate finding.
+# =====================================================================================
+description = "LIVE-PROVEN 2026-09-03: run 2026-09-03_1832, PASS attempt 1, EVERY VERIFIER PASS, on the CLEAN automation DLL sha256 995772453f2339a2 (built from main a575d64f0, IL-verified guard). FIRST-CENSUS HISTORY: this lane also passed on 2026-09-03_1810 (wall 51 s), but that run flew 877208524b314e7b, which PR #1624 identifies as a MUTATED SNAPSHOT - taken from the #1623 review worktree while that reviewer's mutation test had IsPhaseAnchorEligible stubbed to return true (IL code size 7 against 27 clean, which a marker grep structurally CANNOT SEE). The clean re-flight is what this row rests on; the mutated run is kept because it is the record of how the stub was found. PASSED ON ITS FIRST FLIGHT ON BOTH BUILDS with every token as authored. Staged by liveState patched pid=90564594 name=B resources=[LiquidFuel 200->100] inventory=keep; all three shortfall=54.39 pins matched, so 154.3999999999952 - 100 is measured rather than derived, with netted reading back as exactly 100. THE ALL-OR-NOTHING CLAIM IS NOW MEASURED WHERE IT MATTERS MOST: with 100 units on the source a gate degraded to best-effort has material to work with, and the run emitted no Origin debit:, no Delivery write: and no dispatch fired - so 'nothing moved' here is a decision rather than an arithmetic inevitability, which is what separates this lane from RVR-10. MATRIX EDGE 2, THE ORIGIN IS PARTIAL: rover B staged at 100 LiquidFuel by a [[fixture.liveState]] block against the fixture's own 154.3999999999952 pickup manifest, everything else RVR-7. RouteOriginCargoCheck.HasRequired is ALL-OR-NOTHING, so the correct outcome is a cycle that emits nothing at all, and this is the only place in the corpus where that is DRIVEN rather than unit-tested. It is the sharper of the two origin lanes: RVR-10 drains B to zero, where 'nothing moved' is indistinguishable from 'there was nothing to move', while HERE there is something to move, so a gate that had degraded to best-effort would print Origin debit: ... debited=100 and Delivery: ... partial=1 - both forbidden below. The arithmetic is the fixture's own: 154.3999999999952 - 100 = 54.3999999999952, with the classifier's netted reading back as exactly 100, which token 9 pins as raw=100 netted=100 (a discrepancy would mean an escrow reservation this single-route save cannot have). 100 is chosen rather than arbitrary - under the manifest so the gate must fail, over zero so a best-effort gate has material, and a clean integer so the shortfall carries the manifest's own float tail unchanged; different trailing digits would be a FIXTURE finding rather than a gate finding. The mirror direction is covered by a different lane rather than by assertion: PrepareDelivery does do a Math.Min partial on the DESTINATION side and RouteDestinationCapacityCheck then refuses the whole cycle on plan.IsPartial, which RVR-14 stages. AUTHORED FOR THE FIXED BEHAVIOUR AND THE BET PAID: shortfall=54.39 is pinned on the gate line and both hold-side lines, which could only ever be green after PR #1623 - and all three matched."
+instanceProfile = "stock-minimal"
+tags = ["seam-verbs", "logistics", "route-create", "route-hold", "origin-lacks-cargo",
+        "live-state", "recorded-fixture", "RVR-11", "matrix"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/rover-relay-c-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[[fixture.liveState]]
+# Rover B, the PICKUP SOURCE, at two thirds of the manifest. Inventory defaults to `keep`
+# so the three stored parts stay and the gate's INVENTORY branch is never reached - the
+# resource branch returns first, which is what `inventory=False` on token 8 asserts.
+pid       = 90564594
+resources = { LiquidFuel = 100 }
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                    expect = "OK" },
+  { cmd = "DiscardTree",                                                      expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" },  expect = "OK" },
+  { cmd = "SealSlot",     args = { tree = "88c012a6eed94bf09ff73397a4a31410" }, expect = "OK", budget = 120 },
+  { cmd = "RouteCommand", args = { action = "create", tree = "88c012a6eed94bf09ff73397a4a31410", name = "relay-c" }, expect = "OK", budget = 120 },
+  { cmd = "RouteCommand", args = { action = "send-once", route = "relay-c" },  expect = "OK", budget = 120 },
+  { cmd = "TimeJump",     args = { ut = "1100" },                             expect = "OK", budget = 300 },
+  { cmd = "SaveGame",                                                         expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                     expect = "OK" },
+]
+
+[dimensionsCovered]
+# NO D10 VALUE IS CLAIMED. Post-census the reason is NON-INFLATION: `hold-reasons` is
+# `H38-logistics-isolated`'s already, and this lane measures the same row at a second
+# stored value rather than a new behaviour. The thing it adds - an all-or-nothing refusal
+# measured where a best-effort gate had 100 units to work with - is a sharper GATE on an
+# existing row, not a new one.
+D14 = ["sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 10, max = 10 }
+
+[expectations.logContracts]
+required  = [
+  "loadgame complete scene=FLIGHT save=.* game-loaded=true expected=Flight",
+  "sealslot complete mode=tree tree=88c012a6eed94bf09ff73397a4a31410 total=8 sealed=0 remaining=0 alreadySealed=True",
+  "routecommand create gate tree=88c012a6eed94bf09ff73397a4a31410 treeFound=True dismissed=False sealed=True eligible=True status=Eligible alreadyPromoted=False refusal=None",
+  "routecommand complete action=create tree=88c012a6eed94bf09ff73397a4a31410 route=.* name='relay-c' status=Paused",
+  "PauseAfterCurrentCycle=true \\(route will dispatch one cycle when conditions allow, then transition to Paused\\)",
+  "PostWalk: routes=0",
+  "PickupSourcesHaveCargo: route [0-9a-f]{8} source pid=90564594 name=B resources=1 inventory=3 decision=short",
+  "PickupSourcesHaveCargo: route [0-9a-f]{8} all-or-nothing FAIL first-short source pid=90564594 name=B short=LiquidFuel shortfall=54\\.39.* inventory=False sources=1",
+  "PickupSourcesHaveCargo: route [0-9a-f]{8} short-cause=physical pid=90564594 resource=LiquidFuel raw=100 netted=100 reservingRouteId=<none>",
+  "Route [0-9a-f]{8} hold recorded kind=OriginLacksCargo detail=source:90564594:B:LiquidFuel shortfall=54\\.39",
+  "LoopRoute\\(multi\\): route [0-9a-f]{8} cycle=cycle-0 cMin=[0-9]+ BLOCKED kind=OriginLacksCargo reason=source:90564594:B:LiquidFuel shortfall=54\\.39",
+  "ArmedPause: route [0-9a-f]{8} cycle=cycle-0 BLOCKED cycle consumed the armed pause",
+  "reason=blocked-then-paused",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "routecommand rejected",
+  # THE ALL-OR-NOTHING CLAIM, and the reason this lane is sharper than RVR-10: with 100
+  # units sitting on the source, a best-effort gate has something to ship. It must not.
+  "dispatch fired",
+  "Origin debit:",
+  "Delivery write:",
+  "partial=1",
+  "BLOCKED kind=DestinationFull",
+]
+
+[expectations.recordings.structure]
+trees          = { min = 3, max = 3 }
+committedTrees = { min = 3, max = 3 }
+recordings     = { min = 10, max = 12 }
+terminalStates = { Landed = { min = 5 }, Docked = { min = 2 } }
+branchPoints   = { Dock = { min = 2, max = 2 }, Undock = { min = 2, max = 2 } }
+
+[expectations.routes]
+count           = { min = 1, max = 1 }
+dormant         = { min = 0, max = 0 }
+stops           = { min = 2, max = 2 }
+sourceRefs      = { min = 3, max = 3 }
+completedCycles = { min = 0, max = 0 }
+skippedCycles   = { min = 1, max = 1 }
+statuses        = { Paused = { min = 1, max = 1 } }
+
+[runtime]
+budgetSeconds = 2400
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

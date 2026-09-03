@@ -396,6 +396,59 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Dev
 
+- The automated-test harness can now set a save's LIVE endpoint state per
+  scenario, so the supply-route edge cases are eight test lanes over ONE
+  committed save instead of eight nearly identical saves. A supply route replays
+  a recorded run against whatever the craft at each end are holding RIGHT NOW, so
+  almost everything an automated dispatch test measures is decided by two
+  numbers - how much fuel and cargo the source has, and how much room the
+  destination has left. Testing "source empty", "source half full", "cargo gone",
+  "destination full", "destination nearly full" and "destination empty" used to
+  mean committing a separate multi-megabyte save per case, each one identical to
+  the others except for a single number, and every one of them a thing to
+  re-harvest and keep in step. A scenario now just states the endpoint state it
+  wants (which craft, which resources, and whether the cargo containers are kept,
+  emptied, or restored from what the run itself recorded at that dock), and the
+  harness applies it to its own throwaway copy of the save at setup time. It
+  refuses rather than guesses: a craft the save does not contain, a resource it
+  does not have, or an amount over the tank's capacity stops the run before the
+  game is even launched, with the reason named - a setup step that quietly did
+  nothing would leave the test measuring the unmodified save and reporting a
+  pass. Only the live craft state is touched; nothing Parsek recorded is. The
+  code is shared with the tool that prepares the relay save in the first place,
+  so the two cannot drift apart, and a test proves it by restoring an endpoint
+  that tool already restored and checking the file comes back byte for byte
+  identical.
+
+- Added eight harness lanes (`RVR-8` through `RVR-15`) covering the rover-relay
+  dispatch gate's edges over that one save, and flew all eight: the second cycle
+  of a relay whose first cycle spent both ends (and the player resuming the route
+  it paused), a landed relay dispatching on its own recorded span rather than on
+  an orbital phase lock, source empty / source partial / source cargo missing,
+  destination full / destination partially full, and destination completely empty
+  as the positive control. Five passed on their first flight; two needed a
+  precision fix to one pinned number and one needed a re-provisioned game
+  install, and none of the three was a Parsek defect. `RVR-7`'s produced-save
+  route counters are promoted from reported to enforced in the same change - off
+  two agreeing measurement runs, then confirmed by an enforced re-flight and by a
+  deliberately inverted control that failed on exactly the one number it
+  inverted - because the eight new lanes are only readable as a matrix against a
+  gated baseline.
+
+- Two things the round established that are worth carrying forward. **A test that
+  greps the built mod for a marker cannot tell that a method has been emptied
+  out.** One of these lanes failed nine ways at once and looked exactly like a
+  Parsek regression; the game install it flew against had been built from a
+  reviewer's scratch copy in which one method was temporarily stubbed to return a
+  constant, and every check the project's own rules prescribe - the method name is
+  still there, every message is still there, the version is unchanged - passes on
+  that build. Only the compiled size of the method, or a test that exercises the
+  behaviour, can tell. **And a number copied out of a play session's log is not
+  the number an automated run will print for the same quantity**, when the mod
+  recomputes it from a recording instead of replaying the original flight: two
+  lanes pinned a fuel reading to more digits than the two routes share, and both
+  now pin only the digits that agree.
+
 - Added a build-time check that Parsek never starts a background thread. The
   game pins the number formatting of its main thread to plain dot decimals, and
   the earlier decision to leave the ~1400 log formatting sites as they are rests

@@ -1,0 +1,236 @@
+schema = 1
+id = "RVR-9-rover-relay-c-surface-cadence"
+tier = "nightly"
+# =====================================================================================
+# THE LANDED RELAY DISPATCHES ON ITS OWN SPAN, NOT ON AN ORBITAL PHASE LOCK. Every other
+# lane in this matrix varies the CARGO; this one varies nothing and moves the CLOCK. It
+# is the regression guard for the landed-anchor half of PR #1623: a landed,
+# same-body, three-rover relay must build its loop cadence from its OWN recorded span and
+# fire on it, instead of being re-anchored by the single-vessel ORBITAL phase lock into a
+# future no seam-driven jump of a sane size can reach.
+#
+# **LIVE-PROVEN 2026-09-03: re-fly `2026-09-03_1829`, PASS attempt 1, wall 49 s, EVERY
+# VERIFIER PASS**, on the CLEAN automation DLL sha256 `995772453f2339a2` (built from `main`
+# a575d64f0, IL verified).
+#
+# **THE PRODUCT IS FIXED AND THIS LANE IS ITS PROOF.** The run measured
+# `TryGetVesselOrbit: skipped landed anchor pid=90564594 situation=LANDED
+# landedOrSplashed=True` (and the same for pid=612987736), NO `PhaseLock APPLIED` line at
+# all, and `MissionLoopUnit: ... cadence=162.74` - the relay's own recorded span, carried
+# straight through to the dispatch. All three forbids stayed absent and the cycle fired at
+# ut=600.
+#
+# **THE FIRST CENSUS (`2026-09-03_1805`) WAS FLOWN ON A MUTATED DLL AND PROVED NOTHING
+# ABOUT THE PRODUCT. SEE PR #1624.** The automation instance had been provisioned with
+# `877208524b314e7b`, a snapshot taken from the #1623 review worktree while that reviewer's
+# mutation test had `IsPhaseAnchorEligible` stubbed to `return true` - IL code size 7
+# against 27 on a clean build. That census red on nine mismatches which looked exactly like
+# a product defect (the orbital phase lock still applying to a landed relay, no dispatch,
+# the route left Active), and it was the stub. **THE STANDING LESSON, and it is a hole in
+# the existing DLL-verification discipline rather than a slip: a marker grep over the
+# deployed assembly CANNOT SEE A STUBBED BODY.** The method name is still in `#Strings`,
+# every literal is still in `#US`, the assembly version string is unchanged - so every
+# check the house rules prescribe passes on a DLL whose behaviour has been inverted. Only
+# the IL size (or a behavioural probe like this lane) discriminates.
+#
+# **THE SECOND CENSUS (`2026-09-03_1827`), on the clean DLL, RED ON ONE AUTHORING TOKEN
+# AND NOTHING ELSE**: the dispatch line was pinned `cMin=0` and measured
+# `LoopRoute(multi): route 01b399fc cycle=cycle-0 cMin=1 dispatch fired
+# (carrierStopIndex=0) at ut=600`. `cMin` is the loop-cycle index the crossing resolves to
+# and it depends on where ut=600 falls against the loop's own cadence - which is a property
+# of the clock this lane deliberately moves, not of the dispatch. It is re-pinned
+# `cMin=[0-9]+`; the claim the lane makes is that the cycle FIRED, and the index it fired
+# at was never part of it. **AND RVR-7's OWN `cMin=0` TURNED OUT TO BE THE SAME DEFECT
+# ONE STEP FURTHER ON**: that value was measured too, on a green pre-fix run, where the
+# orbital phase lock's 551.62 s cadence left exactly one crossing before ut=1100. On the
+# fixed build the 162.74 s span yields five, and the clean-DLL census red RVR-7 and RVR-15
+# on `cMin=4`. Both are regexed now, and the finding is written up in RVR-7's header: A
+# PIN MEASURED WHILE A DEFECT IS LIVE CAN ENCODE THE DEFECT.
+#
+# The PRE-FIX behaviour was measured before any of this, as a negative control on the
+# earlier build `2f9309f5e3487257` (wall 66 s), which PASSED with every defect line
+# present - so the lane's forbids are proven able to fire. What that control measured,
+# verbatim:
+#
+#     MissionLoopUnit: mission='relay-c' tree=88c012a6eed94bf09ff73397a4a31410 members=4
+#         foreignMembers=0 skipped=0 span=[111.43999999999497,274.18000000004059]
+#         spanDur=162.74000000004563 unit=Sec cadence=551.62499273382514 ...
+#     PhaseLock APPLIED: mission='relay-c' tree=88c012a6eed94bf09ff73397a4a31410
+#         anchor 274.18000000004059->663.06499273382008 P=551.62499273382514
+#         method=single-vessel-orbital cadence 162.74000000004563->551.6...
+#     LoopRoute: route 5563af1d clock pre-anchor/degenerate - skipped ut=600 ...
+#         cadence=551.62 anchor=663.06
+#
+# Read the three together: the loop unit measures the relay's real span (162.74 s), the
+# ORBITAL phase lock overwrites both the anchor and the cadence with 551.62 / 663.06, and
+# the dispatch then declines because the clock (600) sits BEFORE the manufactured anchor.
+# `saveParse` read `routes count=1 routeStatuses={'Active': 1}` - the armed send-once was
+# never consumed, because no cycle ever happened.
+#
+# -------------------------------------------------------------------------------------
+# WHY ut=600 IS THE RIGHT CLOCK, AND IT IS CHOSEN TO BE FALSIFIABLE IN BOTH DIRECTIONS.
+#   * ABOVE the first post-span crossing: the span ends at 274.18 and one fixed cadence is
+#     162.74, so 274.18 + 162.74 = 436.92 < 600. A correct build has a crossing to act on.
+#   * BELOW the phase-locked anchor 663.06. So a build that still applies the orbital lock
+#     CANNOT fire, and reds on the missing `dispatch fired` rather than passing by luck.
+# RVR-7 jumps to 1100, which is past BOTH, and therefore cannot tell the two apart. That
+# is the whole reason this lane exists as a separate spec rather than as a forbid bolted
+# onto RVR-7.
+#
+# -------------------------------------------------------------------------------------
+# WHAT IS PINNED AND WHY EACH IS FALSIFIABLE.
+#   `spanDur=162\.74` AND `cadence=162\.74` ON THE SAME LINE is the headline. Both come
+#     out of `MissionLoopUnitBuilder`'s Verbose format string with only `unit={...}`
+#     between them, and the PRE-FIX reading has them DISAGREEING (162.74 vs 551.62). The
+#     pin is therefore "the cadence still equals the span it was built from" - the exact
+#     property the orbital lock destroys. `spanDur` alone would pass on the broken build.
+#   `dispatch fired` is the behavioural half: the loop unit can carry the right number and
+#     still never reach a crossing.
+#   THE FULL CYCLE (debit, delivery, summary, armed pause) is required too, because a
+#     cadence lane that proved only that something fired would not notice a cycle that
+#     fired and delivered nothing.
+#   `path=` IS DELIBERATELY NOT PINNED anywhere below. RVR-7 measured `path=unloaded` at
+#     ut=1100; this lane jumps to 600 and the path is decided by the load state at the
+#     dispatch tick, so carrying RVR-7's reading across a different jump would be exactly
+#     the mispredict its own census recorded. Everything else on those lines is pinned.
+#
+# THE FORBIDS ARE THE INSTRUMENT.
+#   `PhaseLock APPLIED.*88c012a6...` - the producer itself, scoped to THIS tree so a
+#     future lane sharing the log cannot satisfy it accidentally.
+#   `method=single-vessel-orbital` - the same claim from the other end, and the more
+#     durable one: it names the METHOD rather than the event, so a rename of the APPLIED
+#     line does not silently retire the guard.
+#   `clock pre-anchor/degenerate` - the CONSEQUENCE. Truncated before the em dash that
+#     follows `degenerate` in the emitting format string.
+# All three were PRESENT on the control run, so this is a gate with a proven inversion
+# rather than a hopeful absence.
+#
+# -------------------------------------------------------------------------------------
+# THE STEPS are RVR-7's eleven with ONE argument changed (`TimeJump ut=600`). That is
+# deliberate: the only difference between the two lanes is the clock, so a divergence
+# between them cannot be attributed to anything else.
+# =====================================================================================
+description = "LIVE-PROVEN 2026-09-03: re-fly 2026-09-03_1829, PASS attempt 1, wall 49 s, EVERY VERIFIER PASS, on the CLEAN automation DLL sha256 995772453f2339a2 (built from main a575d64f0, IL verified). THE PRODUCT IS FIXED AND THIS LANE IS ITS PROOF: the run measured TryGetVesselOrbit: skipped landed anchor pid=90564594 situation=LANDED landedOrSplashed=True (and the same for pid=612987736), NO PhaseLock APPLIED line at all, and MissionLoopUnit ... cadence=162.74 - the relay's own recorded span carried straight through to a dispatch that fired at ut=600, with all three forbids absent. TWO CENSUSES PRECEDED IT AND NEITHER WAS A PRODUCT DEFECT. The first (2026-09-03_1805) WAS FLOWN ON A MUTATED DLL - see PR #1624: the instance had been provisioned with 877208524b314e7b, a snapshot taken from the #1623 review worktree while that reviewer's mutation test had IsPhaseAnchorEligible stubbed to return true (IL code size 7 against 27 clean). Its nine mismatches looked exactly like the orbital phase lock still applying to a landed relay, and they were the stub. THE STANDING LESSON IS A HOLE IN THE DLL-VERIFICATION DISCIPLINE: a marker grep CANNOT SEE A STUBBED BODY - the method name is still in #Strings, every literal still in #US, the version string unchanged - so only IL size or a behavioural probe like this lane discriminates. The second (2026-09-03_1827), on the clean DLL, red on ONE AUTHORING TOKEN: the dispatch line was pinned cMin=0 and measured LoopRoute(multi): route 01b399fc cycle=cycle-0 cMin=1 dispatch fired (carrierStopIndex=0) at ut=600. cMin is the loop-cycle index the crossing resolves to and depends on where ut=600 falls against the cadence - a property of the clock this lane deliberately moves, not of the dispatch - so it is re-pinned cMin=[0-9]+; the claim is that the cycle FIRED, and the index was never part of it. AND RVR-7's OWN cMin=0 TURNED OUT TO BE THE SAME DEFECT ONE STEP FURTHER ON: that value was measured too, on a green pre-fix run where the orbital lock's 551.62 s cadence left exactly one crossing before ut=1100, and on the fixed build the 162.74 s span yields five - the clean-DLL census red RVR-7 and RVR-15 on cMin=4. Both are regexed now and the finding is written up in RVR-7's header: a pin measured while a defect is live can encode the defect. THE LANDED RELAY MUST DISPATCH ON ITS OWN SPAN, NOT ON AN ORBITAL PHASE LOCK - the surface-cadence regression guard, and RVR-7's steps with exactly one argument changed (TimeJump ut=600 instead of 1100). The pre-fix behaviour is MEASURED, not guessed: a negative control flown on the current build (automation DLL 2f9309f5e3487257, wall 66 s) PASSED with every defect line present - MissionLoopUnit measured the relay's real span (spanDur=162.74000000004563) and then PhaseLock APPLIED ... method=single-vessel-orbital overwrote anchor 274.18->663.06 and cadence 162.74->551.62, after which LoopRoute declined with clock pre-anchor/degenerate at ut=600 and saveParse read routes count=1 statuses={Active: 1} with the armed send-once never consumed. ut=600 is chosen to be falsifiable in BOTH directions: it is above the first honest post-span crossing (span end 274.18 + one cadence 162.74 = 436.92) and below the manufactured anchor 663.06, so a build that still phase-locks cannot fire and reds on the missing dispatch, while RVR-7's 1100 is past both and cannot tell them apart. The headline pin is spanDur=162.74 AND cadence=162.74 on the SAME MissionLoopUnit line - the pre-fix reading has them disagreeing, so pinning spanDur alone would pass on the broken build - plus the full delivered cycle (dispatch fired, origin debit, delivery write, Delivery summary, ArmedPause COMPLETED). path= is deliberately not pinned anywhere: RVR-7 measured path=unloaded at ut=1100 and carrying that across a different jump would repeat the exact misprediction RVR-7's own first census recorded. Three forbids, all three PRESENT on the control run: PhaseLock APPLIED scoped to this tree, method=single-vessel-orbital (the same claim named by method rather than by event, so a rename cannot silently retire it), and clock pre-anchor/degenerate."
+instanceProfile = "stock-minimal"
+tags = ["seam-verbs", "logistics", "route-create", "route-delivery", "dispatch-cadence",
+        "phase-lock", "recorded-fixture", "RVR-9", "matrix"]
+
+[fixture]
+# `rover-relay-c-recorded`, UNPATCHED and deliberately so: this lane varies the CLOCK, so
+# a `[[fixture.liveState]]` block would introduce a second variable into a comparison
+# whose whole value is that it has one.
+saveTemplate       = "fixtures/saves/rover-relay-c-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                    expect = "OK" },
+  { cmd = "DiscardTree",                                                      expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" },  expect = "OK" },
+  { cmd = "SealSlot",     args = { tree = "88c012a6eed94bf09ff73397a4a31410" }, expect = "OK", budget = 120 },
+  { cmd = "RouteCommand", args = { action = "create", tree = "88c012a6eed94bf09ff73397a4a31410", name = "relay-c" }, expect = "OK", budget = 120 },
+  { cmd = "RouteCommand", args = { action = "send-once", route = "relay-c" },  expect = "OK", budget = 120 },
+  { cmd = "TimeJump",     args = { ut = "600" },                              expect = "OK", budget = 300 },
+  { cmd = "SaveGame",                                                         expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                     expect = "OK" },
+]
+
+[dimensionsCovered]
+# **D10 `dispatch-cadence` IS CLAIMED off the green re-fly `2026-09-03_1829`.** It is a
+# SECOND declarer of that value - `H34-logistics-inter-body` holds the first - and the
+# co-declaration is justified on the axis the D1 `commit-in-foreign-soi` /
+# `commit-landed-foreign-body` precedent requires, which is a DIFFERENT CODE PATH rather
+# than a different subject:
+#   * H34's reading is an INTER-BODY orbital route, whose loop anchor resolves through the
+#     single-vessel orbital phase lock.
+#   * This lane's reading is a LANDED, SAME-BODY SURFACE relay whose anchor resolution
+#     takes a branch that did not exist before PR #1623 - measured here as
+#     `TryGetVesselOrbit: skipped landed anchor pid=90564594 situation=LANDED
+#     landedOrSplashed=True`, with NO `PhaseLock APPLIED` line anywhere in the run.
+#   * The MEASURED BEHAVIOUR differs in the number itself: the cadence stays the tree's
+#     own recorded span (`cadence=162.74`), where the orbital path substitutes 551.62 and
+#     re-anchors to 663.06. The lane's headline pin is precisely that the two agree.
+# The gate is the required `spanDur=162\.74 ... cadence=162\.74` line plus `dispatch
+# fired`, with `PhaseLock APPLIED.*<tree>`, `method=single-vessel-orbital` and
+# `clock pre-anchor/degenerate` forbidden - and all three forbids are PROVEN ABLE TO FIRE,
+# having been measured present on two different builds (the pre-fix `2f9309f5e3487257`
+# control, and the mutated `877208524b314e7b` census of PR #1624).
+D10 = ["dispatch-cadence"]
+D14 = ["sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 10, max = 10 }
+
+[expectations.logContracts]
+# Tokens 1-6: RVR-7's measured prologue, verbatim (boot, seal no-op, create gate, create
+# ack, send-once arm, empty route store on the way in).
+# Token 7: THE HEADLINE - the loop unit's span and its cadence on one line, agreeing.
+# Token 8: the dispatch actually fired.
+# Tokens 9-12: the cycle delivered, path-agnostic (see the header).
+required  = [
+  "loadgame complete scene=FLIGHT save=.* game-loaded=true expected=Flight",
+  "sealslot complete mode=tree tree=88c012a6eed94bf09ff73397a4a31410 total=8 sealed=0 remaining=0 alreadySealed=True",
+  "routecommand create gate tree=88c012a6eed94bf09ff73397a4a31410 treeFound=True dismissed=False sealed=True eligible=True status=Eligible alreadyPromoted=False refusal=None",
+  "routecommand complete action=create tree=88c012a6eed94bf09ff73397a4a31410 route=.* name='relay-c' status=Paused",
+  "PauseAfterCurrentCycle=true \\(route will dispatch one cycle when conditions allow, then transition to Paused\\)",
+  "PostWalk: routes=0",
+  # THE POSITIVE FORM OF THE PHASE-LOCK CLAIM, added off the clean-DLL census
+  # `2026-09-03_1827` which measured it. The three forbids say the orbital lock did not
+  # APPLY; this token says the landed branch RAN and names the vessel it ran for, so a
+  # future build that stopped resolving the anchor at all - and therefore also emitted no
+  # `PhaseLock APPLIED` - could not pass this lane by doing nothing.
+  "TryGetVesselOrbit: skipped landed anchor pid=90564594 situation=LANDED landedOrSplashed=True",
+  "MissionLoopUnit: mission='relay-c' tree=88c012a6eed94bf09ff73397a4a31410 members=4 foreignMembers=0 skipped=0 span=\\[111\\.43.* spanDur=162\\.74.* cadence=162\\.74",
+  "LoopRoute\\(multi\\): route [0-9a-f]{8} cycle=cycle-0 cMin=[0-9]+ dispatch fired \\(carrierStopIndex=0\\)",
+  "Origin debit: route=.* origin=B pid=90564594 resource=LiquidFuel requested=154\\.39.* tankBefore=200 tankAfter=45\\.6",
+  "Delivery write: route=.* dest=A pid=4280917262 resource=LiquidFuel requested=200 written=200 tankBefore=200 tankAfter=400",
+  "Delivery: route [0-9a-f]{8} cycle=cycle-0 resources=1 inventoryUnits=4/4 inventoryUnitsSkipped=0 partial=0",
+  "ArmedPause: route [0-9a-f]{8} cycle=cycle-0 COMPLETED cycle consumed the armed pause",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "routecommand rejected",
+  "PhaseLock APPLIED.*88c012a6eed94bf09ff73397a4a31410",
+  "method=single-vessel-orbital",
+  "clock pre-anchor/degenerate",
+  "BLOCKED kind=OriginLacksCargo",
+  "BLOCKED kind=DestinationFull",
+]
+
+[expectations.recordings.structure]
+# REPORT-ONLY, RVR-7's measured values.
+trees          = { min = 3, max = 3 }
+committedTrees = { min = 3, max = 3 }
+recordings     = { min = 10, max = 12 }
+terminalStates = { Landed = { min = 5 }, Docked = { min = 2 } }
+branchPoints   = { Dock = { min = 2, max = 2 }, Undock = { min = 2, max = 2 } }
+
+[expectations.routes]
+# REPORT-ONLY, and the values are RVR-7's - which is the point: the ONLY thing this lane
+# changes is the clock, so the produced route must be indistinguishable from RVR-7's.
+# `statuses = {Paused: 1}` is the falsifiable half against the control run, which read
+# `{Active: 1}` because the armed send-once was never consumed by a cycle that never
+# happened.
+count           = { min = 1, max = 1 }
+dormant         = { min = 0, max = 0 }
+stops           = { min = 2, max = 2 }
+sourceRefs      = { min = 3, max = 3 }
+completedCycles = { min = 1, max = 1 }
+skippedCycles   = { min = 0, max = 0 }
+statuses        = { Paused = { min = 1, max = 1 } }
+
+[runtime]
+budgetSeconds = 2400
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

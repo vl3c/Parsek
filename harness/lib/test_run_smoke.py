@@ -4711,3 +4711,143 @@ class RenderManifestFilenamePinTests(unittest.TestCase):
         source = self._read("scripts", "collect-logs.py")
         self.assertIn('"%s"' % run.RENDER_MANIFEST_FILENAME, source,
                       "collect-logs.py no longer names the manifest run.py reads")
+
+
+class LiveStateStageTests(unittest.TestCase):
+    """The shell half of `[[fixture.liveState]]`: `stage_fixture` must patch the
+    STAGED COPY (never the committed template), log one line per entry, and FAIL
+    CLOSED pre-boot on any declaration these bytes cannot satisfy.
+
+    The failure this class exists to rule out is the expensive one: a patch that
+    silently did nothing, a lane that then measures the UNPATCHED fixture, and a
+    green run that proves the opposite of what its header claims. Every cell
+    below is therefore about the OBSERVABLE effect on disk, not about the pure
+    function (which `test_savepatch.py` covers on its own)."""
+
+    SAVE = "\n".join([
+        "GAME",
+        "{",
+        "\tFLIGHTSTATE",
+        "\t{",
+        "\t\tactiveVessel = 0",
+        "\t\tVESSEL",
+        "\t\t{",
+        "\t\t\tname = Depot",
+        "\t\t\tpersistentId = 4242",
+        "\t\t\tPART",
+        "\t\t\t{",
+        "\t\t\t\tname = tank",
+        "\t\t\t\tRESOURCE",
+        "\t\t\t\t{",
+        "\t\t\t\t\tname = LiquidFuel",
+        "\t\t\t\t\tamount = 200",
+        "\t\t\t\t\tmaxAmount = 400",
+        "\t\t\t\t}",
+        "\t\t\t}",
+        "\t\t}",
+        "\t}",
+        "}",
+        "",
+    ])
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="parsek-harness-livestate-")
+        self.instance = os.path.join(self.tmp, "instance")
+        os.makedirs(self.instance, exist_ok=True)
+        _write_manifest(self.instance, "stock-minimal")
+        self.template = os.path.join(self.tmp, "livestate-template")
+        os.makedirs(self.template, exist_ok=True)
+        self.template_sfs = os.path.join(self.template, "persistent.sfs")
+        with open(self.template_sfs, "wb") as fh:
+            fh.write(self.SAVE.encode("utf-8"))
+        self._orig_results = run.RESULTS_DIR
+        run.RESULTS_DIR = os.path.join(self.tmp, "results")
+        self.logger = run.HarnessLogger(
+            os.path.join(run.RESULTS_DIR, "livestate_harness.log"))
+
+    def tearDown(self):
+        run.RESULTS_DIR = self._orig_results
+        self.logger.close()
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _spec(self, live_state):
+        spec = _make_spec(self.template, 30, 600)
+        if live_state is not None:
+            spec["fixture"]["liveState"] = live_state
+        return spec
+
+    def _staged_sfs(self, name):
+        with open(os.path.join(self.instance, "saves", name, "persistent.sfs"),
+                  "rb") as fh:
+            return fh.read().decode("utf-8")
+
+    def _log(self):
+        with open(self.logger.log_path, "r", encoding="utf-8") as fh:
+            return fh.read()
+
+    def test_a_declared_entry_reaches_the_staged_save(self):
+        ok, name, subkind = run.stage_fixture(
+            self._spec([{"pid": 4242, "resources": {"LiquidFuel": 0}}]),
+            self.instance, FakeRuntime("pass"), self.logger)
+        self.assertTrue(ok)
+        self.assertEqual("", subkind)
+        self.assertIn("\t\t\t\t\tamount = 0", self._staged_sfs(name))
+        self.assertIn("liveState patched pid=4242 name=Depot "
+                      "resources=[LiquidFuel 200->0] inventory=keep", self._log())
+
+    def test_the_committed_template_is_never_written(self):
+        before = open(self.template_sfs, "rb").read()
+        run.stage_fixture(self._spec([{"pid": 4242, "resources": {"LiquidFuel": 0}}]),
+                          self.instance, FakeRuntime("pass"), self.logger)
+        self.assertEqual(before, open(self.template_sfs, "rb").read(),
+                         "the patch must land on the STAGED COPY only")
+
+    def test_no_block_leaves_the_save_byte_identical(self):
+        ok, name, _ = run.stage_fixture(self._spec(None), self.instance,
+                                        FakeRuntime("pass"), self.logger)
+        self.assertTrue(ok)
+        self.assertEqual(self.SAVE, self._staged_sfs(name),
+                         "a spec declaring nothing must stage exactly as before "
+                         "this mechanism existed")
+        self.assertNotIn("liveState", self._log())
+
+    def test_an_unsatisfiable_entry_fails_closed_at_stage_time(self):
+        # 401 over a 400 maxAmount. The abort must name the cause and the run
+        # must classify INVALID(staging) with KSP never launched.
+        ok, _name, subkind = run.stage_fixture(
+            self._spec([{"pid": 4242, "resources": {"LiquidFuel": 401}}]),
+            self.instance, FakeRuntime("pass"), self.logger)
+        self.assertFalse(ok)
+        self.assertEqual("staging", subkind)
+        self.assertIn("exceeds maxAmount", self._log())
+
+    def test_an_unknown_pid_fails_closed(self):
+        ok, _name, subkind = run.stage_fixture(
+            self._spec([{"pid": 999999, "resources": {"LiquidFuel": 0}}]),
+            self.instance, FakeRuntime("pass"), self.logger)
+        self.assertFalse(ok)
+        self.assertEqual("staging", subkind)
+
+    def test_a_full_attempt_terminates_invalid_without_booting(self):
+        rt = FakeRuntime("pass")
+        result = run.run_attempt(
+            self._spec([{"pid": 4242, "resources": {"LiquidFuel": 401}}]),
+            self.instance, self.tmp, rt, attempt=1, prior_boot_crashed=False,
+            logger=self.logger)
+        self.assertEqual(hlib.VERDICT_INVALID, result["verdict"])
+        self.assertEqual("staging", result["subkind"])
+        self.assertEqual(0, rt.launch_count,
+                         "an unsatisfiable liveState declaration must never boot KSP")
+
+    def test_restaging_is_idempotent(self):
+        # stage_fixture rmtree's + re-copies, so the patch is applied to a FRESH
+        # copy every attempt. A retry must produce the same bytes, not a
+        # doubly-patched save.
+        spec = self._spec([{"pid": 4242, "resources": {"LiquidFuel": 100}}])
+        ok, name, _ = run.stage_fixture(spec, self.instance, FakeRuntime("pass"),
+                                        self.logger)
+        first = self._staged_sfs(name)
+        ok2, name2, _ = run.stage_fixture(spec, self.instance, FakeRuntime("pass"),
+                                          self.logger)
+        self.assertTrue(ok and ok2)
+        self.assertEqual(first, self._staged_sfs(name2))

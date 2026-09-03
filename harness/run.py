@@ -49,6 +49,7 @@ import machinelock  # noqa: E402  (shared lock I/O; pure decisions live in provl
 import oracle  # noqa: E402
 import provlib  # noqa: E402
 import rendercompose  # noqa: E402  (the M-A7 pure sibling behind the renderCompose row)
+import savepatch  # noqa: E402  (the pure FLIGHTSTATE patcher behind [[fixture.liveState]])
 import saveparse  # noqa: E402
 
 # ---------------------------------------------------------------------------
@@ -1010,6 +1011,48 @@ def stage_fixture(spec: Dict, instance_dir: str, runtime: Runtime,
                                   "aborting pre-boot (INVALID stage-inject-noop). likely cause: %s"
                          % (inj, res.exit_code, ", ".join(missing), cause))
             return False, run_save_name, "stage-inject-noop"
+
+    # (3b) apply the spec's declared LIVE ENDPOINT STATE ([[fixture.liveState]]).
+    #
+    # ORDERED AFTER INJECTION, deliberately: the injector rewrites the staged
+    # save wholesale, so patching before it would be silently undone on any
+    # fixture that injects. Last writer wins, and the spec's own declaration is
+    # the one that must win - every token a liveState lane pins is derived from
+    # these numbers.
+    #
+    # FAIL CLOSED, PRE-BOOT, and this is the whole point of doing it here rather
+    # than trusting the fixture: a patch that quietly did nothing would leave the
+    # lane measuring the UNPATCHED fixture and produce a GREEN run that proves
+    # the opposite of what its header claims. Every fault - a pid the save does
+    # not carry, a resource the vessel does not have, an amount above maxAmount,
+    # a window index out of range - aborts with the cause named and KSP never
+    # launched. Same containment discipline as the rest of this function: the
+    # file must resolve strictly inside saves/.
+    live_state = savepatch.declared_live_state(fixture)
+    if live_state:
+        sfs_path = os.path.join(target_save, "persistent.sfs")
+        if not _is_strictly_inside(sfs_path, saves_dir) or not os.path.isfile(sfs_path):
+            logger.error("Stage", "liveState: staged save %s has no readable "
+                                  "persistent.sfs; aborting pre-boot (INVALID staging)"
+                         % run_save_name)
+            return False, run_save_name, "staging"
+        try:
+            with open(sfs_path, "rb") as fh:
+                sfs_text = fh.read().decode("utf-8")
+            patched_text, live_notes = savepatch.apply_live_state(
+                sfs_text, live_state, run_save_name)
+            with open(sfs_path, "wb") as fh:
+                fh.write(patched_text.encode("utf-8"))
+        except savepatch.LiveStatePatchError as ex:
+            logger.error("Stage", "%s; aborting pre-boot (INVALID staging) save=%s"
+                         % (ex, run_save_name))
+            return False, run_save_name, "staging"
+        except (OSError, UnicodeDecodeError) as ex:
+            logger.error("Stage", "liveState: could not read/write %s (%s); aborting "
+                                  "pre-boot (INVALID staging)" % (sfs_path, ex))
+            return False, run_save_name, "staging"
+        for note in live_notes:
+            logger.info("Stage", "liveState patched %s" % note)
 
     # (4) stage craft files.
     craft = fixture.get("craft", []) or []

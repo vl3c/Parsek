@@ -370,6 +370,88 @@ Two rules when adding or harvesting a fixture:
   NOT listed (`gloops-airshow/Ships/VAB/Auto-Saved Ship.craft` is the only one
   today). The same test reds a library craft that drops to one consumer.
 
+### Per-spec live endpoint state (`[[fixture.liveState]]`)
+
+One fixture, many endpoint states. A SUPPLY ROUTE replays a recorded run against
+the CURRENT LIVE ENDPOINTS, so most of what a dispatch lane measures is decided by
+two numbers that live in `FLIGHTSTATE` and nowhere else: what the source holds at
+the crossing, and how much headroom the destination has. Authoring the origin-empty,
+origin-partial, cargo-missing, destination-full, destination-partial and
+destination-empty edges as separate FIXTURES would mean one full save tree per
+variant (a `persistent.sfs` plus ~39 sidecars) whose Parsek payload is
+byte-identical to its siblings and whose only difference is a single `amount =`
+line - N re-harvests to maintain and N shapes in `RECORDED_FIXTURES` that can drift
+apart without anything noticing.
+
+A spec declares the state it wants instead:
+
+```toml
+[fixture]
+saveTemplate       = "fixtures/saves/rover-relay-c-recorded"
+injectedRecordings = "none"
+
+[[fixture.liveState]]
+pid       = 90564594                 # rover B, the pickup source
+resources = { LiquidFuel = 0 }       # drain the tank
+inventory = "clear"                  # and empty both containers
+```
+
+* `pid` - a `FLIGHTSTATE` `persistentId`. Exactly one vessel must carry it.
+* `resources` - resource name -> amount. Exactly one matching `RESOURCE` node must
+  exist on that vessel (a multi-tank vessel is REFUSED rather than guessed at: "100"
+  would mean two different things and the tokens derived from it would be
+  underivable). An amount above `maxAmount` is a SPEC ERROR and aborts; it is never
+  clamped, because a silent cap makes every derived token wrong while the run stays
+  green.
+* `inventory` - `keep` (the default; omit the key), `clear` (empty every
+  `ModuleInventoryPart` and drop its `inventory` CSV key, the shape KSP itself
+  writes), or `restore-dock-endpoint:<windowIndex>` (restore from that route
+  window's own `DOCK_ENDPOINT_INVENTORY` snapshot - the fixture's own recorded
+  bytes).
+
+**LIVE-PROVEN 2026-09-03** across the six RVR-8..RVR-15 lanes that stage one: every
+harness log carries its patch line (e.g. `liveState patched pid=90564594 name=B
+resources=[LiquidFuel 200->0] inventory=keep`) and every run then measured the route
+gate reading exactly that state. A patch that had silently done nothing would have left
+those lanes measuring the UNPATCHED fixture - where the cycle DELIVERS - so their own
+required tokens are the mechanism's falsification rather than a separate assertion
+about it. `inventory = "clear"` is proven too (RVR-12, RVR-15): it is the only mode
+that rewrites container bodies rather than one `amount =` line, and KSP loaded,
+resolved and gated both saves without complaint.
+
+WHERE IT RUNS AND WHAT IT TOUCHES. `run.py::stage_fixture` step 3b, on the STAGED
+COPY, after the template copy and after any injection (last writer wins). FLIGHTSTATE
+only: no recording, window, branch point, origin proof or ledger row is ever
+rewritten - the route windows are the patcher's INPUT, so editing one would make a
+restore unfalsifiable. Line endings are preserved (`rover-relay-c-recorded` is LF
+where every builder-authored fixture is CRLF).
+
+FAIL CLOSED, PRE-BOOT. A pid the save does not carry, a resource the vessel does not
+have, an amount over capacity, a window index out of range: every one aborts as
+`INVALID(staging)` with the cause named and KSP never launched. The shape is checked
+one layer earlier still, by `hlib.validate_spec`, so a malformed declaration is
+INVALID-SPEC before the instance is even prepared. There is deliberately no
+fail-open path: a patch that quietly did nothing would leave the lane measuring the
+UNPATCHED fixture and reporting green.
+
+ONE IMPLEMENTATION, SHARED WITH THE BUILDER. `harness/lib/savepatch.py` owns the
+snapshot-lift, slot-placement and `inventory` CSV logic, and
+`tools/build_rover_relay_c_recorded.py` (whose step 3 does the same edit at BUILD
+time, to stage that fixture at start-of-cycle) calls it rather than carrying a copy.
+`lib/test_savepatch.py` asserts the identity with `is` and proves the sharing
+behaviourally: applying `restore-dock-endpoint:<N>` to an endpoint the builder
+already restored from the same window is a BYTE-IDENTICAL no-op, and clearing then
+restoring returns the committed bytes exactly.
+
+WHAT IT CANNOT DO, and why that is a property of the bytes: there is no `fill` mode
+and no `restore-undock-endpoint:<N>`. An `UNDOCK_ENDPOINT_INVENTORY` snapshot is not
+a census of the resulting inventory (on `rover-relay-c-recorded` window 1 it carries
+four items, two of them the same part name at the same `slotIndex`, against a live
+rover holding six, with no container index recorded), and a fill mode would mean
+authoring `STOREDPART` nodes no snapshot ever wrote. The destination-slots-full edge
+therefore needs a second harvest; it is filed in `docs/dev/autotest-roadmap.md`
+item 15.
+
 ### Recording sidecars: what is committed and what is derived
 
 A fixture's `Parsek/Recordings/` carries the AUTHORITATIVE sidecars - `<id>.prec`

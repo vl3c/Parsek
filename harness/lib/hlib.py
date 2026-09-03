@@ -3131,6 +3131,15 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
     inj = fixture.get("injectedRecordings")
     if inj not in INJECTED_RECORDINGS:
         errors.append("fixture.injectedRecordings: %r not in %s" % (inj, list(INJECTED_RECORDINGS)))
+    # `[[fixture.liveState]]` - the per-spec LIVE ENDPOINT STATE the stage step
+    # patches into the staged copy of the template (savepatch.py). Validated HERE
+    # rather than at staging time for the reason every other fixture key is: a
+    # malformed declaration must be an INVALID-SPEC with KSP never launched, not
+    # an abort after the instance was prepared. The SHAPE checks are all that is
+    # possible without the save in hand; whether the pid exists, the resource
+    # exists on that vessel and the amount fits under `maxAmount` are the
+    # applier's own assertions against the bytes (fail-closed, pre-boot).
+    errors.extend(savepatch.validate_live_state(fixture))
 
     driver = spec.get("driver", {}) or {}
     kind = driver.get("kind")
@@ -3861,6 +3870,7 @@ if _PROVISION_DIR not in _sys.path:
     _sys.path.insert(0, _PROVISION_DIR)
 import provlib  # noqa: E402  (the M-A6 pure sibling; admission reuse, design)
 import saveparse  # noqa: E402  (the M-C2/R9 pure sibling; save-parse spec-surface validation lives there so validator + evaluator share one vocabulary)
+import savepatch  # noqa: E402  (the pure FLIGHTSTATE patcher behind [[fixture.liveState]]; same rule - the module that APPLIES the block validates its spec surface)
 import rendercompose  # noqa: E402  (the M-A7 pure sibling; same reason - the render-composition spec surface is validated by the module that evaluates it)
 import ghostlife  # noqa: E402  (the ghost-lifecycle pure sibling; same reason - the [expectations.ghostLifecycle] surface is validated by the module that evaluates it)
 

@@ -1,0 +1,185 @@
+schema = 1
+id = "RVR-14-rover-relay-c-destination-partial"
+tier = "nightly"
+# =====================================================================================
+# THE MATRIX, EDGE 5: THE DESTINATION HAS ROOM FOR HALF OF IT, AND HALF IS NOT ENOUGH.
+# Rover A is staged at 300 / 400 LiquidFuel, so it has EXACTLY 100 units of headroom
+# against a 200 delivery manifest. A best-effort delivery would top it up and report a
+# partial; the product refuses the whole cycle. This lane is the DESTINATION-side mirror
+# of RVR-11, and it is authored as a pair with it deliberately - a rule derived on one
+# side of an asymmetry has to be walked on the other before it is believed.
+#
+# **LIVE-PROVEN 2026-09-03: run `2026-09-03_1835`, PASS attempt 1, EVERY
+# VERIFIER PASS**, on the CLEAN automation DLL sha256 `995772453f2339a2`
+# (built from `main` a575d64f0, IL-verified guard).
+#
+# **FIRST-CENSUS HISTORY**: this lane also passed on `2026-09-03_1813` (wall 49 s), but
+# that run flew `877208524b314e7b`, which PR #1624 identifies as a MUTATED SNAPSHOT -
+# taken from the #1623 review worktree while that reviewer's mutation test had
+# `IsPhaseAnchorEligible` stubbed to `return true` (IL code size 7 against 27 clean,
+# which a marker grep structurally CANNOT SEE). The clean re-flight above is what this
+# header rests on; the mutated run is kept because it is the record of how the stub was
+# found.
+#
+# **PASSED ON ITS FIRST FLIGHT ON BOTH BUILDS** with every token as authored - **AND THE OUTCOME
+# THIS SPEC DERIVED FROM THE CODE IS THE OUTCOME THAT HAPPENED.** It blocks.
+#
+# THE STAGED STATE, from the harness log: `liveState patched pid=4280917262 name=A
+# resources=[LiquidFuel 200->300] inventory=keep`.
+#
+# That is worth stating plainly, because the derivation below was the riskiest reading in
+# the whole matrix and it was made from source rather than from a flight: `PrepareDelivery`
+# really does compute a `Math.Min(200, 100) = 100` partial, and a reader who stopped there
+# would have authored this lane to expect a partial DELIVERY. The gate treats a partial
+# plan as the FAILURE condition, so the cycle emitted nothing - no `Delivery write:`, no
+# `partial=1` - and `BLOCKED kind=DestinationFull reason=LiquidFuel` fired instead. The
+# derivation is kept below in full because it is now a MEASURED reading of the two layers
+# rather than a prediction about them.
+#
+#
+# -------------------------------------------------------------------------------------
+# THE DERIVATION, LAYER BY LAYER, WITH THE TRAP NAMED.
+#
+#   1. `RouteDeliveryPlanner.PrepareDelivery(route, stopIndex, probe)` DOES compute a
+#      partial. For each resource line it takes `Math.Min(requested, freeCapacity)` -
+#      here `Math.Min(200, 100) = 100` - and sets `anyResourcePartial` because 100 is
+#      STRICTLY LESS than 200. So a plan carrying a 100-unit line and `IsPartial = true`
+#      genuinely exists.
+#   2. **THE TRAP IS STOPPING AT STEP 1.** A reader who finds `Math.Min` and concludes
+#      "so it partial-delivers" has read the PLANNER and not the GATE.
+#      `RouteDestinationCapacityCheck.HasCapacityForAllStops` calls `PrepareDelivery` and
+#      then does exactly this:
+#          `if (!plan.IsPartial) { ...reserve...; continue; }`
+#          `fullToken = FirstShortToken(plan); fullStopIndex = i; return false;`
+#      A partial plan is the FAILURE condition, not a reduced success. The gate returns
+#      false, `CheckEligibility` answers `DestinationFull`, and `ProcessLoopRoute` takes
+#      its blocked branch, which emits NOTHING.
+#   3. `FirstShortToken` walks the RESOURCE lines before the inventory lines and returns
+#      the first whose `Available < Requested`, i.e. `LiquidFuel`.
+#
+# SO THIS LANE BLOCKS, and its token set is RVR-13's. The two are not redundant: RVR-13
+# stages ZERO headroom, where "nothing was delivered" is the only arithmetically possible
+# outcome and a degraded gate would look identical. HERE THERE IS ROOM FOR 100 UNITS. A
+# best-effort regression has something to deliver and would announce itself as
+# `Delivery write: ... requested=200 written=100`, `Delivery: ... partial=1`, and a route
+# that completed a cycle instead of skipping one. All four are forbidden or inverted
+# below. That is the same shape as the RVR-10 / RVR-11 pair on the origin side, and it is
+# the reason both pairs exist rather than one lane each.
+#
+# -------------------------------------------------------------------------------------
+# 300 IS CHOSEN. It leaves headroom that is large (100 units is half the manifest, not a
+# rounding sliver), strictly under the manifest so the gate must refuse, and a clean
+# integer so the refusal cannot be attributed to float noise near an exact fit. RVR-7's
+# own delivery is the EXACT-FIT case (A at 200 with exactly 200 of headroom, measured
+# `written=200 partial=0`), so between RVR-7, this lane and RVR-13 the destination axis is
+# sampled at headroom = 200 (exact fit, delivers), 100 (partial, refuses) and 0 (full,
+# refuses), with RVR-15 adding 400 (empty, delivers).
+# =====================================================================================
+description = "LIVE-PROVEN 2026-09-03: run 2026-09-03_1835, PASS attempt 1, EVERY VERIFIER PASS, on the CLEAN automation DLL sha256 995772453f2339a2 (built from main a575d64f0, IL-verified guard). FIRST-CENSUS HISTORY: this lane also passed on 2026-09-03_1813 (wall 49 s), but that run flew 877208524b314e7b, which PR #1624 identifies as a MUTATED SNAPSHOT - taken from the #1623 review worktree while that reviewer's mutation test had IsPhaseAnchorEligible stubbed to return true (IL code size 7 against 27 clean, which a marker grep structurally CANNOT SEE). The clean re-flight is what this row rests on; the mutated run is kept because it is the record of how the stub was found. PASSED ON ITS FIRST FLIGHT ON BOTH BUILDS with every token as authored, AND THE OUTCOME THIS SPEC DERIVED FROM THE CODE IS THE OUTCOME THAT HAPPENED: it blocks. Staged by liveState patched pid=4280917262 name=A resources=[LiquidFuel 200->300] inventory=keep. That is worth stating plainly, because this was the riskiest reading in the matrix and it was made from source rather than from a flight - PrepareDelivery really does compute a Math.Min(200, 100) = 100 partial, and a reader who stopped there would have authored the lane to expect a partial DELIVERY. The gate treats a partial plan as the FAILURE condition, so the cycle emitted nothing (no Delivery write:, no partial=1) and BLOCKED kind=DestinationFull reason=LiquidFuel fired instead. MATRIX EDGE 5, THE DESTINATION HAS ROOM FOR HALF OF IT: rover A staged at 300/400 LiquidFuel by a [[fixture.liveState]] block, leaving EXACTLY 100 units of headroom against the 200 delivery manifest. The outcome is derived from the code rather than guessed, and the derivation matters because 'partial' means two different things in two layers. PrepareDelivery DOES compute one - Math.Min(200, 100) = 100 with anyResourcePartial set because 100 < 200 - and the trap is stopping there, because HasCapacityForAllStops treats a partial plan as the FAILURE condition ('if (!plan.IsPartial) { reserve; continue; } fullToken = FirstShortToken(plan); return false;'), so CheckEligibility answers DestinationFull and ProcessLoopRoute takes its blocked branch, which emits nothing. FirstShortToken walks resources before inventory, so the token is LiquidFuel. The lane therefore BLOCKS with RVR-13's token set, and the pair is not redundant: RVR-13 stages ZERO headroom where 'nothing was delivered' is the only arithmetically possible outcome and a degraded gate would look identical, while HERE a best-effort regression has 100 units to ship and would announce itself as Delivery write: requested=200 written=100, Delivery: partial=1, and a completed rather than skipped cycle - all forbidden or inverted below. Same shape as the RVR-10 / RVR-11 pair on the origin side. 300 is chosen: headroom that is half the manifest rather than a rounding sliver, strictly under it so the gate must refuse, and a clean integer so the refusal cannot be blamed on float noise near an exact fit. Across RVR-7 (headroom 200, exact fit, delivers), this lane (100, refuses), RVR-13 (0, refuses) and RVR-15 (400, delivers) the destination axis is sampled at four points."
+instanceProfile = "stock-minimal"
+tags = ["seam-verbs", "logistics", "route-create", "route-hold", "destination-full",
+        "live-state", "recorded-fixture", "RVR-14", "matrix"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/rover-relay-c-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[[fixture.liveState]]
+# Rover A, the DELIVERY DESTINATION, at three quarters. Inventory defaults to `keep`, so
+# the three free slots stay free and the inventory half of the plan fits - which is what
+# makes the refusal attributable to the RESOURCE line and to nothing else.
+pid       = 4280917262
+resources = { LiquidFuel = 300 }
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                    expect = "OK" },
+  { cmd = "DiscardTree",                                                      expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" },  expect = "OK" },
+  { cmd = "SealSlot",     args = { tree = "88c012a6eed94bf09ff73397a4a31410" }, expect = "OK", budget = 120 },
+  { cmd = "RouteCommand", args = { action = "create", tree = "88c012a6eed94bf09ff73397a4a31410", name = "relay-c" }, expect = "OK", budget = 120 },
+  { cmd = "RouteCommand", args = { action = "send-once", route = "relay-c" },  expect = "OK", budget = 120 },
+  { cmd = "TimeJump",     args = { ut = "1100" },                             expect = "OK", budget = 300 },
+  { cmd = "SaveGame",                                                         expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                     expect = "OK" },
+]
+
+[dimensionsCovered]
+# NO D10 VALUE IS CLAIMED, AND THAT IS A DECISION RATHER THAN AN OMISSION NOW THAT THE
+# LANE IS GREEN. `destination-full-gate` is claimed by RVR-13, off the same branch; this
+# lane measures it at a SECOND headroom value (100 units of room rather than zero), which
+# makes the existing gate sharper without being a different behaviour. Splitting one
+# registry row across two headroom values would inflate the count for a difference the
+# runs do not support - the D1 `commit-in-foreign-soi` / `commit-landed-foreign-body`
+# precedent requires a different code path, surface or measured behaviour, and these two
+# share all three.
+#
+# What this lane adds instead is recorded in the header: it is the only place the
+# planner-vs-gate "partial" ambiguity is settled by a driven run rather than by reading
+# `PrepareDelivery` and stopping too early.
+D14 = ["sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 10, max = 10 }
+
+[expectations.logContracts]
+required  = [
+  "loadgame complete scene=FLIGHT save=.* game-loaded=true expected=Flight",
+  "sealslot complete mode=tree tree=88c012a6eed94bf09ff73397a4a31410 total=8 sealed=0 remaining=0 alreadySealed=True",
+  "routecommand create gate tree=88c012a6eed94bf09ff73397a4a31410 treeFound=True dismissed=False sealed=True eligible=True status=Eligible alreadyPromoted=False refusal=None",
+  "routecommand complete action=create tree=88c012a6eed94bf09ff73397a4a31410 route=.* name='relay-c' status=Paused",
+  "PauseAfterCurrentCycle=true \\(route will dispatch one cycle when conditions allow, then transition to Paused\\)",
+  "PostWalk: routes=0",
+  "PickupSourcesHaveCargo: route [0-9a-f]{8} source pid=90564594 name=B resources=1 inventory=3 decision=cover",
+  "PickupSourcesHaveCargo: route [0-9a-f]{8} all 1 pickup source\\(s\\) cover - eligible",
+  "DestinationHasCapacity: route [0-9a-f]{8} destination FULL stop=[0-9]+ short=LiquidFuel",
+  "Route [0-9a-f]{8} hold recorded kind=DestinationFull detail=LiquidFuel",
+  "LoopRoute\\(multi\\): route [0-9a-f]{8} cycle=cycle-0 cMin=[0-9]+ BLOCKED kind=DestinationFull reason=LiquidFuel",
+  "ArmedPause: route [0-9a-f]{8} cycle=cycle-0 BLOCKED cycle consumed the armed pause",
+  "reason=blocked-then-paused",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "routecommand rejected",
+  "dispatch fired",
+  "Origin debit:",
+  "Inventory remove",
+  # THE ALL-OR-NOTHING CLAIM ON THE DESTINATION SIDE, and the whole reason this lane is
+  # not a spelling of RVR-13: there are 100 units of room, so a best-effort regression
+  # would write into it and announce itself here.
+  "Delivery write:",
+  "partial=1",
+  "BLOCKED kind=OriginLacksCargo",
+]
+
+[expectations.recordings.structure]
+trees          = { min = 3, max = 3 }
+committedTrees = { min = 3, max = 3 }
+recordings     = { min = 10, max = 12 }
+terminalStates = { Landed = { min = 5 }, Docked = { min = 2 } }
+branchPoints   = { Dock = { min = 2, max = 2 }, Undock = { min = 2, max = 2 } }
+
+[expectations.routes]
+count           = { min = 1, max = 1 }
+dormant         = { min = 0, max = 0 }
+stops           = { min = 2, max = 2 }
+sourceRefs      = { min = 3, max = 3 }
+completedCycles = { min = 0, max = 0 }
+skippedCycles   = { min = 1, max = 1 }
+statuses        = { Paused = { min = 1, max = 1 } }
+
+[runtime]
+budgetSeconds = 2400
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

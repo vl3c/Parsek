@@ -1,0 +1,211 @@
+schema = 1
+id = "RVR-10-rover-relay-c-origin-empty"
+tier = "nightly"
+# =====================================================================================
+# THE MATRIX, EDGE 1: THE ORIGIN IS EMPTY. Rover B holds ZERO LiquidFuel against a
+# 154.3999999999952 pickup manifest, everything else identical to RVR-7. This is the
+# floor of the origin-cargo gate - the case where the source has none of what the route
+# needs - and it is the FIRST of the three-point origin sweep RVR-10 / RVR-11 / RVR-8
+# make together: 0 (this lane), 100 (partial), 45.6 (spent by a real cycle).
+#
+# **LIVE-PROVEN 2026-09-03: run `2026-09-03_1831`, PASS attempt 1, EVERY
+# VERIFIER PASS**, on the CLEAN automation DLL sha256 `995772453f2339a2`
+# (built from `main` a575d64f0, IL-verified guard).
+#
+# **FIRST-CENSUS HISTORY**: this lane also passed on `2026-09-03_1809` (wall 52 s), but
+# that run flew `877208524b314e7b`, which PR #1624 identifies as a MUTATED SNAPSHOT -
+# taken from the #1623 review worktree while that reviewer's mutation test had
+# `IsPhaseAnchorEligible` stubbed to `return true` (IL code size 7 against 27 clean,
+# which a marker grep structurally CANNOT SEE). The clean re-flight above is what this
+# header rests on; the mutated run is kept because it is the record of how the stub was
+# found.
+#
+# **PASSED ON ITS FIRST FLIGHT ON BOTH BUILDS** with every token as authored - no re-pin, no
+# correction.
+#
+# **IT IS THE FIRST LANE ANYWHERE TO STAGE ITS OWN LIVE ENDPOINT STATE, AND THE STAGE STEP
+# IS LIVE-PROVEN BY IT**: the harness logged `liveState patched pid=90564594 name=B
+# resources=[LiquidFuel 200->0] inventory=keep` before the boot, and the gate then read
+# exactly the drained tank that implies. A patch that had silently done nothing would have
+# left this lane measuring the UNPATCHED fixture, where B holds 200 and the cycle
+# DELIVERS - so the three required hold tokens are the stage step's own falsification.
+#
+# **THE THREE `shortfall=154.39` PINS ALL MATCHED**, which is the #1623 hold-shortfall fix
+# live-proven from this lane's side too: pre-fix, `Route.RecordHold` and
+# `ProcessLoopRoute`'s BLOCKED line both printed `shortfall=0`.
+#
+#
+# -------------------------------------------------------------------------------------
+# WHY THIS LANE EXISTS RATHER THAN A SECOND FIXTURE. A supply route replays a recorded run
+# against the CURRENT LIVE ENDPOINTS, so every edge of the dispatch gate is the same
+# committed Parsek payload against a different FLIGHTSTATE. Before `[[fixture.liveState]]`
+# the only way to author this was a second harvested save differing from
+# `rover-relay-c-recorded` in ONE `amount =` line - megabytes of duplicated recordings
+# that a re-harvest would have to reproduce N times and that could drift apart silently.
+# The block below is a three-line declaration in the spec that WANTS the state, applied to
+# the STAGED COPY at stage time by `harness/lib/savepatch.py`, fail-closed pre-boot.
+#
+# -------------------------------------------------------------------------------------
+# THE ARITHMETIC. The pickup manifest is the fixture's own window 0 subtraction
+# (`UNDOCK_TRANSPORT 354.3999999999952 - DOCK_TRANSPORT 200 = 154.3999999999952`), and
+# `RouteOriginCargoCheck.HasRequired` reports `shortfall = need - stored`, so with a
+# drained tank the shortfall IS the whole manifest: 154.3999999999952 - 0. Both halves of
+# that subtraction are pinned facts rather than derivations - the operator's own blocked
+# cycle printed `shortfall=108.79999999999706` against a stored 45.59999999999814, and
+# 154.3999999999952 is the only `need` consistent with it.
+#
+# THE SHORTFALL PINS ARE AUTHORED FOR THE FIXED BEHAVIOUR. On the current build the GATE
+# line carries the true shortfall while `Route.RecordHold` and `ProcessLoopRoute`'s
+# BLOCKED line both print `shortfall=0` (`RouteDispatchEvaluator.CheckEligibility`
+# constructs the `OriginLacksCargo` result with a hard-coded `0.0`); PR #1623 plumbs it
+# through, and this lane's own census MEASURED that it does. Pinning `154\.39` on ALL THREE lines makes a pre-fix DLL red
+# on exactly the two hold-side tokens and pass the gate one, which is the signature that
+# says "wrong DLL" rather than "relay regressed".
+#
+# -------------------------------------------------------------------------------------
+# WHAT THE HOLD TEXT IS NOT. `LogisticsHoldPresentation` renders the player-facing hold
+# sentence in the Logistics WINDOW, and this lane opens no window, so no such text exists
+# in the log to pin. The three GATE-side lines below are the whole surface: the pickup
+# gate's own FAIL summary, `Route.RecordHold`'s persisted verdict (the field the window
+# would later read), and `ProcessLoopRoute`'s BLOCKED line.
+#
+# `inventory=False` on the gate line is load-bearing and easy to miss: it asserts the
+# short is the RESOURCE half, not the cargo half. `RoutePickupSourceGate.Evaluate` checks
+# resources FIRST and returns on the first failure, so with the three stored parts left in
+# place the inventory branch is never reached here - which is what makes RVR-12, the lane
+# that clears the parts and leaves the fuel, a genuinely different measurement rather than
+# a second spelling of this one.
+# =====================================================================================
+description = "LIVE-PROVEN 2026-09-03: run 2026-09-03_1831, PASS attempt 1, EVERY VERIFIER PASS, on the CLEAN automation DLL sha256 995772453f2339a2 (built from main a575d64f0, IL-verified guard). FIRST-CENSUS HISTORY: this lane also passed on 2026-09-03_1809 (wall 52 s), but that run flew 877208524b314e7b, which PR #1624 identifies as a MUTATED SNAPSHOT - taken from the #1623 review worktree while that reviewer's mutation test had IsPhaseAnchorEligible stubbed to return true (IL code size 7 against 27 clean, which a marker grep structurally CANNOT SEE). The clean re-flight is what this row rests on; the mutated run is kept because it is the record of how the stub was found. PASSED ON ITS FIRST FLIGHT ON BOTH BUILDS with every token as authored. THE FIRST LANE ANYWHERE TO STAGE ITS OWN LIVE ENDPOINT STATE, and the stage step is live-proven by it: the harness logged liveState patched pid=90564594 name=B resources=[LiquidFuel 200->0] inventory=keep before the boot, and the gate then read exactly the drained tank that implies - a patch that had silently done nothing would have left the lane measuring the UNPATCHED fixture, where B holds 200 and the cycle DELIVERS, so the three required hold tokens are the stage step's own falsification. All three shortfall=154.39 pins matched, live-proving the #1623 hold-shortfall fix from this lane's side. MATRIX EDGE 1, THE ORIGIN IS EMPTY: RVR-7's steps against a rover B drained to ZERO LiquidFuel by a [[fixture.liveState]] block, with its three stored parts left in place. The pickup manifest is the fixture's own window-0 subtraction (UNDOCK_TRANSPORT 354.3999999999952 - DOCK_TRANSPORT 200 = 154.3999999999952) and RouteOriginCargoCheck.HasRequired reports shortfall = need - stored, so a drained tank makes the shortfall the WHOLE manifest: the gate fails with short=LiquidFuel shortfall=154.3999999999952 inventory=False sources=1, short-cause=physical with no reserving route, the hold records kind=OriginLacksCargo detail=source:90564594:B:LiquidFuel, the cycle BLOCKS emitting nothing, and the armed send-once is consumed into Paused reason=blocked-then-paused. inventory=False is load-bearing: RoutePickupSourceGate checks resources BEFORE inventory and returns on the first failure, so leaving the three parts in place is what makes RVR-12 (fuel present, cargo cleared) a different measurement rather than a second spelling of this one. This is the first of the three-point origin sweep RVR-10 / RVR-11 / RVR-8 make together - stored 0, 100 and 45.6 against one manifest. It is also the first lane anywhere to use the [[fixture.liveState]] mechanism, which replaces a would-be second harvested fixture differing from rover-relay-c-recorded in a single amount= line. AUTHORED FOR THE FIXED BEHAVIOUR AND THE BET PAID: shortfall=154.39 is pinned on the gate line AND both hold-side lines, which could only ever be green after PR #1623 plumbed the true value through CheckEligibility's hard-coded 0.0 - and all three matched. Forbids Origin debit:, Delivery write: and dispatch fired - a blocked cycle emits NOTHING, so any of the three would mean the gate let an unaffordable cycle through."
+instanceProfile = "stock-minimal"
+tags = ["seam-verbs", "logistics", "route-create", "route-hold", "origin-lacks-cargo",
+        "live-state", "recorded-fixture", "RVR-10", "matrix"]
+
+[fixture]
+# `rover-relay-c-recorded` with ONE live-state edit. The block patches the STAGED COPY
+# only (`run.py::stage_fixture` step 3b): FLIGHTSTATE, one `amount =` line, on the vessel
+# named by pid. The committed fixture is untouched and the Parsek payload - recordings,
+# route windows, branch points, both wrong origin proofs, the ledger - is never read for
+# anything but the window index a restore would name, which this block does not use.
+# A declaration these bytes cannot satisfy (unknown pid, absent resource, an amount above
+# `maxAmount`) aborts pre-boot as INVALID(staging) with KSP never launched, which is the
+# only acceptable failure mode: a patch that quietly did nothing would leave this lane
+# measuring the UNPATCHED fixture and reporting green.
+saveTemplate       = "fixtures/saves/rover-relay-c-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[[fixture.liveState]]
+# Rover B, the PICKUP SOURCE. Drained; the three stored parts stay (inventory defaults to
+# `keep`), so the gate's resource branch is the only one that can fail.
+pid       = 90564594
+resources = { LiquidFuel = 0 }
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                    expect = "OK" },
+  { cmd = "DiscardTree",                                                      expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" },  expect = "OK" },
+  { cmd = "SealSlot",     args = { tree = "88c012a6eed94bf09ff73397a4a31410" }, expect = "OK", budget = 120 },
+  { cmd = "RouteCommand", args = { action = "create", tree = "88c012a6eed94bf09ff73397a4a31410", name = "relay-c" }, expect = "OK", budget = 120 },
+  { cmd = "RouteCommand", args = { action = "send-once", route = "relay-c" },  expect = "OK", budget = 120 },
+  { cmd = "TimeJump",     args = { ut = "1100" },                             expect = "OK", budget = 300 },
+  { cmd = "SaveGame",                                                         expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                     expect = "OK" },
+]
+
+[dimensionsCovered]
+# NO D10 VALUE IS CLAIMED, and after the green census the reason is NON-INFLATION rather
+# than CLAIM-IS-NOT-GATE: `hold-reasons` is already declared by `H38-logistics-isolated`,
+# and re-declaring a covered row inflates the count without gating one new behaviour.
+#
+# WHAT THIS LANE ADDS IS THE MECHANISM, WHICH IS NOT A REGISTRY CELL: it is the first
+# scenario anywhere whose subject state was STAGED rather than harvested, and its green
+# run (`2026-09-03_1809`) is the `[[fixture.liveState]]` stage step's own live proof - the
+# harness logged the patch, and the three hold tokens are what a silent no-op would have
+# failed to produce.
+D14 = ["sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 10, max = 10 }
+
+[expectations.logContracts]
+# THE CREATE HALF IS UNCHANGED FROM RVR-7 AND MUST BE. The live-state edit touches
+# FLIGHTSTATE only, so the analysis, the candidate resolution and the origin override all
+# see byte-identical bytes; a create that answered differently here would mean the patcher
+# reached the Parsek payload. Tokens 1-6 are that assertion as much as they are setup.
+#
+# THE HOLD HALF IS THE SUBJECT, and the three lines are three different producers:
+#   `PickupSourcesHaveCargo: ... all-or-nothing FAIL ...`  the gate's own verdict
+#   `Route ... hold recorded kind=...`                     the PERSISTED hold (the field
+#                                                          the Logistics window reads)
+#   `LoopRoute(multi): ... BLOCKED kind=...`               the cycle's own outcome
+# Requiring all three is not redundancy: they are written at three different points and a
+# fix that plumbs the shortfall into one of them and not the others is precisely the
+# regression this matrix is being authored around.
+#
+# `decision=short` on the per-source line is the cheapest possible assertion that the
+# grouping step resolved B at all - a source that failed to RESOLVE never reaches the
+# gate and would produce an `EndpointLost` hold instead.
+required  = [
+  "loadgame complete scene=FLIGHT save=.* game-loaded=true expected=Flight",
+  "sealslot complete mode=tree tree=88c012a6eed94bf09ff73397a4a31410 total=8 sealed=0 remaining=0 alreadySealed=True",
+  "routecommand create gate tree=88c012a6eed94bf09ff73397a4a31410 treeFound=True dismissed=False sealed=True eligible=True status=Eligible alreadyPromoted=False refusal=None",
+  "routecommand complete action=create tree=88c012a6eed94bf09ff73397a4a31410 route=.* name='relay-c' status=Paused",
+  "PauseAfterCurrentCycle=true \\(route will dispatch one cycle when conditions allow, then transition to Paused\\)",
+  "PostWalk: routes=0",
+  "PickupSourcesHaveCargo: route [0-9a-f]{8} source pid=90564594 name=B resources=1 inventory=3 decision=short",
+  "PickupSourcesHaveCargo: route [0-9a-f]{8} all-or-nothing FAIL first-short source pid=90564594 name=B short=LiquidFuel shortfall=154\\.39.* inventory=False sources=1",
+  "PickupSourcesHaveCargo: route [0-9a-f]{8} short-cause=physical pid=90564594 resource=LiquidFuel raw=0 netted=0 reservingRouteId=<none>",
+  "Route [0-9a-f]{8} hold recorded kind=OriginLacksCargo detail=source:90564594:B:LiquidFuel shortfall=154\\.39",
+  "LoopRoute\\(multi\\): route [0-9a-f]{8} cycle=cycle-0 cMin=[0-9]+ BLOCKED kind=OriginLacksCargo reason=source:90564594:B:LiquidFuel shortfall=154\\.39",
+  "ArmedPause: route [0-9a-f]{8} cycle=cycle-0 BLOCKED cycle consumed the armed pause",
+  "reason=blocked-then-paused",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "routecommand rejected",
+  # A BLOCKED CYCLE EMITS NOTHING. Any of these three would mean the all-or-nothing gate
+  # let a cycle through that the world could not pay for.
+  "dispatch fired",
+  "Origin debit:",
+  "Delivery write:",
+  # And it must block on the ORIGIN. Rover A is untouched at 200 / 400 with three free
+  # slots - exactly the state RVR-7 delivered into - so gate 8 has nothing to complain
+  # about and a `DestinationFull` reading here would mean the gate order inverted.
+  "BLOCKED kind=DestinationFull",
+]
+
+[expectations.recordings.structure]
+trees          = { min = 3, max = 3 }
+committedTrees = { min = 3, max = 3 }
+recordings     = { min = 10, max = 12 }
+terminalStates = { Landed = { min = 5 }, Docked = { min = 2 } }
+branchPoints   = { Dock = { min = 2, max = 2 }, Undock = { min = 2, max = 2 } }
+
+[expectations.routes]
+# REPORT-ONLY. Every window is RVR-7's except the two cycle counters, which are its exact
+# inverse: nothing completed, one skipped. That pair IS the lane, read off the produced
+# bytes rather than off the log.
+count           = { min = 1, max = 1 }
+dormant         = { min = 0, max = 0 }
+stops           = { min = 2, max = 2 }
+sourceRefs      = { min = 3, max = 3 }
+completedCycles = { min = 0, max = 0 }
+skippedCycles   = { min = 1, max = 1 }
+statuses        = { Paused = { min = 1, max = 1 } }
+
+[runtime]
+budgetSeconds = 2400
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
