@@ -1,0 +1,298 @@
+schema = 1
+id = "RVR-8-rover-relay-c-second-cycle-hold"
+tier = "nightly"
+# =====================================================================================
+# THE SECOND CYCLE, AND WHAT THE FIRST ONE COST. RVR-7 drives ONE cycle and FORBIDS both
+# hold tokens, because after that cycle the endpoints are spent and a second would block.
+# THIS LANE DRIVES THE SECOND CYCLE ON PURPOSE and REQUIRES what RVR-7 forbids: the same
+# bytes, one send-once further along, are the corpus's only DRIVEN origin-starvation hold
+# that is reached by PLAYING rather than by staging. Then it ACTIVATES the paused route
+# and pins the resume.
+#
+# **LIVE-PROVEN 2026-09-03: re-fly `2026-09-03_1830`, PASS attempt 1, EVERY
+# VERIFIER PASS**, on the CLEAN automation DLL sha256 `995772453f2339a2`
+# (built from `main` a575d64f0, IL-verified guard).
+#
+# **FIRST-CENSUS HISTORY**: this lane also passed on `2026-09-03_1817` (wall 49 s), but
+# that run flew `877208524b314e7b`, which PR #1624 identifies as a MUTATED SNAPSHOT -
+# taken from the #1623 review worktree while that reviewer's mutation test had
+# `IsPhaseAnchorEligible` stubbed to `return true` (IL code size 7 against 27 clean,
+# which a marker grep structurally CANNOT SEE). The clean re-flight above is what this
+# header rests on; the mutated run is kept because it is the record of how the stub was
+# found.
+#
+# **THE FIRST CENSUS (`2026-09-03_1807`) CLASSIFIED PARSEK-FAIL ON TWO PRECISION-ONLY
+# TOKENS AND NOTHING ELSE, AND WHAT IT PROVED IS THE MORE IMPORTANT HALF: ALL THREE
+# `shortfall=108.79` PINS MATCHED.** Those three were the whole reason this spec was
+# authored "against the fixed behaviour" - on the pre-#1623 build the gate line carried
+# the true value while `Route.RecordHold` and `ProcessLoopRoute`'s BLOCKED line both
+# printed `shortfall=0` from `CheckEligibility`'s hard-coded `0.0`. They matched on the
+# first flight, so the fix is live-proven here rather than merely assumed, and the
+# "pre-fix DLL reds on exactly the two hold-side tokens" prediction below is now history
+# rather than a standing risk.
+#
+# The two that did red were both the SAME fact about a float tail, and neither touched a
+# product claim; they are re-pinned below and the re-fly is green.
+#
+# Every token was authored as a literal run out of a C# format string, or as a MEASURED
+# line from the operator's own blocked cycle
+# (`logs/2026-09-03_1955_rover-c-route-created/KSP.log`, lines 14782-14790). Both remain
+# true; the census added the measurement.
+#
+# -------------------------------------------------------------------------------------
+# THE SPENT-ORIGIN TANK HAS TWO FLOAT TAILS, AND THE CENSUS IS WHAT ESTABLISHED IT.
+# Rover B's post-pickup LiquidFuel reads `45.59999999999814` in the OPERATOR'S OWN SAVE -
+# the result of KSP's resource flow running across many physics frames while the two
+# rovers sat docked - and `45.6000000000048` in a DRIVEN LANE, because a dispatch never
+# replays that flow: `LiveOriginDebitWriters` subtracts the recorded manifest
+# (154.3999999999952) from the restored 200 in ONE write. Same number to four significant
+# figures, different last digits, and the authored `tankAfter=45\.6 path=unloaded` matched
+# NEITHER - it is a prefix pin followed by a literal space, so any trailing digit breaks
+# it. Both tank tokens are now `45\.[56][0-9]*`, which spans both readings and nothing
+# else near them, and `harness/lib`'s
+# `test_the_spent_origin_tank_pins_accept_both_readings` recomputes BOTH from the
+# fixture's own window rather than trusting the literal.
+#
+# -------------------------------------------------------------------------------------
+# THE ARITHMETIC, AND IT IS THE FIXTURE'S OWN.
+#   Cycle 0 (RVR-7's, re-driven verbatim here): B 200 -> 45.6, A 200 -> 400.
+#   Cycle 1: the pickup manifest is still 154.3999999999952 and B now holds
+#            45.59999999999814, so the source is short by
+#            154.3999999999952 - 45.59999999999814 = 108.79999999999706.
+# That number is not a derivation this lane has to be trusted on: the operator's own
+# route, created on the UNREPAIRED save (B at 45.6 from the start), printed it verbatim -
+# `all-or-nothing FAIL first-short source pid=90564594 name=B short=LiquidFuel
+# shortfall=108.79999999999706 inventory=False sources=1`. The same starting tank, the
+# same manifest, the same subtraction. `harness/lib`'s
+# `test_one_cycle_fits_and_a_second_would_not` already asserts BOTH halves of that
+# arithmetic against each other; this lane is the live half of the same claim.
+#
+# WHY IT IS `OriginLacksCargo` AND NOT `DestinationFull`, AND WHY THAT FORBID IS ABSENT.
+# After cycle 0 rover A sits at 400 / 400, so gate 8 (destination capacity) would ALSO
+# fail on this crossing. `RouteDispatchEvaluator.CheckEligibility` runs
+# endpoints (5) -> ORIGIN CARGO (6) -> funds (7) -> DESTINATION CAPACITY (8), returning
+# the FIRST failure, so gate 6 wins and gate 8 is never reached. RVR-7 forbids
+# `BLOCKED kind=DestinationFull`; THIS LANE DELIBERATELY DOES NOT, because the state it
+# drives has both ends spent and a forbid on the losing gate would be a claim about
+# evaluation ORDER dressed up as a claim about the world. The order claim is made
+# POSITIVELY instead, by RVR-13, which stages a full destination against a STOCKED origin
+# so gate 8 is the only one that can fail.
+#
+# -------------------------------------------------------------------------------------
+# THE STANDING OF THE SHORTFALL PINS. AUTHORED FOR THE FIXED BEHAVIOUR, NOT THE CURRENT
+# ONE. On the build this was written against, the GATE line prints the true shortfall
+# (measured 108.79999999999706) while `Route.RecordHold` and `ProcessLoopRoute`'s BLOCKED
+# line both print `shortfall=0` - `RouteDispatchEvaluator.CheckEligibility` constructs the
+# `OriginLacksCargo` result with a hard-coded `0.0` third argument and the real number is
+# dropped at that seam. PR #1623 plumbs it through, and this lane's own census MEASURED that it does. The three
+# tokens below therefore pin `shortfall=108\.79` on ALL THREE LINES, which is GREEN ONLY
+# AFTER THAT FIX; on the pre-fix build the two hold-side tokens red and the gate token
+# passes, which is exactly the signature that says "the fix is not in this DLL" rather
+# than "the relay regressed". That distinction is the reason the value is pinned on all
+# three rather than regexed on two.
+#
+# -------------------------------------------------------------------------------------
+# THE RESUME HALF. Once the blocked cycle has consumed the armed pause the route rests at
+# Paused, which is the only status `RouteOrchestrator.TryActivate` admits, so the final
+# `RouteCommand action=activate` exercises the player-resume path on a route that is
+# holding a REAL reason - the interesting case, because `TryActivate` calls
+# `route.ClearHold("player-activate")` and rebases every per-stop cursor. Three tokens
+# cover it and each is a different producer: the orchestrator's own `TryActivate: ... now
+# Active`, the ledger-side `LifecycleMarker: ... type=RouteResumed reason=player-activate`,
+# and the seam's `routecommand complete action=activate ... statusBefore=Paused
+# status=Active`. `match=name` is pinned because the step addresses the route BY NAME and
+# `TestCommandRouteCommand.ResolveRoute` reports which selector matched; an id-prefix
+# match here would mean the name lookup silently fell through.
+#
+# WHAT HAPPENS AFTER THE ACTIVATE IS DELIBERATELY NOT PINNED. The route is Active when
+# `SaveGame` runs and the orchestrator may take one more crossing before the save lands -
+# it can only BLOCK (B is still short and the send-once arm is spent, so
+# `TryHonorArmedPauseOnBlockedCycle` does nothing), but WHETHER it gets a tick is a
+# frame-timing question. That is why `[expectations.routes]` below is REPORT-ONLY and why
+# `skippedCycles` is a FLOOR rather than an exact window.
+#
+# -------------------------------------------------------------------------------------
+# THE STEPS. RVR-7's eleven, plus three: a second `send-once`, a second `TimeJump`
+# (2400, +1300 s past the first, many loop periods clear of it), and the `activate`.
+# `SaveGame` and `FlushAndQuit` stay last so the produced save carries the resumed route.
+# =====================================================================================
+description = "LIVE-PROVEN 2026-09-03: re-fly 2026-09-03_1830, PASS attempt 1, EVERY VERIFIER PASS, on the CLEAN automation DLL sha256 995772453f2339a2 (built from main a575d64f0, IL-verified guard). FIRST-CENSUS HISTORY: this lane also passed on 2026-09-03_1817 (wall 49 s), but that run flew 877208524b314e7b, which PR #1624 identifies as a MUTATED SNAPSHOT - taken from the #1623 review worktree while that reviewer's mutation test had IsPhaseAnchorEligible stubbed to return true (IL code size 7 against 27 clean, which a marker grep structurally CANNOT SEE). The clean re-flight is what this row rests on; the mutated run is kept because it is the record of how the stub was found. THE FIRST CENSUS (2026-09-03_1807) CLASSIFIED PARSEK-FAIL ON TWO PRECISION-ONLY TOKENS AND NOTHING ELSE, AND ITS MORE IMPORTANT PRODUCT IS WHAT PASSED: ALL THREE shortfall=108.79 PINS MATCHED, which live-proves the #1623 hold-shortfall fix - on the pre-fix build the gate line carried the true value while RecordHold and the BLOCKED line both printed shortfall=0 from CheckEligibility's hard-coded 0.0, and this lane was authored as that fix's acceptance test. The two that red were one fact about a float tail: the spent-origin tank reads 45.59999999999814 in the OPERATOR'S save (KSP's own resource flow over many physics frames) but 45.6000000000048 in a DRIVEN lane (the writer subtracts the recorded 154.3999999999952 manifest from the restored 200 in ONE write), so the authored tankAfter=45\\.6 prefix pin - followed by a literal space - matched neither, and neither did raw=45\\.59.*. Both are re-pinned 45\\.[56][0-9]*, which spans both readings, and harness/lib recomputes both from the fixture's own window. THE SECOND CYCLE OF THE TWO-HOP RELAY, and the corpus's only DRIVEN origin-starvation hold reached by PLAYING rather than by staging: RVR-7's exact prologue and first cycle (create, send-once, TimeJump 1100 - B debited 154.4, A delivered 200, cycle-0 COMPLETED), then a SECOND send-once and TimeJump 2400 over endpoints the first cycle spent. B now holds 45.59999999999814 against the same 154.3999999999952 manifest, so gate 6 fails short by 108.79999999999706 - the number the operator's own route printed verbatim on the unrepaired save - and the cycle BLOCKS kind=OriginLacksCargo detail=source:90564594:B:LiquidFuel, consuming the armed pause into Paused with reason=blocked-then-paused. The lane then ACTIVATES the paused route and pins the resume through three different producers (TryActivate ... now Active, LifecycleMarker type=RouteResumed reason=player-activate, and the seam's routecommand complete action=activate match=name statusBefore=Paused status=Active), which is the player-resume path on a route holding a REAL reason. DestinationFull is deliberately NOT forbidden: after cycle 0 rover A is at 400/400 so gate 8 would also fail, but CheckEligibility returns the FIRST failure and runs origin cargo (6) before destination capacity (8), so gate 6 wins and gate 8 is never reached - the ORDER claim is made positively by RVR-13 instead. AUTHORED FOR THE FIXED BEHAVIOUR AND THE BET PAID: the shortfall is pinned as 108.79 on the gate line AND on both hold-side lines, which could only ever be green after PR #1623 plumbed the true value through CheckEligibility's hard-coded 0.0 - and all three matched on the first census, so this lane discharged the acceptance test it was written as rather than merely surviving it. [expectations.routes] is REPORT-ONLY with skippedCycles as a floor, because the route is Active when SaveGame runs and whether it takes one more (necessarily blocked) crossing first is a frame-timing question."
+instanceProfile = "stock-minimal"
+tags = ["seam-verbs", "logistics", "route-create", "route-hold", "origin-lacks-cargo",
+        "route-activate", "recorded-fixture", "RVR-8", "matrix"]
+
+[fixture]
+# `rover-relay-c-recorded`, UNPATCHED. This is the one matrix lane that needs no
+# `[[fixture.liveState]]` block: the state it measures is reached by PLAYING the fixture
+# forward one cycle, which is a stronger claim than staging it. Everything the shape
+# needs is pinned builder-side (`RoverRelayCRecordedFixtureDriftTests`) and mirrored in
+# `harness/lib/test_saveparse.py::RECORDED_FIXTURES`.
+saveTemplate       = "fixtures/saves/rover-relay-c-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                    expect = "OK" },
+  { cmd = "DiscardTree",                                                      expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" },  expect = "OK" },
+  { cmd = "SealSlot",     args = { tree = "88c012a6eed94bf09ff73397a4a31410" }, expect = "OK", budget = 120 },
+  { cmd = "RouteCommand", args = { action = "create", tree = "88c012a6eed94bf09ff73397a4a31410", name = "relay-c" }, expect = "OK", budget = 120 },
+  { cmd = "RouteCommand", args = { action = "send-once", route = "relay-c" },  expect = "OK", budget = 120 },
+  { cmd = "TimeJump",     args = { ut = "1100" },                             expect = "OK", budget = 300 },
+  { cmd = "RouteCommand", args = { action = "send-once", route = "relay-c" },  expect = "OK", budget = 120 },
+  { cmd = "TimeJump",     args = { ut = "2400" },                             expect = "OK", budget = 300 },
+  { cmd = "RouteCommand", args = { action = "activate",  route = "relay-c" },  expect = "OK", budget = 120 },
+  { cmd = "SaveGame",                                                         expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                     expect = "OK" },
+]
+
+[dimensionsCovered]
+# NO D10 VALUE IS CLAIMED, AND THE REASON CHANGED WITH THE GREEN CENSUS - it is no longer
+# CLAIM-IS-NOT-GATE (this lane is flown), it is NON-INFLATION. The value this lane would
+# earn is `hold-reasons`, and `H38-logistics-isolated` ALREADY DECLARES IT off its whole
+# batch tally; re-declaring a covered row inflates the count without gating one new
+# behaviour, which is the same call H40 and RVR-6 record. `dispatch-cadence` is likewise
+# H34's already.
+#
+# WHAT THIS LANE ADDS IS NOT A REGISTRY CELL, and it is worth naming so the absence does
+# not read as thinness: it is the only committed lane anywhere that REQUIRES a
+# `LastHold*` write rather than forbidding one, the only one that reaches its edge by
+# PLAYING a fixture forward rather than staging it, and - measured on `2026-09-03_1817` -
+# the acceptance test that live-proved the #1623 hold-shortfall fix, since all three
+# `shortfall=108.79` pins matched where the pre-fix build printed `shortfall=0` on two of
+# them.
+D14 = ["sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# The H39 anti-data-loss floor, RVR-7's exact window: both of its flights measured 10 and
+# saveParse agreed, so the load-time optimizer split does not happen on this corpus.
+# Below 10 means destroyed sidecars; above it means a split these bytes have been shown
+# not to take. This lane drives TWO TimeJumps and a SaveGame over a committed corpus that
+# the route holds three `SOURCE` references into, so a recording destroyed mid-run would
+# flip the route to `SourceChanged` and present as a route defect rather than data loss.
+count = { min = 10, max = 10 }
+
+[expectations.logContracts]
+# TOKENS 1-6 ARE RVR-7's PROLOGUE, VERBATIM AND MEASURED. The boot, the idempotent seal
+# no-op (`total=8` is the relay tree's recording count, pinned builder-side by
+# `verify_seal_state`), the create gate walk, the create ack, the send-once arm, and the
+# empty-route-store before-picture.
+#
+# TOKENS 7-10 ARE CYCLE 0, RE-DRIVEN. All four are MEASURED lines from RVR-7's green
+# flights (`2026-09-02_2245` / `_2251`). They are here as the PRECONDITION of everything
+# below: if cycle 0 did not actually spend the endpoints, the hold this lane is about is
+# not the hold it claims to be. `path=unloaded` is kept as measured - the seam TimeJump
+# warps with the endpoints packed, so it is the load state at the dispatch tick that
+# decides the path, not the 313 m / 731 m / 1041 m separations.
+#
+# TOKENS 11-15 ARE THE SECOND CYCLE, THE SUBJECT.
+#   11 THE GATE, from `LiveRouteRuntimeEnvironment`'s pickup-source Verbose line. One
+#      contiguous run out of the format string; `shortfall=108\.79` is the fixture's own
+#      subtraction and the operator's own measured value.
+#   12 THE SHORT-CAUSE CLASSIFICATION, from the same file. `short-cause=physical` is the
+#      falsifiable half: B genuinely lacks the fuel, no competing route reserves any of
+#      it, so `reservingRouteId=<none>` - an `escrow` reading here would mean the M6
+#      escrow classifier mis-attributed a plain starvation.
+#   13 THE HOLD, from `Route.RecordHold`. It fires ONLY when the kind or detail CHANGED,
+#      so this token is also the assertion that no earlier crossing already recorded the
+#      same hold (which would make it silent here).
+#   14 THE BLOCKED CYCLE, from `ProcessLoopRoute`'s multi-stop path - the shape RVR-7's
+#      census settled (`stops=2`, so this route dispatches through `LoopRoute(multi)`).
+#      `cycle=cycle-1` is derivable and is the SECOND-CYCLE claim: `cycleId` is
+#      `cycle-{CompletedCycles + SkippedCycles}`, both zero at cycle 0 (RVR-7 measured
+#      `cycle-0`) and 1 + 0 here. The line's `shortfall=` is followed by an EM DASH, so
+#      the regex stops before it.
+#   15 THE ARMED PAUSE CONSUMED BY A BLOCK, from `TryHonorArmedPauseOnBlockedCycle` - the
+#      blocked sibling of RVR-7's `COMPLETED cycle consumed the armed pause`. Between
+#      them both branches of that method are live-gated somewhere in the corpus.
+#   16 THE PAUSE REASON. Pinned as the bare `reason=blocked-then-paused` because the
+#      transition line itself (`Route <id> Active->Paused ...`) uses a UNICODE ARROW that
+#      a token cannot carry; the reason string is shared by the transition, the lifecycle
+#      marker and the ArmedPause line, so one of the three will always render it.
+#
+# TOKENS 17-19 ARE THE RESUME, one per producer (see the header).
+#
+# THE FORBID LIST IS TWO CLAIMS AND NOT A THIRD.
+#   `routecommand rejected` - the vacuity guard on all four route verbs.
+#   `Delivery write:` - THE POINT OF A BLOCKED CYCLE. `ProcessLoopRoute` emits NOTHING on
+#     the blocked branch (no debit, no delivery; the ghost still renders), so a second
+#     delivery would mean the gate let an unaffordable cycle through. Only ONE
+#     `Delivery write:` may exist in this run and it belongs to cycle 0 - which token 9
+#     requires - so the forbid cannot be spelled as the whole line. It is spelled as the
+#     A-side delivery WITH `tankBefore=400`, the only form a SECOND delivery could take
+#     (A is full after cycle 0).
+#   NOT `BLOCKED kind=DestinationFull` - see the header. Gate 6 wins, so the token is
+#     absent for a reason this lane does not gate.
+required  = [
+  "loadgame complete scene=FLIGHT save=.* game-loaded=true expected=Flight",
+  "sealslot complete mode=tree tree=88c012a6eed94bf09ff73397a4a31410 total=8 sealed=0 remaining=0 alreadySealed=True",
+  "routecommand create gate tree=88c012a6eed94bf09ff73397a4a31410 treeFound=True dismissed=False sealed=True eligible=True status=Eligible alreadyPromoted=False refusal=None",
+  "routecommand complete action=create tree=88c012a6eed94bf09ff73397a4a31410 route=.* name='relay-c' status=Paused",
+  "PauseAfterCurrentCycle=true \\(route will dispatch one cycle when conditions allow, then transition to Paused\\)",
+  "PostWalk: routes=0",
+  "Origin debit: route=.* origin=B pid=90564594 resource=LiquidFuel requested=154\\.39.* tankBefore=200 tankAfter=45\\.[56][0-9]* path=unloaded",
+  "Delivery write: route=.* dest=A pid=4280917262 resource=LiquidFuel requested=200 written=200 tankBefore=200 tankAfter=400 .* path=unloaded",
+  "Delivery: route [0-9a-f]{8} cycle=cycle-0 resources=1 inventoryUnits=4/4 inventoryUnitsSkipped=0 partial=0",
+  "ArmedPause: route [0-9a-f]{8} cycle=cycle-0 COMPLETED cycle consumed the armed pause",
+  "PickupSourcesHaveCargo: route [0-9a-f]{8} all-or-nothing FAIL first-short source pid=90564594 name=B short=LiquidFuel shortfall=108\\.79.* inventory=False sources=1",
+  "PickupSourcesHaveCargo: route [0-9a-f]{8} short-cause=physical pid=90564594 resource=LiquidFuel raw=45\\.[56][0-9]* netted=45\\.[56][0-9]* reservingRouteId=<none>",
+  "Route [0-9a-f]{8} hold recorded kind=OriginLacksCargo detail=source:90564594:B:LiquidFuel shortfall=108\\.79",
+  "LoopRoute\\(multi\\): route [0-9a-f]{8} cycle=cycle-1 cMin=[0-9]+ BLOCKED kind=OriginLacksCargo reason=source:90564594:B:LiquidFuel shortfall=108\\.79",
+  "ArmedPause: route [0-9a-f]{8} cycle=cycle-1 BLOCKED cycle consumed the armed pause",
+  "reason=blocked-then-paused",
+  "TryActivate: route=[0-9a-f]{8} now Active",
+  "LifecycleMarker: route [0-9a-f]{8} type=RouteResumed reason=player-activate",
+  "routecommand complete action=activate route=.* name='relay-c' match=name statusBefore=Paused status=Active",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "routecommand rejected",
+  "Delivery write: route=.* dest=A pid=4280917262 resource=LiquidFuel requested=200 written=200 tankBefore=400",
+]
+
+[expectations.recordings.structure]
+# REPORT-ONLY (no `gating` key), and copied verbatim from RVR-7, whose two flights read
+# these values off the PRODUCED save. None of these facets is touched by anything this
+# lane does - they all read the ParsekScenario node, and the only writes here are the
+# route's own `ROUTES` node plus the FLIGHTSTATE the dispatch debits.
+trees          = { min = 3, max = 3 }
+committedTrees = { min = 3, max = 3 }
+recordings     = { min = 10, max = 12 }
+terminalStates = { Landed = { min = 5 }, Docked = { min = 2 } }
+branchPoints   = { Dock = { min = 2, max = 2 }, Undock = { min = 2, max = 2 } }
+
+[expectations.routes]
+# REPORT-ONLY. `count` / `dormant` / `stops` / `sourceRefs` are RVR-7's MEASURED values
+# and cannot move (nothing here creates a second route or edits the source set).
+# `completedCycles = 1` is exact: cycle 0 delivered and cycle 1 can only block.
+# `skippedCycles` is a FLOOR, not a window, and `statuses` names Active without a ceiling,
+# for the reason in the header: the final `activate` leaves the route Active, and whether
+# it takes one more (necessarily blocked) crossing before `SaveGame` lands is frame
+# timing. A window that guessed would be a prediction dressed as a measurement.
+count           = { min = 1, max = 1 }
+dormant         = { min = 0, max = 0 }
+stops           = { min = 2, max = 2 }
+sourceRefs      = { min = 3, max = 3 }
+completedCycles = { min = 1, max = 1 }
+skippedCycles   = { min = 1 }
+statuses        = { Active = { min = 1, max = 1 } }
+
+[runtime]
+# RVR-7's 2400 plus headroom for the second deferred TimeJump: run.py gives every
+# deferred seam verb `max(step budget, SEAM_FALLBACK_DEFERRAL_SECONDS=600)` = 660 s
+# regardless of the declared budget, and this lane has THREE deferred steps (LoadGame +
+# two TimeJumps) = 1980 worst case, plus seven synchronous route/seal/save verbs.
+budgetSeconds = 3000
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

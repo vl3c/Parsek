@@ -2858,6 +2858,231 @@ gated behind the ROUTE-ORIGIN-PROOF-PRODUCER-UNREACHABLE probe (todo) before any
     a relay save written before the delivery lands, so a driven cycle has somewhere
     to put the cargo.
 
+    **THE ENDPOINT MATRIX, RVR-8..RVR-15. AUTHORED AND FLOWN 2026-09-03: ALL EIGHT
+    GREEN.** The round also produced the wave's two most transferable findings, and
+    NONE of them is a Parsek defect - one is a harness-provisioning hazard and two
+    are authoring rules. **ALL EIGHT ARE GREEN ON THE CLEAN AUTOMATION DLL
+    `995772453f2339a2`** (built from `main` a575d64f0, IL-verified guard); per-lane
+    run ids are in `docs/dev/autotest-status.md`, and the earlier `877208524b314e7b`
+    runs are kept in each row as first-census history because they are the record of
+    how FINDING 1 was found. RVR-7's `[expectations.routes]` block was armed in the
+    same round and its discipline is complete on clean bytes: armed re-flight
+    `2026-09-03_1838` PASS, and its OWN negative control PARSEK-FAIL with the
+    mismatch list exactly `['routes.skippedCycles 0 < min 1']` and `logContracts`
+    still PASS.
+    Eight lanes over the SINGLE committed fixture `rover-relay-c-recorded`,
+    answering the operator question "automate the relay in more than one scenario:
+    with fuel at origin, without, tanks full at destination, tanks empty".
+    THE ITEM'S REAL PRODUCT IS THE MECHANISM, not the eight specs - and it is
+    now LIVE-PROVEN rather than merely shipped. A supply route
+    REPLAYS a recorded run against the CURRENT LIVE ENDPOINTS, so every edge of the
+    dispatch gate is the same committed Parsek payload against a different
+    FLIGHTSTATE - and before this wave the only way to author one was a second
+    harvested save differing in a single `amount =` line, megabytes of duplicated
+    recordings per variant that a re-harvest would have to reproduce N times and
+    that could drift apart silently. The new `[[fixture.liveState]]` spec block
+    (pure applier `harness/lib/savepatch.py`, spec surface validated in
+    `hlib.validate_spec`, applied to the STAGED COPY by `run.py::stage_fixture`
+    step 3b, fail-closed pre-boot with the cause named and KSP never launched) lets
+    a spec declare the endpoint state IT wants, in the spec, next to the tokens
+    that depend on it. Its grammar is one table per vessel:
+    `pid` (a FLIGHTSTATE `persistentId`), `resources` (name -> amount, refused
+    rather than clamped above `maxAmount`), and `inventory` = `keep` (default) /
+    `clear` / `restore-dock-endpoint:<windowIndex>`. The applier SHARES its
+    implementation with `build_rover_relay_c_recorded.py` step 3 rather than
+    copying it - the builder's snapshot-lift, slot-placement and `inventory` CSV
+    logic now live in `savepatch` and the builder calls them, with
+    `test_savepatch.py` asserting the identity with `is` and proving that
+    restoring an already-restored endpoint is a BYTE-IDENTICAL no-op.
+    THE EIGHT LANES AND THE EDGE EACH ONE HOLDS:
+    * `RVR-8-rover-relay-c-second-cycle-hold` - THE SECOND CYCLE, and the only one
+      of the eight that patches NOTHING: it reaches its edge by PLAYING the fixture
+      forward (RVR-7's delivered cycle, then a second send-once + `TimeJump 2400`),
+      so B meets its own leftover 45.6 against the 154.4 manifest and holds short
+      by 108.79999999999706 - the number the operator's own route printed verbatim.
+      Then ACTIVATES the paused route and pins the resume through three producers.
+    * `RVR-9-rover-relay-c-surface-cadence` - THE CLOCK. RVR-7's steps with ONE
+      argument changed (`TimeJump 600`), proving a landed relay dispatches on its
+      own 162.74 s span rather than being re-anchored by the single-vessel ORBITAL
+      phase lock to 551.62 / 663.06. The only lane in the matrix whose PRE-FIX
+      behaviour is MEASURED: a negative control on the current build PASSED with
+      all three defect lines present.
+    * `RVR-10` origin EMPTY (B at 0, shortfall = the whole manifest).
+    * `RVR-11` origin PARTIAL (B at 100, shortfall 54.4) - the sharper of the two,
+      because a gate degraded to best-effort has something to ship here.
+    * `RVR-12` origin FUEL PRESENT, CARGO CLEARED - the only lane in the corpus
+      that reaches `RouteOriginCargoCheck.HasRequiredInventory` on a live dispatch,
+      and the only FAIL line reading `inventory=True`.
+    * `RVR-13` destination FULL (A at 400/400) - the POSITIVE form of the gate-order
+      claim RVR-8 can only make negatively, since here only gate 8 can fail.
+    * `RVR-14` destination PARTIAL (A at 300/400, 100 of headroom) - the mirror of
+      RVR-11, and the lane whose derivation is the point: `PrepareDelivery` DOES
+      compute a `Math.Min` partial, and `HasCapacityForAllStops` treats a partial
+      plan as the FAILURE condition, so the cycle blocks.
+    * `RVR-15` destination EMPTY (A at 0/400, containers cleared) - THE MATRIX'S
+      POSITIVE CONTROL, without which a gate regressed to "refuse everything" would
+      make the five blocking lanes pass for the wrong reason.
+    **WHAT THE ROUND MEASURED, beyond each lane passing its own tokens.**
+    * THE STAGE STEP IS LIVE-PROVEN, AND BY ITS OWN SUBJECTS. Six lanes staged a
+      live endpoint; each harness log carries the patch line (e.g. `liveState
+      patched pid=90564594 name=B resources=[LiquidFuel 200->0] inventory=keep`)
+      and each run then measured the gate reading exactly that state. A patch that
+      had silently done nothing would have left those lanes measuring the
+      UNPATCHED fixture, where the cycle DELIVERS - so their required hold tokens
+      are the mechanism's own falsification rather than a separate assertion about
+      it. `inventory = "clear"` is proven too, on RVR-12 and RVR-15: it is the only
+      mode that REWRITES container bodies rather than one `amount =` line, and KSP
+      loaded, resolved and gated both saves without complaint.
+    * THE #1623 HOLD-SHORTFALL FIX IS LIVE-PROVEN. RVR-8's `shortfall=108.79`,
+      RVR-10's `154.39` and RVR-11's `54.39` each matched on ALL THREE producers
+      (the gate line, `Route.RecordHold`, and `ProcessLoopRoute`'s BLOCKED line).
+      Pre-fix, only the gate carried the true value; the other two printed
+      `shortfall=0` from `CheckEligibility`'s hard-coded `0.0`. The three lanes
+      were authored as that fix's acceptance test and they discharged it.
+    * THE GATE ORDER IS ESTABLISHED FROM BOTH DIRECTIONS. RVR-13 measured `all 1
+      pickup source(s) cover - eligible` and THEN `destination FULL`, so the walk
+      reached gate 8 with gate 6 satisfied; RVR-8 measured the mirror, a
+      doubly-spent cycle stopping at gate 6 with gate 8 never consulted. Neither
+      lane alone could say this.
+    * THE RISKIEST DERIVATION IN THE WAVE HELD. RVR-14's outcome was read out of
+      SOURCE rather than measured: `PrepareDelivery` computes a `Math.Min(200,
+      100) = 100` partial, and a reader who stopped there would have authored the
+      lane to expect a partial DELIVERY. `HasCapacityForAllStops` treats a partial
+      plan as the FAILURE condition, so it blocks - and it did, first flight.
+
+    **FINDING 1, AND IT IS A HOLE IN THE DLL-VERIFICATION DISCIPLINE RATHER THAN A
+    SLIP: A MARKER GREP CANNOT SEE A STUBBED BODY.** RVR-9's first census
+    (`2026-09-03_1805`) red on nine mismatches that looked exactly like a product
+    defect - the orbital phase lock still applying to a landed relay, no dispatch,
+    the route left Active. It was not the product. The automation instance had been
+    provisioned with `877208524b314e7b`, a snapshot taken from the #1623 REVIEW
+    WORKTREE while that reviewer's mutation test had `IsPhaseAnchorEligible` stubbed
+    to `return true` - IL code size 7 against 27 on a clean build. PR #1624 records
+    it. THE POINT FOR THE HOUSE RULES: every check the deployed-DLL discipline
+    prescribes PASSES on that assembly. The method name is still in `#Strings`,
+    every string literal still in `#US`, the attribute blobs unchanged, and the
+    assembly version string is identical by construction - a stub removes behaviour
+    without removing a single grep-able token. Only the IL size, or a BEHAVIOURAL
+    probe like this lane, discriminates. A provisioning run that snapshots a DLL
+    from a worktree other than a clean build of the intended ref can therefore hand
+    a whole tier a silently inverted product, and the flight that catches it will
+    look like a Parsek regression.
+
+    **RVR-9 IS GREEN ON THE CLEAN DLL AND IS THE LANDED-ANCHOR FIX'S PROOF.**
+    Re-provisioned from `main` a575d64f0 (sha256 `995772453f2339a2`, IL verified),
+    the lane measured `TryGetVesselOrbit: skipped landed anchor pid=90564594
+    situation=LANDED landedOrSplashed=True` (and the same for the transport), NO
+    `PhaseLock APPLIED` line anywhere, `MissionLoopUnit: ... cadence=162.74`, and a
+    dispatch that fired at ut=600 - re-fly `2026-09-03_1829` PASS attempt 1, wall
+    49 s. Its clean-DLL census `2026-09-03_1827` red on ONE authoring token: the
+    dispatch line was pinned `cMin=0` and measured `cMin=1`. `cMin` is the
+    loop-cycle index the crossing resolves to and depends on where ut=600 falls
+    against the cadence - a property of the clock this lane deliberately moves, not
+    of the dispatch - so it is re-pinned `cMin=[0-9]+`. RVR-7's own `cMin=0` was
+    measured too, and turned out to be the same defect one step further on: see
+    FINDING 3. The census also ADDED the
+    `TryGetVesselOrbit: skipped landed anchor` line as a required token: the three
+    forbids say the orbital lock did not APPLY, and that one says the landed branch
+    RAN, so a build that stopped resolving the anchor at all could not pass by doing
+    nothing.
+
+    **FINDING 2, AN AUTHORING RULE: THE SPENT-ORIGIN TANK HAS TWO FLOAT
+    TAILS.** RVR-8's first census (`_1807`) and RVR-15's
+    (`_1814`) both red on `tankAfter=45\.6 path=unloaded`, and RVR-8 also on
+    `raw=45\.59.*`. Rover B's post-pickup LiquidFuel reads `45.59999999999814` in
+    the OPERATOR'S hand-flown save - KSP's own resource flow running across many
+    physics frames while the two rovers sat docked - and `45.6000000000048` in a
+    DRIVEN lane, because a dispatch never replays that flow: `LiveOriginDebitWriters`
+    subtracts the recorded manifest (154.3999999999952) from the restored 200 in ONE
+    write. Same number to four significant figures, different last digits, and a
+    PREFIX pin followed by a literal space matches neither. Both tokens are re-pinned
+    `45\.[56][0-9]*`, and `harness/lib`'s
+    `test_the_spent_origin_tank_pins_accept_both_readings` recomputes BOTH readings
+    from the fixture's own window rather than trusting the literal. THE RULE FOR THE
+    NEXT AUTHOR: a value harvested from an operator log is not the value a driven
+    lane will print for the same quantity whenever the product recomputes it from a
+    manifest instead of replaying the flow - pin the digits both share, or regex the
+    tail.
+
+    **FINDING 3, AND IT IS THE SHARPEST AUTHORING RULE OF THE WAVE: A PIN MEASURED
+    WHILE A DEFECT IS LIVE CAN ENCODE THE DEFECT.** RVR-7's dispatch token had been
+    pinned `cMin=0` since its green census `2026-09-02_2251`. It was a real
+    measurement off a real green run, and it was still wrong. The clean-DLL censuses
+    `2026-09-03_1836` red on that one token for RVR-7 AND RVR-15, both measuring
+    `cycle=cycle-0 cMin=4 dispatch fired (carrierStopIndex=0) at ut=1100`; re-flies
+    `_1838` / `_1839` are green. THE ARITHMETIC: `cMin` is the loop-cycle index the
+    dock crossing resolves to, so it counts CADENCES ELAPSED - and the cadence is
+    exactly what PR #1623 changed. Before the fix the landed relay was re-anchored by
+    the single-vessel orbital phase lock to a 551.62 s cadence, so exactly ONE
+    crossing fits before ut=1100 and the index is 0; after it the loop unit keeps the
+    tree's own 162.74 s span, FIVE crossings fit, and the first due window resolves
+    to 4. The original pin was a faithful reading of a DEFECTIVE CLOCK. Nothing about
+    the dispatch changed on either build - the cycle fired, debited and delivered
+    identically - only the index it was labelled with.
+    THE RULE, now applied across the whole family: `cMin` is a property of the CLOCK,
+    not of the dispatch, so NO lane pins it. Every RVR spec regexes `cMin=[0-9]+`,
+    and the measured values are kept as HISTORY rather than as contracts - **1 at
+    ut=600** (RVR-9's clock) and **4 at ut=1100** (RVR-7's and RVR-15's), both on the
+    fixed build. The general form is worth carrying past this wave: a token whose
+    value is DOWNSTREAM of the behaviour a fix is about must be regexed until that
+    fix has landed, because "measured" is not the same as "measured on the build you
+    are going to keep". FINDING 1 is the same hazard from the other end - there the
+    build was wrong and the lane was right; here the lane was wrong because an
+    earlier build had been.
+
+    **D10, POST-CENSUS.** THREE rows are claimed. Two are FIRST DECLARERS -
+    `destination-full-gate` on RVR-13 and `inventory-cargo` on RVR-15 - and the
+    third, `dispatch-cadence` on RVR-9, is a SECOND declarer alongside H34,
+    justified on the D1 `commit-in-foreign-soi` axis: a different CODE PATH (the
+    landed-anchor skip that did not exist before #1623, against H34's orbital
+    phase lock) with a different measured number (cadence 162.74 kept, against
+    551.62 substituted). The first
+    closes a row that stood at ZERO-DECLARER with H40's own note against it
+    ("closing it needs a cell that drives the refusal on purpose") - H38 and H40
+    both reach the capacity check and both take only the PERMISSIVE branch, H40
+    measuring 17 `full manifest fits` lines and zero refusals on a 720/720 depot.
+    The second is earned by a complete driven inventory pickup AND delivery with
+    `inventoryUnitsSkipped=[1-9]` forbidden as its anti-vacuity half. THE OTHER FIVE
+    LANES CLAIM NOTHING, and after the flights the reason is NON-INFLATION rather
+    than CLAIM-IS-NOT-GATE: `hold-reasons` is H38's, `dispatch-cadence` is H34's,
+    and `pickup` / `delivery` / `resource-cargo` / `mixed-direction` are BDOCK-1's.
+    RVR-12's pre-flight note that `inventory-cargo` was "arguably" its own is
+    CORRECTED in place by the census: that row names a route whose cargo IS
+    inventory, and RVR-12 refuses for want of it and moves nothing.
+    **THE ONE OPEN CELL: DESTINATION SLOTS FULL, TANK EMPTY.** It would exercise
+    `FirstShortToken`'s INVENTORY branch and produce a `storedPart:<partName>` hold
+    token nothing in the corpus has ever emitted live. IT IS NOT EXPRESSIBLE FROM
+    THESE BYTES, and the reason is a property of the save rather than a scope call:
+    the only snapshot describing a six-slot rover A is window 1's
+    `UNDOCK_ENDPOINT_INVENTORY`, which is NOT a census of the resulting inventory -
+    measured, it carries FOUR items of which two are the SAME part name at the SAME
+    `slotIndex` (`DeployedCentralStation` slot 1 twice) against a live rover A
+    holding SIX, and it records no container index at all, so nothing inside these
+    bytes assigns those two to containers (the builder itself needed rover A's live
+    `persistentId`s to tell the original station from the delivered one, and a
+    restore mode has no live vessel to read). A `fill` mode would mean AUTHORING
+    `STOREDPART` nodes no snapshot in this save recorded, which is the one thing
+    every fixture builder in this tree refuses to do. So the edge needs a
+    FLIGHTSTATE FILL MODE (with an explicit, defensible placement rule) or a SECOND
+    HARVEST that saves with the destination already full - and until one exists,
+    `restore-undock-endpoint:<N>` is deliberately NOT a mode, because it would
+    place items somewhere plausible rather than somewhere recorded.
+    **WHAT THE MATRIX IS CALIBRATED AGAINST**: RVR-7's `[expectations.routes]` block
+    is ARMED in the same commit (`gating = true`, registered in `ARMED_ALLOWLIST`)
+    off its two agreeing report-only reading runs. Every matrix lane declares that
+    same block REPORT-ONLY with its own counters, and those are only readable as a
+    matrix if the baseline lane's are gated.
+    **AUTHORED FOR THE FIXED BEHAVIOUR, AND THE BET PAID.** Three of the lanes pin a
+    `shortfall=` value on `Route.RecordHold` and on `ProcessLoopRoute`'s BLOCKED line
+    as well as on the gate line, which on the pre-#1623 build could not all be green
+    at once (`RouteDispatchEvaluator.CheckEligibility` constructed the
+    `OriginLacksCargo` result with a hard-coded `0.0`). All nine of those pins
+    matched on the flown DLL, so the lanes discharged the acceptance test they were
+    written as rather than merely surviving it. The "a pre-fix DLL reds on exactly
+    the two hold-side tokens, which is the WRONG-DLL signature rather than a relay
+    regression" reasoning is kept in the spec headers as history, because it is what
+    made the pins safe to author ahead of the fix.
+
 **H55 GREEN 2026-09-01 (run 2, `2026-09-01_2229`, 6/6, re-tiered nightly): B5, B6, B7 and B8 are MEASURED on a driven run - the only Tier B item still owing anything is B4, gated on the probe reading on a LANDED host.**
 
 **RVR-4 GREEN 2026-09-01 (run 3, `2026-09-01_2253`, re-tiered nightly): Tier C item 9 is MEASURED on a driven career run - dispatch cost 7410 (offline derivation confirmed to the unit), the FundsShort hold at shortfall 3820 (live funds are the seed alone: PatchFunds' guarded uplift keeps the ledger's milestone awards out of the live pool on a file-constructed career), recovery credit absent. Round 1 of that lane found the shipped free-dispatch fix insufficient on the real tree (two blockers, both fixed on this branch).**

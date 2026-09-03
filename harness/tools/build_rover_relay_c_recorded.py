@@ -294,6 +294,14 @@ if _LIB not in sys.path:
 # The shared save parser, for the route facts, read in the SAME vocabulary a
 # scenario declares through `[expectations.routes]`.
 import saveparse  # noqa: E402
+# The SHARED FLIGHTSTATE patcher. Step 3 below (the start-of-cycle repair) and the
+# scenario-side `[[fixture.liveState]]` stage step do the SAME edit - lift a
+# STOREDPART block out of a route window's DOCK_ENDPOINT_INVENTORY, re-indent it,
+# splice it into a ModuleInventoryPart and rewrite the slot-ascending `inventory`
+# CSV - so the edit is implemented ONCE, there, and both sides call it. See that
+# module's header for why (the CSV/indent logic was got wrong twice while it was
+# being written, and a second copy could regress silently).
+import savepatch  # noqa: E402
 
 # ONE copy of the ConfigNode-text node helpers, for the reason every sibling
 # builder imports them: a second implementation is a second thing to drift. The
@@ -730,11 +738,15 @@ REPAIR_TARGETS = (
 #       container 1 slot 0. (Its pid is NOT the window's - stock re-stamps the
 #       remainder when one unit is taken off a stack - which is exactly why the
 #       repair rewrites the node from the snapshot instead of editing a quantity.)
-CRAFT_AUTHORED_INVENTORY_LAYOUT = (
-    (0, "0", "evaChute"),
-    (1, "0", "evaScienceKit"),
-    (1, "1", "DeployedCentralStation"),
-)
+#
+# THE VALUES LIVE IN `harness/lib/savepatch.py`, NOT HERE, and this is an ALIAS.
+# The scenario-side `[[fixture.liveState]]` stage step restores an endpoint from
+# a window snapshot through the SAME functions this builder uses, so it needs the
+# same layout; two copies of a table derived this carefully would be two things
+# to drift, and the drift would be invisible (both sides would still produce a
+# save that loads). The derivation above stays here, next to the flight it was
+# read off; the table it describes is one object shared by both callers.
+CRAFT_AUTHORED_INVENTORY_LAYOUT = savepatch.INVENTORY_LAYOUTS[TARGET_NAME]
 
 # Straight-line separations between the three LANDED rovers, in metres, computed
 # from their own FLIGHTSTATE lat / lon / alt against Kerbin's radius. Pinned to
@@ -897,57 +909,23 @@ def repoint_active_vessel(lines: List[str]) -> Tuple[List[str], str]:
 # ---------------------------------------------------------------------------
 
 
-def _inventory_modules(lines: List[str],
-                       vessel: Tuple[int, int]) -> List[Tuple[int, int]]:
-    """Every `MODULE { name = ModuleInventoryPart }` inside ``vessel``, in FILE
-    order. The order IS the container index the layout table keys on."""
-    out = []
-    for part in child_nodes(lines, vessel, "PART"):
-        for module in child_nodes(lines, part, "MODULE"):
-            if get_value(lines, module, "name") == "ModuleInventoryPart":
-                out.append(module)
-    return out
+# THE FOUR SHARED HELPERS ARE ALIASES, NOT COPIES. `savepatch.py` owns the
+# implementation (see the import note at the top of this file); binding the names
+# here keeps this module's call sites and its `--check` post-conditions reading
+# the way they always have, while making a drift between the build-time repair
+# and the scenario-side `[[fixture.liveState]]` stage step IMPOSSIBLE rather than
+# merely discouraged. `test_savepatch.py` asserts the identity with `is`.
+_inventory_modules = savepatch.inventory_modules
 
 
-# The window snapshot nests STOREDPART three levels deeper than FLIGHTSTATE does
-# (WINDOW / DOCK_ENDPOINT_INVENTORY / ITEM / STOREDPART_SNAPSHOT vs
-# PART / MODULE / STOREDPARTS), so the lift strips exactly three tabs.
-SNAPSHOT_INDENT_STRIP = "\t\t\t"
-# The FLIGHTSTATE depth the module's own keys sit at.
-MODULE_KEY_INDENT = "\t\t\t\t\t"
+# The snapshot-lift and module-key indents, same aliasing rule as above.
+SNAPSHOT_INDENT_STRIP = savepatch.SNAPSHOT_INDENT_STRIP
+MODULE_KEY_INDENT = savepatch.MODULE_KEY_INDENT
 # The depth a STOREDPART node itself sits at inside `STOREDPARTS`.
 STOREDPART_INDENT = "\t\t\t\t\t\t"
 
 
-def _window_dock_endpoint_stored_parts(
-        lines: List[str], window: Tuple[int, int]) -> List[Tuple[str, str, List[str]]]:
-    """(partName, slotIndex, STOREDPART lines) per `DOCK_ENDPOINT_INVENTORY` item.
-
-    The lines are lifted VERBATIM out of the window's own
-    `ITEM/STOREDPART_SNAPSHOT/STOREDPART` node and re-indented from the snapshot's
-    depth to the FLIGHTSTATE depth (three tabs shallower). Nothing else is
-    rewritten: the restored bytes are the recorded ones, inner `persistentId`
-    included, which is what makes the repair auditable against the window."""
-    out: List[Tuple[str, str, List[str]]] = []
-    for holder in child_nodes(lines, window, "DOCK_ENDPOINT_INVENTORY"):
-        for item in child_nodes(lines, holder, "ITEM"):
-            for snapshot in child_nodes(lines, item, "STOREDPART_SNAPSHOT"):
-                for stored in child_nodes(lines, snapshot, "STOREDPART"):
-                    block = []
-                    for line in lines[stored[0]:stored[1]]:
-                        if line.startswith(SNAPSHOT_INDENT_STRIP):
-                            block.append(line[len(SNAPSHOT_INDENT_STRIP):])
-                        elif line.strip() == "":
-                            block.append(line)
-                        else:
-                            raise SystemExit(
-                                "a STOREDPART_SNAPSHOT line is shallower than the "
-                                "expected %d tabs and cannot be re-indented: %r"
-                                % (len(SNAPSHOT_INDENT_STRIP), line))
-                    out.append((get_value(lines, stored, "partName"),
-                                get_value(lines, stored, "slotIndex"),
-                                block))
-    return out
+_window_dock_endpoint_stored_parts = savepatch.dock_endpoint_stored_parts
 
 
 def repair_start_of_cycle_endpoints(lines: List[str]) -> Tuple[List[str], List[str]]:
@@ -1033,31 +1011,18 @@ def repair_start_of_cycle_endpoints(lines: List[str]) -> Tuple[List[str], List[s
                      % (name, before, want_amount, window_index))
 
         # --- the containers ---------------------------------------------
+        # The placement is planned by the SHARED planner (savepatch), so the
+        # build-time repair and the scenario-side `restore-dock-endpoint:<N>`
+        # mode cannot disagree about where a snapshot item lands. Its faults are
+        # LiveStatePatchError; this tool's contract is a clean SystemExit, so
+        # they are re-raised as one rather than surfacing as a traceback.
         stored = _window_dock_endpoint_stored_parts(out, window)
-        by_part = {}
-        for part_name, slot, block in stored:
-            if part_name in by_part:
-                raise SystemExit(
-                    "window %d's DOCK_ENDPOINT_INVENTORY carries two %s items; "
-                    "the authored-layout table addresses one slot per part name"
-                    % (window_index, part_name))
-            by_part[part_name] = (slot, block)
-
-        placement = {}
-        for container_index, slot, part_name in CRAFT_AUTHORED_INVENTORY_LAYOUT:
-            if part_name not in by_part:
-                raise SystemExit(
-                    "window %d's DOCK_ENDPOINT_INVENTORY has no %s, which the "
-                    "authored layout places at container %d slot %s"
-                    % (window_index, part_name, container_index, slot))
-            want_slot, block = by_part[part_name]
-            if want_slot != slot:
-                raise SystemExit(
-                    "window %d's recorded %s sits at slotIndex %s, but the "
-                    "authored layout places it at %s - re-derive the layout"
-                    % (window_index, part_name, want_slot, slot))
-            placement.setdefault(container_index, []).append(
-                (int(slot), part_name, block))
+        try:
+            placement = savepatch.plan_container_entries(
+                stored, CRAFT_AUTHORED_INVENTORY_LAYOUT,
+                "window %d's DOCK_ENDPOINT_INVENTORY" % window_index)
+        except savepatch.LiveStatePatchError as ex:
+            raise SystemExit(str(ex))
         if len(placement) > len(_inventory_modules(out, record["span"])):
             raise SystemExit("%s has fewer inventory containers than the layout "
                              "addresses" % name)
@@ -1065,73 +1030,14 @@ def repair_start_of_cycle_endpoints(lines: List[str]) -> Tuple[List[str], List[s
         # Bottom-up again, for the same span reason.
         modules = list(enumerate(_inventory_modules(out, record["span"])))
         for container_index, module in reversed(modules):
-            entries = sorted(placement.get(container_index, []))
-            out = _rewrite_container(out, module, entries)
+            out = _rewrite_container(out, module, placement.get(container_index, []))
         notes.append("%s inventory -> %d stored part(s) from window %d's dock "
                      "snapshot" % (name, len(stored), window_index))
 
     return out, notes
 
 
-def _rewrite_container(lines: List[str], module: Tuple[int, int],
-                       entries: List[Tuple[int, str, List[str]]]) -> List[str]:
-    """Replace one `ModuleInventoryPart`'s STOREDPARTS body and `inventory` CSV.
-
-    `entries` is (slotIndex, partName, STOREDPART lines) in slot order. An empty
-    list produces the shape KSP itself writes for an empty container: an
-    `inventory` key that is ABSENT rather than blank, and `STOREDPARTS { }`."""
-    out = list(lines)
-
-    holders = child_nodes(out, module, "STOREDPARTS")
-    if len(holders) != 1:
-        raise SystemExit("a ModuleInventoryPart carries %d STOREDPARTS node(s), "
-                         "expected 1" % len(holders))
-    body: List[str] = []
-    for _slot, _part, block in entries:
-        body.extend(block)
-    start, end = holders[0]
-    out[start + 2:end - 1] = body
-
-    # The CSV is slot-ascending part names; KSP omits the key entirely when the
-    # container is empty (measured on this save's own empty container).
-    csv_line = None
-    if entries:
-        csv_line = "%sinventory = %s" % (
-            MODULE_KEY_INDENT, ",".join(part for _slot, part, _b in entries))
-
-    # Re-resolve the module span after the body splice, then rewrite the key.
-    module_start = module[0]
-    module_end = module[1] + (len(body) - ((end - 1) - (start + 2)))
-    # DEPTH-EXACT, and the `not ... + "\t"` half is load-bearing: a lifted
-    # STOREDPART carries a whole nested PART whose own MODULEs each write
-    # `stagingEnabled = True` at a DEEPER indent, and every one of those lines
-    # also startswith the five-tab module indent. A prefix-only test therefore
-    # anchors on the last of THOSE and splices the `inventory` CSV into the
-    # middle of a stored part. Measured: it did exactly that on rover B's empty
-    # first container, the one case that takes the insert branch.
-    def _at_module_depth(index: int) -> bool:
-        return (out[index].startswith(MODULE_KEY_INDENT)
-                and not out[index].startswith(MODULE_KEY_INDENT + "\t"))
-
-    existing = None
-    anchor = None
-    for i in range(module_start, module_end):
-        text = out[i].strip()
-        if text.startswith("inventory = ") and _at_module_depth(i):
-            existing = i
-        if text.startswith("stagingEnabled = ") and _at_module_depth(i):
-            anchor = i
-    if anchor is None:
-        raise SystemExit("a ModuleInventoryPart has no stagingEnabled key to "
-                         "anchor the inventory CSV against")
-    if existing is not None:
-        if csv_line is None:
-            del out[existing]
-        else:
-            out[existing] = csv_line
-    elif csv_line is not None:
-        out.insert(anchor + 1, csv_line)
-    return out
+_rewrite_container = savepatch.rewrite_container
 
 
 # ---------------------------------------------------------------------------

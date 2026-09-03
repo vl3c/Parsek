@@ -1,0 +1,234 @@
+schema = 1
+id = "RVR-15-rover-relay-c-destination-empty"
+tier = "nightly"
+# =====================================================================================
+# THE MATRIX, EDGE 6: THE DESTINATION IS COMPLETELY EMPTY, AND THE WHOLE MANIFEST LANDS.
+# Rover A is staged at 0 / 400 LiquidFuel with BOTH inventory containers emptied - six
+# free slots and a whole tank of headroom against a 200-unit, 4-item delivery manifest.
+# This is the ONE lane in the matrix that DELIVERS on a varied endpoint state, and it is
+# the positive control the five blocking lanes need: a gate that had regressed to
+# "refuse everything" would make RVR-10 through RVR-14 all pass for the wrong reason and
+# nothing in those five specs could tell.
+#
+# **LIVE-PROVEN 2026-09-03: re-fly `2026-09-03_1839`, PASS attempt 1, EVERY
+# VERIFIER PASS**, on the CLEAN automation DLL sha256 `995772453f2339a2`
+# (built from `main` a575d64f0, IL-verified guard).
+# Its own clean-DLL census `2026-09-03_1836` red on ONE token - the `cMin=0`
+# pin it shared with RVR-7, see THE cMin FINDING in that lane's header - and
+# nothing else.
+#
+# **FIRST-CENSUS HISTORY**: this lane also passed on `2026-09-03_1818` (wall 49 s), but
+# that run flew `877208524b314e7b`, which PR #1624 identifies as a MUTATED SNAPSHOT -
+# taken from the #1623 review worktree while that reviewer's mutation test had
+# `IsPhaseAnchorEligible` stubbed to `return true` (IL code size 7 against 27 clean,
+# which a marker grep structurally CANNOT SEE). The clean re-flight above is what this
+# header rests on; the mutated run is kept because it is the record of how the stub was
+# found.
+#
+# THE STAGED STATE, from the harness log: `liveState patched pid=4280917262 name=A
+# resources=[LiquidFuel 400->0] inventory=clear (2 container(s))`.
+#
+# **THE FIRST CENSUS (`2026-09-03_1814`) RED ON ONE TOKEN, AND IT WAS NOT THIS LANE'S
+# SUBJECT.** The headline `tankBefore=0 tankAfter=200 capacity=400` delivery write matched,
+# the four inventory units landed `4/4` with `inventoryUnitsSkipped=0 partial=0`, and the
+# cycle completed - so the DESTINATION half was green on the first flight. What red was the
+# ORIGIN half's `tankAfter=45\.6 path=unloaded`, the same float tail RVR-8's census red on
+# in the same round.
+#
+# -------------------------------------------------------------------------------------
+# THE SPENT-ORIGIN TANK HAS TWO FLOAT TAILS, AND THE CENSUS IS WHAT ESTABLISHED IT.
+# Rover B's post-pickup LiquidFuel reads `45.59999999999814` in the OPERATOR'S OWN SAVE -
+# the result of KSP's resource flow running across many physics frames while the two
+# rovers sat docked - and `45.6000000000048` in a DRIVEN LANE, because a dispatch never
+# replays that flow: `LiveOriginDebitWriters` subtracts the recorded manifest
+# (154.3999999999952) from the restored 200 in ONE write. Same number to four significant
+# figures, different last digits, and the authored `tankAfter=45\.6 path=unloaded` matched
+# NEITHER - it is a prefix pin followed by a literal space, so any trailing digit breaks
+# it. Both tank tokens are now `45\.[56][0-9]*`, which spans both readings and nothing
+# else near them, and `harness/lib`'s
+# `test_the_spent_origin_tank_pins_accept_both_readings` recomputes BOTH from the
+# fixture's own window rather than trusting the literal.
+#
+# THE POSITIVE-CONTROL CLAIM IS NOW DISCHARGED. Five lanes in this matrix assert that a
+# cycle emitted NOTHING; if the gate had regressed to "refuse everything" all five would
+# still pass and none could tell. This lane's green run is what says the gate still says
+# yes when the world allows it - measured, on the same DLL, in the same round.
+#
+#
+# -------------------------------------------------------------------------------------
+# WHY EMPTY RATHER THAN FULL-OF-SLOTS. The obvious sixth edge is the mirror of this one -
+# a destination whose TANK has room but whose SLOTS are all taken, which would exercise
+# `FirstShortToken`'s INVENTORY branch and produce a `storedPart:<partName>` hold token
+# that nothing in the corpus has ever emitted live. IT IS NOT EXPRESSIBLE FROM THESE
+# BYTES, and the reason is a property of the save rather than a scope decision:
+#   * `[[fixture.liveState]]`'s restore mode reads a window's own
+#     `DOCK_ENDPOINT_INVENTORY` snapshot, and the only snapshot that describes a
+#     six-slot rover A is window 1's `UNDOCK_ENDPOINT_INVENTORY` - which is NOT a census
+#     of the resulting inventory. Measured: it carries FOUR items, two of which are the
+#     SAME part name at the SAME `slotIndex` (`DeployedCentralStation` slot 1 twice),
+#     against a live rover A that holds six stored parts. The snapshot records no
+#     container index, so nothing inside these bytes assigns those two to containers; the
+#     builder itself needed rover A's live `persistentId`s to tell the original station
+#     from the delivered one, and a restore mode has no live vessel to read.
+#   * A `fill` mode would mean AUTHORING `STOREDPART` nodes no snapshot in this save ever
+#     recorded, which is the one thing every fixture builder in this tree refuses to do.
+# So the slots-full edge needs a FLIGHTSTATE fill mode or a second harvest, and that is
+# recorded in `docs/dev/autotest-roadmap.md` item 15 as the matrix's one open cell rather
+# than smuggled in as a `restore-undock-endpoint:` string that would silently place items
+# somewhere plausible.
+#
+# -------------------------------------------------------------------------------------
+# WHAT THE NUMBERS ARE AND WHERE THEY COME FROM. The manifests are properties of the
+# RECORDED WINDOWS and do not move when the live endpoints do:
+#     PICKUP at B    154.3999999999952  (window 0: UNDOCK_TRANSPORT 354.3999999999952
+#                                        - DOCK_TRANSPORT 200), against B's untouched 200
+#     DELIVERY at A  200                (window 1: UNDOCK_ENDPOINT 400
+#                                        - DOCK_ENDPOINT 200), against A's staged 0 / 400
+# So the delivery writes its full 200 into an empty tank: `tankBefore=0 tankAfter=200`,
+# and THAT PAIR IS THE LANE. RVR-7 measured the same write against a HALF-FULL tank
+# (`tankBefore=200 tankAfter=400`, the exact-fit case); the two readings differ in both
+# columns while `requested=200 written=200` is identical, which is what proves the writer
+# is reading the live tank rather than replaying a recorded delta.
+#
+# THE INVENTORY HALF IS 4/4 EITHER WAY, and that is worth stating because it looks like it
+# should change. RVR-7 delivered four units into THREE free slots (three distinct kinds
+# plus one that stacked into A's existing partial slot) and measured
+# `inventoryUnits=4/4 inventoryUnitsSkipped=0`. Here there are SIX free slots and no
+# partial stack to land in, so the planner assigns four fresh slots - a different
+# assignment, the same count. Pinning the count and not the slots is deliberate: the
+# assignment is a planner decision this lane does not gate.
+#
+# -------------------------------------------------------------------------------------
+# THE ORIGIN IS UNTOUCHED, which makes the debit half of this lane a re-measurement of
+# RVR-7's on identical bytes. That is not padding: it is the assertion that patching the
+# DESTINATION did not disturb the SOURCE, and the cheapest place to make it is the debit
+# line that already has to be there.
+# =====================================================================================
+description = "LIVE-PROVEN 2026-09-03: re-fly 2026-09-03_1839, PASS attempt 1, EVERY VERIFIER PASS, on the CLEAN automation DLL sha256 995772453f2339a2 (built from main a575d64f0, IL-verified guard). Its own clean-DLL census 2026-09-03_1836 red on ONE token - the cMin=0 pin it shared with RVR-7, see THE cMin FINDING - and nothing else. FIRST-CENSUS HISTORY: this lane also passed on 2026-09-03_1818 (wall 49 s), but that run flew 877208524b314e7b, which PR #1624 identifies as a MUTATED SNAPSHOT - taken from the #1623 review worktree while that reviewer's mutation test had IsPhaseAnchorEligible stubbed to return true (IL code size 7 against 27 clean, which a marker grep structurally CANNOT SEE). The clean re-flight is what this row rests on; the mutated run is kept because it is the record of how the stub was found. Staged by liveState patched pid=4280917262 name=A resources=[LiquidFuel 400->0] inventory=clear (2 container(s)). THE FIRST CENSUS (2026-09-03_1814) RED ON ONE TOKEN AND IT WAS NOT THIS LANE'S SUBJECT: the headline tankBefore=0 tankAfter=200 capacity=400 delivery write matched, the four inventory units landed 4/4 with inventoryUnitsSkipped=0 partial=0 and the cycle completed, so the DESTINATION half was green on the first flight; what red was the ORIGIN half's tankAfter=45\\.6 path=unloaded, the same float tail RVR-8 red on in the same round (45.59999999999814 in the operator's save from KSP's own resource flow, 45.6000000000048 in a driven lane where the writer subtracts the manifest from the restored 200 in one write). Re-pinned 45\\.[56][0-9]*, which spans both readings. THE POSITIVE-CONTROL CLAIM IS NOW DISCHARGED: five lanes in this matrix assert that a cycle emitted NOTHING, and if the gate had regressed to 'refuse everything' all five would still pass with none able to tell - this lane's green run is what says the gate still says yes when the world allows it. MATRIX EDGE 6, THE DESTINATION IS COMPLETELY EMPTY: rover A staged at 0/400 LiquidFuel with BOTH inventory containers cleared by a [[fixture.liveState]] block - six free slots and a whole tank against a 200-unit, 4-item delivery manifest. It is the ONE lane in the matrix that DELIVERS on a varied endpoint state, and it is the positive control the five blocking lanes need: a gate regressed to 'refuse everything' would make RVR-10 through RVR-14 pass for the wrong reason and none of those five could tell. The headline pin is tankBefore=0 tankAfter=200 against RVR-7's measured tankBefore=200 tankAfter=400 for the identical requested=200 written=200 - the two readings differ in both tank columns and agree in both manifest columns, which is what proves the writer reads the LIVE tank rather than replaying a recorded delta. The inventory half stays 4/4 with 0 skipped even though there are now six free slots instead of three (RVR-7's fourth unit stacked into an existing partial slot; here four fresh slots are assigned) - a different assignment, the same count, and the count is what is gated because the assignment is a planner decision. The origin is untouched, so the debit half re-measures RVR-7's on identical bytes, which is the cheapest available assertion that patching the DESTINATION did not disturb the SOURCE. THE SLOTS-FULL MIRROR EDGE IS DELIBERATELY ABSENT AND THE REASON IS A PROPERTY OF THE SAVE: the only snapshot describing a six-slot rover A is window 1's UNDOCK_ENDPOINT_INVENTORY, which is not a census of the resulting inventory - measured, it carries four items of which two are the same part name at the same slotIndex against a live rover holding six, and it records no container index, so nothing in these bytes assigns them; the builder needed rover A's live persistentIds to tell the original station from the delivered one and a restore mode has no live vessel to read. A fill mode would mean authoring STOREDPART nodes no snapshot recorded. That edge is filed in autotest-roadmap item 15 rather than smuggled in as a restore-undock-endpoint: string that would place items somewhere plausible."
+instanceProfile = "stock-minimal"
+tags = ["seam-verbs", "logistics", "route-create", "route-delivery", "route-pickup",
+        "live-state", "recorded-fixture", "RVR-15", "matrix"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/rover-relay-c-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[[fixture.liveState]]
+# Rover A, the DELIVERY DESTINATION, emptied on BOTH axes. The `clear` mode empties each
+# `ModuleInventoryPart`'s `STOREDPARTS` and drops its `inventory` CSV key entirely - the
+# shape KSP itself writes for an empty container. `test_savepatch.py` proves the
+# clear-then-restore round trip returns the committed bytes exactly, which is what makes
+# this edit auditable rather than merely plausible.
+pid       = 4280917262
+resources = { LiquidFuel = 0 }
+inventory = "clear"
+
+[driver]
+# RVR-7's eleven steps, argument for argument, including `TimeJump ut=1100`. Keeping the
+# jump identical is what lets `path=unloaded` be pinned here on RVR-7's measurement: the
+# path is decided by the load state at the dispatch tick, and nothing this lane changes
+# touches that.
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                    expect = "OK" },
+  { cmd = "DiscardTree",                                                      expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" },  expect = "OK" },
+  { cmd = "SealSlot",     args = { tree = "88c012a6eed94bf09ff73397a4a31410" }, expect = "OK", budget = 120 },
+  { cmd = "RouteCommand", args = { action = "create", tree = "88c012a6eed94bf09ff73397a4a31410", name = "relay-c" }, expect = "OK", budget = 120 },
+  { cmd = "RouteCommand", args = { action = "send-once", route = "relay-c" },  expect = "OK", budget = 120 },
+  { cmd = "TimeJump",     args = { ut = "1100" },                             expect = "OK", budget = 300 },
+  { cmd = "SaveGame",                                                         expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                     expect = "OK" },
+]
+
+[dimensionsCovered]
+# **D10 `inventory-cargo` IS CLAIMED OFF THE GREEN RE-FLY `2026-09-03_1818`**, and it is
+# the row's FIRST DECLARER anywhere. The required tokens carry a complete driven inventory
+# PICKUP and DELIVERY, which is what the value names: `Inventory remove (unloaded):
+# source=B pid=90564594 ... removed=1` at the source, `Inventory store: ... dest=A
+# pid=4280917262 ... path=unloaded` at the destination, and the closing
+# `inventoryUnits=4/4 inventoryUnitsSkipped=0 partial=0` summary. THE ANTI-VACUITY HALF IS
+# THE FORBID LIST: `inventoryUnitsSkipped=[1-9]` and `partial=1` are both forbidden, so a
+# regression that quietly dropped units would red here rather than passing on a smaller
+# number - which is what makes this a gate rather than a label.
+#
+# WHY THIS LANE AND NOT ITS NEIGHBOURS. RVR-12 refuses for want of inventory and moves
+# nothing, so it proves the GATE rather than the CARGO. RVR-7 and RVR-8 also move four
+# units, but neither adds a headroom claim: this lane delivers into SIX free slots with no
+# partial stack to land in, so the four units take four fresh slots and the count is a
+# statement about the planner rather than about one recorded arrangement.
+#
+# `pickup`, `delivery`, `resource-cargo` and `mixed-direction` are NOT claimed although
+# this run measures all four: `BDOCK-1-station-interceptor` already declares every one of
+# them, and re-declaring a covered row inflates the count without gating a new behaviour.
+D10 = ["inventory-cargo"]
+D14 = ["sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 10, max = 10 }
+
+[expectations.logContracts]
+required  = [
+  "loadgame complete scene=FLIGHT save=.* game-loaded=true expected=Flight",
+  "sealslot complete mode=tree tree=88c012a6eed94bf09ff73397a4a31410 total=8 sealed=0 remaining=0 alreadySealed=True",
+  "routecommand create gate tree=88c012a6eed94bf09ff73397a4a31410 treeFound=True dismissed=False sealed=True eligible=True status=Eligible alreadyPromoted=False refusal=None",
+  "routecommand complete action=create tree=88c012a6eed94bf09ff73397a4a31410 route=.* name='relay-c' status=Paused",
+  "PauseAfterCurrentCycle=true \\(route will dispatch one cycle when conditions allow, then transition to Paused\\)",
+  "PostWalk: routes=0",
+  "PickupSourcesHaveCargo: route [0-9a-f]{8} all 1 pickup source\\(s\\) cover - eligible",
+  "LoopRoute\\(multi\\): route [0-9a-f]{8} cycle=cycle-0 cMin=[0-9]+ dispatch fired \\(carrierStopIndex=0\\)",
+  # THE ORIGIN HALF, RVR-7's measurement on untouched bytes.
+  "Origin debit: route=.* origin=B pid=90564594 resource=LiquidFuel requested=154\\.39.* tankBefore=200 tankAfter=45\\.[56][0-9]* path=unloaded",
+  "Inventory remove \\(unloaded\\): source=B pid=90564594 .* removed=1",
+  # THE DELIVERY HALF, THE SUBJECT: the same manifest into an EMPTY tank.
+  "Delivery write: route=.* dest=A pid=4280917262 resource=LiquidFuel requested=200 written=200 tankBefore=0 tankAfter=200 capacity=400 path=unloaded",
+  "Inventory store: route=.* dest=A pid=4280917262 .* path=unloaded",
+  "Delivery: route [0-9a-f]{8} cycle=cycle-0 resources=1 inventoryUnits=4/4 inventoryUnitsSkipped=0 partial=0",
+  "ArmedPause: route [0-9a-f]{8} cycle=cycle-0 COMPLETED cycle consumed the armed pause",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "routecommand rejected",
+  # RVR-7's two forbids, and they mean the same thing here: an empty destination and a
+  # stocked origin are the LEAST blockable state this fixture can be put in, so either
+  # hold token would be a gate misfiring rather than a world condition.
+  "BLOCKED kind=OriginLacksCargo",
+  "BLOCKED kind=DestinationFull",
+  # Nothing was skipped and nothing was reduced.
+  "inventoryUnitsSkipped=[1-9]",
+  "partial=1",
+]
+
+[expectations.recordings.structure]
+trees          = { min = 3, max = 3 }
+committedTrees = { min = 3, max = 3 }
+recordings     = { min = 10, max = 12 }
+terminalStates = { Landed = { min = 5 }, Docked = { min = 2 } }
+branchPoints   = { Dock = { min = 2, max = 2 }, Undock = { min = 2, max = 2 } }
+
+[expectations.routes]
+# REPORT-ONLY, and identical to RVR-7's armed block: the produced route must be
+# indistinguishable from the one RVR-7 produces, because the ONLY difference between the
+# two lanes is how much room the destination had - which the route node does not record.
+count           = { min = 1, max = 1 }
+dormant         = { min = 0, max = 0 }
+stops           = { min = 2, max = 2 }
+sourceRefs      = { min = 3, max = 3 }
+completedCycles = { min = 1, max = 1 }
+skippedCycles   = { min = 0, max = 0 }
+statuses        = { Paused = { min = 1, max = 1 } }
+
+[runtime]
+budgetSeconds = 2400
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

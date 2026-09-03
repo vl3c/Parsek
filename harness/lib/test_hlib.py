@@ -7903,7 +7903,64 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
                        # token cannot cover after the last revalidate pass), and
                        # tier=operator is where the calibration discipline puts
                        # a first arming.
-                       "V18T-depot-route-ts-arrival.toml"}
+                       "V18T-depot-route-ts-arrival.toml",
+                       # RVR-7: the `[expectations.routes]` block, armed 2026-09-03 off
+                       # its OWN TWO report-only reading runs - `2026-09-02_2245` (the
+                       # first census, PARSEK-FAIL on five authoring mispredictions in
+                       # `logContracts` and NOTHING else; its saveParse facets were
+                       # clean) and `2026-09-02_2251` (the re-pinned re-fly, PASS
+                       # attempt 1, wall 49 s, every verifier PASS). BOTH read
+                       # `routes count=1 dormant=0 stops=2 sourceRefs=3
+                       # completedCycles=1 skippedCycles=0 statuses={Paused:1}`
+                       # IDENTICALLY, so the arming re-pins NOTHING and moves no verdict
+                       # on the shape already flown - the S4.1 rule, and the V14T
+                       # precedent for arming off a reading run whose red belonged to a
+                       # different verifier.
+                       #
+                       # WHY THIS LANE, AND WHY IT IS NOT A SECOND V18T. V18T armed the
+                       # facet on a route it never MUTATES (a tracking-station
+                       # observation of a committed Active route). RVR-7 CREATES the
+                       # route and DISPATCHES a full cycle through it, so this is the
+                       # first arming anywhere on a route the lane itself writes, and the
+                       # four counters are the produced-BYTES half of claims its
+                       # `logContracts` make from the log side: completedCycles=1 against
+                       # `ArmedPause: ... COMPLETED cycle`, skippedCycles=0 against the
+                       # two BLOCKED forbids, statuses={Paused:1} against
+                       # `reason=delivered-then-paused`, stops=2 against
+                       # `LoopRoute(multi): ... carrierStopIndex=0`. A codec that dropped
+                       # a counter, or a status written before the pause landed, is
+                       # invisible to logContracts and is what this arming catches.
+                       # It is also the calibration floor for the RVR-8..RVR-15 matrix,
+                       # every lane of which declares this same block REPORT-ONLY with
+                       # its own counters; those are only readable as a matrix if the
+                       # baseline lane's are gated.
+                       #
+                       # **DISCIPLINE COMPLETE 2026-09-03, the same day it was armed**,
+                       # both runs on automation DLL sha256 877208524b314e7b (`main`
+                       # a575d64f0, PR #1623 merged): the ARMED RE-FLIGHT
+                       # `2026-09-03_1816` PASS attempt 1 (wall 49 s, `saveParse
+                       # status=PASS gating=True armed=['routes']`, mismatches 0), and
+                       # this lane's OWN NEGATIVE CONTROL - a throwaway copy carrying a
+                       # temporary `skippedCycles = { min = 1 }`, flown from a sibling
+                       # worktree and deleted afterwards - PARSEK-FAIL
+                       # reason=`gating save-structure expectations mismatch`, `saveParse
+                       # status=FAIL gating=True armed=['routes']`, wall 51 s, with the
+                       # mismatch list EXACTLY `['routes.skippedCycles 0 < min 1']` and
+                       # `logContracts` still PASS. One window inverted, one mismatch,
+                       # nothing else moved: the gate can fire, and it fires on the
+                       # window it names rather than on the block as a whole. It could
+                       # NOT share the family's `rewind.supersedeRows` inversion, for
+                       # V18T's own recorded reason: that re-proves the shared evaluator,
+                       # where this block has a parse, a normalisation and a bucketing
+                       # step of its own between the bytes and that evaluator.
+                       #
+                       # THE ARMING IS ALSO THE MATRIX'S CALIBRATION FLOOR, and that is
+                       # now measured rather than intended: the eight RVR-8..RVR-15 lanes
+                       # flew the same afternoon on the same DLL, each declaring this
+                       # same block REPORT-ONLY with its own counters, and six of them
+                       # read the exact inverse pair (`completedCycles 0` /
+                       # `skippedCycles 1`) against this lane's gated `1` / `0`.
+                       "RVR-7-rover-relay-c-dispatch.toml"}
 
     def test_no_committed_spec_arms_gating(self):
         armed = []

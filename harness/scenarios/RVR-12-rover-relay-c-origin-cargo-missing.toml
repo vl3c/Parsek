@@ -1,0 +1,198 @@
+schema = 1
+id = "RVR-12-rover-relay-c-origin-cargo-missing"
+tier = "nightly"
+# =====================================================================================
+# THE MATRIX, EDGE 3: THE FUEL IS THERE AND THE CARGO IS NOT. Rover B keeps its full 200
+# LiquidFuel (comfortably over the 154.3999999999952 manifest) and its two inventory
+# containers are EMPTIED, so the pickup gate's RESOURCE branch passes and its INVENTORY
+# branch fails. This is the only lane in the corpus that reaches
+# `RouteOriginCargoCheck.HasRequiredInventory` on a live dispatch.
+#
+# **LIVE-PROVEN 2026-09-03: run `2026-09-03_1833`, PASS attempt 1, EVERY
+# VERIFIER PASS**, on the CLEAN automation DLL sha256 `995772453f2339a2`
+# (built from `main` a575d64f0, IL-verified guard).
+#
+# **FIRST-CENSUS HISTORY**: this lane also passed on `2026-09-03_1811` (wall 49 s), but
+# that run flew `877208524b314e7b`, which PR #1624 identifies as a MUTATED SNAPSHOT -
+# taken from the #1623 review worktree while that reviewer's mutation test had
+# `IsPhaseAnchorEligible` stubbed to `return true` (IL code size 7 against 27 clean,
+# which a marker grep structurally CANNOT SEE). The clean re-flight above is what this
+# header rests on; the mutated run is kept because it is the record of how the stub was
+# found.
+#
+# **PASSED ON ITS FIRST FLIGHT ON BOTH BUILDS** with every token as authored.
+#
+# THE STAGED STATE, from the harness log: `liveState patched pid=90564594 name=B
+# resources=[LiquidFuel 200->200] inventory=clear (2 container(s))`. Both containers
+# emptied, the tank restated at its own 200 - and the run then took the INVENTORY branch
+# of the gate exactly as derived, with `inventory=True` on the FAIL line, a
+# `short=inventory:<part>` hold token, and NO `short-cause=` line anywhere. That last
+# absence is the branch claim from the other side and it held.
+#
+# **THE `inventory=clear` MODE IS LIVE-PROVEN BY THIS RUN.** It is the only mode any lane
+# exercises that REWRITES container bodies rather than one `amount =` line, and the
+# game loaded the save, resolved the endpoint and gated it without complaint - which is
+# the behavioural half of `test_savepatch.py`'s byte-level clear-then-restore round trip.
+#
+#
+# -------------------------------------------------------------------------------------
+# WHY THIS IS A DIFFERENT MEASUREMENT FROM RVR-10 / RVR-11. Those two fail the RESOURCE
+# check, and `RoutePickupSourceGate.Evaluate` returns on the first failure, so with a
+# short tank the inventory half is NEVER EVALUATED. The gate's own token says so:
+# RVR-10 and RVR-11 both pin `inventory=False` on the FAIL line. Here it is `True`, and
+# that single flag is the whole difference between the two code paths.
+#
+# It also exercises a DIFFERENT TOKEN GRAMMAR. A resource short names the resource
+# (`short=LiquidFuel`); an inventory short is built by
+# `RouteOriginCargoCheck.BuildInventoryShortToken` and names the PART
+# (`short=inventory:<partName>`), with the hash form reserved for special markers and the
+# `inventory-state:` near-miss form reserved for the ORIGIN gate, which does not run here.
+# `RoutePickupSourceGate` passes `countByPartName: null`, so the `inventory-state:` branch
+# is unreachable on this path by construction - which is why the token below is pinned as
+# `inventory:` and not as a permissive alternation.
+#
+# WHICH PART IS NAMED IS DELIBERATELY NOT PINNED. `HasRequiredInventory` walks the summed
+# manifest and reports the FIRST identity it cannot cover; the manifest's order comes out
+# of `SumInventoryManifestInto` over window 0, and all three kinds (a
+# `DeployedCentralStation`, an `evaChute` and an `evaScienceKit`) are equally absent after
+# the clear. Pinning one of the three would be pinning an iteration order nothing
+# guarantees. The token regexes the part name and pins everything around it: the source,
+# the pid, the `inventory:` prefix, and `inventory=True sources=1`.
+#
+# -------------------------------------------------------------------------------------
+# THE SHORTFALL IS AN ITEM COUNT, NOT A RESOURCE AMOUNT. On the inventory branch the gate
+# constructs its result with `shortQuantity` (an int) in the shortfall slot, so the number
+# on these lines counts UNITS. It is regexed rather than pinned because the manifest's
+# per-kind quantity is a property of the recorded window rather than of the gate, and this
+# lane is about the BRANCH, not about how many chutes the relay carried.
+#
+# NO `short-cause=` LINE EXISTS ON THIS PATH, and its absence is a REQUIRED claim rather
+# than an accident: `LiveRouteRuntimeEnvironment` emits the escrow-vs-physical
+# classification only under `if (!result.InventoryShort)`, on the stated ground that no
+# inventory escrow exists so raw/netted amounts would be meaningless. Forbidding
+# `short-cause=` therefore asserts the branch from the other side - and it is safe to
+# forbid outright because this save carries exactly one route and this lane drives exactly
+# one blocked cycle, so the only `short-cause=` line that could ever appear is this gate's.
+# =====================================================================================
+description = "LIVE-PROVEN 2026-09-03: run 2026-09-03_1833, PASS attempt 1, EVERY VERIFIER PASS, on the CLEAN automation DLL sha256 995772453f2339a2 (built from main a575d64f0, IL-verified guard). FIRST-CENSUS HISTORY: this lane also passed on 2026-09-03_1811 (wall 49 s), but that run flew 877208524b314e7b, which PR #1624 identifies as a MUTATED SNAPSHOT - taken from the #1623 review worktree while that reviewer's mutation test had IsPhaseAnchorEligible stubbed to return true (IL code size 7 against 27 clean, which a marker grep structurally CANNOT SEE). The clean re-flight is what this row rests on; the mutated run is kept because it is the record of how the stub was found. PASSED ON ITS FIRST FLIGHT ON BOTH BUILDS with every token as authored. Staged by liveState patched pid=90564594 name=B resources=[LiquidFuel 200->200] inventory=clear (2 container(s)), and the run took the INVENTORY branch of the gate exactly as derived: inventory=True on the FAIL line, a short=inventory:<part> hold token, and NO short-cause= line anywhere - the branch claim from the other side, and it held. THE inventory=clear MODE IS LIVE-PROVEN BY THIS RUN: it is the only mode any lane exercises that REWRITES container bodies rather than one amount= line, and KSP loaded the save, resolved the endpoint and gated it without complaint - the behavioural half of test_savepatch.py's byte-level clear-then-restore round trip. MATRIX EDGE 3, THE FUEL IS THERE AND THE CARGO IS NOT: rover B keeps its full 200 LiquidFuel (over the 154.3999999999952 manifest) while both inventory containers are emptied by a [[fixture.liveState]] inventory=\"clear\" entry, so the pickup gate's RESOURCE branch passes and its INVENTORY branch fails. It is the only lane in the corpus that reaches RouteOriginCargoCheck.HasRequiredInventory on a live dispatch, and the single flag that separates it from RVR-10 / RVR-11 is on the gate's own FAIL line: inventory=True here, inventory=False there, because Evaluate returns on the first failure and a short tank means the inventory half is never evaluated. The token GRAMMAR differs too - a resource short names the resource (short=LiquidFuel), an inventory short is built by BuildInventoryShortToken and names the PART (short=inventory:<partName>), with the inventory-state: near-miss form unreachable on this path because RoutePickupSourceGate passes countByPartName: null. WHICH part is named is deliberately regexed rather than pinned: HasRequiredInventory reports the first identity it cannot cover, the order comes out of SumInventoryManifestInto over window 0, and all three kinds are equally absent after the clear, so pinning one would pin an iteration order nothing guarantees. The shortfall on these lines is an ITEM COUNT (the gate puts shortQuantity, an int, in the shortfall slot), so it is regexed - this lane is about the branch, not about how many chutes the relay carried. The absence of any short-cause= line is a REQUIRED claim, not an accident: LiveRouteRuntimeEnvironment emits that classification only under if (!result.InventoryShort), so forbidding it asserts the branch from the other side, and it is safe to forbid outright because the save carries one route and this lane drives one blocked cycle."
+instanceProfile = "stock-minimal"
+tags = ["seam-verbs", "logistics", "route-create", "route-hold", "origin-lacks-cargo",
+        "inventory-cargo", "live-state", "recorded-fixture", "RVR-12", "matrix"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/rover-relay-c-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[[fixture.liveState]]
+# Rover B. The `resources` line RESTATES the fixture's own 200 rather than omitting it,
+# and that is deliberate: it makes the lane's precondition explicit in the spec (the fuel
+# is NOT the variable here) and it makes the applier assert the value against the bytes,
+# so a re-harvest that moved B's tank reds at stage time instead of silently converting
+# this lane into a second copy of RVR-10.
+#
+# `inventory = "clear"` empties BOTH `ConformalStorageUnit` containers and drops each
+# one's `inventory` CSV key entirely - the shape KSP itself writes for an empty container,
+# not a blank key. The same `savepatch` code that places a restored snapshot writes this,
+# and `test_savepatch.py` proves the round trip returns the committed bytes exactly.
+pid       = 90564594
+resources = { LiquidFuel = 200 }
+inventory = "clear"
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                    expect = "OK" },
+  { cmd = "DiscardTree",                                                      expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" },  expect = "OK" },
+  { cmd = "SealSlot",     args = { tree = "88c012a6eed94bf09ff73397a4a31410" }, expect = "OK", budget = 120 },
+  { cmd = "RouteCommand", args = { action = "create", tree = "88c012a6eed94bf09ff73397a4a31410", name = "relay-c" }, expect = "OK", budget = 120 },
+  { cmd = "RouteCommand", args = { action = "send-once", route = "relay-c" },  expect = "OK", budget = 120 },
+  { cmd = "TimeJump",     args = { ut = "1100" },                             expect = "OK", budget = 300 },
+  { cmd = "SaveGame",                                                         expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                     expect = "OK" },
+]
+
+[dimensionsCovered]
+# NO D10 VALUE IS CLAIMED, AND THE SECOND HALF OF THAT IS A CORRECTION THE CENSUS FORCED.
+# `hold-reasons` is `H38-logistics-isolated`'s already, so non-inflation settles it.
+# `inventory-cargo` was named here pre-flight as "arguably" claimable - and reading the
+# green run against the registry value shows it is not this lane's. That value names a
+# route whose CARGO IS INVENTORY, i.e. stored items actually moving; this lane proves the
+# gate REFUSED for want of them and moves nothing at all (`Origin debit:`, `Delivery
+# write:` and `dispatch fired` are all forbidden and all absent). The row is claimed by
+# RVR-15, whose required tokens carry a complete driven inventory PICKUP and DELIVERY.
+#
+# What this lane adds is the only live execution of `HasRequiredInventory` in the corpus
+# and the only FAIL line anywhere reading `inventory=True` - a distinct code path on an
+# already-declared row.
+D14 = ["sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 10, max = 10 }
+
+[expectations.logContracts]
+# The per-source line's `inventory=3` is the manifest SIZE (three kinds), measured on the
+# operator's own flight, and it is unaffected by the clear - the manifest comes from the
+# recorded window, not from the live vessel. It is required here as the assertion that
+# the clear did NOT reach the Parsek payload: a manifest that shrank with the containers
+# would mean the patcher edited the window it is supposed to only read.
+required  = [
+  "loadgame complete scene=FLIGHT save=.* game-loaded=true expected=Flight",
+  "sealslot complete mode=tree tree=88c012a6eed94bf09ff73397a4a31410 total=8 sealed=0 remaining=0 alreadySealed=True",
+  "routecommand create gate tree=88c012a6eed94bf09ff73397a4a31410 treeFound=True dismissed=False sealed=True eligible=True status=Eligible alreadyPromoted=False refusal=None",
+  "routecommand complete action=create tree=88c012a6eed94bf09ff73397a4a31410 route=.* name='relay-c' status=Paused",
+  "PauseAfterCurrentCycle=true \\(route will dispatch one cycle when conditions allow, then transition to Paused\\)",
+  "PostWalk: routes=0",
+  "PickupSourcesHaveCargo: route [0-9a-f]{8} source pid=90564594 name=B resources=1 inventory=3 decision=short",
+  "PickupSourcesHaveCargo: route [0-9a-f]{8} all-or-nothing FAIL first-short source pid=90564594 name=B short=inventory:[A-Za-z0-9._-]+ shortfall=[0-9]+ inventory=True sources=1",
+  "Route [0-9a-f]{8} hold recorded kind=OriginLacksCargo detail=source:90564594:B:inventory:[A-Za-z0-9._-]+",
+  "LoopRoute\\(multi\\): route [0-9a-f]{8} cycle=cycle-0 cMin=[0-9]+ BLOCKED kind=OriginLacksCargo reason=source:90564594:B:inventory:[A-Za-z0-9._-]+",
+  "ArmedPause: route [0-9a-f]{8} cycle=cycle-0 BLOCKED cycle consumed the armed pause",
+  "reason=blocked-then-paused",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "routecommand rejected",
+  "dispatch fired",
+  "Origin debit:",
+  "Delivery write:",
+  # THE BRANCH CLAIM, from the other side. No inventory escrow exists, so the
+  # escrow-vs-physical classification is skipped on an inventory short; its presence would
+  # mean the gate took the RESOURCE branch, i.e. that B's fuel was somehow short too.
+  "short-cause=",
+  # And the resource token must not appear at all: `short=LiquidFuel` here would mean the
+  # `resources = { LiquidFuel = 200 }` restatement above did not land.
+  "short=LiquidFuel",
+  "BLOCKED kind=DestinationFull",
+]
+
+[expectations.recordings.structure]
+trees          = { min = 3, max = 3 }
+committedTrees = { min = 3, max = 3 }
+recordings     = { min = 10, max = 12 }
+terminalStates = { Landed = { min = 5 }, Docked = { min = 2 } }
+branchPoints   = { Dock = { min = 2, max = 2 }, Undock = { min = 2, max = 2 } }
+
+[expectations.routes]
+count           = { min = 1, max = 1 }
+dormant         = { min = 0, max = 0 }
+stops           = { min = 2, max = 2 }
+sourceRefs      = { min = 3, max = 3 }
+completedCycles = { min = 0, max = 0 }
+skippedCycles   = { min = 1, max = 1 }
+statuses        = { Paused = { min = 1, max = 1 } }
+
+[runtime]
+budgetSeconds = 2400
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

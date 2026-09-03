@@ -59,10 +59,21 @@ from __future__ import annotations
 
 import importlib.util
 import os
+import re
+import sys
+import tomllib
 import unittest
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _HARNESS = os.path.dirname(_HERE)
+
+if _HERE not in sys.path:
+    sys.path.insert(0, _HERE)
+
+# The endpoint-matrix cells read the same fixture bytes the STAGE STEP will patch,
+# through the same pure module, so a declaration this suite accepts is one the
+# staged run can apply.
+import savepatch  # noqa: E402
 
 FIXTURE_DIR = os.path.join(_HARNESS, "fixtures", "saves", "rover-relay-c-recorded")
 FIXTURE_SFS = os.path.join(FIXTURE_DIR, "persistent.sfs")
@@ -458,8 +469,19 @@ class RoverRelayCSpecFixtureSyncTests(unittest.TestCase):
     substring scan cannot be fooled by a spec that parses but names a different
     tree."""
 
-    # Every committed spec that stages this fixture.
-    SPECS = ("RVR-7-rover-relay-c-dispatch.toml",)
+    # Every committed spec that stages this fixture: RVR-7, the delivering
+    # baseline, plus the RVR-8..RVR-15 ENDPOINT MATRIX that varies the live
+    # FLIGHTSTATE around it through `[[fixture.liveState]]`. The list is spelled
+    # out rather than globbed so a new consumer is a deliberate edit here.
+    SPECS = ("RVR-7-rover-relay-c-dispatch.toml",
+             "RVR-8-rover-relay-c-second-cycle-hold.toml",
+             "RVR-9-rover-relay-c-surface-cadence.toml",
+             "RVR-10-rover-relay-c-origin-empty.toml",
+             "RVR-11-rover-relay-c-origin-partial.toml",
+             "RVR-12-rover-relay-c-origin-cargo-missing.toml",
+             "RVR-13-rover-relay-c-destination-full.toml",
+             "RVR-14-rover-relay-c-destination-partial.toml",
+             "RVR-15-rover-relay-c-destination-empty.toml")
 
     @classmethod
     def setUpClass(cls):
@@ -590,6 +612,367 @@ class RoverRelayCSpecFixtureSyncTests(unittest.TestCase):
         for name in self.SPECS:
             self.assertNotIn("[expectations.renderComposition]", self.text[name])
             self.assertNotIn("ExportRenderManifest", self.text[name])
+
+
+class RoverRelayCEndpointMatrixTests(unittest.TestCase):
+    """THE RVR-8..RVR-15 ENDPOINT MATRIX, checked against the FIXTURE'S OWN BYTES.
+
+    Eight lanes over one committed save, each staging a different LIVE endpoint
+    state through `[[fixture.liveState]]` and pinning tokens DERIVED from that
+    state. The derivations are arithmetic on numbers this fixture carries, so
+    they are re-derivable here - and that is the point: a matrix whose numbers
+    were hand-copied would rot the first time the fixture was re-harvested, and
+    it would rot SILENTLY, because a wrong shortfall pin reds as a product
+    finding on a live flight rather than as a fixture finding in CI.
+
+    THE STRONGEST CELL IS `test_every_pinned_origin_shortfall_is_the_fixtures_own
+    _subtraction`, which recomputes 154.39 / 54.39 / 108.79 from the window
+    snapshots and the specs' own declared tank values and asserts the pinned
+    digits are a prefix of the result. Nothing else in the tree connects those
+    literals to the bytes."""
+
+    MATRIX = ("RVR-8-rover-relay-c-second-cycle-hold.toml",
+              "RVR-9-rover-relay-c-surface-cadence.toml",
+              "RVR-10-rover-relay-c-origin-empty.toml",
+              "RVR-11-rover-relay-c-origin-partial.toml",
+              "RVR-12-rover-relay-c-origin-cargo-missing.toml",
+              "RVR-13-rover-relay-c-destination-full.toml",
+              "RVR-14-rover-relay-c-destination-partial.toml",
+              "RVR-15-rover-relay-c-destination-empty.toml")
+
+    # The lanes whose product is a BLOCKED cycle. RVR-8 blocks too, but only on
+    # its SECOND cycle - its first one delivers - so it is deliberately absent
+    # from the "nothing was written" sweep below.
+    BLOCKING = ("RVR-10-rover-relay-c-origin-empty.toml",
+                "RVR-11-rover-relay-c-origin-partial.toml",
+                "RVR-12-rover-relay-c-origin-cargo-missing.toml",
+                "RVR-13-rover-relay-c-destination-full.toml",
+                "RVR-14-rover-relay-c-destination-partial.toml")
+
+    PID_A = 4280917262
+    PID_B = 90564594
+
+    @classmethod
+    def setUpClass(cls):
+        cls.builder = _load_builder()
+        cls.spec = {}
+        cls.text = {}
+        for name in cls.MATRIX:
+            path = os.path.join(SCENARIOS_DIR, name)
+            with open(path, "rb") as fh:
+                cls.spec[name] = tomllib.load(fh)
+            with open(path, "r", encoding="utf-8") as fh:
+                cls.text[name] = fh.read()
+        with open(os.path.join(FIXTURE_DIR, "persistent.sfs"),
+                  "r", encoding="utf-8", newline="") as fh:
+            cls.lines = fh.read().replace("\r\n", "\n").split("\n")
+
+    # -- helpers ---------------------------------------------------------
+
+    def _required(self, name):
+        return "\n".join(
+            self.spec[name]["expectations"]["logContracts"]["required"])
+
+    def _forbidden(self, name):
+        return "\n".join(
+            self.spec[name]["expectations"]["logContracts"]["forbidden"])
+
+    def _window_resource(self, window_index, holder, resource="LiquidFuel"):
+        window = savepatch.route_windows(self.lines)[window_index]
+        for h in savepatch.child_nodes(self.lines, window, holder):
+            for row in savepatch.child_nodes(self.lines, h, "RESOURCE"):
+                if savepatch.get_value(self.lines, row, "name") == resource:
+                    return float(savepatch.get_value(self.lines, row, "amount"))
+        raise AssertionError("window %d has no %s %s row"
+                             % (window_index, holder, resource))
+
+    def _pickup_manifest(self):
+        """The pickup manifest is window 0's TRANSPORT delta: what rover C gained
+        across the hop-1 dock. Read from the bytes, never a literal."""
+        return (self._window_resource(0, "UNDOCK_TRANSPORT_RESOURCES")
+                - self._window_resource(0, "DOCK_TRANSPORT_RESOURCES"))
+
+    def _delivery_manifest(self):
+        """Window 1's ENDPOINT delta: what rover A gained across the hop-2 dock."""
+        return (self._window_resource(1, "UNDOCK_ENDPOINT_RESOURCES")
+                - self._window_resource(1, "DOCK_ENDPOINT_RESOURCES"))
+
+    def _live_state(self, name):
+        return {e["pid"]: e for e in savepatch.declared_live_state(
+            self.spec[name].get("fixture") or {})}
+
+    @staticmethod
+    def _pinned_shortfalls(block):
+        """Every `shortfall=<digits>\\.<digits>` literal in a required block, as
+        the plain decimal string it pins (e.g. `154.39`)."""
+        # The block is the PARSED token list, so a spec's `shortfall=154\\.39`
+        # arrives here as `shortfall=154\.39`: one literal backslash, then a dot.
+        return [m.group(1) + "." + m.group(2) for m in
+                re.finditer(r"shortfall=([0-9]+)\\\.([0-9]+)", block)]
+
+    # -- the fixture-derived cells ---------------------------------------
+
+    def test_the_manifests_this_matrix_is_built_on_are_the_recorded_ones(self):
+        # The two numbers every lane's arithmetic starts from, asserted against
+        # the committed windows so a re-harvest that moved either reds HERE with
+        # the cause named, rather than on a flight as a mystery gate finding.
+        self.assertAlmostEqual(154.3999999999952, self._pickup_manifest(), places=9)
+        self.assertAlmostEqual(200.0, self._delivery_manifest(), places=9)
+
+    def test_every_pinned_origin_shortfall_is_the_fixtures_own_subtraction(self):
+        """`RouteOriginCargoCheck.HasRequired` reports `need - stored`, so each
+        lane's pinned shortfall is the recorded pickup manifest minus the tank
+        that lane stages. Recomputed here from the bytes plus the spec's own
+        declaration; the pinned digits must be a PREFIX of the result (the specs
+        pin leading digits and regex the float tail)."""
+        need = self._pickup_manifest()
+        for name in ("RVR-10-rover-relay-c-origin-empty.toml",
+                     "RVR-11-rover-relay-c-origin-partial.toml"):
+            entry = self._live_state(name)[self.PID_B]
+            stored = float(entry["resources"]["LiquidFuel"])
+            want = repr(need - stored)
+            pinned = self._pinned_shortfalls(self._required(name))
+            self.assertTrue(pinned, "%s pins no shortfall at all" % name)
+            for got in pinned:
+                self.assertTrue(want.startswith(got),
+                                "%s pins shortfall=%s but need %r - stored %r = %s"
+                                % (name, got, need, stored, want))
+            # All three producers (gate, hold, BLOCKED) must carry the SAME value:
+            # a fix that plumbs it into one and not the others is the regression
+            # the matrix is authored around.
+            self.assertEqual(3, len(pinned),
+                             "%s must pin the shortfall on all three producer "
+                             "lines (gate / RecordHold / BLOCKED), found %d"
+                             % (name, len(pinned)))
+
+    def test_rvr8_pins_the_shortfall_left_by_its_own_first_cycle(self):
+        """RVR-8 declares NO liveState: its second cycle meets whatever the first
+        one left. Both defensible readings of that leftover - the window's own
+        recorded post-pickup endpoint, and the live subtraction `200 - manifest` -
+        agree to the pinned digits, so the pin holds under either."""
+        need = self._pickup_manifest()
+        recorded_left = self._window_resource(0, "UNDOCK_ENDPOINT_RESOURCES")
+        live_left = self._window_resource(0, "DOCK_ENDPOINT_RESOURCES") - need
+        name = "RVR-8-rover-relay-c-second-cycle-hold.toml"
+        pinned = self._pinned_shortfalls(self._required(name))
+        self.assertEqual(3, len(pinned), pinned)
+        for got in pinned:
+            self.assertTrue(repr(need - recorded_left).startswith(got), got)
+            self.assertTrue(repr(need - live_left).startswith(got), got)
+        self.assertEqual([], savepatch.declared_live_state(
+            self.spec[name].get("fixture") or {}),
+            "RVR-8 reaches its edge by PLAYING the fixture forward; a liveState "
+            "block here would make that claim false")
+
+    def test_the_spent_origin_tank_pins_accept_both_readings(self):
+        """THE TOKEN THE FIRST CENSUS RED ON, and the cell that keeps the fix honest.
+
+        The spent-origin tank has TWO defensible float tails and the flights
+        measured both. The operator's hand-flown save recorded rover B's
+        post-pickup endpoint as `45.59999999999814` - the result of KSP's own
+        resource flow across many physics frames. A harness lane never replays
+        that flow: it DEBITS the restored 200 by the recorded manifest in ONE
+        write, so the live tank reads `200 - 154.3999999999952 =
+        45.6000000000048`. Same number to four significant figures, different last
+        digits, and `tankAfter=45\\.6 path=unloaded` matched neither (it is a
+        PREFIX pin followed by a literal space, so the trailing digits break it).
+        RVR-8's first census (`2026-09-03_1807`) and RVR-15's
+        (`2026-09-03_1814`) both red on exactly that, with every other token -
+        including all three `shortfall=108.79` pins - green.
+
+        The re-pin is `45\\.[56][0-9]*`, which spans BOTH readings and nothing
+        else near them, and this cell recomputes both from the fixture's own
+        window rather than trusting the literal. The sibling cell above already
+        asserted the SHORTFALL pins hold under either reading; this is the same
+        claim for the TANK pins, which is the half that was missing when the two
+        censuses flew."""
+        need = self._pickup_manifest()
+        recorded_left = self._window_resource(0, "UNDOCK_ENDPOINT_RESOURCES")
+        live_left = self._window_resource(0, "DOCK_ENDPOINT_RESOURCES") - need
+        # Neither reading may be the OTHER's exact repr, or the pin would be
+        # trivially satisfiable and this cell would prove nothing.
+        self.assertNotEqual(repr(recorded_left), repr(live_left))
+        for name in ("RVR-8-rover-relay-c-second-cycle-hold.toml",
+                     "RVR-15-rover-relay-c-destination-empty.toml"):
+            tokens = [t for t in
+                      self.spec[name]["expectations"]["logContracts"]["required"]
+                      if "tankAfter=45" in t or "raw=45" in t]
+            self.assertTrue(tokens, "%s pins no spent-origin tank at all" % name)
+            for token in tokens:
+                rx = re.compile(token)
+                for reading in (recorded_left, live_left):
+                    line = ("[Parsek][INFO][Logi] Origin debit: route=r1 origin=B "
+                            "pid=90564594 resource=LiquidFuel requested=%r "
+                            "debited=%r tankBefore=200 tankAfter=%r path=unloaded"
+                            % (need, need, reading))
+                    cause = ("[Parsek][VERBOSE][Route] PickupSourcesHaveCargo: "
+                             "route 698efc9d short-cause=physical pid=90564594 "
+                             "resource=LiquidFuel raw=%r netted=%r "
+                             "reservingRouteId=<none> reservedByRoute=0"
+                             % (reading, reading))
+                    self.assertTrue(rx.search(line) or rx.search(cause),
+                                    "%s: %r matches neither reading %r"
+                                    % (name, token, reading))
+
+    def test_every_declared_live_state_is_satisfiable_by_these_bytes(self):
+        """The applier's own assertions, run at CI time instead of at stage time.
+        A pid the save does not carry, a resource the vessel does not have, or an
+        amount above `maxAmount` would abort a real run pre-boot as
+        INVALID(staging); this cell turns that into a red here."""
+        for name in self.MATRIX:
+            entries = savepatch.declared_live_state(
+                self.spec[name].get("fixture") or {})
+            for entry in entries:
+                patched, notes = savepatch.apply_live_state(
+                    "\n".join(self.lines), [entry],
+                    save_name="rover-relay-c-recorded")
+                self.assertTrue(notes, "%s: %r patched nothing" % (name, entry))
+                self.assertNotEqual("\n".join(self.lines), patched,
+                                    "%s: %r is a no-op declaration" % (name, entry))
+
+    def test_the_destination_lanes_stage_the_headroom_they_claim(self):
+        """RVR-13 / RVR-14 / RVR-15 sample the destination axis at 0 / 100 / 400
+        units of headroom against the recorded 200 delivery manifest, and RVR-7
+        is the exact fit at 200. The gate refuses whenever headroom < manifest, so
+        the first two must FORBID a delivery and the third must REQUIRE one."""
+        manifest = self._delivery_manifest()
+        capacity = 400.0
+        want = {"RVR-13-rover-relay-c-destination-full.toml": 0.0,
+                "RVR-14-rover-relay-c-destination-partial.toml": 100.0,
+                "RVR-15-rover-relay-c-destination-empty.toml": 400.0}
+        for name, headroom in want.items():
+            staged = float(self._live_state(name)[self.PID_A]
+                           ["resources"]["LiquidFuel"])
+            self.assertAlmostEqual(headroom, capacity - staged, places=9, msg=name)
+            if headroom < manifest:
+                self.assertIn("Delivery write:", self._forbidden(name), name)
+                self.assertIn("BLOCKED kind=DestinationFull", self._required(name), name)
+            else:
+                self.assertIn("Delivery write:", self._required(name), name)
+                self.assertIn("BLOCKED kind=DestinationFull", self._forbidden(name), name)
+
+    def test_rvr15_pins_the_empty_tank_write_the_fixture_predicts(self):
+        """The lane's headline: the SAME manifest into an EMPTY tank, so
+        `tankBefore=0 tankAfter=<manifest>` where RVR-7 measured
+        `tankBefore=200 tankAfter=400`. Both columns move, both manifest columns
+        do not - which is what proves the writer reads the live tank."""
+        manifest = self._delivery_manifest()
+        self.assertEqual(manifest, int(manifest))
+        want = "requested=%d written=%d tankBefore=0 tankAfter=%d capacity=400" % (
+            int(manifest), int(manifest), int(manifest))
+        self.assertIn(want,
+                      self._required("RVR-15-rover-relay-c-destination-empty.toml"))
+
+    # -- the shape cells -------------------------------------------------
+
+    def test_every_matrix_lane_addresses_the_relay_tree_and_no_other(self):
+        for name in self.MATRIX:
+            self.assertIn(self.builder.RELAY_TREE_ID, self.text[name], name)
+            self.assertNotIn('tree = "%s"' % self.builder.ENDPOINT_A_TREE_ID,
+                             self.text[name], name)
+            self.assertNotIn('tree = "%s"' % self.builder.ENDPOINT_B_TREE_ID,
+                             self.text[name], name)
+
+    def test_every_matrix_lane_pins_the_seal_total_to_the_relay_tree_size(self):
+        # The RVR-7 cell's reasoning, applied across the matrix: `total=N` counts
+        # the sealed tree's RECORDING nodes, and a free literal there survived a
+        # whole-suite mutation test once already.
+        want = "sealslot complete mode=tree tree=%s total=%d sealed=0" % (
+            self.builder.RELAY_TREE_ID, len(self.builder.RELAY_TREE_RECORDING_IDS))
+        for name in self.MATRIX:
+            self.assertIn(want, self._required(name), name)
+
+    def test_every_matrix_lane_keeps_the_vacuity_forbids(self):
+        for name in self.MATRIX:
+            self.assertIn("routecommand rejected", self._forbidden(name), name)
+            self.assertIn("\\[Parsek\\]\\[ERROR\\]", self._forbidden(name), name)
+
+    def test_every_matrix_lane_expects_the_create_to_be_admitted(self):
+        # The whole matrix rests on the SAME create succeeding: the live-state
+        # edits touch FLIGHTSTATE only, so an analysis that answered differently
+        # would mean the patcher reached the Parsek payload.
+        for name in self.MATRIX:
+            self.assertNotIn('expect = "REJECTED"', self.text[name], name)
+            self.assertIn("refusal=None", self._required(name), name)
+
+    def test_the_blocking_lanes_forbid_every_writer(self):
+        """A blocked cycle emits NOTHING - no dispatch, no debit, no delivery.
+        Forbidding all three is what turns a gate that degraded to best-effort
+        into a red instead of a quieter green."""
+        for name in self.BLOCKING:
+            forbidden = self._forbidden(name)
+            self.assertIn("dispatch fired", forbidden, name)
+            self.assertIn("Origin debit:", forbidden, name)
+            self.assertIn("Delivery write:", forbidden, name)
+
+    def test_the_blocking_lanes_declare_the_inverse_cycle_counters(self):
+        for name in self.BLOCKING:
+            routes = self.spec[name]["expectations"]["routes"]
+            self.assertEqual({"min": 0, "max": 0}, routes["completedCycles"], name)
+            self.assertEqual({"min": 1, "max": 1}, routes["skippedCycles"], name)
+            self.assertNotIn("gating", routes,
+                             "%s must stay REPORT-ONLY: arming is a per-scenario "
+                             "operator decision after a reading run" % name)
+
+    def test_only_rvr8_drives_a_second_cycle(self):
+        for name in self.MATRIX:
+            sends = self.text[name].count('action = "send-once"')
+            jumps = self.text[name].count('cmd = "TimeJump"')
+            if name == "RVR-8-rover-relay-c-second-cycle-hold.toml":
+                self.assertEqual(2, sends, name)
+                self.assertEqual(2, jumps, name)
+                self.assertEqual(1, self.text[name].count('action = "activate"'), name)
+            else:
+                self.assertEqual(1, sends, name)
+                self.assertEqual(1, jumps, name)
+                self.assertEqual(0, self.text[name].count('action = "activate"'), name)
+
+    def test_rvr9_is_rvr7_with_only_the_clock_moved(self):
+        """The lane's whole argument is that it differs from RVR-7 in ONE
+        argument, so a divergence cannot be attributed to anything else."""
+        with open(os.path.join(SCENARIOS_DIR, "RVR-7-rover-relay-c-dispatch.toml"),
+                  "rb") as fh:
+            rvr7 = tomllib.load(fh)
+        rvr9 = self.spec["RVR-9-rover-relay-c-surface-cadence.toml"]
+        self.assertEqual([], savepatch.declared_live_state(rvr9["fixture"]))
+        a = [dict(s) for s in rvr7["driver"]["steps"]]
+        b = [dict(s) for s in rvr9["driver"]["steps"]]
+        self.assertEqual(len(a), len(b))
+        differences = [(x, y) for x, y in zip(a, b) if x != y]
+        self.assertEqual(1, len(differences),
+                         "RVR-9 must differ from RVR-7 in exactly one step: %r"
+                         % (differences,))
+        self.assertEqual("TimeJump", differences[0][0]["cmd"])
+        self.assertEqual("1100", differences[0][0]["args"]["ut"])
+        self.assertEqual("600", differences[0][1]["args"]["ut"])
+
+    def test_rvr9_forbids_the_orbital_phase_lock_on_this_tree(self):
+        """Three forbids, all three MEASURED PRESENT on the pre-fix control run:
+        the producer scoped to this tree, the METHOD name (durable across a
+        rename of the APPLIED line) and the consequence."""
+        forbidden = self._forbidden("RVR-9-rover-relay-c-surface-cadence.toml")
+        self.assertIn("PhaseLock APPLIED.*%s" % self.builder.RELAY_TREE_ID, forbidden)
+        self.assertIn("method=single-vessel-orbital", forbidden)
+        self.assertIn("clock pre-anchor/degenerate", forbidden)
+
+    def test_no_matrix_lane_pins_a_run_local_route_id_as_a_literal(self):
+        """The H59 authoring defect: a route id is generated per run, so a literal
+        one reds on every flight but the one it was harvested from. Every lane
+        must regex it."""
+        for name in self.MATRIX:
+            for line in self._required(name).splitlines():
+                self.assertNotIn("route 698efc9d", line, name)
+                self.assertNotIn("route 5563af1d", line, name)
+
+    def test_no_matrix_lane_pins_a_line_past_its_em_dash(self):
+        """`ProcessLoopRoute`'s BLOCKED line and the phase-lock skip line both
+        carry a literal em dash, which a token cannot match (the file is ASCII by
+        house rule and the log renders the character itself). Every pin must stop
+        before it."""
+        for name in self.MATRIX:
+            body = self._required(name) + self._forbidden(name)
+            self.assertNotIn("emitted nothing", body, name)
+            self.assertNotIn("degenerate -", body, name)
 
 
 if __name__ == "__main__":

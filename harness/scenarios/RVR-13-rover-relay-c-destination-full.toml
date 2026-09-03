@@ -1,0 +1,201 @@
+schema = 1
+id = "RVR-13-rover-relay-c-destination-full"
+tier = "nightly"
+# =====================================================================================
+# THE MATRIX, EDGE 4: THE DESTINATION IS FULL, AND THE ORIGIN IS NOT - WHICH IS WHAT MAKES
+# THE GATE ORDER READABLE. Rover A is staged at 400 / 400 LiquidFuel (zero headroom
+# against a 200 delivery manifest) while rover B is left exactly as the fixture has it:
+# 200 LiquidFuel and three stored parts, comfortably covering the 154.3999999999952
+# pickup. So gate 6 (origin cargo) PASSES and gate 8 (destination capacity) is the only
+# thing that can fail.
+#
+# **LIVE-PROVEN 2026-09-03: run `2026-09-03_1834`, PASS attempt 1, EVERY
+# VERIFIER PASS**, on the CLEAN automation DLL sha256 `995772453f2339a2`
+# (built from `main` a575d64f0, IL-verified guard).
+#
+# **FIRST-CENSUS HISTORY**: this lane also passed on `2026-09-03_1812` (wall 49 s), but
+# that run flew `877208524b314e7b`, which PR #1624 identifies as a MUTATED SNAPSHOT -
+# taken from the #1623 review worktree while that reviewer's mutation test had
+# `IsPhaseAnchorEligible` stubbed to `return true` (IL code size 7 against 27 clean,
+# which a marker grep structurally CANNOT SEE). The clean re-flight above is what this
+# header rests on; the mutated run is kept because it is the record of how the stub was
+# found.
+#
+# **PASSED ON ITS FIRST FLIGHT ON BOTH BUILDS** with every token as authored.
+#
+# THE STAGED STATE, from the harness log: `liveState patched pid=4280917262 name=A
+# resources=[LiquidFuel 200->400] inventory=keep`.
+#
+# **THE GATE ORDER IS NOW ESTABLISHED FROM BOTH DIRECTIONS, WHICH NO SINGLE LANE COULD
+# DO.** This run measured `all 1 pickup source(s) cover - eligible` and THEN
+# `destination FULL ... short=LiquidFuel`, so the walk demonstrably reached gate 8 with
+# gate 6 satisfied; RVR-8's green run measured the mirror, a doubly-spent cycle stopping
+# at gate 6 with gate 8 never consulted. Both halves are live.
+#
+# **AND NOTHING WAS DEBITED.** `Origin debit:`, `Inventory remove` and `Delivery write:`
+# were all absent, which is the claim that matters to a player: a cycle that took 154.4
+# units off the source and only then discovered it had nowhere to put them would destroy
+# fuel on every blocked crossing.
+#
+#
+# -------------------------------------------------------------------------------------
+# THIS IS THE POSITIVE FORM OF A CLAIM RVR-8 CAN ONLY MAKE NEGATIVELY.
+# `RouteDispatchEvaluator.CheckEligibility` returns the FIRST failure and runs
+# endpoints (5) -> ORIGIN CARGO (6) -> funds (7) -> DESTINATION CAPACITY (8). RVR-8's
+# second cycle has BOTH ends spent, so gate 6 wins and gate 8 is unreachable there; its
+# header says so and declines to forbid the token. HERE only gate 8 can fail, so the
+# `DestinationFull` reading is attributable, and the REQUIRED
+# `all 1 pickup source(s) cover - eligible` line is the proof that the walk got past gate
+# 6 to reach it. Between the two lanes both gates are live-gated and the ORDER between
+# them is established from both directions.
+#
+# -------------------------------------------------------------------------------------
+# NOTHING IS DEBITED, AND THAT IS THE SECOND CLAIM. A cycle that debited the source and
+# only then discovered it had nowhere to put the cargo would destroy 154.4 units of the
+# player's fuel on every blocked crossing. The gate runs BEFORE any writer, and
+# `ProcessLoopRoute`'s blocked branch emits nothing at all, so `Origin debit:` is
+# forbidden - the cheapest possible statement of "no resource left B".
+#
+# -------------------------------------------------------------------------------------
+# THE ARITHMETIC IS A ZERO. The delivery manifest is window 1's own subtraction
+# (`UNDOCK_ENDPOINT 400 - DOCK_ENDPOINT 200 = 200`), and A's staged tank has
+# 400 - 400 = 0 of headroom. `RouteDeliveryPlanner.PrepareDelivery` takes
+# `Math.Min(requested, freeCapacity)` = 0 and sets `anyResourcePartial` because 0 is
+# strictly less than 200; `RouteDestinationCapacityCheck.HasCapacityForAllStops` then
+# returns false on `plan.IsPartial` and names the first short line through
+# `FirstShortToken`, which walks RESOURCES before inventory and so answers `LiquidFuel`
+# rather than a `storedPart:` token - even though A's three free slots are irrelevant to
+# this refusal.
+#
+# `stop=` IS REGEXED, NOT PINNED. `fullStopIndex` is the index of the first stop whose
+# plan came back partial, and although RVR-7's census established this route as two stops
+# with the pickup first, the mapping from that ordering to the capacity walk's own index
+# is one this lane has never measured. The lane's claim is the KIND and the RESOURCE; the
+# index is reported, not gated.
+# =====================================================================================
+description = "LIVE-PROVEN 2026-09-03: run 2026-09-03_1834, PASS attempt 1, EVERY VERIFIER PASS, on the CLEAN automation DLL sha256 995772453f2339a2 (built from main a575d64f0, IL-verified guard). FIRST-CENSUS HISTORY: this lane also passed on 2026-09-03_1812 (wall 49 s), but that run flew 877208524b314e7b, which PR #1624 identifies as a MUTATED SNAPSHOT - taken from the #1623 review worktree while that reviewer's mutation test had IsPhaseAnchorEligible stubbed to return true (IL code size 7 against 27 clean, which a marker grep structurally CANNOT SEE). The clean re-flight is what this row rests on; the mutated run is kept because it is the record of how the stub was found. PASSED ON ITS FIRST FLIGHT ON BOTH BUILDS with every token as authored. Staged by liveState patched pid=4280917262 name=A resources=[LiquidFuel 200->400] inventory=keep. THE GATE ORDER IS NOW ESTABLISHED FROM BOTH DIRECTIONS, WHICH NO SINGLE LANE COULD DO: this run measured all 1 pickup source(s) cover - eligible and THEN destination FULL ... short=LiquidFuel, so the walk demonstrably reached gate 8 with gate 6 satisfied, while RVR-8's green run measured the mirror - a doubly-spent cycle stopping at gate 6 with gate 8 never consulted. AND NOTHING WAS DEBITED: Origin debit:, Inventory remove and Delivery write: were all absent, the claim that matters to a player. MATRIX EDGE 4, THE DESTINATION IS FULL AND THE ORIGIN IS NOT: rover A staged at 400/400 LiquidFuel (zero headroom against the 200 delivery manifest) by a [[fixture.liveState]] block while rover B is left exactly as the fixture has it, covering the pickup. This is the POSITIVE form of a claim RVR-8 can only make negatively - CheckEligibility returns the FIRST failure and runs origin cargo (6) before destination capacity (8), so RVR-8's doubly-spent second cycle can never reach gate 8 and declines to forbid its token, while here gate 8 is the only one that CAN fail and the required 'all 1 pickup source(s) cover - eligible' line proves the walk got past gate 6 to reach it. Between the two lanes both gates are live-gated and their order is established from both directions. The second claim is that NOTHING IS DEBITED: a cycle that debited the source and only then found nowhere to put the cargo would destroy 154.4 units of the player's fuel on every blocked crossing, so Origin debit: is forbidden. The arithmetic is a zero - PrepareDelivery takes Math.Min(requested, freeCapacity) = 0, sets anyResourcePartial because 0 < 200, HasCapacityForAllStops refuses on plan.IsPartial, and FirstShortToken walks RESOURCES before inventory so the token is LiquidFuel rather than a storedPart: one, even though A's three free slots are irrelevant to the refusal. stop= is regexed rather than pinned: fullStopIndex is the capacity walk's own index and the mapping from RVR-7's measured stops=2 ordering to it has never been measured, so the lane gates the KIND and the RESOURCE and merely reports the index."
+instanceProfile = "stock-minimal"
+tags = ["seam-verbs", "logistics", "route-create", "route-hold", "destination-full",
+        "live-state", "recorded-fixture", "RVR-13", "matrix"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/rover-relay-c-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[[fixture.liveState]]
+# Rover A, the DELIVERY DESTINATION, topped to its own `maxAmount`. 400 is not a chosen
+# number: it is the capacity the fixture's own bytes carry, and the applier refuses
+# anything above it rather than clamping, so this declaration is exactly "full" and
+# cannot silently become "nearly full" if the craft ever changes. Inventory defaults to
+# `keep` - A's three free slots stay free, which is what makes the refusal attributable
+# to the RESOURCE line rather than to a slot shortage.
+pid       = 4280917262
+resources = { LiquidFuel = 400 }
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                    expect = "OK" },
+  { cmd = "DiscardTree",                                                      expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" },  expect = "OK" },
+  { cmd = "SealSlot",     args = { tree = "88c012a6eed94bf09ff73397a4a31410" }, expect = "OK", budget = 120 },
+  { cmd = "RouteCommand", args = { action = "create", tree = "88c012a6eed94bf09ff73397a4a31410", name = "relay-c" }, expect = "OK", budget = 120 },
+  { cmd = "RouteCommand", args = { action = "send-once", route = "relay-c" },  expect = "OK", budget = 120 },
+  { cmd = "TimeJump",     args = { ut = "1100" },                             expect = "OK", budget = 300 },
+  { cmd = "SaveGame",                                                         expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                     expect = "OK" },
+]
+
+[dimensionsCovered]
+# **D10 `destination-full-gate` IS CLAIMED OFF THE GREEN CENSUS `2026-09-03_1812`**, and
+# it is the row's FIRST DECLARER anywhere. Three things make the claim a gate rather than
+# a label:
+#   * THE REQUIRED TOKENS PROVE IT THREE WAYS, at three different producers -
+#     `DestinationHasCapacity: ... destination FULL ... short=LiquidFuel` (the check),
+#     `Route ... hold recorded kind=DestinationFull detail=LiquidFuel` (the persisted
+#     verdict) and `LoopRoute(multi): ... BLOCKED kind=DestinationFull reason=LiquidFuel`
+#     (the cycle's outcome). A regression in any one of the three reds.
+#   * IT IS ATTRIBUTABLE. The required `all 1 pickup source(s) cover - eligible` line says
+#     the walk reached gate 8 with gate 6 satisfied, so the refusal cannot be some other
+#     gate wearing this name.
+#   * IT DRIVES THE REFUSAL ON PURPOSE, which is exactly the closing condition
+#     `H40-logistics-isolated-depot-route`'s row names for this row: H38 and H40 both
+#     reach the capacity check and both take only the PERMISSIVE branch (H40 measured 17
+#     `full manifest fits` lines and ZERO refusals on a 720/720 depot, with nine cells
+#     deliberately given headroom to route AROUND it), so the value stood at
+#     ZERO-DECLARER with "closing it needs a cell that drives the refusal on purpose"
+#     written against it. This lane stages the destination full and the origin stocked.
+#
+# ONE DECLARER, DELIBERATELY. RVR-14 measures the same branch at a second headroom value
+# and does NOT re-declare; RVR-2's row records that it reached the same token first, as
+# the exhaustion tail of a two-cycle chain, and never declared the row - it stays
+# undeclared there so this value has exactly one owner.
+D10 = ["destination-full-gate"]
+D14 = ["sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 10, max = 10 }
+
+[expectations.logContracts]
+required  = [
+  "loadgame complete scene=FLIGHT save=.* game-loaded=true expected=Flight",
+  "sealslot complete mode=tree tree=88c012a6eed94bf09ff73397a4a31410 total=8 sealed=0 remaining=0 alreadySealed=True",
+  "routecommand create gate tree=88c012a6eed94bf09ff73397a4a31410 treeFound=True dismissed=False sealed=True eligible=True status=Eligible alreadyPromoted=False refusal=None",
+  "routecommand complete action=create tree=88c012a6eed94bf09ff73397a4a31410 route=.* name='relay-c' status=Paused",
+  "PauseAfterCurrentCycle=true \\(route will dispatch one cycle when conditions allow, then transition to Paused\\)",
+  "PostWalk: routes=0",
+  # GATE 6 PASSED. This is the token that makes the DestinationFull verdict attributable.
+  "PickupSourcesHaveCargo: route [0-9a-f]{8} source pid=90564594 name=B resources=1 inventory=3 decision=cover",
+  "PickupSourcesHaveCargo: route [0-9a-f]{8} all 1 pickup source\\(s\\) cover - eligible",
+  # GATE 8 FAILED, three producers.
+  "DestinationHasCapacity: route [0-9a-f]{8} destination FULL stop=[0-9]+ short=LiquidFuel",
+  "Route [0-9a-f]{8} hold recorded kind=DestinationFull detail=LiquidFuel",
+  "LoopRoute\\(multi\\): route [0-9a-f]{8} cycle=cycle-0 cMin=[0-9]+ BLOCKED kind=DestinationFull reason=LiquidFuel",
+  "ArmedPause: route [0-9a-f]{8} cycle=cycle-0 BLOCKED cycle consumed the armed pause",
+  "reason=blocked-then-paused",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "routecommand rejected",
+  "dispatch fired",
+  # THE NO-DEBIT CLAIM. The gate runs before any writer; a debit here would mean the
+  # cycle took the source's fuel and then discovered it had nowhere to put it.
+  "Origin debit:",
+  "Inventory remove",
+  "Delivery write:",
+  # And it must NOT be the origin gate that failed - B is stocked exactly as the fixture
+  # left it, so an OriginLacksCargo reading would mean the live-state patch reached the
+  # wrong vessel.
+  "BLOCKED kind=OriginLacksCargo",
+]
+
+[expectations.recordings.structure]
+trees          = { min = 3, max = 3 }
+committedTrees = { min = 3, max = 3 }
+recordings     = { min = 10, max = 12 }
+terminalStates = { Landed = { min = 5 }, Docked = { min = 2 } }
+branchPoints   = { Dock = { min = 2, max = 2 }, Undock = { min = 2, max = 2 } }
+
+[expectations.routes]
+count           = { min = 1, max = 1 }
+dormant         = { min = 0, max = 0 }
+stops           = { min = 2, max = 2 }
+sourceRefs      = { min = 3, max = 3 }
+completedCycles = { min = 0, max = 0 }
+skippedCycles   = { min = 1, max = 1 }
+statuses        = { Paused = { min = 1, max = 1 } }
+
+[runtime]
+budgetSeconds = 2400
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
