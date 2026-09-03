@@ -1641,6 +1641,78 @@ pure function over one proof plus two snapshots, and reaching a sibling recordin
 tree traversal and chain resolution into it. Do it as its own pass, with the traversal placed
 on the live side (`ParsekFlight`) and only the DECISION handed to `RouteProofCapture`.
 
+## ROUTE-DELIVERY-PROXIMITY-RETARGETS-ANY-NEARBY-VESSEL: when the recorded destination no longer exists, the endpoint resolver's 500 m surface search accepts whatever craft is parked there - and the route delivered a full manifest into the player's own active-scene rover [MEASURED 2026-09-03 by the RVR-18 census `2026-09-03_2011` (PASS - the lane is a CHARACTERIZATION, so the measurement is its product). OBSERVATION AND A DESIGN QUESTION FOR THE OPERATOR, not a defect ruling and not fixed]
+
+**WHAT WAS MEASURED.** `RVR-18-rover-route-endpoint-removed` deletes the delivery
+endpoint from FLIGHTSTATE before the game boots (`liveState patched pid=2123618197
+name=rover fuel 0 removed=1`) and drives an ordinary two-cycle supply route over the
+committed `rover-route-recorded` fixture. The route resolved, dispatched and DELIVERED:
+
+    Endpoint proximity step: resolved=1 pid=2875537755 reason=- body=Kerbin
+    Delivery write: route=68749916... dest=A pid=2875537755 resource=LiquidFuel
+        requested=97.599999999998431 written=97.599999999998431
+        tankBefore=297.59999999999843 tankAfter=395.19999999999686 capacity=400 path=loaded
+    Inventory store: ... dest=A pid=2875537755 part=evaChute               slot=part7/mod1/slot0
+    Inventory store: ... dest=A pid=2875537755 part=evaScienceKit          slot=part7/mod1/slot1
+    Inventory store: ... dest=A pid=2875537755 part=DeployedCentralStation slot=part7/mod1/slot2
+    Delivery: route 68749916 cycle=cycle-0 resources=1 inventoryUnits=3/3
+        inventoryUnitsSkipped=0 partial=0 ut=1600
+
+97.6 LiquidFuel and three stored parts went into vessel `A`, pid 2875537755 - a craft the
+route never names.
+
+**WHY IT HAPPENS.** `RouteEndpointResolver.TryResolveEndpoint` walks three steps in a
+fixed order (`NextEndpointStep`): ROOT PART flightID, then `persistentId`, then a
+SURFACE-PROXIMITY search bounded by `RouteOrchestrator.SurfaceProximityRadiusMeters =
+500`. On this subject the first step cannot run at all - a `RouteEndpoint` gets a non-zero
+`RootPartUId` only from a `RouteOriginProof`, and a KSC-origin route's DELIVERY stop is
+`window.EndpointAtDock` verbatim (pid, body, lat/lon/alt, isSurface) - and the second
+misses because the vessel is gone. The third then takes the CLOSEST non-ghost
+LANDED / SPLASHED / PRELAUNCH vessel within 500 m of the recorded dock coordinates, with
+no identity test of any kind. Measured off the committed bytes, the candidates were `A` at
+1.03 m and the transport `B` at 16.42 m; the vessel the route actually names sat 567.93 m
+away and was outside the radius even before it was deleted.
+
+**WHAT MAKES IT WORTH A RULING RATHER THAN A SHRUG.**
+
+  * THE SUBSTITUTION IS INVISIBLE OUTSIDE THE LOG. The produced save's route still reads
+    `destinationVesselPids: ['2123618197']` - nothing rebinds the endpoint - so the
+    Logistics window shows a route delivering normally and never names the craft that
+    received the cargo.
+  * IT CAN REACH A CRAFT THE PLAYER IS FLYING. `A` is an ordinary rover in the live
+    scene, 16.9 m from the focused vessel, and the delivery took the LOADED writer path.
+    Nothing distinguishes "the depot was rebuilt here" from "some rover happens to be
+    parked here".
+  * THE RUNNER-UP WAS THE TRANSPORT ITSELF. `B` sat 16.42 m from the same coordinates, so
+    on a subject where the transport parks nearer than a bystander this branch pays the
+    route's own carrier - which is precisely the "a route paying itself" case the
+    root-part step was introduced to prevent for ORIGINS. Delivery endpoints have no such
+    step available when the proof is absent.
+  * IT COMPOSES WITH AN ALREADY-FILED GAP. RESOLVER-PID-STEP-NOT-GUID-GATED (above) is
+    the same theme one step earlier: a craft-baked pid can name a different launch. On
+    this fixture the two interact - `rover fuel 0` carries the SAME baked pid as the
+    recorded destination and is a later rollout of that craft file, so the pid step was
+    already resolving to a craft that only shares an id with the recorded one.
+
+**THE QUESTION FOR THE OPERATOR, stated so it can be answered either way.** Should a
+missing destination FAIL CLOSED - hold the route `EndpointLost` unless the nearby craft
+matches the recorded endpoint's identity (root part `flightID`, or failing that the craft
+name / part multiset) - or is delivering to any surface vessel inside 500 m the INTENDED
+"the base was rebuilt on the same spot" behaviour? The resolver's own doc comment argues
+the permissive side for ORIGINS (500 m is "tight enough that a depot the player
+intentionally drove away from its dock spot loses the route, while still tolerating the
+small drift from terrain settling, autostrut adjustments, and floating-origin shifts after
+warp / scene-load"), and that argument is about DRIFT of the same craft rather than about
+substitution of a different one. A middle answer exists and may be the right one: keep the
+radius, add an identity test, and let a genuinely rebuilt base be re-bound explicitly.
+
+**WHAT A DECISION COSTS.** `RVR-18` is the characterization lane for today's behaviour and
+its required tokens (`Endpoint proximity step: resolved=1 pid=2875537755`, the
+`dest=A pid=2875537755` delivery and the three stores) FLIP the moment the rule changes -
+by design, and its header says so. A fix lands with that lane re-authored against the new
+contract in the same commit; the `EndpointLost` direction it currently FORBIDS is what it
+would then require. No other committed lane reaches the proximity step at all.
+
 ## RESOLVER-PID-STEP-NOT-GUID-GATED: `RouteEndpointResolver`'s pid step matches a bare `persistentId`, which is craft-baked and can name a different launch of the same craft [FOUND 2026-09-02 by the adversarial review of P12 (F3). OPEN, low severity while the root step covers the origin]
 
 `RouteEndpointResolver.TryResolveEndpoint`'s `EndpointResolutionStep.Pid` calls

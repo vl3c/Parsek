@@ -408,6 +408,42 @@ inventory = "clear"                  # and empty both containers
   writes), or `restore-dock-endpoint:<windowIndex>` (restore from that route
   window's own `DOCK_ENDPOINT_INVENTORY` snapshot - the fixture's own recorded
   bytes).
+* `remove = true` - DELETE the vessel's whole `VESSEL` node, the only way to author
+  "the endpoint this route names is no longer in the save" without a second harvest.
+  Exclusive with `resources` / `inventory` (both would patch a node this entry then
+  deletes), and REFUSED for any vessel at or before the save's `activeVessel` INDEX:
+  that key is positional, so removing an earlier vessel silently re-points the focus
+  at a different craft and every token the lane derives becomes a statement about a
+  different scene. It does NOT by itself produce an `EndpointLost` hold -
+  `RouteEndpointResolver` walks root-part -> pid -> SURFACE PROXIMITY, so on a
+  surface endpoint a removal only opens the third step, and whether that step misses
+  is a property of what else is parked near the recorded coordinates (on
+  `rover-route-recorded` it does not miss: RVR-18).
+
+A sibling key covers the one career quantity a route lane's arithmetic runs on:
+
+```toml
+[fixture.career]
+funds = 7409                          # one dispatch cost short, so the gate refuses
+```
+
+`[fixture.career]` is a single table, not an array, and today accepts `funds` only.
+It rewrites the `funds` key of the save's one `SCENARIO { name = Funding }` node and
+ABORTS on a save carrying none - which is exactly what a career declaration on a
+SANDBOX template looks like from inside the applier. It is deliberately NOT a
+`liveState` entry: that block is FLIGHTSTATE-only by contract, and that boundary is
+its whole safety argument. The declared number IS the number the dispatch gate reads:
+`LedgerOrchestrator.EnsureInitialFundsSeed` seeds the ledger FROM
+`Funding.Instance.Funds`, and `PatchFunds`' guarded uplift refuses to raise the live
+pool to a ledger running balance above it (RVR-4 measured that clamp on this very
+fixture family), so committed milestone rows do not move it.
+
+**THE TWO 2026-09-03 ADDITIONS ARE LIVE-PROVEN TOO**: `remove = true` on RVR-18
+(`2026-09-03_2011`, PASS attempt 1 - `liveState patched pid=2123618197 name=rover fuel 0
+removed=1`, and the route then resolved through the proximity step to a different
+vessel), and `[fixture.career] funds` on RVR-17 (`2026-09-03_2010`, PASS attempt 1 -
+`career patched funds 11000->7409`, with the game's own guarded-uplift clamp then
+reporting `live=7409`, i.e. the declared seed reached the pool the dispatch gate reads).
 
 **LIVE-PROVEN 2026-09-03** across the six RVR-8..RVR-15 lanes that stage one: every
 harness log carries its patch line (e.g. `liveState patched pid=90564594 name=B
@@ -443,14 +479,24 @@ behaviourally: applying `restore-dock-endpoint:<N>` to an endpoint the builder
 already restored from the same window is a BYTE-IDENTICAL no-op, and clearing then
 restoring returns the committed bytes exactly.
 
-WHAT IT CANNOT DO, and why that is a property of the bytes: there is no `fill` mode
-and no `restore-undock-endpoint:<N>`. An `UNDOCK_ENDPOINT_INVENTORY` snapshot is not
-a census of the resulting inventory (on `rover-relay-c-recorded` window 1 it carries
-four items, two of them the same part name at the same `slotIndex`, against a live
-rover holding six, with no container index recorded), and a fill mode would mean
-authoring `STOREDPART` nodes no snapshot ever wrote. The destination-slots-full edge
-therefore needs a second harvest; it is filed in `docs/dev/autotest-roadmap.md`
-item 15.
+WHAT IT CANNOT DO, and why that is a property of the bytes: there is no `fill` mode,
+no `restore-undock-endpoint:<N>` and no `relocate`. An `UNDOCK_ENDPOINT_INVENTORY`
+snapshot is not a census of the resulting inventory (on `rover-relay-c-recorded`
+window 1 it carries four items, two of them the same part name at the same
+`slotIndex`, against a live rover holding six, with no container index recorded), and
+a fill mode would mean authoring `STOREDPART` nodes no snapshot ever wrote. A
+`relocate` mode would change NOTHING for a route whose endpoint still carries a live
+pid: `RouteEndpointResolver`'s pid step is position-blind and wins before proximity is
+consulted, so moving a vessel is only observable once its pid is gone - which is what
+`remove` already does.
+
+The destination-slots-full edge is not expressible BY STAGING on
+`rover-relay-c-recorded` (rover A starts with three free slots and one cycle consumes
+at most two), and that limit is a property of THAT fixture rather than of this
+mechanism: on `rover-route-recorded` the destination starts with three free slots and
+one cycle consumes ALL THREE (a three-part manifest), so RVR-16 reaches the same edge
+by PLAYING the fixture with a single `resources` declaration. The relay-c version of the edge still needs a second
+harvest; it stays filed in `docs/dev/autotest-roadmap.md` item 15.
 
 ### Recording sidecars: what is committed and what is derived
 

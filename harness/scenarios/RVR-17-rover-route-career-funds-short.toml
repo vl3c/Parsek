@@ -1,0 +1,356 @@
+schema = 1
+id = "RVR-17-rover-route-career-funds-short"
+tier = "nightly"
+# =====================================================================================
+# THE CAREER FUNDS GATE REFUSING A ROUTE THAT HAS NEVER DISPATCHED - AND THE BOUNDARY
+# PINNED AT ONE FUND BELOW THE COMPUTED COST.
+#
+# **LIVE-PROVEN 2026-09-03: run `2026-09-03_2010`, PASS attempt 1, wall 50 s, EVERY
+# VERIFIER PASS**, on the automation DLL sha256 `995772453f2339a2`. Every number was
+# DERIVED first - from RVR-4's measured dispatch cost and from the seed this lane
+# declares - and the run confirmed all of them, including the two the lane rests on: the
+# shortfall arrived at `1.000002384185791` (`cost - seed` to the last digit) and the
+# guarded uplift clamped to the DECLARED seed rather than to the fixture's own.
+#
+# WHAT FLEW, from the collected KSP.log:
+#     [Stage] career patched funds 11000->7409
+#     PatchFunds: GUARDED UPLIFT clamped resource=Funds running=25609 live=7409
+#         wouldBeTarget=25609 clampedTo=7409 (no time-travel context)
+#     FundsCost basis=launch-manifest route=7f8e55ed source=cf8d06fc... snapshotSource=cf8d06fc...
+#         fallback=0 snapshotSurface=ghost cost=7410.0000023841858
+#     cycle=cycle-0 BLOCKED kind=FundsShort reason=funds-short shortfall=1.000002384185791
+#     cycle=cycle-1 BLOCKED kind=FundsShort reason=funds-short shortfall=1.000002384185791
+#     EmitPendingRecoveryCredit: route 7f8e55ed no pending credit at ut=1600 / ut=2200
+#     ArmedPause: ... reason=blocked-then-paused armedBy=send-once hold kind=FundsShort
+#
+# **THE CLAMP LINE IS THE ARGUMENT MADE VISIBLE.** `running=25609` is
+# `7409 + 18200` - the declared seed plus the committed ledger's five milestone awards -
+# and `clampedTo=7409` is the pool the funds gate then read. That is the "a ledger amount
+# is not a live pool amount" step RVR-4's authored header missed, measured here against a
+# seed this lane chose, which is what makes `[fixture.career]` a usable instrument rather
+# than a hopeful one. It stays UNPINNED for RVR-4's reason (a fixture artifact, not a
+# product contract).
+#
+# **AND NOTHING MOVED.** All five negatives held: no `DispatchDebit:`, no
+# `Career KSC funds debited`, no `Delivery write:`, no `Inventory store:`, no
+# `BLOCKED kind=DestinationFull`. The produced save reads `completedCycles=0
+# skippedCycles=2 statuses={Paused:1} holdKinds={FundsShort:1}`, which is the same claim
+# in the BYTES: two crossings, neither dispatched.
+#
+# WHAT IS NEW HERE, AND IT IS NOT "RVR-4 WITH A SMALLER SEED". RVR-4 measured the funds
+# gate refusing the SECOND cycle of a route that had already dispatched and been charged
+# (live 11000 -> 3590 -> short by 3820). That is the gate working AFTER the money moved.
+# What no lane has measured is the gate refusing the FIRST cycle: a career KSC route
+# that never dispatches at all, so `EmitDispatchDebit` never runs, `Funding.Instance`
+# never moves, no `Delivery write:` is ever issued, and the route reaches
+# `blocked-then-paused` having done nothing. That is the shape a player meets when they
+# create a supply route they cannot afford, and it is the one direction of the career
+# gate the suite has never driven.
+#
+# THE SECOND CLAIM IS THE BOUNDARY. The seed is ONE fund below the computed dispatch
+# cost, so the refusal's `shortfall` is the cost's own fractional tail plus one
+# (1.000002384185791). Any lane could show "not enough funds"; this one shows that the
+# comparison is against the COMPUTED cost to the unit, because a gate that rounded, or
+# that priced from a different basis, cannot produce a shortfall of 1.00000...
+#
+# -------------------------------------------------------------------------------------
+# THE ARITHMETIC, AND WHY EVERY INPUT IS ALREADY MEASURED.
+#
+# THE COST is RVR-4's, measured on this exact fixture family twice
+# (`2026-09-01_2228` and the green `2026-09-01_2253`):
+#     FundsCost basis=launch-manifest route=<id> source=cf8d06fc... snapshotSource=cf8d06fc...
+#               fallback=0 snapshotSurface=ghost cost=7410.0000023841858
+# i.e. the tree ROOT prices ITSELF off its `_ghost.craft` surface (the `VesselSnapshot`
+# is nulled in memory by ParsekScenario's OnLoad crew-auto-unreserve sweep; the ghost
+# copy survives it), summing 16 part costs = 7250 against the automation instance's OWN
+# `ModuleManager.ConfigCache` prices plus 200 LiquidFuel at 0.8 = 160. The parts and the
+# manifest are byte-identical between `rover-route-recorded` and `rover-route-career`
+# (`verify_payload_unchanged` gates that), so this lane's cost is the same number.
+#
+# THE SEED. `[fixture.career] funds = 7409` rewrites `SCENARIO { name = Funding }`'s one
+# `funds` key in the STAGED COPY. `7409 < 7410.0000023841858`, so
+# `LiveRouteRuntimeEnvironment.KscFundsAvailable` returns false with
+# `shortfall = cost - funds`, and `CheckEligibility` step 7 stops the walk there.
+#
+# THE SHORTFALL HAS TWO DEFENSIBLE READINGS AND THE TOKEN TAKES BOTH.
+# `build_rover_route_career.dispatch_cost_readings` derives the cost as EXACTLY 7410
+# from the part table plus the launch manifest (a Python sum), where the game measured
+# 7410.0000023841858 - the float32 accumulation over `AvailablePart.cost` that RVR-4
+# records and deliberately leaves open. So the shortfall is 1 on the derivation and
+# 1.000002384185791 on the measurement, and the token is pinned
+# `shortfall=1(\.[0-9]+)?[ ]` - the leading digit is the boundary claim, the tail is
+# optional, and the trailing space (the rendered line continues ` - emitted nothing`)
+# is what stops the pattern also matching a `shortfall=14...` that meant something
+# else entirely. `harness/lib` re-derives the difference from the committed bytes and
+# asserts the pinned digits are a prefix of it.
+#
+# WHY THE DECLARED NUMBER IS THE NUMBER THE GATE READS - the step RVR-4's authored
+# header got WRONG and its flights corrected, kept here because it is the reason a
+# seed patch is meaningful at all. The committed ledger carries five
+# `MilestoneAchievement` rows worth 18,200 funds, so the ledger's RUNNING balance is
+# 7409 + 18200. It never reaches the pool: `KspStatePatcher.PatchFunds` runs the target
+# through `ApplyDrawdownGuard`, and the "keep what you earned" guard REFUSES an upward
+# patch whose running balance exceeds the live pool, holding the pool at the spent
+# value and saying so (`GUARDED UPLIFT clamped resource=Funds running=29200 live=11000
+# wouldBeTarget=29200 clampedTo=11000`, measured verbatim by RVR-4 with the fixture's
+# own 11000). `LedgerOrchestrator.EnsureInitialFundsSeed` likewise seeds FROM
+# `Funding.Instance.Funds`. So the live pool is exactly what this block declares.
+# THAT LINE IS DELIBERATELY NOT PINNED, for RVR-4's reason: it is a property of a
+# FILE-CONSTRUCTED career (award rows with no matching live-pool history) and a fixture
+# that later gained a spending channel would stop emitting it.
+#
+# THE COST IS STILL COMPUTED, and that is what makes the shortfall checkable.
+# `KscFundsAvailable` calls `ComputeDispatchFundsCostForRoute` BEFORE comparing, so the
+# `FundsCost basis=` breadcrumb appears on a refused cycle exactly as it does on a
+# charged one. Token 6 pins it in full, which turns `shortfall = cost - funds` from an
+# assertion of this file into two independently-logged numbers a reader can subtract.
+#
+# BOTH DRIVEN CYCLES REFUSE, and neither moves anything: the funds gate is re-evaluated
+# per crossing and nothing in a blocked cycle changes the pool
+# (`ProcessLoopRoute` returns before `EmitLoopCycle`). So cycle-0 and cycle-1 both read
+# `BLOCKED kind=FundsShort` with the identical shortfall, and `SkippedCycles` reaches 2.
+#
+# -------------------------------------------------------------------------------------
+# THE FOUR NEGATIVES, WHICH ARE THE PRODUCT OF THE LANE.
+#   * `DispatchDebit:` FORBIDDEN - the charge is emitted inside `EmitLoopCycle`, which a
+#     blocked cycle never reaches. RVR-4 measured that line at `cost=7410 careerKsc=1`;
+#     its absence here is what "never dispatched" means in the log.
+#   * `Career KSC funds debited` FORBIDDEN - the live `Funding.Instance.AddFunds(-cost)`
+#     in `ApplyDeliveryFromPlan` step 7. A player who cannot afford a dispatch must not
+#     be charged for the refusal.
+#   * `Delivery write:` and `Inventory store:` FORBIDDEN - nothing arrives at the
+#     endpoint. This is the funds-gate mirror of RVR-13's no-debit claim.
+#   * `BLOCKED kind=DestinationFull` FORBIDDEN - gate 8 is never consulted. On these
+#     bytes it WOULD pass on cycle 0 anyway (the endpoint has 102.4 of tank headroom
+#     against a 97.6 manifest and 3 free slots), so the forbid is a statement about the
+#     WALK: `CheckEligibility` returns the FIRST failure and funds is step 7.
+#
+# ATTRIBUTABILITY, from the other side: `careerKsc` cannot be read on a refused cycle
+# (that field belongs to the debit line, which is forbidden here), so the token that
+# proves the CAREER branch was taken is the `FundsCost basis=` line itself - the funds
+# gate is the only caller of `ComputeDispatchFundsCostForRoute` on a non-dispatching
+# cycle, and it runs only under `env.IsCareer && route.IsKscOrigin`. A run that lost the
+# career stamp would print no `FundsCost` line at all and would block, if at all, on
+# DestinationFull.
+#
+# -------------------------------------------------------------------------------------
+# TWO SMALLER THINGS, RECORDED SO THEY ARE NOT RE-DISCOVERED AS PROBLEMS.
+#   * THE STAGED `persistent.loadmeta` STILL SAYS `funds = 11000`. It is the load-menu's
+#     display metadata; `LoadGame` reads `persistent.sfs`, and nothing in Parsek reads
+#     the loadmeta. The patch deliberately touches ONE key in ONE node rather than
+#     chasing a cosmetic mirror.
+#   * NO `credit-skip zero-recovery` LINE IS EXPECTED, where RVR-4 requires one.
+#     `EmitPendingRecoveryCredit` returns at its first guard when
+#     `PendingRecoveryCreditCycleId` is empty, and that marker is only ever set by a
+#     Career-KSC DISPATCH. Token 12 pins the line it DOES print
+#     (`no pending credit at ut=`), which is the positive form of "nothing was ever
+#     dispatched, so nothing was owed".
+# =====================================================================================
+description = "LIVE-PROVEN 2026-09-03: run 2026-09-03_2010, PASS attempt 1, wall 50 s, EVERY VERIFIER PASS, on the automation DLL sha256 995772453f2339a2. The career funds gate refusing a route that has NEVER dispatched, and the boundary measured one fund below the computed cost. RVR-4 measured the gate refusing the SECOND cycle of a route already charged (11000 -> 3590, short by 3820); no lane had measured it refusing the FIRST, which is the shape a player meets when they create a supply route they cannot afford. A new [fixture.career] spec surface rewrote SCENARIO { name = Funding }'s funds key in the staged copy to 7409 - one below RVR-4's twice-measured 7410.0000023841858 - and the run answered shortfall=1.000002384185791 on BOTH cycles, cost - seed to the last digit. THE DECLARED NUMBER IS THE NUMBER THE GATE READS, and the run made the argument visible: PatchFunds GUARDED UPLIFT clamped resource=Funds running=25609 live=7409 clampedTo=7409, i.e. the declared seed plus the committed ledger's 18,200 of milestone awards, clamped back to the seed - the 'a ledger amount is not a live pool amount' step RVR-4's authored header missed, now measured against a seed this lane chose. The cost is still COMPUTED on a refused cycle (KscFundsAvailable calls ComputeDispatchFundsCostForRoute before comparing), so the FundsCost basis=launch-manifest ... fallback=0 snapshotSurface=ghost cost=7410 breadcrumb is pinned in full and the shortfall is two independently-logged numbers a reader can subtract - and on a non-dispatching cycle that line is also the ONLY token proving the career branch was taken, because careerKsc=1 lives on the debit line this lane forbids. THE PRODUCT IS THE FIVE NEGATIVES AND ALL FIVE HELD: no DispatchDebit:, no Career KSC funds debited, no Delivery write:, no Inventory store:, and no BLOCKED kind=DestinationFull - the last a statement about the WALK rather than about capacity, since gate 8 would have PASSED on these bytes. The produced save says the same thing in the bytes (completedCycles=0 skippedCycles=2 statuses={Paused:1} holdKinds={FundsShort:1}), and EmitPendingRecoveryCredit read `no pending credit` rather than RVR-4's credit-skip line, because only a Career-KSC dispatch sets that marker. harness/lib re-derives the seed as int(cost) - 1 and the pinned shortfall digits as a prefix of cost - seed, so a re-harvest that moved the parts multiset moves both."
+instanceProfile = "stock-minimal"
+tags = ["seam-verbs", "logistics", "route-create", "route-hold", "career",
+        "dispatch-cost", "funds-short", "live-state", "recorded-fixture", "RVR-17",
+        "matrix"]
+
+[fixture]
+# `rover-route-career` - RVR-4's host, `rover-route-recorded` stamped into CAREER by
+# construction with the ParsekScenario node, the whole FLIGHTSTATE and every sidecar
+# byte-identical to the sandbox sibling. This lane moves ONE more variable than RVR-4
+# does, and it is the seed rather than anything structural.
+#
+# `injectedRecordings = "none"`: RVR-2's and RVR-4's call, for their reason.
+saveTemplate       = "fixtures/saves/rover-route-career"
+injectedRecordings = "none"
+craft              = []
+
+[fixture.career]
+# ONE FUND SHORT OF THE COMPUTED DISPATCH COST. 7410.0000023841858 - 7409 =
+# 1.000002384185791, which is the `shortfall=` token below and is the whole boundary
+# claim: a gate comparing against a rounded, defaulted or differently-based cost cannot
+# produce that number.
+#
+# WHY NOT `funds = 7410` (the exact integer part). Because the cost's fractional tail is
+# float32 accumulation over `AvailablePart.cost` sums, so 7410 is ALSO short - by
+# 2.4e-06 - and a lane pinned on that tail would red the first time the tail moved by a
+# rounding. 7409 is the nearest value whose shortfall is dominated by the DECLARED
+# number rather than by the tail.
+#
+# WHY NOT A COMFORTABLE 7000. It would prove the same gate at a number that says nothing
+# about where the boundary is. The tail is regexed (`1\.00000[0-9]*`), so the pin
+# survives a tail move while the leading digit still asserts the boundary.
+funds = 7409
+
+[driver]
+# RVR-4's THIRTEEN STEPS, VERBATIM apart from the route name - which is RVR-2's driver
+# in turn. A step this lane changed would be a variable it did not mean to move: the
+# whole claim is that only the SEED differs from RVR-4, and RVR-4's green run is
+# therefore this lane's control for everything up to the funds comparison.
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                    expect = "OK" },
+  { cmd = "DiscardTree",                                                      expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" },  expect = "OK" },
+  { cmd = "SealSlot",     args = { tree = "73e50f1e3aa24c299919016cd9e92269" }, expect = "OK", budget = 120 },
+  { cmd = "RouteCommand", args = { action = "create", tree = "73e50f1e3aa24c299919016cd9e92269", name = "RVR17 Broke Supply" }, expect = "OK", budget = 120 },
+  { cmd = "RouteCommand", args = { action = "send-once", route = "RVR17 Broke Supply" }, expect = "OK", budget = 120 },
+  { cmd = "TimeJump",     args = { ut = "1600" },                             expect = "OK", budget = 300 },
+  { cmd = "RouteCommand", args = { action = "send-once", route = "RVR17 Broke Supply" }, expect = "OK", budget = 120 },
+  { cmd = "TimeJump",     args = { ut = "2200" },                             expect = "OK", budget = 300 },
+  { cmd = "SaveGame",                                                         expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                     expect = "OK" },
+]
+
+[dimensionsCovered]
+# **NO D10 CLAIM, DECIDED ON THE GREEN RUN RATHER THAN DEFERRED BY IT.** The authored
+# spec named two rows this lane might earn once flown; the run is green and the answer to
+# both is still no, on the corpus's own NON-INFLATION rule (RVR-15's row: "re-declaring
+# inflates the count without gating a new behaviour").
+#
+#   * `ksc-origin` is BDOCK-1's. This lane does exercise the branch a KSC origin only
+#     reaches in CAREER - `FundsCost` and the funds gate at step 7 - but RVR-4 measured
+#     that branch FIRST, green, on 2026-09-01, and deliberately declared nothing. The
+#     first measurer's abstention stands; a second lane claiming the row its predecessor
+#     declined would be bookkeeping, not coverage.
+#   * `hold-reasons` is H38's. The FundsShort KIND is one H38 structurally cannot reach
+#     (it needs Career + KSC origin) and this lane gates it at three producers, which is
+#     the RVR-9 / H34 second-declarer shape - but again RVR-4 produced that kind first
+#     and did not claim. If the row is ever split so the career hold kinds are their own
+#     value, RVR-4 is its declarer and this lane is the second; that is a registry
+#     decision, and inventing a value to fit a lane is what the growth rule forbids.
+#
+# What this lane's tokens DO prove that nothing else gates - the funds gate refusing
+# BEFORE any dispatch, with the five negatives held - has no registry value naming it,
+# and the honest response to that is a row in the status doc rather than a stretched
+# claim on someone else's.
+D14 = ["kerbin", "career", "scene-flight"]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING (the H7 lesson). No tracer is armed, so the empty list is
+# honest, and no render-composition block is declared (it would set
+# `PARSEK_RENDER_MANIFEST=1` and a confirmed dock crossing appends CLOCK-EVENTs to that
+# manifest).
+allowedAnomalies = []
+
+[expectations.recordings]
+# RVR-2's / RVR-4's anti-data-loss floor, exact at 5 on both bounds. The career stamp
+# touches no RECORDING node and the career patch touches one SCENARIO key, so the count
+# is inherited as a MEASURED number rather than a guess (RVR-4 observed 5 on all three
+# of its flights).
+count = { min = 5, max = 5 }
+
+[expectations.logContracts]
+# FOURTEEN TOKENS. Each is a literal RUN from the emitting `string.Format` /
+# interpolation, never a line pasted from a log.
+#
+# TOKENS 1-5 ARE RVR-2's / RVR-4's PROLOGUE SET and are this lane's control: RVR-4 run 3
+# measured all five green over the identical career payload.
+#
+# TOKEN 6  THE COSTING BASIS, RVR-4's token verbatim. Here it does DOUBLE duty. It is
+#          still the fix's gate (`UNCOSTED` would mean the round-2
+#          `ResolveCostingSnapshot` regressed), and it is additionally this lane's proof
+#          that the CAREER branch was reached at all: on a cycle that never dispatches,
+#          `KscFundsAvailable` is the only caller of
+#          `ComputeDispatchFundsCostForRoute`, and it runs only under
+#          `env.IsCareer && route.IsKscOrigin`. `fallback=0 snapshotSurface=ghost` is
+#          pinned CONTIGUOUS, which asserts the transport-subset path did NOT run
+#          (`subsetTerm` is emitted between those two fields).
+#
+# TOKEN 7  CYCLE 0 REFUSED, from `ProcessLoopRoute`'s Info line, and the headline of the
+#          lane: the FIRST cycle blocks. `shortfall=1\.00000[0-9]*` is
+#          `cost - funds` with the float tail regexed (the wave's FINDING 2 rule).
+#
+# TOKEN 8  CYCLE 1 REFUSED IDENTICALLY. Pinned separately because it says something
+#          token 7 cannot: a blocked cycle moved no funds, so the SECOND refusal reports
+#          the SAME shortfall. A pool that had drifted between crossings would print a
+#          different number here.
+#
+# TOKEN 9  THE PERSISTED VERDICT, from `Route.RecordHold`. `detail=funds-short` is the
+#          evaluator's reason string for step 7. NOTE it logs only when the recorded
+#          hold CHANGED, so exactly one such line is expected across two identical
+#          refusals - which is why this token is not paired per cycle.
+#
+# TOKENS 10-11  THE ARMED PAUSE and its provenance, with `hold kind=FundsShort` naming
+#          WHICH refusal consumed the one-shot (the same line reads
+#          `hold kind=DestinationFull` in sandbox). RVR-4 measured this three-field run
+#          contiguous.
+#
+# TOKEN 12 NOTHING WAS EVER OWED, from `EmitPendingRecoveryCredit`'s first guard. This
+#          is where RVR-4 reads `credit-skip zero-recovery (recoveryRows=0)`: that line
+#          requires a PENDING credit, which only a Career-KSC dispatch sets. Pinning the
+#          no-pending line instead keeps the claim honest and makes the absence of a
+#          dispatch legible in a second place.
+#
+# TOKEN 13 THE LIFECYCLE MARKER, the persisted-timeline half of token 10's decision.
+#
+# TOKEN 14 THE CREATE ACK, kept last in this commentary because it is RVR-4's: a created
+#          route starts `Paused`, which is what makes the send-once steps meaningful.
+#
+# NOT PINNED, DELIBERATELY: `PatchFunds: GUARDED UPLIFT clamped ...` (a file-constructed
+# career's artifact, which a future spending channel would stop emitting),
+# `Credited milestone '...'` (same class), and any `status=` reading of a hold kind (on
+# the loop path a blocked route ends at `Paused` with `LastHoldKind` set).
+required  = [
+  "loadgame complete scene=FLIGHT save=.* game-loaded=true expected=Flight",
+  "sealslot complete mode=tree tree=73e50f1e3aa24c299919016cd9e92269 total=4 sealed=0 remaining=0 alreadySealed=True",
+  "routecommand create gate tree=73e50f1e3aa24c299919016cd9e92269 treeFound=True dismissed=False sealed=True eligible=True status=Eligible alreadyPromoted=False refusal=None",
+  "routecommand complete action=create tree=73e50f1e3aa24c299919016cd9e92269 route=.* name='RVR17 Broke Supply' status=Paused",
+  "PauseAfterCurrentCycle=true \\(route will dispatch one cycle when conditions allow, then transition to Paused\\)",
+  "FundsCost basis=launch-manifest route=\\S+ source=cf8d06fc7bf74e1a82bc70fc79290847 snapshotSource=cf8d06fc7bf74e1a82bc70fc79290847 fallback=0 snapshotSurface=ghost cost=7410(\\.[0-9]+)?",
+  "cycle=cycle-0 BLOCKED kind=FundsShort reason=funds-short shortfall=1(\\.[0-9]+)?[ ]",
+  "cycle=cycle-1 BLOCKED kind=FundsShort reason=funds-short shortfall=1(\\.[0-9]+)?[ ]",
+  "Route [0-9a-f]{8} hold recorded kind=FundsShort detail=funds-short",
+  "ArmedPause: route .* BLOCKED cycle consumed the armed pause",
+  "reason=blocked-then-paused armedBy=send-once hold kind=FundsShort",
+  "EmitPendingRecoveryCredit: route [0-9a-f]{8} no pending credit at ut=",
+  "LifecycleMarker: route .* type=RoutePaused reason=blocked-then-paused",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "routecommand rejected",
+  # THE FOUR NEGATIVES. Nothing was priced INTO a charge, nothing left the pool, and
+  # nothing arrived at the endpoint.
+  "DispatchDebit:",
+  "Career KSC funds debited",
+  "Delivery write:",
+  "Inventory store:",
+  # AND THE WALK STOPPED AT STEP 7. Gate 8 would have PASSED on these bytes (102.4 of
+  # tank headroom against a 97.6 manifest, 3 free slots), so a DestinationFull reading
+  # would mean the funds gate did not refuse - i.e. the career patch did not take.
+  "BLOCKED kind=DestinationFull",
+]
+
+[expectations.recordings.structure]
+# REPORT-ONLY (no `gating` key), the committed fixture's own structure re-read through
+# `harness/lib/saveparse.py` and unchanged by a driver that creates no recordings.
+trees          = { min = 2, max = 2 }
+committedTrees = { min = 2, max = 2 }
+recordings     = { min = 5, max = 5 }
+terminalStates = { Landed = { min = 3 }, Docked = { min = 1 } }
+branchPoints   = { Dock = { min = 1, max = 1 }, Undock = { min = 1, max = 1 } }
+
+[expectations.routes]
+# REPORT-ONLY and DERIVED. `stops = 1` / `sourceRefs = 2` are RVR-2's and RVR-4's
+# measured `stops=1` and `of 2` member set. `completedCycles = 0` with
+# `skippedCycles = 2` is this lane's whole product expressed in the produced BYTES: two
+# crossings, neither dispatched. Arming is a separate decision after a reading run.
+count           = { min = 1, max = 1 }
+dormant         = { min = 0, max = 0 }
+stops           = { min = 1, max = 1 }
+sourceRefs      = { min = 2, max = 2 }
+completedCycles = { min = 0, max = 0 }
+skippedCycles   = { min = 2, max = 2 }
+statuses        = { Paused = { min = 1, max = 1 } }
+
+[runtime]
+# RVR-4's budget arithmetic, unchanged: three deferred verbs at 660 s each is 1980 worst
+# case, plus the six synchronous route/seal/save budgets. RVR-4's runs came in at 50-74 s
+# wall on the identical driver.
+budgetSeconds = 2400
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

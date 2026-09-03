@@ -4851,3 +4851,157 @@ class LiveStateStageTests(unittest.TestCase):
                                           self.logger)
         self.assertTrue(ok and ok2)
         self.assertEqual(first, self._staged_sfs(name2))
+
+
+class RemovalAndCareerStageTests(unittest.TestCase):
+    """The shell half of the two 2026-09-03 staging modes: `remove = true` and
+    `[fixture.career] funds`.
+
+    Same standard as `LiveStateStageTests`: every cell is about the OBSERVABLE
+    effect on the STAGED COPY and about failing closed pre-boot, because the
+    expensive failure mode is a declaration that quietly did nothing and a lane
+    that then measured the unpatched fixture."""
+
+    SAVE = "\n".join([
+        "GAME",
+        "{",
+        "\tSCENARIO",
+        "\t{",
+        "\t\tname = Funding",
+        "\t\tfunds = 11000",
+        "\t}",
+        "\tFLIGHTSTATE",
+        "\t{",
+        "\t\tactiveVessel = 0",
+        "\t\tVESSEL",
+        "\t\t{",
+        "\t\t\tname = Focus",
+        "\t\t\tpersistentId = 4242",
+        "\t\t}",
+        "\t\tVESSEL",
+        "\t\t{",
+        "\t\t\tname = Endpoint",
+        "\t\t\tpersistentId = 777",
+        "\t\t}",
+        "\t}",
+        "}",
+        "",
+    ])
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="parsek-harness-removecareer-")
+        self.instance = os.path.join(self.tmp, "instance")
+        os.makedirs(self.instance, exist_ok=True)
+        _write_manifest(self.instance, "stock-minimal")
+        self.template = os.path.join(self.tmp, "removecareer-template")
+        os.makedirs(self.template, exist_ok=True)
+        self.template_sfs = os.path.join(self.template, "persistent.sfs")
+        with open(self.template_sfs, "wb") as fh:
+            fh.write(self.SAVE.encode("utf-8"))
+        self._orig_results = run.RESULTS_DIR
+        run.RESULTS_DIR = os.path.join(self.tmp, "results")
+        self.logger = run.HarnessLogger(
+            os.path.join(run.RESULTS_DIR, "removecareer_harness.log"))
+
+    def tearDown(self):
+        run.RESULTS_DIR = self._orig_results
+        self.logger.close()
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _spec(self, live_state=None, career=None):
+        spec = _make_spec(self.template, 30, 600)
+        if live_state is not None:
+            spec["fixture"]["liveState"] = live_state
+        if career is not None:
+            spec["fixture"]["career"] = career
+        return spec
+
+    def _staged_sfs(self, name):
+        with open(os.path.join(self.instance, "saves", name, "persistent.sfs"),
+                  "rb") as fh:
+            return fh.read().decode("utf-8")
+
+    def _log(self):
+        with open(self.logger.log_path, "r", encoding="utf-8") as fh:
+            return fh.read()
+
+    def test_a_removal_reaches_the_staged_save(self):
+        ok, name, subkind = run.stage_fixture(
+            self._spec(live_state=[{"pid": 777, "remove": True}]),
+            self.instance, FakeRuntime("pass"), self.logger)
+        self.assertTrue(ok)
+        self.assertEqual("", subkind)
+        staged = self._staged_sfs(name)
+        self.assertNotIn("persistentId = 777", staged)
+        self.assertIn("persistentId = 4242", staged)
+        self.assertIn("liveState patched pid=777 name=Endpoint removed=1", self._log())
+
+    def test_removing_the_focused_vessel_fails_closed(self):
+        ok, _name, subkind = run.stage_fixture(
+            self._spec(live_state=[{"pid": 4242, "remove": True}]),
+            self.instance, FakeRuntime("pass"), self.logger)
+        self.assertFalse(ok)
+        self.assertEqual("staging", subkind)
+        self.assertIn("activeVessel is 0", self._log())
+
+    def test_removing_an_unknown_pid_terminates_invalid_without_booting(self):
+        """The whole-attempt shape of the refusal: a `remove` naming a pid the
+        save does not carry is INVALID(staging) with KSP never launched, the same
+        contract `LiveStateStageTests` pins for an unsatisfiable `resources`."""
+        rt = FakeRuntime("pass")
+        result = run.run_attempt(
+            self._spec(live_state=[{"pid": 999999, "remove": True}]),
+            self.instance, self.tmp, rt, attempt=1, prior_boot_crashed=False,
+            logger=self.logger)
+        self.assertEqual(hlib.VERDICT_INVALID, result["verdict"])
+        self.assertEqual("staging", result["subkind"])
+        self.assertEqual(0, rt.launch_count,
+                         "a removal of a vessel the save does not carry must never boot KSP")
+        self.assertIn("found 0", self._log())
+
+    def test_a_career_seed_reaches_the_staged_save(self):
+        ok, name, subkind = run.stage_fixture(
+            self._spec(career={"funds": 7409}), self.instance,
+            FakeRuntime("pass"), self.logger)
+        self.assertTrue(ok)
+        self.assertEqual("", subkind)
+        self.assertIn("\t\tfunds = 7409", self._staged_sfs(name))
+        self.assertIn("career patched funds 11000->7409", self._log())
+
+    def test_a_career_seed_on_a_sandbox_template_fails_closed(self):
+        sandbox = os.path.join(self.tmp, "sandbox-template")
+        os.makedirs(sandbox, exist_ok=True)
+        with open(os.path.join(sandbox, "persistent.sfs"), "wb") as fh:
+            fh.write(self.SAVE.replace("\t\tname = Funding\n", "\t\tname = Other\n")
+                     .encode("utf-8"))
+        spec = _make_spec(sandbox, 30, 600)
+        spec["fixture"]["career"] = {"funds": 7409}
+        ok, _name, subkind = run.stage_fixture(
+            spec, self.instance, FakeRuntime("pass"), self.logger)
+        self.assertFalse(ok)
+        self.assertEqual("staging", subkind)
+        self.assertIn("Funding", self._log())
+
+    def test_both_declarations_apply_in_one_pass(self):
+        ok, name, _ = run.stage_fixture(
+            self._spec(live_state=[{"pid": 777, "remove": True}],
+                       career={"funds": 1}),
+            self.instance, FakeRuntime("pass"), self.logger)
+        self.assertTrue(ok)
+        staged = self._staged_sfs(name)
+        self.assertNotIn("persistentId = 777", staged)
+        self.assertIn("\t\tfunds = 1", staged)
+
+    def test_the_committed_template_is_never_written(self):
+        before = open(self.template_sfs, "rb").read()
+        run.stage_fixture(self._spec(live_state=[{"pid": 777, "remove": True}],
+                                     career={"funds": 1}),
+                          self.instance, FakeRuntime("pass"), self.logger)
+        self.assertEqual(before, open(self.template_sfs, "rb").read())
+
+    def test_no_declaration_leaves_the_save_byte_identical(self):
+        ok, name, _ = run.stage_fixture(self._spec(), self.instance,
+                                        FakeRuntime("pass"), self.logger)
+        self.assertTrue(ok)
+        self.assertEqual(self.SAVE, self._staged_sfs(name))
+        self.assertNotIn("career patched", self._log())

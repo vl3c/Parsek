@@ -396,6 +396,60 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Dev
 
+- The same per-scenario setup now covers two more situations a supply route can
+  meet, and three new test lanes use them over the FIRST rover save. A scenario can
+  say "this craft is no longer in the save at all" (the whole craft is dropped
+  before the game starts, refused outright if dropping it would move which craft
+  the game opens on), and a career scenario can say what the funds balance should
+  be. With those, three lanes were added. **Destination out of cargo SPACE rather
+  than out of tank room**: every existing test that reaches a full destination hits
+  the fuel limit first, because Parsek reports the first thing that does not fit and
+  it checks fuel before cargo, so the cargo-slot refusal had never been produced by
+  any automated run. Staging the destination tank low takes fuel out of the way, and
+  the second delivery then runs out of container slots instead - which needed no new
+  machinery at all, only the observation that this save's destination has room for
+  exactly one delivery's worth of cargo. **A career route that cannot afford its
+  first dispatch**: the existing career lane measures the SECOND cycle running out
+  of money after a real charge; this one starts the balance one fund below the
+  computed cost, so the very first cycle is refused and nothing is charged, nothing
+  is delivered, and the route pauses having done nothing. **The delivery target
+  deleted from the save**: the first automated run of Parsek's fall-back for a
+  supply endpoint whose craft can no longer be found by id, which searches for a
+  surface craft near the recorded dock spot instead. What it measures is not what a
+  reader expects, and that is why it exists - the fall-back does not give up, it
+  hands the delivery to the craft parked one metre from where the dock was recorded,
+  which on this save is the rover that PHYSICALLY did the dock (the deleted one was
+  a later copy of the same craft file, carrying the same built-in id and parked
+  half a kilometre away). All three now pass: two on their first flight, the third
+  on a re-run after it measured its own subject correctly and failed on a number
+  this branch had got wrong (below).
+
+- **A supply run's cargo list was being counted from the wrong place, and two green
+  test flights had not noticed.** The delivery in the rover save moves THREE stored
+  items, not two - a chute, a science kit and a ground station - and the tests had
+  recorded two, because both places anyone had looked said two: a summary line
+  printed when the route is created (which counts something else) and the operator's
+  own hand-flown delivery, which had only managed to fit two items because the
+  destination was already nearly full. The recorded dock itself always said three.
+  Nothing in the mod was wrong and nothing changed in it; what changed is that the
+  count is now worked out from the recorded dock every time the tests run, instead
+  of being written down once. The general lesson is worth keeping: a count taken
+  from a summary field, or from a run that ran out of room, is not the count of the
+  thing itself.
+
+- **A delivery whose destination craft no longer exists is handed to whatever craft
+  is parked where it used to be.** Measured, not fixed: with the destination deleted
+  from the save, the route found a rover one metre from the recorded docking spot -
+  in this case the right one, the craft that had physically done the dock, but the
+  search that found it does not check identity at all, and the craft it picked was
+  an ordinary rover sitting in the live scene sixteen metres from the one the player
+  was flying. A full delivery went into it, and the route's own record still names
+  the craft that is gone, so nothing in the game says where the cargo went. Filed as
+  a question for the next design pass - should a missing destination hold the route
+  instead, unless the nearby craft is recognisably the same one, or is delivering to
+  a rebuilt base on the same spot the point? - with the test lane named as the one
+  that has to be rewritten whichever way it is answered.
+
 - The automated-test harness can now set a save's LIVE endpoint state per
   scenario, so the supply-route edge cases are eight test lanes over ONE
   committed save instead of eight nearly identical saves. A supply route replays

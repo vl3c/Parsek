@@ -592,31 +592,379 @@ class ValidateSpecWiringTests(unittest.TestCase):
             self._spec([{"pid": -1, "resources": {"LiquidFuel": 0}}]), {}, bug_ids=[])
         self.assertTrue(any("liveState" in e for e in bad.errors), bad.errors)
 
+    def test_a_bad_career_block_reaches_validate_spec(self):
+        """The `[fixture.career]` half of the same wiring. Same rule, same layer:
+        a malformed seed must be INVALID-SPEC before the instance is prepared,
+        not an abort under the machine lock."""
+        spec = self._spec(None)
+        spec["fixture"]["career"] = {"funds": -5}
+        bad = hlib.validate_spec(spec, {}, bug_ids=[])
+        self.assertTrue(any("career.funds" in e for e in bad.errors), bad.errors)
+
+    def test_a_good_career_block_adds_no_error(self):
+        base = hlib.validate_spec(self._spec(None), {}, bug_ids=[])
+        spec = self._spec(None)
+        spec["fixture"]["career"] = {"funds": 7409}
+        good = hlib.validate_spec(spec, {}, bug_ids=[])
+        self.assertEqual(base.errors, good.errors)
+
+
+_SYNTHETIC_CAREER = "\n".join([
+    "GAME",
+    "{",
+    "\tSCENARIO",
+    "\t{",
+    "\t\tname = ResearchAndDevelopment",
+    "\t\tsci = 100",
+    "\t}",
+    "\tSCENARIO",
+    "\t{",
+    "\t\tname = Funding",
+    "\t\tscene = 7, 8, 5, 6",
+    "\t\tfunds = 11000",
+    "\t}",
+    "\tFLIGHTSTATE",
+    "\t{",
+    "\t\tactiveVessel = 0",
+    "\t}",
+    "}",
+    "",
+])
+
+
+class SyntheticRemovalTests(unittest.TestCase):
+    """`remove = true` - whole-VESSEL deletion, and the one refusal that makes it
+    safe to ship.
+
+    The refusal is not defensive tidiness: `activeVessel` is a POSITIONAL index
+    into the FLIGHTSTATE vessel list, so removing a vessel at or before it
+    re-points the focus at a different craft and every token the lane derives
+    becomes a statement about a different scene - silently, on a run that boots
+    and looks healthy."""
+
+    def test_a_later_vessel_is_removed_whole(self):
+        out, notes = savepatch.apply_live_state(
+            _SYNTHETIC, [{"pid": 222, "remove": True}])
+        self.assertEqual(["pid=222 name=Beta removed=1"], notes)
+        lines = _lines(out)
+        self.assertEqual([("Alpha", "111")],
+                         [(n, p) for n, p, _s in savepatch.flightstate_vessels(lines)])
+        # The node went whole: no orphan brace, no orphan key.
+        self.assertNotIn("persistentId = 222", out)
+        self.assertNotIn("name = Beta", out)
+        # And nothing else moved: the remaining vessel is byte-identical.
+        self.assertIn("\t\t\t\t\tamount = 50", out)
+
+    def test_removing_the_active_vessel_is_refused(self):
+        with self.assertRaises(savepatch.LiveStatePatchError) as ctx:
+            savepatch.apply_live_state(_SYNTHETIC, [{"pid": 111, "remove": True}])
+        self.assertIn("activeVessel is 0", str(ctx.exception))
+
+    def test_removing_a_vessel_before_the_active_one_is_refused(self):
+        # Same save with the focus on Beta: Alpha is now the one that must not go.
+        text = _SYNTHETIC.replace("activeVessel = 0", "activeVessel = 1")
+        with self.assertRaises(savepatch.LiveStatePatchError) as ctx:
+            savepatch.apply_live_state(text, [{"pid": 111, "remove": True}])
+        self.assertIn("index 0", str(ctx.exception))
+
+    def test_a_save_without_an_active_vessel_index_is_refused(self):
+        text = _SYNTHETIC.replace("\t\tactiveVessel = 0\n", "")
+        with self.assertRaises(savepatch.LiveStatePatchError) as ctx:
+            savepatch.apply_live_state(text, [{"pid": 222, "remove": True}])
+        self.assertIn("activeVessel", str(ctx.exception))
+
+    def test_an_unknown_pid_is_refused(self):
+        with self.assertRaises(savepatch.LiveStatePatchError):
+            savepatch.apply_live_state(_SYNTHETIC, [{"pid": 999, "remove": True}])
+
+    def test_a_removal_and_a_later_patch_compose(self):
+        """Entries are applied in order and each re-resolves its own span, so a
+        deletion cannot corrupt the addressing of the entry after it - the
+        RVR-18 shape (remove one vessel, clear another's containers)."""
+        out, notes = savepatch.apply_live_state(
+            _SYNTHETIC, [{"pid": 222, "remove": True},
+                         {"pid": 111, "resources": {"LiquidFuel": 0}}])
+        self.assertEqual(2, len(notes))
+        self.assertIn("removed=1", notes[0])
+        self.assertIn("LiquidFuel 50->0", notes[1])
+        self.assertIn("\t\t\t\t\tamount = 0", out)
+
+    def test_line_endings_survive_a_removal(self):
+        out, _ = savepatch.apply_live_state(
+            _SYNTHETIC.replace("\n", "\r\n"), [{"pid": 222, "remove": True}])
+        self.assertIn("\r\n", out)
+        self.assertNotIn("\n\n", out.replace("\r\n", "\n\n").replace("\n\n", "\r\n"))
+
+
+class SyntheticCareerTests(unittest.TestCase):
+    """`[fixture.career] funds` - one key, one node, and a hard refusal on a save
+    that carries no career at all (which is what a career declaration on a
+    SANDBOX template looks like from inside the applier)."""
+
+    def test_the_funds_key_is_rewritten(self):
+        out, notes = savepatch.apply_career_state(_SYNTHETIC_CAREER, {"funds": 7409})
+        self.assertEqual(["funds 11000->7409"], notes)
+        self.assertIn("\t\tfunds = 7409", out)
+        # ONE key, and the sibling scenario is untouched.
+        self.assertIn("\t\tsci = 100", out)
+        self.assertEqual(len(_lines(_SYNTHETIC_CAREER)), len(_lines(out)))
+
+    def test_an_integral_amount_prints_without_a_decimal_point(self):
+        out, _ = savepatch.apply_career_state(_SYNTHETIC_CAREER, {"funds": 7409.0})
+        self.assertIn("funds = 7409", out)
+        self.assertNotIn("funds = 7409.0", out)
+
+    def test_no_declaration_is_a_byte_identical_no_op(self):
+        for entry in (None, {}):
+            out, notes = savepatch.apply_career_state(_SYNTHETIC_CAREER, entry)
+            self.assertEqual(_SYNTHETIC_CAREER, out)
+            self.assertEqual([], notes)
+
+    def test_a_sandbox_save_is_refused_rather_than_no_opped(self):
+        with self.assertRaises(savepatch.LiveStatePatchError) as ctx:
+            savepatch.apply_career_state(_SYNTHETIC, {"funds": 1})
+        self.assertIn("0 SCENARIO { name = Funding } node(s)", str(ctx.exception))
+
+    def test_a_duplicate_funding_node_is_refused(self):
+        doubled = _SYNTHETIC_CAREER.replace(
+            "\tFLIGHTSTATE",
+            "\tSCENARIO\n\t{\n\t\tname = Funding\n\t\tfunds = 5\n\t}\n\tFLIGHTSTATE")
+        with self.assertRaises(savepatch.LiveStatePatchError) as ctx:
+            savepatch.apply_career_state(doubled, {"funds": 1})
+        self.assertIn("2 SCENARIO", str(ctx.exception))
+
+    def test_a_funding_node_without_the_key_is_refused(self):
+        keyless = _SYNTHETIC_CAREER.replace("\t\tfunds = 11000\n", "")
+        with self.assertRaises(savepatch.LiveStatePatchError) as ctx:
+            savepatch.apply_career_state(keyless, {"funds": 1})
+        self.assertIn("no `funds` key", str(ctx.exception))
+
+    def test_line_endings_survive(self):
+        out, _ = savepatch.apply_career_state(
+            _SYNTHETIC_CAREER.replace("\n", "\r\n"), {"funds": 1})
+        self.assertIn("\r\n", out)
+
+
+class ValidateNewModeTests(unittest.TestCase):
+    """The spec-shape half of the two modes, checked where `hlib.validate_spec`
+    checks it: an INVALID-SPEC with KSP never launched beats an abort after the
+    instance was prepared."""
+
+    def test_remove_must_be_true(self):
+        for bad in (False, "yes", 1):
+            errs = savepatch.validate_live_state(
+                {"liveState": [{"pid": 1, "remove": bad}]})
+            self.assertTrue(errs, "remove=%r was accepted" % (bad,))
+
+    def test_remove_cannot_be_combined_with_a_patch(self):
+        errs = savepatch.validate_live_state(
+            {"liveState": [{"pid": 1, "remove": True, "inventory": "clear"}]})
+        self.assertTrue(any("cannot be combined" in e for e in errs), errs)
+
+    def test_remove_alone_is_a_complete_entry(self):
+        self.assertEqual([], savepatch.validate_live_state(
+            {"liveState": [{"pid": 1, "remove": True}]}))
+
+    def test_an_entry_that_patches_nothing_still_reds(self):
+        errs = savepatch.validate_live_state({"liveState": [{"pid": 1}]})
+        self.assertTrue(any("patches nothing" in e for e in errs), errs)
+
+    def test_the_career_table_shape(self):
+        self.assertEqual([], savepatch.validate_career_state({"career": {"funds": 0}}))
+        for bad, needle in (({"career": []}, "must be a table"),
+                            ({"career": {}}, "omit the key"),
+                            ({"career": {"funds": "x"}}, "must be a number"),
+                            ({"career": {"funds": -1}}, "must be >= 0"),
+                            ({"career": {"science": 5}}, "unknown key")):
+            errs = savepatch.validate_career_state(bad)
+            self.assertTrue(any(needle in e for e in errs), (bad, errs))
+
+    def test_no_career_key_is_no_error(self):
+        self.assertEqual([], savepatch.validate_career_state({}))
+        self.assertEqual([], savepatch.validate_career_state({"saveTemplate": "x"}))
+
+
+class CommittedRoverRouteFixtureTests(unittest.TestCase):
+    """The two new modes against the bytes the lanes that use them will stage.
+
+    Same reason the relay-c half of this file exists: a mechanism proved only on
+    a synthetic save is a mechanism proved on the case that cannot surprise it."""
+
+    FIXTURE = os.path.join(HARNESS_ROOT, "fixtures", "saves", "rover-route-recorded",
+                           "persistent.sfs")
+    ENDPOINT_PID = "2123618197"     # `rover fuel 0`, the window's transferTargetPid
+    SUBSTITUTE_PID = "2875537755"   # `A`, the rover the proximity fallback finds
+
+    @classmethod
+    def setUpClass(cls):
+        with open(cls.FIXTURE, "rb") as fh:
+            cls.text = fh.read().decode("utf-8")
+
+    def test_removing_the_endpoint_keeps_the_focus_on_the_transport(self):
+        """RVR-18's staging. The endpoint is the ELEVENTH vessel and
+        `activeVessel = 7`, so the delete leaves index 7 naming the same rover -
+        which the applier's own guard requires and this cell measures."""
+        before = savepatch.flightstate_vessels(_lines(self.text))
+        active = savepatch._active_vessel_index(_lines(self.text))
+        focused = before[active]
+        out, notes = savepatch.apply_live_state(
+            self.text, [{"pid": int(self.ENDPOINT_PID), "remove": True}],
+            "rover-route-recorded")
+        self.assertEqual(["pid=%s name=rover fuel 0 removed=1" % self.ENDPOINT_PID],
+                         notes)
+        after = savepatch.flightstate_vessels(_lines(out))
+        self.assertEqual(len(before) - 1, len(after))
+        self.assertEqual(focused[:2], after[active][:2])
+        self.assertNotIn(self.ENDPOINT_PID,
+                         [vpid for _n, vpid, _s in after])
+
+    def test_removing_a_vessel_does_not_touch_the_parsek_payload(self):
+        """The module's whole boundary claim, measured on the one mode that
+        deletes rather than rewrites. The recorded window still names the pid it
+        always named - the recording is HISTORY and does not need a live vessel -
+        so a lane that removes an endpoint still stages the same route."""
+        out, _ = savepatch.apply_live_state(
+            self.text, [{"pid": int(self.ENDPOINT_PID), "remove": True}],
+            "rover-route-recorded")
+        lines_before, lines_after = _lines(self.text), _lines(out)
+        scn_before = savepatch.parsek_scenario_node(lines_before)
+        scn_after = savepatch.parsek_scenario_node(lines_after)
+        self.assertEqual(lines_before[scn_before[0]:scn_before[1]],
+                         lines_after[scn_after[0]:scn_after[1]])
+        self.assertIn("transferTargetPid = %s" % self.ENDPOINT_PID, out)
+
+    def test_the_substitutes_containers_clear_to_six_free_slots(self):
+        """RVR-18's second entry. `A` ships five stored parts across two
+        containers; the lane needs both empty so the delivery it attributes has
+        somewhere to land."""
+        out, notes = savepatch.apply_live_state(
+            self.text, [{"pid": int(self.SUBSTITUTE_PID), "inventory": "clear"}],
+            "rover-route-recorded")
+        self.assertIn("inventory=clear (2 container(s))", notes[0])
+        lines = _lines(out)
+        span = [s for _n, vpid, s in savepatch.flightstate_vessels(lines)
+                if vpid == self.SUBSTITUTE_PID][0]
+        for module in savepatch.inventory_modules(lines, span):
+            holders = savepatch.child_nodes(lines, module, "STOREDPARTS")
+            self.assertEqual(1, len(holders))
+            self.assertEqual([], savepatch.child_nodes(lines, holders[0], "STOREDPART"))
+        # KSP omits the CSV key entirely on an empty container.
+        self.assertNotIn("inventory = evaChute,evaChute,DeployedCentralStation", out)
+
+    def test_the_endpoint_tank_stages_to_the_exact_literal_rvr16_pins(self):
+        """RVR-16 pins `tankBefore=100` in its delivery token, which is only a
+        gate if the applier writes that exact literal."""
+        out, notes = savepatch.apply_live_state(
+            self.text, [{"pid": int(self.ENDPOINT_PID),
+                         "resources": {"LiquidFuel": 100}}],
+            "rover-route-recorded")
+        self.assertIn("LiquidFuel 297.59999999999843->100", notes[0])
+        self.assertIn("\t\t\t\t\tamount = 100", out)
+
+    def test_the_career_twin_takes_the_funds_patch(self):
+        """RVR-17's staging, against the career fixture rather than the sandbox
+        one - which is also the pairing the applier refuses to get wrong."""
+        career = os.path.join(HARNESS_ROOT, "fixtures", "saves",
+                              "rover-route-career", "persistent.sfs")
+        with open(career, "rb") as fh:
+            text = fh.read().decode("utf-8")
+        out, notes = savepatch.apply_career_state(text, {"funds": 7409})
+        self.assertEqual(["funds 11000->7409"], notes)
+        self.assertIn("\t\tfunds = 7409", out)
+        with self.assertRaises(savepatch.LiveStatePatchError):
+            savepatch.apply_career_state(self.text, {"funds": 7409})
+
 
 class CommittedSpecUsageTests(unittest.TestCase):
-    """Every committed spec that declares liveState must declare it against the
-    ONE fixture whose bytes the layout table and the pid vocabulary describe.
-    A lane pointing this mechanism at a different save would either fail closed
-    at staging (best case) or patch a vessel nobody derived tokens from."""
+    """Every committed spec that declares liveState must declare it against a
+    fixture whose vessel vocabulary someone has actually derived, and every pid
+    it names must be in that fixture's vocabulary.
 
-    def test_only_the_relay_c_fixture_carries_live_state(self):
+    A lane pointing this mechanism at some other save would either fail closed at
+    staging (best case) or patch a vessel nobody derived tokens from. The table
+    below is therefore a deliberate edit per fixture: adding a save here is a
+    statement that its pids were read out of its bytes and written down
+    somewhere a reader can check."""
+
+    # saveTemplate leaf -> the pids any lane may patch on it. The relay-c row is
+    # the three rovers of the RVR-8..RVR-15 matrix; the rover-route row is the
+    # two vessels RVR-16 / RVR-18 address, both pinned in
+    # `build_rover_route_recorded.REQUIRED_VESSELS`.
+    LIVE_STATE_FIXTURE_PIDS = {
+        FIXTURE_NAME: (PID_A, PID_B, PID_C),
+        "rover-route-recorded": (
+            2123618197,   # `rover fuel 0`, the window's transferTargetPid
+            2875537755,   # `A`, the rover that physically docked
+        ),
+    }
+
+    def _specs(self):
         import tomllib
         scenarios = os.path.join(HARNESS_ROOT, "scenarios")
         for name in sorted(n for n in os.listdir(scenarios) if n.endswith(".toml")):
             with open(os.path.join(scenarios, name), "rb") as fh:
-                spec = tomllib.load(fh)
+                yield name, tomllib.load(fh)
+
+    def test_live_state_only_names_derived_fixtures_and_pids(self):
+        for name, spec in self._specs():
             fixture = spec.get("fixture") or {}
             if not savepatch.declared_live_state(fixture):
                 continue
-            self.assertEqual(
-                "fixtures/saves/%s" % FIXTURE_NAME, fixture.get("saveTemplate"),
-                "%s declares [[fixture.liveState]] against a save whose inventory "
-                "layout and endpoint pids nothing has derived" % name)
-            # And every declared pid must be one of the three rovers, so a typo
-            # reds here rather than at staging time on a real instance.
+            template = (fixture.get("saveTemplate") or "").rsplit("/", 1)[-1]
+            self.assertIn(
+                template, self.LIVE_STATE_FIXTURE_PIDS,
+                "%s declares [[fixture.liveState]] against a save whose vessel "
+                "vocabulary nothing has derived; add it to "
+                "LIVE_STATE_FIXTURE_PIDS with the pids read out of its bytes"
+                % name)
+            allowed = self.LIVE_STATE_FIXTURE_PIDS[template]
             for entry in savepatch.declared_live_state(fixture):
-                self.assertIn(entry.get("pid"), (PID_A, PID_B, PID_C),
-                              "%s patches an unknown pid %r" % (name, entry.get("pid")))
+                self.assertIn(entry.get("pid"), allowed,
+                              "%s patches an unknown pid %r on %s"
+                              % (name, entry.get("pid"), template))
+
+    def test_every_declared_pid_exists_in_the_fixture_it_names(self):
+        """The vocabulary table is a list of literals; this cell is what ties it
+        to the BYTES. A pid that no longer exists in the save it is declared
+        against would abort at staging on a real instance - after the machine
+        lock was taken and the instance prepared - so it is caught here."""
+        saves = os.path.join(HARNESS_ROOT, "fixtures", "saves")
+        cache = {}
+        for name, spec in self._specs():
+            fixture = spec.get("fixture") or {}
+            entries = savepatch.declared_live_state(fixture)
+            if not entries:
+                continue
+            template = (fixture.get("saveTemplate") or "").rsplit("/", 1)[-1]
+            if template not in cache:
+                with open(os.path.join(saves, template, "persistent.sfs"),
+                          "rb") as fh:
+                    cache[template] = savepatch.flightstate_vessels(
+                        _lines(fh.read().decode("utf-8")))
+            live = {vpid for _n, vpid, _s in cache[template]}
+            for entry in entries:
+                self.assertIn(str(entry.get("pid")), live,
+                              "%s declares pid %r, which %s does not carry"
+                              % (name, entry.get("pid"), template))
+
+    def test_a_career_block_is_only_declared_on_a_career_fixture(self):
+        """`[fixture.career]` rewrites `SCENARIO { name = Funding }`, and the
+        applier ABORTS pre-boot on a save that has none. That abort is correct
+        but expensive (it happens on a prepared instance under the machine
+        lock), so the same mistake is caught here against the committed bytes."""
+        saves = os.path.join(HARNESS_ROOT, "fixtures", "saves")
+        for name, spec in self._specs():
+            fixture = spec.get("fixture") or {}
+            if not savepatch.declared_career_state(fixture):
+                continue
+            template = (fixture.get("saveTemplate") or "").rsplit("/", 1)[-1]
+            with open(os.path.join(saves, template, "persistent.sfs"), "rb") as fh:
+                lines = _lines(fh.read().decode("utf-8"))
+            self.assertEqual(
+                1, len(savepatch.scenario_node_named(lines, "Funding")),
+                "%s declares [fixture.career] against %s, which carries no single "
+                "Funding SCENARIO - the staged run would abort INVALID(staging)"
+                % (name, template))
 
 
 if __name__ == "__main__":

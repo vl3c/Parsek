@@ -1,0 +1,330 @@
+schema = 1
+id = "RVR-18-rover-route-endpoint-removed"
+tier = "nightly"
+# =====================================================================================
+# THE ENDPOINT THE ROUTE NAMES IS GONE - AND THE SURFACE-PROXIMITY FALLBACK DELIVERS TO
+# THE VESSEL THAT ACTUALLY DOCKED.
+#
+# **LIVE-PROVEN 2026-09-03: run `2026-09-03_2011`, PASS attempt 1, wall 49 s, EVERY
+# VERIFIER PASS**, on the automation DLL sha256 `995772453f2339a2`. Every reading below
+# was DERIVED first - from the committed fixture's own coordinates and from
+# `RouteEndpointResolver`'s step order - and the run confirmed the chain end to end,
+# including the two claims that decided whether the lane could exist at all: the
+# proximity step resolved, and it resolved to the pid this file names.
+#
+# WHAT FLEW, from the collected KSP.log:
+#     [Stage] liveState patched pid=2123618197 name=rover fuel 0 removed=1
+#     [Stage] liveState patched pid=2875537755 name=A resources=[-] inventory=clear (2 container(s))
+#     Endpoint proximity step: resolved=1 pid=2875537755 reason=- body=Kerbin
+#     Delivery write: route=68749916... dest=A pid=2875537755 resource=LiquidFuel
+#         requested=97.599999999998431 written=97.599999999998431
+#         tankBefore=297.59999999999843 tankAfter=395.19999999999686 capacity=400
+#         path=loaded
+#     Inventory store: ... part=evaChute               slot=part7/mod1/slot0 path=loaded
+#     Inventory store: ... part=evaScienceKit          slot=part7/mod1/slot1 path=loaded
+#     Inventory store: ... part=DeployedCentralStation slot=part7/mod1/slot2 path=loaded
+#     Delivery: route 68749916 cycle=cycle-0 resources=1 inventoryUnits=3/3
+#         inventoryUnitsSkipped=0 partial=0 ut=1600
+#     cycle=cycle-1 BLOCKED kind=DestinationFull reason=LiquidFuel shortfall=0
+#
+# **THE ROUTE STILL NAMES THE VESSEL THAT NO LONGER EXISTS.** The produced save's
+# `routes` facet reads `destinationVesselPids: ['2123618197']` - the endpoint record is
+# the RECORDED one and nothing rebinds it - so the substitution appears in the LOG and
+# nowhere else. A player would see a route delivering normally, with no surface saying
+# to which craft.
+#
+# **THIS RUN IS THE SUBJECT OF A FILED OBSERVATION**, not of a fix:
+# ROUTE-DELIVERY-PROXIMITY-RETARGETS-ANY-NEARBY-VESSEL in
+# `docs/dev/todo-and-known-bugs.md` asks the gameplay question this measurement raises -
+# whether a missing destination should hold the route (fail closed) unless the nearby
+# craft matches the recorded endpoint's identity, or whether delivering to any surface
+# vessel inside 500 m is the intended "base rebuilt on the same spot" behaviour. THIS
+# LANE IS NAMED THERE AS THE CHARACTERIZATION WHOSE TOKENS FLIP WHEN THE DECISION LANDS.
+#
+# WHAT IT MEASURES. `RouteEndpointResolver.TryResolveEndpoint` walks THREE steps -
+# ROOT-PART id, then `persistentId`, then a great-circle SURFACE-PROXIMITY search
+# bounded by `RouteOrchestrator.SurfaceProximityRadiusMeters = 500`. Every committed
+# route lane in the suite resolves at step 2 and stops; nothing anywhere drives step 3.
+# This lane deletes the endpoint vessel from FLIGHTSTATE so step 2 misses, and measures
+# what the fallback then does - which is not what a reader expects, and is the reason
+# the lane exists.
+#
+# IT DOES **NOT** PRODUCE AN `EndpointLost` HOLD, AND THE BYTES SAY WHY. The recorded
+# `ENDPOINT_AT_DOCK` coordinates are `lat 0.0055209707591019428 lon -74.726196706906393
+# alt 65.978650289936922` on Kerbin, i.e. the spot where the two rovers docked. The
+# distances from that point to every LANDED / PRELAUNCH vessel in the save, computed off
+# the committed values at Kerbin's 10471.98 m per degree of latitude:
+#     vessel `A`   pid 2875537755   LANDED       1.03 m      <- the fallback's pick
+#     vessel `B`   pid  313889796   LANDED      16.42 m      (the transport, the focus)
+#     `rover fuel 0` pid 2123618197 PRELAUNCH  567.93 m      (the named endpoint)
+# So the fallback has a candidate 485 m inside its radius and 16x closer than the
+# runner-up. The refusal branch (`no-vessel-within-radius`) is unreachable on these bytes
+# without moving a vessel, and the one that would have to move is the ACTIVE one.
+#
+# THE PICK IS THE PHYSICALLY CORRECT ROVER, WHICH IS WHY THIS IS A POSITIVE FINDING AND
+# NOT A TRAP. `rover fuel 0` carries the SAME BAKED `persistentId` as the recorded
+# destination because KSP bakes the id into the `.craft` and reuses it on every launch;
+# it is a later rollout sitting at the Runway 568 m away, and the rover that actually
+# docked and took the cargo is `A`, whose committed containers are the window's
+# `UNDOCK_ENDPOINT_INVENTORY` census item for item (2 `DeployedCentralStation`, 2
+# `evaChute`, 3 `evaScienceKit`). Deleting the pid-colliding rollout therefore does not
+# break the route: it makes the resolver find the vessel the recording was actually
+# about. (That evidence lives in the COMMITTED fixture and in `harness/lib`; this lane's
+# own staging clears A's containers, for the reason in the second liveState block.)
+#
+# WHY THE ROOT-PART STEP CANNOT RUN, from the bytes rather than by assumption.
+# `NextEndpointStep` tries root-part FIRST when `endpoint.RootPartUId != 0`, and a
+# `RouteEndpoint` only ever gets a non-zero one from a `RouteOriginProof`
+# (`RouteBuilder` sets `RootPartUId = originProof.StartDockedOriginRootPartUId`, on the
+# ORIGIN endpoint only). This fixture carries NO `ROUTE_ORIGIN_PROOF` node - both trees
+# start at a KSC site and the producer skips by design - and the DELIVERY stop's endpoint
+# is `window.EndpointAtDock` verbatim, whose keys are pid / body / lat / lon / alt /
+# isSurface and nothing else. So the walk here is exactly pid -> proximity, which is what
+# makes the removal reach step 3 at all.
+#
+# THIS ALSO SETTLES A QUESTION THE MATRIX WOULD OTHERWISE ASK NEXT: a `relocate` mode
+# (patching a vessel's lat / lon) would change NOTHING for a route whose endpoint still
+# carries a live pid, because step 2 is position-blind and wins before proximity is
+# consulted. There is therefore no `relocate` mode, and this paragraph is the reason.
+#
+# -------------------------------------------------------------------------------------
+# WHAT THE LANE IS, EXACTLY: A CHARACTERIZATION, AND IT SAYS SO.
+# The pid step is not guid-gated (filed as RESOLVER-PID-STEP-NOT-GUID-GATED) and the
+# proximity step accepts ANY surface vessel inside 500 m. Both are deliberate, both are
+# documented in `RouteEndpointResolver`'s own summary, and NEITHER has ever been driven.
+# A future change - guid-gating the pid step, tightening the radius, requiring a root id
+# for a delivery endpoint - would flip this lane's tokens, and that red IS the
+# notification: the lane must then be re-authored against the new contract rather than
+# "fixed". What it must never do is fail silently, which is what happens today.
+#
+# -------------------------------------------------------------------------------------
+# THE CHAIN, END TO END.
+#   step 5 (endpoints)   pid 2123618197 misses -> proximity picks `A` at 1.03 m
+#                        -> `Endpoint proximity step: resolved=1 pid=2875537755`
+#   step 6 (origin)      KSC origin, returns true immediately (design 6.1)
+#   step 7 (funds)       sandbox, not evaluated
+#   step 8 (capacity)    A holds 297.6 / 400 LiquidFuel (102.4 free >= the 97.6
+#                        manifest) and, after this lane's `clear`, SIX free slots >= the
+#                        2-item manifest -> fits
+#   cycle 0              DELIVERS to `A`: `Delivery write: ... dest=A pid=2875537755`,
+#                        tank 297.6 -> 395.2, two `Inventory store:` lines
+#   cycle 1              A now has 4.8 of headroom against 97.6 -> partial ->
+#                        `BLOCKED kind=DestinationFull reason=LiquidFuel`, the armed
+#                        pause consumed into `blocked-then-paused`
+#
+# WHY A's CONTAINERS ARE CLEARED. Untouched, A holds FIVE of its six slots against a
+# three-item manifest, so the delivery would refuse on a `stored-part:` shortfall before
+# writing anything - and a lane whose whole subject is WHICH VESSEL the cargo reached
+# would then have no delivery to point at. Clearing makes the substitution physical rather than inferred: the token
+# that carries the finding is a `Delivery write:` naming a pid the route never recorded.
+# `clear` is the mode RVR-12 and RVR-15 proved live on 2026-09-03.
+#
+# `path=loaded` IS PINNED, AND IT IS THE SUITE'S FIRST DRIVEN LOADED DELIVERY. Authored
+# unpinned - the reasoning was that A sits ~16.9 m from the focused rover, well inside
+# stock's landed UNPACK distance, so `destVessel.loaded && !destVessel.packed` should be
+# TRUE, but that was a derivation from stock's vessel ranges rather than a measurement.
+# The run measured `path=loaded` on the resource write and on all three inventory
+# writes, so it is pinned now. It is the OTHER writer branch from RVR-2's and RVR-4's
+# `path=unloaded` (their endpoint is 568 m away: inside the LOAD distance, outside the
+# PACK distance), which means this lane additionally gates
+# `LiveDeliveryWriters.WriteResourceLoaded` / `WriteInventoryLoaded` and
+# `LiveDeliveryCapacityProbe`'s LOADED slot walk - surfaces no committed lane had
+# driven. The loaded inventory writer reads `storedPart.quantity` BACK, where the
+# unloaded one returns its count unconditionally, so `units=1/1` is a stronger statement
+# here than the same text is on RVR-2; it is still not pinned, because the store tokens
+# stop at `part=<name>` and the count belongs to RVR-15's summary shape.
+#
+# THE THIRD INVENTORY ITEM. The manifest is THREE stored parts, not two: RVR-16's census
+# corrected that on 2026-09-03 (the window's endpoint delta gains a `DeployedCentralStation`
+# under a re-hashed identity, plus the chute and the kit), and this run measured all
+# three landing in A's cleared containers in the same order. All three are pinned.
+# =====================================================================================
+description = "LIVE-PROVEN 2026-09-03: run 2026-09-03_2011, PASS attempt 1, wall 49 s, EVERY VERIFIER PASS, on the automation DLL sha256 995772453f2339a2. The delivery endpoint is DELETED from FLIGHTSTATE and the route keeps working - by resolving somewhere else. RouteEndpointResolver walks root-part -> pid -> surface proximity (500 m); every committed lane stops at the pid step and NOTHING had ever driven the fallback. A new `remove = true` liveState mode deletes `rover fuel 0` (pid 2123618197, the vessel the recorded window names; staged as `liveState patched pid=2123618197 name=rover fuel 0 removed=1`), so the pid step misses and the proximity search runs against the recorded dock coordinates - where vessel A sits 1.03 m away and the transport B 16.42 m, both far inside the radius, while the deleted endpoint was itself 567.93 m away and could never have been re-found by proximity. So the lane produces NO EndpointLost hold (that branch is unreachable on these bytes without moving the ACTIVE vessel) and instead MEASURED the substitution: `Endpoint proximity step: resolved=1 pid=2875537755 reason=- body=Kerbin`, then `Delivery write: ... dest=A pid=2875537755 resource=LiquidFuel requested=97.599999999998431 tankBefore=297.59999999999843 tankAfter=395.19999999999686 path=loaded` plus all three stored parts - 97.6 LiquidFuel and three items into a vessel whose pid the route never recorded, with the produced save still naming the deleted one (`destinationVesselPids: [2123618197]`), so the substitution appears in the log and nowhere else. THE PICK IS THE PHYSICALLY CORRECT ROVER: `rover fuel 0` carries the same CRAFT-BAKED persistentId as the recorded destination and is a later rollout parked at the Runway, while A is the rover that actually docked - its committed containers are the window's own UNDOCK_ENDPOINT_INVENTORY census item for item. The root-part step cannot run here and the bytes say why: a RouteEndpoint gets a non-zero RootPartUId only from a RouteOriginProof, this fixture has none (both trees start at a KSC site), and the delivery stop's endpoint is window.EndpointAtDock verbatim. THAT ALSO SETTLES THE NEXT MATRIX QUESTION: a relocate mode would change nothing while the endpoint still carries a live pid, because the pid step is position-blind and wins before proximity, which is why no relocate mode exists. THE RUN IS ALSO THE SUITE'S FIRST DRIVEN path=loaded DELIVERY (A is ~16.9 m from the focus, inside stock's unpack distance, where RVR-2 and RVR-4 deliver unloaded to an endpoint 568 m away), so it additionally gates WriteResourceLoaded / WriteInventoryLoaded and the LOADED capacity probe; path=loaded was authored UNPINNED as a derivation and is pinned now that it is measured. A's containers are cleared so the three-item manifest has somewhere to land; cycle 1 then blocks DestinationFull reason=LiquidFuel on A's 4.8 of remaining headroom. THE LANE IS A CHARACTERIZATION AND SAYS SO: the pid step is not guid-gated (RESOLVER-PID-STEP-NOT-GUID-GATED) and proximity accepts any surface vessel inside 500 m, and the gameplay question that raises is filed as ROUTE-DELIVERY-PROXIMITY-RETARGETS-ANY-NEARBY-VESSEL - this lane is named there as the characterization whose tokens flip when the decision lands."
+instanceProfile = "stock-minimal"
+tags = ["seam-verbs", "logistics", "route-create", "route-delivery", "endpoint-resolve",
+        "surface-proximity", "live-state", "recorded-fixture", "RVR-18", "matrix"]
+
+[fixture]
+# `rover-route-recorded`, RVR-2's host. What this lane needs from it beyond RVR-2's list
+# is the FLIGHTSTATE GEOMETRY: a recorded surface endpoint whose coordinates have a
+# non-endpoint vessel parked essentially on top of them. That is a property of the
+# operator's hand-flown session (the rovers never moved after the undock) and is
+# re-derived from the committed bytes by `RoverRouteEndpointMatrixTests` in
+# `harness/lib`, so a re-harvest that moved a rover reds there rather than on the flight.
+saveTemplate       = "fixtures/saves/rover-route-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[[fixture.liveState]]
+# THE REMOVAL. `rover fuel 0` is the vessel the route window names
+# (`transferTargetPid = 2123618197`) and the one RVR-2's delivery reached. Deleting its
+# whole FLIGHTSTATE `VESSEL` node is what opens the resolver's third step.
+#
+# THE APPLIER REFUSES A REMOVAL AT OR BEFORE `activeVessel`, and that guard is live
+# here: this save's `activeVessel = 7` names the transport `B`, and `rover fuel 0` is
+# the ELEVENTH vessel (index 10), so the index still names `B` after the delete. A
+# removal at index <= 7 would silently re-point the focus and every token below would be
+# a statement about a different scene.
+pid    = 2123618197
+remove = true
+
+[[fixture.liveState]]
+# THE SUBSTITUTE'S SLOTS. Vessel `A` holds five of its six inventory slots, so an
+# unmodified run would refuse the delivery on `stored-part:evaScienceKit` (RVR-16's
+# subject) and this lane would have no delivery to attribute. Clearing both containers
+# leaves six free slots against a two-item manifest; the LiquidFuel is deliberately left
+# at the fixture's 297.6 / 400, which is what makes cycle 1 block on the RESOURCE half
+# exactly as RVR-2's does.
+pid       = 2875537755
+inventory = "clear"
+
+[driver]
+kind = "seam"
+# RVR-2's THIRTEEN STEPS, VERBATIM apart from the route name: the driver is the control
+# and the two `liveState` blocks are the variable. Prologue rationale and the TimeJump
+# derivation are RVR-2's; `verboseLogging = true` is REQUIRED because the resolver's
+# proximity line and both capacity lines are Verbose.
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                    expect = "OK" },
+  { cmd = "DiscardTree",                                                      expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" },  expect = "OK" },
+  { cmd = "SealSlot",     args = { tree = "73e50f1e3aa24c299919016cd9e92269" }, expect = "OK", budget = 120 },
+  { cmd = "RouteCommand", args = { action = "create", tree = "73e50f1e3aa24c299919016cd9e92269", name = "RVR18 Lost Endpoint" }, expect = "OK", budget = 120 },
+  { cmd = "RouteCommand", args = { action = "send-once", route = "RVR18 Lost Endpoint" }, expect = "OK", budget = 120 },
+  { cmd = "TimeJump",     args = { ut = "1600" },                             expect = "OK", budget = 300 },
+  { cmd = "RouteCommand", args = { action = "send-once", route = "RVR18 Lost Endpoint" }, expect = "OK", budget = 120 },
+  { cmd = "TimeJump",     args = { ut = "2200" },                             expect = "OK", budget = 300 },
+  { cmd = "SaveGame",                                                         expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                     expect = "OK" },
+]
+
+[dimensionsCovered]
+# **NO D10 CLAIM, DECIDED ON THE GREEN RUN.** The behaviour this lane gates - endpoint
+# RESOLUTION, and specifically the surface-proximity fallback - has no registry value,
+# and TWO separate rules say not to reach for a neighbouring one:
+#
+#   * THE GROWTH RULE. Adding a value is a registry decision taken on its own merits;
+#     `route-map-lines-surface`'s own registry comment is the worked example of what that
+#     costs to justify. A value invented to fit one lane is the failure mode it guards.
+#   * THE RULING IS OPEN. What this lane measured is filed as
+#     `ROUTE-DELIVERY-PROXIMITY-RETARGETS-ANY-NEARBY-VESSEL` - a design question, not a
+#     settled contract. A dimension row is a claim that a BEHAVIOUR is covered; claiming
+#     one for behaviour whose correctness is an open question would gate a contract
+#     nobody has decided, which is the CLAIM-IS-NOT-GATE rule pointed the other way.
+#
+# `delivery` and `inventory-cargo` are NOT claimed either, although the run drives both:
+# they are BDOCK-1's and RVR-15's, and this lane adds nothing under either NAME - its
+# novelty (which vessel received the cargo, and the `path=loaded` writer) is precisely
+# what those values do not name.
+D14 = ["sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# RVR-2's anti-data-loss floor, exact at 5. Removing a FLIGHTSTATE vessel touches no
+# RECORDING node - the Parsek payload is outside what `savepatch.py` may write, and the
+# five recordings' own `vesselPersistentId` fields are historical metadata that no
+# longer needs a live vessel.
+count = { min = 5, max = 5 }
+
+[expectations.logContracts]
+# THIRTEEN TOKENS, each a literal RUN from the emitting concatenation in source.
+#
+# TOKENS 1-5 ARE RVR-2's PROLOGUE SET, this lane's control.
+#
+# TOKEN 6  THE FINDING, from `RouteEndpointResolver`'s proximity branch:
+#            "Endpoint proximity step: resolved=" + ... + " pid=" + ... + " reason="
+#            + ... + " body=" + endpoint.BodyName
+#          `resolved=1` says the fallback matched; `pid=2875537755` says WHICH vessel,
+#          and it is not the one the window names; `reason=-` is the empty-reason
+#          rendering on the success path (`TrySurfaceFallbackPure` leaves `reason` empty
+#          when it returns true). A run in which the removal had not taken would never
+#          print this line at all, because the pid step returns before it - so this
+#          token is also the staging's falsification.
+#
+# TOKEN 7  GATE 8 PASSING against the SUBSTITUTE, `stopsResolved=1 stopsUnresolved=0`.
+#          The `stopsResolved` count is what says the capacity probe was built on a
+#          vessel that resolved: `DestinationHasCapacity` FAILS OPEN on an unresolved
+#          stop (null probe -> skipped), so a run where proximity had missed would read
+#          `stopsResolved=0 stopsUnresolved=1` and would still report "fits". Pinning
+#          the pair is what stops a fail-open from reading as a pass.
+#
+# TOKEN 8  THE DELIVERY, and the lane's product: cargo written into a vessel whose pid
+#          the route never recorded. `dest=A pid=2875537755 resource=LiquidFuel` is
+#          contiguous in the emitter. The requested / written / tank figures are NOT
+#          pinned (the manifest's float tail is 97.59999999999843, and A's tank tail
+#          moves with it), and neither is `path=` - see the header.
+#
+# TOKENS 9-10  BOTH INVENTORY STORES, also naming the substitute. Two items, in
+#          identity-hash order (evaChute `67867f65...` before evaScienceKit
+#          `796e8060...`), which is the order the operator's own delivering cycle
+#          printed.
+#
+# TOKEN 11 CYCLE 1's REFUSAL. A's tank went 297.6 -> 395.2, leaving 4.8 against a 97.6
+#          manifest, so the resource half is short and `FirstShortToken` names it before
+#          any inventory line (A has four free slots left, so the inventory half is not
+#          in question). This is RVR-2's cycle-1 reading reproduced on the substituted
+#          endpoint, which is the second half of "the route kept working".
+#
+# TOKENS 12-13  THE ARMED PAUSE and the lifecycle marker, as RVR-2 measured them.
+required  = [
+  "loadgame complete scene=FLIGHT save=.* game-loaded=true expected=Flight",
+  "sealslot complete mode=tree tree=73e50f1e3aa24c299919016cd9e92269 total=4 sealed=0 remaining=0 alreadySealed=True",
+  "routecommand create gate tree=73e50f1e3aa24c299919016cd9e92269 treeFound=True dismissed=False sealed=True eligible=True status=Eligible alreadyPromoted=False refusal=None",
+  "routecommand complete action=create tree=73e50f1e3aa24c299919016cd9e92269 route=.* name='RVR18 Lost Endpoint' status=Paused",
+  "PauseAfterCurrentCycle=true \\(route will dispatch one cycle when conditions allow, then transition to Paused\\)",
+  "Endpoint proximity step: resolved=1 pid=2875537755 reason=- body=Kerbin",
+  "DestinationHasCapacity: route [0-9a-f]{8} full manifest fits \\(stopsResolved=1 stopsUnresolved=0\\)",
+  "Delivery write: route=.* dest=A pid=2875537755 resource=LiquidFuel .* path=loaded",
+  "Inventory store: route=.* dest=A pid=2875537755 part=evaChute .* path=loaded",
+  "Inventory store: route=.* dest=A pid=2875537755 part=evaScienceKit .* path=loaded",
+  "Inventory store: route=.* dest=A pid=2875537755 part=DeployedCentralStation .* path=loaded",
+  "cycle=cycle-1 BLOCKED kind=DestinationFull reason=LiquidFuel",
+  "ArmedPause: route .* BLOCKED cycle consumed the armed pause",
+  "LifecycleMarker: route .* type=RoutePaused reason=blocked-then-paused",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "routecommand rejected",
+  # THE REMOVED VESSEL MUST NOT BE A DESTINATION. If the patch silently did nothing this
+  # is the line the run would print (it is RVR-2's own), so the forbid falsifies the
+  # staging from the other side of token 6.
+  "dest=rover fuel 0",
+  # AND THE FALLBACK MUST NOT REFUSE. `no-vessel-within-radius` is unreachable with a
+  # candidate 1.03 m from the recorded coordinates; an EndpointLost reading would mean
+  # the resolver's contract changed, and this lane is then the notification - see the
+  # CHARACTERIZATION paragraph in the header.
+  "BLOCKED kind=EndpointLost",
+]
+
+[expectations.recordings.structure]
+# REPORT-ONLY, the committed fixture's own structure. The removal is a FLIGHTSTATE edit
+# and touches nothing this facet reads.
+trees          = { min = 2, max = 2 }
+committedTrees = { min = 2, max = 2 }
+recordings     = { min = 5, max = 5 }
+terminalStates = { Landed = { min = 3 }, Docked = { min = 1 } }
+branchPoints   = { Dock = { min = 1, max = 1 }, Undock = { min = 1, max = 1 } }
+
+[expectations.routes]
+# REPORT-ONLY and DERIVED, the same shape RVR-16 declares: one delivering cycle and one
+# blocked one, the route left Paused.
+count           = { min = 1, max = 1 }
+dormant         = { min = 0, max = 0 }
+stops           = { min = 1, max = 1 }
+sourceRefs      = { min = 2, max = 2 }
+completedCycles = { min = 1, max = 1 }
+skippedCycles   = { min = 1, max = 1 }
+statuses        = { Paused = { min = 1, max = 1 } }
+
+[runtime]
+budgetSeconds = 2400
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

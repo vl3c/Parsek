@@ -17,8 +17,16 @@ shapes that can drift apart silently. `[[fixture.liveState]]` inverts it: ONE
 committed fixture, and each spec declares the live endpoint state IT wants, in
 the spec, next to the tokens that depend on it.
 
+TWO SPEC SURFACES, kept separate on purpose. `[[fixture.liveState]]` is
+FLIGHTSTATE-only (per-vessel resources, inventory, or whole-node REMOVAL);
+`[fixture.career]` writes ONE key in ONE career SCENARIO node (`Funding.funds`).
+They are not folded together because the FLIGHTSTATE boundary below is the safety
+argument for the first, and smuggling a top-level SCENARIO write through a vessel
+entry would erase it.
+
 WHAT IS AND IS NOT TOUCHED, and the boundary is the whole safety argument:
-  * FLIGHTSTATE ONLY, and only the vessels a spec names by `persistentId`.
+  * FLIGHTSTATE ONLY, and only the vessels a spec names by `persistentId` (plus,
+    under its own key, the career `Funding` pool - see above).
   * THE PARSEK PAYLOAD IS NEVER TOUCHED. No recording, no route window, no
     branch point, no origin proof, no ledger row. The route windows are this
     module's INPUT (the `restore-dock-endpoint` mode reads them), so editing one
@@ -115,7 +123,25 @@ class LiveStatePatchError(Exception):
 # log token in this family spells a KSP `persistentId`.
 LIVE_STATE_KEY = "liveState"
 
-ENTRY_KEYS = ("pid", "resources", "inventory")
+ENTRY_KEYS = ("pid", "resources", "inventory", "remove")
+
+# `remove = true` DELETES the vessel's whole FLIGHTSTATE `VESSEL` node, which is
+# the only way to author "the endpoint this route names is no longer in the save"
+# without a second harvest. It is exclusive with `resources` / `inventory` (both
+# would patch a node that is about to be deleted) and it is REFUSED for any
+# vessel at or before the save's `activeVessel` index: `activeVessel` is an INDEX
+# into the FLIGHTSTATE vessel list in file order, so removing an earlier vessel
+# silently re-points the focus at a different craft and every token the lane
+# derives becomes a token about a different scene. Removing a LATER one leaves
+# the index naming the same vessel it named before.
+#
+# WHAT IT DOES NOT DO, and the distinction matters when reading a lane header: it
+# does not by itself produce an `EndpointLost` hold.
+# `RouteEndpointResolver.TryResolveEndpoint` walks root-part -> pid -> SURFACE
+# PROXIMITY, so on a surface endpoint the removal only opens the proximity step,
+# and whether that step misses is a property of what else is parked near the
+# recorded coordinates. On `rover-route-recorded` it does NOT miss (RVR-18).
+REMOVE_KEY = "remove"
 
 # The inventory modes. `keep` is the DEFAULT (an absent key changes nothing), so
 # a spec that only wants a tank number writes only `resources`.
@@ -145,9 +171,53 @@ INVENTORY_RESTORE_DOCK_PREFIX = "restore-dock-endpoint:"
 #     authoring `STOREDPART` nodes no snapshot in this save recorded, which is
 #     the one thing every fixture builder in this tree refuses to do.
 #
-# So the DESTINATION-SLOTS-FULL edge is not expressible today, and the roadmap
-# records that it needs a FLIGHTSTATE fill mode (or a second harvest) rather than
-# a new string here.
+# So the DESTINATION-SLOTS-FULL edge is not expressible today ON THAT FIXTURE by
+# STAGING, and the roadmap records that it needs a FLIGHTSTATE fill mode (or a
+# second harvest) rather than a new string here. It IS expressible on
+# `rover-route-recorded` without any new mode, and the difference is worth
+# stating because it is what stopped a `fill` mode being built: there the
+# destination starts with 3 of 6 slots free and ONE cycle consumes ALL THREE (the
+# manifest is three stored parts - the window's own endpoint delta, measured by
+# RVR-16's census), so a lane that removes the RESOURCE constraint (a plain
+# `resources` entry, the tank staged low) reaches the slot shortfall by PLAYING
+# the fixture rather than by authoring bytes. RVR-16 is that lane.
+
+
+# ---------------------------------------------------------------------------
+# The career spec surface: `[fixture.career]`.
+# ---------------------------------------------------------------------------
+
+# `[fixture.career]` - a SINGLE table (not an array), because what it addresses is
+# the save's one career SCENARIO set rather than a list of vessels:
+#
+#     [fixture.career]
+#     funds = 7409                  # one dispatch cost short, so the gate refuses
+#
+# WHY IT IS NOT A `liveState` ENTRY. `liveState` is FLIGHTSTATE-only by contract,
+# and that boundary is the whole safety argument of this module. The funds pool
+# lives in `SCENARIO { name = Funding }`, a top-level sibling of FLIGHTSTATE, so
+# it gets its own key, its own validator and its own applier rather than being
+# smuggled through a vessel entry.
+#
+# WHY ONLY `funds`. Reputation and science clamp through the same
+# `KspStatePatcher.ApplyDrawdownGuard` path but no lane's tokens are derived from
+# either, and a key nothing reads is a key that rots. The dispatch gate's step 7
+# (`env.IsCareer && route.IsKscOrigin` -> `funds >= cost`) is the ONE career
+# quantity a route lane's arithmetic runs on.
+#
+# THE SEEDED POOL IS THE LIVE POOL, which is what makes a declared number
+# predictable: `LedgerOrchestrator.EnsureInitialFundsSeed` seeds the ledger from
+# `Funding.Instance.Funds`, and `PatchFunds`' guarded uplift REFUSES to raise the
+# live pool to a ledger running balance above it (RVR-4 measured
+# `GUARDED UPLIFT clamped ... running=29200 live=11000 clampedTo=11000` on this
+# very fixture family). So the value written here is the value the funds gate
+# reads, milestone rows in the committed ledger notwithstanding.
+CAREER_KEY = "career"
+CAREER_KEYS = ("funds",)
+
+# The SCENARIO node that carries the pool, and the key inside it.
+CAREER_FUNDING_SCENARIO = "Funding"
+CAREER_FUNDS_KEY = "funds"
 
 
 def _is_number(value: Any) -> bool:
@@ -253,11 +323,75 @@ def validate_live_state(fixture: Any) -> List[str]:
                     parse_inventory_mode(mode)
                 except ValueError as ex:
                     errs.append("%s.%s" % (where, ex))
-        if ("resources" not in entry) and ("inventory" not in entry):
+        if REMOVE_KEY in entry:
+            remove = entry[REMOVE_KEY]
+            if not isinstance(remove, bool):
+                errs.append("%s.%s: %r must be the boolean true"
+                            % (where, REMOVE_KEY, remove))
+            elif not remove:
+                # Inert and therefore misleading, the same call the empty-array
+                # and empty-table cases make: it reads as "this lane removes a
+                # vessel" while removing none.
+                errs.append("%s.%s: false patches nothing; omit the key instead"
+                            % (where, REMOVE_KEY))
+            elif ("resources" in entry) or ("inventory" in entry):
+                errs.append(
+                    "%s: `%s = true` cannot be combined with `resources` / "
+                    "`inventory` - those would patch a VESSEL node this entry "
+                    "then deletes, so the declaration reads as two different "
+                    "intentions" % (where, REMOVE_KEY))
+        if (("resources" not in entry) and ("inventory" not in entry)
+                and (REMOVE_KEY not in entry)):
             errs.append(
-                "%s: declares neither `resources` nor `inventory`, so it "
-                "patches nothing" % where)
+                "%s: declares neither `resources`, `inventory` nor `%s`, so it "
+                "patches nothing" % (where, REMOVE_KEY))
     return errs
+
+
+def validate_career_state(fixture: Any) -> List[str]:
+    """Validate the `[fixture.career]` spec surface. Pure; pre-launch.
+
+    Called from `hlib.validate_spec` for the same reason `validate_live_state`
+    is: a malformed declaration must be an INVALID-SPEC with KSP never launched.
+    Shape only - whether the save actually carries a `Funding` SCENARIO is the
+    applier's assertion against the bytes, and a career key declared on a SANDBOX
+    fixture is exactly the mistake that must abort rather than no-op."""
+    errs: List[str] = []
+    if not isinstance(fixture, dict):
+        return errs
+    if CAREER_KEY not in fixture:
+        return errs
+    entry = fixture[CAREER_KEY]
+    where = "fixture.%s" % CAREER_KEY
+    if not isinstance(entry, dict):
+        return ["%s: must be a table ([%s])" % (where, where)]
+    if not entry:
+        return ["%s: declared but empty; omit the key instead" % where]
+    unknown = sorted(k for k in entry if k not in CAREER_KEYS)
+    if unknown:
+        errs.append("%s: unknown key(s) %s (accepted: %s)"
+                    % (where, unknown, list(CAREER_KEYS)))
+    if CAREER_FUNDS_KEY in entry:
+        funds = entry[CAREER_FUNDS_KEY]
+        if not _is_number(funds):
+            errs.append("%s.%s: %r must be a number" % (where, CAREER_FUNDS_KEY, funds))
+        elif funds < 0:
+            # A negative pool is a save KSP never writes, and every token a lane
+            # derives from a negative seed would be a token about a state the
+            # product has no contract for.
+            errs.append("%s.%s: %r must be >= 0" % (where, CAREER_FUNDS_KEY, funds))
+    return errs
+
+
+def declared_career_state(fixture: Any) -> Optional[Dict]:
+    """The declared career table, or None when the key is absent. Shape-tolerant:
+    called AFTER validation, so it never re-reports."""
+    if not isinstance(fixture, dict):
+        return None
+    entry = fixture.get(CAREER_KEY)
+    if not isinstance(entry, dict) or not entry:
+        return None
+    return entry
 
 
 def declared_live_state(fixture: Any) -> List[Dict]:
@@ -315,6 +449,23 @@ MODULE_KEY_INDENT = "\t\t\t\t\t"
 
 def flightstate_node(lines: List[str]) -> Optional[Tuple[int, int]]:
     return find_node(lines, "FLIGHTSTATE")
+
+
+def scenario_node_named(lines: List[str], name: str) -> List[Tuple[int, int]]:
+    """Every top-level `SCENARIO { name = <name> }` span, in file order.
+
+    A LIST rather than the first hit, because the career applier refuses a save
+    carrying two `Funding` nodes instead of picking one - a duplicate is a save
+    nobody should be patching blind."""
+    out: List[Tuple[int, int]] = []
+    i = 0
+    while True:
+        node = find_node(lines, "SCENARIO", i)
+        if node is None:
+            return out
+        if get_value(lines, node, "name") == name:
+            out.append(node)
+        i = node[1]
 
 
 def parsek_scenario_node(lines: List[str]) -> Optional[Tuple[int, int]]:
@@ -591,6 +742,102 @@ def _set_resource(lines: List[str], vessel: Tuple[int, int], vessel_name: str,
     return lines, "%s %s->%s" % (resource, before, text)
 
 
+def _active_vessel_index(lines: List[str]) -> int:
+    """The save's `activeVessel` index, or a raise when it cannot be read.
+
+    Not optional: it is the ONLY thing that makes a removal safe to reason
+    about, so a save that does not carry it is a save this module refuses to
+    remove from rather than one it removes from hopefully."""
+    fs = flightstate_node(lines)
+    if fs is None:
+        raise LiveStatePatchError(
+            "liveState: the save carries no FLIGHTSTATE node, so no vessel can "
+            "be removed from it")
+    raw = get_value(lines, fs, "activeVessel")
+    if raw is None:
+        raise LiveStatePatchError(
+            "liveState: FLIGHTSTATE carries no activeVessel index, so a removal "
+            "cannot be proven not to re-point the focus")
+    try:
+        return int(raw.strip())
+    except (AttributeError, ValueError):
+        raise LiveStatePatchError(
+            "liveState: FLIGHTSTATE's activeVessel is %r, which is not an index"
+            % (raw,))
+
+
+def _remove_vessel(lines: List[str], pid: str) -> Tuple[List[str], str]:
+    """Delete the whole `VESSEL` node carrying ``pid``. Returns (lines, note).
+
+    THE ONE REFUSAL, and it is the reason this mode is safe to ship: `activeVessel`
+    is a positional index into the FLIGHTSTATE vessel list, so deleting a vessel at
+    or before it re-points the focus at a different craft (or at nothing). Every
+    token a lane derives is a statement about the scene that boots, so the patch
+    refuses and names both indices rather than shipping a save whose focus moved."""
+    vessels = flightstate_vessels(lines)
+    matches = [(i, name, span) for i, (name, vpid, span) in enumerate(vessels)
+               if vpid == pid]
+    if len(matches) != 1:
+        raise LiveStatePatchError(
+            "liveState: expected exactly one FLIGHTSTATE vessel with persistentId "
+            "%s to remove, found %d" % (pid, len(matches)))
+    index, vessel_name, span = matches[0]
+    active = _active_vessel_index(lines)
+    if index <= active:
+        raise LiveStatePatchError(
+            "liveState: refusing to remove vessel %r at FLIGHTSTATE index %d - "
+            "activeVessel is %d, and removing a vessel at or before it re-points "
+            "the focus at a different craft; a lane needing that must move the "
+            "focus explicitly" % (vessel_name, index, active))
+    out = list(lines)
+    del out[span[0]:span[1]]
+    return out, vessel_name
+
+
+def apply_career_state(text: str, entry: Optional[Dict]) -> Tuple[str, List[str]]:
+    """Apply the declared `[fixture.career]` table to a save's text. Pure.
+
+    Returns (patchedText, notes). A None / empty entry returns the text UNCHANGED
+    and no notes. Fails closed on a save with no (or more than one) `Funding`
+    SCENARIO, which is exactly what a career declaration on a SANDBOX fixture
+    would hit: the alternative is a lane whose seed silently stayed the
+    template's while its header claims otherwise."""
+    if not entry:
+        return text, []
+
+    crlf = "\r\n" in text
+    lines = text.replace("\r\n", "\n").split("\n")
+    notes: List[str] = []
+
+    if CAREER_FUNDS_KEY in entry:
+        nodes = scenario_node_named(lines, CAREER_FUNDING_SCENARIO)
+        if len(nodes) != 1:
+            raise LiveStatePatchError(
+                "career: the save carries %d SCENARIO { name = %s } node(s), "
+                "expected exactly 1 - a career declaration on a SANDBOX fixture "
+                "reads as 0 here and must abort rather than stage a save whose "
+                "funds are still the template's"
+                % (len(nodes), CAREER_FUNDING_SCENARIO))
+        before = get_value(lines, nodes[0], CAREER_FUNDS_KEY)
+        if before is None:
+            raise LiveStatePatchError(
+                "career: SCENARIO { name = %s } carries no `%s` key to rewrite"
+                % (CAREER_FUNDING_SCENARIO, CAREER_FUNDS_KEY))
+        amount = entry[CAREER_FUNDS_KEY]
+        if float(amount) < 0:
+            raise LiveStatePatchError(
+                "career: funds = %s is negative - a spec error, not a clamp"
+                % format_amount(amount))
+        rendered = format_amount(amount)
+        if not set_value(lines, nodes[0], CAREER_FUNDS_KEY, rendered):
+            raise LiveStatePatchError(
+                "career: SCENARIO { name = %s }'s `%s` key could not be rewritten"
+                % (CAREER_FUNDING_SCENARIO, CAREER_FUNDS_KEY))
+        notes.append("funds %s->%s" % (before, rendered))
+
+    return ("\r\n" if crlf else "\n").join(lines), notes
+
+
 def _apply_inventory(lines: List[str], vessel: Tuple[int, int], vessel_name: str,
                      mode: str, layout: Optional[Sequence[Tuple[int, str, str]]],
                      save_name: str) -> Tuple[List[str], str]:
@@ -664,6 +911,14 @@ def apply_live_state(text: str, entries: Sequence[Dict],
                 "liveState: expected exactly one FLIGHTSTATE vessel with "
                 "persistentId %s, found %d" % (pid, len(matches)))
         vessel_name, span = matches[0]
+
+        if entry.get(REMOVE_KEY):
+            # Whole-node deletion, so nothing below applies: the validator
+            # already refuses `remove` alongside `resources` / `inventory`, and
+            # the next entry re-resolves its own span from the shortened text.
+            lines, removed_name = _remove_vessel(lines, pid)
+            notes.append("pid=%s name=%s removed=1" % (pid, removed_name))
+            continue
 
         resource_notes: List[str] = []
         # Sorted so the note (and therefore the harness log) is deterministic
