@@ -1028,19 +1028,31 @@ def stage_fixture(spec: Dict, instance_dir: str, runtime: Runtime,
     # a window index out of range - aborts with the cause named and KSP never
     # launched. Same containment discipline as the rest of this function: the
     # file must resolve strictly inside saves/.
+    # `[fixture.career]` rides the SAME read / patch / write, in the same step and
+    # under the same fail-closed rule: it is one more declaration about the state
+    # the lane's tokens are derived from, and splitting it into a second pass over
+    # the same file would only add a way for the two to disagree about which text
+    # they patched. liveState runs first, career second; they touch disjoint nodes
+    # (FLIGHTSTATE vessels vs a top-level SCENARIO), so the order is arbitrary and
+    # fixed only so the log reads the same way every run.
     live_state = savepatch.declared_live_state(fixture)
-    if live_state:
+    career_state = savepatch.declared_career_state(fixture)
+    if live_state or career_state:
         sfs_path = os.path.join(target_save, "persistent.sfs")
         if not _is_strictly_inside(sfs_path, saves_dir) or not os.path.isfile(sfs_path):
             logger.error("Stage", "liveState: staged save %s has no readable "
                                   "persistent.sfs; aborting pre-boot (INVALID staging)"
                          % run_save_name)
             return False, run_save_name, "staging"
+        live_notes: List[str] = []
+        career_notes: List[str] = []
         try:
             with open(sfs_path, "rb") as fh:
                 sfs_text = fh.read().decode("utf-8")
             patched_text, live_notes = savepatch.apply_live_state(
                 sfs_text, live_state, run_save_name)
+            patched_text, career_notes = savepatch.apply_career_state(
+                patched_text, career_state)
             with open(sfs_path, "wb") as fh:
                 fh.write(patched_text.encode("utf-8"))
         except savepatch.LiveStatePatchError as ex:
@@ -1053,6 +1065,8 @@ def stage_fixture(spec: Dict, instance_dir: str, runtime: Runtime,
             return False, run_save_name, "staging"
         for note in live_notes:
             logger.info("Stage", "liveState patched %s" % note)
+        for note in career_notes:
+            logger.info("Stage", "career patched %s" % note)
 
     # (4) stage craft files.
     craft = fixture.get("craft", []) or []

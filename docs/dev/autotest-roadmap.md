@@ -3083,6 +3083,117 @@ gated behind the ROUTE-ORIGIN-PROOF-PRODUCER-UNREACHABLE probe (todo) before any
     regression" reasoning is kept in the spec headers as history, because it is what
     made the pins safe to author ahead of the fix.
 
+16. **The FIRST rover fixture's endpoint matrix - RVR-16, RVR-17, RVR-18.**
+    AUTHORED AND FLOWN 2026-09-03, **ALL THREE LIVE-PROVEN**, on the automation DLL
+    `995772453f2339a2`: RVR-17 (`_2010`, 50 s) and RVR-18 (`_2011`, 49 s) PASS
+    attempt 1, and RVR-16 green on its re-fly (`_2025`, 49 s) after a census
+    (`_2007`, 56 s) that was PARSEK-FAIL(expectation) on three tokens which were the
+    spec's own derivations and on nothing else - the subject worked on the first
+    flight. ONE D10 ROW IS CLAIMED IN THE WHOLE ROUND: `destination-full-gate` on
+    RVR-16, as a second declarer alongside RVR-13 on the different-BRANCH axis
+    (inventory walk vs resource walk, `stored-part:` vs a bare resource name). RVR-17
+    and RVR-18 claim NOTHING and their specs record why - the rows they touch belong
+    to lanes that measured them first and abstained (`ksc-origin`, `hold-reasons`),
+    or do not exist and must not be invented for a behaviour whose ruling is open.
+    Item 15's matrix varies
+    the LIVE endpoint state around `rover-relay-c-recorded`; this one does the same
+    around `rover-route-recorded` (and its career twin), and it exists because the
+    two fixtures are short of DIFFERENT things. Every lane is RVR-2's / RVR-4's
+    thirteen-step driver verbatim with a declaration block as the only variable.
+
+    **THE ROUND'S HEADLINE FINDING IS RVR-18's, and it is now a filed design
+    question rather than a lane result**: with the recorded destination deleted, the
+    resolver's 500 m surface search substituted a DIFFERENT craft and the route
+    delivered 97.6 LiquidFuel and three stored parts into it, while the produced
+    save still named the deleted one. `ROUTE-DELIVERY-PROXIMITY-RETARGETS-ANY-NEARBY-VESSEL`
+    in `todo-and-known-bugs.md` asks the operator whether that should fail closed.
+
+    **THE ROUND'S AUTHORING LESSON IS RVR-16's**: the delivery manifest is THREE
+    stored parts, not two, and the wrong number had survived two green flights
+    because both of its sources were misread - RVR-2's create ACK field
+    `stop-inventory=2` does not count what the census counts, and the operator's own
+    hand-flown two-store cycle was SLOT-LIMITED. The window's endpoint delta said
+    three all along (`DeployedCentralStation 5bcde9ad`, `evaChute 67867f65`,
+    `evaScienceKit 796e8060`, one unit each), and `harness/lib` now derives it from
+    the bytes instead of trusting a constant. THE GENERAL FORM, worth carrying: a
+    count taken from a SUMMARY FIELD or from a run that was capacity-limited is not
+    the count of the thing itself.
+
+    * `RVR-16` DESTINATION SLOTS FULL - **the edge item 15 records as not
+      expressible, reached with NO new mechanism, and it produced the first
+      `stored-part:` hold token any driven run has emitted.** That entry is right about
+      `rover-relay-c-recorded` (rover A starts with three free slots and one cycle
+      consumes at most two, so nothing short of INVENTING `STOREDPART` nodes fills
+      them) and wrong as a general statement: on `rover-route-recorded` the
+      destination starts with three free slots and ONE CYCLE CONSUMES TWO, so a
+      single `resources` declaration that takes the RESOURCE half out of the way
+      leaves the second cycle with one free slot against a two-item manifest. The
+      lane stages the tank at 100 / 400 (any value <= 204.8 keeps both cycles'
+      resource half fitting), delivers on cycle 0 and blocks cycle 1
+      `kind=DestinationFull reason=stored-part:evaChute` - the `FirstShortToken`
+      INVENTORY branch, MEASURED live for the first time. The supporting reading is
+      from source and now confirmed twice: `PrepareDelivery` claims an EMPTY slot
+      per stack and never stacks into a partially filled one (this endpoint's
+      evaScienceKit slot has two free units against `stackCapacity = 4`, and both
+      the arriving kit taking a fresh slot and RVR-2 flight 1's refusal show it).
+      The shortfall names the manifest's FIRST item because cycle 0 leaves ZERO free
+      slots, and that ORDER is measured rather than derived - hash-ascending would
+      put the station first, and two flights put it last. **A `fill` MODE IS STILL
+      NOT BUILT AND STILL SHOULD NOT BE**: this lane needs no invented bytes.
+    * `RVR-17` CAREER FUNDS ONE SHORT - the funds gate refusing a route that never
+      dispatched, where RVR-4 measured it refusing the second cycle of one already
+      charged. It introduces the `[fixture.career]` spec surface (one key, `funds`,
+      rewritten in the STAGED COPY's single `Funding` SCENARIO; a save with none
+      ABORTS pre-boot), seeded at `int(cost) - 1` so the shortfall is the boundary
+      itself. Its product is the five FORBIDS, ALL OF WHICH HELD: no
+      `DispatchDebit:`, no `Career KSC funds debited`, no `Delivery write:`, no
+      `Inventory store:` and no `BLOCKED kind=DestinationFull` - the last one being
+      a statement about the WALK (gate 8 would have PASSED on these bytes) rather
+      than about capacity. MEASURED `shortfall=1.000002384185791` on both cycles,
+      and `PatchFunds: GUARDED UPLIFT clamped ... running=25609 live=7409
+      clampedTo=7409` - the declared seed plus the ledger's 18,200 of milestone
+      awards, clamped back to the seed, which is the whole reason a declared number
+      is the number the gate reads.
+    * `RVR-18` ENDPOINT REMOVED - the first lane anywhere to drive
+      `RouteEndpointResolver`'s THIRD step. A new `remove = true` liveState mode
+      deletes the vessel the recorded window names, and **the measured consequence
+      is not the expected one**: the fallback does not miss, it SUBSTITUTES. The
+      recorded dock coordinates have vessel `A` parked 1.03 m away and the transport
+      16.42 m, against a 500 m radius - while the deleted endpoint itself sat 567.93
+      m away and could never have been re-found by proximity. So the route delivered
+      into a vessel whose pid it never recorded, which happens to be the rover that
+      PHYSICALLY docked (the named one is a later rollout of the same craft file,
+      carrying the same baked `persistentId`) - and the produced save STILL names
+      the deleted one, so the substitution exists only in the log. It is also the
+      suite's first driven `path=loaded` delivery, so it gates
+      `WriteResourceLoaded` / `WriteInventoryLoaded` and the LOADED capacity probe
+      as a side effect. The lane is a CHARACTERIZATION: the pid step is not
+      guid-gated (RESOLVER-PID-STEP-NOT-GUID-GATED) and proximity accepts any
+      surface vessel inside the radius, both deliberate and both undriven until now,
+      so the ruling filed as
+      `ROUTE-DELIVERY-PROXIMITY-RETARGETS-ANY-NEARBY-VESSEL` will flip its tokens
+      and the red is the notification.
+
+    **WHAT THIS SETTLES FOR THE MECHANISM.** A `relocate` mode (patching lat / lon)
+    is NOT worth building and the bytes say why: the pid step is position-blind and
+    wins before proximity, so moving a vessel is unobservable until its pid is gone,
+    which is what `remove` already does. A genuine `EndpointLost` hold is likewise
+    NOT reachable on this fixture - the nearest candidate after the removal is 1 m
+    from the recorded coordinates and the runner-up is the ACTIVE vessel, so
+    emptying the radius would mean moving the focus.
+
+    **WHAT IS STRUCTURALLY UNREACHABLE HERE, and belongs to the relay fixture
+    instead**: every ORIGIN-side edge. This route is KSC-origin, so
+    `OriginProvenanceHasCargo` returns true immediately ("per design 6.1, KSC has
+    unlimited cargo") and it has no pickup stop, which is why RVR-10 / RVR-11 /
+    RVR-12 have no counterpart here and why both RVR-16 and RVR-17 FORBID
+    `BLOCKED kind=OriginLacksCargo` as an attribution guard rather than testing it.
+    `SourcesStale` (gate 4) and `WaitingForPartner` (gate 9) are out of reach of any
+    staging mode: the first needs a recording deleted from the Parsek payload, which
+    `savepatch.py` may never touch, and the second needs two LINKED routes, which
+    the `RouteCommand` seam has no verb for (`create` / `send-once` / `pause` /
+    `activate`).
+
 **H55 GREEN 2026-09-01 (run 2, `2026-09-01_2229`, 6/6, re-tiered nightly): B5, B6, B7 and B8 are MEASURED on a driven run - the only Tier B item still owing anything is B4, gated on the probe reading on a LANDED host.**
 
 **RVR-4 GREEN 2026-09-01 (run 3, `2026-09-01_2253`, re-tiered nightly): Tier C item 9 is MEASURED on a driven career run - dispatch cost 7410 (offline derivation confirmed to the unit), the FundsShort hold at shortfall 3820 (live funds are the seed alone: PatchFunds' guarded uplift keeps the ledger's milestone awards out of the live pool on a file-constructed career), recovery credit absent. Round 1 of that lane found the shipped free-dispatch fix insufficient on the real tree (two blockers, both fixed on this branch).**

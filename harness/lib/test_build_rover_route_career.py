@@ -490,5 +490,147 @@ class RoverRouteCareerSpecSyncTests(unittest.TestCase):
         self.assertNotIn("ExportRenderManifest", self.text)
 
 
+class RoverRouteCareerSeedOverrideSpecTests(unittest.TestCase):
+    """RVR-17, the lane that STAGES a different funds seed through
+    `[fixture.career]` instead of shipping a second career fixture.
+
+    The claim it makes is a BOUNDARY - the pool is one fund below the computed
+    dispatch cost, so the gate refuses the very first cycle - and a boundary pin
+    is only a gate while the two numbers stay tied to each other. Both are
+    re-derived here from the committed bytes: the cost through the builder's own
+    `dispatch_cost_readings`, the seed out of the spec, and the pinned shortfall
+    digits against their difference. A re-harvest that moved the parts multiset
+    therefore reds HERE, naming the fixture, rather than on a flight looking like
+    a funds-gate defect."""
+
+    SPEC = "RVR-17-rover-route-career-funds-short.toml"
+    SIBLING = "RVR-4-rover-route-career-cost.toml"
+
+    @classmethod
+    def setUpClass(cls):
+        cls.builder = _load_builder()
+        path = os.path.join(SCENARIOS_DIR, cls.SPEC)
+        with open(path, encoding="utf-8") as fh:
+            cls.text = fh.read()
+        with open(path, "rb") as fh:
+            cls.spec = tomllib.load(fh)
+        contracts = ((cls.spec.get("expectations") or {}).get("logContracts") or {})
+        cls.required = list(contracts.get("required") or [])
+        cls.forbidden = list(contracts.get("forbidden") or [])
+        cls.lines = cls.builder.read_lines(FIXTURE_SFS)
+        cls.cost = cls.builder.dispatch_cost_readings(
+            FIXTURE_DIR, cls.lines)["measured-root-ghost-launch-manifest"]
+
+    def _seed(self):
+        career = (self.spec.get("fixture") or {}).get("career") or {}
+        self.assertIn("funds", career, "RVR-17 declares no career seed at all")
+        return career["funds"]
+
+    def test_the_spec_stages_the_career_fixture(self):
+        self.assertIn('"fixtures/saves/rover-route-career"', self.text)
+        self.assertNotIn('"fixtures/saves/rover-route-recorded"', self.text,
+                         "a career seed on the SANDBOX sibling would abort at "
+                         "staging - there is no Funding SCENARIO to rewrite")
+
+    def test_the_declared_seed_is_one_fund_below_the_derived_cost(self):
+        """The boundary, tied to the cost rather than typed. `int(cost) - 1` is
+        the largest integer that is unambiguously short: `int(cost)` itself is
+        ALSO short, by the cost's float32 accumulation tail, and a lane pinned on
+        that tail would red the first time a part price moved a rounding."""
+        self.assertEqual(int(self.cost) - 1, self._seed(),
+                         "the seed no longer sits one fund below the derived "
+                         "dispatch cost %r" % (self.cost,))
+
+    def test_the_pinned_shortfall_is_the_costs_own_subtraction(self):
+        """`KscFundsAvailable` reports `cost - funds`, so the pinned digits must
+        be a PREFIX of that difference. The spec regexes the float tail (the
+        wave's FINDING 2 rule), so this cell checks the leading digits it does
+        pin."""
+        want = repr(float(self.cost) - float(self._seed()))
+        pinned = []
+        for token in self.required:
+            for m in re.finditer(r"shortfall=([0-9]+)(?:\\\.([0-9]+))?", token):
+                pinned.append(m.group(1) + ("." + m.group(2) if m.group(2) else ""))
+        self.assertTrue(pinned, "the spec pins no shortfall at all")
+        for got in pinned:
+            self.assertTrue(want.startswith(got),
+                            "the spec pins shortfall=%s but cost %r - seed %r = %s"
+                            % (got, self.cost, self._seed(), want))
+
+    def test_the_cost_token_is_the_siblings(self):
+        """The costing breadcrumb is RVR-4's, and on this lane it does double
+        duty: it is the ONLY token that says the CAREER branch was taken, because
+        `careerKsc=1` lives on the debit line and this lane forbids that line."""
+        cost = int(self.cost)
+        self.assertTrue(
+            any("FundsCost basis=launch-manifest" in t and ("cost=%d" % cost) in t
+                and "fallback=0 snapshotSurface=ghost" in t
+                for t in self.required),
+            "the FundsCost token must pin the DERIVED cost %d with the "
+            "transport-subset path pinned ABSENT by contiguity" % cost)
+
+    def test_the_first_cycle_is_the_one_that_refuses(self):
+        """What separates this lane from RVR-4: the block lands on cycle-0, so
+        nothing was ever dispatched. RVR-4 pins the same kind on cycle-1, AFTER a
+        charged dispatch."""
+        self.assertTrue(
+            any("cycle=cycle-0" in t and "kind=FundsShort" in t
+                for t in self.required),
+            "RVR-17 must pin the CYCLE-0 refusal; without it the lane is RVR-4")
+
+    def test_nothing_may_be_charged_delivered_or_capacity_blocked(self):
+        """The four negatives that are this lane's product, plus the walk-order
+        one. Checked against the PARSED forbidden list rather than the file text:
+        every one of these strings also appears in the header prose, so a
+        whole-file scan would pass against a spec that had dropped the entry."""
+        for needle in ("DispatchDebit:", "Career KSC funds debited",
+                       "Delivery write:", "Inventory store:",
+                       "BLOCKED kind=DestinationFull"):
+            self.assertIn(needle, self.forbidden,
+                          "RVR-17 must FORBID %r - it is what 'never dispatched' "
+                          "means in the log" % needle)
+
+    def test_the_recovery_credit_token_is_the_no_pending_one(self):
+        """RVR-4 requires `credit-skip zero-recovery (recoveryRows=0)`. That line
+        needs a PENDING credit, which only a Career-KSC DISPATCH sets, so on this
+        lane it cannot appear and requiring it would red a correct run."""
+        self.assertTrue(any("no pending credit" in t for t in self.required))
+        self.assertFalse(any("credit-skip zero-recovery" in t
+                             for t in self.required))
+
+    def test_the_driver_is_the_siblings_step_for_step(self):
+        with open(os.path.join(SCENARIOS_DIR, self.SIBLING), "rb") as fh:
+            base = tomllib.load(fh)["driver"]["steps"]
+        steps = self.spec["driver"]["steps"]
+        self.assertEqual(len(base), len(steps))
+        for want, got in zip(base, steps):
+            self.assertEqual(want["cmd"], got["cmd"])
+            if want["cmd"] == "TimeJump":
+                self.assertEqual(want["args"]["ut"], got["args"]["ut"])
+            if want["cmd"] == "RouteCommand":
+                self.assertEqual(want["args"]["action"], got["args"]["action"])
+
+    def test_the_spec_arms_nothing(self):
+        expectations = self.spec["expectations"]
+        for label, block in (
+                ("routes", expectations.get("routes") or {}),
+                ("recordings.structure",
+                 (expectations.get("recordings") or {}).get("structure") or {})):
+            self.assertTrue(block, "RVR-17 declares no %s block at all" % label)
+            self.assertNotIn("gating", block, "RVR-17 arms its %s block" % label)
+        self.assertNotIn("[expectations.renderComposition]", self.text)
+        self.assertNotIn("ExportRenderManifest", self.text)
+
+    def test_the_fixtures_own_seed_is_untouched(self):
+        """The staging patches the STAGED COPY. The committed fixture must still
+        carry `FUNDS_SEED`, or RVR-4 - which declares no career block and relies
+        on the fixture's own number - would be measuring this lane's seed."""
+        self.assertIn("funds = %d" % self.builder.FUNDS_SEED,
+                      "\n".join(self.lines))
+        self.assertNotEqual(self.builder.FUNDS_SEED, self._seed(),
+                            "RVR-17's seed is the fixture's own, so the lane "
+                            "declares a patch that changes nothing")
+
+
 if __name__ == "__main__":
     unittest.main()

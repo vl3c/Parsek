@@ -411,14 +411,27 @@ SOURCE_ACTIVE_VESSEL_NAME = "rover fuel 0"
 #
 # IT IS ALSO WHAT MAKES THE FIXTURE WORK, so do not "fix" it. The route window's
 # `transferTargetPid` is 2123618197, and `RouteEndpointResolver.TryResolveEndpoint`
-# resolves by `FlightGlobals.FindVessel(pid)` with NO guid gate and NO loaded
-# gate - so a driven route's STOP resolves to `rover fuel 0`, 5.4 km south of the
-# focus and therefore UNLOADED, and `RouteOrchestrator.ApplyDelivery` takes
+# resolves by pid (behind a root-part step that cannot run here - see below) with NO
+# guid gate and NO loaded gate - so a driven route's STOP resolves to `rover fuel 0`,
+# ~568 m south of the focus and therefore PACKED, and `ApplyDelivery` takes
 # `path=unloaded` (`LiveDeliveryWriters.WriteResourceUnloaded` /
 # `WriteInventoryUnloaded`, which write `ProtoPartResourceSnapshot.amount` and a
 # `STOREDPART` ConfigNode respectively). That is a DELIVERING path, not a
 # refusing one. The live `A` at 2875537755 is the Parsek-spawned destination the
 # operator actually docked with; it is NOT the endpoint the route names.
+#
+# THE SEPARATION IS ~568 m, NOT 5.4 km, and the correction is recorded here because
+# the larger figure is quoted in RVR-2's and RVR-4's headers and in this file's own
+# earlier wording. Derived from the committed coordinates: `B` sits at lat
+# 0.0053474998764914388 and `rover fuel 0` at lat -0.048684738931822846, i.e. 0.0540
+# degrees apart, and one degree of latitude on Kerbin is 600000 * pi / 180 = 10471.98
+# m -> 566 m (longitudes differ by 0.00013 deg, altitudes by 4 m). THE CONCLUSION IS
+# UNCHANGED and that is why no token moves: 568 m is INSIDE stock's landed LOAD
+# distance (2250 m) but OUTSIDE its PACK distance (350 m), so
+# `destVessel.loaded && !destVessel.packed` is false and the writer takes
+# `path=unloaded` - which is what both green flights measured. Only the REASON in the
+# prose was wrong. `RoverRouteEndpointMatrixTests` derives the geometry from these
+# bytes for RVR-18, which is what turned the figure up.
 REQUIRED_VESSELS = (
     # (name, persistentId, type, situation, guid)
     (ACTIVE_VESSEL_NAME, ACTIVE_VESSEL_PID, "Rover", "LANDED",
@@ -477,12 +490,35 @@ ENDPOINT_INVENTORY_BEFORE_REPAIR = (("0", "evaChute", "1"),
 # slotsOccupied=5 slotsConsumed=1` (5 + 1 = 6 across the two modules). Used only
 # to state the post-repair free-slot arithmetic RVR-2's cycle 1 rests on.
 ENDPOINT_INVENTORY_SLOTS_PER_MODULE = 3
-# How many inventory items ONE cycle must find slots for. MEASURED, not derived
-# from the window's four ITEM lists: both the operator's create and RVR-2's
-# driven create print `stops=1 stop-resources=1 stop-inventory=2` on their `Built
-# route` line, and the operator's delivering cycle emitted exactly two
-# `Inventory store:` lines (evaChute, evaScienceKit).
-ROUTE_MANIFEST_INVENTORY_ITEMS = 2
+# How many inventory items ONE cycle must find slots for.
+#
+# THREE, CORRECTED 2026-09-03 FROM 2, and the correction is worth its comment
+# because the wrong number survived two green flights. RVR-16's census
+# (`2026-09-03_2007`) measured a delivering cycle emitting THREE `Inventory store:`
+# lines - evaChute, evaScienceKit AND DeployedCentralStation - closing with
+# `inventoryUnits=3/3 inventoryUnitsSkipped=0 partial=0`; RVR-18's green run
+# (`2026-09-03_2011`) measured the same three into a different vessel.
+#
+# IT IS ALSO DERIVABLE FROM THE WINDOW, which is what makes 2 a misreading rather
+# than an unmeasurable guess: `UNDOCK_ENDPOINT_INVENTORY` minus
+# `DOCK_ENDPOINT_INVENTORY`, keyed by (partName, identityHash), gains exactly
+# `DeployedCentralStation 5bcde9ad` +1, `evaChute 67867f65` +1 and
+# `evaScienceKit 796e8060` +1. The station is in the manifest under a NEW identity
+# (the endpoint already held `5072997a`), because stock's `StoreCargoPartAtSlot`
+# rebuilds the `ProtoPartSnapshot` and `ModuleGroundExpControl.OnSave` adds a
+# runtime-computed `canComm` - the re-hash roadmap item 15 documents.
+# `RoverRouteEndpointMatrixTests.test_the_delivery_manifest_is_the_windows_own_delta`
+# recomputes all three from the bytes.
+#
+# WHERE THE 2 CAME FROM, so it is not re-derived: RVR-2's create ACK prints
+# `stops=1 stop-resources=1 stop-inventory=2` (that field does not count what the
+# census counts) and the operator's own hand-flown cycle emitted two `Inventory
+# store:` lines - but that cycle ran against an endpoint that had already been
+# delivered to and was SLOT-LIMITED, which is the same pollution step 3 repairs.
+# RVR-2's header prose about "1 free slot < 2 items" on its cycle 2 is superseded
+# by this: with three items its cycle 1 filled all six slots, and its cycle-2
+# `reason=LiquidFuel` token is unaffected because resources are checked first.
+ROUTE_MANIFEST_INVENTORY_ITEMS = 3
 
 # Harvest exhaust and derived data no fixture may carry. `Saves` and `analysis`
 # are the two worth naming: the source carries `Parsek/Saves` (three

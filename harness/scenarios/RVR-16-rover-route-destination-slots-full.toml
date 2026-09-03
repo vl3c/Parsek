@@ -1,0 +1,436 @@
+schema = 1
+id = "RVR-16-rover-route-destination-slots-full"
+tier = "nightly"
+# =====================================================================================
+# THE INVENTORY HALF OF THE DESTINATION-CAPACITY GATE, WHICH NO COMMITTED LANE GATES.
+#
+# **LIVE-PROVEN 2026-09-03: re-fly `2026-09-03_2025`, PASS attempt 1, wall 49 s, EVERY
+# VERIFIER PASS**, on the automation DLL sha256 `995772453f2339a2`. **THE FIRST
+# `stored-part:` HOLD TOKEN ANY DRIVEN RUN HAS PRODUCED**, and the first time the
+# INVENTORY branch of the destination-capacity gate has been gated anywhere.
+#
+# **CENSUS HISTORY, and it is the lane's most useful record.** The first flight
+# (`2026-09-03_2007`, 56 s, same DLL) was PARSEK-FAIL(expectation) on THREE tokens and
+# nothing else - every other verifier PASS, analyzer `red=0`. THE LANE'S SUBJECT WORKED
+# ON THAT FLIGHT: the staging landed, cycle 0 delivered, and cycle 1 produced the
+# `stored-part:` refusal this lane exists for. What was wrong was TWO of this file's own
+# derivations - the MANIFEST SIZE (three stored parts, not two) and, following from it,
+# WHICH part the shortfall names. Both corrections are below, with the refuted reasoning
+# kept beside them: it is the record of what was believed, and of what the bytes said all
+# along while two green flights read past it.
+#
+# WHAT THE CENSUS MEASURED, in order (the re-fly measured the same, token for token):
+#     Delivery write: ... tankBefore=100 tankAfter=197.59999999999843 ... path=unloaded
+#     Inventory store: ... part=evaChute               slot=part7/mod1/slot1
+#     Inventory store: ... part=evaScienceKit          slot=part7/mod1/slot2
+#     Inventory store: ... part=DeployedCentralStation slot=part8/mod1/slot2
+#     Delivery: ... inventoryUnits=3/3 inventoryUnitsSkipped=0 partial=0
+#     DestinationHasCapacity: route 54c2f81c destination FULL stop=0
+#         short=stored-part:evaChute (stopsResolved=1 stopsUnresolved=0)
+#     Route 54c2f81c hold recorded kind=DestinationFull detail=stored-part:evaChute
+#     cycle=cycle-1 BLOCKED kind=DestinationFull reason=stored-part:evaChute shortfall=0
+#
+# WHAT IT MEASURES, IN ONE SENTENCE. `RouteDestinationCapacityCheck` is all-or-nothing
+# over TWO populations - resources and stored-part inventory slots - and every committed
+# lane that reaches its refusing direction refuses on the RESOURCE half
+# (RVR-2 `reason=LiquidFuel`, RVR-13 `short=LiquidFuel`, RVR-14 the same at a second
+# headroom). `FirstShortToken` walks resources BEFORE inventory, so on any lane whose
+# tank is also short the inventory half is unobservable BY CONSTRUCTION. This lane
+# stages the destination tank LOW so the resource half fits on both driven cycles, and
+# the only thing that can then refuse is the slot count. It is the first
+# `stored-part:` hold token any driven run has produced.
+#
+# THIS IS THE EDGE THE RELAY MATRIX RECORDED AS NOT EXPRESSIBLE, REACHED WITHOUT A NEW
+# MECHANISM. `harness/lib/savepatch.py`'s own comment says the destination-slots-full
+# edge needs "a FLIGHTSTATE fill mode (or a second harvest)" - true on
+# `rover-relay-c-recorded`, where rover A starts with three free slots and one cycle
+# consumes at most two, so no staging short of INVENTING `STOREDPART` nodes gets the
+# slots full. It is NOT true here, and the difference is the fixture rather than the
+# mechanism: this destination starts with THREE free slots and ONE cycle consumes ALL
+# THREE, so the second cycle meets a destination with NO free slot at all. The lane
+# reaches its edge by PLAYING the fixture, which is why the only declaration it makes is
+# one tank number.
+#
+# -------------------------------------------------------------------------------------
+# THE ARITHMETIC, AND EVERY INPUT IT RESTS ON.
+#
+# THE RESOURCE MANIFEST is the recorded window's own subtraction, read out of the
+# committed bytes: `UNDOCK_ENDPOINT_RESOURCES` 297.59999999999843 minus
+# `DOCK_ENDPOINT_RESOURCES` 200 = 97.59999999999843 of LiquidFuel.
+#
+# THE INVENTORY MANIFEST IS THREE ITEMS, ONE UNIT EACH, and it is DERIVABLE from the
+# same window - which is what makes the correction a finding rather than a re-pin. The
+# `UNDOCK_ENDPOINT_INVENTORY` census minus the `DOCK_ENDPOINT_INVENTORY` one, keyed by
+# (partName, identityHash), gains exactly:
+#     DeployedCentralStation  5bcde9ad...  +1
+#     evaChute                67867f65...  +1
+#     evaScienceKit           796e8060...  +1
+# The station is IN the manifest under a NEW identity: the endpoint gave up nothing and
+# received a station whose hash differs from the one it already held (`5072997a...`),
+# because stock's `StoreCargoPartAtSlot` rebuilds the `ProtoPartSnapshot` and
+# `ModuleGroundExpControl.OnSave` adds a runtime-computed `canComm` value - roadmap item
+# 15's re-hash finding. `harness/lib` now derives all three from the bytes.
+#
+# THE REFUTED PREDICTION, kept because the next reader will make the same mistake: this
+# file originally said the manifest was TWO items, on the strength of RVR-2's create ACK
+# (`stops=1 stop-resources=1 stop-inventory=2`) and of the operator's own hand-flown
+# cycle, which emitted exactly two `Inventory store:` lines. NEITHER is an item count.
+# The ACK field does not count what the census counts, and the operator's cycle was
+# SLOT-LIMITED - it ran against an endpoint that had already been delivered to. The
+# window's own delta said three all along and was read as "two plus an excluded
+# re-hash"; the flight settled it.
+#
+# THE SLOTS. The endpoint `rover fuel 0` (pid 2123618197) carries two
+# `ConformalStorageUnit` containers of THREE slots each - 6 total, MEASURED off the
+# operator's collected log (`ProbeLoadedFirstEmpty: ... modulesScanned=2
+# slotsOccupied=5 slotsConsumed=1`), since `InventorySlots` is a part-config property
+# and not a save property. The committed fixture holds THREE of them (part7/mod1 slot 0
+# `evaChute`; part8/mod1 slot 0 `evaScienceKit` x2, slot 1 `DeployedCentralStation`),
+# which is what `build_rover_route_recorded.py` step 3's endpoint-inventory repair
+# leaves behind and what `verify_endpoint_inventory` pins.
+#
+# THE PLANNER NEVER STACKS INTO A PARTIALLY FILLED SLOT, and this is the load-bearing
+# reading of the whole lane, so it is taken from source and now corroborated twice.
+# `RouteDeliveryPlanner.PrepareDelivery`'s inventory loop calls
+# `probe.ProbeFirstEmptyInventorySlot()` for every stack it places and skips the item
+# when that returns invalid; `stackCapacity` only decides how many units go into ONE
+# EMPTY slot. So each manifest item costs one EMPTY slot even when the destination
+# already holds the same part with room in its stack. The corroboration: this endpoint's
+# `evaScienceKit` slot carries quantity 2 against `stackCapacity = 4` - two free units -
+# and the census still put the arriving kit in a FRESH slot (`part7/mod1/slot2`) and
+# still refused on the next cycle.
+#
+# SO, WITH THE TANK STAGED AT 100 / 400 (measured, both halves):
+#   cycle 0  resources 97.6 <= 300 free            -> fits
+#            inventory  3 items <= 3 free slots    -> fits exactly
+#            => DELIVERS `3/3`, `inventoryUnitsSkipped=0 partial=0`.
+#               Tank 100 -> 197.6, slots 3 -> 6 of 6 occupied.
+#   cycle 1  resources 97.6 <= 202.4 free          -> STILL FITS (the point of the 100)
+#            inventory  3 items >  0 free slots    -> EVERY line short
+#            => BLOCKED kind=DestinationFull, and `FirstShortToken` finds no short
+#               RESOURCE line, falls through to the inventory lines, and names the
+#               FIRST one - which with zero free slots is simply the first line of the
+#               plan.
+#
+# WHY THE TOKEN IS `stored-part:evaChute`, AND WHY THAT IS MEASURED RATHER THAN DERIVED.
+# `PrepareDelivery` assigns slots in the manifest's own order and `FirstShortToken`
+# returns the first line without an assigned slot, so with ZERO free slots the token is
+# the manifest's FIRST item. The census's three `Inventory store:` lines give that order
+# directly - evaChute, evaScienceKit, DeployedCentralStation - because they were written
+# into `part7/slot1`, `part7/slot2`, `part8/slot2`, which is exactly the order
+# `ProbeFirstEmptyInventorySlot` hands out empty slots.
+# **THE WINDOW'S IDENTITY HASHES DO NOT PREDICT THAT ORDER, and this is recorded so
+# nobody re-derives it.** `PrepareDelivery`'s own comment says the manifest arrives
+# "already sorted by IdentityHash", and hash-ascending over the delta above is
+# DeployedCentralStation (`5bcde9ad`) -> evaChute (`67867f65`) -> evaScienceKit
+# (`796e8060`) - which would make the station the named shortfall. The flight put the
+# station LAST. So the manifest's order is not the window census's hash order, the lane
+# pins the MEASURED order, and `harness/lib` gates the three-item MEMBERSHIP (which the
+# bytes do settle) plus the internal consistency of the two halves.
+#
+# WHY 100 AND NOT 0. Any staged value <= 204.8 keeps both cycles' resource half fitting
+# (`staged + 2 x 97.6 <= 400`). 100 leaves the second cycle 202.4 of headroom, 2.07x the
+# manifest, so a re-harvest that moved the manifest by a fifth would not silently turn
+# this lane back into a resource refusal; it also prints as the exact literal
+# `tankBefore=100` in the delivery line, which is this lane's proof that the staged
+# number reached the game. 0 would have done as well arithmetically and would have made
+# the delivery write's `tankBefore` indistinguishable from an empty-by-accident tank.
+#
+# -------------------------------------------------------------------------------------
+# WHAT MAKES THE REFUSAL ATTRIBUTABLE, which is the standard RVR-13 set.
+#   * GATE 8 IS PROVEN TO HAVE PASSED ONCE. The required `full manifest fits
+#     (stopsResolved=1 stopsUnresolved=0)` line is cycle 0's own capacity verdict, so
+#     the cycle-1 refusal is a state the LANE created rather than one the fixture
+#     shipped.
+#   * THE RESOURCE HALF IS FORBIDDEN BY NAME. `BLOCKED kind=DestinationFull
+#     reason=LiquidFuel` - RVR-2's reading on the unstaged fixture - must NOT appear. If
+#     the liveState patch silently did nothing, that is EXACTLY the line this run would
+#     print, so the forbid is the patch's falsification and not decoration.
+#   * GATE 6 CANNOT BE THE REFUSER. The route's origin is KSC
+#     (`OriginProvenanceHasCargo` returns true immediately: "per design 6.1, KSC has
+#     unlimited cargo") and the route has no pickup stop, so `BLOCKED
+#     kind=OriginLacksCargo` is structurally unreachable and is forbidden to say so.
+#   * `stop=0` IS PINNED EXACTLY, where RVR-13 regexes it. That lane could not: its
+#     route has two stops and the mapping from the census ordering to the capacity
+#     walk's index was unmeasured. This route has ONE stop (`stops=1`, measured twice),
+#     and `HasCapacityForAllStops` reports the loop index it refused at, so 0 is the
+#     only value it can take. MEASURED `stop=0`.
+#
+# -------------------------------------------------------------------------------------
+# WHAT THIS LANE DOES *NOT* CLAIM.
+#   * It does not claim the delivery is unaffected by the staging. It is: cycle 0 writes
+#     into a 100-unit tank instead of a 297.6-unit one, which is why the delivery token
+#     pins `tankBefore=100` rather than reusing RVR-2's numbers.
+#   * It does not re-claim `path=unloaded` as a finding - RVR-2 and RVR-4 both measured
+#     it - but it does pin it, because a run in which the endpoint became LOADED would
+#     be measuring a different write path and the slot arithmetic would be running
+#     against a different probe (`ProbeLoadedFirstEmpty` vs the proto walk).
+#   * It makes NO D10 claim on this census. The row it would earn is the INVENTORY
+#     direction of `destination-full-gate`, which RVR-13 owns for the resource
+#     direction; whether that is a second value or a note on the existing one is a
+#     decision for the commit that reports a GREEN run of the corrected token set.
+# =====================================================================================
+description = "LIVE-PROVEN 2026-09-03: re-fly 2026-09-03_2025, PASS attempt 1, wall 49 s, EVERY VERIFIER PASS, on the automation DLL sha256 995772453f2339a2. THE FIRST stored-part: HOLD TOKEN ANY DRIVEN RUN HAS PRODUCED, and the first gating anywhere of the INVENTORY branch of the destination-capacity gate - D10 destination-full-gate is claimed here as a SECOND declarer alongside RVR-13, on the different-branch axis. THE SUBJECT: FirstShortToken walks RESOURCES before inventory, so on every lane whose tank is also short (RVR-2, RVR-13, RVR-14) the slot shortfall is unobservable by construction. This lane stages the endpoint's LiquidFuel LOW (100 of 400) through one [[fixture.liveState]] entry so the resource half fits on BOTH driven cycles, and drives RVR-2's exact thirteen-step chain over the same fixture. MEASURED: cycle 0 delivers 97.6 LiquidFuel (tankBefore=100 tankAfter=197.59999999999843) plus evaChute, evaScienceKit and DeployedCentralStation path=unloaded - inventoryUnits=3/3 inventoryUnitsSkipped=0 partial=0 - consuming ALL THREE of the endpoint's free slots; cycle 1 then has 202.4 of tank headroom against a 97.6 manifest but ZERO free slots against a three-item one, so it BLOCKS kind=DestinationFull reason=stored-part:evaChute at three producers and consumes the armed pause into blocked-then-paused. CENSUS HISTORY: the first flight (2026-09-03_2007) was PARSEK-FAIL(expectation) on THREE tokens and nothing else - the lane's subject worked, and what was wrong was two of the spec's own derivations. THE THREE-ITEM MANIFEST IS DERIVABLE FROM THE WINDOW and was misread, not unmeasurable: the UNDOCK_ENDPOINT_INVENTORY census minus the DOCK_ENDPOINT one gains DeployedCentralStation 5bcde9ad, evaChute 67867f65 and evaScienceKit 796e8060, one unit each - the station under a NEW identity because stock rebuilds the snapshot on store and ModuleGroundExpControl adds a computed canComm (roadmap item 15's re-hash finding). The authored two-item count came from RVR-2's create ACK stop-inventory=2 and from the operator's own hand-flown cycle emitting two store lines; neither is an item count, and that cycle was slot-limited. THE ORDER IS MEASURED, NOT DERIVED: with zero free slots every line is short so the token is the manifest's FIRST item, and the store lines give that order (evaChute, evaScienceKit, DeployedCentralStation) directly from the slot addresses ProbeFirstEmptyInventorySlot handed out - while hash-ascending order would have put the station first, so the window's hashes do NOT predict it. THE EDGE THE RELAY MATRIX RECORDED AS NOT EXPRESSIBLE, REACHED WITH NO NEW MECHANISM: savepatch.py says the destination-slots-full edge needs a fill mode or a second harvest, which is true on rover-relay-c-recorded (three free slots, at most two consumed per cycle) and false here (three free, THREE consumed per cycle). The planner never stacks into a partially filled slot - PrepareDelivery claims an EMPTY slot per stack, and this endpoint's evaScienceKit slot has two free units against stackCapacity=4 yet the arriving kit still took a fresh slot. Attributability is the RVR-13 set: cycle 0's own 'full manifest fits' line proves gate 8 passed once, BLOCKED kind=DestinationFull reason=LiquidFuel is FORBIDDEN (it is precisely what an unpatched run would print, so the forbid falsifies the staging), and OriginLacksCargo is forbidden because a KSC origin cannot reach gate 6. stop=0 is pinned exactly rather than regexed, which RVR-13 could not do: this route has one stop, and both flights measured 0."
+instanceProfile = "stock-minimal"
+tags = ["seam-verbs", "logistics", "route-create", "route-delivery", "route-hold",
+        "destination-full", "live-state", "recorded-fixture", "RVR-16", "matrix"]
+
+[fixture]
+# `rover-route-recorded`, RVR-2's host, unchanged. What this lane needs from it is
+# RVR-2's list plus ONE thing that lane never used: an endpoint whose inventory has
+# exactly THREE free slots of six, so a three-item manifest fits once and not twice.
+# That is the post-repair state `build_rover_route_recorded.py` step 3 produces and
+# `verify_endpoint_inventory` pins, and it is re-derived against this lane's tokens by
+# `RoverRouteEndpointMatrixTests` in `harness/lib`.
+#
+# `injectedRecordings = "none"`: RVR-2's call, for RVR-2's reason - a synthetic corpus
+# would give `RouteAnalysisEngine` other trees and make the create's candidate
+# resolution un-attributable.
+saveTemplate       = "fixtures/saves/rover-route-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[[fixture.liveState]]
+# The DELIVERY DESTINATION, `rover fuel 0`, staged low. This is the ONLY declaration
+# the lane makes: inventory defaults to `keep`, so the three occupied slots the fixture
+# ships stay exactly as they are and the slot arithmetic above is the committed
+# fixture's own. The applier refuses an amount above `maxAmount` rather than clamping,
+# and refuses a vessel carrying more than one LiquidFuel RESOURCE node - this endpoint
+# carries exactly one (400 max), which is what makes "100" mean one unambiguous thing.
+# MEASURED live as `liveState patched pid=2123618197 name=rover fuel 0
+# resources=[LiquidFuel 297.59999999999843->100] inventory=keep`.
+pid       = 2123618197
+resources = { LiquidFuel = 100 }
+
+[driver]
+kind = "seam"
+# RVR-2's THIRTEEN STEPS, VERBATIM apart from the route name. That is deliberate and it
+# is the whole design of a matrix lane: the driver is the control, the `liveState` block
+# is the variable. The prologue is H39's / H40's / RVR-1's / RVR-2's for the same
+# reasons - the committed-tree restore path resumes a promotion-stub recording ~1 s into
+# the scene, `StopRecording` is idempotent-OK, `DiscardTree` answers OK with
+# nothing-discarded when no plain tree is live (and it discards the LIVE PLAIN tree,
+# never a committed one), and `verboseLogging = true` is REQUIRED because five of the
+# tokens below are Verbose lines.
+#
+# THE TWO TimeJumps ARE RVR-2's, +600 s each from the fixture's save clock of UT 979.48.
+# RVR-2 measured `warp jump=21` and `warp jump=12` at these exact UTs on these exact
+# bytes, and this lane's own census fired both cycles at them, so the clock is settled:
+# a red on a delivery token here is NOT to be diagnosed as a clock problem.
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                    expect = "OK" },
+  { cmd = "DiscardTree",                                                      expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" },  expect = "OK" },
+  { cmd = "SealSlot",     args = { tree = "73e50f1e3aa24c299919016cd9e92269" }, expect = "OK", budget = 120 },
+  { cmd = "RouteCommand", args = { action = "create", tree = "73e50f1e3aa24c299919016cd9e92269", name = "RVR16 Slot Limit" }, expect = "OK", budget = 120 },
+  { cmd = "RouteCommand", args = { action = "send-once", route = "RVR16 Slot Limit" }, expect = "OK", budget = 120 },
+  { cmd = "TimeJump",     args = { ut = "1600" },                             expect = "OK", budget = 300 },
+  { cmd = "RouteCommand", args = { action = "send-once", route = "RVR16 Slot Limit" }, expect = "OK", budget = 120 },
+  { cmd = "TimeJump",     args = { ut = "2200" },                             expect = "OK", budget = 300 },
+  { cmd = "SaveGame",                                                         expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                     expect = "OK" },
+]
+
+[dimensionsCovered]
+# **D10 `destination-full-gate` IS CLAIMED OFF THE GREEN RE-FLY `2026-09-03_2025`, AS A
+# SECOND DECLARER ALONGSIDE RVR-13**, and the justification is the RVR-9 / H34 shape the
+# corpus already accepts for this: a DIFFERENT CODE PATH inside the named behaviour, with
+# a DIFFERENT measured value, gated by REQUIRED tokens rather than asserted.
+#
+#   * DIFFERENT BRANCH. `RouteDestinationCapacityCheck.FirstShortToken` walks the plan's
+#     RESOURCE lines and only then its INVENTORY lines. RVR-13, RVR-14 and RVR-2 all
+#     refuse on the resource walk and return a bare resource name; this lane refuses on
+#     the INVENTORY walk, which additionally exercises `RouteDeliveryPlanner`'s
+#     per-stack `ProbeFirstEmptyInventorySlot` claim and its `AssignedSlot.IsValid`
+#     skip line. RVR-13's own row draws exactly this line for the other direction: it
+#     records that RVR-14 "measures the same branch at a second headroom value and does
+#     NOT re-declare". Same branch, no claim; different branch, this one.
+#   * DIFFERENT MEASURED VALUE. The token class is `stored-part:<partName>`, which no
+#     driven run in the suite's history had emitted - every prior hold detail anywhere is
+#     a bare resource name. Measured `stored-part:evaChute` at THREE producers.
+#   * THE REQUIRED TOKENS PROVE IT, three ways at three emitters:
+#     `DestinationHasCapacity: ... destination FULL stop=0 short=stored-part:evaChute`
+#     (the check), `Route ... hold recorded kind=DestinationFull
+#     detail=stored-part:evaChute` (the persisted verdict) and `cycle=cycle-1 BLOCKED
+#     kind=DestinationFull reason=stored-part:evaChute` (the cycle's outcome). A
+#     regression in any one of the three reds.
+#   * IT IS ATTRIBUTABLE. Cycle 0's required `full manifest fits (stopsResolved=1
+#     stopsUnresolved=0)` says gate 8 PASSED once, so the refusal is a state the LANE
+#     created; `BLOCKED kind=DestinationFull reason=LiquidFuel` and `BLOCKED
+#     kind=OriginLacksCargo` are both FORBIDDEN, so it cannot be the resource half or
+#     some other gate wearing this name.
+#
+# NOTHING ELSE IS CLAIMED, and the abstentions are deliberate. `inventory-cargo` is
+# RVR-15's: that row names a complete driven PICKUP AND DELIVERY with
+# `inventoryUnitsSkipped=[1-9]` and `partial=1` forbidden as its anti-vacuity half, and
+# this lane has no pickup at all (a KSC origin) and pins neither forbid - it delivers
+# three items, but it does not gate what that row gates. `ksc-origin` is BDOCK-1's and
+# nothing here is new under it.
+D10 = ["destination-full-gate"]
+D14 = ["sandbox", "scene-flight"]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING (the H7 lesson): a bare key after an `[expectations.<sub>]`
+# header is TOML-scoped to that sub-table and never read. No tracer is armed by this
+# spec, so the empty list is honest, and NO render-composition expectations block is
+# declared - declaring one would set `PARSEK_RENDER_MANIFEST=1`, and a confirmed dock
+# crossing appends `route-dock-crossing` CLOCK-EVENTs to that manifest.
+allowedAnomalies = []
+
+[expectations.recordings]
+# RVR-2's ANTI-DATA-LOSS FLOOR, exact at 5 on both bounds, and it is not bookkeeping:
+# the route this lane creates holds `SOURCE` references into the committed corpus which
+# `RouteStore.RevalidateSources` compares against a live rebuild, so a recording
+# destroyed mid-run would flip the fresh route to `SourceChanged` and present as a route
+# defect rather than as data loss. RVR-2 observed exactly 5 on both of its flights over
+# these bytes, and the liveState patch touches one FLIGHTSTATE `amount =` line, which no
+# recording count reads.
+count = { min = 5, max = 5 }
+
+[expectations.logContracts]
+# SIXTEEN TOKENS. Each is a literal RUN taken from the emitting `string.Format` /
+# interpolation in source, never a line pasted from a log - an interpolated string is
+# not stored the way it renders, and several of these lines carry an em dash a run
+# cannot match across.
+#
+# TOKENS 1-5 ARE RVR-2's PROLOGUE SET and are this lane's CONTROL: RVR-2 run 2 measured
+# all five green over the identical payload, and the census measured them green here.
+# If one of them reds, the run diverged from the sandbox baseline somewhere OTHER than
+# the staged tank, and that is the first thing to know. Read RVR-2's own per-token
+# commentary for what each asserts.
+#
+# TOKEN 6  GATE 8 PASSING, at cycle 0, from `LiveRouteRuntimeEnvironment.
+#          DestinationHasCapacity`'s Verbose line. `stopsResolved=1 stopsUnresolved=0`
+#          is derived and then measured: the route has one stop and its endpoint
+#          resolves by pid to a live vessel. This is what makes token 11's refusal
+#          attributable to a state the LANE created.
+#
+# TOKEN 7  THE DELIVERY WRITE, and the falsification of the staging. `tankBefore=100`
+#          is the exact literal the applier writes (`format_amount` renders an integral
+#          TOML number without a decimal point, and the unloaded reader sums the proto
+#          amounts back to it). An unpatched run prints `tankBefore=297.6...` here and
+#          reds. The requested / written / after figures are regexed to their leading
+#          digits: the manifest is 97.59999999999843 and a `97\.6` prefix would match
+#          NEITHER it nor the 197.59999999999843 sum (the RVR-8 / RVR-15 float-tail
+#          lesson, filed as the wave's FINDING 2). All four numbers measured.
+#          `path=unloaded` is pinned for RVR-2's reason: the endpoint sits ~568 m from
+#          the focused rover, which is inside stock's landed LOAD distance but outside
+#          its PACK distance, so `destVessel.loaded && !destVessel.packed` is false. A
+#          run that printed `path=loaded` would be measuring a different writer AND a
+#          different capacity probe, and the slot arithmetic above is the proto walk's.
+#
+# TOKENS 8-10  ALL THREE INVENTORY STORES, cycle 0, LISTED IN THE MEASURED PLAN ORDER.
+#          They are the lane's premise made observable: cycle 1's zero free slots exist
+#          only because cycle 0 consumed all three. Pinned as far as `part=<name>`,
+#          which is contiguous in the emitter; the slot address and the unit count are
+#          NOT pinned (the unloaded writer returns its unit count without a read-back,
+#          so a number there would assert the writer's optimism). THE ORDER OF THESE
+#          THREE ENTRIES IS LOAD-BEARING, not cosmetic: `harness/lib` asserts that the
+#          shortfall token in token 11 names the FIRST of them, which is the only thing
+#          that keeps the two halves of the measurement in step.
+#
+# TOKEN 11 GATE 8 REFUSING, cycle 1, with `stop=0` pinned exactly (one stop, so the
+#          index the walk reports can only be 0) and `short=stored-part:evaChute` from
+#          `RouteDestinationCapacityCheck.FirstShortToken`'s inventory branch.
+#          THE `stored-part:` PREFIX IS THE WHOLE POINT: it is a different branch of
+#          that function from every other committed lane's bare resource name, and this
+#          census is the first time any driven run has produced one.
+#
+# TOKEN 12 THE PERSISTED VERDICT, from `Route.RecordHold`. Same kind and detail as
+#          token 11, at a second producer: a fix that plumbed the token into the check
+#          and not into the hold would leave the Logistics window unable to name the
+#          blocker and would red only here.
+#
+# TOKEN 13 THE CYCLE'S OUTCOME, from `ProcessLoopRoute`'s Info line. `cycle=cycle-1`
+#          says the block landed on the SECOND driven cycle, which together with the
+#          three `Inventory store:` lines says the first one delivered. The rendered
+#          line continues past an em dash, so the token stops at the reason.
+#
+# TOKENS 14-15  THE ARMED PAUSE, from `TryHonorArmedPauseOnBlockedCycle`. 14 anchors the
+#          claim to the BLOCKED emitter (its sibling renders `COMPLETED` in the same
+#          slot and BOTH appear in this run, cycle 0 completing and cycle 1 blocking),
+#          and 15 carries the provenance plus `hold kind=DestinationFull`, the field
+#          that says WHICH refusal consumed the one-shot.
+#
+# TOKEN 16 THE LIFECYCLE MARKER, the persisted-timeline half of token 14's decision.
+#
+# NOT PINNED, DELIBERATELY: any `status=DestinationFull` reading. On the loop path a
+# blocked route ends at `Paused` with `LastHoldKind` set - `RouteStatus.DestinationFull`
+# belongs to the dead self-timer path - so a status pin would red a correct run.
+# Unchanged from RVR-2. The census's `inventoryUnits=3/3 inventoryUnitsSkipped=0
+# partial=0` summary is likewise NOT pinned: the three store lines already carry the
+# claim, and RVR-15 owns that summary's shape.
+required  = [
+  "loadgame complete scene=FLIGHT save=.* game-loaded=true expected=Flight",
+  "sealslot complete mode=tree tree=73e50f1e3aa24c299919016cd9e92269 total=4 sealed=0 remaining=0 alreadySealed=True",
+  "routecommand create gate tree=73e50f1e3aa24c299919016cd9e92269 treeFound=True dismissed=False sealed=True eligible=True status=Eligible alreadyPromoted=False refusal=None",
+  "routecommand complete action=create tree=73e50f1e3aa24c299919016cd9e92269 route=.* name='RVR16 Slot Limit' status=Paused",
+  "PauseAfterCurrentCycle=true \\(route will dispatch one cycle when conditions allow, then transition to Paused\\)",
+  "DestinationHasCapacity: route [0-9a-f]{8} full manifest fits \\(stopsResolved=1 stopsUnresolved=0\\)",
+  "Delivery write: route=.* dest=rover fuel 0 pid=2123618197 resource=LiquidFuel requested=97\\.[0-9]* written=97\\.[0-9]* tankBefore=100 tankAfter=197\\.[0-9]* capacity=400 path=unloaded",
+  "Inventory store: route=.* dest=rover fuel 0 pid=2123618197 part=evaChute",
+  "Inventory store: route=.* dest=rover fuel 0 pid=2123618197 part=evaScienceKit",
+  "Inventory store: route=.* dest=rover fuel 0 pid=2123618197 part=DeployedCentralStation",
+  "DestinationHasCapacity: route [0-9a-f]{8} destination FULL stop=0 short=stored-part:evaChute",
+  "Route [0-9a-f]{8} hold recorded kind=DestinationFull detail=stored-part:evaChute",
+  "cycle=cycle-1 BLOCKED kind=DestinationFull reason=stored-part:evaChute",
+  "ArmedPause: route .* BLOCKED cycle consumed the armed pause",
+  "reason=blocked-then-paused armedBy=send-once hold kind=DestinationFull",
+  "LifecycleMarker: route .* type=RoutePaused reason=blocked-then-paused",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "routecommand rejected",
+  # THE STAGING'S OWN FALSIFICATION. This is RVR-2's cycle-1 reading on the UNPATCHED
+  # fixture, so a liveState patch that silently did nothing produces exactly this line.
+  "BLOCKED kind=DestinationFull reason=LiquidFuel",
+  # And the refusal must not be some other gate wearing the capacity gate's name: the
+  # route's origin is KSC, so gate 6 returns true immediately and can never refuse.
+  "BLOCKED kind=OriginLacksCargo",
+]
+
+[expectations.recordings.structure]
+# REPORT-ONLY (no `gating` key), and every window is the COMMITTED FIXTURE's own
+# structure re-read through `harness/lib/saveparse.py`: 2 trees, both committed, 5
+# recordings, terminal states {Landed 3, Docked 1, one unset on the dock member}, one
+# `Dock` and one `Undock` branch point. Nothing in this lane's driver creates or
+# destroys a recording (`autoRecordOnLaunch=false`, `StopRecording`, `DiscardTree`), so
+# the produced save should read the same numbers - which is the reading, not a gate.
+trees          = { min = 2, max = 2 }
+committedTrees = { min = 2, max = 2 }
+recordings     = { min = 5, max = 5 }
+terminalStates = { Landed = { min = 3 }, Docked = { min = 1 } }
+branchPoints   = { Dock = { min = 1, max = 1 }, Undock = { min = 1, max = 1 } }
+
+[expectations.routes]
+# REPORT-ONLY, and DERIVED rather than measured: no lane had ever read this facet on
+# this fixture (RVR-2 and RVR-4 predate the block and declare none), so this is a
+# reading run for it. `stops = 1` and `sourceRefs = 2` are RVR-2's and RVR-4's measured
+# `stops=1` and `of 2` member set; `completedCycles = 1` / `skippedCycles = 1` are this
+# lane's own two-cycle chain; `Paused` is where `blocked-then-paused` leaves the route.
+# Arming any of it is a separate decision taken after a reading run whose facets match,
+# with its own `ARMED_ALLOWLIST` entry.
+count           = { min = 1, max = 1 }
+dormant         = { min = 0, max = 0 }
+stops           = { min = 1, max = 1 }
+sourceRefs      = { min = 2, max = 2 }
+completedCycles = { min = 1, max = 1 }
+skippedCycles   = { min = 1, max = 1 }
+statuses        = { Paused = { min = 1, max = 1 } }
+
+[runtime]
+# RVR-2's budget arithmetic, unchanged: `run.py` gives EVERY deferred seam verb
+# `required_step_wait(max(step budget, SEAM_FALLBACK_DEFERRAL_SECONDS=600))` = 660 s
+# regardless of the declared step budget. LoadGame and both TimeJumps are deferred, so
+# the worst case is 660 x 3 = 1980; the six synchronous route/seal/save verbs add their
+# own budgets on top. 2400 clears it, and RVR-2's runs came in at 50 s wall on the
+# identical driver.
+budgetSeconds = 2400
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

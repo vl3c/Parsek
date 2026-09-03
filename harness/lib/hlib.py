@@ -3140,6 +3140,12 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
     # exists on that vessel and the amount fits under `maxAmount` are the
     # applier's own assertions against the bytes (fail-closed, pre-boot).
     errors.extend(savepatch.validate_live_state(fixture))
+    # `[fixture.career]` - the career-SCENARIO half of the same mechanism (one
+    # key, `Funding.funds`). Validated here for the same reason and by the same
+    # module; whether the fixture actually IS a career save is the applier's
+    # assertion against the bytes, because a career declaration on a sandbox
+    # template must abort rather than quietly stage the template's own seed.
+    errors.extend(savepatch.validate_career_state(fixture))
 
     driver = spec.get("driver", {}) or {}
     kind = driver.get("kind")
