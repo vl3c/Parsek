@@ -56,7 +56,7 @@ format) while only the UI rounds to one decimal. Blocking behaviour is untouched
 
 ---
 
-## ~~PERIODICITY-LANDED-ANCHOR-PHASE-LOCK: a surface-only relay tree acquires an ORBITAL phase lock from a landed craft's pseudo-orbit, stretching its cadence 3.4x~~ [FOUND 2026-09-03 by forensics on `logs/2026-09-03_1955_rover-c-route-created`. PRODUCT DEFECT. FIXED in this PR]
+## ~~PERIODICITY-LANDED-ANCHOR-PHASE-LOCK: a surface-only relay tree acquires an ORBITAL phase lock from a landed craft's pseudo-orbit, stretching its cadence 3.4x~~ [FOUND 2026-09-03 by forensics on `logs/2026-09-03_1955_rover-c-route-created`. PRODUCT DEFECT. FIXED 2026-09-03 in PR #1623. Re-opened the same day on a flight that looked like a bypass and re-closed: the flight ran a stubbed DLL, see the re-check below]
 
 **What happened.** Every member of the rover relay tree was Landed or Docked on
 Kerbin (`KSP.log:12915` `Eligible breakdown: ... terminal(Landed=5, <null>=2,
@@ -95,6 +95,44 @@ per anchor pid. `ClassifyVesselOrbitalConstraint` then takes its existing
 route keeps its built cadence and anchor. Chosen over an extractor-side guard,
 which would have taken the `count == 0` free-loop branch and substituted
 `MinCycleDuration` instead of leaving the built cadence alone.
+
+**RE-CHECKED 2026-09-03: the apparent bypass was a stubbed DLL, not a live path
+the guard misses.** The RVR-9 flight
+(`logs/2026-09-03_2106_RVR-9-rover-relay-c-surface-cadence`) emitted the bad lock
+again with the fix merged, and carried ZERO `skipped landed anchor` lines:
+
+```
+KSP.log:11826  OnVesselSituationChange: ignoring non-active vessel 'B' pid=90564594 (0 -> LANDED)
+KSP.log:12217  ExtractConstraints: tree=88c012a6... constraints=1
+               [VesselOrbital(90564594@Kerbin) P=551.62499272538378 off=101.14]
+KSP.log:12223  PhaseLock APPLIED: mission='relay-c' ... anchor 274.18->663.06 P=551.62
+```
+
+That reads as a guard sitting on a reader the live path does not take. It is not.
+The deployed automation DLL carried the guard's NAME and its log LITERALS but a
+stubbed BODY. `ilspycmd -il -t Parsek.MissionPeriodicity` on the exact file
+`KSP.log:81` names
+(`automation/stock-minimal/GameData/Parsek/Plugins/Parsek.dll`,
+sha256 `877208524b314e7b169a36dffdb6b452472cad9b62350ba6c0fddca47d4d2229`) decompiles
+`IsPhaseAnchorEligible` to `return true;` - IL `nop; ldc.i4.1; stloc.0; br.s; ldloc.0; ret`,
+code size 7. The same method built from the branch tip
+(`Parsek-relay-holds/Source/Parsek/bin/Debug/Parsek.dll`) is code size 27 and carries
+the three situation compares. `GameData/Parsek/provision-log.txt:26352` names where
+the stub came from: `parsek dll source=.../scratchpad/Parsek-relay-holds.dll (override)`
+- a `--parsek-dll` override snapshot taken 15 s before the branch's own clean build
+finished, whose sha256 matches the installed one byte for byte.
+
+So the live chain is intact and unchanged:
+`ParsekFlight.DriveMissionLoopUnits` (`ParsekFlight.cs:19011`, `bodyInfo =
+FlightGlobalsBodyInfo.Instance`) -> `MissionLoopUnitBuilder.Build` ->
+`ExtractConstraints` rule 5 (`MissionPeriodicity.cs:542`) ->
+`ClassifyVesselOrbitalConstraint` rule 2 (`MissionPeriodicity.cs:2092`,
+the ONLY place a `VesselOrbital` period is read) ->
+`FlightGlobalsBodyInfo.TryGetVesselOrbit` (`MissionPeriodicity.cs:2918`) ->
+`IsPhaseAnchorEligible`. `FlightGlobalsBodyInfo` is the only `IBodyInfo`
+implementation outside test code, so there is no second reader to guard. Nothing to
+fix; do not re-open this on a flight log without decompiling the deployed method
+body first (see `.claude/CLAUDE.md` -> "Verify the deployed DLL after building").
 
 ---
 
