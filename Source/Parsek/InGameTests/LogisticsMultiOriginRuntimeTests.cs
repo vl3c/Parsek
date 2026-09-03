@@ -498,7 +498,7 @@ namespace Parsek.InGameTests
                 try
                 {
                     // Baseline: with NO reservation, route B's gate passes (source covers it).
-                    bool bEligibleBefore = env.OriginHasCargo(routeB, out string lackBefore);
+                    bool bEligibleBefore = env.OriginHasCargo(routeB, out string lackBefore, out _);
                     InGameAssert.IsTrue(bEligibleBefore,
                         $"Route B should pass the source gate BEFORE any reservation (source has " +
                         $"{sourceStored.ToString("R", IC)} LF, needs {PickupAmountA.ToString("R", IC)}); lack='{lackBefore}'");
@@ -515,7 +515,7 @@ namespace Parsek.InGameTests
 
                     // Now route B's gate must HOLD: live stored minus A's reservation
                     // is below B's requirement.
-                    bool bEligibleAfter = env.OriginHasCargo(routeB, out string lackAfter);
+                    bool bEligibleAfter = env.OriginHasCargo(routeB, out string lackAfter, out _);
                     InGameAssert.IsFalse(bEligibleAfter,
                         "Route B must HOLD once route A has reserved the shared source (escrow net): " +
                         $"source={sourceStored.ToString("R", IC)} reservedByA={PickupAmountA.ToString("R", IC)} " +
@@ -836,14 +836,14 @@ namespace Parsek.InGameTests
             Route route = BuildSingleSourcePickupRoute(routeId, source, PickupAmountA);
 
             // 1. Stocked source -> the gate PASSES (the route would dispatch).
-            bool stockedEligible = env.OriginHasCargo(route, out string lackStocked);
+            bool stockedEligible = env.OriginHasCargo(route, out string lackStocked, out _);
             InGameAssert.IsTrue(stockedEligible,
                 $"A single-window pickup route with a stocked source must PASS the gate " +
                 $"(source={sourceStored.ToString("R", IC)} LF, needs {PickupAmountA.ToString("R", IC)}); lack='{lackStocked}'");
 
             // 2. Dry source (request more than stored) -> the gate HOLDS naming the source.
             Route dryRoute = BuildSingleSourcePickupRoute(routeId + "-dry", source, sourceStored + 1000.0);
-            bool dryEligible = env.OriginHasCargo(dryRoute, out string lackDry);
+            bool dryEligible = env.OriginHasCargo(dryRoute, out string lackDry, out _);
             InGameAssert.IsFalse(dryEligible,
                 "A single-window pickup route whose source cannot cover the window must HOLD");
             InGameAssert.IsNotNull(lackDry, "The held single-window pickup gate must report a lacking-resource token");

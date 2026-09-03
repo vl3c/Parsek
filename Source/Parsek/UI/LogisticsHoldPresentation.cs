@@ -39,7 +39,7 @@ namespace Parsek
                     return null;
 
                 case RouteDispatchEvaluator.EligibilityFailureKind.OriginLacksCargo:
-                    return DescribeOriginLacksCargo(detail);
+                    return DescribeOriginLacksCargo(detail, shortfall);
 
                 case RouteDispatchEvaluator.EligibilityFailureKind.FundsShort:
                     // Both token shapes ("funds-short" / "funds-shortfall-N") land
@@ -166,7 +166,13 @@ namespace Parsek
         // The OriginLacksCargo token family: the special markers first
         // (inventory-unsupported, origin-unresolved), then the resource name -
         // bare on the loop path, "origin-lacks-" prefixed on the legacy path.
-        private static string DescribeOriginLacksCargo(string detail)
+        // <paramref name="shortfall"/> is the missing AMOUNT of the named
+        // resource, threaded from the gate through the evaluator - the SAME
+        // shortfall > 0.0 conditional FundsShort uses, because the token is a
+        // legibility string and must never be parsed for a magnitude. 0 is
+        // "unknown / not a resource shortfall" (inventory shorts, unresolved
+        // endpoints, legacy persisted holds) and renders the pre-existing text.
+        private static string DescribeOriginLacksCargo(string detail, double shortfall)
         {
             // Strip the legacy "origin-lacks-" wrapper FIRST: the legacy
             // WaitResources factory wraps whatever OriginHasCargo returned,
@@ -203,7 +209,7 @@ namespace Parsek
             if (token != null
                 && token.StartsWith("source:", System.StringComparison.Ordinal))
             {
-                return DescribePickupSourceShort(token);
+                return DescribePickupSourceShort(token, shortfall);
             }
             // Inventory shortfalls: the emit sites now name the PART
             // ("inventory:<partName>"), with the raw identity hash only as a
@@ -237,7 +243,10 @@ namespace Parsek
             }
             if (string.IsNullOrEmpty(token))
                 return Fallback(RouteDispatchEvaluator.EligibilityFailureKind.OriginLacksCargo, detail);
-            return "origin is out of " + token + " - delivers when the origin has the full amount";
+            return shortfall > 0.0
+                ? "origin is short " + FormatShortfallAmount(shortfall) + " " + token
+                    + " - delivers when the origin has the full amount"
+                : "origin is out of " + token + " - delivers when the origin has the full amount";
         }
 
         // M4b Phase B1: parse the "source:<pid>:<name>:<short>" pickup-source token
@@ -245,7 +254,7 @@ namespace Parsek
         // emit site (RoutePickupSourceGate.BuildHoldToken), so the first three ':'
         // delimit pid / name / short cleanly. Degrades to the generic origin text
         // if the shape is unexpected (never throws, never blank).
-        private static string DescribePickupSourceShort(string token)
+        private static string DescribePickupSourceShort(string token, double shortfall)
         {
             // token = "source:<pid>:<name>:<short...>"; split into at most 4 parts so
             // a short token that itself contains ':' (e.g. "inventory:<hash>") keeps
@@ -266,7 +275,14 @@ namespace Parsek
             }
             if (string.IsNullOrEmpty(shortToken))
                 return name + " is missing required cargo - delivers when it has the full amount";
-            return name + " is out of " + shortToken + " - delivers when it has the full amount";
+            // A PARTIALLY short source held with "is out of X" and no number, which
+            // read as an empty depot when it held most of the manifest
+            // (ROUTE-HOLD-SHORTFALL-DROPPED). Name the missing amount whenever the
+            // gate measured one.
+            return shortfall > 0.0
+                ? name + " is short " + FormatShortfallAmount(shortfall) + " " + shortToken
+                    + " - delivers when it has the full amount"
+                : name + " is out of " + shortToken + " - delivers when it has the full amount";
         }
 
         // M6 escrow-hold legibility: parse
@@ -349,7 +365,7 @@ namespace Parsek
                     return null;
 
                 case RouteDispatchEvaluator.EligibilityFailureKind.OriginLacksCargo:
-                    return CompactOriginLacksCargo(detail);
+                    return CompactOriginLacksCargo(detail, shortfall);
 
                 case RouteDispatchEvaluator.EligibilityFailureKind.FundsShort:
                     // Same shortfall contract as DescribeHold: the number comes
@@ -399,8 +415,9 @@ namespace Parsek
         }
 
         // Compact variant of DescribeOriginLacksCargo: same token family, same
-        // strip-the-legacy-wrapper-first order, short phrasing.
-        private static string CompactOriginLacksCargo(string detail)
+        // strip-the-legacy-wrapper-first order, same shortfall > 0.0 conditional,
+        // short phrasing.
+        private static string CompactOriginLacksCargo(string detail, double shortfall)
         {
             string token = StripPrefix(detail, "origin-lacks-");
             if (token != null
@@ -441,8 +458,10 @@ namespace Parsek
                         ? name + " missing a stored part"
                         : name + " missing '" + sourceInventoryName + "'";
                 }
-                return string.IsNullOrEmpty(shortToken)
-                    ? name + " short of cargo"
+                if (string.IsNullOrEmpty(shortToken))
+                    return name + " short of cargo";
+                return shortfall > 0.0
+                    ? name + " short " + FormatShortfallAmount(shortfall) + " " + shortToken
                     : name + " out of " + shortToken;
             }
             string stateName = TryStripPrefix(token, "inventory-state:");
@@ -466,7 +485,21 @@ namespace Parsek
             }
             if (string.IsNullOrEmpty(token))
                 return "origin short of cargo";
-            return "origin out of " + token;
+            return shortfall > 0.0
+                ? "origin short " + FormatShortfallAmount(shortfall) + " " + token
+                : "origin out of " + token;
+        }
+
+        /// <summary>
+        /// One-decimal InvariantCulture rendering of a resource shortfall for the
+        /// player-facing hold text. Invariant because the xUnit host runs under the
+        /// OS culture and these strings are asserted directly; one decimal because
+        /// the raw double is a float-accumulated tank total
+        /// (108.79999999999706 reads as "108.8").
+        /// </summary>
+        internal static string FormatShortfallAmount(double shortfall)
+        {
+            return shortfall.ToString("F1", CultureInfo.InvariantCulture);
         }
 
         /// <summary>

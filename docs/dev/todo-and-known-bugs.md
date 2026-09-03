@@ -15,6 +15,138 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~ROUTE-HOLD-SHORTFALL-DROPPED: a PARTIALLY short pickup source holds the route with `shortfall=0` and the player is told the depot is empty~~ [FOUND 2026-09-03 by forensics on `logs/2026-09-03_1955_rover-c-route-created`. PRODUCT DEFECT (legibility only - the blocking itself was correct). FIXED in this PR]
+
+**What happened.** The pickup-source gate measured the short exactly and then
+dropped the number one frame later:
+
+```
+KSP.log:14782  PickupSourcesHaveCargo: route 698efc9d all-or-nothing FAIL first-short
+               source pid=90564594 name=B short=LiquidFuel shortfall=108.79999999999706
+               inventory=False sources=1
+KSP.log:14785  hold recorded kind=OriginLacksCargo detail=source:90564594:B:LiquidFuel shortfall=0
+KSP.log:14786  BLOCKED kind=OriginLacksCargo reason=source:90564594:B:LiquidFuel shortfall=0
+```
+
+(repeated at 14785-14786 and again at 16255-16259). B held 45.6 of the 154.4
+LiquidFuel the run needed, and the player-facing hold read "B is out of
+LiquidFuel - delivers when it has the full amount": a source sitting on 30% of the
+manifest described as an empty tank.
+
+**Root cause.** `IRouteRuntimeEnvironment.OriginHasCargo` had no shortfall
+out-param - unlike its sibling `KscFundsAvailable(Route, out double shortfall)` -
+so `RouteDispatchEvaluator` hardcoded `0.0` into the `EligibilityResult` and
+`Route.RecordHold` persisted the zero (`RouteCodec` then omitted the key, since it
+writes `lastHoldShortfall` only above 0). `RoutePickupSourceGate.GateResult.Shortfall`
+was populated and logged the whole time. The hold TOKEN cannot carry the number by
+design (`BuildHoldToken` is a legibility string and the presentation layer's
+contract is "do NOT parse the token suffix"), so the shortfall field was the only
+channel and it was zeroed.
+
+**Fix.** `OriginHasCargo` gained `out double shortfall`; the live environment
+threads it out of both provenances (`OriginProvenanceHasCargo`'s
+`RouteOriginCargoCheck.HasRequired` amount, `PickupSourcesHaveCargo`'s
+`GateResult.Shortfall`), the evaluator passes it into the `EligibilityResult`, and
+`LogisticsHoldPresentation.DescribeHold` / `CompactHold` render "B is short 108.8
+LiquidFuel" on the same `shortfall > 0.0` conditional FundsShort already used. 0
+stays "unknown / not a resource shortfall" (inventory shorts, unresolved endpoints,
+legacy persisted holds) and keeps the pre-existing "out of" wording. Every existing
+log token spelling is unchanged, and the raw double still goes to the log ("R"
+format) while only the UI rounds to one decimal. Blocking behaviour is untouched.
+
+---
+
+## ~~PERIODICITY-LANDED-ANCHOR-PHASE-LOCK: a surface-only relay tree acquires an ORBITAL phase lock from a landed craft's pseudo-orbit, stretching its cadence 3.4x~~ [FOUND 2026-09-03 by forensics on `logs/2026-09-03_1955_rover-c-route-created`. PRODUCT DEFECT. FIXED 2026-09-03 in PR #1623. Re-opened the same day on a flight that looked like a bypass and re-closed: the flight ran a stubbed DLL, see the re-check below]
+
+**What happened.** Every member of the rover relay tree was Landed or Docked on
+Kerbin (`KSP.log:12915` `Eligible breakdown: ... terminal(Landed=5, <null>=2,
+Docked=2)`), and the periodicity solver still emitted a vessel-orbital constraint
+against rover B - itself LANDED (`KSP.log:13730`):
+
+```
+KSP.log:13109  ExtractConstraints: tree=88c012a6... constraints=1
+               [VesselOrbital(90564594@Kerbin) P=549.47439729992618 off=101.14]
+KSP.log:13110  Solve: dominant=Kerbin method=single-vessel-orbital P=549.47 ... lock=yes
+KSP.log:13112  PhaseLock APPLIED: mission='Route: KSC -> Kerbin' ... anchor 274.18->660.91
+               P=549.47 method=single-vessel-orbital cadence 162.74->549.47
+```
+
+P drifted to 551.62 by `:13870` as the rover settled, 15 `LoopRoute: ... clock
+pre-anchor/degenerate - skipped ... anchor=663.06` lines followed, and the first
+crossing landed at `ut=707.57` (`:14777`) - roughly 270 s later than the built
+anchor, with every later cycle 3.4x slower.
+
+**Root cause.** `FlightGlobalsBodyInfo.TryGetVesselOrbit` read the live anchor's
+`Vessel.orbit.period` behind only two filters: `ecc >= 1.0` and a
+non-positive/NaN period. A landed craft keeps a stock pseudo-orbit (e ~0.9948 with
+a finite few-hundred-second period that drifts as the craft settles), so it passed
+both. No landed / situation guard existed anywhere on the path - not in `Solve`,
+not at the apply site, not in `QuantizeCadenceToMultipleOfP`. The design already
+said this must not happen: `design-mission-periodicity.md` "a surface-only /
+atmospheric-only config of B imposes NO phase constraint"; the live-anchor sections
+of `design-mission-phasing-alignment.md` (3.2 and 5.2) simply never considered a
+landed anchor.
+
+**Fix.** `TryGetVesselOrbit` now rejects `LandedOrSplashed` / `PRELAUNCH` anchors
+through the pure `MissionPeriodicity.IsPhaseAnchorEligible`, logging one
+rate-limited `TryGetVesselOrbit: skipped landed anchor pid=... situation=...` line
+per anchor pid. `ClassifyVesselOrbitalConstraint` then takes its existing
+`UnsupportedRendezvous` reject, `Solve` maps that to the no-lock sentinel, and the
+route keeps its built cadence and anchor. Chosen over an extractor-side guard,
+which would have taken the `count == 0` free-loop branch and substituted
+`MinCycleDuration` instead of leaving the built cadence alone.
+
+**RE-CHECKED 2026-09-03: the apparent bypass was a stubbed DLL, not a live path
+the guard misses.** The RVR-9 flight
+(`logs/2026-09-03_2106_RVR-9-rover-relay-c-surface-cadence`) emitted the bad lock
+again with the fix merged, and carried ZERO `skipped landed anchor` lines:
+
+```
+KSP.log:11826  OnVesselSituationChange: ignoring non-active vessel 'B' pid=90564594 (0 -> LANDED)
+KSP.log:12217  ExtractConstraints: tree=88c012a6... constraints=1
+               [VesselOrbital(90564594@Kerbin) P=551.62499272538378 off=101.14]
+KSP.log:12223  PhaseLock APPLIED: mission='relay-c' ... anchor 274.18->663.06 P=551.62
+```
+
+That reads as a guard sitting on a reader the live path does not take. It is not.
+The deployed automation DLL carried the guard's NAME and its log LITERALS but a
+stubbed BODY. `ilspycmd -il -t Parsek.MissionPeriodicity` on the exact file
+`KSP.log:81` names
+(`automation/stock-minimal/GameData/Parsek/Plugins/Parsek.dll`,
+sha256 `877208524b314e7b169a36dffdb6b452472cad9b62350ba6c0fddca47d4d2229`) decompiles
+`IsPhaseAnchorEligible` to `return true;` - IL `nop; ldc.i4.1; stloc.0; br.s; ldloc.0; ret`,
+code size 7. The same method built from the branch tip
+(`Parsek-relay-holds/Source/Parsek/bin/Debug/Parsek.dll`) is code size 27 and carries
+the three situation compares. `GameData/Parsek/provision-log.txt:26352` names where
+the stub came from: `parsek dll source=.../scratchpad/Parsek-relay-holds.dll (override)`
+- a `--parsek-dll` override snapshot taken 15 s before the branch's own clean build
+finished, whose sha256 matches the installed one byte for byte.
+
+So the live chain is intact and unchanged:
+`ParsekFlight.DriveMissionLoopUnits` (`ParsekFlight.cs:19011`, `bodyInfo =
+FlightGlobalsBodyInfo.Instance`) -> `MissionLoopUnitBuilder.Build` ->
+`ExtractConstraints` rule 5 (`MissionPeriodicity.cs:542`) ->
+`ClassifyVesselOrbitalConstraint` rule 2 (`MissionPeriodicity.cs:2092`,
+the ONLY place a `VesselOrbital` period is read) ->
+`FlightGlobalsBodyInfo.TryGetVesselOrbit` (`MissionPeriodicity.cs:2918`) ->
+`IsPhaseAnchorEligible`. `FlightGlobalsBodyInfo` is the only `IBodyInfo`
+implementation outside test code, so there is no second reader to guard. Nothing to
+fix; do not re-open this on a flight log without decompiling the deployed method
+body first (see `.claude/CLAUDE.md` -> "Verify the deployed DLL after building").
+
+---
+
+## RECORDER-NO-RECORDING-PRELAUNCH-ROLLOUT: a rolled-out craft that never leaves PRELAUNCH produces no recording [RAISED 2026-09-03 while reading `logs/2026-09-03_1955_rover-c-route-created`. NOT A DEFECT - filed so the next reader does not re-investigate]
+
+A craft rolled out to the pad and left sitting in `PRELAUNCH` starts no recording:
+the auto-record gate wants a situation change, and nothing about the craft has
+happened yet. That is by design, not a missed start. The consequence for tooling
+is that the session's `KSP.log` legitimately carries no recording lifecycle at all,
+so `scripts/validate-ksp-log.ps1` must be run with `-NoRecordingRun` against such a
+log or it reds on the absence.
+
+---
+
 ## DISASSEMBLED-VESSEL-TERMINAL-STATE: a vessel whose last part is pocketed in EVA construction ends its recording as `TerminalState.Destroyed`, indistinguishable from a crash [RAISED 2026-09-02 alongside the inventory KIND ruling. APPROVED IN PRINCIPLE by the operator, including the schema-generation bump it needs. OPEN, not started]
 
 **What happens today.** Pocket the last remaining part of a vessel during EVA

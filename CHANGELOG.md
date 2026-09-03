@@ -10,6 +10,25 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **A held supply route now tells you HOW MUCH fuel is missing instead of claiming the
+  depot is empty.** A pickup source that holds part of what a run needs held the route
+  with "B is out of LiquidFuel", which read as an empty tank when B was sitting on 45 of
+  the 154 units the run wanted. The amount was always measured - it just never reached
+  the text. The hold now reads "B is short 108.8 LiquidFuel", in the route's detail line
+  and in the Status cell, and it survives a save and reload. A source that reports no
+  amount (a missing stored part, a source vessel that could not be found) reads exactly
+  as before. Nothing about WHEN a route is held has changed - only what it says.
+
+- **A rover route that never leaves the ground is no longer delayed to line up with an
+  orbit.** When every craft in a run sits on the surface, Parsek was still reading one of
+  them as an orbiting rendezvous target: the game keeps a nominal orbit on a landed craft,
+  and Parsek took its period as something to synchronise with. A surface relay run built
+  to dispatch every 163 seconds was stretched to 549 and its first delivery pushed back
+  more than four minutes, for an alignment that meant nothing. Landed, splashed, and
+  on-the-pad craft are no longer treated as orbital timing references, so a surface-only
+  run keeps the cadence it was built with. Runs that really do meet a craft in orbit are
+  unaffected.
+
 - **Supply routes: where a delivery's cargo came from is now worked out from what the
   craft actually DID - and a run is recognised no matter which craft kept its name after
   the undock, with the craft you delivered to never mistaken for the one you loaded

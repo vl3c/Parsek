@@ -95,12 +95,13 @@ namespace Parsek.Tests.Logistics
                 return TryResolveEndpoint(endpoint, out reason);
             }
 
-            public bool OriginHasCargo(Route route, out string lackingResource)
+            public bool OriginHasCargo(Route route, out string lackingResource, out double shortfall)
             {
                 OnAnyCall?.Invoke();
                 ThrowIfMatch(route);
                 OriginHasCargoCalls++;
                 lackingResource = OriginHasCargoResult ? string.Empty : OriginLackingResource;
+                shortfall = 0.0;
                 return OriginHasCargoResult;
             }
 
