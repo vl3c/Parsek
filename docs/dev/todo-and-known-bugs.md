@@ -103,17 +103,45 @@ is on the PUBLISHER side - `drewNonOrbitalLegRecordings` is published only on th
 current-element draw (the `if (anyDrawn)` block in `GhostTrajectoryPolylineRenderer.cs`), while a
 chain CONTINUATION segment is painted by the FORWARD RUN-LEG pass under its own recording id,
 which by design never publishes ownership. Ownership could therefore never answer for the
-population the expansion adds. Fix: the ghost path publishes a second, frame-stamped PAINT set on
-the ACTUAL draw of any leg (`paintedLegRecordings` / `IsPaintingNonOrbitalLegOnFrame`), and the
-route line's no-double-draw arbitration (`ShouldSkipGroupAsGhostDrawn`) stands a group down when
-the ghost either OWNS its recording's phase or PAINTED a leg of it THIS frame. Ownership
-semantics are untouched: `drewNonOrbitalLegRecordings` stays the SOLE ownership source and the
-paint set never hides a proto line. MIRROR DIRECTION: the same escape exists for a DECLARED
-member (a run head whose non-head leg is forward-painted), so the paint arm applies to every
-group rather than only to the population that raised it. The M-A7 `RC-ROUTE` rule is deliberately
-UNCHANGED - it caught a real violation, and the frame stamp keeps it able to fire on the
-stale-mesh frame shape (the -50 walk early-returned, last frame's mesh still active) that no skip
-set can see.
+population the expansion adds. Fix: the ghost path publishes a second PAINT surface on the ACTUAL
+draw of any leg (`paintedLegSpans` / `IsPaintingNonOrbitalLegSpan`) and the route line's
+no-double-draw arbitration consults it beside ownership. Ownership semantics are untouched:
+`drewNonOrbitalLegRecordings` stays the SOLE ownership source and the paint surface never hides a
+proto line. MIRROR DIRECTION: the same escape exists for a DECLARED member (a run head whose
+non-head leg is forward-painted), so the paint arm applies to every group rather than only to the
+population that raised it. The M-A7 `RC-ROUTE` rule is deliberately UNCHANGED - it caught a real
+violation and it stays the INSTRUMENT of the arbitration rather than its input.
+
+**READING RUN 2 (2026-09-06, five lanes, all PASS) CONFIRMED THE LEG DROP AND RE-CUT THE CO-DRAW
+FIX TWICE OVER.** Build / members lines unchanged (`71a983a1 members=4 groups=4 legs=16
+transferDropped=2`, control `8f644e71 ... legs=17 transferDropped=0`, `heads=4 segments=3`). Two
+findings against the first cut of the fix, both fixed in the same branch:
+
+1. *The paint set was frame-stamped, and "painted THIS FRAME" is the wrong question.*
+   `OnMapCameraPreCull` early-returns whenever the -50 decide walk did not run
+   (`pendingDrawsFrame != frame`), and the deactivation sweep lives INSIDE that pass - so on such
+   a frame nothing paints, nothing is hidden, last frame's mesh is still on screen, and a
+   frame-stamped set reads empty. Measured on V26M as `routeCoDrawViolations=403`, every one
+   `ROUTE_CODRAW_VIOLATION[71a983a1 recId=36c7688b8e5141f7809e2d4dbe9dc094]` at `ut=87625323.3`,
+   starting at frame 7272 - 50 frames after the last stand-down frame (7222). The paint surface is
+   now MESH MEMBERSHIP: added on the actual draw with the leg's recorded span, removed when the
+   mesh is hidden (the sweep), when the cache entry is released, when the legs are rebuilt, on a
+   scene load, on a cross-save flush and on Driver destroy. The frame stamp survives only as a
+   dead-renderer staleness guard.
+2. *Standing a whole group down punched a hole in the route path* (re-review F1). V26M read
+   `routesDrawn=2 legsDrawn=20 skippedOwned=1` on 5 of 7 frames against `legsDrawn=33` on the
+   rest: the stood-down group carried THIRTEEN legs while the ghost's mesh covered a part of it.
+   The paint arm is now PER LEG - a leg stands down only when a visible ghost mesh of the same
+   recording overlaps that leg's own recorded span (strict overlap, since adjacent legs share an
+   endpoint UT). The ownership arm stays whole-group because ownership carries no span; that
+   residual is filed as ROUTE-LINE-OWNERSHIP-ARM-IS-STILL-WHOLE-MEMBER below. `skippedOwned` now
+   counts LEGS on both arms, and `Route line draw:` carries an `ownedLegs=` / `paintedLegs=` tail.
+
+V26T (TRACKSTATION) read `legsDrawn=33 skippedOwned=0 routeCoDrawViolations=0` on every frame - no
+ghost paint there at all - and armed V18T (`legsDrawn=14`, violations 0) / H59 were unchanged.
+READING RUN 3 IS OWED on the same five lanes: `routeCoDrawViolations=0`, `skippedOwned>0` with
+`paintedLegs>0` whenever the ghost mesh covers a segment, and `legsDrawn` falling only by the
+covered legs.
 
 **THREE REVIEW ITEMS CLOSED WITH IT.** (F1) `MissionThroughLineBuilder` has no shared visited set
 while `MissionComposition.cs:151-156` does, and `MissionStructure.cs:344-386` hands a Dock branch
@@ -129,6 +157,29 @@ expanded segments built as groups, on `Route line members:`; the expander's pre-
 reported as `walked=` on its own line, and `ApplyRouteFilters` no longer decrements a fresh tally
 below zero (`Dropped` is its own field). (F4) an empty tree id is no longer a cache key, so two
 id-less trees cannot share one claim index.
+
+---
+
+## ROUTE-LINE-OWNERSHIP-ARM-IS-STILL-WHOLE-MEMBER: a route member whose phase the ghost OWNS has ALL of its legs stood down, including the ones the ghost's mesh does not cover [RAISED 2026-09-06 on branch `g10-leg-drop` while making the PAINT arm per-leg. Pre-existing M6 v1 behaviour, not a regression. OPEN, low priority]
+
+The route line's no-double-draw arbitration has two arms. The PAINT arm is per LEG (a leg stands
+down only when a visible ghost mesh of the same recording overlaps that leg's own recorded span).
+The OWNERSHIP arm is still per GROUP, because `drewNonOrbitalLegRecordings` carries no UT span -
+it answers "is the polyline the owner of this recording's non-orbital PHASE", which is the
+question `GhostMapPresence` asks to hide a proto orbit line, and widening it is explicitly out of
+bounds (Appendix A: it stays the SOLE ownership source).
+
+So when the ghost is FLYING a member (rather than forward-painting it), the route line drops that
+member's whole recorded path even though the ghost's mesh covers only the leg it is on. On a
+multi-leg member that is the same hole the paint arm just closed, on a different population.
+
+Not fixed here for two reasons: it is the shipped v1 behaviour that H59's ARMED census pinned
+(`routesDrawn=0 legsDrawn=0 skippedOwned=1` on a one-leg member, where the two granularities
+agree), and closing it means giving the ownership publish a span, i.e. touching the ownership
+contract for a cosmetic gap. The clean fix if it ever matters: publish the OWNING leg's span
+alongside the ownership id and route the ownership arm through the same span overlap. Any lane
+that reads it will show `ownedLegs=` greater than the legs the ghost's `Polyline frame: drawn=`
+count can account for.
 
 ---
 

@@ -2173,11 +2173,28 @@ held as predicted (V18T `route=5420f805 ... groups=4 legs=14 transferDropped=0`,
 route line and the ghost polyline while `skippedOwned=0` - filed and fixed in the same branch as
 ROUTE-LINE-EXPANDED-SEGMENT-CO-DRAWS-THE-GHOST-POLYLINE (the ghost's forward run-leg pass paints
 a continuation segment under its own id without publishing ownership; the route line now stands
-down on OWNED or PAINTED-this-frame). That fix moves `skippedOwned` and `legsDrawn` in the map
-scene, so the three lanes' count pins stay INTERIM and what is owed is READING RUN 2 on the same
-five lanes: `transferDropped=2` unchanged, `routeCoDrawViolations=0` on V26M / V26T,
-`skippedOwned>0` whenever the polyline is painting a segment, and V18T / H59 as controls. Only
-then are the counts re-pinned and the block closed.
+down on OWNED or PAINTED). That fix moves `skippedOwned` and `legsDrawn` in the map scene, so the
+three lanes' count pins stay INTERIM.
+
+**READING RUN 2 (2026-09-06, same five lanes, all PASS) HELD THE LEG DROP AND RED THE FIRST CUT
+OF THE CO-DRAW FIX ON ITS OWN INSTRUMENT.** Build / members lines byte-identical to run 1. V26M:
+`routesDrawn=2 legsDrawn=33 skippedOwned=0` on 2 frames and `legsDrawn=20 skippedOwned=1` on 5
+(f6746-7222) - so the new arm fired, and the group it stood down carried THIRTEEN legs. V26T
+(TRACKSTATION) painted nothing at all (`legsDrawn=33 skippedOwned=0`, violations 0). But V26M
+read `routeCoDrawViolations=403` (down from the 1024 cap, still the single recording `36c7688b`),
+every one at frame 7272 onward - FIFTY frames after the last stand-down frame, i.e. the route
+line resuming while the ghost's mesh was still on screen. Both are fixed in the same branch: the
+paint surface is MESH MEMBERSHIP rather than a per-frame stamp (the ghost's draw pass and its
+deactivation sweep share one early return, so a bailed frame leaves the mesh up while a stamped
+set reads empty), and the paint arm is PER LEG against each leg's own recorded span, so a partly
+painted member keeps drawing its uncovered legs. `skippedOwned` now counts LEGS and the draw line
+carries an `ownedLegs=` / `paintedLegs=` split. V18T (armed, `legsDrawn=14`, violations 0) and
+H59 (armed, 12 draw lines) were unaffected on both runs.
+
+WHAT IS OWED IS READING RUN 3 on the same five lanes: `transferDropped=2` unchanged,
+`routeCoDrawViolations=0` on V26M / V26T, `skippedOwned>0` with `paintedLegs>0` whenever the
+polyline's mesh covers a segment, `legsDrawn` down only by the covered legs (not by 13), and
+V18T / H59 as controls. Only then are the counts re-pinned and the block closed.
 
 **THE OPERATOR SAVE SPECIFICATION for B32** (write it once, fly it by hand; the
 seam cannot create this and no driven lane can either, because route candidacy is

@@ -476,7 +476,7 @@ namespace Parsek.Tests
             // ROUTE-LINE-EXPANDED-SEGMENT-CO-DRAWS-THE-GHOST-POLYLINE (measured 2026-09-06 on V26M /
             // V26T as ROUTE_CODRAW_VIOLATION with skippedOwned=0): every group is arbitrated by its
             // OWN recording id, and for a continuation segment the ghost's answer comes from the PAINT
-            // set - its forward run-leg pass draws the segment under its own id and never publishes
+            // arm - its forward run-leg pass draws the segment under its own id and never publishes
             // ownership, so an ownership-only read said "nobody has it" while the ghost was drawing it.
             RecordingTree tree = ChainTree();
             var route = new Route { Id = "r-own", RecordingIds = { "head" }, RecordedDockUT = -1.0 };
@@ -485,22 +485,17 @@ namespace Parsek.Tests
                 out _, out _, out _, out int segments);
             Assert.Equal(2, segments);
 
-            const int frame = 4242;
             GhostTrajectoryPolylineRenderer.SetOwnershipPublishForTesting("seg2", true);
-            GhostTrajectoryPolylineRenderer.SetLegPaintForTesting("seg1", true, frame);
+            // seg1's mesh covers its whole span (1100..1200): the ghost is painting that segment.
+            GhostTrajectoryPolylineRenderer.SetLegPaintForTesting("seg1", 0, 1100.0, 1200.0, true);
 
             int skippedOwned = 0;
             var drawn = new List<string>();
             foreach (var group in groups)
-            {
-                if (RouteTrajectoryLineRenderer.ShouldSkipGroupAsGhostDrawn(group, Probe(frame)))
-                    skippedOwned++;
-                else
-                    drawn.Add(group.memberRecordingId);
-            }
+                skippedOwned += ArbitrateGroup(group, drawn);
 
             // Both expanded segments stand down - one owned, one painted - and the declared member
-            // the ghost has nothing on still draws.
+            // the ghost has nothing on still draws every leg it has.
             Assert.Equal(2, skippedOwned);
             Assert.Equal(new[] { "head" }, drawn.ToArray());
         }
@@ -512,33 +507,115 @@ namespace Parsek.Tests
             var route = new Route { Id = "r-decl", RecordingIds = { "head" }, RecordedDockUT = -1.0 };
             var groups = RouteTrajectoryLineRenderer.BuildRouteMemberLegs(
                 route, Resolve(tree), Expander(route, tree), out _, out _, out _, out _);
-            const int frame = 77;
 
             // Nothing published: every group draws (the shipped behaviour).
-            Assert.All(groups, g => Assert.False(
-                RouteTrajectoryLineRenderer.ShouldSkipGroupAsGhostDrawn(g, Probe(frame))));
+            var drawn = new List<string>();
+            foreach (var group in groups) Assert.Equal(0, ArbitrateGroup(group, drawn));
+            Assert.Equal(new[] { "head", "seg1", "seg2" }, drawn.ToArray());
 
-            // The declared member owned: skipped, exactly as it was before the expansion existed.
+            // The declared member owned: the whole group is skipped, exactly as it was before the
+            // expansion existed (ownership carries no span, so this arm stays group-level).
             GhostTrajectoryPolylineRenderer.SetOwnershipPublishForTesting("head", true);
             Assert.True(RouteTrajectoryLineRenderer.ShouldSkipGroupAsGhostDrawn(
-                groups[0], Probe(frame)));
+                groups[0], OwnsProbe()));
 
-            // A paint from an EARLIER frame is not this frame's: the set is frame-stamped, so the
-            // route line falls back to ownership alone and the M-A7 co-draw probe stays the recorder
-            // of that stale-mesh shape rather than being papered over here.
-            GhostTrajectoryPolylineRenderer.SetLegPaintForTesting("seg1", true, frame - 1);
-            Assert.False(RouteTrajectoryLineRenderer.ShouldSkipGroupAsGhostDrawn(
-                groups[1], Probe(frame)));
-            Assert.True(RouteTrajectoryLineRenderer.ShouldSkipGroupAsGhostDrawn(
-                groups[1], Probe(frame - 1)));
+            // A DECLARED member can be forward-painted the same way a segment can (mirror direction),
+            // and it is arbitrated by the same per-leg paint arm.
+            GhostTrajectoryPolylineRenderer.SetLegPaintForTesting("seg1", 0, 1100.0, 1200.0, true);
+            drawn.Clear();
+            Assert.Equal(1, ArbitrateGroup(groups[1], drawn));
+            Assert.Empty(drawn);
         }
 
         [Fact]
-        public void ResolveLegPaintOnFrame_IsMembershipAndTheFrameStamp()
+        public void Draw_PartlyPaintedMember_StillDrawsItsUnpaintedLegs()
         {
-            Assert.True(GhostTrajectoryPolylineRenderer.ResolveLegPaintOnFrame(true, 10, 10));
-            Assert.False(GhostTrajectoryPolylineRenderer.ResolveLegPaintOnFrame(true, 9, 10));
-            Assert.False(GhostTrajectoryPolylineRenderer.ResolveLegPaintOnFrame(false, 10, 10));
+            // Re-review F1: the ghost's forward run-leg pass paints the legs the ghost is ON, so
+            // standing the whole member down erased every leg it was NOT painting - a hole in the
+            // route line. Three cells over one three-leg member: NONE painted, PART painted, ALL
+            // painted. Reading run 2 sized the defect: V26M's stood-down group carried 13 legs.
+            var group = SyntheticGroup("m3",
+                new[] { 100.0, 200.0, 300.0 }, new[] { 200.0, 300.0, 400.0 });
+
+            // NONE: every leg draws.
+            var drawn = new List<string>();
+            Assert.Equal(0, ArbitrateGroup(group, drawn));
+
+            // PART: only the middle leg's span is covered by a visible mesh.
+            GhostTrajectoryPolylineRenderer.SetLegPaintForTesting("m3", 1, 200.0, 300.0, true);
+            Assert.Equal(1, ArbitrateGroup(group, drawn));
+            Assert.Equal(2, CountDrawableLegs(group));
+
+            // The shared endpoints do NOT drag the neighbours down with it: overlap is strict.
+            Assert.False(GhostTrajectoryPolylineRenderer.IsPaintingNonOrbitalLegSpan(
+                "m3", 100.0, 200.0));
+            Assert.False(GhostTrajectoryPolylineRenderer.IsPaintingNonOrbitalLegSpan(
+                "m3", 300.0, 400.0));
+
+            // ALL: three meshes, nothing left for the route line.
+            GhostTrajectoryPolylineRenderer.SetLegPaintForTesting("m3", 0, 100.0, 200.0, true);
+            GhostTrajectoryPolylineRenderer.SetLegPaintForTesting("m3", 2, 300.0, 400.0, true);
+            Assert.Equal(3, ArbitrateGroup(group, drawn));
+            Assert.Equal(0, CountDrawableLegs(group));
+        }
+
+        [Fact]
+        public void PaintMembership_IsTheMeshFact_NotAPerFrameStamp()
+        {
+            // THE READING-RUN-2 DEFECT, as a cell. The ghost's draw pass early-returns whenever its
+            // -50 decide walk did not run, and the deactivation sweep lives inside that pass - so on
+            // such a frame nothing paints, nothing is hidden, and last frame's mesh is still on
+            // screen. Membership must survive that frame; only an actual HIDE may clear it.
+            GhostTrajectoryPolylineRenderer.SetLegPaintForTesting("seg1", 0, 1100.0, 1200.0, true);
+            Assert.True(GhostTrajectoryPolylineRenderer.IsPaintingNonOrbitalLegSpan(
+                "seg1", 1100.0, 1200.0));
+
+            // A bailed frame maintains nothing at all - and the answer does not change, because the
+            // mesh did not. (The old frame-stamped set flipped to false here, the route line drew,
+            // and V26M recorded 403 co-draw violations.)
+            Assert.True(GhostTrajectoryPolylineRenderer.IsPaintingNonOrbitalLegSpan(
+                "seg1", 1100.0, 1200.0));
+
+            // Hiding that leg's mesh clears the paint fact.
+            GhostTrajectoryPolylineRenderer.SetLegPaintForTesting("seg1", 0, 1100.0, 1200.0, false);
+            Assert.False(GhostTrajectoryPolylineRenderer.IsPaintingNonOrbitalLegSpan(
+                "seg1", 1100.0, 1200.0));
+
+            // A scene change / cross-save flush clears it too, membership and staleness guard alike.
+            GhostTrajectoryPolylineRenderer.SetLegPaintForTesting("seg1", 0, 1100.0, 1200.0, true);
+            GhostTrajectoryPolylineRenderer.Clear();
+            Assert.False(GhostTrajectoryPolylineRenderer.IsPaintingNonOrbitalLegSpan(
+                "seg1", 1100.0, 1200.0));
+        }
+
+        [Fact]
+        public void ResolveLegPaintFromMesh_IsMembershipAndTheDeadRendererGuard()
+        {
+            Assert.True(GhostTrajectoryPolylineRenderer.ResolveLegPaintFromMesh(true, true));
+            Assert.False(GhostTrajectoryPolylineRenderer.ResolveLegPaintFromMesh(false, true));
+            // Nothing has maintained the membership since the last flush / destroy: no paint fact
+            // may be read, whatever the set still holds.
+            Assert.False(GhostTrajectoryPolylineRenderer.ResolveLegPaintFromMesh(true, false));
+
+            GhostTrajectoryPolylineRenderer.SetLegPaintForTesting("seg1", 0, 1100.0, 1200.0, true);
+            GhostTrajectoryPolylineRenderer.SetPaintMaintenanceRanForTesting(false);
+            Assert.False(GhostTrajectoryPolylineRenderer.IsPaintingNonOrbitalLegSpan(
+                "seg1", 1100.0, 1200.0));
+            GhostTrajectoryPolylineRenderer.SetPaintMaintenanceRanForTesting(true);
+            Assert.True(GhostTrajectoryPolylineRenderer.IsPaintingNonOrbitalLegSpan(
+                "seg1", 1100.0, 1200.0));
+        }
+
+        [Fact]
+        public void LegSpansOverlap_IsStrictOnASharedEndpoint()
+        {
+            // Adjacent legs of one recording share an endpoint UT exactly; touching is not covering.
+            Assert.False(GhostTrajectoryPolylineRenderer.LegSpansOverlap(100.0, 200.0, 200.0, 300.0));
+            Assert.False(GhostTrajectoryPolylineRenderer.LegSpansOverlap(200.0, 300.0, 100.0, 200.0));
+            Assert.True(GhostTrajectoryPolylineRenderer.LegSpansOverlap(100.0, 200.5, 200.0, 300.0));
+            // Containment either way round is coverage.
+            Assert.True(GhostTrajectoryPolylineRenderer.LegSpansOverlap(100.0, 400.0, 200.0, 300.0));
+            Assert.True(GhostTrajectoryPolylineRenderer.LegSpansOverlap(200.0, 300.0, 100.0, 400.0));
         }
 
         // --- Helpers ---
@@ -552,11 +629,75 @@ namespace Parsek.Tests
             return end;
         }
 
-        /// <summary>The live route-line arbitration predicate: the ghost OWNS this recording's phase
-        /// or PAINTED a leg of it on <paramref name="frame"/>.</summary>
-        private static Func<string, bool> Probe(int frame)
-            => id => GhostTrajectoryPolylineRenderer.IsRenderingNonOrbitalLeg(id)
-                || GhostTrajectoryPolylineRenderer.IsPaintingNonOrbitalLegOnFrame(id, frame);
+        /// <summary>The live OWNERSHIP arm (group-level): the ghost owns this recording's phase.</summary>
+        private static Func<string, bool> OwnsProbe()
+            => GhostTrajectoryPolylineRenderer.IsRenderingNonOrbitalLeg;
+
+        /// <summary>The live PAINT arm (per leg): a visible ghost mesh of this recording covers the
+        /// leg's span.</summary>
+        private static Func<string, double, double, bool> PaintsProbe()
+            => GhostTrajectoryPolylineRenderer.IsPaintingNonOrbitalLegSpan;
+
+        /// <summary>
+        /// DrawAll's arbitration for one group, exactly as the live loop runs it: the ownership arm
+        /// stands the whole group down, then each surviving leg is arbitrated on the paint arm.
+        /// Appends the ids of the members that drew at least one leg to <paramref name="drawn"/> and
+        /// returns the number of LEGS stood down (the live <c>skippedOwned</c> counter's unit).
+        /// </summary>
+        private static int ArbitrateGroup(
+            RouteTrajectoryLineRenderer.RouteMemberLegs group, List<string> drawn)
+        {
+            if (group.legs == null || group.legs.Length == 0) return 0;
+            if (RouteTrajectoryLineRenderer.ShouldSkipGroupAsGhostDrawn(group, OwnsProbe()))
+                return group.legs.Length;
+
+            int skipped = 0, drew = 0;
+            for (int i = 0; i < group.legs.Length; i++)
+            {
+                if (RouteTrajectoryLineRenderer.ShouldSkipLegAsGhostPainted(
+                        group.memberRecordingId, group.legs[i].startUT, group.legs[i].endUT,
+                        PaintsProbe()))
+                    skipped++;
+                else
+                    drew++;
+            }
+            if (drew > 0) drawn.Add(group.memberRecordingId);
+            return skipped;
+        }
+
+        /// <summary>Legs of <paramref name="group"/> the arbitration would leave for the route line
+        /// to draw this frame.</summary>
+        private static int CountDrawableLegs(RouteTrajectoryLineRenderer.RouteMemberLegs group)
+        {
+            int drawable = 0;
+            for (int i = 0; i < group.legs.Length; i++)
+                if (!RouteTrajectoryLineRenderer.ShouldSkipLegAsGhostPainted(
+                        group.memberRecordingId, group.legs[i].startUT, group.legs[i].endUT,
+                        PaintsProbe()))
+                    drawable++;
+            return drawable;
+        }
+
+        /// <summary>A member group with N legs at the given spans, for the per-leg arbitration cells
+        /// (the arbitration reads only the member id and each leg's span).</summary>
+        private static RouteTrajectoryLineRenderer.RouteMemberLegs SyntheticGroup(
+            string memberRecordingId, double[] startUTs, double[] endUTs)
+        {
+            var legs = new GhostTrajectoryPolylineRenderer.LegPolyline[startUTs.Length];
+            for (int i = 0; i < startUTs.Length; i++)
+                legs[i] = new GhostTrajectoryPolylineRenderer.LegPolyline
+                {
+                    startUT = startUTs[i],
+                    endUT = endUTs[i],
+                    bodyName = "Kerbin",
+                };
+            return new RouteTrajectoryLineRenderer.RouteMemberLegs
+            {
+                memberRecordingId = memberRecordingId,
+                legs = legs,
+                isDeclaredMember = true,
+            };
+        }
 
         private static string FixtureSaveDir(string name)
             => Path.Combine(SyntheticRecordingTests.ResolveProjectRoot(),

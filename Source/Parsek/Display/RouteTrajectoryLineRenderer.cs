@@ -31,12 +31,14 @@ namespace Parsek.Display
     /// <see cref="GhostTrajectoryPolylineRenderer.Driver"/> runs its ghost-leg draw first (in the
     /// same map-camera onPreCull frame) and publishes both the recordings it OWNS
     /// (<see cref="GhostTrajectoryPolylineRenderer.IsRenderingNonOrbitalLeg"/>, the current-element
-    /// draw) and the recordings it PAINTED this frame
-    /// (<see cref="GhostTrajectoryPolylineRenderer.IsPaintingNonOrbitalLegOnFrame"/>, which also
-    /// covers the forward RUN legs of chain members - the population a route member run expands
-    /// into). This renderer skips any group whose OWN recording id either of those answers
-    /// (<see cref="ShouldSkipGroupAsGhostDrawn"/>), so the leg the animated ghost is on is drawn once
-    /// (by the ghost) and the rest of the route path is drawn statically here.
+    /// draw) and the LEG SPANS whose mesh it currently has on screen
+    /// (<see cref="GhostTrajectoryPolylineRenderer.IsPaintingNonOrbitalLegSpan"/>, which also covers
+    /// the forward RUN legs of chain members - the population a route member run expands into).
+    /// Ownership stands a whole group down (<see cref="ShouldSkipGroupAsGhostDrawn"/> - it carries no
+    /// span); the paint arm stands down ONE LEG at a time
+    /// (<see cref="ShouldSkipLegAsGhostPainted"/>), so a member the ghost paints only partly still
+    /// draws its unpainted legs. The leg the animated ghost is on is drawn once (by the ghost) and
+    /// the rest of the route path is drawn statically here.
     /// </para>
     ///
     /// <para>
@@ -409,8 +411,13 @@ namespace Parsek.Display
         /// interplanetary transfer, which always lands in a continuation, was unreachable
         /// (ROUTE-LINE-MEMBER-DROPS-CONTINUATION-SEGMENTS). <paramref name="resolvableMembers"/>
         /// still counts DECLARED members that resolved; <paramref name="expandedSegments"/> counts
-        /// the continuation segments the expansion WALKED on top of them (deduped, including any
-        /// that ended up contributing no drawable leg - so it reports reach, not yield).</para>
+        /// the non-head segments this build actually took a group for - incremented after the
+        /// cross-member dedupe and before the leg build, so a segment that yields no drawable leg is
+        /// still counted (reach, not yield) while one already built under an earlier member is not.
+        /// It is the ONLY segment counter, and it is what the <c>Route line members:</c> log line
+        /// prints as <c>segments=</c>. The expander's PRE-claim walk is a different number on a
+        /// different line: <c>Route member run: ... walked=</c>, emitted per member by
+        /// <see cref="RouteMemberRunExpansion"/>. Nothing prints <c>walked=</c> here.</para>
         /// </summary>
         internal static List<RouteMemberLegs> BuildRouteMemberLegs(
             Route route, Func<string, Recording> resolve,
@@ -671,23 +678,19 @@ namespace Parsek.Display
         // ------------------------------------------------------------------
 
         /// <summary>
-        /// PURE per-GROUP no-double-draw arbitration, applied to EVERY group by its OWN recording id -
-        /// a declared <see cref="Route.RecordingIds"/> member and an expanded continuation segment
-        /// alike. A group with no legs is never a skip (there is nothing to double-draw); an empty id
-        /// cannot be arbitrated and draws, as it did before the expansion existed.
+        /// PURE per-GROUP no-double-draw arbitration on the OWNERSHIP arm, applied to EVERY group by
+        /// its OWN recording id - a declared <see cref="Route.RecordingIds"/> member and an expanded
+        /// continuation segment alike. A group with no legs is never a skip (there is nothing to
+        /// double-draw); an empty id cannot be arbitrated and draws, as it did before the expansion
+        /// existed.
         ///
-        /// <para>WHY THE PREDICATE IS BROADER THAN OWNERSHIP, and why that is not a widening of the
-        /// ownership contract: <c>drewNonOrbitalLegRecordings</c> remains the SOLE ownership source
-        /// (Appendix A) and is published only on the ghost's CURRENT-element draw. A continuation
-        /// segment of a member run is painted by the ghost's FORWARD RUN-LEG pass under its own
-        /// recording id, and that pass never publishes ownership by design - so an ownership-only read
-        /// answered "nobody has this segment" while the ghost was drawing it, and the route line
-        /// painted a second identical line over it (measured 2026-09-06: V26M / V26T
-        /// <c>ROUTE_CODRAW_VIOLATION</c> on the expanded segment, <c>skippedOwned=0</c>). Checked in
-        /// the MIRROR direction and it widened the fix: a DECLARED member can be forward-painted the
-        /// same way (a run head whose non-head leg is drawn by the run pass while the head sits
-        /// elsewhere), so the paint arm applies to declared members too rather than only to the
-        /// population that raised it.</para>
+        /// <para>THE OWNERSHIP ARM IS THE COARSE ONE AND IT STAYS GROUP-LEVEL, deliberately.
+        /// <c>drewNonOrbitalLegRecordings</c> remains the SOLE ownership source (Appendix A), it is
+        /// published only on the ghost's CURRENT-element draw, and it carries NO UT span - it answers
+        /// "is the polyline the owner of this recording's non-orbital PHASE" - so there is nothing to
+        /// arbitrate per leg with. This is also the shipped M6 v1 behaviour H59's armed census pinned
+        /// (<c>skippedOwned=1</c> on a one-leg member). The PAINT arm, which does carry spans, is per
+        /// leg: <see cref="ShouldSkipLegAsGhostPainted"/>.</para>
         /// </summary>
         internal static bool ShouldSkipGroupAsGhostDrawn(
             RouteMemberLegs group, Func<string, bool> ghostDrawsRecording)
@@ -698,22 +701,63 @@ namespace Parsek.Display
             return ghostDrawsRecording(group.memberRecordingId);
         }
 
-        // The frame ghostDrawsProbe answers for, set once per DrawAll.
-        private static int ghostDrawProbeFrame = -1;
+        /// <summary>
+        /// PURE per-LEG no-double-draw arbitration on the PAINT arm: stand this ONE leg down when the
+        /// ghost polyline currently has a VISIBLE mesh of the same recording covering the leg's own
+        /// recorded span.
+        ///
+        /// <para>WHY THE ARM EXISTS AT ALL: a continuation segment of a member run is painted by the
+        /// ghost's FORWARD RUN-LEG pass under its own recording id, and that pass never publishes
+        /// ownership by design - so an ownership-only read answered "nobody has this segment" while the
+        /// ghost was drawing it, and the route line painted a second identical line over it (measured
+        /// 2026-09-06 reading run 1: V26M / V26T <c>ROUTE_CODRAW_VIOLATION</c> on the expanded segment
+        /// with <c>skippedOwned=0</c>). Checked in the MIRROR direction and it widened the fix: a
+        /// DECLARED member can be forward-painted the same way, so the arm applies to every group.</para>
+        ///
+        /// <para>WHY PER LEG (re-review F1): the forward run-leg pass paints the legs the ghost is ON,
+        /// not the member's whole recorded path, so standing the member down WHOLE erased every leg the
+        /// ghost was not painting - a hole in the route line exactly where the overview is the only
+        /// producer. Reading run 2 measured the size of it: V26M's stood-down group carried 13 legs
+        /// (<c>legsDrawn</c> 33 -> 20) while the ghost's mesh covered a part of it.</para>
+        ///
+        /// <para>WHY THE GHOST'S ANSWER IS MESH MEMBERSHIP AND NOT "PAINTED THIS FRAME": the ghost's
+        /// draw pass early-returns on any frame its -50 decide walk did not run, and its deactivation
+        /// sweep lives INSIDE that same pass - so on such a frame the meshes stay on screen while a
+        /// frame-stamped answer reads "painting nothing", and the route line paints a second identical
+        /// line over a mesh that is still there. Measured 2026-09-06 (reading run 2): V26M
+        /// <c>routeCoDrawViolations=403</c>, every one on the same recording, the first 50 frames after
+        /// the last stand-down frame. See <c>GhostTrajectoryPolylineRenderer.paintedLegSpans</c>.</para>
+        /// </summary>
+        internal static bool ShouldSkipLegAsGhostPainted(
+            string memberRecordingId, double legStartUT, double legEndUT,
+            Func<string, double, double, bool> ghostPaintsSpan)
+        {
+            if (ghostPaintsSpan == null) return false;
+            if (string.IsNullOrEmpty(memberRecordingId)) return false;
+            return ghostPaintsSpan(memberRecordingId, legStartUT, legEndUT);
+        }
 
-        // Cached delegate (allocated once) so the per-group arbitration never allocates a closure on the
-        // map onPreCull hot path.
-        private static readonly Func<string, bool> ghostDrawsProbe = GhostDrawsRecording;
+        // Cached delegates (allocated once) so the arbitration never allocates a closure on the map
+        // onPreCull hot path.
+        private static readonly Func<string, bool> ghostOwnsProbe = GhostOwnsRecording;
+        private static readonly Func<string, double, double, bool> ghostPaintsSpanProbe =
+            GhostPaintsRecordingSpan;
 
         /// <summary>
-        /// The live half of <see cref="ShouldSkipGroupAsGhostDrawn"/>: the ghost polyline either OWNS
-        /// this recording's non-orbital phase this frame (the current-element publish) or is PAINTING a
-        /// leg of it this frame (the forward run-leg pass, which never publishes ownership).
+        /// The live half of <see cref="ShouldSkipGroupAsGhostDrawn"/>: the ghost polyline OWNS this
+        /// recording's non-orbital phase this frame (the current-element publish).
         /// </summary>
-        private static bool GhostDrawsRecording(string recordingId)
-            => GhostTrajectoryPolylineRenderer.IsRenderingNonOrbitalLeg(recordingId)
-                || GhostTrajectoryPolylineRenderer.IsPaintingNonOrbitalLegOnFrame(
-                    recordingId, ghostDrawProbeFrame);
+        private static bool GhostOwnsRecording(string recordingId)
+            => GhostTrajectoryPolylineRenderer.IsRenderingNonOrbitalLeg(recordingId);
+
+        /// <summary>
+        /// The live half of <see cref="ShouldSkipLegAsGhostPainted"/>: the ghost polyline has a VISIBLE
+        /// mesh for this recording overlapping the leg's span.
+        /// </summary>
+        private static bool GhostPaintsRecordingSpan(
+            string recordingId, double legStartUT, double legEndUT)
+            => GhostTrajectoryPolylineRenderer.IsPaintingNonOrbitalLegSpan(
+                recordingId, legStartUT, legEndUT);
 
         /// <summary>
         /// Draws every committed same-body route's overview line this frame. Called from the shared
@@ -726,10 +770,6 @@ namespace Parsek.Display
         {
             if (resolveBody == null) return;
 
-            // The frame the cached ghostDrawsProbe delegate answers for (one static delegate instead of
-            // a per-frame closure - playtest-12 discipline).
-            ghostDrawProbeFrame = frame;
-
             bool enabled = RouteLinesEnabled(ParsekSettings.Current);
 
             // GC cache entries for routes no longer committed (runs whether enabled or not so a
@@ -737,6 +777,9 @@ namespace Parsek.Display
             ReconcileCommittedRoutes();
 
             int routesDrawn = 0, legsDrawn = 0, skippedOwned = 0, skippedMalformed = 0, skippedOther = 0;
+            // Split of skippedOwned by ARM, so a reading run can tell a whole-member ownership stand-down
+            // from the per-leg paint stand-downs without re-deriving it from the ghost's own log.
+            int ownedLegs = 0, paintedLegs = 0;
             if (enabled)
             {
                 var routes = RouteStore.CommittedRoutes;
@@ -764,11 +807,13 @@ namespace Parsek.Display
                         RouteMemberLegs group = set.groups[g];
                         if (group.legs == null || group.legs.Length == 0) continue;
 
-                        // No-double-draw, per GROUP recording id - declared member and expanded
-                        // continuation segment alike (ShouldSkipGroupAsGhostDrawn / ghostDrawsProbe).
-                        if (ShouldSkipGroupAsGhostDrawn(group, ghostDrawsProbe))
+                        // No-double-draw, OWNERSHIP arm: per GROUP recording id, because ownership
+                        // carries no UT span (ShouldSkipGroupAsGhostDrawn / ghostOwnsProbe). Counted in
+                        // LEGS, like the paint arm below, so skippedOwned means one thing.
+                        if (ShouldSkipGroupAsGhostDrawn(group, ghostOwnsProbe))
                         {
-                            skippedOwned++;
+                            skippedOwned += group.legs.Length;
+                            ownedLegs += group.legs.Length;
                             // M-A7: the deferral is a RATIFIED skip (the ghost has this member's leg
                             // this frame); aggregated per (route, member) by the recorder.
                             Parsek.MapRender.RenderCompositionRecorder.NoteRouteLegDeferred(
@@ -778,8 +823,29 @@ namespace Parsek.Display
 
                         LegPolyline[] legs = group.legs; // array ref shared with the cached set
                         string keyBase = "route:" + route.Id + ":" + group.memberRecordingId;
+                        bool notedPaintDefer = false;
                         for (int i = 0; i < legs.Length; i++)
                         {
+                            // No-double-draw, PAINT arm: per LEG, because the ghost's visible mesh
+                            // covers spans, not members. A member the ghost paints only partly keeps
+                            // drawing the legs it does not cover (re-review F1).
+                            if (ShouldSkipLegAsGhostPainted(
+                                    group.memberRecordingId, legs[i].startUT, legs[i].endUT,
+                                    ghostPaintsSpanProbe))
+                            {
+                                skippedOwned++;
+                                paintedLegs++;
+                                // One deferral record per (route, member) per frame, as the ownership
+                                // arm emits: the manifest census counts members deferred, not legs.
+                                if (!notedPaintDefer)
+                                {
+                                    notedPaintDefer = true;
+                                    Parsek.MapRender.RenderCompositionRecorder.NoteRouteLegDeferred(
+                                        route.Id, group.memberRecordingId);
+                                }
+                                continue;
+                            }
+
                             CelestialBody body = resolveBody(legs[i].bodyName);
                             if (body == null) continue;
                             // requireConicAnchor:false -> draw body-fixed (or anchored when a
@@ -790,17 +856,16 @@ namespace Parsek.Display
                             {
                                 legsDrawn++;
                                 anyDrawn = true;
-                                // M-A7 CO-DRAW VIOLATION: the arbitration said the ghost had nothing on
-                                // this member (we got past the skip above) yet a ghost leg mesh for the
-                                // same recording is still live - the one frame shape aggregate skip
-                                // counts cannot see (the -50 walk early-returned after clearing the drew
-                                // set while last frame's mesh is still active, so BOTH the ownership set
-                                // and this frame's paint set read empty). Recorded on the EVENT only,
-                                // so the per-frame cost lands on the defect. Instant no-op when the
-                                // manifest env gate is unarmed.
+                                // M-A7 CO-DRAW VIOLATION: the arbitration said the ghost had nothing
+                                // over THIS LEG'S SPAN (we got past both arms) yet a ghost leg mesh of
+                                // the same recording is live across it. The probe reads the LIVE
+                                // Vectrosity state rather than the membership set the arbitration reads,
+                                // so a membership set that drifts from its meshes reds here. Recorded on
+                                // the EVENT only, so the per-frame cost lands on the defect; instant
+                                // no-op when the manifest env gate is unarmed.
                                 if (Parsek.MapRender.RenderCompositionRecorder.IsEnabled
                                     && GhostTrajectoryPolylineRenderer.IsAnyLegActiveForRecording(
-                                        group.memberRecordingId))
+                                        group.memberRecordingId, legs[i].startUT, legs[i].endUT))
                                 {
                                     Parsek.MapRender.RenderCompositionRecorder.NoteRouteCoDrawViolation(
                                         route.Id, group.memberRecordingId, frame);
@@ -817,9 +882,10 @@ namespace Parsek.Display
             ParsekLog.VerboseRateLimited(Tag, "route-draw",
                 string.Format(CultureInfo.InvariantCulture,
                     "Route line draw: enabled={0} routesDrawn={1} legsDrawn={2} skippedOwned={3} " +
-                    "malformed={4} other={5} deact={6} cache={7} frame={8}",
+                    "malformed={4} other={5} deact={6} cache={7} frame={8} ownedLegs={9} " +
+                    "paintedLegs={10}",
                     enabled, routesDrawn, legsDrawn, skippedOwned, skippedMalformed, skippedOther,
-                    deactivated, routeCache.Count, frame),
+                    deactivated, routeCache.Count, frame, ownedLegs, paintedLegs),
                 2.0);
         }
 
@@ -919,12 +985,13 @@ namespace Parsek.Display
                 5.0);
 
             // The member-set expansion, once per build: a route member is a composition RUN HEAD, so
-            // heads= is what the route declares and segments= is THE ONE segment counter - the
-            // continuation segments that survived the route filters, deduped across members, built as
-            // their own group whether or not the group yielded a drawable leg (reach, not yield).
-            // heads == members above; segments=0 means every member run is a single segment (nothing to
-            // expand), NOT that the expansion is off. The expander's own per-member Verbose line reports
-            // the PRE-filter walk under a different name (walked=), so the two can never be confused.
+            // heads= is what the route declares and segments= is THE ONE segment counter - the non-head
+            // segments this build took a group for, deduped across members, counted whether or not the
+            // group yielded a drawable leg (reach, not yield). heads == members above; segments=0 means
+            // every member run is a single segment (nothing to expand), NOT that the expansion is off.
+            // This line carries NO walked= token: the expander's PRE-claim walk is reported per member
+            // on its own line (RouteMemberRunExpansion, "Route member run: ... walked="), so the two
+            // numbers are never on the same line and cannot be confused.
             ParsekLog.VerboseRateLimited(Tag, "route-members." + route.Id,
                 string.Format(CultureInfo.InvariantCulture,
                     "Route line members: route={0} heads={1} segments={2} groups={3} legs={4}",

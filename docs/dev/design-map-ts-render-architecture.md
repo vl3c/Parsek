@@ -966,16 +966,47 @@ or `TracedPathTreatment`.
   ghost is flying and never for a chain CONTINUATION segment, which the ghost's FORWARD RUN-LEG
   pass paints under its own recording id without publishing ownership - by design, since a
   forward leg owns no phase and hides no proto line. The route line therefore arbitrates each
-  group by its OWN recording id through `ShouldSkipGroupAsGhostDrawn`, whose live predicate is
-  ownership OR `GhostTrajectoryPolylineRenderer.IsPaintingNonOrbitalLegOnFrame` - a second,
-  frame-stamped set (`paintedLegRecordings`) published on the ACTUAL draw of ANY leg in the
-  onPreCull pass, which `OnRouteLinePreCull` runs after in the same event. Both arms feed the
-  one `skippedOwned` counter and the M-A7 `NoteRouteLegDeferred` record. Measured: without the
-  paint arm, V26M / V26T raised `ROUTE_CODRAW_VIOLATION` on the expanded segment with
-  `skippedOwned=0` (2026-09-06). The mirror direction holds too - a declared member's non-head
-  leg can be forward-painted the same way - so the paint arm applies to every group.
-- The M-A7 co-draw probe (`IsAnyLegActiveForRecording` -> `NoteRouteCoDrawViolation`) is
-  deliberately NOT the arbitration input: it reads `VectorLine.active`, which also covers a
-  mesh from an EARLIER frame that nothing retired (the -50 walk early-returned). The paint set
-  is frame-stamped precisely so that shape still reaches the probe as a recorded violation
-  instead of being silently skipped.
+  on TWO ARMS, deliberately at different granularities:
+  - OWNERSHIP, PER GROUP (`ShouldSkipGroupAsGhostDrawn` over `IsRenderingNonOrbitalLeg`):
+    ownership carries no UT span, so there is nothing to arbitrate per leg with. This is the
+    shipped M6 v1 behaviour, and it is what H59's armed census pinned (`skippedOwned=1` on a
+    one-leg member).
+  - PAINT, PER LEG (`ShouldSkipLegAsGhostPainted` over `IsPaintingNonOrbitalLegSpan`): a leg is
+    stood down only when a VISIBLE ghost mesh of the same recording overlaps THAT LEG'S recorded
+    span (strict overlap, so adjacent legs sharing an endpoint UT do not drag each other down).
+    A member the ghost paints only partly keeps drawing its unpainted legs. The whole-group form
+    was the first cut and it punched a hole in the route path: reading run 2 (2026-09-06) read
+    V26M `legsDrawn` 33 -> 20 on its stand-down frames, i.e. a 13-leg group erased for a mesh
+    covering part of it.
+  Both arms feed the one `skippedOwned` counter, which counts LEGS (a whole-group ownership skip
+  contributes `legs.Length`), split for reading by the `ownedLegs=` / `paintedLegs=` tail of the
+  `Route line draw:` line; each arm emits at most one M-A7 `NoteRouteLegDeferred` record per
+  (route, member) per frame. Measured: with no paint arm at all, V26M / V26T raised
+  `ROUTE_CODRAW_VIOLATION` on the expanded segment with `skippedOwned=0` (reading run 1). The
+  mirror direction holds too - a declared member's non-head leg can be forward-painted the same
+  way - so the paint arm applies to every group.
+- "PAINTED" MEANS "HAS A VISIBLE MESH", NOT "DREW THIS FRAME". `paintedLegSpans` is MEMBERSHIP:
+  a leg enters it on its ACTUAL draw (with its recorded span) and leaves it when its mesh is
+  hidden by the deactivation sweep, when its cache entry is released, when its legs are rebuilt,
+  on a scene load, on a cross-save flush, or when the Driver is destroyed. It is NOT cleared per
+  frame, and the frame stamp it carries is only a dead-renderer staleness guard. The reason is
+  measured: `OnMapCameraPreCull` early-returns whenever the -50 decide walk did not run
+  (`pendingDrawsFrame != frame`) AND the deactivation sweep lives inside that same pass, so on
+  such a frame nothing paints, nothing is hidden, and last frame's mesh is still on screen. The
+  first cut cleared and re-stamped the set per frame, so it read "painting nothing" exactly
+  there: reading run 2 measured V26M `routeCoDrawViolations=403`, all on one recording,
+  beginning 50 frames after the last stand-down frame - the route line resuming over a live mesh.
+- Not to be confused with `GhostMapPresence.NotePaintedRecordingLine` and its
+  `paintedRecordingIdsThisFrame`: that set is TRACING-GATED, per recording with no spans, records
+  the decide walk's ENQUEUE INTENT, and is read only by the map-render probe's line-blink
+  coverage guard. `paintedLegSpans` is ungated, spanned, mesh-true, and arbitrates a real draw.
+- The M-A7 co-draw probe (`IsAnyLegActiveForRecording` -> `NoteRouteCoDrawViolation`) stays the
+  INSTRUMENT of the arbitration rather than its input: it reads live `VectorLine.active` out of
+  `polylineCache` - now filtered to the drawn leg's own span, or every correct partial draw would
+  read as a violation - and never the membership set. A membership set that drifts from the
+  meshes it mirrors (a hide path nobody wired) therefore still reds as a recorded violation.
+- RESIDUAL, stated rather than papered over: the ownership arm remains whole-group, so a member
+  whose phase the ghost OWNS has all of its legs stood down even where the ghost's mesh covers
+  only the current leg. That is the v1 behaviour, unchanged by this pass; making it per-leg needs
+  a span on the ownership publish. Filed as ROUTE-LINE-OWNERSHIP-ARM-IS-STILL-WHOLE-MEMBER in
+  `docs/dev/todo-and-known-bugs.md`.
