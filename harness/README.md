@@ -489,8 +489,28 @@ the "a fill mode would be invented bytes" position this key replaces.
 * **A fill that would place NOTHING is an ERROR, not a pass** - no free slot, no
   container, no template, a duplicated `slotIndex`: all refused pre-boot with the
   cause named and KSP never launched.
+* **VOLUME IS NOT CHECKED BY THE APPLIER, and that is a deliberate scope line rather
+  than an omission.** `packedVolumeLimit` is a part-config property that appears
+  nowhere in `persistent.sfs`, so the applier has nothing to check against, and stock
+  does not need it to LOAD the save: decompiled, `ModuleInventoryPart.OnLoad` adds
+  each `STOREDPART` at its own `slotIndex` with no volume and no `InventorySlots`
+  bound applied - the one thing it will not survive is a DUPLICATE `slotIndex`, which
+  throws, and which the applier refuses pre-boot. So an over-volume fill boots fine
+  and is a question for the LANE, not for the staging: Parsek's own delivery planner
+  is where volume is enforced (`LiveDeliveryCapacityProbe.ProbeInventoryUnitsThatFit`,
+  vessel-summed limits), and a lane that means to test the SLOT gate must check its
+  fill leaves volume headroom or it will measure the volume gate instead. RVR-20's
+  header does exactly that arithmetic (120 of budget against 85 staged, 35 free).
 
-RVR-20 is the lane this key exists for, and it is NOT YET FLOWN.
+RVR-20 is the lane this key exists for, and it is **LIVE-PROVEN**: first census
+`2026-09-06_2027`, PASS attempt 1, wall 56 s, every verifier PASS, `expectations
+mismatches=0`, staged by `liveState patched pid=4280917262 name=A
+resources=[LiquidFuel 200->0] inventory=keep fill=evaChute x3 slots=3
+[c0s1,c0s2,c1s2] from this vessel's own container (slot 0)`. The cycle then held
+`DestinationFull` on `stored-part:evaChute`, the fuel did NOT deliver, and the
+produced save reads rover A with six of six slots occupied - so the mode's own
+falsification (a no-op fill leaves RVR-15's staged state, which RVR-15 measured
+DELIVERING) never fired.
 
 A sibling key covers the one career quantity a route lane's arithmetic runs on:
 
@@ -565,7 +585,7 @@ The destination-slots-full edge on `rover-relay-c-recorded` was in that list unt
 2026-09-06, on the reasoning that a fill "would mean authoring `STOREDPART` nodes no
 snapshot ever wrote". It does not: `fill` CLONES a stored part the save already
 carries, so the bytes are recorded and only the placement is authored. RVR-20 is that
-lane (authored, not yet flown). It remains true that the edge cannot be reached by
+lane, and it flew green on 2026-09-06. It remains true that the edge cannot be reached by
 PLAYING this fixture - rover A starts with three free slots and one cycle consumes at
 most two - and that the limit is a property of THAT fixture rather than of the
 mechanism: on `rover-route-recorded` the destination starts with three free slots and
