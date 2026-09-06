@@ -109,6 +109,32 @@ namespace Parsek.Display
         private static readonly HashSet<string> drewNonOrbitalLegRecordings =
             new HashSet<string>(StringComparer.Ordinal);
 
+        /// <summary>
+        /// PAINT set (NOT ownership): every recording whose leg ACTUALLY drew in this frame's onPreCull
+        /// draw pass - the head-gated current leg, the boundary-overlap secondary leg, and the FORWARD
+        /// RUN legs of every chain member the run walk reached. Stamped with the frame it was populated
+        /// on (<see cref="paintedLegRecordingsFrame"/>), so a previous frame's paints can never be read
+        /// as this frame's.
+        ///
+        /// <para>WHY IT IS NOT FOLDED INTO <see cref="drewNonOrbitalLegRecordings"/>: ownership answers
+        /// "is the polyline the owner of this recording's non-orbital PHASE" - the question
+        /// <c>GhostMapPresence</c> asks to hide a proto orbit line - and it is published ONLY on the
+        /// current-element draw (8e S3b: the SOLE ownership source, and it stays sole). A forward RUN
+        /// leg is another chain member's geometry drawn additively beside the head's and deliberately
+        /// never publishes ownership. The route overview line asks a THIRD question - "is the ghost
+        /// polyline painting this recording right now, so would my static line be a second identical
+        /// line over it" - and for a chain CONTINUATION segment (exactly what a route member run
+        /// expands into) the answer is yes while ownership is structurally false. Measured 2026-09-06
+        /// on V26M / V26T as a <c>ROUTE_CODRAW_VIOLATION</c> on the expanded segment with
+        /// <c>skippedOwned=0</c>.</para>
+        ///
+        /// <para>Ungated by tracing: it arbitrates a real draw, not a diagnostic. Cost is one HashSet
+        /// add per actually-drawn leg per frame plus one Clear.</para>
+        /// </summary>
+        private static readonly HashSet<string> paintedLegRecordings =
+            new HashSet<string>(StringComparer.Ordinal);
+        private static int paintedLegRecordingsFrame = -1;
+
         // --- Render-EVENT diff (map-render-event-logging): appear / disappear of a recording's drawn
         // polyline. The Driver already computes drewNonOrbitalLegRecordings (the current-element ownership
         // set) per frame and an actual-draw forward set per onPreCull; diffing each against the prior frame
@@ -448,6 +474,35 @@ namespace Parsek.Display
         }
 
         /// <summary>
+        /// PURE paint dispatch: is the ghost polyline PAINTING <paramref name="recordingId"/> on
+        /// <paramref name="frame"/>? True only when the paint set was populated on that same frame
+        /// (<paramref name="setFrame"/>) and holds the id. Frame-stamped deliberately: when the -50
+        /// decide walk early-returned, the onPreCull draw pass never ran and the set is last frame's,
+        /// so this answers FALSE and the route line falls back to ownership alone - which is exactly
+        /// the stale-mesh frame shape the M-A7 co-draw probe
+        /// (<see cref="IsAnyLegActiveForRecording"/>) exists to RECORD rather than to hide.
+        /// Unit-testable without Unity (both inputs passed in).
+        /// </summary>
+        internal static bool ResolveLegPaintOnFrame(
+            bool inPaintSet, int setFrame, int frame)
+            => inPaintSet && setFrame == frame;
+
+        /// <summary>
+        /// True when a leg of <paramref name="recordingId"/> actually drew in
+        /// <paramref name="frame"/>'s onPreCull draw pass (current leg, boundary-overlap secondary leg,
+        /// or a FORWARD RUN leg). Read by <see cref="RouteTrajectoryLineRenderer"/>'s no-double-draw
+        /// arbitration, which runs later in the SAME onPreCull event; see
+        /// <see cref="paintedLegRecordings"/> for why this is a separate question from ownership.
+        /// NOT an ownership signal: it never hides a proto orbit line.
+        /// </summary>
+        internal static bool IsPaintingNonOrbitalLegOnFrame(string recordingId, int frame)
+        {
+            if (string.IsNullOrEmpty(recordingId)) return false;
+            return ResolveLegPaintOnFrame(
+                paintedLegRecordings.Contains(recordingId), paintedLegRecordingsFrame, frame);
+        }
+
+        /// <summary>
         /// Did the Driver's ownership/paint PUBLISH SURFACE actually run on <paramref name="frame"/>?
         /// I.e. did the decide walk reach its epilogue - past the TRACKSTATION/FLIGHT scene gate, past
         /// <c>MapView.MapIsEnabled</c>, and past the controller-not-yet-awake defers - so that
@@ -634,6 +689,25 @@ namespace Parsek.Display
             if (string.IsNullOrEmpty(recordingId)) return;
             if (inDrewSet) drewNonOrbitalLegRecordings.Add(recordingId);
             else drewNonOrbitalLegRecordings.Remove(recordingId);
+        }
+
+        /// <summary>
+        /// Test-only seam mirroring <see cref="SetOwnershipPublishForTesting"/> for the PAINT set the
+        /// onPreCull draw pass populates (Unity-coupled, not reachable from xUnit): stamps
+        /// <paramref name="recordingId"/> as painted on <paramref name="frame"/>, so the route line's
+        /// no-double-draw arbitration can be exercised end-to-end over a forward-painted continuation
+        /// segment. Cleared by <see cref="Clear"/>.
+        /// </summary>
+        internal static void SetLegPaintForTesting(string recordingId, bool painted, int frame)
+        {
+            if (string.IsNullOrEmpty(recordingId)) return;
+            if (paintedLegRecordingsFrame != frame)
+            {
+                paintedLegRecordings.Clear();
+                paintedLegRecordingsFrame = frame;
+            }
+            if (painted) paintedLegRecordings.Add(recordingId);
+            else paintedLegRecordings.Remove(recordingId);
         }
 
         /// <summary>
@@ -1306,6 +1380,11 @@ namespace Parsek.Display
             // cross-save flush / test reset never leaves a stale ownership behind. It is re-cleared
             // every LateUpdate, so this is belt-and-suspenders in normal play and the reset hook in tests.
             drewNonOrbitalLegRecordings.Clear();
+            // Same lifecycle for the PAINT set the route line's no-double-draw arbitration reads: the
+            // frame stamp alone already makes a stale entry unreadable, this just does not carry a dead
+            // save's recording ids into the next one.
+            paintedLegRecordings.Clear();
+            paintedLegRecordingsFrame = -1;
             // Render-EVENT diff baselines: drop the previous-frame drawn sets on the same cross-save / test
             // reset lifecycle so a new save's first walk does not diff against a prior save's recordings (the
             // recordingIds collide across saves). Re-baselined on the next walk.
@@ -4763,6 +4842,15 @@ namespace Parsek.Display
                 if (precullDrawnFrame == frame) return;  // already drew this frame
                 precullDrawnFrame = frame;
 
+                // PAINT set for the route line's no-double-draw arbitration (see paintedLegRecordings):
+                // cleared and re-stamped here, at the top of the ONLY pass that paints legs, so it holds
+                // exactly this frame's actual draws by the time OnRouteLinePreCull runs later in the same
+                // onPreCull event. Deliberately NOT cleared before the two early returns above: the stamp
+                // makes a set from an earlier frame unreadable anyway, and clearing there would cost a
+                // Clear on every non-map camera.
+                paintedLegRecordings.Clear();
+                paintedLegRecordingsFrame = frame;
+
                 // Render-EVENT diff (map-render-event-logging): clear this frame's forward-render actual-draw
                 // set before the draw loops populate it; diffed against the previous frame at the end of this
                 // method to emit PolylineForwardArc appear/disappear EVENTs. Only touched when tracing is on.
@@ -4820,6 +4908,11 @@ namespace Parsek.Display
                     // array (set.legs is the same array reference the dict holds).
                     set.legs[p.legIndex] = leg;
                     if (legDrawn) drawn++;
+                    // PAINT publish (route-line no-double-draw arbitration): an ACTUAL draw of ANY leg -
+                    // current, boundary-overlap secondary, or forward RUN leg of a chain member - means
+                    // this recording has a ghost line on screen this frame. Ownership is NOT touched here
+                    // (a forward leg never owns a phase); see paintedLegRecordings for the split.
+                    if (legDrawn) paintedLegRecordings.Add(p.recordingId);
                     if (fwd)
                     {
                         if (legDrawn) runDrawn++;

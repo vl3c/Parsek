@@ -165,7 +165,7 @@ id = "V26T-interbody-route-ts-arrival"
 #
 # =====================================================================================
 tier = "operator"
-description = "FLOWN 2026-09-02, ARMED-DISCIPLINE COMPLETE: reading run `2026-09-02_18xx` (route tokens read from the KSP.log; the run itself classified `PARSEK-FAIL(analyzer)` on the fixture's own pre-existing INV2 double-cover, since repaired), pins tightened off it, armed re-flight PASS attempt 1, and a negative control `B32X-interbody-scope-negative-control` (uncommitted) that red `PARSEK-FAIL(expectation)` on exactly the seeded `scope=SameBody` token with zero forbids and a green analyzer. V18T's tracking-station grammar re-flown on an INTER-BODY subject: the `interbody-route-recorded` harvest booted into the TRACKSTATION, reading what the TS host composes for two supply routes whose endpoints sit on different bodies. A SEPARATE lane from V26M's FLIGHT half for two structural reasons: the HOST differs (`ParsekTrackingStation` + `GhostMapPresence.BuildStartupTrackingStationLoopUnits`, the one-shot startup union a route enters through `SelectGhostDrivingBackingMissions` -> `RouteBackingMission.BuildMission`), and the MANIFEST IS PER SCENE, so two scenes means two lanes each exporting where they observed. NO `EnterMapView` verb is driven, on V18T's measured fact that `DrawAll`'s guard chain carries no `MapView.MapIsEnabled`; no TimeJump either, for B32's arithmetic. THE OPEN QUESTION THIS LANE WAS AUTHORED NOT TO PREJUDGE IS ANSWERED: `ghostDriving=1` printed once and `routeMissions=1` four times, so a never-dispatched route (`loopAnchorUT = -1`, `completedCycles = 0`) DOES enter the GhostDriving selection and DOES reach the TS host union - dispatch history is not a precondition for a route driving a tracking-station ghost - and both tokens are REQUIRED from the armed re-flight onward. V18T's `skippedByStatus=[1-9]` forbid stays dropped: this subject carries TWO routes with one deliberately Paused, so a skip count of 1 is the expected reading. Manifest: `routeLineBuilds=2` (twice V18T's measured 1, on twice the routes), `unevaluable=7`, findings EMPTY at every level; the block stays BARE pending a second matching reading. The route lines are byte-identical to the FLIGHT-map lane's, which is the fact that keeps the two surfaces ONE coverage cell rather than two. `[expectations.routes]` REPORT-ONLY, same carried control as B32."
+description = "FLOWN 2026-09-02, ARMED-DISCIPLINE COMPLETE: reading run `2026-09-02_18xx` (route tokens read from the KSP.log; the run itself classified `PARSEK-FAIL(analyzer)` on the fixture's own pre-existing INV2 double-cover, since repaired), pins tightened off it, armed re-flight PASS attempt 1, and a negative control `B32X-interbody-scope-negative-control` (uncommitted) that red `PARSEK-FAIL(expectation)` on exactly the seeded `scope=SameBody` token with zero forbids and a green analyzer. V18T's tracking-station grammar re-flown on an INTER-BODY subject: the `interbody-route-recorded` harvest booted into the TRACKSTATION, reading what the TS host composes for two supply routes whose endpoints sit on different bodies. A SEPARATE lane from V26M's FLIGHT half for two structural reasons: the HOST differs (`ParsekTrackingStation` + `GhostMapPresence.BuildStartupTrackingStationLoopUnits`, the one-shot startup union a route enters through `SelectGhostDrivingBackingMissions` -> `RouteBackingMission.BuildMission`), and the MANIFEST IS PER SCENE, so two scenes means two lanes each exporting where they observed. NO `EnterMapView` verb is driven, on V18T's measured fact that `DrawAll`'s guard chain carries no `MapView.MapIsEnabled`; no TimeJump either, for B32's arithmetic. THE OPEN QUESTION THIS LANE WAS AUTHORED NOT TO PREJUDGE IS ANSWERED: `ghostDriving=1` printed once and `routeMissions=1` four times, so a never-dispatched route (`loopAnchorUT = -1`, `completedCycles = 0`) DOES enter the GhostDriving selection and DOES reach the TS host union - dispatch history is not a precondition for a route driving a tracking-station ghost - and both tokens are REQUIRED from the armed re-flight onward. V18T's `skippedByStatus=[1-9]` forbid stays dropped: this subject carries TWO routes with one deliberately Paused, so a skip count of 1 is the expected reading. Manifest: `routeLineBuilds=2` (twice V18T's measured 1, on twice the routes), `unevaluable=7`, findings EMPTY at every level; the block stays BARE pending a second matching reading. The route lines are byte-identical to the FLIGHT-map lane's, which is the fact that keeps the two surfaces ONE coverage cell rather than two. `[expectations.routes]` REPORT-ONLY, same carried control as B32. READING RUN 1 (2026-09-06, PASS attempt 1) MEASURED THE G10 LEG DROP: `Route line build: route=71a983a1 members=4 groups=4 legs=16 transferDropped=2` (control `8f644e71` groups=4 legs=17 transferDropped=0), `Route line members: ... heads=4 segments=3`, `Route line draw: ... routesDrawn=2 legsDrawn=33 skippedOwned=0`. The same run raised `routeCoDrawViolations=1024` on V26M / V26T over ONE finding (the expanded segment `36c7688b`, painted by the ghost's forward run-leg pass, which publishes no ownership), so the count pins STAY INTERIM through the co-draw fix: `skippedOwned` is expected to leave 0 in the map scene and `legsDrawn` to fall by the painted segments' legs."
 instanceProfile = "stock-minimal"
 tags = ["V26", "route", "logistics", "inter-body", "tracking-station", "kerbin", "duna",
         "depot", "dock", "render-composition", "rc-route", "map-render"]
@@ -269,27 +269,41 @@ count = { min = 43, max = 60 }
 
 [expectations.logContracts]
 # Section 4 states the whole argument; this is the list.
-# INTERIM PINS (G10 / ROUTE-LINE-MEMBER-DROPS-CONTINUATION-SEGMENTS, 2026-09-06): the two
-# route-line COUNT pins below are deliberately LOOSENED to regexes until the next reading run
-# re-pins them from this lane's own bytes. A route MEMBER is a composition RUN HEAD, and the
-# renderer resolved each member id to ONE recording, so every chain-CONTINUATION segment of a
-# member run was invisible to the overview line; it now expands each member id to its whole
-# continuation run (`RouteMemberRunExpansion`, reusing `MissionThroughLineBuilder`'s own walk).
-# THIS SUBJECT IS CHAINED, so the counts MUST move: `interbody-route-recorded` carries
-# `36c7688b` (chainIndex 1 of the run headed by member `d23e453b` - the Sun-frame transfer this
-# lane could never reach) and `04177024` (chainIndex 1 under member `c549ef6e`). Headless
-# prediction off the fixture's own bytes (`RouteMemberRunExpansionTests`):
-# `route=8f644e71 members=4 groups=4 legs=17 transferDropped=0` and
-# `route=71a983a1 members=4 groups=4 legs=16 transferDropped=2`, so `legsDrawn` 6 -> 33.
-# `members=4` STAYS pinned: the declared member set is untouched and the expansion only ADDS
-# segments. `transferDropped` is left unpinned because it is the G10 READING - the run measures
-# it, it does not assert it.
+# INTERIM PINS (G10 / ROUTE-LINE-MEMBER-DROPS-CONTINUATION-SEGMENTS and its co-draw follow-up,
+# re-stated 2026-09-06 after READING RUN 1): the route-line COUNT pins below STAY loosened to
+# regexes until the reading run that follows the co-draw fix re-pins them from this lane's own
+# bytes. A route MEMBER is a composition RUN HEAD, and the renderer resolved each member id to
+# ONE recording, so every chain-CONTINUATION segment of a member run was invisible to the
+# overview line; it now expands each member id to its whole continuation run
+# (`RouteMemberRunExpansion`, over `MissionThroughLineBuilder`'s own walk, under composition's
+# shared-visited first-head-wins claim rule).
+# MEASURED, reading run 1 (2026-09-06, PASS attempt 1, identical on B32 / V26M / V26T):
+#   Route line build: route=71a983a1 members=4 groups=4 legs=16 transferDropped=2
+#   Route line build: route=8f644e71 members=4 groups=4 legs=17 transferDropped=0
+#   Route line members: route=71a983a1 heads=4 segments=3 groups=4 legs=16   (also segments=3
+#     on 8f644e71)
+#   Route line draw: enabled=True routesDrawn=2 legsDrawn=33 skippedOwned=0 malformed=0
+#                    other=0 deact=0 cache=2
+# THE LEG DROP IS MEASURED: `transferDropped=2` is the first time `FilterLegsToEndpointBodies`
+# has dropped a leg on a driven run, which is exactly G10's reading.
+# WHY THE COUNTS STAY INTERIM ANYWAY: run 1's manifest ALSO raised
+# `routeCoDrawViolations=1024` (the cap) on V26M / V26T with one distinct finding -
+# `ROUTE_CODRAW_VIOLATION[71a983a1 recId=36c7688b...]` - because the ghost polyline's FORWARD
+# RUN-LEG pass paints a continuation segment under its OWN recording id and never publishes
+# ownership, so the route line's ownership-only arbitration painted a second identical line over
+# it. The fix stands a group down when the ghost either OWNS its recording's phase or PAINTED a
+# leg of it THIS FRAME, so `skippedOwned` is expected to leave 0 in the map scene and
+# `legsDrawn` to fall by the painted segments' legs on those frames - hence `skippedOwned` is
+# now a regex too. `members=4` STAYS pinned: the declared member set is untouched and the
+# expansion only ADDS segments. `transferDropped` is left unpinned because it is the G10
+# READING - the run measures it, it does not assert it.
 required  = [
   "Route scope: route=[0-9a-f]{8} origin=Kerbin destination=Duna scope=InterBody basis=Endpoints",
   "Route scope: route=[0-9a-f]{8} origin=Kerbin destination=Mun scope=InterBody basis=Endpoints",
   "RevalidateSources reason=.* routes=2 transitioned=0",
   "Route line build: route=[0-9a-f]{8} members=4 groups=[0-9]+ legs=[0-9]+ transferDropped=[0-9]+",
-  "Route line draw: enabled=True routesDrawn=2 legsDrawn=[1-9][0-9]* skippedOwned=0 malformed=0 other=0",
+  "Route line draw: enabled=True routesDrawn=2 legsDrawn=[1-9][0-9]* skippedOwned=[0-9]+ malformed=0 other=0",
+  "Route line members: route=[0-9a-f]{8} heads=4 segments=[0-9]+",
   # GHOSTDRIVING: PROMOTED FROM UNMEASURED TO REQUIRED BY RUN 1, which
   # answered the question this lane was authored not to prejudge. Both
   # tokens printed - `ghostDriving=1` once and `routeMissions=1` four times -

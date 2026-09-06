@@ -960,3 +960,22 @@ or `TracedPathTreatment`.
 - `ComputeRouteSignature` folds every expanded segment's id + content hash, so a continuation's
   re-cut invalidates the cached line. The tree-scoped half of the expansion is memoized against
   the ERS list identity (`DrawAll` runs on the map onPreCull hook).
+- OWNERSHIP IS PER GROUP, AND FOR AN EXPANDED SEGMENT OWNERSHIP ALONE CANNOT ANSWER.
+  `drewNonOrbitalLegRecordings` remains the SOLE ownership source (nothing below widens it):
+  it is published only on the ghost's CURRENT-element draw, so it answers for a run HEAD the
+  ghost is flying and never for a chain CONTINUATION segment, which the ghost's FORWARD RUN-LEG
+  pass paints under its own recording id without publishing ownership - by design, since a
+  forward leg owns no phase and hides no proto line. The route line therefore arbitrates each
+  group by its OWN recording id through `ShouldSkipGroupAsGhostDrawn`, whose live predicate is
+  ownership OR `GhostTrajectoryPolylineRenderer.IsPaintingNonOrbitalLegOnFrame` - a second,
+  frame-stamped set (`paintedLegRecordings`) published on the ACTUAL draw of ANY leg in the
+  onPreCull pass, which `OnRouteLinePreCull` runs after in the same event. Both arms feed the
+  one `skippedOwned` counter and the M-A7 `NoteRouteLegDeferred` record. Measured: without the
+  paint arm, V26M / V26T raised `ROUTE_CODRAW_VIOLATION` on the expanded segment with
+  `skippedOwned=0` (2026-09-06). The mirror direction holds too - a declared member's non-head
+  leg can be forward-painted the same way - so the paint arm applies to every group.
+- The M-A7 co-draw probe (`IsAnyLegActiveForRecording` -> `NoteRouteCoDrawViolation`) is
+  deliberately NOT the arbitration input: it reads `VectorLine.active`, which also covers a
+  mesh from an EARLIER frame that nothing retired (the -50 walk early-returned). The paint set
+  is frame-stamped precisely so that shape still reaches the probe as a recorded violation
+  instead of being silently skipped.

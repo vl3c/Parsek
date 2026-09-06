@@ -60,6 +60,85 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void BuildRunClaims_TwoHeadDockMerge_GivesTheMergedRunToOneHeadOnly()
+        {
+            // REVIEW F1: MissionStructure.BuildBranchLinks gives a Dock branch point's single merged
+            // child to BOTH parents' BranchChildIds and marks it IsBranchContinuation, so
+            // ContinuationSuccessor returns it for both and MissionThroughLineBuilder - which has no
+            // shared visited set - lists it in TWO runs. MissionComposition, the producer of
+            // Route.RecordingIds, uses a shared visited set (first head wins), so the expander must
+            // too or it walks a run from a head the member set does not own it under.
+            RecordingTree tree = DockMergeTree();
+            var view = MissionThroughLineBuilder.Build(MissionStructureBuilder.Build(tree));
+
+            // The disagreement is real: the raw view lists the merged leg under both heads.
+            Assert.Contains("merged", view.ByHeadId["a0"].MemberLegIds);
+            Assert.Contains("merged", view.ByHeadId["b0"].MemberLegIds);
+
+            var claims = RouteMemberRunExpansion.BuildRunClaims(view);
+
+            // First head wins, and "first" is composition's order: roots by (StartUT, id), so a0
+            // (1000.0) claims the merged run and b0 (1010.0) stops before it.
+            Assert.Equal("a0", claims.HeadByMemberId["merged"]);
+            Assert.Equal(new[] { "a0", "merged" }, claims.RunByHeadId["a0"].ToArray());
+            Assert.Equal(new[] { "b0" }, claims.RunByHeadId["b0"].ToArray());
+            Assert.Equal(1, claims.ContestedMembers);
+
+            // ... which is what the expansion reads: b0's run ends at b0, a0's carries the merge.
+            Assert.Equal(new[] { "merged" },
+                RouteMemberRunExpansion.SuccessorIdsAfter(claims, "a0").ToArray());
+            Assert.Empty(RouteMemberRunExpansion.SuccessorIdsAfter(claims, "b0"));
+
+            // AGREEMENT with the member-set producer, mechanically: composition's own shared-visited
+            // walk carries a0's tree past the dock to the merged leg's end and leaves b0's at the
+            // dock. Read over each root's whole subtree, since a structural interval boundary splits
+            // the run into a node chain rather than one node.
+            var roots = MissionCompositionBuilder.Build(MissionStructureBuilder.Build(tree));
+            MissionCompositionNode a0 = roots.Find(n => n.HeadLegId == "a0");
+            MissionCompositionNode b0 = roots.Find(n => n.HeadLegId == "b0");
+            Assert.NotNull(a0);
+            Assert.NotNull(b0);
+            Assert.Equal(1200.0, SubtreeEndUT(a0), 3);
+            Assert.Equal(1100.0, SubtreeEndUT(b0), 3);
+        }
+
+        [Fact]
+        public void ExpandVisibleRun_TwoHeadDockMerge_WalksOnlyFromTheClaimingHead()
+        {
+            RecordingTree tree = DockMergeTree();
+
+            var fromA = RouteMemberRunExpansion.ExpandVisibleRun(
+                tree, "a0", tree.Recordings["a0"], Resolve(tree), out var tallyA);
+            var fromB = RouteMemberRunExpansion.ExpandVisibleRun(
+                tree, "b0", tree.Recordings["b0"], Resolve(tree), out var tallyB);
+
+            Assert.Equal(new[] { "a0", "merged" }, Ids(fromA));
+            Assert.Equal(1, tallyA.Segments);
+            Assert.Equal(new[] { "b0" }, Ids(fromB));
+            Assert.Equal(0, tallyB.Segments);
+        }
+
+        [Fact]
+        public void ApplyRouteFilters_FreshTally_NeverReportsNegativeSegments()
+        {
+            // REVIEW F3: the live expander memoizes the visible run and re-runs the filters per call
+            // with a FRESH tally, so the old blind decrement reported segments=-2. Segments means
+            // "kept after the head" and is clamped; Dropped is the filter's own counter.
+            RecordingTree tree = ChainTree();
+            var visibleRun = RouteMemberRunExpansion.ExpandVisibleRun(
+                tree, "head", tree.Recordings["head"], Resolve(tree), out _);
+            Assert.Equal(3, visibleRun.Count);
+
+            var fresh = default(RouteMemberRunExpansion.RunTally);
+            var kept = RouteMemberRunExpansion.ApplyRouteFilters(
+                visibleRun, new[] { "head" }, null, ref fresh);
+
+            Assert.Single(kept);
+            Assert.Equal(0, fresh.Segments);
+            Assert.Equal(2, fresh.Dropped);
+        }
+
+        [Fact]
         public void ExpandVisibleRun_SingleSegmentRun_IsTheHeadAlone()
         {
             var head = Rec("solo", "C", 0, 100.0, 200.0);
@@ -387,7 +466,97 @@ namespace Parsek.Tests
                 g => g.memberRecordingId == "1331a21bddfb49418be6ebec99dabf98");
         }
 
+        // ==============================================================
+        // No-double-draw arbitration, per segment
+        // ==============================================================
+
+        [Fact]
+        public void Draw_ExpandedSegmentTheGhostHas_IsSkippedAndCountedInSkippedOwned()
+        {
+            // ROUTE-LINE-EXPANDED-SEGMENT-CO-DRAWS-THE-GHOST-POLYLINE (measured 2026-09-06 on V26M /
+            // V26T as ROUTE_CODRAW_VIOLATION with skippedOwned=0): every group is arbitrated by its
+            // OWN recording id, and for a continuation segment the ghost's answer comes from the PAINT
+            // set - its forward run-leg pass draws the segment under its own id and never publishes
+            // ownership, so an ownership-only read said "nobody has it" while the ghost was drawing it.
+            RecordingTree tree = ChainTree();
+            var route = new Route { Id = "r-own", RecordingIds = { "head" }, RecordedDockUT = -1.0 };
+            var groups = RouteTrajectoryLineRenderer.BuildRouteMemberLegs(
+                route, Resolve(tree), Expander(route, tree),
+                out _, out _, out _, out int segments);
+            Assert.Equal(2, segments);
+
+            const int frame = 4242;
+            GhostTrajectoryPolylineRenderer.SetOwnershipPublishForTesting("seg2", true);
+            GhostTrajectoryPolylineRenderer.SetLegPaintForTesting("seg1", true, frame);
+
+            int skippedOwned = 0;
+            var drawn = new List<string>();
+            foreach (var group in groups)
+            {
+                if (RouteTrajectoryLineRenderer.ShouldSkipGroupAsGhostDrawn(group, Probe(frame)))
+                    skippedOwned++;
+                else
+                    drawn.Add(group.memberRecordingId);
+            }
+
+            // Both expanded segments stand down - one owned, one painted - and the declared member
+            // the ghost has nothing on still draws.
+            Assert.Equal(2, skippedOwned);
+            Assert.Equal(new[] { "head" }, drawn.ToArray());
+        }
+
+        [Fact]
+        public void Draw_DeclaredMember_ArbitratesExactlyAsBefore()
+        {
+            RecordingTree tree = ChainTree();
+            var route = new Route { Id = "r-decl", RecordingIds = { "head" }, RecordedDockUT = -1.0 };
+            var groups = RouteTrajectoryLineRenderer.BuildRouteMemberLegs(
+                route, Resolve(tree), Expander(route, tree), out _, out _, out _, out _);
+            const int frame = 77;
+
+            // Nothing published: every group draws (the shipped behaviour).
+            Assert.All(groups, g => Assert.False(
+                RouteTrajectoryLineRenderer.ShouldSkipGroupAsGhostDrawn(g, Probe(frame))));
+
+            // The declared member owned: skipped, exactly as it was before the expansion existed.
+            GhostTrajectoryPolylineRenderer.SetOwnershipPublishForTesting("head", true);
+            Assert.True(RouteTrajectoryLineRenderer.ShouldSkipGroupAsGhostDrawn(
+                groups[0], Probe(frame)));
+
+            // A paint from an EARLIER frame is not this frame's: the set is frame-stamped, so the
+            // route line falls back to ownership alone and the M-A7 co-draw probe stays the recorder
+            // of that stale-mesh shape rather than being papered over here.
+            GhostTrajectoryPolylineRenderer.SetLegPaintForTesting("seg1", true, frame - 1);
+            Assert.False(RouteTrajectoryLineRenderer.ShouldSkipGroupAsGhostDrawn(
+                groups[1], Probe(frame)));
+            Assert.True(RouteTrajectoryLineRenderer.ShouldSkipGroupAsGhostDrawn(
+                groups[1], Probe(frame - 1)));
+        }
+
+        [Fact]
+        public void ResolveLegPaintOnFrame_IsMembershipAndTheFrameStamp()
+        {
+            Assert.True(GhostTrajectoryPolylineRenderer.ResolveLegPaintOnFrame(true, 10, 10));
+            Assert.False(GhostTrajectoryPolylineRenderer.ResolveLegPaintOnFrame(true, 9, 10));
+            Assert.False(GhostTrajectoryPolylineRenderer.ResolveLegPaintOnFrame(false, 10, 10));
+        }
+
         // --- Helpers ---
+
+        /// <summary>The latest EndUT anywhere in a composition node's subtree.</summary>
+        private static double SubtreeEndUT(MissionCompositionNode node)
+        {
+            double end = node.EndUT;
+            for (int i = 0; i < node.Children.Count; i++)
+                end = Math.Max(end, SubtreeEndUT(node.Children[i]));
+            return end;
+        }
+
+        /// <summary>The live route-line arbitration predicate: the ghost OWNS this recording's phase
+        /// or PAINTED a leg of it on <paramref name="frame"/>.</summary>
+        private static Func<string, bool> Probe(int frame)
+            => id => GhostTrajectoryPolylineRenderer.IsRenderingNonOrbitalLeg(id)
+                || GhostTrajectoryPolylineRenderer.IsPaintingNonOrbitalLegOnFrame(id, frame);
 
         private static string FixtureSaveDir(string name)
             => Path.Combine(SyntheticRecordingTests.ResolveProjectRoot(),
@@ -449,6 +618,27 @@ namespace Parsek.Tests
                 Rec("head", "chain-a", 0, 1000.0, 1100.0),
                 Rec("seg1", "chain-a", 1, 1100.0, 1200.0),
                 Rec("seg2", "chain-a", 2, 2500.0, 2600.0));
+        }
+
+        /// <summary>Two vessels docking: a0 (from 1000) and b0 (from 1010) merge at UT 1100 into the
+        /// single child "merged". The recorder lists the merged child first, so it is the branch
+        /// continuation of BOTH parents - the F1 shape.</summary>
+        private static RecordingTree DockMergeTree()
+        {
+            var a0 = Rec("a0", "chain-a", 0, 1000.0, 1100.0);
+            var b0 = Rec("b0", "chain-b", 0, 1010.0, 1100.0);
+            var merged = Rec("merged", "chain-m", 0, 1100.0, 1200.0);
+            RecordingTree tree = Tree("t-dock", a0, b0, merged);
+            tree.BranchPoints.Add(new BranchPoint
+            {
+                Id = "bp-dock",
+                UT = 1100.0,
+                Type = BranchPointType.Dock,
+                MergeCause = "DOCK",
+                ParentRecordingIds = { "a0", "b0" },
+                ChildRecordingIds = { "merged" },
+            });
+            return tree;
         }
 
         private static RecordingTree Tree(string id, params Recording[] recs)

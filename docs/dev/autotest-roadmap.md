@@ -2157,6 +2157,28 @@ V18T pins no counts at all (its `routeLineBuilds = { min = 1 }` window is a buil
 which the expansion does not change). G10's leg-drop reading is taken when the re-flight logs
 `transferDropped=[1-9]` on `71a983a1`; the operator save below stays unbuilt.
 
+**THE LEG DROP IS MEASURED (reading run 1, 2026-09-06; B32 / V26M / V26T / V18T / H59 all PASS
+attempt 1): `Route line build: route=71a983a1 members=4 groups=4 legs=16 transferDropped=2`**,
+identical on all three route lanes and matching the headless prediction exactly, with the
+same-fixture control `route=8f644e71 ... groups=4 legs=17 transferDropped=0`, `Route line
+members: route=71a983a1 heads=4 segments=3 groups=4 legs=16` and `Route line draw: ...
+routesDrawn=2 legsDrawn=33 skippedOwned=0`. `FilterLegsToEndpointBodies` has therefore now
+dropped a leg on a DRIVEN run - the reading this block was opened for - and the two controls
+held as predicted (V18T `route=5420f805 ... groups=4 legs=14 transferDropped=0`,
+`routesDrawn=1 legsDrawn=14`; H59 unchanged).
+
+**THE BLOCK STAYS OPEN UNTIL THE ARMED RUN AFTER THE CO-DRAW FIX.** The same run raised
+`routeCoDrawViolations=1024` (the cap) on V26M / V26T over ONE distinct finding -
+`ROUTE_CODRAW_VIOLATION[71a983a1 recId=36c7688b...]`, the expanded segment painted by BOTH the
+route line and the ghost polyline while `skippedOwned=0` - filed and fixed in the same branch as
+ROUTE-LINE-EXPANDED-SEGMENT-CO-DRAWS-THE-GHOST-POLYLINE (the ghost's forward run-leg pass paints
+a continuation segment under its own id without publishing ownership; the route line now stands
+down on OWNED or PAINTED-this-frame). That fix moves `skippedOwned` and `legsDrawn` in the map
+scene, so the three lanes' count pins stay INTERIM and what is owed is READING RUN 2 on the same
+five lanes: `transferDropped=2` unchanged, `routeCoDrawViolations=0` on V26M / V26T,
+`skippedOwned>0` whenever the polyline is painting a segment, and V18T / H59 as controls. Only
+then are the counts re-pinned and the block closed.
+
 **THE OPERATOR SAVE SPECIFICATION for B32** (write it once, fly it by hand; the
 seam cannot create this and no driven lane can either, because route candidacy is
 seal-gated and the create gate refuses `candidate-ineligible MissingRouteProof`

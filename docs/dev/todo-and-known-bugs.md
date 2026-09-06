@@ -84,6 +84,52 @@ transferDropped=2` (the two Sun-frame legs of `36c7688b`), and its same-fixture 
 `route=8f644e71` -> `groups=4 legs=17 transferDropped=0` (Kerbin + Mun only, nothing to drop).
 The declared member count never moves: the expansion only ADDS.
 
+**FLOWN 2026-09-06 (reading run 1, five lanes, all PASS attempt 1) AND IT MEASURED THE G10 LEG
+DROP.** B32 / V26M / V26T, identical: `Route line build: route=71a983a1 members=4 groups=4
+legs=16 transferDropped=2`, control `route=8f644e71 ... groups=4 legs=17 transferDropped=0`,
+`Route line members: route=71a983a1 heads=4 segments=3 groups=4 legs=16`, `Route line draw:
+enabled=True routesDrawn=2 legsDrawn=33 skippedOwned=0 malformed=0 other=0 deact=0 cache=2`,
+both scopes `InterBody basis=Endpoints`. V18T: `route=5420f805 ... groups=4 legs=14
+transferDropped=0`, `routesDrawn=1 legsDrawn=14`, renderComposition armed and PASS. H59
+unchanged.
+
+**THE ONE DEFECT THE FLIGHT FOUND, FIXED IN THE SAME BRANCH:
+ROUTE-LINE-EXPANDED-SEGMENT-CO-DRAWS-THE-GHOST-POLYLINE.** V26M / V26T raised
+`routeCoDrawViolations=1024` (the cap) over ONE distinct finding,
+`ROUTE_CODRAW_VIOLATION[71a983a1 recId=36c7688b...]` - the expanded continuation segment painted
+by BOTH the route line and the ghost polyline, with `skippedOwned=0`. Re-derived rather than
+assumed: the route draw pass ALREADY consulted ownership per GROUP recording id, so the escape
+is on the PUBLISHER side - `drewNonOrbitalLegRecordings` is published only on the ghost's
+current-element draw (the `if (anyDrawn)` block in `GhostTrajectoryPolylineRenderer.cs`), while a
+chain CONTINUATION segment is painted by the FORWARD RUN-LEG pass under its own recording id,
+which by design never publishes ownership. Ownership could therefore never answer for the
+population the expansion adds. Fix: the ghost path publishes a second, frame-stamped PAINT set on
+the ACTUAL draw of any leg (`paintedLegRecordings` / `IsPaintingNonOrbitalLegOnFrame`), and the
+route line's no-double-draw arbitration (`ShouldSkipGroupAsGhostDrawn`) stands a group down when
+the ghost either OWNS its recording's phase or PAINTED a leg of it THIS frame. Ownership
+semantics are untouched: `drewNonOrbitalLegRecordings` stays the SOLE ownership source and the
+paint set never hides a proto line. MIRROR DIRECTION: the same escape exists for a DECLARED
+member (a run head whose non-head leg is forward-painted), so the paint arm applies to every
+group rather than only to the population that raised it. The M-A7 `RC-ROUTE` rule is deliberately
+UNCHANGED - it caught a real violation, and the frame stamp keeps it able to fire on the
+stale-mesh frame shape (the -50 walk early-returned, last frame's mesh still active) that no skip
+set can see.
+
+**THREE REVIEW ITEMS CLOSED WITH IT.** (F1) `MissionThroughLineBuilder` has no shared visited set
+while `MissionComposition.cs:151-156` does, and `MissionStructure.cs:344-386` hands a Dock branch
+point's merged child to BOTH parents' `BranchChildIds` as `IsBranchContinuation` - so the merged
+run appeared in TWO through-lines while composition (the producer of `Route.RecordingIds`) keys
+it under one. `RouteMemberRunExpansion.RunClaimIndex` now re-applies composition's rule (first
+head wins, in composition's own root-then-DFS order, a later run truncated at its first claimed
+leg) before any suffix is taken (cells
+`BuildRunClaims_TwoHeadDockMerge_GivesTheMergedRunToOneHeadOnly` and
+`ExpandVisibleRun_TwoHeadDockMerge_WalksOnlyFromTheClaimingHead`, the first asserting agreement
+against composition's own walk). (F3) ONE `segments=` counter with one meaning - post-filter
+expanded segments built as groups, on `Route line members:`; the expander's pre-filter walk is
+reported as `walked=` on its own line, and `ApplyRouteFilters` no longer decrements a fresh tally
+below zero (`Dropped` is its own field). (F4) an empty tree id is no longer a cache key, so two
+id-less trees cannot share one claim index.
+
 ---
 
 ## ROUTE-ENDPOINT-TRANSFER-DOCKED-DOMINANT-PARTNER: while a visitor is docked to a delivery destination and DOMINATES the merged vessel, the route now REBINDS to the visitor and follows it away after undock [RAISED 2026-09-04 by the Fable review of PR #1627 (the endpoint-transfer ruling). DESIGN RESIDUE of that PR, not a defect it introduced blindly - the pre-#1627 behaviour was self-healing by accident. OPEN, no fix proposed; two siblings filed in the same entry]
