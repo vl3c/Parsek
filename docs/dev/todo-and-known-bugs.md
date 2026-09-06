@@ -450,7 +450,7 @@ alone holds 128 stamps in its `persistent.sfs`). `.pann`, `.pgsb`, `.pgse`,
 last bump, `a400bada6` (3 -> 4), touched `RecordingStore.cs` and nothing else
 because the fixture corpus did not exist yet; nothing in the tree re-stamps a
 schema generation, and no builder can re-mint a recording payload
-(`harness/lib/savepatch.py` states its own boundary at lines 28-36). The repo's
+(`harness/lib/savepatch.py` states its own boundary in its module docstring: "THE PARSEK PAYLOAD IS NEVER TOUCHED"). The repo's
 written policy is RE-HARVEST for harvested provenance
 (`Source/Parsek/Analyzer/Rules/FixtureStampRule.cs:14-16`,
 `harness/lib/test_saveparse.py:3270-3275`), and every stamped fixture is
