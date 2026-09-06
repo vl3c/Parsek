@@ -66,6 +66,7 @@ ASCII only; no em dashes.
 from __future__ import annotations
 
 import os as _os
+import re as _re
 import sys as _sys
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
@@ -123,7 +124,7 @@ class LiveStatePatchError(Exception):
 # log token in this family spells a KSP `persistentId`.
 LIVE_STATE_KEY = "liveState"
 
-ENTRY_KEYS = ("pid", "resources", "inventory", "remove")
+ENTRY_KEYS = ("pid", "resources", "inventory", "remove", "fill")
 
 # `remove = true` DELETES the vessel's whole FLIGHTSTATE `VESSEL` node, which is
 # the only way to author "the endpoint this route names is no longer in the save"
@@ -165,34 +166,101 @@ INVENTORY_CLEAR = "clear"
 # This is the mode the BUILDER uses (through the same functions below).
 INVENTORY_RESTORE_DOCK_PREFIX = "restore-dock-endpoint:"
 
-# WHY THERE IS NO `restore-undock-endpoint:<N>` AND NO `fill` MODE, recorded here
-# because the obvious next request is one of them and the answer is a property of
-# the bytes rather than a scope call:
+# WHY THERE IS STILL NO `restore-undock-endpoint:<N>`, and it is a property of
+# the bytes rather than a scope call: `UNDOCK_ENDPOINT_INVENTORY` IS NOT A CENSUS
+# OF THE RESULTING INVENTORY. Measured on `rover-relay-c-recorded`, window 1's
+# holder carries FOUR items - `DeployedCentralStation` slot 1,
+# `DeployedCentralStation` slot 1, `evaChute` slot 0, `evaScienceKit` slot 2 -
+# against a rover A that held SIX stored parts live at harvest. Two of those
+# items are the SAME part name at the SAME `slotIndex`, and the snapshot records
+# no container index at all, so there is no rule inside these bytes that assigns
+# them to containers. The builder needed rover A's LIVE `persistentId`s to tell
+# the original station from the delivered one; a restore mode has, by
+# construction, no live vessel to read.
+
+
+# ---------------------------------------------------------------------------
+# The `fill` key: author a FULL destination inventory from recorded bytes.
+# ---------------------------------------------------------------------------
+
+# `fill` - a SEPARATE key from `inventory`, composable with it:
 #
-#   * `UNDOCK_ENDPOINT_INVENTORY` IS NOT A CENSUS OF THE RESULTING INVENTORY.
-#     Measured on `rover-relay-c-recorded`: window 1's holder carries FOUR items
-#     - `DeployedCentralStation` slot 1, `DeployedCentralStation` slot 1,
-#     `evaChute` slot 0, `evaScienceKit` slot 2 - against a rover A that holds
-#     SIX stored parts live. Two of those items are the SAME part name at the
-#     SAME `slotIndex`, and the snapshot records no container index at all, so
-#     there is no rule inside these bytes that assigns them to containers. The
-#     builder needed rover A's LIVE `persistentId`s to tell the original station
-#     from the delivered one; a restore mode has, by construction, no live
-#     vessel to read.
-#   * A `fill` MODE WOULD BE INVENTED BYTES. Filling the free slots means
-#     authoring `STOREDPART` nodes no snapshot in this save recorded, which is
-#     the one thing every fixture builder in this tree refuses to do.
+#     [[fixture.liveState]]
+#     pid  = 4280917262
+#     fill = { part = "evaChute", slots = 3 }
 #
-# So the DESTINATION-SLOTS-FULL edge is not expressible today ON THAT FIXTURE by
-# STAGING, and the roadmap records that it needs a FLIGHTSTATE fill mode (or a
-# second harvest) rather than a new string here. It IS expressible on
-# `rover-route-recorded` without any new mode, and the difference is worth
-# stating because it is what stopped a `fill` mode being built: there the
-# destination starts with 3 of 6 slots free and ONE cycle consumes ALL THREE (the
-# manifest is three stored parts - the window's own endpoint delta, measured by
-# RVR-16's census), so a lane that removes the RESOURCE constraint (a plain
-# `resources` entry, the tank staged low) reaches the slot shortfall by PLAYING
-# the fixture rather than by authoring bytes. RVR-16 is that lane.
+# WHAT IT DOES, and the placement rule is the whole of it: CLONE a `STOREDPART`
+# node ALREADY PRESENT IN THIS SAVE for that part name into EVERY FREE SLOT of
+# EVERY `ModuleInventoryPart` on the vessel - containers in FILE order, slots
+# ASCENDING inside each container. Nothing about the cloned node is authored
+# except its ADDRESS: `slotIndex` becomes the target slot and the nested `PART`'s
+# `persistentId` is re-stamped to a value no line in the save already carries.
+# Every other byte - `quantity`, `stackCapacity`, `variantName`, `cid`, the whole
+# nested PART with its MODULE / ACTIONS bodies - is the recorded one.
+#
+# WHY THIS SHAPE AND NOT THE TWO ALTERNATIVES, because the module used to say a
+# fill mode could not exist and that claim has to be answered rather than
+# deleted:
+#
+#   * `fill-from-dock-endpoint:<N>` (restore window N's items into the first free
+#     slots) WOULD BE A SILENT NO-OP HERE, which is the worst outcome this module
+#     has. The dock-endpoint restore already places by the craft-authored layout
+#     table, and that table names EXACTLY the slots the endpoint already occupies
+#     (`rover-relay-c-recorded`: chute c0s0, kit c1s0, station c1s1). Placing the
+#     same three items "in the first free slots" instead would be the very
+#     container-assignment guess the paragraph above refuses, and it still could
+#     not fill: three recorded items cannot fill three free slots AND stay at the
+#     addresses the layout derives them at.
+#   * A BARE `fill = "<partName>"` STRING CANNOT EXPRESS "EVERY FREE SLOT",
+#     because the per-container slot COUNT is not in the save. Measured: the
+#     string `InventorySlots` appears ZERO times in `persistent.sfs`; it is a
+#     PART-CONFIG property of `ConformalStorageUnit` and the fixture ships no
+#     readable craft file either (its `.craft` sidecars are compressed `PSN0`
+#     blobs). Inferring the capacity from the highest observed `slotIndex` would
+#     read a FULL container as capacity-1 and fill nothing at all - a declaration
+#     that reads as "fill it" and patches nothing, the exact failure mode the
+#     fail-closed rule above exists for. So the capacity is DECLARED, in the
+#     spec, beside the tokens that depend on it, and the applier CROSS-CHECKS it
+#     against the bytes: any existing `slotIndex >= slots` is refused as a wrong
+#     declaration rather than worked around.
+#
+# THE BYTES ARE RECORDED; ONLY THE PLACEMENT IS AUTHORED. That is the whole
+# difference from the "a fill mode would be invented bytes" position this comment
+# replaces. A clone is a byte-for-byte copy of a `STOREDPART` this save already
+# carries, found in a stated order (see `find_stored_part_template`): the
+# vessel's OWN containers first, then any other FLIGHTSTATE vessel's, then any
+# route window's `DOCK_ENDPOINT_INVENTORY` snapshot. No template anywhere in the
+# save is a REFUSAL, pre-boot, naming the part and the three places searched.
+#
+# WHY `persistentId` IS THE ONE FIELD RE-STAMPED, measured rather than assumed:
+# inside FLIGHTSTATE all 72 `persistentId` values are DISTINCT (63 vessel parts +
+# 9 stored parts), so a verbatim duplicate would break the one uniqueness the key
+# exists for. `cid` is deliberately NOT re-stamped - it is shared BY CONSTRUCTION
+# across every instance of a part kind (`evaChute` reads `cid = 4294400076` in
+# all three rovers), so renumbering it would author a difference the save does
+# not have. `uid`, `mid` and `launchID` are `0` on every stored part and are
+# likewise left alone. As a guard against a stored part shape this reasoning does
+# not cover, the applier REFUSES a template carrying more than one
+# `persistentId` line at any depth rather than re-stamping the outermost and
+# leaving a nested one to collide.
+#
+# WHAT IT IS FOR. The DESTINATION-SLOTS-FULL edge on `rover-relay-c-recorded`:
+# rover A has two `ConformalStorageUnit` containers of three slots and ships
+# three stored parts, so three slots are free and one delivery cycle consumes at
+# most two - the shortfall is unreachable by PLAYING this fixture. (It IS
+# reachable by playing `rover-route-recorded`, where the destination starts with
+# 3 of 6 free and ONE cycle consumes ALL THREE; RVR-16 is that lane, and it is
+# why this mode was not built earlier.) RVR-20 is the lane this key exists for.
+FILL_KEY = "fill"
+FILL_KEYS = ("part", "slots")
+
+# The first candidate `persistentId` for a clone. Allocation walks UP from here
+# skipping every value the save already carries and every value this pass has
+# already handed out, so it is deterministic (same save + same declaration =
+# same ids) without being random. The base is deliberately outside the range
+# KSP's own generator produces in practice and inside `uint32`, so a clone's id
+# is recognisable as authored when reading a staged save by hand.
+FILL_CLONE_PERSISTENT_ID_BASE = 900000001
 
 
 # ---------------------------------------------------------------------------
@@ -335,6 +403,8 @@ def validate_live_state(fixture: Any) -> List[str]:
                     parse_inventory_mode(mode)
                 except ValueError as ex:
                     errs.append("%s.%s" % (where, ex))
+        if FILL_KEY in entry:
+            errs.extend(_validate_fill(entry[FILL_KEY], where))
         if REMOVE_KEY in entry:
             remove = entry[REMOVE_KEY]
             if not isinstance(remove, bool):
@@ -346,17 +416,51 @@ def validate_live_state(fixture: Any) -> List[str]:
                 # vessel" while removing none.
                 errs.append("%s.%s: false patches nothing; omit the key instead"
                             % (where, REMOVE_KEY))
-            elif ("resources" in entry) or ("inventory" in entry):
+            elif (("resources" in entry) or ("inventory" in entry)
+                    or (FILL_KEY in entry)):
                 errs.append(
                     "%s: `%s = true` cannot be combined with `resources` / "
-                    "`inventory` - those would patch a VESSEL node this entry "
-                    "then deletes, so the declaration reads as two different "
-                    "intentions" % (where, REMOVE_KEY))
+                    "`inventory` / `%s` - those would patch a VESSEL node this "
+                    "entry then deletes, so the declaration reads as two "
+                    "different intentions" % (where, REMOVE_KEY, FILL_KEY))
         if (("resources" not in entry) and ("inventory" not in entry)
-                and (REMOVE_KEY not in entry)):
+                and (FILL_KEY not in entry) and (REMOVE_KEY not in entry)):
             errs.append(
-                "%s: declares neither `resources`, `inventory` nor `%s`, so it "
-                "patches nothing" % (where, REMOVE_KEY))
+                "%s: declares none of `resources`, `inventory`, `%s` or `%s`, so "
+                "it patches nothing" % (where, FILL_KEY, REMOVE_KEY))
+    return errs
+
+
+def _validate_fill(fill: Any, where: str) -> List[str]:
+    """Shape checks for one `fill = { part = ..., slots = N }` table.
+
+    BOTH keys are required and neither has a default. `part` has none because a
+    fill with no part name is not a partial declaration but a meaningless one;
+    `slots` has none because the per-container capacity is NOT readable from the
+    save (see the `fill` comment above), so any default would be this module
+    guessing the one number it cannot check cheaply. Whether the part exists,
+    whether the vessel has containers and whether the declared capacity agrees
+    with the bytes are the APPLIER's assertions - the same split every other
+    mode here uses, and both halves run pre-boot."""
+    errs: List[str] = []
+    if not isinstance(fill, dict):
+        return ["%s.%s: %r must be a table ({ part = \"<partName>\", slots = N })"
+                % (where, FILL_KEY, fill)]
+    unknown = sorted(k for k in fill if k not in FILL_KEYS)
+    if unknown:
+        errs.append("%s.%s: unknown key(s) %s (accepted: %s)"
+                    % (where, FILL_KEY, unknown, list(FILL_KEYS)))
+    part = fill.get("part")
+    if not isinstance(part, str) or not part.strip():
+        errs.append("%s.%s.part: %r must be a non-empty STOREDPART partName"
+                    % (where, FILL_KEY, part))
+    slots = fill.get("slots")
+    if not isinstance(slots, int) or isinstance(slots, bool) or slots <= 0:
+        errs.append(
+            "%s.%s.slots: %r must be a positive integer - the per-container slot "
+            "capacity of the vessel's ModuleInventoryPart(s), which the save does "
+            "not carry (`InventorySlots` is a part-config property)"
+            % (where, FILL_KEY, slots))
     return errs
 
 
@@ -672,6 +776,233 @@ def rewrite_container(lines: List[str], module: Tuple[int, int],
 
 
 # ---------------------------------------------------------------------------
+# The `fill` applier's readers and the clone stamp.
+# ---------------------------------------------------------------------------
+
+# A `persistentId = <digits>` line at any depth. Used BOTH to census the values
+# a save already carries and to count the ids inside a candidate template.
+_PERSISTENT_ID_LINE = _re.compile(r"^\t*persistentId = ([0-9]+)\s*$")
+
+
+def container_entries(lines: List[str],
+                      module: Tuple[int, int]) -> List[Tuple[int, str, List[str]]]:
+    """(slotIndex, partName, STOREDPART lines) per stored part in one container.
+
+    IN FILE ORDER, which on a harvested save is NOT slot order - `C`'s first
+    container in `rover-relay-c-recorded` is written slot 2 before slot 0 while
+    its `inventory` CSV is slot-ascending. Callers that hand the result back to
+    `rewrite_container` sort it themselves; the read does not reorder, so a
+    caller can tell the two apart."""
+    holders = child_nodes(lines, module, "STOREDPARTS")
+    if len(holders) != 1:
+        raise LiveStatePatchError(
+            "a ModuleInventoryPart carries %d STOREDPARTS node(s), expected 1"
+            % len(holders))
+    out: List[Tuple[int, str, List[str]]] = []
+    for stored in child_nodes(lines, holders[0], "STOREDPART"):
+        raw = get_value(lines, stored, "slotIndex")
+        try:
+            slot = int(str(raw).strip())
+        except (TypeError, ValueError):
+            raise LiveStatePatchError(
+                "a STOREDPART carries slotIndex %r, which is not an index" % (raw,))
+        out.append((slot, get_value(lines, stored, "partName"),
+                    list(lines[stored[0]:stored[1]])))
+    return out
+
+
+def find_stored_part_template(
+        lines: List[str], vessel: Tuple[int, int],
+        part_name: str) -> Optional[Tuple[str, List[str]]]:
+    """(sourceDescription, STOREDPART lines) for the first template found, or None.
+
+    THE ORDER IS THE CONTRACT and it goes from most to least local, so a fill
+    clones the vessel's OWN copy of a part whenever it has one:
+
+      1. this vessel's `ModuleInventoryPart` containers, in file order;
+      2. any other FLIGHTSTATE vessel's, in file order;
+      3. any route window's `DOCK_ENDPOINT_INVENTORY` snapshot, in window order
+         (re-indented to FLIGHTSTATE depth by the same lift a restore uses).
+
+    Tier 1 exists because a same-vessel clone is the one whose bytes are already
+    known to load on THAT craft; tier 3 exists because a lane may want to fill
+    with a part no live vessel still holds, and the recorded snapshots are the
+    only other place in the save real `STOREDPART` bytes live."""
+    for module in inventory_modules(lines, vessel):
+        for slot, name, block in container_entries(lines, module):
+            if name == part_name:
+                return ("this vessel's own container (slot %d)" % slot, block)
+    for vname, _vpid, span in flightstate_vessels(lines):
+        if span == vessel:
+            continue
+        for module in inventory_modules(lines, span):
+            for slot, name, block in container_entries(lines, module):
+                if name == part_name:
+                    return ("FLIGHTSTATE vessel %r (slot %d)" % (vname, slot),
+                            block)
+    for index, window in enumerate(route_windows(lines)):
+        for name, slot, block in dock_endpoint_stored_parts(lines, window):
+            if name == part_name:
+                return ("window %d's DOCK_ENDPOINT_INVENTORY (slotIndex %s)"
+                        % (index, slot), block)
+    return None
+
+
+def save_persistent_ids(lines: Sequence[str]) -> set:
+    """Every `persistentId` value the save carries, as strings.
+
+    WHOLE-FILE, not FLIGHTSTATE-only, and deliberately over-broad: the window
+    snapshots repeat live ids by design, so a clone that dodged only the live
+    ones could still be confused with a snapshot copy by a reader. Dodging every
+    value in the file costs nothing and makes a clone's id unambiguous."""
+    out = set()
+    for line in lines:
+        match = _PERSISTENT_ID_LINE.match(line)
+        if match:
+            out.add(match.group(1))
+    return out
+
+
+def stamp_clone(block: Sequence[str], slot: int,
+                persistent_id: Optional[str]) -> List[str]:
+    """A copy of ``block`` re-addressed to ``slot``, with a fresh nested pid.
+
+    THE ONLY TWO AUTHORED BYTES. `slotIndex` is the placement; the nested PART's
+    `persistentId` is the uniqueness the key exists for. `cid` is left alone on
+    purpose - it is shared across every instance of a part kind in this save, so
+    renumbering it would author a difference the bytes do not have."""
+    out = list(block)
+    node = find_node(out, "STOREDPART")
+    if node is None or node != (0, len(out)):
+        raise LiveStatePatchError(
+            "a STOREDPART template does not span its own block, so it cannot be "
+            "cloned (found %r for %d line(s))" % (node, len(out)))
+    if not set_value(out, node, "slotIndex", str(slot)):
+        raise LiveStatePatchError(
+            "a STOREDPART template carries no slotIndex to re-address")
+    if persistent_id is None:
+        return out
+    parts = child_nodes(out, node, "PART")
+    if len(parts) != 1:
+        raise LiveStatePatchError(
+            "a STOREDPART template carries %d nested PART node(s), expected 1"
+            % len(parts))
+    if not set_value(out, parts[0], "persistentId", persistent_id):
+        raise LiveStatePatchError(
+            "a STOREDPART template's nested PART carries no persistentId to "
+            "re-stamp")
+    return out
+
+
+def _template_persistent_id_count(block: Sequence[str]) -> int:
+    return sum(1 for line in block if _PERSISTENT_ID_LINE.match(line))
+
+
+def _next_persistent_id(taken: set, cursor: int) -> Tuple[str, int]:
+    while str(cursor) in taken:
+        cursor += 1
+    return str(cursor), cursor + 1
+
+
+def require_fill_template(lines: List[str], vessel: Tuple[int, int],
+                          vessel_name: str,
+                          part_name: str) -> Tuple[str, List[str]]:
+    """`find_stored_part_template`, but a miss is a REFUSAL naming where it looked.
+
+    RESOLVED BEFORE THE ENTRY'S `inventory` MODE RUNS, and that ordering is a
+    decision rather than an accident: `inventory = "clear"` followed by
+    `fill = { part = "evaChute" }` is a coherent declaration - empty the
+    containers, then fill them with the part this fixture holds - and the clear
+    has just deleted the only `evaChute` in the vessel. So the TEMPLATE is
+    resolved against the state the entry INHERITED, while the FREE SLOTS are
+    computed against the state the inventory mode LEFT, because that is what a
+    fill is a statement about."""
+    found = find_stored_part_template(lines, vessel, part_name)
+    if found is None:
+        raise LiveStatePatchError(
+            "liveState: fill part=%r has no template in this save - no STOREDPART "
+            "with that partName exists on vessel %r, on any other FLIGHTSTATE "
+            "vessel, or in any route window's DOCK_ENDPOINT_INVENTORY. A fill "
+            "clones RECORDED bytes and never authors a node."
+            % (part_name, vessel_name))
+    source, template = found
+    ids_in_template = _template_persistent_id_count(template)
+    if ids_in_template > 1:
+        raise LiveStatePatchError(
+            "liveState: fill part=%r's template (%s) carries %d persistentId "
+            "lines; only the nested PART's is re-stamped, so a deeper one would "
+            "be cloned verbatim and collide" % (part_name, source, ids_in_template))
+    return source, template
+
+
+def plan_fill(lines: List[str], vessel: Tuple[int, int], vessel_name: str,
+              part_name: str, slots: int,
+              template: Sequence[str]) -> Tuple[List[List[Tuple[int, str, List[str]]]],
+                                                List[str]]:
+    """(perContainerEntries, addresses) for a fill. Pure.
+
+    Raises rather than returning an empty plan: a `fill` that would place NOTHING
+    is a spec error, never a quiet pass. Containers are walked in FILE order and
+    free slots ascending inside each, which is the placement rule stated in one
+    sentence."""
+    modules = inventory_modules(lines, vessel)
+    if not modules:
+        raise LiveStatePatchError(
+            "liveState: vessel %r carries no ModuleInventoryPart, so fill "
+            "part=%r cannot be applied" % (vessel_name, part_name))
+
+    ids_in_template = _template_persistent_id_count(template)
+    taken = save_persistent_ids(lines)
+    cursor = FILL_CLONE_PERSISTENT_ID_BASE
+    per_container: List[List[Tuple[int, str, List[str]]]] = []
+    addresses: List[str] = []
+    for container_index, module in enumerate(modules):
+        entries = container_entries(lines, module)
+        occupied = set()
+        for slot, name, _block in entries:
+            if slot < 0 or slot >= slots:
+                raise LiveStatePatchError(
+                    "liveState: vessel %r container %d holds %s at slotIndex %d, "
+                    "but the declaration says slots=%d - the declared capacity is "
+                    "wrong, and filling against it would leave real slots free"
+                    % (vessel_name, container_index, name, slot, slots))
+            if slot in occupied:
+                raise LiveStatePatchError(
+                    "liveState: vessel %r container %d holds two stored parts at "
+                    "slotIndex %d; this save cannot be filled against"
+                    % (vessel_name, container_index, slot))
+            if not name:
+                # A fill is the only mode that re-emits the container's EXISTING
+                # entries through `rewrite_container`, so it is the only one whose
+                # `inventory` CSV depends on their part names. A nameless stored
+                # part would silently render as the string `None` in that CSV.
+                raise LiveStatePatchError(
+                    "liveState: vessel %r container %d holds a stored part at "
+                    "slotIndex %d with no partName, so the rewritten inventory "
+                    "CSV cannot name it" % (vessel_name, container_index, slot))
+            occupied.add(slot)
+        merged = list(entries)
+        for slot in range(slots):
+            if slot in occupied:
+                continue
+            new_id = None
+            if ids_in_template:
+                new_id, cursor = _next_persistent_id(taken, cursor)
+                taken.add(new_id)
+            merged.append((slot, part_name, stamp_clone(template, slot, new_id)))
+            addresses.append("c%ds%d" % (container_index, slot))
+        per_container.append(sorted(merged, key=lambda e: e[0]))
+
+    if not addresses:
+        raise LiveStatePatchError(
+            "liveState: vessel %r has no free slot across %d container(s) of "
+            "slots=%d, so fill part=%r would place nothing - a no-op declaration "
+            "is a spec error, not a pass"
+            % (vessel_name, len(modules), slots, part_name))
+    return per_container, addresses
+
+
+# ---------------------------------------------------------------------------
 # The applier.
 # ---------------------------------------------------------------------------
 
@@ -894,6 +1225,30 @@ def _apply_inventory(lines: List[str], vessel: Tuple[int, int], vessel_name: str
         window_index, len(stored))
 
 
+def _apply_fill(lines: List[str], vessel: Tuple[int, int], vessel_name: str,
+                fill: Dict, template: Sequence[str],
+                source: str) -> Tuple[List[str], str]:
+    """Clone one recorded STOREDPART into every free slot. Returns (lines, note).
+
+    RUNS AFTER the entry's `inventory` mode by construction (see
+    `apply_live_state`), so `inventory = "clear"` + `fill` fills EVERY slot and
+    `fill` alone fills only what the fixture left free. The order is fixed rather
+    than arbitrary: `clear` and `restore-dock-endpoint` decide what is occupied,
+    and a fill is a statement about what is left. The TEMPLATE, by contrast, was
+    resolved BEFORE that mode ran - see `require_fill_template`."""
+    part_name = str(fill.get("part"))
+    slots = int(fill.get("slots"))
+    per_container, addresses = plan_fill(
+        lines, vessel, vessel_name, part_name, slots, template)
+    modules = inventory_modules(lines, vessel)
+    # Bottom-up so an earlier container's splice cannot invalidate a later
+    # container's span, exactly as `clear` and `restore-dock-endpoint` do.
+    for container_index, module in reversed(list(enumerate(modules))):
+        lines = rewrite_container(lines, module, per_container[container_index])
+    return lines, "%s x%d slots=%d [%s] from %s" % (
+        part_name, len(addresses), slots, ",".join(addresses), source)
+
+
 def apply_live_state(text: str, entries: Sequence[Dict],
                      save_name: str = "") -> Tuple[str, List[str]]:
     """Apply every declared liveState entry to a save's text. Pure.
@@ -944,14 +1299,37 @@ def apply_live_state(text: str, entries: Sequence[Dict],
             lines, note = _set_resource(lines, span, vessel_name, resource, amount)
             resource_notes.append(note)
 
+        # The fill's TEMPLATE is resolved HERE, before the inventory mode - a
+        # `clear` would otherwise delete the very stored part the fill names.
+        # See `require_fill_template`.
+        fill = entry.get(FILL_KEY)
+        fill_template = fill_source = None
+        if fill:
+            span = [s for n, vpid, s in flightstate_vessels(lines)
+                    if vpid == pid][0]
+            fill_source, fill_template = require_fill_template(
+                lines, span, vessel_name, str(fill.get("part")))
+
         mode = entry.get("inventory", INVENTORY_KEEP)
         span = [s for n, vpid, s in flightstate_vessels(lines) if vpid == pid][0]
         lines, inv_note = _apply_inventory(lines, span, vessel_name, mode,
                                            layout, save_name)
 
-        notes.append("pid=%s name=%s resources=[%s] inventory=%s"
-                     % (pid, vessel_name,
-                        ",".join(resource_notes) if resource_notes else "-",
-                        inv_note))
+        note = ("pid=%s name=%s resources=[%s] inventory=%s"
+                % (pid, vessel_name,
+                   ",".join(resource_notes) if resource_notes else "-",
+                   inv_note))
+
+        # `fill` LAST, and the segment is APPENDED only when the key is declared:
+        # every note a spec authored before this key existed must read exactly as
+        # it did, so an absent `fill` adds no field rather than a `fill=-` one.
+        if fill:
+            span = [s for n, vpid, s in flightstate_vessels(lines)
+                    if vpid == pid][0]
+            lines, fill_note = _apply_fill(lines, span, vessel_name, fill,
+                                           fill_template, fill_source)
+            note = "%s fill=%s" % (note, fill_note)
+
+        notes.append(note)
 
     return ("\r\n" if crlf else "\n").join(lines), notes

@@ -53,6 +53,7 @@ import hlib  # noqa: E402
 import oracle  # noqa: E402
 import rendercompose  # noqa: E402
 import run  # noqa: E402
+import savepatch  # noqa: E402
 import status  # noqa: E402
 
 FAKE_KSP = os.path.join(HERE, "_fake_ksp.py")
@@ -5005,3 +5006,161 @@ class RemovalAndCareerStageTests(unittest.TestCase):
         self.assertTrue(ok)
         self.assertEqual(self.SAVE, self._staged_sfs(name))
         self.assertNotIn("career patched", self._log())
+
+
+class FillStageTests(unittest.TestCase):
+    """The shell half of the `fill` staging key (the 2026-09-06 addition).
+
+    Same standard as `LiveStateStageTests` and `RemovalAndCareerStageTests`:
+    every cell is about the OBSERVABLE effect on the STAGED COPY and about
+    failing closed pre-boot. What makes this key worth its own class is that it
+    is the first one that ADDS lines to the save rather than rewriting one, so
+    "the patch reached the staged file" and "the committed template is untouched"
+    are two different sizes of claim here.
+
+    The synthetic save carries ONE container with slot 0 occupied and a declared
+    capacity of 3, so a fill must place exactly two clones - at slots 1 and 2 -
+    and the third `evaChute` in the resulting `inventory` CSV is what says the
+    key ran at all."""
+
+    SAVE = "\n".join([
+        "GAME",
+        "{",
+        "\tFLIGHTSTATE",
+        "\t{",
+        "\t\tactiveVessel = 0",
+        "\t\tVESSEL",
+        "\t\t{",
+        "\t\t\tname = Depot",
+        "\t\t\tpersistentId = 4242",
+        "\t\t\tPART",
+        "\t\t\t{",
+        "\t\t\t\tname = box",
+        "\t\t\t\tMODULE",
+        "\t\t\t\t{",
+        "\t\t\t\t\tname = ModuleInventoryPart",
+        "\t\t\t\t\tstagingEnabled = True",
+        "\t\t\t\t\tinventory = evaChute",
+        "\t\t\t\t\tSTOREDPARTS",
+        "\t\t\t\t\t{",
+        "\t\t\t\t\t\tSTOREDPART",
+        "\t\t\t\t\t\t{",
+        "\t\t\t\t\t\t\tslotIndex = 0",
+        "\t\t\t\t\t\t\tpartName = evaChute",
+        "\t\t\t\t\t\t\tPART",
+        "\t\t\t\t\t\t\t{",
+        "\t\t\t\t\t\t\t\tname = evaChute",
+        "\t\t\t\t\t\t\t\tpersistentId = 3481622660",
+        "\t\t\t\t\t\t\t}",
+        "\t\t\t\t\t\t}",
+        "\t\t\t\t\t}",
+        "\t\t\t\t}",
+        "\t\t\t}",
+        "\t\t}",
+        "\t}",
+        "}",
+        "",
+    ])
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="parsek-harness-fill-")
+        self.instance = os.path.join(self.tmp, "instance")
+        os.makedirs(self.instance, exist_ok=True)
+        _write_manifest(self.instance, "stock-minimal")
+        self.template = os.path.join(self.tmp, "fill-template")
+        os.makedirs(self.template, exist_ok=True)
+        self.template_sfs = os.path.join(self.template, "persistent.sfs")
+        with open(self.template_sfs, "wb") as fh:
+            fh.write(self.SAVE.encode("utf-8"))
+        self._orig_results = run.RESULTS_DIR
+        run.RESULTS_DIR = os.path.join(self.tmp, "results")
+        self.logger = run.HarnessLogger(
+            os.path.join(run.RESULTS_DIR, "fill_harness.log"))
+
+    def tearDown(self):
+        run.RESULTS_DIR = self._orig_results
+        self.logger.close()
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _spec(self, live_state):
+        spec = _make_spec(self.template, 30, 600)
+        spec["fixture"]["liveState"] = live_state
+        return spec
+
+    def _staged_sfs(self, name):
+        with open(os.path.join(self.instance, "saves", name, "persistent.sfs"),
+                  "rb") as fh:
+            return fh.read().decode("utf-8")
+
+    def _log(self):
+        with open(self.logger.log_path, "r", encoding="utf-8") as fh:
+            return fh.read()
+
+    def test_a_declared_fill_reaches_the_staged_save(self):
+        ok, name, subkind = run.stage_fixture(
+            self._spec([{"pid": 4242,
+                         "fill": {"part": "evaChute", "slots": 3}}]),
+            self.instance, FakeRuntime("pass"), self.logger)
+        self.assertTrue(ok)
+        self.assertEqual("", subkind)
+        staged = self._staged_sfs(name)
+        self.assertIn("\t\t\t\t\tinventory = evaChute,evaChute,evaChute", staged)
+        self.assertIn("\t\t\t\t\t\t\tslotIndex = 1", staged)
+        self.assertIn("\t\t\t\t\t\t\tslotIndex = 2", staged)
+        self.assertEqual(3, staged.count("partName = evaChute"))
+        # The two clones carry fresh ids; the committed one keeps its own.
+        self.assertIn("persistentId = 3481622660", staged)
+        self.assertIn("persistentId = %d"
+                      % savepatch.FILL_CLONE_PERSISTENT_ID_BASE, staged)
+        self.assertIn("liveState patched pid=4242 name=Depot resources=[-] "
+                      "inventory=keep fill=evaChute x2 slots=3 [c0s1,c0s2] "
+                      "from this vessel's own container (slot 0)", self._log())
+
+    def test_the_committed_template_is_never_written(self):
+        before = open(self.template_sfs, "rb").read()
+        run.stage_fixture(
+            self._spec([{"pid": 4242,
+                         "fill": {"part": "evaChute", "slots": 3}}]),
+            self.instance, FakeRuntime("pass"), self.logger)
+        self.assertEqual(before, open(self.template_sfs, "rb").read(),
+                         "the fill must land on the STAGED COPY only")
+
+    def test_restaging_is_idempotent(self):
+        """`stage_fixture` rmtree's and re-copies, so the fill applies to a FRESH
+        copy every attempt. A retry must produce the same bytes - not a save with
+        four `evaChute`s and a clone id that walked."""
+        spec = self._spec([{"pid": 4242,
+                            "fill": {"part": "evaChute", "slots": 3}}])
+        ok, name, _ = run.stage_fixture(spec, self.instance,
+                                        FakeRuntime("pass"), self.logger)
+        first = self._staged_sfs(name)
+        ok2, name2, _ = run.stage_fixture(spec, self.instance,
+                                          FakeRuntime("pass"), self.logger)
+        self.assertTrue(ok and ok2)
+        self.assertEqual(first, self._staged_sfs(name2))
+
+    def test_a_fill_with_no_free_slot_terminates_invalid_without_booting(self):
+        """The no-op refusal, in its whole-attempt form. `slots = 1` leaves the
+        single occupied slot with nothing free, and a declaration that reads as
+        "fill it" while patching nothing is exactly what this mechanism fails
+        closed on."""
+        rt = FakeRuntime("pass")
+        result = run.run_attempt(
+            self._spec([{"pid": 4242,
+                         "fill": {"part": "evaChute", "slots": 1}}]),
+            self.instance, self.tmp, rt, attempt=1, prior_boot_crashed=False,
+            logger=self.logger)
+        self.assertEqual(hlib.VERDICT_INVALID, result["verdict"])
+        self.assertEqual("staging", result["subkind"])
+        self.assertEqual(0, rt.launch_count,
+                         "a fill that would place nothing must never boot KSP")
+        self.assertIn("would place nothing", self._log())
+
+    def test_a_fill_naming_an_absent_part_fails_closed(self):
+        ok, _name, subkind = run.stage_fixture(
+            self._spec([{"pid": 4242,
+                         "fill": {"part": "evaScienceKit", "slots": 3}}]),
+            self.instance, FakeRuntime("pass"), self.logger)
+        self.assertFalse(ok)
+        self.assertEqual("staging", subkind)
+        self.assertIn("has no template in this save", self._log())
