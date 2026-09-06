@@ -10,6 +10,18 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **A supply route no longer follows the wrong craft home when something is parked at its
+  destination.** Dock any ship to a base and the game merges the two into one vessel,
+  keeping the name and id of whichever half it considers dominant - which is often the
+  visitor, and never your choice. A route delivering to that base could only recognise it
+  by an id that had just disappeared, so it fell back to "whatever is standing here", moved
+  itself onto the visiting ship, and then followed that ship away when it undocked. Routes
+  now record the destination's own launch-unique identity when the delivery is first
+  witnessed, and recognise it even while it is merged into a bigger craft - whichever half
+  dominates. Deliveries during a dock go into the combined vessel, which is where the base
+  is, and the route is still pointing at the base afterwards. Routes made before this
+  update carry no such record and are unchanged.
+
 - **A supply route can no longer mistake a fresh copy of a craft for the depot it was
   built to use.** Kerbal Space Program gives every craft file a fixed id and stamps the
   same one onto every launch of it, so a route that could only find its depot by that id

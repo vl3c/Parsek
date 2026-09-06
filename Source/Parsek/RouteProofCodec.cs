@@ -880,6 +880,19 @@ namespace Parsek
                 endpoint.VesselPersistentId = pid;
             }
 
+            // THE ROOT PART ID, WHICH THIS READER USED TO DROP. RouteNodeCodec has always
+            // WRITTEN it and RouteCodec has always read it, but this side did not - so a
+            // window endpoint's launch-unique key survived only until the recording was
+            // saved, and a delivery stop (which takes window.EndpointAtDock verbatim) came
+            // back from disk with the root-part step unreachable again. Found while stamping
+            // destination endpoints for ROUTE-ENDPOINT-TRANSFER-DOCKED-DOMINANT-PARTNER.
+            string rootStr = node.GetValue("rootPartUId");
+            if (rootStr != null
+                && uint.TryParse(rootStr, NumberStyles.Integer, ic, out uint rootPartUId))
+            {
+                endpoint.RootPartUId = rootPartUId;
+            }
+
             // Normalized on read, same contract as RouteCodec's endpoint reader.
             endpoint.LaunchGuid = VesselLaunchIdentity.NormalizeGuid(node.GetValue("launchGuid"));
 

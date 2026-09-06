@@ -5453,6 +5453,18 @@ namespace Parsek
             return new RouteEndpoint
             {
                 VesselPersistentId = vessel.persistentId,
+                // THE ENDPOINT'S LAUNCH-UNIQUE IDENTITY, STAMPED AT CAPTURE (2026-09-06,
+                // ROUTE-ENDPOINT-TRANSFER-DOCKED-DOMINANT-PARTNER). Without it a destination
+                // stop's resolution walk is pid -> proximity with the root-part step
+                // unreachable BY CONSTRUCTION - and a base with any visitor docked to it
+                // presents whichever half stock made dominant, so a DOMINANT VISITOR made the
+                // pid step miss, the proximity step land on the composite, and the transfer
+                // rebind the route to the visitor, which then flew away with it. With the
+                // root id the walk starts at identity and resolves back to the base whichever
+                // half dominates. Read HERE because this runs pre-couple, while the endpoint
+                // still has its own Vessel: after Part.Couple the merged craft's root is the
+                // DOMINANT half's, so a later read could name the wrong vessel.
+                RootPartUId = Logistics.RouteEndpointResolver.ResolveRootPartFlightId(vessel),
                 BodyName = vessel.mainBody != null ? vessel.mainBody.bodyName : null,
                 Latitude = vessel.latitude,
                 Longitude = vessel.longitude,
@@ -5493,9 +5505,16 @@ namespace Parsek
 
             VesselSpawner.TryGetSnapshotReferenceBodyName(snapshot, out string bodyName);
 
+            // Same stamp from the SNAPSHOT path: the background parent's own VESSEL node is
+            // a pre-couple record of the endpoint, so its `root` index names the launch-unique
+            // part flightID. An unreadable root leaves 0, which degrades this endpoint to the
+            // pid + proximity walk it always had rather than refusing it.
+            VesselSpawner.TryReadRootPartFlightId(snapshot, out uint snapshotRootPartUId);
+
             endpoint = new RouteEndpoint
             {
                 VesselPersistentId = pid,
+                RootPartUId = snapshotRootPartUId,
                 BodyName = bodyName,
                 Latitude = latitude,
                 Longitude = longitude,
@@ -6619,6 +6638,34 @@ namespace Parsek
                     {
                         endpointRootPartUId = 0u;
                     }
+                }
+
+                // BACKFILL THE ENDPOINT DESCRIPTOR from the same reading, when the descriptor
+                // itself could not supply one. The window's endpoint IS what a delivery stop
+                // persists verbatim (RouteBuilder), and its root id is what keeps the stop
+                // resolving by identity while a visitor is docked to the destination
+                // (ROUTE-ENDPOINT-TRANSFER-DOCKED-DOMINANT-PARTNER). The two readings have the
+                // same source and the same pre-couple timing, so this cannot disagree with the
+                // descriptor - it only fills a gap the descriptor's own path left (a live
+                // vessel with no instantiated rootPart, or a snapshot with no readable root).
+                //
+                // THE POST-COUPLE FALLBACK ABOVE IS SAFE AND NOT THE REASON THIS EXISTS,
+                // re-derived rather than assumed: it calls FindVesselByPid on the ENDPOINT's
+                // pid AFTER the couple, so it resolves at all only when the endpoint half was
+                // DOMINANT and survived as the merged vessel - in which case the merged
+                // vessel's root part IS the endpoint's own. An absorbed endpoint's pid is gone
+                // from FlightGlobals and that path yields no endpoint at all.
+                if (endpointAtDock.HasValue
+                    && endpointAtDock.Value.RootPartUId == 0u
+                    && endpointRootPartUId != 0u)
+                {
+                    RouteEndpoint backfilled = endpointAtDock.Value;
+                    backfilled.RootPartUId = endpointRootPartUId;
+                    endpointAtDock = backfilled;
+                    ParsekLog.Verbose("Flight",
+                        "Route proof endpoint root backfilled from the pre-couple snapshot: "
+                        + "targetPid=" + routeTargetVesselPid.ToString(CultureInfo.InvariantCulture)
+                        + " rootPartUId=" + endpointRootPartUId.ToString(CultureInfo.InvariantCulture));
                 }
 
                 RouteConnectionWindow window = RouteProofCapture.BuildDockRouteConnectionWindow(

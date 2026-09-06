@@ -120,6 +120,18 @@ namespace Parsek.Logistics
             /// <summary>Root part flightID; 0 when neither the live parts nor the proto
             /// snapshot could supply one (the vessel is then never a root match).</summary>
             public uint RootPartFlightId;
+            /// <summary>
+            /// EVERY part flightID this vessel carries, for the DOCKED-COMPOSITE arm.
+            /// <c>Part.Couple</c> merges two craft into the DOMINANT half's <c>Vessel</c>
+            /// (<c>Vessel.GetDominantVessel</c>: higher <c>VesselType</c>, then heavier, then
+            /// larger guid), and the absorbed half's root part stays aboard as an ORDINARY
+            /// part - re-parented, never renumbered. So a base with a dominant visitor docked
+            /// to it is no vessel's ROOT any more, and matching only on
+            /// <see cref="RootPartFlightId"/> would lose it for exactly as long as the pair
+            /// stays docked. Null / empty in pure-test contexts that only exercise the root
+            /// arm.
+            /// </summary>
+            public IReadOnlyList<uint> PartFlightIds;
             /// <summary>The live <c>Vessel</c> for the resolver to return; null in pure-test contexts.</summary>
             public Vessel Vessel;
         }
@@ -191,16 +203,37 @@ namespace Parsek.Logistics
             {
                 if (step == EndpointResolutionStep.RootPart)
                 {
+                    // THE PART SETS ARE BUILT LAZILY, and that is a cost decision, not a
+                    // style one. This step runs EVERY FRAME the Logistics window draws a
+                    // route, so collecting a part-id list per live vessel on the common path
+                    // would be a per-frame allocation for a pass that almost never runs. Pass
+                    // 1 (own root) uses the cheap snapshots; only a total miss - which is the
+                    // docked-composite case, and the permanently-lost case that already pays
+                    // for the proximity build below - rebuilds them with part sets.
                     List<RootIdVesselSnapshot> rootSnapshots =
-                        BuildRootIdSnapshots(FlightGlobals.Vessels);
-                    if (TryRootPartMatchPure(
+                        BuildRootIdSnapshots(FlightGlobals.Vessels, includePartSets: false);
+                    bool rootMatched = TryRootPartMatchPure(
+                        endpoint.RootPartUId,
+                        rootSnapshots,
+                        GhostMapPresence.ghostMapVesselPids,
+                        out Vessel byRoot,
+                        out uint rootPickedPid,
+                        out uint rootCollidingPid,
+                        out string rootReason);
+                    if (!rootMatched && rootReason == "no-root-match")
+                    {
+                        rootSnapshots = BuildRootIdSnapshots(
+                            FlightGlobals.Vessels, includePartSets: true);
+                        rootMatched = TryRootPartMatchPure(
                             endpoint.RootPartUId,
                             rootSnapshots,
                             GhostMapPresence.ghostMapVesselPids,
-                            out Vessel byRoot,
-                            out uint rootPickedPid,
-                            out uint rootCollidingPid,
-                            out string rootReason))
+                            out byRoot,
+                            out rootPickedPid,
+                            out rootCollidingPid,
+                            out rootReason);
+                    }
+                    if (rootMatched)
                     {
                         vessel = byRoot;
                         // AMBIGUITY IS ANNOUNCED ON THE SUCCESS PATH. Two live vessels sharing
@@ -208,14 +241,40 @@ namespace Parsek.Logistics
                         // first SILENTLY would let a route debit an arbitrary one of them
                         // forever with no trace. Both ids are named, so the log identifies the
                         // pair rather than only complaining that a pair exists.
-                        if (rootReason == "root-match-ambiguous")
+                        if (rootReason == "root-match-ambiguous"
+                            || rootReason == "docked-composite-match-ambiguous")
                         {
                             ParsekLog.Warn("Logistics",
                                 "Endpoint root-part match AMBIGUOUS: rootPartUId="
                                 + endpoint.RootPartUId.ToString(CultureInfo.InvariantCulture)
                                 + " pickedPid=" + rootPickedPid.ToString(CultureInfo.InvariantCulture)
                                 + " collidingPid=" + rootCollidingPid.ToString(CultureInfo.InvariantCulture)
-                                + " - two vessels report the same root part flightID; taking the first");
+                                + " reason=" + rootReason
+                                + " - two vessels report the same part flightID; taking the first");
+                        }
+                        // THE DOCKED-COMPOSITE ARM IS ANNOUNCED TOO, and at Info rather than
+                        // Verbose: it is a standing condition an operator will want to see
+                        // when a delivery lands somewhere unexpected - the recorded endpoint
+                        // is currently INSIDE a merged craft whose pid is not the recorded
+                        // one, so the delivery goes into the composite. Rate-limited on a key
+                        // that carries the resolved pid, so a re-dock to a different visitor
+                        // prints at once while a stable pair prints once.
+                        if (rootReason == "docked-composite-match"
+                            || rootReason == "docked-composite-match-ambiguous")
+                        {
+                            ParsekLog.InfoRateLimited("Logistics",
+                                "endpoint-docked-composite-"
+                                + endpoint.RootPartUId.ToString(CultureInfo.InvariantCulture)
+                                + "-" + rootPickedPid.ToString(CultureInfo.InvariantCulture),
+                                "Endpoint resolved through a DOCKED COMPOSITE: rootPartUId="
+                                + endpoint.RootPartUId.ToString(CultureInfo.InvariantCulture)
+                                + " recordedPid="
+                                + endpoint.VesselPersistentId.ToString(CultureInfo.InvariantCulture)
+                                + " compositePid=" + rootPickedPid.ToString(CultureInfo.InvariantCulture)
+                                + " - the recorded endpoint is docked to another craft and the"
+                                + " merged vessel carries the other half's persistentId; the"
+                                + " route resolves it by part identity and is NOT rebound",
+                                30.0);
                         }
                         ParsekLog.Verbose("Logistics",
                             "Endpoint resolved: step=root-part rootPartUId="
@@ -505,13 +564,38 @@ namespace Parsek.Logistics
         }
 
         /// <summary>
-        /// Pure root-part identity search. Returns the single vessel whose ROOT part
-        /// flightID equals <paramref name="rootPartUId"/>, excluding ghost map vessels.
-        /// A zero <paramref name="rootPartUId"/> never matches (it is the "unknown"
+        /// Pure root-part identity search, in TWO passes over the same launch-unique key.
+        ///
+        /// <para>PASS 1, the ordinary one: the vessel whose OWN ROOT part flightID equals
+        /// <paramref name="rootPartUId"/>.</para>
+        ///
+        /// <para>PASS 2, THE DOCKED COMPOSITE (2026-09-06,
+        /// ROUTE-ENDPOINT-TRANSFER-DOCKED-DOMINANT-PARTNER): the vessel whose PART SET
+        /// CONTAINS that flightID. <c>Part.Couple</c> merges two craft into the DOMINANT
+        /// half's <c>Vessel</c> - higher <c>VesselType</c>, then heavier, then larger guid
+        /// (<c>Vessel.GetDominantVessel</c>) - and the absorbed half's parts are RE-PARENTED,
+        /// never renumbered. So while a dominant visitor is docked to a base the base is no
+        /// vessel's root, its own pid is gone from <c>FlightGlobals</c>, and pass 1 alone
+        /// would lose it for exactly as long as the pair stays docked; the walk would fall to
+        /// proximity, land on the composite, and REBIND the route to the visitor, which then
+        /// undocks and flies away with it. A part flightID is launch-unique, so a vessel
+        /// carrying it IS the physical craft that holds the recorded endpoint - cargo
+        /// delivered into that composite reaches the base, which is the pre-#1627 outcome
+        /// restored by identity rather than by positional accident.</para>
+        ///
+        /// <para>PASS ORDER IS THE CONTRACT and it is not symmetric: an own-root match beats a
+        /// contains match everywhere, so the MIRROR case (the destination dominates the merge)
+        /// resolves through pass 1 exactly as before and the two directions land on the same
+        /// composite. Pass 2 runs only when pass 1 found nothing at all.</para>
+        ///
+        /// <para>A zero <paramref name="rootPartUId"/> never matches (it is the "unknown"
         /// sentinel, and a snapshot that could not supply a root id also carries 0 - so
         /// admitting it would pair every unknown with every other unknown). Two vessels
         /// carrying one root flightID is impossible in a healthy save; if it happens the
         /// FIRST is taken and the reason token records the collision so a log names it.
+        /// <paramref name="reason"/> also names WHICH pass resolved
+        /// (<c>docked-composite-match</c>), so an operator can tell a base standing on its own
+        /// from one currently inside a merged craft.</para>
         /// </summary>
         internal static bool TryRootPartMatchPure(
             uint rootPartUId,
@@ -550,19 +634,53 @@ namespace Parsek.Logistics
                 else if (secondIdx < 0) secondIdx = i;
             }
 
-            if (firstIdx < 0)
+            if (firstIdx >= 0)
+            {
+                vessel = snapshots[firstIdx].Vessel;
+                pickedPid = snapshots[firstIdx].PersistentId;
+                if (found > 1)
+                {
+                    collidingPid = snapshots[secondIdx].PersistentId;
+                    reason = "root-match-ambiguous";
+                }
+                return true;
+            }
+
+            // PASS 2: the recorded root part is aboard some vessel without being its root.
+            int compositeFound = 0;
+            int compositeFirst = -1;
+            int compositeSecond = -1;
+            for (int i = 0; i < snapshots.Count; i++)
+            {
+                IReadOnlyList<uint> parts = snapshots[i].PartFlightIds;
+                if (parts == null || parts.Count == 0) continue;
+                if (excludePids != null && excludePids.Contains(snapshots[i].PersistentId)) continue;
+
+                bool carries = false;
+                for (int p = 0; p < parts.Count; p++)
+                {
+                    if (parts[p] != rootPartUId) continue;
+                    carries = true;
+                    break;
+                }
+                if (!carries) continue;
+
+                compositeFound++;
+                if (compositeFirst < 0) compositeFirst = i;
+                else if (compositeSecond < 0) compositeSecond = i;
+            }
+
+            if (compositeFirst < 0)
             {
                 reason = "no-root-match";
                 return false;
             }
 
-            vessel = snapshots[firstIdx].Vessel;
-            pickedPid = snapshots[firstIdx].PersistentId;
-            if (found > 1)
-            {
-                collidingPid = snapshots[secondIdx].PersistentId;
-                reason = "root-match-ambiguous";
-            }
+            vessel = snapshots[compositeFirst].Vessel;
+            pickedPid = snapshots[compositeFirst].PersistentId;
+            reason = compositeFound > 1 ? "docked-composite-match-ambiguous" : "docked-composite-match";
+            if (compositeFound > 1)
+                collidingPid = snapshots[compositeSecond].PersistentId;
             return true;
         }
 
@@ -573,9 +691,17 @@ namespace Parsek.Logistics
         /// half an unloaded depot (the normal state of a depot at dispatch time) would
         /// never match. NOT filtered by body or situation: identity does not depend on
         /// where the vessel is.
+        ///
+        /// <para>The PART SET is collected only when <paramref name="includePartSets"/> - the
+        /// docked-composite pass needs it and nothing else does, and this method runs every
+        /// frame the Logistics window draws a route, so a per-vessel list allocation on the
+        /// common path would be a per-frame cost for a pass that almost never runs. Read
+        /// live-parts-first / proto-second for the same reason the root is: at dispatch time
+        /// the depot is normally unloaded.</para>
         /// </summary>
         private static List<RootIdVesselSnapshot> BuildRootIdSnapshots(
-            IReadOnlyList<Vessel> liveVessels)
+            IReadOnlyList<Vessel> liveVessels,
+            bool includePartSets)
         {
             var snapshots = new List<RootIdVesselSnapshot>();
             if (liveVessels == null) return snapshots;
@@ -588,11 +714,50 @@ namespace Parsek.Logistics
                 {
                     PersistentId = v.persistentId,
                     RootPartFlightId = ResolveRootPartFlightId(v),
+                    PartFlightIds = includePartSets ? ResolvePartFlightIds(v) : null,
                     Vessel = v,
                 });
             }
 
             return snapshots;
+        }
+
+        /// <summary>
+        /// Every part flightID on the vessel: live parts first, the <c>ProtoVessel</c>'s part
+        /// snapshots second, null when neither can supply any. Defensive for the same reason
+        /// <see cref="ResolveRootPartFlightId"/> is - a stock-side null during scene teardown
+        /// must surface as an endpoint miss, never a crash.
+        /// </summary>
+        private static List<uint> ResolvePartFlightIds(Vessel v)
+        {
+            if (v == null) return null;
+            try
+            {
+                if (v.parts != null && v.parts.Count > 0)
+                {
+                    var ids = new List<uint>(v.parts.Count);
+                    for (int i = 0; i < v.parts.Count; i++)
+                    {
+                        Part p = v.parts[i];
+                        if (p != null) ids.Add(p.flightID);
+                    }
+                    return ids;
+                }
+
+                ProtoVessel pv = v.protoVessel;
+                if (pv?.protoPartSnapshots == null || pv.protoPartSnapshots.Count == 0) return null;
+                var protoIds = new List<uint>(pv.protoPartSnapshots.Count);
+                for (int i = 0; i < pv.protoPartSnapshots.Count; i++)
+                {
+                    ProtoPartSnapshot snap = pv.protoPartSnapshots[i];
+                    if (snap != null) protoIds.Add(snap.flightID);
+                }
+                return protoIds;
+            }
+            catch
+            {
+                return null;
+            }
         }
 
         /// <summary>

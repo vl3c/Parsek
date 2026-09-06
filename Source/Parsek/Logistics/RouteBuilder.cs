@@ -677,6 +677,15 @@ namespace Parsek.Logistics
                 origin = new RouteEndpoint
                 {
                     VesselPersistentId = originWindowEndpoint.VesselPersistentId,
+                    // CARRY THE IDENTITY FIELDS, not just the pid. This branch used to copy
+                    // the window endpoint field by field and silently drop both launch-unique
+                    // keys, so a mid-tree docked origin resolved pid -> proximity with the
+                    // root-part step unreachable - the same construction that made a docked
+                    // destination transferable to its visitor
+                    // (ROUTE-ENDPOINT-TRANSFER-DOCKED-DOMINANT-PARTNER). Zero / null on a
+                    // window captured before those keys existed, which is the old behaviour.
+                    RootPartUId = originWindowEndpoint.RootPartUId,
+                    LaunchGuid = originWindowEndpoint.LaunchGuid,
                     BodyName = originWindowEndpoint.BodyName ?? string.Empty,
                     Latitude = originWindowEndpoint.Latitude,
                     Longitude = originWindowEndpoint.Longitude,
@@ -725,6 +734,10 @@ namespace Parsek.Logistics
                 origin = new RouteEndpoint
                 {
                     VesselPersistentId = pickupEndpoint.VesselPersistentId,
+                    // Same carry, same reason: a pickup origin resolves the live SOURCE vessel
+                    // at debit time, so dropping its identity keys left it on pid + proximity.
+                    RootPartUId = pickupEndpoint.RootPartUId,
+                    LaunchGuid = pickupEndpoint.LaunchGuid,
                     BodyName = pickupEndpoint.BodyName ?? string.Empty,
                     Latitude = pickupEndpoint.Latitude,
                     Longitude = pickupEndpoint.Longitude,

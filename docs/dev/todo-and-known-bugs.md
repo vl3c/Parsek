@@ -15,13 +15,77 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## ROUTE-ENDPOINT-TRANSFER-DOCKED-DOMINANT-PARTNER: while a visitor is docked to a delivery destination and DOMINATES the merged vessel, the route now REBINDS to the visitor and follows it away after undock [RAISED 2026-09-04 by the Fable review of PR #1627 (the endpoint-transfer ruling). DESIGN RESIDUE of that PR, not a defect it introduced blindly - the pre-#1627 behaviour was self-healing by accident. OPEN, no fix proposed; two siblings filed in the same entry]
+## ~~ROUTE-ENDPOINT-TRANSFER-DOCKED-DOMINANT-PARTNER: while a visitor is docked to a delivery destination and DOMINATES the merged vessel, the route now REBINDS to the visitor and follows it away after undock~~ [RAISED 2026-09-04 by the Fable review of PR #1627 (the endpoint-transfer ruling). DESIGN RESIDUE of that PR, not a defect it introduced blindly - the pre-#1627 behaviour was self-healing by accident. FIXED 2026-09-06 (P17) by mitigation (a) PLUS the resolver half (a) alone was missing. Sibling 1 is superseded; sibling 2 stays a NOTE]
 
-**THE SHAPE.** A destination stop's `RouteEndpoint` carries `RootPartUId = 0`.
-`RouteBuilder` stamps that field at exactly two sites and both are the ORIGIN
+**FIXED IN TWO HALVES, AND MITIGATION (a) ALONE WOULD NOT HAVE WORKED.** Stamping the
+destination's `RootPartUId` at capture is necessary but not sufficient, and the reason is
+exactly the dominance rule this entry is about: `Part.Couple` merges into the DOMINANT
+half's `Vessel`, so while a dominant visitor is docked the base's root part is aboard the
+composite as an ORDINARY part - it is no vessel's ROOT. The resolver's root-part step
+matched on the candidate's OWN root only, so a stamped destination would still have missed
+for exactly as long as the pair stayed docked. Both halves shipped together:
+
+- **The stamp.** `ParsekFlight.BuildRouteEndpointFromVessel` reads the endpoint's root part
+  `flightID` (pre-couple, while the endpoint still has its own `Vessel`),
+  `TryBuildRouteEndpointFromSnapshot` reads it from the snapshot's own `root` index, and the
+  window-build site backfills from the `endpointRootPartUId` it already computes when the
+  descriptor could not supply one. The post-couple `FindVesselByPid` fallback was re-derived
+  rather than assumed safe: it resolves at all only when the endpoint half DOMINATED and
+  survived as the merged vessel, in which case the merged root IS the endpoint's own.
+- **The match.** `RouteEndpointResolver.TryRootPartMatchPure` runs two passes over the same
+  launch-unique key: own-root first, then PART-SET-CONTAINS. A part `flightID` is
+  launch-unique, so a vessel carrying it IS the craft that physically holds the recorded
+  endpoint - delivering into that composite reaches the base, which is the pre-#1627 outcome
+  restored BY IDENTITY instead of by positional accident. Pass order is the contract and is
+  deliberately asymmetric: an own-root match beats a contains match everywhere, so the
+  MIRROR direction (destination dominant) resolves through pass 1 exactly as before. The
+  composite arm announces itself - `Endpoint resolved through a DOCKED COMPOSITE:
+  rootPartUId=... recordedPid=... compositePid=...`, `InfoRateLimited` on a key carrying the
+  resolved pid, because it is a standing condition an operator wants when a delivery lands
+  somewhere unexpected.
+
+**A DROPPED READER FOUND ON THE WAY, and it would have made the stamp save-transient.**
+`RouteProofCodec.DeserializeRouteEndpoint` never read `rootPartUId` - `RouteNodeCodec` has
+always WRITTEN it and `RouteCodec` has always read it, but the proof side did not, so a
+window endpoint's root id survived only until the recording was saved. It is read now, and
+a cell fails on the old reader.
+
+**TWO MORE FIELD-BY-FIELD COPIES WERE DROPPING THE SAME KEYS** (found by the
+mirror-direction sweep, not by the reported case): `RouteBuilder`'s MID-TREE DOCKED ORIGIN
+and PICKUP ORIGIN branches rebuilt `Route.Origin` field by field from the window endpoint
+and omitted both `RootPartUId` and `LaunchGuid`, so those origins walked pid -> proximity
+for the same structural reason. Both carry the identity fields now.
+
+**WHAT HAPPENS TO THE SIBLINGS.** SIBLING 1 (the route's own transport left docked at the
+destination, holding `EndpointLost reason=stop-0-no-candidate-after-transport-exclusion`)
+is SUPERSEDED for a stamped endpoint: the walk resolves at the root-part step and never
+reaches the transport exclusion, which lives on the proximity step. That is the right
+reading rather than a hole in the ruling - the exclusion exists to stop a positional
+SUBSTITUTION picking the carrier, and a root-part hit is the recorded endpoint by identity,
+not a substitute. The hold can still arise for an endpoint with NO stamped root id (every
+route built before this pass), which is the residual case. SIBLING 2 (the exclusion being a
+union across every route owning the endpoint) is unchanged and still a NOTE.
+
+**Headless:** `RouteEndpointDockedCompositeTests` (12 cells) - both dominance directions
+landing on the same composite with different reason tokens, own-root beating contains, the
+undock round trip resolving on the same key, the pass's edges (zero id, ghost exclusion on
+BOTH passes, an unreadable part set, an ambiguous composite), the step order being
+unchanged by the stamp, and the stamp surviving both codecs without moving the proof hash.
+
+**STILL NOT LIVE-PROVEN, and the entry's own reasoning about that stands.** No committed
+lane reaches a docked composite: `rover-route-recorded`'s rovers are undocked by the time
+the route dispatches. A lane wants a two-vessel DOCKED-AT-REST fixture with a `VesselType`
+/ mass pair chosen so the visitor wins `GetDominantVessel`, plus a driven undock - a
+mission, not a `[[fixture.liveState]]` edit. Worth building; it now proves a fix rather
+than reproducing a defect. NOTE FOR THE HARVESTER: a re-harvested `rover-route-recorded`
+would carry stamped delivery endpoints, so `RVR-18`'s "the root-part step cannot run on
+cycle 0" claim is a property of the COMMITTED bytes only (recorded in that spec's header).
+
+**THE ORIGINAL FILING.** A destination stop's `RouteEndpoint` carried `RootPartUId = 0`.
+`RouteBuilder` stamped that field at exactly two sites and both were the ORIGIN
 (`RootPartUId = originProof.StartDockedOriginRootPartUId`); a delivery stop's endpoint is
-`window.EndpointAtDock` verbatim, whose keys are pid / body / lat / lon / alt / isSurface
-and nothing else. So the resolver's walk for a destination is pid -> proximity, with the
+`window.EndpointAtDock` verbatim, whose keys were pid / body / lat / lon / alt / isSurface
+and nothing else. So the resolver's walk for a destination was pid -> proximity, with the
 launch-unique root-part step unreachable by construction.
 
 Now dock any visitor to that destination base. `Part.Couple` destroys one of the two
@@ -71,16 +135,24 @@ which is not obvious from either route's own configuration.
 
 **MITIGATION CANDIDATES, neither costed:**
 
-(a) STAMP `RootPartUId` FOR DESTINATION STOPS AT CAPTURE TIME. The information is in hand:
+(a) STAMP `RootPartUId` FOR DESTINATION STOPS AT CAPTURE TIME - **THIS IS WHAT WAS BUILT,
+plus the resolver half described at the top, which this costing did not see was needed.**
+The information is in hand:
 `ParsekFlight.CapturePendingDockRouteEndpointProof` resolves the live `endpointVessel`
 before calling `BuildRouteEndpointFromVessel`, so the endpoint's own root part `flightID`
 is readable at exactly the moment `ENDPOINT_AT_DOCK` is written. With it, the destination
 walk starts at the root-part step, the docked composite resolves back to the BASE by
 identity (the base's root part survives the couple - `Part.Couple` re-parents parts, it
 does not renumber `flightID`), and neither the mis-transfer nor sibling 1's hold can arise.
-This is also the fix RESOLVER-PID-STEP-NOT-GUID-GATED wants for the same endpoint, so the
-two should be costed together. It touches the capture site, `RouteNodeCodec` (the field
-already round-trips, so no schema generation moves) and the route hash.
+This is also the fix RESOLVER-PID-STEP-NOT-GUID-GATED wanted for the same endpoint, and
+the two were built in the same package. It touches the capture site, `RouteNodeCodec` (the
+field already round-trips, so no schema generation moves) and the route hash. THE COSTING
+MISSED ONE THING and the build found it: the field round-tripped through `RouteCodec` but
+NOT through `RouteProofCodec`, whose endpoint reader dropped it - so the stamp would have
+been save-transient. And the claim that "the docked composite resolves back to the BASE by
+identity" was true about the flightID surviving and FALSE about the match: the root-part
+step compared the candidate's OWN root, which the base is not while a dominant visitor is
+docked.
 
 (b) DEFER THE REBIND WHILE THE RESOLVED VESSEL IS A DOCKED COMPOSITE. Keep delivering
 (the cargo reaches the right physical place either way) but do not PERSIST the transfer
