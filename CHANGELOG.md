@@ -499,8 +499,12 @@ _(unreleased — entries accumulate here per commit)_
   go quietly wrong is a hard stop before the game even starts: no such part in the save,
   no cargo rack on that craft, or nothing free to fill. A new lane stages the target
   with an empty tank and full racks and expects the whole run to be held, with the fuel
-  NOT delivered, which is what the code says happens. That lane has not been flown yet -
-  it is written from the source and gets re-checked against the first real run.
+  NOT delivered, which is what the code says happens. **It has now been run for real and
+  that is exactly what happened**: the whole delivery was turned away over the full cargo
+  racks, the fuel stayed where it was rather than being part-delivered, the source craft
+  was not touched at all, and the target ended the run with the same empty tank and six
+  full slots it started with. Everything the lane predicted from the source held on the
+  first run, with nothing to correct afterwards.
 
 - **Two test lanes now pin the rule for a supply route whose destination craft is
   gone: it moves to the craft standing on the spot, but never to the craft that was

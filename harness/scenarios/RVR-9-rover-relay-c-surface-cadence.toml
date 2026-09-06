@@ -13,6 +13,18 @@ tier = "nightly"
 # VERIFIER PASS**, on the CLEAN automation DLL sha256 `995772453f2339a2` (built from `main`
 # a575d64f0, IL verified).
 #
+# **RE-FLOWN GREEN 2026-09-06 (`2026-09-06_2020`, PASS attempt 1, wall 60 s, every verifier
+# PASS, analyzer `red=0`, `expectations mismatches=0`) ON THE CLEAN DLL `db525f5efe422d51`
+# (`main` e4704e749), AND THAT IS THIS LANE'S SECOND JOB.** PR #1629 changed which anchors
+# the phase lock will accept (the airborne case), which is a change to the same orbit
+# contract the landed-anchor half of #1623 lives in, so this lane is the regression guard
+# that the landed relay is STILL not re-anchored. It measured the same readings as the
+# 2026-09-03 re-fly: `TryGetVesselOrbit: skipped landed anchor pid=90564594
+# situation=LANDED landedOrSplashed=True` (and pid=612987736), ZERO `PhaseLock APPLIED`
+# lines, `MissionLoopUnit: ... spanDur=162.74000000004563 ... cadence=162.74000000004563`,
+# and the cycle firing at `cMin=1`. The required `skipped landed anchor` token is kept
+# exactly as it was; nothing in this file moved.
+#
 # **THE PRODUCT IS FIXED AND THIS LANE IS ITS PROOF.** The run measured
 # `TryGetVesselOrbit: skipped landed anchor pid=90564594 situation=LANDED
 # landedOrSplashed=True` (and the same for pid=612987736), NO `PhaseLock APPLIED` line at

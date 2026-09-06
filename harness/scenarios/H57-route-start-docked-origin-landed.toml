@@ -2,8 +2,15 @@ schema = 1
 id = "H57-route-start-docked-origin-landed"
 tier = "nightly"
 # =====================================================================================
-# FLIGHT LEDGER. SIX FLIGHTS LISTED. THE FIRST TWO EACH BOUGHT SOMETHING; THE LAST TWO ARE
-# THE THIRD CELL'S CENSUS AND THE ARMED RE-FLIGHT ON THE PIN TAKEN OFF IT.
+# FLIGHT LEDGER. SEVEN FLIGHTS OF THIS LANE, PLUS ONE NEGATIVE CONTROL. THE FIRST TWO EACH
+# BOUGHT SOMETHING; THE THIRD CELL'S CENSUS AND THE ARMED RE-FLIGHT ON THE PIN TAKEN OFF IT
+# ARE `2026-09-06_1650` AND `2026-09-06_1727`; THE NEWEST BOUGHT NOTHING AND SAYS SO.
+#   2026-09-06_2021  RE-FLOWN GREEN ON THE NEXT DLL, BUYING NOTHING NEW AND SAYING SO.
+#         PASS attempt 1, 81 s, every verifier PASS, `analyzer red=0`, `expectations
+#         mismatches=0` at `recordings.count=5`, `BATCH_COMPLETE v1 total=3 passed=3
+#         failed=0 skipped=0 category=RouteStartDockedOrigin scene=FLIGHT` - the armed pin
+#         unchanged token for token, on the clean automation DLL `db525f5efe422d51`
+#         (`main` e4704e749, PRs #1629 / #1630 / #1631). A regression check, not a census.
 #   2026-09-06_1727  ARMED RE-FLIGHT ON THE THREE-CELL PIN. PASS attempt 1, 80 s,
 #         `expectations mismatches=[]`, `BATCH_COMPLETE v1 total=3 passed=3 failed=0
 #         skipped=0 category=RouteStartDockedOrigin scene=FLIGHT`, `recordings.count=5`,

@@ -3050,7 +3050,10 @@ gated behind the ROUTE-ORIGIN-PROOF-PRODUCER-UNREACHABLE probe (todo) before any
     CORRECTED in place by the census: that row names a route whose cargo IS
     inventory, and RVR-12 refuses for want of it and moves nothing.
     **THE ONE OPEN CELL - DESTINATION SLOTS FULL, TANK EMPTY - IS CLOSED AS OF
-    2026-09-06: THE FILL MODE EXISTS AND RVR-20 IS AUTHORED (NOT FLOWN).** The cell
+    2026-09-06: THE FILL MODE EXISTS, RVR-20 IS AUTHORED, AND IT HAS NOW FLOWN
+    GREEN (`2026-09-06_2027`, PASS attempt 1, wall 56 s, every verifier PASS and
+    `expectations mismatches=0` on the FIRST census, DLL `db525f5efe422d51`). THE
+    MATRIX HAS NO OPEN CELL LEFT.** The cell
     exercises `FirstShortToken`'s INVENTORY branch on this fixture, where every
     committed lane refuses on the RESOURCE half and the inventory half is therefore
     unobservable by construction. WHAT THIS ENTRY USED TO SAY, kept because the
@@ -3083,15 +3086,30 @@ gated behind the ROUTE-ORIGIN-PROOF-PRODUCER-UNREACHABLE probe (todo) before any
     every occupied slot and refuses a wrong one pre-boot. A SECOND HARVEST is therefore
     no longer needed for this cell. `RVR-20-rover-relay-c-destination-slots-full-tank-empty`
     stages the tank EMPTY (400 of headroom against a 200 manifest, so the resource walk
-    cannot refuse) and all six slots FULL, and PREDICTS - from source, not from a
+    cannot refuse) and all six slots FULL, and PREDICTED - from source, not from a
     flight - that the WHOLE cycle holds `DestinationFull` with a `stored-part:` detail
     and the fitting fuel line refused along with the items, because
     `isPartial = anyResourcePartial || anyInventoryPartial` and
     `HasCapacityForAllStops` treats a partial plan as the failure condition. It is the
     MIRROR of RVR-14, which measured a fitting INVENTORY half refused because the
-    resource half was short. NOT FLOWN: the supervisor flies it after provisioning and
-    re-pins from the census, and the two tokens the prediction cannot reach (which part
-    the shortfall names, and `stop=`) are regexed and said to be so in the header.
+    resource half was short.
+    **THE CENSUS MEASURED EXACTLY THAT, AND MISPREDICTED NOTHING.** The whole cycle
+    held (`destination FULL stop=1 short=stored-part:evaChute`, `hold recorded
+    kind=DestinationFull detail=stored-part:evaChute`, `BLOCKED ...
+    reason=stored-part:evaChute`, then `blocked-then-paused`), the fuel did NOT
+    deliver, the produced save reads rover A still at LiquidFuel `0 / 400` with six of
+    six slots occupied while rover B is untouched at `200 / 400`, and `skippedCycles=1`
+    against `completedCycles=0`. Nothing was debited: no `Delivery write:`, `Origin
+    debit:` or `Inventory remove` in 11,444 log lines. The two tokens the prediction
+    could not reach are now MEASURED LITERALS - the shortfall names `evaChute` (the
+    same first manifest item RVR-16 measured on the other fixture) and `stop=1` (rover
+    A is the two-stop route's capacity-walk index 1) - while `cMin=` and the route id
+    stay regexed, `cMin` being a property of the clock. ONE REVIEW POINT IS RECORDED
+    WITH IT: the SLOT probe is the breaker rather than the volume gate one line ahead
+    of it in the same loop, because `ProbeInventoryUnitsThatFit` admits every item here
+    (vessel-summed budget 2 x `packedVolumeLimit = 60` = 120 against a staged occupancy
+    of 85, and nothing is consumed before the loop breaks, so each item meets the full
+    35 of headroom).
     **WHAT THE MATRIX IS CALIBRATED AGAINST**: RVR-7's `[expectations.routes]` block
     is ARMED in the same commit (`gating = true`, registered in `ARMED_ALLOWLIST`)
     off its two agreeing report-only reading runs. Every matrix lane declares that
