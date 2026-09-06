@@ -2073,6 +2073,60 @@ V18T's front-door tokens - and the run ANSWERED it: `ghostDriving=1` and `routeM
 both printed, so dispatch history is not a precondition for a route driving a
 tracking-station ghost. Both tokens are required from the re-flight onward.
 
+**THE LEG-DROP READING IS BLOCKED ON A PRODUCT SEAM, NOT ON A SUBJECT (established
+2026-09-06, branch `g10-leg-drop`; full walk in
+`docs/dev/research/g10-leg-drop-subject.md`). The paragraph above that says closing it
+"needs a subject whose transfer stretch was recorded in the PHYSICS frame, which no
+committed fixture carries" is WRONG on both halves and is kept only so the correction is
+legible.** B32's own fixture carries such a stretch: `interbody-route-recorded`'s
+recording `36c7688b...` holds TWO consecutive runs of 50 and 52 Sun-body non-orbital
+samples over UT 68378174.7 - 68378313.4, ~4.0 Ms inside the Duna route's dock clip
+72353218.8, and `duna-park-recorded` / `duna-one-recorded` / `duna-direct-recorded` /
+`mun-minmus-recorded` each carry a three-body recording as well. The identification of
+`5ca48c99` as "the transfer member" was also wrong: it is the Probe leg.
+
+WHAT ACTUALLY BLOCKS IT. `Route.RecordingIds` names composition RUN HEADS -
+`ComputeMemberRecordingIds` collects `StripSegMarker(node.HeadLegId)`, and
+`MissionCompositionBuilder` walks a whole run through `ContinuationSuccessor` and keys
+every interval of it as `headLegId` or `headLegId + "/segN"`. The route line resolves each
+id through `RecordingStore.TryFindCommittedRecordingById`, i.e. to ONE recording, so every
+chain-CONTINUATION segment of a member run is invisible to it. An interplanetary transfer
+is always in a continuation, so `transferDropped=0` is structural on any chained subject,
+not a property of this save. On B32's subject the Kerbin -> Duna line therefore draws a
+174 s pad ascent plus the depot's Duna legs and omits the 8.5 Ms journey. Not inter-body
+specific: `depot-route-recorded`'s member `44129e52` (238 pts) hides its continuation
+`a85a7ae0` (1324 pts) the same way. Filed as
+ROUTE-LINE-MEMBER-DROPS-CONTINUATION-SEGMENTS.
+
+THE ORDER OF WORK, and it is not the order this entry assumed. (1) Rule on that defect
+first. Resolving a member id to its through-line RUN makes the ALREADY COMMITTED
+`interbody-route-recorded` drop 1-2 Sun legs with no new flight and no new fixture - it
+re-pins `members` / `groups` / `legs` on B32 / V26M / V26T, so it is a lane re-flight, and
+G10 closes on the subject it already has. G10 must NOT be closed by a fixture built around
+the defect. (2) ONLY IF the run-head member set is ruled INTENDED does this need an
+operator save, and then the requirement is exact: **one id in the route's `RECORDING_IDS`
+must resolve to a recording whose OWN sidecar carries >= 2 consecutive non-orbital samples
+on a body that is neither the earliest-leg body nor the latest-leg body, at a UT before
+the recorded dock.** Two shapes satisfy it, primary first:
+
+  * UNBROKEN RUN HEAD. Fly a Kerbin -> Duna supply transport with NO scene exit and NO
+    vessel switch between launch and the last Sun-SOI correction burn (time warp is fine;
+    a scene exit starts a chain continuation and moves the samples out of the head). Burn
+    at least one mid-course correction while in the Sun's SOI - that is what mints
+    Sun-frame physics samples outside every `OrbitSegment` - then capture at Duna, dock at
+    a pre-placed depot, undock (mints the proof window), seal, create the route.
+  * SEPARATE-VESSEL MEMBER. Any run head in the tree, starting before the dock UT and not
+    rooted at the terminal undock child, whose own recording sits on a third body - e.g. a
+    lander dropped from the transport that flies at Ike on a Kerbin -> Duna route. Cheaper
+    to record than an unbroken 8.5 Ms run head, harder to fly.
+
+  HARVEST GATE either way, asserted before the save is a subject: every id in the created
+  route's `RECORDING_IDS` is checked against its own `.prec.txt`, and at least one must
+  show >= 2 consecutive `body = <third body>` samples below the dock UT. `orbital supply
+  route CLEAN` (3 proof windows, ZERO `ROUTE` nodes, so candidacy is alive) is the closest
+  starting campaign, but as harvested today it fails that gate for the same run-head
+  reason.
+
 **THE OPERATOR SAVE SPECIFICATION for B32** (write it once, fly it by hand; the
 seam cannot create this and no driven lane can either, because route candidacy is
 seal-gated and the create gate refuses `candidate-ineligible MissingRouteProof`

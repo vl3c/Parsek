@@ -15,6 +15,51 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ROUTE-LINE-MEMBER-DROPS-CONTINUATION-SEGMENTS: the route overview line draws only each member's RUN HEAD recording, so every chain-continuation segment of the run is missing from the drawn path [RAISED 2026-09-06 by the G10 leg-drop feasibility walk (`docs/dev/research/g10-leg-drop-subject.md`), branch `g10-leg-drop`. OPEN, no fix applied; a fix re-pins B32 / V26M / V26T and needs a lane re-flight]
+
+**THE SHAPE.** `RouteBackingMission.ComputeMemberRecordingIds` derives
+`Route.RecordingIds` as `StripSegMarker(node.HeadLegId)` over the kept selectable
+composition intervals. `MissionCompositionBuilder` builds one node set per RUN, walking
+the whole run through `MissionThroughLineBuilder.ContinuationSuccessor`
+(`MissionComposition.cs:150-158`) and keying every interval of it as `headLegId` or
+`headLegId + "/segN"` (:265-:295). Every one of those strips back to the RUN HEAD
+recording id, so a run of N chained recordings contributes exactly ONE id.
+
+`RouteTrajectoryLineRenderer.BuildRouteMemberLegs` then resolves each id through
+`RecordingStore.TryFindCommittedRecordingById` - one `Recording`, no chain walk - and
+builds legs from that recording's sidecar alone. So the drawn path is each run's HEAD and
+nothing else. `RouteBackingMission.cs:337-346` states the opposite intent in its own
+words: the route "widens `RecordingIds` / `SourceRefs` to cover the whole rendered path".
+The id set does cover it as a set of interval KEYS; the renderer reads the entries as
+whole recordings, and that is where the two diverge.
+
+**MEASURED, on both scopes (the mirror direction checked, per the asymmetry rule).**
+INTER-BODY, `interbody-route-recorded`: the Kerbin -> Duna route's member `d23e453b` is a
+174 s pad ascent (242 Kerbin samples); its continuation `36c7688b` (`chainIndex = 1`, same
+`chainId aab62918`) holds the actual 8.5 Ms journey - 628 Kerbin, 108 Sun, 664 Duna
+samples - and is named nowhere in `RECORDING_IDS`. SAME-BODY, `depot-route-recorded`:
+member `44129e52` is 238 samples; its continuation `a85a7ae0` (1324 samples, the
+rendezvous and dock approach) is likewise absent. So the drawn "route overview" is the
+launch plus whatever the DESTINATION vessel recorded separately.
+
+**WHY IT MATTERS BEYOND LEGIBILITY.** It is also why
+`FilterLegsToEndpointBodies` has never dropped a leg on a driven run
+(`transferDropped=0` on both of B32's routes): an interplanetary transfer always lands in
+a chain continuation, so the third-body legs the filter exists to drop are never built.
+The reading G10 wants is one member-resolution change away on the fixture already
+committed.
+
+**FIX SHAPE (not applied).** Resolve a member id to its through-line RUN rather than to
+one recording, at the route-line seam only, and fold the run's recordings into
+`ComputeRouteSignature` so a continuation's content change still invalidates the cached
+line. Check both directions before accepting it: a same-body route must not start drawing
+a cross-body chord through `ClassifyRouteScope`'s member-body consistency read (which
+`CollectMemberBodies` feeds from the resolved recordings), and the round-trip stand-down
+in `FilterLegsToEndpointBodies` must still fire when a widened member set resolves origin
+== destination. Re-pins `members` / `groups` / `legs` / `legsDrawn` on B32 / V26M / V26T.
+
+---
+
 ## ROUTE-ENDPOINT-TRANSFER-DOCKED-DOMINANT-PARTNER: while a visitor is docked to a delivery destination and DOMINATES the merged vessel, the route now REBINDS to the visitor and follows it away after undock [RAISED 2026-09-04 by the Fable review of PR #1627 (the endpoint-transfer ruling). DESIGN RESIDUE of that PR, not a defect it introduced blindly - the pre-#1627 behaviour was self-healing by accident. OPEN, no fix proposed; two siblings filed in the same entry]
 
 **THE SHAPE.** A destination stop's `RouteEndpoint` carries `RootPartUId = 0`.
