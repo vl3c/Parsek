@@ -62,6 +62,27 @@ _(unreleased — entries accumulate here per commit)_
   now read the same clock. No same-body route ever waits, so nothing changes for any route
   that exists today; this is the inter-body case, fixed before it ships.
 
+- **A craft you undock from no longer records itself as having travelled hundreds of
+  kilometres while sitting still.** When two craft undock, the half you are not flying is
+  recorded in the background, and that recording opened with an empty stub covering the
+  instant of the undock. The stub switched off the safety net that keeps the recording's
+  simple point list in real map coordinates, so the stretch that follows - which stores
+  positions RELATIVE to the craft you kept flying, in metres - was written into that list
+  as if the metres were latitude and longitude. The recorded "furthest distance from
+  launch" then came out at about 735 km for a rover that never moved more than a metre
+  from where it undocked. Nothing you can see was wrong: the ghost, its map trail and its
+  playback all read the real trajectory. The damage was in the saved numbers, and because
+  that distance is what Parsek uses to decide a craft never went anywhere, an undocked
+  craft that genuinely idled could escape being tidied away. The empty stub is no longer
+  kept, the safety net now skips an empty stretch instead of giving up on the whole
+  recording, and the distance is measured from real map positions only - including the real
+  positions a craft keeps recording while it is still close to the craft it undocked from,
+  so a craft that never leaves that stretch is measured rather than treated as having gone
+  nowhere. Recordings already saved with the bad list repair their point list the next time
+  they are loaded; the wrong distance figure stored alongside it is not recalculated, so a
+  recording saved before this fix keeps the number it was saved with until it is recorded
+  again.
+
 - **A supply run that loaded its cargo before you came back to it can now become a
   route.** Docking the tanker to the base, transferring the fuel, then flying something
   else and returning to the tanker later - flying it from the tracking station, or
