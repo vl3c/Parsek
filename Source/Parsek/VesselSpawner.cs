@@ -4158,10 +4158,64 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Which backfill a recording's <see cref="Recording.MaxDistanceFromLaunch"/> takes
+        /// at finalization. See <see cref="ClassifyMaxDistanceBackfillRoute"/>.
+        /// </summary>
+        internal enum MaxDistanceBackfillRoute
+        {
+            /// <summary>Nothing to do: already computed, or no usable trajectory.</summary>
+            None,
+
+            /// <summary><see cref="BackfillMaxDistanceAbsoluteOnly"/> over the TrackSections.</summary>
+            AbsoluteSections,
+
+            /// <summary><see cref="BackfillMaxDistance"/> over the flat Points list.</summary>
+            FlatPoints,
+        }
+
+        /// <summary>
+        /// Pure routing decision for the finalization-time maxDist backfill.
+        ///
+        /// <para>A recording WITH TrackSections goes through the Absolute-only walk. The
+        /// flat <c>Points</c> list is a frame-blind compatibility mirror: a Relative
+        /// section's frames are appended to it verbatim, and in a Relative section
+        /// <c>latitude/longitude/altitude</c> are anchor-local Cartesian METRES, not
+        /// body-fixed coordinates (CLAUDE.md "Rotation / world frame"). Feeding those to
+        /// <c>body.GetWorldSurfacePosition</c> produced maxDist ~735 km for a rover that
+        /// never left the pad area (todo
+        /// UNDOCK-BG-CHILD-WRITES-RELATIVE-METRES-AS-FLAT-LAT-LON), and
+        /// <c>MaxDistanceFromLaunch</c> feeds IsIdleOnPad / IsPadFailure, so the inflated
+        /// value FAILS OPEN.</para>
+        ///
+        /// <para>The flat path is kept ONLY for a sections-less recording (a legacy or
+        /// synthesized recording whose trajectory lives solely in <c>Points</c>): the
+        /// Absolute-only walk deliberately leaves <c>MaxDistanceFromLaunch</c> untouched
+        /// when it finds no Absolute section, so without this fallback such a recording
+        /// would keep maxDist = 0 and be discarded as idle-on-pad.</para>
+        /// </summary>
+        internal static MaxDistanceBackfillRoute ClassifyMaxDistanceBackfillRoute(Recording rec)
+        {
+            if (rec == null)
+                return MaxDistanceBackfillRoute.None;
+            if (rec.MaxDistanceFromLaunch > 0.0)
+                return MaxDistanceBackfillRoute.None;
+            if (rec.TrackSections != null && rec.TrackSections.Count > 0)
+                return MaxDistanceBackfillRoute.AbsoluteSections;
+            if (rec.Points != null && rec.Points.Count >= 2)
+                return MaxDistanceBackfillRoute.FlatPoints;
+            return MaxDistanceBackfillRoute.None;
+        }
+
+        /// <summary>
         /// Backfills <see cref="Recording.MaxDistanceFromLaunch"/> from trajectory points.
         /// Called from <see cref="ParsekFlight.FinalizeIndividualRecording"/> for tree recordings
         /// that reach finalization via ForceStop (which skips BuildCaptureRecording). Bug #290d.
         /// Requires FlightGlobals.Bodies to be available (KSP runtime only).
+        ///
+        /// <para>SECTIONS-LESS RECORDINGS ONLY at finalization (see
+        /// <see cref="ClassifyMaxDistanceBackfillRoute"/>): the flat Points list is
+        /// reference-frame-blind, so a recording that carries Relative sections must go
+        /// through <see cref="BackfillMaxDistanceAbsoluteOnly"/> instead.</para>
         /// </summary>
         internal static void BackfillMaxDistance(Recording rec)
         {

@@ -467,7 +467,7 @@ vessels; that cell reds today. (3) Lane `RVR-5-rover-relay-eligibility` pins
 a fix it must be re-pinned (the fixture's window is then either admitted or fails
 the next gate), so the lane doubles as the regression instrument.
 
-## UNDOCK-BG-CHILD-WRITES-RELATIVE-METRES-AS-FLAT-LAT-LON: an undock background child persists anchor-local metre offsets as flat lat/lon points, and `maxDist` reads 735 km for a rover that never left the pad area [FOUND 2026-09-02 by forensics on the hand-flown rover relay `logs/2026-09-02_2041` (save `logistics-rover-B`, now the `rover-relay-recorded` fixture). DEFECT. The safe substitution that exists to prevent exactly this is disabled by a zero-frame TrackSection the same producer emits. OPEN, not fixed]
+## ~~UNDOCK-BG-CHILD-WRITES-RELATIVE-METRES-AS-FLAT-LAT-LON: an undock background child persists anchor-local metre offsets as flat lat/lon points, and `maxDist` reads 735 km for a rover that never left the pad area~~ [FOUND 2026-09-02 by forensics on the hand-flown rover relay `logs/2026-09-02_2041` (save `logistics-rover-B`, now the `rover-relay-recorded` fixture). DEFECT. The safe substitution that exists to prevent exactly this is disabled by a zero-frame TrackSection the same producer emits. FIXED 2026-09-06 on branch `undock-bg-child-section` - all four sites, headless-proven; see "What shipped" at the end of this entry]
 
 **Symptom.** Both undock-side background children of the relay
 (`49eaec92876041efa53deb1f5e5c96f4` "rover B", `0f391265a0b2453ea94fccd5daa1febb`
@@ -608,6 +608,117 @@ green; that is the gap, not a clean bill.
 every recording's `maxDist < 1000` and that no `.prec.txt` flat `POINT` carries
 `|lon| < 1` at KSC longitude. The fix claim in (1) is derived from reading the two
 predicates, not executed.
+
+**What shipped (2026-09-06, branch `undock-bg-child-section`).** All four sites, in
+the order above, plus one PREMISE CORRECTION that changed site 4's shape.
+
+1. **The close decision is now pure and shared.** `TrackSectionCloseClassifier.Classify`
+   (`Source/Parsek/TrackSectionCloseDecision.cs`) returns `Persist` /
+   `DiscardPayloadFree` / `DiscardSeedOnlyRelativeTransient`, and BOTH
+   `FlightRecorder.CloseCurrentTrackSection` and
+   `BackgroundRecorder.CloseBackgroundTrackSection` route through it, so the mirror the
+   BG comment always claimed is now mechanical. PAYLOAD-FREE means all three authored
+   surfaces empty - `frames`, `bodyFixedFrames` AND `checkpoints` - which is wider than
+   the entry's `frameCount == 0 && checkpointCount == 0`: a Relative section whose only
+   surface is `bodyFixedFrames` is renderable coverage
+   (BODYFIXEDFRAMES-INVISIBLE-TO-BOTH-EMPTINESS-PREDICATES) and must not be dropped.
+   `isBoundarySeam` sections persist first, ahead of every discard. One Verbose line per
+   discard, `TrackSection discarded (payload-free: no frames, bodyFixedFrames or
+   checkpoints)` with pid (BG) / env / ref / UT span / duration.
+
+   **The span bound is KEPT, deliberately, and it is the one deviation from the entry's
+   "regardless of `referenceFrame`" wording being read as "regardless of everything".**
+   `FlightRecorder` has always discarded a zero-frame section only when it spanned less
+   than 1.0 s; making that unconditional red 46 existing recorder cells across six test
+   files, all of which open a section, close it 10-100 s later without ever sampling, and
+   assert the section landed in the list. Empirically the bound is enough: of the 18
+   payload-free sections in the ENTIRE committed fixture corpus (1914 sections across 8
+   saves) 16 span 0.02 s or 0.04 s - including this defect's undock shell - and the two
+   outliers (5.04 s, 5.54 s) are both in `rover-relay-c-recorded`. The bound is hygiene,
+   not the load-bearing fix: site 2 makes the codec immune at ANY span.
+
+2. **The codec skips an empty shell instead of giving up.**
+   `TrajectoryTextSidecarCodec.IsPayloadFreeTrackSection` is the shared predicate;
+   `HasCompleteTrackSectionPayloadForFlatSync`,
+   `TryBuildBodyFixedPrimaryFlatPointsForRelativeSections` and
+   `FrameTrackSectionCoversUT` all skip such a section. The third is the mirror the entry
+   did not name: an empty shell was ALSO claiming to cover its UT span, which would drop
+   a genuine flat tail point inside it from the safe fallback list. A recording whose
+   sections are ALL payload-free still answers "no payload" (the skip cannot manufacture
+   one), and a Relative section that HAS frames but no `bodyFixedFrames` still refuses the
+   substitution.
+
+   **READ side.** `RebuildPointsFromTrackSections` needed no change: it is frame-blind by
+   design and an empty section contributes nothing to it. What the skip DOES unlock on
+   read is the repair of recordings already on disk: a damaged child loads with
+   `sectionAuthoritative=False` and non-empty sections, so
+   `TrajectorySidecarBinary.Read` runs `TryHealMalformedFlatFallbackTrajectoryFromTrackSections`,
+   which was blocked by the same shell and now substitutes the body-fixed samples into
+   the flat list. Pinned by `DamagedFlatList_HealsOnLoad`.
+
+3. **Finalization routes maxDist by shape.** `VesselSpawner.ClassifyMaxDistanceBackfillRoute`
+   (pure, returns `None` / `AbsoluteSections` / `FlatPoints`) decides:
+   sections present -> `BackfillMaxDistanceAbsoluteOnly`, no sections at all -> the flat
+   `BackfillMaxDistance` (kept because the Absolute-only walk leaves
+   `MaxDistanceFromLaunch` untouched when it finds no Absolute section, so a sections-less
+   legacy recording would otherwise stay at 0 and be discarded as idle-on-pad).
+   `ParsekFlight.FinalizeIndividualRecording` logs which ran:
+   `FinalizeIndividualRecording: maxDist backfill route=absolute-sections` /
+   `route=flat-points`.
+
+4. **The analyzer rule shipped, but NOT the one this entry proposed, and at WARN.**
+
+   *Premise correction.* The proposed rule - FAIL when a flat `Points` entry whose UT a
+   Relative section covers does not equal that section's `bodyFixedFrames` sample - would
+   fire on HEALTHY post-fix recordings. A fixed undock child is written
+   section-authoritative, and `TrajectorySidecarBinary.Read` then rebuilds `rec.Points`
+   from the sections through the frame-blind `RebuildPointsFromTrackSections`: the
+   in-memory flat list of a healthy recording carries the Relative section's anchor-local
+   metres BY DESIGN. The mismatch the rule would measure is the normal state of the
+   compatibility mirror, not damage. (This is also why site 3 is load-bearing and not
+   redundant with sites 1-2: even post-fix, the flat list is not a safe distance source.)
+
+   *What shipped instead.* `INV11-EMPTY-SECTION`
+   (`Source/Parsek/Analyzer/Rules/Inv11EmptyTrackSection.cs`, registered in both
+   `InvariantRegistry.AllRules` and `InGamePureCoreRules`): one finding per payload-free
+   `TrackSection`, naming recording, section index, env, ref and UT span. That IS the
+   defect's signature - it is what disabled both defences - and it is what the fixed
+   producers no longer emit.
+
+   *Severity: WARN, and the fixture question.* Ran over the committed fixtures with
+   `PARSEK_ANALYZER_BASELINE_MODE=forbid`: `rover-relay-recorded` reads `FAIL=0 WARN=2
+   RED=0` (`49eaec92...#0`, `0f391265...#0`) and `rover-relay-c-recorded` reads `FAIL=0
+   WARN=4 RED=0` (`5c847692...#0`, `a597f168...#0`, `ec4bf428...#0`, `ec4bf428...#3`).
+   No fixture bytes were rewritten. At FAIL the rule would red the analyzer verifier on
+   every lane staging those saves (RVR-5, RVR-6, and the eight RVR lanes on the relay-c
+   fixture). Neither offered escape works: **(b) baselining is structurally impossible** -
+   the harness verifier and the CI fixture floor both run `BaselineMode.Forbid`, where the
+   mere PRESENCE of a `baseline.cfg` beside a save is itself a FAIL
+   (`design-autotest-findings-baseline.md`); **(a) scoping to post-fix recordings has no
+   marker** - gating on `sectionAuthoritative` is vacuous (a payload-free section is
+   exactly what makes a recording NON-section-authoritative), and inventing a persisted
+   marker is schema churn the one-current-contract rule forbids. WARN reports the damage
+   on every save that carries it without gating any lane, which is precisely the state the
+   RVR-5 / RVR-6 headers described ("a green analyzer row on this lane is NOT a clean bill
+   for that defect") - except the row is no longer silent. Promoting it to FAIL is a
+   one-line change the day the two relay fixtures are re-harvested.
+
+   `AnalyzerVersion` is NOT bumped: `AnalysisReport` states the rule explicitly - the
+   version moves only on an `.analysis.json` SCHEMA change, never when a rule is added
+   (rules are data inside findings).
+
+**Verification as executed.** `Source/Parsek.Tests/UndockBgChildEmptySectionTests.cs`,
+19 cells: the entry's item (1) over the measured three-section shape (confirmed RED
+first - with the two codec skips disabled the cell fails `Expected: True Actual: False`
+on the substitution); the pure close decision across payload-free / single-frame Absolute
+finalization / seed-only Relative / boundary seam / body-fixed-only / checkpoint-only /
+the long-shell bound; the backfill routing in all three outcomes; the on-load heal; and
+the INV11 rule positive + negative. Full suite green (22355 passed, 1 pre-existing skip, 22356 total),
+all three harness Python suites green. Item (3), the live re-fly of a dock/undock relay,
+was NOT run - this branch flew nothing. The first relay lane flown after this ships
+should read `maxDist < 1000` on both undock children and an INV11-free analyzer row on a
+save produced from a fresh flight.
+
 ## L3-CREWREPORT-BIOME-PIN-DEPENDS-ON-LANDING-SITE: `L3-career-science-recover` pins a science subject id whose BIOME the flight rolls for, so a perfectly good run reds on where the capsule stopped [FOUND 2026-09-02 by the L3 confirmation flight `2026-09-02_1824` (PARSEK-FAIL(expectation), one unmet). HARNESS/LANE AUTHORING, not a product defect. OPEN - the spec is deliberately NOT edited by the branch that found it (`l6-dwell-variants`, whose scope is the recover-dwell param); the PARSEK-FAIL stands as filed]
 
 **What was measured.** `L3-career-science-recover` flew a confirmation run for the new

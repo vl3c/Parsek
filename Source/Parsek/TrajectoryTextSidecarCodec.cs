@@ -528,6 +528,27 @@ namespace Parsek
             return false;
         }
 
+        /// <summary>
+        /// A section that carries NO authored surface at all: no <c>frames</c>, no
+        /// <c>bodyFixedFrames</c>, no <c>checkpoints</c>.
+        ///
+        /// <para>Every predicate that walks the section list to decide whether the
+        /// SECTIONS can stand in for the flat trajectory must SKIP such a section rather
+        /// than read it as "payload incomplete": an empty shell says nothing about the
+        /// recording's other sections. The recorders no longer persist one
+        /// (<see cref="TrackSectionCloseClassifier"/>), so this is defence in depth for
+        /// recordings already on disk that carry one - the undock background children
+        /// whose Relative anchor-local metres were written as flat lat/lon points
+        /// because a single 0.02s empty Absolute section disabled both defences (todo
+        /// UNDOCK-BG-CHILD-WRITES-RELATIVE-METRES-AS-FLAT-LAT-LON).</para>
+        /// </summary>
+        internal static bool IsPayloadFreeTrackSection(TrackSection section)
+        {
+            return (section.frames == null || section.frames.Count == 0)
+                && (section.bodyFixedFrames == null || section.bodyFixedFrames.Count == 0)
+                && (section.checkpoints == null || section.checkpoints.Count == 0);
+        }
+
         internal static bool HasCompleteTrackSectionPayloadForFlatSync(
             List<TrackSection> tracks,
             bool allowRelativeSections = false)
@@ -539,6 +560,13 @@ namespace Parsek
             for (int i = 0; i < tracks.Count; i++)
             {
                 var track = tracks[i];
+
+                // An empty shell contributes nothing and blocks nothing: skip it instead
+                // of failing the whole recording. If EVERY section is payload-free,
+                // sawPayload stays false and the method still answers "no payload".
+                if (IsPayloadFreeTrackSection(track))
+                    continue;
+
                 switch (track.referenceFrame)
                 {
                     case ReferenceFrame.Absolute:
@@ -632,6 +660,17 @@ namespace Parsek
             for (int t = 0; t < rec.TrackSections.Count; t++)
             {
                 TrackSection section = rec.TrackSections[t];
+
+                // A payload-free section is "no payload HERE", not "this recording's
+                // payload is incomplete": skip it. Bailing on one made the safe
+                // body-fixed substitution unavailable for the whole recording, which is
+                // how a Relative section's anchor-local metres reached the flat POINT
+                // list (todo UNDOCK-BG-CHILD-WRITES-RELATIVE-METRES-AS-FLAT-LAT-LON).
+                // A Relative section that HAS frames but no bodyFixedFrames is a
+                // genuinely incomplete substitution and still returns false below.
+                if (IsPayloadFreeTrackSection(section))
+                    continue;
+
                 List<TrajectoryPoint> sectionPoints = null;
                 switch (section.referenceFrame)
                 {
@@ -714,6 +753,12 @@ namespace Parsek
                 {
                     continue;
                 }
+
+                // Same reading as the two predicates above: an empty shell covers no UT,
+                // so a flat tail point inside its declared span is NOT already carried by
+                // a section and must not be dropped from the safe fallback list.
+                if (IsPayloadFreeTrackSection(section))
+                    continue;
 
                 if (ut >= section.startUT - epsilon && ut <= section.endUT + epsilon)
                     return true;

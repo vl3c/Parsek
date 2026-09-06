@@ -7047,8 +7047,40 @@ namespace Parsek
             }
 
             int frameCount = state.currentTrackSection.frames?.Count ?? 0;
+            int bodyFixedFrameCount = state.currentTrackSection.bodyFixedFrames?.Count ?? 0;
             int checkpointCount = state.currentTrackSection.checkpoints?.Count ?? 0;
             double sectionDuration = ut - state.currentTrackSection.startUT;
+            TrackSectionCloseDisposition disposition = TrackSectionCloseClassifier.Classify(
+                frameCount,
+                bodyFixedFrameCount,
+                checkpointCount,
+                sectionDuration,
+                state.currentTrackSection.referenceFrame,
+                state.currentTrackSection.isBoundarySeam);
+
+            // Discard a short PAYLOAD-FREE section (no frames, no bodyFixedFrames, no
+            // checkpoints) regardless of reference frame. Mirror of
+            // FlightRecorder.CloseCurrentTrackSection's payload-free discard; see that
+            // method for the rationale. THE BG CASE IS THE ONE THAT COST A DEFECT: an
+            // undock split opens an Absolute section at the undock instant and closes it
+            // 0.02s later with zero frames, before the Relative section anchored to the
+            // active sibling opens. That empty shell disabled both codec defences for the
+            // whole recording, so the Relative section's anchor-local metre offsets were
+            // persisted as flat lat/lon points and maxDist read ~735 km for a rover that
+            // never left the pad area (todo
+            // UNDOCK-BG-CHILD-WRITES-RELATIVE-METRES-AS-FLAT-LAT-LON).
+            if (disposition == TrackSectionCloseDisposition.DiscardPayloadFree)
+            {
+                state.trackSectionActive = false;
+                ParsekLog.Verbose("BgRecorder",
+                    "TrackSection discarded (payload-free: no frames, bodyFixedFrames or checkpoints): " +
+                    $"env={state.currentTrackSection.environment} ref={state.currentTrackSection.referenceFrame} " +
+                    $"pid={state.vesselPid} " +
+                    $"startUT={state.currentTrackSection.startUT.ToString("F3", CultureInfo.InvariantCulture)} " +
+                    $"endUT={ut.ToString("F3", CultureInfo.InvariantCulture)} " +
+                    $"duration={sectionDuration.ToString("F3", CultureInfo.InvariantCulture)}s");
+                return;
+            }
 
             // Discard seed-only transient RELATIVE sections that were closed
             // within one physics frame of opening. Mirror of
@@ -7069,11 +7101,9 @@ namespace Parsek
             // FinalizeAllForCommit; isBoundarySeam-flagged sections are
             // also exempted for the optimizer split-suppression contract
             // (TrackSection.isBoundarySeam, docs/dev/plans/optimizer-persistence-split.md §5).
-            if (frameCount <= 1
-                && checkpointCount == 0
-                && sectionDuration < 0.05
-                && state.currentTrackSection.referenceFrame == ReferenceFrame.Relative
-                && !state.currentTrackSection.isBoundarySeam)
+            // The predicate itself lives in TrackSectionCloseClassifier.Classify so both
+            // recorders read one decision and it is unit-testable.
+            if (disposition == TrackSectionCloseDisposition.DiscardSeedOnlyRelativeTransient)
             {
                 state.trackSectionActive = false;
                 ParsekLog.Verbose("BgRecorder",

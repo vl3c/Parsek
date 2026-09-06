@@ -10,6 +10,22 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **A craft you undock from no longer records itself as having travelled hundreds of
+  kilometres while sitting still.** When two craft undock, the half you are not flying is
+  recorded in the background, and that recording opened with an empty stub covering the
+  instant of the undock. The stub switched off the safety net that keeps the recording's
+  simple point list in real map coordinates, so the stretch that follows - which stores
+  positions RELATIVE to the craft you kept flying, in metres - was written into that list
+  as if the metres were latitude and longitude. The recorded "furthest distance from
+  launch" then came out at about 735 km for a rover that never moved more than a metre
+  from where it undocked. Nothing you can see was wrong: the ghost, its map trail and its
+  playback all read the real trajectory. The damage was in the saved numbers, and because
+  that distance is what Parsek uses to decide a craft never went anywhere, an undocked
+  craft that genuinely idled could escape being tidied away. The empty stub is no longer
+  kept, the safety net now skips an empty stretch instead of giving up on the whole
+  recording, and the distance is measured from real map positions only. Recordings already
+  saved with the bad list repair themselves the next time they are loaded.
+
 - **If the craft a supply route delivered to is gone but another craft stands where it
   was, the route now moves to that craft and tells you once.** Parsek already handled the
   rebuilt-base case by looking for a craft within 500 m of the recorded dock spot - but it
