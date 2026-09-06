@@ -623,6 +623,13 @@ namespace Parsek.Logistics
                     origin = new RouteEndpoint
                     {
                         VesselPersistentId = originProof.StartDockedOriginVesselPid,
+                        // The launch guid the bind read WHEN it stamped that pid, so the
+                        // resolver's PID step can be guid-gated instead of accepting a
+                        // craft-baked match from a different launch of the same .craft
+                        // (RESOLVER-PID-STEP-NOT-GUID-GATED). Null on every proof bound
+                        // before the key existed and on every evidence-free stamp, which
+                        // leaves those routes on the ungated behaviour they always had.
+                        LaunchGuid = originProof.StartDockedOriginVesselGuid,
                         RootPartUId = originProof.StartDockedOriginRootPartUId,
                         BodyName = originProof.StartDockedOriginBodyName,
                         Latitude = originProof.StartDockedOriginLatitude,
@@ -639,6 +646,9 @@ namespace Parsek.Logistics
                     origin = new RouteEndpoint
                     {
                         VesselPersistentId = originProof.StartDockedOriginVesselPid,
+                        // Same guid, same reason: this branch resolves by pid at dispatch
+                        // time and is exactly where an ungated pid does the most damage.
+                        LaunchGuid = originProof.StartDockedOriginVesselGuid,
                         RootPartUId = originProof.StartDockedOriginRootPartUId,
                         BodyName = originRec.StartBodyName ?? string.Empty,
                         Latitude = 0.0,

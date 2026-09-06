@@ -147,9 +147,10 @@ namespace Parsek.Tests.Logistics
             Assert.Equal(RouteEndpointTransfer.TransferDecision.Transfer, differs);
             Assert.Equal("pid-different-launch", differsReason);
 
-            // The production shape today: a RouteEndpoint carries no launch guid, so the
-            // recorded side is always unknown and the arm above cannot fire
-            // (RESOLVER-PID-STEP-NOT-GUID-GATED).
+            // The UNKNOWN-recorded-guid shape, which is every endpoint stamped before
+            // RouteEndpoint.LaunchGuid existed and every evidence-free pid stamp since:
+            // no evidence is never "differs", so the arm above cannot fire on it
+            // (RESOLVER-PID-STEP-NOT-GUID-GATED, fixed 2026-09-06).
             RouteEndpointTransfer.TransferDecision unknown = RouteEndpointTransfer.Evaluate(
                 RecordedPid, null,
                 RecordedPid, "22222222222222222222222222222222",

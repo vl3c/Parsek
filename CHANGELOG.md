@@ -10,6 +10,17 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **A supply route can no longer mistake a fresh copy of a craft for the depot it was
+  built to use.** Kerbal Space Program gives every craft file a fixed id and stamps the
+  same one onto every launch of it, so a route that could only find its depot by that id
+  would happily accept a brand-new copy of the same craft standing where the depot used
+  to be - and then load from, or deliver to, the wrong vessel. Routes now remember which
+  actual launch the depot was, and refuse a match that is provably a different one. When
+  that happens the route falls back to looking for whatever vessel is standing at the
+  recorded dock point, exactly as it does when the depot is gone, and tells you once if it
+  moves to a different craft. Routes made before this update carry no such record and
+  behave as they always did.
+
 - **Test housekeeping: two harmless warnings an unattended supply-route check left in
   every log are gone.** The check built one of its practice craft in mid-recording, and
   bolting a part onto a craft counts as a docking, so the game opened a cargo window for

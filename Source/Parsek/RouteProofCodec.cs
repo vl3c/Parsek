@@ -358,7 +358,18 @@ namespace Parsek
         {
             var ic = CultureInfo.InvariantCulture;
             if (proof.StartDockedOriginVesselPid != 0)
+            {
                 node.AddValue("startDockedOriginVesselPid", proof.StartDockedOriginVesselPid.ToString(ic));
+                // ADDITIVE + SPARSE, gated on the pid it corroborates: a proof bound before
+                // this key existed, or one whose pid stamp was refused, writes NOTHING and
+                // round-trips byte-identically. No schema generation moves, for the same
+                // reason endpointRootPartUId did not move one - an absent key reads back as
+                // the unknown sentinel (null), which the VesselLaunchIdentity contract
+                // already defines as "no evidence", so an old recording is not misread, it
+                // simply keeps the ungated pid behaviour it always had.
+                if (!string.IsNullOrEmpty(proof.StartDockedOriginVesselGuid))
+                    node.AddValue("startDockedOriginVesselGuid", proof.StartDockedOriginVesselGuid);
+            }
 
             // Origin depot identity read off the docking-node PAIR. rootPartUId is the
             // capture-time key - the pid slot is 0 on every captured proof, see
@@ -432,6 +443,12 @@ namespace Parsek
             {
                 proof.StartDockedOriginVesselPid = originPid;
             }
+
+            // Normalized on read for the same reason every other guid site normalizes: the
+            // comparison is VesselLaunchIdentity's, and an unnormalized string would read as
+            // "conclusively different" against a normalized live one.
+            proof.StartDockedOriginVesselGuid =
+                VesselLaunchIdentity.NormalizeGuid(node.GetValue("startDockedOriginVesselGuid"));
 
             if (uint.TryParse(node.GetValue("startDockedOriginRootPartUId"),
                     NumberStyles.Integer, ic, out uint originRoot))
@@ -862,6 +879,9 @@ namespace Parsek
             {
                 endpoint.VesselPersistentId = pid;
             }
+
+            // Normalized on read, same contract as RouteCodec's endpoint reader.
+            endpoint.LaunchGuid = VesselLaunchIdentity.NormalizeGuid(node.GetValue("launchGuid"));
 
             endpoint.BodyName = node.GetValue("bodyName");
             double.TryParse(node.GetValue("latitude"), inv, ic, out endpoint.Latitude);

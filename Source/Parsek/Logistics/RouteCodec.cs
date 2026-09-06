@@ -549,6 +549,12 @@ namespace Parsek.Logistics
                 ep.RootPartUId = rootUid;
             }
 
+            // Normalized on read: the comparison downstream is VesselLaunchIdentity's, and an
+            // unnormalized string would read as conclusively DIFFERENT from a normalized live
+            // one - which would turn the gate into a refusal machine. An absent key stays
+            // null = unknown.
+            ep.LaunchGuid = VesselLaunchIdentity.NormalizeGuid(node.GetValue("launchGuid"));
+
             string isSurfaceStr = node.GetValue("isSurface");
             if (isSurfaceStr != null && bool.TryParse(isSurfaceStr, out bool isSurface))
                 ep.IsSurface = isSurface;

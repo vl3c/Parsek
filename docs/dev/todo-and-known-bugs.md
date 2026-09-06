@@ -2031,11 +2031,12 @@ it worth a ruling are closed rather than accepted:
     `EndpointLost` on its own token, `no-candidate-after-transport-exclusion`.
 
 Untouched: the RADIUS (still 500 m), the step ORDER, and the "same depot that drifted a
-few metres" case, which resolves to the same pid and is explicitly a Keep. Still open and
-still owning its own half: `RESOLVER-PID-STEP-NOT-GUID-GATED` below - a `RouteEndpoint`
-carries no launch guid, so the pid step landing on a different LAUNCH of the same craft
-file is undetectable; `RouteEndpointTransfer.Evaluate` has that arm and unit-tests it, but
-nothing in production can feed it yet. Pure decisions + the transport guard are covered by
+few metres" case, which resolves to the same pid and is explicitly a Keep. The half this
+paragraph used to leave open - `RESOLVER-PID-STEP-NOT-GUID-GATED` below, the pid step
+landing on a different LAUNCH of the same craft file - was CLOSED 2026-09-06: the endpoint
+persists the bind's own launch guid, the pid step refuses a conclusively-different match
+and falls through to proximity, and `RouteEndpointTransfer.Evaluate` is fed that guid
+instead of a hardcoded null. Pure decisions + the transport guard are covered by
 `RouteEndpointTransferTests`; the flight-side proof is the re-authored `RVR-18` plus the
 new transport-only-candidate lane.
 
@@ -2086,7 +2087,8 @@ away and was outside the radius even before it was deleted.
     route's own carrier - which is precisely the "a route paying itself" case the
     root-part step was introduced to prevent for ORIGINS. Delivery endpoints have no such
     step available when the proof is absent.
-  * IT COMPOSES WITH AN ALREADY-FILED GAP. RESOLVER-PID-STEP-NOT-GUID-GATED (above) is
+  * IT COMPOSES WITH AN ALREADY-FILED GAP (since FIXED 2026-09-06).
+    RESOLVER-PID-STEP-NOT-GUID-GATED (above) was
     the same theme one step earlier: a craft-baked pid can name a different launch. On
     this fixture the two interact - `rover fuel 0` carries the SAME baked pid as the
     recorded destination and is a later rollout of that craft file, so the pid step was
@@ -2111,9 +2113,57 @@ by design, and its header says so. A fix lands with that lane re-authored agains
 contract in the same commit; the `EndpointLost` direction it currently FORBIDS is what it
 would then require. No other committed lane reaches the proximity step at all.
 
-## RESOLVER-PID-STEP-NOT-GUID-GATED: `RouteEndpointResolver`'s pid step matches a bare `persistentId`, which is craft-baked and can name a different launch of the same craft [FOUND 2026-09-02 by the adversarial review of P12 (F3). OPEN, low severity while the root step covers the origin]
+## ~~RESOLVER-PID-STEP-NOT-GUID-GATED: `RouteEndpointResolver`'s pid step matches a bare `persistentId`, which is craft-baked and can name a different launch of the same craft~~ [FOUND 2026-09-02 by the adversarial review of P12 (F3). FIXED 2026-09-06 (P17), by the fix shape this entry named]
 
-`RouteEndpointResolver.TryResolveEndpoint`'s `EndpointResolutionStep.Pid` calls
+**FIXED - THE ENDPOINT NOW CARRIES THE BIND'S OWN GUID DECISION.**
+
+- `RouteEndpoint.LaunchGuid` is the new field, and `RouteOriginProof.StartDockedOriginVesselGuid`
+  is where it comes from: `RouteProofCapture.TryBindStartDockedOriginAtUndock` persists the
+  guid it READ, but ONLY on the `Stamped` arm. `StampedGuidUnknown` means the comparison had
+  no evidence on at least one side, so writing whichever half was readable would manufacture a
+  key the decision did not rest on - and the resolver would then refuse a live depot on a guid
+  nothing corroborated. Null there keeps the ungated behaviour, which is the correct reading
+  of "no evidence".
+- `RouteEndpointResolver`'s pid step refuses on `GuidsConclusivelyDiffer` and logs
+  `Endpoint pid step refused: pid=... reason=different-launch recordedGuid=... liveGuid=...`;
+  an accepted match names which reading admitted it (`guidGate=same-launch` /
+  `unknown-recorded` / `unknown-live`) through the pure `ClassifyPidGuidGate`. A REFUSAL is
+  not a dead end: the walk falls through to surface proximity, which resolves positionally and
+  then REBINDS through `RouteEndpointTransfer`, so the route follows the depot actually
+  standing there instead of paying a stranger by name.
+- **The mirror direction, checked and fixed with it:** `RouteEndpointTransfer.ApplyTransfers`
+  now stamps the RESOLVED vessel's guid onto the rebound endpoint (clearing it when
+  unreadable, rather than leaving the vanished vessel's guid beside the new pid - which would
+  have made every future pid match on that endpoint read `different-launch`), passes the
+  endpoint's own recorded guid into `Evaluate` instead of a hardcoded `null`, and
+  `SameEndpoint` compares the field so a rebound endpoint no longer matches its pre-transfer
+  copy.
+
+**NO SCHEMA GENERATION MOVED, and the reason is the sparse-additive shape.** Both new keys
+(`launchGuid` on the endpoint, `startDockedOriginVesselGuid` beside the proof's pid) are
+written only when non-empty, so every route and every proof that predates them round-trips
+byte-identically; an absent key reads back null, which the `VesselLaunchIdentity` contract
+already defines as "no evidence", so an old recording is not misread - it simply keeps the
+ungated pid behaviour it always had. Both are read back normalized, because an unnormalized
+string would read as conclusively different from a normalized live one and turn the gate into
+a refusal machine.
+
+**THE HASHER EXCLUDES BOTH, DELIBERATELY.** They name the SAME vessel the pid and the root
+already name, and they are written by sites younger than the proofs they land on, so hashing
+either would flip existing routes to `SourceChanged` in `RouteStore.RevalidateSources` the
+first time a recording is re-saved with the field populated. Pinned by
+`RouteEndpointLaunchGuidTests.RouteProofHash_IsUnchangedByTheLaunchGuidOnEitherSurface`.
+
+**Headless:** `RouteEndpointLaunchGuidTests` (15 cells) - the gate in all three directions
+(matching accepts, conclusively-different refuses, and BOTH unknown-side readings accept,
+which is the case that would break every pre-existing route if it were got wrong), the
+normalization insensitivity, both codec round trips with their sparse-absence halves, the
+hash invariance, and the transfer mirror. NOT live-proven: no committed lane dispatches a
+route whose depot root has stopped resolving, and H57 emits no `Endpoint resolved:` line at
+all.
+
+**THE ORIGINAL FILING.**
+`RouteEndpointResolver.TryResolveEndpoint`'s `EndpointResolutionStep.Pid` called
 `ResolveByPid(endpoint.VesselPersistentId)` and accepts any non-ghost match. A
 `persistentId` is baked into the `.craft` and reused verbatim on every launch of that craft
 (CLAUDE.md's standing rule), so a bare match can name a DIFFERENT launch - the exact trap
@@ -2126,12 +2176,13 @@ step is reachable only when the endpoint has no root id (a KSC or mid-tree docke
 a pre-P12 proof) or when the depot's root part no longer resolves - and in that second case
 the vessel it would then match is a same-craft sibling standing where the depot was.
 
-FIX SHAPE: `RouteEndpoint` carries no launch guid, which is why the step cannot be gated
-today. P12's bind already MAKES the decision - `RouteProofCapture.DecideOriginPidStamp`
-compares the origin's live guid against the recorded launch's - so the fix is to persist that
-guid alongside the stamped pid on the endpoint and require
-`!VesselLaunchIdentity.GuidsConclusivelyDiffer` before the pid step accepts a match. That
-touches `RouteEndpoint`, `RouteCodec` and the route hash, so it wants its own pass.
+FIX SHAPE (built as filed): `RouteEndpoint` carried no launch guid, which is why the step
+could not be gated. P12's bind already MAKES the decision -
+`RouteProofCapture.DecideOriginPidStamp` compares the origin's live guid against the recorded
+launch's - so the fix was to persist that guid alongside the stamped pid on the endpoint and
+require `!VesselLaunchIdentity.GuidsConclusivelyDiffer` before the pid step accepts a match.
+It touched `RouteEndpoint`, `RouteCodec` / `RouteProofCodec` and the route hash (the last as
+an EXCLUSION), and it took its own pass.
 
 ## ~~ROUTE-ORIGIN-PROOF-BIND-FOLLOWS-FOCUS-NOT-THE-RUN: the undock bind names the origin from which half KEPT FOCUS, and binds delivery partners as origins~~ [FOUND 2026-09-02 as the mirror-direction check on the P12 binding; MEASURED LIVE 2026-09-03 on `logs/2026-09-03_0026_rover-c`, which promoted it from "low severity, inert" to "both predicted failure modes fired on one flight". FIXED 2026-09-03]
 

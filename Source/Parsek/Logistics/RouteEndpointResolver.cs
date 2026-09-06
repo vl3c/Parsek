@@ -234,23 +234,50 @@ namespace Parsek.Logistics
 
                 if (step == EndpointResolutionStep.Pid)
                 {
-                    // A CORROBORATING FALLBACK BEHIND THE ROOT-PART STEP, AND NOT GUID-GATED.
-                    // It runs only when the endpoint carries no root id or that root no
-                    // longer resolves. A persistentId is craft-baked, so a bare match here
-                    // can name a DIFFERENT launch of the same craft file - the exact trap
-                    // VesselLaunchIdentity exists for. It is ungated today because a
-                    // RouteEndpoint carries no launch guid to gate against. Filed as
-                    // RESOLVER-PID-STEP-NOT-GUID-GATED; fix shape = persist the bind's guid
-                    // decision on the endpoint and gate this step with it.
+                    // A CORROBORATING FALLBACK BEHIND THE ROOT-PART STEP, GUID-GATED SINCE
+                    // 2026-09-06. It runs only when the endpoint carries no root id or that
+                    // root no longer resolves. A persistentId is craft-baked and is reused
+                    // verbatim on every launch of the same .craft, so a bare match can name a
+                    // DIFFERENT launch - the exact trap VesselLaunchIdentity exists for, and
+                    // in this step's own reachable case (the depot's root no longer resolves)
+                    // the vessel it would match is precisely a same-craft sibling standing
+                    // where the depot was.
+                    //
+                    // THE GATE IS THE STANDARD ONE, NOT A STRICTER ONE: a match is refused
+                    // ONLY when both guids are known and conclusively differ. An endpoint with
+                    // no persisted guid (every route built before the key existed, every KSC
+                    // origin, every evidence-free pid stamp) or a live vessel whose guid
+                    // cannot be read degrades to the ungated match it always had, which is
+                    // CLAUDE.md's unknown-guid rule. A refusal is not a dead end either: the
+                    // walk falls through to the surface-proximity step, which resolves
+                    // positionally and then REBINDS through RouteEndpointTransfer, so the
+                    // route follows the depot actually standing there instead of paying a
+                    // stranger by name.
                     Vessel byPid = ResolveByPid(endpoint.VesselPersistentId);
                     HashSet<uint> ghostPids = GhostMapPresence.ghostMapVesselPids;
                     if (byPid != null
                         && (ghostPids == null || !ghostPids.Contains(byPid.persistentId)))
                     {
+                        string liveGuid = RouteEndpointTransfer.TryReadLaunchGuid(byPid);
+                        if (VesselLaunchIdentity.GuidsConclusivelyDiffer(
+                                endpoint.LaunchGuid, liveGuid))
+                        {
+                            ParsekLog.Verbose("Logistics",
+                                "Endpoint pid step refused: pid="
+                                + endpoint.VesselPersistentId.ToString(CultureInfo.InvariantCulture)
+                                + " reason=different-launch"
+                                + " recordedGuid=" + GuidToken(endpoint.LaunchGuid)
+                                + " liveGuid=" + GuidToken(liveGuid)
+                                + " - a craft-baked persistentId matched a DIFFERENT launch of"
+                                + " the same craft; falling through to the next step");
+                            continue;
+                        }
+
                         vessel = byPid;
                         ParsekLog.Verbose("Logistics",
                             "Endpoint resolved: step=pid pid="
-                            + endpoint.VesselPersistentId.ToString(CultureInfo.InvariantCulture));
+                            + endpoint.VesselPersistentId.ToString(CultureInfo.InvariantCulture)
+                            + " guidGate=" + ClassifyPidGuidGate(endpoint.LaunchGuid, liveGuid));
                         return true;
                     }
                     continue;
@@ -326,6 +353,31 @@ namespace Parsek.Logistics
 
             reason = "pid-miss-no-surface-fallback";
             return false;
+        }
+
+        /// <summary>
+        /// The PID step's guid-gate outcome as one stable token, pure so the four readings
+        /// can be pinned headlessly against the same function production logs.
+        /// <c>different-launch</c> is the ONLY refusing one; both unknown-side readings and
+        /// the same-launch reading accept, which is the VesselLaunchIdentity contract
+        /// (unknown means "no evidence", never "differs").
+        /// </summary>
+        internal static string ClassifyPidGuidGate(string recordedGuid, string liveGuid)
+        {
+            if (VesselLaunchIdentity.GuidsConclusivelyDiffer(recordedGuid, liveGuid))
+                return "different-launch";
+            if (string.IsNullOrEmpty(VesselLaunchIdentity.NormalizeGuid(recordedGuid)))
+                return "unknown-recorded";
+            if (string.IsNullOrEmpty(VesselLaunchIdentity.NormalizeGuid(liveGuid)))
+                return "unknown-live";
+            return "same-launch";
+        }
+
+        /// <summary>A guid for a log line: the normalized value, or <c>&lt;unknown&gt;</c>.</summary>
+        private static string GuidToken(string guid)
+        {
+            string normalized = VesselLaunchIdentity.NormalizeGuid(guid);
+            return string.IsNullOrEmpty(normalized) ? "<unknown>" : normalized;
         }
 
         /// <summary>
