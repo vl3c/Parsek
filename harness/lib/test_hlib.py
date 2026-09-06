@@ -4368,13 +4368,14 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
     # `skipped` above the attribute floor of 1, the `recordings.count` window is replaced
     # with an exact pin, and the id LEAVES this set in the same commit.
     #
-    # H57 IS BACK, and by the same rule that emptied this set: its third cell arrived
-    # 2026-09-06 with the predecessor-window pickup pass, so the `passed=` / `skipped=`
-    # split it flew green at total=2 no longer describes the batch. `total=3` stays
-    # ATTRIBUTE-EXACT and source-synced; the split is a regex class until the re-flight,
-    # and the two flown cell tokens stay REQUIRED so an interim `passed=` cannot hide a
-    # regression in what already worked.
-    INTERIM_PIN_IDS = {"H57-route-start-docked-origin-landed"}
+    # H57 CAME AND WENT INSIDE ONE DAY. Its third cell arrived 2026-09-06 with the
+    # predecessor-window pickup pass, which retired the `passed=2` it had flown, and the
+    # re-flight on 2026-09-06_1650 measured the new split at once:
+    # `total=3 passed=3 failed=0 skipped=0`. The spec's pin was then replaced WHOLE off
+    # those bytes - every tally field a literal, plus three new REQUIRED tokens for the
+    # predecessor walk, the bind and the cell line - so the id left this set in the same
+    # commit that put it back.
+    INTERIM_PIN_IDS: set = set()
 
     # id -> measured `skipped=` for members whose RUN-TIME InGameAssert.Skip guards
     # push the split above the attribute-derived floor. The attributes give a FLOOR

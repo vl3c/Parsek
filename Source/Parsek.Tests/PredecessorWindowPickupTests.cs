@@ -440,6 +440,26 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void Walk_RefusesACHAINPredecessorFromADIFFERENTLAUNCH()
+        {
+            // THE SAME GATE ON THE THIRD EDGE, which is the one a same-craft relaunch reaches:
+            // chain segments are matched by ChainId + ChainBranch + ChainIndex, all of which a
+            // second launch of the same craft file can carry, so without the guid check one
+            // launch's still-open dock window would validate the next launch's pickup.
+            Recording seg0 = Rec("seg0", pid: 400u, guid: GuidB);
+            seg0.ChainId = "chain-1";
+            seg0.ChainIndex = 0;
+            Recording seg1 = Rec("seg1", pid: 400u, guid: GuidA);
+            seg1.ChainId = "chain-1";
+            seg1.ChainIndex = 1;
+
+            Assert.False(RouteProofCapture.TryResolveOriginProofPredecessor(
+                TreeOf(seg0, seg1), seg1, out Recording predecessor, out string reason));
+            Assert.Null(predecessor);
+            Assert.Equal("predecessor-not-same-launch", reason);
+        }
+
+        [Fact]
         public void Walk_FallsBackToParentRecordingIdThenToTheChainPredecessor()
         {
             Recording prev = Rec("prev");
@@ -729,6 +749,29 @@ namespace Parsek.Tests
             Assert.Equal(
                 DepotRootFlightId,
                 reloaded.RouteConnectionWindows[0].DeepClone().EndpointRootPartUId);
+
+            // ... and the key is SPARSE: a window whose endpoint root could not be read writes
+            // no key at all rather than a zero, because zero is the "unknown" reading the
+            // partner match degrades on and a written 0 would be indistinguishable from a real
+            // flightID of 0 to any future reader.
+            var unknownRootRecording = new Recording
+            {
+                RecordingId = "rec-unknown-root",
+                RouteConnectionWindows = new List<RouteConnectionWindow>
+                {
+                    OpenLoadWindow(endpointRoot: 0u),
+                },
+            };
+            var sparseNode = new ConfigNode("RECORDING");
+            RouteProofCodec.SerializeRouteProofMetadata(sparseNode, unknownRootRecording);
+            ConfigNode sparseWindow = sparseNode
+                .GetNode("ROUTE_CONNECTION_WINDOWS")
+                .GetNode("WINDOW");
+            Assert.False(sparseWindow.HasValue("endpointRootPartUId"));
+
+            var sparseReloaded = new Recording { RecordingId = "rec-unknown-root" };
+            RouteProofCodec.DeserializeRouteProofMetadata(sparseNode, sparseReloaded);
+            Assert.Equal(0u, sparseReloaded.RouteConnectionWindows[0].EndpointRootPartUId);
         }
 
         [Fact]

@@ -2,7 +2,31 @@ schema = 1
 id = "H57-route-start-docked-origin-landed"
 tier = "nightly"
 # =====================================================================================
-# FLIGHT LEDGER. THREE ATTEMPTS, AND THE FIRST TWO EACH BOUGHT SOMETHING.
+# FLIGHT LEDGER. FIVE FLIGHTS. THE FIRST TWO EACH BOUGHT SOMETHING; THE LAST ADDED A CELL.
+#   2026-09-06_1650  THE THIRD CELL'S FIRST CENSUS. PASS attempt 1,
+#         `BATCH_COMPLETE v1 total=3 passed=3 failed=0 skipped=0`, `recordings.count=5`,
+#         zero FAILURE SITE lines. THE PIN BELOW IS RE-TAKEN WHOLE OFF THESE BYTES -
+#         `passed=3 skipped=0` are LITERALS again and the id has left
+#         `IsolatedBatchWiringGroupTests.INTERIM_PIN_IDS`.
+#
+#         WHAT THE NEW CELL MEASURED, and it is the whole product of
+#         ROUTE-ORIGIN-PROOF-PICKUP-PREDATING-THE-RECORDING: the walk resolved one edge
+#         back (`resolved=1 reason=parent-recording predecessorWindows=1`) and the bind
+#         validated off the PREDECESSOR's window, `pickup=GainFromPredecessorWindow
+#         pickupValidated=1` with `predecessorUndockUT=NaN` - that literal NaN IS the
+#         OPEN-window evidence, the shape the operator's case produces (the previous
+#         recording ended STILL DOCKED, so its window never closed) and the one the rise
+#         has to be measured across two records to see. The run's OWN `pickupDelta` is
+#         `[LiquidFuel=+0.0;inv:+0]`: this recording witnessed no inflow at all, which is
+#         exactly why it needed the predecessor. Cell 1 is unchanged and still reads
+#         `pickup=Gain pickupValidated=1 pickupDelta=[LiquidFuel=+20.0;inv:+0]`, so the
+#         census carries BOTH pickup routes side by side and a regression that collapsed
+#         one into the other reds. The walk's other reading is present too
+#         (`resolved=0 reason=no-predecessor predecessorWindows=0` for the start-docked
+#         cell), which is what says the new path is not firing unconditionally.
+#         ARMED RE-FLIGHT ON THIS PIN: PENDING.
+#
+#   PRIOR (two-cell era):
 #   1005  PARSEK-FAIL(results) `total=2 passed=1 failed=1`. The control passed; the
 #         subject red asserting the proof back off a committed recording. THAT IS A
 #         PRODUCT FINDING, not a lane defect: the proof is produced and attached to
@@ -85,7 +109,7 @@ tier = "nightly"
 # the same two-rover shape, on the same landed host, driven by two in-game cells.
 #
 # -------------------------------------------------------------------------------------
-# THE TWO CELLS, category `RouteStartDockedOrigin`
+# THE THREE CELLS, category `RouteStartDockedOrigin`
 # (`Source/Parsek/InGameTests/RouteDockCaptureInGameTest.cs`).
 #
 # 1 `StartDockedOrigin_StartsDockedThenUndocksAndDelivers` - the subject. Spawns a
@@ -109,6 +133,22 @@ tier = "nightly"
 #   and the producer must take `NoExternalCoupling`. Without this cell a green run could
 #   not distinguish "the seam producer works" from "any craft that ever docked gets an
 #   origin", which is the exact false-positive population the predicate exists to exclude.
+#
+# 3 `StartDockedOrigin_PredecessorWindowValidatesThePickup` - the RELOAD shape, added
+#   2026-09-06 with ROUTE-ORIGIN-PROOF-PICKUP-PREDATING-THE-RECORDING. The transport
+#   starts docked and TAKES NOTHING while this recording runs, so its own pickup reads
+#   `Carried` and, before this pass, the run could never become a route. A PREVIOUS
+#   recording is injected into the LIVE tree with a real `VesselSwitchContinuation` branch
+#   point and part-pid sets read off the merged craft, carrying an OPEN connection window
+#   that brackets the load. WHAT IS SYNTHESISED IS ONLY THE OTHER SESSION - a chain-boundary
+#   stop plus a stock Fly re-entry cannot be driven inside one batch cell without a scene
+#   change. Everything the cell asserts is production code: the predecessor WALK (branch
+#   point -> launch-guid gate), the partner match against the live seam halves, the
+#   launch-unique root-`flightID` check, and the bind. It then runs an IN-CELL CONTROL on
+#   the same real manifests with the window's dock baseline left UNREDUCED, which must read
+#   `NoRise` - so a green cell says the classifier read the seeded deficit and not a
+#   partial manifest. `predecessorUndockUT=NaN` on its bind line is the OPEN-window
+#   evidence: the predecessor ended still docked, which is WHY this recording starts docked.
 #
 # -------------------------------------------------------------------------------------
 # THE CAVEAT THIS LANE CARRIES, STATED UP FRONT RATHER THAN DISCOVERED LATER.
@@ -151,12 +191,12 @@ tier = "nightly"
 #
 # -------------------------------------------------------------------------------------
 # WHAT THIS LANE IS NOT. It is not a third `RouteDockCapture` member. Its category is
-# DIFFERENT (`RouteStartDockedOrigin`, 2 declarations) precisely so that H55's and H56's
+# DIFFERENT (`RouteStartDockedOrigin`, 3 declarations) precisely so that H55's and H56's
 # pinned `total=6` does not move: every `RouteDockCapture` cell docks AFTER the recorder
-# is running and its product is a route WINDOW; these two dock BEFORE it starts and their
+# is running and its product is a route WINDOW; these three dock BEFORE it starts and their
 # product is the start-time ORIGIN PROOF, a different producer on a different code path.
 # =====================================================================================
-description = "SCOPE NOTE ON THE TRANSFER RULE: this lane transfers RESOURCES only, so its pins do not move with the 2026-09-02 ruling that an INVENTORY gain on the transport half validates a pickup exactly like a resource gain. That path is HEADLESS-PROVEN (StartDockedOriginBindingTests, section 6b: the relay window-1 shape with +200 LiquidFuel AND two items, an inventory-only gain at zero resource delta, both mixed directions, both-down refused, and the whitespace-free pickupDelta grammar including its inv: term); its LIVE proof is the rover-relay re-fly, not this lane. What DID move here is one token shape: pickupDelta is now `;`-separated and may carry a trailing `inv:+N`, which the existing pickupDelta=[...] pin already tolerates and a single-resource payload renders identically. ARMED DISCIPLINE COMPLETE 2026-09-02 (P12): the negative control `H57-NEGCTL-P12-pickupvalidated-0` - this spec byte for byte except the declared id and ONE flipped token, `pickupValidated=0` on the bind line - flew `PARSEK-FAIL(expectation)` with EXACTLY the seeded unmet and ZERO forbidden hits, on a batch that itself passed `total=2 passed=2`. So the pin discriminates: it reds on a product that fails to validate the pickup and greens only on one that does. FLOWN GREEN 2026-09-02 (P12 item 7, run `2026-09-02_1907`): PASS attempt 1, `BATCH_COMPLETE v1 total=2 passed=2 failed=0 skipped=0`, all 17 required tokens met and the one forbidden pattern absent, replayed and re-verified off the collected log. THE BIND FIRED AND NAMED THE RIGHT HALF: `RouteOriginProof bound at undock: ... binding=BoundToHalfB recoveredFromStopStamp=0 originHalf=B originRoot=2924137262 originType=3 originPid=4104951385 guidDecision=Stamped transportRoot=1170978973 transportParts=17 pickup=Gain pickupValidated=1 pickupDelta=[LiquidFuel=+20.0]`, and the subject cell read `originRoot=2924137262` EQUAL to `depotRoot=2924137262` - the depot is the half that LEFT and the merged pid is the transport's, so a dominance-derived or focus-derived reading would have named the wrong one. FOUR THINGS THE CENSUS SETTLES BEYOND THE TALLY. (1) `originType=3` is Probe, NOT 10/Base: the rig no longer stamps a vessel type and the bind did not care - the typed-depot requirement is genuinely gone. (2) `recoveredFromStopStamp=0` says the chain-boundary flag kept the premature `UnboundAtStop` stamp out of the way on this path; the log carries ZERO `RouteOriginProof unbound:` and ZERO `bind skipped:` lines, so nothing was refused anywhere. (3) `pickup=Gain` with `pickupDelta=[LiquidFuel=+20.0]` is the transfer ruling measured live: the cell TAKES 20 units from the depot while docked, and only a rise validates. (4) `SerializeRouteProofMetadata: ... originProof=True runManifest=True windows=0 harvestWindows=0` twice - the proof reaches the codec. Zero `FAILURE SITE:` lines. PRIOR: RE-PIN PENDING A RE-FLIGHT 2026-09-02 (P6): the subject cell now ASSERTS the persisted proof instead of reporting it, and four required tokens moved with it. Both defects the four green flights measured but could not close have landed - ROUTE-ORIGIN-PROOF-NEVER-REACHES-A-TREE-RECORDING (a write-once adoption in ParsekFlight.ApplyCapturedLogisticsMetadataToRecording, which is where the ORDINARY tree-mode stop flush reaches; the new path=FlushRecorderToTreeRecording token is the discriminator that would catch a fix written into AppendCapturedDataToRecording instead) and ROUTE-ORIGIN-PROOF-PARTNER-IDENTITY (the origin is the DEPOT-TYPED half of the docking-node pair, read from each half's own DockedVesselInfo and independent of which half stock made dominant; ruling in docs/dev/research/origin-proof-partner-identity-memo.md). THE SUBJECT CELL IS NOW A DOMINANCE-INDEPENDENCE PROOF: the rig couples the depot INTO the transport, so the depot is the child that LEAVES and the merged pid names the transport - a dominance-derived rule would name the transport as its own origin here, and the cell asserts the persisted origin root equals the depot root. The rig moved minimally: BuildPartnerRig takes a declared VesselType and the depot is typed Base, stamped AFTER assembly because Part.Couple ends with vesselType = FindDefaultVesselType(). Token changes: partnerPid=0 is now a LITERAL (the pid slot is 0 by contract at capture), treeProof=yes is now a LITERAL (was a class), and the captured line and the Forward line carry the origin identity fields. WHAT THE RE-FLIGHT MUST READ, AND WHAT IT MUST NOT: flight 5 (2026-09-02_1320) proved the batch green (total=2 passed=2) with ONE unmet token - the adoption path, now re-pinned to the measured alternation because this cell undocks mid-recording and the split reaches the shared helper before the stop flush does. It ALSO retired the produced-save instrument: neither cell recording id is in the produced save at all (2026-09-02_1622 collection), because both cells restore the batch flight baseline and the run ends on save-suppressed - so ROUTE_ORIGIN_PROOF=0 there is campaign isolation, not a serialization gap, and the headless tree-record-codec round trip confirms the node is written and read back. Persistence is now pinned by the in-cell StartDockedOriginPersist: token instead. No tally moves: no [InGameTest] attribute changed, total=2 stands. PRIOR: FLOWN TWICE. Flight 2 (2026-09-02_1027) PARSEK-FAIL(results) again but with the failure RESHAPED and located: both instrument lines emitted exactly as predicted (subject proofCaptured=True originPid=313889796 body=Kerbin surface=1 windows=1 treeProof=no; StartDockedOriginForward: treeRecordingWithProof=<none>; control unchanged), then the cell died 20 ms later on a bare NRE with no site, because InGameTestRunner records only ex.Message. THE SITE WAS A RIG LEFTOVER, not a product fault: the RunAnalysisAndPass detail: argument still dereferenced the tree-lookup result (proof.StartDockedOriginVesselPid), which is null BY CONSTRUCTION while ROUTE-ORIGIN-PROOF-NEVER-REACHES-A-TREE-RECORDING stands - a survivor of the version that asserted the read-back. It now reports recordedPid / treeProof instead. Two hardenings came with it so a next failure names itself: the post-measurement tail is wrapped in a try/catch that Warn-logs a RouteDockCapture FAILURE SITE: line carrying the exception type, message and first stack frame before rethrowing, and RunAnalysisAndPass re-derives its tree handle from the live active tree (a cell that splits twice can outlive the handle bound at StartRecordingAndWait) and names a null tree instead of dereferencing it. The produced save's ROUTE_ORIGIN_PROOF count was 0 on both H56 and H57, corroborating the forwarding defect from the save side. RE-FLY PENDING. Flight 1 (2026-09-02_1005) PARSEK-FAIL(results) - total=2 passed=1 failed=1: the NEGATIVE CONTROL passed with the exact expected line, and the SUBJECT red on its read-the-proof-back-off-a-committed-recording assertion, which is a real PRODUCT finding (ROUTE-ORIGIN-PROOF-NEVER-REACHES-A-TREE-RECORDING: the proof is produced and attached to FlightRecorder.CaptureAtStop, and in always-tree mode nothing forwards it onto a Recording). The subject cell now asserts the descriptor off the producer's own captured line and REPORTS what the tree holds; the forwarding defect is filed, not papered over. AUTHORED 2026-09-02. Tier B item 4, the start-docked origin subject, self-provisioned instead of hand-flown: two RouteStartDockedOrigin cells over the LANDED rover-route-recorded host. Cell 1 docks a spawned partner rig into the active vessel with NO recording running, starts the recording docked (the start-docked origin producer's only live entry point), asserts RouteOriginProof captured, undocks the depot, then docks a SECOND partner and delivers LiquidFuel across a real window - and after the stop asserts the M1 endpoint descriptor - a real body name and surface=1, so the origin endpoint gets its proximity rebuild - off the PRODUCER'S OWN RouteOriginProof captured: line plus the seam-scan pairing, and REPORTS what the tree holds through a StartDockedOriginForward: line rather than asserting it (flight 1 red on that read-back, and the caller set says the proof never reaches a Recording in always-tree mode - ROUTE-ORIGIN-PROOF-NEVER-REACHES-A-TREE-RECORDING). Cell 2 is the negative control that makes cell 1 mean something: the same rig docks and UNDOCKS before the start, so the node keeps its vesselInfo but its partner part is on another vessel, and IsSettledDockSeam's partner-resolves conjunct must reject it (outcome=no-external-coupling). THE CAVEAT: the cells couple with a raw Part.Couple, which writes no docking-node bookkeeping, so each stamps it first from the decompiled DockToVessel contract - half this gate is a stock-contract emulation, and what it buys is the whole LIVE producer path (walk parts, find the node, resolve the partner on this vessel, build the merged-vessel candidate, populate the descriptor and manifests, forward through BuildCaptureRecording across an undock split), which no headless test can drive. The host is landed because the resolver short-circuits on PRELAUNCH before it walks candidates, which is why H55's pad rig could never reach this branch. total=2 is attribute-exact and source-synced; passed=/skipped= are a regex class until the first census, registered in IsolatedBatchWiringGroupTests.INTERIM_PIN_IDS; failed=0 is a literal. The recordings count is pinned exactly at the staged 5, the anti-data-loss floor and the campaign-isolation ceiling in one row, measured on these bytes by RVR-1 on both its flights."
+description = "THREE CELLS SINCE 2026-09-06 (P15), NOT TWO, AND THE WHOLE PIN IS RE-TAKEN OFF THE CENSUS: run 2026-09-06_1650 PASS attempt 1, BATCH_COMPLETE v1 total=3 passed=3 failed=0 skipped=0 category=RouteStartDockedOrigin scene=FLIGHT, recordings.count=5, zero FAILURE SITE lines - so passed=3 and skipped=0 are LITERALS again and the id has LEFT IsolatedBatchWiringGroupTests.INTERIM_PIN_IDS. The third cell, StartDockedOrigin_PredecessorWindowValidatesThePickup, is the live proof of ROUTE-ORIGIN-PROOF-PICKUP-PREDATING-THE-RECORDING: a transport that starts docked and takes nothing during ITS OWN recording, whose pickup is validated off the window the PREVIOUS recording of the same launch holds. Three new tokens carry it. (1) THE WALK: `RouteOriginProof predecessor walk: ... resolved=1 reason=parent-recording predecessor=<id>-prev predecessorWindows=1` - the branch-point edge, which is the edge a stock Fly / Switch-To re-entry actually produces; the same run also emits `resolved=0 reason=no-predecessor predecessorWindows=0` for the start-docked cell, so the walk is demonstrably not firing unconditionally. (2) THE BIND: `pickup=GainFromPredecessorWindow pickupValidated=1 ... transportSignal=PostSplitActiveSide dockWitnessed=0 gate=BindGain predecessor=<id>-prev predecessorPickup=GainFromPredecessorWindow predecessorWindow=dock-prev-<id> predecessorDockUT=<ut> predecessorUndockUT=NaN`. THAT LITERAL NaN IS THE OPEN-WINDOW EVIDENCE and is pinned as a literal on purpose: the predecessor ended STILL DOCKED - which is WHY this recording starts docked - so the rise had to be measured across two records, dock baseline against this recording's own start manifests. A complete-window shape would print a number there and would be a different (and easier) case; the ids and the UTs around it are regexed because they are run-local. (3) THE CELL: `StartDockedOriginPredecessor: ... pickup=GainFromPredecessorWindow validated=1 control=NoRise`, whose control half re-runs the classifier on the same real manifests with the dock baseline left UNREDUCED and must read NoRise, so a green cell says the seeded deficit was read rather than a partial manifest. CELL 1's OWN BIND TOKEN IS UNCHANGED (`pickup=Gain pickupValidated=1`), deliberately: the census now carries BOTH pickup routes side by side and a regression that collapsed one spelling into the other reds on one token or the other. The run's new-cell pickupDelta is [LiquidFuel=+0.0;inv:+0] - this recording witnessed no inflow at all, which is precisely the condition the pass exists to rescue. ARMED RE-FLIGHT ON THIS PIN: PENDING; its negative control was replayed rather than flown - H57-NEGCTL-P15-predecessor-notconsulted, this spec except the new cell's bind token flipped to predecessorPickup=not-consulted, evaluated against the 1650 log for EXACTLY ONE unmet and ZERO forbidden hits. PRIOR (two-cell era). SCOPE NOTE ON THE TRANSFER RULE: this lane transfers RESOURCES only, so its pins do not move with the 2026-09-02 ruling that an INVENTORY gain on the transport half validates a pickup exactly like a resource gain. That path is HEADLESS-PROVEN (StartDockedOriginBindingTests, section 6b: the relay window-1 shape with +200 LiquidFuel AND two items, an inventory-only gain at zero resource delta, both mixed directions, both-down refused, and the whitespace-free pickupDelta grammar including its inv: term); its LIVE proof is the rover-relay re-fly, not this lane. What DID move here is one token shape: pickupDelta is now `;`-separated and may carry a trailing `inv:+N`, which the existing pickupDelta=[...] pin already tolerates and a single-resource payload renders identically. ARMED DISCIPLINE COMPLETE 2026-09-02 (P12): the negative control `H57-NEGCTL-P12-pickupvalidated-0` - this spec byte for byte except the declared id and ONE flipped token, `pickupValidated=0` on the bind line - flew `PARSEK-FAIL(expectation)` with EXACTLY the seeded unmet and ZERO forbidden hits, on a batch that itself passed `total=2 passed=2`. So the pin discriminates: it reds on a product that fails to validate the pickup and greens only on one that does. FLOWN GREEN 2026-09-02 (P12 item 7, run `2026-09-02_1907`): PASS attempt 1, `BATCH_COMPLETE v1 total=2 passed=2 failed=0 skipped=0`, all 17 required tokens met and the one forbidden pattern absent, replayed and re-verified off the collected log. THE BIND FIRED AND NAMED THE RIGHT HALF: `RouteOriginProof bound at undock: ... binding=BoundToHalfB recoveredFromStopStamp=0 originHalf=B originRoot=2924137262 originType=3 originPid=4104951385 guidDecision=Stamped transportRoot=1170978973 transportParts=17 pickup=Gain pickupValidated=1 pickupDelta=[LiquidFuel=+20.0]`, and the subject cell read `originRoot=2924137262` EQUAL to `depotRoot=2924137262` - the depot is the half that LEFT and the merged pid is the transport's, so a dominance-derived or focus-derived reading would have named the wrong one. FOUR THINGS THE CENSUS SETTLES BEYOND THE TALLY. (1) `originType=3` is Probe, NOT 10/Base: the rig no longer stamps a vessel type and the bind did not care - the typed-depot requirement is genuinely gone. (2) `recoveredFromStopStamp=0` says the chain-boundary flag kept the premature `UnboundAtStop` stamp out of the way on this path; the log carries ZERO `RouteOriginProof unbound:` and ZERO `bind skipped:` lines, so nothing was refused anywhere. (3) `pickup=Gain` with `pickupDelta=[LiquidFuel=+20.0]` is the transfer ruling measured live: the cell TAKES 20 units from the depot while docked, and only a rise validates. (4) `SerializeRouteProofMetadata: ... originProof=True runManifest=True windows=0 harvestWindows=0` twice - the proof reaches the codec. Zero `FAILURE SITE:` lines. PRIOR: RE-PIN PENDING A RE-FLIGHT 2026-09-02 (P6): the subject cell now ASSERTS the persisted proof instead of reporting it, and four required tokens moved with it. Both defects the four green flights measured but could not close have landed - ROUTE-ORIGIN-PROOF-NEVER-REACHES-A-TREE-RECORDING (a write-once adoption in ParsekFlight.ApplyCapturedLogisticsMetadataToRecording, which is where the ORDINARY tree-mode stop flush reaches; the new path=FlushRecorderToTreeRecording token is the discriminator that would catch a fix written into AppendCapturedDataToRecording instead) and ROUTE-ORIGIN-PROOF-PARTNER-IDENTITY (the origin is the DEPOT-TYPED half of the docking-node pair, read from each half's own DockedVesselInfo and independent of which half stock made dominant; ruling in docs/dev/research/origin-proof-partner-identity-memo.md). THE SUBJECT CELL IS NOW A DOMINANCE-INDEPENDENCE PROOF: the rig couples the depot INTO the transport, so the depot is the child that LEAVES and the merged pid names the transport - a dominance-derived rule would name the transport as its own origin here, and the cell asserts the persisted origin root equals the depot root. The rig moved minimally: BuildPartnerRig takes a declared VesselType and the depot is typed Base, stamped AFTER assembly because Part.Couple ends with vesselType = FindDefaultVesselType(). Token changes: partnerPid=0 is now a LITERAL (the pid slot is 0 by contract at capture), treeProof=yes is now a LITERAL (was a class), and the captured line and the Forward line carry the origin identity fields. WHAT THE RE-FLIGHT MUST READ, AND WHAT IT MUST NOT: flight 5 (2026-09-02_1320) proved the batch green (total=2 passed=2) with ONE unmet token - the adoption path, now re-pinned to the measured alternation because this cell undocks mid-recording and the split reaches the shared helper before the stop flush does. It ALSO retired the produced-save instrument: neither cell recording id is in the produced save at all (2026-09-02_1622 collection), because both cells restore the batch flight baseline and the run ends on save-suppressed - so ROUTE_ORIGIN_PROOF=0 there is campaign isolation, not a serialization gap, and the headless tree-record-codec round trip confirms the node is written and read back. Persistence is now pinned by the in-cell StartDockedOriginPersist: token instead. No tally moves: no [InGameTest] attribute changed, total=2 stands. PRIOR: FLOWN TWICE. Flight 2 (2026-09-02_1027) PARSEK-FAIL(results) again but with the failure RESHAPED and located: both instrument lines emitted exactly as predicted (subject proofCaptured=True originPid=313889796 body=Kerbin surface=1 windows=1 treeProof=no; StartDockedOriginForward: treeRecordingWithProof=<none>; control unchanged), then the cell died 20 ms later on a bare NRE with no site, because InGameTestRunner records only ex.Message. THE SITE WAS A RIG LEFTOVER, not a product fault: the RunAnalysisAndPass detail: argument still dereferenced the tree-lookup result (proof.StartDockedOriginVesselPid), which is null BY CONSTRUCTION while ROUTE-ORIGIN-PROOF-NEVER-REACHES-A-TREE-RECORDING stands - a survivor of the version that asserted the read-back. It now reports recordedPid / treeProof instead. Two hardenings came with it so a next failure names itself: the post-measurement tail is wrapped in a try/catch that Warn-logs a RouteDockCapture FAILURE SITE: line carrying the exception type, message and first stack frame before rethrowing, and RunAnalysisAndPass re-derives its tree handle from the live active tree (a cell that splits twice can outlive the handle bound at StartRecordingAndWait) and names a null tree instead of dereferencing it. The produced save's ROUTE_ORIGIN_PROOF count was 0 on both H56 and H57, corroborating the forwarding defect from the save side. RE-FLY PENDING. Flight 1 (2026-09-02_1005) PARSEK-FAIL(results) - total=2 passed=1 failed=1: the NEGATIVE CONTROL passed with the exact expected line, and the SUBJECT red on its read-the-proof-back-off-a-committed-recording assertion, which is a real PRODUCT finding (ROUTE-ORIGIN-PROOF-NEVER-REACHES-A-TREE-RECORDING: the proof is produced and attached to FlightRecorder.CaptureAtStop, and in always-tree mode nothing forwards it onto a Recording). The subject cell now asserts the descriptor off the producer's own captured line and REPORTS what the tree holds; the forwarding defect is filed, not papered over. AUTHORED 2026-09-02. Tier B item 4, the start-docked origin subject, self-provisioned instead of hand-flown: two RouteStartDockedOrigin cells over the LANDED rover-route-recorded host. Cell 1 docks a spawned partner rig into the active vessel with NO recording running, starts the recording docked (the start-docked origin producer's only live entry point), asserts RouteOriginProof captured, undocks the depot, then docks a SECOND partner and delivers LiquidFuel across a real window - and after the stop asserts the M1 endpoint descriptor - a real body name and surface=1, so the origin endpoint gets its proximity rebuild - off the PRODUCER'S OWN RouteOriginProof captured: line plus the seam-scan pairing, and REPORTS what the tree holds through a StartDockedOriginForward: line rather than asserting it (flight 1 red on that read-back, and the caller set says the proof never reaches a Recording in always-tree mode - ROUTE-ORIGIN-PROOF-NEVER-REACHES-A-TREE-RECORDING). Cell 2 is the negative control that makes cell 1 mean something: the same rig docks and UNDOCKS before the start, so the node keeps its vesselInfo but its partner part is on another vessel, and IsSettledDockSeam's partner-resolves conjunct must reject it (outcome=no-external-coupling). THE CAVEAT: the cells couple with a raw Part.Couple, which writes no docking-node bookkeeping, so each stamps it first from the decompiled DockToVessel contract - half this gate is a stock-contract emulation, and what it buys is the whole LIVE producer path (walk parts, find the node, resolve the partner on this vessel, build the merged-vessel candidate, populate the descriptor and manifests, forward through BuildCaptureRecording across an undock split), which no headless test can drive. The host is landed because the resolver short-circuits on PRELAUNCH before it walks candidates, which is why H55's pad rig could never reach this branch. total=2 is attribute-exact and source-synced; passed=/skipped= are a regex class until the first census, registered in IsolatedBatchWiringGroupTests.INTERIM_PIN_IDS; failed=0 is a literal. The recordings count is pinned exactly at the staged 5, the anti-data-loss floor and the campaign-isolation ceiling in one row, measured on these bytes by RVR-1 on both its flights."
 instanceProfile = "stock-minimal"
 tags = ["ingame-batch", "isolated-batch", "logistics", "route", "dock", "origin-proof",
         "tier-b", "landed", "recorded-fixture", "H57"]
@@ -269,12 +309,10 @@ allowedAnomalies = []
 count = { min = 5, max = 5 }
 
 [expectations.logContracts]
-# EVIDENCE STANDING: AUTHORED, INTERIM, NEVER FLOWN. `total=` is attribute-derived and
-# source-synced; the `passed=` / `skipped=` split is a REGEX CLASS until the first census
-# measures it, and the id is declared in `IsolatedBatchWiringGroupTests.INTERIM_PIN_IDS`
-# to carry that obligation. `failed=0` is a LITERAL: a reading run may legitimately
-# discover a SKIP (see the skip hypothesis below), but a cell that FAILS here is a
-# finding either way.
+# EVIDENCE STANDING: WHOLE, TAKEN OFF THE 2026-09-06_1650 CENSUS. Every field of the
+# tally is a LITERAL - `total=3 passed=3 failed=0 skipped=0` - and the id is NOT in
+# `IsolatedBatchWiringGroupTests.INTERIM_PIN_IDS`. `total=` is additionally
+# attribute-derived and source-synced, so a fourth cell reds locally before it can fly.
 #
 # DERIVED, NOT GUESSED. The commands, so the next reader re-runs them:
 #   hlib.derive_batch_tally(decls, "RouteStartDockedOrigin", "FLIGHT", isolated=True)
@@ -288,26 +326,24 @@ count = { min = 5, max = 5 }
 #    `RestoreBatchFlightBaselineAfterExecution = true`. Kept in sync by
 #    `CommittedBatchTallySourceSyncTests`, so a fourth cell reds locally. The THIRD cell
 #    arrived 2026-09-06 with the predecessor-window pickup pass
-#    (ROUTE-ORIGIN-PROOF-PICKUP-PREDATING-THE-RECORDING), which is why the `passed=` /
-#    `skipped=` split is a REGEX CLASS again and the id is back in
-#    `IsolatedBatchWiringGroupTests.INTERIM_PIN_IDS` until the re-flight measures it.
-#  - The ATTRIBUTE FLOOR for `skipped` is 0 on the isolated path.
-#  - THE INTERIM `passed=` SPELLING IS THE PLAIN `[1-9][0-9]*`, and it is correct here
-#    rather than lazy: `RouteStartDockedOrigin` is WHOLLY batch-disabled, so the ORDINARY
-#    path's executable ceiling is `passed=0` and any `passed=[1-9][0-9]*` already proves
-#    the isolated route ran. The tally discriminates at a margin of two.
+#    (ROUTE-ORIGIN-PROOF-PICKUP-PREDATING-THE-RECORDING) and flew green on the same day,
+#    which is why `passed=3 skipped=0` went back to LITERALS in one step.
+#  - The ATTRIBUTE FLOOR for `skipped` is 0 on the isolated path, and the census MEASURED
+#    0, so it is pinned as a literal rather than as a floor.
+#  - `passed=3` DISCRIMINATES AT A MARGIN OF THREE: `RouteStartDockedOrigin` is WHOLLY
+#    batch-disabled, so the ORDINARY path's executable ceiling is `passed=0`; any non-zero
+#    passed already proves the isolated route ran, and the literal additionally proves no
+#    cell silently skipped.
 #  - scene=FLIGHT is this fixture's Focusable route, MEASURED by RVR-1 / RVR-2 / RVR-3 /
 #    H56 on this exact template, and it is the B10 fail-open guard.
 #
-# EXPECTED-SKIP HYPOTHESIS, pinned by nothing. Every shared precondition is answered by
-# the committed bytes (LANDED, 17 parts, latitude ~0.0055, one LiquidFuel tank at
-# 102.4 / 400 against a 20-unit request), and the four stock prefabs the rigs need were
-# proven to resolve on `stock-minimal` by H55 flight 1. So `passed=2 skipped=0` is the
-# predicted good case. The one skip worth naming in advance is cell 1's
-# "destination rig has no tank to receive the delivery", which would mean a `fuelTank`
-# spawn failed rather than a Parsek defect.
+# THE SKIP HYPOTHESIS IS DISCHARGED, not carried: `skipped=0` was measured on the 1650
+# census with all three cells executing. Both skips worth naming in advance - cell 1's
+# "destination rig has no tank to receive the delivery" and cell 3's "could not build a
+# predecessor window on this host" - would each mean a spawn or rig failure rather than a
+# Parsek defect, and the literal `skipped=0` is what turns either into a red.
 #
-# THE TWO STRUCTURAL TOKENS. The baseline-slot literal is 2 - DERIVED
+# THE TWO STRUCTURAL TOKENS. The baseline-slot literal is 3 - DERIVED
 # (`ordered.Count(t => t.RestoreBatchFlightBaselineAfterExecution)` over the admitted
 # batch), not copied - and is emitted only by
 # `InGameTestRunner.PrepareBatchFlightRestoreExecution`, which `RunCategory` never calls,
@@ -338,17 +374,19 @@ count = { min = 5, max = 5 }
 #   3 CLASSIFY + WINDOW - cell 1's SECOND dock, the delivery leg, wildcarded on ids and
 #     on the UT-bearing window name exactly as H55 / H56 pin them.
 #
-# THE TWO CELL TOKENS. One per cell, each pinning the fields that make the line a
-# STATEMENT rather than a name, and the two are deliberately mirror images: the subject
-# pins `proofCaptured=True` with a non-zero origin pid and a surface endpoint, the control
-# pins `proofCaptured=False originPid=0` with the exact skip branch. A regression that
-# made the producer fire unconditionally would go green on the first and red on the
-# second; one that lost the seam entirely does the reverse. Neither token alone is a gate.
+# THE CELL TOKENS. One per cell, each pinning the fields that make the line a STATEMENT
+# rather than a name. Cells 1 and 2 are deliberately mirror images: the subject pins
+# `proofCaptured=True` with a non-zero origin pid and a surface endpoint, the control pins
+# `proofCaptured=False originPid=0` with the exact skip branch. A regression that made the
+# producer fire unconditionally would go green on the first and red on the second; one that
+# lost the seam entirely does the reverse. Neither token alone is a gate. Cell 3's token is
+# grouped with the two predecessor tokens below rather than here, because its statement is
+# about the WALK and the BIND, not about the capture.
 required  = [
   "loadgame complete scene=FLIGHT save=.* game-loaded=true expected=Flight",
   "runtests start category=RouteStartDockedOrigin isolated=true",
   "Using batch baseline slot .* for 3 restore-after-run test\\(s\\)",
-  "BATCH_COMPLETE v1 total=3 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=RouteStartDockedOrigin scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=3 passed=3 failed=0 skipped=0 category=RouteStartDockedOrigin scene=FLIGHT",
   "RouteOriginProof seam scan: settledDockSeamCandidates=[1-9][0-9]* externalParentCandidates=0",
   # P12: CAPTURE NAMES NO ORIGIN. Both halves are recorded and the choice is deferred to
   # the undock, so the producer line is now `pair captured` and carries halfA / halfB
@@ -382,6 +420,47 @@ required  = [
   # here would mean the transfer never reached the transport half manifest.
   "RouteOriginProof bound at undock: recording=\\S+ ut=\\S+ binding=BoundToHalf[AB] recoveredFromStopStamp=[01] originHalf=[AB] originRoot=[1-9][0-9]* originName='[^']+' originType=[0-9]+ originPid=[0-9]+ guidDecision=\\S+ transportRoot=[1-9][0-9]* transportParts=[1-9][0-9]* pickup=Gain pickupValidated=1 pickupDelta=\\[.*\\] startRes=[0-9]+ undockRes=[0-9]+",
   "StartDockedOriginBind: cell=start-docked depotRoot=[1-9][0-9]* line=.*originRoot=[1-9][0-9]*.*",
+  # ---------------------------------------------------------------------------------
+  # CELL 3, the predecessor-window pickup (P15). Three tokens, and they are deliberately
+  # NOT a restatement of cell 1's: the two cells now exercise the two DIFFERENT pickup
+  # routes and the census must show both.
+  #
+  # THE WALK, the traversal's own instrument. `resolved=1 reason=parent-recording` pins
+  # the BRANCH-POINT edge specifically - the edge a stock Fly / Switch-To re-entry
+  # produces, which is the whole player case - and `predecessorWindows=1` says the
+  # resolved recording actually carried the window rather than resolving empty (a
+  # window-less predecessor ends the walk at NoWindows, fail-closed, and would green a
+  # `resolved=1` alone). The recording ids are run-local and regexed; the `-prev` suffix
+  # is the cell's own naming and IS pinned, because it is what says the walk landed on
+  # the injected predecessor and not on some other recording in the live tree.
+  "RouteOriginProof predecessor walk: recording=\\S+ resolved=1 reason=parent-recording predecessor=routedock-predecessor-window-[0-9a-f]{8}-prev predecessorWindows=1",
+  # THE BIND, and the token this whole pass exists to make true. Read against cell 1's
+  # bind token above, which is UNCHANGED at `pickup=Gain`: a regression that collapsed
+  # either spelling into the other reds on one of the two.
+  #
+  # `predecessorUndockUT=NaN` IS A LITERAL AND IS THE EVIDENCE, not noise. It says the
+  # evaluated window was still OPEN - the previous recording ended while still docked,
+  # which is exactly WHY this recording starts docked - so the rise was measured across
+  # TWO records (the window's dock baseline against this recording's own transport-half
+  # start manifests), which is the shape the operator's reload actually produces. A
+  # COMPLETE window would print a number there and is the easier case; pinning the NaN
+  # keeps this lane on the hard one. `predecessorDockUT` beside it is regexed - it is a
+  # run-local UT - and so are every recording id and window id on the line.
+  #
+  # `transportSignal=PostSplitActiveSide` and `dockWitnessed=0` are the two preconditions
+  # the rule is gated on: this recording never saw the dock, so the predecessor may be
+  # consulted at all. `gate=BindGain` says both validating spellings open the SAME gate,
+  # which is the invariant that keeps GainFromPredecessorWindow from becoming a second,
+  # laxer admission path.
+  "RouteOriginProof bound at undock: recording=\\S+ ut=\\S+ binding=BoundToHalf[AB] recoveredFromStopStamp=[01] originHalf=[AB] originRoot=[1-9][0-9]* originName='[^']+' originType=[0-9]+ originPid=[1-9][0-9]* guidDecision=\\S+ transportRoot=[1-9][0-9]* transportParts=[1-9][0-9]* pickup=GainFromPredecessorWindow pickupValidated=1 pickupDelta=\\[[^]]*\\] startRes=[0-9]+ undockRes=[0-9]+ startInv=[0-9]+ undockInv=[0-9]+ transportSignal=PostSplitActiveSide dockWitnessed=0 gate=BindGain predecessor=routedock-predecessor-window-[0-9a-f]{8}-prev predecessorPickup=GainFromPredecessorWindow predecessorWindow=dock-prev-routedock-predecessor-window-[0-9a-f]{8} predecessorDockUT=[0-9.]+ predecessorUndockUT=NaN",
+  # THE CELL LINE, carrying the equality no regex can express (depotRoot == originRoot is
+  # asserted INSIDE the cell; the two are logged side by side so a human census can see
+  # it) and the in-cell CONTROL. `control=NoRise` is the half that makes the rest mean
+  # something: the same classifier, on the same real manifests, with the window's dock
+  # baseline left UNREDUCED reads no rise at all - so the validating reading came from
+  # the seeded LiquidFuel deficit and not from a partial manifest fabricating one.
+  "StartDockedOriginPredecessor: cell=predecessor-window run=routedock-predecessor-window-[0-9a-f]{8} predecessor=routedock-predecessor-window-[0-9a-f]{8}-prev window=dock-prev-routedock-predecessor-window-[0-9a-f]{8} depotRoot=[1-9][0-9]* originRoot=[1-9][0-9]* pickup=GainFromPredecessorWindow validated=1 control=NoRise",
+  # ---------------------------------------------------------------------------------
   # The forwarding fix's own line. Without it the proof dies on FlightRecorder.CaptureAtStop
   # and never reaches a tree recording - which is what flights 1 and 2 measured.
   #

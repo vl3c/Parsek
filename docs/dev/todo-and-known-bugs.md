@@ -177,10 +177,12 @@ atmospheric-only config of B imposes NO phase constraint"; the live-anchor secti
 of `design-mission-phasing-alignment.md` (3.2 and 5.2) simply never considered a
 landed anchor.
 
-**Fix.** `TryGetVesselOrbit` now rejects `LandedOrSplashed` / `PRELAUNCH` anchors
-through the pure `MissionPeriodicity.IsPhaseAnchorEligible`, logging one
-rate-limited `TryGetVesselOrbit: skipped landed anchor pid=... situation=...` line
-per anchor pid. `ClassifyVesselOrbitalConstraint` then takes its existing
+**Fix.** `TryGetVesselOrbit` now rejects `LandedOrSplashed` / `PRELAUNCH` anchors,
+logging one rate-limited `TryGetVesselOrbit: skipped landed anchor pid=...
+situation=...` line per anchor pid (as shipped this ran through the pure
+`MissionPeriodicity.IsPhaseAnchorEligible(landedOrSplashed, situation)`; since the
+follow-up below it is the situation-naming pre-check
+`MissionPeriodicity.IsSurfaceAnchorSituation`, with the orbit contract deciding). `ClassifyVesselOrbitalConstraint` then takes its existing
 `UnsupportedRendezvous` reject, `Solve` maps that to the no-lock sentinel, and the
 route keeps its built cadence and anchor. Chosen over an extractor-side guard,
 which would have taken the `count == 0` free-loop branch and substituted
@@ -223,6 +225,34 @@ the ONLY place a `VesselOrbital` period is read) ->
 implementation outside test code, so there is no second reader to guard. Nothing to
 fix; do not re-open this on a flight log without decompiling the deployed method
 body first (see `.claude/CLAUDE.md` -> "Verify the deployed DLL after building").
+
+**~~Follow-up from the #1623 review: FLYING / SUB_ORBITAL anchors were still
+accepted.~~ DONE 2026-09-06 (branch `airborne-phase-anchors`).** The shipped guard
+was a SITUATION LIST, so an aircraft in the atmosphere or a rocket on its way up
+still passed: stock gives both a closed orbit (ecc < 1) with a finite period, which
+is exactly the meaningless number the landed rover contributed. Never measured in a
+flight - the relay subject is all-surface - but reachable from ordinary play the
+moment a mission names an airborne craft as its rendezvous target.
+
+**Fix.** The situation list is replaced by the PHYSICAL contract:
+`MissionPeriodicity.IsPhaseAnchorEligible(double periapsisAltitude, bool
+bodyHasAtmosphere, double atmosphereDepth)` requires the anchor's orbit not to
+intersect the surface or the atmosphere - periapsis strictly above `atmosphereDepth`
+on a body with an atmosphere, strictly above 0 on an airless one - fed from the live
+`Orbit.PeA` plus `orbit.referenceBody.atmosphere` / `.atmosphereDepth`. NaN /
+infinite / negative-depth inputs and the boundary itself fail closed. It SUBSUMES the
+old list (a surface pseudo-orbit's periapsis is hundreds of kilometres below the
+surface), so nothing about the landed case changes. The cheap situation pre-check
+survives as `MissionPeriodicity.IsSurfaceAnchorSituation`, decides nothing, and
+exists only to keep the surface rejection legible in the log - it still emits the
+`TryGetVesselOrbit: skipped landed anchor pid=... situation=...` line harness lane
+RVR-9 pins, unchanged word for word. The new rejection logs
+`TryGetVesselOrbit: skipped atmosphere-intersecting anchor pid=... situation=...
+peA=... body=... atmosphere=... atmosphereDepth=...` (rate-limited Verbose, keyed per
+anchor pid). Covered by the re-pinned `IsPhaseAnchorEligible_*` theories, a new
+`IsSurfaceAnchorSituation_*` theory, and an in-game `MissionPhasing` cell
+(`AirborneAnchor_RefusedByTheOrbitContract`) that drives the live orbit through the
+seam and skips naming its required context otherwise.
 
 ---
 
@@ -1731,13 +1761,25 @@ its destination as an origin (`Pickup_PureDeliveryUndock_IsNotAPickup` stands). 
 predecessor is consulted ONLY when this recording did not witness the dock and did not
 already measure a `Gain` - a witnessed dock that moved nothing onto the transport is
 positive delivery evidence, and a stale window one recording back must not overturn it.
-Every refusal is named on the bind line (`predecessorPickup=NoWindows` /
+Refusals are named on TWO different surfaces, and they are spelled differently on
+purpose: a failure to RESOLVE a predecessor is the Verbose `RouteOriginProof predecessor
+walk:` line's kebab-case `reason=` (`no-tree` / `no-predecessor` /
+`predecessor-not-same-launch` / `parent-recording` / `chain-predecessor`), while the
+RULE's outcome is the bind line's Pascal-case `predecessorPickup=` (`NoWindows` /
 `NoPartnerMatch` / `PartnerRootMismatch` / `WindowAfterRecordingStart` /
-`TransportPartSetDrift` / `Unmeasurable` / `NoRise` / `not-consulted`).
+`TransportPartSetDrift` / `Unmeasurable` / `NoRise`, or `not-consulted` when the
+predecessor was never asked). Both no-predecessor cases collapse to `NoWindows` on the
+bind line - the walk line is what separates "nothing resolved" from "resolved, no
+windows", and the walk STOPS at the first resolved predecessor rather than looking for
+one that happens to carry a window.
 
-Headless: `PredecessorWindowPickupTests` (33 cells over the window rules, the walk, the
-whole binder and the persisted partner identity). Live: H57's third cell,
-`StartDockedOrigin_PredecessorWindowValidatesThePickup`. Memo:
+Headless: `PredecessorWindowPickupTests` (34 cells over the window rules, the walk - the
+guid gate covered on BOTH the branch-point edge and the chain edge - the whole binder,
+and the persisted partner identity including the sparse `endpointRootPartUId` key). Live:
+H57's third cell, `StartDockedOrigin_PredecessorWindowValidatesThePickup`, FLOWN GREEN
+2026-09-06 (`2026-09-06_1650`, `total=3 passed=3 failed=0 skipped=0`), whose bind read
+`pickup=GainFromPredecessorWindow pickupValidated=1 ... predecessorUndockUT=NaN` - the
+OPEN-window shape, which is the operator's case. Memo:
 `docs/dev/research/pickup-predating-the-recording.md`.
 
 ## ~~ROUTE-DELIVERY-PROXIMITY-RETARGETS-ANY-NEARBY-VESSEL: when the recorded destination no longer exists, the endpoint resolver's 500 m surface search accepts whatever craft is parked there - and the route delivered a full manifest into the player's own active-scene rover~~ [MEASURED 2026-09-03 by the RVR-18 census `2026-09-03_2011`. RULED 2026-09-04 and FIXED - the substitution is now a persisted, announced TRANSFER, with the route's own transport excluded]

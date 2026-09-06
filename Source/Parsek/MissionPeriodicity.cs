@@ -260,10 +260,12 @@ namespace Parsek
         double Radius(string bodyName);
 
         /// <summary>Resolves a vessel by persistentId to its CURRENT orbit. False when the vessel
-        /// does not exist in the save, is LANDED / SPLASHED / PRELAUNCH (a surface vessel carries a
-        /// pseudo-orbit - stock reports ecc ~0.9948 with a finite period - which is NOT a phase
-        /// reference; see <see cref="MissionPeriodicity.IsPhaseAnchorEligible"/>), has no orbit,
-        /// the orbit is not closed (ecc &gt;= 1 / degenerate period), or
+        /// does not exist in the save, has no orbit, the orbit is not closed (ecc &gt;= 1 /
+        /// degenerate period), the orbit INTERSECTS the surface or the atmosphere (see
+        /// <see cref="MissionPeriodicity.IsPhaseAnchorEligible"/> - this covers the surface
+        /// pseudo-orbit stock keeps on a LANDED / SPLASHED / PRELAUNCH craft as well as an
+        /// aircraft FLYING and an ascending SUB_ORBITAL rocket, none of which is a phase
+        /// reference), or
         /// <paramref name="recordedVesselGuid"/> conclusively differs from
         /// the live vessel's launch Guid (persistentId is craft-baked, NOT launch-unique: a fresh
         /// launch of the same craft reuses the pid and must not read as the recorded anchor;
@@ -281,27 +283,69 @@ namespace Parsek
         internal static bool SuppressLogging;
 
         /// <summary>
-        /// Pure eligibility predicate for a live vessel used as a PHASE anchor
-        /// (<see cref="IBodyInfo.TryGetVesselOrbit"/>). A landed / splashed /
-        /// prelaunch vessel is NOT one: stock keeps a pseudo-orbit on a surface
-        /// vessel (an extreme-eccentricity ellipse, e ~0.9948, whose period is a
-        /// finite few hundred seconds and drifts as the craft settles), so the
-        /// ecc &gt;= 1 and non-positive-period filters both pass it and a
-        /// surface-only config would acquire an orbital phase lock it can never
-        /// satisfy - delaying dispatch and stretching every later cycle. The
-        /// design's "a surface-only / atmospheric-only config imposes NO phase
-        /// constraint" rule (design-mission-periodicity, "Edge cases") is what
-        /// this enforces on the LIVE-anchor side. Fail closed: rejecting here
-        /// routes the classifier to its existing UnsupportedRendezvous branch, so
-        /// the mission keeps its built cadence and anchor.
+        /// THE eligibility contract for a live vessel used as a PHASE anchor
+        /// (<see cref="IBodyInfo.TryGetVesselOrbit"/>): the anchor's orbit must not
+        /// intersect the surface or the atmosphere. A phase reference is something a
+        /// mission can repeatedly meet at the same place in an orbit; an orbit that
+        /// comes back down is not one, whatever finite period stock reports for it.
+        /// The floor is <paramref name="atmosphereDepth"/> on a body with an atmosphere
+        /// (an orbit dipping into the air decays and is not repeatable) and 0 on an
+        /// airless body (the surface itself).
+        ///
+        /// This is a PHYSICAL test, not a situation list, and it is what rejects the
+        /// three shapes that carry a closed stock orbit but no phase reference:
+        /// a LANDED / SPLASHED / PRELAUNCH craft (stock keeps a pseudo-orbit on it - an
+        /// extreme-eccentricity ellipse, e ~0.9948, whose periapsis sits far below the
+        /// surface and whose finite few-hundred-second period drifts as the craft
+        /// settles), an aircraft FLYING in the atmosphere, and an ascending
+        /// SUB_ORBITAL rocket. All three pass the ecc &gt;= 1 and non-positive-period
+        /// filters, and any of them would give a mission an orbital phase lock it can
+        /// never satisfy - delaying dispatch and stretching every later cycle
+        /// (PERIODICITY-LANDED-ANCHOR-PHASE-LOCK, 2026-09-03). The design's "a
+        /// surface-only / atmospheric-only config imposes NO phase constraint" rule
+        /// (design-mission-periodicity, "Edge cases") is what this enforces on the
+        /// LIVE-anchor side.
+        ///
+        /// <paramref name="periapsisAltitude"/> is the periapsis altitude above the
+        /// reference body's radius (stock <c>Orbit.PeA</c>; negative below the surface).
+        /// Fail closed on every non-finite or nonsensical input, and at the boundary
+        /// itself - periapsis exactly at the atmosphere top, or exactly 0 on an airless
+        /// body, is REJECTED. Rejecting routes the classifier to its existing
+        /// UnsupportedRendezvous branch, so the mission keeps its built cadence and
+        /// anchor.
         /// </summary>
         internal static bool IsPhaseAnchorEligible(
+            double periapsisAltitude, bool bodyHasAtmosphere, double atmosphereDepth)
+        {
+            if (double.IsNaN(periapsisAltitude) || double.IsInfinity(periapsisAltitude))
+                return false;
+            double floorAltitude = 0.0;
+            if (bodyHasAtmosphere)
+            {
+                // An unusable atmosphere depth means the floor is UNKNOWN, not zero.
+                if (double.IsNaN(atmosphereDepth) || double.IsInfinity(atmosphereDepth)
+                    || atmosphereDepth < 0.0)
+                    return false;
+                floorAltitude = atmosphereDepth;
+            }
+            return periapsisAltitude > floorAltitude;
+        }
+
+        /// <summary>
+        /// Cheap pre-check for the SURFACE case of the orbit contract above. A landed /
+        /// splashed / prelaunch craft's pseudo-orbit has its periapsis far below the
+        /// surface, so <see cref="IsPhaseAnchorEligible"/> already rejects it: this only
+        /// lets the seam name the reason without reading the pseudo-orbit first, and
+        /// keeps the surface rejection legible in a flight log (harness lane RVR-9 reads
+        /// that line). It is NOT the contract - removing it changes no decision.
+        /// </summary>
+        internal static bool IsSurfaceAnchorSituation(
             bool landedOrSplashed, Vessel.Situations situation)
         {
-            return !landedOrSplashed
-                && situation != Vessel.Situations.LANDED
-                && situation != Vessel.Situations.SPLASHED
-                && situation != Vessel.Situations.PRELAUNCH;
+            return landedOrSplashed
+                || situation == Vessel.Situations.LANDED
+                || situation == Vessel.Situations.SPLASHED
+                || situation == Vessel.Situations.PRELAUNCH;
         }
 
         // Environments that constrain a body's ROTATION phase (a surface/atmospheric segment
@@ -2935,12 +2979,13 @@ namespace Parsek
             // guid falls back to pid-only).
             if (VesselLaunchIdentity.GuidsConclusivelyDiffer(recordedVesselGuid, v.id.ToString()))
                 return false;
-            // Landed / splashed / prelaunch anchors are NOT phase references: stock keeps a
-            // pseudo-orbit on a surface vessel (e ~0.9948 with a finite, drifting period), so
-            // BOTH filters below pass it and a surface-only relay tree would acquire an orbital
-            // phase lock (PERIODICITY-LANDED-ANCHOR-PHASE-LOCK). Rejected here so the classifier
-            // takes its existing UnsupportedRendezvous branch and the route keeps its cadence.
-            if (!MissionPeriodicity.IsPhaseAnchorEligible(v.LandedOrSplashed, v.situation))
+            // Surface pre-check, ahead of the orbit read purely so the log can name the reason:
+            // a landed / splashed / prelaunch craft's pseudo-orbit (e ~0.9948 with a finite,
+            // drifting period) has its periapsis far below the surface, so the orbit contract
+            // below rejects it anyway (PERIODICITY-LANDED-ANCHOR-PHASE-LOCK). Rejected so the
+            // classifier takes its existing UnsupportedRendezvous branch and the route keeps
+            // its cadence.
+            if (MissionPeriodicity.IsSurfaceAnchorSituation(v.LandedOrSplashed, v.situation))
             {
                 if (!MissionPeriodicity.SuppressLogging)
                 {
@@ -2966,8 +3011,38 @@ namespace Parsek
                 return false;
             if (double.IsNaN(period) || double.IsInfinity(period) || period <= 0.0)
                 return false;
+            CelestialBody refBody = orbit.referenceBody;
+            // No reference body means no surface / atmosphere floor to test the orbit against:
+            // fail closed rather than accept an anchor whose orbit cannot be placed.
+            if (refBody == null)
+                return false;
+            // THE contract: the orbit must not intersect the surface or the atmosphere. An
+            // aircraft FLYING and an ascending SUB_ORBITAL rocket both carry a closed stock orbit
+            // with a finite period, and neither is a phase reference (the #1623 review's
+            // follow-up: the situation list this replaced let both through).
+            if (!MissionPeriodicity.IsPhaseAnchorEligible(
+                    orbit.PeA, refBody.atmosphere, refBody.atmosphereDepth))
+            {
+                if (!MissionPeriodicity.SuppressLogging)
+                {
+                    ParsekLog.VerboseRateLimited(
+                        "MissionPeriodicity",
+                        // One key per anchor pid: bounded by the anchor-candidate count.
+                        "vessel-orbit-airborne-anchor." + vesselPid.ToString(CultureInfo.InvariantCulture),
+                        "TryGetVesselOrbit: skipped atmosphere-intersecting anchor " +
+                        $"pid={vesselPid.ToString(CultureInfo.InvariantCulture)} " +
+                        $"situation={v.situation} " +
+                        "peA=" + orbit.PeA.ToString("F1", CultureInfo.InvariantCulture) + " " +
+                        "body=" + refBody.bodyName + " " +
+                        "atmosphere=" + (refBody.atmosphere ? "yes" : "no") + " " +
+                        "atmosphereDepth=" +
+                        refBody.atmosphereDepth.ToString("F1", CultureInfo.InvariantCulture) +
+                        " - an orbit that re-enters is not a phase reference");
+                }
+                return false;
+            }
             periodSeconds = period;
-            orbitBodyName = orbit.referenceBody != null ? orbit.referenceBody.bodyName : null;
+            orbitBodyName = refBody.bodyName;
             return true;
         }
     }

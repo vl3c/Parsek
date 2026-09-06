@@ -88,16 +88,34 @@ The `VesselOrbital` constraint's period (and phase reference) derives, per loop-
    existing vessel always carries an orbit). Read T_station and the phase reference from
    its CURRENT orbit. The live station is where the approach will visually land, so the
    live orbit is the alignment truth.
-   **"Carries an orbit" is not "carries a phase reference."** A LANDED / SPLASHED /
-   PRELAUNCH vessel keeps a stock pseudo-orbit - an extreme-eccentricity ellipse
-   (e ~0.9948) whose period is a finite few hundred seconds and drifts while the craft
-   settles - which passes both the `ecc >= 1` and the degenerate-period filters. A
-   surface vessel is therefore rejected as an anchor BEFORE its orbit is read, via the
-   pure `MissionPeriodicity.IsPhaseAnchorEligible(landedOrSplashed, situation)`; the
-   classifier then takes its existing `UnsupportedRendezvous` reject and the mission
-   keeps its built cadence. This mirrors the periodicity design's "a surface-only /
+   **"Carries an orbit" is not "carries a phase reference."** THE CONTRACT IS
+   PHYSICAL: the anchor's orbit must not intersect the surface or the atmosphere -
+   periapsis strictly above `atmosphereDepth` on a body with an atmosphere, strictly
+   above 0 on an airless one - checked by the pure
+   `MissionPeriodicity.IsPhaseAnchorEligible(periapsisAltitude, bodyHasAtmosphere,
+   atmosphereDepth)` against the live `Orbit.PeA` and the reference body's
+   `atmosphere` / `atmosphereDepth`. An orbit that comes back down cannot be met
+   repeatedly at the same place, whatever finite period stock reports for it, and
+   three shapes carry exactly such an orbit: a LANDED / SPLASHED / PRELAUNCH vessel
+   (its pseudo-orbit is an extreme-eccentricity ellipse, e ~0.9948, whose period is a
+   finite few hundred seconds and drifts while the craft settles, and whose periapsis
+   sits hundreds of kilometres below the surface), an aircraft FLYING, and an
+   ascending SUB_ORBITAL rocket. All three pass both the `ecc >= 1` and the
+   degenerate-period filters, so the orbit test is what rejects them. The classifier
+   then takes its existing `UnsupportedRendezvous` reject and the mission keeps its
+   built cadence. This mirrors the periodicity design's "a surface-only /
    atmospheric-only config imposes NO phase constraint" rule on the live-anchor side
-   (PERIODICITY-LANDED-ANCHOR-PHASE-LOCK, 2026-09-03).
+   (PERIODICITY-LANDED-ANCHOR-PHASE-LOCK, 2026-09-03; the situation-list form of the
+   guard shipped first and was replaced by the orbit test, which subsumes it, once the
+   review observed that an aircraft locks a mission just as meaninglessly).
+   A cheap situation pre-check, `MissionPeriodicity.IsSurfaceAnchorSituation`, runs
+   first for ONE reason: so a surface rejection names itself in the flight log
+   (`TryGetVesselOrbit: skipped landed anchor ...`, the line harness lane RVR-9 reads)
+   without the pseudo-orbit being read first. It decides nothing - the orbit test
+   already rejects every craft it matches. The atmosphere-intersecting rejection logs
+   its own line, `TryGetVesselOrbit: skipped atmosphere-intersecting anchor ...`,
+   carrying `peA`, `body`, `atmosphere` and `atmosphereDepth`. Both are rate-limited
+   Verbose, keyed per anchor pid.
 2. **Identity resolution (corrected by the 2026-06-11 playtest)**: the recorder
    deliberately ZEROES the section's `anchorVesselId` whenever it stamps an
    `anchorRecordingId` (FlightRecorder serialization checkpoints), so the
@@ -305,7 +323,8 @@ Supported (extract `VesselOrbital`):
   foreign-anchored section is a direct target; both directions merge to one target keeping
   the FIRST rendezvous UT. A mission whose vessel-anchored sections are ALL intra-self pairs
   has no foreign target: no constraint, and NOT a reject (Support untouched).
-- The anchor's orbit is CLOSED (elliptical) and around the SAME parent body the mission's
+- The anchor's orbit is CLOSED (elliptical), CLEARS the surface and the atmosphere
+  (section 3.2's physical contract), and is around the SAME parent body the mission's
   constraint set already operates in (the LKO-resupply shape: pad Rotation(Kerbin) +
   VesselOrbital(station around Kerbin)).
 
@@ -313,8 +332,10 @@ Still rejected (fail closed, reason string preserved):
 - Two or more DISTINCT vessel anchors in one window (multi-rendezvous tours).
 - Cross-parent vessel anchors (station around the destination body): Tier 2.
 - Unresolvable anchors (section 3.2 case 3) and non-closed anchor orbits.
-- LANDED / SPLASHED / PRELAUNCH anchors (section 3.2): a surface pseudo-orbit is not a
-  phase reference, so the seam refuses it and the reject reason is the same
+- Anchors whose orbit INTERSECTS the surface or the atmosphere (section 3.2): the
+  surface pseudo-orbit of a LANDED / SPLASHED / PRELAUNCH craft, an aircraft FLYING,
+  an ascending SUB_ORBITAL rocket, and any orbit whose periapsis is inside the air.
+  None is a phase reference, so the seam refuses it and the reject reason is the same
   "not in save / no closed orbit" string.
 
 ### 5.3 Solving and tolerance
