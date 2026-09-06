@@ -1137,7 +1137,13 @@ namespace Parsek
             bool dockWitnessedInRecording,
             bool flowContradictsFocus = false)
         {
-            if (transportPickup == OriginPickupKind.Gain)
+            // IsPickupValidated, not `== Gain`: the EFFECTIVE pickup handed in here may be
+            // GainFromPredecessorWindow, which is the same flow test measured on the same
+            // transport half against the same partner - just bracketed by the PREVIOUS
+            // recording's window. Both validating classes must open the same gate, or the
+            // predecessor evidence would validate the pickup and then be refused by a gate
+            // that only knows one spelling of a rise.
+            if (IsPickupValidated(transportPickup))
                 return OriginBindGate.BindGain;
             if (flowContradictsFocus)
                 return OriginBindGate.SkipFlowContradictsFocus;
@@ -1400,15 +1406,365 @@ namespace Parsek
         /// with cargo it already had", which is exactly what an operator reading a
         /// non-validated proof needs to see - but it never validates.</para>
         ///
-        /// <para>THE CASE THIS DELIBERATELY FAILS CLOSED ON: a run whose inflow happened
-        /// BEFORE the recording started (dock, load, quicksave, reload, start recording,
-        /// undock). Filed as ROUTE-ORIGIN-PROOF-PICKUP-PREDATING-THE-RECORDING with the fix
-        /// shape; not built here because the evidence lives on a DIFFERENT recording in the
-        /// tree and the lookup is neither cheap nor pure at this seam.</para>
+        /// <para>THE INFLOW THAT PREDATES THE RECORDING (dock, load, fly something else,
+        /// come back through stock Fly / Switch-To - which starts a NEW recording in the
+        /// same tree - then undock) is no longer failed closed: it validates as
+        /// <see cref="OriginPickupKind.GainFromPredecessorWindow"/> when the PREVIOUS
+        /// recording of the same launch holds the connection window that bracketed the load
+        /// and the transport half's admitted cargo rose across it
+        /// (<see cref="ClassifyPredecessorPickup"/>). That is the SAME flow test on the SAME
+        /// transport half against the SAME partner - only the bracket lives one recording
+        /// back - so it is a second spelling of a rise, not a second rule. It does NOT
+        /// re-open `Carried`: without a partner-matched window showing a rise, the stamp is
+        /// still unvalidated. Memo:
+        /// <c>docs/dev/research/pickup-predating-the-recording.md</c>.</para>
         /// </summary>
         internal static bool IsPickupValidated(OriginPickupKind kind)
         {
-            return kind == OriginPickupKind.Gain;
+            return kind == OriginPickupKind.Gain
+                || kind == OriginPickupKind.GainFromPredecessorWindow;
+        }
+
+        /// <summary>
+        /// Why the PREVIOUS recording's connection windows did or did not witness the pickup
+        /// this recording could not see. Explicit values: the names are interpolated into the
+        /// bind line's <c>predecessorPickup=</c> field and asserted by tests.
+        /// </summary>
+        internal enum PredecessorPickupOutcome
+        {
+            /// <summary>No predecessor recording was resolved, or it carried no windows.</summary>
+            NoWindows = 0,
+            /// <summary>
+            /// The latest window's part sets do not name this seam's two halves: its
+            /// transport side is not the half now flying the run, or its endpoint side is not
+            /// the half now being named the origin. A window with a different partner is not
+            /// evidence.
+            /// </summary>
+            NoPartnerMatch = 1,
+            /// <summary>
+            /// The part sets matched but the LAUNCH-UNIQUE keys disagree: the window's
+            /// endpoint root part <c>flightID</c> is not the origin half's. Two different
+            /// launches of one craft file share every craft-baked <c>persistentId</c>, so
+            /// this is the conclusive refusal.
+            /// </summary>
+            PartnerRootMismatch = 2,
+            /// <summary>
+            /// The window is not entirely in the past: its dock, or its undock on a complete
+            /// window, falls at or after this recording's start. Anything that closes after
+            /// this recording began is this recording's own business.
+            /// </summary>
+            WindowAfterRecordingStart = 3,
+            /// <summary>
+            /// OPEN-window shape only. The window's transport part set is not EQUAL to the
+            /// seam-derived transport half's, so the two manifests being differenced were
+            /// scoped to different part sets and the delta would be fiction.
+            /// </summary>
+            TransportPartSetDrift = 4,
+            /// <summary>No baseline or no end manifest: the rise is unevaluable.</summary>
+            Unmeasurable = 5,
+            /// <summary>
+            /// The window is real, the partner is right and the span is measurable - and the
+            /// transport's admitted cargo did NOT rise across it. A delivery, or a no-op.
+            /// </summary>
+            NoRise = 6,
+            /// <summary>The transport half's admitted cargo ROSE across the window. THE ONLY VALIDATING OUTCOME.</summary>
+            GainFromPredecessorWindow = 7,
+        }
+
+        /// <summary>
+        /// What the predecessor's windows said, with enough identity to put in the log.
+        /// </summary>
+        internal sealed class PredecessorPickupEvidence
+        {
+            public PredecessorPickupOutcome Outcome = PredecessorPickupOutcome.NoWindows;
+            /// <summary>The window that was EVALUATED (the latest by dock UT), when there was one.</summary>
+            public string WindowId;
+            public double DockUT = double.NaN;
+            public double UndockUT = double.NaN;
+            /// <summary>True when the evaluated window was still open when the predecessor ended.</summary>
+            public bool WindowWasOpen;
+
+            internal bool IsValidating =>
+                Outcome == PredecessorPickupOutcome.GainFromPredecessorWindow;
+        }
+
+        /// <summary>
+        /// THE PREDECESSOR-WINDOW PICKUP RULE, pure / static. Closes
+        /// ROUTE-ORIGIN-PROOF-PICKUP-PREDATING-THE-RECORDING: the load that put the cargo on
+        /// the transport was witnessed - by the PREVIOUS recording of the same launch, whose
+        /// <see cref="RouteConnectionWindow"/> brackets it - and this recording, which opened
+        /// already docked, only ever sees the result.
+        ///
+        /// <para>THE LATEST WINDOW BY DOCK UT, AND ONLY THAT ONE. Scanning for "any window
+        /// that gained" would be cherry-picking, and cherry-picking across seams is exactly
+        /// how a route ends up debiting a vessel that supplied nothing: what the transport
+        /// left a partner with is what the LAST thing that happened at that seam says.</para>
+        ///
+        /// <para>TWO ADMISSIBLE SHAPES, and the reload case is the second.
+        /// A COMPLETE window (undocked at or before this recording's start) is measured
+        /// inside itself, dock manifest -> undock manifest. An OPEN window - still docked
+        /// when the predecessor ended, which is WHY this recording starts docked - is
+        /// measured dock manifest -> THIS recording's own transport-half start manifests: the
+        /// span between them is entirely docked, so it is the same causal flow read across
+        /// the two records. Only the open shape requires the two transport part sets to be
+        /// EQUAL, because only it differences manifests taken from different records.</para>
+        ///
+        /// <para>THE RISE IS <see cref="ClassifyOriginPickup"/>, reused verbatim - same
+        /// admitted set, same epsilon, same null-baseline-is-unevaluable rule, resources AND
+        /// inventory. There is one transfer rule in this file and this is not a second
+        /// one.</para>
+        ///
+        /// <para>FAIL-CLOSED IS THE DEFAULT: every refusal path returns a NAMED outcome and
+        /// the caller leaves the pickup unvalidated. Being wrong in this direction costs a
+        /// route; being wrong in the other direction moves which vessel a route DEBITS.</para>
+        /// </summary>
+        /// <param name="predecessorWindows">The predecessor recording's own window list.</param>
+        /// <param name="transportHalfPartPids">The half resolved as the RUN's transport at this bind.</param>
+        /// <param name="originHalfPartPids">The half being named the ORIGIN at this bind.</param>
+        /// <param name="originHalfRootPartUId">
+        /// The origin half's root part <c>flightID</c> (launch-unique). Checked against the
+        /// window's <see cref="RouteConnectionWindow.EndpointRootPartUId"/> when BOTH are
+        /// known; an unknown value on either side degrades to the part-pid overlap.
+        /// </param>
+        /// <param name="recordingStartUT">This recording's start UT.</param>
+        /// <param name="transportStartResources">This recording's transport-half start resources (the OPEN-window end manifest).</param>
+        /// <param name="transportStartInventory">This recording's transport-half start inventory (the OPEN-window end manifest).</param>
+        internal static PredecessorPickupEvidence ClassifyPredecessorPickup(
+            IReadOnlyList<RouteConnectionWindow> predecessorWindows,
+            IReadOnlyList<uint> transportHalfPartPids,
+            IReadOnlyList<uint> originHalfPartPids,
+            uint originHalfRootPartUId,
+            double recordingStartUT,
+            Dictionary<string, ResourceAmount> transportStartResources,
+            List<InventoryPayloadItem> transportStartInventory)
+        {
+            var evidence = new PredecessorPickupEvidence();
+            if (predecessorWindows == null || predecessorWindows.Count == 0)
+                return evidence;
+
+            // THE LATEST WINDOW BY DOCK UT. A window with no dock UT at all cannot be
+            // ordered and cannot be shown to predate this recording, so it is not a
+            // candidate - which also keeps a NaN out of the comparison below.
+            RouteConnectionWindow latest = null;
+            for (int i = 0; i < predecessorWindows.Count; i++)
+            {
+                RouteConnectionWindow w = predecessorWindows[i];
+                if (w == null || double.IsNaN(w.DockUT)) continue;
+                if (latest == null || w.DockUT > latest.DockUT)
+                    latest = w;
+            }
+            if (latest == null)
+                return evidence;
+
+            evidence.WindowId = latest.WindowId;
+            evidence.DockUT = latest.DockUT;
+            evidence.UndockUT = latest.UndockUT;
+            evidence.WindowWasOpen = !latest.IsComplete;
+
+            // THE PARTNER MATCH, through the SAME predicate the in-recording bind uses: the
+            // window's transport side must be the half now flying the run and its endpoint
+            // side must be the half now being named the origin.
+            if (!WindowNamesHalfAsTransport(latest, transportHalfPartPids, originHalfPartPids))
+            {
+                evidence.Outcome = PredecessorPickupOutcome.NoPartnerMatch;
+                return evidence;
+            }
+
+            // THE LAUNCH-UNIQUE CROSS-CHECK. Part persistentIds are craft-baked and reused
+            // verbatim by every launch of a craft file, so the overlap above cannot by itself
+            // separate two identical bases. A root part flightID can, and it is CONCLUSIVE
+            // when both sides know it. Unknown on either side degrades to the overlap, which
+            // is what every other identity site here does with an unknown launch guid.
+            if (latest.EndpointRootPartUId != 0u && originHalfRootPartUId != 0u
+                && latest.EndpointRootPartUId != originHalfRootPartUId)
+            {
+                evidence.Outcome = PredecessorPickupOutcome.PartnerRootMismatch;
+                return evidence;
+            }
+
+            if (double.IsNaN(recordingStartUT)
+                || latest.DockUT > recordingStartUT
+                || (latest.IsComplete && latest.UndockUT > recordingStartUT))
+            {
+                evidence.Outcome = PredecessorPickupOutcome.WindowAfterRecordingStart;
+                return evidence;
+            }
+
+            Dictionary<string, ResourceAmount> endResources;
+            List<InventoryPayloadItem> endInventory;
+            if (latest.IsComplete)
+            {
+                endResources = latest.UndockTransportResources;
+                endInventory = latest.UndockTransportInventory;
+            }
+            else
+            {
+                // THE OPEN-WINDOW SHAPE crosses two records, so the two manifests must have
+                // been scoped to the SAME part set or the difference is fiction. Equality,
+                // not overlap: a staging or EVA-construction drift across the docked span
+                // would otherwise read as a rise or hide one.
+                if (!SetsEqual(latest.TransportPartPersistentIds, transportHalfPartPids))
+                {
+                    evidence.Outcome = PredecessorPickupOutcome.TransportPartSetDrift;
+                    return evidence;
+                }
+                endResources = transportStartResources;
+                endInventory = transportStartInventory;
+            }
+
+            if (endResources == null && endInventory == null)
+            {
+                evidence.Outcome = PredecessorPickupOutcome.Unmeasurable;
+                return evidence;
+            }
+
+            OriginPickupKind rise = ClassifyOriginPickup(
+                latest.DockTransportResources, endResources,
+                latest.DockTransportInventory, endInventory);
+
+            if (rise == OriginPickupKind.Gain)
+                evidence.Outcome = PredecessorPickupOutcome.GainFromPredecessorWindow;
+            else if (rise == OriginPickupKind.NoUndockManifest)
+                evidence.Outcome = PredecessorPickupOutcome.Unmeasurable;
+            else
+                evidence.Outcome = PredecessorPickupOutcome.NoRise;
+            return evidence;
+        }
+
+        /// <summary>
+        /// Pure / static. Set equality over two part-pid lists (order and duplicates
+        /// irrelevant). Two null / empty lists are NOT equal here: an absent part set is
+        /// unknown, and the one caller uses this as an admission gate.
+        /// </summary>
+        private static bool SetsEqual(IReadOnlyList<uint> a, IReadOnlyList<uint> b)
+        {
+            if (a == null || b == null || a.Count == 0 || b.Count == 0) return false;
+            var setA = new HashSet<uint>(a);
+            var setB = new HashSet<uint>(b);
+            return setA.SetEquals(setB);
+        }
+
+        /// <summary>
+        /// THE PREDECESSOR WALK, pure / static over the tree's own data so it is drivable
+        /// headlessly even though its live caller is <c>ParsekFlight</c>. "The previous
+        /// recording of the same vessel", by three edges tried in order:
+        ///
+        /// <list type="number">
+        /// <item>the recording's parent BRANCH POINT (<c>ParentBranchPointId</c> ->
+        /// <c>BranchPoint.ParentRecordingIds</c>). This is the edge that carries the player
+        /// case: on the stock Fly / Switch-To re-entry
+        /// <c>SwitchSegmentBuilder.CreateSwitchContinuationSegment</c> builds a NEW recording
+        /// in the SAME tree linked ONLY by a <c>VesselSwitchContinuation</c> branch
+        /// point.</item>
+        /// <item><c>ParentRecordingId</c>, the EVA / chain linkage field.</item>
+        /// <item>the chain predecessor: same <c>ChainId</c> and <c>ChainBranch</c>, the
+        /// largest <c>ChainIndex</c> strictly below this one.</item>
+        /// </list>
+        ///
+        /// <para>EVERY CANDIDATE IS GUID-GATED through
+        /// <see cref="VesselLaunchIdentity.RecordingsShareLaunch"/> - never a bare
+        /// persistentId match. A predecessor we cannot prove is the same LAUNCH is not this
+        /// vessel's previous recording, and the whole point of reading its windows is that
+        /// they describe this vessel.</para>
+        ///
+        /// <para>THE SEARCH NEVER LEAVES THE TREE, and that is a decision rather than a
+        /// limitation: the standalone-continuation fallback mints a NEW tree exactly when the
+        /// launch-identity gate FAILED, so a cross-tree predecessor is precisely the case
+        /// where the identity is unproven.</para>
+        /// </summary>
+        internal static bool TryResolveOriginProofPredecessor(
+            RecordingTree tree,
+            Recording rec,
+            out Recording predecessor,
+            out string reason)
+        {
+            predecessor = null;
+            reason = "no-tree";
+            if (tree?.Recordings == null || rec == null)
+                return false;
+
+            reason = "no-predecessor";
+
+            if (!string.IsNullOrEmpty(rec.ParentBranchPointId) && tree.BranchPoints != null)
+            {
+                for (int i = 0; i < tree.BranchPoints.Count; i++)
+                {
+                    BranchPoint bp = tree.BranchPoints[i];
+                    if (bp == null
+                        || !string.Equals(bp.Id, rec.ParentBranchPointId, StringComparison.Ordinal)
+                        || bp.ParentRecordingIds == null)
+                    {
+                        continue;
+                    }
+                    for (int p = 0; p < bp.ParentRecordingIds.Count; p++)
+                    {
+                        if (TryAcceptPredecessorCandidate(
+                                tree, rec, bp.ParentRecordingIds[p], ref reason, out predecessor))
+                        {
+                            return true;
+                        }
+                    }
+                }
+            }
+
+            if (TryAcceptPredecessorCandidate(
+                    tree, rec, rec.ParentRecordingId, ref reason, out predecessor))
+            {
+                return true;
+            }
+
+            if (!string.IsNullOrEmpty(rec.ChainId) && rec.ChainIndex > 0)
+            {
+                Recording best = null;
+                foreach (Recording candidate in tree.Recordings.Values)
+                {
+                    if (candidate == null || ReferenceEquals(candidate, rec)) continue;
+                    if (!string.Equals(candidate.ChainId, rec.ChainId, StringComparison.Ordinal)) continue;
+                    if (candidate.ChainBranch != rec.ChainBranch) continue;
+                    if (candidate.ChainIndex < 0 || candidate.ChainIndex >= rec.ChainIndex) continue;
+                    if (best == null || candidate.ChainIndex > best.ChainIndex)
+                        best = candidate;
+                }
+                if (best != null)
+                {
+                    if (!VesselLaunchIdentity.RecordingsShareLaunch(best, rec))
+                    {
+                        reason = "predecessor-not-same-launch";
+                        return false;
+                    }
+                    predecessor = best;
+                    reason = "chain-predecessor";
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool TryAcceptPredecessorCandidate(
+            RecordingTree tree,
+            Recording rec,
+            string candidateId,
+            ref string reason,
+            out Recording predecessor)
+        {
+            predecessor = null;
+            if (string.IsNullOrEmpty(candidateId)
+                || string.Equals(candidateId, rec.RecordingId, StringComparison.Ordinal))
+            {
+                return false;
+            }
+            Recording candidate;
+            if (!tree.Recordings.TryGetValue(candidateId, out candidate) || candidate == null)
+                return false;
+            if (!VesselLaunchIdentity.RecordingsShareLaunch(candidate, rec))
+            {
+                reason = "predecessor-not-same-launch";
+                return false;
+            }
+            predecessor = candidate;
+            reason = "parent-recording";
+            return true;
         }
 
         /// <summary>
@@ -1459,7 +1815,10 @@ namespace Parsek
             ConfigNode backgroundSideSnapshot = null,
             IReadOnlyList<RouteConnectionWindow> recordingConnectionWindows = null,
             uint activeSideLiveVesselPid = 0u,
-            string activeSideLiveVesselGuid = null)
+            string activeSideLiveVesselGuid = null,
+            IReadOnlyList<RouteConnectionWindow> predecessorConnectionWindows = null,
+            double recordingStartUT = double.NaN,
+            string predecessorContext = null)
         {
             string context = string.IsNullOrEmpty(recordingContext) ? "<none>" : recordingContext;
             string utToken = undockUT.ToString("R", CultureInfo.InvariantCulture);
@@ -1644,6 +2003,39 @@ namespace Parsek
                 startTransportResources, undockTransportResources,
                 startInventoryBaseline, undockTransportInventory);
 
+            // THE INFLOW THAT PREDATES THIS RECORDING
+            // (ROUTE-ORIGIN-PROOF-PICKUP-PREDATING-THE-RECORDING). Consulted under exactly
+            // two conditions, and both are load-bearing:
+            //
+            //   * the in-recording pickup is NOT already a Gain - a rise measured here needs
+            //     no help and must keep its own spelling;
+            //   * the dock was NOT witnessed in this recording. A witnessed dock that moved
+            //     nothing onto the transport is POSITIVE delivery evidence, and a stale
+            //     window one recording back must never overturn what this recording saw.
+            //
+            // A contradicted flow reading is refused below regardless, so the predecessor is
+            // not consulted there either: it cannot arbitrate WHICH half was the run.
+            PredecessorPickupEvidence predecessorEvidence = null;
+            if (pickup != OriginPickupKind.Gain && !dockWitnessed && !halfDecision.FlowContradictsFocus)
+            {
+                predecessorEvidence = ClassifyPredecessorPickup(
+                    predecessorConnectionWindows,
+                    transportHalf.PartPersistentIds,
+                    originHalf.PartPersistentIds,
+                    originHalf.RootPartUId,
+                    recordingStartUT,
+                    startTransportResources,
+                    startInventoryBaseline);
+                if (predecessorEvidence.IsValidating)
+                    pickup = OriginPickupKind.GainFromPredecessorWindow;
+            }
+            string predecessorToken =
+                $"predecessor={(string.IsNullOrEmpty(predecessorContext) ? "<none>" : predecessorContext)} " +
+                $"predecessorPickup={(predecessorEvidence != null ? predecessorEvidence.Outcome.ToString() : "not-consulted")} " +
+                $"predecessorWindow={(predecessorEvidence != null ? (predecessorEvidence.WindowId ?? "<none>") : "<none>")} " +
+                $"predecessorDockUT={(predecessorEvidence != null ? predecessorEvidence.DockUT.ToString("R", CultureInfo.InvariantCulture) : "NaN")} " +
+                $"predecessorUndockUT={(predecessorEvidence != null ? predecessorEvidence.UndockUT.ToString("R", CultureInfo.InvariantCulture) : "NaN")}";
+
             // THE GATE. A witnessed dock that moved nothing ONTO the transport is a delivery
             // or a no-op re-dock, and under the ruling neither is an origin; a cargo flow that
             // contradicts focus with no window to arbitrate is refused for want of evidence.
@@ -1661,6 +2053,7 @@ namespace Parsek
                     $"transportSignal={halfDecision.Signal} " +
                     $"dockWitnessed={(dockWitnessed ? "1" : "0")} " +
                     $"pickup={pickup} pickupDelta=[{pickupDelta}] " +
+                    predecessorToken + " " +
                     $"(nothing came ABOARD the run's transport at this seam, so the partner is " +
                     $"not a supply origin and the proof stays as capture left it)");
                 return false;
@@ -1732,7 +2125,8 @@ namespace Parsek
                 $"undockInv={undockTransportInventory?.Count ?? 0} " +
                 $"transportSignal={halfDecision.Signal} " +
                 $"dockWitnessed={(dockWitnessed ? "1" : "0")} " +
-                $"gate={gate}");
+                $"gate={gate} " +
+                predecessorToken);
 
             if (!proof.StartDockedOriginPickupValidated)
             {
@@ -2103,7 +2497,8 @@ namespace Parsek
             RouteEndpoint? endpointAtDock,
             int transferEndpointSituation,
             ConfigNode endpointPreCoupleSnapshot = null,
-            ConfigNode transportPreCoupleSnapshot = null)
+            ConfigNode transportPreCoupleSnapshot = null,
+            uint endpointRootPartUId = 0u)
         {
             if (transferTargetVesselPid == 0 || dockedSnapshot == null)
                 return null;
@@ -2158,6 +2553,12 @@ namespace Parsek
                 WindowId = BuildWindowId(dockUT, transferTargetVesselPid),
                 DockUT = dockUT,
                 TransferTargetVesselPid = transferTargetVesselPid,
+                // LAUNCH-UNIQUE PARTNER IDENTITY, captured here because it is unrecoverable
+                // later: Part.Couple destroys the endpoint's Vessel, and every id that
+                // survives on the merged craft is craft-baked. Zero when the caller could not
+                // read it, which degrades the predecessor-window match to the part-pid
+                // overlap rather than refusing.
+                EndpointRootPartUId = endpointRootPartUId,
                 TransferKind = transferKind != RouteConnectionKind.None
                     ? transferKind
                     : RouteConnectionKind.DockingPort,
@@ -2177,7 +2578,9 @@ namespace Parsek
 
             ParsekLog.Verbose("Flight",
                 $"Route window dock capture: window={window.WindowId} " +
-                $"targetPid={transferTargetVesselPid} transportParts={transportPids.Count} " +
+                $"targetPid={transferTargetVesselPid} " +
+                $"endpointRoot={endpointRootPartUId.ToString(CultureInfo.InvariantCulture)} " +
+                $"transportParts={transportPids.Count} " +
                 $"endpointParts={endpointPids.Count} transportRes={window.DockTransportResources?.Count ?? 0} " +
                 $"endpointRes={window.DockEndpointResources?.Count ?? 0} " +
                 $"transportInv={window.DockTransportInventory?.Count ?? 0} " +

@@ -564,6 +564,8 @@ namespace Parsek
                 node.AddValue("undockUT", window.UndockUT.ToString("R", ic));
             if (window.TransferTargetVesselPid != 0)
                 node.AddValue("transferTargetPid", window.TransferTargetVesselPid.ToString(ic));
+            if (window.EndpointRootPartUId != 0)
+                node.AddValue("endpointRootPartUId", window.EndpointRootPartUId.ToString(ic));
             if (window.TransferKind != RouteConnectionKind.None)
                 node.AddValue("transferKind", window.TransferKind.ToString());
             if (window.TransferEndpointSituation >= 0)
@@ -613,6 +615,13 @@ namespace Parsek
                 && uint.TryParse(targetPidStr, NumberStyles.Integer, ic, out uint targetPid))
             {
                 window.TransferTargetVesselPid = targetPid;
+            }
+
+            string endpointRootStr = node.GetValue("endpointRootPartUId");
+            if (endpointRootStr != null
+                && uint.TryParse(endpointRootStr, NumberStyles.Integer, ic, out uint endpointRoot))
+            {
+                window.EndpointRootPartUId = endpointRoot;
             }
             window.TransferKind = ParseConnectionKind(node.GetValue("transferKind"));
 

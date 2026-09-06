@@ -3973,8 +3973,12 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
         # total of 6 does not move. The subject is a DIFFERENT producer: every
         # RouteDockCapture cell docks AFTER the recorder is running and its product is
         # a route WINDOW; these two dock BEFORE it starts and their product is the
-        # start-time ORIGIN PROOF. Authored 2026-09-02, never flown, INTERIM.
-        "H57-route-start-docked-origin-landed": ("RouteStartDockedOrigin", 2),
+        # start-time ORIGIN PROOF. 2 -> 3 on 2026-09-06 with the predecessor-window
+        # pickup cell (ROUTE-ORIGIN-PROOF-PICKUP-PREDATING-THE-RECORDING): the run
+        # starts docked, takes NOTHING while recording, and the previous recording of
+        # the same launch holds the window that bracketed the load. Back in
+        # INTERIM_PIN_IDS until the re-flight.
+        "H57-route-start-docked-origin-landed": ("RouteStartDockedOrigin", 3),
         # THE THIRD RECORDED `Logistics` HOST, and the first that can pay the debt
         # H39's and H40's rosters both name as unpayable by existing bytes. Its
         # fixture `rover-route-recorded` is the harvest H39's roster asked for in so
@@ -4363,7 +4367,15 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
     # replaced whole, a MEASURED_SKIPPED entry is added if the run-time guards push
     # `skipped` above the attribute floor of 1, the `recordings.count` window is replaced
     # with an exact pin, and the id LEAVES this set in the same commit.
-    INTERIM_PIN_IDS = set()
+    #
+    # H57 CAME AND WENT INSIDE ONE DAY. Its third cell arrived 2026-09-06 with the
+    # predecessor-window pickup pass, which retired the `passed=2` it had flown, and the
+    # re-flight on 2026-09-06_1650 measured the new split at once:
+    # `total=3 passed=3 failed=0 skipped=0`. The spec's pin was then replaced WHOLE off
+    # those bytes - every tally field a literal, plus three new REQUIRED tokens for the
+    # predecessor walk, the bind and the cell line - so the id left this set in the same
+    # commit that put it back.
+    INTERIM_PIN_IDS: set = set()
 
     # id -> measured `skipped=` for members whose RUN-TIME InGameAssert.Skip guards
     # push the split above the attribute-derived floor. The attributes give a FLOOR

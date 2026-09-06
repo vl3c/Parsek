@@ -5860,6 +5860,24 @@ namespace Parsek
                 ? activeVessel.id.ToString("N")
                 : null;
 
+            // THE PREVIOUS RECORDING OF THIS VESSEL
+            // (ROUTE-ORIGIN-PROOF-PICKUP-PREDATING-THE-RECORDING). This recording opened
+            // already docked, so it cannot have witnessed the load that put the cargo aboard
+            // - but the recording BEFORE it can, and its connection windows are persisted.
+            // The traversal is live because only here are the tree and its branch points in
+            // hand; the DECISION is the pure ClassifyPredecessorPickup, which sees only the
+            // window list. The walk is guid-gated and never leaves activeTree; see
+            // docs/dev/research/pickup-predating-the-recording.md.
+            Recording predecessorRec;
+            string predecessorReason;
+            bool havePredecessor = RouteProofCapture.TryResolveOriginProofPredecessor(
+                activeTree, parentRec, out predecessorRec, out predecessorReason);
+            ParsekLog.Verbose("Flight",
+                $"RouteOriginProof predecessor walk: recording={parentRecordingId ?? "<none>"} " +
+                $"resolved={(havePredecessor ? "1" : "0")} reason={predecessorReason} " +
+                $"predecessor={(havePredecessor ? predecessorRec.RecordingId : "<none>")} " +
+                $"predecessorWindows={(havePredecessor ? (predecessorRec.RouteConnectionWindows?.Count ?? 0) : 0)}");
+
             bool bound = RouteProofCapture.TryBindStartDockedOriginAtUndock(
                 proof,
                 activePids,
@@ -5875,7 +5893,10 @@ namespace Parsek
                 backgroundSideSnapshot: bgSnapshot,
                 recordingConnectionWindows: parentRec.RouteConnectionWindows,
                 activeSideLiveVesselPid: activeLivePid,
-                activeSideLiveVesselGuid: activeLiveGuid);
+                activeSideLiveVesselGuid: activeLiveGuid,
+                predecessorConnectionWindows: havePredecessor ? predecessorRec.RouteConnectionWindows : null,
+                recordingStartUT: parentRec.StartUT,
+                predecessorContext: havePredecessor ? predecessorRec.RecordingId : null);
 
             if (bound)
                 parentRec.MarkFilesDirty();
@@ -6581,6 +6602,25 @@ namespace Parsek
                         "route analysis will reject this candidate");
                 }
 
+                // THE ENDPOINT'S LAUNCH-UNIQUE IDENTITY, read while it is still readable.
+                // Preferred source is the PRE-COUPLE partner snapshot: after Part.Couple the
+                // endpoint's own Vessel is destroyed and every id left on the merged craft is
+                // craft-baked, so a root flightID taken later would be the TRANSPORT's. The
+                // background parent's snapshot is the same shape and serves as the fallback;
+                // an unreadable root leaves 0, which degrades the predecessor-window partner
+                // match to the part-pid overlap rather than refusing it.
+                uint endpointRootPartUId = 0u;
+                if (endpointPreCoupleSnapshot == null
+                    || !VesselSpawner.TryReadRootPartFlightId(endpointPreCoupleSnapshot, out endpointRootPartUId))
+                {
+                    if (bgParentRec?.VesselSnapshot == null
+                        || bgParentRec.VesselPersistentId != routeTargetVesselPid
+                        || !VesselSpawner.TryReadRootPartFlightId(bgParentRec.VesselSnapshot, out endpointRootPartUId))
+                    {
+                        endpointRootPartUId = 0u;
+                    }
+                }
+
                 RouteConnectionWindow window = RouteProofCapture.BuildDockRouteConnectionWindow(
                     mergeUT,
                     routeTargetVesselPid,
@@ -6591,7 +6631,8 @@ namespace Parsek
                     endpointAtDock,
                     endpointSituation,
                     endpointPreCoupleSnapshot,
-                    transportPreCoupleSnapshot);
+                    transportPreCoupleSnapshot,
+                    endpointRootPartUId);
 
                 if (window != null)
                 {
@@ -6601,7 +6642,8 @@ namespace Parsek
                         $"window={window.WindowId} targetPid={routeTargetVesselPid} " +
                         $"kind={window.TransferKind} " +
                         $"transportParts={window.TransportPartPersistentIds?.Count ?? 0} " +
-                        $"endpointParts={window.EndpointPartPersistentIds?.Count ?? 0}");
+                        $"endpointParts={window.EndpointPartPersistentIds?.Count ?? 0} " +
+                        $"endpointRoot={window.EndpointRootPartUId.ToString(CultureInfo.InvariantCulture)}");
                 }
                 else
                 {

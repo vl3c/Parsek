@@ -98,6 +98,14 @@ namespace Parsek.Logistics
                     sb.Append(prefix).Append("transferKind=").Append(((int)w.TransferKind).ToString(CultureInfo.InvariantCulture)).Append('\n');
                     AppendUintList(sb, prefix + "transportPartPids", w.TransportPartPersistentIds);
                     AppendUintList(sb, prefix + "endpointPartPids", w.EndpointPartPersistentIds);
+                    // `EndpointRootPartUId` IS DELIBERATELY NOT HASHED, and the omission is
+                    // not an oversight to be tidied up. It was added (2026-09-06) as the
+                    // launch-unique partner key the PREDECESSOR-window pickup evidence reads;
+                    // it names the same physical endpoint the pid and the part sets above
+                    // already name, and hashing it would re-key every route built before it
+                    // existed the first time its recording is saved with the field populated.
+                    // The hash answers "did the witnessed proof data change", and learning a
+                    // second name for the same vessel is not a change.
                     AppendResourceManifest(sb, prefix + "dockTransportRes", w.DockTransportResources);
                     AppendResourceManifest(sb, prefix + "undockTransportRes", w.UndockTransportResources);
                     AppendResourceManifest(sb, prefix + "dockEndpointRes", w.DockEndpointResources);
