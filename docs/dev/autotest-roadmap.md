@@ -3277,8 +3277,10 @@ gated behind the ROUTE-ORIGIN-PROOF-PRODUCER-UNREACHABLE probe (todo) before any
       never walked twice, which is also the constructive argument that the transfer
       line fires exactly once (the log-contract evaluator is regex-only and has no
       occurrence count). `step=proximity` may never become an alternation: the
-      transfer decision's pid arm has no production caller while
-      RESOLVER-PID-STEP-NOT-GUID-GATED is open.
+      transfer decision's pid arm still has no production caller - since
+      RESOLVER-PID-STEP-NOT-GUID-GATED was fixed (2026-09-06) the resolver REFUSES a
+      different-launch pid match at the step and falls through to proximity, rather
+      than reporting a pid-step resolution to the transfer.
     * `RVR-19` TRANSPORT ONLY - **the guard for the ruling's second half, and the
       suite's first TWO-REMOVAL `[[fixture.liveState]]` block.** It deletes BOTH
       other surface vessels (`A` at index 9 and `rover fuel 0` at index 10, both

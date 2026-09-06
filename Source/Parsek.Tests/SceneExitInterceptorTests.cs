@@ -641,38 +641,38 @@ namespace Parsek.Tests
                 source);
         }
 
-        // ---------- BackfillMaxDistanceAbsoluteOnly --------------------
+        // ---------- BackfillMaxDistanceFromBodyFixedSurfaces --------------------
 
         [Fact]
-        public void BackfillMaxDistanceAbsoluteOnly_NullRecording_ReturnsCleanly()
+        public void BackfillMaxDistanceFromBodyFixedSurfaces_NullRecording_ReturnsCleanly()
         {
             // No exception expected.
-            VesselSpawner.BackfillMaxDistanceAbsoluteOnly(null);
+            VesselSpawner.BackfillMaxDistanceFromBodyFixedSurfaces(null);
         }
 
         [Fact]
-        public void BackfillMaxDistanceAbsoluteOnly_NullTrackSections_ReturnsCleanly()
+        public void BackfillMaxDistanceFromBodyFixedSurfaces_NullTrackSections_ReturnsCleanly()
         {
             var rec = new Recording { RecordingId = "rec-null-ts" };
             rec.TrackSections = null;
             // Should not throw, should not write MaxDistanceFromLaunch.
-            VesselSpawner.BackfillMaxDistanceAbsoluteOnly(rec);
+            VesselSpawner.BackfillMaxDistanceFromBodyFixedSurfaces(rec);
             Assert.Equal(0.0, rec.MaxDistanceFromLaunch);
         }
 
         [Fact]
-        public void BackfillMaxDistanceAbsoluteOnly_EmptyTrackSections_LeavesMaxDistanceUntouched()
+        public void BackfillMaxDistanceFromBodyFixedSurfaces_EmptyTrackSections_LeavesMaxDistanceUntouched()
         {
             var rec = new Recording { RecordingId = "rec-empty-ts" };
             rec.MaxDistanceFromLaunch = 42.5;   // pre-existing value
-            VesselSpawner.BackfillMaxDistanceAbsoluteOnly(rec);
-            // Empty TrackSections list -> no Absolute frames found -> no
+            VesselSpawner.BackfillMaxDistanceFromBodyFixedSurfaces(rec);
+            // Empty TrackSections list -> no body-fixed sample found -> no
             // write to MaxDistanceFromLaunch (preserves prior value).
             Assert.Equal(42.5, rec.MaxDistanceFromLaunch);
         }
 
         [Fact]
-        public void BackfillMaxDistanceAbsoluteOnly_AllRelativeSections_LeavesMaxDistanceUntouched()
+        public void BackfillMaxDistanceFromBodyFixedSurfaces_AllRelativeSections_LeavesMaxDistanceUntouched()
         {
             var rec = new Recording { RecordingId = "rec-relative-only" };
             rec.MaxDistanceFromLaunch = 99.9;
@@ -687,8 +687,9 @@ namespace Parsek.Tests
                     },
                 },
             };
-            VesselSpawner.BackfillMaxDistanceAbsoluteOnly(rec);
-            // Only RELATIVE sections -> no Absolute frames -> no write.
+            VesselSpawner.BackfillMaxDistanceFromBodyFixedSurfaces(rec);
+            // Only RELATIVE sections, and their frames are anchor-local metres with
+            // no bodyFixedFrames beside them -> no body-fixed sample -> no write.
             Assert.Equal(99.9, rec.MaxDistanceFromLaunch);
         }
     }

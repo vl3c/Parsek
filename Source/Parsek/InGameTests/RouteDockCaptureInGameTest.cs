@@ -900,6 +900,42 @@ namespace Parsek.InGameTests
                 uint mergedPid = merged.persistentId;
                 int mergedSituation = (int)merged.situation;
 
+                // THE DESTINATION RIG IS ASSEMBLED HERE, BEFORE THE RECORDING EXISTS, AND
+                // THAT PLACEMENT IS THE FIX FOR ROUTE-WINDOW-SCAFFOLDING-COUPLE-WARNS-TWICE-ON-H57.
+                // BuildPartnerRig couples the port and the tank onto the rig's own command core
+                // with plain Part.Couple calls. Those are couples like any other, so while a
+                // recording is live ParsekFlight's dock handler opens a route window for each of
+                // them - transport = this run's 17-part active vessel, endpoint = the one-part
+                // scaffolding vessel - and RouteProofCapture.BuildDockRouteConnectionWindow then
+                // refuses to build one because the docked snapshot carries neither pid set. THE
+                // GUARD IS RIGHT and is deliberately left alone: it fails closed on a real
+                // endpoint whose snapshot lost its parts, which is a wrong-quantity risk.
+                // Assembling the rig before the recording starts removes the couples from the
+                // recorded span instead. Only the DOCK the cell is about - the destination's
+                // port onto the transport's, below - now happens inside the recording, which is
+                // the only couple this cell ever meant to record.
+                //
+                // Measured, not assumed: the two Warns in every H57 log carry
+                // `transportParts=17 endpointParts=1` and sit immediately after
+                // `partner-B-port` / `partner-B-tank` become live (2026-09-06_2030 KSP.log
+                // :14339, :14469), so the producer is THIS rig build and not
+                // AttachTransportDockPort, which already couples before any recording exists.
+                var destination = new PartnerRig("B");
+                IEnumerator buildDest = ctx.BuildPartnerRig(
+                    destination, PartnerBOffsetsMeters, withTank: true, withContainer: false);
+                while (buildDest.MoveNext()) yield return buildDest.Current;
+                if (destination.Tank == null)
+                    InGameAssert.Skip("destination rig has no tank to receive the delivery");
+                ctx.SetResourceAmountToHalf(destination.Tank, TransferResourceName);
+                ParsekLog.Info("TestRunner",
+                    "RouteDockCapture destination rig assembled pre-recording: cell=" + ctx.CellName
+                    + " run=" + ctx.RunId
+                    + " destinationRoot=" + destination.Root.flightID.ToString(IC)
+                    + " destinationParts=" + (destination.Vessel != null && destination.Vessel.parts != null
+                        ? destination.Vessel.parts.Count.ToString(IC) : "?")
+                    + " - the rig's own sub-part couples are OUTSIDE the recorded span, so no "
+                    + "scaffolding route window is opened for them");
+
                 int beforeStart = ctx.CapturedCount;
                 IEnumerator rec = ctx.StartRecordingAndWait();
                 while (rec.MoveNext()) yield return rec.Current;
@@ -977,17 +1013,12 @@ namespace Parsek.InGameTests
                     "StartDockedOriginBind: cell=" + ctx.CellName + " depotRoot=" +
                     depotRootFlightId.ToString(IC) + " line=" + bindLine);
 
-                // DELIVER ELSEWHERE: a SECOND partner, a different endpoint
-                // vessel from the origin, reached while the same recording runs.
+                // DELIVER ELSEWHERE: a SECOND partner, a different endpoint vessel from the
+                // origin, DOCKED while the same recording runs. The rig itself was assembled
+                // before the recording started (see the note at the build site); what happens
+                // here - and the only couple of this cell that belongs inside the recorded
+                // span - is the dock the delivery window is measured across.
                 int beforeDelivery = ctx.CapturedCount;
-                var destination = new PartnerRig("B");
-                IEnumerator buildDest = ctx.BuildPartnerRig(
-                    destination, PartnerBOffsetsMeters, withTank: true, withContainer: false);
-                while (buildDest.MoveNext()) yield return buildDest.Current;
-                if (destination.Tank == null)
-                    InGameAssert.Skip("destination rig has no tank to receive the delivery");
-                ctx.SetResourceAmountToHalf(destination.Tank, TransferResourceName);
-
                 IEnumerator dock = ctx.CoupleAndAwaitWindow(destination);
                 while (dock.MoveNext()) yield return dock.Current;
                 double delivered = ctx.TransferResource(
@@ -1287,6 +1318,342 @@ namespace Parsek.InGameTests
             {
                 ctx.Teardown();
             }
+        }
+
+        [InGameTest(Category = "RouteStartDockedOrigin", Scene = GameScenes.FLIGHT,
+            AllowBatchExecution = false,
+            RestoreBatchFlightBaselineAfterExecution = true,
+            BatchSkipReason = IsolatedOnlyBatchSkipReason,
+            Description = "THE RELOAD SHAPE (ROUTE-ORIGIN-PROOF-PICKUP-PREDATING-THE-RECORDING): the " +
+                "transport starts docked and TAKES NOTHING while this recording runs, so its own pickup " +
+                "reads Carried - and the PREVIOUS recording of the same launch holds the connection " +
+                "window that bracketed the load. Asserts the live predecessor walk finds that recording " +
+                "through its branch point and the bind validates the pickup as GainFromPredecessorWindow")]
+        public IEnumerator StartDockedOrigin_PredecessorWindowValidatesThePickup()
+        {
+            var ctx = new CellContext("predecessor-window");
+            IEnumerator pre = ctx.Begin();
+            while (pre.MoveNext()) yield return pre.Current;
+
+            try
+            {
+                IEnumerator port = ctx.AttachTransportDockPort();
+                while (port.MoveNext()) yield return port.Current;
+
+                var depot = new PartnerRig("A");
+                IEnumerator buildDepot = ctx.BuildPartnerRig(
+                    depot, PartnerAOffsetsMeters, withTank: true, withContainer: false);
+                while (buildDepot.MoveNext()) yield return buildDepot.Current;
+                if (depot.Tank == null)
+                    InGameAssert.Skip("depot rig has no tank, so it is not a plausible supply origin");
+
+                uint depotRootFlightId = depot.Root.flightID;
+                StampStockDockBookkeeping(depot.Port, ctx.TransportPort);
+                depot.Port.Couple(ctx.TransportPort);
+                for (int i = 0; i < SettleFrames; i++)
+                    yield return null;
+
+                Vessel merged = FlightGlobals.ActiveVessel;
+                InGameAssert.IsNotNull(merged, "the active vessel disappeared during the depot couple");
+                InGameAssert.AreNotEqual(Vessel.Situations.PRELAUNCH, merged.situation,
+                    "this cell needs a NON-PRELAUNCH host: the resolver short-circuits on a clamped " +
+                    "pad vessel before it walks candidates");
+
+                int beforeStart = ctx.CapturedCount;
+                IEnumerator rec = ctx.StartRecordingAndWait();
+                while (rec.MoveNext()) yield return rec.Current;
+                InGameAssert.IsTrue(
+                    ctx.FindFrom(beforeStart, l => l.Contains("RouteOriginProof pair captured:")),
+                    "starting a recording on a settled docked pair must capture a RouteOriginProof PAIR");
+
+                // NOTHING IS TRANSFERRED, and that is the entire subject: this recording opened
+                // with the cargo already aboard, so its own pickup reading can only be Carried,
+                // and before this pass the run could not become a route at all.
+
+                // THE PREVIOUS RECORDING, injected into the LIVE tree with a real branch-point
+                // edge and real part-pid sets read off the merged craft. What is synthesised is
+                // only the OTHER SESSION - a chain-boundary stop and a stock Fly re-entry cannot
+                // be driven from inside one batch cell without a scene change. What is NOT
+                // synthesised is anything this cell asserts: the predecessor WALK (branch point
+                // -> launch-guid gate), the partner match against the live seam halves, the
+                // launch-unique root-flightID check and the bind all run on production code.
+                string predecessorId;
+                Dictionary<string, ResourceAmount> unreducedDockManifest;
+                RouteConnectionWindow injected = InjectPredecessorLoadWindow(
+                    ctx.Tree, merged, depot, depotRootFlightId, ctx.RunId,
+                    out predecessorId, out unreducedDockManifest);
+                if (injected == null)
+                    InGameAssert.Skip("could not build a predecessor window on this host (see log)");
+
+                int beforeUndock = ctx.CapturedCount;
+                depot.Port.Undock(new DockedVesselInfo
+                {
+                    name = ctx.RunId + "-depot-left-behind",
+                    vesselType = VesselType.Probe,
+                    rootPartUId = depotRootFlightId
+                });
+                for (int i = 0; i < SettleFrames; i++)
+                    yield return null;
+                InGameAssert.AreNotEqual(merged, depot.Port.vessel,
+                    "the depot must be its own vessel again after the undock");
+                if (depot.Vessel == null || depot.Vessel.state == Vessel.State.DEAD)
+                    depot.Vessel = depot.Port.vessel;
+
+                try
+                {
+                    string walkLine = ctx.FirstMatchSuffix(
+                        beforeUndock, "RouteOriginProof predecessor walk: ");
+                    InGameAssert.IsNotNull(walkLine,
+                        "the undock must run the live predecessor walk. No line at all means the " +
+                        "traversal never reached the bind site");
+                    InGameAssert.IsTrue(walkLine.Contains("resolved=1"),
+                        "the walk must resolve the injected predecessor through the branch point. " +
+                        "Line: " + walkLine);
+                    InGameAssert.IsTrue(walkLine.Contains("predecessor=" + predecessorId),
+                        "the walk must name the injected predecessor. Line: " + walkLine);
+
+                    string bindLine = ctx.FirstMatchSuffix(
+                        beforeUndock, "RouteOriginProof bound at undock: ");
+                    InGameAssert.IsNotNull(bindLine,
+                        "the undock must emit 'RouteOriginProof bound at undock:'");
+                    InGameAssert.IsTrue(bindLine.Contains("dockWitnessed=0"),
+                        "the depot coupled BEFORE this recording started, so no window of ITS OWN " +
+                        "witnessed the seam. Line: " + bindLine);
+                    InGameAssert.IsTrue(
+                        bindLine.Contains("originRoot=" + depotRootFlightId.ToString(IC)),
+                        "the bound origin must be the DEPOT - the half that LEFT. Line: " + bindLine);
+                    InGameAssert.IsTrue(bindLine.Contains("pickup=GainFromPredecessorWindow"),
+                        "the pickup must be validated FROM THE PREDECESSOR WINDOW. 'Carried' here " +
+                        "is the pre-fix reading: the rise is real but was witnessed one recording " +
+                        "back. Line: " + bindLine);
+                    InGameAssert.IsTrue(bindLine.Contains("pickupValidated=1"),
+                        "a predecessor-window gain must validate, or the proof is not an origin and " +
+                        "the run still cannot become a route. Line: " + bindLine);
+                    InGameAssert.IsTrue(bindLine.Contains("gate=BindGain"),
+                        "both validating spellings must open the same bind gate. Line: " + bindLine);
+                    InGameAssert.IsTrue(
+                        bindLine.Contains("predecessorPickup=GainFromPredecessorWindow")
+                        && bindLine.Contains("predecessorWindow=" + injected.WindowId),
+                        "the bind line must name the window the evidence came from, or an operator " +
+                        "cannot tell a predecessor-validated origin from an in-recording one. " +
+                        "Line: " + bindLine);
+
+                    string proofRecordingId;
+                    Recording proofRecording;
+                    RouteOriginProof proof =
+                        FindOriginProof(ctx.Tree, out proofRecordingId, out proofRecording);
+                    InGameAssert.IsNotNull(proof, "the proof must reach a TREE recording");
+                    InGameAssert.IsTrue(proof.StartDockedOriginPickupValidated,
+                        "the persisted proof must be pickup-validated");
+                    InGameAssert.AreEqual(depotRootFlightId, proof.StartDockedOriginRootPartUId,
+                        "the persisted origin must be the depot half");
+                    InGameAssert.IsTrue(
+                        Parsek.Logistics.RouteAnalysisEngine.HasDockedOriginProof(proofRecording),
+                        "route analysis must now ACCEPT this proof as a docked origin - that " +
+                        "acceptance is the whole product of this pass");
+                    InGameAssert.IsNotNull(proof.StartDockedPair,
+                        "the persisted proof must still carry both captured halves");
+
+                    // THE CONTROL THAT MAKES THE ASSERTIONS ABOVE MEAN SOMETHING, run on the
+                    // REAL transport-half start manifest the bind just re-scoped: with the
+                    // window's dock baseline left UNREDUCED there is no rise at all, so it is
+                    // the seeded LiquidFuel deficit - not some unrelated resource appearing out
+                    // of a partial manifest - that the classifier actually read.
+                    StartDockedSeamHalf halfA = proof.StartDockedPair.HalfA;
+                    StartDockedSeamHalf halfB = proof.StartDockedPair.HalfB;
+                    StartDockedSeamHalf originSide =
+                        (halfA != null && halfA.RootPartUId == depotRootFlightId) ? halfA : halfB;
+                    StartDockedSeamHalf transportSide =
+                        ReferenceEquals(originSide, halfA) ? halfB : halfA;
+                    InGameAssert.IsNotNull(transportSide, "the seam must still carry both halves");
+
+                    RouteConnectionWindow control = injected.DeepClone();
+                    control.DockTransportResources = unreducedDockManifest;
+                    RouteProofCapture.PredecessorPickupEvidence controlEvidence =
+                        RouteProofCapture.ClassifyPredecessorPickup(
+                            new List<RouteConnectionWindow> { control },
+                            transportSide.PartPersistentIds,
+                            originSide.PartPersistentIds,
+                            depotRootFlightId,
+                            proofRecording.StartUT,
+                            proof.StartTransportResources,
+                            proof.StartTransportInventory);
+                    InGameAssert.AreEqual(
+                        RouteProofCapture.PredecessorPickupOutcome.NoRise.ToString(),
+                        controlEvidence.Outcome.ToString(),
+                        "with the seeded deficit removed the SAME window must show no rise, or " +
+                        "this cell would be passing on a manifest artefact rather than on the load");
+
+                    ParsekLog.Info("TestRunner",
+                        "StartDockedOriginPredecessor: cell=" + ctx.CellName + " run=" + ctx.RunId
+                        + " predecessor=" + predecessorId
+                        + " window=" + injected.WindowId
+                        + " depotRoot=" + depotRootFlightId.ToString(IC)
+                        + " originRoot=" + proof.StartDockedOriginRootPartUId.ToString(IC)
+                        + " pickup=" + proof.StartDockedOriginPickupKind
+                        + " validated=" + (proof.StartDockedOriginPickupValidated ? "1" : "0")
+                        + " control=" + controlEvidence.Outcome);
+                }
+                catch (Exception tailEx)
+                {
+                    ParsekLog.Warn("TestRunner",
+                        FormatFailureSite("post-measurement-tail", ctx.CellName, tailEx));
+                    throw;
+                }
+            }
+            finally
+            {
+                ctx.Teardown();
+            }
+        }
+
+        /// <summary>
+        /// Builds the PREVIOUS recording of this launch into <paramref name="tree"/>: a
+        /// sibling <see cref="Recording"/> carrying one OPEN
+        /// <see cref="RouteConnectionWindow"/> - the transport docked to the depot and was
+        /// still docked when that recording ended - linked to the live recording by a real
+        /// <see cref="BranchPointType.VesselSwitchContinuation"/> branch point, which is the
+        /// edge the stock Fly / Switch-To re-entry actually produces.
+        ///
+        /// <para>The part-pid sets and the transport manifest are read off the LIVE merged
+        /// craft, so the partner match and the rise are measured on real data; only the
+        /// dock-side LiquidFuel is reduced, standing for the fuel the player transferred in
+        /// the previous session. Returns null (and says why) when the host cannot supply the
+        /// shape.</para>
+        /// </summary>
+        private static RouteConnectionWindow InjectPredecessorLoadWindow(
+            RecordingTree tree,
+            Vessel merged,
+            PartnerRig depot,
+            uint depotRootFlightId,
+            string runId,
+            out string predecessorRecordingId,
+            out Dictionary<string, ResourceAmount> unreducedDockManifest)
+        {
+            predecessorRecordingId = null;
+            unreducedDockManifest = null;
+            if (tree == null || tree.Recordings == null || merged == null || merged.parts == null)
+                return null;
+
+            Recording current;
+            if (string.IsNullOrEmpty(tree.ActiveRecordingId)
+                || !tree.Recordings.TryGetValue(tree.ActiveRecordingId, out current)
+                || current == null)
+            {
+                ParsekLog.Warn("TestRunner",
+                    "InjectPredecessorLoadWindow: no active tree recording to attach a predecessor to");
+                return null;
+            }
+            if (current.VesselPersistentId == 0)
+            {
+                ParsekLog.Warn("TestRunner",
+                    "InjectPredecessorLoadWindow: the live recording carries no vessel pid, so the "
+                    + "launch-identity gate could never admit a predecessor");
+                return null;
+            }
+
+            var depotPids = new List<uint>();
+            var transportPids = new List<uint>();
+            var transportResources = new Dictionary<string, ResourceAmount>();
+            for (int i = 0; i < merged.parts.Count; i++)
+            {
+                Part p = merged.parts[i];
+                if (p == null) continue;
+                bool onDepot = false;
+                Part walk = p;
+                while (walk != null)
+                {
+                    if (walk == depot.Root || walk == depot.Port
+                        || walk == depot.Tank || walk == depot.Container)
+                    {
+                        onDepot = true;
+                        break;
+                    }
+                    walk = walk.parent;
+                }
+                if (onDepot)
+                {
+                    depotPids.Add(p.persistentId);
+                    continue;
+                }
+                transportPids.Add(p.persistentId);
+                if (p.Resources == null) continue;
+                for (int r = 0; r < p.Resources.Count; r++)
+                {
+                    PartResource res = p.Resources[r];
+                    if (res == null || string.IsNullOrEmpty(res.resourceName)) continue;
+                    ResourceAmount running;
+                    transportResources.TryGetValue(res.resourceName, out running);
+                    running.amount += res.amount;
+                    running.maxAmount += res.maxAmount;
+                    transportResources[res.resourceName] = running;
+                }
+            }
+
+            ResourceAmount transportFuel;
+            if (depotPids.Count == 0 || transportPids.Count == 0
+                || !transportResources.TryGetValue(TransferResourceName, out transportFuel)
+                || transportFuel.amount <= 0.0)
+            {
+                ParsekLog.Warn("TestRunner",
+                    "InjectPredecessorLoadWindow: cannot split the merged craft into two halves with "
+                    + "a fuelled transport (depotParts=" + depotPids.Count.ToString(IC)
+                    + " transportParts=" + transportPids.Count.ToString(IC) + ")");
+                return null;
+            }
+
+            unreducedDockManifest = new Dictionary<string, ResourceAmount>(transportResources);
+            var dockManifest = new Dictionary<string, ResourceAmount>(transportResources);
+            double deficit = Math.Min(RequestedTransferUnits, transportFuel.amount);
+            ResourceAmount reduced = transportFuel;
+            reduced.amount = transportFuel.amount - deficit;
+            dockManifest[TransferResourceName] = reduced;
+
+            double dockUT = Planetarium.GetUniversalTime() - 600.0;
+            var window = new RouteConnectionWindow
+            {
+                WindowId = "dock-prev-" + runId,
+                DockUT = dockUT,
+                TransferTargetVesselPid = depot.Vessel != null ? depot.Vessel.persistentId : 0u,
+                EndpointRootPartUId = depotRootFlightId,
+                TransferKind = RouteConnectionKind.DockingPort,
+                TransportPartPersistentIds = transportPids,
+                EndpointPartPersistentIds = depotPids,
+                DockTransportResources = dockManifest,
+            };
+
+            var predecessor = new Recording
+            {
+                RecordingId = runId + "-prev",
+                TreeId = tree.Id,
+                VesselPersistentId = current.VesselPersistentId,
+                RecordedVesselGuid = current.RecordedVesselGuid,
+                VesselName = "predecessor-session",
+                RouteConnectionWindows = new List<RouteConnectionWindow> { window },
+            };
+            tree.AddOrReplaceRecording(predecessor);
+
+            var bp = new BranchPoint
+            {
+                Id = runId + "-prev-bp",
+                UT = dockUT,
+                Type = BranchPointType.VesselSwitchContinuation,
+                ParentRecordingIds = new List<string> { predecessor.RecordingId },
+                ChildRecordingIds = new List<string> { current.RecordingId },
+            };
+            tree.BranchPoints.Add(bp);
+            predecessor.ChildBranchPointId = bp.Id;
+            current.ParentBranchPointId = bp.Id;
+
+            predecessorRecordingId = predecessor.RecordingId;
+            ParsekLog.Info("TestRunner",
+                "InjectPredecessorLoadWindow: predecessor=" + predecessor.RecordingId
+                + " window=" + window.WindowId
+                + " transportParts=" + transportPids.Count.ToString(IC)
+                + " depotParts=" + depotPids.Count.ToString(IC)
+                + " endpointRoot=" + depotRootFlightId.ToString(IC)
+                + " seededDeficit=" + deficit.ToString("F2", IC));
+            return window;
         }
 
         /// <summary>First recording in <paramref name="tree"/> carrying a

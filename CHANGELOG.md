@@ -23,6 +23,106 @@ _(unreleased — entries accumulate here per commit)_
   as an empty flight you can delete yourself, and never takes the mission down with it.
   Found by the automated in-game census, where every save of the synthetic test corpus
   reproduced it.
+- **A supply route no longer follows the wrong craft home when something is parked at its
+  destination.** Dock any ship to a base and the game merges the two into one vessel,
+  keeping the name and id of whichever half it considers dominant - which is often the
+  visitor, and never your choice. A route delivering to that base could only recognise it
+  by an id that had just disappeared, so it fell back to "whatever is standing here", moved
+  itself onto the visiting ship, and then followed that ship away when it undocked. Routes
+  now record the destination's own launch-unique identity when the delivery is first
+  witnessed, and recognise it even while it is merged into a bigger craft - whichever half
+  dominates. Deliveries during a dock go into the combined vessel, which is where the base
+  is, and the route is still pointing at the base afterwards. Routes made before this
+  update carry no such record and are unchanged.
+
+- **A supply route can no longer mistake a fresh copy of a craft for the depot it was
+  built to use.** Kerbal Space Program gives every craft file a fixed id and stamps the
+  same one onto every launch of it, so a route that could only find its depot by that id
+  would happily accept a brand-new copy of the same craft standing where the depot used
+  to be - and then load from, or deliver to, the wrong vessel. Routes now remember which
+  actual launch the depot was, and refuse a match that is provably a different one. When
+  that happens the route falls back to looking for whatever vessel is standing at the
+  recorded dock point, exactly as it does when the depot is gone, and tells you once if it
+  moves to a different craft. The same record is now kept for the DESTINATION of a
+  delivery too, not only for the depot a run loads from, so both ends of a route are
+  protected the same way. Routes made before this update carry no such record and
+  behave as they always did.
+
+- **Housekeeping: a route whose destination has gone missing no longer re-searches every
+  part of every craft in the game, every frame.** When a route cannot find one of its
+  ends, it looks once through the parts of every vessel in case the craft it wants is
+  currently merged into a bigger one. For a route to a landed base that search is followed
+  by a position-based one, so it happens once and stops; for a route to something in
+  ORBIT there is no position fallback, so the search was repeating for as long as the
+  Logistics window stayed open. It is now done at most once every couple of seconds, and
+  immediately again whenever a craft docks or undocks - the moment that can change the
+  answer.
+
+- **Test housekeeping: two harmless warnings an unattended supply-route check left in
+  every log are gone.** The check built one of its practice craft in mid-recording, and
+  bolting a part onto a craft counts as a docking, so the game opened a cargo window for
+  a bare docking port and then correctly refused to fill it - twice, every run. The check
+  now builds that craft before it starts recording. Nothing in the game changed: the
+  warning is the safety net doing its job, and it still fires on the real mismatch it
+  exists for.
+
+- **A supply route whose flight waits somewhere now counts the wait the same way the
+  ghost you watch does.** Some flights hold: a launch that waits for the pad to come round
+  under the departure, or an arrival that waits before it starts down. The ghost you see
+  in the map view pauses for exactly that long. The clock the route used to decide when a
+  delivery had happened did not pause, so on a flight carrying a wait the two ran apart by
+  the length of it and a delivery could be credited to the wrong repeat of the run. Both
+  now read the same clock. No same-body route ever waits, so nothing changes for any route
+  that exists today; this is the inter-body case, fixed before it ships.
+
+- **A craft you undock from no longer records itself as having travelled hundreds of
+  kilometres while sitting still.** When two craft undock, the half you are not flying is
+  recorded in the background, and that recording opened with an empty stub covering the
+  instant of the undock. The stub switched off the safety net that keeps the recording's
+  simple point list in real map coordinates, so the stretch that follows - which stores
+  positions RELATIVE to the craft you kept flying, in metres - was written into that list
+  as if the metres were latitude and longitude. The recorded "furthest distance from
+  launch" then came out at about 735 km for a rover that never moved more than a metre
+  from where it undocked. Nothing you can see was wrong: the ghost, its map trail and its
+  playback all read the real trajectory. The damage was in the saved numbers, and because
+  that distance is what Parsek uses to decide a craft never went anywhere, an undocked
+  craft that genuinely idled could escape being tidied away. The empty stub is no longer
+  kept, the safety net now skips an empty stretch instead of giving up on the whole
+  recording, and the distance is measured from real map positions only - including the real
+  positions a craft keeps recording while it is still close to the craft it undocked from,
+  so a craft that never leaves that stretch is measured rather than treated as having gone
+  nowhere. Recordings already saved with the bad list repair their point list the next time
+  they are loaded; the wrong distance figure stored alongside it is not recalculated, so a
+  recording saved before this fix keeps the number it was saved with until it is recorded
+  again.
+
+- **A supply run that loaded its cargo before you came back to it can now become a
+  route.** Docking the tanker to the base, transferring the fuel, then flying something
+  else and returning to the tanker later - flying it from the tracking station, or
+  switching to it on the map - used to lose the route: coming back that way starts a
+  fresh recording, which opens with the tanker already docked and full, so it never sees
+  the fuel come aboard, and Parsek would not name the base as the supply origin on cargo
+  it had not watched arrive. (Simply quitting and picking the same flight up again was
+  never the broken case: that resumes the recording you were already making.) It now
+  reads the loading off the PREVIOUS recording of the same craft - the one that was
+  running when you did the transfer - and accepts it when that recording shows the fuel
+  going onto the tanker from the very craft you are now undocking from. What has not
+  changed is the thing that rule exists to prevent: simply undocking with cargo aboard
+  still proves nothing, so a full tanker that only delivered can never name the base it
+  delivered to as its supply origin. If the previous recording shows the cargo going the
+  other way, or was docked to a different craft, the run is refused exactly as before.
+
+- **Test coverage: the entry above is checked by a flight that runs unattended, and the
+  check has been shown to fail when the game gets it wrong.** A third in-game check joins
+  the two that already fly the start-docked supply origin: it makes a run that starts
+  docked and takes nothing on board while it records, hands it a previous recording
+  holding the loading, and requires the game to accept the pickup from there - and, as
+  the half that makes the rest mean anything, requires the same window with the loading
+  removed to be refused. The lane flew green twice, once to read it and once against the
+  finished wording; a deliberately altered copy, changed in one place to say the previous
+  recording was never consulted, failed on exactly that one point and nothing else. So a
+  future change that quietly stops consulting the earlier recording fails the run instead
+  of passing quietly. Nothing player-facing changes.
 
 - **Taking a dropped part's last piece into a kerbal's inventory no longer reads as a
   crash.** Pocket the last remaining part of a vessel during EVA construction and the

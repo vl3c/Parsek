@@ -2407,16 +2407,16 @@ namespace Parsek
         /// every recording in the active tree is idle-on-pad (max
         /// distance from launch &lt; pad-localized threshold) computed
         /// from live data via
-        /// <see cref="VesselSpawner.BackfillMaxDistanceAbsoluteOnly"/>.
-        /// Idle-on-pad recordings cannot have RELATIVE-frame TrackSections
-        /// (the recorder skips RELATIVE entry while the vessel is on
-        /// surface, see <c>FlightRecorder.cs:5099-5131</c>).
+        /// <see cref="VesselSpawner.BackfillMaxDistanceFromBodyFixedSurfaces(Recording)"/>,
+        /// which reads the body-fixed surface of an Absolute section
+        /// (<c>frames</c>) and of a Relative section (<c>bodyFixedFrames</c>)
+        /// and never a Relative section's anchor-local <c>frames</c>.
         ///
         /// <para>This method MUTATES: it calls
         /// <see cref="FlushRecorderIntoActiveTreeForSerialization"/> first
         /// so the live recorder's <c>Recording</c> + open
         /// <c>TrackSections</c> become populated on the tree recordings
-        /// (<see cref="VesselSpawner.BackfillMaxDistanceAbsoluteOnly"/>
+        /// (<see cref="VesselSpawner.BackfillMaxDistanceFromBodyFixedSurfaces(Recording)"/>
         /// reads <c>rec.TrackSections</c> only). Without this, atmospheric
         /// flights that haven't crossed an env boundary or saved yet have
         /// empty <c>TrackSections</c> and the helper would falsely report
@@ -2455,7 +2455,7 @@ namespace Parsek
             foreach (var rec in activeTree.Recordings.Values)
             {
                 if (rec == null) continue;
-                VesselSpawner.BackfillMaxDistanceAbsoluteOnly(rec);
+                VesselSpawner.BackfillMaxDistanceFromBodyFixedSurfaces(rec);
                 if (rec.Points != null && rec.Points.Count > 0)
                     anyHasPoints = true;
                 if (!IsIdleOnPad(rec))
@@ -5453,6 +5453,29 @@ namespace Parsek
             return new RouteEndpoint
             {
                 VesselPersistentId = vessel.persistentId,
+                // THE ENDPOINT'S LAUNCH-UNIQUE IDENTITY, STAMPED AT CAPTURE (2026-09-06,
+                // ROUTE-ENDPOINT-TRANSFER-DOCKED-DOMINANT-PARTNER). Without it a destination
+                // stop's resolution walk is pid -> proximity with the root-part step
+                // unreachable BY CONSTRUCTION - and a base with any visitor docked to it
+                // presents whichever half stock made dominant, so a DOMINANT VISITOR made the
+                // pid step miss, the proximity step land on the composite, and the transfer
+                // rebind the route to the visitor, which then flew away with it. With the
+                // root id the walk starts at identity and resolves back to the base whichever
+                // half dominates. Read HERE because this runs pre-couple, while the endpoint
+                // still has its own Vessel: after Part.Couple the merged craft's root is the
+                // DOMINANT half's, so a later read could name the wrong vessel.
+                RootPartUId = Logistics.RouteEndpointResolver.ResolveRootPartFlightId(vessel),
+                // AND ITS LAUNCH GUID, for symmetry with the origin path. The origin
+                // endpoint carries the guid its undock bind READ
+                // (RouteProofCapture's Stamped arm, RESOLVER-PID-STEP-NOT-GUID-GATED); a
+                // destination captured here has the live vessel in hand, so the same key is
+                // free and read at the same pre-couple instant as the root id. It only ever
+                // NARROWS the resolver's pid step - the gate refuses a match whose guid
+                // conclusively differs and falls through to proximity, and an unreadable
+                // guid stays null, which is the ungated behaviour every pre-key route has.
+                // Not hashed (RouteProofHasher excludes it deliberately), so stamping it
+                // moves no existing route to SourceChanged.
+                LaunchGuid = Logistics.RouteEndpointTransfer.TryReadLaunchGuid(vessel),
                 BodyName = vessel.mainBody != null ? vessel.mainBody.bodyName : null,
                 Latitude = vessel.latitude,
                 Longitude = vessel.longitude,
@@ -5493,9 +5516,16 @@ namespace Parsek
 
             VesselSpawner.TryGetSnapshotReferenceBodyName(snapshot, out string bodyName);
 
+            // Same stamp from the SNAPSHOT path: the background parent's own VESSEL node is
+            // a pre-couple record of the endpoint, so its `root` index names the launch-unique
+            // part flightID. An unreadable root leaves 0, which degrades this endpoint to the
+            // pid + proximity walk it always had rather than refusing it.
+            VesselSpawner.TryReadRootPartFlightId(snapshot, out uint snapshotRootPartUId);
+
             endpoint = new RouteEndpoint
             {
                 VesselPersistentId = pid,
+                RootPartUId = snapshotRootPartUId,
                 BodyName = bodyName,
                 Latitude = latitude,
                 Longitude = longitude,
@@ -5860,6 +5890,24 @@ namespace Parsek
                 ? activeVessel.id.ToString("N")
                 : null;
 
+            // THE PREVIOUS RECORDING OF THIS VESSEL
+            // (ROUTE-ORIGIN-PROOF-PICKUP-PREDATING-THE-RECORDING). This recording opened
+            // already docked, so it cannot have witnessed the load that put the cargo aboard
+            // - but the recording BEFORE it can, and its connection windows are persisted.
+            // The traversal is live because only here are the tree and its branch points in
+            // hand; the DECISION is the pure ClassifyPredecessorPickup, which sees only the
+            // window list. The walk is guid-gated and never leaves activeTree; see
+            // docs/dev/research/pickup-predating-the-recording.md.
+            Recording predecessorRec;
+            string predecessorReason;
+            bool havePredecessor = RouteProofCapture.TryResolveOriginProofPredecessor(
+                activeTree, parentRec, out predecessorRec, out predecessorReason);
+            ParsekLog.Verbose("Flight",
+                $"RouteOriginProof predecessor walk: recording={parentRecordingId ?? "<none>"} " +
+                $"resolved={(havePredecessor ? "1" : "0")} reason={predecessorReason} " +
+                $"predecessor={(havePredecessor ? predecessorRec.RecordingId : "<none>")} " +
+                $"predecessorWindows={(havePredecessor ? (predecessorRec.RouteConnectionWindows?.Count ?? 0) : 0)}");
+
             bool bound = RouteProofCapture.TryBindStartDockedOriginAtUndock(
                 proof,
                 activePids,
@@ -5875,7 +5923,10 @@ namespace Parsek
                 backgroundSideSnapshot: bgSnapshot,
                 recordingConnectionWindows: parentRec.RouteConnectionWindows,
                 activeSideLiveVesselPid: activeLivePid,
-                activeSideLiveVesselGuid: activeLiveGuid);
+                activeSideLiveVesselGuid: activeLiveGuid,
+                predecessorConnectionWindows: havePredecessor ? predecessorRec.RouteConnectionWindows : null,
+                recordingStartUT: parentRec.StartUT,
+                predecessorContext: havePredecessor ? predecessorRec.RecordingId : null);
 
             if (bound)
                 parentRec.MarkFilesDirty();
@@ -6581,6 +6632,53 @@ namespace Parsek
                         "route analysis will reject this candidate");
                 }
 
+                // THE ENDPOINT'S LAUNCH-UNIQUE IDENTITY, read while it is still readable.
+                // Preferred source is the PRE-COUPLE partner snapshot: after Part.Couple the
+                // endpoint's own Vessel is destroyed and every id left on the merged craft is
+                // craft-baked, so a root flightID taken later would be the TRANSPORT's. The
+                // background parent's snapshot is the same shape and serves as the fallback;
+                // an unreadable root leaves 0, which degrades the predecessor-window partner
+                // match to the part-pid overlap rather than refusing it.
+                uint endpointRootPartUId = 0u;
+                if (endpointPreCoupleSnapshot == null
+                    || !VesselSpawner.TryReadRootPartFlightId(endpointPreCoupleSnapshot, out endpointRootPartUId))
+                {
+                    if (bgParentRec?.VesselSnapshot == null
+                        || bgParentRec.VesselPersistentId != routeTargetVesselPid
+                        || !VesselSpawner.TryReadRootPartFlightId(bgParentRec.VesselSnapshot, out endpointRootPartUId))
+                    {
+                        endpointRootPartUId = 0u;
+                    }
+                }
+
+                // BACKFILL THE ENDPOINT DESCRIPTOR from the same reading, when the descriptor
+                // itself could not supply one. The window's endpoint IS what a delivery stop
+                // persists verbatim (RouteBuilder), and its root id is what keeps the stop
+                // resolving by identity while a visitor is docked to the destination
+                // (ROUTE-ENDPOINT-TRANSFER-DOCKED-DOMINANT-PARTNER). The two readings have the
+                // same source and the same pre-couple timing, so this cannot disagree with the
+                // descriptor - it only fills a gap the descriptor's own path left (a live
+                // vessel with no instantiated rootPart, or a snapshot with no readable root).
+                //
+                // THE POST-COUPLE FALLBACK ABOVE IS SAFE AND NOT THE REASON THIS EXISTS,
+                // re-derived rather than assumed: it calls FindVesselByPid on the ENDPOINT's
+                // pid AFTER the couple, so it resolves at all only when the endpoint half was
+                // DOMINANT and survived as the merged vessel - in which case the merged
+                // vessel's root part IS the endpoint's own. An absorbed endpoint's pid is gone
+                // from FlightGlobals and that path yields no endpoint at all.
+                if (endpointAtDock.HasValue
+                    && endpointAtDock.Value.RootPartUId == 0u
+                    && endpointRootPartUId != 0u)
+                {
+                    RouteEndpoint backfilled = endpointAtDock.Value;
+                    backfilled.RootPartUId = endpointRootPartUId;
+                    endpointAtDock = backfilled;
+                    ParsekLog.Verbose("Flight",
+                        "Route proof endpoint root backfilled from the pre-couple snapshot: "
+                        + "targetPid=" + routeTargetVesselPid.ToString(CultureInfo.InvariantCulture)
+                        + " rootPartUId=" + endpointRootPartUId.ToString(CultureInfo.InvariantCulture));
+                }
+
                 RouteConnectionWindow window = RouteProofCapture.BuildDockRouteConnectionWindow(
                     mergeUT,
                     routeTargetVesselPid,
@@ -6591,7 +6689,8 @@ namespace Parsek
                     endpointAtDock,
                     endpointSituation,
                     endpointPreCoupleSnapshot,
-                    transportPreCoupleSnapshot);
+                    transportPreCoupleSnapshot,
+                    endpointRootPartUId);
 
                 if (window != null)
                 {
@@ -6601,7 +6700,8 @@ namespace Parsek
                         $"window={window.WindowId} targetPid={routeTargetVesselPid} " +
                         $"kind={window.TransferKind} " +
                         $"transportParts={window.TransportPartPersistentIds?.Count ?? 0} " +
-                        $"endpointParts={window.EndpointPartPersistentIds?.Count ?? 0}");
+                        $"endpointParts={window.EndpointPartPersistentIds?.Count ?? 0} " +
+                        $"endpointRoot={window.EndpointRootPartUId.ToString(CultureInfo.InvariantCulture)}");
                 }
                 else
                 {

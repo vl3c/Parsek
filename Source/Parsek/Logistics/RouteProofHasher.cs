@@ -98,6 +98,14 @@ namespace Parsek.Logistics
                     sb.Append(prefix).Append("transferKind=").Append(((int)w.TransferKind).ToString(CultureInfo.InvariantCulture)).Append('\n');
                     AppendUintList(sb, prefix + "transportPartPids", w.TransportPartPersistentIds);
                     AppendUintList(sb, prefix + "endpointPartPids", w.EndpointPartPersistentIds);
+                    // `EndpointRootPartUId` IS DELIBERATELY NOT HASHED, and the omission is
+                    // not an oversight to be tidied up. It was added (2026-09-06) as the
+                    // launch-unique partner key the PREDECESSOR-window pickup evidence reads;
+                    // it names the same physical endpoint the pid and the part sets above
+                    // already name, and hashing it would re-key every route built before it
+                    // existed the first time its recording is saved with the field populated.
+                    // The hash answers "did the witnessed proof data change", and learning a
+                    // second name for the same vessel is not a change.
                     AppendResourceManifest(sb, prefix + "dockTransportRes", w.DockTransportResources);
                     AppendResourceManifest(sb, prefix + "undockTransportRes", w.UndockTransportResources);
                     AppendResourceManifest(sb, prefix + "dockEndpointRes", w.DockEndpointResources);
@@ -110,6 +118,16 @@ namespace Parsek.Logistics
                     if (w.EndpointAtDock.HasValue)
                     {
                         var ep = w.EndpointAtDock.Value;
+                        // `RootPartUId` AND `LaunchGuid` ARE DELIBERATELY NOT HASHED here, for
+                        // the same reason `EndpointRootPartUId` above is not: both are
+                        // launch-unique names for the SAME endpoint the pid already names, and
+                        // both are stamped by sites that learned them later than the window
+                        // was written. Hashing either would re-key every route built before
+                        // that site existed the first time its recording is saved with the
+                        // field populated, flipping it to SourceChanged in
+                        // RouteStore.RevalidateSources. The hash answers "did the witnessed
+                        // proof data change", and learning a second name for one vessel is not
+                        // a change. Pinned by RouteEndpointLaunchGuidTests.
                         sb.Append(prefix).Append("endpointAtDock.vesselPid=").Append(ep.VesselPersistentId.ToString(CultureInfo.InvariantCulture)).Append('\n');
                         sb.Append(prefix).Append("endpointAtDock.body=").Append(ep.BodyName ?? "").Append('\n');
                         sb.Append(prefix).Append("endpointAtDock.lat=").Append(ep.Latitude.ToString("R", CultureInfo.InvariantCulture)).Append('\n');
@@ -139,6 +157,12 @@ namespace Parsek.Logistics
                 // RouteStore.RevalidateSources. Pinned by
                 // RouteProofHashTests.Hash_UnchangedByOriginDescriptorFields.
                 sb.Append("origin.startDockedOriginVesselPid=").Append(op.StartDockedOriginVesselPid.ToString(CultureInfo.InvariantCulture)).Append('\n');
+                // `StartDockedOriginVesselGuid` IS DELIBERATELY NOT HASHED. It is the launch
+                // guid the bind already READ when it decided that pid - a corroboration of the
+                // line above, not a second fact - and it is written by a site younger than the
+                // proofs it appears on. Hashing it would flip every route bound before the key
+                // existed to SourceChanged the first time its recording is re-saved with the
+                // guid populated. Pinned by RouteEndpointLaunchGuidTests.
                 // The depot's ROOT PART UID is IDENTITY, not resolution metadata, so unlike
                 // the descriptor fields above it IS hashed: a run whose start-docked origin
                 // is a different physical vessel is a different route. It is also the ONLY
