@@ -99,7 +99,9 @@ Two DIFFERENT log surfaces, spelled differently on purpose:
 * the WALK's outcome is a Verbose `RouteOriginProof predecessor walk:` line, whose
   kebab-case `reason=` is one of `no-tree`, `no-predecessor`, `predecessor-not-same-launch`,
   `parent-recording`, `chain-predecessor`. This is the only place a refusal to RESOLVE is
-  named.
+  named. `parent-recording` covers BOTH of the first two edges - the branch point and
+  `ParentRecordingId` accept through the same helper - so it says "resolved one edge back",
+  never which edge; only the chain edge is spelled apart.
 * the RULE's outcome is the bind line's `predecessorPickup=`, a Pascal-case
   `PredecessorPickupOutcome` member: `NoWindows`, `NoPartnerMatch`, `PartnerRootMismatch`,
   `WindowAfterRecordingStart`, `TransportPartSetDrift`, `Unmeasurable`, `NoRise`,

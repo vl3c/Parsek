@@ -1728,9 +1728,24 @@ product finding and a different entry.
 
 The transfer rule validates a start-docked origin only on a `Gain` - the transport half's
 admitted cargo must RISE between recording start and the undock. The shape that fell
-outside it: dock at the depot, load, quicksave, reload, START THE RECORDING, undock. The
-inflow was real and was witnessed - just not by THIS recording, whose start baseline
+outside it: dock at the depot, load, LEAVE THE CRAFT, come back to it later and undock.
+The inflow was real and was witnessed - just not by THIS recording, whose start baseline
 already includes the cargo. It read `Carried` and was refused.
+
+**The premise, corrected while the fix was being built, because the original filing named
+the wrong re-entry.** A plain quit / reload does NOT produce this shape: the previous
+session's recording is RE-ADOPTED and appended to IN PLACE
+(`ParsekFlight.TryTakeCommittedTreeForSpawnedVesselRestore`,
+`ResumeCommittedActiveRecording`), so the window and the undock land on ONE recording and
+the ordinary in-recording window path already covers it. The start-docked family arises on
+the OTHER re-entry - the stock Fly / Switch-To route
+(`TryConsumeStockActionIntent` -> `SwitchSegmentBuilder.CreateSwitchContinuationSegment`),
+which builds a NEW recording in the SAME tree linked only by a
+`BranchPointType.VesselSwitchContinuation` branch point. That is why the walk's FIRST edge
+is the parent branch point. Read the census carefully here: the branch-point edge and the
+`ParentRecordingId` edge BOTH stamp `reason=parent-recording` (only the chain edge is
+spelled apart), so that token says "resolved one edge back", not which of the two; the
+live cell's predecessor is branch-point-linked by construction.
 
 **Fix (the walk as built).** At the undock bind, `ParsekFlight.TryBindStartDockedOriginOnUndock`
 resolves the PREVIOUS recording of the same launch through the pure
@@ -1776,10 +1791,22 @@ one that happens to carry a window.
 Headless: `PredecessorWindowPickupTests` (34 cells over the window rules, the walk - the
 guid gate covered on BOTH the branch-point edge and the chain edge - the whole binder,
 and the persisted partner identity including the sparse `endpointRootPartUId` key). Live:
-H57's third cell, `StartDockedOrigin_PredecessorWindowValidatesThePickup`, FLOWN GREEN
-2026-09-06 (`2026-09-06_1650`, `total=3 passed=3 failed=0 skipped=0`), whose bind read
+H57's third cell, `StartDockedOrigin_PredecessorWindowValidatesThePickup`, whose bind read
 `pickup=GainFromPredecessorWindow pickupValidated=1 ... predecessorUndockUT=NaN` - the
-OPEN-window shape, which is the operator's case. Memo:
+OPEN-window shape, which is the operator's case.
+
+**ARMED DISCIPLINE COMPLETE 2026-09-06, three runs in this order.** (1) THE READING RUN
+`2026-09-06_1650`: PASS attempt 1, `total=3 passed=3 failed=0 skipped=0`, which
+established the three-cell token set is satisfiable at all and is the census the pin was
+re-taken off. (2) THE ARMED RE-FLIGHT `2026-09-06_1727`: PASS attempt 1 in 80 s on bytes
+that did not author the pin - `expectations mismatches=[]`, the same tally,
+`recordings.count=5`, every verifier PASS, zero FAILURE SITE lines. (3) THE NEGATIVE
+CONTROL `2026-09-06_1729`, declared id `H57-NEGCTL-P15-predecessor-notconsulted`, that
+spec except the id and ONE required token (the new cell's bind flipped to
+`predecessorPickup=not-consulted`): PARSEK-FAIL(expectation) with EXACTLY ONE unmet token,
+that one, and ZERO forbidden hits, on a batch that itself passed `total=3 passed=3
+failed=0 skipped=0`. So the live evidence DISCRIMINATES: it reds on a product that binds
+without consulting the predecessor and greens only on one that consults it. Memo:
 `docs/dev/research/pickup-predating-the-recording.md`.
 
 ## ~~ROUTE-DELIVERY-PROXIMITY-RETARGETS-ANY-NEARBY-VESSEL: when the recorded destination no longer exists, the endpoint resolver's 500 m surface search accepts whatever craft is parked there - and the route delivered a full manifest into the player's own active-scene rover~~ [MEASURED 2026-09-03 by the RVR-18 census `2026-09-03_2011`. RULED 2026-09-04 and FIXED - the substitution is now a persisted, announced TRANSFER, with the route's own transport excluded]
