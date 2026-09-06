@@ -15,6 +15,31 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## L2-STOCK-CREWHATCH-TEARDOWN-NRE-UNDER-A-ZERO-GATE: one `CrewHatchController.OnDestroy` NullReferenceException at FlushAndQuit red the strict-armed L2 lane once and did not reproduce [MEASURED 2026-09-06 by the full in-game census: run `2026-09-06_1910` (logs `2026-09-06_2211_L2-ledger-groundtruth-career`) PARSEK-FAIL(unity-exception) `unityExceptions.total 1 > maxTotal 0 (NullReferenceException=1)`; the re-fly `2026-09-06_2009` on the re-provisioned build PASS attempt 1 with total=0. STOCK NOISE, not a Parsek defect; filed as a known flake shape, NOT re-run away - the second reading is a fresh flight on a re-provisioned DLL]
+
+The one exception, verbatim from `logs/2026-09-06_2211_L2-ledger-groundtruth-career/KSP.log:12006`:
+
+```
+NullReferenceException
+  UnityEngine.Component.GetComponent[T] ()
+  DialogCanvasUtil.get_DialogCanvasRect ()
+  CrewHatchController.get_CrewHatchTooltip ()
+  CrewHatchController.HideTooltip ()
+  CrewHatchController.DespawnUIs ()
+  CrewHatchController.OnDestroy ()
+```
+
+Every frame is stock KSP UI teardown during the scene destroy that FlushAndQuit
+triggers; no Parsek frame, no Parsek log line within 200 lines. It is the same
+class MC-1 already records for MechJeb2's `OnDestroy` (mod noise, left unarmed),
+but L2 arms `maxTotal = 0` (B.2, on four flights that all read 0 - now five of six).
+The `unityExceptions` block counts totals only; there is no per-signature allowlist,
+so the honest options are (a) leave the strict zero and accept that a stock teardown
+race can red the lane about one flight in six, or (b) raise L2 to `maxTotal = 1`
+and lose the zero. Neither is taken here: this entry exists so the next red with
+exactly this stack is recognised as the known shape rather than re-triaged, and so
+a second occurrence turns the rate into a measurement worth deciding on.
+
 ## ~~CARRY-FORWARD-SIDECAR-HALF-DROPS-THE-TREE-IT-EXISTS-TO-KEEP: the unserializable-tree carry-forward drops every live recording without a trajectory sidecar, so a tree whose ROOT has no `.prec` is deleted from the save at Error~~ [FOUND 2026-09-06 by the full in-game census (H5, S1.4, S1.6, S1.7 all PARSEK-FAIL on the forbidden `[Parsek][ERROR]` token; every daily lane booting the synthetic corpus had been red since 2026-08-29 and no one had flown one). PRODUCT DEFECT introduced by fix (B) of QUICKLOAD-OVER-COMMITTED-RESTORE-OVERLAP-DELETES-TREE-ON-SAVE (`done/todo-and-known-bugs-v8.md`). FIXED 2026-09-06 on branch `ingame-autoflight`]
 
 ### The mechanism, measured
